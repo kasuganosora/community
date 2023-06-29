@@ -4,6 +4,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"sort"
@@ -45,7 +46,7 @@ func GetInt(key string, defaultValue any) int {
 		return 0
 	}
 
-	return v.(int)
+	return utils.ToInt(v)
 }
 
 func GetInt64(key string, defaultValue any) int64 {
@@ -54,7 +55,7 @@ func GetInt64(key string, defaultValue any) int64 {
 		return 0
 	}
 
-	return v.(int64)
+	return utils.ToInt64(v)
 }
 
 func GetFloat64(key string, defaultValue any) float64 {
@@ -63,7 +64,7 @@ func GetFloat64(key string, defaultValue any) float64 {
 		return 0
 	}
 
-	return v.(float64)
+	return utils.ToFloat64(v)
 }
 
 func GetBool(key string, defaultValue any) bool {
@@ -72,16 +73,16 @@ func GetBool(key string, defaultValue any) bool {
 		return false
 	}
 
-	return v.(bool)
+	return utils.ToBool(v)
 }
 
-func GetString(key string, defaultValue any) string {
+func GetString(key string, defaultValue string) string {
 	v := Get(key, defaultValue)
 	if v == nil {
 		return ""
 	}
 
-	return v.(string)
+	return utils.ToString(v)
 }
 
 func GetStrings(key string, defaultValue any) []string {
@@ -90,7 +91,12 @@ func GetStrings(key string, defaultValue any) []string {
 		return nil
 	}
 
-	return v.([]string)
+	ret := make([]string, 0)
+	for _, item := range v.([]any) {
+		ret = append(ret, item.(string))
+	}
+
+	return ret
 }
 
 func GetMap(key string, defaultValue any) map[string]any {
@@ -108,7 +114,12 @@ func GetInts(key string, defaultValue any) []int {
 		return nil
 	}
 
-	return v.([]int)
+	ret := make([]int, 0)
+	for _, item := range v.([]any) {
+		ret = append(ret, item.(int))
+	}
+
+	return ret
 }
 
 func GetInt64s(key string, defaultValue any) []int64 {
@@ -117,7 +128,12 @@ func GetInt64s(key string, defaultValue any) []int64 {
 		return nil
 	}
 
-	return v.([]int64)
+	ret := make([]int64, 0)
+	for _, item := range v.([]any) {
+		ret = append(ret, item.(int64))
+	}
+
+	return ret
 }
 
 func Set(key string, val any) {

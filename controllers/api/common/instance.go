@@ -77,13 +77,13 @@ type ServerRuleResponseItem struct {
 
 func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
-	resp.Domain = systemsettings.GetString("domain", nil)
-	resp.Title = systemsettings.GetString("title", nil)
-	resp.Version = systemsettings.GetString("version", 1)
+	resp.Domain = systemsettings.GetString("domain", "")
+	resp.Title = systemsettings.GetString("title", "")
+	resp.Version = systemsettings.GetString("version", "1")
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
-	resp.Description = systemsettings.GetString("description", nil)
+	resp.Description = systemsettings.GetString("description", "")
 	resp.Usage.Users.ActiveMonth = 0
-	resp.Thumbnail.Url = systemsettings.GetString("thumbnail", nil)
+	resp.Thumbnail.Url = systemsettings.GetString("thumbnail", "")
 	resp.Languages = systemsettings.GetStrings("languages", []string{"zh-CN", "en-US"})
 	//resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
 	//resp.Configuration.Urls.Status = systemsettings.GetString("config.urls.status", nil)
@@ -104,7 +104,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Configuration.Translation.Enabled = systemsettings.GetBool("config.translation.enabled", nil)
 	resp.Registrations.Enabled = systemsettings.GetBool("registrations.enabled", true)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool("registrations.approval_required", false)
-	resp.Registrations.Message = systemsettings.GetString("registrations.message", nil)
+	resp.Registrations.Message = systemsettings.GetString("registrations.message", "")
 	resp.Contact.Email = systemsettings.GetString("contact.email", "admin@admin.com")
 
 	c.JSON(200, resp)
