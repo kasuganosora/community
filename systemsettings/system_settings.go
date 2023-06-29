@@ -1,6 +1,7 @@
 package systemsettings
 
 import (
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
@@ -33,6 +34,12 @@ func Load() {
 func Get(key string, defaultValue any) any {
 	Load()
 
+	// 优先取.env中的配置
+	if v, ok := config.C.Other[key]; ok {
+		return v
+	}
+
+	// 没有则在数据库中取
 	if v, ok := settings[key]; ok {
 		return v
 	}

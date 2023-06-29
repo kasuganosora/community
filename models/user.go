@@ -3,11 +3,9 @@ package models
 import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
-	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"os"
 	"reflect"
 )
 
@@ -15,10 +13,8 @@ type User struct {
 	ID        int64  `json:"id" gorm:"primary_key;autoIncrement""`
 	UUID      string `json:"uuid" gorm:"unique;not null;type:varchar(36)"`     // UUID
 	UserName  string `json:"username" gorm:"unique;not null;type:varchar(20)"` // 用户名
-	NickName  string `json:"nickname" gorm:"type:varchar(20);not null"`        // 昵称
 	IsBan     bool   `json:"is_ban" gorm:"default:false"`                      // 是否被封禁
 	IsAdmin   bool   `json:"is_admin" gorm:"default:false"`                    // 是否是管理员
-	Avatar    string `json:"avatar" gorm:"type:varchar(255)"`                  // 头像
 	CreatedAt int64  `gorm:"autoCreateTime"`                                   // 创建时间
 	UpdatedAt int64  `gorm:"autoUpdateTime"`                                   // 更新时间
 	gorm.DeletedAt
@@ -32,30 +28,6 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	if u.UUID == "" {
 		u.UUID = uuid.New().String()
 	}
-
-	return
-}
-
-func (u *User) SaveAvatar(avatarFilePath string) (err error) {
-	if !utils.CheckIsImage(avatarFilePath) {
-		err = errors.New("avatar file is not image")
-		return
-	}
-
-	avatarData, err := os.ReadFile(avatarFilePath)
-	if err != nil {
-		err = errors.Wrap(err, "read avatar file error")
-		return
-	}
-	// 保存头像
-	avatarSavePath, err := storage.Save(avatarFilePath, avatarData)
-
-	if err != nil {
-		err = errors.Wrap(err, "save avatar file error")
-		return
-	}
-
-	u.Avatar = avatarSavePath
 
 	return
 }

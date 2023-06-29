@@ -2,6 +2,7 @@ package common
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -63,8 +64,8 @@ type InstanceResponse struct {
 	} `json:"registrations"`
 
 	Contact struct {
-		Email string `json:"email"`
-		// TODO Account
+		Email   string `json:"email"`
+		Account *models.AccountFull
 	}
 
 	Rules []ServerRuleResponseItem `json:"rules"`

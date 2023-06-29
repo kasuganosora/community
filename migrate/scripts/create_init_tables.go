@@ -13,7 +13,13 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.User{},
 		&models.SystemSetting{},
 		&models.UserSecretData{},
-		&models.UserSetting{})
+		&models.UserSetting{},
+		&models.Emoji{},
+		&models.Account{},
+		&models.AccountExtra{},
+		&models.Role{},
+		&models.Rule{},
+	)
 }
 
 func (CreateInitTables) Down(db *gorm.DB) (err error) {
@@ -21,5 +27,10 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.User{},
 		&models.SystemSetting{},
 		&models.UserSecretData{},
-		&models.UserSetting{})
+		&models.UserSetting{},
+		&models.Emoji{},
+		&models.Account{},
+		&models.AccountExtra{},
+		&models.Rule{},
+	)
 }
