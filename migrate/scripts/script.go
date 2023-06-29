@@ -8,6 +8,7 @@ import (
 var ScripsType = []MigrationScript{
 	CreateInitTables{},
 	InitSystemConfigOptions{},
+	AddRoles{},
 }
 
 type MigrationScript interface {

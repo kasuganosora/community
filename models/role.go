@@ -38,3 +38,8 @@ func (Role) TableName() string {
 func (r *Role) HasPermission(permission int64) bool {
 	return r.Permissions&permission == permission
 }
+
+func (r *Role) SetPermission(permission int64) *Role {
+	r.Permissions |= permission
+	return r
+}
