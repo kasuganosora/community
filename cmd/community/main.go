@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community"
 	"github.com/kasuganosora/community/config"
@@ -10,9 +11,20 @@ import (
 )
 
 func main() {
+	flag.Parse()
+	var err error
 
-	// 执行迁移文明
-	log.FatalIf(migrate.Up(db.GetDB()))
+	// 如果有 --rollback 参数，则回滚
+	if flag.Arg(0) == "--rollback" {
+		err = migrate.Down(db.GetDB())
+		log.FatalIf(err)
+		return
+	}
+
+	// 迁移数据库
+	err = migrate.Up(db.GetDB())
+	log.FatalIf(err)
+
 	app := gin.Default()
 
 	// Set router

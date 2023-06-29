@@ -83,6 +83,64 @@ func Up(db *gorm.DB) (err error) {
 	return
 }
 
+// Down 回滚
+// 1 次回滚操作，回滚 1 个批次的迁移
+func Down(db *gorm.DB) (err error) {
+	lastBatch, err := getLastBatchNum(db)
+	if err != nil {
+		log.Fatal("Failed to get last batch number: %v", err)
+		return
+	}
+
+	if lastBatch == 0 {
+		log.Info("No migrations to rollback")
+		return
+	}
+
+	// 获得最后一个批次的迁移记录
+	var migRecords []*Migration
+	err = db.Where("batch = ?", lastBatch).Find(&migRecords).Error
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to get migration records of batch %d", lastBatch)
+		return
+	}
+
+	// 进行回滚
+	for _, migRecord := range migRecords {
+		scriptType, ok := scripts.GetScripts()[migRecord.Name]
+		if !ok {
+			// 找不到对应会滚结果,删除迁移记录, 并且跳过
+			log.Warn("Failed to find rollback script for migration %s", migRecord.Name)
+			err = db.Delete(migRecord).Error
+			if err != nil {
+				err = errors.Wrapf(err, "Failed to delete migration record %s", migRecord.Name)
+				return
+			}
+
+			continue
+		}
+
+		log.Info("Rollback migration script %s", migRecord.Name)
+
+		err = scriptType.Down(db)
+		if err != nil {
+			err = errors.Wrapf(err, "Failed to rollback migration script %s", migRecord.Name)
+			return
+		}
+
+		// 成功回滚则删除迁移记录
+		err = db.Delete(migRecord).Error
+		if err != nil {
+			err = errors.Wrapf(err, "Failed to delete migration record %s", migRecord.Name)
+			return
+		}
+
+		log.Info("Rollback migration script %s done!", migRecord.Name)
+	}
+
+	return
+}
+
 func getLastBatchNum(db *gorm.DB) (lastBatch int, err error) {
 	var m Migration
 	err = db.Order("batch desc").First(&m).Error
