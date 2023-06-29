@@ -9,9 +9,19 @@ import (
 )
 
 type Config struct {
-	DSN    string `env:"DSN"`
-	Listen string `env:"LISTEN" default:":8080"`
-	Host   string `env:"HOST" default:"localhost"`
+	Listen       string `env:"LISTEN" default:":8080"`
+	Host         string `env:"HOST" default:"localhost"`
+	StorageType  string `env:"STORAGE_TYPE" default:"local"`
+	EncryptedKey string `env:"ENCRYPTED_KEY"` // 加密密钥, 如果空则不加密
+	DbConnection string `env:"DB_CONNECTION" default:"mysql"`
+	DbHost       string `env:"DB_HOST" default:"localhost"`
+	DbPort       string `env:"DB_PORT" default:"3306"`
+	DbDatabase   string `env:"DB_DATABASE" default:"community"`
+	DbUsername   string `env:"DB_USERNAME" default:"root"`
+	DbPassword   string `env:"DB_PASSWORD" default:""`
+
+	// 其他配置
+	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
 }
 
 var C Config
@@ -79,6 +89,8 @@ func loadMapToConfig(data map[string]string) {
 	sType := reflect.TypeOf(C)
 	sValue := reflect.ValueOf(&C).Elem()
 
+	standardConfigsKeyMap := make(map[string]bool)
+
 	for i := 0; i < sType.NumField(); i++ {
 		field := sType.Field(i)
 		value := sValue.Field(i)
@@ -90,6 +102,7 @@ func loadMapToConfig(data map[string]string) {
 		}
 
 		envName = strings.ToUpper(envName)
+		standardConfigsKeyMap[envName] = true
 
 		if envValue, envExists := data[envName]; envExists {
 			value.SetString(envValue)
@@ -99,6 +112,15 @@ func loadMapToConfig(data map[string]string) {
 				value.SetString(defaultValue)
 			}
 		}
+	}
+
+	// 把不在 standardConfigsKeyMap 中的配置项放到 Other 中
+	for key, value := range data {
+		if _, ok := standardConfigsKeyMap[key]; ok {
+			continue
+		}
+
+		C.Other[key] = value
 	}
 
 	return

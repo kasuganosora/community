@@ -75,3 +75,12 @@ func GetFullPath(path string) string {
 
 	return sourceDir + path
 }
+
+func CheckIsImage(path string) bool {
+	path = strings.ToLower(path)
+	if strings.HasSuffix(path, ".jpg") || strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".png") {
+		return true
+	}
+
+	return false
+}

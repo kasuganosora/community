@@ -49,6 +49,16 @@ func Fatal(msg string, args ...any) {
 	os.Exit(1)
 }
 
+// FatalIf 致命错误日志, 如果错误不为空
+func FatalIf(err error) {
+	if err == nil {
+		return
+	}
+
+	msg := fmt.Sprintf("%+v", err)
+	Fatal(msg)
+}
+
 // Panic 恐慌日志
 func Panic(msg string, args ...any) {
 	WriteLog(logrus.PanicLevel, msg, args...)
