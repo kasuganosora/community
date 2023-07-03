@@ -12,6 +12,38 @@ import (
 	"strings"
 )
 
+const (
+	KeyDomain                       = "domain"                                          // 网站域名
+	KeyTitle                        = "title"                                           // 网站标题
+	KeyDescription                  = "description"                                     // 网站描述
+	KeyThumbnail                    = "thumbnail"                                       // 网站缩略图
+	KeyLanguages                    = "languages"                                       // 网站语言
+	KeyAccountMaxFeaturedTags       = "config.accounts.max_featured_tags"               // 每个账号最多可设置的标签数量
+	KeyStatusMaxCharacters          = "config.statuses.max_characters"                  // 每条推文最多可输入的字符数 0为不限制
+	KeyStatusMaxMedia               = "config.statuses.max_media_attachments"           // 每条推文最多可上传的附件数量 0为不限制
+	KeyStatusCharactersPerURL       = "config.statuses.characters_reserved_per_url"     // 每条推文中每个URL占用的字符数
+	KeyMediaMimeTypes               = "config.media_attachments.supported_mime_types"   // 支持的附件类型
+	KeyMediaImageSizeLimit          = "config.media_attachments.image_size_limit"       // 图片附件大小限制
+	KeyMediaImageMatrixLimit        = "config.media_attachments.image_matrix_limit"     // 图片附件矩阵限制
+	KeyMediaVideoSizeLimit          = "config.media_attachments.video_size_limit"       // 视频附件大小限制
+	KeyMediaVideoFrameRate          = "config.media_attachments.video_frame_rate_limit" // 视频附件帧率限制
+	KeyMediaVideoMatrixLimit        = "config.media_attachments.video_matrix_limit"     // 视频附件矩阵限制
+	KeyPollMaxOptions               = "config.polls.max_options"                        // 投票最多选项
+	KeyPollMaxCharactersPerOption   = "config.polls.max_characters_per_option"          // 每个投票选项最多可输入的字符数
+	KeyPollMinExpiration            = "config.polls.min_expiration"                     // 投票最短有效期
+	KeyPollMaxExpiration            = "config.polls.max_expiration"                     // 投票最长有效期
+	KeyIsEnableTranslation          = "config.translations.enabled"                     // 是否启用翻译
+	KeyIsEnableRegistration         = "config.registration.enabled"                     // 是否启用注册
+	KeyRegistrationApprovalRequired = "config.registration.approval_required"           // 是否需要管理员审核
+	KeyRegistrationInviteRequired   = "config.registration.invite_required"             // 是否需要邀请码
+	KeyRegistrationMessage          = "config.registration.message"                     // 注册页面的提示信息
+	KeySiteContactEmail             = "contact.email"                                   // 网站联系邮箱
+	KeyRecaptchaSiteKey             = "config.recaptcha.site_key"                       // recaptcha site key
+	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key
+	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha
+	KeyRegistrationCheckEmail       = "config.registration.check_email"                 // 是否检查邮箱
+)
+
 var settings = map[string]any{}
 var loaded = false
 

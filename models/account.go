@@ -1,6 +1,9 @@
 package models
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
@@ -24,6 +27,7 @@ type Account struct {
 	Group        bool   `json:"group" gorm:"default:false"`
 	NoIndex      bool   `json:"noindex" gorm:"default:false"`
 	Note         string `json:"note" gorm:"type:varchar(1024)"`
+	Website      string `json:"website" gorm:"type:varchar(1024)"`
 	CreatedAt    int64  `gorm:"autoCreateTime"`
 	UpdatedAt    int64  `gorm:"autoUpdateTime"`
 	DeletedAt    gorm.DeletedAt
@@ -89,4 +93,12 @@ type AccountRole struct {
 
 func (AccountRole) TableName() string {
 	return "accounts_roles"
+}
+
+func GetEmailHash(email string) string {
+	raw := config.C.EncryptedKey + ":" + email
+
+	b := md5.Sum([]byte(raw))
+
+	return hex.EncodeToString(b[:])
 }

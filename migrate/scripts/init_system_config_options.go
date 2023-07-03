@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 )
 
@@ -11,15 +12,15 @@ type InitSystemConfigOptions struct {
 func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 	// 创建系统配置项内容
 	records := make(map[string]any)
-	records["domain"] = "example.com"
-	records["title"] = "Community"
-	records["description"] = "Community"
-	records["languages"] = []string{"zh-CN", "en-US"}
-	records["config.accounts.max_featured_tags"] = 10
-	records["config.statuses.max_characters"] = 500
-	records["config.statuses.max_media_attachments"] = 4
-	records["config.statuses.characters_reserved_per_url"] = 23
-	records["config.media_attachments.supported_mime_types"] = []string{
+	records[systemsettings.KeyDomain] = "example.com"
+	records[systemsettings.KeyTitle] = "Community"
+	records[systemsettings.KeyDescription] = "Community"
+	records[systemsettings.KeyLanguages] = []string{"zh-CN", "en-US"}
+	records[systemsettings.KeyAccountMaxFeaturedTags] = 10
+	records[systemsettings.KeyStatusMaxCharacters] = 500
+	records[systemsettings.KeyStatusMaxMedia] = 4
+	records[systemsettings.KeyStatusCharactersPerURL] = 23
+	records[systemsettings.KeyMediaMimeTypes] = []string{
 		"image/jpeg",
 		"image/png",
 		"image/gif",
@@ -50,20 +51,25 @@ func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 		"video/x-ms-asf",
 	}
 
-	records["config.media_attachments.image_size_limit"] = 41943040
-	records["config.media_attachments.image_matrix_limit"] = 16777216
-	records["config.media_attachments.video_size_limit"] = 536870912
-	records["config.media_attachments.video_frame_rate_limit"] = 120
-	records["config.media_attachments.video_matrix_limit"] = 8294400
-	records["config.polls.max_options"] = 4
-	records["config.polls.max_characters_per_option"] = 50
-	records["config.polls.min_expiration"] = 300
-	records["config.polls.max_expiration"] = 2629746
-	records["config.translation.enabled"] = false
-	records["config.registration.enabled"] = true
-	records["config.registration.approval_required"] = false
-	records["registrations.message"] = ""
-	records["contact.email"] = ""
+	records[systemsettings.KeyMediaImageSizeLimit] = 41943040
+	records[systemsettings.KeyMediaImageMatrixLimit] = 16777216
+	records[systemsettings.KeyMediaVideoSizeLimit] = 536870912
+	records[systemsettings.KeyMediaVideoFrameRate] = 120
+	records[systemsettings.KeyMediaVideoMatrixLimit] = 8294400
+	records[systemsettings.KeyPollMaxOptions] = 4
+	records[systemsettings.KeyPollMaxCharactersPerOption] = 50
+	records[systemsettings.KeyPollMinExpiration] = 300
+	records[systemsettings.KeyPollMaxExpiration] = 2629746
+	records[systemsettings.KeyIsEnableTranslation] = false
+	records[systemsettings.KeyIsEnableRegistration] = true
+	records[systemsettings.KeyRegistrationApprovalRequired] = false
+	records[systemsettings.KeyRegistrationMessage] = ""
+	records[systemsettings.KeySiteContactEmail] = ""
+	records[systemsettings.KeyRegistrationInviteRequired] = false
+	records[systemsettings.KeyRecaptchaSiteKey] = ""
+	records[systemsettings.KeyRecaptchaSecretKey] = ""
+	records[systemsettings.KeyRecaptchaEnabled] = false
+	records[systemsettings.KeyRegistrationCheckEmail] = false
 
 	// 创建系统配置项
 	err = db.Transaction(func(tx *gorm.DB) (err error) {

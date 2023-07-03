@@ -60,6 +60,7 @@ type InstanceResponse struct {
 	Registrations struct {
 		Enabled          bool   `json:"enabled"`
 		ApprovalRequired bool   `json:"approval_required"`
+		InviteRequired   bool   `json:"invite_required"`
 		Message          string `json:"message"`
 	} `json:"registrations"`
 
@@ -78,35 +79,36 @@ type ServerRuleResponseItem struct {
 
 func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
-	resp.Domain = systemsettings.GetString("domain", "")
-	resp.Title = systemsettings.GetString("title", "")
-	resp.Version = systemsettings.GetString("version", "1")
+	resp.Domain = systemsettings.GetString(systemsettings.KeyDomain, "")
+	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
+	resp.Version = "0.0.1" // TODO
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
-	resp.Description = systemsettings.GetString("description", "")
-	resp.Usage.Users.ActiveMonth = 0
-	resp.Thumbnail.Url = systemsettings.GetString("thumbnail", "")
-	resp.Languages = systemsettings.GetStrings("languages", []string{"zh-CN", "en-US"})
+	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
+	resp.Usage.Users.ActiveMonth = 0 // TODO
+	resp.Thumbnail.Url = systemsettings.GetString(systemsettings.KeyThumbnail, "")
+	resp.Languages = systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"})
 	//resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
 	//resp.Configuration.Urls.Status = systemsettings.GetString("config.urls.status", nil)
-	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt("config.accounts.max_featured_tags", nil)
-	resp.Configuration.Statuses.MaxCharacters = systemsettings.GetInt("config.statuses.max_characters", nil)
-	resp.Configuration.Statuses.MaxMediaAttachments = systemsettings.GetInt("config.statuses.max_media_attachments", nil)
-	resp.Configuration.Statuses.CharactersReservedPerUrl = systemsettings.GetInt("config.statuses.characters_reserved_per_url", nil)
-	resp.Configuration.MediaAttachments.SupportedMimeTypes = systemsettings.GetStrings("config.media_attachments.supported_mime_types", nil)
-	resp.Configuration.MediaAttachments.ImageSizeLimit = systemsettings.GetInt("config.media_attachments.image_size_limit", nil)
-	resp.Configuration.MediaAttachments.ImageMatrixLimit = systemsettings.GetInt("config.media_attachments.image_matrix_limit", nil)
-	resp.Configuration.MediaAttachments.VideoSizeLimit = systemsettings.GetInt("config.media_attachments.video_size_limit", nil)
-	resp.Configuration.MediaAttachments.VideoFrameRateLimit = systemsettings.GetInt("config.media_attachments.video_frame_rate_limit", nil)
-	resp.Configuration.MediaAttachments.VideoMatrixLimit = systemsettings.GetInt("config.media_attachments.video_matrix_limit", nil)
-	resp.Configuration.Polls.MaxOptions = systemsettings.GetInt("config.polls.max_options", nil)
-	resp.Configuration.Polls.MaxCharactersPerOption = systemsettings.GetInt("config.polls.max_characters_per_option", nil)
-	resp.Configuration.Polls.MinExpiration = systemsettings.GetInt("config.polls.min_expiration", nil)
-	resp.Configuration.Polls.MaxExpiration = systemsettings.GetInt("config.polls.max_expiration", nil)
-	resp.Configuration.Translation.Enabled = systemsettings.GetBool("config.translation.enabled", nil)
-	resp.Registrations.Enabled = systemsettings.GetBool("registrations.enabled", true)
-	resp.Registrations.ApprovalRequired = systemsettings.GetBool("registrations.approval_required", false)
-	resp.Registrations.Message = systemsettings.GetString("registrations.message", "")
-	resp.Contact.Email = systemsettings.GetString("contact.email", "admin@admin.com")
+	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
+	resp.Configuration.Statuses.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
+	resp.Configuration.Statuses.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
+	resp.Configuration.Statuses.CharactersReservedPerUrl = systemsettings.GetInt(systemsettings.KeyStatusCharactersPerURL, nil)
+	resp.Configuration.MediaAttachments.SupportedMimeTypes = systemsettings.GetStrings(systemsettings.KeyMediaMimeTypes, nil)
+	resp.Configuration.MediaAttachments.ImageSizeLimit = systemsettings.GetInt(systemsettings.KeyMediaImageSizeLimit, nil)
+	resp.Configuration.MediaAttachments.ImageMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, nil)
+	resp.Configuration.MediaAttachments.VideoSizeLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoSizeLimit, nil)
+	resp.Configuration.MediaAttachments.VideoFrameRateLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoFrameRate, nil)
+	resp.Configuration.MediaAttachments.VideoMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoMatrixLimit, nil)
+	resp.Configuration.Polls.MaxOptions = systemsettings.GetInt(systemsettings.KeyPollMaxOptions, nil)
+	resp.Configuration.Polls.MaxCharactersPerOption = systemsettings.GetInt(systemsettings.KeyPollMaxCharactersPerOption, nil)
+	resp.Configuration.Polls.MinExpiration = systemsettings.GetInt(systemsettings.KeyPollMinExpiration, nil)
+	resp.Configuration.Polls.MaxExpiration = systemsettings.GetInt(systemsettings.KeyPollMaxExpiration, nil)
+	resp.Configuration.Translation.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, nil)
+	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, true)
+	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
+	resp.Registrations.InviteRequired = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)
+	resp.Registrations.Message = systemsettings.GetString(systemsettings.KeyRegistrationMessage, "")
+	resp.Contact.Email = systemsettings.GetString(systemsettings.KeySiteContactEmail, "admin@admin.com")
 
 	c.JSON(200, resp)
 }

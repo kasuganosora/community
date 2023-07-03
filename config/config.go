@@ -19,6 +19,7 @@ type Config struct {
 	DbDatabase   string `env:"DB_DATABASE" default:"community"`
 	DbUsername   string `env:"DB_USERNAME" default:"root"`
 	DbPassword   string `env:"DB_PASSWORD" default:""`
+	HttpProxy    string `env:"HTTP_PROXY"`
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
