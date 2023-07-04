@@ -19,6 +19,8 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.AccountExtra{},
 		&models.Role{},
 		&models.Rule{},
+		&models.InviteCode{},
+		&models.Follow{},
 	)
 }
 
@@ -32,5 +34,7 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.Account{},
 		&models.AccountExtra{},
 		&models.Rule{},
+		&models.InviteCode{},
+		&models.Follow{},
 	)
 }

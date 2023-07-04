@@ -5,10 +5,6 @@ import (
 	"time"
 )
 
-const (
-	InviteCodeAfterRegisterActionFollowMe = "follow_me"
-)
-
 type InviteCode struct {
 	Id                       int64          `json:"id" gorm:"primary_key;type:bigint(20);"`
 	Code                     string         `json:"code" gorm:"not null;type:varchar(64);uniqueIndex"`

@@ -3,6 +3,8 @@ package account
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/invitecode"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/recaptcha"
 	"github.com/kasuganosora/community/systemsettings"
@@ -13,7 +15,7 @@ import (
 
 type RegisterRequest struct {
 	DisplayName       string `form:"user[account_attributes][display_name]" binding:"required"`
-	Username          string `form:"user[account_attributes][username]" binding:"required"`
+	UserName          string `form:"user[account_attributes][username]" binding:"required"`
 	Email             string `form:"user[email]" binding:"required"`
 	Password          string `form:"user[password]" binding:"required"`
 	PasswordConfirm   string `form:"user[password_confirmation]" binding:"required"`
@@ -43,7 +45,7 @@ func Register(c *gin.Context) {
 	}
 
 	// 检查当前用户名和邮箱有没被注册
-	existsFieldName, err := checkExists(req.Username, req.Email)
+	existsFieldName, err := checkExists(req.UserName, req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -58,7 +60,7 @@ func Register(c *gin.Context) {
 	}
 
 	// 邀请码
-	inviteCode, err := checkAndGetInviteCode(req.InviteCode)
+	invCode, err := checkAndGetInviteCode(req.InviteCode)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
@@ -75,11 +77,79 @@ func Register(c *gin.Context) {
 	}
 
 	// 创建用户和账号
-	// TODO...
-	// 创建完后如果有用到邀请码,则将邀请码设置为已使用,并且把当前用户的邀请人设置为邀请码的拥有者,
-	// 如果邀请码设置了使用回调,则调用邀请码的回调函数
-	// TODO...
+	user, account, err := createUserAndAccount(c, req, invCode)
+	if err != nil {
+		log.ErrorV(err)
+		return
+	}
 
+	// 创建完后如果有用到邀请码,则将邀请码设置为已使用,并且把当前用户的邀请人设置为邀请码的拥有者,
+	// 如果邀请码设置了使用回调,则调用邀请码的回调函数(如果要验证邮箱,则在邮箱验证通过后调用回调函数)
+	if invCode != nil {
+		invitecode.ExecAfterRegisterAction(db.GetDB(), invCode, user, account)
+	}
+
+	// 发送验证邮件/欢迎邮件
+
+	// 返回当前用户信息
+
+}
+
+func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.InviteCode) (
+	user *models.User, account *models.Account, err error) {
+	// 创建用户
+	user = &models.User{
+		UserName:  req.UserName,
+		EmailHash: models.GetEmailHash(req.Email),
+	}
+
+	if systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, true) {
+		user.Status = models.UserStatusUnapproved
+	} else if systemsettings.GetBool(systemsettings.KeyRegistrationCheckEmail, false) {
+		user.Status = models.UserStatusUnverifiedMail
+	} else {
+		user.Status = models.UserStatusNormal
+	}
+
+	if code != nil {
+		user.InviteBy = code.UserId
+	}
+
+	userSecret := &models.UserSecretData{}
+	userSecret.Email = req.Email
+	userSecret.Password = req.Password
+
+	account = &models.Account{
+		DisplayName: req.DisplayName,
+		Website:     req.Website,
+		Username:    req.UserName,
+	}
+
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+
+		userSecret.UserId = user.Id
+		if err := tx.Create(userSecret).Error; err != nil {
+			return err
+		}
+
+		account.UserId = user.Id
+		if err := tx.Create(account).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "create user error"})
+		err = errors.WithMessage(err, "create user error")
+		log.ErrorV(err)
+	}
+
+	return
 }
 
 func checkRecaptcha(c *gin.Context, response string) (err error) {

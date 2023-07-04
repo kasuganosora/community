@@ -12,10 +12,11 @@ import (
 )
 
 type Account struct {
-	Id           string `json:"id" gorm:"primary_key;type:varchar(64);"`
+	Id           string `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
 	UserId       int64  `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
 	Username     string `json:"username" gorm:"not null;type:varchar(64)"`
-	Acct         string `json:"acct" gorm:"not null;type:varchar(128)"`
+	Domain       string `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
+	OriginId     string `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
 	DisplayName  string `json:"display_name" gorm:"not null;type:varchar(128)"`
 	Avatar       string `json:"avatar" gorm:"type:varchar(1024)"`
 	AvatarStatic string `json:"avatar_static" gorm:"type:varchar(1024)"`
@@ -30,6 +31,7 @@ type Account struct {
 	Website      string `json:"website" gorm:"type:varchar(1024)"`
 	CreatedAt    int64  `gorm:"autoCreateTime"`
 	UpdatedAt    int64  `gorm:"autoUpdateTime"`
+	IsBan        bool   `json:"is_ban" gorm:"default:false"`
 	DeletedAt    gorm.DeletedAt
 	Roles        []*Role `json:"roles,omitempty" gorm:"many2many:account_roles;"`
 }

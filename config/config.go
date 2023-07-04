@@ -9,17 +9,26 @@ import (
 )
 
 type Config struct {
-	Listen       string `env:"LISTEN" default:":8080"`
-	Host         string `env:"HOST" default:"localhost"`
-	StorageType  string `env:"STORAGE_TYPE" default:"local"`
-	EncryptedKey string `env:"ENCRYPTED_KEY"` // 加密密钥, 如果空则不加密
-	DbConnection string `env:"DB_CONNECTION" default:"mysql"`
-	DbHost       string `env:"DB_HOST" default:"localhost"`
-	DbPort       string `env:"DB_PORT" default:"3306"`
-	DbDatabase   string `env:"DB_DATABASE" default:"community"`
-	DbUsername   string `env:"DB_USERNAME" default:"root"`
-	DbPassword   string `env:"DB_PASSWORD" default:""`
-	HttpProxy    string `env:"HTTP_PROXY"`
+	Listen         string `env:"LISTEN" default:":8080"`
+	Host           string `env:"HOST" default:"localhost"`
+	StorageType    string `env:"STORAGE_TYPE" default:"local"`
+	EncryptedKey   string `env:"ENCRYPTED_KEY"` // 加密密钥, 如果空则不加密
+	DbConnection   string `env:"DB_CONNECTION" default:"mysql"`
+	DbHost         string `env:"DB_HOST" default:"localhost"`
+	DbPort         string `env:"DB_PORT" default:"3306"`
+	DbDatabase     string `env:"DB_DATABASE" default:"community"`
+	DbUsername     string `env:"DB_USERNAME" default:"root"`
+	DbPassword     string `env:"DB_PASSWORD" default:""`
+	HttpProxy      string `env:"HTTP_PROXY"`
+	SmtpServer     string `env:"SMTP_SERVER"`
+	SmtpPort       string `env:"SMTP_PORT"`
+	SmtpUsername   string `env:"SMTP_USERNAME"`
+	SmtpPassword   string `env:"SMTP_PASSWORD"`
+	SmtpFrom       string `env:"SMTP_FROM"`
+	SmtpAuthMethod string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
+	SmtpTimeout    string `env:"SMTP_TIMEOUT" default:"10"`
+	EmailMode      string `env:"EMAIL_MODE" default:"smtp"`
+	DevMode        string `env:"DEV_MODE" default:"false"` // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
