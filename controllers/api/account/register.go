@@ -14,6 +14,8 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type RegisterRequest struct {
@@ -123,10 +125,12 @@ func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (e
 
 	mailData := map[string]any{
 		"UserName": user.UserName,
+		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	}
 
 	subject := i18nz.GetLocalizer("", acceptLanguage).T("welcome_mail_subject", map[string]any{
 		"UserName": user.UserName,
+		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	})
 
 	err = email.SendHtmlTemplate(req.Email, "", "", subject, "", mailTemplate, mailData)
@@ -138,8 +142,12 @@ func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (e
 }
 
 func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
-	verifyCode := utils.GetRandomString(32)
-	user.Properties["verify_code"] = verifyCode
+	verifyCode := utils.GetRandomString(32) +
+		strconv.FormatInt(time.Now().Unix(), 10) +
+		strconv.FormatInt(user.Id, 10) +
+		utils.GetRandomString(8)
+
+	user.MailVerifyCode = &verifyCode
 
 	err = db.GetDB().Save(user).Error
 	if err != nil {
@@ -152,10 +160,12 @@ func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (er
 	mailData := map[string]any{
 		"UserName":   user.UserName,
 		"VerifyCode": verifyCode,
+		"SiteName":   systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	}
 
 	subject := i18nz.GetLocalizer("", acceptLanguage).T("verify_email_subject", map[string]any{
 		"UserName": user.UserName,
+		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	})
 
 	err = email.SendHtmlTemplate(req.Email, "", "", subject, "", mailTemplate, mailData)
@@ -173,8 +183,6 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 
 	if systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, true) {
 		user.Status = models.UserStatusUnapproved
-	} else if systemsettings.GetBool(systemsettings.KeyRegistrationCheckEmail, false) {
-		user.Status = models.UserStatusUnverifiedMail
 	} else {
 		user.Status = models.UserStatusNormal
 	}

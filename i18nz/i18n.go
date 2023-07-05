@@ -58,6 +58,9 @@ func (l *Localizer) T(id string, data map[string]any, options ...O) string {
 }
 
 func GetMailTemplateName(lang string, templateName string) string {
+	if lang == "" {
+		lang = "en"
+	}
 	langTag := language.Make(lang)
 
 	fs := internalfs.Get()
@@ -75,5 +78,5 @@ func GetMailTemplateName(lang string, templateName string) string {
 	}
 
 	// 否则返回默认模板
-	return templateName
+	return templateName + "_" + "en"
 }

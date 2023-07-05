@@ -55,7 +55,7 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 		return
 	}
 
-	tpl, err := template.ParseGlob(string(templateContent))
+	tpl, err := template.New(templateName).Parse(string(templateContent))
 
 	if err != nil {
 		return

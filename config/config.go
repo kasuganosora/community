@@ -28,7 +28,8 @@ type Config struct {
 	SmtpAuthMethod string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
 	SmtpTimeout    string `env:"SMTP_TIMEOUT" default:"10"`
 	EmailMode      string `env:"EMAIL_MODE" default:"smtp"`
-	DevMode        string `env:"DEV_MODE" default:"false"` // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
+	DevMode        string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
+	SessionExpire  string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项

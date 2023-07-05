@@ -13,4 +13,9 @@ func SetRouter(app *gin.Engine) {
 	v2ApiGroup.GET("/instance", common.GetInstanceDetail)
 
 	v2ApiGroup.POST("/account/register", account.Register)
+	v2ApiGroup.GET("/account/verify_email", account.VerifyEmail)
+	v2ApiGroup.POST("/account/auth", account.Auth)
+
+	// 下面这些路由都是需要登录才能访问的
+
 }
