@@ -1,0 +1,5 @@
+[welcome_mail_subject]
+other="[{{.SiteName}}] Welcome"
+
+[verify_email_subject]
+other="[{{.SiteName}}] Verify your email address"

@@ -3,11 +3,14 @@ package account
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/email"
+	"github.com/kasuganosora/community/i18nz"
 	"github.com/kasuganosora/community/invitecode"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/recaptcha"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
@@ -90,9 +93,74 @@ func Register(c *gin.Context) {
 	}
 
 	// 发送验证邮件/欢迎邮件
+	if systemsettings.GetBool(systemsettings.KeyRegistrationCheckEmail, false) {
+		// 发送验证邮件
+		err = sendVerifyEmail(c, req, user)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "send verify email failed"})
+			log.ErrorV(err)
+			return
+		}
 
-	// 返回当前用户信息
+		c.JSON(http.StatusOK, gin.H{"message": "verify email has been sent"})
+		return
+	}
 
+	// 不用验证邮箱, 发送欢迎邮件
+	err = sendWelcomeEmail(c, req, user)
+	if err != nil {
+		log.ErrorV(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": account})
+
+}
+
+func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
+	acceptLanguage := c.Request.Header.Get("Accept-Language")
+	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage, "welcome_mail")
+
+	mailData := map[string]any{
+		"UserName": user.UserName,
+	}
+
+	subject := i18nz.GetLocalizer("", acceptLanguage).T("welcome_mail_subject", map[string]any{
+		"UserName": user.UserName,
+	})
+
+	err = email.SendHtmlTemplate(req.Email, "", "", subject, "", mailTemplate, mailData)
+	if err != nil {
+		return errors.Wrap(err, "send welcome email failed")
+	}
+
+	return nil
+}
+
+func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
+	verifyCode := utils.GetRandomString(32)
+	user.Properties["verify_code"] = verifyCode
+
+	err = db.GetDB().Save(user).Error
+	if err != nil {
+		return errors.Wrap(err, "save user verify code failed")
+	}
+
+	acceptLanguage := c.Request.Header.Get("Accept-Language")
+	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage, "verify_email")
+
+	mailData := map[string]any{
+		"UserName":   user.UserName,
+		"VerifyCode": verifyCode,
+	}
+
+	subject := i18nz.GetLocalizer("", acceptLanguage).T("verify_email_subject", map[string]any{
+		"UserName": user.UserName,
+	})
+
+	err = email.SendHtmlTemplate(req.Email, "", "", subject, "", mailTemplate, mailData)
+
+	return
 }
 
 func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.InviteCode) (
@@ -117,7 +185,13 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 
 	userSecret := &models.UserSecretData{}
 	userSecret.Email = req.Email
-	userSecret.Password = req.Password
+	userSecret.Salt = utils.GetRandomString(64)
+	userSecret.Password, err = models.EncryptPassword(req.Password, userSecret.Salt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt password failed"})
+		log.ErrorV(err)
+		return
+	}
 
 	account = &models.Account{
 		DisplayName: req.DisplayName,
@@ -181,6 +255,10 @@ func checkRecaptcha(c *gin.Context, response string) (err error) {
 }
 
 func checkAndGetInviteCode(code string) (inviteCode *models.InviteCode, err error) {
+	if code == "" {
+		return
+	}
+
 	inv := &models.InviteCode{}
 	err = db.GetDB().Model(&models.InviteCode{}).Where("code = ?", code).First(&inv).Error
 	if err != nil {

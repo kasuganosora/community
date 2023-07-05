@@ -1,10 +1,13 @@
 package models
 
 import (
+	"crypto/md5"
+	"encoding/base64"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"reflect"
 )
@@ -17,16 +20,17 @@ const (
 )
 
 type User struct {
-	Id        int64  `json:"id" gorm:"primary_key;autoIncrement""`
-	UUID      string `json:"uuid" gorm:"unique;not null;type:varchar(36)"`         // UUID
-	UserName  string `json:"username" gorm:"unique;not null;type:varchar(20)"`     // 用户名
-	IsBan     bool   `json:"is_ban" gorm:"default:false"`                          // 是否被封禁
-	IsAdmin   bool   `json:"is_admin" gorm:"default:false"`                        // 是否是管理员
-	EmailHash string `json:"email_hash" gorm:"type:varchar(255); unique;not null"` // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
-	CreatedAt int64  `gorm:"autoCreateTime"`                                       // 创建时间
-	UpdatedAt int64  `gorm:"autoUpdateTime"`                                       // 更新时间
-	InviteBy  int64  `json:"invite_by" gorm:"default:0"`                           // 邀请人ID
-	Status    int    `json:"status" gorm:"default:0"`                              // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
+	Id         int64          `json:"id" gorm:"primary_key;autoIncrement"`
+	UUID       string         `json:"uuid" gorm:"unique;not null;type:varchar(36)"`                     // UUID
+	UserName   string         `json:"username" gorm:"unique;column:username;not null;type:varchar(20)"` // 用户名
+	IsBan      bool           `json:"is_ban" gorm:"default:false"`                                      // 是否被封禁
+	IsAdmin    bool           `json:"is_admin" gorm:"default:false"`                                    // 是否是管理员
+	EmailHash  string         `json:"email_hash" gorm:"type:varchar(255); unique;not null"`             // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
+	CreatedAt  int64          `gorm:"autoCreateTime"`                                                   // 创建时间
+	UpdatedAt  int64          `gorm:"autoUpdateTime"`                                                   // 更新时间
+	InviteBy   int64          `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
+	Status     int            `json:"status" gorm:"default:0"`                                          // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
+	Properties map[string]any `json:"properties" gorm:"type:json;serializer;json"`                      // 用户的属性
 	gorm.DeletedAt
 }
 
@@ -46,7 +50,7 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 type UserSecretData struct {
 	UserId   int64  `json:"user_id" gorm:"primary_key, column:user_id"`
 	Salt     string `json:"salt" gorm:"type:varchar(255);not null"`
-	Password string `json:"password" gorm:"type:varchar(255);not null" encrypt:"true"`
+	Password string `json:"password" gorm:"type:varchar(255);not null"` // 密码不需要加密, 因为入库的时候进行过不可逆加密
 	Email    string `json:"email" gorm:"type:varchar(255);not null" encrypt:"true"`
 	Phone    string `json:"phone" gorm:"type:varchar(255);not null" encrypt:"true"`
 
@@ -133,5 +137,18 @@ func (u *UserSecretData) AfterSave(tx *gorm.DB) (err error) {
 		fieldValue := elm.Field(i)
 		u.originAttribute[field.Name] = fieldValue.Interface()
 	}
+	return
+}
+
+func EncryptPassword(password string, salt string) (ret string, err error) {
+	password = salt + password
+	pBytes := md5.Sum([]byte(password))
+	// 使用 bcrypt 加密
+	hash, err := bcrypt.GenerateFromPassword(pBytes[:], bcrypt.DefaultCost)
+	if err != nil {
+		return
+	}
+
+	ret = base64.StdEncoding.EncodeToString(hash)
 	return
 }

@@ -16,8 +16,8 @@ type InviteCode struct {
 	AfterRegisterAction      string         `json:"after_register_action" gorm:"type:varchar(64)"`
 	AfterRegisterActionParam map[string]any `json:"after_register_action_param" gorm:"type:json"`
 	Disabled                 bool           `json:"disabled" gorm:"default:false"`
-	CreatedAt                time.Time      `json:"created_at" gorm:"type:timestamp"`
-	UpdatedAt                time.Time      `json:"updated_at" gorm:"type:timestamp"`
+	CreatedAt                *time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt                *time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
 	gorm.DeletedAt
 }
 
