@@ -18,7 +18,7 @@ type AuthRequest struct {
 	Password string `form:"password" binding:"required"`
 }
 
-func Auth(c *gin.Context) {
+func Login(c *gin.Context) {
 	req := &AuthRequest{}
 
 	if err := c.ShouldBind(req); err != nil {
@@ -76,8 +76,16 @@ func Auth(c *gin.Context) {
 	}
 
 	sessionExpire, _ := strconv.Atoi(config.C.SessionExpire)
+
+	// 取出当前用户所拥有的权限位
+	permissions, err := models.GetUserPermissions(db.GetDB(), user.Id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	// 生成登录态 Token
-	token := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, sessionExpire, config.C.EncryptedKey)
+	token := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, permissions, nil, sessionExpire, config.C.EncryptedKey)
 
 	// 保存 Token
 	err = db.GetDB().Create(token).Error

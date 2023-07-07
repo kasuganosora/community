@@ -1,5 +1,11 @@
 package models
 
+import (
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"time"
+)
+
 const (
 	PermissionAdministrator       = 0x1
 	PermissionDevops              = 0x2
@@ -42,4 +48,51 @@ func (r *Role) HasPermission(permission int64) bool {
 func (r *Role) SetPermission(permission int64) *Role {
 	r.Permissions |= permission
 	return r
+}
+
+type RoleUser struct {
+	RoleID    int64      `json:"role_id" gorm:"primary_key"`
+	UserID    int64      `json:"user_id" gorm:"primary_key"`
+	CreatedAt *time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+func (RoleUser) TableName() string {
+	return "role_users"
+}
+
+func AssignRole(db *gorm.DB, userID int64, roleID int64) (err error) {
+	r := &RoleUser{
+		RoleID: roleID,
+		UserID: userID,
+	}
+
+	// check if role exists
+	if err = db.First(&Role{}, "id = ?", roleID).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			err = errors.Wrap(err, "failed to check if role exists")
+			return
+		}
+	}
+
+	err = db.Create(r).Error
+	return
+}
+
+func GetUserRoles(db *gorm.DB, userID int64) ([]*Role, error) {
+	roles := make([]*Role, 0)
+	err := db.Model(&RoleUser{}).Where("user_id = ?", userID).Find(&roles).Error
+	return roles, err
+}
+
+func GetUserPermissions(db *gorm.DB, userID int64) (permissions int64, err error) {
+	roles, err := GetUserRoles(db, userID)
+	if err != nil {
+		return
+	}
+
+	for _, role := range roles {
+		permissions |= role.Permissions
+	}
+
+	return
 }

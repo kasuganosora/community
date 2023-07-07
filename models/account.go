@@ -9,31 +9,35 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"os"
+	"time"
 )
 
 type Account struct {
-	Id           string `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
-	UserId       int64  `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
-	Username     string `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain       string `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
-	OriginId     string `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
-	DisplayName  string `json:"display_name" gorm:"not null;type:varchar(128)"`
-	Avatar       string `json:"avatar" gorm:"type:varchar(1024)"`
-	AvatarStatic string `json:"avatar_static" gorm:"type:varchar(1024)"`
-	Header       string `json:"header" gorm:"type:varchar(1024)"`
-	HeaderStatic string `json:"header_static" gorm:"type:varchar(1024)"`
-	Locked       bool   `json:"locked" gorm:"default:false"`
-	Bot          bool   `json:"bot" gorm:"default:false"`
-	Discoverable bool   `json:"discoverable" gorm:"default:false"`
-	Group        bool   `json:"group" gorm:"default:false"`
-	NoIndex      bool   `json:"noindex" gorm:"default:false"`
-	Note         string `json:"note" gorm:"type:varchar(1024)"`
-	Website      string `json:"website" gorm:"type:varchar(1024)"`
-	CreatedAt    int64  `gorm:"autoCreateTime"`
-	UpdatedAt    int64  `gorm:"autoUpdateTime"`
-	IsBan        bool   `json:"is_ban" gorm:"default:false"`
+	Id           string     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
+	UserId       int64      `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
+	Username     string     `json:"username" gorm:"not null;type:varchar(64)"`
+	Domain       string     `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
+	OriginId     string     `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
+	DisplayName  string     `json:"display_name" gorm:"not null;type:varchar(128)"`
+	Avatar       string     `json:"avatar" gorm:"type:varchar(1024)"`
+	AvatarStatic string     `json:"avatar_static" gorm:"type:varchar(1024)"`
+	Header       string     `json:"header" gorm:"type:varchar(1024)"`
+	HeaderStatic string     `json:"header_static" gorm:"type:varchar(1024)"`
+	Locked       bool       `json:"locked" gorm:"default:false"`
+	Bot          bool       `json:"bot" gorm:"default:false"`
+	Discoverable bool       `json:"discoverable" gorm:"default:false"`
+	Group        bool       `json:"group" gorm:"default:false"`
+	NoIndex      bool       `json:"noindex" gorm:"default:false"`
+	Note         string     `json:"note" gorm:"type:varchar(1024)"`
+	Website      string     `json:"website" gorm:"type:varchar(1024)"`
+	CreatedAt    *time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	LastStatusAt *time.Time `json:"last_status_at" gorm:"type:datetime"`
+	IsBan        bool       `json:"is_ban" gorm:"default:false"`
 	DeletedAt    gorm.DeletedAt
-	Roles        []*Role `json:"roles,omitempty" gorm:"many2many:account_roles;"`
+	Roles        []*Role  `json:"roles,omitempty" gorm:"many2many:account_roles;"`
+	Emojis       []*Emoji `json:"emojis,omitempty" gorm:"many2many:account_emojis;"`
+	Fields       []*Field `json:"fields,omitempty"`
 }
 
 func (Account) TableName() string {
@@ -103,4 +107,14 @@ func GetEmailHash(email string) string {
 	b := md5.Sum([]byte(raw))
 
 	return hex.EncodeToString(b[:])
+}
+
+type AccountEmoji struct {
+	Id        int64 `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
+	AccountId int64 `json:"account_id" gorm:"not null;type:varchar(64);index"`
+	EmojiId   int64 `json:"emoji_id" gorm:"not null;type:bigint(20);index"`
+}
+
+func (AccountEmoji) TableName() string {
+	return "account_emojis"
 }

@@ -48,6 +48,12 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
+func (u *User) GetAccount(db *gorm.DB) (account *Account, err error) {
+	account = &Account{}
+	err = db.Where("user_id = ?", u.Id).First(account).Error
+	return
+}
+
 // UserSecretData 保存用户的敏感数据，如密码，邮箱等 里面的所有数据在保存时候都会加密
 type UserSecretData struct {
 	UserId          int64          `json:"user_id" gorm:"primary_key, column:user_id"`

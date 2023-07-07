@@ -1,0 +1,227 @@
+package models
+
+import (
+	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
+	"reflect"
+	"time"
+)
+
+const (
+	// 读取权限单独一组
+
+	AppScopeRead              = 0xFFFFFFFFFFFFFFFF // 读取你的账户数据
+	AppScopeReadAccounts      = 0x1                // 查看账号信息
+	AppScopeReadBlocks        = 0x3                // 查看你的屏蔽列表
+	AppScopeReadBookmarks     = 0x7                // 查看你的书签
+	AppScopeReadFavourites    = 0xF                // 查看喜欢的嘟文
+	AppScopeReadFilters       = 0x1F               // 查看你的过滤器
+	AppScopeReadFollows       = 0x3F               // 查看你的关注
+	AppScopeReadLists         = 0x7F               // 查看你的列表
+	AppScopeReadMutes         = 0xFF               // 查看你的隐藏列表
+	AppScopeReadNotifications = 0x1FF              // 查看你的通知
+	AppScopeReadSearch        = 0x3FF              // 以你的身份搜索
+	AppScopeReadStatuses      = 0x7FF              // 查看所有嘟文
+
+	// 写入权限单独一组
+
+	AppScopeWrite              = 0xFFFFFFFFFFFFFFFF // 写入你的账户数据
+	AppScopeWriteAccounts      = 0x1                // 修改你的个人资料
+	AppScopeWriteBlocks        = 0x3                // 屏蔽账号和域名
+	AppScopeWriteBookmarks     = 0x7                // 为嘟文添加书签
+	AppScopeWriteConversations = 0xF                // 静音并删除会话
+	AppScopeWriteFavourites    = 0x1F               // 喜欢的嘟文
+	AppScopeWriteFilters       = 0x3F               // 创建过滤器
+	AppScopeWriteFollows       = 0x7F               // 关注其他人
+	AppScopeWriteLists         = 0xFF               // 创建列表
+	AppScopeWriteMedia         = 0x1FF              // 上传媒体文件
+	AppScopeWriteMutes         = 0x3FF              // 隐藏用户和对话
+	AppScopeWriteNotifications = 0x7FF              // 清除你的通知
+	AppScopeWriteReports       = 0xFFF              // 举报他人
+	AppScopeWriteStatuses      = 0x1FFF             // 发表嘟文
+
+	// 管理权限单独一组
+
+	AppScopeAdmin                          = 0xFFFFFFFFFFFFFFFF // 管理服务器上的所有数据
+	AppScopeAdminRead                      = 0xFFFFFFFF
+	AppScopeAdminReadAccounts              = 0x1
+	AppScopeAdminReadCanonicalEmailBlocks  = 0x3
+	AppScopeAdminReadDomainAllows          = 0x7
+	AppScopeAdminReadDomainBlocks          = 0xF
+	AppScopeAdminReadEmailDomainBlocks     = 0x1F
+	AppScopeAdminReadIpBlocks              = 0x3F
+	AppScopeAdminReadReports               = 0x7F
+	AppScopeAdminWrite                     = 0xFFFFFFFF00000000
+	AppScopeAdminWriteAccounts             = 0x100000000
+	AppScopeAdminWriteCanonicalEmailBlocks = 0x300000000
+	AppScopeAdminWriteDomainAllows         = 0x700000000
+	AppScopeAdminWriteDomainBlocks         = 0xF00000000
+	AppScopeAdminWriteEmailDomainBlocks    = 0x1F00000000
+	AppScopeAdminWriteIpBlocks             = 0x3F00000000
+	AppScopeAdminWriteReports              = 0x7F00000000
+
+	// 其他权限单独一组
+	AppScopeFollow = 0x1
+	AppScopePush   = 0x2
+	AppScopeCrypto = 0x4
+
+	// 权限类型
+	AppScopeTypeRead  = 0
+	AppScopeTypeWrite = 1
+	AppScopeTypeAdmin = 2
+	AppScopeTypeOther = 3
+)
+
+type ApplicationScope struct {
+	ReadScope  uint64 `json:"read_scope"`
+	WriteScope uint64 `json:"write_scope"`
+	AdminScope uint64 `json:"admin_scope"`
+	OtherScope uint64 `json:"other_scope"`
+}
+
+func (s ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
+	var sc uint64
+	switch scopeType {
+	case AppScopeTypeRead:
+		sc = s.ReadScope
+	case AppScopeTypeWrite:
+		sc = s.WriteScope
+	case AppScopeTypeAdmin:
+		sc = s.AdminScope
+	case AppScopeTypeOther:
+		sc = s.OtherScope
+	default:
+		return false
+	}
+
+	return (sc & scope) == scope
+}
+
+func (s ApplicationScope) AddScope(scopeType uint8, scope uint64) {
+	switch scopeType {
+	case AppScopeTypeRead:
+		s.ReadScope |= scope
+	case AppScopeTypeWrite:
+		s.WriteScope |= scope
+	case AppScopeTypeAdmin:
+		s.AdminScope |= scope
+	case AppScopeTypeOther:
+		s.OtherScope |= scope
+	}
+}
+
+func (s ApplicationScope) RemoveScope(scopeType uint8, scope uint64) {
+	switch scopeType {
+	case AppScopeTypeRead:
+		s.ReadScope &= ^scope
+	case AppScopeTypeWrite:
+		s.WriteScope &= ^scope
+	case AppScopeTypeAdmin:
+		s.AdminScope &= ^scope
+	case AppScopeTypeOther:
+		s.OtherScope &= ^scope
+	}
+}
+
+// MarshalJSON JSON序列化
+// 把3个uint64 转换成byte数组,然后按照顺序拼接起来再转换成hex字符串
+func (s ApplicationScope) MarshalJSON() ([]byte, error) {
+	rValue := reflect.ValueOf(s)
+	vBytes := make([]byte, 0, rValue.NumField()*8)
+
+	for i := 0; i < rValue.NumField(); i++ {
+		v := rValue.Field(i).Uint()
+		// uint64转换成byte数组
+		bytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(bytes, v)
+		vBytes = append(vBytes, bytes...)
+	}
+
+	// 拼接成hex字符串
+	ret := hex.EncodeToString(vBytes)
+	return []byte(ret), nil
+}
+
+// UnmarshalJSON JSON反序列化
+// 把hex字符串转换成byte数组,然后按照8个byte分割成3个uint64
+func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
+	vBytes, err := hex.DecodeString(string(data))
+	if err != nil {
+		return err
+	}
+
+	rValue := reflect.ValueOf(s)
+
+	for i := 0; i < rValue.NumField(); i++ {
+		// 每次取8个byte
+		bytes := vBytes[i*8 : (i+1)*8]
+		// byte数组转换成uint64
+		v := binary.LittleEndian.Uint64(bytes)
+		rValue.Field(i).SetUint(v)
+	}
+
+	return
+}
+
+func (s *ApplicationScope) Scan(ctx context.Context, field *schema.Field, dst reflect.Value, dbValue any) (err error) {
+	var vBytes []byte
+	switch dbValue.(type) {
+	case []byte:
+		vBytes = dbValue.([]byte)
+	case string:
+		vBytes = []byte(dbValue.(string))
+	default:
+		return errors.Errorf("invalid type %#v", dbValue)
+	}
+
+	return s.UnmarshalJSON(vBytes)
+}
+
+func (s ApplicationScope) Value(ctx context.Context, field *schema.Field, dst reflect.Value, fieldValue any) (ret any, err error) {
+	return s.MarshalJSON()
+}
+
+type Application struct {
+	ID          uint64           `json:"id" gorm:"primary_key;autoIncrement"`
+	Uuid        *uuid.UUID       `json:"uuid" gorm:"type:char(36);unique_index;not null"`
+	UserId      int64            `json:"user_id" gorm:"index"`
+	Name        string           `json:"name" gorm:"type:varchar(32);not null"`
+	Website     string           `json:"website" gorm:"type:varchar(255);not null"`
+	RedirectUri string           `json:"redirect_uri" gorm:"type:varchar(255);not null"`
+	Scopes      ApplicationScope `json:"scopes" gorm:"type:varchar(255);not null"`
+	IsEnabled   bool             `json:"is_enabled" gorm:"not null;default:true"`
+	CreatedAt   *time.Time       `json:"created_at" gor:"autoCreateTime"`
+	UpdatedAt   *time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
+	DeletedAt   gorm.DeletedAt   `json:"deleted_at" gorm:"index"`
+}
+
+func (a *Application) BeforeCreate(tx *gorm.DB) (err error) {
+	if a.Uuid == nil {
+		uuidObj := uuid.New()
+		a.Uuid = &uuidObj
+	}
+	return
+}
+
+func (a *Application) TableName() string {
+	return "applications"
+}
+
+type ApplicationUserAuth struct {
+	ID uint64 `json:"id" gorm:"primary_key;autoIncrement"`
+	// 应用ID
+	ApplicationId uint64 `json:"application_id" gorm:"index"`
+	// 用户ID
+	UserId    int64      `json:"user_id" gorm:"index"`
+	CreatedAt *time.Time `json:"created_at" gor:"autoCreateTime"`
+	UpdatedAt *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (a *ApplicationUserAuth) TableName() string {
+	return "application_user_auths"
+}
