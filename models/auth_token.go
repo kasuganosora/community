@@ -143,7 +143,7 @@ func NewAuthToken(userId int64, authType uint8, permissions int64, scopes *Appli
 }
 
 func GetTokenByTokenStr(tokenStr string) (token *AuthToken, err error) {
-	sha256Token := sha256.Sum224([]byte(tokenStr))
+	sha256Token := sha256.Sum256([]byte(tokenStr))
 	sha256TokenStr := hex.EncodeToString(sha256Token[:])
 	token = &AuthToken{}
 	err = db.GetDB().Where("token = ?", sha256TokenStr).First(token).Error
