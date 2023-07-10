@@ -3,7 +3,10 @@ package account
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
+	"github.com/pkg/errors"
 )
 
 func GetMe(c *gin.Context) {
@@ -19,4 +22,14 @@ func GetMe(c *gin.Context) {
 		return
 	}
 
+	acc, err := serializer.ToAccount(account)
+
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Internal Server Error"})
+		err = errors.Wrap(err, "serializer.ToAccount")
+		log.ErrorV(err)
+		return
+	}
+
+	c.JSON(200, acc)
 }

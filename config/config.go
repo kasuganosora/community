@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/joho/godotenv"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/utils"
 	"os"
 	"reflect"
@@ -12,9 +13,9 @@ type Config struct {
 	Listen         string `env:"LISTEN" default:":8080"`
 	Host           string `env:"HOST" default:"localhost"`
 	StorageType    string `env:"STORAGE_TYPE" default:"local"`
-	EncryptedKey   string `env:"ENCRYPTED_KEY"` // 加密密钥, 如果空则不加密
+	EncryptedKey   string `env:"ENCRYPTED_KEY" default:"zwKc2UD3Nn8QbkypUkDbpJNyTmKeDbFbUiAGhAArpDa"` // 加密密钥, 如果空则不加密
 	DbConnection   string `env:"DB_CONNECTION" default:"mysql"`
-	DbHost         string `env:"DB_HOST" default:"localhost"`
+	DbHost         string `env:"DB_HOST"`
 	DbPort         string `env:"DB_PORT" default:"3306"`
 	DbDatabase     string `env:"DB_DATABASE" default:"community"`
 	DbUsername     string `env:"DB_USERNAME" default:"root"`
@@ -38,6 +39,7 @@ type Config struct {
 var C Config
 
 func init() {
+	C.Other = make(map[string]string)
 	loadConfig()
 }
 
@@ -53,7 +55,7 @@ func loadConfig() {
 		err = loadConfigFromEnv()
 	}
 
-	if err != nil && !envFileExists {
+	if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
 		createDefaultEnvFile(envFilePath)
 		os.Exit(1)
 	} else if err != nil {
@@ -139,6 +141,7 @@ func loadMapToConfig(data map[string]string) {
 
 // createDefaultEnvFile 创建默认的 .env 文件
 func createDefaultEnvFile(path string) (err error) {
+	log.Info("Create default .env file")
 	sType := reflect.TypeOf(C)
 	sValue := reflect.ValueOf(&C).Elem()
 
@@ -158,6 +161,9 @@ func createDefaultEnvFile(path string) (err error) {
 		}
 
 		envName = strings.ToUpper(envName)
+		if envName == "-" {
+			continue
+		}
 
 		if defaultValue, defaultValExists := field.Tag.Lookup("default"); defaultValExists {
 			_, err = fp.WriteString(envName + "=" + defaultValue + "\n")

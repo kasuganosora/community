@@ -21,7 +21,7 @@ func ToEmoji(emoji *models.Emoji) *Emoji {
 }
 
 func ToEmojis(emojis []*models.Emoji) []*Emoji {
-	var res []*Emoji
+	var res = make([]*Emoji, 0)
 	for _, emoji := range emojis {
 		res = append(res, ToEmoji(emoji))
 	}

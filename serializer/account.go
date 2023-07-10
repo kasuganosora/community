@@ -2,6 +2,7 @@ package serializer
 
 import (
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"time"
 )
 
@@ -28,29 +29,40 @@ type Account struct {
 	Emoji          []*Emoji   `json:"emojis"`
 }
 
-func ToAccount(account *models.Account, extra models.AccountExtra) *Account {
-	acc := &Account{
-		Id:             account.OriginId,
-		Username:       account.Username,
-		Acct:           account.Username + "@" + account.Domain,
-		DisplayName:    account.DisplayName,
-		Locked:         account.Locked,
-		Bot:            account.Bot,
-		Discoverable:   account.Discoverable,
-		Group:          account.Group,
-		CreatedAt:      account.CreatedAt,
-		Note:           account.Note,
-		Url:            account.Website,
-		Avatar:         account.Avatar,
-		AvatarStatic:   account.AvatarStatic,
-		Header:         account.Header,
-		HeaderStatic:   account.HeaderStatic,
-		FollowersCount: extra.FollowersCount,
-		FollowingCount: extra.FollowingCount,
-		StatusesCount:  extra.StatusesCount,
-		LastStatusAt:   account.LastStatusAt,
-		Emoji:          ToEmojis(account.Emojis),
+func ToAccount(account *models.Account) (acc *Account, err error) {
+	if account.Domain == "" {
+		account.Domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	}
+	acc = &Account{
+		Username:     account.Username,
+		Acct:         account.Username + "@" + account.Domain,
+		DisplayName:  account.DisplayName,
+		Locked:       account.Locked,
+		Bot:          account.Bot,
+		Discoverable: account.Discoverable,
+		Group:        account.Group,
+		CreatedAt:    account.CreatedAt,
+		Note:         account.Note,
+		Url:          account.Website,
+		Avatar:       account.Avatar,
+		AvatarStatic: account.AvatarStatic,
+		Header:       account.Header,
+		HeaderStatic: account.HeaderStatic,
+		LastStatusAt: account.LastStatusAt,
+		Emoji:        ToEmojis(account.Emojis),
 	}
 
-	return acc
+	if account.OriginId != "" {
+		acc.Id = account.OriginId
+	} else {
+		acc.Id = account.Id
+	}
+
+	if account.Extra != nil {
+		acc.FollowersCount = account.Extra.FollowersCount
+		acc.FollowingCount = account.Extra.FollowingCount
+		acc.StatusesCount = account.Extra.StatusesCount
+	}
+
+	return
 }

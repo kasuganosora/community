@@ -5,7 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"github.com/pkg/errors"
@@ -14,12 +14,12 @@ import (
 )
 
 // AesEncrypt AES加密
-// iv 从Key sh1后中截取前16位
+// iv 从Key sha256后中截取前16位
 // 加密结果是base64编码
 func AesEncrypt(data []byte, key string) (encrypted string, err error) {
-	keySha1 := sha1.Sum([]byte(key))
+	keySha1 := sha256.Sum256([]byte(key))
 
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(keySha1[:])
 	if err != nil {
 		return
 	}
@@ -36,12 +36,12 @@ func AesEncrypt(data []byte, key string) (encrypted string, err error) {
 }
 
 // AesDecrypt AES解密
-// iv 从Key sh1后中截取前16位
+// iv 从Key sha256后中截取前16位
 // 解密前需要base64解码
 func AesDecrypt(data string, key string) (decrypted []byte, err error) {
-	keySha1 := sha1.Sum([]byte(key))
+	keySha1 := sha256.Sum256([]byte(key))
 
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(keySha1[:])
 	if err != nil {
 		return
 	}

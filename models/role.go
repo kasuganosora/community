@@ -78,9 +78,21 @@ func AssignRole(db *gorm.DB, userID int64, roleID int64) (err error) {
 	return
 }
 
-func GetUserRoles(db *gorm.DB, userID int64) ([]*Role, error) {
-	roles := make([]*Role, 0)
-	err := db.Model(&RoleUser{}).Where("user_id = ?", userID).Find(&roles).Error
+func GetUserRoles(db *gorm.DB, userID int64) (roles []*Role, err error) {
+	roles = make([]*Role, 0)
+	userRoles := make([]*RoleUser, 0)
+	err = db.Model(&RoleUser{}).Where("user_id = ?", userID).Find(&userRoles).Error
+	if err != nil || len(userRoles) == 0 {
+		return
+	}
+
+	roleIDs := make([]int64, 0)
+	for _, userRole := range userRoles {
+		roleIDs = append(roleIDs, userRole.RoleID)
+	}
+
+	err = db.Model(&Role{}).Where("id IN ?", roleIDs).Find(&roles).Error
+
 	return roles, err
 }
 

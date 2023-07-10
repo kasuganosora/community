@@ -50,7 +50,9 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 
 func (u *User) GetAccount(db *gorm.DB) (account *Account, err error) {
 	account = &Account{}
-	err = db.Where("user_id = ?", u.Id).First(account).Error
+	err = db.Preload("Emojis").
+		Preload("Fields").
+		Preload("Extra").Where("user_id = ?", u.Id).First(account).Error
 	return
 }
 
@@ -158,4 +160,15 @@ func EncryptPassword(password string, salt string) (ret string, err error) {
 
 	ret = base64.StdEncoding.EncodeToString(hash)
 	return
+}
+
+func CompareHashAndPassword(base64PwdHash, password string, salt string) (err error) {
+	password = salt + password
+	pBytes := md5.Sum([]byte(password))
+	hash, err := base64.StdEncoding.DecodeString(base64PwdHash)
+	if err != nil {
+		return
+	}
+
+	return bcrypt.CompareHashAndPassword(hash, pBytes[:])
 }

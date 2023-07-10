@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
@@ -37,7 +38,7 @@ func Login(c *gin.Context) {
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "user name or password error"})
 			return
 		}
 
@@ -49,18 +50,12 @@ func Login(c *gin.Context) {
 
 	if err != nil {
 		err = errors.WithMessagef(err, "UserSecretData NotFound user_id: %d", user.Id)
+		log.ErrorV(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user record"})
 		return
 	}
 
-	passwordEncrypt, err := models.EncryptPassword(req.Password, usersd.Salt)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if passwordEncrypt != usersd.Password {
+	if models.CompareHashAndPassword(usersd.Password, req.Password, usersd.Salt) != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
 		return
 	}
@@ -85,7 +80,7 @@ func Login(c *gin.Context) {
 	}
 
 	// 生成登录态 Token
-	token := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, permissions, nil, sessionExpire, config.C.EncryptedKey)
+	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, permissions, nil, sessionExpire, config.C.EncryptedKey)
 
 	// 保存 Token
 	err = db.GetDB().Create(token).Error
@@ -94,8 +89,10 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	log.Debug("User id %d, token is %s", user.Id, rawTokenStr)
+
 	// 设置 Cookie
-	c.SetCookie("token", token.Token, sessionExpire, "/", "", false, true)
+	c.SetCookie("token", rawTokenStr, sessionExpire, "/", "", false, true)
 	// 返回首页
 	c.Redirect(http.StatusFound, "/")
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/recaptcha"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
@@ -24,7 +25,6 @@ type RegisterRequest struct {
 	Email             string `form:"user[email]" binding:"required"`
 	Password          string `form:"user[password]" binding:"required"`
 	PasswordConfirm   string `form:"user[password_confirmation]" binding:"required"`
-	ConfirmPassword   string `form:"user[confirm_password]"`
 	Website           string `form:"user[website]"`
 	InviteCode        string `form:"user[invite_code]"`
 	RecaptchaResponse string `form:"grecaptcha[response]"`
@@ -115,7 +115,15 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": account})
+	acc, err := serializer.ToAccount(account)
+	if err != nil {
+		err = errors.Wrap(err, "serializer.ToAccount failed")
+		log.ErrorV(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": acc})
 
 }
 

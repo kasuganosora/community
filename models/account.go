@@ -35,9 +35,9 @@ type Account struct {
 	LastStatusAt *time.Time `json:"last_status_at" gorm:"type:datetime"`
 	IsBan        bool       `json:"is_ban" gorm:"default:false"`
 	DeletedAt    gorm.DeletedAt
-	Roles        []*Role  `json:"roles,omitempty" gorm:"many2many:account_roles;"`
-	Emojis       []*Emoji `json:"emojis,omitempty" gorm:"many2many:account_emojis;"`
-	Fields       []*Field `json:"fields,omitempty"`
+	Emojis       []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
+	Fields       []*Field      `json:"-"`
+	Extra        *AccountExtra `json:"-"`
 }
 
 func (Account) TableName() string {
@@ -84,21 +84,6 @@ type AccountField struct {
 	Name       string `json:"name"`
 	Val        string `json:"val"`
 	VerifiedAt int64  `json:"verified_at"`
-}
-
-type AccountFull struct {
-	Account
-	AccountExtra
-	Emojis []Emoji `json:"emojis"`
-}
-
-type AccountRole struct {
-	AccountId string `json:"account_id" gorm:"primary_key;type:varchar(64);"`
-	RoleId    int64  `json:"role_id" gorm:"primary_key;type:bigint(20);"`
-}
-
-func (AccountRole) TableName() string {
-	return "accounts_roles"
 }
 
 func GetEmailHash(email string) string {

@@ -14,6 +14,10 @@ func main() {
 	flag.Parse()
 	var err error
 
+	if config.C.DevMode == "true" {
+		log.SetLevel("debug")
+	}
+
 	// 如果有 --rollback 参数，则回滚
 	if flag.Arg(0) == "--rollback" {
 		err = migrate.Down(db.GetDB())

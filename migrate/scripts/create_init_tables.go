@@ -21,6 +21,14 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.Rule{},
 		&models.InviteCode{},
 		&models.Follow{},
+		&models.RoleUser{},
+		&models.Emoji{},
+		&models.Field{},
+		&models.AccountEmoji{},
+		&models.AccountField{},
+		&models.AuthToken{},
+		&models.Application{},
+		&models.ApplicationUserAuth{},
 	)
 }
 
@@ -36,5 +44,13 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.Rule{},
 		&models.InviteCode{},
 		&models.Follow{},
+		&models.RoleUser{},
+		&models.Emoji{},
+		&models.Field{},
+		&models.AccountEmoji{},
+		&models.AccountField{},
+		&models.AuthToken{},
+		&models.Application{},
+		&models.ApplicationUserAuth{},
 	)
 }

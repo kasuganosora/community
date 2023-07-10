@@ -2,7 +2,7 @@ package common
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -66,7 +66,7 @@ type InstanceResponse struct {
 
 	Contact struct {
 		Email   string `json:"email"`
-		Account *models.AccountFull
+		Account *serializer.Account
 	}
 
 	Rules []ServerRuleResponseItem `json:"rules"`
