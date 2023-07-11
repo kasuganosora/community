@@ -24,4 +24,5 @@ func SetRouter(app *gin.Engine) {
 	authGroup.GET("/accounts/logout", account.Logout)
 	authGroup.GET("/accounts/me", account.GetMe)
 	authGroup.PUT("/accounts/me", account.UpdateAccount)
+	authGroup.PUT("/accounts/me/password", account.ChangePassword)
 }
