@@ -21,8 +21,9 @@ func SetRouter(app *gin.Engine) {
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(auth.AuthMiddleware())
-	authGroup.GET("/accounts/logout", account.Logout)
 	authGroup.GET("/accounts/me", account.GetMe)
-	authGroup.PUT("/accounts/me", account.UpdateAccount)
-	authGroup.PUT("/accounts/me/password", account.ChangePassword)
+	authInternalGroup := authGroup.Use(auth.InternalApiMiddleware())
+	authInternalGroup.GET("/accounts/logout", account.Logout)
+	authInternalGroup.PUT("/accounts/me", account.UpdateAccount)
+	authInternalGroup.PUT("/accounts/me/password", account.ChangePassword)
 }
