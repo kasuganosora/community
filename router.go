@@ -13,13 +13,15 @@ func SetRouter(app *gin.Engine) {
 
 	v2ApiGroup.GET("/instance", common.GetInstanceDetail)
 
-	v2ApiGroup.POST("/account/register", account.Register)
-	v2ApiGroup.GET("/account/verify_email", account.VerifyEmail)
-	v2ApiGroup.POST("/account/login", account.Login)
+	v2ApiGroup.POST("/accounts/register", account.Register)
+	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
+	v2ApiGroup.POST("/accounts/login", account.Login)
+	v2ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
+	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(auth.AuthMiddleware())
-	authGroup.GET("/account/logout", account.Logout)
-	authGroup.GET("/account/me", account.GetMe)
-
+	authGroup.GET("/accounts/logout", account.Logout)
+	authGroup.GET("/accounts/me", account.GetMe)
+	authGroup.PUT("/accounts/me", account.UpdateAccount)
 }

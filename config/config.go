@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	Listen         string `env:"LISTEN" default:":8080"`
-	Host           string `env:"HOST" default:"localhost"`
+	AppBaseURL     string `env:"APP_BASE_URL" default:"http://localhost:8080"`
 	StorageType    string `env:"STORAGE_TYPE" default:"local"`
 	EncryptedKey   string `env:"ENCRYPTED_KEY" default:"zwKc2UD3Nn8QbkypUkDbpJNyTmKeDbFbUiAGhAArpDa"` // 加密密钥, 如果空则不加密
 	DbConnection   string `env:"DB_CONNECTION" default:"mysql"`

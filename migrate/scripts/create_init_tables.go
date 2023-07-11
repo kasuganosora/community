@@ -23,12 +23,12 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.Follow{},
 		&models.RoleUser{},
 		&models.Emoji{},
-		&models.Field{},
 		&models.AccountEmoji{},
 		&models.AccountField{},
 		&models.AuthToken{},
 		&models.Application{},
 		&models.ApplicationUserAuth{},
+		&models.UserMeta{},
 	)
 }
 
@@ -46,11 +46,11 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.Follow{},
 		&models.RoleUser{},
 		&models.Emoji{},
-		&models.Field{},
 		&models.AccountEmoji{},
 		&models.AccountField{},
 		&models.AuthToken{},
 		&models.Application{},
 		&models.ApplicationUserAuth{},
+		&models.UserMeta{},
 	)
 }

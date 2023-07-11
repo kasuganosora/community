@@ -3,3 +3,7 @@ other="[{{.SiteName}}] Welcome"
 
 [verify_email_subject]
 other="[{{.SiteName}}] Verify your email address"
+
+[recover_password_verify_email_subject]
+other="[{{.SiteName}}] Reset your password"
+

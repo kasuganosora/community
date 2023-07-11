@@ -7,10 +7,13 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type VerifyEmailRequest struct {
-	Code string `form:"code" binding:"required"`
+	Token string `form:"token" binding:"required"`
 }
 
 func VerifyEmail(c *gin.Context) {
@@ -21,13 +24,47 @@ func VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	if req.Code == "" {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "code is required"})
+	if req.Token == "" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "token is required"})
 		return
 	}
 
 	user := &models.User{}
-	err := db.GetDB().Where("mail_verify_code = ?", req.Code).First(user).Error
+
+	// 解析出token里的用户id
+	tokenParts := strings.Split(req.Token, "-")
+	if len(tokenParts) < 3 {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid token"})
+		return
+	}
+
+	userId, err := strconv.ParseInt(tokenParts[1], 10, 64)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid token"})
+		return
+	}
+
+	token := &VerifyEmailToken{}
+
+	err = models.GetUserMeta(db.GetDB(), userId, "verify_email_token", token)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invalid token"})
+		return
+	}
+
+	if token.Token != req.Token {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invalid token"})
+		return
+	}
+
+	if token.ExpireAt < time.Now().Unix() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invalid token"})
+		return
+	}
+
+	user = &models.User{}
+
+	err = db.GetDB().Preload("MailVerifyCode").Where("id = ?", userId).First(user).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -38,7 +75,6 @@ func VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	user.MailVerifyCode = nil
 	user.IsMailVerified = true
 
 	err = db.GetDB().Save(user).Error

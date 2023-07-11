@@ -13,35 +13,44 @@ import (
 )
 
 type Account struct {
-	Id           string     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
-	UserId       int64      `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
-	Username     string     `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain       string     `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
-	OriginId     string     `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
-	DisplayName  string     `json:"display_name" gorm:"not null;type:varchar(128)"`
-	Avatar       string     `json:"avatar" gorm:"type:varchar(1024)"`
-	AvatarStatic string     `json:"avatar_static" gorm:"type:varchar(1024)"`
-	Header       string     `json:"header" gorm:"type:varchar(1024)"`
-	HeaderStatic string     `json:"header_static" gorm:"type:varchar(1024)"`
-	Locked       bool       `json:"locked" gorm:"default:false"`
-	Bot          bool       `json:"bot" gorm:"default:false"`
-	Discoverable bool       `json:"discoverable" gorm:"default:false"`
-	Group        bool       `json:"group" gorm:"default:false"`
-	NoIndex      bool       `json:"noindex" gorm:"default:false"`
-	Note         string     `json:"note" gorm:"type:varchar(1024)"`
-	Website      string     `json:"website" gorm:"type:varchar(1024)"`
-	CreatedAt    *time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt    *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
-	LastStatusAt *time.Time `json:"last_status_at" gorm:"type:datetime"`
-	IsBan        bool       `json:"is_ban" gorm:"default:false"`
-	DeletedAt    gorm.DeletedAt
-	Emojis       []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
-	Fields       []*Field      `json:"-"`
-	Extra        *AccountExtra `json:"-"`
+	Id              string     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
+	UserId          int64      `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
+	Username        string     `json:"username" gorm:"not null;type:varchar(64)"`
+	Domain          string     `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
+	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
+	DisplayName     string     `json:"display_name" gorm:"not null;type:varchar(128)"`
+	Avatar          string     `json:"avatar" gorm:"type:varchar(1024)"`
+	AvatarStatic    string     `json:"avatar_static" gorm:"type:varchar(1024)"`
+	Header          string     `json:"header" gorm:"type:varchar(1024)"`
+	HeaderStatic    string     `json:"header_static" gorm:"type:varchar(1024)"`
+	Locked          bool       `json:"locked" gorm:"default:false"`
+	Bot             bool       `json:"bot" gorm:"default:false"`
+	Discoverable    bool       `json:"discoverable" gorm:"default:false"`
+	Group           bool       `json:"group" gorm:"default:false"`
+	NoIndex         bool       `json:"noindex" gorm:"default:false"`
+	HideCollections bool       `json:"hide_collections" gorm:"default:false"`
+	Note            string     `json:"note" gorm:"type:varchar(1024)"`
+	Website         string     `json:"website" gorm:"type:varchar(1024)"`
+	CreatedAt       *time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	LastStatusAt    *time.Time `json:"last_status_at" gorm:"type:datetime"`
+	IsBan           bool       `json:"is_ban" gorm:"default:false"`
+	DeletedAt       gorm.DeletedAt
+	Emojis          []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
+	Extra           *AccountExtra `json:"-"`
 }
 
 func (Account) TableName() string {
 	return "accounts"
+}
+
+func (a *Account) AfterCreate(tx *gorm.DB) (err error) {
+	a.Extra = &AccountExtra{
+		AccountId: a.Id,
+	}
+
+	err = tx.Create(a.Extra).Error
+	return
 }
 
 func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
@@ -81,9 +90,9 @@ func (AccountExtra) TableName() string {
 }
 
 type AccountField struct {
-	Name       string `json:"name"`
-	Val        string `json:"val"`
-	VerifiedAt int64  `json:"verified_at"`
+	Name       string     `json:"name"`
+	Val        string     `json:"val"`
+	VerifiedAt *time.Time `json:"verified_at"`
 }
 
 func GetEmailHash(email string) string {

@@ -94,5 +94,5 @@ func Login(c *gin.Context) {
 	// 设置 Cookie
 	c.SetCookie("token", rawTokenStr, sessionExpire, "/", "", false, true)
 	// 返回首页
-	c.Redirect(http.StatusFound, "/")
+	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr})
 }

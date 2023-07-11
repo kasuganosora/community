@@ -27,6 +27,7 @@ type Account struct {
 	StatusesCount  int        `json:"statuses_count"`
 	LastStatusAt   *time.Time `json:"last_status_at"`
 	Emoji          []*Emoji   `json:"emojis"`
+	Fields         []Field    `json:"fields"`
 }
 
 func ToAccount(account *models.Account) (acc *Account, err error) {
@@ -62,6 +63,8 @@ func ToAccount(account *models.Account) (acc *Account, err error) {
 		acc.FollowersCount = account.Extra.FollowersCount
 		acc.FollowingCount = account.Extra.FollowingCount
 		acc.StatusesCount = account.Extra.StatusesCount
+
+		acc.Fields = ToFields(account.Extra.Fields)
 	}
 
 	return

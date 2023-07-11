@@ -20,19 +20,20 @@ const (
 )
 
 type User struct {
-	Id             int64          `json:"id" gorm:"primary_key;autoIncrement"`
-	UUID           string         `json:"uuid" gorm:"unique;not null;type:varchar(36)"`                     // UUID
-	UserName       string         `json:"username" gorm:"unique;column:username;not null;type:varchar(20)"` // 用户名
-	IsBan          bool           `json:"is_ban" gorm:"default:false"`                                      // 是否被封禁
-	IsAdmin        bool           `json:"is_admin" gorm:"default:false"`                                    // 是否是管理员
-	EmailHash      string         `json:"email_hash" gorm:"type:varchar(255); unique;not null"`             // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
-	CreatedAt      int64          `gorm:"autoCreateTime"`                                                   // 创建时间
-	UpdatedAt      int64          `gorm:"autoUpdateTime"`                                                   // 更新时间
-	InviteBy       int64          `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
-	Status         int            `json:"status" gorm:"default:0"`                                          // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
-	Properties     map[string]any `json:"properties" gorm:"type:json;serializer;json"`                      // 用户的属性
-	MailVerifyCode *string        `json:"-" gorm:"type:varchar(128);uniqueIndex"`                           // 邮箱验证的验证码
-	IsMailVerified bool           `json:"-" gorm:"default:false"`                                           // 邮箱是否验证
+	Id             int64           `json:"id" gorm:"primary_key;autoIncrement"`
+	UUID           string          `json:"uuid" gorm:"unique;not null;type:varchar(36)"`                     // UUID
+	UserName       string          `json:"username" gorm:"unique;column:username;not null;type:varchar(20)"` // 用户名
+	IsBan          bool            `json:"is_ban" gorm:"default:false"`                                      // 是否被封禁
+	IsAdmin        bool            `json:"is_admin" gorm:"default:false"`                                    // 是否是管理员
+	EmailHash      string          `json:"email_hash" gorm:"type:varchar(255); unique;not null"`             // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
+	CreatedAt      int64           `gorm:"autoCreateTime"`                                                   // 创建时间
+	UpdatedAt      int64           `gorm:"autoUpdateTime"`                                                   // 更新时间
+	InviteBy       int64           `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
+	Status         int             `json:"status" gorm:"default:0"`                                          // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
+	Properties     map[string]any  `json:"properties" gorm:"type:json;serializer;json"`                      // 用户的属性
+	IsMailVerified bool            `json:"-" gorm:"default:false"`                                           // 邮箱是否验证
+	UserSecret     *UserSecretData `json:"-"`                                                                // 用户的敏感数据
+	UserMeta       []*UserMeta     `json:"-"`                                                                // 用户的元数据
 	gorm.DeletedAt
 }
 
@@ -51,7 +52,6 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 func (u *User) GetAccount(db *gorm.DB) (account *Account, err error) {
 	account = &Account{}
 	err = db.Preload("Emojis").
-		Preload("Fields").
 		Preload("Extra").Where("user_id = ?", u.Id).First(account).Error
 	return
 }

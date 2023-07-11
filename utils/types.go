@@ -2,6 +2,8 @@ package utils
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
+	"reflect"
 	"strconv"
 )
 
@@ -151,4 +153,47 @@ func ToString(v any) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func StrToAny(str string, obj any) (err error) {
+	rValue := reflect.ValueOf(obj).Elem()
+	rType := rValue.Type()
+
+	switch rType.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		var val int64
+		val, err = strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return
+		}
+		rValue.SetInt(val)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		var val uint64
+		val, err = strconv.ParseUint(str, 10, 64)
+		if err != nil {
+			return
+		}
+		rValue.SetUint(val)
+	case reflect.Float32, reflect.Float64:
+		var val float64
+		val, err = strconv.ParseFloat(str, 64)
+		if err != nil {
+			return
+		}
+		rValue.SetFloat(val)
+
+	case reflect.Bool:
+		var val bool
+		val, err = strconv.ParseBool(str)
+		if err != nil {
+			return
+		}
+		rValue.SetBool(val)
+	case reflect.String:
+		rValue.SetString(str)
+	default:
+		err = errors.Errorf("unsupport type: %v", rType.Kind())
+	}
+
+	return
 }

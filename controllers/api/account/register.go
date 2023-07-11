@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/email"
 	"github.com/kasuganosora/community/i18nz"
@@ -149,17 +150,21 @@ func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (e
 	return nil
 }
 
+type VerifyEmailToken struct {
+	Token    string `json:"token"`
+	ExpireAt int64  `json:"expire_at"`
+}
+
 func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
-	verifyCode := utils.GetRandomString(32) +
-		strconv.FormatInt(time.Now().Unix(), 10) +
-		strconv.FormatInt(user.Id, 10) +
-		utils.GetRandomString(8)
+	token := VerifyEmailToken{
+		Token:    utils.GetRandomString(32) + "-" + strconv.FormatInt(user.Id, 10) + "-" + uuid.New().String(),
+		ExpireAt: time.Now().Add(time.Minute * 5).Unix(),
+	}
 
-	user.MailVerifyCode = &verifyCode
+	err = models.SaveUserMeta(db.GetDB(), user.Id, "verify_email_token", token)
 
-	err = db.GetDB().Save(user).Error
 	if err != nil {
-		return errors.Wrap(err, "save user verify code failed")
+		return errors.Wrap(err, "save verify email token failed")
 	}
 
 	acceptLanguage := c.Request.Header.Get("Accept-Language")
@@ -167,7 +172,7 @@ func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (er
 
 	mailData := map[string]any{
 		"UserName":   user.UserName,
-		"VerifyCode": verifyCode,
+		"VerifyCode": token.Token,
 		"SiteName":   systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	}
 
