@@ -116,7 +116,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	acc, err := serializer.ToAccount(account)
+	acc := serializer.ToAccount(account)
 	if err != nil {
 		err = errors.Wrap(err, "serializer.ToAccount failed")
 		log.ErrorV(err)

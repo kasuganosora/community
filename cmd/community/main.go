@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
 )
 
@@ -33,6 +34,7 @@ func main() {
 
 	// Set router
 	community.SetRouter(app)
+	app.Use(middleware.HandleErrorsMiddleware())
 
 	log.Info("Server is running on %s", config.C.Listen)
 	log.FatalIf(app.Run(config.C.Listen))

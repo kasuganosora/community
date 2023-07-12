@@ -1,4 +1,4 @@
-package auth
+package middleware
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 尝试从 auth header 中获取 token
+		// 尝试从 middleware header 中获取 token
 		authToken := c.GetHeader("Authorization")
 		if authToken == "" {
 			// 尝试从Cookie中获取token
@@ -32,9 +32,9 @@ func AuthMiddleware() gin.HandlerFunc {
 			authToken = authToken[7:]
 		}
 
-		// 如果token为空，返回401
+		// 如果token为空，直接跳过 middleware, 交给后面的路由处理,如果需要检查登陆状态的路由，则需要多加一个 CheckAuthMiddleware 中间件
 		if authToken == "" {
-			returnUnauthorizedAndRemoveCookie(c)
+			c.Next()
 			return
 		}
 

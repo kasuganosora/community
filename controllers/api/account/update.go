@@ -168,7 +168,7 @@ func UpdateAccount(c *gin.Context) {
 		return
 	}
 
-	acc, _ := serializer.ToAccount(account)
+	acc := serializer.ToAccount(account)
 
 	c.JSON(200, gin.H{"account": acc})
 

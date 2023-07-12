@@ -30,7 +30,7 @@ type Account struct {
 	Fields         []Field    `json:"fields"`
 }
 
-func ToAccount(account *models.Account) (acc *Account, err error) {
+func ToAccount(account *models.Account) (acc *Account) {
 	if account.Domain == "" {
 		account.Domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	}
@@ -65,6 +65,15 @@ func ToAccount(account *models.Account) (acc *Account, err error) {
 		acc.StatusesCount = account.Extra.StatusesCount
 
 		acc.Fields = ToFields(account.Extra.Fields)
+	}
+
+	return
+}
+
+func ToAccounts(accounts []*models.Account) (accs []*Account) {
+	accs = make([]*Account, len(accounts))
+	for i, account := range accounts {
+		accs[i] = ToAccount(account)
 	}
 
 	return
