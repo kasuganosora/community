@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/auth"
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/common"
+	"github.com/kasuganosora/community/models"
 )
 
 func SetRouter(app *gin.Engine) {
@@ -26,4 +27,8 @@ func SetRouter(app *gin.Engine) {
 	authInternalGroup.GET("/accounts/logout", account.Logout)
 	authInternalGroup.PUT("/accounts/me", account.UpdateAccount)
 	authInternalGroup.PUT("/accounts/me/password", account.ChangePassword)
+
+	authGroup.Use(auth.CheckScopeMiddleware(auth.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+		POST("/accounts/:id/follow", account.Follow).
+		DELETE("/accounts/:id/follow", account.UnFollow)
 }

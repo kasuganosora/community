@@ -77,13 +77,26 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 
 			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get user error, user id: %d", tokenData.UserId))
-			log.ErrorV(err)
+			_ = c.Error(err)
+			return
+		}
+
+		account, err := user.GetAccountBase(db.GetDB())
+
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				returnUnauthorizedAndRemoveCookie(c)
+			}
+
+			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get account error, user id: %d", tokenData.UserId))
+			_ = c.Error(err)
 			return
 		}
 
 		// 将 tokenData 保存到 gin.Context 中
 		c.Set("token_data", tokenData)
 		c.Set("user", user)
+		c.Set("account", account)
 		c.Next()
 	}
 }

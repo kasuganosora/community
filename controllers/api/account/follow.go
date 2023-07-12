@@ -1,0 +1,182 @@
+package account
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"strconv"
+)
+
+type FollowRequest struct {
+	AccountId uint64 `json:"account_id"`
+	Reblogs   bool   `json:"reblogs"`
+}
+
+func Follow(c *gin.Context) {
+	var req FollowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{
+			"code": 400,
+			"msg":  "invalid request body",
+		})
+		return
+	}
+
+	accid, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || accid == 0 {
+		c.AbortWithStatusJSON(400, gin.H{
+			"code": 400,
+			"msg":  "invalid account id",
+		})
+		return
+	}
+
+	req.AccountId = accid
+
+	// 获取当前登录用户
+	account := c.MustGet("account").(*models.Account)
+
+	// 检查被关注的账户ID是否存在
+	targetAccount := &models.Account{}
+	err = db.GetDB().Model(&models.Account{}).Where("id = ?", req.AccountId).First(targetAccount).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(400, gin.H{
+				"code": 400,
+				"msg":  "account not found",
+			})
+			return
+		}
+
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+
+		err = errors.Wrap(err, "GetAccountBase error")
+		_ = c.Error(err)
+		return
+	}
+
+	// 检查是否已经关注
+	follow := &models.Follow{}
+	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?", account.Id, targetAccount.Id).First(follow).Error
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+
+		err = errors.Wrap(err, "GetAccountBase error")
+		_ = c.Error(err)
+		return
+	}
+
+	follow.AccountId = account.Id
+	follow.FollowId = targetAccount.Id
+	follow.Properties["reblogs"] = req.Reblogs
+
+	if follow.Id > 0 {
+		err = db.GetDB().Save(follow).Error
+	} else {
+		err = db.GetDB().Create(follow).Error
+	}
+
+	if err != nil {
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+
+		err = errors.Wrap(err, "GetAccountBase error")
+		_ = c.Error(err)
+		return
+	}
+
+	c.JSON(200, serializer.ToFollowStatus(targetAccount, follow))
+}
+
+type UnfollowRequest struct {
+	AccountId uint64 `json:"account_id"`
+}
+
+func UnFollow(c *gin.Context) {
+	var req UnfollowRequest
+
+	accid, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || accid == 0 {
+		c.AbortWithStatusJSON(400, gin.H{
+			"code": 400,
+			"msg":  "invalid account id",
+		})
+		return
+	}
+
+	req.AccountId = accid
+
+	account := c.MustGet("account").(*models.Account)
+
+	targetAccount := &models.Account{}
+	err = db.GetDB().Model(&models.Account{}).Where("id = ?", req.AccountId).First(targetAccount).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(400, gin.H{
+				"code": 400,
+				"msg":  "account not found",
+			})
+			return
+		}
+
+		err = errors.Wrap(err, "get follow target account error")
+		_ = c.Error(err)
+
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+		return
+	}
+
+	follow := &models.Follow{}
+	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?", account.Id, targetAccount.Id).First(follow).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(400, gin.H{
+				"code": 400,
+				"msg":  "not followed",
+			})
+			return
+		}
+
+		err = errors.Wrap(err, "get follow relation error")
+		_ = c.Error(err)
+
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+		return
+	}
+
+	err = db.GetDB().Delete(follow).Error
+
+	if err != nil {
+		err = errors.Wrap(err, "delete follow relation error")
+		_ = c.Error(err)
+
+		c.AbortWithStatusJSON(500, gin.H{
+			"code": 500,
+			"msg":  "internal error",
+		})
+		return
+	}
+
+	c.JSON(200, serializer.ToFollowStatus(targetAccount, nil))
+}
