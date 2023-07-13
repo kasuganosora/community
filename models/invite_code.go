@@ -8,7 +8,7 @@ import (
 type InviteCode struct {
 	Id                       int64          `json:"id" gorm:"primary_key;type:bigint(20);"`
 	Code                     string         `json:"code" gorm:"not null;type:varchar(64);uniqueIndex"`
-	UserId                   int64          `json:"user_id" gorm:"not null;type:bigint(20);index"`
+	UserId                   uint64         `json:"user_id" gorm:"not null;type:bigint(20);index"`
 	AccountId                string         `json:"account_id" gorm:"not null;type:varchar(64);index"`
 	MaxUseCount              int            `json:"max_use_count" gorm:"type:int(11)"`
 	UseCount                 int            `json:"use_count" gorm:"type:int(11)"`

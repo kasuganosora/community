@@ -25,7 +25,7 @@ import "github.com/kasuganosora/community/models"
 */
 
 type FollowStatus struct {
-	Id                  string  `json:"id"`
+	Id                  uint64  `json:"id"`
 	Following           bool    `json:"following"`
 	ShowingReblogs      bool    `json:"showing_reblogs"`
 	Notifying           bool    `json:"notifying"`

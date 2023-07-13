@@ -1,26 +1,63 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+	"time"
+)
+
+const (
+	ListRepliesPolicyList = iota
+	ListRepliesPolicyFollowed
+	ListRepliesPolicyNone
+)
 
 type List struct {
-	ID        uint64         `gorm:"primary_key;auto_increment" json:"id"`
-	Name      string         `gorm:"type:varchar(255);not null" json:"name"`
-	UserId    uint64         `gorm:"not null" json:"user_id"`
-	CreatedAt int64          `gorm:"not null" json:"created_at"`
-	UpdatedAt int64          `gorm:"not null" json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-	Accounts  []*Account     `gorm:"many2many:list_accounts;" json:"accounts"`
-	Followers []*Account     `gorm:"many2many:list_follow_accounts;" json:"followers"`
+	Id            uint64         `gorm:"primary_key;auto_increment" json:"id"`
+	Title         string         `gorm:"type:varchar(255);not null" json:"title"`
+	AccountId     uint64         `gorm:"not null" json:"account_id"`
+	RepliesPolicy uint8          `gorm:"not null;default:0" json:"replies_policy"`
+	CreatedAt     *time.Time     `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+	Accounts      []*Account     `gorm:"many2many:list_accounts;" json:"accounts"`
+	Followers     []*Account     `gorm:"many2many:list_follow_accounts;" json:"followers"`
 }
 
 func (l *List) TableName() string {
 	return "lists"
 }
 
+func (l *List) SetRepliesPolicy(policy string) {
+	switch policy {
+	case "list":
+		l.RepliesPolicy = ListRepliesPolicyList
+	case "followed":
+		l.RepliesPolicy = ListRepliesPolicyFollowed
+	case "none":
+		l.RepliesPolicy = ListRepliesPolicyNone
+	default:
+		l.RepliesPolicy = ListRepliesPolicyList
+	}
+}
+
+func (l *List) GetRepliesPolicy() string {
+	switch l.RepliesPolicy {
+	case ListRepliesPolicyList:
+		return "list"
+	case ListRepliesPolicyFollowed:
+		return "followed"
+	case ListRepliesPolicyNone:
+		return "none"
+	default:
+		return "list"
+	}
+}
+
 type ListAccount struct {
-	ID        uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	ListId    uint64 `gorm:"not null;index" json:"list_id"`
-	AccountId uint64 `gorm:"not null;index" json:"account_id"`
+	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	ListId    uint64     `gorm:"not null;index" json:"list_id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
 
 func (la *ListAccount) TableName() string {
@@ -28,9 +65,10 @@ func (la *ListAccount) TableName() string {
 }
 
 type ListFollowAccount struct {
-	ID        uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	ListId    uint64 `gorm:"not null;index" json:"list_id"`
-	AccountId uint64 `gorm:"not null;index" json:"account_id"`
+	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	ListId    uint64     `gorm:"not null;index" json:"list_id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
 
 func (lfa *ListFollowAccount) TableName() string {

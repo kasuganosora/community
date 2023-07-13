@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"reflect"
+	"time"
 )
 
 const (
@@ -20,15 +21,15 @@ const (
 )
 
 type User struct {
-	Id             int64           `json:"id" gorm:"primary_key;autoIncrement"`
+	Id             uint64          `json:"id" gorm:"primary_key;autoIncrement"`
 	UUID           string          `json:"uuid" gorm:"unique;not null;type:varchar(36)"`                     // UUID
 	UserName       string          `json:"username" gorm:"unique;column:username;not null;type:varchar(20)"` // 用户名
 	IsBan          bool            `json:"is_ban" gorm:"default:false"`                                      // 是否被封禁
 	IsAdmin        bool            `json:"is_admin" gorm:"default:false"`                                    // 是否是管理员
 	EmailHash      string          `json:"email_hash" gorm:"type:varchar(255); unique;not null"`             // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
-	CreatedAt      int64           `gorm:"autoCreateTime"`                                                   // 创建时间
-	UpdatedAt      int64           `gorm:"autoUpdateTime"`                                                   // 更新时间
-	InviteBy       int64           `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
+	CreatedAt      *time.Time      `gorm:"autoCreateTime"`                                                   // 创建时间
+	UpdatedAt      *time.Time      `gorm:"autoUpdateTime"`                                                   // 更新时间
+	InviteBy       uint64          `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
 	Status         int             `json:"status" gorm:"default:0"`                                          // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
 	Properties     map[string]any  `json:"properties" gorm:"type:json;serializer;json"`                      // 用户的属性
 	IsMailVerified bool            `json:"-" gorm:"default:false"`                                           // 邮箱是否验证
@@ -64,7 +65,7 @@ func (u *User) GetAccountBase(db *gorm.DB) (account *Account, err error) {
 
 // UserSecretData 保存用户的敏感数据，如密码，邮箱等 里面的所有数据在保存时候都会加密
 type UserSecretData struct {
-	UserId          int64          `json:"user_id" gorm:"primary_key, column:user_id"`
+	UserId          uint64         `json:"user_id" gorm:"primary_key, column:user_id"`
 	Salt            string         `json:"salt" gorm:"type:varchar(255);not null"`
 	Password        string         `json:"password" gorm:"type:varchar(255);not null"` // 密码不需要加密, 因为入库的时候进行过不可逆加密
 	Email           string         `json:"email" gorm:"type:varchar(255);not null" encrypt:"true"`

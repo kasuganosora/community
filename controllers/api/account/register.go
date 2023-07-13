@@ -157,7 +157,7 @@ type VerifyEmailToken struct {
 
 func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
 	token := VerifyEmailToken{
-		Token:    utils.GetRandomString(32) + "-" + strconv.FormatInt(user.Id, 10) + "-" + uuid.New().String(),
+		Token:    utils.GetRandomString(32) + "-" + strconv.FormatUint(user.Id, 10) + "-" + uuid.New().String(),
 		ExpireAt: time.Now().Add(time.Minute * 5).Unix(),
 	}
 

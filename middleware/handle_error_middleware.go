@@ -24,6 +24,6 @@ func HandleErrorsMiddleware() gin.HandlerFunc {
 			ret["stack"] = fmt.Sprintf("%+v", lastError.Err)
 		}
 
-		c.JSON(500, ret)
+		c.AbortWithStatusJSON(500, ret)
 	}
 }

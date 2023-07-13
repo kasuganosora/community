@@ -38,7 +38,7 @@ func VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	userId, err := strconv.ParseInt(tokenParts[1], 10, 64)
+	userId, err := strconv.ParseUint(tokenParts[1], 10, 64)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid token"})
 		return

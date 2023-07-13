@@ -59,7 +59,7 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 
 	// 生成一个恢复密码用的 token
 	token := RecoverPasswordVerifyEmailToken{
-		Token:    utils.GetRandomString(32) + "-" + strconv.FormatInt(user.Id, 10) + "-" + uuid.New().String(),
+		Token:    utils.GetRandomString(32) + "-" + strconv.FormatUint(user.Id, 10) + "-" + uuid.New().String(),
 		ExpireAt: time.Now().Unix() + 5*60, // 5 分钟后过期
 	}
 

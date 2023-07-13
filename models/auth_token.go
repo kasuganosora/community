@@ -19,8 +19,8 @@ const (
 type AuthToken struct {
 	Token         string     `gorm:"column:token;type:varchar(128);not null;primary_key"`
 	Type          uint8      `gorm:"column:type;not null"`
-	UserId        int64      `gorm:"column:user_id;not null;index"`
-	ApplicationId int64      `gorm:"column:application_id;index"`
+	UserId        uint64     `gorm:"column:user_id;not null;index"`
+	ApplicationId uint64     `gorm:"column:application_id;index"`
 	ExpiredAt     *time.Time `gorm:"column:expired_at;"` // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
 	CreatedAt     *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
 	Revoke        *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
@@ -32,9 +32,9 @@ func (AuthToken) TableName() string {
 
 // AuthTokenData 用于存放在token里面的数据, 用于解析token,降低数据库查询次数
 type AuthTokenData struct {
-	UserId      int64             `json:"user_id"`
+	UserId      uint64            `json:"user_id"`
 	AuthType    uint8             `json:"auth_type"`
-	Permissions int64             `json:"permissions"`
+	Permissions uint64            `json:"permissions"`
 	Scopes      *ApplicationScope `json:"scopes"`
 	CreatedAt   int64             `json:"created_at"`
 	ExpiredAt   int64             `json:"expired_at"`
@@ -105,7 +105,7 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 
 }
 
-func NewAuthToken(userId int64, authType uint8, permissions int64, scopes *ApplicationScope, expiredIn int, encKey string) (tokenRow *AuthToken, tokenStr string) {
+func NewAuthToken(userId uint64, authType uint8, permissions uint64, scopes *ApplicationScope, expiredIn int, encKey string) (tokenRow *AuthToken, tokenStr string) {
 	now := time.Now()
 	var expiredAt *time.Time
 

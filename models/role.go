@@ -34,25 +34,25 @@ type Role struct {
 	Name        string `json:"name" gorm:"unique;not null;type:varchar(20)"`
 	Color       string `json:"color" gorm:"type:varchar(20)"`
 	Highlighted bool   `json:"highlighted" gorm:"default:false"`
-	Permissions int64  `json:"-" gorm:"type:bigint"`
+	Permissions uint64 `json:"-" gorm:"type:bigint"`
 }
 
 func (Role) TableName() string {
 	return "roles"
 }
 
-func (r *Role) HasPermission(permission int64) bool {
+func (r *Role) HasPermission(permission uint64) bool {
 	return r.Permissions&permission == permission
 }
 
-func (r *Role) SetPermission(permission int64) *Role {
+func (r *Role) SetPermission(permission uint64) *Role {
 	r.Permissions |= permission
 	return r
 }
 
 type RoleUser struct {
-	RoleID    int64      `json:"role_id" gorm:"primary_key"`
-	UserID    int64      `json:"user_id" gorm:"primary_key"`
+	RoleID    uint64     `json:"role_id" gorm:"primary_key"`
+	UserID    uint64     `json:"user_id" gorm:"primary_key"`
 	CreatedAt *time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
@@ -60,7 +60,7 @@ func (RoleUser) TableName() string {
 	return "role_users"
 }
 
-func AssignRole(db *gorm.DB, userID int64, roleID int64) (err error) {
+func AssignRole(db *gorm.DB, userID uint64, roleID uint64) (err error) {
 	r := &RoleUser{
 		RoleID: roleID,
 		UserID: userID,
@@ -78,7 +78,7 @@ func AssignRole(db *gorm.DB, userID int64, roleID int64) (err error) {
 	return
 }
 
-func GetUserRoles(db *gorm.DB, userID int64) (roles []*Role, err error) {
+func GetUserRoles(db *gorm.DB, userID uint64) (roles []*Role, err error) {
 	roles = make([]*Role, 0)
 	userRoles := make([]*RoleUser, 0)
 	err = db.Model(&RoleUser{}).Where("user_id = ?", userID).Find(&userRoles).Error
@@ -86,7 +86,7 @@ func GetUserRoles(db *gorm.DB, userID int64) (roles []*Role, err error) {
 		return
 	}
 
-	roleIDs := make([]int64, 0)
+	roleIDs := make([]uint64, 0)
 	for _, userRole := range userRoles {
 		roleIDs = append(roleIDs, userRole.RoleID)
 	}
@@ -96,7 +96,7 @@ func GetUserRoles(db *gorm.DB, userID int64) (roles []*Role, err error) {
 	return roles, err
 }
 
-func GetUserPermissions(db *gorm.DB, userID int64) (permissions int64, err error) {
+func GetUserPermissions(db *gorm.DB, userID uint64) (permissions uint64, err error) {
 	roles, err := GetUserRoles(db, userID)
 	if err != nil {
 		return

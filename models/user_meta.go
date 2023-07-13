@@ -7,8 +7,8 @@ import (
 )
 
 type UserMeta struct {
-	Id     int64  `json:"id" gorm:"primary_key;autoIncrement"`
-	UserId int64  `json:"user_id" gorm:"not null; index:user_key"`
+	Id     uint64 `json:"id" gorm:"primary_key;autoIncrement"`
+	UserId uint64 `json:"user_id" gorm:"not null; index:user_key"`
 	Key    string `json:"key" gorm:"type:varchar(64);not null; index:user_key"`
 	Value  string `json:"value" gorm:"type:text;not null"`
 }
@@ -18,7 +18,7 @@ func (UserMeta) TableName() string {
 	return "user_meta"
 }
 
-func SaveUserMeta(db *gorm.DB, userId int64, key string, value any) (err error) {
+func SaveUserMeta(db *gorm.DB, userId uint64, key string, value any) (err error) {
 	meta := &UserMeta{}
 
 	err = db.Where("user_id = ? AND key = ?", userId, key).First(meta).Error
@@ -66,7 +66,7 @@ func SaveUserMeta(db *gorm.DB, userId int64, key string, value any) (err error) 
 	return
 }
 
-func GetUserMeta(db *gorm.DB, userId int64, key string, outValue any) (err error) {
+func GetUserMeta(db *gorm.DB, userId uint64, key string, outValue any) (err error) {
 	meta := &UserMeta{}
 
 	err = db.Where("user_id = ? AND key = ?", userId, key).First(meta).Error

@@ -3,6 +3,7 @@ package serializer
 import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"strconv"
 	"time"
 )
 
@@ -53,11 +54,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		Emoji:        ToEmojis(account.Emojis),
 	}
 
-	if account.OriginId != "" {
-		acc.Id = account.OriginId
-	} else {
-		acc.Id = account.Id
-	}
+	acc.Id = strconv.FormatUint(account.Id, 10)
 
 	if account.Extra != nil {
 		acc.FollowersCount = account.Extra.FollowersCount
