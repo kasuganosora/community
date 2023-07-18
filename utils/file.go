@@ -17,6 +17,10 @@ func init() {
 	sourceDir = regexp.MustCompile(`utils.file\.go`).ReplaceAllString(file, "")
 }
 
+func GetSourceDir() string {
+	return sourceDir
+}
+
 // ReadFileToString 以字符串形式读取文件
 func ReadFileToString(filename string) (content string, err error) {
 	ret, err := os.ReadFile(filename)

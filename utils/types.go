@@ -197,3 +197,40 @@ func StrToAny(str string, obj any) (err error) {
 
 	return
 }
+
+func AnyArrayToTypeNameMap(objs []any) map[string]any {
+	ret := make(map[string]any)
+	for _, obj := range objs {
+		v := reflect.ValueOf(obj)
+		if v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+
+		vT := v.Type()
+		if vT.Kind() != reflect.Struct {
+			continue
+		}
+
+		key := vT.Name()
+		ret[key] = obj
+	}
+
+	return ret
+}
+
+func MergeMap(dst, src map[string]any) (ret map[string]any) {
+	if dst == nil {
+		dst = make(map[string]any)
+	}
+
+	if src == nil {
+		return dst
+	}
+
+	for k, v := range src {
+		dst[k] = v
+	}
+
+	ret = dst
+	return
+}

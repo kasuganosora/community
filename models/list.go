@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	ListRepliesPolicyList = iota
-	ListRepliesPolicyFollowed
-	ListRepliesPolicyNone
+	ListRepliesPolicyList     = iota //仅显示列表成员之间的回复
+	ListRepliesPolicyFollowed        // 显示与列表成员相关的所有回复，包括列表成员回复给其他非列表成员的回复
+	ListRepliesPolicyNone            // 不显示任何回复
 )
 
 type List struct {
@@ -25,6 +25,14 @@ type List struct {
 
 func (l *List) TableName() string {
 	return "lists"
+}
+
+func (l *List) AfterCreate(tx *gorm.DB) (err error) {
+	listFollowAccount := &ListFollowAccount{
+		ListId:    l.Id,
+		AccountId: l.AccountId,
+	}
+	return tx.Create(listFollowAccount).Error
 }
 
 func (l *List) SetRepliesPolicy(policy string) {
