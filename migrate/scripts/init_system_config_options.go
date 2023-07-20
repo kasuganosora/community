@@ -70,6 +70,8 @@ func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 	records[systemsettings.KeyRecaptchaSecretKey] = ""
 	records[systemsettings.KeyRecaptchaEnabled] = false
 	records[systemsettings.KeyRegistrationCheckEmail] = false
+	records[systemsettings.KeyMediaAttachmentsBaseURL] = ""
+	records[systemsettings.KeyMediaAttachmentsCacheBaseURL] = ""
 
 	// 创建系统配置项
 	err = db.Transaction(func(tx *gorm.DB) (err error) {

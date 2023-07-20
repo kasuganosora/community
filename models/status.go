@@ -1,0 +1,407 @@
+package models
+
+import (
+	"github.com/kasuganosora/community/utils"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const (
+	StatusTypeStatus = iota
+	StatusTypeRelog
+	StatusTypeReply
+	StatusTypeCard
+	StatusTypePoll
+)
+
+const (
+	StatusVisibilityPublic = iota
+	StatusVisibilityUnlisted
+	StatusVisibilityPrivate
+	StatusVisibilityDirect
+)
+
+type Status struct {
+	Id            uint64        `gorm:"primary_key;auto_increment" json:"id"`
+	Content       StatusContent `json:"content"`
+	AccountId     uint64        `gorm:"not null;index" json:"account_id"`
+	ApplicationId *uint64       `json:"application_id"`
+	Pinned        bool          `gorm:"not null;default:false" json:"pinned"`
+	Visibility    uint8         `gorm:"not null;default:0" json:"visibility"`
+	RelogId       uint64        `json:"relog_id"`
+	ReblogsCount  uint64        `gorm:"not null;default:0" json:"relogs_count"`
+	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
+
+	InReplyToId        uint64     `json:"in_reply_to_id"`
+	InReplyToAccountId uint64     `json:"in_reply_to_account_id"`
+	Sensitive          bool       `gorm:"not null;default:false" json:"sensitive"`
+	Language           string     `gorm:"type:varchar(16)" json:"language"`
+	FavouritesCount    uint64     `gorm:"not null;default:0" json:"favourites_count"`
+	ScheduledAt        *time.Time `gorm:"index" json:"scheduled_at"`
+	OriginUri          *string    `gorm:"type:varchar(255)" json:"origin_uri"`
+	OriginUrl          *string    `gorm:"type:varchar(255)" json:"origin_url"`
+	CreatedAt          *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+	UpdatedAt          *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
+	DeletedAt          *time.Time `gorm:"index" json:"-"`
+
+	Application  *Application  `gorm:"foreignKey:application_id" json:"application"`
+	Attachments  []*Attachment `gorm:"many2many:status_media_attachments;" json:"attachments"`
+	ReplyAccount *Account      `gorm:"foreignKey:InReplyToAccountId" json:"reply_account"`
+	Emojis       []*Emoji      `gorm:"many2many:status_emojis;" json:"emojis"`
+	ToAccounts   []*Account    `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
+	Poll         *Poll         `gorm:"foreignKey:status_id" json:"poll"`
+	Account      *Account      `gorm:"foreignKey:account_id" json:"account"`
+	Relog        *Status       `gorm:"foreignKey:relog_id" json:"relog"`
+	Tags         []*Tag        `gorm:"many2many:status_tags;" json:"tags"`
+}
+
+func (s *Status) TableName() string {
+	return "statuses"
+}
+
+func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
+	if s.InReplyToId > 0 {
+		if err = tx.Where("id = ?", s.InReplyToId).First(&Status{}).Error; err != nil {
+			err = errors.New("reply status not found")
+			return
+		}
+	}
+
+	return
+}
+
+func (s *Status) SetVisibilityByString(visibility string) (err error) {
+	switch strings.ToLower(visibility) {
+	case "public":
+		s.Visibility = StatusVisibilityPublic
+	case "unlisted":
+		s.Visibility = StatusVisibilityUnlisted
+	case "private":
+		s.Visibility = StatusVisibilityPrivate
+	case "direct":
+		s.Visibility = StatusVisibilityDirect
+	default:
+		err = errors.New("invalid visibility")
+	}
+	return
+}
+
+func (s *Status) GetVisibilityString() string {
+	switch s.Visibility {
+	case StatusVisibilityPublic:
+		return "public"
+	case StatusVisibilityUnlisted:
+		return "unlisted"
+	case StatusVisibilityPrivate:
+		return "private"
+	case StatusVisibilityDirect:
+		return "direct"
+	default:
+		return "unknown"
+	}
+}
+
+type StatusContent struct {
+	StatusId    uint64         `gorm:"primary_key;auto_increment" json:"status_id"`
+	Content     string         `gorm:"type:text;not null" json:"content"`
+	SpoilerText string         `gorm:"type:text;" json:"spoiler_text"`
+	Card        map[string]any `gorm:"type:json;serializer:json" json:"card"`
+}
+
+func (sc *StatusContent) TableName() string {
+	return "status_contents"
+}
+
+func (sc *StatusContent) BeforeCreate(tx *gorm.DB) (err error) {
+	err = sc.bindAnyThingsByStatusContent(tx, false)
+	return
+}
+
+func (sc *StatusContent) BeforeUpdate(tx *gorm.DB) (err error) {
+	err = sc.bindAnyThingsByStatusContent(tx, true)
+	return
+}
+
+func (sc *StatusContent) bindAnyThingsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
+	if err = sc.bindEmojiByStatusContent(tx, refresh); err != nil {
+		return
+	}
+
+	if err = sc.bindTagsByStatusContent(tx, refresh); err != nil {
+		return
+	}
+
+	if err = sc.bindToAccountsByStatusContent(tx, refresh); err != nil {
+		return
+	}
+	return
+}
+
+func (sc *StatusContent) bindEmojiByStatusContent(tx *gorm.DB, refresh bool) (err error) {
+	if refresh {
+		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusEmoji{}).Error; err != nil {
+			return
+		}
+	}
+
+	// emoji tag format: :emoji_name:
+	// example: :ablobdj:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:ablobdj:
+
+	preg := regexp.MustCompile(`:[a-zA-Z0-9_]+:`)
+	emojiNames := preg.FindAllString(sc.Content, -1)
+	if len(emojiNames) == 0 {
+		return
+	}
+
+	emojiNames = utils.FilterDuplicateAndEmptyString(emojiNames)
+
+	if len(emojiNames) == 0 {
+		return
+	}
+
+	for i, emojiName := range emojiNames {
+		emojiNames[i] = strings.Trim(emojiName, ": \t\n\r")
+	}
+
+	emojis := make([]*Emoji, 0)
+	if err = tx.Where("shortcode IN ?", emojiNames).Find(&emojis).Error; err != nil {
+		return
+	}
+
+	if len(emojis) == 0 {
+		return
+	}
+
+	statusEmojis := make([]*StatusEmoji, 0)
+	for _, emoji := range emojis {
+		statusEmojis = append(statusEmojis, &StatusEmoji{
+			StatusId: sc.StatusId,
+			EmojiId:  emoji.Id,
+		})
+	}
+
+	err = tx.Create(&statusEmojis).Error
+	return
+}
+
+func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
+	if refresh {
+		// 把之前的tag的使用次数减一
+		err = tx.Model(&Tag{}).Where("id IN (?)", tx.Model(&StatusTag{}).Select("tag_id").Where("status_id = ?", sc.StatusId)).
+			Update("used_count", gorm.Expr("used_count - ?", 1)).Error
+
+		if err != nil {
+			return
+		}
+
+		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusTag{}).Error; err != nil {
+			return
+		}
+	}
+
+	// tag format: #tag_name
+	// example: #abc #def #ghi #你好
+	reg := regexp.MustCompile(`#\S+`)
+	tagNames := reg.FindAllString(sc.Content, -1)
+
+	if len(tagNames) == 0 {
+		return
+	}
+
+	tagNames = utils.FilterDuplicateAndEmptyString(tagNames)
+
+	if len(tagNames) == 0 {
+		return
+	}
+
+	for i, tagName := range tagNames {
+		tagNames[i] = strings.Trim(tagName, "# \t\n\r")
+	}
+
+	tags := make([]*Tag, 0)
+	if err = tx.Where("name IN ?", tagNames).Find(&tags).Error; err != nil {
+		return
+	}
+
+	tagMap := make(map[string]*Tag)
+	for _, tag := range tags {
+		tagMap[tag.Name] = tag
+	}
+
+	// 找出不存在的tag
+	notExistTagNames := make([]string, 0)
+	for _, tagName := range tagNames {
+		if _, ok := tagMap[tagName]; !ok {
+			notExistTagNames = append(notExistTagNames, tagName)
+		}
+	}
+
+	// 创建不存在的tag
+	if len(notExistTagNames) > 0 {
+		for _, tagName := range notExistTagNames {
+			tag := &Tag{
+				Name: tagName,
+			}
+			if err = tx.Create(tag).Error; err != nil {
+				return
+			}
+			tagMap[tagName] = tag
+		}
+	}
+
+	statusTags := make([]*StatusTag, 0)
+	for _, tag := range tagMap {
+		statusTags = append(statusTags, &StatusTag{
+			StatusId: sc.StatusId,
+			TagId:    tag.Id,
+		})
+	}
+
+	err = tx.Create(&statusTags).Error
+
+	// 刷新tag的使用次数
+	for _, tag := range tagMap {
+		if err = tx.Model(tag).UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error; err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
+
+	if refresh {
+		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusToAccount{}).Error; err != nil {
+			return
+		}
+	}
+
+	// format: @username1 @username2 @username3@domain1 @username4@domain2
+	reg := regexp.MustCompile(`@\S+`)
+	accountNames := reg.FindAllString(sc.Content, -1)
+
+	if len(accountNames) == 0 {
+		return
+	}
+
+	accountNames = utils.FilterDuplicateAndEmptyString(accountNames)
+
+	if len(accountNames) == 0 {
+		return
+	}
+	// 根据 domain 聚合
+	domainAccountNames := make(map[string][]string)
+	for _, accountName := range accountNames {
+		accountName = strings.Trim(accountName, "@ \t\n\r")
+		domain := ""
+		userName := ""
+
+		if strings.Contains(accountName, "@") {
+			parts := strings.Split(accountName, "@")
+			if len(parts) == 2 {
+				userName = parts[0]
+				domain = parts[1]
+			} else {
+				continue
+			}
+		} else {
+			userName = accountName
+		}
+
+		if userName == "" {
+			continue
+		}
+
+		if _, ok := domainAccountNames[domain]; !ok {
+			domainAccountNames[domain] = make([]string, 0)
+		}
+
+		domainAccountNames[domain] = append(domainAccountNames[domain], userName)
+	}
+
+	accounts := make([]*Account, 0)
+
+	for domain, userNames := range domainAccountNames {
+		_accounts := make([]*Account, 0)
+
+		if domain == "" {
+			err = tx.Where("username IN ?", userNames).Where("domain is null").Find(&_accounts).Error
+		} else {
+			err = tx.Where("username IN ?", userNames).Where("domain = ?", domain).Find(&_accounts).Error
+		}
+
+		if err != nil {
+			return
+		}
+
+		accounts = append(accounts, _accounts...)
+	}
+
+	if len(accounts) == 0 {
+		return
+	}
+
+	statusAccounts := make([]*StatusToAccount, 0)
+	for _, account := range accounts {
+		statusAccounts = append(statusAccounts, &StatusToAccount{
+			StatusId:  sc.StatusId,
+			AccountId: account.Id,
+		})
+	}
+
+	err = tx.Create(&statusAccounts).Error
+	return
+}
+
+type StatusMediaAttachment struct {
+	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId uint64 `gorm:"not null;index" json:"status_id"`
+	MediaId  uint64 `gorm:"not null;index" json:"media_id"`
+}
+
+func (sma *StatusMediaAttachment) TableName() string {
+	return "status_media_attachments"
+}
+
+type StatusMention struct {
+	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId uint64 `gorm:"not null;index" json:"status_id"`
+}
+
+func (sm *StatusMention) TableName() string {
+	return "status_mentions"
+}
+
+type StatusTag struct {
+	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId uint64 `gorm:"not null;index" json:"status_id"`
+	TagId    uint64 `gorm:"not null;index" json:"tag_id"`
+}
+
+func (st *StatusTag) TableName() string {
+	return "status_tags"
+}
+
+type StatusEmoji struct {
+	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId uint64 `gorm:"not null;index" json:"status_id"`
+	EmojiId  uint64 `gorm:"not null;index" json:"emoji_id"`
+}
+
+func (se *StatusEmoji) TableName() string {
+	return "status_emojis"
+}
+
+type StatusToAccount struct {
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+}
+
+func TableName() string {
+	return "status_to_accounts"
+}

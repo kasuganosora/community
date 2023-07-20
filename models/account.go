@@ -16,8 +16,8 @@ type Account struct {
 	Id              uint64     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
 	UserId          uint64     `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
 	Username        string     `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain          string     `json:"domain" gorm:"type:varchar(128)"`   // 远程账号的域名,如果是本地账号则为 null
-	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"` // 远程账号的ID,如果是本地账号则为 null
+	Domain          *string    `json:"domain" gorm:"type:varchar(128);index"` // 远程账号的域名,如果是本地账号则为 null
+	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"`     // 远程账号的ID,如果是本地账号则为 null
 	DisplayName     string     `json:"display_name" gorm:"not null;type:varchar(128)"`
 	Avatar          string     `json:"avatar" gorm:"type:varchar(1024)"`
 	AvatarStatic    string     `json:"avatar_static" gorm:"type:varchar(1024)"`

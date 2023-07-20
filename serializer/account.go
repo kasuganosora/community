@@ -1,6 +1,7 @@
 package serializer
 
 import (
+	"fmt"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"strconv"
@@ -32,12 +33,13 @@ type Account struct {
 }
 
 func ToAccount(account *models.Account) (acc *Account) {
-	if account.Domain == "" {
-		account.Domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	var domain string
+	if domain == "" {
+		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	}
 	acc = &Account{
 		Username:     account.Username,
-		Acct:         account.Username + "@" + account.Domain,
+		Acct:         account.Username + "@" + domain,
 		DisplayName:  account.DisplayName,
 		Locked:       account.Locked,
 		Bot:          account.Bot,
@@ -71,6 +73,38 @@ func ToAccounts(accounts []*models.Account) (accs []*Account) {
 	accs = make([]*Account, len(accounts))
 	for i, account := range accounts {
 		accs[i] = ToAccount(account)
+	}
+
+	return
+}
+
+type Mention struct {
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Url      string `json:"url"`
+	Acct     string `json:"acct"`
+}
+
+func ToMention(account *models.Account) (mention *Mention) {
+	var domain string
+	if domain == "" {
+		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	}
+	mention = &Mention{
+		Username: account.Username,
+		Acct:     account.Username + "@" + domain,
+		Url:      fmt.Sprintf("https://%s/users/%s", domain, account.Username),
+	}
+
+	mention.Id = strconv.FormatUint(account.Id, 10)
+
+	return
+}
+
+func ToMentions(accounts []*models.Account) (mentions []*Mention) {
+	mentions = make([]*Mention, len(accounts))
+	for i, account := range accounts {
+		mentions[i] = ToMention(account)
 	}
 
 	return

@@ -32,8 +32,8 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.List{},
 		&models.ListAccount{},
 		&models.ListFollowAccount{},
-		&models.Post{},
-		&models.PostContent{},
+		&models.Status{},
+		&models.StatusContent{},
 	)
 }
 
@@ -60,7 +60,7 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.List{},
 		&models.ListAccount{},
 		&models.ListFollowAccount{},
-		&models.Post{},
-		&models.PostContent{},
+		&models.Status{},
+		&models.StatusContent{},
 	)
 }

@@ -51,4 +51,7 @@ func SetRouter(app *gin.Engine) {
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
 		GET("/lists/:id/followers", list.GetListFollowers)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
+		POST("/statuses")
 }

@@ -42,6 +42,9 @@ const (
 	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key
 	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha
 	KeyRegistrationCheckEmail       = "config.registration.check_email"                 // 是否检查邮箱
+	KeyMediaAttachmentsBaseURL      = "config.media_attachments.base_url"               // 附件基础URL
+	KeyMediaAttachmentsCacheBaseURL = "config.media_attachments.cache_base_url"         // 附件缓存基础URL
+
 )
 
 var settings = map[string]any{}
