@@ -2,8 +2,10 @@ package serializer
 
 import (
 	"fmt"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 	"strconv"
 	"time"
 )
@@ -145,7 +147,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 
 	ret.Content = status.Content.Content
 
-	ret.Reblog, err = ToStatusBase(status.Relog)
+	ret.Reblog, err = ToStatusBase(status.Reblog)
 	if err != nil {
 		return
 	}
@@ -155,6 +157,185 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	ret.Tags = ToTags(status.Tags)
 	ret.Emojis = ToEmojis(status.Emojis)
 	ret.Card = status.Content.Card
+
+	return
+}
+
+func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Status, err error) {
+	ret, err = ToStatusBase(status)
+
+	if err != nil {
+		return
+	}
+
+	if status.Reblog != nil {
+		ret.Reblog, err = ToStatus(status.Reblog, currentAccount)
+		if err != nil {
+			return
+		}
+	}
+
+	if status.Poll != nil {
+		ret.Poll, err = ToPoll(status.Poll, currentAccount)
+		if err != nil {
+			return
+		}
+	}
+
+	if currentAccount == nil {
+		return
+	}
+
+	dbConn := db.GetDB()
+	var isPined, isReblogged, isFavourited, isMuted, isBookmarked bool
+	if isPined, err = status.IsPined(dbConn, currentAccount); err != nil {
+		return
+	}
+
+	if isReblogged, err = status.IsReblogged(dbConn, currentAccount); err != nil {
+		return
+	}
+
+	if isFavourited, err = status.IsFavourited(dbConn, currentAccount); err != nil {
+		return
+	}
+
+	if isMuted, err = status.IsMuted(dbConn, currentAccount); err != nil {
+		return
+	}
+
+	if isBookmarked, err = status.IsBookmarked(dbConn, currentAccount); err != nil {
+		return
+	}
+
+	ret.Pinned = isPined
+	ret.Reblogged = isReblogged
+	ret.Favourited = isFavourited
+	ret.Muted = isMuted
+	ret.Bookmarked = isBookmarked
+
+	filters, err := models.GetFilters(dbConn, currentAccount.Id)
+	if err != nil {
+		return
+	}
+
+	ret.Filtered = filters.GetStatusFilters(status, currentAccount).GetFilterActionsName()
+
+	return
+}
+
+func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret []*Status, err error) {
+	if statuses == nil {
+		return
+	}
+
+	dbConn := db.GetDB()
+	statusIds := statuses.GetIdsWithoutReblogWarp()
+	bookmarkedIds := make([]uint64, 0, len(statusIds))
+	rebloggedIds := make([]uint64, 0, len(statusIds))
+	favouritedIds := make([]uint64, 0, len(statusIds))
+	pinnedIds := make([]uint64, 0, len(statusIds))
+	filters := make(models.Filters, 0)
+	muteAccounts := make(models.MuteAccounts, 0)
+	blocks := make(models.Blocks, 0)
+
+	if currentAccount != nil {
+		// 找出这些状态那些是我置顶过的
+		err = dbConn.Model(&models.PinStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &pinnedIds).Error
+		if err != nil {
+			return
+		}
+
+		// 找出这些状态那些是我点赞过的
+		err = dbConn.Model(&models.FavoriteStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &favouritedIds).Error
+		if err != nil {
+			return
+		}
+
+		// 找出这些状态那些是我转发过的
+		err = dbConn.Model(&models.Status{}).Where("account_id = ? AND reblog_id IN (?)", currentAccount.Id, statusIds).Pluck("reblog_id", &rebloggedIds).Error
+
+		if err != nil {
+			return
+		}
+
+		// 那些是我加入书签的
+		err = dbConn.Model(&models.BookmarkStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &bookmarkedIds).Error
+		if err != nil {
+			return
+		}
+
+		// 我有那些过滤器
+		filters, err = models.GetFilters(dbConn, currentAccount.Id)
+
+		if err != nil {
+			return
+		}
+
+		// 我屏蔽了那些用户
+		err = dbConn.Model(&models.MuteAccount{}).Where("account_id = ?", currentAccount.Id, statusIds).Find(muteAccounts).Error
+		if err != nil {
+			return
+		}
+
+		// 我block了那些用户
+		err = dbConn.Model(&models.Block{}).Where("account_id = ? or account_id = 0", currentAccount.Id).Find(blocks).Error
+		if err != nil {
+			return
+		}
+
+	} else {
+		// 没有登陆下
+		filters, err = models.GetFilters(dbConn, 0)
+		if err != nil {
+			return
+		}
+	}
+
+	muteAccounts = muteAccounts.ExcludeExpired()
+
+	polls := make([]*models.Poll, 0)
+	for _, status := range statuses {
+		if status.Poll != nil {
+			polls = append(polls, status.Poll)
+		}
+	}
+
+	sPolls, err := ToPollsMapByStatusId(polls, currentAccount)
+	if err != nil {
+		return
+	}
+
+	for _, status := range statuses {
+		// 只要是那个人发的，或者是转发的，都不要
+		if muteAccounts.IsMuted(status.AccountId) || (status.Reblog != nil && muteAccounts.IsMuted(status.Reblog.AccountId)) {
+			continue
+		}
+
+		if blocks.IsBlocked(status.Account) {
+			continue
+		}
+
+		var retStatus *Status
+		retStatus, err = ToStatus(status, currentAccount)
+		if err != nil {
+			return nil, err
+		}
+
+		retStatus.Pinned = utils.Contains(pinnedIds, status.Id)
+		retStatus.Reblogged = utils.Contains(rebloggedIds, status.Id)
+		retStatus.Favourited = utils.Contains(favouritedIds, status.Id)
+		retStatus.Bookmarked = utils.Contains(bookmarkedIds, status.Id)
+		retStatus.Filtered = filters.GetStatusFilters(status, currentAccount).GetFilterActionsName()
+
+		if status.Poll != nil {
+			if sPoll, ok := sPolls[status.Id]; ok {
+				retStatus.Poll = sPoll
+			}
+		}
+
+		ret = append(ret, retStatus)
+	}
 
 	return
 }

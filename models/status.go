@@ -29,9 +29,8 @@ type Status struct {
 	Content       StatusContent `json:"content"`
 	AccountId     uint64        `gorm:"not null;index" json:"account_id"`
 	ApplicationId *uint64       `json:"application_id"`
-	Pinned        bool          `gorm:"not null;default:false" json:"pinned"`
 	Visibility    uint8         `gorm:"not null;default:0" json:"visibility"`
-	RelogId       uint64        `json:"relog_id"`
+	ReblogId      uint64        `json:"reblog_id"`
 	ReblogsCount  uint64        `gorm:"not null;default:0" json:"relogs_count"`
 	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
 
@@ -54,7 +53,7 @@ type Status struct {
 	ToAccounts   []*Account    `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
 	Poll         *Poll         `gorm:"foreignKey:status_id" json:"poll"`
 	Account      *Account      `gorm:"foreignKey:account_id" json:"account"`
-	Relog        *Status       `gorm:"foreignKey:relog_id" json:"relog"`
+	Reblog       *Status       `gorm:"foreignKey:reblog_id" json:"relog"`
 	Tags         []*Tag        `gorm:"many2many:status_tags;" json:"tags"`
 }
 
@@ -102,6 +101,91 @@ func (s *Status) GetVisibilityString() string {
 	default:
 		return "unknown"
 	}
+}
+
+func (s *Status) IsPined(db *gorm.DB, account *Account) (ret bool, err error) {
+	if err = db.Model(&PinStatus{}).Where("status_id = ? AND account_id = ?", s.Id, account.Id).First(&PinStatus{}).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	ret = true
+	return
+}
+
+func (s *Status) IsFavourited(db *gorm.DB, account *Account) (ret bool, err error) {
+	if err = db.Model(&FavoriteStatus{}).Where("status_id = ? AND account_id = ?", s.Id, account.Id).First(&FavoriteStatus{}).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	ret = true
+	return
+}
+
+func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error) {
+	if err = db.Model(&Status{}).Where("id = ? AND account_id = ?", s.ReblogId, account.Id).First(&Status{}).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	ret = true
+	return
+}
+
+func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
+	if err = db.Model(&MuteStatus{}).Where("account_id = ? AND mute_account_id = ?", account.Id, s.AccountId).First(&MuteStatus{}).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	ret = true
+	return
+}
+
+func (s *Status) IsBookmarked(db *gorm.DB, account *Account) (ret bool, err error) {
+	if err = db.Model(&BookmarkStatus{}).Where("status_id = ? AND account_id = ?", s.Id, account.Id).First(&BookmarkStatus{}).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	ret = true
+	return
+}
+
+type Statuses []*Status
+
+func (ss *Statuses) GetIds() (ids []uint64) {
+	for _, s := range *ss {
+		ids = append(ids, s.Id)
+	}
+	return
+}
+
+func (ss *Statuses) GetIdsWithoutReblogWarp() (ids []uint64) {
+	for _, s := range *ss {
+		if s.ReblogId == 0 {
+			ids = append(ids, s.Id)
+		} else {
+			ids = append(ids, s.ReblogId)
+		}
+	}
+	return
+}
+
+func (ss *Statuses) GetAccountIds() (ids []uint64) {
+	ids = make([]uint64, 0, len(*ss))
+	for _, s := range *ss {
+		ids = append(ids, s.AccountId)
+	}
+
+	ids = utils.UniqueSlice(ids)
+	return
 }
 
 type StatusContent struct {
@@ -404,4 +488,48 @@ type StatusToAccount struct {
 
 func TableName() string {
 	return "status_to_accounts"
+}
+
+type FavoriteStatus struct {
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+}
+
+func (fs *FavoriteStatus) TableName() string {
+	return "favorite_statuses"
+}
+
+type BookmarkStatus struct {
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+}
+
+func (bs *BookmarkStatus) TableName() string {
+	return "bookmark_statuses"
+}
+
+type MuteStatus struct {
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+}
+
+func (ms *MuteStatus) TableName() string {
+	return "mute_statuses"
+}
+
+type PinStatus struct {
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+}
+
+func (ps *PinStatus) TableName() string {
+	return "pin_statuses"
 }
