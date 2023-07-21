@@ -112,13 +112,13 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	ret = &Status{}
 	ret.Id = strconv.FormatUint(status.Id, 10)
 	ret.CreatedAt = status.CreatedAt
-	if status.InReplyToId > 0 {
+	if status.InReplyToId != nil && *status.InReplyToId > 0 {
 		ret.InReplyToId = new(string)
-		*ret.InReplyToId = strconv.FormatUint(status.InReplyToId, 10)
+		*ret.InReplyToId = strconv.FormatUint(*status.InReplyToId, 10)
 	}
-	if status.InReplyToAccountId > 0 {
+	if status.InReplyToId != nil && *status.InReplyToId > 0 {
 		ret.InReplyToAccountId = new(string)
-		*ret.InReplyToAccountId = strconv.FormatUint(status.InReplyToAccountId, 10)
+		*ret.InReplyToAccountId = strconv.FormatUint(*status.InReplyToAccountId, 10)
 	}
 
 	ret.Sensitive = status.Sensitive

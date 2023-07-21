@@ -49,7 +49,7 @@ type Poll struct {
 	VotesCount  uint64       `json:"votes_count"`
 	VotersCount uint64       `json:"voters_count"`
 	Voted       bool         `json:"voted"`
-	OwnVotes    []uint64     `json:"own_votes"`
+	OwnVotes    []uint8      `json:"own_votes"`
 	Options     []PollOption `json:"options"`
 	Emojis      []Emoji      `json:"emojis"`
 }
@@ -70,7 +70,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 		VotesCount:  votesCount,
 		VotersCount: votersCount,
 		Voted:       voted,
-		OwnVotes:    []uint64{},
+		OwnVotes:    []uint8{},
 		Options:     []PollOption{},
 		Emojis:      []Emoji{},
 	}
@@ -78,7 +78,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 }
 
 func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
-	optionsIndexMap := make(map[uint64]uint64)
+	optionsIndexMap := make(map[uint64]uint8)
 	ret = ToBasePoll(poll, false, 0, 0)
 
 	for _, option := range poll.Options {
@@ -126,7 +126,7 @@ type Counts struct {
 
 func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret map[uint64]*Poll, err error) {
 	// 一次过取出所有投票的选项
-	optionsIndexMap := make(map[uint64]uint64)
+	optionsIndexMap := make(map[uint64]uint8)
 	options := make([]*models.PollOption, 0)
 	pollIds := make([]uint64, 0)
 	ret = make(map[uint64]*Poll)
@@ -182,7 +182,7 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 
 	for _, poll := range polls {
 		voted := false
-		var ownVotes []uint64
+		var ownVotes []uint8
 		if current != nil {
 			if mySelOptions, ok := mySelectOptionsMap[poll.Id]; ok {
 				voted = true

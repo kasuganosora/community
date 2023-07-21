@@ -15,7 +15,8 @@ func GetAccount(c *gin.Context) {
 	var account *models.Account
 	var err error
 	if accountId == "me" {
-		if !c.GetBool("authenticated") {
+		_, exists := c.Get("account")
+		if !exists {
 			c.JSON(401, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -38,14 +39,15 @@ func GetAccount(c *gin.Context) {
 		return
 	}
 
-	err = db.GetDB().Association("Emojis").Find(&account.Emojis)
+	err = db.GetDB().Model(account).Association("Emojis").Find(&account.Emojis)
 	if err != nil {
 		err = errors.Wrap(err, "GetAccount")
 		_ = c.Error(err)
 		return
 	}
 
-	err = db.GetDB().Association("Extra").Find(&account.Emojis)
+	account.Extra = &models.AccountExtra{}
+	err = db.GetDB().Model(account).Association("Extra").Find(account.Extra)
 	if err != nil {
 		err = errors.Wrap(err, "GetAccount")
 		_ = c.Error(err)

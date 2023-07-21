@@ -14,7 +14,7 @@ type Scope struct {
 // 必须全部满足才能访问
 func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		td, exists := c.Get("tokenData")
+		td, exists := c.Get("token_data")
 		// 如果token不存在，返回401
 		if !exists {
 			returnUnauthorized(c)

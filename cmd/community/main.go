@@ -30,11 +30,11 @@ func main() {
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
 
-	app := gin.Default()
-
+	app := gin.New()
+	app.Use(gin.Recovery())
+	app.Use(middleware.HandleErrorsMiddleware())
 	// Set router
 	community.SetRouter(app)
-	app.Use(middleware.HandleErrorsMiddleware())
 
 	log.Info("Server is running on %s", config.C.Listen)
 	log.FatalIf(app.Run(config.C.Listen))

@@ -9,7 +9,7 @@ type CreateInitTables struct {
 }
 
 func (CreateInitTables) Up(db *gorm.DB) (err error) {
-	return db.Migrator().CreateTable(
+	return db.Migrator().AutoMigrate(
 		&models.User{},
 		&models.SystemSetting{},
 		&models.UserSecretData{},
@@ -34,6 +34,20 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.ListFollowAccount{},
 		&models.Status{},
 		&models.StatusContent{},
+		&models.Block{},
+		&models.MuteAccount{},
+		&models.StatusMediaAttachment{},
+		&models.StatusTag{},
+		&models.StatusEmoji{},
+		&models.StatusToAccount{},
+		&models.FavoriteStatus{},
+		&models.BookmarkStatus{},
+		&models.PinStatus{},
+		&models.Filter{},
+		&models.Poll{},
+		&models.PollOption{},
+		&models.PollOptionVote{},
+		&models.Tag{},
 	)
 }
 
@@ -62,5 +76,19 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.ListFollowAccount{},
 		&models.Status{},
 		&models.StatusContent{},
+		&models.Block{},
+		&models.MuteAccount{},
+		&models.StatusMediaAttachment{},
+		&models.StatusTag{},
+		&models.StatusEmoji{},
+		&models.StatusToAccount{},
+		&models.FavoriteStatus{},
+		&models.BookmarkStatus{},
+		&models.PinStatus{},
+		&models.Filter{},
+		&models.Poll{},
+		&models.PollOption{},
+		&models.PollOptionVote{},
+		&models.Tag{},
 	)
 }

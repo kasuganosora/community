@@ -1,9 +1,10 @@
-package post
+package status
 
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,7 +20,7 @@ type CreateStatusRequest struct {
 	MediaIds    []string           `json:"media_ids"`
 	Sensitive   bool               `json:"sensitive"`
 	SpoilerText string             `json:"spoiler_text"`
-	Visibility  string             `json:"visibility" binding:"required,oneof:public unlisted private direct"`
+	Visibility  string             `json:"visibility" binding:"required,oneof=public unlisted private direct"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    string             `json:"language"`
 }
@@ -30,7 +31,7 @@ type CreatePollContent struct {
 	Multiple  bool     `json:"multiple"`
 }
 
-func CreateStatus(c *gin.Context) {
+func Create(c *gin.Context) {
 	var req CreateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -53,11 +54,14 @@ func CreateStatus(c *gin.Context) {
 	}
 
 	if req.InReplyToId != "" {
-		status.InReplyToId, err = strconv.ParseUint(req.InReplyToId, 10, 64)
+		var inReplyToId uint64
+		inReplyToId, err = strconv.ParseUint(req.InReplyToId, 10, 64)
 		if err != nil {
 			_ = c.Error(err)
 			return
 		}
+
+		status.InReplyToId = &inReplyToId
 	}
 
 	if req.Poll != nil {
@@ -75,8 +79,8 @@ func CreateStatus(c *gin.Context) {
 			Multiple:  req.Poll.Multiple,
 		}
 
-		for _, option := range req.Poll.Options {
-			poll.Options = append(poll.Options, &models.PollOption{Content: option})
+		for i, option := range req.Poll.Options {
+			poll.Options = append(poll.Options, &models.PollOption{Content: option, Index: uint8(i)})
 		}
 
 		status.Poll = poll
@@ -111,5 +115,14 @@ func CreateStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, status)
+	status.Account = currentAccount
+
+	ret, err := serializer.ToStatus(status, currentAccount)
+
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, ret)
 }

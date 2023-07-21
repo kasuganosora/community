@@ -4,7 +4,7 @@ import "github.com/gin-gonic/gin"
 
 func CheckAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if _, exists := c.Get("tokenData"); !exists {
+		if _, exists := c.Get("token_data"); !exists {
 			returnUnauthorized(c)
 			return
 		}

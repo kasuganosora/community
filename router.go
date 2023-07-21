@@ -5,11 +5,12 @@ import (
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/controllers/api/list"
+	"github.com/kasuganosora/community/controllers/api/status"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
 
-func SetRouter(app *gin.Engine) {
+func SetRouter(app gin.IRouter) {
 	apiGroup := app.Group("/api")
 	v2ApiGroup := apiGroup.Group("/v2")
 
@@ -25,6 +26,7 @@ func SetRouter(app *gin.Engine) {
 	maybeAuthGroup := v2ApiGroup.Use(middleware.AuthMiddleware())
 	maybeAuthGroup.GET("/accounts/search", account.Search)
 	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
+	maybeAuthGroup.GET("/statuses/:id", status.Show)
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
@@ -53,5 +55,10 @@ func SetRouter(app *gin.Engine) {
 		GET("/lists/:id/followers", list.GetListFollowers)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
-		POST("/statuses")
+		POST("/statuses", status.Create).
+		DELETE("/statuses/:id", status.Delete)
+
+	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+	//	GET("/statuses/:id", status.Show)
+
 }

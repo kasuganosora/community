@@ -18,10 +18,10 @@ const (
 )
 
 const (
-	StatusVisibilityPublic = iota
-	StatusVisibilityUnlisted
-	StatusVisibilityPrivate
-	StatusVisibilityDirect
+	StatusVisibilityPublic   = iota // 公开 - 全站可见
+	StatusVisibilityUnlisted        // 对所有人可见，但不会出现在公共时间线上
+	StatusVisibilityPrivate         // 私有 - 只有关注者可见
+	StatusVisibilityDirect          // 只有提到的用户可见
 )
 
 type Status struct {
@@ -30,12 +30,12 @@ type Status struct {
 	AccountId     uint64        `gorm:"not null;index" json:"account_id"`
 	ApplicationId *uint64       `json:"application_id"`
 	Visibility    uint8         `gorm:"not null;default:0" json:"visibility"`
-	ReblogId      uint64        `json:"reblog_id"`
+	ReblogId      *uint64       `json:"reblog_id"`
 	ReblogsCount  uint64        `gorm:"not null;default:0" json:"relogs_count"`
 	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
 
-	InReplyToId        uint64     `json:"in_reply_to_id"`
-	InReplyToAccountId uint64     `json:"in_reply_to_account_id"`
+	InReplyToId        *uint64    `json:"in_reply_to_id"`
+	InReplyToAccountId *uint64    `json:"in_reply_to_account_id"`
 	Sensitive          bool       `gorm:"not null;default:false" json:"sensitive"`
 	Language           string     `gorm:"type:varchar(16)" json:"language"`
 	FavouritesCount    uint64     `gorm:"not null;default:0" json:"favourites_count"`
@@ -62,8 +62,8 @@ func (s *Status) TableName() string {
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
-	if s.InReplyToId > 0 {
-		if err = tx.Where("id = ?", s.InReplyToId).First(&Status{}).Error; err != nil {
+	if s.InReplyToId != nil && *s.InReplyToId > 0 {
+		if err = tx.Where("id = ?", *s.InReplyToId).First(&Status{}).Error; err != nil {
 			err = errors.New("reply status not found")
 			return
 		}
@@ -137,10 +137,16 @@ func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error
 }
 
 func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
-	if err = db.Model(&MuteStatus{}).Where("account_id = ? AND mute_account_id = ?", account.Id, s.AccountId).First(&MuteStatus{}).Error; err != nil {
+	record := &MuteAccount{}
+	if err = db.Model(&MuteAccount{}).Where("account_id = ? AND target_id = ?", account.Id, s.AccountId).First(record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+		return
+	}
+
+	if record.ExpiredAt != nil && record.ExpiredAt.Before(time.Now()) {
+		ret = false
 		return
 	}
 	ret = true
@@ -158,6 +164,49 @@ func (s *Status) IsBookmarked(db *gorm.DB, account *Account) (ret bool, err erro
 	return
 }
 
+func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
+	if s.AccountId == account.Id {
+		canView = true
+		return
+	}
+
+	// 公开或者对所有人可见
+	if s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted {
+		canView = true
+		return
+	}
+
+	// 有没提到我的
+	isMention := false
+	for _, a := range s.ToAccounts {
+		if a.Id == account.Id {
+			isMention = true
+			break
+		}
+	}
+
+	if s.Visibility == StatusVisibilityPrivate {
+		if _, ok := myFollows[s.AccountId]; ok {
+			canView = true
+			return
+		}
+
+		if isMention {
+			canView = true
+			return
+		}
+
+		return
+	}
+
+	if s.Visibility == StatusVisibilityDirect && isMention {
+		canView = true
+		return
+	}
+
+	return
+}
+
 type Statuses []*Status
 
 func (ss *Statuses) GetIds() (ids []uint64) {
@@ -169,10 +218,10 @@ func (ss *Statuses) GetIds() (ids []uint64) {
 
 func (ss *Statuses) GetIdsWithoutReblogWarp() (ids []uint64) {
 	for _, s := range *ss {
-		if s.ReblogId == 0 {
+		if s.ReblogId == nil {
 			ids = append(ids, s.Id)
 		} else {
-			ids = append(ids, s.ReblogId)
+			ids = append(ids, *s.ReblogId)
 		}
 	}
 	return
@@ -450,15 +499,6 @@ func (sma *StatusMediaAttachment) TableName() string {
 	return "status_media_attachments"
 }
 
-type StatusMention struct {
-	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId uint64 `gorm:"not null;index" json:"status_id"`
-}
-
-func (sm *StatusMention) TableName() string {
-	return "status_mentions"
-}
-
 type StatusTag struct {
 	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
 	StatusId uint64 `gorm:"not null;index" json:"status_id"`
@@ -510,17 +550,6 @@ type BookmarkStatus struct {
 
 func (bs *BookmarkStatus) TableName() string {
 	return "bookmark_statuses"
-}
-
-type MuteStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
-	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
-}
-
-func (ms *MuteStatus) TableName() string {
-	return "mute_statuses"
 }
 
 type PinStatus struct {

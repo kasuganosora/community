@@ -235,7 +235,7 @@ func MergeMap(dst, src map[string]any) (ret map[string]any) {
 	return
 }
 
-func UniqueSlice[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float32 | string](s []T) []T {
+func UniqueSlice[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](s []T) []T {
 	result := make([]T, 0, len(s))
 	checkMap := make(map[T]bool)
 	for _, item := range s {
@@ -248,7 +248,7 @@ func UniqueSlice[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 |
 	return result
 }
 
-func Contains[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float32 | string](arr []T, check T) bool {
+func Contains[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](arr []T, check T) bool {
 	if arr == nil {
 		return false
 	}
@@ -260,4 +260,8 @@ func Contains[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | ui
 	}
 
 	return false
+}
+
+func GetPtr[T any](obj T) *T {
+	return &obj
 }
