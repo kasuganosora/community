@@ -48,6 +48,8 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.PollOption{},
 		&models.PollOptionVote{},
 		&models.Tag{},
+		&models.MuteStatus{},
+		&models.StatusHistory{},
 	)
 }
 
@@ -90,5 +92,7 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.PollOption{},
 		&models.PollOptionVote{},
 		&models.Tag{},
+		&models.MuteStatus{},
+		&models.StatusHistory{},
 	)
 }

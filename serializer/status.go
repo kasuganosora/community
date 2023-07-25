@@ -157,6 +157,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	ret.Tags = ToTags(status.Tags)
 	ret.Emojis = ToEmojis(status.Emojis)
 	ret.Card = status.Content.Card
+	ret.Account = ToAccount(status.Account)
 
 	return
 }
@@ -187,32 +188,34 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 	}
 
 	dbConn := db.GetDB()
-	var isPined, isReblogged, isFavourited, isMuted, isBookmarked bool
-	if isPined, err = status.IsPined(dbConn, currentAccount); err != nil {
-		return
-	}
+	if status.ReblogId == nil || *status.ReblogId == 0 {
+		var isPined, isReblogged, isFavourited, isMuted, isBookmarked bool
+		if isPined, err = status.IsPinned(dbConn, currentAccount); err != nil {
+			return
+		}
 
-	if isReblogged, err = status.IsReblogged(dbConn, currentAccount); err != nil {
-		return
-	}
+		if isReblogged, err = status.IsReblogged(dbConn, currentAccount); err != nil {
+			return
+		}
 
-	if isFavourited, err = status.IsFavourited(dbConn, currentAccount); err != nil {
-		return
-	}
+		if isFavourited, err = status.IsFavourited(dbConn, currentAccount); err != nil {
+			return
+		}
 
-	if isMuted, err = status.IsMuted(dbConn, currentAccount); err != nil {
-		return
-	}
+		if isMuted, err = status.IsMuted(dbConn, currentAccount); err != nil {
+			return
+		}
 
-	if isBookmarked, err = status.IsBookmarked(dbConn, currentAccount); err != nil {
-		return
-	}
+		if isBookmarked, err = status.IsBookmarked(dbConn, currentAccount); err != nil {
+			return
+		}
 
-	ret.Pinned = isPined
-	ret.Reblogged = isReblogged
-	ret.Favourited = isFavourited
-	ret.Muted = isMuted
-	ret.Bookmarked = isBookmarked
+		ret.Pinned = isPined
+		ret.Reblogged = isReblogged
+		ret.Favourited = isFavourited
+		ret.Muted = isMuted
+		ret.Bookmarked = isBookmarked
+	}
 
 	filters, err := models.GetFilters(dbConn, currentAccount.Id)
 	if err != nil {
@@ -231,15 +234,21 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 
 	dbConn := db.GetDB()
 	statusIds := statuses.GetIdsWithoutReblogWarp()
-	bookmarkedIds := make([]uint64, 0, len(statusIds))
-	rebloggedIds := make([]uint64, 0, len(statusIds))
-	favouritedIds := make([]uint64, 0, len(statusIds))
-	pinnedIds := make([]uint64, 0, len(statusIds))
 	filters := make(models.Filters, 0)
 	muteAccounts := make(models.MuteAccounts, 0)
 	blocks := make(models.Blocks, 0)
+	bookmarkedCheckMap := make(map[uint64]bool)
+	rebloggedCheckMap := make(map[uint64]bool)
+	favouritedCheckMap := make(map[uint64]bool)
+	pinnedCheckMap := make(map[uint64]bool)
+	muteCheckMap := make(map[uint64]bool)
 
 	if currentAccount != nil {
+		bookmarkedIds := make([]uint64, 0, len(statusIds))
+		rebloggedIds := make([]uint64, 0, len(statusIds))
+		favouritedIds := make([]uint64, 0, len(statusIds))
+		pinnedIds := make([]uint64, 0, len(statusIds))
+		muteIds := make([]uint64, 0, len(statusIds))
 		// 找出这些状态那些是我置顶过的
 		err = dbConn.Model(&models.PinStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &pinnedIds).Error
 		if err != nil {
@@ -284,6 +293,23 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 			return
 		}
 
+		// 我屏蔽了那些状态
+		err = dbConn.Model(&models.MuteStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &muteIds).Error
+		if err != nil {
+			return
+		}
+
+		bookmarkedCheckMap = utils.GetExistsMap(bookmarkedIds)
+		bookmarkedIds = nil
+		rebloggedCheckMap = utils.GetExistsMap(rebloggedIds)
+		rebloggedIds = nil
+		favouritedCheckMap = utils.GetExistsMap(favouritedIds)
+		favouritedIds = nil
+		pinnedCheckMap = utils.GetExistsMap(pinnedIds)
+		pinnedIds = nil
+		muteCheckMap = utils.GetExistsMap(muteIds)
+		muteIds = nil
+
 	} else {
 		// 没有登陆下
 		filters, err = models.GetFilters(dbConn, 0)
@@ -307,25 +333,29 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 	}
 
 	for _, status := range statuses {
-		// 只要是那个人发的，或者是转发的，都不要
-		if muteAccounts.IsMuted(status.AccountId) || (status.Reblog != nil && muteAccounts.IsMuted(status.Reblog.AccountId)) {
-			continue
-		}
-
 		if blocks.IsBlocked(status.Account) {
 			continue
 		}
 
 		var retStatus *Status
 		retStatus, err = ToStatus(status, currentAccount)
+		// 只要是那个人发的，或者是转发的，都不要
+		if muteAccounts.IsMuted(status.AccountId) || (status.Reblog != nil && muteAccounts.IsMuted(status.Reblog.AccountId)) {
+			retStatus.Muted = true
+		}
+
+		if utils.IsExistsForCheckMap(muteCheckMap, status.Id) {
+			retStatus.Muted = true
+		}
+
 		if err != nil {
 			return nil, err
 		}
 
-		retStatus.Pinned = utils.Contains(pinnedIds, status.Id)
-		retStatus.Reblogged = utils.Contains(rebloggedIds, status.Id)
-		retStatus.Favourited = utils.Contains(favouritedIds, status.Id)
-		retStatus.Bookmarked = utils.Contains(bookmarkedIds, status.Id)
+		retStatus.Pinned = utils.IsExistsForCheckMap(pinnedCheckMap, status.Id)
+		retStatus.Reblogged = utils.IsExistsForCheckMap(rebloggedCheckMap, status.Id)
+		retStatus.Favourited = utils.IsExistsForCheckMap(favouritedCheckMap, status.Id)
+		retStatus.Bookmarked = utils.IsExistsForCheckMap(bookmarkedCheckMap, status.Id)
 		retStatus.Filtered = filters.GetStatusFilters(status, currentAccount).GetFilterActionsName()
 
 		if status.Poll != nil {

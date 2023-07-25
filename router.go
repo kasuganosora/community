@@ -56,7 +56,24 @@ func SetRouter(app gin.IRouter) {
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
 		POST("/statuses", status.Create).
-		DELETE("/statuses/:id", status.Delete)
+		DELETE("/statuses/:id", status.Delete).
+		PUT("/statuses/:id", status.Update).
+		POST("/statuses/:id/pin", status.Pin).
+		POST("/statuses/:id/unpin", status.UnPin).
+		POST("/statuses/:id/reblog", status.Reblog).
+		POST("/statuses/:id/unreblog", status.Unreblog).
+		POST("/statuses/:id/favourite", status.Favourite).
+		POST("/statuses/:id/unfavourite", status.Unfavourite).
+		POST("/statuses/:id/mute", status.MuteStatus).
+		POST("/statuses/:id/unmute", status.UnmuteStatus).
+		POST("/statuses/:id/bookmark", status.Bookmark).
+		POST("/statuses/:id/unbookmark", status.Unbookmark)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+		GET("/statuses/:id/source", status.GetSource).
+		GET("/statuses/:id/history", status.GetHistory).
+		GET("/statuses/:id/favourited_by", status.FavouritedBy).
+		GET("/statuses/:id/reblogged_by", status.RebloggedBy)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

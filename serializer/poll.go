@@ -7,40 +7,6 @@ import (
 	"time"
 )
 
-/**
-{
-              "id": "566",
-              "expires_at": "2023-07-07T19:40:18.000Z",
-              "expired": true,
-              "multiple": false,
-              "votes_count": 1568,
-              "voters_count": 1568,
-              "voted": true,
-              "own_votes": [
-                  0
-              ],
-              "options": [
-                  {
-                      "title": "bash",
-                      "votes_count": 558
-                  },
-                  {
-                      "title": "fish",
-                      "votes_count": 231
-                  },
-                  {
-                      "title": "tcsh",
-                      "votes_count": 20
-                  },
-                  {
-                      "title": "zsh",
-                      "votes_count": 759
-                  }
-              ],
-              "emojis": []
-          }
-*/
-
 type Poll struct {
 	Id          string       `json:"id"`
 	ExpiresAt   *time.Time   `json:"expires_at"`
@@ -49,7 +15,7 @@ type Poll struct {
 	VotesCount  uint64       `json:"votes_count"`
 	VotersCount uint64       `json:"voters_count"`
 	Voted       bool         `json:"voted"`
-	OwnVotes    []uint8      `json:"own_votes"`
+	OwnVotes    []int        `json:"own_votes"`
 	Options     []PollOption `json:"options"`
 	Emojis      []Emoji      `json:"emojis"`
 }
@@ -70,7 +36,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 		VotesCount:  votesCount,
 		VotersCount: votersCount,
 		Voted:       voted,
-		OwnVotes:    []uint8{},
+		OwnVotes:    []int{},
 		Options:     []PollOption{},
 		Emojis:      []Emoji{},
 	}
@@ -111,7 +77,7 @@ func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
 		if len(myVotes) > 0 {
 			ret.Voted = true
 			for _, myVote := range myVotes {
-				ret.OwnVotes = append(ret.OwnVotes, optionsIndexMap[myVote.OptionId])
+				ret.OwnVotes = append(ret.OwnVotes, int(optionsIndexMap[myVote.OptionId]))
 			}
 		}
 	}

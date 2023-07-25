@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
@@ -67,63 +66,29 @@ func Show(c *gin.Context) {
 
 	// check permission
 	// 如果是私有的，只有自己和关注者/提及的人可以看到
-	followCheckMap := make(map[uint64]*models.Follow)
 	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
 		if account == nil {
 			c.JSON(403, gin.H{"error": "has no permission"})
 			return
-		}
-
-		currentAccount := account.(*models.Account)
-
-		if status.AccountId != currentAccount.Id {
-			// check follow
-			follow := &models.Follow{}
-			err = db.GetDB().Where("account_id = ? AND follow_id = ?", currentAccount.Id, status.AccountId).First(follow).Error
+		} else {
+			canview, err := status.CanViewEx(db.GetDB(), account.(*models.Account))
 			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					err = nil
-				} else {
-					_ = c.Error(err)
-					return
-				}
-
-				if follow.Id > 0 {
-					followCheckMap[follow.FollowId] = follow
-				}
+				_ = c.Error(err)
+				return
 			}
 
-			if status.CanView(currentAccount, followCheckMap) == false {
+			if !canview {
 				c.JSON(403, gin.H{"error": "has no permission"})
 				return
 			}
 		}
+
 	}
 
-	var acc *models.Account
+	var currentAccount *models.Account
 	if account != nil {
-		acc = account.(*models.Account)
+		currentAccount = account.(*models.Account)
 	}
 
-	ret, err := serializer.ToStatus(status, acc)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	c.JSON(200, ret)
-}
-
-func statusPreload(query *gorm.DB) *gorm.DB {
-	return query.Preload("Account").
-		Preload("Content").
-		Preload("Application").
-		Preload("Attachments").
-		Preload("ReplyAccount").
-		Preload("Emojis").
-		Preload("ToAccounts").
-		Preload("Poll").
-		Preload("Poll.Options").
-		Preload("Poll.Options").
-		Preload("Tags")
+	returnFullSingleStatus(c, status, currentAccount)
 }

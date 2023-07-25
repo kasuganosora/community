@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"net/http"
 	"strconv"
 	"time"
@@ -27,7 +26,7 @@ type CreateStatusRequest struct {
 
 type CreatePollContent struct {
 	Options   []string `json:"options"`
-	ExpiresIn string   `json:"expires_in" binding:"required,numeric`
+	ExpiresIn uint64   `json:"expires_in" binding:"required,numeric`
 	Multiple  bool     `json:"multiple"`
 }
 
@@ -65,14 +64,7 @@ func Create(c *gin.Context) {
 	}
 
 	if req.Poll != nil {
-		var expiresIn int64
-		expiresIn, err = strconv.ParseInt(req.Poll.ExpiresIn, 10, 64)
-		if err != nil {
-			_ = c.Error(err)
-			return
-		}
-
-		expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second)
 		poll := &models.Poll{
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
@@ -99,7 +91,7 @@ func Create(c *gin.Context) {
 
 		if len(attachmentIds) > 0 {
 			attachments := make([]*models.Attachment, 0, len(attachmentIds))
-			err = db.GetDB().Where("id IN (?)", attachmentIds).Find(&attachments).Error
+			err = db.GetDB().Where("id IN (?)", attachmentIds).Where("account_id = ?", currentAccount.Id).Find(&attachments).Error
 			if err != nil {
 				_ = c.Error(err)
 				return
@@ -110,19 +102,11 @@ func Create(c *gin.Context) {
 	}
 
 	err = db.GetDB().Create(status).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	status.Account = currentAccount
-
-	ret, err := serializer.ToStatus(status, currentAccount)
 
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 
-	c.JSON(http.StatusOK, ret)
+	returnFullSingleStatus(c, status, currentAccount)
 }

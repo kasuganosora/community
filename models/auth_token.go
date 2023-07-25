@@ -32,12 +32,13 @@ func (AuthToken) TableName() string {
 
 // AuthTokenData 用于存放在token里面的数据, 用于解析token,降低数据库查询次数
 type AuthTokenData struct {
-	UserId      uint64            `json:"user_id"`
-	AuthType    uint8             `json:"auth_type"`
-	Permissions uint64            `json:"permissions"`
-	Scopes      *ApplicationScope `json:"scopes"`
-	CreatedAt   int64             `json:"created_at"`
-	ExpiredAt   int64             `json:"expired_at"`
+	UserId        uint64            `json:"user_id"`
+	AuthType      uint8             `json:"auth_type"`
+	ApplicationId uint64            `json:"application_id"`
+	Permissions   uint64            `json:"permissions"`
+	Scopes        *ApplicationScope `json:"scopes"`
+	CreatedAt     int64             `json:"created_at"`
+	ExpiredAt     int64             `json:"expired_at"`
 }
 
 func (a AuthTokenData) GetTokenStr(key string) string {
@@ -105,7 +106,7 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 
 }
 
-func NewAuthToken(userId uint64, authType uint8, permissions uint64, scopes *ApplicationScope, expiredIn int, encKey string) (tokenRow *AuthToken, tokenStr string) {
+func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint64, scopes *ApplicationScope, expiredIn int, encKey string) (tokenRow *AuthToken, tokenStr string) {
 	now := time.Now()
 	var expiredAt *time.Time
 
@@ -115,12 +116,13 @@ func NewAuthToken(userId uint64, authType uint8, permissions uint64, scopes *App
 	}
 
 	tokenData := &AuthTokenData{
-		UserId:      userId,
-		AuthType:    authType,
-		Permissions: permissions,
-		Scopes:      scopes,
-		CreatedAt:   now.Unix(),
-		ExpiredAt:   expiredAt.Unix(),
+		UserId:        userId,
+		AuthType:      authType,
+		Permissions:   permissions,
+		Scopes:        scopes,
+		ApplicationId: appId,
+		CreatedAt:     now.Unix(),
+		ExpiredAt:     expiredAt.Unix(),
 	}
 
 	if tokenData.ExpiredAt > 0 {

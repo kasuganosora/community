@@ -25,7 +25,7 @@ const (
 )
 
 type Status struct {
-	Id            uint64        `gorm:"primary_key;auto_increment" json:"id"`
+	Id            uint64        `gorm:"primary_key;autoIncrement" json:"id"`
 	Content       StatusContent `json:"content"`
 	AccountId     uint64        `gorm:"not null;index" json:"account_id"`
 	ApplicationId *uint64       `json:"application_id"`
@@ -46,15 +46,15 @@ type Status struct {
 	UpdatedAt          *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
 	DeletedAt          *time.Time `gorm:"index" json:"-"`
 
-	Application  *Application  `gorm:"foreignKey:application_id" json:"application"`
-	Attachments  []*Attachment `gorm:"many2many:status_media_attachments;" json:"attachments"`
-	ReplyAccount *Account      `gorm:"foreignKey:InReplyToAccountId" json:"reply_account"`
-	Emojis       []*Emoji      `gorm:"many2many:status_emojis;" json:"emojis"`
-	ToAccounts   []*Account    `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
-	Poll         *Poll         `gorm:"foreignKey:status_id" json:"poll"`
-	Account      *Account      `gorm:"foreignKey:account_id" json:"account"`
-	Reblog       *Status       `gorm:"foreignKey:reblog_id" json:"relog"`
-	Tags         []*Tag        `gorm:"many2many:status_tags;" json:"tags"`
+	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
+	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
+	ReplyAccount *Account     `gorm:"foreignKey:InReplyToAccountId" json:"reply_account"`
+	Emojis       Emojis       `gorm:"many2many:status_emojis;" json:"emojis"`
+	ToAccounts   []*Account   `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
+	Poll         *Poll        `gorm:"foreignKey:status_id" json:"poll"`
+	Account      *Account     `gorm:"foreignKey:account_id" json:"account"`
+	Reblog       *Status      `gorm:"foreignKey:reblog_id" json:"relog"`
+	Tags         []*Tag       `gorm:"many2many:status_tags;" json:"tags"`
 }
 
 func (s *Status) TableName() string {
@@ -103,7 +103,7 @@ func (s *Status) GetVisibilityString() string {
 	}
 }
 
-func (s *Status) IsPined(db *gorm.DB, account *Account) (ret bool, err error) {
+func (s *Status) IsPinned(db *gorm.DB, account *Account) (ret bool, err error) {
 	if err = db.Model(&PinStatus{}).Where("status_id = ? AND account_id = ?", s.Id, account.Id).First(&PinStatus{}).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
@@ -126,7 +126,7 @@ func (s *Status) IsFavourited(db *gorm.DB, account *Account) (ret bool, err erro
 }
 
 func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error) {
-	if err = db.Model(&Status{}).Where("id = ? AND account_id = ?", s.ReblogId, account.Id).First(&Status{}).Error; err != nil {
+	if err = db.Model(&Status{}).Where("reblog_id = ? AND account_id = ?", s.Id, account.Id).First(&Status{}).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
@@ -137,6 +137,7 @@ func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error
 }
 
 func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
+	// 屏蔽某个账号
 	record := &MuteAccount{}
 	if err = db.Model(&MuteAccount{}).Where("account_id = ? AND target_id = ?", account.Id, s.AccountId).First(record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -149,6 +150,16 @@ func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
 		ret = false
 		return
 	}
+
+	// 屏蔽单条动态
+	muteStatus := &MuteStatus{}
+	if err = db.Model(&MuteStatus{}).Where("account_id = ? AND status_id = ?", account.Id, s.Id).First(muteStatus).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+
 	ret = true
 	return
 }
@@ -204,6 +215,39 @@ func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canVie
 		return
 	}
 
+	// 如果是 rebolg 的，检查原始状态
+	if s.ReblogId != nil && *s.ReblogId > 0 && canView == true {
+		if s.Reblog == nil {
+			canView = false
+			return
+		}
+
+		canView = s.Reblog.CanView(account, myFollows)
+		return
+	}
+
+	return
+}
+
+func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
+	if s.AccountId == account.Id {
+		ok = true
+		return
+	}
+
+	follows := make(Follows, 0)
+	err = db.Where("account_id = ?", account.Id).Find(&follows).Error
+	if err != nil {
+		err = errors.Wrap(err, "get follows failed")
+		return
+	}
+
+	followMap := make(map[uint64]*Follow)
+	for _, f := range follows {
+		followMap[f.FollowId] = f
+	}
+
+	ok = s.CanView(account, followMap)
 	return
 }
 
@@ -561,4 +605,21 @@ type PinStatus struct {
 
 func (ps *PinStatus) TableName() string {
 	return "pin_statuses"
+}
+
+type StatusHistory struct {
+	Id                  uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	StatusId            uint64     `gorm:"not null;index" json:"status_id"`
+	AccountId           uint64     `gorm:"not null;index" json:"account_id"`
+	Content             string     `gorm:"type:text;not null" json:"content"`
+	SpoilerText         string     `gorm:"type:text;not null" json:"spoiler_text"`
+	Sensitive           bool       `gorm:"not null" json:"sensitive"`
+	MediaAttachmentsIds []uint64   `gorm:"type:json;serializer:json" json:"media_attachments_ids"`
+	EmojisIds           []uint64   `gorm:"type:json;serializer:json" json:"emojis_ids"`
+	CreatedAt           *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+	Account             *Account   `gorm:"foreignKey:AccountId" json:"account"`
+}
+
+func (StatusHistory) TableName() string {
+	return "status_histories"
 }

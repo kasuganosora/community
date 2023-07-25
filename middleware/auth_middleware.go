@@ -93,6 +93,22 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		if tokenData.ApplicationId > 0 {
+			application := &models.Application{}
+			err = db.GetDB().Where("id = ?", tokenData.ApplicationId).First(application).Error
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					returnUnauthorizedAndRemoveCookie(c)
+				}
+
+				err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get application error, application id: %d", tokenData.ApplicationId))
+				_ = c.Error(err)
+				return
+			}
+
+			c.Set("application", application)
+		}
+
 		// 将 tokenData 保存到 gin.Context 中
 		c.Set("token_data", tokenData)
 		c.Set("user", user)

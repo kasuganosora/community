@@ -43,3 +43,11 @@ func ToAttachment(attachment *models.Attachment) (att *Attachment) {
 
 	return
 }
+
+func ToAttachments(attachments []*models.Attachment) (atts []*Attachment) {
+	atts = make([]*Attachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		atts = append(atts, ToAttachment(attachment))
+	}
+	return
+}

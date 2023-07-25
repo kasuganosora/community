@@ -187,7 +187,7 @@ func (s ApplicationScope) Value(ctx context.Context, field *schema.Field, dst re
 }
 
 type Application struct {
-	ID          uint64           `json:"id" gorm:"primary_key;autoIncrement"`
+	Id          uint64           `json:"id" gorm:"primary_key;autoIncrement"`
 	Uuid        *uuid.UUID       `json:"uuid" gorm:"type:char(36);unique_index;not null"`
 	UserId      int64            `json:"user_id" gorm:"index"`
 	Name        string           `json:"name" gorm:"type:varchar(32);not null"`

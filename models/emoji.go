@@ -18,3 +18,13 @@ type Emoji struct {
 func (Emoji) TableName() string {
 	return "emojis"
 }
+
+type Emojis []*Emoji
+
+func (ss Emojis) GetIds() []uint64 {
+	ret := make([]uint64, 0, len(ss))
+	for _, emoji := range ss {
+		ret = append(ret, emoji.Id)
+	}
+	return ret
+}

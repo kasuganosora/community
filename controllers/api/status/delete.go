@@ -43,6 +43,11 @@ func Delete(c *gin.Context) {
 		return
 	}
 
+	if status.ReblogId != nil {
+		c.JSON(400, gin.H{"error": "can't delete reblog status"})
+		return
+	}
+
 	err = db.GetDB().Delete(status).Error
 	if err != nil {
 		_ = c.Error(err)

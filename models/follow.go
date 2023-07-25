@@ -11,3 +11,50 @@ type Follow struct {
 func (Follow) TableName() string {
 	return "follows"
 }
+
+type Follows []*Follow
+
+func (ss Follows) GetMapByFollowId() map[uint64][]*Follow {
+	ret := make(map[uint64][]*Follow)
+	for _, follow := range ss {
+		if _, ok := ret[follow.FollowId]; !ok {
+			ret[follow.FollowId] = make([]*Follow, 0)
+		}
+		ret[follow.FollowId] = append(ret[follow.FollowId], follow)
+	}
+
+	return ret
+}
+
+func (ss Follows) GetMapByAccountId() map[uint64][]*Follow {
+	ret := make(map[uint64][]*Follow)
+	for _, follow := range ss {
+		if _, ok := ret[follow.AccountId]; !ok {
+			ret[follow.AccountId] = make([]*Follow, 0)
+		}
+		ret[follow.AccountId] = append(ret[follow.AccountId], follow)
+	}
+
+	return ret
+}
+
+func (ss Follows) IsFollowed(accountId uint64, followId uint64) bool {
+	for _, follow := range ss {
+		if follow.AccountId == accountId && follow.FollowId == followId {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (ss Follows) GetFollows(accountId uint64) []*Follow {
+	ret := make([]*Follow, 0)
+	for _, follow := range ss {
+		if follow.AccountId == accountId {
+			ret = append(ret, follow)
+		}
+	}
+
+	return ret
+}

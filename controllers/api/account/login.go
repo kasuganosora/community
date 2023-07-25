@@ -80,7 +80,7 @@ func Login(c *gin.Context) {
 	}
 
 	// 生成登录态 Token
-	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, permissions, nil, sessionExpire, config.C.EncryptedKey)
+	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
 
 	// 保存 Token
 	err = db.GetDB().Create(token).Error

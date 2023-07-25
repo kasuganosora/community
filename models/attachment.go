@@ -59,3 +59,13 @@ func (a *Attachment) GeTypeString() string {
 		return "file"
 	}
 }
+
+type Attachments []*Attachment
+
+func (a Attachments) GetIds() []uint64 {
+	var ids []uint64
+	for _, attachment := range a {
+		ids = append(ids, attachment.Id)
+	}
+	return ids
+}
