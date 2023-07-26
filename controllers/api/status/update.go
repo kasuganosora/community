@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"net/http"
 	"strconv"
 	"time"
@@ -171,7 +172,7 @@ func Update(c *gin.Context) {
 			}
 		}
 
-		err = tx.Save(status).Error
+		err = tx.Omit(clause.Associations).Save(status).Error
 		if err != nil {
 			err = errors.Wrap(err, "save status failed")
 			return

@@ -62,3 +62,95 @@ type PollOptionVote struct {
 func (pov *PollOptionVote) TableName() string {
 	return "poll_option_votes"
 }
+
+type PollOptionVotes []*PollOptionVote
+
+func (ss PollOptionVotes) IsVoted(accountId uint64) bool {
+	for _, s := range ss {
+		if s.AccountId == accountId {
+			return true
+		}
+	}
+	return false
+}
+
+func (ss PollOptionVotes) GetVotedOptionIds(accountId uint64) (optionId []uint64) {
+	for _, s := range ss {
+		if s.AccountId == accountId {
+			optionId = append(optionId, s.OptionId)
+		}
+	}
+	return
+}
+
+func (ss PollOptionVotes) GetVotersAccountId() (ret []uint64) {
+	exists := make(map[uint64]bool)
+
+	for _, s := range ss {
+		if !exists[s.AccountId] {
+			exists[s.AccountId] = true
+			ret = append(ret, s.AccountId)
+		}
+	}
+	return
+}
+
+func (ss PollOptionVotes) FilterAccountId(accountId uint64) (ret PollOptionVotes) {
+	for _, s := range ss {
+		if s.AccountId == accountId {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
+func (ss PollOptionVotes) FilterOptionId(optionId uint64) (ret PollOptionVotes) {
+	for _, s := range ss {
+		if s.OptionId == optionId {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
+func (ss PollOptionVotes) FilterPollId(pollId uint64) (ret PollOptionVotes) {
+	for _, s := range ss {
+		if s.PollId == pollId {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
+func (ss PollOptionVotes) ToAccountIdMap() (ret map[uint64]PollOptionVotes) {
+	ret = make(map[uint64]PollOptionVotes)
+	for _, s := range ss {
+		if _, ok := ret[s.AccountId]; !ok {
+			ret[s.AccountId] = PollOptionVotes{}
+		}
+		ret[s.AccountId] = append(ret[s.AccountId], s)
+	}
+	return
+}
+
+func (ss PollOptionVotes) ToOptionIdMap() (ret map[uint64]PollOptionVotes) {
+	ret = make(map[uint64]PollOptionVotes)
+	for _, s := range ss {
+		if _, ok := ret[s.OptionId]; !ok {
+			ret[s.OptionId] = PollOptionVotes{}
+		}
+		ret[s.OptionId] = append(ret[s.OptionId], s)
+	}
+	return
+}
+
+func (ss PollOptionVotes) ToPollIdMap() (ret map[uint64]PollOptionVotes) {
+	ret = make(map[uint64]PollOptionVotes)
+	for _, s := range ss {
+		if _, ok := ret[s.PollId]; !ok {
+			ret[s.PollId] = PollOptionVotes{}
+		}
+		ret[s.PollId] = append(ret[s.PollId], s)
+	}
+	return
+}

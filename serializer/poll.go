@@ -55,29 +55,22 @@ func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
 		})
 	}
 
-	var votesCount, votersCount int64
-
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Count(&votesCount).Error
+	votes := make(models.PollOptionVotes, 0)
+	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Find(&votes).Error
 	if err != nil {
 		return
 	}
 
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Distinct("account_id").Count(&votersCount).Error
-	if err != nil {
-		return
-	}
+	ret.VotesCount = uint64(len(votes))
+	ret.VotersCount = uint64(len(votes.GetVotersAccountId()))
 
 	if current != nil {
-		var myVotes []*models.PollOptionVote
-		err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? AND account_id = ?", poll.Id, current.Id).Find(&myVotes).Error
-		if err != nil {
-			return
-		}
+		myVotes := votes.GetVotedOptionIds(current.Id)
 
 		if len(myVotes) > 0 {
 			ret.Voted = true
-			for _, myVote := range myVotes {
-				ret.OwnVotes = append(ret.OwnVotes, int(optionsIndexMap[myVote.OptionId]))
+			for _, myVotId := range myVotes {
+				ret.OwnVotes = append(ret.OwnVotes, int(optionsIndexMap[myVotId]))
 			}
 		}
 	}
@@ -93,64 +86,36 @@ type Counts struct {
 func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret map[uint64]*Poll, err error) {
 	// 一次过取出所有投票的选项
 	optionsIndexMap := make(map[uint64]uint8)
-	options := make([]*models.PollOption, 0)
 	pollIds := make([]uint64, 0)
 	ret = make(map[uint64]*Poll)
 
 	for _, poll := range polls {
 		pollIds = append(pollIds, poll.Id)
-	}
 
-	err = db.GetDB().Model(&models.PollOption{}).Where("poll_id IN (?)", pollIds).Find(&options).Error
-	if err != nil {
-		return
-	}
-
-	for _, option := range options {
-		optionsIndexMap[option.Id] = option.Index
-	}
-
-	//  计算出所有已投票的票数和投票人数, 用投票ID来聚合
-	votesCounts := make([]*Counts, 0)
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id IN (?)", pollIds).Select("poll_id as cid, COUNT(*) AS count").Group("cid").Scan(&votesCounts).Error
-	if err != nil {
-		return
-	}
-
-	votesCountsMap := make(map[uint64]int64)
-	for _, votesCount := range votesCounts {
-		votesCountsMap[votesCount.Cid] = votesCount.Count
-	}
-
-	votersCounts := make([]*Counts, 0)
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id IN (?)", pollIds).Select("poll_id as cid, COUNT(*) AS count").Group("concat(cid, '-' ,account_id)").Scan(&votersCounts).Error
-	if err != nil {
-		return
-	}
-
-	votersCountsMap := make(map[uint64]int64)
-	for _, votersCount := range votersCounts {
-		votersCountsMap[votersCount.Cid] = votersCount.Count
-	}
-
-	mySelectOptions := make([]*models.PollOptionVote, 0)
-	if current != nil {
-		err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id IN (?) AND account_id = ?", pollIds, current.Id).Find(&mySelectOptions).Error
-		if err != nil {
-			return
+		for _, option := range poll.Options {
+			optionsIndexMap[option.Id] = option.Index
 		}
 	}
 
-	mySelectOptionsMap := make(map[uint64][]*models.PollOptionVote)
-	for _, mySelectOption := range mySelectOptions {
-		mySelectOptionsMap[mySelectOption.PollId] = append(mySelectOptionsMap[mySelectOption.PollId], mySelectOption)
+	votes := make(models.PollOptionVotes, 0)
+	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id in (?)", pollIds).Find(&votes).Error
+	if err != nil {
+		return
 	}
+
+	var mySelectOptions map[uint64]models.PollOptionVotes
+
+	if current != nil {
+		mySelectOptions = votes.FilterAccountId(current.Id).ToPollIdMap()
+	}
+
+	pollVoteMap := votes.ToPollIdMap()
 
 	for _, poll := range polls {
 		voted := false
 		var ownVotes []uint8
 		if current != nil {
-			if mySelOptions, ok := mySelectOptionsMap[poll.Id]; ok {
+			if mySelOptions, ok := mySelectOptions[poll.Id]; ok {
 				voted = true
 				for _, mySelectOption := range mySelOptions {
 					ownVotes = append(ownVotes, optionsIndexMap[mySelectOption.OptionId])
@@ -158,7 +123,10 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 			}
 		}
 
-		ret[poll.Id] = ToBasePoll(poll, voted, uint64(votesCountsMap[poll.Id]), uint64(votersCountsMap[poll.Id]))
+		voteCounts := len(pollVoteMap[poll.Id])
+		votersCount := len(pollVoteMap[poll.Id].GetVotersAccountId())
+
+		ret[poll.Id] = ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
 	}
 
 	return
