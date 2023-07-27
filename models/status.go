@@ -4,6 +4,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"regexp"
 	"strings"
 	"time"
@@ -34,17 +35,18 @@ type Status struct {
 	ReblogsCount  uint64        `gorm:"not null;default:0" json:"relogs_count"`
 	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
 
-	InReplyToId        *uint64    `json:"in_reply_to_id"`
-	InReplyToAccountId *uint64    `json:"in_reply_to_account_id"`
-	Sensitive          bool       `gorm:"not null;default:false" json:"sensitive"`
-	Language           string     `gorm:"type:varchar(16)" json:"language"`
-	FavouritesCount    uint64     `gorm:"not null;default:0" json:"favourites_count"`
-	ScheduledAt        *time.Time `gorm:"index" json:"scheduled_at"`
-	OriginUri          *string    `gorm:"type:varchar(255)" json:"origin_uri"`
-	OriginUrl          *string    `gorm:"type:varchar(255)" json:"origin_url"`
-	CreatedAt          *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
-	UpdatedAt          *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
-	DeletedAt          *time.Time `gorm:"index" json:"-"`
+	InReplyToId        *uint64        `json:"in_reply_to_id"`
+	InReplyToAccountId *uint64        `json:"in_reply_to_account_id"`
+	Sensitive          bool           `gorm:"not null;default:false" json:"sensitive"`
+	Language           string         `gorm:"type:varchar(16)" json:"language"`
+	FavouritesCount    uint64         `gorm:"not null;default:0" json:"favourites_count"`
+	ScheduledAt        *time.Time     `gorm:"index" json:"scheduled_at"`
+	OriginUri          *string        `gorm:"type:varchar(255)" json:"origin_uri"`
+	OriginUrl          *string        `gorm:"type:varchar(255)" json:"origin_url"`
+	CreatedAt          *time.Time     `gorm:"not null;autoCreateTime;index" json:"created_at"`
+	UpdatedAt          *time.Time     `gorm:"not null;autoUpdateTime" json:"updated_at"`
+	DeletedAt          *time.Time     `gorm:"index" json:"-"`
+	Properties         map[string]any `gorm:"type:json;serializer:json" json:"properties"`
 
 	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
@@ -175,9 +177,40 @@ func (s *Status) IsBookmarked(db *gorm.DB, account *Account) (ret bool, err erro
 	return
 }
 
+// IsScheduled 是否是定时动态
+// 如果 ScheduledAt 不为空，则是定时动态，到期的时候会自动发布（ScheduledAt 会被置空）
+func (s *Status) IsScheduled() bool {
+	return s.ScheduledAt != nil
+}
+
+func (s *Status) Public(db *gorm.DB) (err error) {
+	if s.Poll != nil {
+		// 更新 expire_at
+		expireIn := s.Poll.Properties["expires_in"].(uint64)
+		s.Poll.ExpiresAt = utils.GetPtr(time.Now().Add(time.Duration(expireIn) * time.Second))
+
+		if err = db.Omit(clause.Associations).Save(s.Poll).Error; err != nil {
+			return
+		}
+	}
+
+	s.ScheduledAt = nil
+
+	if err = db.Omit(clause.Associations).Save(s).Error; err != nil {
+		return
+	}
+
+	return
+}
+
 func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
 	if s.AccountId == account.Id {
 		canView = true
+		return
+	}
+
+	if s.IsScheduled() && (account == nil || s.AccountId != account.Id) {
+		canView = false
 		return
 	}
 

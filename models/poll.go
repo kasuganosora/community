@@ -3,6 +3,7 @@ package models
 import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"sort"
 	"time"
 )
 
@@ -12,7 +13,7 @@ type Poll struct {
 	StatusId   uint64         `gorm:"not null;index" json:"status_id"`
 	ExpiresAt  *time.Time     `gorm:"not null" json:"expires_at"`
 	Multiple   bool           `gorm:"not null;default:false" json:"multiple"`
-	Options    []*PollOption  `json:"options"`
+	Options    PollOptions    `json:"options"`
 	Properties map[string]any `gorm:"type:json;serializer:json" json:"properties"`
 	CratedAt   *time.Time     `gorm:"not null;autoCreateTime" json:"created_at"`
 	UpdatedAt  *time.Time     `gorm:"not null;autoUpdateTime" json:"updated_at"`
@@ -49,6 +50,29 @@ type PollOption struct {
 
 func (po *PollOption) TableName() string {
 	return "poll_options"
+}
+
+type PollOptions []*PollOption
+
+func (ss PollOptions) GetOptionIds() (ret []uint64) {
+	for _, s := range ss {
+		ret = append(ret, s.Id)
+	}
+	return
+}
+
+func (ss PollOptions) SortByIndex() PollOptions {
+	sort.Slice(ss, func(i, j int) bool {
+		return ss[i].Index < ss[j].Index
+	})
+	return ss
+}
+
+func (ss PollOptions) GetNames() (ret []string) {
+	for _, s := range ss.SortByIndex() {
+		ret = append(ret, s.Content)
+	}
+	return
 }
 
 type PollOptionVote struct {

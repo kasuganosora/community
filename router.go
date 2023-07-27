@@ -68,14 +68,17 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/unmute", status.UnmuteStatus).
 		POST("/statuses/:id/bookmark", status.Bookmark).
 		POST("/statuses/:id/unbookmark", status.Unbookmark).
-		POST("/polls/:id/votes", status.VotePoll)
+		POST("/polls/:id/votes", status.VotePoll).
+		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/statuses/:id/source", status.GetSource).
 		GET("/statuses/:id/history", status.GetHistory).
 		GET("/statuses/:id/favourited_by", status.FavouritedBy).
 		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
-		GET("/polls/:id", status.ViewPoll)
+		GET("/polls/:id", status.ViewPoll).
+		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
+		GET("/scheduled_statuses", status.ListScheduledStatuses)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

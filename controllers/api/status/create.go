@@ -25,9 +25,10 @@ type CreateStatusRequest struct {
 }
 
 type CreatePollContent struct {
-	Options   []string `json:"options"`
-	ExpiresIn uint64   `json:"expires_in" binding:"required,numeric`
-	Multiple  bool     `json:"multiple"`
+	Options    []string `json:"options"`
+	ExpiresIn  uint64   `json:"expires_in" binding:"required,numeric`
+	Multiple   bool     `json:"multiple"`
+	HideTotals bool     `json:"hide_totals"`
 }
 
 func Create(c *gin.Context) {
@@ -69,6 +70,10 @@ func Create(c *gin.Context) {
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
 			Multiple:  req.Poll.Multiple,
+			Properties: map[string]any{
+				"expires_in":  req.Poll.ExpiresIn,
+				"hide_totals": req.Poll.HideTotals,
+			},
 		}
 
 		for i, option := range req.Poll.Options {

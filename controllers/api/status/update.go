@@ -116,6 +116,10 @@ func Update(c *gin.Context) {
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
 			Multiple:  req.Poll.Multiple,
+			Properties: map[string]any{
+				"expires_in":  req.Poll.ExpiresIn,
+				"hide_totals": req.Poll.HideTotals,
+			},
 		}
 
 		for i, option := range req.Poll.Options {
