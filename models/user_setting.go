@@ -11,3 +11,10 @@ type UserSetting struct {
 func (UserSetting) TableName() string {
 	return "user_setting"
 }
+
+func (us *UserSetting) GetaggrAgatesReblogs() bool {
+	if _aggregatesReblogs, ok := us.Data["aggregates_reblogs"]; ok {
+		return _aggregatesReblogs.(bool)
+	}
+	return true
+}

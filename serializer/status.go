@@ -282,13 +282,13 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 		}
 
 		// 我屏蔽了那些用户
-		err = dbConn.Model(&models.MuteAccount{}).Where("account_id = ?", currentAccount.Id, statusIds).Find(muteAccounts).Error
+		err = dbConn.Model(&models.MuteAccount{}).Where("account_id = ?", currentAccount.Id).Find(&muteAccounts).Error
 		if err != nil {
 			return
 		}
 
 		// 我block了那些用户
-		err = dbConn.Model(&models.Block{}).Where("account_id = ? or account_id = 0", currentAccount.Id).Find(blocks).Error
+		err = dbConn.Model(&models.Block{}).Where("account_id = ? or account_id = 0", currentAccount.Id).Find(&blocks).Error
 		if err != nil {
 			return
 		}

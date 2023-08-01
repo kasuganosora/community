@@ -1,5 +1,9 @@
 package models
 
+const (
+	FollowPropertyKeyReblogs = "reblogs"
+)
+
 type Follow struct {
 	Id         uint64         `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
 	AccountId  uint64         `json:"account_id" gorm:"not null;type:bigint(20);index"`

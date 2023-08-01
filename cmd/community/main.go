@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
@@ -29,6 +30,8 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+
+	event.GetEventManager("status")
 
 	app := gin.New()
 	app.Use(gin.Recovery())

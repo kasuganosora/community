@@ -113,5 +113,15 @@ func Create(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+	currentAccount.LastStatusAt = &now
+	currentAccount.LastActivityAt = &now
+	err = db.GetDB().Select("last_status_at", "last_activity_at").Save(currentAccount).Error
+
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
 	returnFullSingleStatus(c, status, currentAccount)
 }

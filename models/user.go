@@ -31,11 +31,12 @@ type User struct {
 	UpdatedAt      *time.Time      `gorm:"autoUpdateTime"`                                                   // 更新时间
 	InviteBy       uint64          `json:"invite_by" gorm:"default:0"`                                       // 邀请人ID
 	Status         int             `json:"status" gorm:"default:0"`                                          // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
-	Properties     map[string]any  `json:"properties" gorm:"type:json;serializer;json"`                      // 用户的属性
+	Properties     map[string]any  `json:"properties" gorm:"type:json;serializer:json"`                      // 用户的属性
 	IsMailVerified bool            `json:"-" gorm:"default:false"`                                           // 邮箱是否验证
 	UserSecret     *UserSecretData `json:"-"`                                                                // 用户的敏感数据
 	UserMeta       []*UserMeta     `json:"-"`                                                                // 用户的元数据
-	gorm.DeletedAt
+	DeletedAt      gorm.DeletedAt  `json:"-" gorm:"index"`
+	Settings       *UserSetting    `json:"-" gorm:"-"` // 用户的设置
 }
 
 func (User) TableName() string {

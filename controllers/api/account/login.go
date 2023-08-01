@@ -92,7 +92,7 @@ func Login(c *gin.Context) {
 	log.Debug("User id %d, token is %s", user.Id, rawTokenStr)
 
 	// 设置 Cookie
-	c.SetCookie("token", rawTokenStr, sessionExpire, "/", "", false, true)
+	c.SetCookie("app-token", rawTokenStr, sessionExpire, "/", "", false, true)
 	// 返回首页
 	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr})
 }

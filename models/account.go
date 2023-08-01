@@ -34,10 +34,13 @@ type Account struct {
 	CreatedAt       *time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt       *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 	LastStatusAt    *time.Time `json:"last_status_at" gorm:"type:datetime"`
+	LastActivityAt  *time.Time `json:"last_activity_at" gorm:"type:datetime"`
 	IsBan           bool       `json:"is_ban" gorm:"default:false"`
 	DeletedAt       gorm.DeletedAt
 	Emojis          []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
 	Extra           *AccountExtra `json:"-"`
+
+	User *User `json:"-" gorm:"-"`
 }
 
 func (Account) TableName() string {
@@ -111,4 +114,14 @@ type AccountEmoji struct {
 
 func (AccountEmoji) TableName() string {
 	return "account_emojis"
+}
+
+type Accounts []*Account
+
+func (a Accounts) GetIds() []uint64 {
+	var ids []uint64
+	for _, account := range a {
+		ids = append(ids, account.Id)
+	}
+	return ids
 }

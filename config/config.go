@@ -31,6 +31,10 @@ type Config struct {
 	EmailMode      string `env:"EMAIL_MODE" default:"smtp"`
 	DevMode        string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
 	SessionExpire  string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
+	Redis0Host     string `env:"REDIS_0_HOST" default:""`          // Redis 配置 0, 多个 Redis 请依次递增
+	Redis0Port     string `env:"REDIS_0_PORT" default:"6379"`
+	Redis0Password string `env:"REDIS_0_PASSWORD" default:""`
+	Redis0Db       string `env:"REDIS_0_DB" default:"0"`
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项

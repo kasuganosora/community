@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -70,6 +71,56 @@ func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
 			return
 		}
 	}
+
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "before_save_status",
+		Data: s,
+	})
+
+	return
+}
+
+func (s *Status) AfterSave(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "after_save_status",
+		Data: s,
+	})
+
+	return
+}
+
+func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "after_create_status",
+		Data: s,
+	})
+
+	return
+}
+
+func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "after_update_status",
+		Data: s,
+	})
+
+	return
+}
+
+func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "before_delete_status",
+		Data: s,
+	})
+
+	return
+}
+
+func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "after_delete_status",
+		Data: s,
+	})
 
 	return
 }
@@ -603,7 +654,7 @@ type StatusToAccount struct {
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 }
 
-func TableName() string {
+func (StatusToAccount) TableName() string {
 	return "status_to_accounts"
 }
 

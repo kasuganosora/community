@@ -465,3 +465,49 @@ func deepCopyStruct(source reflect.Value) (ret reflect.Value) {
 
 	return
 }
+
+func Min[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []T) T {
+	if len(arr) == 0 {
+		return 0
+	}
+
+	min := arr[0]
+	for _, v := range arr {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+func Max[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []T) T {
+	if len(arr) == 0 {
+		return 0
+	}
+
+	max := arr[0]
+	for _, v := range arr {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+func NumberArrayConvert[A, B int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []A) []B {
+	ret := make([]B, len(arr))
+
+	for i, v := range arr {
+		ret[i] = B(v)
+	}
+	return ret
+}
+
+func StringNumberArrayConvertUint64(arr []string) []uint64 {
+	ret := make([]uint64, len(arr))
+
+	for i, v := range arr {
+		ret[i], _ = strconv.ParseUint(v, 10, 64)
+	}
+	return ret
+}

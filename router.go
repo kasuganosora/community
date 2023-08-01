@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/status"
+	"github.com/kasuganosora/community/controllers/api/timelines"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
@@ -78,7 +79,8 @@ func SetRouter(app gin.IRouter) {
 		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
 		GET("/polls/:id", status.ViewPoll).
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
-		GET("/scheduled_statuses", status.ListScheduledStatuses)
+		GET("/scheduled_statuses", status.ListScheduledStatuses).
+		GET("/timelines/home", timelines.Home)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

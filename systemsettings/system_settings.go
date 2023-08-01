@@ -44,6 +44,7 @@ const (
 	KeyRegistrationCheckEmail       = "config.registration.check_email"                 // 是否检查邮箱
 	KeyMediaAttachmentsBaseURL      = "config.media_attachments.base_url"               // 附件基础URL
 	KeyMediaAttachmentsCacheBaseURL = "config.media_attachments.cache_base_url"         // 附件缓存基础URL
+	KeyDefaultPageSize              = "config.default_page_limit"                       // 默认分页大小
 
 )
 
@@ -266,4 +267,8 @@ func GetAllTreeStyle() (settings map[string]any) {
 	}
 
 	return
+}
+
+func GetDefaultPageSize() int {
+	return GetInt(KeyDefaultPageSize, 20)
 }
