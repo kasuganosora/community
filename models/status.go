@@ -48,6 +48,7 @@ type Status struct {
 	UpdatedAt          *time.Time     `gorm:"not null;autoUpdateTime" json:"updated_at"`
 	DeletedAt          *time.Time     `gorm:"index" json:"-"`
 	Properties         map[string]any `gorm:"type:json;serializer:json" json:"properties"`
+	Domain             *string        `gorm:"type:varchar(128);index" json:"domain"`
 
 	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`

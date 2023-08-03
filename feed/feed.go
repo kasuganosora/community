@@ -22,6 +22,7 @@ var ErrFeedRegenerating = errors.New("feed is regenerating")
 type Timeline interface {
 	GetKeyFormat() string
 	GetTimelineId() string
+	Rebuild() error
 }
 
 type ListParam struct {
@@ -29,6 +30,7 @@ type ListParam struct {
 	MinId   uint64
 	SinceId uint64
 	Limit   uint64
+	Other   map[string]any
 }
 
 func (p *ListParam) SetMaxId(id uint64) {

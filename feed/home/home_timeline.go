@@ -1,31 +1,17 @@
 package home
 
 import (
-	"context"
 	"fmt"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
-	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 	"strconv"
 )
-
-type Home struct {
-	Account *models.Account
-}
-
-func (ll *Home) GetKeyFormat() string {
-	return "feed:home:%s"
-}
-
-func (ll *Home) GetTimelineId() string {
-	return strconv.FormatUint(ll.Account.Id, 10)
-}
 
 func init() {
 	// 监听 所有关于status的事件
@@ -52,6 +38,64 @@ func init() {
 
 		return true
 	}})
+}
+
+type Home struct {
+	Account *models.Account
+}
+
+func (timeline *Home) GetKeyFormat() string {
+	return "feed:home:%s"
+}
+
+func (timeline *Home) GetTimelineId() string {
+	return strconv.FormatUint(timeline.Account.Id, 10)
+}
+
+func (timeline *Home) Rebuild() (err error) {
+	statuses := make(models.Statuses, 0)
+	followingAccounts, err := feed.GetAccountFollowingAccounts(timeline.Account.Id)
+	if err != nil {
+		return
+	}
+
+	limit := feed.MAX_ITEMS / 2
+	offset := 0
+
+	accountsId := followingAccounts.GetIds()
+	// 加上我自己
+	accountsId = append(accountsId, timeline.Account.Id)
+	// 找出我关注的人和最近提及我的status
+	err = db.GetDB().
+		Preload("ToAccounts").
+		Where("account_id in ? or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, timeline.Account.Id).
+		Order("created_at desc").Limit(limit).Offset(offset).Find(&statuses).Error
+
+	if err != nil {
+		return
+	}
+
+	// 过滤掉只有对方可见的status
+	statuses = statuses.Filter(func(status *models.Status) bool {
+		if status.Visibility == models.StatusVisibilityDirect {
+			return status.ToAccounts.Contains(timeline.Account.Id)
+		}
+
+		return true
+	})
+
+	err = feed.CleanFeeds(timeline, []string{strconv.FormatUint(timeline.Account.Id, 10)})
+	if err != nil {
+		return
+	}
+
+	for _, status := range statuses {
+		err = PushToHome(timeline.Account, status, false, false)
+		if err != nil {
+			return
+		}
+	}
+	return
 }
 
 // ClearMentionsPushStatus 清除提及的推送状态
@@ -236,91 +280,10 @@ func UnPushStatusFromFollowers(status *models.Status) (err error) {
 	return
 }
 
-func RebuildHomeTimeline(account *models.Account) (err error) {
-	statuses := make(models.Statuses, 0)
-	followingAccounts, err := feed.GetAccountFollowingAccounts(account.Id)
-	if err != nil {
-		return
-	}
-
-	limit := feed.MAX_ITEMS / 2
-	offset := 0
-
-	accountsId := followingAccounts.GetIds()
-	// 加上我自己
-	accountsId = append(accountsId, account.Id)
-	// 找出我关注的人和最近提及我的status
-	err = db.GetDB().
-		Preload("ToAccounts").
-		Where("account_id in ? or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, account.Id).
-		Order("created_at desc").Limit(limit).Offset(offset).Find(&statuses).Error
-
-	if err != nil {
-		return
-	}
-
-	// 过滤掉只有对方可见的status
-	statuses = statuses.Filter(func(status *models.Status) bool {
-		if status.Visibility == models.StatusVisibilityDirect {
-			return status.ToAccounts.Contains(account.Id)
-		}
-
-		return true
-	})
-
-	err = feed.CleanFeeds(&Home{Account: account}, []string{strconv.FormatUint(account.Id, 10)})
-	if err != nil {
-		return
-	}
-
-	for _, status := range statuses {
-		err = PushToHome(account, status, false, false)
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
 func GetTimeLineContent(account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeLine := &Home{Account: account}
 
-	statusesId := make([]uint64, 0)
-	recentRebuild := false
-
-	// 判断是否有缓存, 没有缓存则重建
-	redisConn := db.GetRedis()
-	ctx := context.Background()
-	timelineKey := fmt.Sprintf(timeLine.GetKeyFormat(), timeLine.GetTimelineId())
-	if redisConn.Exists(ctx, timelineKey).Val() == 0 {
-		RebuildHomeTimeline(account)
-		recentRebuild = true
-	}
-
-	if params == nil {
-		// 从缓存中取出timeline status id
-		var statusesIdStr []string
-		statusesIdStr, err = redisConn.ZRevRange(ctx, timelineKey, 0, -1).Result()
-		if err != nil {
-			return
-		}
-
-		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
-	} else {
-		var statusesIdStr []string
-
-		if params.MaxId > 0 || params.MinId > 0 {
-			min, max := params.GetRedisRangeMinMax()
-			statusesIdStr = redisConn.ZRangeByScore(ctx, timelineKey, &redis.ZRangeBy{Min: min, Max: max}).Val()
-		} else {
-			start, end := params.GetRedisRangeOffsetCount()
-			statusesIdStr = redisConn.ZRevRange(ctx, timelineKey, start, end).Val()
-		}
-
-		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
-	}
-
-	if len(statusesId) == 0 && !recentRebuild {
+	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		// 没有找到 statuses id，尝试从数据库中找
 		var followingAccounts models.Accounts
 		followingAccounts, err = feed.GetAccountFollowingAccounts(account.Id)
@@ -332,68 +295,20 @@ func GetTimeLineContent(account *models.Account, params *feed.ListParam) (status
 		// 加上我自己
 		accountIds = append(accountIds, account.Id)
 
-		query := db.GetDB().
-			Where("account_id in (?) or id in (select status_id from status_to_accounts where account_id = ?)", accountIds, account.Id).
+		query = tx.Where("account_id in (?) or id in (select status_id from status_to_accounts where account_id = ?)", accountIds, account.Id).
 			Order("created_at desc")
+		return
+	}
 
-		if params == nil {
-			query = query.Limit(systemsettings.GetDefaultPageSize())
-		} else {
-			if params.MaxId > 0 {
-				query = query.Where("id <= ? and id >=", params.MaxId, params.MinId)
-			} else {
-				query = query.Where("id >= ?", params.SinceId).Limit(int(params.Limit))
+	afterFilter := func(statuses models.Statuses) (ret models.Statuses) {
+		return statuses.Filter(func(status *models.Status) bool {
+			if status.Visibility == models.StatusVisibilityDirect {
+				return status.ToAccounts.Contains(account.Id)
 			}
-		}
 
-		statusesId = make([]uint64, 0)
-		err = query.Pluck("id", &statusesId).Error
+			return true
+		})
 	}
 
-	// 还是没有找到，返回空
-	if len(statusesId) == 0 {
-		return
-	}
-
-	// 找到了，从数据库中取出
-	statuses = make([]*models.Status, 0)
-	query := db.GetDB().Model(&models.Status{}).Preload("Account").
-		Preload("Content").
-		Preload("Application").
-		Preload("Attachments").
-		Preload("ReplyAccount").
-		Preload("Emojis").
-		Preload("ToAccounts").
-		Preload("Poll").
-		Preload("Poll.Options").
-		Preload("Poll.Options").
-		Preload("Tags").
-		Preload("Reblog").
-		Preload("Reblog.Account").
-		Preload("Reblog.Content").
-		Preload("Reblog.Application").
-		Preload("Reblog.Attachments").
-		Preload("Reblog.ReplyAccount").
-		Preload("Reblog.Emojis").
-		Preload("Reblog.ToAccounts").
-		Preload("Reblog.Poll").
-		Preload("Reblog.Poll.Options").
-		Preload("Reblog.Poll.Options").
-		Preload("Reblog.Tags")
-
-	err = query.Where("id in (?)", statusesId).Order("statuses.id desc").Find(&statuses).Error
-	if err != nil {
-		return
-	}
-
-	// 过滤掉只有对方可见的status
-	statuses = statuses.Filter(func(status *models.Status) bool {
-		if status.Visibility == models.StatusVisibilityDirect {
-			return status.ToAccounts.Contains(account.Id)
-		}
-
-		return true
-	})
-
-	return
+	return feed.GetStatusTimelineContent(timeLine, params, newFilterCondition, afterFilter)
 }

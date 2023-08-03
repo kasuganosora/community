@@ -31,6 +31,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroup.GET("/accounts/search", account.Search)
 	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroup.GET("/statuses/:id", status.Show)
+	maybeAuthGroup.GET("/timelines/public", timelines.Public)
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())

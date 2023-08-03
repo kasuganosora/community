@@ -228,6 +228,8 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 }
 
 func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret []*Status, err error) {
+	ret = make([]*Status, 0, len(statuses))
+
 	if statuses == nil {
 		return
 	}
