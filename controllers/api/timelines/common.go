@@ -6,10 +6,10 @@ import (
 )
 
 type TimelineRequest struct {
-	MaxId   uint64 `query:"max_id"`
-	MinId   uint64 `query:"min_id"`
-	SinceId uint64 `query:"since_id"`
-	Limit   uint64 `query:"limit"`
+	MaxId   uint64 `form:"max_id"`
+	MinId   uint64 `form:"min_id"`
+	SinceId uint64 `form:"since_id"`
+	Limit   uint64 `form:"limit"`
 }
 
 func (req *TimelineRequest) ToFeedListParams() *feed.ListParam {
