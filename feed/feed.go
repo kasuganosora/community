@@ -82,7 +82,7 @@ func (p *ListParam) GetRedisRangeOffsetCount() (offset, count int64) {
 func GetAccountFollowersId(accountId uint64) (followers []uint64, err error) {
 	followers = make([]uint64, 0)
 
-	err = db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", accountId).Pluck("follower_id", &followers).Error
+	err = db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", accountId).Pluck("account_id", &followers).Error
 	return
 }
 
@@ -328,19 +328,23 @@ func PushToClient(timeline Timeline, eventType string, eventPayload any) (err er
 
 	msgJson, _ := json.Marshal(msg)
 	redisConn := db.GetRedis()
-	key := fmt.Sprintf("subscribed:"+timeline.GetKeyFormat(), timeline.GetTimelineId())
+	key := GetRedisChannelName(timeline)
 	ctx := context.Background()
 	_, err = redisConn.Publish(ctx, key, msgJson).Result()
 	return
 }
 
-func PushStatusEventToClient(timeline Timeline, status *models.Status, method string) (err error) {
-	eventType := fmt.Sprintf("status:%s", method)
-	return PushToClient(timeline, eventType, status)
-}
-
 func PushUpdateRequired(timeline Timeline) (ret bool) {
 	key := fmt.Sprintf("subscribed:"+timeline.GetKeyFormat(), timeline.GetTimelineId())
 	ctx := context.Background()
-	return db.GetRedis().Exists(ctx, key).Val() > 0
+	channels, err := db.GetRedis().PubSubChannels(ctx, key).Result()
+	if err != nil {
+		return false
+	}
+
+	return len(channels) > 0
+}
+
+func GetRedisChannelName(timeline Timeline) string {
+	return fmt.Sprintf("subscribed:"+timeline.GetKeyFormat(), timeline.GetTimelineId())
 }

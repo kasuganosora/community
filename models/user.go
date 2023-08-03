@@ -36,7 +36,7 @@ type User struct {
 	UserSecret     *UserSecretData `json:"-"`                                                                // 用户的敏感数据
 	UserMeta       []*UserMeta     `json:"-"`                                                                // 用户的元数据
 	DeletedAt      gorm.DeletedAt  `json:"-" gorm:"index"`
-	Settings       *UserSetting    `json:"-" gorm:"-"` // 用户的设置
+	Settings       *UserSetting    `json:"-"` // 用户的设置
 }
 
 func (User) TableName() string {

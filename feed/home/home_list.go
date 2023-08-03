@@ -29,7 +29,7 @@ func (ll *Home) GetTimelineId() string {
 
 func init() {
 	// 监听 所有关于status的事件
-	event.Register("status", "*", "status.feed.home", &event.Handler{Exec: func(event event.Event) bool {
+	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
 		if event.Data == nil {
 			return false
 		}
@@ -42,6 +42,8 @@ func init() {
 		switch event.Name {
 		case "after_create_status":
 			go PushStatusToFollowers(status, false)
+		case "before_update_status":
+			go ClearMentionsPushStatus(status)
 		case "after_update_status":
 			go PushStatusToFollowers(status, true)
 		case "after_delete_status":
@@ -51,6 +53,33 @@ func init() {
 		return true
 	}})
 }
+
+// ClearMentionsPushStatus 清除提及的推送状态
+func ClearMentionsPushStatus(status *models.Status) {
+	// 查找原来的提及用户信息
+	toAccounts := make([]*models.StatusToAccount, 0)
+	err := db.GetDB().Model(&models.StatusToAccount{}).
+		Preload("Account").
+		Preload("Account.User").
+		Preload("Account.User.Settings").
+		Where("status_id = ?", status.Id).Select("account_id").Find(&toAccounts).Error
+
+	if err != nil {
+		err = errors.Wrap(err, fmt.Sprintf("ClearMentionsPushStatus: status_id: %d", status.Id))
+		log.ErrorV(err)
+		return
+	}
+	for _, statusToAccount := range toAccounts {
+		// 删除提及的推送状态
+		err = UnPushFromHome(statusToAccount.Account, status, true)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("ClearMentionsPushStatus: status_id: %d, account_id: %d", status.Id, statusToAccount.AccountId))
+			log.ErrorV(err)
+			continue
+		}
+	}
+}
+
 func PushToHome(account *models.Account, status *models.Status, update bool, pushToClient bool) (err error) {
 	homeTimeline := &Home{Account: account}
 
@@ -70,11 +99,11 @@ func PushToHome(account *models.Account, status *models.Status, update bool, pus
 	}
 
 	if feed.PushUpdateRequired(homeTimeline) && pushToClient {
-		method := "status.new"
+		method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
 		if update {
 			method = "status.update"
 		}
-		err = feed.PushStatusEventToClient(homeTimeline, status, method)
+		err = feed.PushToClient(homeTimeline, method, status)
 	}
 
 	return
@@ -99,28 +128,36 @@ func UnPushFromHome(account *models.Account, status *models.Status, pushToClient
 	}
 
 	if feed.PushUpdateRequired(homeTimeline) && pushToClient {
-		err = feed.PushStatusEventToClient(homeTimeline, status, "delete")
+		err = feed.PushToClient(homeTimeline, "delete", status)
 	}
 
 	return
 }
 
 func PushStatusToFollowers(status *models.Status, update bool) (err error) {
-	accountsId, err := feed.GetAccountRecentActiveLocalFollowersId(status.AccountId)
-	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
-		return
+	if status.ToAccounts == nil {
+		status.ToAccounts = make(models.Accounts, 0)
+		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			return
+		}
 	}
 
-	// 这个status 提及的用户
-	mentionsAccountsId := make([]uint64, 0)
-	err = db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &mentionsAccountsId).Error
-	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
-		return
+	accountsId := make([]uint64, 0)
+
+	if status.Visibility == models.StatusVisibilityDirect {
+		accountsId = status.ToAccounts.GetIds()
+	} else {
+		accountsId, err = feed.GetAccountRecentActiveLocalFollowersId(status.AccountId)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			return
+		}
+		// 再加上这个status提及的用户
+		accountsId = append(accountsId, status.ToAccounts.GetIds()...)
 	}
 
-	accountsId = append(accountsId, mentionsAccountsId...)
 	// 加上这个status的作者
 	accountsId = append(accountsId, status.AccountId)
 	accountsId = utils.UniqueSlice(accountsId)
@@ -128,7 +165,7 @@ func PushStatusToFollowers(status *models.Status, update bool) (err error) {
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
 		accounts := make([]*models.Account, 0)
-		err = db.GetDB().Preload("account.User").Preload("account.User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
+		err = db.GetDB().Model(&models.Account{}).Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
 		if err != nil {
 			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
 			log.ErrorV(err)
@@ -149,20 +186,29 @@ func PushStatusToFollowers(status *models.Status, update bool) (err error) {
 }
 
 func UnPushStatusFromFollowers(status *models.Status) (err error) {
-	accountsId, err := feed.GetAccountRecentActiveLocalFollowersId(status.AccountId)
-	if err != nil {
-		return
+	if status.ToAccounts == nil {
+		status.ToAccounts = make(models.Accounts, 0)
+		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			return
+		}
 	}
 
-	// 这个status 提及的用户
-	mentionsAccountsId := make([]uint64, 0)
-	err = db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &mentionsAccountsId).Error
-	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
-		return
+	accountsId := make([]uint64, 0)
+
+	if status.Visibility == models.StatusVisibilityDirect {
+		accountsId = status.ToAccounts.GetIds()
+	} else {
+		accountsId, err = feed.GetAccountRecentActiveLocalFollowersId(status.AccountId)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			return
+		}
+		// 再加上这个status提及的用户
+		accountsId = append(accountsId, status.ToAccounts.GetIds()...)
 	}
 
-	accountsId = append(accountsId, mentionsAccountsId...)
 	// 加上这个status的作者
 	accountsId = append(accountsId, status.AccountId)
 	accountsId = utils.UniqueSlice(accountsId)
@@ -191,7 +237,7 @@ func UnPushStatusFromFollowers(status *models.Status) (err error) {
 }
 
 func RebuildHomeTimeline(account *models.Account) (err error) {
-	statuses := make([]*models.Status, 0)
+	statuses := make(models.Statuses, 0)
 	followingAccounts, err := feed.GetAccountFollowingAccounts(account.Id)
 	if err != nil {
 		return
@@ -205,12 +251,22 @@ func RebuildHomeTimeline(account *models.Account) (err error) {
 	accountsId = append(accountsId, account.Id)
 	// 找出我关注的人和最近提及我的status
 	err = db.GetDB().
-		Where("account_id in (?) or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, account.Id).
+		Preload("ToAccounts").
+		Where("account_id in ? or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, account.Id).
 		Order("created_at desc").Limit(limit).Offset(offset).Find(&statuses).Error
 
 	if err != nil {
 		return
 	}
+
+	// 过滤掉只有对方可见的status
+	statuses = statuses.Filter(func(status *models.Status) bool {
+		if status.Visibility == models.StatusVisibilityDirect {
+			return status.ToAccounts.Contains(account.Id)
+		}
+
+		return true
+	})
 
 	err = feed.CleanFeeds(&Home{Account: account}, []string{strconv.FormatUint(account.Id, 10)})
 	if err != nil {
@@ -325,10 +381,19 @@ func GetTimeLineContent(account *models.Account, params *feed.ListParam) (status
 		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Tags")
 
-	err = query.Where("id in (?)", statusesId).Find(&statuses).Error
+	err = query.Where("id in (?)", statusesId).Order("statuses.id desc").Find(&statuses).Error
 	if err != nil {
 		return
 	}
+
+	// 过滤掉只有对方可见的status
+	statuses = statuses.Filter(func(status *models.Status) bool {
+		if status.Visibility == models.StatusVisibilityDirect {
+			return status.ToAccounts.Contains(account.Id)
+		}
+
+		return true
+	})
 
 	return
 }

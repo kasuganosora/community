@@ -3,9 +3,8 @@ package event
 var eventManagers = make(map[string]*EventManager)
 
 type Handler struct {
-	Id        int
-	EventName string
-	Exec      func(event Event) bool
+	Id   int
+	Exec func(event Event) bool
 }
 
 type Event struct {
@@ -26,10 +25,10 @@ func GetEventManager(pool string) *EventManager {
 	return eventManagers[pool]
 }
 
-func (em *EventManager) Register(name string, listenEventName string, handler *Handler) {
-	handler.Id = len(em.handlers[name]) + 1
-	handler.EventName = listenEventName
-	em.handlers[name] = append(em.handlers[name], handler)
+func (em *EventManager) Register(eventName string, handler *Handler) (handleId int) {
+	handler.Id = len(em.handlers[eventName]) + 1
+	em.handlers[eventName] = append(em.handlers[eventName], handler)
+	return handler.Id
 }
 
 func (em *EventManager) Remove(name string, id int) {
@@ -42,25 +41,28 @@ func (em *EventManager) Remove(name string, id int) {
 }
 
 func (em *EventManager) Trigger(event Event) {
-	go func() {
-		for _, handler := range em.handlers[event.Name] {
-			if handler.EventName != "*" && handler.EventName != event.Name {
-				continue
-			}
+	for _, handler := range em.handlers[event.Name] {
+		if handler.Exec(event) == false {
+			break
+		}
+	}
 
-			if handler.Exec(event) {
+	// 如果有通配符 * 的事件，也触发
+	if _, ok := em.handlers["*"]; ok {
+		for _, handler := range em.handlers["*"] {
+			if handler.Exec(event) == false {
 				break
 			}
 		}
-	}()
+	}
 }
 
-func Register(pool string, listenEventName string, name string, handler *Handler) {
-	GetEventManager(pool).Register(name, listenEventName, handler)
+func Register(pool string, eventName string, handler *Handler) (handleId int) {
+	return GetEventManager(pool).Register(eventName, handler)
 }
 
-func Remove(pool string, name string, id int) {
-	GetEventManager(pool).Remove(name, id)
+func Remove(pool string, eventName string, id int) {
+	GetEventManager(pool).Remove(eventName, id)
 }
 
 func Trigger(pool string, event Event) {

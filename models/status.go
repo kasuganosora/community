@@ -53,15 +53,99 @@ type Status struct {
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
 	ReplyAccount *Account     `gorm:"foreignKey:InReplyToAccountId" json:"reply_account"`
 	Emojis       Emojis       `gorm:"many2many:status_emojis;" json:"emojis"`
-	ToAccounts   []*Account   `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
+	ToAccounts   Accounts     `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
 	Poll         *Poll        `gorm:"foreignKey:status_id" json:"poll"`
 	Account      *Account     `gorm:"foreignKey:account_id" json:"account"`
 	Reblog       *Status      `gorm:"foreignKey:reblog_id" json:"relog"`
 	Tags         []*Tag       `gorm:"many2many:status_tags;" json:"tags"`
+
+	isLoadAllExtendFields bool `gorm:"-"`
 }
 
 func (s *Status) TableName() string {
 	return "statuses"
+}
+
+func (s *Status) SetAllExtendFieldsLoaded() {
+	s.isLoadAllExtendFields = true
+}
+
+func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
+	if s.isLoadAllExtendFields {
+		return
+	}
+
+	if s.ApplicationId != nil && *s.ApplicationId > 0 && s.Application == nil {
+		s.Application = &Application{}
+		if err = tx.Model(s).Association("Application").Find(s.Application); err != nil {
+			return
+		}
+	}
+
+	if s.ReblogId != nil && *s.ReblogId > 0 && s.Reblog == nil {
+		s.Reblog = &Status{}
+		if err = tx.Model(s).Association("Reblog").Find(s.Reblog); err != nil {
+			return
+		}
+	}
+
+	if s.Poll == nil {
+		poll := &Poll{}
+		err = tx.Model(poll).Preload("Options").Where("status_id = ?", s.Id).First(poll).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return
+		}
+
+		if err == nil {
+			s.Poll = poll
+		}
+
+		err = nil
+	}
+
+	if s.AccountId > 0 && s.Account == nil {
+		s.Account = &Account{}
+		if err = tx.Model(s).Association("Account").Find(s.Account); err != nil {
+			return
+		}
+	}
+
+	if s.InReplyToAccountId != nil && *s.InReplyToAccountId > 0 && s.ReplyAccount == nil {
+		s.ReplyAccount = &Account{}
+		if err = tx.Model(s).Association("ReplyAccount").Find(s.ReplyAccount); err != nil {
+			return
+		}
+	}
+
+	if s.Emojis == nil {
+		s.Emojis = make(Emojis, 0)
+		if err = tx.Model(s).Association("Emojis").Find(&s.Emojis); err != nil {
+			return
+		}
+	}
+
+	if s.Attachments == nil {
+		s.Attachments = make(Attachments, 0)
+		if err = tx.Model(s).Association("Attachments").Find(&s.Attachments); err != nil {
+			return
+		}
+	}
+
+	if s.Tags == nil {
+		s.Tags = make([]*Tag, 0)
+		if err = tx.Model(s).Association("Tags").Find(&s.Tags); err != nil {
+			return
+		}
+	}
+
+	if s.Content.Content == "" {
+		if err = tx.Model(s).Association("Content").Find(&s.Content); err != nil {
+			return
+		}
+	}
+
+	s.isLoadAllExtendFields = true
+	return
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
@@ -365,6 +449,16 @@ func (ss *Statuses) GetAccountIds() (ids []uint64) {
 	return
 }
 
+func (ss *Statuses) Filter(filter func(s *Status) bool) (ret Statuses) {
+	ret = make(Statuses, 0, len(*ss))
+	for _, s := range *ss {
+		if filter(s) {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
 type StatusContent struct {
 	StatusId    uint64         `gorm:"primary_key;auto_increment" json:"status_id"`
 	Content     string         `gorm:"type:text;not null" json:"content"`
@@ -652,6 +746,7 @@ type StatusToAccount struct {
 	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
 	AccountId uint64     `gorm:"not null;index" json:"account_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+	Account   *Account   `json:"account"`
 }
 
 func (StatusToAccount) TableName() string {

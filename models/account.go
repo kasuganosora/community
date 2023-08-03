@@ -40,7 +40,7 @@ type Account struct {
 	Emojis          []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
 	Extra           *AccountExtra `json:"-"`
 
-	User *User `json:"-" gorm:"-"`
+	User *User `json:"-" gorm:"foreignKey:UserId;references:Id"`
 }
 
 func (Account) TableName() string {
@@ -124,4 +124,13 @@ func (a Accounts) GetIds() []uint64 {
 		ids = append(ids, account.Id)
 	}
 	return ids
+}
+
+func (a Accounts) Contains(id uint64) bool {
+	for _, account := range a {
+		if account.Id == id {
+			return true
+		}
+	}
+	return false
 }

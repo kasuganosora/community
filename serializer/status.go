@@ -338,7 +338,7 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 		}
 
 		var retStatus *Status
-		retStatus, err = ToStatus(status, currentAccount)
+		retStatus, err = ToStatusBase(status)
 		// 只要是那个人发的，或者是转发的，都不要
 		if muteAccounts.IsMuted(status.AccountId) || (status.Reblog != nil && muteAccounts.IsMuted(status.Reblog.AccountId)) {
 			retStatus.Muted = true

@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/status"
+	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
@@ -22,6 +23,8 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.POST("/accounts/login", account.Login)
 	v2ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
+
+	v2ApiGroup.GET("/streaming/health", streaming.Health)
 
 	// 可登陆也可不登陆的路由
 	maybeAuthGroup := v2ApiGroup.Use(middleware.AuthMiddleware())
@@ -81,6 +84,9 @@ func SetRouter(app gin.IRouter) {
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
 		GET("/scheduled_statuses", status.ListScheduledStatuses).
 		GET("/timelines/home", timelines.Home)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}, middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+		GET("/streaming/user", streaming.UserStreaming)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)
