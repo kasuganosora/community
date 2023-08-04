@@ -58,7 +58,7 @@ type Status struct {
 	Poll         *Poll        `gorm:"foreignKey:status_id" json:"poll"`
 	Account      *Account     `gorm:"foreignKey:account_id" json:"account"`
 	Reblog       *Status      `gorm:"foreignKey:reblog_id" json:"relog"`
-	Tags         []*Tag       `gorm:"many2many:status_tags;" json:"tags"`
+	Tags         Tags         `gorm:"many2many:status_tags;" json:"tags"`
 
 	isLoadAllExtendFields bool `gorm:"-"`
 }

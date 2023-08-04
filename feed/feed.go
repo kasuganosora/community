@@ -10,11 +10,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"strconv"
+	"time"
 )
 
 const (
 	MAX_ITEMS      = 512
 	REBLOG_FALLOFF = 40
+	MAX_AGE_DAYS   = 7
 )
 
 var ErrFeedRegenerating = errors.New("feed is regenerating")
@@ -130,6 +132,12 @@ func AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblog
 
 	ctx := context.Background()
 	redisConn := db.GetRedis()
+
+	// 插入一个 sorted set, 用来记录这个时间线是啥时候更新的，用于判断是否要对其进行删除释放空间
+	_, err = redisConn.ZAdd(ctx, "timelines", redis.Z{float64(time.Now().Unix()), timelineKey}).Result()
+	if err != nil {
+		return
+	}
 
 	if status.ReblogId != nil && *status.ReblogId > 0 && aggregateReblogs {
 		// 如果是转发的，原始状态在前 REBLOG_FALLOFF 内发生的，不再插入
@@ -349,4 +357,54 @@ func PushUpdateRequired(timeline Timeline) (ret bool) {
 
 func GetRedisChannelName(timeline Timeline) string {
 	return fmt.Sprintf("subscribed:"+timeline.GetKeyFormat(), timeline.GetTimelineId())
+}
+
+func GcTimelines() (err error) {
+	ctx := context.Background()
+	redisConn := db.GetRedis()
+	deleteRange := time.Now().Add(-1 * time.Hour * 24 * MAX_AGE_DAYS).Unix()
+	max := strconv.FormatInt(deleteRange, 10)
+	timelines := redisConn.ZRevRangeByScoreWithScores(ctx, "timelines", &redis.ZRangeBy{Max: max, Min: "-inf"}).Val()
+
+	if len(timelines) == 0 {
+		return
+	}
+
+	batchSize := 1000 // 每批次删除的键的数量
+	keysToDelete := make([]string, 0)
+
+	for _, timeline := range timelines {
+		key := timeline.Member.(string)
+		keysToDelete = append(keysToDelete, key, key+":reblogs")
+
+		// 获取所有匹配 key+":reblogs:*" 的键
+		matchingKeys, err := redisConn.Keys(ctx, key+":reblogs:*").Result()
+		if err != nil {
+			return err
+		}
+
+		keysToDelete = append(keysToDelete, matchingKeys...)
+	}
+
+	// 分批删除 keysToDelete
+	for i := 0; i < len(keysToDelete); i += batchSize {
+		end := i + batchSize
+		if end > len(keysToDelete) {
+			end = len(keysToDelete)
+		}
+
+		_, err = redisConn.Pipelined(ctx, func(pipe redis.Pipeliner) (err error) {
+			pipe.Unlink(ctx, keysToDelete[i:end]...)
+			return
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// 删除过期的timelines
+	_, err = redisConn.ZRemRangeByScore(ctx, "timelines", "-inf", max).Result()
+
+	return
 }

@@ -22,35 +22,35 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create_status":
-			go PushToPublicList(status, false, true)
+			go Push(status, false, true)
 		case "before_update_status":
-			go UnPushPublicList(status, true) // 更新之前，先删除
+			go Unpush(status, true) // 更新之前，先删除
 		case "after_update_status":
-			go PushToPublicList(status, true, true)
+			go Push(status, true, true)
 		case "after_delete_status":
-			go UnPushPublicList(status, true)
+			go Unpush(status, true)
 		}
 
 		return true
 	}})
 }
 
-type Public struct {
+type PublicTimeline struct {
 	OnlyMedia bool
 }
 
-func (timeline *Public) GetKeyFormat() string {
+func (timeline *PublicTimeline) GetKeyFormat() string {
 	return "feed:public:%s"
 }
 
-func (timeline *Public) GetTimelineId() string {
+func (timeline *PublicTimeline) GetTimelineId() string {
 	if timeline.OnlyMedia {
 		return "has_media"
 	}
 	return "public"
 }
 
-func (timeline *Public) Rebuild() (err error) {
+func (timeline *PublicTimeline) Rebuild() (err error) {
 	statuses := make(models.Statuses, 0)
 	err = db.GetDB().Model(&models.Status{}).Preload("Attachments").
 		Where("visibility = ?", models.StatusVisibilityPublic).
@@ -60,8 +60,16 @@ func (timeline *Public) Rebuild() (err error) {
 		return
 	}
 
-	allPublicTimeline := &Public{OnlyMedia: false}
-	onlyMediaTimeline := &Public{OnlyMedia: true}
+	allPublicTimeline := &PublicTimeline{OnlyMedia: false}
+	onlyMediaTimeline := &PublicTimeline{OnlyMedia: true}
+
+	if err = feed.CleanFeeds(allPublicTimeline, []string{"feed:public:public"}); err != nil {
+		return
+	}
+
+	if err = feed.CleanFeeds(onlyMediaTimeline, []string{"feed:public:has_media"}); err != nil {
+		return
+	}
 
 	for _, status := range statuses {
 		if status.Attachments != nil && len(status.Attachments) > 0 {
@@ -87,16 +95,16 @@ func (timeline *Public) Rebuild() (err error) {
 	return
 }
 
-func PushToPublicList(status *models.Status, update bool, pushToClient bool) (err error) {
+func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	if status.Visibility != models.StatusVisibilityPublic {
 		return
 	}
 
 	timelines := make([]feed.Timeline, 0)
-	timelines = append(timelines, &Public{OnlyMedia: false})
+	timelines = append(timelines, &PublicTimeline{OnlyMedia: false})
 	// 如果有附件，就推送到has_media
 	if status.Attachments != nil && len(status.Attachments) > 0 {
-		timelines = append(timelines, &Public{OnlyMedia: true})
+		timelines = append(timelines, &PublicTimeline{OnlyMedia: true})
 	}
 
 	for _, timeline := range timelines {
@@ -127,16 +135,21 @@ func PushToPublicList(status *models.Status, update bool, pushToClient bool) (er
 	return
 }
 
-func UnPushPublicList(status *models.Status, pushToClient bool) (err error) {
+func Unpush(status *models.Status, pushToClient bool) (err error) {
 	timelines := make([]feed.Timeline, 0)
-	timelines = append(timelines, &Public{OnlyMedia: false})
+	timelines = append(timelines, &PublicTimeline{OnlyMedia: false})
 	// 如果有附件，就推送到has_media
 	if status.Attachments != nil && len(status.Attachments) > 0 {
-		timelines = append(timelines, &Public{OnlyMedia: true})
+		timelines = append(timelines, &PublicTimeline{OnlyMedia: true})
 	}
 
 	for _, timeline := range timelines {
 		err = feed.RemoveTimelineItem(timeline, status, true)
+		if err != nil {
+			return
+		}
+
+		err = feed.TrimTimeline(timeline)
 		if err != nil {
 			return
 		}
@@ -152,8 +165,8 @@ func UnPushPublicList(status *models.Status, pushToClient bool) (err error) {
 	return
 }
 
-func GetTimeLineContentAll(params *feed.ListParam) (statuses models.Statuses, err error) {
-	timeline := &Public{OnlyMedia: false}
+func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, err error) {
+	timeline := &PublicTimeline{OnlyMedia: false}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)
@@ -197,8 +210,8 @@ func GetTimeLineContentAll(params *feed.ListParam) (statuses models.Statuses, er
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, afterFilter)
 }
 
-func GetTimeLineContentMedia(params *feed.ListParam) (statuses models.Statuses, err error) {
-	timeline := &Public{OnlyMedia: true}
+func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, err error) {
+	timeline := &PublicTimeline{OnlyMedia: true}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)

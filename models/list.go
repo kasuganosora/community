@@ -16,6 +16,7 @@ type List struct {
 	Title         string         `gorm:"type:varchar(255);not null" json:"title"`
 	AccountId     uint64         `gorm:"not null" json:"account_id"`
 	RepliesPolicy uint8          `gorm:"not null;default:0" json:"replies_policy"`
+	LastViewedAt  *time.Time     `gorm:"index" json:"last_viewed_at"` // 最后被查看的时间
 	CreatedAt     *time.Time     `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt     *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`

@@ -15,3 +15,5 @@ type Tag struct {
 func (t *Tag) TableName() string {
 	return "tags"
 }
+
+type Tags []*Tag

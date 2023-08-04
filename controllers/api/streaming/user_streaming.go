@@ -27,7 +27,7 @@ func UserStreaming(c *gin.Context) {
 	redisConn := db.GetRedis()
 	channels := make([]string, 0)
 
-	homeTimeline := &home.Home{Account: account}
+	homeTimeline := &home.HomeTimeline{Account: account}
 	channels = append(channels, feed.GetRedisChannelName(homeTimeline))
 	ctx := context.Background()
 	sub := redisConn.Subscribe(ctx, channels...)

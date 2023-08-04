@@ -63,7 +63,6 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		}
 
 		// 如果不是一页就是超过redis缓存的范围了，这时候就需要从数据库里取数据了
-
 		query := db.GetDB().Model(&models.Status{})
 		query, err = newFilterCondition(query)
 

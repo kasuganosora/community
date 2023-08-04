@@ -36,9 +36,9 @@ func Public(c *gin.Context) {
 	var err error
 
 	if utils.ToBool(req.OnlyMedia) {
-		statuses, err = public.GetTimeLineContentMedia(req.ToFeedListParams())
+		statuses, err = public.GetTimelineContentMedia(req.ToFeedListParams())
 	} else {
-		statuses, err = public.GetTimeLineContentAll(req.ToFeedListParams())
+		statuses, err = public.GetTimelineContentAll(req.ToFeedListParams())
 	}
 
 	if err != nil {

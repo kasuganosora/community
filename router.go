@@ -32,6 +32,8 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroup.GET("/statuses/:id", status.Show)
 	maybeAuthGroup.GET("/timelines/public", timelines.Public)
+	maybeAuthGroup.GET("/timelines/list/:id", timelines.List)
+	maybeAuthGroup.GET("/timelines/tag/:tag", timelines.Tag)
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
@@ -84,7 +86,8 @@ func SetRouter(app gin.IRouter) {
 		GET("/polls/:id", status.ViewPoll).
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
 		GET("/scheduled_statuses", status.ListScheduledStatuses).
-		GET("/timelines/home", timelines.Home)
+		GET("/timelines/home", timelines.Home).
+		GET("/timelines/mention", timelines.Mention)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}, middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
 		GET("/streaming/user", streaming.UserStreaming)

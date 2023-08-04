@@ -27,32 +27,32 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create_status":
-			go PushStatusToFollowers(status, false)
+			go Push(status, false)
 		case "before_update_status":
 			go ClearMentionsPushStatus(status)
 		case "after_update_status":
-			go PushStatusToFollowers(status, true)
+			go Push(status, true)
 		case "after_delete_status":
-			go UnPushStatusFromFollowers(status)
+			go Unpush(status)
 		}
 
 		return true
 	}})
 }
 
-type Home struct {
+type HomeTimeline struct {
 	Account *models.Account
 }
 
-func (timeline *Home) GetKeyFormat() string {
+func (timeline *HomeTimeline) GetKeyFormat() string {
 	return "feed:home:%s"
 }
 
-func (timeline *Home) GetTimelineId() string {
+func (timeline *HomeTimeline) GetTimelineId() string {
 	return strconv.FormatUint(timeline.Account.Id, 10)
 }
 
-func (timeline *Home) Rebuild() (err error) {
+func (timeline *HomeTimeline) Rebuild() (err error) {
 	statuses := make(models.Statuses, 0)
 	followingAccounts, err := feed.GetAccountFollowingAccounts(timeline.Account.Id)
 	if err != nil {
@@ -125,7 +125,7 @@ func ClearMentionsPushStatus(status *models.Status) {
 }
 
 func PushToHome(account *models.Account, status *models.Status, update bool, pushToClient bool) (err error) {
-	homeTimeline := &Home{Account: account}
+	homeTimeline := &HomeTimeline{Account: account}
 
 	aggregatesReblogs := true
 	if homeTimeline.Account.User != nil && homeTimeline.Account.User.Settings != nil {
@@ -154,7 +154,7 @@ func PushToHome(account *models.Account, status *models.Status, update bool, pus
 }
 
 func UnPushFromHome(account *models.Account, status *models.Status, pushToClient bool) (err error) {
-	homeTimeline := &Home{Account: account}
+	homeTimeline := &HomeTimeline{Account: account}
 	aggregatesReblogs := true
 
 	if homeTimeline.Account.User != nil && homeTimeline.Account.User.Settings != nil {
@@ -178,7 +178,7 @@ func UnPushFromHome(account *models.Account, status *models.Status, pushToClient
 	return
 }
 
-func PushStatusToFollowers(status *models.Status, update bool) (err error) {
+func Push(status *models.Status, update bool) (err error) {
 	if status.ToAccounts == nil {
 		status.ToAccounts = make(models.Accounts, 0)
 		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
@@ -229,7 +229,7 @@ func PushStatusToFollowers(status *models.Status, update bool) (err error) {
 	return
 }
 
-func UnPushStatusFromFollowers(status *models.Status) (err error) {
+func Unpush(status *models.Status) (err error) {
 	if status.ToAccounts == nil {
 		status.ToAccounts = make(models.Accounts, 0)
 		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
@@ -281,7 +281,7 @@ func UnPushStatusFromFollowers(status *models.Status) (err error) {
 }
 
 func GetTimeLineContent(account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
-	timeLine := &Home{Account: account}
+	timeLine := &HomeTimeline{Account: account}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		// 没有找到 statuses id，尝试从数据库中找
