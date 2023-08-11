@@ -61,7 +61,7 @@ func Search(c *gin.Context) {
 	// 只搜索关注的账号
 	if req.Following && c.GetBool("authenticated") {
 		selfAccount := c.MustGet("account").(*models.Account)
-		query = query.Where("id IN (?)", db.GetDB().Model(&models.Follow{}).Select("follow_id").Where("account_id = ?", selfAccount.Id))
+		query = query.Where("id IN (?)", db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Select("follow_id").Where("account_id = ?", selfAccount.Id))
 	}
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error

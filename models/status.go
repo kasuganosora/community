@@ -158,7 +158,7 @@ func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
 	}
 
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "before_save_status",
+		Name: "before_save",
 		Data: s,
 	})
 
@@ -167,7 +167,7 @@ func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_save_status",
+		Name: "after_save",
 		Data: s,
 	})
 
@@ -176,7 +176,7 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_create_status",
+		Name: "after_create",
 		Data: s,
 	})
 
@@ -185,7 +185,7 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_update_status",
+		Name: "after_update",
 		Data: s,
 	})
 
@@ -405,7 +405,7 @@ func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
 	}
 
 	follows := make(Follows, 0)
-	err = db.Where("account_id = ?", account.Id).Find(&follows).Error
+	err = db.Scopes(Followed).Where("account_id = ?", account.Id).Find(&follows).Error
 	if err != nil {
 		err = errors.Wrap(err, "get follows failed")
 		return
@@ -418,6 +418,32 @@ func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
 
 	ok = s.CanView(account, followMap)
 	return
+}
+
+func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
+	return query.Preload("Account").
+		Preload("Content").
+		Preload("Application").
+		Preload("Attachments").
+		Preload("ReplyAccount").
+		Preload("Emojis").
+		Preload("ToAccounts").
+		Preload("Poll").
+		Preload("Poll.Options").
+		Preload("Poll.Options").
+		Preload("Tags").
+		Preload("Reblog").
+		Preload("Reblog.Account").
+		Preload("Reblog.Content").
+		Preload("Reblog.Application").
+		Preload("Reblog.Attachments").
+		Preload("Reblog.ReplyAccount").
+		Preload("Reblog.Emojis").
+		Preload("Reblog.ToAccounts").
+		Preload("Reblog.Poll").
+		Preload("Reblog.Poll.Options").
+		Preload("Reblog.Poll.Options").
+		Preload("Reblog.Tags")
 }
 
 type Statuses []*Status
@@ -759,10 +785,35 @@ type FavoriteStatus struct {
 	AccountId uint64     `gorm:"not null;index" json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
+	Status    *Status    `json:"status"`
 }
 
 func (fs *FavoriteStatus) TableName() string {
 	return "favorite_statuses"
+}
+
+func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
+	if err = tx.Model(&Status{}).Where("id", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
+		return
+	}
+
+	event.Trigger("favourite", event.Event{
+		Name: "favourite",
+		Data: fs,
+	})
+	return
+}
+
+func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
+	if err = tx.Model(&Status{}).Where("id", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error; err != nil {
+		return
+	}
+
+	event.Trigger("favourite", event.Event{
+		Name: "unfavourite",
+		Data: fs,
+	})
+	return
 }
 
 type BookmarkStatus struct {

@@ -41,7 +41,7 @@ func Follow(c *gin.Context) {
 
 	// 检查被关注的账户ID是否存在
 	targetAccount := &models.Account{}
-	err = db.GetDB().Model(&models.Account{}).Where("id = ?", req.AccountId).First(targetAccount).Error
+	err = db.GetDB().Model(&models.Account{}).Preload("User").Preload("User.Settings").Where("id = ?", req.AccountId).First(targetAccount).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -62,7 +62,6 @@ func Follow(c *gin.Context) {
 		return
 	}
 
-	// 检查是否已经关注
 	follow := &models.Follow{}
 	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?", account.Id, targetAccount.Id).First(follow).Error
 
@@ -84,6 +83,10 @@ func Follow(c *gin.Context) {
 	if follow.Id > 0 {
 		err = db.GetDB().Save(follow).Error
 	} else {
+		// 如果目标账户设置了关注保护，那么直接设置为请求状态
+		if targetAccount.User.Settings.IsFollowProtect() {
+			follow.Status = models.FollowStatusRequested
+		}
 		err = db.GetDB().Create(follow).Error
 	}
 

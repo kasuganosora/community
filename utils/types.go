@@ -511,3 +511,13 @@ func StringNumberArrayConvertUint64(arr []string) []uint64 {
 	}
 	return ret
 }
+
+func MapByAnyFiled[T any, FieldType int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](arr []T, getFieldVal func(T) FieldType) map[FieldType]T {
+	ret := make(map[FieldType]T)
+
+	for _, v := range arr {
+		ret[getFieldVal(v)] = v
+	}
+
+	return ret
+}

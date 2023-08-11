@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
+	_ "github.com/kasuganosora/community/notifications"
 )
 
 func main() {

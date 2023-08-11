@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/kasuganosora/community/event"
 	"gorm.io/gorm"
 	"time"
 )
@@ -22,6 +23,7 @@ type List struct {
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 	Accounts      []*Account     `gorm:"many2many:list_accounts;" json:"accounts"`
 	Followers     []*Account     `gorm:"many2many:list_follow_accounts;" json:"followers"`
+	Creator       *Account       `gorm:"foreignKey:AccountId" json:"creator"`
 }
 
 func (l *List) TableName() string {
@@ -73,6 +75,24 @@ func (la *ListAccount) TableName() string {
 	return "list_accounts"
 }
 
+func (la *ListAccount) AfterCreate(tx *gorm.DB) (err error) {
+	event.Trigger("list", event.Event{
+		Name: "add-to-list",
+		Data: la,
+	})
+
+	return
+}
+
+func (la *ListAccount) AfterDelete(tx *gorm.DB) (err error) {
+	event.Trigger("list", event.Event{
+		Name: "remove-from-list",
+		Data: la,
+	})
+
+	return
+}
+
 type ListFollowAccount struct {
 	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
 	ListId    uint64     `gorm:"not null;index" json:"list_id"`
@@ -82,4 +102,22 @@ type ListFollowAccount struct {
 
 func (lfa *ListFollowAccount) TableName() string {
 	return "list_follow_accounts"
+}
+
+func (lfa *ListFollowAccount) AfterCreate(tx *gorm.DB) (err error) {
+	event.Trigger("list", event.Event{
+		Name: "follow-list",
+		Data: lfa,
+	})
+
+	return
+}
+
+func (lfa *ListFollowAccount) AfterDelete(tx *gorm.DB) (err error) {
+	event.Trigger("list", event.Event{
+		Name: "unfollow-list",
+		Data: lfa,
+	})
+
+	return
 }

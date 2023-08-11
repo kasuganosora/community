@@ -42,6 +42,9 @@ func SetRouter(app gin.IRouter) {
 	authInternalGroup.PUT("/accounts/me", account.UpdateAccount)
 	authInternalGroup.PUT("/accounts/me/password", account.ChangePassword)
 
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+		GET("/notifications", timelines.NotificationTimeline)
+
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
 		POST("/accounts/:id/follow", account.Follow).
 		DELETE("/accounts/:id/follow", account.UnFollow)

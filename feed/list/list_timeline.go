@@ -24,13 +24,13 @@ func init() {
 
 		//如果是新增的事件
 		switch event.Name {
-		case "after_create_status":
+		case "after_create":
 			go Push(status, false, true)
-		case "before_update_status":
+		case "before_update":
 			go Unpush(status, true) // 更新之前，先删除
-		case "after_update_status":
+		case "after_update":
 			go Push(status, true, true)
-		case "after_delete_status":
+		case "after_delete":
 			go Unpush(status, true)
 		}
 

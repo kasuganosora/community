@@ -134,3 +134,28 @@ func (a Accounts) Contains(id uint64) bool {
 	}
 	return false
 }
+
+func GetLocalAccounts(db *gorm.DB, accountsOrAccountId any) (ret Accounts, err error) {
+	ret = make(Accounts, 0)
+	if accountsOrAccountId == nil {
+		return
+	}
+
+	if accounts, ok := accountsOrAccountId.(Accounts); ok {
+		for _, account := range accounts {
+			if account.Domain == nil {
+				ret = append(ret, account)
+			}
+		}
+		return
+	}
+
+	if accountsId, ok := accountsOrAccountId.([]uint64); ok {
+		err = db.Where("id IN ? and domain is null", accountsId).Find(&ret).Error
+		return
+	}
+
+	err = errors.New("invalid accountsOrAccountId type, must be Accounts or []uint64")
+	return
+
+}

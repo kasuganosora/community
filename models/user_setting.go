@@ -18,3 +18,10 @@ func (us *UserSetting) GetaggrAgatesReblogs() bool {
 	}
 	return true
 }
+
+func (us *UserSetting) IsFollowProtect() bool {
+	if _followProtect, ok := us.Data["follow_protect"]; ok {
+		return _followProtect.(bool)
+	}
+	return false
+}
