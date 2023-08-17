@@ -51,7 +51,9 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.MuteStatus{},
 		&models.StatusHistory{},
 		&models.Notification{},
-		models.Report{},
+		&models.Report{},
+		&models.Conversation{},
+		&models.AccountConversation{},
 	)
 }
 
@@ -97,6 +99,8 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.MuteStatus{},
 		&models.StatusHistory{},
 		&models.Notification{},
-		models.Report{},
+		&models.Report{},
+		&models.Conversation{},
+		&models.AccountConversation{},
 	)
 }

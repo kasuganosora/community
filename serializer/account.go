@@ -30,6 +30,8 @@ type Account struct {
 	LastStatusAt   *time.Time `json:"last_status_at"`
 	Emoji          []*Emoji   `json:"emojis"`
 	Fields         []Field    `json:"fields"`
+
+	intId uint64 `json:"-"`
 }
 
 func ToAccount(account *models.Account) (acc *Account) {
@@ -54,6 +56,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		HeaderStatic: account.HeaderStatic,
 		LastStatusAt: account.LastStatusAt,
 		Emoji:        ToEmojis(account.Emojis),
+		intId:        account.Id,
 	}
 
 	acc.Id = strconv.FormatUint(account.Id, 10)

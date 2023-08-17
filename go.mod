@@ -1,6 +1,6 @@
 module github.com/kasuganosora/community
 
-go 1.20
+go 1.21
 
 require (
 	github.com/bbrks/go-blurhash v1.1.1

@@ -27,8 +27,26 @@ func GetListAccounts(c *gin.Context) {
 		return
 	}
 
+	var currentAccount *models.Account
+	if _currentAccount, ok := c.Get("account"); ok {
+		currentAccount = _currentAccount.(*models.Account)
+	}
+
 	list, abort := GetListByParam(c)
 	if abort {
+		return
+	}
+
+	canView, err := models.ListCanView(list, currentAccount)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	if !canView {
+		c.AbortWithStatusJSON(403, gin.H{
+			"error": "forbidden",
+		})
 		return
 	}
 
@@ -57,7 +75,7 @@ func GetListAccounts(c *gin.Context) {
 
 	query = query.Preload("Emojis").Preload("Extra")
 
-	err := query.Find(&accounts).Error
+	err = query.Find(&accounts).Error
 
 	if err != nil {
 		err = errors.Wrap(err, "GetListAccounts error")

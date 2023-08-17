@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
+	"strings"
 )
 
 func init() {
@@ -36,7 +37,9 @@ func init() {
 }
 
 type PublicTimeline struct {
-	OnlyMedia bool
+	OnlyMedia  bool
+	OnlyLocal  bool
+	OnlyRemote bool
 }
 
 func (timeline *PublicTimeline) GetKeyFormat() string {
@@ -44,10 +47,24 @@ func (timeline *PublicTimeline) GetKeyFormat() string {
 }
 
 func (timeline *PublicTimeline) GetTimelineId() string {
-	if timeline.OnlyMedia {
-		return "has_media"
+	if !timeline.OnlyMedia && !timeline.OnlyLocal && !timeline.OnlyRemote {
+		return "all"
 	}
-	return "public"
+
+	ret := make([]string, 0)
+	if timeline.OnlyMedia {
+		ret = append(ret, "media")
+	}
+
+	if timeline.OnlyLocal {
+		ret = append(ret, "local")
+	}
+
+	if timeline.OnlyRemote {
+		ret = append(ret, "remote")
+	}
+
+	return strings.Join(ret, ":")
 }
 
 func (timeline *PublicTimeline) Rebuild() (err error) {
@@ -60,36 +77,19 @@ func (timeline *PublicTimeline) Rebuild() (err error) {
 		return
 	}
 
-	allPublicTimeline := &PublicTimeline{OnlyMedia: false}
-	onlyMediaTimeline := &PublicTimeline{OnlyMedia: true}
+	allPublicTimeline := &PublicTimeline{}
 
-	if err = feed.CleanFeeds(allPublicTimeline, []string{"feed:public:public"}); err != nil {
-		return
-	}
-
-	if err = feed.CleanFeeds(onlyMediaTimeline, []string{"feed:public:has_media"}); err != nil {
+	if err = feed.CleanFeeds(allPublicTimeline, []string{"feed:public:all"}); err != nil {
 		return
 	}
 
 	for _, status := range statuses {
-		if status.Attachments != nil && len(status.Attachments) > 0 {
-			if err = feed.AddToTimelineItem(onlyMediaTimeline, status, true); err != nil {
-				return
-			}
-
-			if err = feed.TrimTimeline(onlyMediaTimeline); err != nil {
-				return
-			}
-		}
-
 		if err = feed.AddToTimelineItem(allPublicTimeline, status, true); err != nil {
 			return
 		}
-
 		if err = feed.TrimTimeline(allPublicTimeline); err != nil {
 			return
 		}
-
 	}
 
 	return
@@ -100,35 +100,25 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		return
 	}
 
-	timelines := make([]feed.Timeline, 0)
-	timelines = append(timelines, &PublicTimeline{OnlyMedia: false})
-	// 如果有附件，就推送到has_media
-	if status.Attachments != nil && len(status.Attachments) > 0 {
-		timelines = append(timelines, &PublicTimeline{OnlyMedia: true})
+	// 先放到all里面
+	allPublicTimeline := &PublicTimeline{}
+	if err = feed.AddToTimelineItem(allPublicTimeline, status, true); err != nil {
+		return
 	}
 
-	for _, timeline := range timelines {
-		err = feed.AddToTimelineItem(timeline, status, true)
-		if err != nil {
+	if err = feed.TrimTimeline(allPublicTimeline); err != nil {
+		return
+	}
+
+	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
+	if update {
+		method = "status.update"
+	}
+
+	// 判断那些参数的时间线有人在订阅，如果有，就推送
+	if pushToClient {
+		if err = pushAllChannel(status, method); err != nil {
 			return
-		}
-
-		err = feed.TrimTimeline(timeline)
-		if err != nil {
-			return
-		}
-
-		if feed.PushUpdateRequired(timeline) && pushToClient {
-			method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
-			if update {
-				method = "status.update"
-			}
-
-			err = feed.PushToClient(timeline, method, status)
-
-			if err != nil {
-				return
-			}
 		}
 	}
 
@@ -136,27 +126,57 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
-	timelines := make([]feed.Timeline, 0)
-	timelines = append(timelines, &PublicTimeline{OnlyMedia: false})
-	// 如果有附件，就推送到has_media
-	if status.Attachments != nil && len(status.Attachments) > 0 {
-		timelines = append(timelines, &PublicTimeline{OnlyMedia: true})
+
+	// 从全部时间线里面删除
+	allPublicTimeline := &PublicTimeline{}
+	if err = feed.RemoveTimelineItem(allPublicTimeline, status, true); err != nil {
+		return
+	}
+
+	if err = feed.TrimTimeline(allPublicTimeline); err != nil {
+		return
+	}
+
+	// 如果其他有带条件的时间线，有人在订阅的时候，需要发送删除通知
+
+	if pushToClient {
+		if err = pushAllChannel(status, "delete"); err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+func pushAllChannel(status *models.Status, method string) (err error) {
+	if status.Visibility != models.StatusVisibilityPublic {
+		return
+	}
+
+	timelines := []*PublicTimeline{
+		{},
+		{OnlyMedia: true},
+		{OnlyLocal: true},
+		{OnlyRemote: true},
+		{OnlyLocal: true, OnlyMedia: true},
+		{OnlyRemote: true, OnlyMedia: true},
 	}
 
 	for _, timeline := range timelines {
-		err = feed.RemoveTimelineItem(timeline, status, true)
-		if err != nil {
-			return
+		if timeline.OnlyMedia && (status.Attachments == nil || len(status.Attachments) == 0) {
+			continue
 		}
 
-		err = feed.TrimTimeline(timeline)
-		if err != nil {
-			return
+		if timeline.OnlyLocal && (status.Account == nil || status.Domain != nil) {
+			continue
 		}
 
-		if feed.PushUpdateRequired(timeline) && pushToClient {
-			err = feed.PushToClient(timeline, "delete", status)
-			if err != nil {
+		if timeline.OnlyRemote && (status.Account == nil || status.Domain == nil) {
+			continue
+		}
+
+		if feed.PushUpdateRequired(timeline) {
+			if err = feed.PushToClient(timeline, method, status); err != nil {
 				return
 			}
 		}

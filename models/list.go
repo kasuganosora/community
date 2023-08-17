@@ -1,7 +1,9 @@
 package models
 
 import (
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
+	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"time"
 )
@@ -12,12 +14,19 @@ const (
 	ListRepliesPolicyNone            // 不显示任何回复
 )
 
+const (
+	ListVisibilityPublic = iota
+	ListVisibilityPrivate
+	ListVisibilityFollowers // 关注了的人才可以看列表里的status,和这个列表包含的人
+)
+
 type List struct {
 	Id            uint64         `gorm:"primary_key;auto_increment" json:"id"`
 	Title         string         `gorm:"type:varchar(255);not null" json:"title"`
 	AccountId     uint64         `gorm:"not null" json:"account_id"`
 	RepliesPolicy uint8          `gorm:"not null;default:0" json:"replies_policy"`
 	LastViewedAt  *time.Time     `gorm:"index" json:"last_viewed_at"` // 最后被查看的时间
+	Visibility    int            `gorm:"not null;default:0" json:"visibility"`
 	CreatedAt     *time.Time     `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt     *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
@@ -119,5 +128,38 @@ func (lfa *ListFollowAccount) AfterDelete(tx *gorm.DB) (err error) {
 		Data: lfa,
 	})
 
+	return
+}
+
+func ListCanView(list *List, account *Account) (pass bool, err error) {
+	if list.Visibility == ListVisibilityPublic {
+		pass = true
+		return
+	}
+
+	if list.AccountId == account.Id {
+		pass = true
+		return
+	}
+
+	// 其他的必须是关注了列表的人才能看
+	if list.Followers != nil {
+		for _, follower := range list.Followers {
+			if follower.Id == account.Id {
+				pass = true
+				return
+			}
+		}
+		return
+	}
+
+	err = db.GetDB().Model(&ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).First(&ListFollowAccount{}).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+			pass = false
+		}
+		return
+	}
 	return
 }

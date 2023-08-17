@@ -49,6 +49,7 @@ type Status struct {
 	DeletedAt          *time.Time     `gorm:"index" json:"-"`
 	Properties         map[string]any `gorm:"type:json;serializer:json" json:"properties"`
 	Domain             *string        `gorm:"type:varchar(128);index" json:"domain"`
+	ConversationId     *uint64        ` gorm:"index" json:"conversation_id"`
 
 	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
@@ -61,6 +62,7 @@ type Status struct {
 	Tags         Tags         `gorm:"many2many:status_tags;" json:"tags"`
 
 	isLoadAllExtendFields bool `gorm:"-"`
+	conversationIdChanged bool `gorm:"-"`
 }
 
 func (s *Status) TableName() string {
@@ -150,13 +152,6 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
-	if s.InReplyToId != nil && *s.InReplyToId > 0 {
-		if err = tx.Where("id = ?", *s.InReplyToId).First(&Status{}).Error; err != nil {
-			err = errors.New("reply status not found")
-			return
-		}
-	}
-
 	event.GetEventManager("status").Trigger(event.Event{
 		Name: "before_save",
 		Data: s,
@@ -166,6 +161,17 @@ func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) AfterSave(tx *gorm.DB) (err error) {
+	if err = s.SetConversation(tx); err != nil {
+		return
+	}
+
+	if s.conversationIdChanged {
+		if err = tx.Table(s.TableName()).Select("conversation_id").Update("conversation_id", s.ConversationId).Error; err != nil {
+			return
+		}
+		s.conversationIdChanged = false
+	}
+
 	event.GetEventManager("status").Trigger(event.Event{
 		Name: "after_save",
 		Data: s,
@@ -417,6 +423,83 @@ func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
 	}
 
 	ok = s.CanView(account, followMap)
+	return
+}
+
+func (s *Status) SetConversationId(id uint64) {
+	if s.ConversationId != nil && *s.ConversationId == id {
+		return
+	}
+	if s.ConversationId == nil && id == 0 {
+		return
+	}
+
+	if id > 0 {
+		s.ConversationId = &id
+	} else {
+		s.ConversationId = nil
+	}
+
+	s.conversationIdChanged = true
+}
+
+func (s *Status) SetConversation(tx *gorm.DB) (err error) {
+
+	var conversation *Conversation
+	if s.InReplyToId != nil && *s.InReplyToId > 0 {
+		originStatus := &Status{}
+		if err = tx.Where("id = ?", *s.InReplyToId).Preload("Reblog").First(originStatus).Error; err != nil {
+			err = errors.New("reply status not found")
+			return
+		}
+
+		if originStatus.ReblogId != nil && *originStatus.ReblogId > 0 {
+			originStatus = originStatus.Reblog
+		}
+
+		// 如果被回复的 status 的 conversation_id 不为空，则使用被回复的 status 的 conversation_id,否则创建一个新的 conversation，并使用新的 conversation_id
+		if originStatus.ConversationId == nil {
+			conversation = &Conversation{}
+			if err = tx.Create(conversation).Error; err != nil {
+				return
+			}
+
+			originStatus.ConversationId = &conversation.Id
+
+			if err = tx.Select("conversation_id").Save(originStatus).Error; err != nil {
+				return
+			}
+		}
+
+		s.SetConversationId(*originStatus.ConversationId)
+	}
+
+	// 如果 visibility 是 direct，则自动创建 conversation
+	if s.Visibility == StatusVisibilityDirect && s.ConversationId == nil {
+		conversation = &Conversation{}
+		if err = tx.Create(conversation).Error; err != nil {
+			return
+		}
+
+		s.SetConversationId(conversation.Id)
+	}
+
+	if conversation == nil && s.ConversationId != nil {
+		conversation = &Conversation{}
+		if err = tx.Where("id = ?", *s.ConversationId).First(conversation).Error; err != nil {
+			return
+		}
+	}
+
+	if conversation != nil {
+		conversation.AppendStatus(s.Id)
+		conversation.AppendAccount(s.AccountId)
+
+		if err = tx.Select("statuses_ids,accounts_ids").Save(conversation).Error; err != nil {
+			return
+		}
+	}
+
 	return
 }
 

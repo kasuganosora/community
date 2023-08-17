@@ -8,6 +8,10 @@ import (
 	"unsafe"
 )
 
+type Numeric interface {
+	int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64
+}
+
 func ToInt(v any) int {
 	switch v.(type) {
 	case int:
@@ -236,7 +240,7 @@ func MergeMap(dst, src map[string]any) (ret map[string]any) {
 	return
 }
 
-func GetStructsMap[k int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string, v any](objs []v, key string) map[k]v {
+func GetStructsMap[k Numeric | string, v any](objs []v, key string) map[k]v {
 	sliceType := reflect.TypeOf(objs)
 	structType := sliceType.Elem()
 	if structType.Kind() == reflect.Ptr {
@@ -262,7 +266,7 @@ func GetStructsMap[k int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32
 	return ret
 }
 
-func UniqueSlice[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](s []T) []T {
+func UniqueSlice[T Numeric | string](s []T) []T {
 	result := make([]T, 0, len(s))
 	checkMap := make(map[T]bool)
 	for _, item := range s {
@@ -275,7 +279,7 @@ func UniqueSlice[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 |
 	return result
 }
 
-func Contains[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](arr []T, check T) bool {
+func Contains[T Numeric | string](arr []T, check T) bool {
 	if arr == nil {
 		return false
 	}
@@ -293,7 +297,7 @@ func GetPtr[T any](obj T) *T {
 	return &obj
 }
 
-func GetExistsMap[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](arr []T) map[T]bool {
+func GetExistsMap[T Numeric | string](arr []T) map[T]bool {
 	ret := make(map[T]bool)
 	for _, item := range arr {
 		ret[item] = true
@@ -302,7 +306,7 @@ func GetExistsMap[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 
 	return ret
 }
 
-func IsExistsForCheckMap[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](m map[T]bool, key T) bool {
+func IsExistsForCheckMap[T Numeric | string](m map[T]bool, key T) bool {
 	exists, ok := m[key]
 	if !ok {
 		return false
@@ -310,7 +314,7 @@ func IsExistsForCheckMap[T int | int8 | int16 | int64 | uint | uint8 | uint16 | 
 	return exists
 }
 
-func IsKeyInMap[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](m map[T]any, key T) bool {
+func IsKeyInMap[T Numeric | string](m map[T]any, key T) bool {
 	_, ok := m[key]
 	return ok
 }
@@ -466,7 +470,7 @@ func deepCopyStruct(source reflect.Value) (ret reflect.Value) {
 	return
 }
 
-func Min[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []T) T {
+func Min[T Numeric](arr []T) T {
 	if len(arr) == 0 {
 		return 0
 	}
@@ -480,7 +484,7 @@ func Min[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 
 	return min
 }
 
-func Max[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []T) T {
+func Max[T Numeric](arr []T) T {
 	if len(arr) == 0 {
 		return 0
 	}
@@ -494,7 +498,7 @@ func Max[T int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 
 	return max
 }
 
-func NumberArrayConvert[A, B int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64](arr []A) []B {
+func NumberArrayConvert[A, B Numeric](arr []A) []B {
 	ret := make([]B, len(arr))
 
 	for i, v := range arr {
@@ -512,7 +516,7 @@ func StringNumberArrayConvertUint64(arr []string) []uint64 {
 	return ret
 }
 
-func MapByAnyFiled[T any, FieldType int | int8 | int16 | int64 | uint | uint8 | uint16 | uint32 | uint64 | float32 | float64 | string](arr []T, getFieldVal func(T) FieldType) map[FieldType]T {
+func MapByAnyFiled[T any, FieldType Numeric | string](arr []T, getFieldVal func(T) FieldType) map[FieldType]T {
 	ret := make(map[FieldType]T)
 
 	for _, v := range arr {

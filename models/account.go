@@ -80,6 +80,10 @@ func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
 	return
 }
 
+func (a Account) IsLocal() bool {
+	return a.Domain == nil
+}
+
 type AccountExtra struct {
 	AccountId      uint64         `json:"account_id" gorm:"primary_key;type:varchar(64);"`
 	FollowersCount int            `json:"followers_count" gorm:"not null;type:int(11);default:0"`

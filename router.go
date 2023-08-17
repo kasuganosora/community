@@ -34,6 +34,13 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroup.GET("/timelines/public", timelines.Public)
 	maybeAuthGroup.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroup.GET("/timelines/tag/:tag", timelines.Tag)
+	maybeAuthGroup.GET("/streaming/list", streaming.ListStreaming)
+	maybeAuthGroup.GET("/streaming/hashtag/local", streaming.HashtagStreamingLocal)
+	maybeAuthGroup.GET("/streaming/hashtag/remote", streaming.HashtagStreamingRemote)
+	maybeAuthGroup.GET("/streaming/hashtag", streaming.HashtagStreamingAll)
+	maybeAuthGroup.GET("/streaming/public/local", streaming.PublicStreamingLocal)
+	maybeAuthGroup.GET("/streaming/public/remote", streaming.PublicStreamingRemote)
+	maybeAuthGroup.GET("/streaming/public", streaming.PublicStreamingAll)
 
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
@@ -93,7 +100,9 @@ func SetRouter(app gin.IRouter) {
 		GET("/timelines/mention", timelines.Mention)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}, middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
-		GET("/streaming/user", streaming.UserStreaming)
+		GET("/streaming/user", streaming.UserStreaming).
+		GET("/streaming/direct", streaming.DirectStreaming).
+		GET("/streaming/notifications", streaming.NotificationStreaming)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

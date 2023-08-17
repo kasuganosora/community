@@ -7,7 +7,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
-	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,7 +39,10 @@ func init() {
 }
 
 type ListTimeline struct {
-	List *models.List
+	List       *models.List
+	OnlyLocal  bool
+	OnlyRemote bool
+	OnlyMedia  bool
 }
 
 func (timeline *ListTimeline) GetKeyFormat() string {
@@ -47,7 +50,22 @@ func (timeline *ListTimeline) GetKeyFormat() string {
 }
 
 func (timeline *ListTimeline) GetTimelineId() string {
-	return strconv.FormatUint(timeline.List.Id, 10)
+	strs := make([]string, 0)
+	if timeline.OnlyLocal {
+		strs = append(strs, "local")
+	}
+
+	if timeline.OnlyRemote {
+		strs = append(strs, "remote")
+	}
+
+	if timeline.OnlyMedia {
+		strs = append(strs, "media")
+	}
+
+	strs = append(strs, timeline.List.Title)
+
+	return strings.Join(strs, ":")
 }
 
 func (timeline *ListTimeline) Rebuild() (err error) {
@@ -109,14 +127,13 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 			return
 		}
 
-		if feed.PushUpdateRequired(timeline) && pushToClient {
-			method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
-			if update {
-				method = "status.update"
-			}
+		method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
+		if update {
+			method = "status.update"
+		}
 
+		if pushToClient {
 			err = feed.PushToClient(timeline, method, status)
-
 			if err != nil {
 				return
 			}
@@ -151,13 +168,46 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 			return
 		}
 
-		if feed.PushUpdateRequired(timeline) && pushToClient {
+		if pushToClient {
 			err = feed.PushToClient(timeline, "delete", status)
 			if err != nil {
 				return
 			}
 		}
 	}
+	return
+}
+
+func pushAllChannel(status *models.Status, method string) (err error) {
+	timelines := []*ListTimeline{
+		{},
+		{OnlyMedia: true},
+		{OnlyLocal: true},
+		{OnlyRemote: true},
+		{OnlyLocal: true, OnlyMedia: true},
+		{OnlyRemote: true, OnlyMedia: true},
+	}
+
+	for _, timeline := range timelines {
+		if timeline.OnlyMedia && (status.Attachments == nil || len(status.Attachments) == 0) {
+			continue
+		}
+
+		if timeline.OnlyLocal && (status.Account == nil || status.Domain != nil) {
+			continue
+		}
+
+		if timeline.OnlyRemote && (status.Account == nil || status.Domain == nil) {
+			continue
+		}
+
+		if feed.PushUpdateRequired(timeline) {
+			if err = feed.PushToClient(timeline, method, status); err != nil {
+				return
+			}
+		}
+	}
+
 	return
 }
 

@@ -25,9 +25,27 @@ func GetListFollowers(c *gin.Context) {
 		return
 	}
 
+	var currentAccount *models.Account
+	if _currentAccount, ok := c.Get("account"); ok {
+		currentAccount = _currentAccount.(*models.Account)
+	}
+
 	list, abort := GetListByParam(c)
 
 	if abort {
+		return
+	}
+
+	canView, err := models.ListCanView(list, currentAccount)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	if !canView {
+		c.AbortWithStatusJSON(403, gin.H{
+			"error": "forbidden",
+		})
 		return
 	}
 
@@ -56,7 +74,7 @@ func GetListFollowers(c *gin.Context) {
 
 	query = query.Preload("Emojis").Preload("Extra")
 
-	err := query.Find(&accounts).Error
+	err = query.Find(&accounts).Error
 
 	if err != nil {
 		err = errors.Wrap(err, "GetListFollowers error")
@@ -68,16 +86,22 @@ func GetListFollowers(c *gin.Context) {
 }
 
 func FollowList(c *gin.Context) {
-	accountId := c.MustGet("accountId").(uint64)
+	account := c.MustGet("account").(*models.Account)
 	list, abort := GetListByParam(c)
 
 	if abort {
 		return
 	}
 
+	// 如果列表是私有的，判断是否有权限，则不能关注
+	if list.Visibility == models.ListVisibilityPrivate {
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+		return
+	}
+
 	// 判断是否已经关注
 	var count int64
-	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, accountId).Count(&count).Error
+	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).Count(&count).Error
 
 	if err != nil {
 		err = errors.Wrap(err, "FollowList error")
@@ -95,7 +119,7 @@ func FollowList(c *gin.Context) {
 	// 关注
 	record := &models.ListFollowAccount{
 		ListId:    list.Id,
-		AccountId: accountId,
+		AccountId: account.Id,
 	}
 
 	err = db.GetDB().Create(record).Error

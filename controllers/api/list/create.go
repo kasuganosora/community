@@ -10,6 +10,7 @@ import (
 type CreateListRequest struct {
 	Title         string `json:"title" binding:"required;min:1;max:64"`
 	RepliesPolicy string `json:"replies_policy" binding:"in:followed,list,none"`
+	Visibility    string `json:"visibility" binding:"in:public,private,followers"`
 }
 
 func CreateList(c *gin.Context) {
@@ -27,6 +28,15 @@ func CreateList(c *gin.Context) {
 	list := &models.List{
 		Title:     req.Title,
 		AccountId: account.Id,
+	}
+
+	switch req.Visibility {
+	case "public":
+		list.Visibility = models.ListVisibilityPublic
+	case "private":
+		list.Visibility = models.ListVisibilityPrivate
+	case "followers":
+		list.Visibility = models.ListVisibilityFollowers
 	}
 
 	list.SetRepliesPolicy(req.RepliesPolicy)

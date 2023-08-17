@@ -13,6 +13,7 @@ import (
 type UpdateListRequest struct {
 	Title         *string `json:"title" binding:"min:1;max:64"`
 	RepliesPolicy *string `json:"replies_policy" binding:"in:followed,list,none"`
+	Visibility    *string `json:"visibility" binding:"in:public,private,followers"`
 }
 
 func UpdateList(c *gin.Context) {
@@ -67,6 +68,18 @@ func UpdateList(c *gin.Context) {
 
 	if req.RepliesPolicy != nil {
 		list.SetRepliesPolicy(*req.RepliesPolicy)
+	}
+
+	if req.Visibility != nil {
+		switch *req.Visibility {
+		case "public":
+			list.Visibility = models.ListVisibilityPublic
+		case "private":
+			list.Visibility = models.ListVisibilityPrivate
+		case "followers":
+			list.Visibility = models.ListVisibilityFollowers
+
+		}
 	}
 
 	err = db.GetDB().Save(list).Error

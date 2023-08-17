@@ -41,6 +41,7 @@ type Status struct {
 	Emojis             []*Emoji      `json:"emojis"`
 	Card               Card          `json:"card"`
 	Poll               *Poll         `json:"poll"`
+	intId              uint64        `json:"-"`
 }
 
 func ToStatusBase(status *models.Status) (ret *Status, err error) {
@@ -49,7 +50,9 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	}
 	ret = &Status{}
 	ret.Id = strconv.FormatUint(status.Id, 10)
+	ret.intId = status.Id
 	ret.CreatedAt = status.CreatedAt
+
 	if status.InReplyToId != nil && *status.InReplyToId > 0 {
 		ret.InReplyToId = new(string)
 		*ret.InReplyToId = strconv.FormatUint(*status.InReplyToId, 10)
