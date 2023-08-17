@@ -22,6 +22,11 @@ func init() {
 			return false
 		}
 
+		// 不展示 私信
+		if status.Visibility == models.StatusVisibilityDirect {
+			return true
+		}
+
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":

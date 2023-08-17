@@ -20,6 +20,11 @@ func init() {
 			return false
 		}
 
+		// 只展示 公开的
+		if status.Visibility != models.StatusVisibilityPublic {
+			return true
+		}
+
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":
