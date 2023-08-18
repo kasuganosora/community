@@ -4,7 +4,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/common"
+	"github.com/kasuganosora/community/controllers/api/conversation"
 	"github.com/kasuganosora/community/controllers/api/list"
+	"github.com/kasuganosora/community/controllers/api/marker"
 	"github.com/kasuganosora/community/controllers/api/status"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
@@ -86,7 +88,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/bookmark", status.Bookmark).
 		POST("/statuses/:id/unbookmark", status.Unbookmark).
 		POST("/polls/:id/votes", status.VotePoll).
-		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt)
+		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
+		POST("/markers", marker.Save)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/statuses/:id/source", status.GetSource).
@@ -103,6 +106,14 @@ func SetRouter(app gin.IRouter) {
 		GET("/streaming/user", streaming.UserStreaming).
 		GET("/streaming/direct", streaming.DirectStreaming).
 		GET("/streaming/notifications", streaming.NotificationStreaming)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+		GET("/conversations", conversation.List).
+		GET("/markers", marker.List)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
+		DELETE("/conversations/:id", conversation.Remove).
+		POST("/conversations/:id/read", conversation.MarkRead)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

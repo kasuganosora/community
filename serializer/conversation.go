@@ -55,7 +55,7 @@ func ToConversation(conversation *models.Conversation, account *models.Account) 
 	return
 }
 
-func ToConversations(account *models.Account, conversations []*models.Conversation) (ret []Conversation, err error) {
+func ToConversations(conversations []*models.Conversation, account *models.Account) (ret []Conversation, err error) {
 	ret = make([]Conversation, 0)
 
 	accountsIds := make([]uint64, 0)

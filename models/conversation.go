@@ -22,6 +22,71 @@ func (c *Conversation) TableName() string {
 	return "conversations"
 }
 
+// BeforeSave 如果 AccountsIds 一个都没有，就删除
+func (c *Conversation) BeforeSave(tx *gorm.DB) (err error) {
+	if len(c.AccountsIds) == 0 {
+		err = tx.Delete(c).Error
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+// AfterSave 在保存完后 核对一下 AccountConversations 是否有新增的/删除的
+func (c *Conversation) AfterSave(tx *gorm.DB) (err error) {
+	acs := make([]*AccountConversation, 0)
+	err = tx.Model(c).Association("AccountConversations").Find(&acs)
+
+	if err != nil {
+		return
+	}
+
+	// 对比下 AccountsIds 和 AccountConversations
+	needAddAccountConversations := make([]*AccountConversation, 0)
+	needDeleteAccountConversationsId := make([]uint64, 0)
+	accountIdsMap := utils.GetExistsMap(c.AccountsIds)
+
+	for _, ac := range acs {
+		if _, ok := accountIdsMap[ac.AccountId]; !ok {
+			needDeleteAccountConversationsId = append(needDeleteAccountConversationsId, ac.Id)
+		}
+	}
+
+	acIdCheckMap := make(map[uint64]bool)
+	for _, ac := range acs {
+		acIdCheckMap[ac.AccountId] = true
+	}
+
+	for _, accountId := range c.AccountsIds {
+		if _, ok := acIdCheckMap[accountId]; !ok {
+			needAddAccountConversations = append(needAddAccountConversations, &AccountConversation{
+				AccountId:      accountId,
+				ConversationId: c.Id,
+			})
+		}
+	}
+
+	// 删除
+	if len(needDeleteAccountConversationsId) > 0 {
+		err = tx.Where("id IN ?", needDeleteAccountConversationsId).Delete(&AccountConversation{}).Error
+		if err != nil {
+			return
+		}
+	}
+
+	// 新增
+	if len(needAddAccountConversations) > 0 {
+		err = tx.Model(c).Association("AccountConversations").Append(needAddAccountConversations)
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
 func (c *Conversation) AppendAccount(accountId uint64) {
 	c.AccountsIds = utils.UniqueSlice(append(c.AccountsIds, accountId))
 }

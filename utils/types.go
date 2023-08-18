@@ -525,3 +525,15 @@ func MapByAnyFiled[T any, FieldType Numeric | string](arr []T, getFieldVal func(
 
 	return ret
 }
+
+func Filter[T any](arr []T, filter func(T) bool) []T {
+	ret := make([]T, 0)
+
+	for _, v := range arr {
+		if filter(v) {
+			ret = append(ret, v)
+		}
+	}
+
+	return ret
+}
