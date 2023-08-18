@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/controllers/api/conversation"
+	"github.com/kasuganosora/community/controllers/api/filter"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/marker"
 	"github.com/kasuganosora/community/controllers/api/status"
@@ -114,6 +115,15 @@ func SetRouter(app gin.IRouter) {
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
 		DELETE("/conversations/:id", conversation.Remove).
 		POST("/conversations/:id/read", conversation.MarkRead)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
+		GET("/filters", filter.List).
+		GET("/filters/:id", filter.Show)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
+		POST("/filters", filter.Create).
+		PUT("/filters/:id", filter.Update).
+		DELETE("/filters/:id", filter.Delete)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

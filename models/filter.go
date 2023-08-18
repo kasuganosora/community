@@ -16,7 +16,7 @@ type Filter struct {
 	Id           uint64           `gorm:"primary_key;auto_increment" json:"id"`
 	AccountId    uint64           `gorm:"not null;index" json:"account_id"` // 账户ID, 0为全局过滤器
 	Title        string           `gorm:"not null" json:"title"`
-	ExpiresIn    *uint64          `gorm:"not null" json:"expires_in"`
+	ExpiresAt    *time.Time       `gorm:"not null" json:"expires_at"`
 	Context      []string         `gorm:"not null;type:json;serializer:json" json:"context"`
 	FilterAction uint8            `gorm:"not null;" json:"filter_action"`
 	Keywords     []*FilterKeyword `gorm:"not null;type:json;serializer:json" json:"keywords"`
