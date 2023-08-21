@@ -2,6 +2,7 @@ package filter
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -64,7 +65,7 @@ func Update(c *gin.Context) {
 	}
 
 	if req.Keywords != nil {
-		filter.Keywords = *req.Keywords
+		filter.Keywords = updateKeywordsFields(filter.Keywords, *req.Keywords)
 	}
 
 	if err = db.GetDB().Save(filter).Error; err != nil {
@@ -73,4 +74,26 @@ func Update(c *gin.Context) {
 	}
 
 	c.JSON(200, serializer.ToFilter(filter))
+}
+
+func updateKeywordsFields(oldKeywords, newKeywords []*models.FilterKeyword) (ret []*models.FilterKeyword) {
+	// 新的关键词
+	oldKeywordsCheckMap := make(map[string]*models.FilterKeyword)
+	for _, keyword := range oldKeywords {
+		oldKeywordsCheckMap[keyword.Keyword] = keyword
+	}
+
+	ret = make([]*models.FilterKeyword, 0)
+
+	for _, keyword := range newKeywords {
+		if oldKeyword, ok := oldKeywordsCheckMap[keyword.Keyword]; ok {
+			// 旧的关键词
+			keyword.Uuid = oldKeyword.Uuid
+		} else {
+			// 新的关键词
+			keyword.Uuid = uuid.NewString()
+		}
+		ret = append(ret, keyword)
+	}
+	return
 }

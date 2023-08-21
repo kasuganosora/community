@@ -2,6 +2,7 @@ package filter
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -23,6 +24,10 @@ func Create(c *gin.Context) {
 	}
 
 	currentAccount := c.MustGet("account").(*models.Account)
+
+	for i, _ := range req.Keywords {
+		req.Keywords[i].Uuid = uuid.NewString()
+	}
 
 	filter := &models.Filter{
 		Title:     req.Title,

@@ -118,12 +118,17 @@ func SetRouter(app gin.IRouter) {
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
 		GET("/filters", filter.List).
-		GET("/filters/:id", filter.Show)
+		GET("/filters/:id", filter.Show).
+		GET("/filters/:filter_id/keywords", filter.KeywordsList).
+		GET("/filters/keywords/:id", filter.KeywordView)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
 		POST("/filters", filter.Create).
 		PUT("/filters/:id", filter.Update).
-		DELETE("/filters/:id", filter.Delete)
+		DELETE("/filters/:id", filter.Delete).
+		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
+		PUT("/filters/keywords/:id ", filter.KeywordUpdate).
+		DELETE("/filters/keywords/:id ", filter.KeywordDelete)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

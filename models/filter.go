@@ -1,7 +1,10 @@
 package models
 
 import (
+	"crypto/md5"
+	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -119,6 +122,12 @@ func (ff Filters) GetHeightLevelFilter() *Filter {
 }
 
 type FilterKeyword struct {
+	Uuid      string `json:"-"`
 	Keyword   string `json:"keyword"`
 	WholeWord bool   `json:"whole_word"`
+}
+
+func (fw *FilterKeyword) Hash() string {
+	rawStrs := []string{fw.Keyword, strconv.FormatBool(fw.WholeWord)}
+	return utils.Hash(md5.New(), strings.Join(rawStrs, "-"))
 }
