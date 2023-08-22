@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/status"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
+	"github.com/kasuganosora/community/controllers/report"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
@@ -119,7 +120,7 @@ func SetRouter(app gin.IRouter) {
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
 		GET("/filters", filter.List).
 		GET("/filters/:id", filter.Show).
-		GET("/filters/:filter_id/keywords", filter.KeywordsList).
+		GET("/filters/:id/keywords", filter.KeywordsList).
 		GET("/filters/keywords/:id", filter.KeywordView)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
@@ -129,6 +130,21 @@ func SetRouter(app gin.IRouter) {
 		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
 		PUT("/filters/keywords/:id ", filter.KeywordUpdate).
 		DELETE("/filters/keywords/:id ", filter.KeywordDelete)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
+		POST("/reports", report.Create)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
+		GET("/admin/reports/", report.List).
+		GET("/admin/reports/:id", report.GetReport)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
+		PUT("/admin/reports/:id", report.Update).
+		DELETE("/admin/reports/:id", report.Delete).
+		POST("/admin/reports/:id/assign_to_self", report.AssignToSelf).
+		POST("/admin/reports/:id/unassign", report.Unassign).
+		POST("/admin/reports/:id/resolvee", report.Resolve).
+		POST("/admin/reports/:id/reopen", report.Reopen)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

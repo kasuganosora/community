@@ -160,6 +160,29 @@ func ToString(v any) string {
 	}
 }
 
+func NumberArrayToStingArray[T Numeric](arr []T) []string {
+	ret := make([]string, len(arr))
+	for i, v := range arr {
+		ret[i] = ToString(v)
+	}
+
+	return ret
+}
+
+func StringArrayToUint64Array(arr []string) ([]uint64, error) {
+	ret := make([]uint64, len(arr))
+	for i, v := range arr {
+		val, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		ret[i] = val
+	}
+
+	return ret, nil
+}
+
 func StrToAny(str string, obj any) (err error) {
 	rValue := reflect.ValueOf(obj).Elem()
 	rType := rValue.Type()

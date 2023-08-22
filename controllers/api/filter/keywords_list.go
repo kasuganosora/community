@@ -11,7 +11,7 @@ import (
 )
 
 func KeywordsList(c *gin.Context) {
-	filterId, err := strconv.ParseUint(c.Param("filter_id"), 10, 64)
+	filterId, err := strconv.ParseUint(c.Param("id"), 10, 64)
 
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "filter_id must be a number"})

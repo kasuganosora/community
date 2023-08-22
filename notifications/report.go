@@ -11,7 +11,7 @@ import (
 func init() {
 	event.Register("report", "after_update", &event.Handler{Exec: func(event event.Event) bool {
 		report := event.Data.(*models.Report)
-		if report.Status == models.ReportStatusProcessed {
+		if report.ActionTakenAt != nil {
 			go reportProcessedNotification(report)
 
 		}

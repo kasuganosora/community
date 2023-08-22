@@ -7,39 +7,34 @@ import (
 )
 
 const (
-	ReportTypeHarassment = iota
-	ReportTypePorn
-	ReportTypeInfringement
-	ReportTypeThreat
-	ReportTypePoliticalSensitivity
-	ReportTypeOther
-)
-
-const (
-	ReportTargetTypeStatus = iota
-	ReportTargetTypeAccount
-)
-
-const (
-	ReportStatusPending = iota
-	ReportStatusProcessed
-	ReportStatusIgnored
+	ReportCategoryOther = iota
+	ReportCategorySpam
+	ReportCategoryLegal
+	ReportCategoryViolation
 )
 
 type Report struct {
-	Id               uint64         `gorm:"primaryKey;autoIncrement"`
-	AccountId        uint64         `gorm:"index;not null"`
-	StatusIds        []uint64       `gorm:"type:json;serializer:json"`
-	ReportAccountIds []uint64       `gorm:"type:json;serializer:json"`
-	ReportTargetType uint16         `gorm:"not null"`       // 0: status, 1: account
-	ReportType       uint16         `gorm:"not null;index"` // 0: 骚扰, 1: 色情, 2: 侵权, 3: 威胁， 4: 政治敏感， 5: 其他
-	ReportContent    string         `gorm:"type:text"`
-	ResultComment    string         `gorm:"type:text"`
-	Status           uint16         `gorm:"not null;index"` // 0: 未处理, 1: 已处理, 2: 已忽略
-	ClosedAt         *time.Time     `gorm:"default:false"`
-	CreatedAt        *time.Time     `gorm:"autoCreateTime"`
-	UpdatedAt        *time.Time     `gorm:"autoUpdateTime"`
-	DeletedAt        gorm.DeletedAt `gorm:"index"`
+	Id                     uint64         `gorm:"primaryKey;autoIncrement"`
+	StatusIds              []uint64       `gorm:"type:json;serializer:json"`
+	Comment                string         `gorm:"type:text"`
+	AccountId              uint64         `gorm:"index"`
+	ActionTakenByAccountId uint64         `gorm:"index"`
+	TargetAccountId        uint64         `gorm:"index"`
+	AssignedAccountId      uint64         `gorm:"index"`
+	Forwarded              bool           `gorm:"default:false"`
+	Forward                bool           `gorm:"default:false"`
+	Category               uint16         `gorm:"default:0"`
+	RuleIds                []uint64       `gorm:"type:json;serializer:json"`
+	ActionTakenAt          *time.Time     `gorm:"index"`
+	Uri                    string         `gorm:"type:varchar(255)"`
+	CreatedAt              *time.Time     `gorm:"autoCreateTime"`
+	UpdatedAt              *time.Time     `gorm:"autoUpdateTime"`
+	DeletedAt              gorm.DeletedAt `gorm:"index"`
+
+	Account              *Account `gorm:"foreignKey:AccountId"`
+	TargetAccount        *Account `gorm:"foreignKey:TargetAccountId"`
+	ActionTakenByAccount *Account `gorm:"foreignKey:ActionTakenByAccountId"`
+	AssignedAccount      *Account `gorm:"foreignKey:AssignedAccountId"`
 }
 
 func (r *Report) TableName() string {
@@ -101,10 +96,6 @@ func (r *Report) AfterDelete(tx *gorm.DB) (err error) {
 }
 
 func (r *Report) BeforeSave(tx *gorm.DB) (err error) {
-	if r.Status == ReportStatusProcessed {
-		now := time.Now()
-		r.ClosedAt = &now
-	}
 	event.Trigger("report", event.Event{
 		Name: `before_save`,
 		Data: r,
@@ -114,15 +105,40 @@ func (r *Report) BeforeSave(tx *gorm.DB) (err error) {
 }
 
 func (r *Report) GetStatusString() string {
-	switch r.Status {
-	case ReportStatusPending:
-		return "Pending"
-	case ReportStatusProcessed:
-		return "Processed"
-	case ReportStatusIgnored:
-		return "Ignored"
+	if r.ActionTakenAt != nil {
+		return "Resolved"
+	}
+
+	return "Unresolved"
+}
+
+func (r *Report) ToCategoryString() string {
+	switch r.Category {
+	case ReportCategoryOther:
+		return "Other"
+	case ReportCategorySpam:
+		return "Spam"
+	case ReportCategoryLegal:
+		return "Legal"
+	case ReportCategoryViolation:
+		return "Violation"
 	default:
 		return "Unknown"
+	}
+}
+
+func (r *Report) SetCategory(category string) {
+	switch category {
+	case "Other":
+		r.Category = ReportCategoryOther
+	case "Spam":
+		r.Category = ReportCategorySpam
+	case "Legal":
+		r.Category = ReportCategoryLegal
+	case "Violation":
+		r.Category = ReportCategoryViolation
+	default:
+		r.Category = ReportCategoryOther
 	}
 }
 
