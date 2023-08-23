@@ -65,7 +65,7 @@ type Status struct {
 	conversationIdChanged bool `gorm:"-"`
 }
 
-func (s *Status) TableName() string {
+func (Status) TableName() string {
 	return "statuses"
 }
 

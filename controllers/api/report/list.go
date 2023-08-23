@@ -2,6 +2,7 @@ package report
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -69,7 +70,7 @@ func List(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	ret, err := serializer.ToReports(reports, currentAccount)
 	if err != nil {

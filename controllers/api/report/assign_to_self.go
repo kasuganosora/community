@@ -2,18 +2,15 @@ package report
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 )
 
 func AssignToSelf(c *gin.Context) {
-	report, abort := GetReportById(c)
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	report := controllers.GetIdFromContext(&models.Report{}, c, db.GetDB())
+	currentAccount := controllers.MustGetAccount(c)
 
 	report.AssignedAccountId = currentAccount.Id
 

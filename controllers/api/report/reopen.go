@@ -2,18 +2,16 @@ package report
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 )
 
 func Reopen(c *gin.Context) {
-	report, abort := GetReportById(c)
-	if abort {
-		return
-	}
+	report := controllers.GetIdFromContext(&models.Report{}, c, db.GetDB())
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	report.ActionTakenAt = nil
 
 	if err := db.GetDB().Save(report).Error; err != nil {

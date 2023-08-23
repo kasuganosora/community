@@ -8,11 +8,7 @@ import (
 )
 
 func Delete(c *gin.Context) {
-	rule, abort := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
-	if abort {
-		return
-	}
-
+	rule := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
 	err := db.GetDB().Delete(rule).Error
 
 	if err != nil {

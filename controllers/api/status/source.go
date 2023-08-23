@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -9,10 +10,7 @@ import (
 )
 
 func GetSource(c *gin.Context) {
-	status, abort := getStatusByIdPram(c)
-	if abort {
-		return
-	}
+	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB())
 
 	dbConn := db.GetDB()
 	var err error
@@ -31,7 +29,7 @@ func GetSource(c *gin.Context) {
 		}
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	if err != nil {

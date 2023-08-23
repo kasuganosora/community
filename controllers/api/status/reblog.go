@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -25,14 +26,10 @@ func Reblog(c *gin.Context) {
 		req.Visibility = "public"
 	}
 
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
+	status := getRealStatus(c)
 
 	dbConn := db.GetDB()
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
@@ -93,11 +90,7 @@ func Reblog(c *gin.Context) {
 }
 
 func Unreblog(c *gin.Context) {
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
+	status := getRealStatus(c)
 
 	dbConn := db.GetDB()
 	currentAccount := c.MustGet("account").(*models.Account)
@@ -156,10 +149,7 @@ func RebloggedBy(c *gin.Context) {
 		return
 	}
 
-	status, abort := getRealStatus(c)
-	if abort {
-		return
-	}
+	status := getRealStatus(c)
 
 	var currentAccount *models.Account
 	_currentAccount, exists := c.Get("account")

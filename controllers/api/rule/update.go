@@ -14,10 +14,7 @@ type UpdateRequest struct {
 }
 
 func Update(c *gin.Context) {
-	rule, abort := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
-	if abort {
-		return
-	}
+	rule := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
 
 	req := &UpdateRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {

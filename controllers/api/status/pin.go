@@ -2,22 +2,19 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 )
 
 func Pin(c *gin.Context) {
-	status, abort := getRealStatus(c)
+	status := getRealStatus(c)
 
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	// 只能自己置顶自己的 status
 	if status.AccountId != currentAccount.Id {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -29,7 +26,7 @@ func Pin(c *gin.Context) {
 	}
 
 	if isPinned {
-		c.JSON(400, gin.H{"error": "already pinned"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "already pinned"})
 		return
 	}
 
@@ -47,12 +44,7 @@ func Pin(c *gin.Context) {
 }
 
 func UnPin(c *gin.Context) {
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
-
+	status := getRealStatus(c)
 	currentAccount := c.MustGet("account").(*models.Account)
 	dbConn := db.GetDB()
 	//  只能 自己置顶自己的
@@ -69,7 +61,7 @@ func UnPin(c *gin.Context) {
 	}
 
 	if !isPinned {
-		c.JSON(400, gin.H{"error": "not pinned"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "not pinned"})
 		return
 	}
 

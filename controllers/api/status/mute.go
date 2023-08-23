@@ -2,22 +2,19 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 )
 
 func MuteStatus(c *gin.Context) {
-	status, abort := getRealStatus(c)
+	status := getRealStatus(c)
 
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	// 只能自己 mute 自己的 status
 	if status.AccountId != currentAccount.Id {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -30,7 +27,7 @@ func MuteStatus(c *gin.Context) {
 	}
 
 	if isMuted {
-		c.JSON(400, gin.H{"error": "already muted"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "already muted"})
 		return
 	}
 
@@ -50,17 +47,13 @@ func MuteStatus(c *gin.Context) {
 }
 
 func UnmuteStatus(c *gin.Context) {
-	status, abort := getRealStatus(c)
+	status := getRealStatus(c)
 
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	//  只能 自己 mute 自己的
 	if status.AccountId != currentAccount.Id {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 

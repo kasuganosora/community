@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
@@ -30,7 +31,7 @@ func Update(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	statusIdStr := c.Param("id")
 	statusId, err := strconv.ParseUint(statusIdStr, 10, 64)
@@ -41,7 +42,7 @@ func Update(c *gin.Context) {
 
 	status := &models.Status{}
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", statusId)
-	query = statusPreload(query)
+	query = models.StatusLoadAllQuery(query)
 
 	if err = query.First(status).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

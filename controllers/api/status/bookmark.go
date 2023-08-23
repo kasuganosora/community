@@ -2,18 +2,14 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 )
 
 func Bookmark(c *gin.Context) {
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	status := getRealStatus(c)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
@@ -53,13 +49,9 @@ func Bookmark(c *gin.Context) {
 }
 
 func Unbookmark(c *gin.Context) {
-	status, abort := getRealStatus(c)
+	status := getRealStatus(c)
 
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
 	// 是否已经收藏
@@ -82,7 +74,7 @@ func Unbookmark(c *gin.Context) {
 	}
 
 	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 

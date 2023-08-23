@@ -37,7 +37,7 @@ type Report struct {
 	AssignedAccount      *Account `gorm:"foreignKey:AssignedAccountId"`
 }
 
-func (r *Report) TableName() string {
+func (Report) TableName() string {
 	return "reports"
 }
 

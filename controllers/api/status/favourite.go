@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -10,13 +11,9 @@ import (
 )
 
 func Favourite(c *gin.Context) {
-	status, abort := getRealStatus(c)
+	status := getRealStatus(c)
 
-	if abort {
-		return
-	}
-
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
@@ -26,7 +23,7 @@ func Favourite(c *gin.Context) {
 	}
 
 	if isFavourited {
-		c.JSON(400, gin.H{"error": "already favourited"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "already favourited"})
 		return
 	}
 
@@ -38,7 +35,7 @@ func Favourite(c *gin.Context) {
 	}
 
 	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -73,11 +70,7 @@ func Favourite(c *gin.Context) {
 }
 
 func Unfavourite(c *gin.Context) {
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
+	status := getRealStatus(c)
 
 	currentAccount := c.MustGet("account").(*models.Account)
 	dbConn := db.GetDB()
@@ -131,11 +124,7 @@ func FavouritedBy(c *gin.Context) {
 		return
 	}
 
-	status, abort := getRealStatus(c)
-
-	if abort {
-		return
-	}
+	status := getRealStatus(c)
 
 	var currentAccount *models.Account
 	_currentAccount, exists := c.Get("account")

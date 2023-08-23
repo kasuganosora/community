@@ -9,10 +9,7 @@ import (
 )
 
 func Get(c *gin.Context) {
-	rule, abort := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
-	if abort {
-		return
-	}
+	rule := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
 
 	c.JSON(200, serializer.ToRule(rule))
 }

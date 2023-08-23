@@ -2,9 +2,11 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
 	"time"
@@ -25,12 +27,12 @@ func ListScheduledStatuses(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	query := db.GetDB().Model(&models.Status{}).Where("account_id = ?", currentAccount.Id).
 		Where("scheduled_at IS NOT NULL")
 
-	query = statusPreload(query)
+	query = models.StatusLoadAllQuery(query)
 
 	if req.MaxId != nil {
 		query = query.Where("id <= ?", req.MaxId)
@@ -71,17 +73,17 @@ func ViewSingleScheduledStatus(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	status := &models.Status{}
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", id).
 		Where("account_id = ?", currentAccount.Id).
 		Where("scheduled_at IS NOT NULL")
 
-	query = statusPreload(query)
+	query = models.StatusLoadAllQuery(query)
 
 	if err = query.First(status).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "status not found"})
 			return
 		}
@@ -129,7 +131,7 @@ func UpdateStatusScheduledAt(c *gin.Context) {
 		Where("account_id = ?", currentAccount.Id).
 		Where("scheduled_at IS NOT NULL")
 
-	query = statusPreload(query)
+	query = models.StatusLoadAllQuery(query)
 
 	if err = query.First(status).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"net/http"
@@ -38,7 +39,7 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	status := &models.Status{
 		AccountId: currentAccount.Id,
