@@ -93,7 +93,7 @@ func Create(c *gin.Context) {
 
 		if len(rulesId) != len(ruleIds) {
 			c.JSON(400, gin.H{
-				"error": "any rules not found",
+				"error": "any rule not found",
 			})
 			return
 		}

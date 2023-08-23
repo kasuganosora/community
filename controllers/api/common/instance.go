@@ -69,7 +69,7 @@ type InstanceResponse struct {
 		Account *serializer.Account
 	}
 
-	Rules []ServerRuleResponseItem `json:"rules"`
+	Rules []ServerRuleResponseItem `json:"rule"`
 }
 
 type ServerRuleResponseItem struct {

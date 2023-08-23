@@ -64,6 +64,7 @@ const (
 	AppScopeAdminWriteEmailDomainBlocks    = 0x1F00000000
 	AppScopeAdminWriteIpBlocks             = 0x3F00000000
 	AppScopeAdminWriteReports              = 0x7F00000000
+	AppScopeAdminWriteRules                = 0xF000000000
 
 	// 其他权限单独一组
 	AppScopeFollow = 0x1

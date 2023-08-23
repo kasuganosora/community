@@ -15,5 +15,5 @@ type Rule struct {
 }
 
 func (Rule) TableName() string {
-	return "rules"
+	return "rule"
 }

@@ -24,7 +24,7 @@ type Report struct {
 	ActionTakenByAccount *Account   `json:"action_taken_by_account"`
 	Account              *Account   `json:"account"`
 	Statuses             []*Status  `json:"statuses"`
-	Rules                []*Rule    `json:"rules"`
+	Rules                []*Rule    `json:"rule"`
 }
 
 func ToReport(r *models.Report, account *models.Account) (ret *Report, err error) {

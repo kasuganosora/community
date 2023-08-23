@@ -8,10 +8,11 @@ import (
 	"github.com/kasuganosora/community/controllers/api/filter"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/marker"
+	report2 "github.com/kasuganosora/community/controllers/api/report"
+	"github.com/kasuganosora/community/controllers/api/rule"
 	"github.com/kasuganosora/community/controllers/api/status"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
-	"github.com/kasuganosora/community/controllers/report"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
@@ -21,6 +22,8 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup := apiGroup.Group("/v2")
 
 	v2ApiGroup.GET("/instance", common.GetInstanceDetail)
+	v2ApiGroup.GET("/instance/rules", rule.List)
+	v2ApiGroup.GET("/instance/rules/:id", rule.Get)
 
 	v2ApiGroup.POST("/accounts/register", account.Register)
 	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
@@ -132,19 +135,24 @@ func SetRouter(app gin.IRouter) {
 		DELETE("/filters/keywords/:id ", filter.KeywordDelete)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
-		POST("/reports", report.Create)
+		POST("/reports", report2.Create)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
-		GET("/admin/reports/", report.List).
-		GET("/admin/reports/:id", report.GetReport)
+		GET("/admin/reports/", report2.List).
+		GET("/admin/reports/:id", report2.GetReport)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
-		PUT("/admin/reports/:id", report.Update).
-		DELETE("/admin/reports/:id", report.Delete).
-		POST("/admin/reports/:id/assign_to_self", report.AssignToSelf).
-		POST("/admin/reports/:id/unassign", report.Unassign).
-		POST("/admin/reports/:id/resolvee", report.Resolve).
-		POST("/admin/reports/:id/reopen", report.Reopen)
+		PUT("/admin/reports/:id", report2.Update).
+		DELETE("/admin/reports/:id", report2.Delete).
+		POST("/admin/reports/:id/assign_to_self", report2.AssignToSelf).
+		POST("/admin/reports/:id/unassign", report2.Unassign).
+		POST("/admin/reports/:id/resolvee", report2.Resolve).
+		POST("/admin/reports/:id/reopen", report2.Reopen)
+
+	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).
+		POST("/admin/rule", rule.Create).
+		PUT("/admin/rule/:id", rule.Update).
+		DELETE("/admin/rule/:id", rule.Delete)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)
