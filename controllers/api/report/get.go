@@ -12,11 +12,7 @@ func GetReport(c *gin.Context) {
 	report := controllers.GetIdFromContext(&models.Report{}, c, db.GetDB())
 	currentAccount := controllers.MustGetAccount(c)
 	ret, err := serializer.ToReport(report, currentAccount)
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }

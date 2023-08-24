@@ -35,7 +35,7 @@ type List struct {
 	Creator       *Account       `gorm:"foreignKey:AccountId" json:"creator"`
 }
 
-func (l *List) TableName() string {
+func (List) TableName() string {
 	return "lists"
 }
 

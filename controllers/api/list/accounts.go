@@ -109,7 +109,7 @@ func AddAccountToList(c *gin.Context) {
 
 	if list.AccountId != selfAccount.Id {
 		c.AbortWithStatusJSON(403, gin.H{
-			"errors": "you are not the owner of the list",
+			"apierrors": "you are not the owner of the list",
 		})
 		return
 	}
@@ -128,7 +128,7 @@ func AddAccountToList(c *gin.Context) {
 
 	if len(uint64AccountIds) == 0 {
 		c.AbortWithStatusJSON(400, gin.H{
-			"errors": "invalid account ids",
+			"apierrors": "invalid account ids",
 		})
 		return
 	}
@@ -199,7 +199,7 @@ func RemoveAccountFromList(c *gin.Context) {
 
 	if list.AccountId != selfAccount.Id {
 		c.AbortWithStatusJSON(403, gin.H{
-			"errors": "you are not the owner of the list",
+			"apierrors": "you are not the owner of the list",
 		})
 		return
 	}
@@ -208,7 +208,7 @@ func RemoveAccountFromList(c *gin.Context) {
 
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"errors": "invalid account id",
+			"apierrors": "invalid account id",
 		})
 		return
 	}
@@ -221,7 +221,7 @@ func RemoveAccountFromList(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{
-				"errors": "account not found in list",
+				"apierrors": "account not found in list",
 			})
 			return
 		}

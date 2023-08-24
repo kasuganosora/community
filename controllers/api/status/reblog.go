@@ -17,10 +17,8 @@ type ReblogRequest struct {
 func Reblog(c *gin.Context) {
 	req := &ReblogRequest{}
 	err := c.ShouldBindJSON(req)
-	if err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
-		return
-	}
+
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	if req.Visibility == "" {
 		req.Visibility = "public"
@@ -33,26 +31,13 @@ func Reblog(c *gin.Context) {
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-	if isRelogged {
-		c.JSON(400, gin.H{"error": "already reblogged"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, isRelogged, 400, gin.H{"error": "already reblogged"})
 
 	// 判断当前用户有没权限转发这条 status, 只要能看到这条 status 就可以转发
 	canView, err := status.CanViewEx(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	reblog := &models.Status{}
 	reblog.ReblogId = &status.Id
@@ -80,10 +65,7 @@ func Reblog(c *gin.Context) {
 		return nil
 	})
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	// 重新获取转发的 status
 	returnFullSingleStatus(c, status, currentAccount)
@@ -97,15 +79,8 @@ func Unreblog(c *gin.Context) {
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !isRelogged {
-		c.JSON(400, gin.H{"error": "not reblogged"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !isRelogged, 400, gin.H{"error": "not reblogged"})
 
 	// 删除转发的 status， 并把原来的 status 的转发数减一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {
@@ -124,10 +99,7 @@ func Unreblog(c *gin.Context) {
 		return nil
 	})
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	// 重新获取转发的 status
 	returnFullSingleStatus(c, status, currentAccount)
@@ -144,10 +116,7 @@ func RebloggedBy(c *gin.Context) {
 	req := &RebloggedByRequest{}
 	err := c.ShouldBindQuery(req)
 
-	if err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	status := getRealStatus(c)
 
@@ -162,15 +131,8 @@ func RebloggedBy(c *gin.Context) {
 	// 只有能看到这条 status 的人才能看到收藏列表
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	accounts := make([]*models.Account, 0)
 
@@ -197,10 +159,7 @@ func RebloggedBy(c *gin.Context) {
 
 	err = query.Find(&accounts).Error
 
-	if err != nil {
-		err = errors.Wrap(err, "get reblogged by")
-		_ = c.Error(err)
-	}
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToAccounts(accounts)
 

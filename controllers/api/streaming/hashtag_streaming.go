@@ -2,8 +2,8 @@ package streaming
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/tag"
-	"github.com/kasuganosora/community/models"
 )
 
 type HashtagStreamingRequest struct {
@@ -20,10 +20,7 @@ func HashtagStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 		return
 	}
 
-	var account *models.Account
-	if _account, ok := c.Get("account"); ok {
-		account = _account.(*models.Account)
-	}
+	account := controllers.GetAccount(c)
 
 	timeline := &tag.TagTimeline{
 		Tag:        req.Tag,

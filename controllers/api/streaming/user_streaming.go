@@ -3,13 +3,13 @@ package streaming
 import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/home"
-	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 )
 
 func UserStreaming(c *gin.Context) {
-	account := c.MustGet("account").(*models.Account)
+	account := controllers.MustGetAccount(c)
 	timeline := &home.HomeTimeline{account}
 
 	procHandle := func(data any) (event, payload string, err error) {

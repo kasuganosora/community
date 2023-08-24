@@ -13,18 +13,11 @@ func Unassign(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	report.AssignedAccountId = 0
-
-	if err := db.GetDB().Select("assigned_account_id").Save(report).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err := db.GetDB().Select("assigned_account_id").Save(report).Error
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToReport(report, currentAccount)
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }

@@ -5,8 +5,6 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/pkg/errors"
-	"gorm.io/gorm"
 )
 
 func Show(c *gin.Context) {
@@ -19,16 +17,7 @@ func Show(c *gin.Context) {
 		query := db.GetDB().Model(&models.Status{})
 		query = models.StatusLoadAllQuery(query)
 		err = query.First(reblog, *status.ReblogId).Error
-
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(404, gin.H{"error": "status not found"})
-				return
-			} else {
-				_ = c.Error(err)
-				return
-			}
-		}
+		controllers.AbortIfError(c, err)
 
 		status.Reblog = reblog
 	}
@@ -41,15 +30,8 @@ func Show(c *gin.Context) {
 			return
 		} else {
 			canview, err := status.CanViewEx(db.GetDB(), account)
-			if err != nil {
-				_ = c.Error(err)
-				return
-			}
-
-			if !canview {
-				c.JSON(403, gin.H{"error": "has no permission"})
-				return
-			}
+			controllers.AbortIfError(c, err)
+			controllers.AbortIf(c, !canview, 403, gin.H{"error": "has no permission"})
 		}
 
 	}

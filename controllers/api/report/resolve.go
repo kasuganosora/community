@@ -17,17 +17,11 @@ func Resolve(c *gin.Context) {
 	now := time.Now()
 	report.ActionTakenAt = &now
 
-	if err := db.GetDB().Save(report).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err := db.GetDB().Save(report).Error
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToReport(report, currentAccount)
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }

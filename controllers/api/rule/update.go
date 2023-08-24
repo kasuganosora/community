@@ -17,10 +17,8 @@ func Update(c *gin.Context) {
 	rule := controllers.GetIdFromContext(&models.Rule{}, c, db.GetDB())
 
 	req := &UpdateRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err := c.ShouldBindJSON(req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"message": err})
 
 	if req.Text != nil {
 		rule.Text = *req.Text
@@ -30,12 +28,9 @@ func Update(c *gin.Context) {
 		rule.Priority = *req.Priority
 	}
 
-	err := db.GetDB().Save(rule).Error
+	err = db.GetDB().Save(rule).Error
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToRule(rule)
 

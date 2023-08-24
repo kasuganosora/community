@@ -8,7 +8,6 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"net/http"
 	"strconv"
 	"time"
 )
@@ -26,33 +25,21 @@ type UpdateStatusRequest struct {
 
 func Update(c *gin.Context) {
 	var req UpdateStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	err := c.ShouldBindJSON(&req)
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	currentAccount := controllers.MustGetAccount(c)
 
 	statusIdStr := c.Param("id")
 	statusId, err := strconv.ParseUint(statusIdStr, 10, 64)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
 
 	status := &models.Status{}
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", statusId)
 	query = models.StatusLoadAllQuery(query)
 
-	if err = query.First(status).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "status not found"})
-			return
-		}
-		err = errors.Wrap(err, "query status failed")
-		_ = c.Error(err)
-		return
-	}
+	err = query.First(status).Error
+	controllers.AbortIfError(c, err)
 
 	historyStatus := &models.StatusHistory{}
 	historyStatus.StatusId = status.Id
@@ -63,10 +50,7 @@ func Update(c *gin.Context) {
 	historyStatus.MediaAttachmentsIds = status.Attachments.GetIds()
 	historyStatus.EmojisIds = status.Emojis.GetIds()
 
-	if status.AccountId != currentAccount.Id {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 403, gin.H{"error": "forbidden"})
 
 	var contentChanged bool
 	if req.Status != nil {
@@ -88,16 +72,8 @@ func Update(c *gin.Context) {
 			attachments := make([]*models.Attachment, 0)
 			err = db.GetDB().Model(&models.Attachment{}).Where("id IN ?", attachmentsId).
 				Where("account_id = ?", currentAccount.Id).Find(&attachments).Error
-			if err != nil {
-				err = errors.Wrap(err, "query attachments failed")
-				_ = c.Error(err)
-				return
-			}
-
-			if len(attachments) != len(attachmentsId) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media_ids"})
-				return
-			}
+			controllers.AbortIfError(c, err)
+			controllers.AbortIf(c, len(attachments) != len(attachmentsId), 400, gin.H{"error": "invalid media_ids"})
 
 			status.Attachments = attachments
 		}
@@ -193,10 +169,7 @@ func Update(c *gin.Context) {
 		return
 	})
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
 }

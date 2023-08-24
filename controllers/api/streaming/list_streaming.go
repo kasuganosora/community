@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	listFeed "github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/models"
@@ -17,40 +18,24 @@ func ListStreaming(c *gin.Context) {
 	var req ListStreamingRequest
 	var err error
 
-	if err = c.ShouldBindQuery(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
+	err = c.ShouldBindQuery(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
 	var listId uint64
-	if listId, err = strconv.ParseUint(req.List, 10, 64); err != nil {
-		c.JSON(400, gin.H{"error": "invalid list id"})
-		return
-	}
+	listId, err = strconv.ParseUint(req.List, 10, 64)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid list id"})
 
-	var account *models.Account
-	if _account, _ := c.Get("account"); account == nil {
-		account = _account.(*models.Account)
-	}
+	account := controllers.GetAccount(c)
 
 	list := &models.List{}
 
 	// 如果 List是保密的话，则只有关注了这个List的人才能看到
 	canview, err := models.ListCanView(list, account)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canview, 403, gin.H{"error": "you can't view this list"})
 
-	if !canview {
-		c.JSON(403, gin.H{"error": "you can't view this list"})
-		return
-	}
-
-	if err = db.GetDB().Find(list, listId).Error; err != nil {
-		c.JSON(400, gin.H{"error": "invalid list id"})
-		return
-	}
+	err = db.GetDB().Find(list, listId).Error
+	controllers.AbortIfError(c, err)
 
 	timeline := &listFeed.ListTimeline{
 		List: list,

@@ -6,8 +6,6 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
-	"gorm.io/gorm"
 	"strconv"
 	"time"
 )
@@ -22,10 +20,8 @@ type ListScheduledStatusesRequest struct {
 // ListScheduledStatuses 获取自己的定时发送的状态列表
 func ListScheduledStatuses(c *gin.Context) {
 	req := &ListScheduledStatusesRequest{}
-	if err := c.ShouldBindQuery(req); err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
-		return
-	}
+	err := c.ShouldBindQuery(req)
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	currentAccount := controllers.MustGetAccount(c)
 
@@ -51,10 +47,8 @@ func ListScheduledStatuses(c *gin.Context) {
 	}
 
 	var statuses []*models.Status
-	if err := query.Find(&statuses).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err = query.Find(&statuses).Error
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToScheduledStatuses(statuses)
 	c.JSON(200, ret)
@@ -62,16 +56,10 @@ func ListScheduledStatuses(c *gin.Context) {
 
 func ViewSingleScheduledStatus(c *gin.Context) {
 	idStr := c.Param("id")
-	if idStr == "" {
-		c.JSON(422, gin.H{"error": "id is required"})
-		return
-	}
+	controllers.AbortIf(c, idStr == "", 422, gin.H{"error": "id is required"})
 
 	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(422, gin.H{"error": "id is required"})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
 
 	currentAccount := controllers.MustGetAccount(c)
 
@@ -82,14 +70,8 @@ func ViewSingleScheduledStatus(c *gin.Context) {
 
 	query = models.StatusLoadAllQuery(query)
 
-	if err = query.First(status).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "status not found"})
-			return
-		}
-		_ = c.Error(err)
-		return
-	}
+	err = query.First(status).Error
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToScheduledStatus(status)
 	c.JSON(200, ret)
@@ -101,30 +83,19 @@ type UpdateStatusScheduledAtRequest struct {
 
 func UpdateStatusScheduledAt(c *gin.Context) {
 	req := &UpdateStatusScheduledAtRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
-		return
-	}
+	err := c.ShouldBindJSON(req)
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	idStr := c.Param("id")
-	if idStr == "" {
-		c.JSON(422, gin.H{"error": "id is required"})
-		return
-	}
+	controllers.AbortIf(c, idStr == "", 422, gin.H{"error": "id is required"})
 
 	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(422, gin.H{"error": "id is required"})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
 
 	currentAccount := c.MustGet("account").(*models.Account)
 
 	newSheduledAt, err := time.Parse(time.RFC3339, req.ScheduledAt)
-	if err != nil {
-		c.JSON(422, gin.H{"error": "scheduled_at is invalid"})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid scheduled_at"})
 
 	status := &models.Status{}
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", id).
@@ -133,21 +104,13 @@ func UpdateStatusScheduledAt(c *gin.Context) {
 
 	query = models.StatusLoadAllQuery(query)
 
-	if err = query.First(status).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(404, gin.H{"error": "status not found"})
-			return
-		}
-		_ = c.Error(err)
-		return
-	}
+	err = query.First(status).Error
+	controllers.AbortIfError(c, err)
 
 	status.ScheduledAt = &newSheduledAt
 
-	if err = db.GetDB().Select("scheduled_at").Save(status).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err = db.GetDB().Select("scheduled_at").Save(status).Error
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToScheduledStatus(status)
 	c.JSON(200, ret)

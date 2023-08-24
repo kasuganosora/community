@@ -2,6 +2,7 @@ package timelines
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/public"
 	"github.com/kasuganosora/community/models"
@@ -27,13 +28,10 @@ func (req *PublicTimeline) ToFeedListParams() *feed.ListParam {
 
 func Public(c *gin.Context) {
 	var req PublicTimeline
-	if err := c.BindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	err := c.BindQuery(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
 	var statuses models.Statuses
-	var err error
 
 	if utils.ToBool(req.OnlyMedia) {
 		statuses, err = public.GetTimelineContentMedia(req.ToFeedListParams())
@@ -41,10 +39,7 @@ func Public(c *gin.Context) {
 		statuses, err = public.GetTimelineContentAll(req.ToFeedListParams())
 	}
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	var account *models.Account
 
@@ -53,10 +48,7 @@ func Public(c *gin.Context) {
 	}
 
 	ret, err := serializer.ToStatuses(statuses, account)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)
 }

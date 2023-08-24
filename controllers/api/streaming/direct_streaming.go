@@ -3,13 +3,14 @@ package streaming
 import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/direct"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 )
 
 func DirectStreaming(c *gin.Context) {
-	account := c.MustGet("account").(*models.Account)
+	account := controllers.GetAccount(c)
 	timeline := &direct.DirectTimeline{
 		Account: account,
 	}

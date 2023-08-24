@@ -2,8 +2,8 @@ package streaming
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/public"
-	"github.com/kasuganosora/community/models"
 )
 
 type PublicStreamingRequest struct {
@@ -14,15 +14,10 @@ func PublicStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	var req PublicStreamingRequest
 	var err error
 
-	if err = c.ShouldBindQuery(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
+	err = c.ShouldBindQuery(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
-	var account *models.Account
-	if _account, ok := c.Get("account"); ok {
-		account = _account.(*models.Account)
-	}
+	account := controllers.GetAccount(c)
 
 	timeline := &public.PublicTimeline{
 		OnlyMedia:  req.OnlyMedia,

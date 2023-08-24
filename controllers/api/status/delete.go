@@ -13,21 +13,11 @@ func Delete(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB())
 
 	// check permission
-	if status.AccountId != currentAccount.Id {
-		c.AbortWithStatusJSON(403, gin.H{"error": "has no permission"})
-		return
-	}
-
-	if status.ReblogId != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "can't delete reblog status"})
-		return
-	}
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 403, gin.H{"error": "has no permission"})
+	controllers.AbortIf(c, status.ReblogId != nil, 400, gin.H{"error": "can't delete reblog status"})
 
 	err := db.GetDB().Delete(status).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.Data(204, "application/json", nil)
 }

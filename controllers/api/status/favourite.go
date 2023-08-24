@@ -6,7 +6,6 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
 
@@ -17,10 +16,7 @@ func Favourite(c *gin.Context) {
 	dbConn := db.GetDB()
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	if isFavourited {
 		c.AbortWithStatusJSON(400, gin.H{"error": "already favourited"})
@@ -29,15 +25,8 @@ func Favourite(c *gin.Context) {
 
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	favourite := &models.FavoriteStatus{}
 	favourite.AccountId = currentAccount.Id
@@ -46,16 +35,10 @@ func Favourite(c *gin.Context) {
 	// 生成收藏记录， 并把原来的 status 的收藏数加一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {
 		err = tx.Create(favourite).Error
-		if err != nil {
-			err = errors.Wrap(err, "create favourite")
-			return err
-		}
+		controllers.AbortIfError(c, err)
 
 		err = tx.Model(status).Update("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error
-		if err != nil {
-			err = errors.Wrap(err, "update status favourites_count")
-			return err
-		}
+		controllers.AbortIfError(c, err)
 
 		return nil
 	})
@@ -76,29 +59,16 @@ func Unfavourite(c *gin.Context) {
 	dbConn := db.GetDB()
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !isFavourited {
-		c.JSON(400, gin.H{"error": "not favourited"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !isFavourited, 400, gin.H{"error": "not favourited"})
 
 	// 删除收藏记录， 并把原来的 status 的收藏数减一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {
 		err = tx.Where("account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error
-		if err != nil {
-			err = errors.Wrap(err, "delete favourite")
-			return err
-		}
+		controllers.AbortIfError(c, err)
 
 		err = tx.Model(status).Update("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error
-		if err != nil {
-			err = errors.Wrap(err, "update status favourites_count")
-			return err
-		}
+		controllers.AbortIfError(c, err)
 
 		return nil
 	})
@@ -119,10 +89,7 @@ type FavouritedByRequest struct {
 func FavouritedBy(c *gin.Context) {
 	req := &FavouritedByRequest{}
 	err := c.ShouldBindQuery(req)
-	if err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	status := getRealStatus(c)
 
@@ -137,15 +104,8 @@ func FavouritedBy(c *gin.Context) {
 	// 只有能看到这条 status 的人才能看到收藏列表
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	var accounts []*models.Account
 
@@ -172,10 +132,7 @@ func FavouritedBy(c *gin.Context) {
 
 	err = query.Find(&accounts).Error
 
-	if err != nil {
-		err = errors.Wrap(err, "get reblogged by")
-		_ = c.Error(err)
-	}
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToAccounts(accounts)
 

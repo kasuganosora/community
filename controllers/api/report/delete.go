@@ -9,10 +9,8 @@ import (
 
 func Delete(c *gin.Context) {
 	report := controllers.GetIdFromContext(&models.Report{}, c, db.GetDB())
-	if err := db.GetDB().Delete(report).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err := db.GetDB().Delete(report).Error
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, gin.H{})
 }

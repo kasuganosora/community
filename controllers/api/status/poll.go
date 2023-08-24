@@ -6,9 +6,8 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"strconv"
+	"time"
 )
 
 func ViewPoll(c *gin.Context) {
@@ -17,18 +16,10 @@ func ViewPoll(c *gin.Context) {
 		return
 	}
 
-	var currentAccount *models.Account
-
-	if account, ok := c.Get("account"); ok {
-		currentAccount = account.(*models.Account)
-	}
+	currentAccount := controllers.GetAccount(c)
 
 	ret, err := serializer.ToPoll(poll, currentAccount)
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }
@@ -41,10 +32,7 @@ func VotePoll(c *gin.Context) {
 	req := &VotePollRequest{}
 	err := c.ShouldBindJSON(req)
 
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	poll, abort := getPoll(c)
 	if abort {
@@ -52,7 +40,7 @@ func VotePoll(c *gin.Context) {
 	}
 
 	// 判断是否已经过期
-	if poll.ExpiresAt.Before(db.GetDB().NowFunc()) {
+	if poll.ExpiresAt.Before(time.Now()) {
 		c.JSON(400, gin.H{"error": "poll expired"})
 		return
 	}
@@ -77,15 +65,8 @@ func VotePoll(c *gin.Context) {
 	var voteCount int64
 	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? and account_id = ?", poll.Id, currentAccount).Count(&voteCount).Error
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if voteCount > 0 {
-		c.JSON(400, gin.H{"error": "already voted"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, voteCount > 0, 400, gin.H{"error": "already voted"})
 
 	voteOptions := make([]*models.PollOptionVote, 0, len(req.Choices))
 	// 开始投票
@@ -115,83 +96,33 @@ func VotePoll(c *gin.Context) {
 		return nil
 	})
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	// 重新获取投票信息
 	err = db.GetDB().Model(&models.Poll{}).Preload("Options").First(poll, poll.Id).Error
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToPoll(poll, currentAccount)
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }
 
 func getPoll(c *gin.Context) (poll *models.Poll, abort bool) {
-	pollIdStr := c.Param("id")
-
-	if pollIdStr == "" {
-		c.JSON(400, gin.H{"error": "poll id is required"})
-		return
-	}
-
-	pollId, err := strconv.ParseUint(pollIdStr, 10, 64)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "poll id must be numeric"})
-		return
-	}
-
-	poll = &models.Poll{}
-	err = db.GetDB().Model(&models.Poll{}).Preload("Options").First(poll, pollId).Error
-
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "poll not found"})
-			return
-		}
-		c.JSON(500, gin.H{"error": "internal error"})
-		return
-	}
+	poll = controllers.GetIdFromContext(&models.Poll{}, c, db.GetDB(), func(db *gorm.DB) *gorm.DB {
+		return db.Preload("Options")
+	})
 
 	status := &models.Status{}
-	err = db.GetDB().Model(&models.Status{}).First(status, poll.StatusId).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "poll has been deleted"})
-			return
-		}
-		_ = c.Error(err)
-		return
-	}
+	err := db.GetDB().Model(&models.Status{}).First(status, poll.StatusId).Error
+	controllers.AbortIfError(c, err)
 
-	var currentAccount *models.Account
-
-	if account, ok := c.Get("account"); ok {
-		currentAccount = account.(*models.Account)
-	}
-
+	currentAccount := controllers.GetAccount(c)
 	canView, err := status.CanViewEx(db.GetDB(), currentAccount)
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	return
 }

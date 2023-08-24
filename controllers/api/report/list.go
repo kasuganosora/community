@@ -20,14 +20,8 @@ type ListRequest struct {
 
 func List(c *gin.Context) {
 	req := &ListRequest{}
-
-	if err := c.ShouldBindQuery(req); err != nil {
-		c.JSON(400, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-
+	err := c.ShouldBindQuery(req)
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 	query := db.GetDB().Model(&models.Report{})
 
 	if req.Resolved != nil {
@@ -63,20 +57,14 @@ func List(c *gin.Context) {
 	}
 
 	reports := make([]*models.Report, 0)
-	err := query.Find(&reports).Error
+	err = query.Find(&reports).Error
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	currentAccount := controllers.MustGetAccount(c)
 
 	ret, err := serializer.ToReports(reports, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 }

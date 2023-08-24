@@ -13,32 +13,19 @@ func Pin(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	// 只能自己置顶自己的 status
-	if status.AccountId != currentAccount.Id {
-		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})
 
 	// 是否已经置顶
 	isPinned, err := status.IsPinned(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if isPinned {
-		c.AbortWithStatusJSON(400, gin.H{"error": "already pinned"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, isPinned, 400, gin.H{"error": "already pinned"})
 
 	pin := &models.PinStatus{}
 	pin.AccountId = currentAccount.Id
 	pin.StatusId = status.Id
 
 	err = dbConn.Create(pin).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
 }
@@ -48,32 +35,19 @@ func UnPin(c *gin.Context) {
 	currentAccount := c.MustGet("account").(*models.Account)
 	dbConn := db.GetDB()
 	//  只能 自己置顶自己的
-	if status.AccountId != currentAccount.Id {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})
 
 	// 是否已经置顶
 	isPinned, err := status.IsPinned(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !isPinned {
-		c.AbortWithStatusJSON(400, gin.H{"error": "not pinned"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !isPinned, 400, gin.H{"error": "not pinned"})
 
 	pin := &models.PinStatus{}
 	pin.AccountId = currentAccount.Id
 	pin.StatusId = status.Id
 
 	err = dbConn.Delete(pin).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
 }

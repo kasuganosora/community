@@ -2,6 +2,7 @@ package rule
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -14,21 +15,16 @@ type CreateRequest struct {
 
 func Create(c *gin.Context) {
 	var req CreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err := c.ShouldBindJSON(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"message": err})
 
 	rule := &models.Rule{
 		Text:     req.Text,
 		Priority: req.Priority,
 	}
 
-	err := db.GetDB().Create(rule).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err = db.GetDB().Create(rule).Error
+	controllers.AbortIfError(c, err)
 
 	ret := serializer.ToRule(rule)
 

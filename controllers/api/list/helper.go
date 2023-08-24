@@ -15,7 +15,7 @@ func GetListByParam(c *gin.Context) (list *models.List, abort bool) {
 
 	if err != nil || listId == 0 {
 		c.AbortWithStatusJSON(400, gin.H{
-			"errors": "invalid list id",
+			"apierrors": "invalid list id",
 		})
 		return
 	}
@@ -26,7 +26,7 @@ func GetListByParam(c *gin.Context) (list *models.List, abort bool) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{
-				"errors": "list not found",
+				"apierrors": "list not found",
 			})
 			return
 		}

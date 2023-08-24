@@ -3,12 +3,11 @@ package report
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/controllers/apierrors"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/utils"
-	"github.com/pkg/errors"
-	"gorm.io/gorm"
 	"strconv"
 )
 
@@ -23,81 +22,36 @@ type CreateRequest struct {
 
 func Create(c *gin.Context) {
 	req := &CreateRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		c.JSON(400, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
+	err := c.ShouldBindJSON(req)
+	controllers.AbortIfError(c, apierrors.WarpToHttpError(err, 422))
 
 	currentAccount := controllers.MustGetAccount(c)
-
 	targetAccountId, err := strconv.ParseUint(req.AccountId, 10, 64)
-	if err != nil {
-		c.JSON(400, gin.H{
-			"error": "invalid account id",
-		})
-		return
-	}
+	controllers.AbortIfError(c, apierrors.WarpToHttpError(err, 422))
 
 	targetAccount := &models.Account{}
-	if err = db.GetDB().Where("id = ?", targetAccountId).First(targetAccount).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(400, gin.H{
-				"error": "account not found",
-			})
-			return
-		}
-		_ = c.Error(err)
-		return
-	}
+	err = db.GetDB().Where("id = ?", targetAccountId).First(targetAccount).Error
 
 	statusIds, err := utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(req.StatusIds))
-	if err != nil {
-		c.JSON(400, gin.H{
-			"error": "invalid status ids",
-		})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid status ids"})
 
 	// 检查 status 是否存在
 	if len(statusIds) > 0 {
 		statusesId := make([]uint64, 0)
-		if err = db.GetDB().Model(&models.Status{}).Where("id IN ?", statusIds).Pluck("id", &statusesId).Error; err != nil {
-			_ = c.Error(err)
-			return
-		}
-
-		if len(statusesId) != len(statusIds) {
-			c.JSON(400, gin.H{
-				"error": "any statuses not found",
-			})
-			return
-		}
+		err = db.GetDB().Model(&models.Status{}).Where("id IN ?", statusIds).Pluck("id", &statusesId).Error
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, len(statusesId) != len(statusIds), 422, gin.H{"error": "any statuses not found"})
 	}
 
 	ruleIds, err := utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(req.RuleIds))
-	if err != nil {
-		c.JSON(400, gin.H{
-			"error": "invalid rule ids",
-		})
-		return
-	}
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid rule ids"})
 
 	// 检查 rule 是否存在
 	if len(ruleIds) > 0 {
 		rulesId := make([]uint64, 0)
-		if err = db.GetDB().Model(&models.Rule{}).Where("id IN ?", ruleIds).Pluck("id", &rulesId).Error; err != nil {
-			_ = c.Error(err)
-			return
-		}
-
-		if len(rulesId) != len(ruleIds) {
-			c.JSON(400, gin.H{
-				"error": "any rule not found",
-			})
-			return
-		}
+		err = db.GetDB().Model(&models.Rule{}).Where("id IN ?", ruleIds).Pluck("id", &rulesId).Error
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, len(rulesId) != len(ruleIds), 422, gin.H{"error": "any rule not found"})
 	}
 
 	report := &models.Report{
@@ -111,15 +65,11 @@ func Create(c *gin.Context) {
 
 	report.SetCategory(req.Category)
 
-	if err = db.GetDB().Create(report).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err = db.GetDB().Create(report).Error
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToReport(report, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
+
 	c.JSON(200, ret)
 }

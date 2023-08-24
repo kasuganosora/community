@@ -2,6 +2,7 @@ package timelines
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	mentionTimeline "github.com/kasuganosora/community/feed/mention"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -10,26 +11,18 @@ import (
 
 func Mention(c *gin.Context) {
 	var req TimelineRequest
-	if err := c.BindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	err := c.BindQuery(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
-	account := c.MustGet("account").(*models.Account)
+	account := controllers.MustGetAccount(c)
 
 	var statuses models.Statuses
 
-	statuses, err := mentionTimeline.GetTimelineContent(account, req.ToFeedListParams())
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	statuses, err = mentionTimeline.GetTimelineContent(account, req.ToFeedListParams())
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToStatuses(statuses, account)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)
 }

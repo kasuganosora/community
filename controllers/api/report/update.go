@@ -19,12 +19,8 @@ func Update(c *gin.Context) {
 	var err error
 
 	req := &UpdateRequest{}
-	if err = c.ShouldBindJSON(req); err != nil {
-		c.JSON(400, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
+	err = c.ShouldBindJSON(req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
 	if req.Category != nil {
 		report.SetCategory(*req.Category)
@@ -33,42 +29,26 @@ func Update(c *gin.Context) {
 	if req.RuleIds != nil {
 		var ruleIds []uint64
 		ruleIds, err = utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(*req.RuleIds))
-		if err != nil {
-			c.JSON(400, gin.H{
-				"error": "invalid rule ids",
-			})
-			return
-		}
+		controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid rule ids"})
 
 		// 检查 rule 是否存在
 		if len(ruleIds) > 0 {
 			rulesId := make([]uint64, 0)
-			if err = db.GetDB().Model(&models.Rule{}).Where("id IN ?", ruleIds).Pluck("id", &rulesId).Error; err != nil {
-				_ = c.Error(err)
-				return
-			}
+			err = db.GetDB().Model(&models.Rule{}).Where("id IN ?", ruleIds).Pluck("id", &rulesId).Error
+			controllers.AbortIfError(c, err)
 
-			if len(rulesId) != len(ruleIds) {
-				c.JSON(400, gin.H{
-					"error": "any rule not found",
-				})
-				return
-			}
+			controllers.AbortIf(c, len(rulesId) != len(ruleIds), 422, gin.H{"error": "any rule not found"})
 		}
 
 		report.RuleIds = ruleIds
 	}
 
-	if err = db.GetDB().Save(report).Error; err != nil {
-		_ = c.Error(err)
-		return
-	}
+	err = db.GetDB().Save(report).Error
+	controllers.AbortIfError(c, err)
 
 	currentAccount := controllers.MustGetAccount(c)
 	ret, err := serializer.ToReport(report, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
+
 	c.JSON(200, ret)
 }

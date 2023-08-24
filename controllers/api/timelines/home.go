@@ -2,8 +2,8 @@ package timelines
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/home"
-	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"net/http"
 )
@@ -15,19 +15,12 @@ func Home(c *gin.Context) {
 		return
 	}
 
-	account := c.MustGet("account").(*models.Account)
+	account := controllers.GetAccount(c)
 	statuses, err := home.GetTimeLineContent(account, req.ToFeedListParams())
-
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToStatuses(statuses, account)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)
 }

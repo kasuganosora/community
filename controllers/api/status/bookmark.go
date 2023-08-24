@@ -13,25 +13,19 @@ func Bookmark(c *gin.Context) {
 	dbConn := db.GetDB()
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
 	// 是否已经收藏
 	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	if isBookmarked {
-		c.JSON(400, gin.H{"error": "already bookmarked"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "already bookmarked"})
 		return
 	}
 
@@ -40,10 +34,7 @@ func Bookmark(c *gin.Context) {
 	bookmark.StatusId = status.Id
 
 	err = dbConn.Create(bookmark).Error
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
 }

@@ -49,19 +49,12 @@ func Create(c *gin.Context) {
 	}
 
 	err := status.SetVisibilityByString(req.Visibility)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	if req.InReplyToId != "" {
 		var inReplyToId uint64
 		inReplyToId, err = strconv.ParseUint(req.InReplyToId, 10, 64)
-		if err != nil {
-			_ = c.Error(err)
-			return
-		}
-
+		controllers.AbortIfError(c, err)
 		status.InReplyToId = &inReplyToId
 	}
 
@@ -98,10 +91,7 @@ func Create(c *gin.Context) {
 		if len(attachmentIds) > 0 {
 			attachments := make([]*models.Attachment, 0, len(attachmentIds))
 			err = db.GetDB().Where("id IN (?)", attachmentIds).Where("account_id = ?", currentAccount.Id).Find(&attachments).Error
-			if err != nil {
-				_ = c.Error(err)
-				return
-			}
+			controllers.AbortIfError(c, err)
 
 			status.Attachments = attachments
 		}
@@ -119,10 +109,7 @@ func Create(c *gin.Context) {
 	currentAccount.LastActivityAt = &now
 	err = db.GetDB().Select("last_status_at", "last_activity_at").Save(currentAccount).Error
 
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
 }

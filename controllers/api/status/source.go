@@ -6,7 +6,6 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
 )
 
 func GetSource(c *gin.Context) {
@@ -18,38 +17,19 @@ func GetSource(c *gin.Context) {
 	if status.ReblogId != nil && *status.ReblogId > 0 {
 		status.Reblog = &models.Status{}
 		err = dbConn.Model(status).Association("Reblog").Find(status.Reblog)
-		if err != nil {
-			_ = c.Error(err)
-			return
-		}
-
-		if status.Reblog != nil || status.Reblog.Id == 0 {
-			c.JSON(404, gin.H{"error": "status not found"})
-			return
-		}
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, status.Reblog == nil || status.Reblog.Id == 0, 404, gin.H{"error": "status not found"})
 	}
 
 	currentAccount := controllers.MustGetAccount(c)
 
 	canView, err := status.CanViewEx(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	if !canView {
-		c.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
 
 	content := &models.StatusContent{}
 	err = dbConn.Model(status).Association("Content").Find(content)
-
-	if err != nil {
-		err = errors.Wrap(err, "get status content")
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, serializer.ToSource(content))
 

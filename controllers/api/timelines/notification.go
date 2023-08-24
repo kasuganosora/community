@@ -2,10 +2,10 @@ package timelines
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
 	"strconv"
 )
 
@@ -21,15 +21,10 @@ type NotificationTimelineRequest struct {
 
 func NotificationTimeline(c *gin.Context) {
 	req := NotificationTimelineRequest{}
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.AbortWithStatusJSON(422, gin.H{
-			"code": 422,
-			"msg":  err.Error(),
-		})
-		return
-	}
+	err := c.ShouldBindQuery(&req)
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
-	account := c.MustGet("account").(*models.Account)
+	account := controllers.MustGetAccount(c)
 
 	nfs := make(models.Notifications, 0)
 	query := db.GetDB().Model(&models.Notification{}).Where("account_id = ?", account.Id)
@@ -44,13 +39,7 @@ func NotificationTimeline(c *gin.Context) {
 
 	if req.AccountId != "" {
 		filterAccountId, err := strconv.ParseUint(req.AccountId, 10, 64)
-		if err != nil {
-			c.AbortWithStatusJSON(422, gin.H{
-				"code": 422,
-				"msg":  "invalid account id",
-			})
-			return
-		}
+		controllers.AbortIf(c, err != nil, 422, gin.H{"error": "account_id is invalid"})
 		query = query.Where("account_id = ?", filterAccountId)
 	}
 
@@ -74,20 +63,11 @@ func NotificationTimeline(c *gin.Context) {
 		req.Limit = 20
 	}
 
-	err := query.Order("id DESC").Limit(req.Limit).Find(&nfs).Error
-	if err != nil {
-		err = errors.Wrap(err, "get notifications error")
-		_ = c.Error(err)
-		return
-	}
+	err = query.Order("id DESC").Limit(req.Limit).Find(&nfs).Error
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToNotifications(nfs, account)
-
-	if err != nil {
-		err = errors.Wrap(err, "serialize notifications error")
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
 

@@ -2,6 +2,7 @@ package timelines
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed"
 	tagtimeline "github.com/kasuganosora/community/feed/tag"
 	"github.com/kasuganosora/community/models"
@@ -34,25 +35,15 @@ func Tag(c *gin.Context) {
 
 	tag := c.Param("tag")
 
-	var account *models.Account
-
-	if _account, ok := c.Get("account"); ok {
-		account = _account.(*models.Account)
-	}
+	account := controllers.GetAccount(c)
 
 	var statuses models.Statuses
 
 	statuses, err := tagtimeline.GetTimelineContent(tag, account, req.ToFeedListParams())
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToStatuses(statuses, account)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)
 }
