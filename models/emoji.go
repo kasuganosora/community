@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"github.com/kasuganosora/community/utils"
+	"gorm.io/gorm"
+	"regexp"
+)
 
 type Emoji struct {
 	Id              uint64 `json:"id" gorm:"primary_key;autoIncrement"`
@@ -27,4 +31,26 @@ func (ss Emojis) GetIds() []uint64 {
 		ret = append(ret, emoji.Id)
 	}
 	return ret
+}
+
+func GetEmojiFromText(db *gorm.DB, text string) (ret map[string]*Emoji, err error) {
+	emojisStr := MatchEmojiTags(text)
+	if len(emojisStr) == 0 {
+		return
+	}
+	emojis := make([]*Emoji, 0, len(emojisStr))
+	err = db.Where("shortcode IN ?", emojisStr).Find(&emojis).Error
+	if err != nil {
+		return
+	}
+	ret = make(map[string]*Emoji, len(emojis))
+	for _, emoji := range emojis {
+		ret[emoji.Shortcode] = emoji
+	}
+	return
+}
+
+func MatchEmojiTags(text string) []string {
+	regex := `:([a-zA-Z0-9_]+):`
+	return utils.FilterDuplicateAndEmptyString(regexp.MustCompile(regex).FindAllString(text, -1))
 }

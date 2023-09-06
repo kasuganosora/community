@@ -272,3 +272,7 @@ func GetAllTreeStyle() (settings map[string]any) {
 func GetDefaultPageSize() int {
 	return GetInt(KeyDefaultPageSize, 20)
 }
+
+func GetDomain() string {
+	return GetString(KeyDomain, "")
+}

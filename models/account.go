@@ -9,6 +9,8 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -16,8 +18,9 @@ type Account struct {
 	Id              uint64     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
 	UserId          uint64     `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
 	Username        string     `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain          *string    `json:"domain" gorm:"type:varchar(128);index"` // 远程账号的域名,如果是本地账号则为 null
-	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"`     // 远程账号的ID,如果是本地账号则为 null
+	Domain          *string    `json:"domain" gorm:"type:varchar(128);index"`        // 远程账号的域名,如果是本地账号则为 null
+	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"`            // 远程账号的ID,如果是本地账号则为 null
+	Acct            string     `json:"acct" gorm:"not null;type:varchar(128);index"` // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
 	DisplayName     string     `json:"display_name" gorm:"not null;type:varchar(128)"`
 	Avatar          string     `json:"avatar" gorm:"type:varchar(1024)"`
 	AvatarStatic    string     `json:"avatar_static" gorm:"type:varchar(1024)"`
@@ -47,6 +50,25 @@ func (Account) TableName() string {
 	return "accounts"
 }
 
+func (a *Account) BeforeSave(tx *gorm.DB) (err error) {
+	var domain string
+	if a.Domain != nil {
+		domain = *a.Domain
+	} else {
+		domain = "__LOCAL__"
+	}
+
+	a.Acct = a.Username + "@" + domain
+	return
+}
+
+func (a *Account) BeforeCreate(tx *gorm.DB) (err error) {
+	if a.IsBan {
+		a.Locked = true
+	}
+
+	return
+}
 func (a *Account) AfterCreate(tx *gorm.DB) (err error) {
 	a.Extra = &AccountExtra{
 		AccountId: a.Id,
@@ -162,4 +184,74 @@ func GetLocalAccounts(db *gorm.DB, accountsOrAccountId any) (ret Accounts, err e
 	err = errors.New("invalid accountsOrAccountId type, must be Accounts or []uint64")
 	return
 
+}
+
+func GetAccountsByText(db *gorm.DB, text string, limit int) (ret map[string]*Account, err error) {
+	accountsStr := MatchAccountTags(text)
+	if len(accountsStr) == 0 {
+		return
+	}
+
+	return FindAccountByAccountTag(db, accountsStr, limit)
+}
+
+func MatchAccountTags(text string) []string {
+	regex := `@(\S+)`
+	return utils.FilterDuplicateAndEmptyString(regexp.MustCompile(regex).FindAllString(text, -1))
+}
+
+func FindAccountByAccountTag(db *gorm.DB, accountsStr []string, limit int) (ret map[string]*Account, err error) {
+	accounts := make(Accounts, 0)
+	localUsers := make([]string, 0)
+	remoteUsers := make([]string, 0)
+
+	// 分类那些是本地账号，那些是远程账号
+	for _, accountStr := range accountsStr {
+		parts := strings.Split(accountStr, "@")
+		if len(parts) > 2 {
+			continue
+		}
+
+		if len(parts) == 1 {
+			localUsers = append(localUsers, parts[0])
+		} else {
+			remoteUsers = append(remoteUsers, parts[0]+"@"+parts[1])
+		}
+	}
+
+	query := db.Model(&Account{})
+
+	searchAccs := make([]string, 0)
+
+	if len(localUsers) > 0 {
+		for _, localUser := range localUsers {
+			searchAccs = append(searchAccs, localUser+"@__LOCAL__")
+		}
+	}
+
+	if len(remoteUsers) > 0 {
+		searchAccs = append(searchAccs, remoteUsers...)
+	}
+
+	query = query.Where("acct IN ?", searchAccs)
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	err = query.Find(&accounts).Error
+	if err != nil {
+		err = errors.Wrap(err, "get accounts error")
+		return
+	}
+
+	ret = make(map[string]*Account)
+	for _, account := range accounts {
+		if account.Domain == nil {
+			ret[account.Username] = account
+		} else {
+			ret[account.Username+"@"+*account.Domain] = account
+		}
+	}
+	return
 }
