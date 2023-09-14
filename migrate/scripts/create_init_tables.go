@@ -32,6 +32,8 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.List{},
 		&models.ListAccount{},
 		&models.ListFollowAccount{},
+		&models.Conversation{},
+		&models.AccountConversation{},
 		&models.Status{},
 		&models.StatusContent{},
 		&models.Block{},
@@ -52,8 +54,6 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.StatusHistory{},
 		&models.Notification{},
 		&models.Report{},
-		&models.Conversation{},
-		&models.AccountConversation{},
 		&models.Marker{},
 	)
 }
@@ -81,6 +81,8 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.List{},
 		&models.ListAccount{},
 		&models.ListFollowAccount{},
+		&models.Conversation{},
+		&models.AccountConversation{},
 		&models.Status{},
 		&models.StatusContent{},
 		&models.Block{},
@@ -101,8 +103,6 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.StatusHistory{},
 		&models.Notification{},
 		&models.Report{},
-		&models.Conversation{},
-		&models.AccountConversation{},
 		&models.Marker{},
 	)
 }
