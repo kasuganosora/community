@@ -10,7 +10,7 @@ import (
 
 func UserStreaming(c *gin.Context) {
 	account := controllers.MustGetAccount(c)
-	timeline := &home.HomeTimeline{account}
+	timeline := &home.HomeTimeline{Account: account}
 
 	procHandle := func(data any) (event, payload string, err error) {
 		type RedisChannelEvent struct {

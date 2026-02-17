@@ -134,7 +134,7 @@ func AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblog
 	redisConn := db.GetRedis()
 
 	// 插入一个 sorted set, 用来记录这个时间线是啥时候更新的，用于判断是否要对其进行删除释放空间
-	_, err = redisConn.ZAdd(ctx, "timelines", redis.Z{float64(time.Now().Unix()), timelineKey}).Result()
+	_, err = redisConn.ZAdd(ctx, "timelines", redis.Z{Score: float64(time.Now().Unix()), Member: timelineKey}).Result()
 	if err != nil {
 		return
 	}
@@ -158,14 +158,14 @@ func AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblog
 
 		var isNewRebolog int64
 		// 如果原始状态或其转发不在时间线的前 REBLOG_FALLOFF 个状态中，则将新的转发添加到 reblog_key 有序集合中，同时将转发状态添加到 timeline_key 有序集合中，返回
-		isNewRebolog, err = redisConn.ZAddNX(ctx, reblogKey, redis.Z{float64(status.Id), strconv.FormatUint(*status.ReblogId, 10)}).Result()
+		isNewRebolog, err = redisConn.ZAddNX(ctx, reblogKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(*status.ReblogId, 10)}).Result()
 		if err != nil {
 			return
 		}
 
 		// 新的转发状态
 		if isNewRebolog > 0 {
-			err = redisConn.ZAdd(ctx, timelineKey, redis.Z{float64(status.Id), strconv.FormatUint(status.Id, 10)}).Err()
+			err = redisConn.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
 			if err != nil {
 				return
 			}
@@ -189,7 +189,7 @@ func AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblog
 	}
 
 	// 如果不是转发的，直接插入 timeline_key 有序集合中
-	err = redisConn.ZAdd(ctx, timelineKey, redis.Z{float64(status.Id), strconv.FormatUint(status.Id, 10)}).Err()
+	err = redisConn.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
 	return
 }
 
@@ -231,11 +231,11 @@ func RemoveTimelineItem(timeline Timeline, status *models.Status, aggregateReblo
 		minReblogId := utils.Min(reblogIds)
 
 		if minReblogId > 0 {
-			if err = redisConn.ZAdd(ctx, timelineKey, redis.Z{float64(minReblogId), strconv.FormatUint(minReblogId, 10)}).Err(); err != nil {
+			if err = redisConn.ZAdd(ctx, timelineKey, redis.Z{Score: float64(minReblogId), Member: strconv.FormatUint(minReblogId, 10)}).Err(); err != nil {
 				return
 			}
 
-			if err = redisConn.ZAdd(ctx, reblogKey, redis.Z{float64(minReblogId), strconv.FormatUint(*status.ReblogId, 10)}).Err(); err != nil {
+			if err = redisConn.ZAdd(ctx, reblogKey, redis.Z{Score: float64(minReblogId), Member: strconv.FormatUint(*status.ReblogId, 10)}).Err(); err != nil {
 				return
 			}
 		} else {

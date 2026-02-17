@@ -21,7 +21,6 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid id"})
 		panic("abort")
-		return
 	}
 
 	query := db.Model(t).Where("id = ?", id)
@@ -36,12 +35,10 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
 			panic("abort")
-			return
 		}
 
 		_ = c.Error(err)
 		panic("abort")
-		return
 	}
 
 	return
@@ -99,7 +96,6 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 	if errors.As(err, &apierrors.HttpError{}) {
 		c.AbortWithStatusJSON(err.(*apierrors.HttpError).HttpCode, err.(*apierrors.HttpError).Json())
 		panic("abort")
-		return
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {

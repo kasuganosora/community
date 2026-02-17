@@ -27,7 +27,7 @@ type CreateStatusRequest struct {
 
 type CreatePollContent struct {
 	Options    []string `json:"options"`
-	ExpiresIn  uint64   `json:"expires_in" binding:"required,numeric`
+	ExpiresIn  uint64   `json:"expires_in" binding:"required,numeric"`
 	Multiple   bool     `json:"multiple"`
 	HideTotals bool     `json:"hide_totals"`
 }

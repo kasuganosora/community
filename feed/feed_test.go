@@ -40,6 +40,10 @@ func (t *MockTimeline) GetTimelineId() string {
 	return utils.ToString(t.Id)
 }
 
+func (t *MockTimeline) Rebuild() error {
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	// 测试前清空redis
 	ctx := context.Background()

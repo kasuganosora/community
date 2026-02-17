@@ -30,14 +30,12 @@ func returnFullSingleStatus(c *gin.Context, status *models.Status, currentAccoun
 	if err != nil {
 		_ = c.Error(err)
 		panic("abort")
-		return
 	}
 
 	ret, err := serializer.ToStatus(status, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
 		panic("abort")
-		return
 	}
 
 	c.JSON(200, ret)

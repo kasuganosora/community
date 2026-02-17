@@ -8,7 +8,7 @@ import (
 
 func NotificationStreaming(c *gin.Context) {
 	account := controllers.MustGetAccount(c)
-	timeline := &notification.NotificationTimeline{account}
+	timeline := &notification.NotificationTimeline{Account: account}
 
 	procHandle := func(data any) (event, payload string, err error) {
 		return serializerNotificationEvent(account, data.(string))
