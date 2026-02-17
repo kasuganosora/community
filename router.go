@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/filter"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/marker"
+	"github.com/kasuganosora/community/controllers/api/media"
 	report2 "github.com/kasuganosora/community/controllers/api/report"
 	"github.com/kasuganosora/community/controllers/api/rule"
 	"github.com/kasuganosora/community/controllers/api/status"
@@ -130,6 +131,13 @@ func SetRouter(app gin.IRouter) {
 		POST("/polls/:id/votes", status.VotePoll).
 		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
 		POST("/markers", marker.Save)
+
+	// Media API - 媒体上传
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
+		POST("/media", media.Upload).
+		POST("/media/v2", media.UploadAsync).
+		PUT("/media/:id", media.Update).
+		DELETE("/media/:id", media.Delete)
 
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/statuses/:id/source", status.GetSource).
