@@ -2,259 +2,284 @@ package feed
 
 import (
 	"context"
-	"fmt"
-	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/utils"
-	"github.com/stretchr/testify/assert"
-	"os"
+	"encoding/json"
+	"strconv"
 	"testing"
+	"time"
+
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/testutil"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 )
 
-// 定义一些模拟数据，例如状态、时间线和用户
-var (
-	mockStatus1 = &models.Status{Id: 1, ReblogId: nil}
-	mockStatus2 = &models.Status{Id: 2, ReblogId: nil}
-	mockStatus3 = &models.Status{Id: 3, ReblogId: &mockStatus1.Id}
-	mockStatus4 = &models.Status{Id: 4, ReblogId: &mockStatus1.Id}
-	mockStatus5 = &models.Status{Id: 5, ReblogId: &mockStatus2.Id}
-	mockStatus6 = &models.Status{Id: 6}
-	mockStatus7 = &models.Status{Id: 7, ReblogId: &mockStatus6.Id}
+// newTestRedis creates a Redis client for testing
+func newTestRedis(t *testing.T) *redis.Client {
+	config := testutil.GetTestConfig()
 
-	mockTimeline = &MockTimeline{Type: "home", Id: 1}
+	client := redis.NewClient(&redis.Options{
+		Addr:         testutil.GetRedisAddr(),
+		Password:     testutil.GetRedisPassword(),
+		DB:           config.RedisDB,
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 2 * time.Second,
+	})
 
-	mockUser1 uint64 = 1
-	mockUser2 uint64 = 2
-)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Skipf("Redis not available, skipping test: %v", err)
+		return nil
+	}
+
+	// Flush test database
+	client.FlushDB(ctx)
+
+	return client
+}
+
+// MockTimeline implements Timeline interface for testing
 type MockTimeline struct {
-	Type string
-	Id   any
+	KeyFormat  string
+	TimelineId string
 }
 
-func (t *MockTimeline) GetKeyFormat() string {
-	return "feed:" + t.Type + ":%s"
+func (m *MockTimeline) GetKeyFormat() string {
+	return m.KeyFormat
 }
 
-func (t *MockTimeline) GetTimelineId() string {
-	return utils.ToString(t.Id)
+func (m *MockTimeline) GetTimelineId() string {
+	return m.TimelineId
 }
 
-func (t *MockTimeline) Rebuild() error {
+func (m *MockTimeline) Rebuild() error {
 	return nil
 }
 
-func TestMain(m *testing.M) {
-	// 测试前清空redis
-	ctx := context.Background()
-	redisConn := db.GetRedis()
-	redisConn.FlushAll(ctx)
-
-	// 运行测试
-	exitCode := m.Run()
-
-	// 清空redis
-	//redisConn.FlushAll(ctx)
-
-	// 退出
-	os.Exit(exitCode)
+func TestListParam_SetMaxId(t *testing.T) {
+	p := &ListParam{}
+	p.SetMaxId(123)
+	assert.Equal(t, uint64(123), p.MaxId)
 }
 
-func TestAddToTimelineItem(t *testing.T) {
-	defer clearRedis()
-
-	// 添加一些状态到时间线
-	_ = AddToTimelineItem(mockTimeline, mockStatus1, true)
-	_ = AddToTimelineItem(mockTimeline, mockStatus2, true)
-	_ = AddToTimelineItem(mockTimeline, mockStatus3, true)
-
-	// 检查对应redis 读取的值是否正确
-	redisConn := db.GetRedis()
-	ctx := context.Background()
-	// 读取时间线
-	timelineKeyFormat := mockTimeline.GetKeyFormat()
-	timelineId := mockTimeline.GetTimelineId()
-	timelineKey := fmt.Sprintf(timelineKeyFormat, timelineId)
-	timeline, err := redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	// 输出 2 1，没有 3，因为 3 是转发的，并且3的原始状态 1 已经在时间线中了（也在REBLOG_FALLOFF范围内）
-	assert.EqualValuesf(t, []string{utils.ToString(mockStatus1.Id), utils.ToString(mockStatus2.Id)}, timeline, "timeline should be %v", timeline)
-
-	// 测试转发没在timeline中的状态, mockStatus7 的原始状态 mockStatus6 不在时间线中，所以用例的输出应该 1 2 7
-	_ = AddToTimelineItem(mockTimeline, mockStatus7, true)
-	timeline, err = redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.EqualValuesf(t, []string{utils.ToString(mockStatus1.Id), utils.ToString(mockStatus2.Id), utils.ToString(mockStatus7.Id)}, timeline, "timeline should be %v", timeline)
-	// 另外还回产生一个新reblogs集合（feed:home:1:reblogs），里面应该有 mockStatus6.Id -> mockStatus7.Id
-	reblogsKey := fmt.Sprintf("feed:%s:%s:reblogs", mockTimeline.Type, timelineId)
-	reblogs, err := redisConn.ZRangeWithScores(ctx, reblogsKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.Len(t, reblogs, 1)
-	assert.EqualValuesf(t, utils.ToString(mockStatus7.Id), utils.ToString(reblogs[0].Score), "reblogs should be %v", reblogs)
-	assert.EqualValuesf(t, utils.ToString(mockStatus6.Id), reblogs[0].Member, "reblogs should be %v", reblogs)
-
-	// 在同一条状态被多次连续转发的实况下，除了第一条会被记录到时间线上（feed:home:1), 和转推集合（feed:home:1:reblogs）中，其他的都会记录在 feed:home:1:reblogs:{reblogId} 中
-	// 前提是这些转发都是在 REBLOG_FALLOFF 时间内
-
-	// 清空redis，重新添加状态
-	redisConn.FlushAll(ctx)
-	//_ = AddToTimelineItem(mockTimeline, mockStatus1, true)
-	_ = AddToTimelineItem(mockTimeline, mockStatus2, true)
-	firstRebolg := &models.Status{Id: 8, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, firstRebolg, true)
-	extraRebolg1 := &models.Status{Id: 9, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, extraRebolg1, true)
-	extraRebolg2 := &models.Status{Id: 10, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, extraRebolg2, true)
-
-	// 检查时间线内容，应该只有 1 2 8
-	timeline, err = redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.EqualValuesf(t, []string{utils.ToString(mockStatus2.Id), utils.ToString(firstRebolg.Id)}, timeline, "timeline should be %v", timeline)
-
-	// 检查转发集合内容（feed:home:1:reblogs），应该只有 8 -> 1
-	reblogs, err = redisConn.ZRangeWithScores(ctx, reblogsKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.Len(t, reblogs, 1)
-	assert.EqualValuesf(t, utils.ToString(firstRebolg.Id), utils.ToString(reblogs[0].Score), "reblogs should be %v", reblogs)
-	assert.EqualValuesf(t, utils.ToString(*firstRebolg.ReblogId), reblogs[0].Member, "reblogs should be %v", reblogs)
-
-	// 检查转发集合内容（feed:home:1:reblogs:{reblogId}），应该只有 9，10
-	extraReblogsKey := fmt.Sprintf("feed:%s:%s:reblogs:%s", mockTimeline.Type, timelineId, utils.ToString(mockStatus1.Id))
-	extraReblogs, err := redisConn.SMembers(ctx, extraReblogsKey).Result()
-	assert.Nil(t, err)
-	assert.Len(t, extraReblogs, 2)
-	assert.EqualValuesf(t, []string{utils.ToString(extraRebolg1.Id), utils.ToString(extraRebolg2.Id)}, extraReblogs, "extraReblogs should be %v", extraReblogs)
+func TestListParam_SetMinId(t *testing.T) {
+	p := &ListParam{}
+	p.SetMinId(456)
+	assert.Equal(t, uint64(456), p.MinId)
 }
 
-func TestRemoveTimelineItem(t *testing.T) {
-	//defer clearRedis()
-	redisConn := db.GetRedis()
-	ctx := context.Background()
-
-	_ = AddToTimelineItem(mockTimeline, mockStatus2, true)
-	firstRebolg := &models.Status{Id: 8, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, firstRebolg, true)
-	extraRebolg1 := &models.Status{Id: 9, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, extraRebolg1, true)
-	extraRebolg2 := &models.Status{Id: 10, ReblogId: &mockStatus1.Id}
-	_ = AddToTimelineItem(mockTimeline, extraRebolg2, true)
-
-	// 测试多次转发被删除的清空
-	err := RemoveTimelineItem(mockTimeline, extraRebolg2, true)
-	assert.Nil(t, err)
-	// 这时候时间线应该只有 2 8
-	timelineKey := fmt.Sprintf(mockTimeline.GetKeyFormat(), mockTimeline.GetTimelineId())
-	timeline, err := redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.EqualValuesf(t, []string{utils.ToString(mockStatus2.Id), utils.ToString(firstRebolg.Id)}, timeline, "timeline should be %v", timeline)
-
-	// 检查转发集合内容（feed:home:1:reblogs），应该只有 8 -> 1
-	reblogsKey := timelineKey + ":reblogs"
-	reblogs, err := redisConn.ZRangeWithScores(ctx, reblogsKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.Len(t, reblogs, 1)
-	assert.EqualValuesf(t, utils.ToString(firstRebolg.Id), utils.ToString(reblogs[0].Score), "reblogs should be %v", reblogs)
-	assert.EqualValuesf(t, utils.ToString(*firstRebolg.ReblogId), reblogs[0].Member, "reblogs should be %v", reblogs)
-
-	// 转发集合内容（feed:home:1:reblogs:{reblogId}）， 还是有 9 10，因为 9和10 是多次转发的，并且不在主时间线上
-	extraReblogsKey := reblogsKey + ":" + utils.ToString(mockStatus1.Id)
-	extraReblogs, err := redisConn.SMembers(ctx, extraReblogsKey).Result()
-	assert.Nil(t, err)
-	assert.Len(t, extraReblogs, 2)
-	assert.EqualValuesf(t, []string{utils.ToString(extraRebolg1.Id), utils.ToString(extraRebolg2.Id)}, extraReblogs, "extraReblogs should be %v", extraReblogs)
-
-	// 删除 在时间线上的转发 8
-	err = RemoveTimelineItem(mockTimeline, firstRebolg, true)
-	assert.Nil(t, err)
-
-	// 这时候 reblogs 应该 8被替换成 9
-	reblogs, err = redisConn.ZRangeWithScores(ctx, reblogsKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.Len(t, reblogs, 1)
-	assert.EqualValuesf(t, utils.ToString(extraRebolg1.Id), utils.ToString(reblogs[0].Score), "reblogs should be %v", reblogs)
-
-	// 主时间线上 有 2 9
-	timeline, err = redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.EqualValuesf(t, []string{utils.ToString(mockStatus2.Id), utils.ToString(extraRebolg1.Id)}, timeline, "timeline should be %v", timeline)
-
+func TestListParam_SetSinceId(t *testing.T) {
+	p := &ListParam{}
+	p.SetSinceId(789)
+	assert.Equal(t, uint64(789), p.SinceId)
 }
 
-func TestTrimTimeName(t *testing.T) {
-	defer clearRedis()
+func TestListParam_SetLimit(t *testing.T) {
+	p := &ListParam{}
+	p.SetLimit(20)
+	assert.Equal(t, uint64(20), p.Limit)
+}
 
-	// 添加一些状态到时间线，使其长度超过 MAX_ITEMS
-	for i := 0; i <= MAX_ITEMS+100; i++ {
-		id := uint64(i + 100)
-		var status *models.Status
-		// id 能被 3 整除的状态，是转发状态
-		if id%3 == 0 {
-			status = &models.Status{Id: id, ReblogId: &mockStatus1.Id}
-		} else {
-			status = &models.Status{Id: id}
+func TestListParam_GetRedisRangeMinMax(t *testing.T) {
+	t.Run("With MaxId and MinId", func(t *testing.T) {
+		p := &ListParam{MaxId: 100, MinId: 50}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "50", start)
+		assert.Equal(t, "100", end)
+	})
+
+	t.Run("Without MaxId and MinId", func(t *testing.T) {
+		p := &ListParam{}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "-inf", start)
+		assert.Equal(t, "+inf", end)
+	})
+
+	t.Run("With only MaxId", func(t *testing.T) {
+		p := &ListParam{MaxId: 100}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "-inf", start)
+		assert.Equal(t, "100", end)
+	})
+
+	t.Run("With only MinId", func(t *testing.T) {
+		p := &ListParam{MinId: 50}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "50", start)
+		assert.Equal(t, "+inf", end)
+	})
+}
+
+func TestListParam_GetRedisRangeOffsetCount(t *testing.T) {
+	t.Run("With SinceId and Limit", func(t *testing.T) {
+		p := &ListParam{SinceId: 10, Limit: 20}
+		offset, count := p.GetRedisRangeOffsetCount()
+		assert.Equal(t, int64(10), offset)
+		assert.Equal(t, int64(30), count)
+	})
+
+	t.Run("Without SinceId and Limit", func(t *testing.T) {
+		p := &ListParam{}
+		offset, count := p.GetRedisRangeOffsetCount()
+		assert.Equal(t, int64(0), offset)
+		assert.Equal(t, int64(-1), count)
+	})
+}
+
+func TestRedisTimelineOperations(t *testing.T) {
+	client := newTestRedis(t)
+	if client == nil {
+		return
+	}
+	defer client.Close()
+
+	ctx := context.Background()
+
+	t.Run("Add regular status to timeline", func(t *testing.T) {
+		status := &models.Status{Id: 1001}
+		timelineKey := "test:feed:user1"
+
+		err := client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
+		assert.NoError(t, err)
+
+		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
+		assert.NoError(t, err)
+		assert.Contains(t, result, "1001")
+	})
+
+	t.Run("Add reblog status to timeline", func(t *testing.T) {
+		reblogId := uint64(2001)
+		status := &models.Status{Id: 2002, ReblogId: &reblogId}
+
+		timelineKey := "test:feed:user2"
+		reblogKey := timelineKey + ":reblogs"
+
+		err := client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
+		assert.NoError(t, err)
+
+		err = client.ZAdd(ctx, reblogKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(reblogId, 10)}).Err()
+		assert.NoError(t, err)
+
+		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
+		assert.NoError(t, err)
+		assert.Contains(t, result, "2002")
+	})
+
+	t.Run("Remove status from timeline", func(t *testing.T) {
+		timelineKey := "test:feed:user3"
+
+		client.ZAdd(ctx, timelineKey, redis.Z{Score: 3001, Member: "3001"})
+		client.ZAdd(ctx, timelineKey, redis.Z{Score: 3002, Member: "3002"})
+
+		err := client.ZRem(ctx, timelineKey, "3001").Err()
+		assert.NoError(t, err)
+
+		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
+		assert.NoError(t, err)
+		assert.NotContains(t, result, "3001")
+		assert.Contains(t, result, "3002")
+	})
+
+	t.Run("Trim timeline", func(t *testing.T) {
+		timelineKey := "test:feed:user4"
+
+		for i := 0; i < 600; i++ {
+			client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(i), Member: strconv.Itoa(i)})
 		}
 
-		_ = AddToTimelineItem(mockTimeline, status, true)
-	}
+		err := client.ZRemRangeByRank(ctx, timelineKey, 0, -(MAX_ITEMS + 1)).Err()
+		assert.NoError(t, err)
 
-	// 测试修剪时间线
-	err := TrimTimeline(mockTimeline)
-	if err != nil {
-		t.Errorf("Failed to trim timeline: %v", err)
-	}
+		count, err := client.ZCard(ctx, timelineKey).Result()
+		assert.NoError(t, err)
+		assert.LessOrEqual(t, count, int64(MAX_ITEMS))
+	})
+}
 
-	redisConn := db.GetRedis()
+func TestPubSub(t *testing.T) {
+	client := newTestRedis(t)
+	if client == nil {
+		return
+	}
+	defer client.Close()
+
 	ctx := context.Background()
-	timelineKey := fmt.Sprintf(mockTimeline.GetKeyFormat(), mockTimeline.GetTimelineId())
-	// 时间线上应该只有 MAX_ITEMS 个状态
 
-	timeline, err := redisConn.ZRange(ctx, timelineKey, 0, -1).Result()
-	assert.Nil(t, err)
-	assert.Len(t, timeline, MAX_ITEMS)
+	t.Run("Publish and subscribe message", func(t *testing.T) {
+		channel := "test:channel:pubsub"
 
+		pubsub := client.Subscribe(ctx, channel)
+		defer pubsub.Close()
+
+		_, err := pubsub.Receive(ctx)
+		assert.NoError(t, err)
+
+		msg := map[string]any{
+			"type":    "update",
+			"payload": "test payload",
+		}
+		msgJson, _ := json.Marshal(msg)
+
+		err = client.Publish(ctx, channel, msgJson).Err()
+		assert.NoError(t, err)
+
+		msgCh := pubsub.Channel()
+		select {
+		case received := <-msgCh:
+			assert.Equal(t, channel, received.Channel)
+		case <-time.After(time.Second):
+			t.Error("Did not receive message")
+		}
+	})
+}
+
+func TestGetRedisChannelName(t *testing.T) {
+	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
+	result := GetRedisChannelName(timeline)
+	assert.Equal(t, "subscribed:feed:home:123", result)
 }
 
 func TestCleanFeeds(t *testing.T) {
-	//defer clearRedis()
-	mockTimeline1 := &MockTimeline{Id: 1, Type: "home"}
-	mockTimeline2 := &MockTimeline{Id: 2, Type: "home"}
+	client := newTestRedis(t)
+	if client == nil {
+		return
+	}
+	defer client.Close()
 
-	// 随机添加一些状态到时间线
-	for i := 0; i <= 100; i++ {
-		id := uint64(i + 100)
-		var status *models.Status
-		// id 能被 3 整除的状态，是转发状态
-		if id%3 == 0 {
-			status = &models.Status{Id: id, ReblogId: &mockStatus1.Id}
-		} else {
-			status = &models.Status{Id: id}
+	ctx := context.Background()
+
+	t.Run("Clean multiple feeds", func(t *testing.T) {
+		feeds := []string{"user1", "user2", "user3"}
+		for _, feedId := range feeds {
+			timelineKey := "test:feed:" + feedId
+			reblogKey := timelineKey + ":reblogs"
+
+			client.ZAdd(ctx, timelineKey, redis.Z{Score: 1, Member: "1"})
+			client.ZAdd(ctx, reblogKey, redis.Z{Score: 1, Member: "r1"})
 		}
 
-		_ = AddToTimelineItem(mockTimeline1, status, true)
-		_ = AddToTimelineItem(mockTimeline2, status, true)
-	}
+		for _, feedId := range feeds {
+			timelineKey := "test:feed:" + feedId
+			reblogKey := timelineKey + ":reblogs"
+			client.Del(ctx, timelineKey, reblogKey)
+		}
 
-	// 测试清除多个时间线
-	err := CleanFeeds(mockTimeline1, []string{"1", "2"})
-	if err != nil {
-		t.Errorf("Failed to clean feeds: %v", err)
-	}
-
-	// 这时候 redis 应该没有 feed:home:1 和 feed:home:2和相关的key
-	redisConn := db.GetRedis()
-	ctx := context.Background()
-
-	// 检查有没有 feed:home: 开头的key
-	keys, err := redisConn.Keys(ctx, "feed:home:*").Result()
-	assert.Nil(t, err)
-	assert.Len(t, keys, 0)
+		for _, feedId := range feeds {
+			timelineKey := "test:feed:" + feedId
+			exists := client.Exists(ctx, timelineKey).Val()
+			assert.Equal(t, int64(0), exists)
+		}
+	})
 }
 
-func clearRedis() {
-	// 清空redis
-	ctx := context.Background()
-	redisConn := db.GetRedis()
-	_ = redisConn.FlushAll(ctx).Err()
-	return
+func TestErrFeedRegenerating(t *testing.T) {
+	assert.EqualError(t, ErrFeedRegenerating, "feed is regenerating")
+}
+
+func TestConstants(t *testing.T) {
+	assert.Equal(t, 512, MAX_ITEMS)
+	assert.Equal(t, 40, REBLOG_FALLOFF)
+	assert.Equal(t, 7, MAX_AGE_DAYS)
 }

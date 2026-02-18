@@ -2,4 +2,4 @@
 .env
 public/*
 mastodon
-.codebuddy
+.codebuddy".env.test" 
