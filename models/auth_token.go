@@ -121,6 +121,11 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 		*expiredAt = now.Add(time.Second * time.Duration(expiredIn))
 	}
 
+	var expiredAtUnix int64
+	if expiredAt != nil {
+		expiredAtUnix = expiredAt.Unix()
+	}
+
 	tokenData := &AuthTokenData{
 		UserId:        userId,
 		AuthType:      authType,
@@ -128,11 +133,11 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 		Scopes:        scopes,
 		ApplicationId: appId,
 		CreatedAt:     now.Unix(),
-		ExpiredAt:     expiredAt.Unix(),
+		ExpiredAt:     expiredAtUnix,
 	}
 
 	if tokenData.ExpiredAt > 0 {
-		tokenData.ExpiredAt = expiredAt.Unix()
+		tokenData.ExpiredAt = expiredAtUnix
 	}
 
 	tokenStr = tokenData.GetTokenStr(encKey)
