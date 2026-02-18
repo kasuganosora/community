@@ -1,6 +1,10 @@
 package utils
 
-import "math/rand"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	mrand "math/rand"
+)
 
 // GetRandomString 获取随机字符串
 func GetRandomString(l int) string {
@@ -8,11 +12,18 @@ func GetRandomString(l int) string {
 	charsLen := len(chars)
 	var result []rune
 	for i := 0; i < l; i++ {
-		randInt := rand.Int63n(int64(charsLen))
+		randInt := mrand.Int63n(int64(charsLen))
 		result = append(result, rune(chars[randInt]))
 	}
 
 	return string(result)
+}
+
+// GetRandomHex 生成随机十六进制字符串（用于 token、secret 等）
+func GetRandomHex(length int) string {
+	bytes := make([]byte, length/2+1)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)[:length]
 }
 
 // FilterDuplicateString 过滤掉重复的字符串

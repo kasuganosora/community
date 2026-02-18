@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
 
@@ -182,10 +183,10 @@ func (r *Resolver) refreshAccount(uri string) {
 func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) {
 	now := time.Now()
 	uri := actor.ID
-	domain := extractDomainFromURI(uri)
+	domain := utils.ExtractDomainFromURI(uri)
 	username := actor.PreferredUsername
 	if username == "" {
-		username = extractUsernameFromURI(uri)
+		username = utils.ExtractUsernameFromURI(uri)
 	}
 
 	account := models.Account{
@@ -260,13 +261,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string
 	sensitive, _ := obj["sensitive"].(bool)
 
 	// Parse published time
-	var publishedAt *time.Time
-	if publishedStr != "" {
-		t, err := time.Parse(time.RFC3339, publishedStr)
-		if err == nil {
-			publishedAt = &t
-		}
-	}
+	publishedAt := utils.ParseRFC3339(publishedStr)
 
 	// Find in_reply_to status if specified
 	var inReplyToID *uint64
@@ -283,7 +278,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string
 	}
 
 	// Set domain for remote status
-	domain := extractDomainFromURI(uri)
+	domain := utils.ExtractDomainFromURI(uri)
 
 	// Create status
 	now := time.Now()

@@ -1,8 +1,6 @@
 package oauth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -118,8 +117,8 @@ func CreateApp(c *gin.Context) {
 	}
 
 	// Generate client_id and client_secret
-	clientId := generateRandomString(32)
-	clientSecret := generateRandomString(64)
+	clientId := utils.GetRandomHex(32)
+	clientSecret := utils.GetRandomHex(64)
 
 	// Parse scopes
 	scopes := parseScopes(req.Scopes)
@@ -367,7 +366,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 	}
 
 	// Generate refresh token
-	refreshTokenStr := generateRandomString(64)
+	refreshTokenStr := utils.GetRandomHex(64)
 	refreshToken, _ := models.NewAuthToken(
 		account.UserId,
 		models.AuthTokenTypeOauth,
@@ -436,7 +435,7 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	}
 
 	// Generate refresh token
-	refreshTokenStr := generateRandomString(64)
+	refreshTokenStr := utils.GetRandomHex(64)
 	refreshToken, _ := models.NewAuthToken(
 		user.Id,
 		models.AuthTokenTypeOauth,
@@ -531,7 +530,7 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	}
 
 	// Generate new refresh token
-	refreshTokenStr := generateRandomString(64)
+	refreshTokenStr := utils.GetRandomHex(64)
 	refreshToken, _ := models.NewAuthToken(
 		userId,
 		models.AuthTokenTypeOauth,
@@ -646,12 +645,6 @@ func VerifyCredentials(c *gin.Context) {
 
 // Helper functions
 
-func generateRandomString(length int) string {
-	bytes := make([]byte, length)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)[:length]
-}
-
 func parseScopes(scopesStr string) models.ApplicationScope {
 	scopes := models.ApplicationScope{}
 	if scopesStr == "" {
@@ -695,7 +688,7 @@ func isValidRedirectUri(registeredUris, requestedUri string) bool {
 }
 
 func generateAuthorizationCode(appId, accountId uint64, redirectUri, scopes string) string {
-	code := generateRandomString(64)
+	code := utils.GetRandomHex(64)
 	expiresAt := time.Now().Add(10 * time.Minute)
 
 	authCode := &OAuthAuthorizationCode{

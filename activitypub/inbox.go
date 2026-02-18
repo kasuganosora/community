@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
 
@@ -143,13 +143,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 
 	// Parse published time
-	var publishedAt *time.Time
-	if publishedStr != "" {
-		t, err := time.Parse(time.RFC3339, publishedStr)
-		if err == nil {
-			publishedAt = &t
-		}
-	}
+	publishedAt := utils.ParseRFC3339(publishedStr)
 
 	// Find in_reply_to status if specified
 	var inReplyToID *uint64
@@ -181,7 +175,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 
 	// Set domain for remote status
-	domain := extractDomainFromURI(actor)
+	domain := utils.ExtractDomainFromURI(actor)
 	if domain != "" {
 		status.Domain = &domain
 	}
@@ -262,7 +256,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 		var status models.Status
 		if err := db.GetDB().Where("origin_uri = ? AND account_id IN (SELECT id FROM accounts WHERE origin_id = ? OR id = (SELECT id FROM accounts WHERE username = ?))",
-			objectID, actor, extractUsernameFromURI(actor)).First(&status).Error; err != nil {
+			objectID, actor, utils.ExtractUsernameFromURI(actor)).First(&status).Error; err != nil {
 			c.JSON(404, gin.H{"error": "status not found"})
 			return
 		}
@@ -306,7 +300,7 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 		// Delete/suspend the remote account
 		var account models.Account
 		if err := db.GetDB().Where("origin_id = ? OR (username = ? AND domain = ?)",
-			actor, extractUsernameFromURI(actor), extractDomainFromURI(actor)).First(&account).Error; err == nil {
+			actor, utils.ExtractUsernameFromURI(actor), utils.ExtractDomainFromURI(actor)).First(&account).Error; err == nil {
 			// Soft delete the account
 			now := time.Now()
 			db.GetDB().Model(&account).Updates(map[string]interface{}{
@@ -527,13 +521,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	}
 
 	// Parse published time
-	var publishedAt *time.Time
-	if publishedStr != "" {
-		t, err := time.Parse(time.RFC3339, publishedStr)
-		if err == nil {
-			publishedAt = &t
-		}
-	}
+	publishedAt := utils.ParseRFC3339(publishedStr)
 
 	// Create reblog
 	now := time.Now()
@@ -769,10 +757,10 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 
 	// Create the remote account
 	now := time.Now()
-	domain := extractDomainFromURI(actorURI)
+	domain := utils.ExtractDomainFromURI(actorURI)
 	username := actor.PreferredUsername
 	if username == "" {
-		username = extractUsernameFromURI(actorURI)
+		username = utils.ExtractUsernameFromURI(actorURI)
 	}
 
 	account = models.Account{
@@ -851,30 +839,6 @@ func getVisibilityFromActivity(object map[string]interface{}) uint8 {
 	return models.StatusVisibilityPrivate
 }
 
-// extractDomainFromURI extracts the domain from an ActivityPub URI
-func extractDomainFromURI(uri string) string {
-	u, err := url.Parse(uri)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
-// extractUsernameFromURI extracts the username from an ActivityPub URI
-func extractUsernameFromURI(uri string) string {
-	u, err := url.Parse(uri)
-	if err != nil {
-		return ""
-	}
-	parts := strings.Split(u.Path, "/")
-	for i, part := range parts {
-		if part == "users" && i+1 < len(parts) {
-			return parts[i+1]
-		}
-	}
-	return ""
-}
-
 // sendAcceptActivity sends an Accept activity to a remote server
 func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Account, followActivityID string) {
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
@@ -895,7 +859,7 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 	}
 
 	if inboxURL == "" {
-		domain := extractDomainFromURI(remoteAccount.OriginId)
+		domain := utils.ExtractDomainFromURI(remoteAccount.OriginId)
 		inboxURL = fmt.Sprintf("https://%s/inbox", domain)
 	}
 

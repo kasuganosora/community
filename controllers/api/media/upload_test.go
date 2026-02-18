@@ -7,7 +7,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -82,14 +81,14 @@ func TestIsValidFileSize_Image(t *testing.T) {
 		contentType string
 		expected    bool
 	}{
-		{"Small image", 100*1024, "image/jpeg", true},
-		{"Medium image", 5*1024*1024, "image/png", true},
+		{"Small image", 100 * 1024, "image/jpeg", true},
+		{"Medium image", 5 * 1024 * 1024, "image/png", true},
 		{"Max image size", MaxImageSize, "image/jpeg", true},
 		{"Over max image", MaxImageSize + 1, "image/jpeg", false},
-		{"Small video", 10*1024*1024, "video/mp4", true},
+		{"Small video", 10 * 1024 * 1024, "video/mp4", true},
 		{"Max video size", MaxVideoSize, "video/mp4", true},
 		{"Over max video", MaxVideoSize + 1, "video/webm", false},
-		{"Small audio", 5*1024*1024, "audio/mpeg", true},
+		{"Small audio", 5 * 1024 * 1024, "audio/mpeg", true},
 		{"Max audio size", MaxVideoSize, "audio/ogg", true},
 		{"Over max audio", MaxVideoSize + 1, "audio/wav", false},
 		{"Unknown type", 100, "application/pdf", false},
