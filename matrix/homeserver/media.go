@@ -453,15 +453,17 @@ func handleThumbnailMedia(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	// 设置响应头
 	c.Header("Content-Type", "image/jpeg")
 	c.Header("Cache-Control", "public, max-age=31536000")
-	
-	// 获取文件信息
-	fileInfo, _ := reader.(*os.File).Stat()
-	if fileInfo != nil {
-		c.Header("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+	// 获取文件信息（安全类型断言）
+	if f, ok := reader.(*os.File); ok {
+		fileInfo, _ := f.Stat()
+		if fileInfo != nil {
+			c.Header("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+		}
 	}
 	
 	io.Copy(c.Writer, reader)

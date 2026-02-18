@@ -1,7 +1,10 @@
 package homeserver
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
+	"sync"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
@@ -10,11 +13,14 @@ import (
 
 // HomeServer Matrix Homeserver
 type HomeServer struct {
-	Config  *HSConfig
-	Auth    *AuthService
-	Room    *RoomService
-	Event   *EventService
-	Sync    *SyncService
+	Config     *HSConfig
+	Auth       *AuthService
+	Room       *RoomService
+	Event      *EventService
+	Sync       *SyncService
+	privateKey ed25519.PrivateKey // 联邦签名密钥
+	publicKey  ed25519.PublicKey  // 联邦验证密钥
+	keyID      string             // 密钥标识
 }
 
 // HSConfig Homeserver 配置
@@ -30,31 +36,44 @@ type HSConfig struct {
 // GlobalHS 全局 Homeserver 实例
 var GlobalHS *HomeServer
 
+// initOnce 确保只初始化一次
+var initOnce sync.Once
+
 // InitHomeServer 初始化 Homeserver
 func InitHomeServer() error {
-	config := loadHSConfig()
-	
-	if !config.Enabled {
+	cfg := loadHSConfig()
+
+	if !cfg.Enabled {
 		return nil
 	}
-	
-	hs := &HomeServer{
-		Config: config,
+
+	// 生成联邦密钥（只生成一次）
+	// TODO: 在生产环境中应该从持久化存储加载
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("failed to generate federation key: %w", err)
 	}
-	
+
+	hs := &HomeServer{
+		Config:     cfg,
+		privateKey: privateKey,
+		publicKey:  privateKey.Public().(ed25519.PublicKey),
+		keyID:      fmt.Sprintf("ed25519:%d", 1),
+	}
+
 	// 初始化服务
 	hs.Auth = NewAuthService(hs)
 	hs.Room = NewRoomService(hs)
 	hs.Event = NewEventService(hs)
 	hs.Sync = NewSyncService(hs)
-	
+
 	GlobalHS = hs
-	
+
 	// 自动迁移数据库
 	if err := autoMigrate(); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -90,14 +109,17 @@ func autoMigrate() error {
 		&MatrixAccountData{},
 		&MatrixTyping{},
 		&MatrixFilter{},
+		&MatrixPresence{},
 	)
 }
 
 // GetHomeServer 获取 Homeserver 实例
 func GetHomeServer() *HomeServer {
-	if GlobalHS == nil {
-		InitHomeServer()
-	}
+	initOnce.Do(func() {
+		if GlobalHS == nil {
+			InitHomeServer()
+		}
+	})
 	return GlobalHS
 }
 

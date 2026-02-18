@@ -433,21 +433,27 @@ func (a *AuthService) GetDeviceByToken(accessToken string) (*MatrixUserSession, 
 // generateAccessToken 生成访问令牌
 func generateAccessToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return "syt_" + base64.RawURLEncoding.EncodeToString(b)
 }
 
 // generateRefreshToken 生成刷新令牌
 func generateRefreshToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return "rtr_" + base64.RawURLEncoding.EncodeToString(b)
 }
 
 // generateDeviceID 生成设备ID
 func generateDeviceID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 

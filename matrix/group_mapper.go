@@ -235,7 +235,7 @@ func (gm *GroupMapper) addLocalUserToGroup(groupID, accountID uint64, role model
 // generateRoomAlias 生成 Matrix 房间别名
 func (gm *GroupMapper) generateRoomAlias(groupID uint64) string {
 	LoadConfig()
-	return GlobalConfig.RoomNamespacePrefix + "_group_" + string(rune(groupID))
+	return GlobalConfig.RoomNamespacePrefix + "_group_" + strconv.FormatUint(groupID, 10)
 }
 
 // generateMatrixUsername 生成本地用户对应的 Matrix 用户名

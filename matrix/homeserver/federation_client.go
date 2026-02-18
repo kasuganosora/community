@@ -181,9 +181,40 @@ func (c *FederationClient) signRequest(req *httpclient.Request, destServer strin
 
 // VerifySignature 验证事件签名
 func (c *FederationClient) VerifySignature(event map[string]interface{}, serverName string, keyID string, signature string) bool {
-	// 在生产环境中，应该从密钥服务器获取公钥并验证签名
-	// 这里简化处理，返回 true
-	return true
+	// 获取服务器公钥
+	keyResp, err := c.FetchServerKey(serverName)
+	if err != nil {
+		// 无法获取公钥时记录警告，但不接受事件
+		// TODO: 实现密钥缓存机制避免频繁请求
+		return false
+	}
+
+	// 查找对应的公钥
+	keyInfo, ok := keyResp.VerifyKeys[keyID]
+	if !ok {
+		return false
+	}
+
+	// 解码公钥
+	publicKeyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
+	if err != nil {
+		return false
+	}
+
+	// 解码签名
+	signatureBytes, err := base64.RawStdEncoding.DecodeString(signature)
+	if err != nil {
+		return false
+	}
+
+	// 构建待签名内容（简化版，实际需要按 Matrix 规范规范化 JSON）
+	// TODO: 实现完整的 JSON 规范化算法
+	jsonBytes, _ := json.Marshal(event)
+	hash := sha256.Sum256(jsonBytes)
+
+	// 验证签名
+	publicKey := ed25519.PublicKey(publicKeyBytes)
+	return ed25519.Verify(publicKey, hash[:], signatureBytes)
 }
 
 // FetchServerKey 获取远程服务器密钥

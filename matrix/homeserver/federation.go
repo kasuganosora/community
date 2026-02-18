@@ -2,7 +2,6 @@ package homeserver
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -25,15 +24,12 @@ type FederationService struct {
 
 // NewFederationService 创建联邦服务
 func NewFederationService(hs *HomeServer) *FederationService {
-	// 生成或加载服务器密钥
-	// 在生产环境中应该从持久化存储加载
-	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	
+	// 使用 HomeServer 中缓存的密钥
 	return &FederationService{
 		HS:         hs,
-		privateKey: privateKey,
-		publicKey:  privateKey.Public().(ed25519.PublicKey),
-		keyID:      fmt.Sprintf("ed25519:%d", time.Now().Unix()),
+		privateKey: hs.privateKey,
+		publicKey:  hs.publicKey,
+		keyID:      hs.keyID,
 	}
 }
 
