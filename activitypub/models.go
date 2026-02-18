@@ -70,12 +70,22 @@ type Note struct {
 	AttributedTo  string        `json:"attributedTo"`
 	To            []string      `json:"to"`
 	CC            []string      `json:"cc"`
+	Bto           []string      `json:"bto,omitempty"`
+	Bcc           []string      `json:"bcc,omitempty"`
 	Sensitive     bool          `json:"sensitive"`
 	Content       string        `json:"content"`
+	Source        *Source       `json:"source,omitempty"`
 	Attachment    []Attachment  `json:"attachment,omitempty"`
 	Tag           []Tag         `json:"tag,omitempty"`
 	InReplyToAtom *string       `json:"inReplyToAtom,omitempty"`
 	Conversation  string        `json:"conversation,omitempty"`
+}
+
+// Source represents the source property for Note objects
+// Per ActivityPub spec, it contains the original content and media type
+type Source struct {
+	Content   string `json:"content"`
+	MediaType string `json:"mediaType"`
 }
 
 // Tag represents a mention, hashtag, or emoji

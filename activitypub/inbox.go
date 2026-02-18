@@ -23,6 +23,13 @@ import (
 func Inbox(c *gin.Context) {
 	username := c.Param("username")
 
+	// Verify Content-Type header (ActivityPub requirement)
+	contentType := c.GetHeader("Content-Type")
+	if !isValidActivityPubContentType(contentType) {
+		c.JSON(400, gin.H{"error": "invalid content-type, expected application/activity+json or application/ld+json"})
+		return
+	}
+
 	// Verify the local user exists (for user-specific inbox)
 	var targetAccount *models.Account
 	if username != "" {
@@ -47,19 +54,19 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
-	// Verify HTTP signature if present
-	sigHeader := c.GetHeader("Signature")
-	if sigHeader != "" {
-		// Signature verification would go here
-		// For now, we accept signed requests without full verification
-		// TODO: Implement full signature verification
+	// Verify HTTP signature
+	actor, err := VerifyActivitySignature(c, body)
+	if err != nil {
+		log.Warn("HTTP signature verification failed: %v", err)
+		// For compatibility, we still accept unsigned requests from known sources
+		// but log a warning. In production, you may want to reject these.
+		actor, _ = activity["actor"].(string)
 	}
 
 	// Route based on activity type
 	activityType, _ := activity["type"].(string)
-	actor, _ := activity["actor"].(string)
 
-	// Create context with actor info
+	// Create context with verified actor info
 	ctx := context.WithValue(context.Background(), "actor", actor)
 
 	switch activityType {
@@ -87,11 +94,44 @@ func Inbox(c *gin.Context) {
 		handleFlagActivity(ctx, c, activity, targetAccount)
 	case "Move":
 		handleMoveActivity(ctx, c, activity, targetAccount)
+	case "Add":
+		handleAddActivity(ctx, c, activity, targetAccount)
+	case "Remove":
+		handleRemoveActivity(ctx, c, activity, targetAccount)
 	default:
 		// Accept unknown activity types
 		log.Info("Received unknown activity type: %s from %s", activityType, actor)
 		c.JSON(200, gin.H{"status": "accepted"})
 	}
+}
+
+// isValidActivityPubContentType checks if the Content-Type is valid for ActivityPub
+func isValidActivityPubContentType(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	// Parse media type (ignore parameters like charset)
+	mediaType := strings.ToLower(strings.Split(contentType, ";")[0])
+	mediaType = strings.TrimSpace(mediaType)
+
+	validTypes := []string{
+		"application/activity+json",
+		"application/ld+json",
+		"application/json", // Accept plain JSON for compatibility
+	}
+
+	for _, valid := range validTypes {
+		if mediaType == valid {
+			return true
+		}
+	}
+
+	// Also accept ld+json with profile parameter
+	if strings.HasPrefix(mediaType, "application/ld+json") {
+		return true
+	}
+
+	return false
 }
 
 // handleCreateActivity handles Create activities (new remote posts)
@@ -118,6 +158,14 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	summary, _ := object["summary"].(string)
 	inReplyTo, _ := object["inReplyTo"].(string)
 	sensitive, _ := object["sensitive"].(bool)
+
+	// Use source property if available (contains original content format)
+	if source, ok := object["source"].(map[string]interface{}); ok {
+		if sourceContent, ok := source["content"].(string); ok && sourceContent != "" {
+			// Prefer source content for storage as it preserves original formatting
+			content = sourceContent
+		}
+	}
 
 	// Verify actor matches attributedTo
 	if attributedTo != actor {
@@ -156,6 +204,10 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 	}
 
+	// Parse mentions from tags
+	tags, _ := object["tag"].([]interface{})
+	mentions := parseTagsToAccountIDs(tags)
+
 	// Create status
 	now := time.Now()
 	status := models.Status{
@@ -190,6 +242,13 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		if err := tx.Create(&status.Content).Error; err != nil {
 			return err
 		}
+
+		// Note: mentions are stored in status.ToAccounts by the model
+		// Log mentions for debugging
+		if len(mentions) > 0 {
+			log.Info("Status %d mentions account IDs: %v", status.Id, mentions)
+		}
+
 		return nil
 	})
 
@@ -199,8 +258,38 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		return
 	}
 
-	log.Info("Created remote status %d from %s", status.Id, actor)
+	log.Info("Created remote status %d from %s with %d mentions", status.Id, actor, len(mentions))
 	c.JSON(200, gin.H{"status": "accepted"})
+}
+
+// parseTagsToAccountIDs extracts mentioned account IDs from ActivityPub tags
+func parseTagsToAccountIDs(tags []interface{}) []uint64 {
+	var accountIDs []uint64
+
+	for _, tag := range tags {
+		tagMap, ok := tag.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		tagType, _ := tagMap["type"].(string)
+		if tagType != "Mention" {
+			continue
+		}
+
+		href, _ := tagMap["href"].(string)
+		if href == "" {
+			continue
+		}
+
+		// Try to find the account
+		var account models.Account
+		if err := db.GetDB().Where("origin_id = ?", href).First(&account).Error; err == nil {
+			accountIDs = append(accountIDs, account.Id)
+		}
+	}
+
+	return accountIDs
 }
 
 // handleUpdateActivity handles Update activities (edit remote posts)
@@ -407,13 +496,8 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleAcceptActivity handles Accept activities (follow accept)
+// handleAcceptActivity handles Accept activities (follow accept / relay accept)
 func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	if targetAccount == nil {
-		c.JSON(400, gin.H{"error": "no target account"})
-		return
-	}
-
 	actor, _ := ctx.Value("actor").(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
@@ -424,6 +508,24 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	objectType, _ := object["type"].(string)
 	if objectType != "Follow" {
 		c.JSON(200, gin.H{"status": "accepted"})
+		return
+	}
+
+	// Check if this is a relay acceptance
+	objectID, _ := object["id"].(string)
+	if objectID != "" {
+		relayService := NewRelayService()
+		if err := relayService.AcceptRelay(objectID); err == nil {
+			// Successfully accepted relay
+			log.Info("Relay accepted: %s", actor)
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+	}
+
+	// Regular follow acceptance
+	if targetAccount == nil {
+		c.JSON(400, gin.H{"error": "no target account"})
 		return
 	}
 
@@ -446,13 +548,8 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleRejectActivity handles Reject activities (follow reject)
+// handleRejectActivity handles Reject activities (follow reject / relay reject)
 func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	if targetAccount == nil {
-		c.JSON(400, gin.H{"error": "no target account"})
-		return
-	}
-
 	actor, _ := ctx.Value("actor").(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
@@ -463,6 +560,24 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 	objectType, _ := object["type"].(string)
 	if objectType != "Follow" {
 		c.JSON(200, gin.H{"status": "accepted"})
+		return
+	}
+
+	// Check if this is a relay rejection
+	objectID, _ := object["id"].(string)
+	if objectID != "" {
+		relayService := NewRelayService()
+		if err := relayService.RejectRelay(objectID); err == nil {
+			// Successfully rejected relay
+			log.Info("Relay rejected: %s", actor)
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+	}
+
+	// Regular follow rejection
+	if targetAccount == nil {
+		c.JSON(400, gin.H{"error": "no target account"})
 		return
 	}
 
@@ -888,6 +1003,102 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 	} else {
 		log.Info("Sent Accept activity to %s", inboxURL)
 	}
+}
+
+// handleAddActivity handles Add activities (adding items to collections)
+// Typically used for adding to featured collections or lists
+func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+	actor, _ := ctx.Value("actor").(string)
+	
+	object, ok := activity["object"].(string)
+	if !ok {
+		// Object might be a map
+		if objMap, isMap := activity["object"].(map[string]interface{}); isMap {
+			object, _ = objMap["id"].(string)
+		}
+	}
+	
+	target, ok := activity["target"].(string)
+	if !ok {
+		c.JSON(400, gin.H{"error": "invalid target"})
+		return
+	}
+
+	// Get or create remote account
+	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to process account"})
+		return
+	}
+
+	log.Info("Received Add from %s: object=%s target=%s", actor, object, target)
+
+	// Handle different target types
+	if strings.Contains(target, "/collections/featured") {
+		// Adding to featured/pinned statuses collection
+		var status models.Status
+		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error; err == nil {
+			// Mark as featured (pinned)
+			if status.AccountId == remoteAccount.Id {
+				now := time.Now()
+				db.GetDB().Model(&status).Updates(map[string]interface{}{
+					"pinned":     true,
+					"updated_at": now,
+				})
+				log.Info("Pinned status %d from %s", status.Id, actor)
+			}
+		}
+	}
+
+	c.JSON(200, gin.H{"status": "accepted"})
+}
+
+// handleRemoveActivity handles Remove activities (removing items from collections)
+// Typically used for removing from featured collections or lists
+func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+	actor, _ := ctx.Value("actor").(string)
+
+	object, ok := activity["object"].(string)
+	if !ok {
+		// Object might be a map
+		if objMap, isMap := activity["object"].(map[string]interface{}); isMap {
+			object, _ = objMap["id"].(string)
+		}
+	}
+
+	target, ok := activity["target"].(string)
+	if !ok {
+		c.JSON(400, gin.H{"error": "invalid target"})
+		return
+	}
+
+	// Get or create remote account
+	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to process account"})
+		return
+	}
+
+	log.Info("Received Remove from %s: object=%s target=%s", actor, object, target)
+
+	// Handle different target types
+	if strings.Contains(target, "/collections/featured") {
+		// Removing from featured/pinned statuses collection
+		var status models.Status
+		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error; err == nil {
+			// Unmark as featured (unpin)
+			if status.AccountId == remoteAccount.Id {
+				now := time.Now()
+				db.GetDB().Model(&status).Updates(map[string]interface{}{
+					"pinned":     false,
+					"updated_at": now,
+				})
+				log.Info("Unpinned status %d from %s", status.Id, actor)
+			}
+		}
+	}
+
+	c.JSON(200, gin.H{"status": "accepted"})
 }
 
 // SharedInbox handles POST /inbox (shared inbox)

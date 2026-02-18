@@ -177,7 +177,10 @@ func (q *DeliveryQueue) markFailed(delivery *Delivery, reason string) {
 
 // Enqueue adds a new delivery to the queue
 func (q *DeliveryQueue) Enqueue(activityID, targetInbox string, payload map[string]interface{}) error {
-	payloadBytes, err := json.Marshal(payload)
+	// Strip privacy-sensitive fields before storing
+	cleanPayload := stripPrivacyFields(payload)
+
+	payloadBytes, err := json.Marshal(cleanPayload)
 	if err != nil {
 		return fmt.Errorf("marshaling payload: %w", err)
 	}
@@ -199,7 +202,10 @@ func (q *DeliveryQueue) Enqueue(activityID, targetInbox string, payload map[stri
 
 // EnqueueToMany adds a delivery to multiple inboxes
 func (q *DeliveryQueue) EnqueueToMany(activityID string, targetInboxes []string, payload map[string]interface{}) error {
-	payloadBytes, err := json.Marshal(payload)
+	// Strip privacy-sensitive fields before storing
+	cleanPayload := stripPrivacyFields(payload)
+
+	payloadBytes, err := json.Marshal(cleanPayload)
 	if err != nil {
 		return fmt.Errorf("marshaling payload: %w", err)
 	}
@@ -221,6 +227,33 @@ func (q *DeliveryQueue) EnqueueToMany(activityID string, targetInboxes []string,
 	}
 
 	return nil
+}
+
+// stripPrivacyFields removes bto, bcc fields from activity before delivery
+// These fields should not be exposed to recipients
+func stripPrivacyFields(activity map[string]interface{}) map[string]interface{} {
+	// Create a copy to avoid modifying the original
+	result := make(map[string]interface{})
+	for k, v := range activity {
+		result[k] = v
+	}
+
+	// Remove privacy-sensitive fields
+	delete(result, "bto")
+	delete(result, "bcc")
+
+	// Also strip from nested object if present
+	if obj, ok := result["object"].(map[string]interface{}); ok {
+		cleanObj := make(map[string]interface{})
+		for k, v := range obj {
+			cleanObj[k] = v
+		}
+		delete(cleanObj, "bto")
+		delete(cleanObj, "bcc")
+		result["object"] = cleanObj
+	}
+
+	return result
 }
 
 // RetryPolicy defines the retry intervals

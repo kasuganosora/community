@@ -385,6 +385,18 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/custom_emojis/:id/enable", admin.EnableCustomEmoji).
 		POST("/admin/custom_emojis/:id/disable", admin.DisableCustomEmoji)
 
+	// Admin Relays API (中继管理)
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/relays", admin.ListRelays).
+		GET("/admin/relays/inboxes", admin.GetRelayInboxes).
+		GET("/admin/relays/:id", admin.GetRelay)
+
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/relays", admin.CreateRelay).
+		DELETE("/admin/relays/:id", admin.DeleteRelay).
+		POST("/admin/relays/:id/enable", admin.EnableRelay).
+		POST("/admin/relays/:id/disable", admin.DisableRelay)
+
 	// ===== 向后兼容：v2 接口（deprecated） =====
 	// 下面这些路由都是需要登录才能访问的
 	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
