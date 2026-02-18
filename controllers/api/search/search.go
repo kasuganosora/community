@@ -219,11 +219,11 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 		}
 
 		// Build visibility filter
-		visibilities := []string{string(models.StatusVisibilityPublic)}
+		visibilities := []string{strconv.Itoa(int(models.StatusVisibilityPublic))}
 		if currentAccount != nil {
 			visibilities = append(visibilities,
-				string(models.StatusVisibilityUnlisted),
-				string(models.StatusVisibilityPrivate))
+				strconv.Itoa(int(models.StatusVisibilityUnlisted)),
+				strconv.Itoa(int(models.StatusVisibilityPrivate)))
 		}
 
 		// Handle from: filter
