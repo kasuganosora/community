@@ -46,11 +46,11 @@ func ExtractUsernameFromURI(uri string) string {
 // ExtractIDFromURI 从 URI 最后一段提取 ID
 func ExtractIDFromURI(uri string) string {
 	u, err := url.Parse(uri)
-	if err != nil {
+	if err != nil || u.Path == "" || u.Path == "/" {
 		return ""
 	}
 	parts := strings.Split(strings.TrimSuffix(u.Path, "/"), "/")
-	if len(parts) > 0 {
+	if len(parts) > 0 && parts[len(parts)-1] != "" {
 		return parts[len(parts)-1]
 	}
 	return ""
