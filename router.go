@@ -6,10 +6,12 @@ import (
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/admin"
 	"github.com/kasuganosora/community/controllers/api/common"
+	"github.com/kasuganosora/community/controllers/api/contact"
 	"github.com/kasuganosora/community/controllers/api/conversation"
 	"github.com/kasuganosora/community/controllers/api/favourite"
 	"github.com/kasuganosora/community/controllers/api/filter"
 	"github.com/kasuganosora/community/controllers/api/follow_request"
+	group2 "github.com/kasuganosora/community/controllers/api/group"
 	"github.com/kasuganosora/community/controllers/api/instance"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/marker"
@@ -22,6 +24,8 @@ import (
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
 	"github.com/kasuganosora/community/controllers/api/trends"
+	"github.com/kasuganosora/community/matrix"
+	"github.com/kasuganosora/community/matrix/homeserver"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
@@ -502,6 +506,55 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/rule", rule.Create).
 		PUT("/admin/rule/:id", rule.Update).
 		DELETE("/admin/rule/:id", rule.Delete)
+
+	// ===== 群组 API =====
+	authGroupV1.Use(middleware.CheckAuthMiddleware()).
+		POST("/groups", group2.CreateGroup).
+		GET("/groups", group2.GetMyGroups).
+		GET("/groups/:id", group2.GetGroup).
+		DELETE("/groups/:id", group2.DeleteGroup).
+		POST("/groups/:id/invite", group2.InviteMember).
+		DELETE("/groups/:id/members/:member_id", group2.RemoveMember).
+		GET("/groups/:id/messages", group2.GetGroupMessages).
+		POST("/groups/:id/messages", group2.SendGroupMessage).
+		POST("/groups/:id/bridge", group2.BridgeGroup)
+
+	// ===== 联系人 API =====
+	authGroupV1.Use(middleware.CheckAuthMiddleware()).
+		POST("/contacts", contact.AddContact).
+		GET("/contacts", contact.GetContacts).
+		DELETE("/contacts/:id", contact.RemoveContact).
+		POST("/contacts/:id/block", contact.BlockContact).
+		GET("/contacts/requests", contact.GetPendingRequests).
+		POST("/contacts/requests/:id/accept", contact.AcceptRequest).
+		POST("/contacts/requests/:id/reject", contact.RejectRequest).
+		GET("/contacts/lookup/matrix/:account_id", contact.LookupMatrixUser).
+		GET("/contacts/lookup/local", contact.SearchLocalUser)
+
+	// ===== Matrix Bridge 端点 =====
+	// Matrix AS Webhook 端点（供 Homeserver 调用）
+	matrixWebhookHandler := matrix.NewWebhookHandler(nil)
+	app.PUT("/_matrix/app/v1/transactions/:txnId", matrixWebhookHandler.HandleTransaction)
+	app.GET("/_matrix/app/v1/users/:userId", matrixWebhookHandler.HandleUserQuery)
+	app.GET("/_matrix/app/v1/rooms/:roomAlias", matrixWebhookHandler.HandleRoomQuery)
+	app.GET("/_matrix/health", matrixWebhookHandler.HandleHealthCheck)
+
+	// ===== Matrix Homeserver 端点（Client-Server & Server-Server API）=====
+	// 注册完整的 Matrix Client-Server API v1.17
+	homeserver.RegisterRoutes(app)
+	// 注册 Matrix Federation API v1.17
+	homeserver.RegisterFederationRoutes(app)
+
+	// Matrix 管理 API（需要管理员权限）
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/matrix/status", admin.GetMatrixStatus).
+		GET("/admin/matrix/config", admin.GetMatrixConfig)
+
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/matrix/start", admin.StartMatrixBridge).
+		POST("/admin/matrix/stop", admin.StopMatrixBridge).
+		POST("/admin/matrix/migrate", admin.RunMatrixMigration).
+		POST("/admin/matrix/test", admin.TestMatrixConnection)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)
