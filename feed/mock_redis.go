@@ -1,0 +1,418 @@
+package feed
+
+import (
+	"context"
+	"strconv"
+	"sync"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// MockRedisClient 是用于测试的 Redis 客户端 mock 实现
+type MockRedisClient struct {
+	mu sync.RWMutex
+	// 存储有序集合数据
+	zSets map[string]map[string]float64 // key -> member -> score
+	// 存储集合数据
+	sets map[string]map[string]struct{}
+	// 存储普通键值
+	kv map[string]string
+	// 存储发布/订阅频道
+	channels map[string]bool
+	// 存储时间线更新时间
+	timelines map[string]float64
+}
+
+// NewMockRedisClient 创建新的 MockRedisClient
+func NewMockRedisClient() *MockRedisClient {
+	return &MockRedisClient{
+		zSets:     make(map[string]map[string]float64),
+		sets:      make(map[string]map[string]struct{}),
+		kv:        make(map[string]string),
+		channels:  make(map[string]bool),
+		timelines: make(map[string]float64),
+	}
+}
+
+// ZAdd 添加有序集合成员
+func (m *MockRedisClient) ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.zSets[key] == nil {
+		m.zSets[key] = make(map[string]float64)
+	}
+	var added int64
+	for _, z := range members {
+		member := z.Member.(string)
+		if _, exists := m.zSets[key][member]; !exists {
+			added++
+		}
+		m.zSets[key][member] = z.Score
+	}
+	cmd.SetVal(added)
+	return cmd
+}
+
+// ZRem 移除有序集合成员
+func (m *MockRedisClient) ZRem(ctx context.Context, key string, members ...any) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal(0)
+		return cmd
+	}
+	var removed int64
+	for _, member := range members {
+		memberStr := member.(string)
+		if _, exists := m.zSets[key][memberStr]; exists {
+			delete(m.zSets[key], memberStr)
+			removed++
+		}
+	}
+	cmd.SetVal(removed)
+	return cmd
+}
+
+// ZScore 获取有序集合成员分数
+func (m *MockRedisClient) ZScore(ctx context.Context, key, member string) *redis.FloatCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewFloatCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetErr(redis.Nil)
+		return cmd
+	}
+	if score, exists := m.zSets[key][member]; exists {
+		cmd.SetVal(score)
+	} else {
+		cmd.SetVal(0)
+	}
+	return cmd
+}
+
+// ZRevRank 获取有序集合成员排名（从高到低）
+func (m *MockRedisClient) ZRevRank(ctx context.Context, key string, member string) *redis.IntCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetErr(redis.Nil)
+		return cmd
+	}
+
+	// 简化实现：返回 0
+	if _, exists := m.zSets[key][member]; exists {
+		cmd.SetVal(0)
+	} else {
+		cmd.SetErr(redis.Nil)
+	}
+	return cmd
+}
+
+// ZRange 获取有序集合范围
+func (m *MockRedisClient) ZRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]string{})
+		return cmd
+	}
+
+	// 简化实现：返回所有成员
+	var result []string
+	for member := range m.zSets[key] {
+		result = append(result, member)
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// ZRangeByScore 按分数范围获取有序集合
+func (m *MockRedisClient) ZRangeByScore(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]string{})
+		return cmd
+	}
+
+	// 简化实现：返回所有成员
+	var result []string
+	for member := range m.zSets[key] {
+		result = append(result, member)
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// ZRangeWithScores 按范围获取有序集合及分数
+func (m *MockRedisClient) ZRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewZSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]redis.Z{})
+		return cmd
+	}
+
+	var result []redis.Z
+	for member, score := range m.zSets[key] {
+		result = append(result, redis.Z{Score: score, Member: member})
+	}
+	if len(result) > 0 {
+		cmd.SetVal(result)
+	}
+	return cmd
+}
+
+// ZRevRange 反向获取有序集合范围
+func (m *MockRedisClient) ZRevRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]string{})
+		return cmd
+	}
+
+	// 简化实现：返回所有成员
+	var result []string
+	for member := range m.zSets[key] {
+		result = append(result, member)
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// ZRemRangeByRank 按排名移除有序集合成员
+func (m *MockRedisClient) ZRemRangeByRank(ctx context.Context, key string, start, stop int64) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	// 简化实现
+	cmd.SetVal(0)
+	return cmd
+}
+
+// ZAddNX 仅当成员不存在时添加
+func (m *MockRedisClient) ZAddNX(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.zSets[key] == nil {
+		m.zSets[key] = make(map[string]float64)
+	}
+	var added int64
+	for _, z := range members {
+		member := z.Member.(string)
+		if _, exists := m.zSets[key][member]; !exists {
+			m.zSets[key][member] = z.Score
+			added++
+		}
+	}
+	cmd.SetVal(added)
+	return cmd
+}
+
+// SAdd 添加集合成员
+func (m *MockRedisClient) SAdd(ctx context.Context, key string, members ...any) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.sets[key] == nil {
+		m.sets[key] = make(map[string]struct{})
+	}
+	var added int64
+	for _, member := range members {
+		memberStr := member.(string)
+		if _, exists := m.sets[key][memberStr]; !exists {
+			m.sets[key][memberStr] = struct{}{}
+			added++
+		}
+	}
+	cmd.SetVal(added)
+	return cmd
+}
+
+// SRem 移除集合成员
+func (m *MockRedisClient) SRem(ctx context.Context, key string, members ...any) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	if m.sets[key] == nil {
+		cmd.SetVal(0)
+		return cmd
+	}
+	var removed int64
+	for _, member := range members {
+		memberStr := member.(string)
+		if _, exists := m.sets[key][memberStr]; exists {
+			delete(m.sets[key], memberStr)
+			removed++
+		}
+	}
+	cmd.SetVal(removed)
+	return cmd
+}
+
+// SMembers 获取集合所有成员
+func (m *MockRedisClient) SMembers(ctx context.Context, key string) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	if m.sets[key] == nil {
+		cmd.SetVal([]string{})
+		return cmd
+	}
+	var result []string
+	for member := range m.sets[key] {
+		result = append(result, member)
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// Del 删除键
+func (m *MockRedisClient) Del(ctx context.Context, keys ...string) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	var deleted int64
+	for _, key := range keys {
+		if _, exists := m.zSets[key]; exists {
+			delete(m.zSets, key)
+			deleted++
+		}
+		if _, exists := m.sets[key]; exists {
+			delete(m.sets, key)
+			deleted++
+		}
+		if _, exists := m.kv[key]; exists {
+			delete(m.kv, key)
+			deleted++
+		}
+	}
+	cmd.SetVal(deleted)
+	return cmd
+}
+
+// Publish 发布消息
+func (m *MockRedisClient) Publish(ctx context.Context, channel string, message any) *redis.IntCmd {
+	cmd := redis.NewIntCmd(ctx)
+	cmd.SetVal(1)
+	return cmd
+}
+
+// PubSubChannels 获取活跃的发布/订阅频道
+func (m *MockRedisClient) PubSubChannels(ctx context.Context, pattern string) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	var result []string
+	for channel := range m.channels {
+		result = append(result, channel)
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// Pipelined 执行管道命令
+func (m *MockRedisClient) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	// 简化实现
+	return []redis.Cmder{}, nil
+}
+
+// Keys 获取匹配的键
+func (m *MockRedisClient) Keys(ctx context.Context, pattern string) *redis.StringSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewStringSliceCmd(ctx)
+	// 简化实现
+	cmd.SetVal([]string{})
+	return cmd
+}
+
+// Unlink 异步删除键
+func (m *MockRedisClient) Unlink(ctx context.Context, keys ...string) *redis.IntCmd {
+	return m.Del(ctx, keys...)
+}
+
+// ZRevRangeByScoreWithScores 按分数反向获取有序集合及分数
+func (m *MockRedisClient) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cmd := redis.NewZSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]redis.Z{})
+		return cmd
+	}
+
+	var result []redis.Z
+	for member, score := range m.zSets[key] {
+		result = append(result, redis.Z{Score: score, Member: member})
+	}
+	cmd.SetVal(result)
+	return cmd
+}
+
+// ZRemRangeByScore 按分数移除有序集合成员
+func (m *MockRedisClient) ZRemRangeByScore(ctx context.Context, key string, min, max string) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd := redis.NewIntCmd(ctx)
+	// 简化实现
+	cmd.SetVal(0)
+	return cmd
+}
+
+// SetChannel 设置频道状态（用于测试）
+func (m *MockRedisClient) SetChannel(channel string, active bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.channels[channel] = active
+}
+
+// GetZSet 获取有序集合（用于测试验证）
+func (m *MockRedisClient) GetZSet(key string) map[string]float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]float64)
+	if m.zSets[key] != nil {
+		for k, v := range m.zSets[key] {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// GetSet 获取集合（用于测试验证）
+func (m *MockRedisClient) GetSet(key string) map[string]struct{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]struct{})
+	if m.sets[key] != nil {
+		for k, v := range m.sets[key] {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// parseScore 解析分数
+func parseScore(s string) float64 {
+	if s == "-inf" {
+		return -1e308
+	}
+	if s == "+inf" || s == "inf" {
+		return 1e308
+	}
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
+}
+
+// 确保 MockRedisClient 实现了 RedisClient 接口
+var _ RedisClient = (*MockRedisClient)(nil)
