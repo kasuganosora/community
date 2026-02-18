@@ -24,6 +24,7 @@ type Status struct {
 	RepliesCount       uint64        `json:"replies_count"`
 	ReblogsCount       uint64        `json:"reblogs_count"`
 	FavouritesCount    uint64        `json:"favourites_count"`
+	QuotesCount        uint64        `json:"quotes_count"`
 	EditedAt           *time.Time    `json:"edited_at"`
 	Favourited         bool          `json:"favourited"`
 	Reblogged          bool          `json:"reblogged"`

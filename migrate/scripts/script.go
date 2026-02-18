@@ -9,6 +9,7 @@ var ScripsType = []MigrationScript{
 	CreateInitTables{},
 	InitSystemConfigOptions{},
 	AddRoles{},
+	AddOAuthTables{},
 }
 
 type MigrationScript interface {

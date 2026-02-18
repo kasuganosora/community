@@ -1,0 +1,148 @@
+package scripts
+
+import (
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
+)
+
+// MigrateMediaTables 媒体表迁移
+func MigrateMediaTables() error {
+	log.Info("Running media tables migration...")
+
+	sql := `
+	-- 为 media_attachments 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_media_attachments_account_id ON media_attachments(account_id);
+	CREATE INDEX IF NOT EXISTS idx_media_attachments_status_id ON media_attachments(status_id);
+	CREATE INDEX IF NOT EXISTS idx_media_attachments_created_at ON media_attachments(created_at);
+	CREATE INDEX IF NOT EXISTS idx_media_attachments_type ON media_attachments(type);
+
+	-- 添加 blurhash 列（如果不存在）
+	ALTER TABLE media_attachments ADD COLUMN IF NOT EXISTS blurhash VARCHAR(50);
+
+	-- 添加 focus_x 和 focus_y 列（如果不存在）
+	ALTER TABLE media_attachments ADD COLUMN IF NOT EXISTS focus_x DOUBLE DEFAULT 0;
+	ALTER TABLE media_attachments ADD COLUMN IF NOT EXISTS focus_y DOUBLE DEFAULT 0;
+
+	-- 为 accounts 表添加全文索引（用于搜索）
+	ALTER TABLE accounts ADD FULLTEXT INDEX IF NOT EXISTS idx_accounts_search (username, display_name, bio);
+
+	-- 为 status_contents 表添加全文索引（用于搜索）
+	ALTER TABLE status_contents ADD FULLTEXT INDEX IF NOT EXISTS idx_status_content_search (content, spoiler_text);
+
+	-- 为 tags 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+	CREATE INDEX IF NOT EXISTS idx_tags_status_count ON tags(status_count);
+
+	-- 为 follows 表优化索引
+	CREATE INDEX IF NOT EXISTS idx_follows_account_follow ON follows(account_id, follow_id);
+	CREATE INDEX IF NOT EXISTS idx_follows_follow_account ON follows(follow_id, account_id);
+
+	-- 为 favourites 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_favourites_account_id ON favourites(account_id);
+	CREATE INDEX IF NOT EXISTS idx_favourites_status_id ON favourites(status_id);
+	CREATE INDEX IF NOT EXISTS idx_favourites_created_at ON favourites(created_at);
+
+	-- 为 bookmarks 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_bookmarks_account_id ON bookmarks(account_id);
+	CREATE INDEX IF NOT EXISTS idx_bookmarks_status_id ON bookmarks(status_id);
+	CREATE INDEX IF NOT EXISTS idx_bookmarks_created_at ON bookmarks(created_at);
+
+	-- 为 blocks 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_blocks_account_id ON blocks(account_id);
+	CREATE INDEX IF NOT EXISTS idx_blocks_target_id ON blocks(target_id);
+
+	-- 为 mutes 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_mutes_account_id ON mutes(account_id);
+	CREATE INDEX IF NOT EXISTS idx_mutes_target_id ON mutes(target_id);
+
+	-- 为 domain_blocks 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_domain_blocks_account_id ON domain_blocks(account_id);
+	CREATE INDEX IF NOT EXISTS idx_domain_blocks_domain ON domain_blocks(domain);
+
+	-- 为 featured_tags 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_featured_tags_account_id ON featured_tags(account_id);
+	CREATE INDEX IF NOT EXISTS idx_featured_tags_tag_id ON featured_tags(tag_id);
+
+	-- 为 announcements 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published);
+	CREATE INDEX IF NOT EXISTS idx_announcements_starts_at ON announcements(starts_at);
+	CREATE INDEX IF NOT EXISTS idx_announcements_ends_at ON announcements(ends_at);
+
+	-- 为 push_subscriptions 表添加索引
+	CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account_id ON push_subscriptions(account_id);
+	`
+
+	if err := db.GetDB().Exec(sql).Error; err != nil {
+		log.Error("Failed to run media tables migration: %v", err)
+		return err
+	}
+
+	log.Info("Media tables migration completed successfully")
+	return nil
+}
+
+// CreateSearchIndexes 创建搜索相关索引
+func CreateSearchIndexes() error {
+	log.Info("Creating search indexes...")
+
+	// 这些索引主要是为 Meilisearch 准备的数据查询优化
+	sql := `
+	-- 账户搜索优化索引
+	CREATE INDEX IF NOT EXISTS idx_accounts_username ON accounts(username);
+	CREATE INDEX IF NOT EXISTS idx_accounts_domain ON accounts(domain);
+	CREATE INDEX IF NOT EXISTS idx_accounts_visibility ON accounts(visibility);
+
+	-- 嘟文搜索优化索引
+	CREATE INDEX IF NOT EXISTS idx_statuses_account_visibility ON statuses(account_id, visibility);
+	CREATE INDEX IF NOT EXISTS idx_statuses_created_at_desc ON statuses(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_statuses_scheduled_at ON statuses(scheduled_at);
+	`
+
+	if err := db.GetDB().Exec(sql).Error; err != nil {
+		log.Error("Failed to create search indexes: %v", err)
+		return err
+	}
+
+	log.Info("Search indexes created successfully")
+	return nil
+}
+
+// OptimizeTables 优化数据库表
+func OptimizeTables() error {
+	log.Info("Optimizing database tables...")
+
+	tables := []string{
+		"accounts",
+		"statuses",
+		"status_contents",
+		"media_attachments",
+		"follows",
+		"favourites",
+		"bookmarks",
+		"blocks",
+		"mutes",
+		"tags",
+		"notifications",
+	}
+
+	for _, table := range tables {
+		sql := "OPTIMIZE TABLE " + table
+		if err := db.GetDB().Exec(sql).Error; err != nil {
+			log.Warn("Failed to optimize table %s: %v", table, err)
+		}
+	}
+
+	log.Info("Database tables optimized successfully")
+	return nil
+}
+
+// RunAllMigrations 运行所有迁移
+func RunAllMigrations() error {
+	if err := MigrateMediaTables(); err != nil {
+		return err
+	}
+	if err := CreateSearchIndexes(); err != nil {
+		return err
+	}
+	return nil
+}

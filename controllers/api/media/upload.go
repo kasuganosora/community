@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/storage"
 	"github.com/pkg/errors"
 	"io"
 	"mime/multipart"
@@ -108,29 +110,35 @@ func Upload(c *gin.Context) {
 	fileInfo, _ := os.Stat(filePath)
 	fileSize := fileInfo.Size()
 
-	// 创建缩略图（如果是图片）
+	// 创建缩略图、获取尺寸和生成 BlurHash（如果是图片）
 	var thumbnailPath *string
-	mediaType := models.GetMediaType(contentType)
-	if mediaType == models.MediaTypeImage {
-		thumbName := fmt.Sprintf("thumb_%s", fileName)
-		thumbPath := filepath.Join(mediaDir, thumbName)
-		if err := createThumbnail(filePath, thumbPath); err == nil {
-			thumbnailPath = &thumbName
-		}
-	}
-
-	// 获取图片尺寸
+	var blurhash string
 	var width, height *int
+	mediaType := models.GetMediaType(contentType)
+
 	if mediaType == models.MediaTypeImage {
-		w, h, err := getImageDimensions(filePath)
+		processor := media.NewImageProcessor()
+		thumbName, bh, w, h, err := processor.ProcessImage(filePath)
 		if err == nil {
+			thumbnailPath = &thumbName
+			blurhash = bh
 			width = &w
 			height = &h
 		}
 	}
 
+	// 上传到云存储（如果启用）
+	cloudStorage := storage.GetStorage()
+	if cloudStorage.IsEnabled() {
+		cloudPath, err := cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
+		if err == nil {
+			// 使用云存储路径
+			filePath = cloudPath
+		}
+	}
+
 	// 创建数据库记录
-	media := &models.MediaAttachment{
+	mediaRecord := &models.MediaAttachment{
 		AccountId:     account.Id,
 		FileName:      fileName,
 		FilePath:      filepath.Join(time.Now().Format("2006/01/02"), fileName),
@@ -140,12 +148,13 @@ func Upload(c *gin.Context) {
 		Width:         width,
 		Height:        height,
 		ThumbnailPath: thumbnailPath,
+		Blurhash:      blurhash,
 		Description:   description,
 		FocusX:        focusX,
 		FocusY:        focusY,
 	}
 
-	if err := db.GetDB().Create(media).Error; err != nil {
+	if err := db.GetDB().Create(mediaRecord).Error; err != nil {
 		err = errors.Wrap(err, "Failed to create media record")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
@@ -153,7 +162,7 @@ func Upload(c *gin.Context) {
 	}
 
 	// 序列化响应
-	response, err := serializer.ToMediaAttachment(media)
+	response, err := serializer.ToMediaAttachment(mediaRecord)
 	if err != nil {
 		err = errors.Wrap(err, "Failed to serialize media")
 		_ = c.Error(err)
@@ -188,22 +197,6 @@ func isValidFileSize(size int64, contentType string) bool {
 	}
 }
 
-// createThumbnail 创建缩略图（简化版本，实际应使用图片处理库）
-func createThumbnail(srcPath, dstPath string) error {
-	// TODO: 实现缩略图生成
-	// 可以使用 github.com/disintegration/imaging 或 github.com/nfnt/resize
-	// 这里先创建一个占位实现
-	return os.Symlink(srcPath, dstPath)
-}
-
-// getImageDimensions 获取图片尺寸（简化版本）
-func getImageDimensions(path string) (int, int, error) {
-	// TODO: 实现图片尺寸获取
-	// 可以使用 github.com/disintegration/imaging 或其他图片库
-	// 这里返回默认值
-	return 1920, 1080, nil
-}
-
 // UploadAsync 异步上传媒体文件（返回 202 Accepted）
 func UploadAsync(c *gin.Context) {
 	// 获取当前用户
@@ -222,7 +215,7 @@ func UploadAsync(c *gin.Context) {
 	}
 
 	// 创建临时媒体记录（processing 状态）
-	media := &models.MediaAttachment{
+	mediaRecord := &models.MediaAttachment{
 		AccountId:   account.Id,
 		FileName:    "processing",
 		FilePath:    "",
@@ -232,7 +225,7 @@ func UploadAsync(c *gin.Context) {
 		Description: request.Description,
 	}
 
-	if err := db.GetDB().Create(media).Error; err != nil {
+	if err := db.GetDB().Create(mediaRecord).Error; err != nil {
 		err = errors.Wrap(err, "Failed to create media record")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
@@ -240,11 +233,11 @@ func UploadAsync(c *gin.Context) {
 	}
 
 	// 异步处理文件上传
-	go processUploadAsync(media.Id, account.Id, request.File, request.Description, request.Focus)
+	go processUploadAsync(mediaRecord.Id, account.Id, request.File, request.Description, request.Focus)
 
 	// 返回 202 Accepted
 	c.JSON(202, gin.H{
-		"id":          strconv.FormatUint(media.Id, 10),
+		"id":          strconv.FormatUint(mediaRecord.Id, 10),
 		"type":        "unknown",
 		"url":         "",
 		"preview_url": "",
@@ -255,11 +248,82 @@ func UploadAsync(c *gin.Context) {
 
 // processUploadAsync 异步处理文件上传
 func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.FileHeader, description string, focus string) {
-	// TODO: 实现异步文件处理
 	// 1. 打开文件
+	file, err := fileHeader.Open()
+	if err != nil {
+		updateMediaError(mediaId, "Failed to open file")
+		return
+	}
+	defer file.Close()
+
 	// 2. 保存文件
-	// 3. 生成缩略图
-	// 4. 获取元数据
+	mediaDir := filepath.Join("uploads", "media", time.Now().Format("2006/01/02"))
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		updateMediaError(mediaId, "Failed to create directory")
+		return
+	}
+
+	ext := filepath.Ext(fileHeader.Filename)
+	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	filePath := filepath.Join(mediaDir, fileName)
+
+	dst, err := os.Create(filePath)
+	if err != nil {
+		updateMediaError(mediaId, "Failed to create file")
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		updateMediaError(mediaId, "Failed to save file")
+		return
+	}
+
+	// 3. 处理图片（缩略图、BlurHash、尺寸）
+	var thumbnailPath *string
+	var blurhash string
+	var width, height *int
+	mediaType := models.GetMediaType(fileHeader.Header.Get("Content-Type"))
+
+	if mediaType == models.MediaTypeImage {
+		processor := media.NewImageProcessor()
+		thumbName, bh, w, h, err := processor.ProcessImage(filePath)
+		if err == nil {
+			thumbnailPath = &thumbName
+			blurhash = bh
+			width = &w
+			height = &h
+		}
+	}
+
+	// 4. 获取文件大小
+	fileInfo, _ := os.Stat(filePath)
+	fileSize := fileInfo.Size()
+
 	// 5. 更新数据库记录
-	// 6. 发送完成通知
+	db.GetDB().Model(&models.MediaAttachment{}).
+		Where("id = ?", mediaId).
+		Updates(map[string]interface{}{
+			"file_name":      fileName,
+			"file_path":      filepath.Join(time.Now().Format("2006/01/02"), fileName),
+			"file_size":      fileSize,
+			"type":           mediaType,
+			"width":          width,
+			"height":         height,
+			"thumbnail_path": thumbnailPath,
+			"blurhash":       blurhash,
+			"description":    description,
+		})
+
+	// 6. 上传到云存储（如果启用）
+	cloudStorage := storage.GetStorage()
+	if cloudStorage.IsEnabled() {
+		cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
+	}
+}
+
+// updateMediaError 更新媒体记录为错误状态
+func updateMediaError(mediaId uint64, errorMsg string) {
+	// 删除失败的媒体记录
+	db.GetDB().Delete(&models.MediaAttachment{}, mediaId)
 }

@@ -1,0 +1,321 @@
+package activitypub
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/systemsettings"
+)
+
+// Outbox handles GET /users/:username/outbox
+// Returns the user's activity stream
+func Outbox(c *gin.Context) {
+	username := c.Param("username")
+
+	// Verify the local user exists
+	var account models.Account
+	if err := db.GetDB().Preload("Extra").Where("username = ?", username).First(&account).Error; err != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Get pagination params
+	page := c.Query("page") == "true"
+	minID := c.Query("min_id")
+	maxID := c.Query("max_id")
+	limit := 20
+
+	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	baseURL := "https://" + domain
+	outboxURL := baseURL + "/users/" + username + "/outbox"
+
+	if !page {
+		// Return collection info
+		c.JSON(200, Collection{
+			Context:    []string{"https://www.w3.org/ns/activitystreams"},
+			ID:         outboxURL,
+			Type:       "OrderedCollection",
+			TotalItems: account.Extra.StatusesCount,
+			First:      outboxURL + "?page=true",
+			Last:       outboxURL + "?page=true&min_id=0",
+		})
+		return
+	}
+
+	// Get statuses
+	query := db.GetDB().Model(&models.Status{}).
+		Where("account_id = ?", account.Id).
+		Where("visibility IN ?", []string{"public", "unlisted"}).
+		Order("id DESC").
+		Limit(limit)
+
+	if minID != "" {
+		if id, err := strconv.ParseUint(minID, 10, 64); err == nil {
+			query = query.Where("id > ?", id)
+		}
+	}
+	if maxID != "" {
+		if id, err := strconv.ParseUint(maxID, 10, 64); err == nil {
+			query = query.Where("id < ?", id)
+		}
+	}
+
+	var statuses []*models.Status
+	if err := query.Find(&statuses).Error; err != nil {
+		c.JSON(500, gin.H{"error": "failed to fetch statuses"})
+		return
+	}
+
+	// Build ordered items
+	items := make([]interface{}, 0, len(statuses))
+	for _, status := range statuses {
+		activity := buildCreateActivity(status, &account, baseURL)
+		items = append(items, activity)
+	}
+
+	// Build response
+	pageURL := outboxURL + "?page=true"
+	if minID != "" {
+		pageURL += "&min_id=" + minID
+	}
+
+	response := OrderedCollectionPage{
+		Context:      []string{"https://www.w3.org/ns/activitystreams"},
+		ID:           pageURL,
+		Type:         "OrderedCollectionPage",
+		PartOf:       outboxURL,
+		OrderedItems: items,
+	}
+
+	if len(statuses) == limit && len(statuses) > 0 {
+		lastStatus := statuses[len(statuses)-1]
+		response.Next = outboxURL + "?page=true&max_id=" + strconv.FormatUint(lastStatus.Id, 10)
+	}
+
+	c.JSON(200, response)
+}
+
+// buildCreateActivity builds a Create activity for a status
+func buildCreateActivity(status *models.Status, account *models.Account, baseURL string) map[string]interface{} {
+	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
+	actorURL := baseURL + "/users/" + account.Username
+	now := time.Now()
+
+	note := map[string]interface{}{
+		"id":           statusURL,
+		"type":         "Note",
+		"attributedTo": actorURL,
+		"content":      status.Content.Content,
+		"url":          statusURL,
+		"published":    status.CreatedAt,
+		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"},
+		"cc":           []string{actorURL + "/followers"},
+		"sensitive":    status.Sensitive,
+	}
+
+	if status.Content.SpoilerText != "" {
+		note["summary"] = status.Content.SpoilerText
+	}
+
+	return map[string]interface{}{
+		"id":        statusURL + "#create",
+		"type":      "Create",
+		"actor":     actorURL,
+		"published": now,
+		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
+		"cc":        []string{actorURL + "/followers"},
+		"object":    note,
+	}
+}
+
+// Followers handles GET /users/:username/followers
+func Followers(c *gin.Context) {
+	username := c.Param("username")
+
+	var account models.Account
+	if err := db.GetDB().Where("username = ?", username).First(&account).Error; err != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+
+	page := c.Query("page") == "true"
+	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	baseURL := "https://" + domain
+	followersURL := baseURL + "/users/" + username + "/followers"
+
+	// Get followers count
+	var count int64
+	db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", account.Id).Count(&count)
+
+	if !page {
+		c.JSON(200, Collection{
+			Context:    []string{"https://www.w3.org/ns/activitystreams"},
+			ID:         followersURL,
+			Type:       "OrderedCollection",
+			TotalItems: int(count),
+			First:      followersURL + "?page=true",
+		})
+		return
+	}
+
+	// Get followers with preloaded accounts
+	var follows []*models.Follow
+	db.GetDB().Where("follow_id = ?", account.Id).
+		Preload("Account").
+		Limit(20).
+		Find(&follows)
+
+	items := make([]interface{}, 0, len(follows))
+	for _, follow := range follows {
+		if follow.Account != nil {
+			items = append(items, baseURL+"/users/"+follow.Account.Username)
+		}
+	}
+
+	c.JSON(200, OrderedCollectionPage{
+		Context:      []string{"https://www.w3.org/ns/activitystreams"},
+		ID:           followersURL + "?page=true",
+		Type:         "OrderedCollectionPage",
+		PartOf:       followersURL,
+		OrderedItems: items,
+	})
+}
+
+// Following handles GET /users/:username/following
+func Following(c *gin.Context) {
+	username := c.Param("username")
+
+	var account models.Account
+	if err := db.GetDB().Where("username = ?", username).First(&account).Error; err != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+
+	page := c.Query("page") == "true"
+	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	baseURL := "https://" + domain
+	followingURL := baseURL + "/users/" + username + "/following"
+
+	// Get following count
+	var count int64
+	db.GetDB().Model(&models.Follow{}).Where("account_id = ?", account.Id).Count(&count)
+
+	if !page {
+		c.JSON(200, Collection{
+			Context:    []string{"https://www.w3.org/ns/activitystreams"},
+			ID:         followingURL,
+			Type:       "OrderedCollection",
+			TotalItems: int(count),
+			First:      followingURL + "?page=true",
+		})
+		return
+	}
+
+	// Get following - we need to join with accounts
+	type FollowWithTarget struct {
+		Follow      *models.Follow
+		TargetAcct  string
+	}
+	
+	var results []struct {
+		FollowId uint64
+	}
+	db.GetDB().Model(&models.Follow{}).
+		Select("follow_id").
+		Where("account_id = ?", account.Id).
+		Limit(20).
+		Find(&results)
+
+	// Get the followed accounts
+	items := make([]interface{}, 0)
+	for _, r := range results {
+		var targetAccount models.Account
+		if err := db.GetDB().Where("id = ?", r.FollowId).First(&targetAccount).Error; err == nil {
+			items = append(items, baseURL+"/users/"+targetAccount.Username)
+		}
+	}
+
+	c.JSON(200, OrderedCollectionPage{
+		Context:      []string{"https://www.w3.org/ns/activitystreams"},
+		ID:           followingURL + "?page=true",
+		Type:         "OrderedCollectionPage",
+		PartOf:       followingURL,
+		OrderedItems: items,
+	})
+}
+
+// ActorProfile handles GET /users/:username
+// Returns the ActivityPub actor profile
+func ActorProfile(c *gin.Context) {
+	username := c.Param("username")
+
+	var account models.Account
+	if err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ?", username).First(&account).Error; err != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+
+	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	baseURL := "https://" + domain
+	actorURL := baseURL + "/users/" + username
+
+	// Build actor profile
+	actor := Actor{
+		Context: []string{
+			"https://www.w3.org/ns/activitystreams",
+			"https://w3id.org/security/v1",
+		},
+		ID:                actorURL,
+		Type:              "Person",
+		Following:         actorURL + "/following",
+		Followers:         actorURL + "/followers",
+		Inbox:             actorURL + "/inbox",
+		Outbox:            actorURL + "/outbox",
+		PreferredUsername: account.Username,
+		Name:              account.DisplayName,
+		Summary:           account.Note,
+		URL:               baseURL + "/@" + username,
+		Endpoints: &Endpoints{
+			SharedInbox: baseURL + "/inbox",
+		},
+	}
+
+	if account.Avatar != "" {
+		actor.Icon = &Image{
+			Type: "Image",
+			URL:  account.Avatar,
+		}
+	}
+
+	if account.Header != "" {
+		actor.Image = &Image{
+			Type: "Image",
+			URL:  account.Header,
+		}
+	}
+
+	// Add public key if available
+	// TODO: Get actual public key from user
+	// actor.PublicKey = &PublicKey{
+	// 	ID:           actorURL + "#main-key",
+	// 	Owner:        actorURL,
+	// 	PublicKeyPem: publicKeyPem,
+	// }
+
+	// Add profile fields
+	if account.Extra != nil {
+		for _, field := range serializer.ToFields(account.Extra.Fields) {
+			actor.Attachments = append(actor.Attachments, Attachment{
+				Type:  "PropertyValue",
+				Name:  field.Name,
+				Value: field.Val,
+			})
+		}
+	}
+
+	c.JSON(200, actor)
+}
