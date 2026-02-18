@@ -29,6 +29,8 @@ type RedisClient interface {
 	Unlink(ctx context.Context, keys ...string) *redis.IntCmd
 	ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd
 	ZRemRangeByScore(ctx context.Context, key string, min, max string) *redis.IntCmd
+	// Scan 非阻塞迭代键（推荐用于生产环境，替代 Keys）
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 }
 
 // redisClientWrapper 包装 redis.Client 以实现 RedisClient 接口

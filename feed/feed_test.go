@@ -40,21 +40,21 @@ func newTestRedis(t *testing.T) *redis.Client {
 	return client
 }
 
-// MockTimeline implements Timeline interface for testing
-type MockTimeline struct {
+// TestMockTimeline implements Timeline interface for testing (using different name to avoid conflicts)
+type TestMockTimeline struct {
 	KeyFormat  string
 	TimelineId string
 }
 
-func (m *MockTimeline) GetKeyFormat() string {
+func (m *TestMockTimeline) GetKeyFormat() string {
 	return m.KeyFormat
 }
 
-func (m *MockTimeline) GetTimelineId() string {
+func (m *TestMockTimeline) GetTimelineId() string {
 	return m.TimelineId
 }
 
-func (m *MockTimeline) Rebuild() error {
+func (m *TestMockTimeline) Rebuild() error {
 	return nil
 }
 
@@ -236,7 +236,7 @@ func TestPubSub(t *testing.T) {
 }
 
 func TestGetRedisChannelName(t *testing.T) {
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
 	result := GetRedisChannelName(timeline)
 	assert.Equal(t, "subscribed:feed:home:123", result)
 }

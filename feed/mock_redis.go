@@ -193,8 +193,63 @@ func (m *MockRedisClient) ZRemRangeByRank(ctx context.Context, key string, start
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cmd := redis.NewIntCmd(ctx)
-	// 简化实现
-	cmd.SetVal(0)
+
+	if m.zSets[key] == nil {
+		cmd.SetVal(0)
+		return cmd
+	}
+
+	// 将 map 转换为按分数排序的切片
+	type memberScore struct {
+		member string
+		score  float64
+	}
+	var sortedMembers []memberScore
+	for member, score := range m.zSets[key] {
+		sortedMembers = append(sortedMembers, memberScore{member: member, score: score})
+	}
+
+	// 按分数排序（升序）
+	for i := 0; i < len(sortedMembers); i++ {
+		for j := i + 1; j < len(sortedMembers); j++ {
+			if sortedMembers[i].score > sortedMembers[j].score {
+				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
+			}
+		}
+	}
+
+	// 计算要删除的范围
+	n := len(sortedMembers)
+	var removeStart, removeEnd int
+
+	// 处理负索引
+	if start < 0 {
+		removeStart = n + int(start)
+	} else {
+		removeStart = int(start)
+	}
+	if stop < 0 {
+		removeEnd = n + int(stop)
+	} else {
+		removeEnd = int(stop)
+	}
+
+	// 边界检查
+	if removeStart < 0 {
+		removeStart = 0
+	}
+	if removeEnd >= n {
+		removeEnd = n - 1
+	}
+
+	// 删除范围内的成员
+	var removed int64
+	for i := removeStart; i <= removeEnd && i < n; i++ {
+		delete(m.zSets[key], sortedMembers[i].member)
+		removed++
+	}
+
+	cmd.SetVal(removed)
 	return cmd
 }
 
@@ -412,6 +467,44 @@ func parseScore(s string) float64 {
 	}
 	f, _ := strconv.ParseFloat(s, 64)
 	return f
+}
+
+// Scan 非阻塞迭代键（Mock 实现）
+func (m *MockRedisClient) Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// 简化的 Scan 实现：返回所有匹配的键
+	var keys []string
+	for key := range m.zSets {
+		if matchPattern(key, match) {
+			keys = append(keys, key)
+		}
+	}
+	for key := range m.sets {
+		if matchPattern(key, match) {
+			keys = append(keys, key)
+		}
+	}
+
+	// 创建一个 ScanCmd，使用 nil 作为 cmdable（因为我们不需要实际的 Redis 调用）
+	cmd := redis.NewScanCmd(ctx, nil, "scan", cursor, "match", match, "count", count)
+	// 返回结果（cursor=0 表示结束）
+	cmd.SetVal(keys, 0)
+	return cmd
+}
+
+// matchPattern 简单的通配符匹配
+func matchPattern(s, pattern string) bool {
+	if pattern == "*" {
+		return true
+	}
+	// 简化实现：仅支持前缀匹配
+	if len(pattern) > 1 && pattern[len(pattern)-1] == '*' {
+		prefix := pattern[:len(pattern)-1]
+		return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+	}
+	return s == pattern
 }
 
 // 确保 MockRedisClient 实现了 RedisClient 接口

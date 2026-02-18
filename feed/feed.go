@@ -43,6 +43,30 @@ func SetDefaultService(service *FeedService) {
 	defaultServiceOverride = true
 }
 
+// defaultDBService 是默认的 DBService 实例
+var defaultDBService *DBService
+var defaultDBServiceOnce sync.Once
+var defaultDBServiceOverride bool
+
+// getDefaultDBService 获取默认的 DBService 实例（延迟初始化）
+func getDefaultDBService() *DBService {
+	if defaultDBServiceOverride {
+		return defaultDBService
+	}
+	defaultDBServiceOnce.Do(func() {
+		if defaultDBService == nil {
+			defaultDBService = NewDBService(db.GetDB())
+		}
+	})
+	return defaultDBService
+}
+
+// SetDefaultDBService 设置默认的 DBService 实例（用于测试）
+func SetDefaultDBService(service *DBService) {
+	defaultDBService = service
+	defaultDBServiceOverride = true
+}
+
 type Timeline interface {
 	GetKeyFormat() string
 	GetTimelineId() string
@@ -117,45 +141,24 @@ type DBClient interface {
 	Association(column string) *gorm.Association
 }
 
-// 以下函数保持向后兼容，使用默认的 db.GetDB()
-
+// GetAccountFollowersId 获取账号的粉丝 ID 列表（向后兼容）
 func GetAccountFollowersId(accountId uint64) (followers []uint64, err error) {
-	followers = make([]uint64, 0)
-	err = db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", accountId).Pluck("account_id", &followers).Error
-	return
+	return getDefaultDBService().GetAccountFollowersId(accountId)
 }
 
+// GetAccountRecentActiveLocalFollowersId 获取账号最近活跃的本地粉丝 ID 列表（向后兼容）
 func GetAccountRecentActiveLocalFollowersId(accountId uint64) (followers []uint64, err error) {
-	followers, err = GetAccountFollowersId(accountId)
-	if err != nil {
-		return
-	}
-
-	err = db.GetDB().Model(&models.Account{}).Where("id in (?) and last_activity_at > DATE_SUB(NOW(), INTERVAL 10 DAY) and domain is null", followers).Pluck("id", &followers).Error
-
-	return
+	return getDefaultDBService().GetAccountRecentActiveLocalFollowersId(accountId)
 }
 
+// GetAccountFollowingAccounts 获取账号关注的所有账号（向后兼容）
 func GetAccountFollowingAccounts(accountId uint64) (accounts models.Accounts, err error) {
-	followingIds := make([]uint64, 0)
-	err = db.GetDB().Model(models.Follows{}).Where("account_id = ?", accountId).Pluck("follow_id", &followingIds).Error
-	if err != nil {
-		return
-	}
-
-	accounts = make([]*models.Account, 0)
-	err = db.GetDB().Where("id in (?)", followingIds).Find(&accounts).Error
-	return
+	return getDefaultDBService().GetAccountFollowingAccounts(accountId)
 }
 
+// GetAccountRemoteFollowers 获取账号的远程粉丝（向后兼容）
 func GetAccountRemoteFollowers(accountId uint64) (followers []*models.Account, err error) {
-	followersId, err := GetAccountFollowersId(accountId)
-	if err != nil {
-		return
-	}
-	followers = make([]*models.Account, 0)
-	err = db.GetDB().Model(&models.Account{}).Where("id in (?) and domain is not null", followersId).Find(&followers).Error
-	return
+	return getDefaultDBService().GetAccountRemoteFollowers(accountId)
 }
 
 // 以下函数委托给 defaultService，保持向后兼容

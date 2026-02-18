@@ -3,12 +3,11 @@ package feed
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 )
-
-// MockTimeline 已在 feed_test.go 中定义
 
 func newTestFeedService() *FeedService {
 	return NewFeedService(NewMockRedisClient())
@@ -23,7 +22,7 @@ func setupMockService(t *testing.T) *MockRedisClient {
 
 func TestFeedService_AddToTimelineItem(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
 
 	t.Run("Add simple status", func(t *testing.T) {
 		status := &models.Status{
@@ -89,7 +88,7 @@ func TestFeedService_AddToTimelineItem(t *testing.T) {
 
 func TestFeedService_RemoveTimelineItem(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "456"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "456"}
 
 	// 先添加一些数据
 	for i := 0; i < 5; i++ {
@@ -137,7 +136,7 @@ func TestFeedService_RemoveTimelineItem(t *testing.T) {
 
 func TestFeedService_TrimTimeline(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "789"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "789"}
 
 	// 添加超过 MAX_ITEMS 的数据
 	for i := 0; i < 600; i++ {
@@ -154,7 +153,7 @@ func TestFeedService_TrimTimeline(t *testing.T) {
 
 func TestFeedService_CleanFeeds(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "111"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "111"}
 
 	// 添加一些数据
 	for i := 0; i < 5; i++ {
@@ -167,14 +166,11 @@ func TestFeedService_CleanFeeds(t *testing.T) {
 
 	err := svc.CleanFeeds(timeline, []string{"111"})
 	assert.NoError(t, err)
-
-	// 验证清理后的状态（mock 的 pipelined 是简化实现）
-	// 测试通过即可
 }
 
 func TestFeedService_PushToClient(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}
 
 	status := &models.Status{
 		Id:        1001,
@@ -186,17 +182,22 @@ func TestFeedService_PushToClient(t *testing.T) {
 }
 
 func TestFeedService_PushUpdateRequired(t *testing.T) {
-	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "222"}
-
 	t.Run("No subscribers", func(t *testing.T) {
+		// 清除缓存
+		subCache = &subscriptionCache{ttl: 5 * time.Second}
+		svc := newTestFeedService()
+		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "push_no_sub"}
 		result := svc.PushUpdateRequired(timeline)
 		assert.False(t, result)
 	})
 
 	t.Run("Has subscribers", func(t *testing.T) {
+		// 清除缓存
+		subCache = &subscriptionCache{ttl: 5 * time.Second}
+		svc := newTestFeedService()
+		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "push_has_sub"}
 		mockRedis := svc.redis.(*MockRedisClient)
-		mockRedis.SetChannel("subscribed:feed:home:222", true)
+		mockRedis.SetChannel("subscribed:feed:home:push_has_sub", true)
 		result := svc.PushUpdateRequired(timeline)
 		assert.True(t, result)
 	})
@@ -206,7 +207,7 @@ func TestFeedService_GcTimelines(t *testing.T) {
 	svc := newTestFeedService()
 
 	// 添加一些旧的时间线数据
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "old_user"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "old_user"}
 	status := &models.Status{Id: 1}
 	_ = svc.AddToTimelineItem(timeline, status, false)
 
@@ -216,7 +217,7 @@ func TestFeedService_GcTimelines(t *testing.T) {
 
 func TestFeedService_ConcurrentOperations(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "concurrent"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "concurrent"}
 
 	// 并发添加和删除
 	done := make(chan bool)
@@ -243,7 +244,6 @@ func TestFeedService_ConcurrentOperations(t *testing.T) {
 	// 验证没有 panic，操作完成
 	mockRedis := svc.redis.(*MockRedisClient)
 	zSet := mockRedis.GetZSet("feed:home:concurrent")
-	// 应该有数据存在（即使有些被删除了）
 	t.Logf("Final zSet size: %d", len(zSet))
 }
 
@@ -261,16 +261,15 @@ func TestFeedService_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("Empty timeline ID", func(t *testing.T) {
-		timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: ""}
+		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: ""}
 		status := &models.Status{Id: 1}
 		err := svc.AddToTimelineItem(timeline, status, false)
-		// 应该正常处理
 		assert.NoError(t, err)
 	})
 
 	t.Run("Large status ID", func(t *testing.T) {
-		timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "large"}
-		status := &models.Status{Id: uint64(1<<62)}
+		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "large"}
+		status := &models.Status{Id: uint64(1 << 62)}
 		err := svc.AddToTimelineItem(timeline, status, false)
 		assert.NoError(t, err)
 
@@ -283,7 +282,7 @@ func TestFeedService_EdgeCases(t *testing.T) {
 
 func TestFeedService_ReblogAggregation(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "reblog"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "reblog"}
 
 	// 测试转发功能不会崩溃
 	reblogId := uint64(1000)
@@ -296,13 +295,11 @@ func TestFeedService_ReblogAggregation(t *testing.T) {
 		err := svc.AddToTimelineItem(timeline, reblog, true)
 		assert.NoError(t, err)
 	}
-
-	// 测试通过即可
 }
 
 func TestFeedService_RemoveTimelineItem_WithReblog(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "reblog_remove"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "reblog_remove"}
 
 	// 先添加转发
 	reblogId := uint64(5000)
@@ -320,7 +317,7 @@ func TestFeedService_RemoveTimelineItem_WithReblog(t *testing.T) {
 
 func TestFeedService_TrimTimeline_WithReblogs(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "trim_reblog"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "trim_reblog"}
 
 	// 添加大量数据
 	for i := 0; i < 100; i++ {
@@ -337,7 +334,7 @@ func TestFeedService_TrimTimeline_WithReblogs(t *testing.T) {
 
 func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_multi"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_multi"}
 
 	// 添加数据到多个 feed
 	for i := 0; i < 3; i++ {
@@ -346,7 +343,7 @@ func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
 				Id:        uint64(i*100 + j),
 				AccountId: 1,
 			}
-			timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: strconv.Itoa(i)}
+			timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: strconv.Itoa(i)}
 			_ = svc.AddToTimelineItem(timeline, status, false)
 		}
 	}
@@ -357,7 +354,7 @@ func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
 
 func TestFeedService_AddToTimelineItem_ExistingReblog(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "existing_reblog"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "existing_reblog"}
 
 	// 添加原始状态
 	originalStatus := &models.Status{
@@ -388,7 +385,7 @@ func TestFeedService_AddToTimelineItem_ExistingReblog(t *testing.T) {
 
 func TestFeedService_PushToClient_DifferentEvents(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}
 
 	status := &models.Status{Id: 1}
 
@@ -404,7 +401,7 @@ func TestFeedService_MultipleTimelines(t *testing.T) {
 	svc := newTestFeedService()
 
 	// 创建多个时间线
-	timelines := []*MockTimeline{
+	timelines := []*TestMockTimeline{
 		{KeyFormat: "feed:home:%s", TimelineId: "user1"},
 		{KeyFormat: "feed:home:%s", TimelineId: "user2"},
 		{KeyFormat: "feed:public:%s", TimelineId: "all"},
@@ -423,7 +420,7 @@ func TestFeedService_MultipleTimelines(t *testing.T) {
 
 func TestFeedService_GcTimelines_WithOldData(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "old_gc"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "old_gc"}
 
 	// 添加一些数据
 	status := &models.Status{Id: 9000}
@@ -435,7 +432,7 @@ func TestFeedService_GcTimelines_WithOldData(t *testing.T) {
 
 func TestFeedService_RemoveNonExistentStatus(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "remove_nonexist"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "remove_nonexist"}
 
 	// 删除不存在的状态
 	status := &models.Status{Id: 99999}
@@ -445,7 +442,7 @@ func TestFeedService_RemoveNonExistentStatus(t *testing.T) {
 
 func TestFeedService_AddToTimelineItem_WithoutReblogAggregation(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "no_aggregate"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "no_aggregate"}
 
 	// 添加转发但不聚合
 	reblogId := uint64(10000)
@@ -462,7 +459,7 @@ func TestFeedService_AddToTimelineItem_WithoutReblogAggregation(t *testing.T) {
 func TestGlobalFunctions_WithMock(t *testing.T) {
 	// 设置 mock 服务
 	mockRedis := setupMockService(t)
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "global"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "global"}
 
 	t.Run("AddToTimelineItem global function", func(t *testing.T) {
 		status := &models.Status{Id: 1001}
@@ -491,6 +488,8 @@ func TestGlobalFunctions_WithMock(t *testing.T) {
 	})
 
 	t.Run("PushUpdateRequired global function", func(t *testing.T) {
+		// 清除缓存
+		subCache = &subscriptionCache{ttl: 5 * time.Second}
 		result := PushUpdateRequired(timeline)
 		assert.False(t, result) // 没有订阅者
 	})
@@ -513,7 +512,7 @@ func TestResetDefaultService(t *testing.T) {
 	SetDefaultService(NewFeedService(mockRedis))
 
 	// 验证可以正常使用
-	timeline := &MockTimeline{KeyFormat: "feed:test:%s", TimelineId: "reset"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:test:%s", TimelineId: "reset"}
 	status := &models.Status{Id: 1}
 	err := AddToTimelineItem(timeline, status, false)
 	assert.NoError(t, err)
@@ -524,7 +523,7 @@ func TestCleanFeeds_Global(t *testing.T) {
 	mockRedis := NewMockRedisClient()
 	SetDefaultService(NewFeedService(mockRedis))
 
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_global"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_global"}
 
 	// 添加数据
 	for i := 0; i < 3; i++ {
@@ -538,13 +537,15 @@ func TestCleanFeeds_Global(t *testing.T) {
 
 // 测试 PushUpdateRequired 有订阅者
 func TestPushUpdateRequired_WithSubscribers(t *testing.T) {
+	// 清除缓存
+	subCache = &subscriptionCache{ttl: 5 * time.Second}
 	mockRedis := NewMockRedisClient()
 	SetDefaultService(NewFeedService(mockRedis))
 
 	// 设置频道
 	mockRedis.SetChannel("subscribed:feed:home:test_sub", true)
 
-	timeline := &MockTimeline{KeyFormat: "feed:home:%s", TimelineId: "test_sub"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "test_sub"}
 	result := PushUpdateRequired(timeline)
 	assert.True(t, result)
 }

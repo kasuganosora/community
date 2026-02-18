@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/bbrks/go-blurhash"
-	"github.com/disintegration/imaging"
 	"github.com/kasuganosora/community/log"
+	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
 )
 
@@ -33,6 +33,63 @@ type ImageProcessor struct{}
 // NewImageProcessor 创建图片处理器
 func NewImageProcessor() *ImageProcessor {
 	return &ImageProcessor{}
+}
+
+// resizeImage 调整图片大小（保持宽高比）
+// 使用 CatmullRom 插值（等同于 Lanczos 质量）
+func resizeImage(src image.Image, width, height int) image.Image {
+	if width <= 0 && height <= 0 {
+		return src
+	}
+
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+
+	// 计算目标尺寸（保持宽高比）
+	if width <= 0 {
+		ratio := float64(height) / float64(srcH)
+		width = int(float64(srcW) * ratio)
+	} else if height <= 0 {
+		ratio := float64(width) / float64(srcW)
+		height = int(float64(srcH) * ratio)
+	}
+
+	// 创建目标图像
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// 使用 CatmullRom 缩放（等同于 Lanczos 质量）
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+
+	return dst
+}
+
+// fillImage 裁剪填充到指定尺寸（居中裁剪）
+func fillImage(src image.Image, width, height int) image.Image {
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+
+	// 计算缩放比例（覆盖目标区域）
+	scaleX := float64(width) / float64(srcW)
+	scaleY := float64(height) / float64(srcH)
+	scale := scaleX
+	if scaleY > scaleX {
+		scale = scaleY
+	}
+
+	// 先缩放
+	newW := int(float64(srcW) * scale)
+	newH := int(float64(srcH) * scale)
+	scaled := resizeImage(src, newW, newH)
+
+	// 居中裁剪
+	offsetX := (newW - width) / 2
+	offsetY := (newH - height) / 2
+
+	// 创建裁剪后的图像
+	result := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(result, result.Bounds(), scaled, image.Point{X: offsetX, Y: offsetY}, draw.Src)
+
+	return result
 }
 
 // ProcessImage 处理图片：生成缩略图和 BlurHash
@@ -75,7 +132,7 @@ func (p *ImageProcessor) ProcessImage(srcPath string) (thumbnailPath string, blu
 // CreateThumbnail 创建缩略图
 func (p *ImageProcessor) CreateThumbnail(img image.Image, srcPath string, format string) (string, error) {
 	// 计算缩略图尺寸
-	thumbImg := imaging.Resize(img, ThumbnailWidth, 0, imaging.Lanczos)
+	thumbImg := resizeImage(img, ThumbnailWidth, 0)
 
 	// 生成缩略图路径
 	ext := filepath.Ext(srcPath)
@@ -164,7 +221,7 @@ func (p *ImageProcessor) GenerateBlurHash(img image.Image) (string, error) {
 		}
 		newWidth := int(float64(width) * scale)
 		newHeight := int(float64(height) * scale)
-		img = imaging.Resize(img, newWidth, newHeight, imaging.Lanczos)
+		img = resizeImage(img, newWidth, newHeight)
 		bounds = img.Bounds()
 		width = bounds.Dx()
 		height = bounds.Dy()
@@ -298,7 +355,7 @@ func (p *ImageProcessor) GenerateResponsiveImages(srcPath string, sizes []int) (
 
 	var paths []string
 	for _, size := range sizes {
-		resized := imaging.Resize(img, size, 0, imaging.Lanczos)
+		resized := resizeImage(img, size, 0)
 		path := filepath.Join(dir, base+"_"+string(rune(size))+".jpg")
 
 		if err := p.saveJPEG(resized, path); err != nil {
@@ -313,7 +370,7 @@ func (p *ImageProcessor) GenerateResponsiveImages(srcPath string, sizes []int) (
 
 // CreateSquareThumbnail 创建正方形缩略图
 func (p *ImageProcessor) CreateSquareThumbnail(img image.Image, size int) image.Image {
-	return imaging.Fill(img, size, size, imaging.Center, imaging.Lanczos)
+	return fillImage(img, size, size)
 }
 
 // ReadImageInfo 读取图片信息

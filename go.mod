@@ -1,17 +1,16 @@
 module github.com/kasuganosora/community
 
-go 1.24.13
+go 1.26.0
 
 require (
 	github.com/bbrks/go-blurhash v1.2.0
-	github.com/disintegration/imaging v1.6.2
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/h2non/filetype v1.1.3
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
-	github.com/kasuganosora/sqlexec v0.2.0
+	github.com/kasuganosora/sqlexec v0.3.0
 	github.com/meilisearch/meilisearch-go v0.36.1
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/monoculum/formam/v3 v3.6.0
@@ -107,5 +106,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/kasuganosora/sqlexec => d:/code/db
