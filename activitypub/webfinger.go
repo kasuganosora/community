@@ -1,10 +1,12 @@
 package activitypub
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/systemsettings"
@@ -141,7 +143,9 @@ func DiscoverActor(acct string) (*Actor, error) {
 
 	// Fetch the actor
 	client := NewClient(nil, "")
-	return client.FetchActor(nil, actorURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return client.FetchActor(ctx, actorURL)
 }
 
 // Error definitions

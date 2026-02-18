@@ -10,6 +10,7 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -245,7 +246,7 @@ func (a *AuthService) createSession(account models.Account, deviceID *string, di
 			AccessToken:    accessToken,
 			DeviceID:       *deviceID,
 			DisplayName:    displayName,
-			LastActiveTS:   ptrInt64(time.Now().UnixMilli()),
+			LastActiveTS:   utils.GetPtr(time.Now().UnixMilli()),
 			LocalAccountID: &account.Id,
 		}
 		
@@ -455,11 +456,6 @@ func generateDeviceID() string {
 		panic(err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-// ptrInt64 辅助函数
-func ptrInt64(v int64) *int64 {
-	return &v
 }
 
 // HashPassword 哈希密码（兼容社区密码格式）

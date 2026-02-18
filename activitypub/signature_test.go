@@ -1,6 +1,7 @@
 package activitypub
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -396,7 +397,7 @@ func TestIsValidActivityPubContentType(t *testing.T) {
 	}
 }
 
-func TestEqualSlices(t *testing.T) {
+func TestBytesEqual(t *testing.T) {
 	tests := []struct {
 		a, b     []byte
 		expected bool
@@ -411,7 +412,7 @@ func TestEqualSlices(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			result := equalSlices(tt.a, tt.b)
+			result := bytes.Equal(tt.a, tt.b)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

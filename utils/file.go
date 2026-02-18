@@ -3,7 +3,6 @@ package utils
 import (
 	"github.com/pkg/errors"
 	"os"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -14,7 +13,13 @@ var sourceDir string
 
 func init() {
 	_, file, _, _ := runtime.Caller(0)
-	sourceDir = regexp.MustCompile(`utils.file\.go`).ReplaceAllString(file, "")
+	// 使用 strings 替代正则，更高效更可靠
+	idx := strings.LastIndex(file, "utils")
+	if idx != -1 {
+		sourceDir = file[:idx]
+	} else {
+		sourceDir = file
+	}
 }
 
 func GetSourceDir() string {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/utils"
 )
 
 // FederationService 联邦服务
@@ -591,7 +592,7 @@ func handleFederationSend(c *gin.Context) {
 			RoomID:        roomID,
 			EventType:     EventType(eventType),
 			Sender:        sender,
-			StateKey:      stringPtr(stateKey),
+			StateKey:      utils.GetPtrIfNotEmpty(stateKey),
 			Content:       content,
 			OriginServerTS: int64(originServerTS),
 		}
@@ -625,8 +626,8 @@ func handleFederationSend(c *gin.Context) {
 					RoomID:      roomID,
 					UserID:      stateKey,
 					Membership:  MembershipState(membership),
-					DisplayName: stringPtr(displayName),
-					AvatarURL:   stringPtr(avatarURL),
+					DisplayName: utils.GetPtrIfNotEmpty(displayName),
+					AvatarURL:   utils.GetPtrIfNotEmpty(avatarURL),
 					EventID:     eventID,
 				}
 				db.GetDB().Where("room_id = ? AND user_id = ?", roomID, stateKey).
@@ -680,14 +681,6 @@ func handleFederationSend(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"pdus": pduResults,
 	})
-}
-
-// stringPtr 辅助函数
-func stringPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // ===== 公共房间 =====

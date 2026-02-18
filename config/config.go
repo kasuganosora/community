@@ -73,7 +73,9 @@ func loadConfigFromEnv() (err error) {
 
 	for _, env := range os.Environ() {
 		envPair := strings.SplitN(env, "=", 2)
-
+		if len(envPair) < 2 {
+			continue
+		}
 		envData[envPair[0]] = envPair[1]
 	}
 
@@ -89,6 +91,7 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 	if err != nil {
 		return
 	}
+	defer fp.Close()
 
 	envData, err := godotenv.Parse(fp)
 
@@ -154,6 +157,7 @@ func createDefaultEnvFile(path string) (err error) {
 	if err != nil {
 		return
 	}
+	defer fp.Close()
 
 	for i := 0; i < sType.NumField(); i++ {
 		field := sType.Field(i)

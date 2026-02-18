@@ -320,6 +320,14 @@ func GetPtr[T any](obj T) *T {
 	return &obj
 }
 
+// GetPtrIfNotEmpty returns a pointer to the string if it's not empty, otherwise returns nil
+func GetPtrIfNotEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func GetExistsMap[T Numeric | string](arr []T) map[T]bool {
 	ret := make(map[T]bool)
 	for _, item := range arr {

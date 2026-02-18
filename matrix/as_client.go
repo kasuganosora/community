@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kasuganosora/community/httpclient"
+	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 )
 
@@ -105,7 +106,7 @@ func (c *ASClient) CreateDirectRoom(creator, invitee string, isDirect bool) (*Ro
 			{
 				Type:     EventTypeRoomCreate,
 				Content:  map[string]interface{}{"creator": creator, "is_direct": isDirect},
-				StateKey: stringPtr(""),
+				StateKey: utils.GetPtr(""),
 			},
 		},
 		CreationContent: map[string]interface{}{
@@ -325,7 +326,4 @@ func (c *ASClient) doASRequest(method, path string, body interface{}, result int
 	return nil
 }
 
-// stringPtr 返回字符串指针
-func stringPtr(s string) *string {
-	return &s
-}
+

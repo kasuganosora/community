@@ -1,6 +1,11 @@
 package event
 
-var eventManagers = make(map[string]*EventManager)
+import "sync"
+
+var (
+	eventManagers = make(map[string]*EventManager)
+	mu            sync.RWMutex
+)
 
 type Handler struct {
 	Id   int
@@ -14,24 +19,39 @@ type Event struct {
 
 type EventManager struct {
 	handlers map[string][]*Handler
+	mu       sync.RWMutex
 }
 
 func GetEventManager(pool string) *EventManager {
-	if _, ok := eventManagers[pool]; !ok {
-		eventManagers[pool] = &EventManager{
-			handlers: make(map[string][]*Handler),
+	mu.RLock()
+	em, ok := eventManagers[pool]
+	mu.RUnlock()
+
+	if !ok {
+		mu.Lock()
+		// 双重检查，防止并发创建
+		if em, ok = eventManagers[pool]; !ok {
+			em = &EventManager{
+				handlers: make(map[string][]*Handler),
+			}
+			eventManagers[pool] = em
 		}
+		mu.Unlock()
 	}
-	return eventManagers[pool]
+	return em
 }
 
 func (em *EventManager) Register(eventName string, handler *Handler) (handleId int) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
 	handler.Id = len(em.handlers[eventName]) + 1
 	em.handlers[eventName] = append(em.handlers[eventName], handler)
 	return handler.Id
 }
 
 func (em *EventManager) Remove(name string, id int) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
 	for i, handler := range em.handlers[name] {
 		if handler.Id == id {
 			em.handlers[name] = append(em.handlers[name][:i], em.handlers[name][i+1:]...)
@@ -41,15 +61,20 @@ func (em *EventManager) Remove(name string, id int) {
 }
 
 func (em *EventManager) Trigger(event Event) {
-	for _, handler := range em.handlers[event.Name] {
+	em.mu.RLock()
+	handlers := em.handlers[event.Name]
+	wildcardHandlers := em.handlers["*"]
+	em.mu.RUnlock()
+
+	for _, handler := range handlers {
 		if handler.Exec(event) == false {
 			break
 		}
 	}
 
 	// 如果有通配符 * 的事件，也触发
-	if _, ok := em.handlers["*"]; ok {
-		for _, handler := range em.handlers["*"] {
+	if wildcardHandlers != nil {
+		for _, handler := range wildcardHandlers {
 			if handler.Exec(event) == false {
 				break
 			}

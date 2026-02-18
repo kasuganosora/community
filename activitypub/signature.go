@@ -1,6 +1,7 @@
 package activitypub
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -306,24 +307,11 @@ func verifyDigest(body []byte, digestHeader string) error {
 	actualHash := sha256.Sum256(body)
 
 	// Compare
-	if !equalSlices(expectedHash, actualHash[:]) {
+	if !bytes.Equal(expectedHash, actualHash[:]) {
 		return fmt.Errorf("digest mismatch")
 	}
 
 	return nil
-}
-
-// equalSlices compares two byte slices
-func equalSlices(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // VerifyActivitySignature is a convenience function for verifying inbox requests

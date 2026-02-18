@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/gif"
 	"image/jpeg"
@@ -283,6 +284,25 @@ func (p *ImageProcessor) DecodeImage(path string) (image.Image, string, error) {
 	return img, format, nil
 }
 
+// DecodeImageFromBytes 从字节数组解码图片
+func (p *ImageProcessor) DecodeImageFromBytes(data []byte) (image.Image, string, error) {
+	reader := bytes.NewReader(data)
+
+	// 尝试解码
+	img, format, err := image.Decode(reader)
+	if err != nil {
+		// 如果标准解码失败，尝试 WebP
+		reader.Seek(0, 0)
+		img, err = webp.Decode(reader)
+		if err != nil {
+			return nil, "", err
+		}
+		format = "webp"
+	}
+
+	return img, format, nil
+}
+
 // IsAnimatedGIF 检查是否为动图
 func (p *ImageProcessor) IsAnimatedGIF(path string) bool {
 	file, err := os.Open(path)
@@ -356,7 +376,7 @@ func (p *ImageProcessor) GenerateResponsiveImages(srcPath string, sizes []int) (
 	var paths []string
 	for _, size := range sizes {
 		resized := resizeImage(img, size, 0)
-		path := filepath.Join(dir, base+"_"+string(rune(size))+".jpg")
+		path := filepath.Join(dir, fmt.Sprintf("%s_%d.jpg", base, size))
 
 		if err := p.saveJPEG(resized, path); err != nil {
 			return nil, err

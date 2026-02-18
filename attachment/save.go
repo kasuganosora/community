@@ -167,6 +167,12 @@ func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (b
 		return
 	}
 
+	// 检查是否有流信息
+	if len(data.Streams) == 0 {
+		err = errors.New("no audio streams found")
+		return
+	}
+
 	// 获取音频时长
 	fileMeta["duration"] = data.Format.DurationSeconds
 	// 获取音频码率
@@ -237,6 +243,12 @@ func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (b
 
 	data, err := ffprobe.ProbeReader(ctx, bytes.NewReader(fileBytes))
 	if err != nil {
+		return
+	}
+
+	// 检查是否有流信息
+	if len(data.Streams) == 0 {
+		err = errors.New("no video streams found")
 		return
 	}
 
@@ -369,21 +381,6 @@ func createImagePreviewFile(img image.Image) (previewBytes []byte, err error) {
 	}
 
 	previewBytes = buf.Bytes()
-	return
-}
-
-func getBlurHash(extName string, fileBytes []byte) (blurHash *string, err error) {
-	img, err := getImage(extName, fileBytes)
-	if err != nil {
-		return
-	}
-
-	h, err := blurhash.Encode(4, 3, img)
-	if err != nil {
-		return
-	}
-
-	blurHash = &h
 	return
 }
 

@@ -50,6 +50,8 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 	if err != nil {
 		return
 	}
+	defer templateFile.Close()
+
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {
 		return
@@ -102,12 +104,14 @@ func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject st
 	if err != nil {
 		return
 	}
+	defer templateFile.Close()
+
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {
 		return
 	}
 
-	tpl, err := template.ParseGlob(string(templateContent))
+	tpl, err := template.New(templateName).Parse(string(templateContent))
 
 	if err != nil {
 		return

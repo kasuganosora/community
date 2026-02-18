@@ -1,8 +1,9 @@
 package redis
 
-import "C"
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/kasuganosora/community/config"
 	"github.com/redis/go-redis/v9"
 )
@@ -20,13 +21,13 @@ func init() {
 	// redis_%d_db=0
 	// 第0个直接从 REDIS_0_HOST 取，其他从Orther中取
 	for i := 0; ; i++ {
-		var host, port, password, db string
+		var host, port, password, dbStr string
 		ok := false
 		if i == 0 {
 			host = config.C.Redis0Host
 			port = config.C.Redis0Port
 			password = config.C.Redis0Password
-			db = config.C.Redis0Db
+			dbStr = config.C.Redis0Db
 		} else {
 			host, ok = config.C.Other[fmt.Sprintf("REDIS_%d_HOST", i)]
 			if !ok {
@@ -34,7 +35,7 @@ func init() {
 			}
 			port = config.C.Other[fmt.Sprintf("REDIS_%d_PORT", i)]
 			password = config.C.Other[fmt.Sprintf("REDIS_%d_PASSWORD", i)]
-			db = config.C.Other[fmt.Sprintf("REDIS_%d_DB", i)]
+			dbStr = config.C.Other[fmt.Sprintf("REDIS_%d_DB", i)]
 		}
 
 		if host == "" {
@@ -45,14 +46,17 @@ func init() {
 			port = "6379"
 		}
 
-		if db == "" {
-			db = "0"
+		db := 0
+		if dbStr != "" {
+			if parsedDB, err := strconv.Atoi(dbStr); err == nil {
+				db = parsedDB
+			}
 		}
 
 		redises = append(redises, redis.NewClient(&redis.Options{
 			Addr:     fmt.Sprintf("%s:%s", host, port),
 			Password: password,
-			DB:       0,
+			DB:       db,
 		}))
 	}
 }
@@ -66,8 +70,12 @@ func GetRedis(connNum ...int) *redis.Client {
 	if len(connNum) == 0 {
 		return redises[0]
 	}
-	return redises[connNum[0]]
 
+	idx := connNum[0]
+	if idx < 0 || idx >= len(redises) {
+		panic(fmt.Sprintf("redis connection index out of range: %d", idx))
+	}
+	return redises[idx]
 }
 
 func GetRedises() []*redis.Client {

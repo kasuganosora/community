@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
 
@@ -122,7 +123,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		RoomID:    roomID,
 		EventType: EventTypeRoomCreate,
 		Sender:    creatorID,
-		StateKey:  ptrString(""),
+		StateKey:  utils.GetPtr(""),
 		Content: map[string]interface{}{
 			"creator":      creatorID,
 			"room_version": roomVersion,
@@ -161,7 +162,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		RoomID:    roomID,
 		EventType: EventTypeRoomPowerLevels,
 		Sender:    creatorID,
-		StateKey:  ptrString(""),
+		StateKey:  utils.GetPtr(""),
 		Content: map[string]interface{}{
 			"users":          plContent.Users,
 			"users_default":  plContent.UsersDefault,
@@ -239,7 +240,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    creatorID,
-		StateKey:  ptrString(creatorID),
+		StateKey:  utils.GetPtr(creatorID),
 		Content: map[string]interface{}{
 			"membership": "join",
 		},
@@ -260,7 +261,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			RoomID:    roomID,
 			EventType: EventTypeRoomName,
 			Sender:    creatorID,
-			StateKey:  ptrString(""),
+			StateKey:  utils.GetPtr(""),
 			Content: map[string]interface{}{
 				"name": *req.Name,
 			},
@@ -276,7 +277,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			RoomID:    roomID,
 			EventType: EventTypeRoomTopic,
 			Sender:    creatorID,
-			StateKey:  ptrString(""),
+			StateKey:  utils.GetPtr(""),
 			Content: map[string]interface{}{
 				"topic": *req.Topic,
 			},
@@ -307,9 +308,9 @@ func (r *RoomService) createDefaultEvent(tx *gorm.DB, roomID, sender string, eve
 		RoomID:    roomID,
 		EventType: eventType,
 		Sender:    sender,
-		StateKey:  ptrString(""),
-		Content:   content,
-		Depth:     r.getNextDepth(tx, roomID),
+	StateKey:  utils.GetPtr(""),
+	Content:   content,
+	Depth:     r.getNextDepth(tx, roomID),
 	}
 	if err := tx.Create(event).Error; err == nil {
 		r.updateRoomState(tx, roomID, event)
@@ -362,15 +363,15 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 				RoomID:    roomID,
 				EventType: EventTypeRoomMember,
 				Sender:    userID,
-				StateKey:  ptrString(userID),
-				Content: map[string]interface{}{
-					"membership": "join",
-				},
-				Depth: r.getNextDepth(db.GetDB(), roomID),
-			}
-			db.GetDB().Create(event)
-			r.updateRoomState(db.GetDB(), roomID, event)
-			r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
+	StateKey:  utils.GetPtr(userID),
+			Content: map[string]interface{}{
+				"membership": "join",
+			},
+			Depth: r.getNextDepth(db.GetDB(), roomID),
+		}
+		db.GetDB().Create(event)
+		r.updateRoomState(db.GetDB(), roomID, event)
+		r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
 		}
 		return roomID, nil
 	}
@@ -387,7 +388,7 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    userID,
-		StateKey:  ptrString(userID),
+		StateKey:  utils.GetPtr(userID),
 		Content: map[string]interface{}{
 			"membership": "join",
 		},
@@ -430,7 +431,7 @@ func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *M
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    userID,
-		StateKey:  ptrString(userID),
+		StateKey:  utils.GetPtr(userID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 		},
@@ -490,7 +491,7 @@ func (r *RoomService) inviteUser(tx *gorm.DB, roomID, inviterID, inviteeID strin
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    inviterID,
-		StateKey:  ptrString(inviteeID),
+		StateKey:  utils.GetPtr(inviteeID),
 		Content: map[string]interface{}{
 			"membership": "invite",
 		},
@@ -535,7 +536,7 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    kickerID,
-		StateKey:  ptrString(req.UserID),
+		StateKey:  utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 			"reason":     req.Reason,
@@ -572,7 +573,7 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 		RoomID:    roomID,
 		EventType: EventTypeRoomMember,
 		Sender:    bannerID,
-		StateKey:  ptrString(req.UserID),
+		StateKey:  utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "ban",
 			"reason":     req.Reason,
@@ -812,11 +813,6 @@ func (r *RoomService) getNextDepth(tx *gorm.DB, roomID string) int64 {
 	var maxDepth int64
 	tx.Model(&MatrixEvent{}).Where("room_id = ?", roomID).Select("COALESCE(MAX(depth), 0)").Scan(&maxDepth)
 	return maxDepth + 1
-}
-
-// ptrString 辅助函数
-func ptrString(s string) *string {
-	return &s
 }
 
 // GetRoom 获取房间信息

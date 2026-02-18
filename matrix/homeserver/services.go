@@ -306,7 +306,7 @@ func handleReportRoom(c *gin.Context) {
 
 // generateEventID 生成事件 ID
 func generateEventID() string {
-	return fmt.Sprintf("$%s:%s", generateRandomString(16), time.Now().UnixNano())
+	return fmt.Sprintf("$%s:%d", generateRandomString(16), time.Now().UnixNano())
 }
 
 // generateRandomString 生成随机字符串

@@ -121,9 +121,8 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, cont
 			width = &w
 			height = &h
 			blurHash = bh
-			// 创建缩略图记录
-			thumbFullPath := filepath.Join(filepath.Dir(fullPath), thumbPath)
-			_ = thumbFullPath
+			// 缩略图路径记录（可用于后续上传到云存储）
+			_ = filepath.Join(filepath.Dir(fullPath), thumbPath)
 		}
 	}
 
@@ -211,8 +210,14 @@ func (s *MediaService) GetThumbnail(mediaPath string, width, height int, method 
 	}
 	defer reader.Close()
 
+	// 读取全部内容以支持多次解码尝试
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read image data: %w", err)
+	}
+
 	// 解码图片
-	img, _, err := s.imageProc.DecodeImage(mediaPath)
+	img, _, err := s.imageProc.DecodeImageFromBytes(data)
 	if err != nil {
 		return nil, "", err
 	}
