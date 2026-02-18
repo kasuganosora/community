@@ -14,30 +14,13 @@ import (
 )
 
 // newTestRedis creates a Redis client for testing
+// Uses real Redis if available, skips otherwise
 func newTestRedis(t *testing.T) *redis.Client {
-	config := testutil.GetTestConfig()
-
-	client := redis.NewClient(&redis.Options{
-		Addr:         testutil.GetRedisAddr(),
-		Password:     testutil.GetRedisPassword(),
-		DB:           config.RedisDB,
-		DialTimeout:  2 * time.Second,
-		ReadTimeout:  2 * time.Second,
-		WriteTimeout: 2 * time.Second,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skipf("Redis not available, skipping test: %v", err)
+	redisClient := testutil.SetupRealRedisTest(t)
+	if redisClient == nil {
 		return nil
 	}
-
-	// Flush test database
-	client.FlushDB(ctx)
-
-	return client
+	return redisClient.Client
 }
 
 // TestMockTimeline implements Timeline interface for testing (using different name to avoid conflicts)

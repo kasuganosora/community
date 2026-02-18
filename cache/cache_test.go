@@ -6,36 +6,20 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/tests/testutil"
-	redisv9 "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
 // newTestCache creates a Cache instance for testing
+// Uses real Redis if available, skips test otherwise
 func newTestCache(t *testing.T) *Cache {
-	config := testutil.GetTestConfig()
-
-	client := redisv9.NewClient(&redisv9.Options{
-		Addr:         testutil.GetRedisAddr(),
-		Password:     testutil.GetRedisPassword(),
-		DB:           config.RedisDB,
-		DialTimeout:  2 * time.Second,
-		ReadTimeout:  2 * time.Second,
-		WriteTimeout: 2 * time.Second,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skipf("Redis not available, skipping test: %v", err)
+	// Use auto mode: real Redis if available, skip if not
+	redisClient := testutil.SetupRealRedisTest(t)
+	if redisClient == nil {
 		return nil
 	}
 
-	// Flush test database
-	client.FlushDB(ctx)
-
 	return &Cache{
-		client: client,
+		client: redisClient.Client,
 		prefix: "test:",
 	}
 }

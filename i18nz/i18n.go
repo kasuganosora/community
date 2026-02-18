@@ -1,6 +1,9 @@
 package i18nz
 
 import (
+	"os"
+	"strings"
+
 	"github.com/kasuganosora/community/internalfs"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/pelletier/go-toml/v2"
@@ -12,10 +15,31 @@ var Bundle *i18n.Bundle
 func init() {
 	Bundle = i18n.NewBundle(language.English)
 	Bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
+	
+	// Skip i18n loading in test mode
+	if isTestMode() {
+		return
+	}
+	
 	_, err := Bundle.LoadMessageFileFS(internalfs.Get(), "i18n/en.toml")
 	if err != nil {
 		panic(err)
 	}
+}
+
+// isTestMode detects if we're running in test mode
+func isTestMode() bool {
+	// Check command line arguments
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
+	}
+	// Check environment variable
+	if os.Getenv("GO_TEST_MODE") == "1" {
+		return true
+	}
+	return false
 }
 
 func GetLocalizer(lang string, accept string) *Localizer {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,6 +45,15 @@ func createTestJPEGContent(t *testing.T, width, height int) []byte {
 	err := jpeg.Encode(&buf, img, nil)
 	assert.NoError(t, err)
 	return buf.Bytes()
+}
+
+// createTestAccount creates a test account for testing
+func createTestAccount() *models.Account {
+	return &models.Account{
+		Id:        1,
+		Username:  "testuser",
+		Acct:      "testuser@test.com",
+	}
 }
 
 func TestIsAllowedContentType(t *testing.T) {
@@ -117,7 +127,7 @@ func TestUpload_NoFile(t *testing.T) {
 
 	// 需要模拟 authenticated 和 account
 	c.Set("authenticated", true)
-	c.Set("account", &mockAccount{})
+	c.Set("account", createTestAccount())
 
 	Upload(c)
 
@@ -135,7 +145,7 @@ func TestUpload_UnsupportedMediaType(t *testing.T) {
 	req := createTestMultipartRequest(t, "file", "test.pdf", pdfContent)
 	c.Request = req
 	c.Set("authenticated", true)
-	c.Set("account", &mockAccount{})
+	c.Set("account", createTestAccount())
 
 	Upload(c)
 
@@ -156,14 +166,9 @@ func TestUploadAsync_NoFile(t *testing.T) {
 	c.Request = req
 
 	c.Set("authenticated", true)
-	c.Set("account", &mockAccount{})
+	c.Set("account", createTestAccount())
 
 	UploadAsync(c)
 
 	assert.NotEqual(t, http.StatusOK, w.Code)
 }
-
-// mockAccount 模拟 Account 对象
-type mockAccount struct{}
-
-func (m *mockAccount) GetId() uint64 { return 1 }

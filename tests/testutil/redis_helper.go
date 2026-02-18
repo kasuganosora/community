@@ -13,11 +13,12 @@ import (
 // NewTestRedis creates a Redis client for testing
 // Returns nil if Redis is not available
 // Configuration is loaded from .env.test file or environment variables
+// Deprecated: Use NewRealRedis or NewAutoRedis from redis_mock.go instead
 func NewTestRedis(t *testing.T) *redis.Client {
 	config := GetTestConfig()
 
 	client := redis.NewClient(&redis.Options{
-		Addr:         fmt.Sprintf("%s:%d", config.RedisHost, config.RedisPort),
+		Addr:         GetRedisAddr(),
 		Password:     config.RedisPassword,
 		DB:           config.RedisDB,
 		DialTimeout:  2 * time.Second,
@@ -40,11 +41,12 @@ func NewTestRedis(t *testing.T) *redis.Client {
 }
 
 // SkipIfNoRedis skips the test if Redis is not available
+// Deprecated: Use NewRealRedis or NewAutoRedis from redis_mock.go instead
 func SkipIfNoRedis(t *testing.T) *redis.Client {
 	config := GetTestConfig()
 
 	client := redis.NewClient(&redis.Options{
-		Addr:         fmt.Sprintf("%s:%d", config.RedisHost, config.RedisPort),
+		Addr:         GetRedisAddr(),
 		Password:     config.RedisPassword,
 		DB:           config.RedisDB,
 		DialTimeout:  2 * time.Second,
@@ -71,7 +73,7 @@ func IsRedisAvailable() bool {
 	config := GetTestConfig()
 
 	client := redis.NewClient(&redis.Options{
-		Addr:        fmt.Sprintf("%s:%d", config.RedisHost, config.RedisPort),
+		Addr:        GetRedisAddr(),
 		Password:    config.RedisPassword,
 		DB:          config.RedisDB,
 		DialTimeout: 2 * time.Second,
@@ -96,6 +98,12 @@ func GetRedisPassword() string {
 	return config.RedisPassword
 }
 
+// GetRedisDB returns the Redis database number for testing
+func GetRedisDB() int {
+	config := GetTestConfig()
+	return config.RedisDB
+}
+
 // Helper to parse port from environment
 func init() {
 	config := GetTestConfig()
@@ -104,4 +112,30 @@ func init() {
 			config.RedisPort = port
 		}
 	}
+}
+
+// FlushTestRedis flushes the test Redis database
+// Useful for cleanup between tests
+func FlushTestRedis(t *testing.T, client *redis.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := client.FlushDB(ctx).Err(); err != nil {
+		t.Logf("Warning: failed to flush test Redis database: %v", err)
+	}
+}
+
+// NewRedisClient creates a new Redis client with test configuration
+// Does not check connectivity - use NewTestRedis for that
+func NewRedisClient() *redis.Client {
+	config := GetTestConfig()
+
+	return redis.NewClient(&redis.Options{
+		Addr:         GetRedisAddr(),
+		Password:     config.RedisPassword,
+		DB:           config.RedisDB,
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 2 * time.Second,
+	})
 }

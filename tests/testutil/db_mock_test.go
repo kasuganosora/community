@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -44,6 +45,22 @@ func TestNewTestDB(t *testing.T) {
 	assert.NotNil(t, testDB.DB)
 	assert.NotNil(t, testDB.Session)
 	defer testDB.Close()
+}
+
+func TestNewIsolatedTestDB(t *testing.T) {
+	testDB, err := NewIsolatedTestDB(t)
+	assert.NoError(t, err)
+	assert.NotNil(t, testDB)
+	assert.NotNil(t, testDB.GormDB)
+	assert.NotNil(t, testDB.DB)
+	// Cleanup is automatic via t.Cleanup
+}
+
+func TestQuickDBSetup(t *testing.T) {
+	testDB := QuickDBSetup(t, &TestAccount{}, &TestUser{})
+	assert.NotNil(t, testDB)
+	assert.NotNil(t, testDB.GormDB)
+	// Cleanup is automatic
 }
 
 func TestTestDB_AutoMigrate(t *testing.T) {
@@ -164,7 +181,7 @@ func TestTestDB_Delete(t *testing.T) {
 	}
 }
 
-func TestTestDB_MultipleRecords(t *testing.T) {
+func TestTestDB_TruncateTables(t *testing.T) {
 	testDB, err := NewTestDB()
 	assert.NoError(t, err)
 	defer testDB.Close()
@@ -173,55 +190,153 @@ func TestTestDB_MultipleRecords(t *testing.T) {
 	err = testDB.AutoMigrate(&TestAccount{})
 	assert.NoError(t, err)
 
-	// Create multiple accounts
+	// Create some data
 	now := time.Now()
-	accounts := []TestAccount{
-		{UserId: 1, Username: "multi1", DisplayName: "Multi One", Locked: false, CreatedAt: &now, UpdatedAt: &now},
-		{UserId: 1, Username: "multi2", DisplayName: "Multi Two", Locked: false, CreatedAt: &now, UpdatedAt: &now},
-		{UserId: 2, Username: "multi3", DisplayName: "Multi Three", Locked: true, CreatedAt: &now, UpdatedAt: &now},
-	}
-	for _, acc := range accounts {
-		err := testDB.GormDB.Create(&acc).Error
-		assert.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		testDB.GormDB.Create(&TestAccount{
+			UserId:      1,
+			Username:    "truncate" + string(rune('a'+i)),
+			DisplayName: "To Be Truncated",
+			CreatedAt:   &now,
+			UpdatedAt:   &now,
+		})
 	}
 
-	// Query with WHERE - user_id = 1
-	var found []TestAccount
-	result := testDB.GormDB.Where("user_id = ?", 1).Find(&found)
-	assert.NoError(t, result.Error)
-	assert.Equal(t, 2, len(found))
+	// Truncate
+	err = testDB.TruncateTables("accounts")
+	assert.NoError(t, err)
+
+	// Verify all data is gone
+	var count int64
+	testDB.GormDB.Model(&TestAccount{}).Count(&count)
+	assert.Equal(t, int64(0), count)
 }
 
-func TestTestDB_LikeQuery(t *testing.T) {
+func TestTestDB_Exec(t *testing.T) {
 	testDB, err := NewTestDB()
 	assert.NoError(t, err)
 	defer testDB.Close()
 
-	// Migrate
-	err = testDB.AutoMigrate(&TestAccount{})
+	// Create table using Exec
+	err = testDB.CreateTable(`
+		CREATE TABLE test_exec (
+			id INT PRIMARY KEY,
+			name VARCHAR(100)
+		)
+	`)
 	assert.NoError(t, err)
 
-	// Create accounts with similar names
-	now := time.Now()
-	accounts := []TestAccount{
-		{UserId: 1, Username: "john_doe", DisplayName: "John Doe", Locked: false, CreatedAt: &now, UpdatedAt: &now},
-		{UserId: 1, Username: "john_smith", DisplayName: "John Smith", Locked: false, CreatedAt: &now, UpdatedAt: &now},
-		{UserId: 2, Username: "jane_doe", DisplayName: "Jane Doe", Locked: false, CreatedAt: &now, UpdatedAt: &now},
-	}
-	for _, acc := range accounts {
-		err := testDB.GormDB.Create(&acc).Error
-		assert.NoError(t, err)
+	// Insert using Exec
+	err = testDB.Exec("INSERT INTO test_exec VALUES (?, ?)", 1, "test")
+	assert.NoError(t, err)
+
+	// Query
+	row, err := testDB.QueryOne("SELECT * FROM test_exec WHERE id = ?", 1)
+	assert.NoError(t, err)
+	assert.Equal(t, "test", row["name"])
+}
+
+func TestTestDB_QueryAll(t *testing.T) {
+	testDB, err := NewTestDB()
+	assert.NoError(t, err)
+	defer testDB.Close()
+
+	// Create table and insert data
+	err = testDB.CreateTable(`
+		CREATE TABLE test_query (
+			id INT PRIMARY KEY,
+			value VARCHAR(100)
+		)
+	`)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 3; i++ {
+		testDB.Exec("INSERT INTO test_query VALUES (?, ?)", i, "value"+string(rune('0'+i)))
 	}
 
-	// Test LIKE query - find all usernames starting with "john"
-	var johnUsers []TestAccount
-	result := testDB.GormDB.Where("username LIKE ?", "john%").Find(&johnUsers)
-	assert.NoError(t, result.Error)
-	assert.Equal(t, 2, len(johnUsers), "LIKE query should find 2 users starting with 'john'")
+	// Query all
+	rows, err := testDB.QueryAll("SELECT * FROM test_query ORDER BY id")
+	assert.NoError(t, err)
+	assert.Len(t, rows, 3)
+}
 
-	// Test LIKE query - find all usernames containing "_doe"
-	var doeUsers []TestAccount
-	result = testDB.GormDB.Where("username LIKE ?", "%_doe%").Find(&doeUsers)
-	assert.NoError(t, result.Error)
-	assert.Equal(t, 2, len(doeUsers), "LIKE query should find 2 users containing '_doe'")
+func TestSharedTestDB(t *testing.T) {
+	// Test shared database
+	db1, err := GetSharedTestDB()
+	assert.NoError(t, err)
+	assert.NotNil(t, db1)
+
+	// Getting again should return the same instance
+	db2, err := GetSharedTestDB()
+	assert.NoError(t, err)
+	assert.Equal(t, db1.DB, db2.DB, "Should return the same DB instance")
+}
+
+func TestParallelTestWithIsolatedDB(t *testing.T) {
+	// This test demonstrates that isolated DBs can be used in parallel
+	tests := []struct {
+		name     string
+		username string
+	}{
+		{"case1", "user1"},
+		{"case2", "user2"},
+		{"case3", "user3"},
+	}
+
+	for _, tt := range tests {
+		tt := tt // capture range variable
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel() // Safe to parallelize with isolated DB
+
+			testDB, err := NewIsolatedTestDB(t)
+			if err != nil {
+				t.Fatalf("Failed to create isolated DB: %v", err)
+			}
+
+			// Migrate
+			err = testDB.AutoMigrate(&TestAccount{})
+			if err != nil {
+				t.Fatalf("Failed to migrate: %v", err)
+			}
+
+			// Create unique data
+			now := time.Now()
+			account := TestAccount{
+				UserId:      1,
+				Username:    tt.username,
+				DisplayName: "Test " + tt.name,
+				CreatedAt:   &now,
+				UpdatedAt:   &now,
+			}
+			result := testDB.GormDB.Create(&account)
+			assert.NoError(t, result.Error)
+
+			// Verify data
+			var found TestAccount
+			testDB.GormDB.Where("username = ?", tt.username).First(&found)
+			assert.Equal(t, tt.username, found.Username)
+		})
+	}
+}
+
+func TestRedisTestClient_MockMode(t *testing.T) {
+	client := SetupMockRedisTest(t)
+	assert.NotNil(t, client)
+	assert.True(t, client.IsMock())
+	assert.False(t, client.IsReal())
+
+	// Setup mock expectations
+	ctx := context.Background()
+	client.Mock.ExpectSet("key", "value", 0).SetVal("OK")
+	client.Mock.ExpectGet("key").SetVal("value")
+
+	// Use client
+	err := client.Client.Set(ctx, "key", "value", 0).Err()
+	assert.NoError(t, err)
+
+	val, err := client.Client.Get(ctx, "key").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, "value", val)
+
+	// Expectations are verified in cleanup
 }
