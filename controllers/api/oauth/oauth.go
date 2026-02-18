@@ -4,6 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
@@ -11,10 +16,7 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
+	"gorm.io/gorm"
 )
 
 // CreateAppRequest represents the request for creating an OAuth application
@@ -301,38 +303,48 @@ func Token(c *gin.Context) {
 
 // handleAuthorizationCodeGrant handles the authorization code grant type
 func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
-	// Find authorization code
-	code := &OAuthAuthorizationCode{}
-	if err := db.GetDB().Where("code = ? AND application_id = ?", req.Code, app.Id).First(code).Error; err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
-		return
-	}
+	// Use transaction to prevent race condition when exchanging code
+	var code *OAuthAuthorizationCode
+	var account *models.Account
 
-	// Check if code is already used
-	if code.Used {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
-		return
-	}
+	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+		// Find authorization code
+		code = &OAuthAuthorizationCode{}
+		if err := tx.Where("code = ? AND application_id = ?", req.Code, app.Id).First(code).Error; err != nil {
+			return errors.New("invalid_grant")
+		}
 
-	// Check if code is expired
-	if code.ExpiresAt != nil && code.ExpiresAt.Before(time.Now()) {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
-		return
-	}
+		// Check if code is already used
+		if code.Used {
+			return errors.New("invalid_grant")
+		}
 
-	// Validate redirect_uri
-	if code.RedirectUri != req.RedirectUri {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
-		return
-	}
+		// Check if code is expired
+		if code.ExpiresAt != nil && code.ExpiresAt.Before(time.Now()) {
+			return errors.New("invalid_grant")
+		}
 
-	// Mark code as used
-	db.GetDB().Model(code).Update("used", true)
+		// Validate redirect_uri
+		if code.RedirectUri != req.RedirectUri {
+			return errors.New("invalid_grant")
+		}
 
-	// Get account
-	account := &models.Account{}
-	if err := db.GetDB().Preload("User").Preload("Extra").First(account, code.AccountId).Error; err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+		// Mark code as used atomically within transaction
+		if err := tx.Model(code).Update("used", true).Error; err != nil {
+			return err
+		}
+
+		// Get account
+		account = &models.Account{}
+		if err := tx.Preload("User").Preload("Extra").First(account, code.AccountId).Error; err != nil {
+			return errors.New("invalid_grant")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 		return
 	}
 

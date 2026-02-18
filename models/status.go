@@ -328,8 +328,11 @@ func (s *Status) IsScheduled() bool {
 func (s *Status) Public(db *gorm.DB) (err error) {
 	if s.Poll != nil {
 		// 更新 expire_at
-		expireIn := s.Poll.Properties["expires_in"].(uint64)
-		s.Poll.ExpiresAt = utils.GetPtr(time.Now().Add(time.Duration(expireIn) * time.Second))
+		if s.Poll.Properties != nil {
+			if expireIn, ok := s.Poll.Properties["expires_in"].(uint64); ok {
+				s.Poll.ExpiresAt = utils.GetPtr(time.Now().Add(time.Duration(expireIn) * time.Second))
+			}
+		}
 
 		if err = db.Omit(clause.Associations).Save(s.Poll).Error; err != nil {
 			return

@@ -246,7 +246,9 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		if len(updates) > 0 {
-			db.GetDB().Model(remoteAccount).Updates(updates)
+			if err := db.GetDB().Model(remoteAccount).Updates(updates).Error; err != nil {
+				log.Error("Failed to update remote account: %v", err)
+			}
 		}
 
 		c.JSON(200, gin.H{"status": "accepted"})
@@ -401,7 +403,10 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		// Send Accept activity back
-		go sendAcceptActivity(targetAccount, remoteAccount, activity["id"].(string))
+		activityID, ok := activity["id"].(string)
+		if ok && activityID != "" {
+			go sendAcceptActivity(targetAccount, remoteAccount, activityID)
+		}
 		log.Info("Auto-accepted follow from %s to %s", actor, targetAccount.Username)
 	}
 

@@ -35,11 +35,16 @@ func Outbox(c *gin.Context) {
 
 	if !page {
 		// Return collection info
+		var totalItems int
+		if account.Extra != nil {
+			totalItems = account.Extra.StatusesCount
+		}
+
 		c.JSON(200, Collection{
 			Context:    []string{"https://www.w3.org/ns/activitystreams"},
 			ID:         outboxURL,
 			Type:       "OrderedCollection",
-			TotalItems: account.Extra.StatusesCount,
+			TotalItems: totalItems,
 			First:      outboxURL + "?page=true",
 			Last:       outboxURL + "?page=true&min_id=0",
 		})

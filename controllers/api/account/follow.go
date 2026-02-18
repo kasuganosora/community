@@ -78,6 +78,10 @@ func Follow(c *gin.Context) {
 
 	follow.AccountId = account.Id
 	follow.FollowId = targetAccount.Id
+	// Initialize Properties map if nil
+	if follow.Properties == nil {
+		follow.Properties = make(map[string]any)
+	}
 	follow.Properties["reblogs"] = req.Reblogs
 
 	if follow.Id > 0 {

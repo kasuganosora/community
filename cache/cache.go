@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	redisv9 "github.com/redis/go-redis/v9"
@@ -17,21 +18,28 @@ type Cache struct {
 	prefix string
 }
 
-var defaultCache *Cache
+var (
+	defaultCache *Cache
+	once         sync.Once
+)
 
 // Init 初始化缓存
 func Init() {
-	defaultCache = &Cache{
-		client: redis.GetRedis(),
-		prefix: "community:",
-	}
+	once.Do(func() {
+		defaultCache = &Cache{
+			client: redis.GetRedis(),
+			prefix: "community:",
+		}
+	})
 }
 
 // GetCache 获取默认缓存实例
 func GetCache() *Cache {
-	if defaultCache == nil {
-		Init()
-	}
+	once.Do(func() {
+		if defaultCache == nil {
+			Init()
+		}
+	})
 	return defaultCache
 }
 
@@ -72,16 +80,31 @@ func (c *Cache) Delete(ctx context.Context, keys ...string) error {
 	return c.client.Del(ctx, fullKeys...).Err()
 }
 
-// DeleteByPattern 按模式删除缓存
+// DeleteByPattern 按模式删除缓存 (使用SCAN替代KEYS避免阻塞)
 func (c *Cache) DeleteByPattern(ctx context.Context, pattern string) error {
-	keys, err := c.client.Keys(ctx, c.prefix+pattern).Result()
-	if err != nil {
-		return err
+	var cursor uint64
+	fullPattern := c.prefix + pattern
+
+	for {
+		var keys []string
+		var err error
+		keys, cursor, err = c.client.Scan(ctx, cursor, fullPattern, 100).Result()
+		if err != nil {
+			return err
+		}
+
+		if len(keys) > 0 {
+			if err := c.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+
+		if cursor == 0 {
+			break
+		}
 	}
-	if len(keys) == 0 {
-		return nil
-	}
-	return c.client.Del(ctx, keys...).Err()
+
+	return nil
 }
 
 // Exists 检查缓存是否存在

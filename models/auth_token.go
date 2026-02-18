@@ -60,6 +60,12 @@ func (a AuthTokenData) GetTokenStr(key string) string {
 }
 
 func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData, err error) {
+	// 检查 token 长度
+	if len(tokenStr) < 16 {
+		err = errors.New("invalid token length")
+		return
+	}
+
 	// 取出校验码 token 的前 8 位
 	md5Str := tokenStr[:8]
 	// 取出校验码后的 8位随机字符串
