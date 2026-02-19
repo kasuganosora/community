@@ -375,13 +375,18 @@ func (s *FeedService) GcTimelines() (err error) {
 			end = len(keysToDelete)
 		}
 
+		// 优先使用 Unlink（非阻塞），如果失败则回退到 Del
 		_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) (err error) {
 			pipe.Unlink(sharedCtx, keysToDelete[i:end]...)
 			return
 		})
 
 		if err != nil {
-			return err
+			// Unlink 失败（可能是旧版 Redis），尝试使用 Del
+			_, err = s.redis.Del(sharedCtx, keysToDelete[i:end]...).Result()
+			if err != nil {
+				return err
+			}
 		}
 	}
 

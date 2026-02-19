@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -193,4 +194,9 @@ func GetRedisChannelName(timeline Timeline) string {
 
 func GcTimelines() (err error) {
 	return getDefaultService().GcTimelines()
+}
+
+// ResetSubscriptionCache 重置订阅缓存（用于测试）
+func ResetSubscriptionCache() {
+	subCache = &subscriptionCache{ttl: 5 * time.Second}
 }

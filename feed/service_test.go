@@ -707,7 +707,7 @@ func TestNewDBService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestSubscriptionCache_Concurrent(t *testing.T) {
+func TestSubscriptionCache_ConcurrentLegacy(t *testing.T) {
 	cache := &subscriptionCache{ttl: 5 * time.Second}
 
 	done := make(chan bool)

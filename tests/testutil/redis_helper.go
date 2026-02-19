@@ -76,14 +76,20 @@ func IsRedisAvailable() bool {
 		Addr:        GetRedisAddr(),
 		Password:    config.RedisPassword,
 		DB:          config.RedisDB,
-		DialTimeout: 2 * time.Second,
+		DialTimeout: 5 * time.Second,
+		ReadTimeout: 5 * time.Second,
 	})
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return client.Ping(ctx).Err() == nil
+	err := client.Ping(ctx).Err()
+	if err != nil {
+		// 输出错误信息帮助调试
+		// fmt.Printf("Redis connection failed: %v (addr: %s, db: %d)\n", err, GetRedisAddr(), config.RedisDB)
+	}
+	return err == nil
 }
 
 // GetRedisAddr returns the Redis address for testing
