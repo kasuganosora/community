@@ -375,9 +375,12 @@ func (m *MockRedisClient) PubSubChannels(ctx context.Context, pattern string) *r
 	return cmd
 }
 
-// Pipelined 执行管道命令
+// Pipelined 执行管道命令 - 简化实现
+// 由于 redis.Pipeliner 接口有很多方法，我们使用一个通用的方法
 func (m *MockRedisClient) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
-	// 简化实现
+	// 简化实现：创建一个真实 Redis 客户端的 Pipeline 来执行操作
+	// 但由于我们没有真实 Redis，所以只是忽略 Pipeline 操作
+	// 在测试中，我们单独测试 Pipeline 相关的功能
 	return []redis.Cmder{}, nil
 }
 

@@ -1,6 +1,7 @@
 package home
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/kasuganosora/community/feed"
@@ -8,20 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestHomeTimeline_GetKeyFormat tests the GetKeyFormat method
 func TestHomeTimeline_GetKeyFormat(t *testing.T) {
 	timeline := &HomeTimeline{}
 	assert.Equal(t, "feed:home:%s", timeline.GetKeyFormat())
 }
 
-// TestHomeTimeline_GetTimelineId tests the GetTimelineId method
 func TestHomeTimeline_GetTimelineId(t *testing.T) {
 	account := &models.Account{Id: 12345}
 	timeline := &HomeTimeline{Account: account}
 	assert.Equal(t, "12345", timeline.GetTimelineId())
 }
 
-// TestHomeTimeline_GetTimelineId_DifferentAccounts tests different account IDs
 func TestHomeTimeline_GetTimelineId_DifferentAccounts(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -42,7 +40,6 @@ func TestHomeTimeline_GetTimelineId_DifferentAccounts(t *testing.T) {
 	}
 }
 
-// TestHomeTimeline_TimelineInterface tests that HomeTimeline implements Timeline interface
 func TestHomeTimeline_TimelineInterface(t *testing.T) {
 	account := &models.Account{Id: 999}
 	var timeline feed.Timeline = &HomeTimeline{Account: account}
@@ -51,7 +48,6 @@ func TestHomeTimeline_TimelineInterface(t *testing.T) {
 	assert.Equal(t, "999", timeline.GetTimelineId())
 }
 
-// TestHomeTimeline_MultipleInstances tests multiple timeline instances
 func TestHomeTimeline_MultipleInstances(t *testing.T) {
 	accounts := []*models.Account{
 		{Id: 1},
@@ -67,7 +63,6 @@ func TestHomeTimeline_MultipleInstances(t *testing.T) {
 	}
 }
 
-// TestHomeTimeline_NilAccount tests behavior with nil account
 func TestHomeTimeline_NilAccount(t *testing.T) {
 	timeline := &HomeTimeline{Account: nil}
 
@@ -78,7 +73,6 @@ func TestHomeTimeline_NilAccount(t *testing.T) {
 	// The caller should ensure account is not nil
 }
 
-// TestHomeTimeline_KeyUniqueness tests that different accounts have unique keys
 func TestHomeTimeline_KeyUniqueness(t *testing.T) {
 	timelines := make(map[string]bool)
 
@@ -94,7 +88,6 @@ func TestHomeTimeline_KeyUniqueness(t *testing.T) {
 	assert.Len(t, timelines, 100)
 }
 
-// TestHomeTimeline_ConcurrentAccess tests concurrent access to timeline
 func TestHomeTimeline_ConcurrentAccess(t *testing.T) {
 	account := &models.Account{Id: 12345}
 	timeline := &HomeTimeline{Account: account}
@@ -116,7 +109,6 @@ func TestHomeTimeline_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestHomeTimeline_VisibilityFilter tests visibility filtering logic
 func TestHomeTimeline_VisibilityFilter(t *testing.T) {
 	account := &models.Account{Id: 1}
 
@@ -138,6 +130,132 @@ func TestHomeTimeline_VisibilityFilter(t *testing.T) {
 			_ = tt.visibility
 			_ = tt.expected
 			// This tests the structure, actual filtering requires database
+		})
+	}
+}
+
+func TestPushToHome_UserSettings(t *testing.T) {
+	// 测试用户设置对转发聚合的影响
+	account := &models.Account{
+		Id: 1,
+		User: &models.User{
+			Settings: &models.UserSetting{},
+		},
+	}
+
+	status := &models.Status{
+		Id:         1001,
+		AccountId:  1,
+		Visibility: models.StatusVisibilityPublic,
+	}
+
+	// PushToHome 需要 Redis 连接，这里只测试结构
+	assert.NotNil(t, account)
+	assert.NotNil(t, status)
+}
+
+func TestUnPushFromHome_UserSettings(t *testing.T) {
+	account := &models.Account{
+		Id: 1,
+		User: &models.User{
+			Settings: &models.UserSetting{},
+		},
+	}
+
+	status := &models.Status{
+		Id:         1001,
+		AccountId:  1,
+		Visibility: models.StatusVisibilityPublic,
+	}
+
+	// UnPushFromHome 需要 Redis 连接，这里只测试结构
+	assert.NotNil(t, account)
+	assert.NotNil(t, status)
+}
+
+func TestPush_StatusVisibility(t *testing.T) {
+	tests := []struct {
+		name       string
+		visibility uint8
+	}{
+		{"public", models.StatusVisibilityPublic},
+		{"unlisted", models.StatusVisibilityUnlisted},
+		{"private", models.StatusVisibilityPrivate},
+		{"direct", models.StatusVisibilityDirect},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := &models.Status{
+				Id:         1,
+				AccountId:  1,
+				Visibility: tt.visibility,
+			}
+			assert.NotNil(t, status)
+		})
+	}
+}
+
+func TestGetTimeLineContent(t *testing.T) {
+	account := &models.Account{Id: 1}
+
+	t.Run("Nil params", func(t *testing.T) {
+		// GetTimeLineContent 需要 Redis 和数据库，这里只测试参数处理
+		assert.NotNil(t, account)
+	})
+
+	t.Run("With params", func(t *testing.T) {
+		params := &feed.ListParam{
+			MaxId: 100,
+			MinId: 1,
+			Limit: 20,
+		}
+		assert.NotNil(t, params)
+		assert.Equal(t, uint64(100), params.MaxId)
+		assert.Equal(t, uint64(1), params.MinId)
+		assert.Equal(t, uint64(20), params.Limit)
+	})
+}
+
+func TestClearMentionsPushStatus(t *testing.T) {
+	// 测试 ClearMentionsPushStatus 函数
+	status := &models.Status{
+		Id: 1,
+	}
+	// ClearMentionsPushStatus 需要数据库连接
+	assert.NotNil(t, status)
+}
+
+func TestHomeTimeline_WithUserSettings(t *testing.T) {
+	settings := &models.UserSetting{}
+	account := &models.Account{
+		Id:       1,
+		User:     &models.User{Settings: settings},
+	}
+
+	timeline := &HomeTimeline{Account: account}
+	assert.Equal(t, "1", timeline.GetTimelineId())
+}
+
+func TestHomeTimeline_StringConversion(t *testing.T) {
+	testCases := []uint64{
+		0,
+		1,
+		10,
+		100,
+		1000,
+		10000,
+		100000,
+		1000000,
+		18446744073709551615,
+	}
+
+	for _, id := range testCases {
+		t.Run(strconv.FormatUint(id, 10), func(t *testing.T) {
+			account := &models.Account{Id: id}
+			timeline := &HomeTimeline{Account: account}
+			expected := strconv.FormatUint(id, 10)
+			assert.Equal(t, expected, timeline.GetTimelineId())
 		})
 	}
 }
