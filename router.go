@@ -31,6 +31,13 @@ import (
 )
 
 func SetRouter(app gin.IRouter) {
+	// Add self-destruct mode middleware globally
+	app.Use(middleware.SelfDestructInfoMiddleware())
+	
+	// Self-destruct mode restrictions on write operations
+	// This must be applied before the API routes
+	app.Use(middleware.SelfDestructMiddleware())
+	
 	apiGroup := app.Group("/api")
 
 	// API v1 - Mastodon 标准 API
