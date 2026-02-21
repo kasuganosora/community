@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 )
 
@@ -1103,18 +1104,40 @@ func handleSetRoomAccountData(c *gin.Context) {
 // ===== 设备管理 =====
 
 func handleGetDevices(c *gin.Context) {
-	_ = getUserID(c) // userID
+	userID := getUserID(c)
 	
 	hs := GetHomeServer()
-	session, _ := hs.Auth.GetDeviceByToken(c.GetString("access_token"))
+	
+	// 获取用户的所有会话（设备）
+	var sessions []MatrixUserSession
+	db.GetDB().Where("user_id = ?", userID).Find(&sessions)
 	
 	devices := []gin.H{}
-	if session != nil {
+	for _, session := range sessions {
+		displayName := ""
+		if session.DisplayName != nil {
+			displayName = *session.DisplayName
+		}
+		
 		devices = append(devices, gin.H{
-			"device_id":  session.DeviceID,
-			"display_name": session.DisplayName,
-			"last_seen_ts": session.LastActiveTS,
+			"device_id":     session.DeviceID,
+			"display_name":  displayName,
+			"last_seen_ip":  nil,
+			"last_seen_ts":  session.LastActiveTS,
 		})
+	}
+	
+	// 如果没有设备，添加当前设备
+	if len(devices) == 0 {
+		session, _ := hs.Auth.GetDeviceByToken(c.GetString("access_token"))
+		if session != nil {
+			devices = append(devices, gin.H{
+				"device_id":    session.DeviceID,
+				"display_name": nil,
+				"last_seen_ip": nil,
+				"last_seen_ts": nil,
+			})
+		}
 	}
 	
 	c.JSON(http.StatusOK, gin.H{
@@ -1123,14 +1146,78 @@ func handleGetDevices(c *gin.Context) {
 }
 
 func handleGetDevice(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
+	userID := getUserID(c)
+	deviceID := c.Param("deviceId")
+	
+	var session MatrixUserSession
+	result := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&session)
+	
+	if result.Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"errcode": "M_NOT_FOUND",
+			"error":   "Device not found",
+		})
+		return
+	}
+	
+	displayName := ""
+	if session.DisplayName != nil {
+		displayName = *session.DisplayName
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"device_id":     session.DeviceID,
+		"display_name":  displayName,
+		"last_seen_ip":  nil,
+		"last_seen_ts":  session.LastActiveTS,
+	})
 }
 
 func handleUpdateDevice(c *gin.Context) {
+	userID := getUserID(c)
+	deviceID := c.Param("deviceId")
+	
+	var req struct {
+		DisplayName string `json:"display_name"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	result := db.GetDB().Model(&MatrixUserSession{}).
+		Where("user_id = ? AND device_id = ?", userID, deviceID).
+		Update("display_name", req.DisplayName)
+	
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   result.Error.Error(),
+		})
+		return
+	}
+	
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 func handleDeleteDevice(c *gin.Context) {
+	userID := getUserID(c)
+	deviceID := c.Param("deviceId")
+	
+	result := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).Delete(&MatrixUserSession{})
+	
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   result.Error.Error(),
+		})
+		return
+	}
+	
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -1149,37 +1236,184 @@ func handleGetFilter(c *gin.Context) {
 // ===== To-Device =====
 
 func handleSendToDevice(c *gin.Context) {
+	senderID := getUserID(c)
+	eventType := c.Param("eventType")
+	txnID := c.Param("txnId")
+	_ = txnID
+	
+	var req map[string]interface{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	// 解析目标用户和设备
+	for userID, userData := range req {
+		if userMap, ok := userData.(map[string]interface{}); ok {
+			for deviceID, content := range userMap {
+				contentMap, _ := content.(map[string]interface{})
+				
+				// 存储 To-Device 消息
+				msg := &MatrixToDeviceMessage{
+					Sender:       senderID,
+					TargetUser:   userID,
+					TargetDevice: deviceID,
+					EventType:    eventType,
+					Content:      contentMap,
+				}
+				
+				if err := db.GetDB().Create(msg).Error; err != nil {
+					log.Error("Failed to create to-device message: %v", err)
+				}
+			}
+		}
+	}
+	
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 func handleGetOneTimeKeysCount(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"curve25519": 0,
-		"signed_curve25519": 0,
-	})
+	userID := getUserID(c)
+	deviceID := c.GetString("device_id")
+	if deviceID == "" {
+		deviceID = "DEVICE"
+	}
+	
+	hs := GetHomeServer()
+	keyStore := NewKeyStore(hs)
+	
+	counts := keyStore.GetOneTimeKeysCount(userID, deviceID)
+	
+	c.JSON(http.StatusOK, counts)
 }
 
 func handleKeysUpload(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"one_time_key_counts": gin.H{},
-	})
+	userID := getUserID(c)
+	deviceID := c.GetString("device_id")
+	if deviceID == "" {
+		deviceID = "DEVICE"
+	}
+	
+	var req UploadKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	hs := GetHomeServer()
+	keyStore := NewKeyStore(hs)
+	
+	resp, err := keyStore.UploadDeviceKeys(userID, deviceID, &req)
+	if err != nil {
+		log.Error("Failed to upload keys: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   err.Error(),
+		})
+		return
+	}
+	
+	c.JSON(http.StatusOK, resp)
 }
 
 func handleKeysQuery(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"failures": gin.H{},
-		"device_keys": gin.H{},
-	})
+	var req QueryKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	// 如果没有指定查询的用户，返回空结果
+	if len(req.DeviceKeys) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"device_keys":       gin.H{},
+			"master_keys":       gin.H{},
+			"self_signing_keys": gin.H{},
+			"user_signing_keys": gin.H{},
+		})
+		return
+	}
+	
+	hs := GetHomeServer()
+	keyStore := NewKeyStore(hs)
+	
+	resp, err := keyStore.QueryDeviceKeys(&req)
+	if err != nil {
+		log.Error("Failed to query keys: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   err.Error(),
+		})
+		return
+	}
+	
+	// 确保返回所有字段
+	if resp.DeviceKeys == nil {
+		resp.DeviceKeys = make(map[string]map[string]*DeviceKeys)
+	}
+	if resp.Failures == nil {
+		resp.Failures = make(map[string]interface{})
+	}
+	
+	c.JSON(http.StatusOK, resp)
 }
 
 func handleKeysClaim(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"failures": gin.H{},
-		"one_time_keys": gin.H{},
-	})
+	var req ClaimKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	hs := GetHomeServer()
+	keyStore := NewKeyStore(hs)
+	
+	resp, err := keyStore.ClaimOneTimeKeys(&req)
+	if err != nil {
+		log.Error("Failed to claim keys: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   err.Error(),
+		})
+		return
+	}
+	
+	if resp.OneTimeKeys == nil {
+		resp.OneTimeKeys = make(map[string]map[string]map[string]string)
+	}
+	if resp.Failures == nil {
+		resp.Failures = make(map[string]interface{})
+	}
+	
+	c.JSON(http.StatusOK, resp)
 }
 
 func handleKeysSignaturesUpload(c *gin.Context) {
+	// 简化实现：接收签名并存储
+	var req map[string]interface{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   "Invalid JSON",
+		})
+		return
+	}
+	
+	// TODO: 验证并存储签名
+	// 这是交叉签名验证的一部分
+	
 	c.JSON(http.StatusOK, gin.H{
 		"failures": gin.H{},
 	})

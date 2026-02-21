@@ -555,6 +555,9 @@ func SetRouter(app gin.IRouter) {
 	homeserver.RegisterRoutes(app)
 	// 注册 Matrix Federation API v1.17
 	homeserver.RegisterFederationRoutes(app)
+	// 注册额外的联邦路由（Backfill 等）
+	homeserver.RegisterBackfillRoutes(app)
+	homeserver.RegisterAdditionalFederationRoutes(app)
 
 	// Matrix 管理 API（需要管理员权限）
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).

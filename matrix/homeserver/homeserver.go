@@ -111,6 +111,8 @@ func autoMigrate() error {
 		&MatrixPresence{},
 		&MatrixFederationKey{},
 		&MatrixServerKey{},
+		&MatrixDeviceKey{},
+		&MatrixOneTimeKey{},
 	)
 }
 
