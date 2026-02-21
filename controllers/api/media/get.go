@@ -1,10 +1,14 @@
 package media
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/storage"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -70,7 +74,20 @@ func Update(c *gin.Context) {
 	// 更新焦点
 	if request.Focus != "" {
 		// 解析焦点位置 "x,y"
-		// TODO: 实现焦点解析
+		parts := strings.Split(request.Focus, ",")
+		if len(parts) == 2 {
+			x, errX := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+			y, errY := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+			if errX == nil && errY == nil {
+				// Focus coordinates should be in range [-1, 1]
+				if x >= -1 && x <= 1 {
+					media.FocusX = x
+				}
+				if y >= -1 && y <= 1 {
+					media.FocusY = y
+				}
+			}
+		}
 	}
 
 	// 保存更新
@@ -113,8 +130,20 @@ func Delete(c *gin.Context) {
 		return
 	}
 
-	// 删除文件
-	// TODO: 删除物理文件和缩略图
+	// 删除物理文件
+	if media.FilePath != "" {
+		if err := storage.Delete(media.FilePath); err != nil {
+			// Log error but continue with database deletion
+			// In production, you might want to handle this differently
+		}
+	}
+
+	// 删除缩略图
+	if media.ThumbnailPath != nil && *media.ThumbnailPath != "" {
+		if err := storage.Delete(*media.ThumbnailPath); err != nil {
+			// Log error but continue with database deletion
+		}
+	}
 
 	// 删除数据库记录
 	if err := db.GetDB().Delete(&media).Error; err != nil {
