@@ -102,12 +102,39 @@ func (m *MockRedisClient) ZRevRank(ctx context.Context, key string, member strin
 		return cmd
 	}
 
-	// 简化实现：返回 0
-	if _, exists := m.zSets[key][member]; exists {
-		cmd.SetVal(0)
-	} else {
+	if _, exists := m.zSets[key][member]; !exists {
 		cmd.SetErr(redis.Nil)
+		return cmd
 	}
+
+	// 计算排名：按分数从高到低排序
+	type memberScore struct {
+		member string
+		score  float64
+	}
+	var sortedMembers []memberScore
+	for m, s := range m.zSets[key] {
+		sortedMembers = append(sortedMembers, memberScore{member: m, score: s})
+	}
+
+	// 按分数降序排序
+	for i := 0; i < len(sortedMembers); i++ {
+		for j := i + 1; j < len(sortedMembers); j++ {
+			if sortedMembers[i].score < sortedMembers[j].score {
+				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
+			}
+		}
+	}
+
+	// 查找成员的排名
+	for i, ms := range sortedMembers {
+		if ms.member == member {
+			cmd.SetVal(int64(i))
+			return cmd
+		}
+	}
+
+	cmd.SetErr(redis.Nil)
 	return cmd
 }
 
@@ -121,11 +148,48 @@ func (m *MockRedisClient) ZRange(ctx context.Context, key string, start, stop in
 		return cmd
 	}
 
-	// 简化实现：返回所有成员
-	var result []string
-	for member := range m.zSets[key] {
-		result = append(result, member)
+	// 将成员按分数升序排序
+	type memberScore struct {
+		member string
+		score  float64
 	}
+	var sortedMembers []memberScore
+	for m, s := range m.zSets[key] {
+		sortedMembers = append(sortedMembers, memberScore{member: m, score: s})
+	}
+
+	// 按分数升序排序
+	for i := 0; i < len(sortedMembers); i++ {
+		for j := i + 1; j < len(sortedMembers); j++ {
+			if sortedMembers[i].score > sortedMembers[j].score {
+				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
+			}
+		}
+	}
+
+	// 处理负索引
+	n := len(sortedMembers)
+	if start < 0 {
+		start = int64(n) + start
+	}
+	if stop < 0 {
+		stop = int64(n) + stop
+	}
+
+	// 边界检查
+	if start < 0 {
+		start = 0
+	}
+	if stop >= int64(n) {
+		stop = int64(n) - 1
+	}
+
+	// 提取范围内的成员
+	var result []string
+	for i := start; i <= stop && i < int64(n) && i >= 0; i++ {
+		result = append(result, sortedMembers[i].member)
+	}
+
 	cmd.SetVal(result)
 	return cmd
 }
@@ -179,11 +243,48 @@ func (m *MockRedisClient) ZRevRange(ctx context.Context, key string, start, stop
 		return cmd
 	}
 
-	// 简化实现：返回所有成员
-	var result []string
-	for member := range m.zSets[key] {
-		result = append(result, member)
+	// 将成员按分数降序排序
+	type memberScore struct {
+		member string
+		score  float64
 	}
+	var sortedMembers []memberScore
+	for m, s := range m.zSets[key] {
+		sortedMembers = append(sortedMembers, memberScore{member: m, score: s})
+	}
+
+	// 按分数降序排序
+	for i := 0; i < len(sortedMembers); i++ {
+		for j := i + 1; j < len(sortedMembers); j++ {
+			if sortedMembers[i].score < sortedMembers[j].score {
+				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
+			}
+		}
+	}
+
+	// 处理负索引
+	n := len(sortedMembers)
+	if start < 0 {
+		start = int64(n) + start
+	}
+	if stop < 0 {
+		stop = int64(n) + stop
+	}
+
+	// 边界检查
+	if start < 0 {
+		start = 0
+	}
+	if stop >= int64(n) {
+		stop = int64(n) - 1
+	}
+
+	// 提取范围内的成员
+	var result []string
+	for i := start; i <= stop && i < int64(n) && i >= 0; i++ {
+		result = append(result, sortedMembers[i].member)
+	}
+
 	cmd.SetVal(result)
 	return cmd
 }

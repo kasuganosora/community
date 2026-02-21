@@ -5,7 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/feed/home"
-	"github.com/pkg/errors"
+	"github.com/kasuganosora/community/log"
 )
 
 func UserStreaming(c *gin.Context) {
@@ -14,7 +14,8 @@ func UserStreaming(c *gin.Context) {
 
 	procHandle := func(data any) (event, payload string, err error) {
 		type RedisChannelEvent struct {
-			Type string `json:"type"`
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
 		}
 
 		ev := &RedisChannelEvent{}
@@ -28,10 +29,22 @@ func UserStreaming(c *gin.Context) {
 			return serializerStatusEvent(account, data.(string))
 		case "notification":
 			return serializerNotificationEvent(account, data.(string))
-			// TODO filters_changed, announcement, announcement.delete,announcement.reaction
+		case "filters_changed":
+			// 过滤器变更事件 - 通知客户端重新获取过滤器
+			return "filters_changed", "{}", nil
+		case "announcement":
+			// 公告创建事件
+			return serializerAnnouncementEvent(ev.Payload)
+		case "announcement.delete":
+			// 公告删除事件
+			return serializerAnnouncementDeleteEvent(ev.Payload)
+		case "announcement.reaction":
+			// 公告表情反应事件
+			return serializerAnnouncementReactionEvent(ev.Payload)
 		default:
-			err = errors.New("unknown event type")
-			return
+			// 对于未知的事件类型，记录日志但不返回错误
+			log.Debug("Unknown streaming event type: %s", ev.Type)
+			return ev.Type, string(ev.Payload), nil
 		}
 	}
 

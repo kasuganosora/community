@@ -312,7 +312,17 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 		return s.AddToTimelineItem(timelines[0], status, aggregateReblogs)
 	}
 
-	// 使用 Pipeline 批量操作
+	// 如果需要处理 reblog 聚合，使用逐个处理的方式（保证正确性）
+	if aggregateReblogs && status.ReblogId != nil && *status.ReblogId > 0 {
+		for _, timeline := range timelines {
+			if err = s.AddToTimelineItem(timeline, status, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// 使用 Pipeline 批量操作（适用于非 reblog 或不需要聚合的情况）
 	nowScore := float64(status.Id)
 	now := float64(time.Now().Unix())
 	statusIdStr := strconv.FormatUint(status.Id, 10)
@@ -321,12 +331,19 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 		for _, timeline := range timelines {
 			timelineKeyFormat := timeline.GetKeyFormat()
 			timelineKey := fmt.Sprintf(timelineKeyFormat, timeline.GetTimelineId())
+			reblogKey := timelineKey + ":reblogs"
 
 			// 记录时间线更新
 			pipe.ZAdd(sharedCtx, "timelines", redis.Z{Score: now, Member: timelineKey})
 
-			// 简化处理：直接添加状态（不处理 reblog 聚合逻辑，因为批量操作需要更复杂的处理）
-			pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: nowScore, Member: statusIdStr})
+			// 如果不是转发的，或者不需要聚合，直接添加到时间线
+			if status.ReblogId == nil || *status.ReblogId == 0 || !aggregateReblogs {
+				// 检查原始状态是否在 reblog 集合中（避免重复）
+				if status.ReblogId != nil && *status.ReblogId > 0 {
+					pipe.ZScore(sharedCtx, reblogKey, statusIdStr)
+				}
+				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: nowScore, Member: statusIdStr})
+			}
 		}
 		return nil
 	})

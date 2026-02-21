@@ -14,6 +14,7 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
+	"github.com/kasuganosora/community/log"
 )
 
 // FederationClient 联邦客户端
@@ -21,6 +22,7 @@ type FederationClient struct {
 	hs         *HomeServer
 	privateKey ed25519.PrivateKey
 	httpClient *httpclient.Client
+	keyCache   *KeyCache
 }
 
 // NewFederationClient 创建联邦客户端
@@ -32,6 +34,7 @@ func NewFederationClient(hs *HomeServer) *FederationClient {
 		hs:         hs,
 		privateKey: privateKey,
 		httpClient: httpclient.NewClient(),
+		keyCache:   GetKeyCache(),
 	}
 }
 
@@ -181,39 +184,59 @@ func (c *FederationClient) signRequest(req *httpclient.Request, destServer strin
 
 // VerifySignature 验证事件签名
 func (c *FederationClient) VerifySignature(event map[string]interface{}, serverName string, keyID string, signature string) bool {
-	// 获取服务器公钥
-	keyResp, err := c.FetchServerKey(serverName)
-	if err != nil {
-		// 无法获取公钥时记录警告，但不接受事件
-		// TODO: 实现密钥缓存机制避免频繁请求
-		return false
-	}
+	// 首先从缓存获取公钥
+	publicKey, found := c.keyCache.Get(serverName, keyID)
+	if !found {
+		// 缓存未命中，从远程服务器获取
+		keyResp, err := c.FetchServerKey(serverName)
+		if err != nil {
+			log.Error("Failed to fetch server key for %s: %v", serverName, err)
+			return false
+		}
 
-	// 查找对应的公钥
-	keyInfo, ok := keyResp.VerifyKeys[keyID]
-	if !ok {
-		return false
-	}
+		// 查找对应的公钥
+		keyInfo, ok := keyResp.VerifyKeys[keyID]
+		if !ok {
+			log.Error("Key %s not found for server %s", keyID, serverName)
+			return false
+		}
 
-	// 解码公钥
-	publicKeyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
-	if err != nil {
-		return false
+		// 解码公钥
+		publicKeyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
+		if err != nil {
+			log.Error("Failed to decode public key for %s:%s: %v", serverName, keyID, err)
+			return false
+		}
+
+		publicKey = ed25519.PublicKey(publicKeyBytes)
+
+		// 解析过期时间
+		validUntil := time.Now().Add(24 * time.Hour)
+		if keyResp.ValidUntil > 0 {
+			validUntil = time.UnixMilli(keyResp.ValidUntil)
+		}
+
+		// 缓存公钥
+		c.keyCache.Set(serverName, keyID, publicKey, validUntil)
 	}
 
 	// 解码签名
 	signatureBytes, err := base64.RawStdEncoding.DecodeString(signature)
 	if err != nil {
+		log.Error("Failed to decode signature: %v", err)
 		return false
 	}
 
-	// 构建待签名内容（简化版，实际需要按 Matrix 规范规范化 JSON）
-	// TODO: 实现完整的 JSON 规范化算法
-	jsonBytes, _ := json.Marshal(event)
-	hash := sha256.Sum256(jsonBytes)
+	// 构建待签名内容（使用规范化的 JSON）
+	canonicalJSON, err := CanonicalJSON(event)
+	if err != nil {
+		log.Error("Failed to canonicalize JSON: %v", err)
+		return false
+	}
+
+	hash := sha256.Sum256(canonicalJSON)
 
 	// 验证签名
-	publicKey := ed25519.PublicKey(publicKeyBytes)
 	return ed25519.Verify(publicKey, hash[:], signatureBytes)
 }
 

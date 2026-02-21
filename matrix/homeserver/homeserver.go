@@ -2,7 +2,6 @@ package homeserver
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"sync"
 
@@ -47,18 +46,18 @@ func InitHomeServer() error {
 		return nil
 	}
 
-	// 生成联邦密钥（只生成一次）
-	// TODO: 在生产环境中应该从持久化存储加载
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	// 加载或生成联邦密钥
+	keyStorage := NewKeyStorage()
+	privateKey, publicKey, keyID, err := keyStorage.LoadOrGenerateKey()
 	if err != nil {
-		return fmt.Errorf("failed to generate federation key: %w", err)
+		return fmt.Errorf("failed to load or generate federation key: %w", err)
 	}
 
 	hs := &HomeServer{
 		Config:     cfg,
 		privateKey: privateKey,
-		publicKey:  privateKey.Public().(ed25519.PublicKey),
-		keyID:      fmt.Sprintf("ed25519:%d", 1),
+		publicKey:  publicKey,
+		keyID:      keyID,
 	}
 
 	// 初始化服务
@@ -110,6 +109,8 @@ func autoMigrate() error {
 		&MatrixTyping{},
 		&MatrixFilter{},
 		&MatrixPresence{},
+		&MatrixFederationKey{},
+		&MatrixServerKey{},
 	)
 }
 

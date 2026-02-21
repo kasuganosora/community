@@ -320,8 +320,14 @@ func SendGroupMessage(c *gin.Context) {
 			if bridge != nil {
 				go func() {
 					// 发送到 Matrix 房间
-					// TODO: 实现群组消息发送到 Matrix
-					log.Debug("Syncing group message %d to Matrix room %s", message.Id, *group.MatrixRoomId)
+					if group.MatrixRoomId != nil && *group.MatrixRoomId != "" {
+						_, err := bridge.SendGroupMessageToMatrix(*group.MatrixRoomId, currentAccount.Id, req.Content)
+						if err != nil {
+							log.Error("Failed to sync group message %d to Matrix: %v", message.Id, err)
+						} else {
+							log.Debug("Synced group message %d to Matrix room %s", message.Id, *group.MatrixRoomId)
+						}
+					}
 				}()
 			}
 		}

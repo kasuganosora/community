@@ -9,7 +9,7 @@ import (
 	"github.com/kasuganosora/community/invitecode"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/recaptcha"
+	"github.com/kasuganosora/community/captcha"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
@@ -72,10 +72,9 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 如果开启了 Recaptcha, 那么就验证 Recaptcha
-	// 没有开启 Recaptcha
-	if systemsettings.GetBool(systemsettings.KeyRecaptchaEnabled, false) {
-		err = checkRecaptcha(c, req.RecaptchaResponse)
+	// 如果开启了验证码, 那么就验证验证码
+	if captcha.IsCaptchaEnabled() {
+		err = checkCaptcha(c, req.RecaptchaResponse)
 		if err != nil {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 			return
@@ -247,29 +246,17 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 	return
 }
 
-func checkRecaptcha(c *gin.Context, response string) (err error) {
-	// 没有配置 Recaptcha 密钥
-	if systemsettings.GetString(systemsettings.KeyRecaptchaSecretKey, "") == "" {
-		err = errors.New("recaptcha secret is not configured")
-		return
-	}
-
-	if response == "" {
-		err = errors.New("recaptcha response is empty")
-		return
-	}
-
+// checkCaptcha 检查验证码
+func checkCaptcha(c *gin.Context, response string) (err error) {
 	remoteIP := c.ClientIP()
 
-	success, err := recaptcha.SiteVerify(response, remoteIP)
+	result, err := captcha.GetService().Verify(c.Request.Context(), response, remoteIP)
 	if err != nil {
-		err = errors.WithMessage(err, "recaptcha site verify error")
-		return
+		return errors.WithMessage(err, "captcha verify error")
 	}
 
-	if !success {
-		err = errors.New("recaptcha verify failed")
-		return
+	if !result.Success {
+		return errors.New("captcha verify failed")
 	}
 
 	return

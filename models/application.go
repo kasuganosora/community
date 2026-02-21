@@ -65,6 +65,8 @@ const (
 	AppScopeAdminWriteIpBlocks             = 0x3F00000000
 	AppScopeAdminWriteReports              = 0x7F00000000
 	AppScopeAdminWriteRules                = 0xF000000000
+	AppScopeAdminReadThumbnails            = 0x1F000000000
+	AppScopeAdminWriteThumbnails           = 0x3F000000000
 
 	// 其他权限单独一组
 	AppScopeFollow = 0x1

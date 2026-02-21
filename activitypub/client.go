@@ -163,3 +163,18 @@ func (c *Client) FetchObject(ctx context.Context, objectURI string) (map[string]
 
 	return obj, nil
 }
+
+// FetchStatus fetches a remote status by URI and creates a local copy
+func (c *Client) FetchStatus(ctx context.Context, statusURI string) (*Note, error) {
+	data, err := c.Get(ctx, statusURI)
+	if err != nil {
+		return nil, err
+	}
+
+	var note Note
+	if err := json.Unmarshal(data, &note); err != nil {
+		return nil, fmt.Errorf("parsing status: %w", err)
+	}
+
+	return &note, nil
+}

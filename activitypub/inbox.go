@@ -471,7 +471,8 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 
-		// TODO: Send notification to target user about follow request
+		// Send notification to target user about follow request
+		createFollowRequestNotification(remoteAccount.Id, targetAccount.Id)
 		log.Info("Created follow request from %s to %s", actor, targetAccount.Username)
 	} else {
 		// Auto-accept follow
@@ -620,10 +621,13 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	err = db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&originalStatus).Error
 	if err != nil {
 		// Try to fetch the remote status
-		// TODO: Implement remote status fetching
-		log.Warn("Could not find original status for announce: %s", object)
-		c.JSON(200, gin.H{"status": "accepted"})
-		return
+		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(object, remoteAccount)
+		if fetchErr != nil {
+			log.Warn("Could not find or fetch original status for announce: %s, error: %v", object, fetchErr)
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+		originalStatus = *fetchedStatus
 	}
 
 	// Check if we already have this reblog
@@ -807,42 +811,153 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 // handleFlagActivity handles Flag activities (reports)
 func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
 	actor, _ := ctx.Value("actor").(string)
-	_, ok := activity["object"].([]interface{})
-	if !ok {
-		if _, ok := activity["object"].(string); ok {
-			// Single object is fine
+
+	// Get or create remote account (the reporter)
+	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to process reporter account"})
+		return
+	}
+
+	// Parse the object(s) being reported
+	var reportedStatusIds []uint64
+	var reportedAccountId uint64
+	var objectIDs []string
+
+	if objects, ok := activity["object"].([]interface{}); ok {
+		for _, obj := range objects {
+			if objStr, ok := obj.(string); ok {
+				objectIDs = append(objectIDs, objStr)
+			}
+		}
+	} else if objStr, ok := activity["object"].(string); ok {
+		objectIDs = append(objectIDs, objStr)
+	} else {
+		c.JSON(400, gin.H{"error": "invalid object"})
+		return
+	}
+
+	// Process each object to find reported statuses and accounts
+	for _, objectID := range objectIDs {
+		// Check if it's a status
+		var status models.Status
+		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", objectID, objectID).First(&status).Error; err == nil {
+			reportedStatusIds = append(reportedStatusIds, status.Id)
+			if reportedAccountId == 0 {
+				reportedAccountId = status.AccountId
+			}
 		} else {
-			c.JSON(400, gin.H{"error": "invalid object"})
-			return
+			// Check if it's an account
+			var account models.Account
+			if err := db.GetDB().Where("origin_id = ?", objectID).First(&account).Error; err == nil {
+				reportedAccountId = account.Id
+			}
 		}
 	}
 
 	content, _ := activity["content"].(string)
+	forwarded, _ := activity["forwarded"].(bool)
 
-	log.Info("Received flag from %s: %s", actor, content)
-	// TODO: Create a report from this flag
+	// Create the report
+	report := models.Report{
+		AccountId:       remoteAccount.Id,
+		TargetAccountId: reportedAccountId,
+		StatusIds:         reportedStatusIds,
+		Comment:           content,
+		Forwarded:         forwarded,
+		Category:          models.ReportCategoryOther,
+		Uri:               actor,
+	}
 
+	if err := db.GetDB().Create(&report).Error; err != nil {
+		log.Error("Failed to create report from flag: %v", err)
+		c.JSON(500, gin.H{"error": "failed to create report"})
+		return
+	}
+
+	// Create admin notification for the report
+	createAdminReportNotification(report.Id, remoteAccount.Id, reportedAccountId)
+
+	log.Info("Created report %d from flag by %s", report.Id, actor)
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
 // handleMoveActivity handles Move activities (account migration)
 func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
 	actor, _ := ctx.Value("actor").(string)
-	_, ok := activity["object"].(string)
+	oldActorURI, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
 		return
 	}
 
-	target, ok := activity["target"].(string)
+	newActorURI, ok := activity["target"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid target"})
 		return
 	}
 
-	log.Info("Received move from %s to %s", actor, target)
-	// TODO: Handle account migration
+	log.Info("Received move from %s to %s", oldActorURI, newActorURI)
 
+	// Verify the actor matches the old account
+	if actor != oldActorURI {
+		c.JSON(403, gin.H{"error": "actor must match the old account"})
+		return
+	}
+
+	// Find the old account
+	var oldAccount models.Account
+	if err := db.GetDB().Where("origin_id = ?", oldActorURI).First(&oldAccount).Error; err != nil {
+		c.JSON(404, gin.H{"error": "old account not found"})
+		return
+	}
+
+	// Get or create the new account
+	newAccount, err := getOrCreateRemoteAccount(newActorURI)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to process new account"})
+		return
+	}
+
+	// Update follows: redirect followers from old account to new account
+	// Find all local accounts that follow the old account
+	var follows []models.Follow
+	if err := db.GetDB().Where("follow_id = ? AND account_id IN (SELECT id FROM accounts WHERE domain IS NULL)", oldAccount.Id).Find(&follows).Error; err != nil {
+		log.Error("Failed to find follows for account migration: %v", err)
+	} else {
+		for _, follow := range follows {
+			// Check if already following the new account
+			var existingFollow models.Follow
+			err := db.GetDB().Where("account_id = ? AND follow_id = ?", follow.AccountId, newAccount.Id).First(&existingFollow).Error
+			if err != nil {
+				// Create new follow to the new account
+				newFollow := models.Follow{
+					AccountId: follow.AccountId,
+					FollowId:  newAccount.Id,
+					Status:    models.FollowStatusFollowed,
+				}
+				if err := db.GetDB().Create(&newFollow).Error; err != nil {
+					log.Error("Failed to create follow to new account during migration: %v", err)
+				}
+			}
+
+			// Remove the old follow
+			db.GetDB().Delete(&follow)
+		}
+		log.Info("Migrated %d followers from %s to %s", len(follows), oldActorURI, newActorURI)
+	}
+
+	// Mark the old account as moved
+	now := time.Now()
+	db.GetDB().Model(&oldAccount).Updates(map[string]interface{}{
+		"moved_to_account_id": newAccount.Id,
+		"updated_at":          now,
+	})
+
+	// Create notification for followers about the move
+	createAccountMoveNotification(oldAccount.Id, newAccount.Id)
+
+	log.Info("Successfully processed account migration from %s to %s", oldActorURI, newActorURI)
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
@@ -1105,4 +1220,219 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 func SharedInbox(c *gin.Context) {
 	// For now, delegate to regular inbox handling
 	Inbox(c)
+}
+
+// createFollowRequestNotification creates a notification for follow requests
+func createFollowRequestNotification(fromAccountId, toAccountId uint64) {
+	notification := &models.Notification{
+		AccountId:     toAccountId,
+		FromAccountId: fromAccountId,
+		Type:          models.NotificationTypeFollowRequest,
+	}
+
+	if err := db.GetDB().Create(notification).Error; err != nil {
+		log.Error("Failed to create follow request notification: %v", err)
+	} else {
+		log.Debug("Created follow request notification for account %d from %d", toAccountId, fromAccountId)
+	}
+}
+
+// createAdminReportNotification creates a notification for admins about a new report
+func createAdminReportNotification(reportId uint64, fromAccountId, targetAccountId uint64) {
+	// Find all admin users
+	var adminRoles []models.Role
+	if err := db.GetDB().Where("name = ? OR name = ?", "admin", "moderator").Find(&adminRoles).Error; err != nil {
+		log.Error("Failed to find admin roles: %v", err)
+		return
+	}
+
+	if len(adminRoles) == 0 {
+		// No admin roles found, skip notification
+		return
+	}
+
+	var roleIds []uint64
+	for _, role := range adminRoles {
+		roleIds = append(roleIds, uint64(role.ID))
+	}
+
+	// Find all users with admin/moderator roles
+	var roleUsers []models.RoleUser
+	if err := db.GetDB().Where("role_id IN ?", roleIds).Find(&roleUsers).Error; err != nil {
+		log.Error("Failed to find user roles: %v", err)
+		return
+	}
+
+	// Create notification for each admin
+	for _, roleUser := range roleUsers {
+		// Find the account for this user
+		var account models.Account
+		if err := db.GetDB().Where("user_id = ?", roleUser.UserID).First(&account).Error; err != nil {
+			continue
+		}
+
+		notification := &models.Notification{
+			AccountId:     account.Id,
+			FromAccountId: fromAccountId,
+			ReportId:      reportId,
+			Type:          models.NotificationTypeAdminReport,
+		}
+
+		if err := db.GetDB().Create(notification).Error; err != nil {
+			log.Error("Failed to create admin report notification: %v", err)
+		}
+	}
+
+	log.Debug("Created admin report notifications for report %d", reportId)
+}
+
+// createAccountMoveNotification notifies followers about account migration
+func createAccountMoveNotification(oldAccountId, newAccountId uint64) {
+	// Find all local followers of the old account
+	var follows []models.Follow
+	if err := db.GetDB().Where("follow_id = ? AND account_id IN (SELECT id FROM accounts WHERE domain IS NULL)", oldAccountId).Find(&follows).Error; err != nil {
+		log.Error("Failed to find followers for move notification: %v", err)
+		return
+	}
+
+	for _, follow := range follows {
+		// Create notification about the account move
+		notification := &models.Notification{
+			AccountId:     follow.AccountId,
+			FromAccountId: oldAccountId,
+			Type:          models.NotificationTypeFollow,
+		}
+
+		if err := db.GetDB().Create(notification).Error; err != nil {
+			log.Error("Failed to create move notification: %v", err)
+		}
+	}
+
+	log.Debug("Created move notifications for %d followers", len(follows))
+}
+
+// fetchAndCreateRemoteStatus fetches a remote status and creates a local copy
+func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) (*models.Status, error) {
+	client := NewClient(nil, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Fetch the status
+	statusData, err := client.FetchObject(ctx, statusURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch remote status: %w", err)
+	}
+
+	// Parse the status data
+	statusType, _ := statusData["type"].(string)
+	if statusType != "Note" && statusType != "Article" && statusType != "Page" {
+		return nil, fmt.Errorf("unsupported status type: %s", statusType)
+	}
+
+	content, _ := statusData["content"].(string)
+	summary, _ := statusData["summary"].(string)
+	publishedStr, _ := statusData["published"].(string)
+	attributedToURI, _ := statusData["attributedTo"].(string)
+	inReplyTo, _ := statusData["inReplyTo"].(string)
+
+	// Get or create the author account
+	var authorAccount *models.Account
+	if attributedToURI != "" {
+		authorAccount, err = getOrCreateRemoteAccount(attributedToURI)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get author account: %w", err)
+		}
+	} else {
+		authorAccount = attributedTo
+	}
+
+	// Parse visibility from to/cc fields
+	visibility := uint8(models.StatusVisibilityPublic)
+	to, _ := statusData["to"].([]interface{})
+	cc, _ := statusData["cc"].([]interface{})
+
+	isPublic := false
+	isUnlisted := false
+
+	for _, t := range to {
+		if t == "https://www.w3.org/ns/activitystreams#Public" || t == "as:Public" || t == "Public" {
+			isPublic = true
+			break
+		}
+	}
+
+	for _, c := range cc {
+		if c == "https://www.w3.org/ns/activitystreams#Public" || c == "as:Public" || c == "Public" {
+			isUnlisted = true
+			break
+		}
+	}
+
+	if !isPublic && !isUnlisted {
+		// Check if it's a direct message
+		if len(to) == 1 && len(cc) == 0 {
+			visibility = uint8(models.StatusVisibilityDirect)
+		} else {
+			visibility = uint8(models.StatusVisibilityPrivate)
+		}
+	} else if isUnlisted {
+		visibility = uint8(models.StatusVisibilityUnlisted)
+	}
+
+	// Parse published time
+	publishedAt := utils.ParseRFC3339(publishedStr)
+	if publishedAt == nil {
+		now := time.Now()
+		publishedAt = &now
+	}
+
+	// Create the status
+	status := models.Status{
+		AccountId:   authorAccount.Id,
+		Visibility:  visibility,
+		OriginUri:   &statusURI,
+		InReplyToId: nil,
+		CreatedAt:   publishedAt,
+		UpdatedAt:   publishedAt,
+	}
+
+	// Set in-reply-to if present
+	if inReplyTo != "" {
+		var parentStatus models.Status
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", inReplyTo, inReplyTo).First(&parentStatus).Error
+		if err == nil {
+			status.InReplyToId = &parentStatus.Id
+		}
+	}
+
+	// Create status in transaction
+	tx := db.GetDB().Begin()
+
+	if err := tx.Create(&status).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create status: %w", err)
+	}
+
+	// Create status content
+	statusContent := &models.StatusContent{
+		StatusId:    status.Id,
+		Content:     content,
+		SpoilerText: summary,
+	}
+
+	if err := tx.Create(statusContent).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create status content: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Load the complete status
+	status.Content = *statusContent
+
+	log.Info("Created remote status %d from %s", status.Id, statusURI)
+	return &status, nil
 }

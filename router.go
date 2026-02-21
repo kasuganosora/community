@@ -65,6 +65,10 @@ func SetRouter(app gin.IRouter) {
 	// OAuth 应用注册（公开接口）
 	v1ApiGroup.POST("/apps", oauth.CreateApp)
 
+	// Captcha 配置接口（公开）
+	v1ApiGroup.GET("/captcha/config", common.GetCaptchaConfig)
+	v1ApiGroup.GET("/captcha/providers", common.GetCaptchaProviders)
+
 	// OAuth 端点
 	oauthGroup := app.Group("/oauth")
 	oauthGroup.GET("/authorize", middleware.AuthMiddleware(), oauth.AuthorizePage)
@@ -562,6 +566,26 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/matrix/stop", admin.StopMatrixBridge).
 		POST("/admin/matrix/migrate", admin.RunMatrixMigration).
 		POST("/admin/matrix/test", admin.TestMatrixConnection)
+
+	// Admin Thumbnails API
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadThumbnails})).
+		GET("/admin/thumbnails", admin.ListThumbnails).
+		GET("/admin/thumbnails/:id", admin.GetThumbnail).
+		GET("/admin/thumbnails/stats", admin.GetThumbnailStats).
+		GET("/admin/thumbnails/config", admin.GetThumbnailConfig)
+
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteThumbnails})).
+		PUT("/admin/thumbnails/config", admin.UpdateThumbnailConfig).
+		DELETE("/admin/thumbnails/:id", admin.DeleteThumbnail).
+		POST("/admin/thumbnails/:id/regenerate", admin.RegenerateThumbnail).
+		POST("/admin/thumbnails/purge", admin.PurgeThumbnails)
+
+	// Captcha 管理 API（需要管理员权限）
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/captcha/config", common.GetCaptchaConfig)
+
+	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		PUT("/admin/captcha/config", common.AdminUpdateCaptchaConfig)
 
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -320,7 +321,19 @@ func crawlDomains(c *cli.Context) error {
 
 	// Filter out suspended domains if requested
 	if excludeSuspended {
-		// TODO: Check against domain blocks
+		blockedDomains, err := getBlockedDomains()
+		if err != nil {
+			return fmt.Errorf("failed to get blocked domains: %w", err)
+		}
+
+		filteredDomains := make([]string, 0, len(domains))
+		for _, domain := range domains {
+			if !isDomainBlocked(domain, blockedDomains) {
+				filteredDomains = append(filteredDomains, domain)
+			}
+		}
+		domains = filteredDomains
+		fmt.Printf("Filtered out %d blocked domains, %d remaining\n", len(domains)-len(filteredDomains), len(domains))
 	}
 
 	fmt.Printf("Starting with %d domains, using %d workers\n", len(domains), concurrency)
@@ -502,4 +515,38 @@ func printCrawlSummary(stats []InstanceStats) {
 	fmt.Printf("Servers with errors:    %d\n", errors)
 	fmt.Printf("Total registered users: %d\n", totalUsers)
 	fmt.Printf("Total statuses:         %d\n", totalStatuses)
+}
+
+
+// getBlockedDomains returns all blocked domains from the database
+func getBlockedDomains() (map[string]bool, error) {
+	var blocks []models.DomainBlock
+	if err := db.GetDB().Find(&blocks).Error; err != nil {
+		return nil, err
+	}
+
+	blocked := make(map[string]bool)
+	for _, block := range blocks {
+		blocked[block.Domain] = true
+	}
+
+	return blocked, nil
+}
+
+// isDomainBlocked checks if a domain is in the blocked list
+func isDomainBlocked(domain string, blocked map[string]bool) bool {
+	if blocked[domain] {
+		return true
+	}
+
+	// Check parent domains (for subdomains)
+	parts := strings.Split(domain, ".")
+	for i := 1; i < len(parts); i++ {
+		parentDomain := strings.Join(parts[i:], ".")
+		if blocked[parentDomain] {
+			return true
+		}
+	}
+
+	return false
 }

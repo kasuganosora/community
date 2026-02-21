@@ -1,7 +1,12 @@
 package common
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 )
@@ -81,10 +86,10 @@ func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
 	resp.Domain = systemsettings.GetString(systemsettings.KeyDomain, "")
 	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
-	resp.Version = "0.0.1" // TODO
+	resp.Version = config.GetVersion()
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
 	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
-	resp.Usage.Users.ActiveMonth = 0 // TODO
+	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
 	resp.Thumbnail.Url = systemsettings.GetString(systemsettings.KeyThumbnail, "")
 	resp.Languages = systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"})
 	//resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
@@ -111,4 +116,20 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Contact.Email = systemsettings.GetString(systemsettings.KeySiteContactEmail, "admin@admin.com")
 
 	c.JSON(200, resp)
+}
+
+// getActiveUsersCount returns the number of active users in the last 30 days
+func getActiveUsersCount() int {
+	// Count users who have logged in or posted in the last 30 days
+	var count int64
+	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+
+	// Count local accounts with recent activity
+	db.GetDB().Model(&models.Account{}).
+		Where("domain IS NULL").
+		Where("last_activity_at >= ? OR last_status_at >= ? OR created_at >= ?", 
+			thirtyDaysAgo, thirtyDaysAgo, thirtyDaysAgo).
+		Count(&count)
+
+	return int(count)
 }

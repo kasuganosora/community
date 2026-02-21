@@ -38,9 +38,16 @@ const (
 	KeyRegistrationInviteRequired   = "config.registration.invite_required"             // 是否需要邀请码
 	KeyRegistrationMessage          = "config.registration.message"                     // 注册页面的提示信息
 	KeySiteContactEmail             = "contact.email"                                   // 网站联系邮箱
-	KeyRecaptchaSiteKey             = "config.recaptcha.site_key"                       // recaptcha site key
-	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key
-	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha
+	KeyRecaptchaSiteKey             = "config.recaptcha.site_key"                       // recaptcha site key (deprecated, use config.captcha.site_key)
+	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key (deprecated, use config.captcha.secret_key)
+	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha (deprecated, use config.captcha.enabled)
+	
+	// 新的通用验证码配置
+	KeyCaptchaProvider            = "config.captcha.provider"            // 验证码供应商: recaptcha, cloudflare, hcaptcha, none
+	KeyCaptchaSiteKey             = "config.captcha.site_key"            // 验证码站点密钥
+	KeyCaptchaSecretKey           = "config.captcha.secret_key"          // 验证码密钥
+	KeyCaptchaEnabled             = "config.captcha.enabled"             // 是否启用验证码
+	KeyCaptchaScoreThreshold      = "config.captcha.score_threshold"     // 验证码分数阈值 (0.0 - 1.0)
 	KeyRegistrationCheckEmail       = "config.registration.check_email"                 // 是否检查邮箱
 	KeyMediaAttachmentsBaseURL      = "config.media_attachments.base_url"               // 附件基础URL
 	KeyMediaAttachmentsCacheBaseURL = "config.media_attachments.cache_base_url"         // 附件缓存基础URL

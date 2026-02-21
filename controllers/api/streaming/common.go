@@ -128,3 +128,21 @@ type RedisChannelEvent struct {
 	Type    string `json:"type"`
 	Payload any    `json:"payload"`
 }
+
+
+// serializerAnnouncementEvent 序列化公告事件
+func serializerAnnouncementEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
+	// 公告事件直接传递原始 payload
+	return "announcement", string(payload), nil
+}
+
+// serializerAnnouncementDeleteEvent 序列化公告删除事件
+func serializerAnnouncementDeleteEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
+	// 公告删除事件 payload 应该是公告 ID
+	return "announcement.delete", string(payload), nil
+}
+
+// serializerAnnouncementReactionEvent 序列化公告反应事件
+func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
+	return "announcement.reaction", string(payload), nil
+}
