@@ -1,9 +1,14 @@
 package commands
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -358,13 +363,240 @@ func refreshMedia(c *cli.Context) error {
 	domain := c.String("domain")
 	status := c.String("status")
 	days := c.Int("days")
+	concurrency := c.Int("concurrency")
+	verbose := c.Bool("verbose")
+	dryRun := c.Bool("dry-run")
+	force := c.Bool("force")
 
 	if account == "" && domain == "" && status == "" && days == 0 {
 		return fmt.Errorf("must specify --account, --domain, --status, or --days")
 	}
 
 	fmt.Println("Refreshing remote media attachments...")
-	return nil // Placeholder implementation
+	if dryRun {
+		fmt.Println("Dry run mode - no changes will be made")
+	}
+
+	// Build query for attachments
+	query := db.GetDB().Model(&models.Attachment{}).
+		Where("remote_url IS NOT NULL AND remote_url != ''")
+
+	// Filter by account
+	if account != "" {
+		parts := strings.Split(account, "@")
+		if len(parts) == 2 {
+			// username@domain format
+			var acc models.Account
+			if err := db.GetDB().Where("username = ? AND domain = ?", parts[0], parts[1]).First(&acc).Error; err != nil {
+				return fmt.Errorf("account not found: %s", account)
+			}
+			// Get statuses from this account
+			var statusIDs []uint64
+			db.GetDB().Model(&models.Status{}).Where("account_id = ?", acc.Id).Pluck("id", &statusIDs)
+			if len(statusIDs) == 0 {
+				fmt.Println("No statuses found for this account")
+				return nil
+			}
+			var mediaIDs []uint64
+			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+			if len(mediaIDs) == 0 {
+				fmt.Println("No media found for this account")
+				return nil
+			}
+			query = query.Where("id IN ?", mediaIDs)
+		} else {
+			// Local username only
+			var acc models.Account
+			if err := db.GetDB().Where("username = ? AND domain IS NULL", account).First(&acc).Error; err != nil {
+				return fmt.Errorf("account not found: %s", account)
+			}
+			var statusIDs []uint64
+			db.GetDB().Model(&models.Status{}).Where("account_id = ?", acc.Id).Pluck("id", &statusIDs)
+			if len(statusIDs) == 0 {
+				fmt.Println("No statuses found for this account")
+				return nil
+			}
+			var mediaIDs []uint64
+			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+			if len(mediaIDs) == 0 {
+				fmt.Println("No media found for this account")
+				return nil
+			}
+			query = query.Where("id IN ?", mediaIDs)
+		}
+	}
+
+	// Filter by domain
+	if domain != "" {
+		// Get accounts from this domain
+		var accountIDs []uint64
+		db.GetDB().Model(&models.Account{}).Where("domain = ?", domain).Pluck("id", &accountIDs)
+		if len(accountIDs) == 0 {
+			fmt.Printf("No accounts found from domain %s\n", domain)
+			return nil
+		}
+		var statusIDs []uint64
+		db.GetDB().Model(&models.Status{}).Where("account_id IN ?", accountIDs).Pluck("id", &statusIDs)
+		if len(statusIDs) == 0 {
+			fmt.Printf("No statuses found from domain %s\n", domain)
+			return nil
+		}
+		var mediaIDs []uint64
+		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+		if len(mediaIDs) == 0 {
+			fmt.Printf("No media found from domain %s\n", domain)
+			return nil
+		}
+		query = query.Where("id IN ?", mediaIDs)
+	}
+
+	// Filter by status
+	if status != "" {
+		statusID, err := strconv.ParseUint(status, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid status ID: %s", status)
+		}
+		var mediaIDs []uint64
+		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id = ?", statusID).Pluck("media_id", &mediaIDs)
+		if len(mediaIDs) == 0 {
+			fmt.Println("No media found for this status")
+			return nil
+		}
+		query = query.Where("id IN ?", mediaIDs)
+	}
+
+	// Filter by days (attachments older than N days)
+	if days > 0 {
+		cutoff := time.Now().AddDate(0, 0, -days)
+		query = query.Where("created_at < ?", cutoff)
+	}
+
+	var count int64
+	query.Count(&count)
+	fmt.Printf("Found %d attachments to refresh\n", count)
+
+	if count == 0 || dryRun {
+		return nil
+	}
+
+	// Process in batches
+	batchSize := 100
+	jobs := make(chan []uint64, 10)
+	var wg sync.WaitGroup
+	refreshed := 0
+	failed := 0
+	var mu sync.Mutex
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ids := range jobs {
+				for _, id := range ids {
+					var attachment models.Attachment
+					if err := db.GetDB().First(&attachment, id).Error; err != nil {
+						continue
+					}
+
+					// Skip if already has local copy and not forcing
+					if attachment.SavePath != "" && !force {
+						continue
+					}
+
+					// Download from remote URL
+					if attachment.RemoteUrl == "" {
+						continue
+					}
+
+					if verbose {
+						fmt.Printf("Downloading: %s\n", attachment.RemoteUrl)
+					}
+
+					data, err := downloadRemoteMedia(attachment.RemoteUrl)
+					if err != nil {
+						mu.Lock()
+						failed++
+						if verbose {
+							fmt.Printf("Failed to download %s: %v\n", attachment.RemoteUrl, err)
+						}
+						mu.Unlock()
+						continue
+					}
+
+					// Save to storage
+					objectKey := fmt.Sprintf("refreshed/%d_%s", attachment.Id, filepath.Base(attachment.RemoteUrl))
+					if cloudStorage := storage.GetStorage(); cloudStorage.IsEnabled() {
+						_, err = cloudStorage.UploadReader(bytes.NewReader(data), objectKey, int64(len(data)))
+					} else {
+						_, err = storage.Save(objectKey, data)
+					}
+
+					if err != nil {
+						mu.Lock()
+						failed++
+						mu.Unlock()
+						continue
+					}
+
+					// Update attachment record
+					db.GetDB().Model(&attachment).Updates(map[string]interface{}{
+						"save_path": objectKey,
+					})
+
+					mu.Lock()
+					refreshed++
+					if refreshed%100 == 0 {
+						fmt.Printf("Refreshed %d attachments...\n", refreshed)
+					}
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+
+	// Feed jobs
+	var lastID uint64 = 0
+	for {
+		var attachments []models.Attachment
+		err := query.Where("id > ?", lastID).
+			Order("id ASC").
+			Limit(batchSize).
+			Find(&attachments).Error
+
+		if err != nil || len(attachments) == 0 {
+			break
+		}
+
+		ids := make([]uint64, len(attachments))
+		for i, a := range attachments {
+			ids[i] = a.Id
+		}
+		lastID = attachments[len(attachments)-1].Id
+		jobs <- ids
+	}
+	close(jobs)
+
+	wg.Wait()
+
+	fmt.Printf("\nRefresh completed: %d refreshed, %d failed\n", refreshed, failed)
+	return nil
+}
+
+// downloadRemoteMedia downloads media from a remote URL
+func downloadRemoteMedia(url string) ([]byte, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 // MediaUsageCommand implements tootctl media usage

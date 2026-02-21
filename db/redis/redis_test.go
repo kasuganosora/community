@@ -32,8 +32,8 @@ func TestGetRedis_DefaultConnection(t *testing.T) {
 	originalRedises := redises
 	defer func() { redises = originalRedises }()
 
-	// Create a mock client
-	redises = []*redis.Client{nil} // nil is fine for testing
+	// Create a mock client (nil for testing purposes)
+	redises = []*redis.Client{nil}
 
 	// Should return first connection when no index specified
 	client := GetRedis()
@@ -89,10 +89,67 @@ func TestGetRedis_ZeroIndex(t *testing.T) {
 	assert.Nil(t, client)
 }
 
-func TestRedisInit(t *testing.T) {
-	// Test that init() runs without panic
-	// This is called automatically when package is imported
-	assert.NotPanics(t, func() {
-		// init() is called automatically
+func TestGetRedis_MultipleClients(t *testing.T) {
+	// Save original redises
+	originalRedises := redises
+	defer func() { redises = originalRedises }()
+
+	// Create multiple nil clients
+	redises = []*redis.Client{nil, nil, nil}
+
+	// Test getting different indices
+	assert.Nil(t, GetRedis(0))
+	assert.Nil(t, GetRedis(1))
+	assert.Nil(t, GetRedis(2))
+}
+
+func TestGetRedises_ReturnsSlice(t *testing.T) {
+	clients := GetRedises()
+	assert.IsType(t, []*redis.Client{}, clients)
+}
+
+func TestGetRedis_WithEmptySlice(t *testing.T) {
+	// Save original redises
+	originalRedises := redises
+	defer func() { redises = originalRedises }()
+
+	redises = []*redis.Client{}
+
+	// Should panic when slice is empty
+	assert.Panics(t, func() {
+		GetRedis()
 	})
+}
+
+func TestGetRedis_BoundaryConditions(t *testing.T) {
+	// Save original redises
+	originalRedises := redises
+	defer func() { redises = originalRedises }()
+
+	t.Run("exact boundary index", func(t *testing.T) {
+		redises = []*redis.Client{nil, nil, nil}
+		// Index 2 is valid (length 3)
+		client := GetRedis(2)
+		assert.Nil(t, client)
+	})
+
+	t.Run("just beyond boundary", func(t *testing.T) {
+		redises = []*redis.Client{nil, nil, nil}
+		// Index 3 is invalid (length 3)
+		assert.Panics(t, func() {
+			GetRedis(3)
+		})
+	})
+}
+
+func TestRedisesGlobalVariable(t *testing.T) {
+	// Verify that redises is accessible and modifiable for testing
+	originalRedises := redises
+	defer func() { redises = originalRedises }()
+
+	// Modify the global variable
+	redises = []*redis.Client{nil, nil}
+
+	// Verify it was modified
+	assert.Len(t, redises, 2)
 }

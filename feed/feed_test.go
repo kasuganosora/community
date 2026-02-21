@@ -14,14 +14,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestRedis creates a Redis client for testing
-// Uses real Redis if available, skips otherwise
-func newTestRedis(t *testing.T) *redis.Client {
-	redisClient := testutil.SetupRealRedisTest(t)
-	if redisClient == nil {
-		return nil
-	}
-	return redisClient.Client
+// setupRedisTest creates a Redis test client using the test framework
+// Returns the RedisTestClient which handles cleanup automatically
+func setupRedisTest(t *testing.T) *testutil.RedisTestClient {
+	return testutil.SetupRealRedisTest(t)
 }
 
 // TestMockTimeline implements Timeline interface for testing (using different name to avoid conflicts)
@@ -113,11 +109,8 @@ func TestListParam_GetRedisRangeOffsetCount(t *testing.T) {
 }
 
 func TestRedisTimelineOperations(t *testing.T) {
-	client := newTestRedis(t)
-	if client == nil {
-		return
-	}
-	defer client.Close()
+	redisTest := setupRedisTest(t)
+	client := redisTest.Client
 
 	ctx := context.Background()
 
@@ -183,11 +176,8 @@ func TestRedisTimelineOperations(t *testing.T) {
 }
 
 func TestPubSub(t *testing.T) {
-	client := newTestRedis(t)
-	if client == nil {
-		return
-	}
-	defer client.Close()
+	redisTest := setupRedisTest(t)
+	client := redisTest.Client
 
 	ctx := context.Background()
 
@@ -226,11 +216,8 @@ func TestGetRedisChannelName(t *testing.T) {
 }
 
 func TestCleanFeeds(t *testing.T) {
-	client := newTestRedis(t)
-	if client == nil {
-		return
-	}
-	defer client.Close()
+	redisTest := setupRedisTest(t)
+	client := redisTest.Client
 
 	ctx := context.Background()
 

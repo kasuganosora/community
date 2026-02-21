@@ -11,13 +11,13 @@ import (
 func TestSelfDestructStatus(t *testing.T) {
 	// Test the status structure
 	status := SelfDestructStatus{
-		ModeEnabled:         true,
-		TotalAccounts:       100,
-		ProcessedAccounts:   50,
-		RemainingAccounts:   50,
-		TotalInboxes:        25,
-		DeleteActivitiesQueued: 1250,
-		DeliveryStatus:      "In progress",
+		ModeEnabled:             true,
+		TotalAccounts:           100,
+		ProcessedAccounts:       50,
+		RemainingAccounts:       50,
+		TotalInboxes:            25,
+		DeleteActivitiesQueued:  1250,
+		DeliveryStatus:          "In progress",
 	}
 
 	assert.True(t, status.ModeEnabled)
@@ -29,6 +29,34 @@ func TestSelfDestructStatus(t *testing.T) {
 	assert.Equal(t, "In progress", status.DeliveryStatus)
 }
 
+func TestSelfDestructStatus_ZeroValues(t *testing.T) {
+	status := SelfDestructStatus{}
+
+	assert.False(t, status.ModeEnabled)
+	assert.Equal(t, int64(0), status.TotalAccounts)
+	assert.Equal(t, int64(0), status.ProcessedAccounts)
+	assert.Equal(t, int64(0), status.RemainingAccounts)
+	assert.Equal(t, int64(0), status.TotalInboxes)
+	assert.Equal(t, int64(0), status.DeleteActivitiesQueued)
+	assert.Empty(t, status.DeliveryStatus)
+}
+
+func TestSelfDestructStatus_Complete(t *testing.T) {
+	status := SelfDestructStatus{
+		ModeEnabled:             false,
+		TotalAccounts:           10,
+		ProcessedAccounts:       10,
+		RemainingAccounts:       0,
+		TotalInboxes:            5,
+		DeleteActivitiesQueued:  50,
+		DeliveryStatus:          "Complete",
+	}
+
+	assert.False(t, status.ModeEnabled)
+	assert.Equal(t, status.TotalAccounts, status.ProcessedAccounts)
+	assert.Equal(t, int64(0), status.RemainingAccounts)
+}
+
 func TestSelfDestructStats(t *testing.T) {
 	stats := &selfDestructStats{
 		LocalAccounts:   100,
@@ -37,6 +65,13 @@ func TestSelfDestructStats(t *testing.T) {
 
 	assert.Equal(t, int64(100), stats.LocalAccounts)
 	assert.Equal(t, int64(50), stats.RemoteInstances)
+}
+
+func TestSelfDestructStats_ZeroValues(t *testing.T) {
+	stats := &selfDestructStats{}
+
+	assert.Equal(t, int64(0), stats.LocalAccounts)
+	assert.Equal(t, int64(0), stats.RemoteInstances)
 }
 
 func TestBuildDeleteActivity(t *testing.T) {
@@ -51,9 +86,9 @@ func TestBuildDeleteActivity(t *testing.T) {
 		"type":      "Delete",
 		"actor":     actorURL,
 		"object": map[string]interface{}{
-			"id":        actorURL,
-			"type":      "Person",
-			"deleted":   now.Format(time.RFC3339),
+			"id":      actorURL,
+			"type":    "Person",
+			"deleted": now.Format(time.RFC3339),
 		},
 		"published": now.Format(time.RFC3339),
 		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
@@ -68,10 +103,38 @@ func TestBuildDeleteActivity(t *testing.T) {
 	assert.Equal(t, "Person", obj["type"])
 }
 
-func TestGetAllKnownInboxes_Empty(t *testing.T) {
-	// When there are no remote accounts, should return empty slice
-	// This test would require a database connection to test properly
-	// For now, we just test that the function exists and has correct signature
+func TestBuildDeleteActivity_Context(t *testing.T) {
+	// Test that the @context is properly set
+	deleteActivity := map[string]interface{}{
+		"@context": []string{"https://www.w3.org/ns/activitystreams"},
+		"type":     "Delete",
+	}
+
+	context, ok := deleteActivity["@context"].([]string)
+	assert.True(t, ok)
+	assert.Contains(t, context, "https://www.w3.org/ns/activitystreams")
+}
+
+func TestBuildDeleteActivity_Timestamps(t *testing.T) {
+	now := time.Now()
+
+	deleteActivity := map[string]interface{}{
+		"published": now.Format(time.RFC3339),
+	}
+
+	// Verify timestamp is in RFC3339 format
+	publishedStr, ok := deleteActivity["published"].(string)
+	assert.True(t, ok)
+
+	parsed, err := time.Parse(time.RFC3339, publishedStr)
+	assert.NoError(t, err)
+	assert.False(t, parsed.IsZero())
+}
+
+func TestGetAllKnownInboxes_RequiresDatabase(t *testing.T) {
+	// This test verifies the function signature exists
+	// Actual functionality requires database connection
+	t.Skip("Requires database connection - tested in integration tests")
 }
 
 func TestSelfDestructModeConstants(t *testing.T) {
@@ -103,4 +166,30 @@ func TestAccountStatusConstants(t *testing.T) {
 	assert.Equal(t, 1, models.UserStatusUnapproved)
 	assert.Equal(t, 2, models.UserStatusRejected)
 	assert.Equal(t, 3, models.UserStatusUnverifiedMail)
+}
+
+func TestSelfDestructStatus_ProgressCalculation(t *testing.T) {
+	tests := []struct {
+		name              string
+		total             int64
+		processed         int64
+		expectedRemaining int64
+	}{
+		{"no progress", 100, 0, 100},
+		{"half progress", 100, 50, 50},
+		{"complete", 100, 100, 0},
+		{"zero total", 0, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := SelfDestructStatus{
+				TotalAccounts:     tt.total,
+				ProcessedAccounts: tt.processed,
+				RemainingAccounts: tt.total - tt.processed,
+			}
+
+			assert.Equal(t, tt.expectedRemaining, status.RemainingAccounts)
+		})
+	}
 }

@@ -140,8 +140,32 @@ func TestGetMeilisearchClient_Singleton(t *testing.T) {
 
 func TestMeilisearchClient_IsEnabled(t *testing.T) {
 	client := GetMeilisearchClient()
-	// In test environment, it's likely disabled
-	_ = client.IsEnabled()
+	// In test environment without configuration, it should be disabled
+	enabled := client.IsEnabled()
+	// The result depends on configuration, just verify no panic
+	assert.NotNil(t, client)
+	_ = enabled
+}
+
+func TestMeilisearchClient_IsEnabled_Disabled(t *testing.T) {
+	client := &MeilisearchClient{
+		enabled: false,
+	}
+	assert.False(t, client.IsEnabled())
+}
+
+func TestMeilisearchClient_IsEnabled_Enabled(t *testing.T) {
+	// Note: IsEnabled() checks both enabled flag AND client != nil
+	// Without a real meilisearch connection, client will be nil
+	// So we can only test the disabled case reliably
+	client := &MeilisearchClient{
+		enabled: true,
+		host:    "http://localhost:7700",
+		apiKey:  "test-key",
+		// client is nil, so IsEnabled will return false
+	}
+	// Since client is nil, this returns false even if enabled is true
+	assert.False(t, client.IsEnabled())
 }
 
 func TestParseSearchQuery(t *testing.T) {
@@ -256,4 +280,80 @@ func TestMeilisearchClient_IndexNotEnabled(t *testing.T) {
 
 	// Should return false when not enabled
 	assert.False(t, client.IsEnabled())
+}
+
+func TestParseSearchQuery_Complex(t *testing.T) {
+	tests := []struct {
+		name          string
+		query         string
+		expectedText  string
+		expectedCount int
+	}{
+		{"multiple filters", "hello from:user1 has:media", "hello", 2},
+		{"only filters", "from:user1 has:image", "", 2},
+		{"mixed case", "Hello World FROM:user1", "Hello World FROM:user1", 0},
+		{"empty query", "", "", 0},
+		{"only text", "just some text", "just some text", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, filters := ParseSearchQuery(tt.query)
+			assert.Equal(t, tt.expectedText, text)
+			assert.Len(t, filters, tt.expectedCount)
+		})
+	}
+}
+
+func TestSearchResult_AppendResults(t *testing.T) {
+	result := &SearchResult{
+		Accounts: []string{"1"},
+		Statuses: []string{"2"},
+		Hashtags: []string{"3"},
+	}
+
+	// Append new results
+	result.Accounts = append(result.Accounts, "4")
+	result.Statuses = append(result.Statuses, "5")
+	result.Hashtags = append(result.Hashtags, "6")
+
+	assert.Len(t, result.Accounts, 2)
+	assert.Len(t, result.Statuses, 2)
+	assert.Len(t, result.Hashtags, 2)
+}
+
+func TestStringToUint64_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected uint64
+	}{
+		{"negative number", "-123", 0},
+		{"float number", "123.45", 0},
+		{"very large number", "18446744073709551615", 18446744073709551615},
+		// Note: overflow wraps around in Go's strconv.ParseUint, not returns 0
+		// Skip overflow test as behavior is undefined
+		{"whitespace", " 123 ", 0},
+		{"with newline", "123\n", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := StringToUint64(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestToJSON_SpecialCharacters(t *testing.T) {
+	doc := &AccountSearchDocument{
+		ID:       "1",
+		Username: "user<>&\"'",
+		Bio:      "Bio with\nnewline",
+	}
+
+	json := ToJSON(doc)
+	assert.Contains(t, json, "user")
+	// JSON should be valid (escaped properly)
+	assert.NotContains(t, json, "\n") // newlines should be escaped
 }

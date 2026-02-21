@@ -9,28 +9,29 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// newTestCache creates a Cache instance for testing
-// Uses real Redis if available, skips test otherwise
-func newTestCache(t *testing.T) *Cache {
-	// Use auto mode: real Redis if available, skip if not
-	redisClient := testutil.SetupRealRedisTest(t)
-	if redisClient == nil {
-		return nil
-	}
+// testCache holds test cache setup
+type testCache struct {
+	cache       *Cache
+	redisClient *testutil.RedisTestClient
+}
 
-	return &Cache{
-		client: redisClient.Client,
-		prefix: "test:",
+// setupTestCache creates a Cache instance for testing using the test framework
+// Uses real Redis if available, skips test otherwise
+func setupTestCache(t *testing.T) *testCache {
+	redisClient := testutil.SetupRealRedisTest(t)
+
+	return &testCache{
+		cache: &Cache{
+			client: redisClient.Client,
+			prefix: "test:",
+		},
+		redisClient: redisClient,
 	}
 }
 
 func TestCache_SetAndGet(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	type TestData struct {
@@ -58,12 +59,8 @@ func TestCache_SetAndGet(t *testing.T) {
 }
 
 func TestCache_SetAndGetString(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Set and Get string", func(t *testing.T) {
@@ -77,12 +74,8 @@ func TestCache_SetAndGetString(t *testing.T) {
 }
 
 func TestCache_Delete(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Delete single key", func(t *testing.T) {
@@ -117,12 +110,8 @@ func TestCache_Delete(t *testing.T) {
 }
 
 func TestCache_DeleteByPattern(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Delete by pattern", func(t *testing.T) {
@@ -144,12 +133,8 @@ func TestCache_DeleteByPattern(t *testing.T) {
 }
 
 func TestCache_Exists(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Key exists", func(t *testing.T) {
@@ -167,12 +152,8 @@ func TestCache_Exists(t *testing.T) {
 }
 
 func TestCache_ExpireAndTTL(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Expire and TTL", func(t *testing.T) {
@@ -189,12 +170,8 @@ func TestCache_ExpireAndTTL(t *testing.T) {
 }
 
 func TestCache_IncrementDecrement(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("Increment", func(t *testing.T) {
@@ -226,12 +203,8 @@ func TestCache_IncrementDecrement(t *testing.T) {
 }
 
 func TestCache_Hash(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("HSet and HGet", func(t *testing.T) {
@@ -270,12 +243,8 @@ func TestCache_Hash(t *testing.T) {
 }
 
 func TestCache_List(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("LPush and LRange", func(t *testing.T) {
@@ -306,12 +275,8 @@ func TestCache_List(t *testing.T) {
 }
 
 func TestCache_SetOperations(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("SAdd and SMembers", func(t *testing.T) {
@@ -340,12 +305,8 @@ func TestCache_SetOperations(t *testing.T) {
 }
 
 func TestCache_SortedSet(t *testing.T) {
-	c := newTestCache(t)
-	if c == nil {
-		return
-	}
-	defer c.client.Close()
-
+	tc := setupTestCache(t)
+	c := tc.cache
 	ctx := context.Background()
 
 	t.Run("ZAdd and ZRange", func(t *testing.T) {

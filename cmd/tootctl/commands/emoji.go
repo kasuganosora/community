@@ -2,6 +2,7 @@ package commands
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -294,10 +295,18 @@ func importEmoji(c *cli.Context) error {
 			}
 		}
 
-		// Save to storage
-		if _, err := storage.Save(shortcode+ext, data); err != nil {
-			fmt.Printf("Warning: failed to save %s: %v\n", shortcode, err)
-			continue
+		// Save to storage (support both local and cloud storage)
+		objectKey := shortcode + ext
+		if cloudStorage := storage.GetStorage(); cloudStorage.IsEnabled() {
+			if _, err := cloudStorage.UploadReader(bytes.NewReader(data), objectKey, int64(len(data))); err != nil {
+				fmt.Printf("Warning: failed to save %s to cloud: %v\n", shortcode, err)
+				continue
+			}
+		} else {
+			if _, err := storage.Save(objectKey, data); err != nil {
+				fmt.Printf("Warning: failed to save %s: %v\n", shortcode, err)
+				continue
+			}
 		}
 
 		imported++
