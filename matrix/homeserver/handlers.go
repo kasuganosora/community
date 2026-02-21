@@ -21,9 +21,21 @@ func RegisterRoutes(r gin.IRouter) {
 		return
 	}
 	
-	// 服务器发现
-	r.GET("/.well-known/matrix/server", handleWellKnownServer)
-	r.GET("/.well-known/matrix/client", handleWellKnownClient)
+	// 服务器发现 (在 wellknown.go 中定义)
+	// r.GET("/.well-known/matrix/server", handleWellKnownServer)
+	// r.GET("/.well-known/matrix/client", handleWellKnownClient)
+	
+	// 注册 WellKnown 路由
+	RegisterWellKnownRoutes(r)
+	
+	// 注册 3PID 路由
+	RegisterThreePIDRoutes(r)
+	
+	// 注册管理员路由
+	RegisterAdminRoutes(r)
+	
+	// 注册 OpenID 路由
+	RegisterOpenIDRoutes(r)
 	
 	// 版本信息
 	r.GET("/_matrix/client/versions", handleVersions)
@@ -274,22 +286,7 @@ func getUserID(c *gin.Context) string {
 }
 
 // ===== 服务器发现 =====
-
-func handleWellKnownServer(c *gin.Context) {
-	hs := GetHomeServer()
-	c.JSON(http.StatusOK, gin.H{
-		"m.server": hs.Config.ServerName + ":8448",
-	})
-}
-
-func handleWellKnownClient(c *gin.Context) {
-	hs := GetHomeServer()
-	c.JSON(http.StatusOK, gin.H{
-		"m.homeserver": gin.H{
-			"base_url": hs.Config.BaseURL,
-		},
-	})
-}
+// 在 wellknown.go 中定义
 
 // handleFederationVersion 在 federation.go 中定义
 
@@ -1582,50 +1579,7 @@ func handleGetThirdPartyLocation(c *gin.Context) {
 }
 
 // ===== OpenID API =====
-
-// RequestOpenIDToken 请求 OpenID Token
-func handleRequestOpenIDToken(c *gin.Context) {
-	userID := getUserID(c)
-	_ = userID
-	
-	// 生成 OpenID Token
-	token := "openid_" + generateAccessToken()
-	
-	c.JSON(http.StatusOK, gin.H{
-		"access_token":      token,
-		"token_type":        "Bearer",
-		"matrix_server_name": GetHomeServer().Config.ServerName,
-		"expires_in":        3600,
-	})
-}
-
-// GetOpenIDUserInfo 获取 OpenID 用户信息
-func handleGetOpenIDUserInfo(c *gin.Context) {
-	// 验证 access_token
-	token := c.GetHeader("Authorization")
-	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"errcode": "M_MISSING_TOKEN",
-			"error":   "Missing access token",
-		})
-		return
-	}
-	
-	// 验证 OpenID Token
-	var session MatrixUserSession
-	err := db.GetDB().Where("access_token = ?", token).First(&session).Error
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"errcode": "M_UNKNOWN_TOKEN",
-			"error":   "Unknown token",
-		})
-		return
-	}
-	
-	c.JSON(http.StatusOK, gin.H{
-		"sub": session.UserID,
-	})
-}
+// 在 openid.go 中定义
 
 // ===== 删除群组 API =====
 

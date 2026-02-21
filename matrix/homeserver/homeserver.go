@@ -29,6 +29,11 @@ type HomeServer struct {
 	DeviceList     *DeviceListService     // 设备列表服务
 	BatchSend      *BatchSendService      // 批量发送服务
 	AsyncMedia     *AsyncMediaService     // 异步媒体服务
+	OpenID         *OpenIDService         // OpenID 服务
+	ThreePID       *ThreePIDService       // 3PID 服务
+	Admin          *AdminService          // 管理员服务
+	UserSearch     *UserSearchService     // 用户搜索服务
+	WellKnown      *WellKnownService      // Well-Known 服务
 	SyncNotifier   *SyncNotifier          // 同步通知器
 	privateKey     ed25519.PrivateKey     // 联邦签名密钥
 	publicKey      ed25519.PublicKey      // 联邦验证密钥
@@ -91,6 +96,11 @@ func InitHomeServer() error {
 	hs.BatchSend = NewBatchSendService(hs)
 	hs.AsyncMedia = NewAsyncMediaService(hs)
 	hs.SyncNotifier = NewSyncNotifier()
+	hs.OpenID = NewOpenIDService(hs)
+	hs.ThreePID = NewThreePIDService(hs)
+	hs.Admin = NewAdminService(hs)
+	hs.UserSearch = NewUserSearchService(hs)
+	hs.WellKnown = NewWellKnownService(hs)
 
 	GlobalHS = hs
 
@@ -156,6 +166,9 @@ func autoMigrate() error {
 		&DeviceListStream{},
 		&AsyncMediaInfo{},
 		&PasswordResetToken{},
+		&OpenIDToken{},
+		&ThreePID{},
+		&ThreePIDToken{},
 	)
 }
 

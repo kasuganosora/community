@@ -18,9 +18,17 @@ type SearchService struct {
 	hs *HomeServer
 }
 
+// UserSearchService 用户搜索服务（SearchService 的别名）
+type UserSearchService = SearchService
+
 // NewSearchService 创建搜索服务
 func NewSearchService(hs *HomeServer) *SearchService {
 	return &SearchService{hs: hs}
+}
+
+// NewUserSearchService 创建用户搜索服务
+func NewUserSearchService(hs *HomeServer) *UserSearchService {
+	return NewSearchService(hs)
 }
 
 // MatrixSearchResult Matrix 搜索结果
