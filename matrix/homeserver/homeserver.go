@@ -18,6 +18,9 @@ type HomeServer struct {
 	Event      *EventService
 	Sync       *SyncService
 	KeyStore   *KeyStore          // E2EE 密钥存储
+	Relations  *RelationsService  // 事件关系服务
+	Push       *PushService       // 推送通知服务
+	Spaces     *SpacesService     // Matrix Spaces 服务
 	SyncNotifier *SyncNotifier    // 同步通知器
 	privateKey ed25519.PrivateKey // 联邦签名密钥
 	publicKey  ed25519.PublicKey  // 联邦验证密钥
@@ -68,6 +71,9 @@ func InitHomeServer() error {
 	hs.Event = NewEventService(hs)
 	hs.Sync = NewSyncService(hs)
 	hs.KeyStore = NewKeyStore(hs)
+	hs.Relations = NewRelationsService(hs)
+	hs.Push = NewPushService(hs)
+	hs.Spaces = NewSpacesService(hs)
 	hs.SyncNotifier = NewSyncNotifier()
 
 	GlobalHS = hs
@@ -124,6 +130,9 @@ func autoMigrate() error {
 		&MatrixKeyBackupRecovery{},
 		&MatrixSSSSSecret{},
 		&MatrixSSSSDefaultKey{},
+		&EventRelation{},
+		&Pusher{},
+		&PushRule{},
 	)
 }
 

@@ -1476,27 +1476,61 @@ func handleGetCapabilities(c *gin.Context) {
 
 // GetPushers 获取推送器列表
 func handleGetPushers(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"pushers": []interface{}{},
-	})
+	hs := GetHomeServer()
+	userID := c.GetString("user_id")
+
+	pushers, err := hs.Push.GetPushers(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_INTERNAL_ERROR",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"pushers": pushers})
 }
 
 // SetPusher 设置推送器
 func handleSetPusher(c *gin.Context) {
+	hs := GetHomeServer()
+	userID := c.GetString("user_id")
+
+	var pusher Pusher
+	if err := c.ShouldBindJSON(&pusher); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"errcode": "M_BAD_JSON",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	if err := hs.Push.SetPusher(userID, &pusher); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_INTERNAL_ERROR",
+			"error":   err.Error(),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 // GetPushRules 获取推送规则
 func handleGetPushRules(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"global": gin.H{
-			"content":   []interface{}{},
-			"override":  []interface{}{},
-			"room":      []interface{}{},
-			"sender":    []interface{}{},
-			"underride": []interface{}{},
-		},
-	})
+	hs := GetHomeServer()
+	userID := c.GetString("user_id")
+
+	rules, err := hs.Push.GetPushRules(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_INTERNAL_ERROR",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, rules)
 }
 
 // GetPushRulesGlobal 获取全局推送规则

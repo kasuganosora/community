@@ -128,6 +128,22 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 		return nil, ErrInternal
 	}
 	
+	// 存储事件关系（异步）
+	go func() {
+		if e.HS.Relations != nil {
+			e.HS.Relations.StoreRelation(event)
+		}
+	}()
+
+	// 触发推送通知（异步）
+	go func() {
+		if e.HS.Push != nil {
+			var room MatrixRoom
+			db.GetDB().Where("room_id = ?", roomID).First(&room)
+			e.HS.Push.NotifyEvent(event, &room)
+		}
+	}()
+	
 	return &SendMessageResponse{EventID: eventID}, nil
 }
 
