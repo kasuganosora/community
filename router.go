@@ -566,6 +566,14 @@ func SetRouter(app gin.IRouter) {
 	homeserver.RegisterPushRoutes(app)
 	// 注册 Spaces API
 	homeserver.RegisterSpacesRoutes(app)
+	// 注册应用服务 API
+	homeserver.RegisterAppServiceRoutes(app)
+	// 注册房间升级 API
+	homeserver.RegisterRoomUpgradeRoutes(app)
+	// 注册密钥共享 API
+	homeserver.RegisterKeySharingRoutes(app)
+	// 注册设备列表联邦 API
+	homeserver.RegisterDeviceListRoutes(app)
 
 	// Matrix 管理 API（需要管理员权限）
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).

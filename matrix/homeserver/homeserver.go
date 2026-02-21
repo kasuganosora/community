@@ -12,19 +12,24 @@ import (
 
 // HomeServer Matrix Homeserver
 type HomeServer struct {
-	Config     *HSConfig
-	Auth       *AuthService
-	Room       *RoomService
-	Event      *EventService
-	Sync       *SyncService
-	KeyStore   *KeyStore          // E2EE 密钥存储
-	Relations  *RelationsService  // 事件关系服务
-	Push       *PushService       // 推送通知服务
-	Spaces     *SpacesService     // Matrix Spaces 服务
-	SyncNotifier *SyncNotifier    // 同步通知器
-	privateKey ed25519.PrivateKey // 联邦签名密钥
-	publicKey  ed25519.PublicKey  // 联邦验证密钥
-	keyID      string             // 密钥标识
+	Config         *HSConfig
+	Auth           *AuthService
+	Room           *RoomService
+	Event          *EventService
+	Sync           *SyncService
+	KeyStore       *KeyStore              // E2EE 密钥存储
+	KeyBackup      *KeyBackupManager      // 密钥备份服务
+	Relations      *RelationsService      // 事件关系服务
+	Push           *PushService           // 推送通知服务
+	Spaces         *SpacesService         // Matrix Spaces 服务
+	AppService     *AppServiceService     // 应用服务
+	RoomUpgrade    *RoomUpgradeService    // 房间升级服务
+	KeySharing     *KeySharingService     // 密钥共享服务
+	DeviceList     *DeviceListService     // 设备列表服务
+	SyncNotifier   *SyncNotifier         // 同步通知器
+	privateKey     ed25519.PrivateKey    // 联邦签名密钥
+	publicKey      ed25519.PublicKey     // 联邦验证密钥
+	keyID          string                // 密钥标识
 }
 
 // HSConfig Homeserver 配置
@@ -71,9 +76,14 @@ func InitHomeServer() error {
 	hs.Event = NewEventService(hs)
 	hs.Sync = NewSyncService(hs)
 	hs.KeyStore = NewKeyStore(hs)
+	hs.KeyBackup = NewKeyBackupManager(hs)
 	hs.Relations = NewRelationsService(hs)
 	hs.Push = NewPushService(hs)
 	hs.Spaces = NewSpacesService(hs)
+	hs.AppService = NewAppServiceService(hs)
+	hs.RoomUpgrade = NewRoomUpgradeService(hs)
+	hs.KeySharing = NewKeySharingService(hs)
+	hs.DeviceList = NewDeviceListService(hs)
 	hs.SyncNotifier = NewSyncNotifier()
 
 	GlobalHS = hs
@@ -133,6 +143,12 @@ func autoMigrate() error {
 		&EventRelation{},
 		&Pusher{},
 		&PushRule{},
+		&AppService{},
+		&MatrixRoomUpgrade{},
+		&MatrixRoomAlias{},
+		&RoomKeyRequest{},
+		&DeviceListChange{},
+		&DeviceListStream{},
 	)
 }
 
