@@ -574,6 +574,12 @@ func SetRouter(app gin.IRouter) {
 	homeserver.RegisterKeySharingRoutes(app)
 	// 注册设备列表联邦 API
 	homeserver.RegisterDeviceListRoutes(app)
+	// 注册批量发送 API (MSC2716)
+	homeserver.RegisterBatchSendRoutes(app)
+	// 注册异步媒体 API (MSC2246)
+	homeserver.RegisterAsyncMediaRoutes(app)
+	// 注册账户管理 API
+	homeserver.RegisterAccountRoutes(app)
 
 	// Matrix 管理 API（需要管理员权限）
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).

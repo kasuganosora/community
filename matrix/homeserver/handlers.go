@@ -423,13 +423,7 @@ func handleUsernameAvailable(c *gin.Context) {
 	})
 }
 
-func handleWhoami(c *gin.Context) {
-	userID := getUserID(c)
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":   userID,
-		"device_id": "DEVICE",
-	})
-}
+// handleWhoami 在 account.go 中已实现
 
 func handleAccount(c *gin.Context) {
 	userID := getUserID(c)
@@ -1015,91 +1009,8 @@ func handleGetJoinedRooms(c *gin.Context) {
 
 // ===== 账户数据 =====
 
-func handleGetAccountData(c *gin.Context) {
-	userID := c.Param("userId")
-	dataType := c.Param("type")
-	currentUserID := getUserID(c)
-	
-	// 只能访问自己的账户数据
-	if userID != currentUserID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
-			"error":   "Cannot access another user's account data",
-		})
-		return
-	}
-	
-	// 查询账户数据
-	var accountData MatrixAccountData
-	err := db.GetDB().Where("user_id = ? AND data_type = ?", userID, dataType).First(&accountData).Error
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Account data not found",
-		})
-		return
-	}
-	
-	// 返回存储的内容（Content 已经是 map）
-	c.JSON(http.StatusOK, accountData.Content)
-}
-
-func handleSetAccountData(c *gin.Context) {
-	userID := c.Param("userId")
-	dataType := c.Param("type")
-	currentUserID := getUserID(c)
-	
-	// 只能设置自己的账户数据
-	if userID != currentUserID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
-			"error":   "Cannot set another user's account data",
-		})
-		return
-	}
-	
-	// 解析请求体
-	var content map[string]interface{}
-	if err := c.ShouldBindJSON(&content); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-		return
-	}
-	
-	// 保存或更新账户数据
-	var accountData MatrixAccountData
-	err := db.GetDB().Where("user_id = ? AND data_type = ?", userID, dataType).First(&accountData).Error
-	if err != nil {
-		// 创建新的
-		accountData = MatrixAccountData{
-			UserID:   userID,
-			DataType: dataType,
-			Content:  content,
-		}
-		db.GetDB().Create(&accountData)
-	} else {
-		// 更新现有的
-		db.GetDB().Model(&accountData).Update("content", content)
-	}
-	
-	c.JSON(http.StatusOK, gin.H{})
-}
-
-func handleGetRoomAccountData(c *gin.Context) {
-	_ = c.Param("userId")    // userID
-	_ = c.Param("roomId")    // roomID
-	_ = c.Param("type")      // dataType
-	c.JSON(http.StatusNotFound, gin.H{
-		"errcode": "M_NOT_FOUND",
-		"error":   "Account data not found",
-	})
-}
-
-func handleSetRoomAccountData(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
-}
+// handleGetAccountData, handleSetAccountData, handleGetRoomAccountData, handleSetRoomAccountData
+// 这些函数已在 account.go 中实现
 
 // ===== 设备管理 =====
 

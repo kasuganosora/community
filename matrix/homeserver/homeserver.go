@@ -17,6 +17,7 @@ type HomeServer struct {
 	Room           *RoomService
 	Event          *EventService
 	Sync           *SyncService
+	Account        *AccountService        // 账户服务
 	KeyStore       *KeyStore              // E2EE 密钥存储
 	KeyBackup      *KeyBackupManager      // 密钥备份服务
 	Relations      *RelationsService      // 事件关系服务
@@ -26,10 +27,12 @@ type HomeServer struct {
 	RoomUpgrade    *RoomUpgradeService    // 房间升级服务
 	KeySharing     *KeySharingService     // 密钥共享服务
 	DeviceList     *DeviceListService     // 设备列表服务
-	SyncNotifier   *SyncNotifier         // 同步通知器
-	privateKey     ed25519.PrivateKey    // 联邦签名密钥
-	publicKey      ed25519.PublicKey     // 联邦验证密钥
-	keyID          string                // 密钥标识
+	BatchSend      *BatchSendService      // 批量发送服务
+	AsyncMedia     *AsyncMediaService     // 异步媒体服务
+	SyncNotifier   *SyncNotifier          // 同步通知器
+	privateKey     ed25519.PrivateKey     // 联邦签名密钥
+	publicKey      ed25519.PublicKey      // 联邦验证密钥
+	keyID          string                 // 密钥标识
 }
 
 // HSConfig Homeserver 配置
@@ -75,6 +78,7 @@ func InitHomeServer() error {
 	hs.Room = NewRoomService(hs)
 	hs.Event = NewEventService(hs)
 	hs.Sync = NewSyncService(hs)
+	hs.Account = NewAccountService(hs)
 	hs.KeyStore = NewKeyStore(hs)
 	hs.KeyBackup = NewKeyBackupManager(hs)
 	hs.Relations = NewRelationsService(hs)
@@ -84,6 +88,8 @@ func InitHomeServer() error {
 	hs.RoomUpgrade = NewRoomUpgradeService(hs)
 	hs.KeySharing = NewKeySharingService(hs)
 	hs.DeviceList = NewDeviceListService(hs)
+	hs.BatchSend = NewBatchSendService(hs)
+	hs.AsyncMedia = NewAsyncMediaService(hs)
 	hs.SyncNotifier = NewSyncNotifier()
 
 	GlobalHS = hs
@@ -145,10 +151,11 @@ func autoMigrate() error {
 		&PushRule{},
 		&AppService{},
 		&MatrixRoomUpgrade{},
-		&MatrixRoomAlias{},
 		&RoomKeyRequest{},
 		&DeviceListChange{},
 		&DeviceListStream{},
+		&AsyncMediaInfo{},
+		&PasswordResetToken{},
 	)
 }
 
