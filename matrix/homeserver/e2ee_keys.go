@@ -103,6 +103,7 @@ type CrossSigningKey struct {
 	Usage       []string          `json:"usage"` // master, self_signing, user_signing
 	Keys        map[string]string `json:"keys"`
 	Signatures  map[string]map[string]string `json:"signatures"`
+	PrivateKey  *memguard.Enclave `json:"-"` // 仅在内存中，不序列化
 }
 
 // loadOrGenerateMasterKey 加载或生成主密钥

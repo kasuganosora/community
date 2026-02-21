@@ -558,6 +558,8 @@ func SetRouter(app gin.IRouter) {
 	// 注册额外的联邦路由（Backfill 等）
 	homeserver.RegisterBackfillRoutes(app)
 	homeserver.RegisterAdditionalFederationRoutes(app)
+	// 注册联邦 E2EE 路由（密钥查询、认领、To-Device 消息）
+	homeserver.RegisterFederationE2EERoutes(app)
 
 	// Matrix 管理 API（需要管理员权限）
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).

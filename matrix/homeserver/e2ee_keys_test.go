@@ -146,23 +146,42 @@ func TestClaimKeysRequestSerialization(t *testing.T) {
 	}
 }
 
-func TestCryptoManager(t *testing.T) {
-	// 注意：这些测试不依赖数据库
-	cm := &CryptoManager{}
-	
-	// 测试加密（简化实现直接返回）
-	content := map[string]interface{}{
-		"msgtype": "m.text",
-		"body":    "Hello",
-	}
-	
-	result, err := cm.EncryptMessage("!room:example.com", content, "@test:example.com")
+func TestOlmAccount(t *testing.T) {
+	// 测试 Olm 账户创建
+	account, err := NewOlmAccount()
 	if err != nil {
-		t.Fatalf("EncryptMessage failed: %v", err)
+		t.Fatalf("NewOlmAccount failed: %v", err)
 	}
 	
-	if result == nil {
-		t.Fatal("Result should not be nil")
+	if account == nil {
+		t.Fatal("Account should not be nil")
+	}
+	
+	if account.IdentityKey == nil {
+		t.Fatal("Identity key should not be nil")
+	}
+}
+
+func TestOlmOneTimeKeys(t *testing.T) {
+	account, err := NewOlmAccount()
+	if err != nil {
+		t.Fatalf("NewOlmAccount failed: %v", err)
+	}
+	
+	// 生成一次性密钥
+	err = account.GenerateOneTimeKeys(5)
+	if err != nil {
+		t.Fatalf("GenerateOneTimeKeys failed: %v", err)
+	}
+	
+	if len(account.OneTimeKeys) != 5 {
+		t.Errorf("Expected 5 OTKs, got %d", len(account.OneTimeKeys))
+	}
+	
+	// 测试获取未发布的密钥
+	unpublished := account.GetUnpublishedOneTimeKeys()
+	if len(unpublished) != 5 {
+		t.Errorf("Expected 5 unpublished OTKs, got %d", len(unpublished))
 	}
 }
 

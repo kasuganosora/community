@@ -17,6 +17,8 @@ type HomeServer struct {
 	Room       *RoomService
 	Event      *EventService
 	Sync       *SyncService
+	KeyStore   *KeyStore          // E2EE 密钥存储
+	SyncNotifier *SyncNotifier    // 同步通知器
 	privateKey ed25519.PrivateKey // 联邦签名密钥
 	publicKey  ed25519.PublicKey  // 联邦验证密钥
 	keyID      string             // 密钥标识
@@ -65,6 +67,8 @@ func InitHomeServer() error {
 	hs.Room = NewRoomService(hs)
 	hs.Event = NewEventService(hs)
 	hs.Sync = NewSyncService(hs)
+	hs.KeyStore = NewKeyStore(hs)
+	hs.SyncNotifier = NewSyncNotifier()
 
 	GlobalHS = hs
 
@@ -113,6 +117,13 @@ func autoMigrate() error {
 		&MatrixServerKey{},
 		&MatrixDeviceKey{},
 		&MatrixOneTimeKey{},
+		&MatrixCrossSigningKey{},
+		&MatrixFederationTxn{},
+		&MatrixKeyBackup{},
+		&MatrixKeyBackupSession{},
+		&MatrixKeyBackupRecovery{},
+		&MatrixSSSSSecret{},
+		&MatrixSSSSDefaultKey{},
 	)
 }
 
@@ -129,4 +140,49 @@ func GetHomeServer() *HomeServer {
 // IsEnabled 检查是否启用
 func IsEnabled() bool {
 	return GlobalHS != nil && GlobalHS.Config.Enabled
+}
+
+// NotifyToDeviceUpdate 通知用户有新的 To-Device 消息
+func (hs *HomeServer) NotifyToDeviceUpdate(userID, deviceID string) {
+	if hs.SyncNotifier != nil {
+		hs.SyncNotifier.Notify(userID, deviceID)
+	}
+}
+
+// SyncNotifier 同步通知器
+type SyncNotifier struct {
+	waiters map[string][]chan struct{}
+	mu      sync.RWMutex
+}
+
+// NewSyncNotifier 创建新的同步通知器
+func NewSyncNotifier() *SyncNotifier {
+	return &SyncNotifier{
+		waiters: make(map[string][]chan struct{}),
+	}
+}
+
+// Notify 通知特定用户的设备有新数据
+func (n *SyncNotifier) Notify(userID, deviceID string) {
+	key := userID + ":" + deviceID
+	n.mu.Lock()
+	waiters := n.waiters[key]
+	delete(n.waiters, key)
+	n.mu.Unlock()
+
+	for _, ch := range waiters {
+		close(ch)
+	}
+}
+
+// Wait 等待通知
+func (n *SyncNotifier) Wait(userID, deviceID string) <-chan struct{} {
+	key := userID + ":" + deviceID
+	ch := make(chan struct{})
+	
+	n.mu.Lock()
+	n.waiters[key] = append(n.waiters[key], ch)
+	n.mu.Unlock()
+	
+	return ch
 }
