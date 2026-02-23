@@ -316,13 +316,20 @@ func ActorProfile(c *gin.Context) {
 		}
 	}
 
-	// Add public key if available
-	// TODO: Get actual public key from user
-	// actor.PublicKey = &PublicKey{
-	// 	ID:           actorURL + "#main-key",
-	// 	Owner:        actorURL,
-	// 	PublicKeyPem: publicKeyPem,
-	// }
+	// Add public key if the account has one stored
+	var accountKey models.AccountKey
+	if err := db.GetDB().Where("account_id = ?", account.Id).First(&accountKey).Error; err == nil {
+		actor.PublicKey = &PublicKey{
+			ID:           actorURL + "#main-key",
+			Owner:        actorURL,
+			PublicKeyPem: accountKey.PublicKey,
+		}
+	}
+
+	// Bot/Service accounts use "Service" actor type
+	if account.Bot {
+		actor.Type = "Service"
+	}
 
 	// Add profile fields
 	if account.Extra != nil {

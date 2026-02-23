@@ -1,13 +1,16 @@
 package list
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"strconv"
 )
 
 type GetListAccountsRequest struct {
@@ -185,7 +188,26 @@ func AddAccountToList(c *gin.Context) {
 		return
 	}
 
+	// Trigger proxy follow for remote accounts that have no local followers
+	go ensureProxyFollowsForList(unExistAccountIds, list.Id)
+
 	c.Data(200, "application/json", nil)
+}
+
+// ensureProxyFollowsForList checks each account and triggers proxy follow if needed.
+func ensureProxyFollowsForList(accountIDs []uint64, listID uint64) {
+	proxyService := activitypub.NewProxyService()
+	for _, accountID := range accountIDs {
+		var acc models.Account
+		if err := db.GetDB().First(&acc, accountID).Error; err != nil {
+			continue
+		}
+		if acc.Domain != nil { // Remote account
+			if err := proxyService.EnsureProxyFollow(acc.Id, models.ProxyFollowReasonList, listID); err != nil {
+				log.Error("Failed to ensure proxy follow for account %d in list %d: %v", acc.Id, listID, err)
+			}
+		}
+	}
 }
 
 func RemoveAccountFromList(c *gin.Context) {
@@ -237,6 +259,20 @@ func RemoveAccountFromList(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
+
+	// Trigger proxy follow cleanup for remote accounts
+	go func() {
+		var acc models.Account
+		if err := db.GetDB().First(&acc, accountId).Error; err != nil {
+			return
+		}
+		if acc.Domain != nil {
+			proxyService := activitypub.NewProxyService()
+			if err := proxyService.CleanupProxyFollow(acc.Id, models.ProxyFollowReasonList, list.Id); err != nil {
+				log.Error("Failed to cleanup proxy follow for account %d in list %d: %v", acc.Id, list.Id, err)
+			}
+		}
+	}()
 
 	c.Data(200, "application/json", nil)
 }

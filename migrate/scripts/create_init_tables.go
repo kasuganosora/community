@@ -55,6 +55,8 @@ func (CreateInitTables) Up(db *gorm.DB) (err error) {
 		&models.Notification{},
 		&models.Report{},
 		&models.Marker{},
+		&models.ProxyFollow{},
+		&models.AccountKey{},
 	)
 }
 

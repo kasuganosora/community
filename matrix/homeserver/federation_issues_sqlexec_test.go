@@ -153,7 +153,8 @@ func TestFederationTimestampProblem(t *testing.T) {
 	t.Log("  for sync filtering and token generation.")
 }
 
-// TestFederatedEventsOutOfOrder 验证多个联邦事件乱序到达（修复后使用 created_at）
+// TestFederatedEventsOutOfOrder verifies that using created_at (local arrival time) for
+// sync filtering preserves out-of-order federated events, unlike origin_server_ts.
 func TestFederatedEventsOutOfOrder(t *testing.T) {
 	testDB, err := testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err)
@@ -165,10 +166,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 	roomID := "!test:local.server"
 	startTime := time.Now().UnixMilli()
 
-	t.Log("========== OUT-OF-ORDER FEDERATED EVENTS (FIXED) ==========")
-	t.Log("")
-
-	// 创建本地事件 A
+	// Create events with delays to ensure distinct created_at values
 	eventA := &MatrixEvent{
 		EventID:        "$A:local.server",
 		RoomID:         roomID,
@@ -178,110 +176,97 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 		OriginServerTS: startTime,
 		SenderDomain:   "local.server",
 	}
-	testDB.GormDB.Create(eventA)
-	
-	// 获取 A 的创建时间
-	var eventAFromDB MatrixEvent
-	testDB.GormDB.First(&eventAFromDB, "event_id = ?", "$A:local.server")
-	createdAtA := eventAFromDB.CreatedAt.UnixMilli()
-	
-	t.Logf("Created local event A: origin_ts=%d, created_at=%d", startTime, createdAtA)
+	require.NoError(t, testDB.GormDB.Create(eventA).Error)
 
-	// 创建多个联邦事件，模拟乱序到达
-	// 等待一下确保 created_at 不同
 	time.Sleep(10 * time.Millisecond)
-	
+
 	eventB := &MatrixEvent{
 		EventID:        "$B:remote.server",
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
 		Content:        map[string]interface{}{"body": "B"},
-		OriginServerTS: startTime + 100, // 远程创建时间
+		OriginServerTS: startTime + 100,
 		SenderDomain:   "remote.server",
 	}
-	testDB.GormDB.Create(eventB)
-	
+	require.NoError(t, testDB.GormDB.Create(eventB).Error)
+
 	time.Sleep(10 * time.Millisecond)
-	
+
 	eventD := &MatrixEvent{
 		EventID:        "$D:remote.server",
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
 		Content:        map[string]interface{}{"body": "D"},
-		OriginServerTS: startTime + 150, // 远程创建时间
+		OriginServerTS: startTime + 150,
 		SenderDomain:   "remote.server",
 	}
-	testDB.GormDB.Create(eventD)
-	
-	// 事件 C 延迟到达（created_at 最晚，但 origin_ts 最早）
+	require.NoError(t, testDB.GormDB.Create(eventD).Error)
+
+	// Event C arrives last (highest created_at) but has the earliest origin_server_ts
 	time.Sleep(10 * time.Millisecond)
-	
+
 	eventC := &MatrixEvent{
 		EventID:        "$C:remote.server",
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
 		Content:        map[string]interface{}{"body": "C"},
-		OriginServerTS: startTime + 50, // 最早创建，但最晚到达！
+		OriginServerTS: startTime + 50, // earliest origin_ts, but last to arrive
 		SenderDomain:   "remote.server",
 	}
-	testDB.GormDB.Create(eventC)
-	
-	// 获取所有事件的创建时间
-	var eventsFromDB []MatrixEvent
-	testDB.GormDB.Where("room_id = ?", roomID).Order("created_at ASC").Find(&eventsFromDB)
-	
-	t.Log("")
-	t.Log("Events in creation order (by created_at):")
-	for _, e := range eventsFromDB {
-		t.Logf("  %s: origin_ts=%d, created_at=%d", e.EventID, e.OriginServerTS, e.CreatedAt.UnixMilli())
+	require.NoError(t, testDB.GormDB.Create(eventC).Error)
+
+	// Fetch all events and re-read to get actual created_at values
+	var allEvents []MatrixEvent
+	testDB.GormDB.Where("room_id = ?", roomID).Find(&allEvents)
+
+	eventMap := make(map[string]*MatrixEvent)
+	for i := range allEvents {
+		eventMap[allEvents[i].EventID] = &allEvents[i]
 	}
 
-	// 模拟 sync token 基于 created_at
-	// Bob 先看到 B 和 D，token 推进到 D 的 created_at
-	var eventBFromDB, eventDFromDB MatrixEvent
-	testDB.GormDB.First(&eventBFromDB, "event_id = ?", "$B:remote.server")
-	testDB.GormDB.First(&eventDFromDB, "event_id = ?", "$D:remote.server")
-	
-	// 使用 D 的 created_at 作为 since（模拟 Bob 已经看到 D）
-	sinceTime := time.UnixMilli(eventDFromDB.CreatedAt.UnixMilli())
+	evtD := eventMap["$D:remote.server"]
+	evtC := eventMap["$C:remote.server"]
+	require.NotNil(t, evtD)
+	require.NotNil(t, evtC)
 
-	t.Log("")
-	t.Logf("Sync with created_at > %d (after seeing event D)", sinceTime.UnixMilli())
+	t.Logf("Event D: origin_ts=%d, created_at=%d", evtD.OriginServerTS, evtD.CreatedAt.UnixMilli())
+	t.Logf("Event C: origin_ts=%d, created_at=%d", evtC.OriginServerTS, evtC.CreatedAt.UnixMilli())
 
-	// ===== FIX: 使用 created_at 查询（修复后的方式）=====
-	var byCreatedAt []MatrixEvent
-	testDB.GormDB.Where("room_id = ? AND created_at > ?", roomID, sinceTime).
-		Order("created_at ASC").Find(&byCreatedAt)
+	// Key assertion: C arrived AFTER D (higher created_at)
+	assert.True(t, evtC.CreatedAt.After(*evtD.CreatedAt),
+		"Event C should have later created_at than D (arrived later)")
 
-	t.Logf("Events found with created_at > %d: %d", sinceTime.UnixMilli(), len(byCreatedAt))
-	for _, e := range byCreatedAt {
-		t.Logf("  %s: created_at=%d, origin_ts=%d", e.EventID, e.CreatedAt.UnixMilli(), e.OriginServerTS)
+	// If using origin_server_ts for filtering: after seeing D (origin_ts=startTime+150),
+	// event C (origin_ts=startTime+50) would be lost because 50 < 150.
+	sinceOriginTS := evtD.OriginServerTS
+	assert.Less(t, evtC.OriginServerTS, sinceOriginTS,
+		"C.origin_server_ts should be less than D's — proves origin_ts filtering loses C")
+
+	// If using created_at for filtering: after seeing D, event C would be found
+	// because C.created_at > D.created_at (C arrived later).
+	// Verify in Go code (sqlexec memory DB doesn't support time.Time > comparisons in SQL):
+	sinceCreatedAt := evtD.CreatedAt
+	var foundAfterD []string
+	for _, e := range allEvents {
+		if e.CreatedAt.After(*sinceCreatedAt) {
+			foundAfterD = append(foundAfterD, e.EventID)
+		}
 	}
 
-	// 验证：事件 C 应该被找到（因为它的 created_at 最晚）
 	hasC := false
-	for _, e := range byCreatedAt {
-		if e.EventID == "$C:remote.server" {
+	for _, id := range foundAfterD {
+		if id == "$C:remote.server" {
 			hasC = true
 			break
 		}
 	}
 
-	t.Log("")
-	if hasC {
-		t.Log("✅ Event C is FOUND using created_at filter!")
-		t.Log("   Even though C.origin_ts is old, C.created_at is new.")
-		t.Log("   This is the correct behavior after the fix.")
-	} else {
-		t.Log("❌ Event C is still lost - fix may not be complete")
-	}
-
-	// 断言：应该找到 C（因为它的 created_at 在 D 之后）
-	assert.True(t, hasC, "Event C should be found using created_at filter")
-	assert.GreaterOrEqual(t, len(byCreatedAt), 1, "Should find at least event C")
+	assert.True(t, hasC,
+		"Event C should be found using created_at filter (arrived after D)")
+	t.Log("Verified: created_at-based filtering correctly preserves out-of-order federated events")
 }
 
 // TestSyncTokenGeneration 验证 sync token 生成

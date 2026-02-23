@@ -554,6 +554,16 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 	}
 
+	// Check if this is a proxy follow acceptance
+	if objectID != "" {
+		proxyService := NewProxyService()
+		if err := proxyService.HandleAccept(objectID); err == nil {
+			log.Info("Proxy follow accepted: %s", actor)
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+	}
+
 	// Regular follow acceptance
 	if targetAccount == nil {
 		c.JSON(400, gin.H{"error": "no target account"})
