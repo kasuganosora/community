@@ -40,7 +40,7 @@ func VotePoll(c *gin.Context) {
 	}
 
 	// 判断是否已经过期
-	if poll.ExpiresAt.Before(time.Now()) {
+	if poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()) {
 		c.JSON(400, gin.H{"error": "poll expired"})
 		return
 	}

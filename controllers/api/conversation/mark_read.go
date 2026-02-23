@@ -48,7 +48,7 @@ func MarkRead(c *gin.Context) {
 	// 写入到 account conversation
 	ac.LastStatusId = maxStatusId
 
-	if err = db.GetDB().Select("last_status").Save(ac).Error; err != nil {
+	if err = db.GetDB().Select("last_status_id").Save(ac).Error; err != nil {
 		err = errors.Wrap(err, "can't save conversation")
 		_ = c.Error(err)
 		return

@@ -236,7 +236,10 @@ func RegenerateThumbnail(c *gin.Context) {
 		}
 		thumb.Status = models.ThumbnailStatusPending
 		thumb.ErrorMessage = ""
-		db.GetDB().Save(&thumb)
+		if err := db.GetDB().Save(&thumb).Error; err != nil {
+			c.JSON(500, gin.H{"error": "internal error"})
+			return
+		}
 	}
 
 	c.JSON(200, gin.H{"success": true})

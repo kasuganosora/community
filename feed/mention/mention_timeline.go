@@ -95,7 +95,11 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}
-		if err = feed.AddToTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs()); err != nil {
+		aggregatesReblogs := false
+		if account.User != nil && account.User.Settings != nil {
+			aggregatesReblogs = account.User.Settings.GetAggregatesReblogs()
+		}
+		if err = feed.AddToTimelineItem(timeline, status, aggregatesReblogs); err != nil {
 			return
 		}
 		if err = feed.TrimTimeline(timeline); err != nil {

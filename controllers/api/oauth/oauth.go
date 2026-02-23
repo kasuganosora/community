@@ -198,6 +198,10 @@ func AuthorizePage(c *gin.Context) {
 	if err == nil && !req.ForceLogin {
 		// Already authorized, generate code and redirect
 		code := generateAuthorizationCode(app.Id, account.Id, req.RedirectUri, req.Scope)
+		if code == "" {
+			c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate authorization code"})
+			return
+		}
 		redirectUrl := buildRedirectUrl(req.RedirectUri, code, req.State)
 		c.Redirect(http.StatusTemporaryRedirect, redirectUrl)
 		return
@@ -264,10 +268,16 @@ func Authorize(c *gin.Context) {
 	}
 	if err := db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create user auth error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
 	}
 
 	// Generate authorization code
 	code := generateAuthorizationCode(app.Id, account.Id, req.RedirectUri, req.Scope)
+	if code == "" {
+		c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate authorization code"})
+		return
+	}
 
 	// Redirect back to application
 	redirectUrl := buildRedirectUrl(req.RedirectUri, code, req.State)
@@ -726,7 +736,7 @@ func buildRedirectUrl(baseUri, code, state string) string {
 	if strings.Contains(baseUri, "?") {
 		separator = "&"
 	}
-	redirectUrl := fmt.Sprintf("%s%scodes=%s", baseUri, separator, code)
+	redirectUrl := fmt.Sprintf("%s%scode=%s", baseUri, separator, code)
 	if state != "" {
 		redirectUrl += "&state=" + state
 	}

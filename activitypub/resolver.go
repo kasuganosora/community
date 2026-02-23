@@ -268,7 +268,9 @@ func (r *Resolver) refreshAccount(uri string) {
 		updates["header_static"] = actor.Image.URL
 	}
 
-	db.GetDB().Model(&account).Updates(updates)
+	if err := db.GetDB().Model(&account).Updates(updates).Error; err != nil {
+		log.Error("Failed to update account %s: %v", uri, err)
+	}
 	log.Info("Refreshed remote account %s", uri)
 }
 

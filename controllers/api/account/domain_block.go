@@ -165,7 +165,10 @@ func UnblockDomain(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account)
 
 	// Delete domain block
-	db.GetDB().Where("account_id = ? AND target_domain = ? AND type = ?", account.Id, domain, models.BlockTypeDomain).Delete(&models.Block{})
+	if err := db.GetDB().Where("account_id = ? AND target_domain = ? AND type = ?", account.Id, domain, models.BlockTypeDomain).Delete(&models.Block{}).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, gin.H{})
 }

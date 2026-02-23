@@ -55,7 +55,7 @@ func Favourite(c *gin.Context) {
 func Unfavourite(c *gin.Context) {
 	status := getRealStatus(c)
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
@@ -77,6 +77,8 @@ func Unfavourite(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
+
+	returnFullSingleStatus(c, status, currentAccount)
 }
 
 type FavouritedByRequest struct {
@@ -110,7 +112,7 @@ func FavouritedBy(c *gin.Context) {
 	var accounts []*models.Account
 
 	query := dbConn.Model(&models.Account{}).
-		Joins("favorite_statuses ON favorite_statuses.account_id = accounts.id").
+		Joins("JOIN favorite_statuses ON favorite_statuses.account_id = accounts.id").
 		Select("accounts.*").
 		Order("favorite_statuses.created_at DESC")
 

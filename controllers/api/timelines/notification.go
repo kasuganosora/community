@@ -40,7 +40,7 @@ func NotificationTimeline(c *gin.Context) {
 	if req.AccountId != "" {
 		filterAccountId, err := strconv.ParseUint(req.AccountId, 10, 64)
 		controllers.AbortIf(c, err != nil, 422, gin.H{"error": "account_id is invalid"})
-		query = query.Where("account_id = ?", filterAccountId)
+		query = query.Where("from_account_id = ?", filterAccountId)
 	}
 
 	if req.MaxId > 0 {
@@ -55,7 +55,7 @@ func NotificationTimeline(c *gin.Context) {
 		query = query.Where("id >= ?", req.SinceId)
 	}
 
-	if req.Limit > 0 && req.Limit > 100 {
+	if req.Limit > 100 {
 		req.Limit = 100
 	}
 

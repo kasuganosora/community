@@ -460,7 +460,7 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 			for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 				events[i], events[j] = events[j], events[i]
 			}
-			if len(events) > 0 {
+			if len(events) > 0 && events[0].CreatedAt != nil {
 				// Use created_at for token generation to match the created_at-based query filter
 				tokenTS := events[0].CreatedAt.UnixMilli()
 				room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
@@ -480,8 +480,10 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 			if len(events) > timelineLimit {
 				events = events[:timelineLimit]
 				room.Timeline.Limited = true
-								tokenTS := events[0].CreatedAt.UnixMilli()
-				room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
+				if events[0].CreatedAt != nil {
+					tokenTS := events[0].CreatedAt.UnixMilli()
+					room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
+				}
 			}
 		}
 	} else {
@@ -496,10 +498,10 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 		for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 			events[i], events[j] = events[j], events[i]
 		}
-		if len(events) > 0 {
+		if len(events) > 0 && events[len(events)-1].CreatedAt != nil {
 			// For initial sync, prev_batch represents the state after the whole batch
 			// so use the last event's timestamp to ensure /members?at= includes all state
-						tokenTS := events[len(events)-1].CreatedAt.UnixMilli()
+			tokenTS := events[len(events)-1].CreatedAt.UnixMilli()
 			room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
 		}
 	}
@@ -1440,7 +1442,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 	var roomMembers []MatrixRoomMember
 	db.GetDB().Where("room_id IN ? AND membership = ? AND user_id != ?",
 		joinedRooms, MembershipJoin, userID).Find(&roomMembers)
-	sinceTime := time.Unix(0, since*int64(time.Millisecond))
+	sinceTime := time.UnixMilli(since)
 	roomMemberSet := make(map[string]bool)
 	for _, m := range roomMembers {
 		roomMemberSet[m.UserID] = true

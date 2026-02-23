@@ -56,7 +56,7 @@ func GetListAccounts(c *gin.Context) {
 
 	accounts := make([]*models.Account, 0)
 	query := db.GetDB().Model(&models.Account{}).
-		Joins("list_accounts ON list_accounts.account_id = accounts.id").
+		Joins("JOIN list_accounts ON list_accounts.account_id = accounts.id").
 		Where("list_accounts.list_id = ?", list.Id).
 		Order("list_accounts.id DESC").
 		Select("accounts.*")

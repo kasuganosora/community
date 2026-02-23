@@ -29,13 +29,13 @@ func ListStreaming(c *gin.Context) {
 
 	list := &models.List{}
 
+	err = db.GetDB().Find(list, listId).Error
+	controllers.AbortIfError(c, err)
+
 	// 如果 List是保密的话，则只有关注了这个List的人才能看到
 	canview, err := models.ListCanView(list, account)
 	controllers.AbortIfError(c, err)
 	controllers.AbortIf(c, !canview, 403, gin.H{"error": "you can't view this list"})
-
-	err = db.GetDB().Find(list, listId).Error
-	controllers.AbortIfError(c, err)
 
 	timeline := &listFeed.ListTimeline{
 		List: list,

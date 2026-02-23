@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -35,6 +37,19 @@ func WebFinger(c *gin.Context) {
 
 	username := parts[0]
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
+	// Verify the requested domain matches ours
+	if parts[1] != domain {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Verify the user exists in our database
+	var account models.Account
+	if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error; err != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
 
 	// Build response
 	baseURL := "https://" + domain

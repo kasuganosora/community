@@ -11,10 +11,13 @@ import (
 func Peers(c *gin.Context) {
 	// Get distinct domains from accounts
 	var domains []string
-	db.GetDB().Model(&models.Account{}).
+	if err := db.GetDB().Model(&models.Account{}).
 		Where("domain IS NOT NULL AND domain != ''").
 		Distinct("domain").
-		Pluck("domain", &domains)
+		Pluck("domain", &domains).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, domains)
 }

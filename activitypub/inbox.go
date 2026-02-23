@@ -71,6 +71,19 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
+	// De-duplicate activities by ID (spec MUST requirement)
+	activityID, _ := activity["id"].(string)
+	if activityID != "" {
+		var count int64
+		if err := db.GetDB().Model(&ProcessedActivity{}).Where("activity_id = ?", activityID).Count(&count).Error; err == nil && count > 0 {
+			// Already processed this activity, skip
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+		// Record this activity as processed
+		db.GetDB().Create(&ProcessedActivity{ActivityID: activityID})
+	}
+
 	// Route based on activity type
 	activityType, _ := activity["type"].(string)
 
@@ -359,15 +372,19 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		now := time.Now()
-		db.GetDB().Model(&status).Updates(map[string]interface{}{
+		if err := db.GetDB().Model(&status).Updates(map[string]interface{}{
 			"updated_at": now,
-		})
+		}).Error; err != nil {
+			log.Error("Failed to update status %d: %v", status.Id, err)
+		}
 
 		// Update content
-		db.GetDB().Model(&status.Content).Updates(map[string]interface{}{
+		if err := db.GetDB().Model(&status.Content).Updates(map[string]interface{}{
 			"content":      content,
 			"spoiler_text": summary,
-		})
+		}).Error; err != nil {
+			log.Error("Failed to update status content %d: %v", status.Id, err)
+		}
 
 		log.Info("Updated remote status %d from %s", status.Id, actor)
 	}
@@ -400,10 +417,13 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 			actor, utils.ExtractUsernameFromURI(actor), utils.ExtractDomainFromURI(actor)).First(&account).Error; err == nil {
 			// Soft delete the account
 			now := time.Now()
-			db.GetDB().Model(&account).Updates(map[string]interface{}{
+			if err := db.GetDB().Model(&account).Updates(map[string]interface{}{
 				"deleted_at": now,
-			})
-			log.Info("Deleted remote account %s", actor)
+			}).Error; err != nil {
+				log.Error("Failed to soft-delete remote account %s: %v", actor, err)
+			} else {
+				log.Info("Deleted remote account %s", actor)
+			}
 		}
 		c.JSON(200, gin.H{"status": "accepted"})
 		return
@@ -420,7 +440,9 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 				actorURI = fmt.Sprintf("https://%s/users/%s", *account.Domain, account.Username)
 			}
 			if actorURI == actor || account.OriginId == actor {
-				db.GetDB().Delete(&status)
+				if err := db.GetDB().Delete(&status).Error; err != nil {
+					log.Error("Failed to delete status %d: %v", status.Id, err)
+				}
 				log.Info("Deleted remote status %d from %s", status.Id, actor)
 			}
 		}
@@ -550,8 +572,11 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	err = db.GetDB().Where("account_id = ? AND follow_id = ? AND status = ?",
 		targetAccount.Id, remoteAccount.Id, models.FollowStatusRequested).First(&follow).Error
 	if err == nil {
-		db.GetDB().Model(&follow).Update("status", models.FollowStatusFollowed)
-		log.Info("Follow from %s to %s accepted", targetAccount.Username, actor)
+		if err := db.GetDB().Model(&follow).Update("status", models.FollowStatusFollowed).Error; err != nil {
+			log.Error("Failed to update follow status: %v", err)
+		} else {
+			log.Info("Follow from %s to %s accepted", targetAccount.Username, actor)
+		}
 	}
 
 	c.JSON(200, gin.H{"status": "accepted"})
@@ -672,7 +697,9 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	}
 
 	// Increment reblogs count
-	db.GetDB().Model(&originalStatus).UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1))
+	if err := db.GetDB().Model(&originalStatus).UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error; err != nil {
+		log.Error("Failed to increment reblogs_count for status %d: %v", originalStatus.Id, err)
+	}
 
 	log.Info("Created remote reblog %d from %s", reblog.Id, actor)
 	c.JSON(200, gin.H{"status": "accepted"})
@@ -723,6 +750,11 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 
+	// Increment favourites_count on the status
+	if err := db.GetDB().Model(&status).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
+		log.Error("Failed to increment favourites_count for status %d: %v", status.Id, err)
+	}
+
 	log.Info("Created remote favourite from %s on status %d", actor, status.Id)
 	c.JSON(200, gin.H{"status": "accepted"})
 }
@@ -751,29 +783,47 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Follow":
 		// Undo a follow
 		if targetAccount != nil {
-			db.GetDB().Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Follow{})
-			log.Info("Undid follow from %s to %s", actor, targetAccount.Username)
+			if err := db.GetDB().Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Follow{}).Error; err != nil {
+				log.Error("Failed to undo follow from %s to %s: %v", actor, targetAccount.Username, err)
+			} else {
+				log.Info("Undid follow from %s to %s", actor, targetAccount.Username)
+			}
 		}
 
 	case "Like":
 		// Undo a like
 		var status models.Status
 		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", objectObject, objectObject, objectObject).First(&status).Error; err == nil {
-			db.GetDB().Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{})
-			log.Info("Undid like from %s on status %d", actor, status.Id)
+			if err := db.GetDB().Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error; err != nil {
+				log.Error("Failed to undo like from %s on status %d: %v", actor, status.Id, err)
+			} else {
+				// Decrement favourites_count
+				db.GetDB().Model(&status).UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - 1 ELSE 0 END"))
+				log.Info("Undid like from %s on status %d", actor, status.Id)
+			}
 		}
 
 	case "Announce":
 		// Undo an announce (reblog)
-		if err := db.GetDB().Where("origin_uri = ? AND account_id = ?", objectID, remoteAccount.Id).Delete(&models.Status{}).Error; err == nil {
+		var reblog models.Status
+		if err := db.GetDB().Where("origin_uri = ? AND account_id = ?", objectID, remoteAccount.Id).First(&reblog).Error; err == nil {
+			// Decrement reblogs_count on the original status
+			if reblog.ReblogId != nil {
+				db.GetDB().Model(&models.Status{}).Where("id = ?", *reblog.ReblogId).
+					UpdateColumn("reblogs_count", gorm.Expr("CASE WHEN reblogs_count > 0 THEN reblogs_count - 1 ELSE 0 END"))
+			}
+			db.GetDB().Delete(&reblog)
 			log.Info("Undid announce from %s: %s", actor, objectID)
 		}
 
 	case "Block":
 		// Undo a block - remove from blocks list
 		if targetAccount != nil {
-			db.GetDB().Where("account_id = ? AND target_account_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Block{})
-			log.Info("Undid block from %s to %s", actor, targetAccount.Username)
+			if err := db.GetDB().Where("account_id = ? AND target_account_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Block{}).Error; err != nil {
+				log.Error("Failed to undo block from %s to %s: %v", actor, targetAccount.Username, err)
+			} else {
+				log.Info("Undid block from %s to %s", actor, targetAccount.Username)
+			}
 		}
 	}
 
@@ -808,8 +858,11 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 				AccountId:       remoteAccount.Id,
 				TargetAccountId: blockedAccount.Id,
 			}
-			db.GetDB().Create(&block)
-			log.Info("Remote user %s blocked local user %s", actor, username)
+			if err := db.GetDB().Create(&block).Error; err != nil {
+				log.Error("Failed to create block from %s to %s: %v", actor, username, err)
+			} else {
+				log.Info("Remote user %s blocked local user %s", actor, username)
+			}
 		}
 	}
 
@@ -1033,7 +1086,9 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 	accountExtra := models.AccountExtra{
 		AccountId: account.Id,
 	}
-	db.GetDB().Create(&accountExtra)
+	if err := db.GetDB().Create(&accountExtra).Error; err != nil {
+		log.Error("Failed to create account extra: %v", err)
+	}
 
 	return &account, nil
 }
@@ -1066,11 +1121,30 @@ func getVisibilityFromActivity(object map[string]interface{}) uint8 {
 		}
 	}
 
-	// Check for direct (has specific recipients)
+	// Check if "to" only contains specific user URIs (no followers collection)
+	hasFollowersCollection := false
+	hasUserRecipient := false
 	for _, t := range toStrs {
-		if strings.Contains(t, "/users/") && !strings.Contains(t, "/followers") {
-			return models.StatusVisibilityDirect
+		if strings.HasSuffix(t, "/followers") {
+			hasFollowersCollection = true
+		} else if strings.Contains(t, "/users/") || strings.Contains(t, "/@") {
+			hasUserRecipient = true
 		}
+	}
+	for _, c := range ccStrs {
+		if strings.HasSuffix(c, "/followers") {
+			hasFollowersCollection = true
+		}
+	}
+
+	if hasFollowersCollection {
+		// Has followers collection but not public = private/followers-only
+		return models.StatusVisibilityPrivate
+	}
+
+	if hasUserRecipient {
+		// Only specific users, no followers collection = direct message
+		return models.StatusVisibilityDirect
 	}
 
 	// Default to private

@@ -92,6 +92,9 @@ func initMysqlConnection() (err error) {
 	dsn := config.C.DbUsername + ":" + config.C.DbPassword + "@tcp(" + config.C.DbHost + ":" + config.C.DbPort + ")/" + config.C.DbDatabase
 	dsn += "?charset=utf8mb4&parseTime=True&loc=Local"
 	DB, err = gorm.Open(mysql.Open(dsn))
+	if err != nil {
+		return
+	}
 	if config.C.DevMode == "true" {
 		DB = DB.Debug()
 	}

@@ -83,9 +83,12 @@ func GetContacts(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	var contacts []*models.Contact
-	db.GetDB().Where("account_id = ? AND status = ?", currentAccount.Id, models.ContactStatusAccepted).
+	if err := db.GetDB().Where("account_id = ? AND status = ?", currentAccount.Id, models.ContactStatusAccepted).
 		Preload("ContactAccount").
-		Find(&contacts)
+		Find(&contacts).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	// 构建响应
 	type ContactResponse struct {
@@ -148,8 +151,11 @@ func GetPendingRequests(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	var requests []*models.ContactRequest
-	db.GetDB().Where("to_account_id = ? AND status = ?", currentAccount.Id, models.ContactStatusPending).
-		Find(&requests)
+	if err := db.GetDB().Where("to_account_id = ? AND status = ?", currentAccount.Id, models.ContactStatusPending).
+		Find(&requests).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(http.StatusOK, requests)
 }

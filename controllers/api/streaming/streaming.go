@@ -128,20 +128,19 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 		ret, err = subscribe(redisPub, account, req)
 		if err != nil {
 			ws.WriteJSON(err)
-			return
 		}
+		return
 	}
 
 	if req.Type == "unsubscribe" {
 		ret, err = unsubscribe(redisPub, account, req)
 		if err != nil {
 			ws.WriteJSON(err)
-			return
 		}
+		return
 	}
 
 	ret = redisPub
-
 	ws.WriteJSON(&StreamingErrResponse{Err: "unknown type"})
 	return
 }

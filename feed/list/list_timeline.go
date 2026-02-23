@@ -85,7 +85,7 @@ func (timeline *ListTimeline) Rebuild() (err error) {
 	err = db.GetDB().Model(&models.Status{}).Where("account_id in (?)", accountIds).
 		Where("visibility = ?", models.StatusVisibilityPublic).
 		Order("id desc").Limit(feed.MAX_ITEMS / 4).
-		Find(statuses).Error
+		Find(&statuses).Error
 
 	if err != nil {
 		return
@@ -115,7 +115,8 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
-	err = db.GetDB().Model(&models.List{}).Where("account_id = ?", status.AccountId).
+	err = db.GetDB().Model(&models.List{}).
+		Where("id IN (?)", db.GetDB().Model(&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
 		Find(&lists).Error
 
@@ -154,7 +155,8 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
-	err = db.GetDB().Model(&models.List{}).Where("account_id = ?", status.AccountId).
+	err = db.GetDB().Model(&models.List{}).
+		Where("id IN (?)", db.GetDB().Model(&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
 		Find(&lists).Error
 

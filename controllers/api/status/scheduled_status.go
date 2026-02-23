@@ -92,7 +92,7 @@ func UpdateStatusScheduledAt(c *gin.Context) {
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	newSheduledAt, err := time.Parse(time.RFC3339, req.ScheduledAt)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid scheduled_at"})

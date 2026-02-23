@@ -55,17 +55,17 @@ func GetListFollowers(c *gin.Context) {
 
 	accounts := make([]*models.Account, 0)
 	query := db.GetDB().Model(&models.Account{}).
-		Joins("list_follow_accounts ON list_follow_accounts.account_id = accounts.id").
+		Joins("JOIN list_follow_accounts ON list_follow_accounts.account_id = accounts.id").
 		Order("list_follow_accounts.id DESC").
 		Select("accounts.*").
 		Where("list_follow_accounts.list_id = ?", list.Id)
 
 	if req.MaxId != nil {
-		query = query.Where("list_accounts.id <= ?", *req.MaxId)
+		query = query.Where("list_follow_accounts.id <= ?", *req.MaxId)
 	}
 
 	if req.MinId != nil {
-		query = query.Where("list_accounts.id >= ?", *req.MinId)
+		query = query.Where("list_follow_accounts.id >= ?", *req.MinId)
 	}
 
 	if req.Limit != nil {

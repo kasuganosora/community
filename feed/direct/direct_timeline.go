@@ -80,6 +80,9 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 
 	conversation := &models.Conversation{}
 	err = db.GetDB().Where("id = ?", *status.ConversationId).First(conversation).Error
+	if err != nil {
+		return
+	}
 
 	for _, account := range status.ToAccounts {
 		timeline := &DirectTimeline{Account: account}

@@ -75,7 +75,7 @@ func Unreblog(c *gin.Context) {
 	status := getRealStatus(c)
 
 	dbConn := db.GetDB()
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
@@ -136,7 +136,7 @@ func RebloggedBy(c *gin.Context) {
 
 	accounts := make([]*models.Account, 0)
 
-	query := dbConn.Model(&models.Account{}).Joins("statuses ON statuses.account_id = accounts.id").
+	query := dbConn.Model(&models.Account{}).Joins("JOIN statuses ON statuses.account_id = accounts.id").
 		Where("statuses.reblog_id = ?", status.Id).
 		Select("accounts.*").
 		Order("statuses.created_at DESC")

@@ -317,7 +317,9 @@ func (dls *DeviceListService) HandleIncomingDeviceListUpdate(origin string, edu 
 		ChangedAt:  time.Now().UnixMilli(),
 		SyncedTo:   "[]",
 	}
-	db.GetDB().Create(change)
+	if err := db.GetDB().Create(change).Error; err != nil {
+		return fmt.Errorf("failed to create device list change: %w", err)
+	}
 
 	log.Info("Processed device list update for %s from %s", edu.UserID, origin)
 	return nil

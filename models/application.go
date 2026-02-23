@@ -105,7 +105,7 @@ func (s ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
 	return (sc & scope) == scope
 }
 
-func (s ApplicationScope) AddScope(scopeType uint8, scope uint64) {
+func (s *ApplicationScope) AddScope(scopeType uint8, scope uint64) {
 	switch scopeType {
 	case AppScopeTypeRead:
 		s.ReadScope |= scope
@@ -118,7 +118,7 @@ func (s ApplicationScope) AddScope(scopeType uint8, scope uint64) {
 	}
 }
 
-func (s ApplicationScope) RemoveScope(scopeType uint8, scope uint64) {
+func (s *ApplicationScope) RemoveScope(scopeType uint8, scope uint64) {
 	switch scopeType {
 	case AppScopeTypeRead:
 		s.ReadScope &= ^scope
@@ -158,7 +158,11 @@ func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
 		return err
 	}
 
-	rValue := reflect.ValueOf(s)
+	rValue := reflect.ValueOf(s).Elem()
+	expectedLen := rValue.NumField() * 8
+	if len(vBytes) < expectedLen {
+		return errors.Errorf("invalid scope data length: expected %d bytes, got %d", expectedLen, len(vBytes))
+	}
 
 	for i := 0; i < rValue.NumField(); i++ {
 		// 每次取8个byte

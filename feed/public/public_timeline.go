@@ -31,7 +31,7 @@ func init() {
 			go Push(status, false, true)
 		case "before_update":
 			go Unpush(status, true) // 更新之前，先删除
-		case "after":
+		case "after_update":
 			go Push(status, true, true)
 		case "after_delete":
 			go Unpush(status, true)
@@ -199,7 +199,7 @@ func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, er
 		if params.Other["local"] != nil && params.Other["local"].(bool) {
 			query = query.Where("statuses.domain is null")
 		} else if params.Other["remote"] != nil && params.Other["remote"].(bool) {
-			query = query.Where("statuses.domain not is null")
+			query = query.Where("statuses.domain IS NOT NULL")
 		}
 
 		return
@@ -244,7 +244,7 @@ func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, 
 		if params.Other["local"] != nil && params.Other["local"].(bool) {
 			query = query.Where("statuses.domain is null")
 		} else if params.Other["remote"] != nil && params.Other["remote"].(bool) {
-			query = query.Where("statuses.domain not is null")
+			query = query.Where("statuses.domain IS NOT NULL")
 		}
 
 		return

@@ -368,7 +368,7 @@ func handleGetUploadStatus(c *gin.Context) {
 		"status":      media.Status,
 		"content_uri": media.ContentURI,
 		"created_at":  media.CreatedAt.Unix(),
-		"expires_at":  media.ExpiresAt.Unix(),
+		"expires_at":  func() int64 { if media.ExpiresAt != nil { return media.ExpiresAt.Unix() }; return 0 }(),
 	})
 }
 

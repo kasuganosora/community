@@ -18,7 +18,7 @@ type UpdateStatusRequest struct {
 	MediaIds    *[]string          `json:"media_ids"`
 	Sensitive   *bool              `json:"sensitive"`
 	SpoilerText *string            `json:"spoiler_text"`
-	Visibility  *string            `json:"visibility" binding:"required,oneof=public unlisted private direct"`
+	Visibility  *string            `json:"visibility" binding:"omitempty,oneof=public unlisted private direct"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    *string            `json:"language"`
 }

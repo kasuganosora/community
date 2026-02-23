@@ -200,10 +200,14 @@ func updateMentionNotification(status *models.Status) {
 		return
 	}
 
-	// 找出那些需要创建的通知
+	// 找出那些需要创建的通知（新提及的但不在旧通知列表中的账号）
+	oldNotifiedAccountMap := make(map[uint64]bool)
+	for _, oldNs := range oldNsList {
+		oldNotifiedAccountMap[oldNs.AccountId] = true
+	}
 	needCreateNsList := make([]*models.Notification, 0)
 	for _, account := range accounts {
-		if _, ok := newMentionAccountListExistsMap[account.Id]; !ok {
+		if _, ok := oldNotifiedAccountMap[account.Id]; !ok {
 			nf := &models.Notification{}
 			nf.Type = models.NotificationTypeMention
 			nf.StatusId = status.Id

@@ -2,7 +2,6 @@ package activitypub
 
 import (
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -108,7 +107,9 @@ func Outbox(c *gin.Context) {
 func buildCreateActivity(status *models.Status, account *models.Account, baseURL string) map[string]interface{} {
 	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
 	actorURL := baseURL + "/users/" + account.Username
-	now := time.Now()
+
+	// Use the status's original creation time, not current time
+	published := status.CreatedAt
 
 	note := map[string]interface{}{
 		"id":           statusURL,
@@ -116,7 +117,7 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 		"attributedTo": actorURL,
 		"content":      status.Content.Content,
 		"url":          statusURL,
-		"published":    status.CreatedAt,
+		"published":    published,
 		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"},
 		"cc":           []string{actorURL + "/followers"},
 		"sensitive":    status.Sensitive,
@@ -130,7 +131,7 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 		"id":        statusURL + "#create",
 		"type":      "Create",
 		"actor":     actorURL,
-		"published": now,
+		"published": published,
 		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
 		"cc":        []string{actorURL + "/followers"},
 		"object":    note,
@@ -177,7 +178,13 @@ func Followers(c *gin.Context) {
 	items := make([]interface{}, 0, len(follows))
 	for _, follow := range follows {
 		if follow.Account != nil {
-			items = append(items, baseURL+"/users/"+follow.Account.Username)
+			if follow.Account.Domain != nil && follow.Account.OriginId != "" {
+				// Remote account: use their ActivityPub actor URI
+				items = append(items, follow.Account.OriginId)
+			} else {
+				// Local account: use our local actor URL
+				items = append(items, baseURL+"/users/"+follow.Account.Username)
+			}
 		}
 	}
 
@@ -240,7 +247,13 @@ func Following(c *gin.Context) {
 	for _, r := range results {
 		var targetAccount models.Account
 		if err := db.GetDB().Where("id = ?", r.FollowId).First(&targetAccount).Error; err == nil {
-			items = append(items, baseURL+"/users/"+targetAccount.Username)
+			if targetAccount.Domain != nil && targetAccount.OriginId != "" {
+				// Remote account: use their ActivityPub actor URI
+				items = append(items, targetAccount.OriginId)
+			} else {
+				// Local account: use our local actor URL
+				items = append(items, baseURL+"/users/"+targetAccount.Username)
+			}
 		}
 	}
 

@@ -49,6 +49,7 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
 		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 

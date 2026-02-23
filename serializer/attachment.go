@@ -20,6 +20,9 @@ type Attachment struct {
 }
 
 func ToAttachment(attachment *models.Attachment) (att *Attachment) {
+	if attachment == nil {
+		return nil
+	}
 	url := systemsettings.GetString(systemsettings.KeyMediaAttachmentsBaseURL, "") + attachment.SavePath
 
 	var previewUrl *string

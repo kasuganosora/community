@@ -86,7 +86,11 @@ func (csm *CrossSigningManager) generateKey(userID string, keyType CrossSigningK
 	}
 
 	publicKey := privateKey[32:]
-	keyID := fmt.Sprintf("ed25519:%s", base64.RawStdEncoding.EncodeToString(publicKey)[:16])
+	encodedKey := base64.RawStdEncoding.EncodeToString(publicKey)
+	if len(encodedKey) > 16 {
+		encodedKey = encodedKey[:16]
+	}
+	keyID := fmt.Sprintf("ed25519:%s", encodedKey)
 
 	csk := &CrossSigningKey{
 		UserID: userID,

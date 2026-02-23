@@ -115,10 +115,13 @@ func InviteMember(c *gin.Context) {
 
 	// 检查权限（只有所有者和管理员可以邀请）
 	var memberCount int64
-	db.GetDB().Model(&models.GroupMember{}).
+	if err := db.GetDB().Model(&models.GroupMember{}).
 		Where("group_id = ? AND account_id = ? AND role IN ?",
 			groupID, currentAccount.Id, []int{int(models.GroupMemberRoleOwner), int(models.GroupMemberRoleAdmin)}).
-		Count(&memberCount)
+		Count(&memberCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+		return
+	}
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "No permission to invite members"})
@@ -179,10 +182,13 @@ func RemoveMember(c *gin.Context) {
 
 	// 检查权限
 	var memberCount int64
-	db.GetDB().Model(&models.GroupMember{}).
+	if err := db.GetDB().Model(&models.GroupMember{}).
 		Where("group_id = ? AND account_id = ? AND role IN ?",
 			groupID, currentAccount.Id, []int{int(models.GroupMemberRoleOwner), int(models.GroupMemberRoleAdmin)}).
-		Count(&memberCount)
+		Count(&memberCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+		return
+	}
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "No permission to remove members"})

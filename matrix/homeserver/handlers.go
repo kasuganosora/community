@@ -527,7 +527,11 @@ func handleRefresh(c *gin.Context) {
 
 func handleRegister(c *gin.Context) {
 	// Validate UTF-8 before JSON parsing (encoding/json silently replaces invalid UTF-8)
-	body, _ := io.ReadAll(c.Request.Body)
+	body, readErr := io.ReadAll(c.Request.Body)
+	if readErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Failed to read request body"})
+		return
+	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	if len(body) > 0 && !utf8.Valid(body) {
 		c.Header("Content-Type", "application/json")
@@ -1615,7 +1619,7 @@ func handleGetDisplayName(c *gin.Context) {
 func handleSetDisplayName(c *gin.Context) {
 	userID := c.Param("userId")
 	callerID := getUserID(c)
-	if userID != callerID {
+	if callerID == "" || userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot set another user's displayname"})
 		return
 	}
@@ -1674,7 +1678,7 @@ func handleGetAvatarURL(c *gin.Context) {
 func handleSetAvatarURL(c *gin.Context) {
 	userID := c.Param("userId")
 	callerID := getUserID(c)
-	if userID != callerID {
+	if callerID == "" || userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot set another user's avatar_url"})
 		return
 	}
@@ -2016,7 +2020,10 @@ func handleGetFilter(c *gin.Context) {
 	}
 
 	var filterContent interface{}
-	json.Unmarshal([]byte(filter.Filter), &filterContent)
+	if err := json.Unmarshal([]byte(filter.Filter), &filterContent); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_UNKNOWN", "error": "Invalid stored filter"})
+		return
+	}
 	c.JSON(http.StatusOK, filterContent)
 }
 
@@ -2236,7 +2243,8 @@ func handleKeysUpload(c *gin.Context) {
 	userID := getUserID(c)
 	deviceID := c.GetString("device_id")
 	if deviceID == "" {
-		deviceID = "DEVICE"
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_MISSING_PARAM", "error": "Missing device_id"})
+		return
 	}
 
 	var req UploadKeysRequest

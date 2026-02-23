@@ -147,29 +147,23 @@ func PerformAccountAction(c *gin.Context) {
 	case "enable":
 		account.IsBan = false
 		account.Locked = false
-		db.GetDB().Save(account)
-
 	case "silence":
-		// Silenced is not supported in current schema, use Locked
 		account.Locked = true
-		db.GetDB().Save(account)
-
 	case "unsilence":
 		account.Locked = false
-		db.GetDB().Save(account)
-
 	case "suspend":
 		account.IsBan = true
 		account.Locked = true
-		db.GetDB().Save(account)
-
 	case "unsuspend":
 		account.IsBan = false
 		account.Locked = false
-		db.GetDB().Save(account)
-
 	case "sensitive", "unsensitive":
 		// No-op for now
+	}
+
+	if err := db.GetDB().Save(account).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
 	}
 
 	c.JSON(200, serializeAdminAccount(account))
@@ -191,7 +185,10 @@ func EnableAccount(c *gin.Context) {
 
 	account.IsBan = false
 	account.Locked = false
-	db.GetDB().Save(account)
+	if err := db.GetDB().Save(account).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, serializeAdminAccount(account))
 }
@@ -213,7 +210,10 @@ func ApproveAccount(c *gin.Context) {
 	// Update user status to approved
 	if account.User != nil {
 		account.User.Status = 0 // 0 = normal
-		db.GetDB().Save(account.User)
+		if err := db.GetDB().Save(account.User).Error; err != nil {
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			return
+		}
 	}
 
 	c.JSON(200, serializeAdminAccount(account))
@@ -234,7 +234,10 @@ func RejectAccount(c *gin.Context) {
 	}
 
 	// Delete account
-	db.GetDB().Delete(account)
+	if err := db.GetDB().Delete(account).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, gin.H{})
 }
@@ -254,7 +257,10 @@ func UnsilenceAccount(c *gin.Context) {
 	}
 
 	account.Locked = false
-	db.GetDB().Save(account)
+	if err := db.GetDB().Save(account).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, serializeAdminAccount(account))
 }
@@ -275,7 +281,10 @@ func UnsuspendAccount(c *gin.Context) {
 
 	account.IsBan = false
 	account.Locked = false
-	db.GetDB().Save(account)
+	if err := db.GetDB().Save(account).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, serializeAdminAccount(account))
 }

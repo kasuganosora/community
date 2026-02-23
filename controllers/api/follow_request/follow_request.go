@@ -114,14 +114,18 @@ func Authorize(c *gin.Context) {
 	}
 
 	// Update follower count for current account
-	db.GetDB().Model(&models.AccountExtra{}).
+	if err := db.GetDB().Model(&models.AccountExtra{}).
 		Where("account_id = ?", currentAccount.Id).
-		UpdateColumn("followers_count", gorm.Expr("followers_count + ?", 1))
+		UpdateColumn("followers_count", gorm.Expr("followers_count + ?", 1)).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "update followers count error"))
+	}
 
 	// Update following count for target account
-	db.GetDB().Model(&models.AccountExtra{}).
+	if err := db.GetDB().Model(&models.AccountExtra{}).
 		Where("account_id = ?", targetId).
-		UpdateColumn("following_count", gorm.Expr("following_count + ?", 1))
+		UpdateColumn("following_count", gorm.Expr("following_count + ?", 1)).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "update following count error"))
+	}
 
 	// Return relationship
 	c.JSON(200, gin.H{

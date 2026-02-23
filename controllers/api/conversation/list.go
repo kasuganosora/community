@@ -28,7 +28,7 @@ func List(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account)
 
 	conversations := make([]*models.Conversation, 0)
-	filterQuery := db.GetDB().Model(&models.AccountConversation{}).Select("conversation_id").Where("account_id = ?", account.Id)
+	subQuery := db.GetDB().Model(&models.AccountConversation{}).Select("conversation_id").Where("account_id = ?", account.Id)
 
 	if req.MinId != "" {
 		minId, err := strconv.ParseUint(req.MinId, 10, 64)
@@ -38,7 +38,7 @@ func List(c *gin.Context) {
 			return
 		}
 
-		filterQuery = filterQuery.Where("conversation_id > ?", minId)
+		subQuery = subQuery.Where("conversation_id > ?", minId)
 	}
 
 	if req.MaxId != "" {
@@ -49,7 +49,7 @@ func List(c *gin.Context) {
 			return
 		}
 
-		filterQuery = filterQuery.Where("conversation_id < ?", maxId)
+		subQuery = subQuery.Where("conversation_id < ?", maxId)
 	}
 
 	if req.SinceId != "" {
@@ -60,14 +60,14 @@ func List(c *gin.Context) {
 			return
 		}
 
-		filterQuery = filterQuery.Where("conversation_id >= ?", sinceId)
+		subQuery = subQuery.Where("conversation_id >= ?", sinceId)
 	}
 
 	if req.Limit == 0 {
 		req.Limit = 20
 	}
 
-	err := filterQuery.Limit(req.Limit).Find(&conversations).Error
+	err := db.GetDB().Where("id IN (?)", subQuery).Limit(req.Limit).Find(&conversations).Error
 
 	if err != nil {
 		err = errors.Wrap(err, "get conversations error")

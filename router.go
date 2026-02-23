@@ -495,8 +495,8 @@ func SetRouter(app gin.IRouter) {
 		PUT("/filters/:id", filter.Update).
 		DELETE("/filters/:id", filter.Delete).
 		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
-		PUT("/filters/keywords/:id ", filter.KeywordUpdate).
-		DELETE("/filters/keywords/:id ", filter.KeywordDelete)
+		PUT("/filters/keywords/:id", filter.KeywordUpdate).
+		DELETE("/filters/keywords/:id", filter.KeywordDelete)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
 		POST("/reports", report2.Create)
@@ -510,7 +510,7 @@ func SetRouter(app gin.IRouter) {
 		DELETE("/admin/reports/:id", report2.Delete).
 		POST("/admin/reports/:id/assign_to_self", report2.AssignToSelf).
 		POST("/admin/reports/:id/unassign", report2.Unassign).
-		POST("/admin/reports/:id/resolvee", report2.Resolve).
+		POST("/admin/reports/:id/resolve", report2.Resolve).
 		POST("/admin/reports/:id/reopen", report2.Reopen)
 
 	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).

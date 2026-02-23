@@ -31,10 +31,11 @@ func Save(c *gin.Context) {
 	isNew := false
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			isNew = true
+		} else {
 			_ = c.Error(err)
 			return
 		}
-		isNew = true
 	}
 
 	if marker.Timelines == nil {

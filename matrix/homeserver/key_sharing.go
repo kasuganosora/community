@@ -295,7 +295,11 @@ func (kss *KeySharingService) storeReceivedKey(userID, deviceID, roomID, session
 		"chain_index": content["chain_index"],
 	}
 
-	dataJSON, _ := json.Marshal(sessionData)
+	dataJSON, err := json.Marshal(sessionData)
+	if err != nil {
+		log.Error("Failed to marshal session data: %v", err)
+		return
+	}
 
 	session := &MatrixKeyBackupSession{
 		UserID:      userID,

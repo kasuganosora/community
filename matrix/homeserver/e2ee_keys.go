@@ -413,9 +413,14 @@ func (ks *KeyStore) verifyDeviceKeySignature(dk *DeviceKeys) error {
 
 	// 创建不含签名和 unsigned 的副本，转换为 map 后用 CanonicalJSON 序列化
 	// Matrix spec 要求使用 canonical JSON 进行签名验证
-	dkBytes, _ := json.Marshal(dk)
+	dkBytes, err := json.Marshal(dk)
+	if err != nil {
+		return fmt.Errorf("failed to marshal device keys: %w", err)
+	}
 	var dkMap map[string]interface{}
-	json.Unmarshal(dkBytes, &dkMap)
+	if err := json.Unmarshal(dkBytes, &dkMap); err != nil {
+		return fmt.Errorf("failed to unmarshal device keys: %w", err)
+	}
 	delete(dkMap, "signatures")
 	delete(dkMap, "unsigned")
 

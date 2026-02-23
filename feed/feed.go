@@ -107,6 +107,8 @@ func (p *ListParam) GetRedisRangeMinMax() (start, end string) {
 
 	if p.MinId > 0 {
 		start = strconv.FormatUint(p.MinId, 10)
+	} else if p.SinceId > 0 {
+		start = strconv.FormatUint(p.SinceId, 10)
 	} else {
 		start = "-inf"
 	}
@@ -115,14 +117,11 @@ func (p *ListParam) GetRedisRangeMinMax() (start, end string) {
 }
 
 func (p *ListParam) GetRedisRangeOffsetCount() (offset, count int64) {
-	if p.SinceId > 0 {
-		offset = int64(p.SinceId)
-	} else {
-		offset = 0
-	}
+	// ZRevRange uses rank-based offsets (0=newest), not score-based
+	offset = 0
 
 	if p.Limit > 0 {
-		count = int64(p.SinceId + p.Limit)
+		count = offset + int64(p.Limit) - 1
 	} else {
 		count = -1
 	}

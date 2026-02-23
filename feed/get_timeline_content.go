@@ -39,9 +39,9 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	} else {
 		var statusesIdStr []string
 
-		if params.MaxId > 0 || params.MinId > 0 {
+		if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
 			min, max := params.GetRedisRangeMinMax()
-			statusesIdStr = redisConn.ZRangeByScore(ctx, timelineKey, &redis.ZRangeBy{Min: min, Max: max}).Val()
+			statusesIdStr = redisConn.ZRevRangeByScore(ctx, timelineKey, &redis.ZRangeBy{Min: min, Max: max}).Val()
 		} else {
 			start, end := params.GetRedisRangeOffsetCount()
 			statusesIdStr = redisConn.ZRevRange(ctx, timelineKey, start, end).Val()

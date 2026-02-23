@@ -12,7 +12,7 @@ func MuteStatus(c *gin.Context) {
 
 	currentAccount := controllers.MustGetAccount(c)
 	// 只能自己 mute 自己的 status
-	controllers.AbortIf(c, status.AccountId == currentAccount.Id, 400, gin.H{"error": "can't mute self"})
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})
 
 	dbConn := db.GetDB()
 	// 是否已经 mute

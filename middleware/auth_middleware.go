@@ -23,8 +23,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			authToken, _ = c.Cookie("app-token")
 		} else {
 			// 去掉前缀 Bearer
-			tokenType := authToken[0:6]
-			if tokenType != "Bearer" {
+			if len(authToken) < 7 || authToken[0:6] != "Bearer" {
 				returnUnauthorizedAndRemoveCookie(c)
 				return
 			}

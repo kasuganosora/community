@@ -224,7 +224,9 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 		db.GetDB().Model(&MatrixKeyBackupSession{}).Where("user_id = ? AND version = ?", userID, version).Count(&totalCount)
 		backup.Count = int(totalCount)
 		backup.ETag = generateETag()
-		db.GetDB().Save(&backup)
+		if err := db.GetDB().Save(&backup).Error; err != nil {
+			return err
+		}
 	}
 
 	return nil

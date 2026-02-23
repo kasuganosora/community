@@ -7,7 +7,16 @@ import (
 
 func InternalApiMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.MustGet("token_data").(*models.AuthTokenData)
+		tokenRaw, exists := c.Get("token_data")
+		if !exists {
+			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"})
+			return
+		}
+		token, ok := tokenRaw.(*models.AuthTokenData)
+		if !ok {
+			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"})
+			return
+		}
 
 		if token.AuthType != models.AuthTokenTypeWeb {
 			c.AbortWithStatusJSON(403, gin.H{

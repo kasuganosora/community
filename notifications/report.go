@@ -10,7 +10,10 @@ import (
 
 func init() {
 	event.Register("report", "after_update", &event.Handler{Exec: func(event event.Event) bool {
-		report := event.Data.(*models.Report)
+		report, ok := event.Data.(*models.Report)
+		if !ok {
+			return false
+		}
 		if report.ActionTakenAt != nil {
 			go reportProcessedNotification(report)
 

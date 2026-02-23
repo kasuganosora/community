@@ -104,7 +104,10 @@ func (os *OpenIDService) RequestToken(userID string, req *OpenIDTokenRequest) (*
 func (os *OpenIDService) GetUserInfo(token string) (*OpenIDUserInfo, error) {
 	// 查找令牌
 	var openIDToken OpenIDToken
-	if err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?", 
+	if token == "" {
+		return nil, fmt.Errorf("empty token")
+	}
+	if err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?",
 		token, false, time.Now()).First(&openIDToken).Error; err != nil {
 		return nil, fmt.Errorf("invalid or expired token")
 	}

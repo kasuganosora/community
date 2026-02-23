@@ -260,7 +260,7 @@ func Unpush(status *models.Status) (err error) {
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
 		accounts := make([]*models.Account, 0)
-		err = db.GetDB().Preload("account.User").Preload("account.User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
+		err = db.GetDB().Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
 		if err != nil {
 			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
 			log.ErrorV(err)

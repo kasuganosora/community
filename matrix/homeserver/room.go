@@ -319,7 +319,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			OriginServerTS: baseTS + tsCounter,
 			SenderDomain:   r.HS.Config.ServerName,
 		}
-		tx.Create(nameEvent)
+		if err := tx.Create(nameEvent).Error; err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
 		r.updateRoomState(tx, roomID, nameEvent)
 	}
 
@@ -344,10 +347,13 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			OriginServerTS: baseTS + tsCounter,
 			SenderDomain:   r.HS.Config.ServerName,
 		}
-		tx.Create(topicEvent)
+		if err := tx.Create(topicEvent).Error; err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
 		r.updateRoomState(tx, roomID, topicEvent)
 	}
-	
+
 	// 7. Set canonical alias state event if alias requested
 	var pendingAlias string
 	if req.RoomAliasName != nil && *req.RoomAliasName != "" {
@@ -367,7 +373,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			OriginServerTS: baseTS + tsCounter,
 			SenderDomain:   r.HS.Config.ServerName,
 		}
-		tx.Create(canonicalAliasEvent)
+		if err := tx.Create(canonicalAliasEvent).Error; err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
 		r.updateRoomState(tx, roomID, canonicalAliasEvent)
 	}
 
@@ -499,7 +508,9 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 				OriginServerTS: time.Now().UnixMilli(),
 				SenderDomain:   r.HS.Config.ServerName,
 			}
-			db.GetDB().Create(event)
+			if err := db.GetDB().Create(event).Error; err != nil {
+				return "", ErrInternal
+			}
 			r.updateRoomState(db.GetDB(), roomID, event)
 			r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
 			// Clear forgotten flag on re-join (e.g. after re-invite)
@@ -513,7 +524,7 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 
 	// 检查加入规则
 	joinRuleContent, _ := r.GetRoomState(roomID, EventTypeRoomJoinRules, "")
-	joinRule := "public" // default
+	joinRule := "invite" // default to restrictive
 	if m, ok := joinRuleContent.(map[string]interface{}); ok {
 		if jr, ok := m["join_rule"].(string); ok {
 			joinRule = jr

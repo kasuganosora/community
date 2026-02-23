@@ -50,15 +50,21 @@ func PerformStatusAction(c *gin.Context) {
 		return
 	}
 
+	var dbErr error
 	switch req.Type {
 	case "delete":
-		db.GetDB().Delete(status)
+		dbErr = db.GetDB().Delete(status).Error
 	case "mark_as_sensitive":
 		status.Sensitive = true
-		db.GetDB().Save(status)
+		dbErr = db.GetDB().Save(status).Error
 	case "mark_as_not_sensitive":
 		status.Sensitive = false
-		db.GetDB().Save(status)
+		dbErr = db.GetDB().Save(status).Error
+	}
+
+	if dbErr != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
 	}
 
 	c.JSON(200, serializeAdminStatus(status))
@@ -78,7 +84,10 @@ func DeleteStatus(c *gin.Context) {
 		return
 	}
 
-	db.GetDB().Delete(status)
+	if err := db.GetDB().Delete(status).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, gin.H{})
 }

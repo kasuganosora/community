@@ -130,7 +130,9 @@ func (as *AccountService) ResetPassword(token, newPassword string) error {
 
 	// 标记令牌为已使用
 	resetToken.Used = true
-	db.GetDB().Save(&resetToken)
+	if err := db.GetDB().Save(&resetToken).Error; err != nil {
+		return err
+	}
 
 	// 撤销所有现有会话
 	as.revokeAllSessions(resetToken.UserID)

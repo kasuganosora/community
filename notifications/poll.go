@@ -22,12 +22,12 @@ func init() {
 
 // finishPollNotification 发送给所有参与投票的人投票结果
 func finishPollNotification(poll *models.Poll) {
-	if poll.ExpiresAt.After(time.Now()) {
+	if poll.ExpiresAt != nil && poll.ExpiresAt.After(time.Now()) {
 		return
 	}
 
 	accountsId := make([]uint64, 0)
-	err := db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Find(&accountsId).Error
+	err := db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Pluck("account_id", &accountsId).Error
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[finishPollNotification] get polled account ids faild, poll id %d", poll.Id))
 		log.ErrorV(err)
@@ -42,7 +42,7 @@ func finishPollNotification(poll *models.Poll) {
 	}
 
 	status := &models.Status{}
-	err = db.GetDB().Model(&models.Status{}).Preload("Account").Where("id = ?", poll.StatusId).Find(status).Error
+	err = db.GetDB().Model(&models.Status{}).Preload("Account").Where("id = ?", poll.StatusId).First(status).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil

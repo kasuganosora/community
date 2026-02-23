@@ -134,8 +134,13 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 
 	if mediaType == "video" {
 		// 视频使用视频处理器
+		videoFile, videoErr := os.Open(tempFile)
+		if videoErr != nil {
+			return fmt.Errorf("failed to open temp file for video: %w", videoErr)
+		}
+		defer videoFile.Close()
 		videoProc := processor.NewVideoProcessor("")
-		thumbData, thumbWidth, thumbHeight, thumbFormat, err = videoProc.GenerateThumbnail(nil, opts)
+		thumbData, thumbWidth, thumbHeight, thumbFormat, err = videoProc.GenerateThumbnail(videoFile, opts)
 	} else {
 		// 图片使用图片处理器
 		file, err := os.Open(tempFile)

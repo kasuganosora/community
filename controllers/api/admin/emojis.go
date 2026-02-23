@@ -258,7 +258,10 @@ func EnableCustomEmoji(c *gin.Context) {
 	}
 
 	emoji.VisibleInPicker = true
-	db.GetDB().Save(emoji)
+	if err := db.GetDB().Save(emoji).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }
@@ -278,7 +281,10 @@ func DisableCustomEmoji(c *gin.Context) {
 	}
 
 	emoji.VisibleInPicker = false
-	db.GetDB().Save(emoji)
+	if err := db.GetDB().Save(emoji).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }

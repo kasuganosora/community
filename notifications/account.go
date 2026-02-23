@@ -44,7 +44,7 @@ func followRequestNotification(follow *models.Follow) {
 	nf := &models.Notification{
 		AccountId:     follow.FollowId,
 		FromAccountId: follow.AccountId,
-		Type:          models.NotificationTypeFollow,
+		Type:          models.NotificationTypeFollowRequest,
 	}
 
 	err = db.GetDB().Create(nf).Error
@@ -77,7 +77,7 @@ func followNotification(follow *models.Follow) {
 	nf := &models.Notification{
 		AccountId:     follow.FollowId,
 		FromAccountId: follow.AccountId,
-		Type:          models.NotificationTypeFollowRequest,
+		Type:          models.NotificationTypeFollow,
 	}
 
 	err = db.GetDB().Create(nf).Error

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -111,9 +110,11 @@ func (c *Client) signRequest(req *http.Request, body []byte) error {
 	req.Header.Set("Digest", digest)
 
 	// Build the signature string
+	// Per HTTP Signatures spec: (request-target) value is lowercased method + path
+	// Host should use the actual host value, not lowercased
 	signingString := fmt.Sprintf("(request-target): post %s\nhost: %s\ndate: %s\ndigest: %s",
-		strings.ToLower(u.Path),
-		strings.ToLower(u.Host),
+		u.Path,
+		u.Host,
 		date,
 		digest,
 	)

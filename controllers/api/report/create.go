@@ -31,6 +31,7 @@ func Create(c *gin.Context) {
 
 	targetAccount := &models.Account{}
 	err = db.GetDB().Where("id = ?", targetAccountId).First(targetAccount).Error
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "target account not found"})
 
 	statusIds, err := utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(req.StatusIds))
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid status ids"})

@@ -213,31 +213,29 @@ func (r *Request) SetTryTimes(tryTimes int) *Request {
 }
 
 func (r *Request) Do() (resp *Response, err error) {
-	var (
-		req *http.Request
-	)
-
-	if r.body != nil {
-		req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
-	} else {
-		req, err = http.NewRequest(r.method, r.url, nil)
-	}
-
-	if err != nil {
-		err = errors.WithStack(err)
-		return
-	}
-
-	req.Header = r.header
-	req.URL.RawQuery = r.urlParams.Encode()
-
-	if r.timeout > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
-		defer cancel()
-		req = req.WithContext(ctx)
-	}
-
 	for i := 0; i <= r.tryTimes; i++ {
+		var req *http.Request
+
+		if r.body != nil {
+			req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
+		} else {
+			req, err = http.NewRequest(r.method, r.url, nil)
+		}
+
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+		req.Header = r.header.Clone()
+		req.URL.RawQuery = r.urlParams.Encode()
+
+		if r.timeout > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+			defer cancel()
+			req = req.WithContext(ctx)
+		}
+
 		var resp1 *http.Response
 		resp1, err = r.client.Do(req)
 

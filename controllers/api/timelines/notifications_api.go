@@ -55,6 +55,10 @@ func DismissNotification(c *gin.Context) {
 		Where("id = ? AND account_id = ?", notificationId, account.Id).
 		Update("is_read", true)
 
+	if result.Error != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	if result.RowsAffected == 0 {
 		c.AbortWithStatusJSON(404, gin.H{"error": "notification not found"})
 		return
@@ -69,9 +73,13 @@ func ClearNotifications(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account)
 
 	// Mark all notifications as read
-	db.GetDB().Model(&models.Notification{}).
+	if err := db.GetDB().Model(&models.Notification{}).
 		Where("account_id = ?", account.Id).
-		Update("is_read", true)
+		Update("is_read", true).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "clear notifications error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, gin.H{})
 }

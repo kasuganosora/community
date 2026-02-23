@@ -32,7 +32,7 @@ func Pin(c *gin.Context) {
 
 func UnPin(c *gin.Context) {
 	status := getRealStatus(c)
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	//  只能 自己置顶自己的
 	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})

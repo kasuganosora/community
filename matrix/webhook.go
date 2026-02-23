@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,8 +146,7 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 
 	// 检查是否在命名空间内
 	if GlobalConfig.UserNamespacePrefix != "" &&
-		len(localpart) > len(GlobalConfig.UserNamespacePrefix) &&
-		localpart[:len(GlobalConfig.UserNamespacePrefix)] == GlobalConfig.UserNamespacePrefix {
+		strings.HasPrefix(localpart, GlobalConfig.UserNamespacePrefix) {
 		// 是本系统映射的用户，返回用户信息
 		c.JSON(http.StatusOK, gin.H{})
 		return
@@ -188,8 +188,7 @@ func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 	// 检查是否是本系统映射的房间
 	LoadConfig()
 	if GlobalConfig.RoomNamespacePrefix != "" &&
-		len(roomAlias) > len(GlobalConfig.RoomNamespacePrefix) &&
-		roomAlias[:len(GlobalConfig.RoomNamespacePrefix)] == GlobalConfig.RoomNamespacePrefix {
+		strings.HasPrefix(roomAlias, GlobalConfig.RoomNamespacePrefix) {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}

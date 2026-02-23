@@ -77,7 +77,7 @@ func listFollowListNotification(lfa *models.ListFollowAccount) {
 	nf := &models.Notification{
 		AccountId:     list.AccountId,
 		FromAccountId: lfa.AccountId,
-		Type:          models.NotificationTypeRemoveList,
+		Type:          models.NotificationTypeFollow,
 		ListId:        list.Id,
 	}
 

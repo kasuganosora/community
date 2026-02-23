@@ -69,7 +69,13 @@ func Pkcs7padding(data []byte, blockSize int) []byte {
 
 func Pkcs7unpadding(data []byte) []byte {
 	length := len(data)
+	if length == 0 {
+		return data
+	}
 	unpadding := int(data[length-1])
+	if unpadding > length || unpadding == 0 {
+		return data
+	}
 	return data[:(length - unpadding)]
 }
 

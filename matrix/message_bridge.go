@@ -203,9 +203,11 @@ func (m *MessageBridge) createMessageMapping(statusID uint64, event *Event) erro
 // isEventProcessed 检查事件是否已处理
 func (m *MessageBridge) isEventProcessed(eventID string) bool {
 	var count int64
-	db.GetDB().Model(&models.MatrixMessage{}).
+	if err := db.GetDB().Model(&models.MatrixMessage{}).
 		Where("matrix_event_id = ?", eventID).
-		Count(&count)
+		Count(&count).Error; err != nil {
+		return false
+	}
 	return count > 0
 }
 

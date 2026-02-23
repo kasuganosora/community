@@ -169,9 +169,11 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 			FilePath:     thumbnailPath,
 			CreatedAt:    time.Now(),
 		}
-		db.GetDB().Create(thumbnail)
+		if err := db.GetDB().Create(thumbnail).Error; err != nil {
+			log.Error("Failed to create thumbnail: %v", err)
+		}
 	}
-	
+
 	return matrixMedia, nil
 }
 
@@ -366,7 +368,9 @@ func handleDownloadMedia(c *gin.Context) {
 	c.Header("Content-Length", fmt.Sprintf("%d", matrixMedia.FileSize))
 	
 	// 流式传输文件
-	io.Copy(c.Writer, reader)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		log.Error("Failed to stream media: %v", err)
+	}
 }
 
 // handleRemoteMediaDownload 处理远程媒体下载

@@ -39,6 +39,18 @@ func (Delivery) TableName() string {
 	return "activitypub_deliveries"
 }
 
+// ProcessedActivity tracks already-processed activity IDs for inbox de-duplication.
+// Per ActivityPub spec, inbox MUST de-duplicate incoming activities by their ID.
+type ProcessedActivity struct {
+	ID         uint64     `gorm:"primaryKey;autoIncrement"`
+	ActivityID string     `gorm:"type:varchar(255);not null;uniqueIndex"`
+	CreatedAt  *time.Time `gorm:"autoCreateTime"`
+}
+
+func (ProcessedActivity) TableName() string {
+	return "activitypub_processed_activities"
+}
+
 // DeliveryQueue manages ActivityPub message delivery
 type DeliveryQueue struct {
 	client    *Client

@@ -45,6 +45,7 @@ func Update(c *gin.Context) {
 		}
 
 		_ = c.Error(err)
+		return
 	}
 
 	if req.Title != nil {

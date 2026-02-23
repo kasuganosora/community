@@ -213,9 +213,12 @@ func Relationships(c *gin.Context) {
 	// Following status
 	followingMap := make(map[uint64]bool)
 	followingList := make([]*models.Follow, 0)
-	db.GetDB().Scopes(models.Followed).
+	if err := db.GetDB().Scopes(models.Followed).
 		Where("account_id = ? AND follow_id IN ?", currentAccount.Id, targetIds).
-		Find(&followingList)
+		Find(&followingList).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	for _, f := range followingList {
 		followingMap[f.FollowId] = true
 	}
@@ -223,9 +226,12 @@ func Relationships(c *gin.Context) {
 	// Follow requested status
 	requestedMap := make(map[uint64]bool)
 	requestedList := make([]*models.Follow, 0)
-	db.GetDB().Scopes(models.FollowRequested).
+	if err := db.GetDB().Scopes(models.FollowRequested).
 		Where("account_id = ? AND follow_id IN ?", currentAccount.Id, targetIds).
-		Find(&requestedList)
+		Find(&requestedList).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	for _, f := range requestedList {
 		requestedMap[f.FollowId] = true
 	}
@@ -233,9 +239,12 @@ func Relationships(c *gin.Context) {
 	// Followed by status
 	followedByMap := make(map[uint64]bool)
 	followedList := make([]*models.Follow, 0)
-	db.GetDB().Scopes(models.Followed).
+	if err := db.GetDB().Scopes(models.Followed).
 		Where("follow_id = ? AND account_id IN ?", currentAccount.Id, targetIds).
-		Find(&followedList)
+		Find(&followedList).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	for _, f := range followedList {
 		followedByMap[f.AccountId] = true
 	}
@@ -243,8 +252,11 @@ func Relationships(c *gin.Context) {
 	// Blocking status
 	blockingMap := make(map[uint64]bool)
 	blocks := make([]*models.Block, 0)
-	db.GetDB().Where("account_id = ? AND target_account_id IN ?", currentAccount.Id, targetIds).
-		Find(&blocks)
+	if err := db.GetDB().Where("account_id = ? AND target_account_id IN ?", currentAccount.Id, targetIds).
+		Find(&blocks).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	for _, b := range blocks {
 		blockingMap[b.TargetAccountId] = true
 	}
@@ -252,8 +264,11 @@ func Relationships(c *gin.Context) {
 	// Muting status
 	mutingMap := make(map[uint64]bool)
 	mutes := make([]*models.MuteAccount, 0)
-	db.GetDB().Where("account_id = ? AND target_id IN ?", currentAccount.Id, targetIds).
-		Find(&mutes)
+	if err := db.GetDB().Where("account_id = ? AND target_id IN ?", currentAccount.Id, targetIds).
+		Find(&mutes).Error; err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	for _, m := range mutes {
 		mutingMap[m.TargetId] = true
 	}

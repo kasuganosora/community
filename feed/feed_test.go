@@ -93,14 +93,14 @@ func TestListParam_GetRedisRangeMinMax(t *testing.T) {
 }
 
 func TestListParam_GetRedisRangeOffsetCount(t *testing.T) {
-	t.Run("With SinceId and Limit", func(t *testing.T) {
-		p := &ListParam{SinceId: 10, Limit: 20}
+	t.Run("With Limit", func(t *testing.T) {
+		p := &ListParam{Limit: 20}
 		offset, count := p.GetRedisRangeOffsetCount()
-		assert.Equal(t, int64(10), offset)
-		assert.Equal(t, int64(30), count)
+		assert.Equal(t, int64(0), offset)
+		assert.Equal(t, int64(19), count)
 	})
 
-	t.Run("Without SinceId and Limit", func(t *testing.T) {
+	t.Run("Without Limit", func(t *testing.T) {
 		p := &ListParam{}
 		offset, count := p.GetRedisRangeOffsetCount()
 		assert.Equal(t, int64(0), offset)
@@ -292,24 +292,34 @@ func TestGetRedisRangeMinMax_EdgeCases(t *testing.T) {
 }
 
 func TestGetRedisRangeOffsetCount_EdgeCases(t *testing.T) {
-	t.Run("Only SinceId", func(t *testing.T) {
-		p := &ListParam{SinceId: 100}
-		offset, count := p.GetRedisRangeOffsetCount()
-		assert.Equal(t, int64(100), offset)
-		assert.Equal(t, int64(-1), count)
-	})
-
-	t.Run("Only Limit", func(t *testing.T) {
+	t.Run("With Limit", func(t *testing.T) {
 		p := &ListParam{Limit: 20}
 		offset, count := p.GetRedisRangeOffsetCount()
 		assert.Equal(t, int64(0), offset)
-		// When SinceId is 0 and Limit > 0, count = SinceId + Limit = 0 + 20 = 20
-		// But actually based on the code: count = int64(p.SinceId + p.Limit) = 0 + 20 = 20
-		// Wait, let me check the actual behavior
-		// Actually the code says: if p.Limit > 0 { count = int64(p.SinceId + p.Limit) }
-		// So with SinceId=0, Limit=20: count = 0 + 20 = 20
-		// But the test expected -1. Let me fix the test to match the actual behavior
-		assert.Equal(t, int64(20), count)
+		assert.Equal(t, int64(19), count) // offset + limit - 1
+	})
+
+	t.Run("With large Limit", func(t *testing.T) {
+		p := &ListParam{Limit: 100}
+		offset, count := p.GetRedisRangeOffsetCount()
+		assert.Equal(t, int64(0), offset)
+		assert.Equal(t, int64(99), count) // 0-indexed rank range
+	})
+}
+
+func TestGetRedisRangeMinMax_WithSinceId(t *testing.T) {
+	t.Run("SinceId used as min when no MinId", func(t *testing.T) {
+		p := &ListParam{SinceId: 500}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "500", start)
+		assert.Equal(t, "+inf", end)
+	})
+
+	t.Run("MinId takes precedence over SinceId", func(t *testing.T) {
+		p := &ListParam{MinId: 200, SinceId: 500}
+		start, end := p.GetRedisRangeMinMax()
+		assert.Equal(t, "200", start)
+		assert.Equal(t, "+inf", end)
 	})
 }
 

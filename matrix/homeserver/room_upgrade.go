@@ -166,8 +166,13 @@ func (rus *RoomUpgradeService) canUpgradeRoom(roomID, userID string) bool {
 	}
 
 	var plContent PowerLevelContent
-	data, _ := json.Marshal(powerLevels.Content)
-	json.Unmarshal(data, &plContent)
+	data, err := json.Marshal(powerLevels.Content)
+	if err != nil {
+		return false
+	}
+	if err := json.Unmarshal(data, &plContent); err != nil {
+		return false
+	}
 
 	userLevel := plContent.UsersDefault
 	if level, ok := plContent.Users[userID]; ok {
