@@ -54,7 +54,18 @@ type OpenIDService struct {
 
 // NewOpenIDService 创建 OpenID 服务
 func NewOpenIDService(hs *HomeServer) *OpenIDService {
-	return &OpenIDService{hs: hs}
+	s := &OpenIDService{hs: hs}
+	go s.cleanupLoop()
+	return s
+}
+
+// cleanupLoop 定期清理过期的令牌
+func (os *OpenIDService) cleanupLoop() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		os.CleanupExpiredTokens()
+	}
 }
 
 // RequestToken 请求 OpenID 令牌
@@ -197,6 +208,9 @@ func handleGetOpenIDUserInfo(c *gin.Context) {
 // generateOpenIDToken 生成 OpenID 令牌
 func generateOpenIDToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// 回退到基于时间的令牌
+		return fmt.Sprintf("openid_%x", time.Now().UnixNano())
+	}
 	return "openid_" + hex.EncodeToString(b)
 }

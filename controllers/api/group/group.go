@@ -48,7 +48,7 @@ func CreateGroup(c *gin.Context) {
 		bridge := matrix.GetBridge()
 		if bridge != nil && bridge.IsStarted() {
 			// 使用 GroupMapper 创建桥接群组
-			groupMapper := matrix.NewGroupMapper(bridge.GetClient())
+			groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
 			bridgedGroup, err := groupMapper.CreateBridgedGroup(currentAccount.Id, req.Name, req.Description)
 			if err != nil {
 				log.Error("Failed to create bridged group: %v", err)
@@ -150,7 +150,7 @@ func InviteMember(c *gin.Context) {
 		if matrix.IsEnabled() {
 			bridge := matrix.GetBridge()
 			if bridge != nil {
-				groupMapper := matrix.NewGroupMapper(bridge.GetClient())
+				groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
 				if req.AccountId != nil {
 					groupMapper.AddLocalMemberToGroup(groupID, *req.AccountId, role)
 				}
@@ -404,7 +404,7 @@ func BridgeGroup(c *gin.Context) {
 		return
 	}
 
-	groupMapper := matrix.NewGroupMapper(bridge.GetClient())
+	groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
 	if err := groupMapper.BridgeExistingGroup(groupID); err != nil {
 		log.Error("Failed to bridge group: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to bridge group to Matrix"})

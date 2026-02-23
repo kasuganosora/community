@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -622,9 +623,9 @@ func isValidAppServiceID(id string) bool {
 func generateSecureToken() string {
 	// 生成安全的随机令牌
 	b := make([]byte, 32)
-	for i := range b {
-		b[i] = byte(time.Now().UnixNano() % 256)
-		time.Sleep(1 * time.Nanosecond)
+	if _, err := rand.Read(b); err != nil {
+		// 如果加密随机数生成失败，使用更安全的回退方案
+		return hex.EncodeToString([]byte(fmt.Sprintf("%d%d", time.Now().UnixNano(), time.Now().UnixNano())))
 	}
 	return hex.EncodeToString(b)
 }

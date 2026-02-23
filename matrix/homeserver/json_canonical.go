@@ -3,7 +3,9 @@ package homeserver
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"sort"
+	"strconv"
 )
 
 // CanonicalJSON 将 JSON 对象转换为规范格式
@@ -14,6 +16,13 @@ func CanonicalJSON(v interface{}) ([]byte, error) {
 		return canonicalJSONObject(val)
 	case []interface{}:
 		return canonicalJSONArray(val)
+	case float64:
+		// Matrix spec: canonical JSON must represent integer-valued numbers without decimal point
+		// Go's json.Unmarshal parses all JSON numbers as float64 into interface{}
+		if val == math.Trunc(val) && !math.IsInf(val, 0) && !math.IsNaN(val) {
+			return []byte(strconv.FormatInt(int64(val), 10)), nil
+		}
+		return json.Marshal(val)
 	default:
 		return json.Marshal(val)
 	}

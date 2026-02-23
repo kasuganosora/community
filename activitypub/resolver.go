@@ -17,18 +17,105 @@ import (
 	"gorm.io/gorm"
 )
 
+// CacheEntry wraps a cached value with expiration time
+type CacheEntry struct {
+	value      interface{}
+	expiresAt  time.Time
+}
+
+// IsExpired checks if the cache entry has expired
+func (e *CacheEntry) IsExpired() bool {
+	return time.Now().After(e.expiresAt)
+}
+
 // Resolver handles resolution of remote ActivityPub resources
 type Resolver struct {
 	client       *Client
-	accountCache sync.Map // Cache for remote accounts
-	statusCache  sync.Map // Cache for remote statuses
+	accountCache sync.Map // Cache for remote accounts with expiration
+	statusCache  sync.Map // Cache for remote statuses with expiration
+	cacheTTL     time.Duration
 }
+
+// Default cache TTL (30 minutes)
+const defaultCacheTTL = 30 * time.Minute
+
+// Max cache entries to prevent memory leak
+const maxCacheEntries = 10000
 
 // NewResolver creates a new Resolver
 func NewResolver(privateKey *rsa.PrivateKey, actorID string) *Resolver {
 	return &Resolver{
-		client: NewClient(privateKey, actorID),
+		client:   NewClient(privateKey, actorID),
+		cacheTTL: defaultCacheTTL,
 	}
+}
+
+// storeAccountCache stores an account in cache with expiration
+func (r *Resolver) storeAccountCache(key string, account *models.Account) {
+	entry := &CacheEntry{
+		value:     account,
+		expiresAt: time.Now().Add(r.cacheTTL),
+	}
+	r.accountCache.Store(key, entry)
+	r.cleanupCacheIfNeeded()
+}
+
+// loadAccountCache loads an account from cache if not expired
+func (r *Resolver) loadAccountCache(key string) (*models.Account, bool) {
+	if cached, ok := r.accountCache.Load(key); ok {
+		if entry, ok := cached.(*CacheEntry); ok {
+			if !entry.IsExpired() {
+				if account, ok := entry.value.(*models.Account); ok {
+					return account, true
+				}
+			}
+			// Expired entry, delete it
+			r.accountCache.Delete(key)
+		}
+	}
+	return nil, false
+}
+
+// storeStatusCache stores a status in cache with expiration
+func (r *Resolver) storeStatusCache(key string, status *models.Status) {
+	entry := &CacheEntry{
+		value:     status,
+		expiresAt: time.Now().Add(r.cacheTTL),
+	}
+	r.statusCache.Store(key, entry)
+	r.cleanupCacheIfNeeded()
+}
+
+// loadStatusCache loads a status from cache if not expired
+func (r *Resolver) loadStatusCache(key string) (*models.Status, bool) {
+	if cached, ok := r.statusCache.Load(key); ok {
+		if entry, ok := cached.(*CacheEntry); ok {
+			if !entry.IsExpired() {
+				if status, ok := entry.value.(*models.Status); ok {
+					return status, true
+				}
+			}
+			// Expired entry, delete it
+			r.statusCache.Delete(key)
+		}
+	}
+	return nil, false
+}
+
+// cleanupCacheIfNeeded removes expired entries if cache is too large
+func (r *Resolver) cleanupCacheIfNeeded() {
+	// Count entries (approximate)
+	count := 0
+	r.accountCache.Range(func(key, value interface{}) bool {
+		count++
+		if count > maxCacheEntries {
+			// Remove expired entries
+			if entry, ok := value.(*CacheEntry); ok && entry.IsExpired() {
+				r.accountCache.Delete(key)
+			}
+		}
+		return true
+	})
 }
 
 // ResolveAccount resolves a remote account by URI or username@domain
@@ -52,10 +139,8 @@ func (r *Resolver) ResolveAccount(ctx context.Context, identifier string) (*mode
 // resolveAccountByURI resolves an account by its ActivityPub URI
 func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models.Account, error) {
 	// Check local cache first
-	if cached, ok := r.accountCache.Load(uri); ok {
-		if account, ok := cached.(*models.Account); ok {
-			return account, nil
-		}
+	if account, ok := r.loadAccountCache(uri); ok {
+		return account, nil
 	}
 
 	// Check database first
@@ -64,9 +149,9 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 	if err == nil {
 		// Check if we need to refresh
 		if shouldRefreshAccount(&account) {
-			go r.refreshAccount(uri)
+			go r.safeRefreshAccount(uri)
 		}
-		r.accountCache.Store(uri, &account)
+		r.storeAccountCache(uri, &account)
 		return &account, nil
 	}
 
@@ -82,7 +167,7 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 		return nil, fmt.Errorf("creating account: %w", err)
 	}
 
-	r.accountCache.Store(uri, &account)
+	r.storeAccountCache(uri, &account)
 	return &account, nil
 }
 
@@ -93,7 +178,7 @@ func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, doma
 	err := db.GetDB().Where("username = ? AND domain = ?", username, domain).First(&account).Error
 	if err == nil {
 		if shouldRefreshAccount(&account) {
-			go r.refreshAccount(account.OriginId)
+			go r.safeRefreshAccount(account.OriginId)
 		}
 		return &account, nil
 	}
@@ -111,17 +196,15 @@ func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, doma
 // ResolveStatus resolves a remote status by URI
 func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Status, error) {
 	// Check local cache first
-	if cached, ok := r.statusCache.Load(uri); ok {
-		if status, ok := cached.(*models.Status); ok {
-			return status, nil
-		}
+	if status, ok := r.loadStatusCache(uri); ok {
+		return status, nil
 	}
 
 	// Check database first
 	var status models.Status
 	err := db.GetDB().Preload("Content").Preload("Account").Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error
 	if err == nil {
-		r.statusCache.Store(uri, &status)
+		r.storeStatusCache(uri, &status)
 		return &status, nil
 	}
 
@@ -137,8 +220,18 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 		return nil, fmt.Errorf("creating status: %w", err)
 	}
 
-	r.statusCache.Store(uri, &status)
+	r.storeStatusCache(uri, &status)
 	return &status, nil
+}
+
+// safeRefreshAccount wraps refreshAccount with panic recovery
+func (r *Resolver) safeRefreshAccount(uri string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("Panic in refreshAccount for %s: %v", uri, r)
+		}
+	}()
+	r.refreshAccount(uri)
 }
 
 // refreshAccount refreshes a remote account's information

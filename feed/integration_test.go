@@ -65,7 +65,7 @@ func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 	require.True(t, redisClient.IsReal(), "Must use real Redis, not mock")
 
 	// 创建 fixture builder
-	fixtures := testutil.NewFixtureBuilder(db.GormDB)
+	fixtures := testutil.NewFixtureBuilder(t, db.GormDB)
 
 	return &IntegrationTestSetup{
 		DB:       db,

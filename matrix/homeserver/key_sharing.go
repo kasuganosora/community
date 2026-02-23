@@ -485,9 +485,16 @@ func handleStoreSessionKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"etag": time.Now().Unix(),
-	})
+	// Return updated backup info
+	var backup MatrixKeyBackup
+	if err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error; err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"etag":  backup.ETag,
+			"count": backup.Count,
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{})
+	}
 }
 
 // handleDeleteSessionKey 删除会话密钥
@@ -515,13 +522,24 @@ func handleStoreRoomKeys(c *gin.Context) {
 	userID := c.GetString("user_id")
 	version := c.Query("version")
 
-	var rooms map[string]map[string]KeyBackupSession
-	if err := c.ShouldBindJSON(&rooms); err != nil {
+	// Matrix spec: body is {"rooms": {roomId: {sessions: {sessionId: KeyBackupSession}}}}
+	var body struct {
+		Rooms map[string]struct {
+			Sessions map[string]KeyBackupSession `json:"sessions"`
+		} `json:"rooms"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
 		return
+	}
+
+	// Flatten to map[roomID]map[sessionID]KeyBackupSession
+	rooms := make(map[string]map[string]KeyBackupSession)
+	for roomID, roomData := range body.Rooms {
+		rooms[roomID] = roomData.Sessions
 	}
 
 	if err := hs.KeyBackup.StoreBackupKeys(userID, version, rooms); err != nil {
@@ -532,7 +550,14 @@ func handleStoreRoomKeys(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"etag": time.Now().Unix(),
-	})
+	// Return updated backup info
+	var backup MatrixKeyBackup
+	if err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error; err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"etag":  backup.ETag,
+			"count": backup.Count,
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{})
+	}
 }

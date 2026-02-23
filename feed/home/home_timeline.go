@@ -129,7 +129,7 @@ func PushToHome(account *models.Account, status *models.Status, update bool, pus
 
 	aggregatesReblogs := true
 	if homeTimeline.Account.User != nil && homeTimeline.Account.User.Settings != nil {
-		aggregatesReblogs = homeTimeline.Account.User.Settings.GetaggrAgatesReblogs()
+		aggregatesReblogs = homeTimeline.Account.User.Settings.GetAggregatesReblogs()
 	}
 
 	err = feed.AddToTimelineItem(homeTimeline, status, aggregatesReblogs)
@@ -158,7 +158,7 @@ func UnPushFromHome(account *models.Account, status *models.Status, pushToClient
 	aggregatesReblogs := true
 
 	if homeTimeline.Account.User != nil && homeTimeline.Account.User.Settings != nil {
-		aggregatesReblogs = homeTimeline.Account.User.Settings.GetaggrAgatesReblogs()
+		aggregatesReblogs = homeTimeline.Account.User.Settings.GetAggregatesReblogs()
 	}
 
 	err = feed.RemoveTimelineItem(homeTimeline, status, aggregatesReblogs)

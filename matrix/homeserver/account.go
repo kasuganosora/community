@@ -1,9 +1,11 @@
 package homeserver
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,18 +47,18 @@ type DeactivateRequest struct {
 
 // DeactivateAuth 停用认证
 type DeactivateAuth struct {
-	Type     string `json:"type"`
-	Password *struct {
-		Password string `json:"password"`
-	} `json:"password,omitempty"`
+	Type       string                 `json:"type"`
+	Identifier map[string]interface{} `json:"identifier,omitempty"`
+	Password   string                 `json:"password,omitempty"`
+	Session    string                 `json:"session,omitempty"`
 }
 
 // PasswordAuthFlow 密码认证流程
 type PasswordAuthFlow struct {
-	Type     string `json:"type"`
-	Password *struct {
-		Password string `json:"password"`
-	} `json:"password,omitempty"`
+	Type       string                 `json:"type"`
+	Identifier map[string]interface{} `json:"identifier,omitempty"`
+	Password   string                 `json:"password,omitempty"`
+	Session    string                 `json:"session,omitempty"`
 }
 
 // AccountData 账户数据
@@ -136,18 +138,33 @@ func (as *AccountService) ResetPassword(token, newPassword string) error {
 	return nil
 }
 
-// updatePassword 更新用户密码
+// updatePassword 更新用户密码（使用 bcrypt 哈希）
 func (as *AccountService) updatePassword(userID, newPassword string) error {
-	// 查找本地账户
+	// 从 Matrix 用户 ID 解析 localpart
+	localpart, _, ok := ParseMatrixUserID(userID)
+	if !ok {
+		return fmt.Errorf("invalid user ID: %s", userID)
+	}
+
 	var account models.Account
-	if err := db.GetDB().Where("email = ? OR username = ?", userID, strings.TrimPrefix(userID, "@")).First(&account).Error; err != nil {
+	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil {
 		return fmt.Errorf("user not found")
 	}
 
-	// 简化实现，实际应该哈希密码
-	_ = newPassword
-	// 更新密码 - 这里简化处理
-	return db.GetDB().Model(&account).Update("encrypted_password", newPassword).Error
+	// 生成随机盐并使用 bcrypt 哈希密码
+	salt := uuid.New().String()[:16]
+	hashedPassword, err := models.EncryptPassword(newPassword, salt)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// 通过 UserSecretData 更新密码
+	return db.GetDB().Model(&models.UserSecretData{}).
+		Where("user_id = ?", account.UserId).
+		Updates(map[string]interface{}{
+			"password": hashedPassword,
+			"salt":     salt,
+		}).Error
 }
 
 // revokeAllSessions 撤销用户的所有会话
@@ -155,18 +172,63 @@ func (as *AccountService) revokeAllSessions(userID string) {
 	db.GetDB().Where("user_id = ?", userID).Delete(&MatrixUserSession{})
 }
 
+// revokeOtherSessions 撤销用户除当前 token 外的所有会话，同时删除其推送器
+func (as *AccountService) revokeOtherSessions(userID, currentToken string) {
+	// Collect device IDs being revoked so we can also remove their pushers
+	var revokedSessions []MatrixUserSession
+	db.GetDB().Where("user_id = ? AND access_token != ?", userID, currentToken).Find(&revokedSessions)
+	for _, s := range revokedSessions {
+		if s.DeviceID != "" {
+			db.GetDB().Where("user_id = ? AND device_id = ?", userID, s.DeviceID).Delete(&Pusher{})
+		}
+	}
+	db.GetDB().Where("user_id = ? AND access_token != ?", userID, currentToken).Delete(&MatrixUserSession{})
+}
+
+// verifyUserPassword 验证用户密码是否正确
+func (as *AccountService) verifyUserPassword(userID, password string) error {
+	localpart, _, ok := ParseMatrixUserID(userID)
+	if !ok {
+		localpart = userID
+	}
+	var account models.Account
+	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil {
+		return fmt.Errorf("user not found")
+	}
+	var user models.User
+	if err := db.GetDB().Where("id = ?", account.UserId).First(&user).Error; err != nil {
+		return fmt.Errorf("user record not found")
+	}
+	var secretData models.UserSecretData
+	if err := db.GetDB().Where("user_id = ?", user.Id).First(&secretData).Error; err != nil {
+		return fmt.Errorf("secret data not found")
+	}
+	return models.CompareHashAndPassword(secretData.Password, password, secretData.Salt)
+}
+
 // DeactivateAccount 停用账户
 func (as *AccountService) DeactivateAccount(userID string, req *DeactivateRequest) error {
-	// 验证身份（简化实现）
-	if req.Auth != nil {
-		// 应该进行交互式认证
+	// 验证密码
+	if req.Auth != nil && req.Auth.Type == "m.login.password" {
+		if err := as.verifyUserPassword(userID, req.Auth.Password); err != nil {
+			return fmt.Errorf("invalid password")
+		}
 	}
 
-	// 获取用户加入的所有房间
+	// 标记账户为已停用（使用 UserStatusRejected 表示停用）
+	localpart, _, ok := ParseMatrixUserID(userID)
+	if !ok {
+		localpart = userID
+	}
+	var account models.Account
+	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err == nil {
+		db.GetDB().Model(&models.User{}).Where("id = ?", account.UserId).
+			Update("status", models.UserStatusRejected)
+	}
+
+	// 获取用户加入的所有房间并离开
 	var memberships []MatrixRoomMember
 	db.GetDB().Where("user_id = ? AND membership = ?", userID, MembershipJoin).Find(&memberships)
-
-	// 离开所有房间
 	for _, m := range memberships {
 		as.hs.Room.LeaveRoom(userID, m.RoomID, &LeaveRoomRequest{
 			Reason: "User account deactivated",
@@ -175,9 +237,6 @@ func (as *AccountService) DeactivateAccount(userID string, req *DeactivateReques
 
 	// 删除用户会话
 	as.revokeAllSessions(userID)
-
-	// 标记账户为已停用
-	// 这里简化处理，实际应该有一个字段标记账户状态
 
 	log.Info("Account deactivated: %s", userID)
 	return nil
@@ -237,9 +296,14 @@ func (as *AccountService) SetAccountData(userID, dataType string, roomID *string
 
 // Whoami 获取当前用户信息
 func (as *AccountService) Whoami(userID string) (*WhoamiResponse, error) {
-	// 查找用户
+	// 从 Matrix 用户 ID 解析 localpart，通过用户名查找账户
+	localpart, _, ok := ParseMatrixUserID(userID)
+	if !ok {
+		return nil, fmt.Errorf("invalid user ID")
+	}
+
 	var account models.Account
-	if err := db.GetDB().Where("matrix_user_id = ?", userID).First(&account).Error; err != nil {
+	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil {
 		return nil, fmt.Errorf("user not found")
 	}
 
@@ -313,9 +377,9 @@ func handleChangePassword(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var req struct {
-		Auth        *PasswordAuthFlow `json:"auth,omitempty"`
-		NewPassword string            `json:"new_password" binding:"required"`
-		LogoutDevices bool            `json:"logout_devices,omitempty"`
+		Auth          *PasswordAuthFlow `json:"auth,omitempty"`
+		NewPassword   string            `json:"new_password" binding:"required"`
+		LogoutDevices *bool             `json:"logout_devices,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -338,8 +402,8 @@ func handleChangePassword(c *gin.Context) {
 	}
 
 	// 验证当前密码
-	if req.Auth.Type == "m.login.password" && req.Auth.Password != nil {
-		if err := hs.Account.ChangePassword(userID, req.Auth.Password.Password, req.NewPassword); err != nil {
+	if req.Auth.Type == "m.login.password" && req.Auth.Password != "" {
+		if err := hs.Account.ChangePassword(userID, req.Auth.Password, req.NewPassword); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{
 				"errcode": "M_FORBIDDEN",
 				"error":   err.Error(),
@@ -348,9 +412,10 @@ func handleChangePassword(c *gin.Context) {
 		}
 	}
 
-	// 如果请求，登出所有设备
-	if req.LogoutDevices {
-		hs.Account.revokeAllSessions(userID)
+	// Matrix spec: logout_devices defaults to true — revoke all OTHER sessions
+	currentToken := c.GetString("access_token")
+	if req.LogoutDevices == nil || *req.LogoutDevices {
+		hs.Account.revokeOtherSessions(userID, currentToken)
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
@@ -389,17 +454,33 @@ func handleDeactivate(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var req DeactivateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   err.Error(),
+	// Body may be absent or empty; only decode if there is content
+	body, _ := io.ReadAll(c.Request.Body)
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": err.Error()})
+			return
+		}
+	}
+
+	// UIA: challenge the client if no auth stage has been completed
+	if req.Auth == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"session": generateSessionID(),
+			"flows":   []gin.H{{"stages": []string{"m.login.password"}}},
+			"params":  gin.H{},
 		})
 		return
 	}
 
 	if err := hs.Account.DeactivateAccount(userID, &req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+		// Password was wrong — return UIA challenge again (401), not 403
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"session": generateSessionID(),
+			"flows":   []gin.H{{"stages": []string{"m.login.password"}}},
+			"params":  gin.H{},
+			"errcode": "M_FORBIDDEN",
 			"error":   err.Error(),
 		})
 		return

@@ -4,11 +4,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	_ "modernc.org/sqlite"
 )
 
 var DB *gorm.DB
@@ -76,6 +76,8 @@ func InitGorm() {
 	switch dsnType {
 	case "mysql":
 		err = initMysqlConnection()
+	case "sqlite":
+		err = initSqliteConnection()
 	default:
 		log.Fatal("Unsupported DSN type: %s", dsnType)
 	}
@@ -97,10 +99,32 @@ func initMysqlConnection() (err error) {
 	return
 }
 
-func getDsnType() string {
-	if config.C.DbConnection == "mysql" {
-		return "mysql"
+func initSqliteConnection() (err error) {
+	dbPath := config.C.DbHost
+	if dbPath == "" {
+		dbPath = "community.db"
 	}
+	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		return
+	}
+	// Enable WAL mode and busy timeout to prevent SQLITE_BUSY under concurrent writes
+	if sqlDB, dbErr := DB.DB(); dbErr == nil {
+		sqlDB.Exec("PRAGMA journal_mode=WAL")
+		sqlDB.Exec("PRAGMA busy_timeout=5000")
+	}
+	if config.C.DevMode == "true" {
+		DB = DB.Debug()
+	}
+	return
+}
 
+func getDsnType() string {
+	switch config.C.DbConnection {
+	case "mysql":
+		return "mysql"
+	case "sqlite":
+		return "sqlite"
+	}
 	return ""
 }

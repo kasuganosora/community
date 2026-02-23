@@ -1,10 +1,13 @@
 package homeserver
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
@@ -80,16 +83,33 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	if roomVersion == "" {
 		roomVersion = "10"
 	}
+
+	// 验证房间版本（Matrix spec 仅支持整数版本 1-11）
+	validVersions := map[string]bool{
+		"1": true, "2": true, "3": true, "4": true, "5": true,
+		"6": true, "7": true, "8": true, "9": true, "10": true, "11": true,
+	}
+	if !validVersions[roomVersion] {
+		return nil, &MatrixError{
+			ErrCode: "M_UNSUPPORTED_ROOM_VERSION",
+			Error:   fmt.Sprintf("Room version %q is not supported", roomVersion),
+		}
+	}
 	
 	// 开始事务
 	tx := db.GetDB().Begin()
 	
 	// 创建房间记录
+	visibility := req.Visibility
+	if visibility == "" {
+		visibility = "private"
+	}
 	room := &MatrixRoom{
 		RoomID:      roomID,
 		RoomVersion: roomVersion,
 		Creator:     creatorID,
 		IsDirect:    req.IsDirect,
+		Visibility:  visibility,
 	}
 	
 	if req.Name != nil {
@@ -113,10 +133,18 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			preset = "private_chat"
 		}
 	}
-	
+
+	// Set JoinRule on room record based on preset (denormalized for queries)
+	if preset == "public_chat" {
+		tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Update("join_rule", "public")
+	}
+
 	// 构建 auth events
 	var authEvents []string
-	
+	// Use a base timestamp and increment for each event to ensure deterministic ordering
+	baseTS := time.Now().UnixMilli()
+	tsCounter := int64(0)
+
 	// 1. 创建 m.room.create 事件
 	createEvent := &MatrixEvent{
 		EventID:   "$" + uuid.New().String(),
@@ -128,13 +156,19 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			"creator":      creatorID,
 			"room_version": roomVersion,
 		},
-		Depth: 1,
+		Depth:          1,
+		AuthEvents:     []string{},
+		OriginServerTS: baseTS + tsCounter,
+		SenderDomain:   r.HS.Config.ServerName,
 	}
+	tsCounter++
 	
-	// 添加 creation_content
+	// 添加 creation_content（Matrix spec: room_version in creation_content is ignored）
 	if req.CreationContent != nil {
 		for k, v := range req.CreationContent {
-			createEvent.Content[k] = v
+			if k != "room_version" {
+				createEvent.Content[k] = v
+			}
 		}
 	}
 	
@@ -174,8 +208,12 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			"redact":         plContent.Redact,
 			"invite":         plContent.Invite,
 		},
-		Depth:     2,
+		Depth:          2,
+		AuthEvents:     append([]string{}, authEvents...),
+		OriginServerTS: baseTS + tsCounter,
+		SenderDomain:   r.HS.Config.ServerName,
 	}
+	tsCounter++
 	if err := tx.Create(plEvent).Error; err != nil {
 		tx.Rollback()
 		return nil, ErrInternal
@@ -184,57 +222,64 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	r.updateRoomState(tx, roomID, plEvent)
 	
 	// 3. 根据 preset 设置其他默认事件
+	// Pass tsCounter to ensure deterministic timestamp ordering
+	eventTS := baseTS + tsCounter
 	switch preset {
 	case "private_chat":
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
 			"join_rule": "invite",
-		}, &authEvents)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
+		}, &authEvents, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
 			"history_visibility": "shared",
-		}, nil)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
+		}, nil, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
 			"guest_access": "forbidden",
-		}, nil)
+		}, nil, &eventTS)
 	case "trusted_private_chat":
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
 			"join_rule": "invite",
-		}, &authEvents)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
+		}, &authEvents, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
 			"history_visibility": "shared",
-		}, nil)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
+		}, nil, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
 			"guest_access": "forbidden",
-		}, nil)
+		}, nil, &eventTS)
 	case "public_chat":
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomJoinRules, map[string]interface{}{
 			"join_rule": "public",
-		}, &authEvents)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
+		}, &authEvents, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomHistoryVisibility, map[string]interface{}{
 			"history_visibility": "shared",
-		}, nil)
-		r.createDefaultEvent(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
+		}, nil, &eventTS)
+		r.createDefaultEventTS(tx, roomID, creatorID, EventTypeRoomGuestAccess, map[string]interface{}{
 			"guest_access": "can_join",
-		}, nil)
+		}, nil, &eventTS)
 	}
+	tsCounter = eventTS - baseTS
 	
 	// 4. 处理 initial_state
 	for _, state := range req.InitialState {
+		tsCounter++
 		event := &MatrixEvent{
-			EventID:   "$" + uuid.New().String(),
-			RoomID:    roomID,
-			EventType: EventType(state.Type),
-			Sender:    creatorID,
-			StateKey:  &state.StateKey,
-			Content:   state.Content,
-			Depth:     r.getNextDepth(tx, roomID),
+			EventID:        "$" + uuid.New().String(),
+			RoomID:         roomID,
+			EventType:      EventType(state.Type),
+			Sender:         creatorID,
+			StateKey:       &state.StateKey,
+			Content:        state.Content,
+			Depth:          r.getNextDepth(tx, roomID),
+			OriginServerTS: baseTS + tsCounter,
+			SenderDomain:   r.HS.Config.ServerName,
 		}
 		if err := tx.Create(event).Error; err != nil {
 			continue // 忽略错误
 		}
 		r.updateRoomState(tx, roomID, event)
 	}
-	
+
 	// 5. 创建者加入房间
+	tsCounter++
 	memberEvent := &MatrixEvent{
 		EventID:   "$" + uuid.New().String(),
 		RoomID:    roomID,
@@ -244,7 +289,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		Content: map[string]interface{}{
 			"membership": "join",
 		},
-		Depth: r.getNextDepth(tx, roomID),
+		Depth:          r.getNextDepth(tx, roomID),
+		AuthEvents:     append([]string{}, authEvents...),
+		OriginServerTS: baseTS + tsCounter,
+		SenderDomain:   r.HS.Config.ServerName,
 	}
 	if err := tx.Create(memberEvent).Error; err != nil {
 		tx.Rollback()
@@ -256,6 +304,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	
 	// 6. 设置房间名称和主题
 	if req.Name != nil {
+		tsCounter++
 		nameEvent := &MatrixEvent{
 			EventID:   "$" + uuid.New().String(),
 			RoomID:    roomID,
@@ -265,13 +314,17 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			Content: map[string]interface{}{
 				"name": *req.Name,
 			},
-			Depth: r.getNextDepth(tx, roomID),
+			Depth:          r.getNextDepth(tx, roomID),
+			AuthEvents:     append([]string{}, authEvents...),
+			OriginServerTS: baseTS + tsCounter,
+			SenderDomain:   r.HS.Config.ServerName,
 		}
 		tx.Create(nameEvent)
 		r.updateRoomState(tx, roomID, nameEvent)
 	}
-	
+
 	if req.Topic != nil {
+		tsCounter++
 		topicEvent := &MatrixEvent{
 			EventID:   "$" + uuid.New().String(),
 			RoomID:    roomID,
@@ -280,37 +333,93 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			StateKey:  utils.GetPtr(""),
 			Content: map[string]interface{}{
 				"topic": *req.Topic,
+				"m.topic": map[string]interface{}{
+					"m.text": []interface{}{
+						map[string]interface{}{"body": *req.Topic},
+					},
+				},
 			},
-			Depth: r.getNextDepth(tx, roomID),
+			Depth:          r.getNextDepth(tx, roomID),
+			AuthEvents:     append([]string{}, authEvents...),
+			OriginServerTS: baseTS + tsCounter,
+			SenderDomain:   r.HS.Config.ServerName,
 		}
 		tx.Create(topicEvent)
 		r.updateRoomState(tx, roomID, topicEvent)
 	}
 	
-	// 7. 处理邀请
+	// 7. Set canonical alias state event if alias requested
+	var pendingAlias string
+	if req.RoomAliasName != nil && *req.RoomAliasName != "" {
+		pendingAlias = "#" + *req.RoomAliasName + ":" + r.HS.Config.ServerName
+		tsCounter++
+		canonicalAliasEvent := &MatrixEvent{
+			EventID:   "$" + uuid.New().String(),
+			RoomID:    roomID,
+			EventType: EventTypeRoomCanonicalAlias,
+			Sender:    creatorID,
+			StateKey:  utils.GetPtr(""),
+			Content: map[string]interface{}{
+				"alias": pendingAlias,
+			},
+			Depth:          r.getNextDepth(tx, roomID),
+			AuthEvents:     append([]string{}, authEvents...),
+			OriginServerTS: baseTS + tsCounter,
+			SenderDomain:   r.HS.Config.ServerName,
+		}
+		tx.Create(canonicalAliasEvent)
+		r.updateRoomState(tx, roomID, canonicalAliasEvent)
+	}
+
+	// 8. 处理邀请
 	for _, inviteeID := range req.Invite {
 		if err := r.inviteUser(tx, roomID, creatorID, inviteeID); err != nil {
 			continue // 忽略邀请错误
 		}
 	}
-	
+
 	if err := tx.Commit().Error; err != nil {
 		return nil, ErrInternal
 	}
-	
+
+	// Register room alias AFTER commit to avoid SQLite BUSY deadlock
+	if pendingAlias != "" {
+		aliasService := NewAliasService(r.HS)
+		_ = aliasService.SetAlias(pendingAlias, roomID, creatorID)
+	}
+
 	return &CreateRoomResponse{RoomID: roomID}, nil
 }
 
 // createDefaultEvent 创建默认事件
 func (r *RoomService) createDefaultEvent(tx *gorm.DB, roomID, sender string, eventType EventType, content map[string]interface{}, authEvents *[]string) {
+	r.createDefaultEventTS(tx, roomID, sender, eventType, content, authEvents, nil)
+}
+
+func (r *RoomService) createDefaultEventTS(tx *gorm.DB, roomID, sender string, eventType EventType, content map[string]interface{}, authEvents *[]string, tsCounter *int64) {
+	// 收集当前 auth events
+	var currentAuth []string
+	if authEvents != nil {
+		currentAuth = append([]string{}, *authEvents...)
+	}
+
+	ts := time.Now().UnixMilli()
+	if tsCounter != nil {
+		ts = *tsCounter
+		*tsCounter++
+	}
+
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: eventType,
-		Sender:    sender,
-	StateKey:  utils.GetPtr(""),
-	Content:   content,
-	Depth:     r.getNextDepth(tx, roomID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      eventType,
+		Sender:         sender,
+		StateKey:       utils.GetPtr(""),
+		Content:        content,
+		Depth:          r.getNextDepth(tx, roomID),
+		AuthEvents:     currentAuth,
+		OriginServerTS: ts,
+		SenderDomain:   r.HS.Config.ServerName,
 	}
 	if err := tx.Create(event).Error; err == nil {
 		r.updateRoomState(tx, roomID, event)
@@ -324,85 +433,356 @@ func (r *RoomService) createDefaultEvent(tx *gorm.DB, roomID, sender string, eve
 
 // JoinRoomRequest 加入房间请求
 type JoinRoomRequest struct {
-	Reason string `json:"reason"`
+	Reason            string                 `json:"reason"`
+	AdditionalContent map[string]interface{} `json:"-"` // extra fields from request body
+	Servers           []string               `json:"-"` // via=server_name query params for federation
 }
 
 // JoinRoom 加入房间
 func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomRequest) (string, *MatrixError) {
 	roomID := roomIDOrAlias
-	
+
 	// 如果是别名，解析为房间ID
 	if strings.HasPrefix(roomIDOrAlias, "#") {
 		aliasService := NewAliasService(r.HS)
 		resolvedRoomID, err := aliasService.GetRoomIDByAlias(roomIDOrAlias)
 		if err != nil {
+			// Alias not found locally; try federation servers if provided
+			if len(req.Servers) > 0 {
+				return r.federationJoin(userID, roomIDOrAlias, req.Servers)
+			}
 			return "", ErrNotFound
 		}
 		roomID = resolvedRoomID
 	}
-	
+
 	// 检查房间是否存在
 	var room MatrixRoom
 	err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error
 	if err != nil {
+		// Room not found locally; attempt federation join if server hints provided
+		if len(req.Servers) > 0 {
+			return r.federationJoin(userID, roomID, req.Servers)
+		}
 		return "", ErrNotFound
 	}
 	
 	// 检查用户是否已在房间中
 	var member MatrixRoomMember
+	// Build member event content, merging any extra content from request
+	joinContent := map[string]interface{}{"membership": "join"}
+	for k, v := range req.AdditionalContent {
+		if k != "membership" {
+			joinContent[k] = v
+		}
+	}
+
 	err = db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
 	if err == nil {
 		if member.Membership == MembershipBan {
 			return "", ErrForbidden
 		}
+		// Forgotten rooms cannot be rejoined unless user has a pending invite
+		if member.Forgotten && member.Membership != MembershipInvite {
+			return "", ErrForbidden
+		}
 		// 如果是 invite 或 leave，更新为 join
 		if member.Membership == MembershipInvite || member.Membership == MembershipLeave {
-			// 创建成员事件
 			event := &MatrixEvent{
-				EventID:   "$" + uuid.New().String(),
-				RoomID:    roomID,
-				EventType: EventTypeRoomMember,
-				Sender:    userID,
-	StateKey:  utils.GetPtr(userID),
-			Content: map[string]interface{}{
-				"membership": "join",
-			},
-			Depth: r.getNextDepth(db.GetDB(), roomID),
-		}
-		db.GetDB().Create(event)
-		r.updateRoomState(db.GetDB(), roomID, event)
-		r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
+				EventID:        "$" + uuid.New().String(),
+				RoomID:         roomID,
+				EventType:      EventTypeRoomMember,
+				Sender:         userID,
+				StateKey:       utils.GetPtr(userID),
+				Content:        joinContent,
+				Depth:          r.getNextDepth(db.GetDB(), roomID),
+				OriginServerTS: time.Now().UnixMilli(),
+				SenderDomain:   r.HS.Config.ServerName,
+			}
+			db.GetDB().Create(event)
+			r.updateRoomState(db.GetDB(), roomID, event)
+			r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
+			// Clear forgotten flag on re-join (e.g. after re-invite)
+			if member.Forgotten {
+				db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Update("forgotten", false)
+			}
+			go r.HS.NotifyRoomEvent(roomID)
 		}
 		return roomID, nil
 	}
-	
+
 	// 检查加入规则
-	joinRule, _ := r.GetRoomState(roomID, EventTypeRoomJoinRules, "")
+	joinRuleContent, _ := r.GetRoomState(roomID, EventTypeRoomJoinRules, "")
+	joinRule := "public" // default
+	if m, ok := joinRuleContent.(map[string]interface{}); ok {
+		if jr, ok := m["join_rule"].(string); ok {
+			joinRule = jr
+		}
+	}
 	if joinRule == "invite" || joinRule == "knock" {
 		return "", ErrForbidden
 	}
-	
+
 	// 创建成员事件
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    userID,
-		StateKey:  utils.GetPtr(userID),
-		Content: map[string]interface{}{
-			"membership": "join",
-		},
-		Depth: r.getNextDepth(db.GetDB(), roomID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         userID,
+		StateKey:       utils.GetPtr(userID),
+		Content:        joinContent,
+		Depth:          r.getNextDepth(db.GetDB(), roomID),
+		OriginServerTS: time.Now().UnixMilli(),
+		SenderDomain:   r.HS.Config.ServerName,
 	}
-	
+
 	if err := db.GetDB().Create(event).Error; err != nil {
 		return "", ErrInternal
 	}
-	
+
 	r.updateRoomState(db.GetDB(), roomID, event)
 	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
-	
+	go r.HS.NotifyRoomEvent(roomID)
+
 	return roomID, nil
+}
+
+// ===== 联邦加入 =====
+
+// federationJoin 通过联邦协议加入远程房间
+func (r *RoomService) federationJoin(userID, roomID string, servers []string) (string, *MatrixError) {
+	fedClient := NewFederationClient(r.HS)
+	fed := NewFederationService(r.HS)
+
+	for _, serverName := range servers {
+		// Step 1: make_join — 获取加入事件模板
+		makeJoinResp, err := fedClient.MakeJoin(serverName, roomID, userID)
+		if err != nil {
+			log.Warn("federationJoin: make_join to %s failed: %v", serverName, err)
+			continue
+		}
+
+		// Step 2: 从响应中提取事件模板
+		eventMap, _ := makeJoinResp["event"].(map[string]interface{})
+		if eventMap == nil {
+			log.Warn("federationJoin: make_join response missing event field")
+			continue
+		}
+
+		// Step 3: 完善事件字段
+		eventMap["sender"] = userID
+		eventMap["state_key"] = userID
+		eventMap["origin"] = r.HS.Config.ServerName
+		eventMap["origin_server_ts"] = time.Now().UnixMilli()
+		eventMap["content"] = map[string]interface{}{"membership": "join"}
+		eventMap["event_id"] = "$" + generateRandomString(32)
+
+		// Step 4: 签名事件
+		eventMap = fed.signEvent(eventMap)
+
+		// Step 5: send_join — 发送已签名的加入事件
+		sendJoinResp, err := fedClient.SendJoin(serverName, roomID, eventMap)
+		if err != nil {
+			log.Warn("federationJoin: send_join to %s failed: %v", serverName, err)
+			continue
+		}
+
+		// Step 6: 处理响应，在本地存储房间状态
+		if err := r.processFederationJoinResponse(roomID, userID, sendJoinResp); err != nil {
+			log.Warn("federationJoin: failed to process response from %s: %v", serverName, err)
+			continue
+		}
+
+		// Step 7: Backfill message history from the remote server (synchronous to ensure
+		// events are available when the client starts querying /messages)
+		r.backfillFromRemote(fedClient, serverName, roomID)
+
+		return roomID, nil
+	}
+
+	return "", ErrNotFound
+}
+
+// processFederationJoinResponse 处理联邦加入响应，在本地存储房间状态
+func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string, resp map[string]interface{}) error {
+	// 确保房间记录存在
+	var room MatrixRoom
+	if db.GetDB().Where("room_id = ?", roomID).First(&room).Error != nil {
+		room = MatrixRoom{
+			RoomID:      roomID,
+			RoomVersion: "10",
+		}
+	}
+
+	// 从 m.room.create state 事件提取 room version 和 creator
+	if stateList, ok := resp["state"].([]interface{}); ok {
+		for _, stateRaw := range stateList {
+			stateMap, ok := stateRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if stateMap["type"] == "m.room.create" {
+				if content, ok := stateMap["content"].(map[string]interface{}); ok {
+					if ver, ok := content["room_version"].(string); ok {
+						room.RoomVersion = ver
+					}
+				}
+				room.Creator, _ = stateMap["sender"].(string)
+				break
+			}
+		}
+	}
+
+	if db.GetDB().Where("room_id = ?", roomID).First(&MatrixRoom{}).Error != nil {
+		db.GetDB().Create(&room)
+	}
+
+	// 处理 auth chain 事件（先存储，确保 auth event 先于 state event 存在）
+	if authChain, ok := resp["auth_chain"].([]interface{}); ok {
+		for _, evtRaw := range authChain {
+			if evtMap, ok := evtRaw.(map[string]interface{}); ok {
+				r.processRemoteStateEvent(evtMap)
+			}
+		}
+	}
+
+	// 处理 state 事件
+	if stateList, ok := resp["state"].([]interface{}); ok {
+		for _, stateRaw := range stateList {
+			if stateMap, ok := stateRaw.(map[string]interface{}); ok {
+				r.processRemoteStateEvent(stateMap)
+			}
+		}
+	}
+
+	// 确保 joining user 被记录为 join 成员
+	displayName := ""
+	avatarURL := ""
+	member := &MatrixRoomMember{
+		RoomID:      roomID,
+		UserID:      joiningUserID,
+		Membership:  MembershipJoin,
+		DisplayName: &displayName,
+		AvatarURL:   &avatarURL,
+	}
+	db.GetDB().Where("room_id = ? AND user_id = ?", roomID, joiningUserID).Assign(member).FirstOrCreate(member)
+
+	return nil
+}
+
+// processRemoteStateEvent 处理远程状态事件，存储到本地数据库
+func (r *RoomService) processRemoteStateEvent(stateMap map[string]interface{}) {
+	eventID, _ := stateMap["event_id"].(string)
+	eventType, _ := stateMap["type"].(string)
+	roomID, _ := stateMap["room_id"].(string)
+	sender, _ := stateMap["sender"].(string)
+	stateKey, _ := stateMap["state_key"].(string)
+	originServerTS, _ := stateMap["origin_server_ts"].(float64)
+	content, _ := stateMap["content"].(map[string]interface{})
+
+	if eventID == "" || eventType == "" || roomID == "" {
+		return
+	}
+	if content == nil {
+		content = map[string]interface{}{}
+	}
+
+	// 跳过已存在的事件
+	var existing MatrixEvent
+	if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
+		return
+	}
+
+	senderDomain := extractServerName(sender)
+	event := &MatrixEvent{
+		EventID:        eventID,
+		RoomID:         roomID,
+		EventType:      EventType(eventType),
+		Sender:         sender,
+		StateKey:       utils.GetPtrIfNotEmpty(stateKey),
+		Content:        content,
+		OriginServerTS: int64(originServerTS),
+		SenderDomain:   senderDomain,
+	}
+	if err := db.GetDB().Create(event).Error; err != nil {
+		return
+	}
+
+	// 更新房间状态表
+	r.updateRoomState(db.GetDB(), roomID, event)
+
+	// 处理成员事件
+	if eventType == "m.room.member" {
+		membership, _ := content["membership"].(string)
+		displayName, _ := content["displayname"].(string)
+		avatarURL, _ := content["avatar_url"].(string)
+
+		m := &MatrixRoomMember{
+			RoomID:      roomID,
+			UserID:      stateKey,
+			Membership:  MembershipState(membership),
+			DisplayName: utils.GetPtrIfNotEmpty(displayName),
+			AvatarURL:   utils.GetPtrIfNotEmpty(avatarURL),
+			EventID:     eventID,
+		}
+		db.GetDB().Where("room_id = ? AND user_id = ?", roomID, stateKey).Assign(m).FirstOrCreate(m)
+	}
+}
+
+// backfillFromRemote fetches message history from a remote server after joining
+func (r *RoomService) backfillFromRemote(fedClient *FederationClient, serverName, roomID string) {
+	// Use the LATEST local event as the backfill starting point.
+	// After a federation join, the latest event is the join event itself.
+	// Backfill returns events at or before this point, giving us the room history.
+	var latestEvent MatrixEvent
+	if err := db.GetDB().Where("room_id = ?", roomID).
+		Order("origin_server_ts DESC").First(&latestEvent).Error; err != nil {
+		return
+	}
+
+	pdus, err := fedClient.FetchBackfill(serverName, roomID, []string{latestEvent.EventID}, 100)
+	if err != nil {
+		log.Warn("backfillFromRemote: failed to fetch backfill from %s: %v", serverName, err)
+		return
+	}
+
+	for _, pdu := range pdus {
+		eventID, _ := pdu["event_id"].(string)
+		if eventID == "" {
+			continue
+		}
+		// Skip events we already have
+		var existing MatrixEvent
+		if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
+			continue
+		}
+
+		eventType, _ := pdu["type"].(string)
+		sender, _ := pdu["sender"].(string)
+		originTS, _ := pdu["origin_server_ts"].(float64)
+		content, _ := pdu["content"].(map[string]interface{})
+		if content == nil {
+			content = map[string]interface{}{}
+		}
+
+		event := &MatrixEvent{
+			EventID:        eventID,
+			RoomID:         roomID,
+			EventType:      EventType(eventType),
+			Sender:         sender,
+			Content:        content,
+			OriginServerTS: int64(originTS),
+			SenderDomain:   extractServerName(sender),
+		}
+		if sk, ok := pdu["state_key"].(string); ok {
+			event.StateKey = &sk
+		}
+		if depth, ok := pdu["depth"].(float64); ok {
+			event.Depth = int64(depth)
+		}
+
+		db.GetDB().Create(event)
+	}
 }
 
 // ===== 房间离开 =====
@@ -427,24 +807,27 @@ func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *M
 	
 	// 创建成员事件
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    userID,
-		StateKey:  utils.GetPtr(userID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         userID,
+		StateKey:       utils.GetPtr(userID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 		},
-		Depth: r.getNextDepth(db.GetDB(), roomID),
+		Depth:          r.getNextDepth(db.GetDB(), roomID),
+		OriginServerTS: time.Now().UnixMilli(),
+		SenderDomain:   r.HS.Config.ServerName,
 	}
-	
+
 	if err := db.GetDB().Create(event).Error; err != nil {
 		return ErrInternal
 	}
-	
+
 	r.updateRoomState(db.GetDB(), roomID, event)
 	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipLeave, event.EventID)
-	
+	go r.HS.NotifyRoomEvent(roomID)
+
 	return nil
 }
 
@@ -460,17 +843,22 @@ type InviteUserRequest struct {
 
 // InviteUser 邀请用户
 func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserRequest) *MatrixError {
+	// Cannot invite yourself
+	if inviterID == req.UserID {
+		return ErrForbidden
+	}
+
 	// 检查邀请者权限
 	if !r.canUserInvite(roomID, inviterID) {
 		return ErrForbidden
 	}
-	
+
 	// 检查被邀请者是否已在房间中
 	var member MatrixRoomMember
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, req.UserID).First(&member).Error
 	if err == nil {
 		if member.Membership == MembershipJoin {
-			return nil // 已在房间中
+			return ErrForbidden // Cannot invite user already in room
 		}
 		if member.Membership == MembershipBan {
 			return ErrForbidden
@@ -487,24 +875,27 @@ func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserReques
 // inviteUser 内部邀请函数
 func (r *RoomService) inviteUser(tx *gorm.DB, roomID, inviterID, inviteeID string) error {
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    inviterID,
-		StateKey:  utils.GetPtr(inviteeID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         inviterID,
+		StateKey:       utils.GetPtr(inviteeID),
 		Content: map[string]interface{}{
 			"membership": "invite",
 		},
-		Depth: r.getNextDepth(tx, roomID),
+		Depth:          r.getNextDepth(tx, roomID),
+		OriginServerTS: time.Now().UnixMilli(),
+		SenderDomain:   r.HS.Config.ServerName,
 	}
-	
+
 	if err := tx.Create(event).Error; err != nil {
 		return err
 	}
-	
+
 	r.updateRoomState(tx, roomID, event)
 	r.updateRoomMember(tx, roomID, inviteeID, MembershipInvite, event.EventID)
-	
+	go r.HS.NotifyRoomEvent(roomID)
+
 	return nil
 }
 
@@ -523,34 +914,37 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 		return ErrForbidden
 	}
 	
-	// 检查被踢者是否在房间中
+	// 检查被踢者是否在房间中且是 joined 状态
 	var member MatrixRoomMember
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, req.UserID).First(&member).Error
-	if err != nil {
-		return ErrNotFound
+	if err != nil || member.Membership != MembershipJoin {
+		return ErrForbidden
 	}
 	
 	// 创建 leave 事件
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    kickerID,
-		StateKey:  utils.GetPtr(req.UserID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         kickerID,
+		StateKey:       utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 			"reason":     req.Reason,
 		},
-		Depth: r.getNextDepth(db.GetDB(), roomID),
+		Depth:          r.getNextDepth(db.GetDB(), roomID),
+		OriginServerTS: time.Now().UnixMilli(),
+		SenderDomain:   r.HS.Config.ServerName,
 	}
-	
+
 	if err := db.GetDB().Create(event).Error; err != nil {
 		return ErrInternal
 	}
-	
+
 	r.updateRoomState(db.GetDB(), roomID, event)
 	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipLeave, event.EventID)
-	
+	go r.HS.NotifyRoomEvent(roomID)
+
 	return nil
 }
 
@@ -569,25 +963,28 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 	
 	// 创建 ban 事件
 	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    bannerID,
-		StateKey:  utils.GetPtr(req.UserID),
+		EventID:        "$" + uuid.New().String(),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         bannerID,
+		StateKey:       utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "ban",
 			"reason":     req.Reason,
 		},
-		Depth: r.getNextDepth(db.GetDB(), roomID),
+		Depth:          r.getNextDepth(db.GetDB(), roomID),
+		OriginServerTS: time.Now().UnixMilli(),
+		SenderDomain:   r.HS.Config.ServerName,
 	}
-	
+
 	if err := db.GetDB().Create(event).Error; err != nil {
 		return ErrInternal
 	}
-	
+
 	r.updateRoomState(db.GetDB(), roomID, event)
 	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipBan, event.EventID)
-	
+	go r.HS.NotifyRoomEvent(roomID)
+
 	return nil
 }
 
@@ -603,22 +1000,32 @@ func (r *RoomService) GetRoomState(roomID string, eventType EventType, stateKey 
 	return state.Content, nil
 }
 
-// GetRoomStateAll 获取所有房间状态
+// GetRoomStateAll 获取所有房间状态（返回完整事件枚举，包含 sender 和 origin_server_ts）
 func (r *RoomService) GetRoomStateAll(roomID string) ([]*ClientEvent, *MatrixError) {
 	var states []MatrixRoomState
 	db.GetDB().Where("room_id = ?", roomID).Find(&states)
-	
-	events := make([]*ClientEvent, len(states))
-	for i, state := range states {
-		events[i] = &ClientEvent{
-			EventID: state.EventID,
-			RoomID:  state.RoomID,
-			Type:    string(state.EventType),
-			StateKey: &state.StateKey,
-			Content: state.Content,
+
+	events := make([]*ClientEvent, 0, len(states))
+	for _, state := range states {
+		stateKey := state.StateKey
+		ce := &ClientEvent{
+			EventID:  state.EventID,
+			RoomID:   state.RoomID,
+			Type:     string(state.EventType),
+			StateKey: &stateKey,
+			Content:  state.Content,
 		}
+		// Enrich with sender + origin_server_ts from the events table
+		if state.EventID != "" {
+			var evt MatrixEvent
+			if err := db.GetDB().Where("event_id = ?", state.EventID).First(&evt).Error; err == nil {
+				ce.Sender = evt.Sender
+				ce.OriginServerTS = evt.OriginServerTS
+			}
+		}
+		events = append(events, ce)
 	}
-	
+
 	return events, nil
 }
 
@@ -672,22 +1079,36 @@ func (r *RoomService) canUserInvite(roomID, userID string) bool {
 
 // canUserKick 检查用户是否可以踢人
 func (r *RoomService) canUserKick(roomID, userID string) bool {
+	// User must be a joined member to kick
+	var member MatrixRoomMember
+	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
+		roomID, userID, MembershipJoin).First(&member).Error; err != nil {
+		return false
+	}
+
 	pl, err := r.getRoomPowerLevels(roomID)
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := r.getUserPowerLevel(pl, userID)
 	return userPL >= pl.Kick
 }
 
 // canUserBan 检查用户是否可以封禁
 func (r *RoomService) canUserBan(roomID, userID string) bool {
+	// User must be a joined member to ban
+	var member MatrixRoomMember
+	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
+		roomID, userID, MembershipJoin).First(&member).Error; err != nil {
+		return false
+	}
+
 	pl, err := r.getRoomPowerLevels(roomID)
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := r.getUserPowerLevel(pl, userID)
 	return userPL >= pl.Ban
 }
@@ -715,8 +1136,14 @@ func (r *RoomService) getRoomPowerLevels(roomID string) (*PowerLevelContent, err
 	if err != nil {
 		return r.getDefaultPowerLevels(), nil
 	}
-	
-	pl := &PowerLevelContent{}
+
+	// Matrix spec defaults: state_default=50, ban=50, kick=50, redact=50, invite=0
+	pl := &PowerLevelContent{
+		StateDefault: 50,
+		Ban:          50,
+		Kick:         50,
+		Redact:       50,
+	}
 	if b, ok := content.(map[string]interface{}); ok {
 		if users, ok := b["users"].(map[string]interface{}); ok {
 			pl.Users = make(map[string]int64)
@@ -747,8 +1174,16 @@ func (r *RoomService) getRoomPowerLevels(roomID string) (*PowerLevelContent, err
 		if v, ok := b["invite"].(float64); ok {
 			pl.Invite = int64(v)
 		}
+		if events, ok := b["events"].(map[string]interface{}); ok {
+			pl.Events = make(map[string]int64)
+			for k, v := range events {
+				if fv, ok := v.(float64); ok {
+					pl.Events[k] = int64(fv)
+				}
+			}
+		}
 	}
-	
+
 	return pl, nil
 }
 
@@ -765,16 +1200,16 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 	if !event.IsStateEvent() {
 		return
 	}
-	
+
 	stateKey := ""
 	if event.StateKey != nil {
 		stateKey = *event.StateKey
 	}
-	
+
 	// 删除旧状态
 	tx.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, event.EventType, stateKey).
 		Delete(&MatrixRoomState{})
-	
+
 	// 创建新状态
 	state := &MatrixRoomState{
 		RoomID:    roomID,
@@ -784,6 +1219,40 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 		EventID:   event.EventID,
 	}
 	tx.Create(state)
+
+	// 同步 MatrixRoom 的去正规化字段
+	updates := map[string]interface{}{}
+	switch event.EventType {
+	case EventTypeRoomJoinRules:
+		if v, ok := event.Content["join_rule"].(string); ok {
+			updates["join_rule"] = v
+		}
+	case EventTypeRoomHistoryVisibility:
+		if v, ok := event.Content["history_visibility"].(string); ok {
+			updates["history_visibility"] = v
+		}
+	case EventTypeRoomGuestAccess:
+		if v, ok := event.Content["guest_access"].(string); ok {
+			updates["guest_access"] = v
+		}
+	case EventTypeRoomName:
+		if v, ok := event.Content["name"].(string); ok {
+			updates["name"] = v
+		}
+	case EventTypeRoomTopic:
+		if v, ok := event.Content["topic"].(string); ok {
+			updates["topic"] = v
+		}
+	case EventTypeRoomAvatar:
+		if v, ok := event.Content["url"].(string); ok {
+			updates["avatar_url"] = v
+		}
+	case EventTypeRoomEncryption:
+		updates["is_encrypted"] = true
+	}
+	if len(updates) > 0 {
+		tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(updates)
+	}
 }
 
 // updateRoomMember 更新房间成员
@@ -801,10 +1270,15 @@ func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membe
 		tx.Create(&member)
 	} else {
 		// 更新成员
-		tx.Model(&member).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"membership": membership,
 			"event_id":   eventID,
-		})
+		}
+		// Clear forgotten flag when user receives an invite or joins (new membership overrides forget)
+		if membership == MembershipInvite || membership == MembershipJoin {
+			updates["forgotten"] = false
+		}
+		tx.Model(&member).Updates(updates)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/search"
+	"gorm.io/gorm"
 )
 
 // SearchService 搜索服务
@@ -49,25 +50,30 @@ type RoomEventSearchResult struct {
 	State      []MatrixEvent       `json:"state,omitempty"`
 }
 
-// MatrixSearchEvent 搜索事件结果
+// MatrixSearchEvent 搜索事件结果 (wraps event in "result" per Matrix spec)
 type MatrixSearchEvent struct {
+	Rank    float64                `json:"rank"`
+	Result  MatrixSearchEventBody  `json:"result"`
+	Context *EventSearchContext    `json:"context,omitempty"`
+}
+
+// MatrixSearchEventBody 搜索事件内容
+type MatrixSearchEventBody struct {
 	EventID        string                 `json:"event_id"`
 	RoomID         string                 `json:"room_id"`
 	Sender         string                 `json:"sender"`
 	Type           string                 `json:"type"`
 	Content        map[string]interface{} `json:"content"`
 	OriginServerTS int64                  `json:"origin_server_ts"`
-	Rank           float64                `json:"rank"`
-	Context        *EventSearchContext    `json:"context,omitempty"`
 }
 
 // EventSearchContext 事件搜索上下文
 type EventSearchContext struct {
-	Start       string         `json:"start"`
-	End         string         `json:"end"`
-	EventsAfter []MatrixEvent  `json:"events_after"`
-	EventsBefore []MatrixEvent `json:"events_before"`
-	ProfileInfo map[string]ProfileInfo `json:"profile_info,omitempty"`
+	Start        string                   `json:"start,omitempty"`
+	End          string                   `json:"end,omitempty"`
+	EventsAfter  []MatrixSearchEventBody  `json:"events_after"`
+	EventsBefore []MatrixSearchEventBody  `json:"events_before"`
+	ProfileInfo  map[string]ProfileInfo   `json:"profile_info,omitempty"`
 }
 
 // ProfileInfo 用户信息
@@ -90,72 +96,143 @@ type UserDirectoryResult struct {
 }
 
 // SearchRoomEvents 搜索房间事件
-func (s *SearchService) SearchRoomEvents(query string, roomIDs []string, limit int, from string) (*RoomEventSearchResult, error) {
-	// 复用 Meilisearch 搜索
+func (s *SearchService) SearchRoomEvents(query string, roomIDs []string, limit int, from string, ctx *EventContextReq) (*RoomEventSearchResult, error) {
 	meiliClient := search.GetMeilisearchClient()
-	
+
 	if limit <= 0 {
 		limit = 10
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	
+
 	results := &RoomEventSearchResult{
 		Results: []MatrixSearchEvent{},
 	}
-	
-	// 如果 Meilisearch 启用，使用它进行搜索
+
 	if meiliClient.IsEnabled() {
-		// 搜索 Statuses（对应 Matrix 消息）
 		statusIDs, err := meiliClient.SearchStatuses(query, int64(limit), 0, "", nil)
 		if err == nil {
 			for _, statusIDStr := range statusIDs {
-				// 转换为 Matrix 事件
 				statusID, _ := strconv.ParseUint(statusIDStr, 10, 64)
 				events := s.convertStatusToMatrixEvents(statusID, query)
 				results.Results = append(results.Results, events...)
 			}
 		}
+		results.Count = len(results.Results)
 	} else {
-		// 回退到数据库搜索
-		results.Results = s.searchRoomEventsFromDB(query, roomIDs, limit)
+		results = s.searchRoomEventsFromDB(query, roomIDs, limit, from, ctx)
 	}
-	
-	results.Count = len(results.Results)
+
 	return results, nil
 }
 
 // searchRoomEventsFromDB 从数据库搜索房间事件
-func (s *SearchService) searchRoomEventsFromDB(query string, roomIDs []string, limit int) []MatrixSearchEvent {
-	results := []MatrixSearchEvent{}
-	
-	// 搜索 Matrix 事件
-	dbQuery := db.GetDB().Model(&MatrixEvent{}).
-		Where("event_type = ?", "m.room.message").
-		Where("content LIKE ?", "%"+query+"%")
-	
-	if len(roomIDs) > 0 {
-		dbQuery = dbQuery.Where("room_id IN ?", roomIDs)
+func (s *SearchService) searchRoomEventsFromDB(query string, roomIDs []string, limit int, from string, ctx *EventContextReq) *RoomEventSearchResult {
+	result := &RoomEventSearchResult{
+		Results: []MatrixSearchEvent{},
 	}
-	
+
+	// Word-based search: each word in the query must appear in the content
+	// This matches Matrix spec behavior (e.g. "Message 4" matches "Message number 4")
+	words := strings.Fields(query)
+
+	// Build base query with word-based matching
+	buildQuery := func() *gorm.DB {
+		q := db.GetDB().Model(&MatrixEvent{}).
+			Where("event_type = ?", "m.room.message").
+			Where("content != '{}' AND content != 'null'")
+		for _, word := range words {
+			q = q.Where("content LIKE ?", "%"+word+"%")
+		}
+		if len(roomIDs) > 0 {
+			q = q.Where("room_id IN ?", roomIDs)
+		}
+		return q
+	}
+
+	// Count total matching events first (exclude redacted events with empty content)
+	var totalCount int64
+	buildQuery().Count(&totalCount)
+	result.Count = int(totalCount)
+
+	// Apply pagination offset
+	offset := 0
+	if from != "" {
+		fmt.Sscanf(from, "%d", &offset)
+	}
+
+	// Fetch matching events
 	var events []MatrixEvent
-	dbQuery.Limit(limit).Order("origin_server_ts DESC").Find(&events)
-	
+	buildQuery().Offset(offset).Limit(limit).Order("origin_server_ts DESC").Find(&events)
+
 	for _, event := range events {
-		// Content 已经是 map 类型
-		results = append(results, MatrixSearchEvent{
-			EventID:        event.EventID,
-			RoomID:         event.RoomID,
-			Sender:         event.Sender,
-			Type:           string(event.EventType),
-			Content:        event.Content,
-			OriginServerTS: event.OriginServerTS,
-			Rank:           1.0, // 简单排名
-		})
+		se := MatrixSearchEvent{
+			Rank: 1.0,
+			Result: MatrixSearchEventBody{
+				EventID:        event.EventID,
+				RoomID:         event.RoomID,
+				Sender:         event.Sender,
+				Type:           string(event.EventType),
+				Content:        event.Content,
+				OriginServerTS: event.OriginServerTS,
+			},
+		}
+
+		// Add context if requested
+		if ctx != nil {
+			se.Context = s.getEventContext(event, ctx.BeforeLimit, ctx.AfterLimit)
+		}
+
+		result.Results = append(result.Results, se)
 	}
-	
-	return results
+
+	// Set next_batch if there might be more results
+	// Use len(events) == limit as heuristic: if we got a full page, there might be more
+	nextOffset := offset + len(events)
+	if len(events) >= limit {
+		result.NextBatch = fmt.Sprintf("%d", nextOffset)
+	}
+
+	return result
+}
+
+// getEventContext fetches surrounding events for search context
+func (s *SearchService) getEventContext(event MatrixEvent, beforeLimit, afterLimit int) *EventSearchContext {
+	ctx := &EventSearchContext{
+		EventsBefore: make([]MatrixSearchEventBody, 0),
+		EventsAfter:  make([]MatrixSearchEventBody, 0),
+	}
+
+	if beforeLimit > 0 {
+		var before []MatrixEvent
+		db.GetDB().Where("room_id = ? AND origin_server_ts < ?",
+			event.RoomID, event.OriginServerTS).
+			Order("origin_server_ts DESC").Limit(beforeLimit).Find(&before)
+		ctx.EventsBefore = make([]MatrixSearchEventBody, len(before))
+		for i, e := range before {
+			ctx.EventsBefore[i] = MatrixSearchEventBody{
+				EventID: e.EventID, RoomID: e.RoomID, Sender: e.Sender,
+				Type: string(e.EventType), Content: e.Content, OriginServerTS: e.OriginServerTS,
+			}
+		}
+	}
+
+	if afterLimit > 0 {
+		var after []MatrixEvent
+		db.GetDB().Where("room_id = ? AND origin_server_ts > ?",
+			event.RoomID, event.OriginServerTS).
+			Order("origin_server_ts ASC").Limit(afterLimit).Find(&after)
+		ctx.EventsAfter = make([]MatrixSearchEventBody, len(after))
+		for i, e := range after {
+			ctx.EventsAfter[i] = MatrixSearchEventBody{
+				EventID: e.EventID, RoomID: e.RoomID, Sender: e.Sender,
+				Type: string(e.EventType), Content: e.Content, OriginServerTS: e.OriginServerTS,
+			}
+		}
+	}
+
+	return ctx
 }
 
 // convertStatusToMatrixEvents 将社区 Status 转换为 Matrix 事件搜索结果
@@ -184,13 +261,15 @@ func (s *SearchService) convertStatusToMatrixEvents(statusID uint64, query strin
 	}
 	
 	results = append(results, MatrixSearchEvent{
-		EventID:        fmt.Sprintf("$%d:community", status.Id),
-		RoomID:         roomMapping.RoomID,
-		Sender:         matrixUserID,
-		Type:           "m.room.message",
-		Content:        content,
-		OriginServerTS: status.CreatedAt.UnixMilli(),
-		Rank:           1.0,
+		Rank: 1.0,
+		Result: MatrixSearchEventBody{
+			EventID:        fmt.Sprintf("$%d:community", status.Id),
+			RoomID:         roomMapping.RoomID,
+			Sender:         matrixUserID,
+			Type:           "m.room.message",
+			Content:        content,
+			OriginServerTS: status.CreatedAt.UnixMilli(),
+		},
 	})
 	
 	return results
@@ -210,24 +289,51 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 		Limited: false,
 	}
 	
-	// 复用社区的用户搜索逻辑
-	meiliClient := search.GetMeilisearchClient()
-	var accounts []models.Account
-	
-	if meiliClient.IsEnabled() {
-		// 使用 Meilisearch
-		accountIDs, err := meiliClient.SearchAccounts(query, int64(limit), 0, nil)
-		if err == nil {
-			db.GetDB().Where("id IN ?", accountIDs).Find(&accounts)
-		}
-	} else {
-		// 回退到数据库搜索
-		db.GetDB().Where("username LIKE ? OR display_name LIKE ?", 
-			"%"+query+"%", "%"+query+"%").
-			Where("domain IS NULL"). // 只搜索本地用户
-			Limit(limit).
-			Find(&accounts)
+	// Build search terms: strip @ prefix and :domain suffix for localpart matching
+	searchQuery := query
+	if strings.HasPrefix(searchQuery, "@") {
+		searchQuery = searchQuery[1:]
 	}
+	if idx := strings.Index(searchQuery, ":"); idx >= 0 {
+		searchQuery = searchQuery[:idx]
+	}
+
+	// Matrix spec: user directory should only return users who are "visible" --
+	// users in at least one public room, or users who share a room with the searcher.
+	var publicRoomIDs []string
+	db.GetDB().Model(&MatrixRoom{}).Where("join_rule = ?", "public").Pluck("room_id", &publicRoomIDs)
+
+	if len(publicRoomIDs) == 0 {
+		return results, nil
+	}
+
+	// Get distinct visible user IDs and their localparts
+	var publicMembers []MatrixRoomMember
+	db.GetDB().Where("room_id IN ? AND membership = ?", publicRoomIDs, MembershipJoin).Find(&publicMembers)
+
+	localparts := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, m := range publicMembers {
+		if seen[m.UserID] {
+			continue
+		}
+		seen[m.UserID] = true
+		if lp, _, ok := ParseMatrixUserID(m.UserID); ok {
+			localparts = append(localparts, lp)
+		}
+	}
+
+	if len(localparts) == 0 {
+		return results, nil
+	}
+
+	// Find accounts for visible users that match the search query
+	var accounts []models.Account
+	db.GetDB().Where("username IN ?", localparts).
+		Where("username LIKE ? OR display_name LIKE ?",
+			"%"+searchQuery+"%", "%"+searchQuery+"%").
+		Limit(limit).
+		Find(&accounts)
 	
 	// 转换为 Matrix 用户格式
 	for _, account := range accounts {
@@ -303,22 +409,46 @@ func handleSearch(c *gin.Context) {
 	if req.SearchCategories.RoomEvents != nil {
 		roomSearch := req.SearchCategories.RoomEvents
 		limit := 10
+
+		// Extract rooms and limit from filter object
+		var filterRooms []string
 		if roomSearch.Filter != nil {
-			// 解析 filter 中的 limit
+			if rooms, ok := roomSearch.Filter["rooms"].([]interface{}); ok {
+				for _, r := range rooms {
+					if rs, ok := r.(string); ok {
+						filterRooms = append(filterRooms, rs)
+					}
+				}
+			}
+			if l, ok := roomSearch.Filter["limit"].(float64); ok && l > 0 {
+				limit = int(l)
+			}
 		}
-		
+
+		// Use filter.rooms if top-level rooms not set
+		candidateRooms := roomSearch.Rooms
+		if len(candidateRooms) == 0 {
+			candidateRooms = filterRooms
+		}
+
 		var roomIDs []string
-		if len(roomSearch.Rooms) > 0 {
+		if len(candidateRooms) > 0 {
 			// 只搜索用户已加入的房间
 			var joinedRooms []MatrixRoomMember
-			db.GetDB().Where("user_id = ? AND room_id IN ? AND membership = ?", 
-				userID, roomSearch.Rooms, "join").Find(&joinedRooms)
+			db.GetDB().Where("user_id = ? AND room_id IN ? AND membership = ?",
+				userID, candidateRooms, "join").Find(&joinedRooms)
 			for _, m := range joinedRooms {
 				roomIDs = append(roomIDs, m.RoomID)
 			}
 		}
-		
-		results, err := searchService.SearchRoomEvents(roomSearch.SearchTerm, roomIDs, limit, req.NextBatch)
+
+		// Also check query param next_batch
+		nextBatch := req.NextBatch
+		if nextBatch == "" {
+			nextBatch = c.Query("next_batch")
+		}
+
+		results, err := searchService.SearchRoomEvents(roomSearch.SearchTerm, roomIDs, limit, nextBatch, roomSearch.EventContext)
 		if err == nil {
 			result.SearchCategories.RoomEvents = results
 		}
@@ -352,10 +482,18 @@ type SearchRequestInternal struct {
 
 // RoomEventsSearchReq 房间事件搜索请求
 type RoomEventsSearchReq struct {
-	SearchTerm string                 `json:"search_term"`
-	Filter     map[string]interface{} `json:"filter,omitempty"`
-	Rooms      []string               `json:"rooms,omitempty"`
-	OrderBy    string                 `json:"order_by,omitempty"`
+	SearchTerm   string                 `json:"search_term"`
+	Keys         []string               `json:"keys,omitempty"`
+	Filter       map[string]interface{} `json:"filter,omitempty"`
+	Rooms        []string               `json:"rooms,omitempty"`
+	OrderBy      string                 `json:"order_by,omitempty"`
+	EventContext *EventContextReq       `json:"event_context,omitempty"`
+}
+
+// EventContextReq 搜索结果上下文请求
+type EventContextReq struct {
+	BeforeLimit int `json:"before_limit"`
+	AfterLimit  int `json:"after_limit"`
 }
 
 // UserDirectorySearchReq 用户目录搜索请求

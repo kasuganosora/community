@@ -2,6 +2,8 @@ package matrix
 
 import (
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/log"
@@ -9,8 +11,34 @@ import (
 
 // WebhookHandler Matrix AS Webhook 处理器
 type WebhookHandler struct {
-	bridge *Bridge
+	bridge   *Bridge
 	asClient *ASClient
+}
+
+// 事务ID幂等性缓存
+var (
+	processedTxns   = make(map[string]time.Time)
+	processedTxnsMu sync.Mutex
+)
+
+// isProcessedTxn 检查事务是否已处理（并标记为已处理）
+func isProcessedTxn(txnID string) bool {
+	processedTxnsMu.Lock()
+	defer processedTxnsMu.Unlock()
+
+	// 清理超过1小时的旧条目
+	now := time.Now()
+	for k, v := range processedTxns {
+		if now.Sub(v) > time.Hour {
+			delete(processedTxns, k)
+		}
+	}
+
+	if _, ok := processedTxns[txnID]; ok {
+		return true
+	}
+	processedTxns[txnID] = now
+	return false
 }
 
 // NewWebhookHandler 创建 Webhook 处理器
@@ -45,6 +73,13 @@ func (h *WebhookHandler) HandleTransaction(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Missing transaction ID",
 		})
+		return
+	}
+
+	// 事务幂等性检查：防止重复处理
+	if isProcessedTxn(txnID) {
+		log.Info("Skipping already processed transaction %s", txnID)
+		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 
@@ -109,9 +144,9 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 	}
 
 	// 检查是否在命名空间内
-	if GlobalConfig.UserNamespacePrefix != "" && 
-	   len(localpart) > len(GlobalConfig.UserNamespacePrefix) &&
-	   localpart[:len(GlobalConfig.UserNamespacePrefix)] == GlobalConfig.UserNamespacePrefix {
+	if GlobalConfig.UserNamespacePrefix != "" &&
+		len(localpart) > len(GlobalConfig.UserNamespacePrefix) &&
+		localpart[:len(GlobalConfig.UserNamespacePrefix)] == GlobalConfig.UserNamespacePrefix {
 		// 是本系统映射的用户，返回用户信息
 		c.JSON(http.StatusOK, gin.H{})
 		return
@@ -151,11 +186,10 @@ func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 	}
 
 	// 检查是否是本系统映射的房间
-	// 如果房间别名符合命名空间，返回房间信息
 	LoadConfig()
 	if GlobalConfig.RoomNamespacePrefix != "" &&
-	   len(roomAlias) > len(GlobalConfig.RoomNamespacePrefix) &&
-	   roomAlias[:len(GlobalConfig.RoomNamespacePrefix)] == GlobalConfig.RoomNamespacePrefix {
+		len(roomAlias) > len(GlobalConfig.RoomNamespacePrefix) &&
+		roomAlias[:len(GlobalConfig.RoomNamespacePrefix)] == GlobalConfig.RoomNamespacePrefix {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}

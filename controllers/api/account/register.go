@@ -116,9 +116,7 @@ func Register(c *gin.Context) {
 	}
 
 	acc := serializer.ToAccount(account)
-	if err != nil {
-		err = errors.Wrap(err, "serializer.ToAccount failed")
-		log.ErrorV(err)
+	if acc == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}

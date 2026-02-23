@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -66,15 +67,7 @@ func getEnv(key, defaultValue string) string {
 // getEnvInt returns environment variable as int or default
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		var result int
-		if _, err := filepath.Match("[0-9]*", value); err == nil {
-			for _, c := range value {
-				if c >= '0' && c <= '9' {
-					result = result*10 + int(c-'0')
-				} else {
-					return defaultValue
-				}
-			}
+		if result, err := strconv.Atoi(value); err == nil {
 			return result
 		}
 	}

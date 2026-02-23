@@ -1,0 +1,38 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY build/complement-linux /app/community
+
+RUN chmod +x /app/community
+
+# Complement sets SERVER_NAME via env var
+ENV SERVER_NAME=hs1
+ENV DB_CONNECTION=sqlite
+ENV DB_HOST=/data/community.db
+ENV GIN_MODE=release
+
+RUN mkdir -p /data /app/resources
+
+ENV TLS_CERT=/data/tls.crt
+ENV TLS_KEY=/data/tls.key
+
+EXPOSE 8008 8448
+
+# Entrypoint script: generate TLS cert at runtime with correct SERVER_NAME as SAN,
+# trust the Complement CA if present, then start the server
+ENTRYPOINT ["/bin/sh", "-c", "\
+    if [ -f /complement/ca/ca.crt ]; then \
+        cp /complement/ca/ca.crt /usr/local/share/ca-certificates/complement.crt && \
+        update-ca-certificates 2>/dev/null; \
+    fi && \
+    openssl req -x509 -newkey rsa:2048 -keyout /data/tls.key -out /data/tls.crt \
+        -days 3650 -nodes -subj \"/CN=${SERVER_NAME}\" \
+        -addext \"subjectAltName=DNS:${SERVER_NAME},DNS:localhost,IP:127.0.0.1\" \
+        2>/dev/null && \
+    exec /app/community"]

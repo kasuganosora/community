@@ -26,15 +26,16 @@ const (
 
 // EventRelation 事件关系（存储在数据库中）
 type EventRelation struct {
-	ID            uint64       `gorm:"primaryKey;autoIncrement" json:"id"`
-	EventID       string       `gorm:"index;type:varchar(255);not null" json:"event_id"`
-	RoomID        string       `gorm:"index;type:varchar(255);not null" json:"room_id"`
-	RelatesTo     string       `gorm:"index;type:varchar(255)" json:"relates_to"` // 关联的目标事件ID
-	RelationType  RelationType `gorm:"index;type:varchar(32);not null" json:"relation_type"`
-	Sender        string       `gorm:"type:varchar(255);not null" json:"sender"`
-	Content       string       `gorm:"type:text" json:"content"` // JSON
-	AggregationKey string      `gorm:"type:varchar(255)" json:"aggregation_key,omitempty"` // 用于反应（emoji）
-	CreatedAt     time.Time    `gorm:"autoCreateTime" json:"created_at"`
+	ID             uint64       `gorm:"primaryKey;autoIncrement" json:"id"`
+	EventID        string       `gorm:"index;type:varchar(255);not null" json:"event_id"`
+	RoomID         string       `gorm:"index;type:varchar(255);not null" json:"room_id"`
+	RelatesTo      string       `gorm:"index;type:varchar(255)" json:"relates_to"` // 关联的目标事件ID
+	RelationType   RelationType `gorm:"index;type:varchar(32);not null" json:"relation_type"`
+	Sender         string       `gorm:"type:varchar(255);not null" json:"sender"`
+	Content        string       `gorm:"type:text" json:"content"` // JSON
+	AggregationKey string       `gorm:"type:varchar(255)" json:"aggregation_key,omitempty"` // 用于反应（emoji）
+	OriginServerTS int64        `gorm:"index" json:"origin_server_ts"`
+	CreatedAt      time.Time    `gorm:"autoCreateTime" json:"created_at"`
 }
 
 func (EventRelation) TableName() string {
@@ -122,6 +123,7 @@ func (rs *RelationsService) StoreRelation(event *MatrixEvent) error {
 		Sender:         event.Sender,
 		Content:        string(contentJSON),
 		AggregationKey: aggKey,
+		OriginServerTS: event.OriginServerTS,
 	}
 
 	return db.GetDB().Create(relation).Error
@@ -168,9 +170,6 @@ func (rs *RelationsService) parseRelation(content map[string]interface{}) (relat
 
 // GetRelations 获取事件的关联事件
 func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsRequest) (*RelationsResponse, error) {
-	// 检查用户是否在房间中
-	// 实际应该检查用户权限，这里简化处理
-
 	query := db.GetDB().Model(&EventRelation{}).
 		Where("room_id = ? AND relates_to = ?", roomID, eventID)
 
@@ -179,15 +178,56 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 		query = query.Where("relation_type = ?", req.RelType)
 	}
 
+	// Filter by event type in DB query (via join with events table)
+	if req.EventType != "" {
+		query = query.Where("event_id IN (?)",
+			db.GetDB().Model(&MatrixEvent{}).Select("event_id").Where("event_type = ?", req.EventType))
+	}
+
 	// 限制返回数量
 	limit := req.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 
+	// Direction: default backward (newest first)
+	dir := req.Direction
+	if dir == "" {
+		dir = "b"
+	}
+
+	// Pagination: parse from token (format "s<timestamp>" or "rel_<id>")
+	if req.From != "" {
+		var fromTS int64
+		if _, err := fmt.Sscanf(req.From, "s%d", &fromTS); err != nil {
+			// Try rel_ format (our own pagination token)
+			fmt.Sscanf(req.From, "rel_%d", &fromTS)
+		}
+		if fromTS > 0 {
+			if dir == "f" {
+				query = query.Where("origin_server_ts > ?", fromTS)
+			} else {
+				query = query.Where("origin_server_ts < ?", fromTS)
+			}
+		}
+	}
+
+	// Order by origin_server_ts (matches sync token semantics)
+	if dir == "f" {
+		query = query.Order("origin_server_ts ASC, id ASC")
+	} else {
+		query = query.Order("origin_server_ts DESC, id DESC")
+	}
+
+	// Fetch limit+1 to determine if there are more results
 	var relations []EventRelation
-	if err := query.Order("created_at DESC").Limit(limit).Find(&relations).Error; err != nil {
+	if err := query.Limit(limit + 1).Find(&relations).Error; err != nil {
 		return nil, err
+	}
+
+	hasMore := len(relations) > limit
+	if hasMore {
+		relations = relations[:limit]
 	}
 
 	// 转换为客户端事件格式
@@ -200,18 +240,24 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 		}
 
 		clientEvent := event.ToClientEvent()
-		
-		// 添加 unsigned 中的关系信息
 		if clientEvent.Unsigned == nil {
 			clientEvent.Unsigned = make(map[string]interface{})
 		}
-		
+
 		chunk = append(chunk, *clientEvent)
 	}
 
-	return &RelationsResponse{
+	resp := &RelationsResponse{
 		Chunk: chunk,
-	}, nil
+	}
+
+	// Set next_batch if there are more results
+	if hasMore && len(relations) > 0 {
+		lastRel := relations[len(relations)-1]
+		resp.NextBatch = fmt.Sprintf("rel_%d", lastRel.OriginServerTS)
+	}
+
+	return resp, nil
 }
 
 // GetAggregations 获取事件的聚合数据
@@ -468,6 +514,9 @@ func RegisterRelationsRoutes(r gin.IRouter) {
 		relations.GET("/:roomId/relations/:eventId/:relType/:eventType", handleGetRelationsByTypeAndEventType)
 	}
 
+	// 线程列表
+	relations.GET("/:roomId/threads", handleGetThreads)
+
 	// 发送反应
 	r.POST("/_matrix/client/v3/rooms/:roomId/reaction/:eventId", MatrixAuthMiddleware(), handleSendReaction)
 }
@@ -499,6 +548,14 @@ func handleGetRelations(c *gin.Context) {
 		return
 	}
 
+	// Override with path params if set by handleGetRelationsByType/handleGetRelationsByTypeAndEventType
+	if rt, exists := c.Get("path_rel_type"); exists {
+		req.RelType = rt.(string)
+	}
+	if et, exists := c.Get("path_event_type"); exists {
+		req.EventType = et.(string)
+	}
+
 	resp, err := hs.Relations.GetRelations(roomID, eventID, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
@@ -513,16 +570,106 @@ func handleGetRelations(c *gin.Context) {
 
 // handleGetRelationsByType 按关系类型获取关系
 func handleGetRelationsByType(c *gin.Context) {
-	relType := c.Param("relType")
-	c.Set("rel_type", relType)
+	c.Set("path_rel_type", c.Param("relType"))
 	handleGetRelations(c)
 }
 
 // handleGetRelationsByTypeAndEventType 按关系类型和事件类型获取关系
 func handleGetRelationsByTypeAndEventType(c *gin.Context) {
-	c.Set("rel_type", c.Param("relType"))
-	c.Set("event_type", c.Param("eventType"))
+	c.Set("path_rel_type", c.Param("relType"))
+	c.Set("path_event_type", c.Param("eventType"))
 	handleGetRelations(c)
+}
+
+// handleGetThreads returns thread roots in the room, ordered by latest reply
+func handleGetThreads(c *gin.Context) {
+	hs := GetHomeServer()
+	roomID := c.Param("roomId")
+	userID := c.GetString("user_id")
+
+	membership, _ := hs.Room.GetUserMembership(roomID, userID)
+	if membership != MembershipJoin {
+		c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "User is not in the room"})
+		return
+	}
+
+	// Find all distinct thread root event IDs
+	var threadRoots []string
+	db.GetDB().Model(&EventRelation{}).
+		Where("room_id = ? AND relation_type = ?", roomID, RelationTypeThread).
+		Distinct("relates_to").
+		Pluck("relates_to", &threadRoots)
+
+	type threadEntry struct {
+		RootEvent   *ClientEvent
+		LatestEvent *ClientEvent
+		LatestTS    int64
+		Count       int
+	}
+
+	entries := make([]threadEntry, 0, len(threadRoots))
+	for _, rootID := range threadRoots {
+		var rootEvent MatrixEvent
+		if db.GetDB().Where("event_id = ?", rootID).First(&rootEvent).Error != nil {
+			continue
+		}
+
+		// Get count and latest reply
+		var count int64
+		db.GetDB().Model(&EventRelation{}).
+			Where("room_id = ? AND relates_to = ? AND relation_type = ?", roomID, rootID, RelationTypeThread).
+			Count(&count)
+
+		var latestRel EventRelation
+		db.GetDB().Where("room_id = ? AND relates_to = ? AND relation_type = ?", roomID, rootID, RelationTypeThread).
+			Order("created_at DESC").First(&latestRel)
+
+		var latestEvent MatrixEvent
+		if db.GetDB().Where("event_id = ?", latestRel.EventID).First(&latestEvent).Error != nil {
+			continue
+		}
+
+		ce := rootEvent.ToClientEvent()
+		latestCE := latestEvent.ToClientEvent()
+
+		// Add thread aggregation to unsigned
+		if ce.Unsigned == nil {
+			ce.Unsigned = make(map[string]interface{})
+		}
+		ce.Unsigned["m.relations"] = map[string]interface{}{
+			"m.thread": map[string]interface{}{
+				"latest_event":             latestCE,
+				"count":                    count,
+				"current_user_participated": latestEvent.Sender == userID || rootEvent.Sender == userID,
+			},
+		}
+
+		entries = append(entries, threadEntry{
+			RootEvent:   ce,
+			LatestEvent: latestCE,
+			LatestTS:    latestEvent.OriginServerTS,
+			Count:       int(count),
+		})
+	}
+
+	// Sort by latest reply timestamp descending
+	for i := 0; i < len(entries); i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].LatestTS > entries[i].LatestTS {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+
+	chunk := make([]interface{}, len(entries))
+	for i, e := range entries {
+		chunk[i] = e.RootEvent
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"chunk":      chunk,
+		"next_batch": "",
+	})
 }
 
 // handleSendReaction 发送反应

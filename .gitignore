@@ -3,5 +3,9 @@
 public/*
 mastodon
 .codebuddy
-.env.test 
+.env.test
 dendrite
+.claude
+build/
+*.exe
+NUL

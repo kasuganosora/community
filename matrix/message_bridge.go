@@ -2,13 +2,13 @@ package matrix
 
 import (
 	"html"
-	"regexp"
 	"strings"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
+	xhtml "golang.org/x/net/html"
 	"gorm.io/gorm"
 )
 
@@ -84,8 +84,6 @@ func (m *MessageBridge) HandleMatrixMessage(event *Event) error {
 
 // SendLocalMessageToMatrix 将本地消息发送到 Matrix
 func (m *MessageBridge) SendLocalMessageToMatrix(convID uint64, senderAccountID uint64, content string) (string, error) {
-	LoadConfig()
-
 	// 获取发送者对应的 Matrix 用户
 	matrixUserID, err := m.userMapper.GetMatrixUserID(senderAccountID)
 	if err != nil {
@@ -116,7 +114,7 @@ func (m *MessageBridge) convertMatrixMessageToStatus(content *RoomMessageContent
 
 	// 处理格式化文本
 	if content.FormattedBody != "" && content.Format == "org.matrix.custom.html" {
-		// 简单的 HTML 转换，去除标签
+		// 使用 HTML 解析器正确去除标签
 		body = m.stripHTMLTags(content.FormattedBody)
 	}
 
@@ -211,14 +209,27 @@ func (m *MessageBridge) isEventProcessed(eventID string) bool {
 	return count > 0
 }
 
-// stripHTMLTags 去除 HTML 标签
+// stripHTMLTags 使用 HTML 解析器正确去除 HTML 标签并提取文本内容
 func (m *MessageBridge) stripHTMLTags(htmlContent string) string {
-	// 简单的正则去除标签
-	re := regexp.MustCompile(`<[^>]*>`)
-	text := re.ReplaceAllString(htmlContent, "")
-	// 解码 HTML 实体
-	text = html.UnescapeString(text)
-	return strings.TrimSpace(text)
+	doc, err := xhtml.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		// 解析失败时回退到解码 HTML 实体
+		return html.UnescapeString(htmlContent)
+	}
+
+	var buf strings.Builder
+	var extractText func(*xhtml.Node)
+	extractText = func(n *xhtml.Node) {
+		if n.Type == xhtml.TextNode {
+			buf.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extractText(c)
+		}
+	}
+	extractText(doc)
+
+	return strings.TrimSpace(buf.String())
 }
 
 // textToHTML 将纯文本转换为简单的 HTML

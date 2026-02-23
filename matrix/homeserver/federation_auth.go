@@ -1,11 +1,13 @@
 package homeserver
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -138,10 +140,10 @@ func (v *EventAuthVerifier) verifySignature(event map[string]interface{}, server
 		}
 	}
 
-	// 规范化 JSON
-	data, err := json.Marshal(eventCopy)
+	// 使用 canonical JSON（Matrix 规范要求）
+	data, err := CanonicalJSON(eventCopy)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
+		return fmt.Errorf("failed to canonicalize event: %w", err)
 	}
 
 	// 解码签名
@@ -150,7 +152,7 @@ func (v *EventAuthVerifier) verifySignature(event map[string]interface{}, server
 		return fmt.Errorf("failed to decode signature: %w", err)
 	}
 
-	// 验证签名
+	// 验证签名（直接验证 canonical bytes，不做 hash）
 	if !ed25519.Verify(publicKey, data, sigBytes) {
 		return fmt.Errorf("invalid signature")
 	}
@@ -165,25 +167,22 @@ func (v *EventAuthVerifier) verifyEventID(event map[string]interface{}) error {
 	roomID, _ := event["room_id"].(string)
 	originServerTS, _ := event["origin_server_ts"].(float64)
 
-	// 检查是否是 v3+ 房间版本（使用哈希事件 ID）
-	if strings.HasPrefix(eventID, "$") {
-		// v1/v2 房间版本使用随机事件 ID，跳过哈希验证
-		return nil
+	// 所有 Matrix 事件 ID 都以 $ 开头
+	if !strings.HasPrefix(eventID, "$") {
+		return fmt.Errorf("invalid event ID format: must start with $")
 	}
 
-	// v3+ 房间版本使用哈希事件 ID
-	if strings.HasPrefix(eventID, "$") {
-		// 提取预期哈希
-		expectedHash := eventID[1:]
+	// v3+ 房间版本使用基于哈希的事件 ID
+	// 提取预期哈希并验证
+	expectedHash := eventID[1:]
 
-		// 计算实际哈希
-		hash := sha256.New()
-		hash.Write([]byte(fmt.Sprintf("%s:%s:%d", sender, roomID, int64(originServerTS))))
-		actualHash := base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
+	// 计算实际哈希
+	hash := sha256.New()
+	hash.Write([]byte(fmt.Sprintf("%s:%s:%d", sender, roomID, int64(originServerTS))))
+	actualHash := base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 
-		if expectedHash != actualHash {
-			return fmt.Errorf("event ID hash mismatch")
-		}
+	if expectedHash != actualHash {
+		return fmt.Errorf("event ID hash mismatch")
 	}
 
 	return nil
@@ -346,7 +345,7 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 
 		// 解析 X-Matrix 认证
 		if strings.HasPrefix(authHeader, "X-Matrix origin=") {
-			origin, keyID, signature, err := parseXMatrixAuth(authHeader)
+			origin, destination, keyID, signature, err := parseXMatrixAuth(authHeader)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, MatrixError{
 					ErrCode: "M_UNAUTHORIZED",
@@ -369,7 +368,7 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 			}
 
 			// 验证请求签名
-			if !verifyRequestSignature(c.Request, origin, keyID, signature, publicKey) {
+			if !verifyRequestSignature(c.Request, origin, destination, keyID, signature, publicKey) {
 				c.JSON(http.StatusUnauthorized, MatrixError{
 					ErrCode: "M_UNAUTHORIZED",
 					Error:   "Invalid request signature",
@@ -387,15 +386,17 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 }
 
 // parseXMatrixAuth 解析 X-Matrix 认证头
-func parseXMatrixAuth(authHeader string) (origin, keyID, signature string, err error) {
-	// 格式: X-Matrix origin="origin.hs",key="ed25519:abc",sig="base64sig"
+func parseXMatrixAuth(authHeader string) (origin, destination, keyID, signature string, err error) {
+	// 格式: X-Matrix origin="origin.hs",destination="dest.hs",key="ed25519:abc",sig="base64sig"
 	authHeader = strings.TrimPrefix(authHeader, "X-Matrix ")
-	
+
 	parts := strings.Split(authHeader, ",")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(part, "origin=") {
 			origin = strings.Trim(part[7:], `"`)
+		} else if strings.HasPrefix(part, "destination=") {
+			destination = strings.Trim(part[12:], `"`)
 		} else if strings.HasPrefix(part, "key=") {
 			keyID = strings.Trim(part[4:], `"`)
 		} else if strings.HasPrefix(part, "sig=") {
@@ -404,33 +405,43 @@ func parseXMatrixAuth(authHeader string) (origin, keyID, signature string, err e
 	}
 
 	if origin == "" || keyID == "" || signature == "" {
-		return "", "", "", fmt.Errorf("missing required fields")
+		return "", "", "", "", fmt.Errorf("missing required fields")
 	}
 
-	return origin, keyID, signature, nil
+	return origin, destination, keyID, signature, nil
 }
 
 // verifyRequestSignature 验证请求签名
-func verifyRequestSignature(req *http.Request, origin, keyID, signature string, publicKey ed25519.PublicKey) bool {
-	// 构建签名内容
-	method := req.Method
-	path := req.URL.Path
-	query := req.URL.RawQuery
-	if query != "" {
-		path = path + "?" + query
-	}
+// Matrix spec: the signed payload is a JSON object {method, uri, origin, destination, content?}
+func verifyRequestSignature(req *http.Request, origin, destination, keyID, signature string, publicKey ed25519.PublicKey) bool {
+	// 构建 URI (path + query)
+	uri := req.URL.RequestURI()
 
-	// 读取请求体
+	// 读取请求体并恢复，以便后续中间件可以继续读取
 	var body []byte
 	if req.Body != nil {
-		// 这里需要读取并恢复 Body
-		// 简化实现，实际应该使用 TeeReader
+		body, _ = io.ReadAll(req.Body)
+		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
-	// 构建待签名字符串
-	content := fmt.Sprintf("%s %s", method, path)
+	// 构建待签名的 JSON 对象（Matrix federation spec）
+	payload := map[string]interface{}{
+		"method":      req.Method,
+		"uri":         uri,
+		"origin":      origin,
+		"destination": destination,
+	}
 	if len(body) > 0 {
-		content = fmt.Sprintf("%s\n%s", content, string(body))
+		var content interface{}
+		if err := json.Unmarshal(body, &content); err == nil {
+			payload["content"] = content
+		}
+	}
+
+	// Canonical JSON
+	canonicalBytes, err := CanonicalJSON(payload)
+	if err != nil {
+		return false
 	}
 
 	// 解码签名
@@ -440,7 +451,7 @@ func verifyRequestSignature(req *http.Request, origin, keyID, signature string, 
 	}
 
 	// 验证签名
-	return ed25519.Verify(publicKey, []byte(content), sigBytes)
+	return ed25519.Verify(publicKey, canonicalBytes, sigBytes)
 }
 
 // ===== 辅助函数 =====

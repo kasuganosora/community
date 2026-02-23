@@ -28,7 +28,7 @@ func ToAttachment(attachment *models.Attachment) (att *Attachment) {
 		previewUrl = &_previewUrl
 	}
 	att = &Attachment{
-		Type:             attachment.GeTypeString(),
+		Type:             attachment.GetTypeString(),
 		Url:              url,
 		PreviewUrl:       previewUrl,
 		RemoteUrl:        attachment.RemoteUrl,

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -90,7 +91,7 @@ func (gm *GroupMember) IsMatrixUser() bool {
 // GetUserIdentifier 获取用户标识符
 func (gm *GroupMember) GetUserIdentifier() string {
 	if gm.AccountId != nil {
-		return string(rune(*gm.AccountId))
+		return strconv.FormatUint(*gm.AccountId, 10)
 	}
 	if gm.MatrixUserId != nil {
 		return *gm.MatrixUserId

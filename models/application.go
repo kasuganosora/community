@@ -191,14 +191,14 @@ func (s ApplicationScope) Value(ctx context.Context, field *schema.Field, dst re
 
 type Application struct {
 	Id          uint64           `json:"id" gorm:"primary_key;autoIncrement"`
-	Uuid        *uuid.UUID       `json:"uuid" gorm:"type:char(36);unique_index;not null"`
+	Uuid        *uuid.UUID       `json:"uuid" gorm:"type:char(36);uniqueIndex;not null"`
 	UserId      int64            `json:"user_id" gorm:"index"`
 	Name        string           `json:"name" gorm:"type:varchar(32);not null"`
 	Website     string           `json:"website" gorm:"type:varchar(255);not null"`
 	RedirectUri string           `json:"redirect_uri" gorm:"type:varchar(255);not null"`
 	Scopes      ApplicationScope `json:"scopes" gorm:"type:varchar(255);not null"`
 	IsEnabled   bool             `json:"is_enabled" gorm:"not null;default:true"`
-	CreatedAt   *time.Time       `json:"created_at" gor:"autoCreateTime"`
+	CreatedAt   *time.Time       `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   *time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
 	DeletedAt   gorm.DeletedAt   `json:"deleted_at" gorm:"index"`
 }
@@ -221,7 +221,7 @@ type ApplicationUserAuth struct {
 	ApplicationId uint64 `json:"application_id" gorm:"index"`
 	// 用户ID
 	UserId    int64      `json:"user_id" gorm:"index"`
-	CreatedAt *time.Time `json:"created_at" gor:"autoCreateTime"`
+	CreatedAt *time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 

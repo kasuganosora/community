@@ -65,7 +65,12 @@ func Load() {
 
 	rows := make([]models.SystemSetting, 0)
 	err := db.GetDB().Model(&models.SystemSetting{}).Find(&rows).Error
-	log.FatalIf(err)
+	if err != nil {
+		// Table may not exist in standalone/complement mode — skip gracefully
+		log.Error("systemsettings.Load: %v (continuing without system settings)", err)
+		loaded = true
+		return
+	}
 
 	for _, row := range rows {
 		settings[row.Key] = row.Val

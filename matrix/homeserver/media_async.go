@@ -5,7 +5,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -85,11 +89,19 @@ func (ams *AsyncMediaService) CreateAsyncUpload(userID, filename, contentType st
 	return media, nil
 }
 
+// ErrCannotOverwriteMedia is returned when trying to upload to an already-completed media ID
+var ErrCannotOverwriteMedia = fmt.Errorf("M_CANNOT_OVERWRITE_MEDIA")
+
 // CompleteAsyncUpload 完成异步上传
-func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte) (*AsyncUploadResponse, error) {
+func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, uploadContentType string) (*AsyncUploadResponse, error) {
 	var media AsyncMediaInfo
 	if err := db.GetDB().Where("media_id = ?", mediaID).First(&media).Error; err != nil {
 		return nil, fmt.Errorf("media not found")
+	}
+
+	// Check if already uploaded
+	if media.Status == "done" {
+		return nil, ErrCannotOverwriteMedia
 	}
 
 	// 检查是否过期
@@ -106,8 +118,16 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte) (
 		return nil, fmt.Errorf("size mismatch")
 	}
 
+	// Always prefer Content-Type from the PUT request (the actual upload)
+	// over what was stored during create, since create may have a default like application/json
+	effectiveContentType := media.ContentType
+	if uploadContentType != "" {
+		effectiveContentType = uploadContentType
+		media.ContentType = effectiveContentType
+	}
+
 	// 保存文件（使用现有的媒体存储）
-	contentURI, err := ams.saveMediaFile(mediaID, data, media.ContentType, media.Filename)
+	contentURI, err := ams.saveMediaFile(mediaID, data, effectiveContentType, media.Filename)
 	if err != nil {
 		media.Status = "failed"
 		db.GetDB().Save(&media)
@@ -131,14 +151,51 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte) (
 
 // saveMediaFile 保存媒体文件
 func (ams *AsyncMediaService) saveMediaFile(mediaID string, data []byte, contentType, filename string) (string, error) {
-	// 使用现有的媒体服务存储文件
-	// 这里简化实现，实际应该调用 media.go 中的存储逻辑
-	
-	// 生成 mxc:// URI
+	// Determine file extension
+	ext := ""
+	if filename != "" {
+		ext = filepath.Ext(filename)
+	}
+	if ext == "" {
+		exts, _ := mime.ExtensionsByType(contentType)
+		if len(exts) > 0 {
+			ext = exts[0]
+		}
+	}
+
+	// Storage path
+	datePath := time.Now().Format("2006/01/02")
+	storedName := mediaID + ext
+	relativePath := filepath.Join("matrix", datePath, storedName)
+	fullPath := filepath.Join("uploads", relativePath)
+
+	// Create directory
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Write file
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Create MatrixMedia DB record so downloads work
+	matrixMedia := &MatrixMedia{
+		MediaID:     mediaID,
+		ServerName:  ams.hs.Config.ServerName,
+		FileName:    storedName,
+		ContentType: contentType,
+		FileSize:    int64(len(data)),
+		FilePath:    fullPath,
+		UploaderID:  "",
+		CreatedAt:   time.Now(),
+	}
+	if err := db.GetDB().Create(matrixMedia).Error; err != nil {
+		os.Remove(fullPath)
+		return "", fmt.Errorf("failed to save media record: %w", err)
+	}
+
 	contentURI := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
-	
-	// TODO: 实际保存到存储后端（本地/S3/MinIO）
-	
 	return contentURI, nil
 }
 
@@ -185,15 +242,16 @@ func RegisterAsyncMediaRoutes(r gin.IRouter) {
 		return
 	}
 
-	media := r.Group("/_matrix/media/v3")
-	{
-		// 上传配置
-		media.GET("/config", handleMediaConfig)
-		
-		// 异步上传端点
-		media.POST("/create", MatrixAuthMiddleware(), handleCreateAsyncUpload)
-		media.PUT("/upload/:mediaId", handleCompleteAsyncUpload)
-		media.GET("/upload/:mediaId", handleGetUploadStatus)
+	// Register under both v3 and v1 (Complement tests use v1)
+	for _, version := range []string{"v3", "v1"} {
+		media := r.Group("/_matrix/media/" + version)
+		{
+			media.GET("/config", handleMediaConfig)
+			media.POST("/create", MatrixAuthMiddleware(), handleCreateAsyncUpload)
+			// Use wildcard to handle both PUT /upload/:mediaId and PUT /upload/:serverName/:mediaId
+			media.PUT("/upload/*path", handleCompleteAsyncUploadWildcard)
+			media.GET("/upload/:mediaId", handleGetUploadStatus)
+		}
 	}
 }
 
@@ -230,11 +288,30 @@ func handleCreateAsyncUpload(c *gin.Context) {
 		return
 	}
 
+	hs2 := GetHomeServer()
+	contentURI := fmt.Sprintf("mxc://%s/%s", hs2.Config.ServerName, media.MediaID)
+	var unusedExpiresAt int64
+	if media.ExpiresAt != nil {
+		unusedExpiresAt = media.ExpiresAt.UnixMilli()
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"media_id":   media.MediaID,
-		"upload_url": media.UploadURL,
-		"expires_at": media.ExpiresAt.Unix(),
+		"content_uri":       contentURI,
+		"unused_expires_at": unusedExpiresAt,
 	})
+}
+
+// handleCompleteAsyncUploadWildcard extracts mediaId from wildcard path
+// Handles both /upload/{mediaId} and /upload/{serverName}/{mediaId}
+func handleCompleteAsyncUploadWildcard(c *gin.Context) {
+	path := strings.TrimPrefix(c.Param("path"), "/")
+	parts := strings.Split(path, "/")
+	// Last segment is always the mediaId
+	if len(parts) == 0 || path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_REQUEST", "error": "Missing media ID"})
+		return
+	}
+	c.Params = append(c.Params, gin.Param{Key: "mediaId", Value: parts[len(parts)-1]})
+	handleCompleteAsyncUpload(c)
 }
 
 // handleCompleteAsyncUpload 完成异步上传
@@ -252,12 +329,20 @@ func handleCompleteAsyncUpload(c *gin.Context) {
 		return
 	}
 
-	resp, err := hs.AsyncMedia.CompleteAsyncUpload(mediaID, data)
+	uploadContentType := c.GetHeader("Content-Type")
+	resp, err := hs.AsyncMedia.CompleteAsyncUpload(mediaID, data, uploadContentType)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_REQUEST",
-			"error":   err.Error(),
-		})
+		if err == ErrCannotOverwriteMedia {
+			c.JSON(http.StatusConflict, gin.H{
+				"errcode": "M_CANNOT_OVERWRITE_MEDIA",
+				"error":   "Media has already been uploaded",
+			})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"errcode": "M_BAD_REQUEST",
+				"error":   err.Error(),
+			})
+		}
 		return
 	}
 

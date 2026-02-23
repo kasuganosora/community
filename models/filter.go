@@ -23,7 +23,7 @@ type Filter struct {
 	Context      []string         `gorm:"not null;type:json;serializer:json" json:"context"`
 	FilterAction uint8            `gorm:"not null;" json:"filter_action"`
 	Keywords     []*FilterKeyword `gorm:"not null;type:json;serializer:json" json:"keywords"`
-	CratedAt     *time.Time       `gorm:"not null;autoCreateTime" json:"created_at"`
+	CreatedAt    *time.Time       `gorm:"not null;autoCreateTime" json:"created_at"`
 	UpdatedAt    *time.Time       `gorm:"not null;autoUpdateTime" json:"updated_at"`
 }
 

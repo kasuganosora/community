@@ -50,7 +50,9 @@ func ListEndorsements(c *gin.Context) {
 	}
 
 	type EndorsementResult struct {
-		Endorsement
+		EndorsementId uint64 `json:"endorsement_id"`
+		AccountId     uint64 `json:"account_id"`
+		TargetId      uint64 `json:"target_id"`
 		models.Account
 	}
 
@@ -108,13 +110,21 @@ func PinAccount(c *gin.Context) {
 
 	// Check if already endorsed
 	var count int64
-	db.GetDB().Table("endorsements").
+	if err := db.GetDB().Table("endorsements").
 		Where("account_id = ? AND target_id = ?", account.Id, accid).
-		Count(&count)
+		Count(&count).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "check endorsement error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	if count > 0 {
 		// Already endorsed, return relationship
 		targetAccount := &models.Account{}
-		db.GetDB().Preload("Extra").First(targetAccount, accid)
+		if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
+			_ = c.Error(errors.Wrap(err, "load target account error"))
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			return
+		}
 		c.JSON(200, buildRelationship(account, targetAccount))
 		return
 	}
@@ -132,7 +142,11 @@ func PinAccount(c *gin.Context) {
 
 	// Load target account
 	targetAccount := &models.Account{}
-	db.GetDB().Preload("Extra").First(targetAccount, accid)
+	if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "load target account error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }
@@ -149,13 +163,21 @@ func UnpinAccount(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account)
 
 	// Delete endorsement
-	db.GetDB().Table("endorsements").
+	if err := db.GetDB().Table("endorsements").
 		Where("account_id = ? AND target_id = ?", account.Id, accid).
-		Delete(&Endorsement{})
+		Delete(&Endorsement{}).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "delete endorsement error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	// Load target account
 	targetAccount := &models.Account{}
-	db.GetDB().Preload("Extra").First(targetAccount, accid)
+	if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "load target account error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		return
+	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }

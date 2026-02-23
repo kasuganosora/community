@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"math/rand"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,16 +12,19 @@ import (
 
 // FixtureBuilder helps create test data
 type FixtureBuilder struct {
+	t  *testing.T
 	db *gorm.DB
 }
 
 // NewFixtureBuilder creates a new fixture builder
-func NewFixtureBuilder(db *gorm.DB) *FixtureBuilder {
-	return &FixtureBuilder{db: db}
+func NewFixtureBuilder(t *testing.T, db *gorm.DB) *FixtureBuilder {
+	t.Helper()
+	return &FixtureBuilder{t: t, db: db}
 }
 
 // CreateUser creates a test user
 func (f *FixtureBuilder) CreateUser(overrides ...func(*models.User)) *models.User {
+	f.t.Helper()
 	now := time.Now()
 	user := &models.User{
 		UUID:           uuid.New().String(),
@@ -36,7 +41,7 @@ func (f *FixtureBuilder) CreateUser(overrides ...func(*models.User)) *models.Use
 	}
 
 	if err := f.db.Create(user).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateUser failed: %v", err)
 	}
 
 	return user
@@ -44,6 +49,7 @@ func (f *FixtureBuilder) CreateUser(overrides ...func(*models.User)) *models.Use
 
 // CreateAccount creates a test account
 func (f *FixtureBuilder) CreateAccount(user *models.User, overrides ...func(*models.Account)) *models.Account {
+	f.t.Helper()
 	now := time.Now()
 	account := &models.Account{
 		UserId:      user.Id,
@@ -59,13 +65,8 @@ func (f *FixtureBuilder) CreateAccount(user *models.User, overrides ...func(*mod
 		override(account)
 	}
 
-	// Set domain to nil for local accounts
-	if account.Domain == nil {
-		account.Domain = nil
-	}
-
 	if err := f.db.Create(account).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateAccount failed: %v", err)
 	}
 
 	return account
@@ -73,6 +74,7 @@ func (f *FixtureBuilder) CreateAccount(user *models.User, overrides ...func(*mod
 
 // CreateStatus creates a test status
 func (f *FixtureBuilder) CreateStatus(account *models.Account, overrides ...func(*models.Status)) *models.Status {
+	f.t.Helper()
 	now := time.Now()
 	status := &models.Status{
 		AccountId:  account.Id,
@@ -87,7 +89,7 @@ func (f *FixtureBuilder) CreateStatus(account *models.Account, overrides ...func
 	}
 
 	if err := f.db.Create(status).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateStatus failed: %v", err)
 	}
 
 	return status
@@ -95,6 +97,7 @@ func (f *FixtureBuilder) CreateStatus(account *models.Account, overrides ...func
 
 // CreateFollow creates a follow relationship
 func (f *FixtureBuilder) CreateFollow(follower, following *models.Account, overrides ...func(*models.Follow)) *models.Follow {
+	f.t.Helper()
 	now := time.Now()
 	follow := &models.Follow{
 		AccountId: follower.Id,
@@ -108,7 +111,7 @@ func (f *FixtureBuilder) CreateFollow(follower, following *models.Account, overr
 	}
 
 	if err := f.db.Create(follow).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateFollow failed: %v", err)
 	}
 
 	return follow
@@ -116,6 +119,7 @@ func (f *FixtureBuilder) CreateFollow(follower, following *models.Account, overr
 
 // CreateBlock creates a block relationship
 func (f *FixtureBuilder) CreateBlock(blocker, blocked *models.Account, overrides ...func(*models.Block)) *models.Block {
+	f.t.Helper()
 	now := time.Now()
 	block := &models.Block{
 		AccountId:       blocker.Id,
@@ -129,7 +133,7 @@ func (f *FixtureBuilder) CreateBlock(blocker, blocked *models.Account, overrides
 	}
 
 	if err := f.db.Create(block).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateBlock failed: %v", err)
 	}
 
 	return block
@@ -137,6 +141,7 @@ func (f *FixtureBuilder) CreateBlock(blocker, blocked *models.Account, overrides
 
 // CreateAuthToken creates a test auth token
 func (f *FixtureBuilder) CreateAuthToken(userId uint64, overrides ...func(*models.AuthToken)) *models.AuthToken {
+	f.t.Helper()
 	now := time.Now()
 	expiresAt := now.Add(24 * time.Hour)
 	token := &models.AuthToken{
@@ -151,7 +156,7 @@ func (f *FixtureBuilder) CreateAuthToken(userId uint64, overrides ...func(*model
 	}
 
 	if err := f.db.Create(token).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateAuthToken failed: %v", err)
 	}
 
 	return token
@@ -159,6 +164,7 @@ func (f *FixtureBuilder) CreateAuthToken(userId uint64, overrides ...func(*model
 
 // CreateRole creates a test role
 func (f *FixtureBuilder) CreateRole(overrides ...func(*models.Role)) *models.Role {
+	f.t.Helper()
 	role := &models.Role{
 		Name:        "Test Role",
 		Color:       "#FF0000",
@@ -171,7 +177,7 @@ func (f *FixtureBuilder) CreateRole(overrides ...func(*models.Role)) *models.Rol
 	}
 
 	if err := f.db.Create(role).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateRole failed: %v", err)
 	}
 
 	return role
@@ -179,6 +185,7 @@ func (f *FixtureBuilder) CreateRole(overrides ...func(*models.Role)) *models.Rol
 
 // CreateFilter creates a test filter
 func (f *FixtureBuilder) CreateFilter(accountId uint64, overrides ...func(*models.Filter)) *models.Filter {
+	f.t.Helper()
 	now := time.Now()
 	filter := &models.Filter{
 		AccountId:    accountId,
@@ -186,7 +193,7 @@ func (f *FixtureBuilder) CreateFilter(accountId uint64, overrides ...func(*model
 		Context:      []string{"home"},
 		ExpiresAt:    nil,
 		FilterAction: uint8(models.FilterActionWarn),
-		CratedAt:     &now,
+		CreatedAt:    &now,
 		UpdatedAt:    &now,
 	}
 
@@ -195,7 +202,7 @@ func (f *FixtureBuilder) CreateFilter(accountId uint64, overrides ...func(*model
 	}
 
 	if err := f.db.Create(filter).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateFilter failed: %v", err)
 	}
 
 	return filter
@@ -203,12 +210,13 @@ func (f *FixtureBuilder) CreateFilter(accountId uint64, overrides ...func(*model
 
 // CreatePoll creates a test poll
 func (f *FixtureBuilder) CreatePoll(overrides ...func(*models.Poll)) *models.Poll {
+	f.t.Helper()
 	now := time.Now()
 	expiresAt := now.Add(24 * time.Hour)
 	poll := &models.Poll{
 		Multiple:  false,
 		ExpiresAt: &expiresAt,
-		CratedAt:  &now,
+		CreatedAt: &now,
 		UpdatedAt: &now,
 	}
 
@@ -217,7 +225,7 @@ func (f *FixtureBuilder) CreatePoll(overrides ...func(*models.Poll)) *models.Pol
 	}
 
 	if err := f.db.Create(poll).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreatePoll failed: %v", err)
 	}
 
 	return poll
@@ -225,6 +233,7 @@ func (f *FixtureBuilder) CreatePoll(overrides ...func(*models.Poll)) *models.Pol
 
 // CreateAttachment creates a test attachment
 func (f *FixtureBuilder) CreateAttachment(overrides ...func(*models.Attachment)) *models.Attachment {
+	f.t.Helper()
 	now := time.Now()
 	attachment := &models.Attachment{
 		Type:        uint(models.AttachmentTypeImage),
@@ -239,7 +248,7 @@ func (f *FixtureBuilder) CreateAttachment(overrides ...func(*models.Attachment))
 	}
 
 	if err := f.db.Create(attachment).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateAttachment failed: %v", err)
 	}
 
 	return attachment
@@ -247,6 +256,7 @@ func (f *FixtureBuilder) CreateAttachment(overrides ...func(*models.Attachment))
 
 // CreateNotification creates a test notification
 func (f *FixtureBuilder) CreateNotification(accountId uint64, overrides ...func(*models.Notification)) *models.Notification {
+	f.t.Helper()
 	now := time.Now()
 	notification := &models.Notification{
 		AccountId: accountId,
@@ -260,7 +270,7 @@ func (f *FixtureBuilder) CreateNotification(accountId uint64, overrides ...func(
 	}
 
 	if err := f.db.Create(notification).Error; err != nil {
-		return nil
+		f.t.Fatalf("FixtureBuilder.CreateNotification failed: %v", err)
 	}
 
 	return notification
@@ -268,21 +278,16 @@ func (f *FixtureBuilder) CreateNotification(accountId uint64, overrides ...func(
 
 // FullTestSetup creates a complete test setup with user, account, and status
 func (f *FixtureBuilder) FullTestSetup() (user *models.User, account *models.Account, status *models.Status) {
+	f.t.Helper()
 	user = f.CreateUser(func(u *models.User) {
 		u.UserName = "fulltest"
 		u.EmailHash = "fulltest_hash"
 	})
-	if user == nil {
-		return nil, nil, nil
-	}
 
 	account = f.CreateAccount(user, func(a *models.Account) {
 		a.Username = "fulltest"
 		a.DisplayName = "Full Test User"
 	})
-	if account == nil {
-		return nil, nil, nil
-	}
 
 	status = f.CreateStatus(account)
 
@@ -290,13 +295,11 @@ func (f *FixtureBuilder) FullTestSetup() (user *models.User, account *models.Acc
 }
 
 // RandomString generates a random string of the specified length
-// Uses crypto/rand for security
 func RandomString(length int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	result := make([]byte, length)
 	for i := 0; i < length; i++ {
-		// Simple pseudo-random for fixtures, not for security
-		result[i] = chars[i%len(chars)]
+		result[i] = chars[rand.Intn(len(chars))]
 	}
 	return string(result)
 }

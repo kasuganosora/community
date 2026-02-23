@@ -156,7 +156,7 @@ type FederationClaimKeysRequest struct {
 
 // FederationClaimKeysResponse 联邦密钥认领响应
 type FederationClaimKeysResponse struct {
-	OneTimeKeys map[string]map[string]map[string]string `json:"one_time_keys"`
+	OneTimeKeys map[string]map[string]map[string]json.RawMessage `json:"one_time_keys"`
 }
 
 // handleFederationClaimKeys 处理联邦一次性密钥认领

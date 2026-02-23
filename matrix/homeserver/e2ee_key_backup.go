@@ -28,12 +28,12 @@ type KeyBackupVersion struct {
 
 // KeyBackupSession 备份的会话密钥
 type KeyBackupSession struct {
-	RoomID            string `json:"room_id"`
-	SessionID         string `json:"session_id"`
-	FirstMessageIndex int    `json:"first_message_index"`
-	ForwardedCount    int    `json:"forwarded_count"`
-	IsVerified        bool   `json:"is_verified"`
-	SessionData       string `json:"session_data"` // 加密的会话数据
+	RoomID            string      `json:"room_id,omitempty"`
+	SessionID         string      `json:"session_id,omitempty"`
+	FirstMessageIndex int         `json:"first_message_index"`
+	ForwardedCount    int         `json:"forwarded_count"`
+	IsVerified        bool        `json:"is_verified"`
+	SessionData       interface{} `json:"session_data"` // 加密的会话数据（object or string）
 }
 
 // KeyBackupData 密钥备份数据（存储在数据库中）
@@ -133,6 +133,32 @@ func (kbm *KeyBackupManager) DeleteBackupVersion(userID, version string) error {
 	return nil
 }
 
+// shouldReplaceKey checks the Matrix spec key replacement rules.
+// A new key replaces an existing key only if:
+// 1. It has a lower first_message_index (can decrypt more messages), OR
+// 2. Same first_message_index but lower forwarded_count (closer to original sender), OR
+// 3. Both equal but the new key is verified and the old one is not.
+func shouldReplaceKey(existing, incoming *KeyBackupSession) bool {
+	if incoming.FirstMessageIndex < existing.FirstMessageIndex {
+		return true
+	}
+	if incoming.FirstMessageIndex > existing.FirstMessageIndex {
+		return false
+	}
+	// first_message_index equal
+	if incoming.ForwardedCount < existing.ForwardedCount {
+		return true
+	}
+	if incoming.ForwardedCount > existing.ForwardedCount {
+		return false
+	}
+	// forwarded_count also equal
+	if incoming.IsVerified && !existing.IsVerified {
+		return true
+	}
+	return false
+}
+
 // StoreBackupKeys 存储备份的会话密钥
 func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[string]map[string]KeyBackupSession) error {
 	// 检查备份版本是否存在
@@ -141,12 +167,28 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 		return fmt.Errorf("backup version not found: %w", err)
 	}
 
-	// 统计新增数量
+	// 统计新增/替换数量
 	newCount := 0
 
 	// 存储每个房间的会话密钥
 	for roomID, sessions := range rooms {
 		for sessionID, session := range sessions {
+			// Check if an existing key exists for this session
+			var existing MatrixKeyBackupSession
+			err := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ? AND session_id = ?",
+				userID, version, roomID, sessionID).First(&existing).Error
+
+			if err == nil {
+				// Existing key found — apply replacement rules
+				var existingSession KeyBackupSession
+				if jsonErr := json.Unmarshal([]byte(existing.SessionData), &existingSession); jsonErr == nil {
+					if !shouldReplaceKey(&existingSession, &session) {
+						// New key is not better; skip
+						continue
+					}
+				}
+			}
+
 			// 序列化会话数据
 			sessionData, err := json.Marshal(session)
 			if err != nil {
@@ -162,7 +204,7 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 				SessionData: string(sessionData),
 			}
 
-			// 使用 Upsert
+			// Upsert (only reached if key is new or replacement rules allow it)
 			if err := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ? AND session_id = ?",
 				userID, version, roomID, sessionID).
 				Assign(record).
@@ -175,9 +217,12 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 		}
 	}
 
-	// 更新备份计数
+	// 更新备份计数和 etag
 	if newCount > 0 {
-		backup.Count += newCount
+		// Recount total sessions for accuracy
+		var totalCount int64
+		db.GetDB().Model(&MatrixKeyBackupSession{}).Where("user_id = ? AND version = ?", userID, version).Count(&totalCount)
+		backup.Count = int(totalCount)
 		backup.ETag = generateETag()
 		db.GetDB().Save(&backup)
 	}

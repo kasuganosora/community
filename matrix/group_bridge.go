@@ -11,7 +11,7 @@ import (
 
 // SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间
 func (b *Bridge) SendGroupMessageToMatrix(roomID string, senderAccountID uint64, content string) (string, error) {
-	if !b.started {
+	if !b.started.Load() {
 		return "", nil
 	}
 
@@ -25,8 +25,6 @@ func (b *Bridge) SendGroupMessageToMatrix(roomID string, senderAccountID uint64,
 
 // SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间
 func (m *MessageBridge) SendGroupMessageToMatrix(matrixRoomID string, senderAccountID uint64, content string) (string, error) {
-	LoadConfig()
-
 	// 获取发送者对应的 Matrix 用户
 	matrixUserID, err := m.userMapper.GetMatrixUserID(senderAccountID)
 	if err != nil {
@@ -72,7 +70,7 @@ func (m *MessageBridge) createGroupMessageMapping(roomID, eventID, senderID stri
 
 // SyncGroupToMatrix 同步群组到 Matrix（创建或获取对应的 Matrix 房间）
 func (b *Bridge) SyncGroupToMatrix(groupID uint64) (string, error) {
-	if !b.started {
+	if !b.started.Load() {
 		return "", nil
 	}
 

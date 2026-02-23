@@ -72,6 +72,12 @@ func registerStatusEventHandler() {
 
 // sendDirectMessageToMatrix 发送私信到 Matrix
 func sendDirectMessageToMatrix(status *models.Status) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("Panic in sendDirectMessageToMatrix: %v", r)
+		}
+	}()
+
 	bridge := GetBridge()
 	if bridge == nil || !bridge.IsStarted() {
 		return

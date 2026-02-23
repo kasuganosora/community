@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -98,6 +97,11 @@ func NodeInfo(c *gin.Context) {
 	c.JSON(200, response)
 }
 
+// httpClient is a shared HTTP client with timeout
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
+
 // DiscoverActor discovers an actor via WebFinger
 func DiscoverActor(acct string) (*Actor, error) {
 	// Parse acct format (user@domain or acct:user@domain)
@@ -113,7 +117,7 @@ func DiscoverActor(acct string) (*Actor, error) {
 	// Query WebFinger endpoint
 	webfingerURL := "https://" + domain + "/.well-known/webfinger?resource=acct:" + acct
 
-	resp, err := http.Get(webfingerURL)
+	resp, err := httpClient.Get(webfingerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +168,4 @@ func (e *ActivityPubError) Error() string {
 	return e.Message
 }
 
-// URL encoding helper
-func urlEncode(s string) string {
-	return url.QueryEscape(s)
-}
+

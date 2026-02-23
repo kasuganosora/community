@@ -107,7 +107,13 @@ func Upload(c *gin.Context) {
 	}
 
 	// 获取文件大小
-	fileInfo, _ := os.Stat(filePath)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to get file info")
+		_ = c.Error(err)
+		c.JSON(500, gin.H{"error": "Internal server error"})
+		return
+	}
 	fileSize := fileInfo.Size()
 
 	// 创建缩略图、获取尺寸和生成 BlurHash（如果是图片）
@@ -118,8 +124,8 @@ func Upload(c *gin.Context) {
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()
-		thumbName, bh, w, h, err := processor.ProcessImage(filePath)
-		if err == nil {
+		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
+		if procErr == nil {
 			thumbnailPath = &thumbName
 			blurhash = bh
 			width = &w
@@ -130,8 +136,8 @@ func Upload(c *gin.Context) {
 	// 上传到云存储（如果启用）
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
-		cloudPath, err := cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
-		if err == nil {
+		cloudPath, uploadErr := cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
+		if uploadErr == nil {
 			// 使用云存储路径
 			filePath = cloudPath
 		}
@@ -287,8 +293,8 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()
-		thumbName, bh, w, h, err := processor.ProcessImage(filePath)
-		if err == nil {
+		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
+		if procErr == nil {
 			thumbnailPath = &thumbName
 			blurhash = bh
 			width = &w
@@ -297,11 +303,15 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 	}
 
 	// 4. 获取文件大小
-	fileInfo, _ := os.Stat(filePath)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		updateMediaError(mediaId, "Failed to get file info")
+		return
+	}
 	fileSize := fileInfo.Size()
 
 	// 5. 更新数据库记录
-	db.GetDB().Model(&models.MediaAttachment{}).
+	if err := db.GetDB().Model(&models.MediaAttachment{}).
 		Where("id = ?", mediaId).
 		Updates(map[string]interface{}{
 			"file_name":      fileName,
@@ -313,12 +323,15 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 			"thumbnail_path": thumbnailPath,
 			"blurhash":       blurhash,
 			"description":    description,
-		})
+		}).Error; err != nil {
+		updateMediaError(mediaId, "Failed to update media record")
+		return
+	}
 
 	// 6. 上传到云存储（如果启用）
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
-		cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
+		_, _ = cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
 	}
 }
 

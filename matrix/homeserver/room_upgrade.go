@@ -114,6 +114,9 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 	// 迁移成员（邀请/加入）
 	rus.migrateMembers(roomID, newRoomID, userID)
 
+	// 迁移推送规则
+	rus.migratePushRules(roomID, newRoomID)
+
 	// 在旧房间发送 tombstone 事件
 	tombstoneContent := map[string]interface{}{
 		"body":             fmt.Sprintf("This room has been replaced by %s", newRoomID),
@@ -255,6 +258,30 @@ func (rus *RoomUpgradeService) migrateMembers(oldRoomID, newRoomID, creatorID st
 				UserID: member.UserID,
 			})
 		}
+	}
+}
+
+// migratePushRules copies room-specific push rules from old room to new room for all users.
+// Uses FirstOrCreate for idempotency — safe to call multiple times (e.g. from both local and federated tombstone events).
+func (rus *RoomUpgradeService) migratePushRules(oldRoomID, newRoomID string) {
+	var rules []PushRule
+	db.GetDB().Where("kind = ? AND rule_id = ?", "room", oldRoomID).Find(&rules)
+	for _, rule := range rules {
+		newRule := PushRule{
+			UserID:        rule.UserID,
+			Scope:         rule.Scope,
+			Kind:          rule.Kind,
+			RuleID:        newRoomID,
+			Default:       rule.Default,
+			Enabled:       rule.Enabled,
+			Conditions:    rule.Conditions,
+			Actions:       rule.Actions,
+			Pattern:       rule.Pattern,
+			PriorityClass: rule.PriorityClass,
+		}
+		db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
+			rule.UserID, rule.Scope, rule.Kind, newRoomID).
+			Assign(&newRule).FirstOrCreate(&newRule)
 	}
 }
 

@@ -177,7 +177,11 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 	}
 
 	// Order by relevance (exact match first, then partial match)
-	query = query.Order("(CASE WHEN username = '" + usernameKeyword + "' THEN 0 WHEN username LIKE '" + usernameKeyword + "%' THEN 1 ELSE 2 END)")
+	// Use parameterized query to prevent SQL injection
+	query = query.Order(db.GetDB().Raw(
+		"CASE WHEN username = ? THEN 0 WHEN username LIKE ? THEN 1 ELSE 2 END",
+		usernameKeyword, usernameKeyword+"%",
+	))
 
 	if err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error; err != nil {
 		return []*serializer.Account{}
@@ -188,14 +192,16 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 
 // getFollowingIDs 获取关注用户ID列表
 func getFollowingIDs(accountId uint64) []string {
-	var follows []models.Follow
-	db.GetDB().Model(&models.Follow{}).
+	var followIDs []uint64
+	if err := db.GetDB().Model(&models.Follow{}).
 		Where("account_id = ?", accountId).
-		Pluck("follow_id", &follows)
-	
-	ids := make([]string, len(follows))
-	for i, f := range follows {
-		ids[i] = strconv.FormatUint(f.FollowId, 10)
+		Pluck("follow_id", &followIDs).Error; err != nil {
+		return nil
+	}
+
+	ids := make([]string, len(followIDs))
+	for i, id := range followIDs {
+		ids[i] = strconv.FormatUint(id, 10)
 	}
 	return ids
 }

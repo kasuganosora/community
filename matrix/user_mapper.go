@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -90,8 +91,7 @@ func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.Matr
 	}
 
 	if err := m.client.SetUserProfile(matrixUserID, displayName, ""); err != nil {
-		// 非致命错误，仅记录日志
-		// log.Warn("failed to set user profile: %v", err)
+		log.Warn("failed to set user profile for %s: %v", matrixUserID, err)
 	}
 
 	// 创建数据库记录
@@ -266,13 +266,13 @@ func (m *UserMapper) UpdateUserProfile(matrixUserID string, displayName, avatarU
 		return errors.Wrap(err, "failed to update matrix user profile")
 	}
 
-	// 更新缓存
-	m.cache.RLock()
+	// 更新缓存（需要写锁，因为修改了缓存对象的字段）
+	m.cache.Lock()
 	if user, ok := m.cache.matrixToLocal[matrixUserID]; ok {
 		user.DisplayName = displayName
 		user.AvatarURL = avatarURL
 	}
-	m.cache.RUnlock()
+	m.cache.Unlock()
 
 	return nil
 }
@@ -295,11 +295,4 @@ func (m *UserMapper) ClearCache() {
 
 	m.cache.localToMatrix = make(map[uint64]*models.MatrixUser)
 	m.cache.matrixToLocal = make(map[string]*models.MatrixUser)
-}
-
-// GetUserProfile ASClient 的辅助方法，获取用户档案
-func (c *ASClient) GetUserProfile(matrixUserID string) (*UserProfile, error) {
-	// 使用普通 Client 的方法
-	client := NewClient()
-	return client.GetUserID(matrixUserID)
 }

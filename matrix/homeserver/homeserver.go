@@ -3,6 +3,7 @@ package homeserver
 import (
 	"crypto/ed25519"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/kasuganosora/community/config"
@@ -42,19 +43,23 @@ type HomeServer struct {
 
 // HSConfig Homeserver 配置
 type HSConfig struct {
-	Enabled      bool
-	ServerName   string
-	BaseURL      string
-	AdminToken   string
-	RoomVersion  string
-	EncryptedKey string // 用于解析社区 Token
+	Enabled        bool
+	ServerName     string
+	BaseURL        string
+	AdminToken     string
+	RoomVersion    string
+	EncryptedKey   string // 用于解析社区 Token
+	FederationPort int    // 联邦端口，默认 8448
 }
 
 // GlobalHS 全局 Homeserver 实例
 var GlobalHS *HomeServer
 
 // initOnce 确保只初始化一次
-var initOnce sync.Once
+var (
+	initOnce sync.Once
+	initErr  error
+)
 
 // InitHomeServer 初始化 Homeserver
 func InitHomeServer() error {
@@ -62,6 +67,11 @@ func InitHomeServer() error {
 
 	if !cfg.Enabled {
 		return nil
+	}
+
+	// 自动迁移数据库（必须在服务初始化之前，确保表存在）
+	if err := autoMigrate(); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	// 加载或生成联邦密钥
@@ -104,11 +114,6 @@ func InitHomeServer() error {
 
 	GlobalHS = hs
 
-	// 自动迁移数据库
-	if err := autoMigrate(); err != nil {
-		return fmt.Errorf("failed to migrate database: %w", err)
-	}
-
 	return nil
 }
 
@@ -116,18 +121,25 @@ func InitHomeServer() error {
 func loadHSConfig() *HSConfig {
 	cfg := &HSConfig{
 		Enabled:      true, // 默认启用
-		ServerName:   systemsettings.GetDomain(),
 		RoomVersion:  "10",
 		EncryptedKey: config.C.EncryptedKey,
 	}
-	
+
+	// SERVER_NAME env var takes highest priority (used by Complement test suite)
+	if envName := os.Getenv("SERVER_NAME"); envName != "" {
+		cfg.ServerName = envName
+	} else {
+		cfg.ServerName = systemsettings.GetDomain()
+	}
+
 	// 如果 ServerName 为空，使用默认值
 	if cfg.ServerName == "" {
 		cfg.ServerName = "localhost"
 	}
 	
 	cfg.BaseURL = fmt.Sprintf("https://%s", cfg.ServerName)
-	
+	cfg.FederationPort = 8448
+
 	return cfg
 }
 
@@ -169,6 +181,10 @@ func autoMigrate() error {
 		&OpenIDToken{},
 		&ThreePID{},
 		&ThreePIDToken{},
+		&MatrixRoomTag{},
+		&MatrixRoomAlias{},
+		&MatrixMedia{},
+		&MatrixThumbnail{},
 	)
 }
 
@@ -176,10 +192,15 @@ func autoMigrate() error {
 func GetHomeServer() *HomeServer {
 	initOnce.Do(func() {
 		if GlobalHS == nil {
-			InitHomeServer()
+			initErr = InitHomeServer()
 		}
 	})
 	return GlobalHS
+}
+
+// GetInitError 获取初始化错误（供需要检查初始化状态的调用者使用）
+func GetInitError() error {
+	return initErr
 }
 
 // IsEnabled 检查是否启用
@@ -191,6 +212,41 @@ func IsEnabled() bool {
 func (hs *HomeServer) NotifyToDeviceUpdate(userID, deviceID string) {
 	if hs.SyncNotifier != nil {
 		hs.SyncNotifier.Notify(userID, deviceID)
+	}
+}
+
+// NotifyRoomEvent 通知房间内所有本地用户有新事件（用于联邦事件）
+func (hs *HomeServer) NotifyRoomEvent(roomID string) {
+	if hs.SyncNotifier == nil {
+		return
+	}
+	// 找到所有已 join 的本地用户
+	var members []MatrixRoomMember
+	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
+	for _, m := range members {
+		// 只通知本地用户（domain 匹配本服务器）
+		_, domain, ok := ParseMatrixUserID(m.UserID)
+		if !ok || domain != hs.Config.ServerName {
+			continue
+		}
+		// 通知该用户的所有设备
+		var sessions []MatrixUserSession
+		db.GetDB().Where("user_id = ?", m.UserID).Find(&sessions)
+		for _, s := range sessions {
+			hs.SyncNotifier.Notify(m.UserID, s.DeviceID)
+		}
+	}
+}
+
+// NotifyUser notifies all devices of a specific local user (e.g. after push rule changes)
+func (hs *HomeServer) NotifyUser(userID string) {
+	if hs.SyncNotifier == nil {
+		return
+	}
+	var sessions []MatrixUserSession
+	db.GetDB().Where("user_id = ?", userID).Find(&sessions)
+	for _, s := range sessions {
+		hs.SyncNotifier.Notify(userID, s.DeviceID)
 	}
 }
 

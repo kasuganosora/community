@@ -72,8 +72,8 @@ func TestUploadKeysRequestSerialization(t *testing.T) {
 				"ed25519:DEVICE123": "public_key",
 			},
 		},
-		OneTimeKeys: map[string]string{
-			"signed_curve25519:AAAA": "otk_public_key",
+		OneTimeKeys: map[string]json.RawMessage{
+			"signed_curve25519:AAAA": json.RawMessage(`"otk_public_key"`),
 		},
 	}
 	

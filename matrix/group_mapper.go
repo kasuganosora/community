@@ -12,12 +12,13 @@ import (
 
 // GroupMapper 群组与 Matrix 房间映射服务
 type GroupMapper struct {
-	client *ASClient
+	client     *ASClient
+	userMapper *UserMapper
 }
 
 // NewGroupMapper 创建群组映射服务
-func NewGroupMapper(client *ASClient) *GroupMapper {
-	return &GroupMapper{client: client}
+func NewGroupMapper(client *ASClient, userMapper *UserMapper) *GroupMapper {
+	return &GroupMapper{client: client, userMapper: userMapper}
 }
 
 // CreateBridgedGroup 创建与 Matrix 桥接的群组
@@ -98,21 +99,19 @@ func (gm *GroupMapper) BridgeExistingGroup(groupID uint64) error {
 		return errors.Wrap(err, "failed to update group")
 	}
 
-	// 邀请所有本地成员到 Matrix 房间
+	// 邀请所有本地成员到 Matrix 房间（使用 UserMapper 确保虚拟用户已注册）
 	members := make([]*models.GroupMember, 0)
 	db.GetDB().Where("group_id = ?", groupID).Find(&members)
 
 	for _, member := range members {
 		if member.IsLocalUser() {
-			err := gm.client.EnsureVirtualUser(gm.generateMatrixUsername(*member.AccountId))
+			matrixUser, err := gm.userMapper.GetOrCreateMatrixUserByLocal(*member.AccountId)
 			if err != nil {
 				log.Error("Failed to ensure Matrix user for account %d: %v", *member.AccountId, err)
 				continue
 			}
-			// 邀请用户加入房间
-			matrixUserID := gm.generateMatrixUsername(*member.AccountId)
-			if err := gm.client.InviteUser(roomID, matrixUserID); err != nil {
-				log.Error("Failed to invite Matrix user %s to room: %v", matrixUserID, err)
+			if err := gm.client.InviteUser(roomID, matrixUser.MatrixUserID); err != nil {
+				log.Error("Failed to invite Matrix user %s to room: %v", matrixUser.MatrixUserID, err)
 			}
 		}
 	}
@@ -134,11 +133,10 @@ func (gm *GroupMapper) AddLocalMemberToGroup(groupID, accountID uint64, role mod
 	}
 
 	if group.IsBridged() {
-		matrixUserID := gm.generateMatrixUsername(accountID)
-		if err := gm.client.EnsureVirtualUser(matrixUserID); err != nil {
-			log.Error("Failed to ensure Matrix user: %v", err)
-		}
-		if err := gm.client.InviteUser(*group.MatrixRoomId, matrixUserID); err != nil {
+		matrixUser, err := gm.userMapper.GetOrCreateMatrixUserByLocal(accountID)
+		if err != nil {
+			log.Error("Failed to ensure Matrix user for account %d: %v", accountID, err)
+		} else if err := gm.client.InviteUser(*group.MatrixRoomId, matrixUser.MatrixUserID); err != nil {
 			log.Error("Failed to invite user to Matrix room: %v", err)
 		}
 	}
@@ -236,19 +234,4 @@ func (gm *GroupMapper) addLocalUserToGroup(groupID, accountID uint64, role model
 func (gm *GroupMapper) generateRoomAlias(groupID uint64) string {
 	LoadConfig()
 	return GlobalConfig.RoomNamespacePrefix + "_group_" + strconv.FormatUint(groupID, 10)
-}
-
-// generateMatrixUsername 生成本地用户对应的 Matrix 用户名
-// 格式: @_community_username:server.com (例如 @_community_alice:matrix.org)
-func (gm *GroupMapper) generateMatrixUsername(accountID uint64) string {
-	// 查询用户名
-	account := &models.Account{}
-	if err := db.GetDB().Select("username").First(account, accountID).Error; err != nil {
-		// 如果查询失败，回退到使用 ID
-		LoadConfig()
-		return GlobalConfig.FormatMatrixUserID(GlobalConfig.UserNamespacePrefix + strconv.FormatUint(accountID, 10))
-	}
-
-	LoadConfig()
-	return GlobalConfig.FormatMatrixUserID(GlobalConfig.UserNamespacePrefix + account.Username)
 }

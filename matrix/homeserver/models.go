@@ -52,7 +52,7 @@ type MatrixEvent struct {
 	EventType      EventType              `gorm:"type:varchar(64);not null" json:"type"`
 	Sender         string                 `gorm:"type:varchar(255);not null" json:"sender"`
 	StateKey       *string                `gorm:"type:varchar(255)" json:"state_key"`
-	Content        map[string]interface{} `gorm:"type:json" json:"content"`
+	Content        map[string]interface{} `gorm:"type:text;serializer:json" json:"content"`
 	PrevEvents     []string               `gorm:"type:json;serializer:json" json:"prev_events"`
 	AuthEvents     []string               `gorm:"type:json;serializer:json" json:"auth_events"`
 	Depth          int64                  `gorm:"not null" json:"depth"`
@@ -62,6 +62,10 @@ type MatrixEvent struct {
 
 	// 签名（联邦用）
 	Signatures map[string]map[string]string `gorm:"type:json;serializer:json" json:"signatures,omitempty"`
+
+	// 客户端事务 ID（用于 unsigned.transaction_id）
+	TxnID    *string `gorm:"type:varchar(255);index" json:"-"`
+	SenderDeviceID string `gorm:"type:varchar(255)" json:"-"`
 
 	// 关联
 	Room *MatrixRoom `gorm:"foreignKey:RoomID;references:RoomID" json:"-"`
@@ -90,7 +94,12 @@ func (e *MatrixEvent) IsStateEvent() bool {
 
 // ToClientEvent 转换为客户端事件格式
 func (e *MatrixEvent) ToClientEvent() *ClientEvent {
-	return &ClientEvent{
+	return e.ToClientEventForDevice("")
+}
+
+// ToClientEventForDevice 转换为客户端事件格式，并为指定设备包含 transaction_id
+func (e *MatrixEvent) ToClientEventForDevice(deviceID string) *ClientEvent {
+	ce := &ClientEvent{
 		EventID:        e.EventID,
 		RoomID:         e.RoomID,
 		Sender:         e.Sender,
@@ -100,12 +109,19 @@ func (e *MatrixEvent) ToClientEvent() *ClientEvent {
 		Content:        e.Content,
 		Redacts:        e.Redacts,
 	}
+	// Include transaction_id in unsigned only for the device that sent the event
+	if e.TxnID != nil && *e.TxnID != "" && deviceID != "" && e.SenderDeviceID == deviceID {
+		ce.Unsigned = map[string]interface{}{
+			"transaction_id": *e.TxnID,
+		}
+	}
+	return ce
 }
 
 // ClientEvent 客户端事件格式
 type ClientEvent struct {
-	EventID        string                 `json:"event_id"`
-	RoomID         string                 `json:"room_id"`
+	EventID        string                 `json:"event_id,omitempty"`
+	RoomID         string                 `json:"room_id,omitempty"`
 	Sender         string                 `json:"sender"`
 	OriginServerTS int64                  `json:"origin_server_ts"`
 	Type           string                 `json:"type"`
@@ -127,6 +143,7 @@ type MatrixRoom struct {
 	Topic             *string    `gorm:"type:varchar(512)" json:"topic"`
 	AvatarURL         *string    `gorm:"type:varchar(512)" json:"avatar_url"`
 	JoinRule          string     `gorm:"type:varchar(32);default:'invite'" json:"join_rule"`
+	Visibility        string     `gorm:"type:varchar(16);default:'private'" json:"visibility"`
 	HistoryVisibility string     `gorm:"type:varchar(32);default:'shared'" json:"history_visibility"`
 	GuestAccess       string     `gorm:"type:varchar(32);default:'forbidden'" json:"guest_access"`
 	IsDirect          bool       `gorm:"default:false" json:"is_direct"`
@@ -157,7 +174,7 @@ type MatrixRoomState struct {
 	RoomID    string                 `gorm:"index;type:varchar(255);not null" json:"room_id"`
 	EventType EventType              `gorm:"type:varchar(64);not null" json:"type"`
 	StateKey  string                 `gorm:"type:varchar(255);not null" json:"state_key"`
-	Content   map[string]interface{} `gorm:"type:json" json:"content"`
+	Content   map[string]interface{} `gorm:"type:text;serializer:json" json:"content"`
 	EventID   string                 `gorm:"type:varchar(255)" json:"event_id"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
@@ -180,6 +197,7 @@ type MatrixRoomMember struct {
 	AvatarURL   *string         `gorm:"type:varchar(512)" json:"avatar_url"`
 	IsDirect    *bool           `json:"is_direct,omitempty"`
 	EventID     string          `gorm:"type:varchar(255)" json:"event_id"`
+	Forgotten   bool            `gorm:"default:false" json:"forgotten"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
@@ -222,7 +240,7 @@ type MatrixToDeviceMessage struct {
 	TargetUser   string                 `gorm:"index;type:varchar(255);not null" json:"target_user"`
 	TargetDevice string                 `gorm:"type:varchar(255)" json:"target_device"`
 	EventType    string                 `gorm:"type:varchar(64);not null" json:"type"`
-	Content      map[string]interface{} `gorm:"type:json" json:"content"`
+	Content      map[string]interface{} `gorm:"type:text;serializer:json" json:"content"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
@@ -240,6 +258,7 @@ type MatrixReceipt struct {
 	EventID     string `gorm:"index;type:varchar(255);not null" json:"event_id"`
 	UserID      string `gorm:"index;type:varchar(255);not null" json:"user_id"`
 	ReceiptType string `gorm:"type:varchar(32);not null" json:"receipt_type"` // m.read, m.read.private
+	ThreadID    string `gorm:"type:varchar(255)" json:"thread_id,omitempty"` // thread_id for threaded receipts
 	TS          int64  `json:"ts"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
@@ -257,7 +276,7 @@ type MatrixAccountData struct {
 	UserID   string                 `gorm:"index;type:varchar(255);not null" json:"user_id"`
 	RoomID   *string                `gorm:"index;type:varchar(255)" json:"room_id"`
 	DataType string                 `gorm:"type:varchar(64);not null" json:"type"`
-	Content  map[string]interface{} `gorm:"type:json" json:"content"`
+	Content  map[string]interface{} `gorm:"type:text;serializer:json" json:"content"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
@@ -332,6 +351,24 @@ type MatrixCrossSigningKey struct {
 
 func (MatrixCrossSigningKey) TableName() string {
 	return "matrix_cross_signing_keys"
+}
+
+// ===== MatrixRoomTag 房间标签 =====
+
+// MatrixRoomTag 房间标签
+type MatrixRoomTag struct {
+	ID      uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID  string `gorm:"index;type:varchar(255);not null" json:"user_id"`
+	RoomID  string `gorm:"index;type:varchar(255);not null" json:"room_id"`
+	Tag     string `gorm:"type:varchar(128);not null" json:"tag"`
+	Content string `gorm:"type:text" json:"content"` // JSON
+
+	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (MatrixRoomTag) TableName() string {
+	return "matrix_room_tags"
 }
 
 // ===== MatrixFederationTxn 联邦事务 =====

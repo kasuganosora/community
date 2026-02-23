@@ -1,7 +1,12 @@
 package homeserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +50,29 @@ type SendMessageResponse struct {
 	EventID string `json:"event_id"`
 }
 
+// SendRoomEventFromDevice 发送房间事件（带设备 ID，用于记录 transaction_id）
+func (e *EventService) SendRoomEventFromDevice(roomID, sender, senderDeviceID, eventType string, txnID *string, content map[string]interface{}, stateKey *string) (*SendMessageResponse, *MatrixError) {
+	// Scope txnID to device for event ID generation (prevents cross-device collisions)
+	deviceScopedTxnID := txnID
+	if txnID != nil && senderDeviceID != "" {
+		scoped := senderDeviceID + ":" + *txnID
+		deviceScopedTxnID = &scoped
+	}
+	resp, err := e.SendRoomEvent(roomID, sender, eventType, deviceScopedTxnID, content, stateKey)
+	if err != nil {
+		return nil, err
+	}
+	// Store the original (non-scoped) txnID and device ID for unsigned.transaction_id
+	if senderDeviceID != "" && txnID != nil {
+		db.GetDB().Model(&MatrixEvent{}).Where("event_id = ?", resp.EventID).
+			Updates(map[string]interface{}{
+				"sender_device_id": senderDeviceID,
+				"txn_id":           *txnID,
+			})
+	}
+	return resp, nil
+}
+
 // SendRoomEvent 发送房间事件
 func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *string, content map[string]interface{}, stateKey *string) (*SendMessageResponse, *MatrixError) {
 	// 检查用户是否在房间中
@@ -55,7 +83,14 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 	
 	// 检查权限（对于状态事件）
 	if stateKey != nil {
-		if !e.canUserSendStateEvent(roomID, sender, EventType(eventType)) {
+		// Users are always allowed to update their own m.room.member state
+		// (e.g., to set per-room display name or avatar)
+		if EventType(eventType) == EventTypeRoomMember && *stateKey == sender {
+			// Ensure content has membership=join (users can only update their own join state)
+			if m, ok := content["membership"].(string); !ok || m != string(MembershipJoin) {
+				content["membership"] = string(MembershipJoin)
+			}
+		} else if !e.canUserSendStateEvent(roomID, sender, EventType(eventType)) {
 			return nil, ErrForbidden
 		}
 	} else {
@@ -65,25 +100,42 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 		}
 	}
 	
+	// State event idempotency: if the current state already has identical content,
+	// return the existing event_id (Matrix spec: setting state twice is idempotent)
+	if stateKey != nil {
+		sk := *stateKey
+		var currentState MatrixRoomState
+		if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+			roomID, eventType, sk).First(&currentState).Error; err == nil {
+			var existingEvent MatrixEvent
+			if err := db.GetDB().Where("event_id = ?", currentState.EventID).First(&existingEvent).Error; err == nil {
+				if contentEqual(existingEvent.Content, content) {
+					return &SendMessageResponse{EventID: existingEvent.EventID}, nil
+				}
+			}
+		}
+	}
+
 	// 获取前序事件
 	prevEvents := e.getPrevEvents(roomID)
-	
+
 	// 生成事件 ID
 	eventID := "$" + uuid.New().String()
 	if txnID != nil {
-		// 使用 txnID 生成确定性事件 ID
-		eventID = fmt.Sprintf("$%s:%s", *txnID, e.HS.Config.ServerName)
+		// 使用 (roomID + sender + txnID) 的哈希生成确定性、唯一事件 ID
+		h := sha256.Sum256([]byte(roomID + ":" + sender + ":" + *txnID))
+		eventID = "$" + hex.EncodeToString(h[:])
 	}
-	
+
 	// 检查是否已存在（幂等性）
 	var existing MatrixEvent
 	if err := db.GetDB().Where("event_id = ?", eventID).First(&existing).Error; err == nil {
 		return &SendMessageResponse{EventID: eventID}, nil
 	}
-	
+
 	// 获取深度
 	depth := e.HS.Room.getNextDepth(db.GetDB(), roomID)
-	
+
 	// 创建事件
 	event := &MatrixEvent{
 		EventID:        eventID,
@@ -93,11 +145,16 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 		StateKey:       stateKey,
 		Content:        content,
 		PrevEvents:     prevEvents,
+		AuthEvents:     e.computeAuthEvents(roomID, EventType(eventType), sender),
 		Depth:          depth,
 		OriginServerTS: time.Now().UnixMilli(),
 		SenderDomain:   e.HS.Config.ServerName,
+		TxnID:          txnID,
 	}
-	
+
+	// 签名事件
+	e.signLocalEvent(event)
+
 	// 开始事务
 	tx := db.GetDB().Begin()
 	if err := tx.Create(event).Error; err != nil {
@@ -123,17 +180,27 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 	case EventTypeRoomRedaction:
 		e.handleRedactionEvent(tx, event)
 	}
+
+	// Handle tombstone: migrate push rules to replacement room (synchronous to avoid race)
+	if eventType == "m.room.tombstone" && stateKey != nil {
+		if replacementRoom, ok := content["replacement_room"].(string); ok && replacementRoom != "" {
+			if e.HS.RoomUpgrade != nil {
+				e.HS.RoomUpgrade.migratePushRules(roomID, replacementRoom)
+			}
+		}
+	}
 	
 	if err := tx.Commit().Error; err != nil {
 		return nil, ErrInternal
 	}
 	
-	// 存储事件关系（异步）
-	go func() {
-		if e.HS.Relations != nil {
-			e.HS.Relations.StoreRelation(event)
-		}
-	}()
+	// 存储事件关系
+	if e.HS.Relations != nil {
+		e.HS.Relations.StoreRelation(event)
+	}
+
+	// 通知同步等待者（唤醒 long-polling 的 /sync 请求）
+	go e.HS.NotifyRoomEvent(roomID)
 
 	// 触发推送通知（异步）
 	go func() {
@@ -143,8 +210,74 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 			e.HS.Push.NotifyEvent(event, &room)
 		}
 	}()
-	
+
+	// 联邦事件传播：将事件发送给房间内其他服务器（异步）
+	go e.federateEvent(event)
+
 	return &SendMessageResponse{EventID: eventID}, nil
+}
+
+// federateEvent 将本地事件联邦传播到房间内的远程服务器
+func (e *EventService) federateEvent(event *MatrixEvent) {
+	// 查找所有在房间内已 join 的远程用户，按服务器域名分组
+	var members []MatrixRoomMember
+	db.GetDB().Where("room_id = ? AND membership = ?", event.RoomID, MembershipJoin).Find(&members)
+
+	remoteServers := make(map[string]bool)
+	for _, m := range members {
+		_, domain, ok := ParseMatrixUserID(m.UserID)
+		if !ok || domain == e.HS.Config.ServerName {
+			continue
+		}
+		remoteServers[domain] = true
+	}
+
+	if len(remoteServers) == 0 {
+		return
+	}
+
+	// 构建 PDU（事件的 JSON 表示）
+	pduData, err := buildEventPDU(event)
+	if err != nil {
+		return
+	}
+	pdus := []json.RawMessage{pduData}
+
+	fedClient := NewFederationClient(e.HS)
+	txnID := fmt.Sprintf("%s-%d", event.EventID, time.Now().UnixMilli())
+
+	for serverName := range remoteServers {
+		server := serverName // capture loop variable
+		go func() {
+			if err := fedClient.SendTransaction(server, txnID, pdus, nil); err != nil {
+				// log failure but don't block
+				_ = err
+			}
+		}()
+	}
+}
+
+// buildEventPDU 将事件转换为联邦 PDU JSON
+func buildEventPDU(event *MatrixEvent) (json.RawMessage, error) {
+	m := map[string]interface{}{
+		"event_id":         event.EventID,
+		"room_id":          event.RoomID,
+		"type":             string(event.EventType),
+		"sender":           event.Sender,
+		"content":          event.Content,
+		"origin_server_ts": event.OriginServerTS,
+		"origin":           event.SenderDomain,
+		"depth":            event.Depth,
+		"auth_events":      event.AuthEvents,
+		"prev_events":      event.PrevEvents,
+	}
+	if event.StateKey != nil {
+		m["state_key"] = *event.StateKey
+	}
+	if len(event.Signatures) > 0 {
+		m["signatures"] = event.Signatures
+	}
+	return json.Marshal(m)
 }
 
 // ===== 发送消息 =====
@@ -187,6 +320,79 @@ func (e *EventService) SendRoomMessage(roomID, sender, txnID *string, content *S
 	return e.SendRoomEvent(rID, sID, string(EventTypeRoomMessage), txnID, contentMap, nil)
 }
 
+// computeAuthEvents 计算事件的 auth_events（按 Matrix 规范）
+func (e *EventService) computeAuthEvents(roomID string, eventType EventType, sender string) []string {
+	authEvents := []string{}
+
+	// 始终包含 m.room.create
+	var createState MatrixRoomState
+	if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+		roomID, EventTypeRoomCreate, "").First(&createState).Error; err == nil {
+		authEvents = append(authEvents, createState.EventID)
+	}
+
+	// 始终包含 m.room.power_levels（如果存在）
+	var plState MatrixRoomState
+	if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+		roomID, EventTypeRoomPowerLevels, "").First(&plState).Error; err == nil {
+		authEvents = append(authEvents, plState.EventID)
+	}
+
+	// 包含发送者的 m.room.member（如果存在）
+	var memberState MatrixRoomState
+	if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+		roomID, EventTypeRoomMember, sender).First(&memberState).Error; err == nil {
+		authEvents = append(authEvents, memberState.EventID)
+	}
+
+	// 对于 m.room.member 事件，还包含 m.room.join_rules
+	if eventType == EventTypeRoomMember {
+		var jrState MatrixRoomState
+		if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+			roomID, EventTypeRoomJoinRules, "").First(&jrState).Error; err == nil {
+			authEvents = append(authEvents, jrState.EventID)
+		}
+	}
+
+	return authEvents
+}
+
+// signLocalEvent 为本地创建的事件添加签名
+func (e *EventService) signLocalEvent(event *MatrixEvent) {
+	fed := NewFederationService(e.HS)
+
+	eventMap := map[string]interface{}{
+		"event_id":         event.EventID,
+		"room_id":          event.RoomID,
+		"type":             string(event.EventType),
+		"sender":           event.Sender,
+		"content":          event.Content,
+		"origin_server_ts": event.OriginServerTS,
+		"depth":            event.Depth,
+		"prev_events":      event.PrevEvents,
+		"auth_events":      event.AuthEvents,
+	}
+	if event.StateKey != nil {
+		eventMap["state_key"] = *event.StateKey
+	}
+
+	eventMap = fed.signEvent(eventMap)
+
+	if sigs, ok := eventMap["signatures"].(map[string]interface{}); ok {
+		event.Signatures = make(map[string]map[string]string)
+		for server, keySigs := range sigs {
+			if keyMap, ok := keySigs.(map[string]interface{}); ok {
+				event.Signatures[server] = make(map[string]string)
+				for keyID, sig := range keyMap {
+					if sigStr, ok := sig.(string); ok {
+						event.Signatures[server][keyID] = sigStr
+					}
+				}
+			}
+		}
+	}
+}
+
 // ===== 获取事件 =====
 
 // GetEvent 获取单个事件
@@ -207,8 +413,19 @@ func (e *EventService) GetRoomEvent(roomID, eventID string) (*ClientEvent, *Matr
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	
+
 	return event.ToClientEvent(), nil
+}
+
+// GetRoomEventForDevice returns a client event with unsigned.transaction_id for the requesting device
+func (e *EventService) GetRoomEventForDevice(roomID, eventID, deviceID string) (*ClientEvent, *MatrixError) {
+	var event MatrixEvent
+	err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, eventID).First(&event).Error
+	if err != nil {
+		return nil, ErrNotFound
+	}
+
+	return event.ToClientEventForDevice(deviceID), nil
 }
 
 // GetRoomMessagesRequest 获取房间消息请求
@@ -224,64 +441,201 @@ type GetRoomMessagesRequest struct {
 type RoomMessagesResponse struct {
 	Chunk  []*ClientEvent `json:"chunk"`
 	Start  string         `json:"start"`
-	End    string         `json:"end"`
+	End    string         `json:"end,omitempty"`
+	State  []*ClientEvent `json:"state,omitempty"`
 }
 
 // GetRoomMessages 获取房间消息
 func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessagesRequest) (*RoomMessagesResponse, *MatrixError) {
-	// 检查用户权限
-	membership, _ := e.HS.Room.GetUserMembership(roomID, userID)
-	if membership != MembershipJoin {
+	// 检查用户权限：已加入或曾经加入的用户都可以查看消息（history visibility 决定具体可见范围）
+	// 已遗忘的房间不允许访问
+	var member MatrixRoomMember
+	if err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error; err != nil {
+		return nil, ErrForbidden
+	}
+	if member.Forgotten {
 		return nil, ErrForbidden
 	}
 	
 	limit := req.Limit
-	if limit <= 0 || limit > 100 {
+	if limit <= 0 {
 		limit = 10
+	} else if limit > 1000 {
+		limit = 1000
 	}
 	
 	query := db.GetDB().Model(&MatrixEvent{}).Where("room_id = ?", roomID)
-	
-	// 方向
-	if req.Dir == "b" {
-		query = query.Order("origin_server_ts DESC")
-	} else {
-		query = query.Order("origin_server_ts ASC")
-	}
-	
-	// 分页
-	if req.From != "" {
-		// 解析 from token
-		fromTS := e.parsePaginationToken(req.From)
-		if fromTS > 0 {
-			if req.Dir == "b" {
-				query = query.Where("origin_server_ts < ?", fromTS)
-			} else {
-				query = query.Where("origin_server_ts > ?", fromTS)
+
+	// For departed users, limit visible events to those at or before their leave
+	if member.Membership == MembershipLeave || member.Membership == MembershipBan {
+		if member.EventID != "" {
+			var leaveEvent MatrixEvent
+			if db.GetDB().Where("event_id = ?", member.EventID).First(&leaveEvent).Error == nil {
+				query = query.Where("origin_server_ts <= ?", leaveEvent.OriginServerTS)
 			}
 		}
 	}
-	
+
+	// 方向 — use (origin_server_ts, event_id) composite ordering for stable pagination
+	if req.Dir == "b" {
+		query = query.Order("origin_server_ts DESC, event_id DESC")
+	} else {
+		query = query.Order("origin_server_ts ASC, event_id ASC")
+	}
+
+	// 分页 — use composite cursor (timestamp + event_id) to avoid infinite loops
+	if req.From != "" {
+		cursor := e.parsePaginationCursor(req.From)
+		if cursor.TS > 0 {
+			if req.Dir == "b" {
+				if cursor.EventID != "" {
+					// Composite cursor: events before this (ts, event_id) pair
+					query = query.Where("(origin_server_ts < ? OR (origin_server_ts = ? AND event_id < ?))",
+						cursor.TS, cursor.TS, cursor.EventID)
+				} else {
+					query = query.Where("origin_server_ts < ?", cursor.TS)
+				}
+			} else {
+				if cursor.EventID != "" {
+					query = query.Where("(origin_server_ts > ? OR (origin_server_ts = ? AND event_id > ?))",
+						cursor.TS, cursor.TS, cursor.EventID)
+				} else {
+					query = query.Where("origin_server_ts >= ?", cursor.TS)
+				}
+			}
+		}
+	}
+
+	// Apply filter parameters (e.g., contains_url)
+	if req.Filter != "" {
+		var filter map[string]interface{}
+		if json.Unmarshal([]byte(req.Filter), &filter) == nil {
+			if cu, ok := filter["contains_url"].(bool); ok {
+				if cu {
+					// Only return events whose content contains a "url" field
+					query = query.Where("content LIKE ?", "%\"url\"%")
+				} else {
+					// Only return events whose content does NOT contain a "url" field
+					query = query.Where("content NOT LIKE ?", "%\"url\"%")
+				}
+			}
+		}
+	}
+
 	var events []MatrixEvent
 	query.Limit(limit).Find(&events)
-	
+
+	// On-demand backfill: if we got fewer events than requested while paginating backwards,
+	// try to fetch more from a remote server (skip when filter is active to avoid returning unfiltered results)
+	if len(events) < limit && req.Dir == "b" && req.Filter == "" {
+		e.tryBackfillFromRemote(roomID, events)
+		// Re-query after backfill to include newly fetched events
+		var backfilledEvents []MatrixEvent
+		requery := db.GetDB().Model(&MatrixEvent{}).Where("room_id = ?", roomID)
+		if member.Membership == MembershipLeave || member.Membership == MembershipBan {
+			if member.EventID != "" {
+				var leaveEvent MatrixEvent
+				if db.GetDB().Where("event_id = ?", member.EventID).First(&leaveEvent).Error == nil {
+					requery = requery.Where("origin_server_ts <= ?", leaveEvent.OriginServerTS)
+				}
+			}
+		}
+		requery = requery.Order("origin_server_ts DESC, event_id DESC")
+		if req.From != "" {
+			cursor := e.parsePaginationCursor(req.From)
+			if cursor.TS > 0 {
+				if cursor.EventID != "" {
+					requery = requery.Where("(origin_server_ts < ? OR (origin_server_ts = ? AND event_id < ?))",
+						cursor.TS, cursor.TS, cursor.EventID)
+				} else {
+					requery = requery.Where("origin_server_ts < ?", cursor.TS)
+				}
+			}
+		}
+		requery.Limit(limit).Find(&backfilledEvents)
+		if len(backfilledEvents) > len(events) {
+			events = backfilledEvents
+		}
+	}
+
 	chunk := make([]*ClientEvent, len(events))
 	for i, event := range events {
 		chunk[i] = event.ToClientEvent()
 	}
-	
+
 	// 生成分页 token
 	start := req.From
 	var end string
 	if len(events) > 0 {
-		end = e.generatePaginationToken(events[len(events)-1].OriginServerTS)
+		lastEvt := events[len(events)-1]
+		end = e.generatePaginationTokenForEvent(lastEvt.OriginServerTS, lastEvt.EventID)
 	}
-	
-	return &RoomMessagesResponse{
+
+	resp := &RoomMessagesResponse{
 		Chunk: chunk,
 		Start: start,
 		End:   end,
-	}, nil
+	}
+
+	// Handle lazy_load_members filter: include m.room.member state for senders
+	if req.Filter != "" {
+		var filter map[string]interface{}
+		if json.Unmarshal([]byte(req.Filter), &filter) == nil {
+			if llm, ok := filter["lazy_load_members"].(bool); ok && llm {
+				senderSet := make(map[string]bool)
+				for _, event := range events {
+					senderSet[event.Sender] = true
+				}
+				var stateEvents []*ClientEvent
+				for sender := range senderSet {
+					var memberEvent MatrixEvent
+					if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+						roomID, "m.room.member", sender).
+						Order("origin_server_ts DESC").First(&memberEvent).Error == nil {
+						stateEvents = append(stateEvents, memberEvent.ToClientEvent())
+					}
+				}
+				resp.State = stateEvents
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+// tryBackfillFromRemote attempts to backfill events from a remote server when local history is exhausted.
+func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []MatrixEvent) {
+	// Find a remote server in the room
+	var members []MatrixRoomMember
+	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
+	var remoteServer string
+	for _, m := range members {
+		_, domain, ok := ParseMatrixUserID(m.UserID)
+		if ok && domain != e.HS.Config.ServerName {
+			remoteServer = domain
+			break
+		}
+	}
+	if remoteServer == "" {
+		return
+	}
+
+	// Use the earliest local event as the backfill starting point
+	var startEventID string
+	if len(localEvents) > 0 {
+		startEventID = localEvents[len(localEvents)-1].EventID
+	} else {
+		var earliest MatrixEvent
+		if db.GetDB().Where("room_id = ?", roomID).Order("origin_server_ts ASC").First(&earliest).Error == nil {
+			startEventID = earliest.EventID
+		}
+	}
+	if startEventID == "" {
+		return
+	}
+
+	fedClient := NewFederationClient(e.HS)
+	e.HS.Room.backfillFromRemote(fedClient, remoteServer, roomID)
 }
 
 // GetRoomContext 获取事件上下文
@@ -316,7 +670,23 @@ func (e *EventService) GetRoomContext(roomID, eventID, userID string, limit int)
 	// 获取房间状态
 	state, _ := e.HS.Room.GetRoomStateAll(roomID)
 	
+	// Build pagination tokens
+	startToken := ""
+	if len(eventsBefore) > 0 {
+		startToken = fmt.Sprintf("t%d", eventsBefore[len(eventsBefore)-1].OriginServerTS)
+	} else {
+		startToken = fmt.Sprintf("t%d", targetEvent.OriginServerTS)
+	}
+	endToken := ""
+	if len(eventsAfter) > 0 {
+		endToken = fmt.Sprintf("t%d", eventsAfter[len(eventsAfter)-1].OriginServerTS)
+	} else {
+		endToken = fmt.Sprintf("t%d", targetEvent.OriginServerTS)
+	}
+
 	return &EventContextResponse{
+		Start:          startToken,
+		End:            endToken,
 		Event:          targetEvent.ToClientEvent(),
 		EventsBefore:   e.eventsToClientEvents(eventsBefore),
 		EventsAfter:    e.eventsToClientEvents(eventsAfter),
@@ -326,6 +696,8 @@ func (e *EventService) GetRoomContext(roomID, eventID, userID string, limit int)
 
 // EventContextResponse 事件上下文响应
 type EventContextResponse struct {
+	Start        string         `json:"start"`
+	End          string         `json:"end"`
 	Event        *ClientEvent   `json:"event"`
 	EventsBefore []*ClientEvent `json:"events_before"`
 	EventsAfter  []*ClientEvent `json:"events_after"`
@@ -340,20 +712,14 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 	if !e.canUserRedact(roomID, userID) {
 		return nil, ErrForbidden
 	}
-	
-	// 获取原事件
-	var targetEvent MatrixEvent
-	err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, eventID).First(&targetEvent).Error
-	if err != nil {
-		return nil, ErrNotFound
-	}
-	
-	// 创建删除事件
+
+	// 创建删除事件 (Matrix spec: redaction should succeed even if target event is unknown,
+	// because in federation the redaction may arrive before the target event)
 	redactEventID := "$" + uuid.New().String()
 	if txnID != nil {
 		redactEventID = fmt.Sprintf("$%s_redact:%s", *txnID, e.HS.Config.ServerName)
 	}
-	
+
 	redactEvent := &MatrixEvent{
 		EventID:        redactEventID,
 		RoomID:         roomID,
@@ -366,17 +732,27 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 		Depth:          e.HS.Room.getNextDepth(db.GetDB(), roomID),
 		OriginServerTS: time.Now().UnixMilli(),
 	}
-	
+
 	if err := db.GetDB().Create(redactEvent).Error; err != nil {
 		return nil, ErrInternal
 	}
-	
-	// 标记原事件为已删除（保留结构）
-	db.GetDB().Model(&targetEvent).Update("content", map[string]interface{}{
-		"__redacted_because__": redactEvent.ToClientEvent(),
-	})
-	
+
+	// 标记原事件为已删除 — Matrix spec: redacted events have empty content {}
+	// Silently ignore if target event doesn't exist (federation may deliver redaction first)
+	db.GetDB().Exec("UPDATE matrix_events SET content = '{}' WHERE event_id = ? AND room_id = ?", eventID, roomID)
+
 	return &SendMessageResponse{EventID: redactEventID}, nil
+}
+
+// contentEqual compares two map[string]interface{} values for deep equality
+// by marshaling to JSON (canonical comparison).
+func contentEqual(a, b map[string]interface{}) bool {
+	aj, err1 := json.Marshal(a)
+	bj, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return string(aj) == string(bj)
 }
 
 // ===== 权限检查 =====
@@ -462,16 +838,55 @@ func (e *EventService) handleRedactionEvent(tx *gorm.DB, event *MatrixEvent) {
 	// 已在 RedactEvent 中处理
 }
 
-// parsePaginationToken 解析分页 token
+// parsePaginationToken 解析分页 token — handles both "t{ts}" and "s{ts}" formats
+// paginationCursor holds both timestamp and event_id for precise cursor-based pagination.
+// This avoids infinite loops when multiple events share the same timestamp.
+type paginationCursor struct {
+	TS      int64
+	EventID string
+}
+
 func (e *EventService) parsePaginationToken(token string) int64 {
+	c := e.parsePaginationCursor(token)
+	return c.TS
+}
+
+func (e *EventService) parsePaginationCursor(token string) paginationCursor {
 	var ts int64
-	fmt.Sscanf(token, "t%d", &ts)
-	return ts
+	// Try composite format: t{ts}_{eventID} or s{ts}_{eventID}
+	for _, prefix := range []string{"t", "s"} {
+		if !strings.HasPrefix(token, prefix) {
+			continue
+		}
+		rest := token[1:]
+		if idx := strings.Index(rest, "_$"); idx > 0 {
+			// Composite: ts part before _$, eventID is $...
+			if parsed, err := strconv.ParseInt(rest[:idx], 10, 64); err == nil {
+				return paginationCursor{TS: parsed, EventID: rest[idx+1:]}
+			}
+		}
+		// Simple format: just timestamp (may have _index suffix from sync tokens)
+		tsStr := rest
+		if idx := strings.Index(tsStr, "_"); idx > 0 {
+			tsStr = tsStr[:idx]
+		}
+		if parsed, err := strconv.ParseInt(tsStr, 10, 64); err == nil {
+			return paginationCursor{TS: parsed}
+		}
+	}
+	if n, _ := fmt.Sscanf(token, "t%d", &ts); n == 1 {
+		return paginationCursor{TS: ts}
+	}
+	return paginationCursor{}
 }
 
 // generatePaginationToken 生成分页 token
 func (e *EventService) generatePaginationToken(ts int64) string {
 	return fmt.Sprintf("t%d", ts)
+}
+
+func (e *EventService) generatePaginationTokenForEvent(ts int64, eventID string) string {
+	return fmt.Sprintf("t%d_%s", ts, eventID)
 }
 
 // eventsToClientEvents 转换事件列表

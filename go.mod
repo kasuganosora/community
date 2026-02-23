@@ -3,15 +3,21 @@ module github.com/kasuganosora/community
 go 1.26.0
 
 require (
+	github.com/awnumar/memguard v0.23.0
+	github.com/aws/aws-sdk-go-v2 v1.41.1
+	github.com/aws/aws-sdk-go-v2/config v1.32.9
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.9
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
 	github.com/bbrks/go-blurhash v1.2.0
 	github.com/gin-gonic/gin v1.11.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/h2non/filetype v1.1.3
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
-	github.com/kasuganosora/sqlexec v0.3.0
+	github.com/kasuganosora/sqlexec v0.5.2
 	github.com/meilisearch/meilisearch-go v0.36.1
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/monoculum/formam/v3 v3.6.0
@@ -22,25 +28,23 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	github.com/u2takey/ffmpeg-go v0.5.0
+	github.com/urfave/cli/v2 v2.27.7
 	golang.org/x/crypto v0.48.0
 	golang.org/x/image v0.36.0
+	golang.org/x/net v0.50.0
 	golang.org/x/text v0.34.0
 	gopkg.in/vansante/go-ffprobe.v2 v2.3.0
 	gorm.io/driver/mysql v1.6.0
+	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
-	modernc.org/sqlite v1.45.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/awnumar/memcall v0.4.0 // indirect
-	github.com/awnumar/memguard v0.23.0 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.41.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.9 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.9 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.17 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.17 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.17 // indirect
@@ -50,7 +54,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.14 // indirect
@@ -69,6 +72,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
@@ -78,7 +82,6 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/google/btree v1.1.3 // indirect
 	github.com/jaytaylor/html2text v0.0.0-20230321000545-74c2419ad056 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -90,6 +93,7 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.20 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -102,7 +106,6 @@ require (
 	github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86 // indirect
 	github.com/pingcap/log v1.1.1-0.20241212030209-7e3ff8601a2a // indirect
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260117064255-9c0773b008bd // indirect
-	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
@@ -114,7 +117,6 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/u2takey/go-utils v0.3.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
-	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yanyiwu/gojieba v1.4.6 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
@@ -124,7 +126,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
@@ -133,6 +134,5 @@ require (
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.45.0 // indirect
 )
-
-replace github.com/kasuganosora/sqlexec => D:/code/db

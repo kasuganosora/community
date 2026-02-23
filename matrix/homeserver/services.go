@@ -220,9 +220,18 @@ func handleDeleteRoomAlias(c *gin.Context) {
 	hs := GetHomeServer()
 	aliasService := NewAliasService(hs)
 	
+	// 标准化别名格式
+	normalizedAlias := roomAlias
+	if !strings.HasPrefix(normalizedAlias, "#") {
+		normalizedAlias = "#" + normalizedAlias
+	}
+	if !strings.Contains(normalizedAlias, ":") {
+		normalizedAlias = normalizedAlias + ":" + hs.Config.ServerName
+	}
+
 	// 检查别名是否存在及其创建者
 	var alias MatrixRoomAlias
-	err := db.GetDB().Where("room_alias = ?", "#"+roomAlias+":"+hs.Config.ServerName).First(&alias).Error
+	err := db.GetDB().Where("room_alias = ?", normalizedAlias).First(&alias).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
@@ -231,12 +240,17 @@ func handleDeleteRoomAlias(c *gin.Context) {
 		return
 	}
 	
-	// 只有创建者或房间管理员可以删除
+	// 只有创建者或拥有足够权限的用户可以删除
 	if alias.Creator != userID {
-		// 检查是否是房间管理员
-		var member MatrixRoomMember
-		err = db.GetDB().Where("room_id = ? AND user_id = ?", alias.RoomID, userID).First(&member).Error
-		if err != nil || member.PowerLevel < 50 { // 50 通常是管理员级别
+		// Check user power level via room's power_levels event
+		pl, _ := hs.Room.getRoomPowerLevels(alias.RoomID)
+		userPL := hs.Room.getUserPowerLevel(pl, userID)
+		// Alias management requires m.room.aliases event power level (defaults to state_default=50)
+		requiredPL := pl.StateDefault
+		if required, ok := pl.Events["m.room.aliases"]; ok {
+			requiredPL = required
+		}
+		if userPL < requiredPL {
 			c.JSON(http.StatusForbidden, gin.H{
 				"errcode": "M_FORBIDDEN",
 				"error":   "Not authorized to delete this alias",
@@ -245,28 +259,65 @@ func handleDeleteRoomAlias(c *gin.Context) {
 		}
 	}
 	
-	if err := aliasService.DeleteAlias(roomAlias); err != nil {
+	if err := aliasService.DeleteAlias(normalizedAlias); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL",
 			"error":   "Failed to delete alias",
 		})
 		return
 	}
-	
+
+	// If this was the canonical alias, clear it from the state event
+	var canonicalState MatrixRoomState
+	if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+		alias.RoomID, string(EventTypeRoomCanonicalAlias), "").First(&canonicalState).Error; err == nil {
+		currentAlias, _ := canonicalState.Content["alias"].(string)
+		if currentAlias == normalizedAlias {
+			// Send a new canonical_alias event with alias omitted (cleared)
+			// Matrix spec: omit alias field rather than setting empty string
+			newContent := map[string]interface{}{}
+			if altAliases, ok := canonicalState.Content["alt_aliases"].([]interface{}); ok {
+				// Filter out the deleted alias from alt_aliases
+				var filtered []interface{}
+				for _, a := range altAliases {
+					if s, ok := a.(string); ok && s != normalizedAlias {
+						filtered = append(filtered, s)
+					}
+				}
+				if len(filtered) > 0 {
+					newContent["alt_aliases"] = filtered
+				}
+			}
+			stateKey := ""
+			hs.Event.SendRoomEvent(alias.RoomID, userID, string(EventTypeRoomCanonicalAlias), nil, newContent, &stateKey)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 // handleGetAliases 获取房间所有别名
 func handleGetAliases(c *gin.Context) {
 	roomID := c.Param("roomId")
+	userID := getUserID(c)
 	hs := GetHomeServer()
-	
+
+	// 只有房间成员可以列出别名
+	var member MatrixRoomMember
+	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership IN ?", roomID, userID, []string{"join", "invite"}).First(&member).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"errcode": "M_FORBIDDEN",
+			"error":   "Not a member of this room",
+		})
+		return
+	}
+
 	aliasService := NewAliasService(hs)
 	aliases, err := aliasService.GetAliasesForRoom(roomID)
 	if err != nil {
 		aliases = []string{}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"aliases": aliases,
 	})
@@ -313,9 +364,9 @@ func generateEventID() string {
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
-	_, err := rand.Read(b)
-	if err != nil {
-		panic(err)
+	if _, err := rand.Read(b); err != nil {
+		// 回退到基于时间的ID
+		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	for i := range b {
 		b[i] = charset[int(b[i])%len(charset)]

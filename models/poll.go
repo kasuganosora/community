@@ -15,7 +15,7 @@ type Poll struct {
 	Multiple   bool           `gorm:"not null;default:false" json:"multiple"`
 	Options    PollOptions    `json:"options"`
 	Properties map[string]any `gorm:"type:json;serializer:json" json:"properties"`
-	CratedAt   *time.Time     `gorm:"not null;autoCreateTime" json:"created_at"`
+	CreatedAt  *time.Time     `gorm:"not null;autoCreateTime" json:"created_at"`
 	UpdatedAt  *time.Time     `gorm:"not null;autoUpdateTime" json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }
@@ -80,7 +80,7 @@ type PollOptionVote struct {
 	PollId    uint64     `gorm:"not null;index" json:"poll_id"`
 	AccountId uint64     `gorm:"not null;index" json:"account_id"`
 	OptionId  uint64     `gorm:"not null;index" json:"option_id"`
-	CratedAt  *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
 }
 
 func (pov *PollOptionVote) TableName() string {

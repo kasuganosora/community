@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
@@ -83,7 +84,7 @@ type RevokeRequest struct {
 // OAuthApplication extends Application with OAuth-specific fields
 type OAuthApplication struct {
 	models.Application
-	ClientId     string `gorm:"type:varchar(64);unique_index;not null"`
+	ClientId     string `gorm:"type:varchar(64);uniqueIndex;not null"`
 	ClientSecret string `gorm:"type:varchar(128);not null"`
 }
 
@@ -94,7 +95,7 @@ func (OAuthApplication) TableName() string {
 // OAuthAuthorizationCode stores temporary authorization codes
 type OAuthAuthorizationCode struct {
 	Id           uint64     `gorm:"primary_key;autoIncrement"`
-	Code         string     `gorm:"type:varchar(128);unique_index;not null"`
+	Code         string     `gorm:"type:varchar(128);uniqueIndex;not null"`
 	ApplicationId uint64    `gorm:"not null;index"`
 	AccountId    uint64     `gorm:"not null;index"`
 	RedirectUri  string     `gorm:"type:varchar(255);not null"`
@@ -261,7 +262,9 @@ func Authorize(c *gin.Context) {
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId),
 	}
-	db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth)
+	if err := db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "create user auth error"))
+	}
 
 	// Generate authorization code
 	code := generateAuthorizationCode(app.Id, account.Id, req.RedirectUri, req.Scope)
@@ -376,7 +379,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 		0,
 		config.C.EncryptedKey,
 	)
-	db.GetDB().Create(refreshToken)
+	if err := db.GetDB().Create(refreshToken).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "create refresh token error"))
+	}
 
 	c.JSON(200, TokenResponse{
 		AccessToken:  tokenStr,
@@ -445,7 +450,9 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 		0,
 		config.C.EncryptedKey,
 	)
-	db.GetDB().Create(refreshToken)
+	if err := db.GetDB().Create(refreshToken).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "create refresh token error"))
+	}
 
 	c.JSON(200, TokenResponse{
 		AccessToken:  tokenStr,
@@ -501,7 +508,9 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	// Revoke the old token
 	now := time.Now()
 	oldToken.Revoke = &now
-	db.GetDB().Save(oldToken)
+	if err := db.GetDB().Save(oldToken).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "save revoked token error"))
+	}
 
 	// Parse scopes from request or use default
 	scopes := parseScopes(req.Scope)
@@ -542,7 +551,9 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	)
 
 	// Save refresh token
-	db.GetDB().Create(refreshToken)
+	if err := db.GetDB().Create(refreshToken).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "create refresh token error"))
+	}
 
 	// Build scope string
 	scopeStr := req.Scope
@@ -619,7 +630,9 @@ func Revoke(c *gin.Context) {
 	// Set revoke time
 	now := time.Now()
 	token.Revoke = &now
-	db.GetDB().Save(token)
+	if err := db.GetDB().Save(token).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "save revoked token error"))
+	}
 
 	c.JSON(200, gin.H{})
 }
@@ -701,7 +714,10 @@ func generateAuthorizationCode(appId, accountId uint64, redirectUri, scopes stri
 		Used:          false,
 	}
 
-	db.GetDB().Create(authCode)
+	if err := db.GetDB().Create(authCode).Error; err != nil {
+		log.Error("Failed to create auth code: %v", err)
+		return ""
+	}
 	return code
 }
 

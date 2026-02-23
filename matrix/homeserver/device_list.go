@@ -190,48 +190,21 @@ func (dls *DeviceListService) federateDeviceListUpdate(userID, deviceID string, 
 
 // sendDeviceListUpdateToServer 发送设备列表更新到远程服务器
 func (dls *DeviceListService) sendDeviceListUpdateToServer(server string, edu *DeviceListUpdateEDU) {
-	// 获取或创建联邦客户端
-	_ = NewFederationClient(dls.hs)
+	fedClient := NewFederationClient(dls.hs)
 
-	// 发送请求
-	url := fmt.Sprintf("https://%s/_matrix/federation/v1/send/%d", server, time.Now().Unix())
-	
-	req, err := http.NewRequest("PUT", url, nil)
+	txnID := fmt.Sprintf("dl-%d", time.Now().UnixNano())
+
+	eduBytes, err := json.Marshal(map[string]interface{}{
+		"edu_type": "m.device_list_update",
+		"content":  edu,
+	})
 	if err != nil {
-		log.Error("Failed to create request: %v", err)
+		log.Error("Failed to marshal device list EDU: %v", err)
 		return
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-
-	// 构建 PDU 列表
-	pdus := []map[string]interface{}{}
-	edus := []map[string]interface{}{
-		{
-			"edu_type": "m.device_list_update",
-			"content":  edu,
-		},
-	}
-
-	payload := map[string]interface{}{
-		"pdus": pdus,
-		"edus": edus,
-	}
-
-	payloadData, _ := json.Marshal(payload)
-	req.Body = http.NoBody
-	req.ContentLength = int64(len(payloadData))
-
-	// 这里简化处理，实际需要签名和完整的事务处理
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	if err := fedClient.SendTransaction(server, txnID, nil, []json.RawMessage{eduBytes}); err != nil {
 		log.Error("Failed to send device list update to %s: %v", server, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Error("Server %s returned status %d for device list update", server, resp.StatusCode)
 		return
 	}
 
@@ -323,6 +296,28 @@ func (dls *DeviceListService) HandleIncomingDeviceListUpdate(origin string, edu 
 			dls.removeRemoteDevice(edu.UserID, deviceID)
 		}
 	}
+
+	// Record the change so getDeviceListUpdates can surface it in sync
+	changeType := "changed"
+	if len(edu.Removed) > 0 && len(edu.Changed) == 0 {
+		changeType = "removed"
+	}
+	deviceID := edu.DeviceID
+	if deviceID == "" && len(edu.Changed) > 0 {
+		deviceID = edu.Changed[0]
+	}
+	if deviceID == "" && len(edu.Removed) > 0 {
+		deviceID = edu.Removed[0]
+	}
+	change := &DeviceListChange{
+		UserID:     edu.UserID,
+		DeviceID:   deviceID,
+		StreamID:   edu.StreamID,
+		ChangeType: changeType,
+		ChangedAt:  time.Now().UnixMilli(),
+		SyncedTo:   "[]",
+	}
+	db.GetDB().Create(change)
 
 	log.Info("Processed device list update for %s from %s", edu.UserID, origin)
 	return nil
@@ -433,10 +428,21 @@ func handleFederationGetUserDevices(c *gin.Context) {
 		return
 	}
 
-	// 转换为标准响应格式
-	c.JSON(http.StatusOK, UserDevicesResponse{
-		UserID:  resp.UserID,
-		Devices: []DeviceKeyInfo{},
+	// Convert to federation response format
+	devices := make([]DeviceKeyInfo, 0, len(resp.Devices))
+	for _, d := range resp.Devices {
+		devices = append(devices, DeviceKeyInfo{
+			DeviceID:    d.DeviceID,
+			Keys:        d.Keys,
+			Algorithms:  d.Algorithms,
+			DisplayName: d.DisplayName,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":   resp.UserID,
+		"stream_id": resp.StreamID,
+		"devices":   devices,
 	})
 }
 

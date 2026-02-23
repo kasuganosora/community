@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/pkg/errors"
 )
@@ -45,7 +46,7 @@ func (c *Client) SetASToken(token string) {
 func (c *Client) GetUserID(userID string) (*UserProfile, error) {
 	encodedUserID := url.PathEscape(userID)
 	path := fmt.Sprintf("/_matrix/client/v3/profile/%s", encodedUserID)
-	
+
 	var profile UserProfile
 	if err := c.doRequest("GET", path, nil, &profile); err != nil {
 		return nil, err
@@ -133,7 +134,6 @@ func (c *Client) LeaveRoom(roomID, asUserID string) error {
 // SendMessage 发送消息事件
 func (c *Client) SendMessage(roomID, asUserID string, content *RoomMessageContent) (*SendEventResponse, error) {
 	encodedRoomID := url.PathEscape(roomID)
-	// 使用事务 ID 来保证幂等性
 	txnID := generateTxnID()
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/%s/%s", encodedRoomID, EventTypeRoomMessage, txnID)
 	if asUserID != "" {
@@ -214,10 +214,16 @@ func (c *Client) Sync(asUserID, since string, timeout int) (*SyncResponse, error
 
 // doRequest 执行 HTTP 请求
 func (c *Client) doRequest(method, path string, body interface{}, result interface{}) error {
-	fullURL := c.homeserverURL + path
+	return doMatrixRequest(c.httpClient, c.homeserverURL, c.asToken, method, path, body, result)
+}
 
-	req := c.httpClient.NewRequest(method, fullURL).
-		SetHeader("Authorization", "Bearer "+c.asToken).
+// doMatrixRequest 执行 Matrix HTTP 请求（Client 和 ASClient 共用）
+func doMatrixRequest(httpClient *httpclient.Client, homeserverURL, asToken, method, path string, body interface{}, result interface{}) error {
+	fullURL := homeserverURL + path
+
+	req := httpClient.NewRequest(method, fullURL).
+		SetHeader("Authorization", "Bearer "+asToken).
+		SetHeader("Content-Type", "application/json").
 		SetTimeout(30).
 		SetTryTimes(3)
 
@@ -251,12 +257,12 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 	return nil
 }
 
-// generateTxnID 生成事务 ID
+// generateTxnID 生成事务 ID（使用 UUID 保证唯一性）
 func generateTxnID() string {
-	return fmt.Sprintf("community_%d", currentTimeMillis())
+	return "community_" + uuid.New().String()
 }
 
 // currentTimeMillis 获取当前时间戳（毫秒）
 func currentTimeMillis() int64 {
-	return time.Now().UnixNano() / 1e6
+	return time.Now().UnixMilli()
 }

@@ -151,9 +151,9 @@ func TestPollOptionVotes_FilterPollId(t *testing.T) {
 func TestPollOptionVotes_ToAccountIdMap(t *testing.T) {
 	now := time.Now()
 	votes := PollOptionVotes{
-		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CratedAt: &now},
-		{Id: 2, PollId: 1, AccountId: 100, OptionId: 2, CratedAt: &now},
-		{Id: 3, PollId: 1, AccountId: 101, OptionId: 1, CratedAt: &now},
+		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CreatedAt: &now},
+		{Id: 2, PollId: 1, AccountId: 100, OptionId: 2, CreatedAt: &now},
+		{Id: 3, PollId: 1, AccountId: 101, OptionId: 1, CreatedAt: &now},
 	}
 
 	accountMap := votes.ToAccountIdMap()
@@ -165,9 +165,9 @@ func TestPollOptionVotes_ToAccountIdMap(t *testing.T) {
 func TestPollOptionVotes_ToOptionIdMap(t *testing.T) {
 	now := time.Now()
 	votes := PollOptionVotes{
-		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CratedAt: &now},
-		{Id: 2, PollId: 1, AccountId: 101, OptionId: 1, CratedAt: &now},
-		{Id: 3, PollId: 1, AccountId: 102, OptionId: 2, CratedAt: &now},
+		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CreatedAt: &now},
+		{Id: 2, PollId: 1, AccountId: 101, OptionId: 1, CreatedAt: &now},
+		{Id: 3, PollId: 1, AccountId: 102, OptionId: 2, CreatedAt: &now},
 	}
 
 	optionMap := votes.ToOptionIdMap()
@@ -179,9 +179,9 @@ func TestPollOptionVotes_ToOptionIdMap(t *testing.T) {
 func TestPollOptionVotes_ToPollIdMap(t *testing.T) {
 	now := time.Now()
 	votes := PollOptionVotes{
-		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CratedAt: &now},
-		{Id: 2, PollId: 1, AccountId: 101, OptionId: 2, CratedAt: &now},
-		{Id: 3, PollId: 2, AccountId: 102, OptionId: 3, CratedAt: &now},
+		{Id: 1, PollId: 1, AccountId: 100, OptionId: 1, CreatedAt: &now},
+		{Id: 2, PollId: 1, AccountId: 101, OptionId: 2, CreatedAt: &now},
+		{Id: 3, PollId: 2, AccountId: 102, OptionId: 3, CreatedAt: &now},
 	}
 
 	pollMap := votes.ToPollIdMap()

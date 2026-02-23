@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -39,8 +40,12 @@ type IdentityServerInfo struct {
 
 // GetServerInfo 获取服务器发现信息
 func (ws *WellKnownService) GetServerInfo() *ServerInfo {
+	server := ws.hs.Config.ServerName
+	if ws.hs.Config.FederationPort != 443 {
+		server = fmt.Sprintf("%s:%d", server, ws.hs.Config.FederationPort)
+	}
 	return &ServerInfo{
-		ServerName: ws.hs.Config.ServerName + ":8448",
+		ServerName: server,
 	}
 }
 

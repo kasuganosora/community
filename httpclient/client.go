@@ -120,6 +120,14 @@ func (r *Request) SetBody(body []byte) *Request {
 	return r
 }
 
+func (r *Request) GetMethodAndURL() (string, string) {
+	return r.method, r.url
+}
+
+func (r *Request) GetBody() []byte {
+	return r.body
+}
+
 func (r *Request) SetJsonBody(v any) *Request {
 	var err error
 	r.body, err = json.Marshal(v)

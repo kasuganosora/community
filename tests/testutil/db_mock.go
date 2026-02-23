@@ -2,7 +2,9 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"testing"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/sqlexec/pkg/api"
@@ -32,19 +34,20 @@ const (
 var (
 	sharedDB     *TestDB
 	sharedDBOnce sync.Once
+	sharedDBErr  error
 	sharedDBMu   sync.Mutex
 )
 
-// NewTestDB creates a new in-memory test database using SQLExec
-// This creates an isolated database for each test
+// NewTestDB creates a new in-memory test database using SQLExec.
+//
+// Deprecated: Use NewIsolatedTestDB instead, which provides proper isolation
+// with unique data source names and automatic cleanup via t.Cleanup.
 func NewTestDB() (*TestDB, error) {
-	// 1. 创建 SQLExec 数据库
 	db, err := api.NewDB(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. 注册内存数据源
 	memDS := memory.NewMVCCDataSource(&domain.DataSourceConfig{
 		Type:     domain.DataSourceTypeMemory,
 		Name:     "default",
@@ -54,17 +57,23 @@ func NewTestDB() (*TestDB, error) {
 		db.Close()
 		return nil, err
 	}
-	db.RegisterDataSource("default", memDS)
+	if err := db.RegisterDataSource("default", memDS); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to register datasource: %w", err)
+	}
+	if err := db.SetDefaultDataSource("default"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set default datasource: %w", err)
+	}
 
-	// 3. 创建 Session
 	session := db.Session()
 
-	// 4. 创建 GORM 连接
 	gormDB, err := gorm.Open(
 		sqlexecgorm.NewDialector(session),
 		&gorm.Config{SkipDefaultTransaction: true},
 	)
 	if err != nil {
+		session.Close()
 		db.Close()
 		return nil, err
 	}
@@ -76,10 +85,15 @@ func NewTestDB() (*TestDB, error) {
 	}, nil
 }
 
-// NewIsolatedTestDB creates a new isolated test database with unique name
-// This is recommended for parallel tests as each test gets its own database
-func NewIsolatedTestDB(t interface{ Cleanup(func()) }) (*TestDB, error) {
-	// Use unique name for complete isolation
+// NewIsolatedTestDB creates a new isolated test database with unique name.
+// This is the recommended approach for tests (including parallel tests),
+// following sqlexec testing best practices (Approach 3: GORM Integration).
+func NewIsolatedTestDB(t interface {
+	Helper()
+	Cleanup(func())
+	Fatalf(format string, args ...interface{})
+}) (*TestDB, error) {
+	t.Helper()
 	dsName := "test_" + uuid.New().String()[:8]
 
 	db, err := api.NewDB(nil)
@@ -96,8 +110,14 @@ func NewIsolatedTestDB(t interface{ Cleanup(func()) }) (*TestDB, error) {
 		db.Close()
 		return nil, err
 	}
-	db.RegisterDataSource(dsName, memDS)
-	db.SetDefaultDataSource(dsName)
+	if err := db.RegisterDataSource(dsName, memDS); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to register datasource: %w", err)
+	}
+	if err := db.SetDefaultDataSource(dsName); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set default datasource: %w", err)
+	}
 
 	session := db.Session()
 
@@ -124,30 +144,81 @@ func NewIsolatedTestDB(t interface{ Cleanup(func()) }) (*TestDB, error) {
 	return testDB, nil
 }
 
-// GetSharedTestDB returns a shared test database
-// Data should be cleaned between tests using TruncateTables
-// Not safe for parallel tests
-func GetSharedTestDB() (*TestDB, error) {
-	var initErr error
-	sharedDBOnce.Do(func() {
-		sharedDB, initErr = NewTestDB()
-	})
-	if initErr != nil {
-		return nil, initErr
+// newTestDBNoCleanup creates an isolated test database without registering t.Cleanup.
+// Used internally by NewTestSetup which manages cleanup itself.
+func newTestDBNoCleanup() (*TestDB, error) {
+	dsName := "test_" + uuid.New().String()[:8]
+
+	db, err := api.NewDB(nil)
+	if err != nil {
+		return nil, err
 	}
-	return sharedDB, nil
+
+	memDS := memory.NewMVCCDataSource(&domain.DataSourceConfig{
+		Type:     domain.DataSourceTypeMemory,
+		Name:     dsName,
+		Writable: true,
+	})
+	if err := memDS.Connect(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := db.RegisterDataSource(dsName, memDS); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to register datasource: %w", err)
+	}
+	if err := db.SetDefaultDataSource(dsName); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set default datasource: %w", err)
+	}
+
+	session := db.Session()
+
+	gormDB, err := gorm.Open(
+		sqlexecgorm.NewDialector(session),
+		&gorm.Config{SkipDefaultTransaction: true},
+	)
+	if err != nil {
+		session.Close()
+		db.Close()
+		return nil, err
+	}
+
+	return &TestDB{
+		DB:      db,
+		GormDB:  gormDB,
+		Session: session,
+	}, nil
 }
 
-// SetupSharedTestDB sets up a shared test database with automatic cleanup
-// Returns a session that should be used for the test
-// Not safe for parallel tests
-func SetupSharedTestDB(t interface{ Cleanup(func()) }) (*TestDB, error) {
+// GetSharedTestDB returns a shared test database.
+// Data should be cleaned between tests using TruncateTables.
+// Not safe for parallel tests.
+func GetSharedTestDB() (*TestDB, error) {
+	sharedDBOnce.Do(func() {
+		sharedDB, sharedDBErr = NewTestDB()
+	})
+	return sharedDB, sharedDBErr
+}
+
+// SetupSharedTestDB sets up a shared test database with automatic cleanup.
+// Truncates the specified tables before each test to ensure data isolation.
+// Not safe for parallel tests.
+func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
+	t.Helper()
 	sharedDBMu.Lock()
 	defer sharedDBMu.Unlock()
 
 	db, err := GetSharedTestDB()
 	if err != nil {
 		return nil, err
+	}
+
+	// Truncate tables to ensure clean state (per sqlexec doc Approach 2)
+	if len(tables) > 0 {
+		if err := db.TruncateTables(tables...); err != nil {
+			return nil, fmt.Errorf("failed to truncate tables: %w", err)
+		}
 	}
 
 	// Create a new session for this test
@@ -182,7 +253,7 @@ func (t *TestDB) AutoMigrate(models ...interface{}) error {
 // TruncateTables clears data from specified tables
 func (t *TestDB) TruncateTables(tables ...string) error {
 	for _, table := range tables {
-		_, err := t.Session.Execute("DELETE FROM " + table)
+		_, err := t.Session.Execute("TRUNCATE TABLE " + table)
 		if err != nil {
 			return err
 		}
@@ -223,7 +294,6 @@ func (t *TestDB) QueryAll(sql string, args ...interface{}) ([]map[string]interfa
 	if err != nil {
 		return nil, err
 	}
-	// Convert domain.Row to map[string]interface{}
 	result := make([]map[string]interface{}, len(rows))
 	for i, row := range rows {
 		result[i] = make(map[string]interface{})

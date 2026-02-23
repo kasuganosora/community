@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/kasuganosora/community/systemsettings"
 )
@@ -38,25 +39,31 @@ type Config struct {
 }
 
 // GlobalConfig 全局 Matrix 配置实例
-var GlobalConfig Config
+var (
+	GlobalConfig Config
+	configOnce   sync.Once
+)
 
 // LoadConfig 从环境变量加载配置，自动推导未设置的值
+// 使用 sync.Once 保证线程安全且只执行一次
 func LoadConfig() {
-	GlobalConfig = Config{
-		Enabled:             getEnvBool("MATRIX_ENABLED", false),
-		HomeserverURL:       getEnvString("MATRIX_HOMESERVER_URL", ""),
-		ServerName:          getEnvString("MATRIX_SERVER_NAME", ""),
-		ASToken:             getEnvString("MATRIX_AS_TOKEN", ""),
-		HSToken:             getEnvString("MATRIX_HS_TOKEN", ""),
-		BridgeUsername:      getEnvString("MATRIX_BRIDGE_USERNAME", "_bridge"),
-		UserNamespacePrefix: getEnvString("MATRIX_USER_NAMESPACE", "_c_"),
-		RoomNamespacePrefix: getEnvString("MATRIX_ROOM_NAMESPACE", "_c_"),
-	}
+	configOnce.Do(func() {
+		GlobalConfig = Config{
+			Enabled:             getEnvBool("MATRIX_ENABLED", false),
+			HomeserverURL:       getEnvString("MATRIX_HOMESERVER_URL", ""),
+			ServerName:          getEnvString("MATRIX_SERVER_NAME", ""),
+			ASToken:             getEnvString("MATRIX_AS_TOKEN", ""),
+			HSToken:             getEnvString("MATRIX_HS_TOKEN", ""),
+			BridgeUsername:      getEnvString("MATRIX_BRIDGE_USERNAME", "_bridge"),
+			UserNamespacePrefix: getEnvString("MATRIX_USER_NAMESPACE", "_c_"),
+			RoomNamespacePrefix: getEnvString("MATRIX_ROOM_NAMESPACE", "_c_"),
+		}
 
-	// ServerName 默认使用系统设置的站点域名
-	if GlobalConfig.ServerName == "" {
-		GlobalConfig.ServerName = systemsettings.GetDomain()
-	}
+		// ServerName 默认使用系统设置的站点域名
+		if GlobalConfig.ServerName == "" {
+			GlobalConfig.ServerName = systemsettings.GetDomain()
+		}
+	})
 }
 
 // IsEnabled 检查 Matrix Bridge 是否启用且配置完整

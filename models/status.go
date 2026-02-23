@@ -33,7 +33,7 @@ type Status struct {
 	ApplicationId *uint64       `json:"application_id"`
 	Visibility    uint8         `gorm:"not null;default:0" json:"visibility"`
 	ReblogId      *uint64       `json:"reblog_id"`
-	ReblogsCount  uint64        `gorm:"not null;default:0" json:"relogs_count"`
+	ReblogsCount  uint64        `gorm:"not null;default:0" json:"reblogs_count"`
 	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
 
 	InReplyToId        *uint64        `json:"in_reply_to_id"`
@@ -49,7 +49,7 @@ type Status struct {
 	DeletedAt          *time.Time     `gorm:"index" json:"-"`
 	Properties         map[string]any `gorm:"type:json;serializer:json" json:"properties"`
 	Domain             *string        `gorm:"type:varchar(128);index" json:"domain"`
-	ConversationId     *uint64        ` gorm:"index" json:"conversation_id"`
+	ConversationId     *uint64        `gorm:"index" json:"conversation_id"`
 
 	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`

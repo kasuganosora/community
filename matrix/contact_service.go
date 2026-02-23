@@ -25,9 +25,9 @@ func NewContactService(client *ASClient) *ContactService {
 // Matrix 用户可以通过 @_community_username:server.com 格式查找本地用户
 // 例如本地用户 alice 的 Matrix ID 为 @_community_alice:server.com
 func (cs *ContactService) LookupLocalAccount(matrixUserID string) (*models.Account, error) {
-	// 解析 Matrix 用户ID
-	localpart, server := parseMatrixUserID(matrixUserID)
-	if localpart == "" || server == "" {
+	// 解析 Matrix 用户 ID（使用统一的解析函数）
+	localpart, _, ok := ParseMatrixUserID(matrixUserID)
+	if !ok {
 		return nil, errors.New("invalid Matrix user ID format")
 	}
 
@@ -126,7 +126,9 @@ func (cs *ContactService) AcceptContactRequest(requestID uint64, accountID uint6
 			ContactMatrixId: request.FromMatrixUserId,
 			Status:          models.ContactStatusAccepted,
 		}
-		db.GetDB().Create(contact)
+		if err := db.GetDB().Create(contact).Error; err != nil {
+			return errors.Wrap(err, "failed to create contact for accepted request")
+		}
 	}
 
 	log.Info("Accepted contact request %d", requestID)
@@ -221,19 +223,4 @@ func (cs *ContactService) GetLocalUserMatrixID(accountID uint64) string {
 func (cs *ContactService) GetLocalUserMatrixIDByUsername(username string) string {
 	LoadConfig()
 	return GlobalConfig.FormatMatrixUserID(GlobalConfig.UserNamespacePrefix + username)
-}
-
-// parseMatrixUserID 解析 Matrix 用户ID
-func parseMatrixUserID(userID string) (localpart, server string) {
-	// 格式: @localpart:server.com
-	if !strings.HasPrefix(userID, "@") {
-		return "", ""
-	}
-
-	parts := strings.SplitN(userID[1:], ":", 2)
-	if len(parts) != 2 {
-		return parts[0], ""
-	}
-
-	return parts[0], parts[1]
 }

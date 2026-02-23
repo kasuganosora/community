@@ -8,7 +8,7 @@ type MuteAccount struct {
 	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
 	AccountId uint64     `gorm:"not null;index" json:"account_id"`
 	TargetId  uint64     `gorm:"not null;index" json:"target_id"`
-	CratedAt  *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
 	ExpiredAt *time.Time `json:"expired_at"`
 }
 
@@ -41,7 +41,7 @@ type MuteStatus struct {
 	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
 	AccountId uint64     `gorm:"not null;index" json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
-	CratedAt  *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
 }
 
 func (m *MuteStatus) TableName() string {

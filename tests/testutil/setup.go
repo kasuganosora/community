@@ -77,8 +77,10 @@ func WithIsolatedDB() SetupOption {
 	return WithDBMode(ModeIsolated)
 }
 
-// NewTestSetup creates a new unified test setup
+// NewTestSetup creates a new unified test setup.
+// All resources are cleaned up automatically via t.Cleanup.
 func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
+	t.Helper()
 	options := DefaultSetupOptions()
 	for _, opt := range opts {
 		opt(options)
@@ -88,7 +90,7 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 		t: t,
 	}
 
-	// Setup database
+	// Setup database (without individual t.Cleanup to avoid double-release)
 	switch options.DBMode {
 	case ModeShared:
 		db, err := SetupSharedTestDB(t)
@@ -98,7 +100,7 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 		}
 		setup.DB = db
 	default:
-		db, err := NewIsolatedTestDB(t)
+		db, err := newTestDBNoCleanup()
 		if err != nil {
 			t.Fatalf("Failed to create isolated test DB: %v", err)
 			return nil
@@ -113,11 +115,16 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 		}
 	}
 
-	// Setup Redis
-	setup.Redis = SetupRedisTest(t, options.RedisMode)
+	// Setup Redis (without individual t.Cleanup to avoid double-release)
+	setup.Redis = NewRedisWithMode(t, options.RedisMode)
 
 	// Create fixture builder
-	setup.Fixtures = NewFixtureBuilder(setup.DB.GormDB)
+	setup.Fixtures = NewFixtureBuilder(t, setup.DB.GormDB)
+
+	// Register single cleanup point for all resources
+	t.Cleanup(func() {
+		setup.Close()
+	})
 
 	return setup
 }
@@ -132,11 +139,6 @@ func (s *TestSetup) RedisClient() *RedisTestClient {
 	return s.Redis
 }
 
-// RawRedisClient returns the underlying Redis client
-func (s *TestSetup) RawRedisClient() *RedisTestClient {
-	return s.Redis
-}
-
 // Close cleans up all resources
 func (s *TestSetup) Close() {
 	if s.Redis != nil {
@@ -148,9 +150,10 @@ func (s *TestSetup) Close() {
 	}
 }
 
-// QuickDBSetup creates an isolated test DB with auto-migration
-// This is the simplest way to get a test database
+// QuickDBSetup creates an isolated test DB with auto-migration.
+// This is the simplest way to get a test database.
 func QuickDBSetup(t *testing.T, models ...interface{}) *TestDB {
+	t.Helper()
 	db, err := NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
@@ -186,20 +189,23 @@ func QuickRealRedisSetup(t *testing.T) *RedisTestClient {
 // FullSetup creates a complete test setup with DB, Redis, and fixtures
 // This is the recommended way to set up integration tests
 func FullSetup(t *testing.T, models []interface{}, opts ...SetupOption) *TestSetup {
+	t.Helper()
 	opts = append(opts, WithModels(models...))
 	return NewTestSetup(t, opts...)
 }
 
 // DBOnlySetup creates a test setup with only database
 func DBOnlySetup(t *testing.T, models ...interface{}) *TestSetup {
+	t.Helper()
 	return NewTestSetup(t,
 		WithModels(models...),
-		WithRedisMode(RedisModeMock), // Mock Redis but not used
+		WithRedisMode(RedisModeMock),
 	)
 }
 
 // RedisOnlySetup creates a test setup with only Redis
 func RedisOnlySetup(t *testing.T, mode RedisTestMode) *TestSetup {
+	t.Helper()
 	return NewTestSetup(t,
 		WithRedisMode(mode),
 	)

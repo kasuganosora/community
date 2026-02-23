@@ -1,13 +1,18 @@
 package homeserver
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 )
 
 // ===== 管理员 API =====
@@ -87,11 +92,16 @@ func (as *AdminService) ListUsers(offset, limit int) ([]UserInfo, int64, error) 
 
 	userInfos := make([]UserInfo, len(users))
 	for i, u := range users {
-		userInfos[i] = UserInfo{
-			UserID:       u.UserID,
-			CreatedAt:    *u.CreatedAt,
-			LastActiveAt: *u.LastActiveTS,
+		userInfo := UserInfo{
+			UserID: u.UserID,
 		}
+		if u.CreatedAt != nil {
+			userInfo.CreatedAt = *u.CreatedAt
+		}
+		if u.LastActiveTS != nil {
+			userInfo.LastActiveAt = *u.LastActiveTS
+		}
+		userInfos[i] = userInfo
 	}
 
 	return userInfos, total, nil
@@ -110,9 +120,13 @@ func (as *AdminService) GetUserInfo(userID string) (*UserInfo, error) {
 	db.GetDB().Where("user_id = ? AND data_type = ? AND room_id IS NULL", userID, "m.profile").First(&profile)
 
 	info := &UserInfo{
-		UserID:       userID,
-		CreatedAt:    *session.CreatedAt,
-		LastActiveAt: *session.LastActiveTS,
+		UserID: userID,
+	}
+	if session.CreatedAt != nil {
+		info.CreatedAt = *session.CreatedAt
+	}
+	if session.LastActiveTS != nil {
+		info.LastActiveAt = *session.LastActiveTS
 	}
 
 	// 解析资料
@@ -252,6 +266,10 @@ func RegisterAdminRoutes(r gin.IRouter) {
 	admin := r.Group("/_synapse/admin/v1")
 	admin.Use(AdminAuthMiddleware())
 	{
+		// Server notices (Synapse-compatible admin API)
+		admin.POST("/send_server_notice", handleSendServerNotice)
+		admin.PUT("/send_server_notice/:txnId", handleSendServerNotice)
+
 		// 服务器统计
 		admin.GET("/statistics/users", handleGetUserStats)
 		admin.GET("/statistics/rooms", handleGetRoomStats)
@@ -277,23 +295,72 @@ func RegisterAdminRoutes(r gin.IRouter) {
 		matrixAdmin.GET("/server_statistics", handleGetServerStats)
 		matrixAdmin.POST("/whois/:userId", handleWhoisUser)
 	}
+
+	// Shared-secret registration (unauthenticated — uses HMAC)
+	// Compatible with Complement test suite
+	r.GET("/_synapse/admin/v1/register", handleSharedSecretRegisterNonce)
+	r.POST("/_synapse/admin/v1/register", handleSharedSecretRegister)
+}
+
+// isUserAdmin checks if a Matrix user ID belongs to an admin account.
+func isUserAdmin(userID string) bool {
+	localpart, _, ok := ParseMatrixUserID(userID)
+	if !ok {
+		return false
+	}
+	var user models.User
+	if err := db.GetDB().Where("username = ?", localpart).First(&user).Error; err != nil {
+		return false
+	}
+	return user.IsAdmin
 }
 
 // AdminAuthMiddleware 管理员认证中间件
 func AdminAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 首先进行普通认证
-		MatrixAuthMiddleware()(c)
-		if c.IsAborted() {
+		// Inline auth logic (do NOT call MatrixAuthMiddleware()(c) because
+		// its c.Next() would advance the handler chain prematurely)
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			authHeader = "Bearer " + c.Query("access_token")
+		}
+		if authHeader == "" || len(authHeader) < 8 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"errcode": "M_MISSING_TOKEN",
+				"error":   "Missing access token",
+			})
+			return
+		}
+		token := authHeader[7:]
+
+		hs := GetHomeServer()
+		if hs == nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"errcode": "M_UNKNOWN",
+				"error":   "Homeserver not available",
+			})
 			return
 		}
 
-		userID := c.GetString("user_id")
-		// 检查是否是管理员（简化实现）
-		// 实际应该检查用户的 admin 标志
+		session, matrixErr := hs.Auth.GetDeviceByToken(token)
+		if matrixErr != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"errcode": "M_UNKNOWN_TOKEN",
+				"error":   "Invalid access token",
+			})
+			return
+		}
 
-		_ = userID
-		// 允许继续（简化实现）
+		c.Set("user_id", session.UserID)
+		c.Set("device_id", session.DeviceID)
+
+		if !isUserAdmin(session.UserID) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"errcode": "M_FORBIDDEN",
+				"error":   "You are not a server administrator",
+			})
+			return
+		}
 		c.Next()
 	}
 }
@@ -603,4 +670,202 @@ func handleDeleteRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"delete_id": generateSID(),
 	})
+}
+
+// ===== Server Notices (Synapse-compatible admin API) =====
+
+// serverNoticeTxnCache stores txnId → event_id for idempotency
+var serverNoticeTxnCache = struct {
+	sync.Mutex
+	m map[string]string
+}{m: make(map[string]string)}
+
+// handleSendServerNotice implements POST /_synapse/admin/v1/send_server_notice
+// It creates a DM room between the server notice bot and the target user, then sends a message.
+func handleSendServerNotice(c *gin.Context) {
+	// Check txnId idempotency (PUT requests with :txnId)
+	txnID := c.Param("txnId")
+	if txnID != "" {
+		serverNoticeTxnCache.Lock()
+		if eventID, ok := serverNoticeTxnCache.m[txnID]; ok {
+			serverNoticeTxnCache.Unlock()
+			c.JSON(http.StatusOK, gin.H{"event_id": eventID})
+			return
+		}
+		serverNoticeTxnCache.Unlock()
+	}
+
+	hs := GetHomeServer()
+
+	var req struct {
+		UserID  string                 `json:"user_id"`
+		Content map[string]interface{} `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.UserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON or missing user_id"})
+		return
+	}
+
+	// Server notice bot user ID (Synapse uses @_server:<domain>)
+	botUserID := fmt.Sprintf("@_server:%s", hs.Config.ServerName)
+
+	// Ensure bot user exists (create silently if not)
+	botLocalpart := "_server"
+	var botSession MatrixUserSession
+	if db.GetDB().Where("user_id = ?", botUserID).First(&botSession).Error != nil {
+		// Create the bot account via the internal Register method
+		_, _ = hs.Auth.Register(&RegisterRequest{
+			Username: botLocalpart,
+			Password: "notices_bot_" + generateSID(),
+		}, false)
+	}
+
+	// Find or create a DM room between bot and target user
+	roomID := ""
+	needsReinvite := false
+	var existingMembers []MatrixRoomMember
+	db.GetDB().Where("user_id = ? AND membership = ?", botUserID, MembershipJoin).Find(&existingMembers)
+	for _, m := range existingMembers {
+		var targetMember MatrixRoomMember
+		// Check if target has any membership in this room (join, invite, or leave)
+		if db.GetDB().Where("room_id = ? AND user_id = ?", m.RoomID, req.UserID).First(&targetMember).Error == nil {
+			roomID = m.RoomID
+			if targetMember.Membership == MembershipLeave || targetMember.Membership == MembershipBan {
+				needsReinvite = true
+			}
+			break
+		}
+	}
+
+	if roomID == "" {
+		// Create a new DM room
+		inviteList := []string{req.UserID}
+		isDirect := true
+		createResp, err := hs.Room.CreateRoom(botUserID, &CreateRoomRequest{
+			Preset:   "private_chat",
+			Invite:   inviteList,
+			IsDirect: isDirect,
+			CreationContent: map[string]interface{}{
+				"m.federate": false,
+			},
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to create notice room"})
+			return
+		}
+		roomID = createResp.RoomID
+	}
+
+	// Re-invite if the target user previously left
+	if needsReinvite {
+		_ = hs.Room.InviteUser(roomID, botUserID, &InviteUserRequest{UserID: req.UserID})
+	}
+
+	// Send the notice message
+	content := req.Content
+	if content == nil {
+		content = map[string]interface{}{"msgtype": "m.text", "body": "Server notice"}
+	}
+	resp, matErr := hs.Event.SendRoomEvent(roomID, botUserID, "m.room.message", nil, content, nil)
+	if matErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to send notice"})
+		return
+	}
+
+	// Cache txnId → event_id for idempotency
+	if txnID != "" {
+		serverNoticeTxnCache.Lock()
+		serverNoticeTxnCache.m[txnID] = resp.EventID
+		serverNoticeTxnCache.Unlock()
+	}
+
+	c.JSON(http.StatusOK, gin.H{"event_id": resp.EventID})
+}
+
+// ===== Shared-Secret Registration (Complement compatible) =====
+
+const sharedRegistrationSecret = "complement"
+
+var (
+	nonceStore   = make(map[string]time.Time)
+	nonceMu      sync.Mutex
+)
+
+// handleSharedSecretRegisterNonce returns a nonce for shared-secret registration
+func handleSharedSecretRegisterNonce(c *gin.Context) {
+	nonce := generateSID() + generateSID()
+	nonceMu.Lock()
+	nonceStore[nonce] = time.Now()
+	// Clean up old nonces (> 5 minutes)
+	for k, v := range nonceStore {
+		if time.Since(v) > 5*time.Minute {
+			delete(nonceStore, k)
+		}
+	}
+	nonceMu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"nonce": nonce,
+	})
+}
+
+// handleSharedSecretRegister handles shared-secret admin registration
+func handleSharedSecretRegister(c *gin.Context) {
+	var req struct {
+		Nonce    string `json:"nonce"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Admin    bool   `json:"admin"`
+		Mac      string `json:"mac"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+		return
+	}
+
+	// Validate nonce
+	nonceMu.Lock()
+	ts, ok := nonceStore[req.Nonce]
+	if ok {
+		delete(nonceStore, req.Nonce)
+	}
+	nonceMu.Unlock()
+
+	if !ok || time.Since(ts) > 5*time.Minute {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_UNKNOWN", "error": "Invalid or expired nonce"})
+		return
+	}
+
+	// Verify HMAC: HMAC-SHA1(key=secret, message=nonce\x00username\x00password\x00admin|notadmin)
+	adminStr := "notadmin"
+	if req.Admin {
+		adminStr = "admin"
+	}
+	mac := hmac.New(sha1.New, []byte(sharedRegistrationSecret))
+	mac.Write([]byte(req.Nonce))
+	mac.Write([]byte{0})
+	mac.Write([]byte(req.Username))
+	mac.Write([]byte{0})
+	mac.Write([]byte(req.Password))
+	mac.Write([]byte{0})
+	mac.Write([]byte(adminStr))
+	expectedMAC := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(req.Mac), []byte(expectedMAC)) {
+		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "HMAC mismatch"})
+		return
+	}
+
+	hs := GetHomeServer()
+	resp, regErr := hs.Auth.Register(&RegisterRequest{
+		Username: req.Username,
+		Password: req.Password,
+		Auth:     &UIAuthRequest{Type: "m.login.dummy"},
+	}, true)
+	if regErr != nil {
+		c.JSON(http.StatusBadRequest, regErr)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

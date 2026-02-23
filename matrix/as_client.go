@@ -47,7 +47,6 @@ func (c *ASClient) ValidateHSToken(token string) bool {
 
 // PingHS 测试与 Homeserver 的连接
 func (c *ASClient) PingHS() error {
-	// 使用 Client API 的版本端点测试连接
 	path := "/_matrix/client/versions"
 
 	req := c.httpClient.NewRequest("GET", c.homeserverURL+path).
@@ -82,10 +81,8 @@ func (c *ASClient) RegisterVirtualUser(localpart string) error {
 
 // EnsureVirtualUser 确保虚拟用户存在
 func (c *ASClient) EnsureVirtualUser(localpart string) error {
-	// 尝试注册，如果用户已存在则忽略错误
 	err := c.RegisterVirtualUser(localpart)
 	if err != nil {
-		// 如果是用户已存在的错误，忽略
 		if strings.Contains(err.Error(), "M_USER_IN_USE") {
 			return nil
 		}
@@ -99,7 +96,7 @@ func (c *ASClient) CreateDirectRoom(creator, invitee string, isDirect bool) (*Ro
 	path := "/_matrix/client/v3/createRoom?user_id=" + url.QueryEscape(creator)
 
 	req := &RoomCreateRequest{
-		Preset:   "trusted_private_chat", // 私信房间预设
+		Preset:   "trusted_private_chat",
 		IsDirect: isDirect,
 		Invite:   []string{invitee},
 		InitialState: []Event{
@@ -209,7 +206,6 @@ func (c *ASClient) LeaveRoom(roomID, userID string) error {
 
 // SetUserProfile 设置用户档案
 func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
-	// 设置显示名称
 	if displayName != "" {
 		encodedUserID := url.PathEscape(userID)
 		path := fmt.Sprintf("/_matrix/client/v3/profile/%s/displayname?user_id=%s",
@@ -220,7 +216,6 @@ func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
 		}
 	}
 
-	// 设置头像
 	if avatarURL != "" {
 		encodedUserID := url.PathEscape(userID)
 		path := fmt.Sprintf("/_matrix/client/v3/profile/%s/avatar_url?user_id=%s",
@@ -232,6 +227,18 @@ func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
 	}
 
 	return nil
+}
+
+// GetUserProfile 获取用户档案
+func (c *ASClient) GetUserProfile(matrixUserID string) (*UserProfile, error) {
+	encodedUserID := url.PathEscape(matrixUserID)
+	path := fmt.Sprintf("/_matrix/client/v3/profile/%s", encodedUserID)
+
+	var profile UserProfile
+	if err := c.doASRequest("GET", path, nil, &profile); err != nil {
+		return nil, err
+	}
+	return &profile, nil
 }
 
 // GetRoomStateEvent 获取房间状态事件
@@ -278,7 +285,6 @@ func (c *ASClient) SyncRoomEvents(asUserID, since string, timeout int) (*SyncRes
 	if timeout > 0 {
 		path += fmt.Sprintf("&timeout=%d", timeout)
 	}
-	// 只同步已加入房间的消息
 	path += "&filter=" + url.QueryEscape(`{"room":{"timeline":{"limit":50}}}`)
 
 	var resp SyncResponse
@@ -288,42 +294,7 @@ func (c *ASClient) SyncRoomEvents(asUserID, since string, timeout int) (*SyncRes
 	return &resp, nil
 }
 
-// doASRequest 执行 AS API 请求
+// doASRequest 执行 AS API 请求（复用共享的 HTTP 请求逻辑）
 func (c *ASClient) doASRequest(method, path string, body interface{}, result interface{}) error {
-	fullURL := c.homeserverURL + path
-
-	req := c.httpClient.NewRequest(method, fullURL).
-		SetHeader("Authorization", "Bearer "+c.asToken).
-		SetHeader("Content-Type", "application/json").
-		SetTimeout(30).
-		SetTryTimes(3)
-
-	if body != nil {
-		req.SetJsonBody(body)
-	}
-
-	resp, err := req.Do()
-	if err != nil {
-		return errors.Wrap(err, "AS API request failed")
-	}
-
-	if !resp.StatusOk() {
-		var errResp ErrorResponse
-		if parseErr := resp.Json(&errResp); parseErr == nil && errResp.ErrCode != "" {
-			return fmt.Errorf("AS API error: %s - %s", errResp.ErrCode, errResp.Error)
-		}
-		return fmt.Errorf("AS API HTTP error: %d", resp.StatusCode)
-	}
-
-	if result == nil {
-		return nil
-	}
-
-	if err := resp.Json(result); err != nil {
-		return errors.Wrap(err, "failed to parse AS API response")
-	}
-
-	return nil
+	return doMatrixRequest(c.httpClient, c.homeserverURL, c.asToken, method, path, body, result)
 }
-
-

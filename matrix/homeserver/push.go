@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +27,8 @@ type Pusher struct {
 	DeviceDisplayName string `gorm:"type:varchar(128)" json:"device_display_name"`
 	ProfileTag string `gorm:"type:varchar(32)" json:"profile_tag,omitempty"`
 	Lang       string `gorm:"type:varchar(16)" json:"lang"`
-	Data       string `gorm:"type:text" json:"data"` // JSON: { "url": "..." }
+	Data       map[string]interface{} `gorm:"type:text;serializer:json" json:"data"`
+	DeviceID   string `gorm:"type:varchar(255);index" json:"-"`
 	Enabled    bool   `gorm:"default:true" json:"-"`
 	CreatedAt  time.Time `json:"-"`
 	UpdatedAt  time.Time `json:"-"`
@@ -523,17 +525,13 @@ func (ps *PushService) sendPush(userID string, event *MatrixEvent, room *MatrixR
 		}
 
 		// 解析推送器数据
-		var pusherData PusherData
-		if err := json.Unmarshal([]byte(pusher.Data), &pusherData); err != nil {
-			continue
-		}
-
-		if pusherData.URL == "" {
+		url, _ := pusher.Data["url"].(string)
+		if url == "" {
 			continue
 		}
 
 		// 发送 HTTP 请求
-		go ps.sendPushRequest(pusherData.URL, notification)
+		go ps.sendPushRequest(url, notification)
 	}
 }
 
@@ -558,8 +556,12 @@ func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room
 	devices := make([]PushDevice, 0, len(pushers))
 	for _, pusher := range pushers {
 		var data PusherData
-		json.Unmarshal([]byte(pusher.Data), &data)
-		
+		if pusher.Data != nil {
+			data.URL, _ = pusher.Data["url"].(string)
+			data.Format, _ = pusher.Data["format"].(string)
+			data.Brand, _ = pusher.Data["brand"].(string)
+		}
+
 		devices = append(devices, PushDevice{
 			AppID:     pusher.AppID,
 			Pushkey:   pusher.Pushkey,
@@ -603,7 +605,10 @@ func (ps *PushService) sendPushRequest(url string, notification *PushNotificatio
 		log.Error("Failed to send push notification: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Error("Push gateway returned error: %d", resp.StatusCode)

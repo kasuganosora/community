@@ -12,16 +12,20 @@ func (UserSetting) TableName() string {
 	return "user_setting"
 }
 
-func (us *UserSetting) GetaggrAgatesReblogs() bool {
+func (us *UserSetting) GetAggregatesReblogs() bool {
 	if _aggregatesReblogs, ok := us.Data["aggregates_reblogs"]; ok {
-		return _aggregatesReblogs.(bool)
+		if v, ok := _aggregatesReblogs.(bool); ok {
+			return v
+		}
 	}
 	return true
 }
 
 func (us *UserSetting) IsFollowProtect() bool {
 	if _followProtect, ok := us.Data["follow_protect"]; ok {
-		return _followProtect.(bool)
+		if v, ok := _followProtect.(bool); ok {
+			return v
+		}
 	}
 	return false
 }

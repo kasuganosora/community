@@ -67,40 +67,61 @@ func handleBackfill(c *gin.Context) {
 		return
 	}
 
-	// 查询早于给定事件的事件
+	// Find the starting point timestamp from the v events
 	var events []MatrixEvent
-
-	// 找到最早的事件时间戳
-	var earliestTS int64 = time.Now().UnixMilli()
+	var startTS int64 = time.Now().UnixMilli()
 	if len(v) > 0 {
-		var earliestEvent MatrixEvent
-		result := db.GetDB().Where("event_id IN ?", v).Order("origin_server_ts ASC").First(&earliestEvent)
+		var vEvent MatrixEvent
+		// Use the EARLIEST v event's timestamp to walk backward from
+		result := db.GetDB().Where("event_id IN ?", v).Order("origin_server_ts ASC").First(&vEvent)
 		if result.Error == nil {
-			earliestTS = earliestEvent.OriginServerTS
+			startTS = vEvent.OriginServerTS
 		}
 	}
 
-	// 查询更早的事件
-	query := db.GetDB().Where("room_id = ? AND origin_server_ts < ?", roomID, earliestTS).
+	// Query events at or before the starting point (include v events per spec)
+	query := db.GetDB().Where("room_id = ? AND origin_server_ts <= ?", roomID, startTS).
 		Order("origin_server_ts DESC").
 		Limit(limit)
-
 	query.Find(&events)
 
-	// 转换为客户端事件格式（需要反转顺序）
+	// Reverse to chronological order
 	pdus := make([]ClientEvent, len(events))
 	for i, event := range events {
 		pdus[len(events)-1-i] = *event.ToClientEvent()
 	}
 
-	// 获取授权链（简化实现，返回空）
+	// Build auth chain from room state events
+	authChain := buildRoomAuthChain(roomID)
 	_ = room
 
-	c.JSON(http.StatusOK, BackfillResponse{
-		Origin:         hs.Config.ServerName,
-		OriginServerTS: time.Now().UnixMilli(),
-		PDUs:           pdus,
+	c.JSON(http.StatusOK, gin.H{
+		"origin":           hs.Config.ServerName,
+		"origin_server_ts": time.Now().UnixMilli(),
+		"pdus":             pdus,
+		"auth_chain":       authChain,
 	})
+}
+
+// buildRoomAuthChain returns auth chain events (create, power_levels, join_rules) for a room.
+func buildRoomAuthChain(roomID string) []ClientEvent {
+	authTypes := []string{
+		string(EventTypeRoomCreate),
+		string(EventTypeRoomPowerLevels),
+		string(EventTypeRoomJoinRules),
+		string(EventTypeRoomMember),
+	}
+	var stateEntries []MatrixRoomState
+	db.GetDB().Where("room_id = ? AND event_type IN ?", roomID, authTypes).Find(&stateEntries)
+
+	chain := make([]ClientEvent, 0, len(stateEntries))
+	for _, entry := range stateEntries {
+		var evt MatrixEvent
+		if db.GetDB().Where("event_id = ?", entry.EventID).First(&evt).Error == nil {
+			chain = append(chain, *evt.ToClientEvent())
+		}
+	}
+	return chain
 }
 
 // handleTimestampToEvent 时间戳映射到事件
@@ -308,8 +329,13 @@ func handleGetMissingEvents(c *gin.Context) {
 		return
 	}
 
-	// 查找 latest 和 earliest 之间的事件
-	// 获取 earliest 的时间戳
+	// Build set of earliest event IDs (already known by requester, should be excluded)
+	earliestSet := make(map[string]bool)
+	for _, eid := range req.EarliestEvents {
+		earliestSet[eid] = true
+	}
+
+	// Get timestamp bounds from earliest and latest events
 	var earliestTS int64 = 0
 	if len(req.EarliestEvents) > 0 {
 		var earliestEvent MatrixEvent
@@ -320,7 +346,6 @@ func handleGetMissingEvents(c *gin.Context) {
 		}
 	}
 
-	// 获取 latest 的时间戳
 	var latestTS int64 = time.Now().UnixMilli()
 	if len(req.LatestEvents) > 0 {
 		var latestEvent MatrixEvent
@@ -331,9 +356,10 @@ func handleGetMissingEvents(c *gin.Context) {
 		}
 	}
 
-	// 查询中间的事件
+	// Query events between earliest and latest (inclusive on both sides to handle
+	// same-timestamp events, then filter out earliest_events by ID)
 	var events []MatrixEvent
-	query := db.GetDB().Where("room_id = ? AND origin_server_ts > ? AND origin_server_ts < ?",
+	query := db.GetDB().Where("room_id = ? AND origin_server_ts >= ? AND origin_server_ts <= ?",
 		roomID, earliestTS, latestTS).
 		Order("origin_server_ts ASC")
 
@@ -341,12 +367,22 @@ func handleGetMissingEvents(c *gin.Context) {
 		query = query.Where("depth >= ?", req.MinDepth)
 	}
 
-	query.Limit(req.Limit).Find(&events)
+	query.Limit(req.Limit + len(req.EarliestEvents)).Find(&events)
 
-	// 转换为客户端事件
-	result := make([]ClientEvent, len(events))
-	for i, event := range events {
-		result[i] = *event.ToClientEvent()
+	// Filter out earliest_events (already known) and latest_events (already known)
+	latestSet := make(map[string]bool)
+	for _, eid := range req.LatestEvents {
+		latestSet[eid] = true
+	}
+	result := make([]ClientEvent, 0, len(events))
+	for _, event := range events {
+		if earliestSet[event.EventID] || latestSet[event.EventID] {
+			continue
+		}
+		result = append(result, *event.ToClientEvent())
+		if len(result) >= req.Limit {
+			break
+		}
 	}
 
 	c.JSON(http.StatusOK, GetMissingEventsResponse{
@@ -365,12 +401,6 @@ func RegisterAdditionalFederationRoutes(r gin.IRouter) {
 	{
 		// 注册用户查询
 		fed.GET("/query/user", handleQueryUser)
-
-		// 批量检查设备
-		fed.POST("/user/keys/query", handleFederationKeysQuery)
-
-		// 批量认领密钥
-		fed.POST("/user/keys/claim", handleFederationKeysClaim)
 
 		// 获取用户签名
 		fed.GET("/user/signing_key/:userId", handleGetUserSigningKey)

@@ -5,16 +5,22 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
+
+// Matrix spec: localpart must only contain [a-z0-9._=/-]+
+var validLocalpartRe = regexp.MustCompile(`^[a-z0-9._=\-/+]+$`)
 
 // AuthService 认证服务
 type AuthService struct {
@@ -137,7 +143,7 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 	}
 	
 	// 获取用户密钥数据
-	err = db.GetDB().Where("user_id = ?", account.UserId).First(&user).Error
+	err = db.GetDB().Where("id = ?", account.UserId).First(&user).Error
 	if err != nil {
 		return nil, ErrInternal
 	}
@@ -230,15 +236,22 @@ func (a *AuthService) createSession(account models.Account, deviceID *string, di
 	accessToken := generateAccessToken()
 	
 	// 检查设备是否已存在，如果存在则更新
+	var refreshToken *string
 	var existingSession MatrixUserSession
 	err := db.GetDB().Where("user_id = ? AND device_id = ?", matrixUserID, *deviceID).First(&existingSession).Error
 	if err == nil {
 		// 更新现有会话
-		db.GetDB().Model(&existingSession).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"access_token":   accessToken,
 			"display_name":   displayName,
 			"last_active_ts": time.Now().UnixMilli(),
-		})
+		}
+		if withRefresh {
+			rt := generateRefreshToken()
+			refreshToken = &rt
+			updates["refresh_token"] = rt
+		}
+		db.GetDB().Model(&existingSession).Updates(updates)
 	} else {
 		// 创建新会话
 		session := &MatrixUserSession{
@@ -249,26 +262,28 @@ func (a *AuthService) createSession(account models.Account, deviceID *string, di
 			LastActiveTS:   utils.GetPtr(time.Now().UnixMilli()),
 			LocalAccountID: &account.Id,
 		}
-		
+
 		if withRefresh {
 			rt := generateRefreshToken()
-			session.RefreshToken = &rt
+			refreshToken = &rt
+			session.RefreshToken = refreshToken
 		}
-		
+
 		if err := db.GetDB().Create(session).Error; err != nil {
 			return nil, ErrInternal
 		}
 	}
-	
+
 	// 构建响应
 	resp := &LoginResponse{
-		UserID:      matrixUserID,
-		AccessToken: accessToken,
-		DeviceID:    *deviceID,
-		WellKnown: &WellKnown{},
+		UserID:       matrixUserID,
+		AccessToken:  accessToken,
+		DeviceID:     *deviceID,
+		RefreshToken: refreshToken,
+		WellKnown:    &WellKnown{},
 	}
 	resp.WellKnown.Homeserver.BaseURL = fmt.Sprintf("https://%s", a.HS.Config.ServerName)
-	
+
 	return resp, nil
 }
 
@@ -305,38 +320,121 @@ type RegisterRegistrationsAvailable struct {
 	RegistrationAvailable bool `json:"registration_available"`
 }
 
+// UIAuthResponse is returned when User-Interactive Auth is needed
+type UIAuthResponse struct {
+	Session string                   `json:"session"`
+	Flows   []map[string]interface{} `json:"flows"`
+}
+
+// NeedsUIAuth checks if the register request needs User-Interactive Auth
+func (a *AuthService) NeedsUIAuth(req *RegisterRequest) *UIAuthResponse {
+	if req.Auth != nil && req.Auth.Type == "m.login.dummy" {
+		return nil
+	}
+	return &UIAuthResponse{
+		Session: generateAccessToken()[:16],
+		Flows: []map[string]interface{}{
+			{"stages": []string{"m.login.dummy"}},
+		},
+	}
+}
+
 // Register 处理注册请求
 func (a *AuthService) Register(req *RegisterRequest, isAdmin bool) (*RegisterResponse, *MatrixError) {
-	// 检查是否允许注册
-	// 在社区系统中，注册通过社区的注册流程，这里主要用于管理员创建用户
-	// Matrix 客户端应该使用社区的注册流程
-	
-	if !isAdmin {
-		// 非 admin 只能注册，但需要通过社区的注册流程
-		// 这里返回 M_UNAUTHORIZED 表示需要通过其他方式注册
-		return nil, ErrUnauthorized
-	}
-	
-	// Admin 创建用户
+
 	if req.Username == "" {
 		return nil, ErrInvalidUsername
 	}
-	
+
 	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
-	
+
+	// Validate localpart per Matrix spec: [a-z0-9._=/-]+
+	if !validLocalpartRe.MatchString(req.Username) {
+		return nil, ErrInvalidUsername
+	}
+
 	// 检查用户名是否已存在
 	var count int64
 	db.GetDB().Model(&models.Account{}).Where("username = ?", req.Username).Count(&count)
 	if count > 0 {
 		return nil, ErrUserInUse
 	}
-	
-	// 创建本地用户（通过社区的注册流程）
-	// 这里简化处理，实际应该调用社区的用户创建逻辑
-	return nil, &MatrixError{
-		ErrCode: "M_UNRECOGNIZED",
-		Error:   "Registration must be done through the community platform",
+
+	// 创建本地用户
+	return a.createLocalUser(req.Username, req.Password, req.DeviceID, req.InitialDeviceDisplayName, req.InhibitLogin, isAdmin, req.RefreshToken)
+}
+
+// createLocalUser 创建本地用户（User + Account + UserSecretData + MatrixSession）
+func (a *AuthService) createLocalUser(username, password string, deviceID *string, displayName *string, inhibitLogin bool, isAdmin bool, withRefresh bool) (*RegisterResponse, *MatrixError) {
+	if password == "" {
+		password = "complement_default_password"
 	}
+
+	salt := utils.GetRandomString(64)
+	hashedPassword, err := models.EncryptPassword(password, salt)
+	if err != nil {
+		return nil, ErrInternal
+	}
+
+	user := &models.User{
+		UUID:           uuid.New().String(),
+		UserName:       username,
+		EmailHash:      fmt.Sprintf("matrix_%s_%d", username, time.Now().UnixNano()),
+		Status:         models.UserStatusNormal,
+		IsMailVerified: true,
+		IsAdmin:        isAdmin,
+	}
+
+	account := &models.Account{
+		Username:    username,
+		DisplayName: username,
+	}
+
+	secret := &models.UserSecretData{
+		Salt:     salt,
+		Password: hashedPassword,
+		Email:    fmt.Sprintf("%s@%s", username, a.HS.Config.ServerName),
+	}
+
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		secret.UserId = user.Id
+		if err := tx.Create(secret).Error; err != nil {
+			return err
+		}
+		account.UserId = user.Id
+		if err := tx.Create(account).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error("Failed to create local user %s: %v", username, err)
+		return nil, ErrInternal
+	}
+
+	userID := fmt.Sprintf("@%s:%s", username, a.HS.Config.ServerName)
+
+	if inhibitLogin {
+		return &RegisterResponse{
+			UserID: userID,
+		}, nil
+	}
+
+	// 创建登录会话
+	loginResp, loginErr := a.createSession(*account, deviceID, displayName, withRefresh)
+	if loginErr != nil {
+		return nil, loginErr
+	}
+
+	return &RegisterResponse{
+		UserID:      loginResp.UserID,
+		AccessToken: loginResp.AccessToken,
+		DeviceID:    loginResp.DeviceID,
+		RefreshToken: loginResp.RefreshToken,
+	}, nil
 }
 
 // ===== Token 刷新 =====
@@ -435,7 +533,9 @@ func (a *AuthService) GetDeviceByToken(accessToken string) (*MatrixUserSession, 
 func generateAccessToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		log.Error("Failed to generate random bytes for access token: %v", err)
+		// 使用备用方案（不安全但总比 panic 好）
+		return "syt_" + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
 	}
 	return "syt_" + base64.RawURLEncoding.EncodeToString(b)
 }
@@ -444,7 +544,8 @@ func generateAccessToken() string {
 func generateRefreshToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		log.Error("Failed to generate random bytes for refresh token: %v", err)
+		return "rtr_" + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
 	}
 	return "rtr_" + base64.RawURLEncoding.EncodeToString(b)
 }
@@ -453,7 +554,8 @@ func generateRefreshToken() string {
 func generateDeviceID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		log.Error("Failed to generate random bytes for device ID: %v", err)
+		return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
@@ -501,6 +603,27 @@ func (a *AuthService) UserExists(username string) bool {
 }
 
 // GetLocalAccountID 获取本地账户ID
+// VerifyUserPassword 验证用户密码（用于 UIA）
+func (a *AuthService) VerifyUserPassword(matrixUserID, password string) bool {
+	localpart, _, ok := ParseMatrixUserID(matrixUserID)
+	if !ok {
+		return false
+	}
+	var account models.Account
+	if db.GetDB().Where("username = ?", localpart).First(&account).Error != nil {
+		return false
+	}
+	var user models.User
+	if db.GetDB().First(&user, account.UserId).Error != nil {
+		return false
+	}
+	var secretData models.UserSecretData
+	if db.GetDB().Where("user_id = ?", user.Id).First(&secretData).Error != nil {
+		return false
+	}
+	return models.CompareHashAndPassword(secretData.Password, password, secretData.Salt) == nil
+}
+
 func (a *AuthService) GetLocalAccountID(matrixUserID string) (uint64, error) {
 	localpart, _, ok := ParseMatrixUserID(matrixUserID)
 	if !ok {

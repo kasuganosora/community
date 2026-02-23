@@ -1,6 +1,8 @@
 package matrix
 
 import (
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/log"
@@ -14,8 +16,9 @@ type Bridge struct {
 	userMapper   *UserMapper
 	roomMapper   *RoomMapper
 	msgBridge    *MessageBridge
-	started      bool
+	started      atomic.Bool
 	stopChan     chan struct{}
+	stopOnce     sync.Once
 }
 
 // NewBridge 创建 Bridge 实例
@@ -51,7 +54,7 @@ func (b *Bridge) Start() error {
 
 	// 初始化各组件
 	b.userMapper = NewUserMapper(b.client)
-	b.roomMapper = NewRoomMapper(b.client)
+	b.roomMapper = NewRoomMapper(b.client, b.userMapper)
 	b.msgBridge = NewMessageBridge(b.client, b.userMapper, b.roomMapper)
 
 	// 确保 Bridge 用户存在
@@ -59,30 +62,32 @@ func (b *Bridge) Start() error {
 		return err
 	}
 
-	b.started = true
+	b.started.Store(true)
 	log.Info("Matrix Bridge started successfully")
 	return nil
 }
 
 // Stop 停止 Bridge
 func (b *Bridge) Stop() {
-	if !b.started {
+	if !b.started.Load() {
 		return
 	}
 
-	close(b.stopChan)
-	b.started = false
+	b.stopOnce.Do(func() {
+		close(b.stopChan)
+	})
+	b.started.Store(false)
 	log.Info("Matrix Bridge stopped")
 }
 
 // IsStarted 检查 Bridge 是否已启动
 func (b *Bridge) IsStarted() bool {
-	return b.started
+	return b.started.Load()
 }
 
 // HandleTransaction 处理来自 Homeserver 的 Transaction
 func (b *Bridge) HandleTransaction(txnID string, events []Event) error {
-	if !b.started {
+	if !b.started.Load() {
 		return nil
 	}
 
@@ -144,7 +149,7 @@ func (b *Bridge) handleMemberEvent(event *Event) error {
 
 // SendToMatrix 将本地消息发送到 Matrix
 func (b *Bridge) SendToMatrix(convID uint64, senderAccountID uint64, content string) (string, error) {
-	if !b.started {
+	if !b.started.Load() {
 		return "", nil
 	}
 

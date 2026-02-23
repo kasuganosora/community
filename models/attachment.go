@@ -43,7 +43,7 @@ func (a *Attachment) BeforeSave(tx *gorm.DB) (err error) {
 	return
 }
 
-func (a *Attachment) GeTypeString() string {
+func (a *Attachment) GetTypeString() string {
 	switch a.Type {
 	case AttachmentTypeImage:
 		return "image"

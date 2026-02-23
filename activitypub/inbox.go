@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,9 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
+
+// MaxRequestBodySize is the maximum allowed size for request body (1MB)
+const MaxRequestBodySize = 1024 * 1024
 
 // Inbox handles POST /users/:username/inbox
 // Receives activities from remote instances
@@ -40,10 +44,15 @@ func Inbox(c *gin.Context) {
 		}
 	}
 
-	// Read the request body
+	// Read the request body with size limit
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxRequestBodySize)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		if err.Error() == "http: request body too large" {
+			c.JSON(413, gin.H{"error": "request body too large"})
+		} else {
+			c.JSON(400, gin.H{"error": "failed to read body"})
+		}
 		return
 	}
 
@@ -58,16 +67,15 @@ func Inbox(c *gin.Context) {
 	actor, err := VerifyActivitySignature(c, body)
 	if err != nil {
 		log.Warn("HTTP signature verification failed: %v", err)
-		// For compatibility, we still accept unsigned requests from known sources
-		// but log a warning. In production, you may want to reject these.
-		actor, _ = activity["actor"].(string)
+		c.JSON(401, gin.H{"error": "signature verification failed"})
+		return
 	}
 
 	// Route based on activity type
 	activityType, _ := activity["type"].(string)
 
 	// Create context with verified actor info
-	ctx := context.WithValue(context.Background(), "actor", actor)
+	ctx := context.WithValue(c.Request.Context(), "actor", actor)
 
 	switch activityType {
 	case "Create":

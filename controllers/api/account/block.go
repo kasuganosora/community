@@ -66,10 +66,14 @@ func Block(c *gin.Context) {
 	}
 
 	// Also unfollow if following
-	db.GetDB().Where("account_id = ? AND follow_id = ?", account.Id, accid).Delete(&models.Follow{})
+	if err := db.GetDB().Where("account_id = ? AND follow_id = ?", account.Id, accid).Delete(&models.Follow{}).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "unfollow error"))
+	}
 
 	// Also remove follower relationship
-	db.GetDB().Where("account_id = ? AND follow_id = ?", accid, account.Id).Delete(&models.Follow{})
+	if err := db.GetDB().Where("account_id = ? AND follow_id = ?", accid, account.Id).Delete(&models.Follow{}).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "remove follower error"))
+	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }
@@ -99,7 +103,9 @@ func Unblock(c *gin.Context) {
 	}
 
 	// Delete block
-	db.GetDB().Where("account_id = ? AND target_account_id = ? AND type = ?", account.Id, accid, models.BlockTypeAccount).Delete(&models.Block{})
+	if err := db.GetDB().Where("account_id = ? AND target_account_id = ? AND type = ?", account.Id, accid, models.BlockTypeAccount).Delete(&models.Block{}).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "delete block error"))
+	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }
@@ -148,7 +154,7 @@ func Mute(c *gin.Context) {
 	mute = &models.MuteAccount{
 		AccountId: account.Id,
 		TargetId:  accid,
-		CratedAt:  &now,
+		CreatedAt: &now,
 	}
 	if err := db.GetDB().Create(mute).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create mute error"))
@@ -184,7 +190,9 @@ func Unmute(c *gin.Context) {
 	}
 
 	// Delete mute
-	db.GetDB().Where("account_id = ? AND target_id = ?", account.Id, accid).Delete(&models.MuteAccount{})
+	if err := db.GetDB().Where("account_id = ? AND target_id = ?", account.Id, accid).Delete(&models.MuteAccount{}).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "delete mute error"))
+	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }

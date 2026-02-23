@@ -6,6 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	imagelib "image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -13,12 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/storage"
 )
@@ -197,28 +203,36 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 // GetThumbnail 获取缩略图
 func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height int, method string) (*MatrixThumbnail, io.ReadCloser, error) {
 	var thumbnail MatrixThumbnail
-	query := db.GetDB().Where("media_id = ?", mediaID)
-	
-	if width > 0 {
-		query = query.Where("width >= ?", width)
+
+	// Try exact match first, then any available thumbnail for this media
+	err := db.GetDB().Where("media_id = ?", mediaID).
+		Order("width DESC").First(&thumbnail).Error
+	if err != nil {
+		// No thumbnail at all - try returning the original media as thumbnail
+		media, reader, err2 := s.GetMedia(serverName, mediaID)
+		if err2 != nil {
+			return nil, nil, fmt.Errorf("thumbnail not found")
+		}
+		// Create a synthetic thumbnail from the original
+		synth := &MatrixThumbnail{
+			MediaID:  media.MediaID,
+			FilePath: media.FilePath,
+		}
+		if media.Width != nil {
+			synth.Width = *media.Width
+		}
+		if media.Height != nil {
+			synth.Height = *media.Height
+		}
+		return synth, reader, nil
 	}
-	if height > 0 {
-		query = query.Where("height >= ?", height)
-	}
-	if method != "" {
-		query = query.Where("resize_method = ?", method)
-	}
-	
-	if err := query.First(&thumbnail).Error; err != nil {
-		return nil, nil, fmt.Errorf("thumbnail not found")
-	}
-	
+
 	// 从本地存储读取
 	file, err := os.Open(thumbnail.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open thumbnail: %w", err)
 	}
-	
+
 	return &thumbnail, file, nil
 }
 
@@ -277,33 +291,28 @@ func generateMediaID() string {
 func handleUploadMedia(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := getUserID(c)
-	
-	// 获取上传的文件
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "No file provided",
-		})
-		return
-	}
-	defer file.Close()
-	
-	// 获取 Content-Type
-	contentType := header.Header.Get("Content-Type")
+
+	// Matrix spec: media upload uses raw request body
+	// Content-Type header specifies media type, filename is query param
+	contentType := c.GetHeader("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	
-	// 获取文件名（可选）
-	filename := c.PostForm("filename")
-	if filename == "" {
-		filename = header.Filename
+	// Strip parameters (e.g. "image/png; charset=utf-8" -> "image/png")
+	if idx := strings.Index(contentType, ";"); idx >= 0 {
+		contentType = strings.TrimSpace(contentType[:idx])
 	}
-	
-	// 上传媒体
+
+	filename := c.Query("filename")
+
+	// Build a synthetic FileHeader if filename provided
+	var fakeHeader *multipart.FileHeader
+	if filename != "" {
+		fakeHeader = &multipart.FileHeader{Filename: filename}
+	}
+
 	mediaService := NewMediaService(hs)
-	matrixMedia, err := mediaService.UploadMedia(file, header, contentType, userID)
+	matrixMedia, err := mediaService.UploadMedia(c.Request.Body, fakeHeader, contentType, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_UNKNOWN",
@@ -311,7 +320,7 @@ func handleUploadMedia(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 返回 MXC URI
 	c.JSON(http.StatusOK, gin.H{
 		"content_uri": fmt.Sprintf("mxc://%s/%s", hs.Config.ServerName, matrixMedia.MediaID),
@@ -334,6 +343,15 @@ func handleDownloadMedia(c *gin.Context) {
 	mediaService := NewMediaService(hs)
 	matrixMedia, reader, err := mediaService.GetMedia(serverName, mediaID)
 	if err != nil {
+		// Check if this is a pending async upload
+		var asyncMedia AsyncMediaInfo
+		if db.GetDB().Where("media_id = ? AND status = ?", mediaID, "pending").First(&asyncMedia).Error == nil {
+			c.JSON(http.StatusGatewayTimeout, gin.H{
+				"errcode": "M_NOT_YET_UPLOADED",
+				"error":   "Media has not been uploaded yet",
+			})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
 			"error":   "Media not found",
@@ -470,6 +488,44 @@ func handleThumbnailMedia(c *gin.Context) {
 	_ = thumbnail
 }
 
+// extractMediaIDFromPath strips the leading slash and any mxc://serverName/ prefix from a wildcard path.
+func extractMediaIDFromPath(serverName, mediaPath string) string {
+	// Strip leading slash from wildcard param
+	mediaID := strings.TrimPrefix(mediaPath, "/")
+	// Strip mxc://serverName/ prefix if present (malformed URL case)
+	prefix := "mxc://" + serverName + "/"
+	if strings.HasPrefix(mediaID, prefix) {
+		mediaID = strings.TrimPrefix(mediaID, prefix)
+	} else if strings.HasPrefix(mediaID, "mxc://") {
+		// Strip any mxc://otherServer/ prefix
+		parts := strings.SplitN(strings.TrimPrefix(mediaID, "mxc://"), "/", 2)
+		if len(parts) == 2 {
+			mediaID = parts[1]
+		}
+	}
+	return mediaID
+}
+
+// handleDownloadMediaV1 handles authenticated /_matrix/client/v1/media/download with wildcard path.
+// This handles malformed URLs where clients include mxc://server/ prefix in the path.
+func handleDownloadMediaV1(c *gin.Context) {
+	serverName := c.Param("serverName")
+	mediaPath := c.Param("mediaPath")
+	mediaID := extractMediaIDFromPath(serverName, mediaPath)
+	// Override the mediaId param so handleDownloadMedia can use it
+	c.Params = append(c.Params, gin.Param{Key: "mediaId", Value: mediaID})
+	handleDownloadMedia(c)
+}
+
+// handleThumbnailMediaV1 handles authenticated /_matrix/client/v1/media/thumbnail with wildcard path.
+func handleThumbnailMediaV1(c *gin.Context) {
+	serverName := c.Param("serverName")
+	mediaPath := c.Param("mediaPath")
+	mediaID := extractMediaIDFromPath(serverName, mediaPath)
+	c.Params = append(c.Params, gin.Param{Key: "mediaId", Value: mediaID})
+	handleThumbnailMedia(c)
+}
+
 // handlePreviewURL 处理 URL 预览
 func handlePreviewURL(c *gin.Context) {
 	previewURL := c.Query("url")
@@ -531,7 +587,80 @@ func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
 
 	// 解析 Open Graph 标签
 	preview := parseOpenGraphTags(htmlContent, urlStr)
+
+	// 下载 og:image 并上传为媒体
+	if preview.OGImage != "" {
+		hs.processPreviewImage(preview, urlStr)
+	}
+
 	return preview
+}
+
+// processPreviewImage 下载并处理预览图片
+func (hs *HomeServer) processPreviewImage(preview *URLPreview, baseURL string) {
+	imageURL := preview.OGImage
+
+	// 解析相对 URL
+	if !strings.HasPrefix(imageURL, "http") {
+		if strings.HasPrefix(imageURL, "//") {
+			imageURL = "https:" + imageURL
+		} else if strings.HasPrefix(imageURL, "/") {
+			if idx := strings.Index(baseURL, "://"); idx != -1 {
+				endIdx := strings.Index(baseURL[idx+3:], "/")
+				if endIdx != -1 {
+					imageURL = baseURL[:idx+3+endIdx] + imageURL
+				} else {
+					imageURL = baseURL + imageURL
+				}
+			}
+		} else {
+			// Relative path - resolve against base URL directory
+			lastSlash := strings.LastIndex(baseURL, "/")
+			if lastSlash != -1 {
+				imageURL = baseURL[:lastSlash+1] + imageURL
+			}
+		}
+	}
+
+	// 下载图片
+	imgClient := httpclient.NewClient()
+	imgReq := imgClient.NewRequest("GET", imageURL)
+	imgReq.SetTimeout(10)
+	imgResp, err := imgReq.Do()
+	if err != nil {
+		return
+	}
+
+	imgBytes, err := imgResp.GetBodyData()
+	if err != nil || len(imgBytes) == 0 {
+		return
+	}
+
+	// 获取图片尺寸
+	imgReader := bytes.NewReader(imgBytes)
+	imgConfig, _, err := imagelib.DecodeConfig(imgReader)
+	if err == nil {
+		preview.OGImageWidth = imgConfig.Width
+		preview.OGImageHeight = imgConfig.Height
+	}
+
+	preview.MatrixImageSize = int64(len(imgBytes))
+
+	// 上传为媒体文件
+	mediaService := NewMediaService(hs)
+	contentType := http.DetectContentType(imgBytes)
+	media, err := mediaService.UploadMedia(
+		bytes.NewReader(imgBytes),
+		nil,
+		contentType,
+		"",
+	)
+	if err != nil {
+		return
+	}
+
+	// 设置 mxc:// URL
+	preview.OGImage = fmt.Sprintf("mxc://%s/%s", hs.Config.ServerName, media.MediaID)
 }
 
 // parseOpenGraphTags 解析 Open Graph 标签
@@ -588,6 +717,13 @@ func parseOpenGraphTags(html, baseURL string) *URLPreview {
 	// 查找 og:type
 	if idx := strings.Index(html, `property="og:type"`); idx != -1 {
 		preview.OGType = extractMetaContent(html[idx:])
+	}
+
+	// 查找 og:url
+	if idx := strings.Index(html, `property="og:url"`); idx != -1 {
+		if ogURL := extractMetaContent(html[idx:]); ogURL != "" {
+			preview.OGURL = ogURL
+		}
 	}
 
 	// 如果没有标题，使用 URL
@@ -651,15 +787,18 @@ func MXCToURL(mxcURI, homeserverURL string) string {
 	return fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", homeserverURL, parts[0], parts[1])
 }
 
-// init 初始化时自动迁移数据库表
-func init() {
-	// 延迟执行，确保数据库已初始化
-	go func() {
-		time.Sleep(1 * time.Second)
+// migrateOnce ensures migration happens only once
+var migrateOnce sync.Once
+
+// InitMediaDB initializes media database tables
+func InitMediaDB() {
+	migrateOnce.Do(func() {
 		if db.GetDB() != nil {
-			db.GetDB().AutoMigrate(&MatrixMedia{}, &MatrixThumbnail{})
+			if err := db.GetDB().AutoMigrate(&MatrixMedia{}, &MatrixThumbnail{}); err != nil {
+				log.Error("Failed to migrate media tables: %v", err)
+			}
 		}
-	}()
+	})
 }
 
 // ToJSON 序列化为 JSON

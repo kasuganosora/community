@@ -95,7 +95,7 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}
-		if err = feed.AddToTimelineItem(timeline, status, account.User.Settings.GetaggrAgatesReblogs()); err != nil {
+		if err = feed.AddToTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs()); err != nil {
 			return
 		}
 		if err = feed.TrimTimeline(timeline); err != nil {
@@ -133,7 +133,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}
-		if err = feed.RemoveTimelineItem(timeline, status, account.User.Settings.GetaggrAgatesReblogs()); err != nil {
+		if err = feed.RemoveTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs()); err != nil {
 			return
 		}
 		if err = feed.TrimTimeline(timeline); err != nil {

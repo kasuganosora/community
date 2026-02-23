@@ -4,7 +4,7 @@ import "time"
 
 type Marker struct {
 	AccountId uint64                         `gorm:"primary_key;auto_increment:false"`
-	Timelines map[string]*MarkerTimelineItem `gorm:"type:json; serialize:json"`
+	Timelines map[string]*MarkerTimelineItem `gorm:"type:json;serializer:json"`
 }
 
 func (m *Marker) TableName() string {

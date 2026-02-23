@@ -33,7 +33,10 @@ func Login(c *gin.Context) {
 	}
 
 	user := &models.User{}
-	emailHash := models.GetEmailHash(req.Email)
+	var emailHash string
+	if req.Email != "" {
+		emailHash = models.GetEmailHash(req.Email)
+	}
 	err := db.GetDB().Where("username = ? or email_hash = ?", req.Username, emailHash).First(user).Error
 
 	if err != nil {
@@ -43,6 +46,7 @@ func Login(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	usersd := &models.UserSecretData{}
@@ -70,7 +74,10 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	sessionExpire, _ := strconv.Atoi(config.C.SessionExpire)
+	sessionExpire, err := strconv.Atoi(config.C.SessionExpire)
+	if err != nil || sessionExpire <= 0 {
+		sessionExpire = 1382400 // 默认 16 天
+	}
 
 	// 取出当前用户所拥有的权限位
 	permissions, err := models.GetUserPermissions(db.GetDB(), user.Id)
