@@ -1,0 +1,116 @@
+/* TDesign dark theme token overrides to match X.com */
+:root {
+  --td-brand-color: var(--accent-blue);
+  --td-brand-color-hover: var(--accent-blue-hover);
+  --td-brand-color-active: #1577bb;
+
+  --td-bg-color-page: var(--bg-primary);
+  --td-bg-color-container: var(--bg-primary);
+  --td-bg-color-container-hover: var(--bg-hover);
+  --td-bg-color-secondarycontainer: var(--bg-secondary);
+  --td-bg-color-secondarycontainer-hover: var(--bg-hover);
+  --td-bg-color-component: var(--bg-secondary);
+  --td-bg-color-component-hover: var(--bg-hover);
+
+  --td-text-color-primary: var(--text-primary);
+  --td-text-color-secondary: var(--text-secondary);
+  --td-text-color-placeholder: var(--text-tertiary);
+
+  --td-border-level-1-color: var(--border-color);
+  --td-border-level-2-color: var(--border-light);
+
+  --td-error-color: var(--danger);
+  --td-success-color: var(--success);
+  --td-warning-color: var(--warning);
+
+  --td-font-size-body-medium: var(--font-md);
+
+  --td-comp-paddingLR-l: 16px;
+  --td-comp-paddingTB-m: 10px;
+
+  --td-radius-default: var(--radius-md);
+  --td-radius-large: var(--radius-lg);
+}
+
+/* Override TDesign menu for X.com nav style */
+.t-menu {
+  background: transparent !important;
+  border: none !important;
+}
+
+.t-menu__item {
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-full) !important;
+  padding: 12px !important;
+  margin: 2px 0 !important;
+  font-size: var(--font-xl) !important;
+  font-weight: 400 !important;
+  transition: background-color var(--transition-fast) !important;
+}
+
+.t-menu__item:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+.t-menu__item.t-is-active {
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+/* Override TDesign tabs */
+.t-tabs__nav-item {
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+}
+
+.t-tabs__nav-item.t-is-active {
+  color: var(--text-primary) !important;
+  font-weight: 700;
+}
+
+.t-tabs__bar {
+  background-color: var(--accent-blue) !important;
+  border-radius: var(--radius-full) !important;
+  height: 4px !important;
+}
+
+/* Override TDesign input */
+.t-input {
+  background-color: var(--bg-secondary) !important;
+  border-color: transparent !important;
+  border-radius: var(--radius-full) !important;
+  color: var(--text-primary) !important;
+}
+
+.t-input:focus-within,
+.t-input.t-is-focused {
+  border-color: var(--accent-blue) !important;
+  background-color: var(--bg-primary) !important;
+}
+
+/* Override TDesign button primary */
+.t-button--theme-primary {
+  background-color: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+}
+
+.t-button--theme-primary:hover {
+  background-color: var(--accent-blue-hover) !important;
+}
+
+/* Override TDesign card */
+.t-card {
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-lg) !important;
+}
+
+/* Override TDesign dialog */
+.t-dialog {
+  background-color: var(--bg-primary) !important;
+}
+
+.t-dialog__header {
+  color: var(--text-primary) !important;
+}
