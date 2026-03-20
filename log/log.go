@@ -2,15 +2,91 @@ package log
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var logObj *logrus.Logger
 
+// LogConfig 日志配置
+type LogConfig struct {
+	Level      string // debug, info, warn, error
+	Output     string // stdout, file, both
+	FilePath   string
+	MaxSize    int  // MB
+	MaxBackups int  // 保留旧文件个数
+	MaxAge     int  // 保留天数
+	Compress   bool // 是否压缩
+	Format     string // text, json
+}
+
 func init() {
 	logObj = logrus.New()
+	// 默认配置
+	logObj.SetOutput(os.Stdout)
+	logObj.SetLevel(logrus.InfoLevel)
+	logObj.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339,
+	})
+}
+
+// InitLogger 初始化日志配置
+func InitLogger(config LogConfig) {
+	// 设置日志级别
+	level, err := logrus.ParseLevel(config.Level)
+	if err != nil {
+		level = logrus.InfoLevel
+	}
+	logObj.SetLevel(level)
+
+	// 设置日志格式
+	if config.Format == "json" {
+		logObj.SetFormatter(&logrus.JSONFormatter{
+			TimestampFormat: time.RFC3339,
+		})
+	} else {
+		logObj.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: time.RFC3339,
+		})
+	}
+
+	// 设置输出
+	switch config.Output {
+	case "file":
+		logObj.SetOutput(getLogWriter(config))
+	case "both":
+		logWriter := getLogWriter(config)
+		logObj.SetOutput(io.MultiWriter(os.Stdout, logWriter))
+	default: // stdout
+		logObj.SetOutput(os.Stdout)
+	}
+}
+
+// getLogWriter 获取日志写入器（支持轮转）
+func getLogWriter(config LogConfig) io.Writer {
+	// 确保日志目录存在
+	if config.FilePath != "" {
+		dir := filepath.Dir(config.FilePath)
+		if dir != "" && dir != "." {
+			os.MkdirAll(dir, 0755)
+		}
+	}
+
+	return &lumberjack.Logger{
+		Filename:   config.FilePath,
+		MaxSize:    config.MaxSize,    // MB
+		MaxBackups: config.MaxBackups, // 保留旧文件个数
+		MaxAge:     config.MaxAge,     // 保留天数
+		Compress:   config.Compress,   // 是否压缩
+	}
 }
 
 func GetLogObject() *logrus.Logger {
@@ -72,6 +148,21 @@ func ErrorV(err error) {
 
 	msg := fmt.Sprintf("%+v", err)
 	Error(msg)
+}
+
+// WithFields 创建带字段的日志条目
+func WithFields(fields map[string]interface{}) *logrus.Entry {
+	return logObj.WithFields(fields)
+}
+
+// WithField 创建带单个字段的日志条目
+func WithField(key string, value interface{}) *logrus.Entry {
+	return logObj.WithField(key, value)
+}
+
+// WithError 创建带错误字段的日志条目
+func WithError(err error) *logrus.Entry {
+	return logObj.WithError(err)
 }
 
 // SetLevel 设置日志等级
