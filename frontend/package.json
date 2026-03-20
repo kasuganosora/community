@@ -20,7 +20,8 @@
   },
   "overrides": {
     "glob": "^10.5.0",
-    "immutable": "^5.1.5"
+    "immutable": "^5.1.5",
+    "undici": "^7.24.5"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
