@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
@@ -10,7 +10,15 @@ import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 const router = useRouter()
 
 const publicTimeline = ref<MastodonStatus[]>([])
-const instanceInfo = ref({
+interface InstanceInfo {
+  name: string
+  description: string
+  userCount: number
+  statusCount: number
+  domain: string
+}
+
+const instanceInfo = ref<InstanceInfo>({
   name: 'Community',
   description: 'A decentralized social platform',
   userCount: 0,
@@ -18,10 +26,26 @@ const instanceInfo = ref({
   domain: window.location.host,
 })
 
+const error = ref<string | null>(null)
+
+// Computed to limit the timeline preview to 5 items
+const previewStatuses = computed(() => publicTimeline.value.slice(0, 5))
+
+interface InstanceResponse {
+  title?: string
+  uri?: string
+  short_description?: string
+  description?: string
+  stats?: {
+    user_count?: number
+    status_count?: number
+  }
+}
+
 onMounted(async () => {
   try {
     const [instanceRes, timelineRes] = await Promise.allSettled([
-      client.get('/api/v1/instance'),
+      client.get<InstanceResponse>('/api/v1/instance'),
       client.get<MastodonStatus[]>('/api/v1/timelines/public', { params: { limit: 20 } }),
     ])
     if (instanceRes.status === 'fulfilled') {
@@ -37,8 +61,9 @@ onMounted(async () => {
     if (timelineRes.status === 'fulfilled') {
       publicTimeline.value = timelineRes.value.data
     }
-  } catch {
-    // Silently fail - page will show with defaults
+  } catch (e) {
+    console.error('Failed to load instance info:', e)
+    error.value = 'Failed to load some content'
   }
 })
 
@@ -50,7 +75,8 @@ function goRegister() {
   router.push({ name: 'register' })
 }
 
-function stripHtml(html: string): string {
+function stripHtml(html: string | null | undefined): string {
+  if (!html) return ''
   return sanitizeHtml(html).replace(/<[^>]*>/g, '')
 }
 </script>
@@ -89,6 +115,8 @@ function stripHtml(html: string): string {
               shape="round"
               variant="outline"
               class="btn-explore"
+              disabled
+              title="Coming soon"
             >
               Explore other servers
             </t-button>
@@ -122,17 +150,17 @@ function stripHtml(html: string): string {
           <h2 class="timeline-preview__title">Public Timeline</h2>
           <div class="timeline-preview__list">
             <div
-              v-for="status in publicTimeline.slice(0, 5)"
+              v-for="status in previewStatuses"
               :key="status.id"
               class="preview-post"
             >
               <t-avatar
-                :size="'36px'"
+                :size="36"
                 :image="status.account.avatar || undefined"
                 shape="circle"
                 class="preview-post__avatar"
               >
-                {{ status.account.display_name?.charAt(0) || 'U' }}
+                {{ status.account.display_name?.charAt(0) ?? status.account.username?.charAt(0) ?? 'U' }}
               </t-avatar>
               <div class="preview-post__content">
                 <div class="preview-post__header">
@@ -219,8 +247,8 @@ function stripHtml(html: string): string {
   display: flex;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 40px 24px;
-  gap: 48px;
+  padding: var(--space-10) var(--space-6);
+  gap: var(--space-12);
   min-height: 100vh;
 }
 
@@ -229,26 +257,26 @@ function stripHtml(html: string): string {
   max-width: 480px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-6);
 }
 
 .landing__right {
   flex: 1;
   max-width: 480px;
   overflow-y: auto;
-  max-height: calc(100vh - 80px);
+  max-height: calc(100vh - var(--space-10));
 }
 
 /* Instance card */
 .instance-card {
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
-  padding: 32px;
+  padding: var(--space-8);
   text-align: center;
 }
 
 .instance-card__logo {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
   color: var(--text-primary);
 }
 
@@ -256,20 +284,20 @@ function stripHtml(html: string): string {
   font-size: 28px;
   font-weight: 800;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .instance-card__desc {
   color: var(--text-secondary);
   font-size: var(--font-md);
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .instance-card__actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
 }
 
 .instance-card__actions :deep(.t-button--theme-primary) {
@@ -303,7 +331,7 @@ function stripHtml(html: string): string {
 .stat {
   flex: 1;
   background: var(--bg-elevated);
-  padding: 12px;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -330,14 +358,14 @@ function stripHtml(html: string): string {
 .timeline-preview__title {
   font-size: var(--font-lg);
   font-weight: 700;
-  padding: 16px;
+  padding: var(--space-4);
   color: var(--text-primary);
 }
 
 .preview-post {
   display: flex;
   gap: 10px;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-color);
   transition: background-color var(--transition-fast);
 }
@@ -358,8 +386,8 @@ function stripHtml(html: string): string {
 .preview-post__header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
   flex-wrap: nowrap;
   overflow: hidden;
 }
@@ -401,14 +429,14 @@ function stripHtml(html: string): string {
 
 .preview-post__actions {
   display: flex;
-  gap: 16px;
-  margin-top: 6px;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
 }
 
 .preview-action {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--text-secondary);
   font-size: var(--font-xs);
 }
@@ -417,13 +445,13 @@ function stripHtml(html: string): string {
 .feed-column {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .feed-note {
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: var(--space-4);
   transition: transform var(--transition-fast);
 }
 
@@ -435,7 +463,7 @@ function stripHtml(html: string): string {
   font-size: var(--font-md);
   color: var(--text-primary);
   line-height: 1.5;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -445,15 +473,15 @@ function stripHtml(html: string): string {
 
 .feed-note__reactions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .reaction {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
   border-radius: var(--radius-full);
   background: var(--bg-elevated);
   font-size: var(--font-xs);

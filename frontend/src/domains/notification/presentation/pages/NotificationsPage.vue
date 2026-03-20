@@ -8,18 +8,21 @@ import PostCard from '@/shared/components/post/PostCard.vue'
 const notifications = ref<MastodonNotification[]>([])
 const loading = ref(true)
 
+const error = ref<string | null>(null)
+
 onMounted(async () => {
   try {
     const { data } = await client.get<MastodonNotification[]>('/api/v1/notifications', { params: { limit: 30 } })
     notifications.value = data
-  } catch {
-    // Silently fail
+  } catch (e) {
+    console.error('Failed to load notifications:', e)
+    error.value = 'Failed to load notifications'
   } finally {
     loading.value = false
   }
 })
 
-function getNotificationIcon(type: string) {
+function getNotificationIcon(type: NotificationType) {
   switch (type) {
     case 'favourite': return 'heart-filled'
     case 'reblog': return 'swap'
@@ -29,16 +32,19 @@ function getNotificationIcon(type: string) {
   }
 }
 
-function getNotificationColor(type: string) {
+type NotificationType = 'favourite' | 'reblog' | 'follow' | 'mention'
+
+function getNotificationColor(type: NotificationType) {
   switch (type) {
     case 'favourite': return 'var(--accent-pink)'
     case 'reblog': return 'var(--accent-green)'
     case 'follow': return 'var(--accent-blue)'
+    case 'mention': return 'var(--accent-blue)'
     default: return 'var(--text-secondary)'
   }
 }
 
-function getNotificationText(type: string) {
+function getNotificationText(type: NotificationType) {
   switch (type) {
     case 'favourite': return 'liked your post'
     case 'reblog': return 'reposted your post'
@@ -59,8 +65,21 @@ function getNotificationText(type: string) {
       <t-loading />
     </div>
 
+    <div v-else-if="error" class="empty-state" role="alert">
+      <div class="empty-state__icon">
+        <t-icon name="error-circle" :size="48" />
+      </div>
+      <h2 class="empty-state__title">Something went wrong</h2>
+      <p class="empty-state__text">{{ error }}</p>
+    </div>
+
     <template v-else>
-      <div v-if="notifications.length === 0" class="empty-state">
+      <div 
+        v-if="notifications.length > 0" 
+        class="notifications-list" 
+        role="list" 
+        aria-label="Notifications"
+      >
         <div class="empty-state__icon">
           <t-icon name="notification" :size="48" />
         </div>
@@ -71,27 +90,28 @@ function getNotificationText(type: string) {
       </div>
 
       <div
-        v-for="notif in notifications"
-        :key="notif.id"
+        v-for="notification in notifications"
+        :key="notification.id"
         class="notification-item"
+        role="listitem"
       >
-        <template v-if="notif.type === 'mention' && notif.status">
-          <PostCard :status="notif.status" />
+        <template v-if="notification.type === 'mention' && notification.status">
+          <PostCard :status="notification.status" />
         </template>
 
         <template v-else>
           <div class="notification-body">
-            <div class="notification-icon" :style="{ color: getNotificationColor(notif.type) }">
-              <t-icon :name="getNotificationIcon(notif.type)" :size="24" />
+            <div class="notification-icon" :style="{ color: getNotificationColor(notification.type as NotificationType) }">
+              <t-icon :name="getNotificationIcon(notification.type as NotificationType)" :size="24" />
             </div>
             <div class="notification-content">
-              <UserAvatar :account="notif.account" :size="32" />
+              <UserAvatar :account="notification.account" :size="32" />
               <div class="notification-text">
-                <strong>{{ notif.account.display_name }}</strong>
-                {{ getNotificationText(notif.type) }}
+                <strong>{{ notification.account.display_name }}</strong>
+                {{ getNotificationText(notification.type as NotificationType) }}
               </div>
-              <div v-if="notif.status" class="notification-preview">
-                {{ notif.status.content.replace(/<[^>]*>/g, '').slice(0, 100) }}
+              <div v-if="notification.status" class="notification-preview">
+                {{ notification.status.content.replace(/<[^>]*>/g, '').slice(0, 100) }}
               </div>
             </div>
           </div>
@@ -112,8 +132,8 @@ function getNotificationText(type: string) {
 
 .notification-body {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
   transition: background-color var(--transition-fast);
 }
@@ -135,13 +155,13 @@ function getNotificationText(type: string) {
 }
 
 .notification-text {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   font-size: var(--font-md);
   color: var(--text-primary);
 }
 
 .notification-preview {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-sm);
   color: var(--text-secondary);
   overflow: hidden;

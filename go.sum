@@ -156,6 +156,8 @@ github.com/kasuganosora/sqlexec v0.5.2 h1:vPHx+ymwuARN4Mat9xleiS/+TJebRPi/gQeKW0
 github.com/kasuganosora/sqlexec v0.5.2/go.mod h1:ry7wE3Hy7DtwkDtapsGOSJiOmps/Az+NWJ2OaanHmXE=
 github.com/kasuganosora/sqlexec v0.6.0 h1:p7fsj7BHjuBMTt+cSViBRMFgUW3+FP56D/J0uBbAsr4=
 github.com/kasuganosora/sqlexec v0.6.0/go.mod h1:byPIYfWE9N/oEDwvsvF3Y3L8nHgx3QyM4Lq+FMpIJ/Y=
+github.com/kasuganosora/sqlexec v0.6.1 h1:lRY2EbFyoieEWQ22TJWYR6Gse+y2GdJ85Mh8fOFsLgM=
+github.com/kasuganosora/sqlexec v0.6.1/go.mod h1:byPIYfWE9N/oEDwvsvF3Y3L8nHgx3QyM4Lq+FMpIJ/Y=
 github.com/kisielk/errcheck v1.2.0/go.mod h1:/BMXB+zMLi60iA8Vv6Ksmxu/1UDYcXs4uQLJ+jE2L00=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=

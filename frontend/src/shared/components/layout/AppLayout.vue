@@ -51,7 +51,7 @@ import RightSidebar from './RightSidebar.vue'
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
 }
 
 @media (max-width: 1280px) {

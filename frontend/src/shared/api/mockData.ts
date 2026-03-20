@@ -1,7 +1,19 @@
 import type { MastodonAccount, MastodonStatus, MastodonTag, MastodonNotification } from '@/shared/types/mastodon'
 
-const now = new Date().toISOString()
+// Use function to get current time for fresh data on each import
+const getNow = () => new Date().toISOString()
 const hour = (h: number) => new Date(Date.now() - h * 3600000).toISOString()
+
+// Seeded random for deterministic test data
+let seed = 12345
+function random(): number {
+  seed = (seed * 9301 + 49297) % 233280
+  return seed / 233280
+}
+
+function randomInt(max: number): number {
+  return Math.floor(random() * max)
+}
 
 export const mockCurrentUser: MastodonAccount = {
   id: '1',
@@ -24,7 +36,7 @@ export const mockCurrentUser: MastodonAccount = {
   followers_count: 128,
   following_count: 64,
   statuses_count: 256,
-  last_status_at: now,
+  last_status_at: getNow(),
   hide_collections: false,
   emojis: [],
   fields: [],
@@ -78,9 +90,9 @@ function makeStatus(id: string, account: MastodonAccount, content: string, hours
     language: 'en',
     uri: `https://community.local/statuses/${id}`,
     url: `https://community.local/@${account.username}/${id}`,
-    replies_count: Math.floor(Math.random() * 20),
-    reblogs_count: Math.floor(Math.random() * 50),
-    favourites_count: Math.floor(Math.random() * 200),
+    replies_count: randomInt(20),
+    reblogs_count: randomInt(50),
+    favourites_count: randomInt(200),
     edited_at: null,
     favourited: false,
     reblogged: false,
@@ -101,9 +113,10 @@ function makeStatus(id: string, account: MastodonAccount, content: string, hours
   }
 }
 
-const alice = mockUsers[0]!
-const bob = mockUsers[1]!
-const charlie = mockUsers[2]!
+// Safe access with bounds checking
+const alice = mockUsers[0] ?? mockCurrentUser
+const bob = mockUsers[1] ?? mockCurrentUser
+const charlie = mockUsers[2] ?? mockCurrentUser
 
 export const mockStatuses: MastodonStatus[] = [
   makeStatus('101', alice, 'Just shipped a new feature! The federation support is looking great. 🚀', 0.5, {
@@ -149,11 +162,11 @@ export const mockStatuses: MastodonStatus[] = [
 ]
 
 export const mockTrends: MastodonTag[] = [
-  { name: 'vue3', url: '/tags/vue3', history: [{ day: now, uses: '128', accounts: '45' }] },
-  { name: 'fediverse', url: '/tags/fediverse', history: [{ day: now, uses: '89', accounts: '32' }] },
-  { name: 'typescript', url: '/tags/typescript', history: [{ day: now, uses: '256', accounts: '78' }] },
-  { name: 'activitypub', url: '/tags/activitypub', history: [{ day: now, uses: '67', accounts: '28' }] },
-  { name: 'opensource', url: '/tags/opensource', history: [{ day: now, uses: '345', accounts: '120' }] },
+  { name: 'vue3', url: '/tags/vue3', history: [{ day: getNow(), uses: '128', accounts: '45' }] },
+  { name: 'fediverse', url: '/tags/fediverse', history: [{ day: getNow(), uses: '89', accounts: '32' }] },
+  { name: 'typescript', url: '/tags/typescript', history: [{ day: getNow(), uses: '256', accounts: '78' }] },
+  { name: 'activitypub', url: '/tags/activitypub', history: [{ day: getNow(), uses: '67', accounts: '28' }] },
+  { name: 'opensource', url: '/tags/opensource', history: [{ day: getNow(), uses: '345', accounts: '120' }] },
 ]
 
 export const mockSuggestions: MastodonAccount[] = mockUsers.slice(0, 3)

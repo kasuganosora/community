@@ -78,6 +78,8 @@ func InitGorm() {
 		err = initMysqlConnection()
 	case "sqlite":
 		err = initSqliteConnection()
+	case "xml":
+		err = initSqlexecXmlConnection()
 	default:
 		log.Fatal("Unsupported DSN type: %s", dsnType)
 	}
@@ -128,6 +130,8 @@ func getDsnType() string {
 		return "mysql"
 	case "sqlite":
 		return "sqlite"
+	case "xml":
+		return "xml"
 	}
 	return ""
 }

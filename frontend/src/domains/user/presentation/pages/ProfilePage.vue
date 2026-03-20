@@ -3,9 +3,10 @@ import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
-import { PROFILE_TABS } from '../../domain/entities'
+import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import { formatCount } from '@/shared/utils/format'
+import RichText from '@/shared/components/common/RichText.vue'
 
 const route = useRoute()
 const account = ref<MastodonAccount | null>(null)
@@ -21,7 +22,8 @@ async function loadProfile() {
     account.value = acctData
     const statusData = await userApi.getStatuses(acctData.id, { limit: 20, exclude_replies: activeTab.value === 'posts' })
     statuses.value = statusData
-  } catch {
+  } catch (e) {
+    console.error('Failed to load profile:', e)
     // Profile not found
   } finally {
     loading.value = false
@@ -36,7 +38,11 @@ watch(() => route.params.username, loadProfile)
   <div class="profile-page" v-if="account">
     <!-- Header -->
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" @click="$router.back()">
+      <button 
+        class="page-header__back-btn" 
+        @click="$router.back()"
+        aria-label="Go back"
+      >
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
@@ -47,7 +53,7 @@ watch(() => route.params.username, loadProfile)
 
     <!-- Banner -->
     <div class="profile-banner">
-      <img v-if="account.header" :src="account.header" alt="Banner" class="profile-banner__img" />
+      <img v-if="account.header" :src="account.header" alt="Profile banner" class="profile-banner__img" loading="lazy" />
       <div v-else class="profile-banner__placeholder" />
     </div>
 
@@ -65,7 +71,7 @@ watch(() => route.params.username, loadProfile)
       <h2 class="profile-name">{{ account.display_name }}</h2>
       <div class="profile-username">@{{ account.acct }}</div>
 
-      <div class="profile-bio" v-if="account.note" v-html="account.note" />
+      <RichText v-if="account.note" class="profile-bio" :html="account.note" />
 
       <div class="profile-stats">
         <router-link :to="`/${account.acct}/following`" class="stat-item">
@@ -80,13 +86,13 @@ watch(() => route.params.username, loadProfile)
     </div>
 
     <!-- Tabs -->
-    <div class="tab-bar" style="margin-top: 16px;">
+    <div class="tab-bar" style="margin-top: var(--space-4);">
       <button
         v-for="tab in PROFILE_TABS"
         :key="tab.value"
         class="tab-bar__item"
         :class="{ 'tab-bar__item--active': activeTab === tab.value }"
-        @click="activeTab = tab.value"
+        @click="activeTab = tab.value as ProfileTabValue"
       >
         <span class="tab-bar__text">{{ tab.label }}</span>
         <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
@@ -131,7 +137,7 @@ watch(() => route.params.username, loadProfile)
 }
 
 .profile-info {
-  padding: 12px 16px 0;
+  padding: var(--space-3) var(--space-4) 0;
 }
 
 .profile-info__top {
@@ -155,7 +161,7 @@ watch(() => route.params.username, loadProfile)
 .profile-name {
   font-size: var(--font-xl);
   font-weight: 800;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .profile-username {
@@ -164,7 +170,7 @@ watch(() => route.params.username, loadProfile)
 }
 
 .profile-bio {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   font-size: var(--font-md);
   line-height: 1.5;
 }
@@ -175,8 +181,8 @@ watch(() => route.params.username, loadProfile)
 
 .profile-stats {
   display: flex;
-  gap: 20px;
-  margin-top: 12px;
+  gap: var(--space-5);
+  margin-top: var(--space-3);
 }
 
 .stat-item {

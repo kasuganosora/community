@@ -8,28 +8,29 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-const navItems = [
-  { value: 'home', label: 'Home', icon: 'home', route: '/home' },
-  { value: 'explore', label: 'Explore', icon: 'search', route: '/explore' },
-  { value: 'notifications', label: 'Notifications', icon: 'notification', route: '/notifications' },
-  { value: 'messages', label: 'Messages', icon: 'mail', route: '/messages' },
-  { value: 'bookmarks', label: 'Bookmarks', icon: 'bookmark', route: '/bookmarks' },
-  { value: 'profile', label: 'Profile', icon: 'user-circle', route: `/@${authStore.currentUser?.username || 'me'}` },
-]
+// Use computed to make navItems reactive based on currentUser
+const navItems = computed(() => [
+  { value: 'home', label: '首页', icon: 'home', route: '/home' },
+  { value: 'explore', label: '探索', icon: 'search', route: '/explore' },
+  { value: 'notifications', label: '通知', icon: 'notification', route: '/notifications' },
+  { value: 'messages', label: '消息', icon: 'mail', route: '/messages' },
+  { value: 'bookmarks', label: '收藏', icon: 'bookmark', route: '/bookmarks' },
+  { value: 'profile', label: '个人主页', icon: 'user-circle', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
+])
 
 const activeItem = computed(() => {
   const path = route.path
   if (path === '/home') return 'home'
-  const match = navItems.find(item => item.route !== '/home' && path.startsWith(item.route))
+  const match = navItems.value.find(item => item.route !== '/home' && path.startsWith(item.route))
   return match?.value || 'home'
 })
 
-function navigateTo(item: typeof navItems[0]) {
+function navigateTo(item: typeof navItems.value[0]) {
   router.push(item.route)
 }
 
-function handleLogout() {
-  authStore.logout()
+async function handleLogout() {
+  await authStore.logout()
   router.push({ name: 'landing' })
 }
 </script>
@@ -37,36 +38,37 @@ function handleLogout() {
 <template>
   <div class="left-sidebar">
     <!-- Logo -->
-    <div class="sidebar-logo" @click="router.push('/home')">
-      <LogoIcon :size="28" />
-    </div>
+    <button class="sidebar-logo" @click="router.push('/home')" aria-label="返回首页">
+      <LogoIcon :size="32" />
+    </button>
 
     <!-- Navigation -->
-    <nav class="sidebar-nav">
-      <div
+    <nav class="sidebar-nav" aria-label="主导航">
+      <button
         v-for="item in navItems"
         :key="item.value"
         class="nav-item"
         :class="{ 'nav-item--active': activeItem === item.value }"
         @click="navigateTo(item)"
+        :aria-current="activeItem === item.value ? 'page' : undefined"
       >
-        <t-icon :name="item.icon" :size="26" />
+        <t-icon :name="item.icon" :size="28" :aria-hidden="true" />
         <span class="nav-item__label">{{ item.label }}</span>
-      </div>
+      </button>
     </nav>
 
     <!-- Post Button -->
     <div class="sidebar-post">
-      <t-button theme="primary" shape="round" block size="large" class="post-btn">
-        Post
-      </t-button>
+      <button class="btn btn--primary btn--lg post-btn" disabled>
+        发布
+      </button>
     </div>
 
     <!-- User Info -->
     <div class="sidebar-user" v-if="authStore.currentUser">
-      <t-dropdown :min-column-width="200">
+      <t-dropdown :min-column-width="220">
         <div class="user-info">
-          <t-avatar :size="40" :image="authStore.currentUser.avatar || undefined">
+          <t-avatar :size="42" :image="authStore.currentUser.avatar || undefined">
             {{ authStore.currentUser.display_name?.charAt(0) || 'U' }}
           </t-avatar>
           <div class="user-info__text">
@@ -78,7 +80,7 @@ function handleLogout() {
         <template #dropdown>
           <t-dropdown-menu>
             <t-dropdown-item @click="handleLogout">
-              Log out @{{ authStore.currentUser.username }}
+              退出 @{{ authStore.currentUser.username }}
             </t-dropdown-item>
           </t-dropdown-menu>
         </template>
@@ -92,102 +94,111 @@ function handleLogout() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
 }
 
 .sidebar-logo {
-  padding: 12px;
-  margin-bottom: 4px;
-  cursor: pointer;
-  width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: 0;
   border-radius: var(--radius-full);
-  transition: background-color var(--transition-fast);
   color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .sidebar-logo:hover {
   background-color: var(--bg-hover);
 }
 
+.sidebar-logo:active {
+  transform: scale(0.95);
+}
+
 .sidebar-nav {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 12px;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
   color: var(--text-primary);
   font-size: var(--font-xl);
-  width: fit-content;
-  user-select: none;
+  font-weight: var(--font-normal);
+  letter-spacing: var(--tracking-wide);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
 }
 
 .nav-item:hover {
   background-color: var(--bg-hover);
 }
 
+.nav-item:active {
+  transform: scale(0.98);
+}
+
 .nav-item--active {
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 .nav-item__label {
-  margin-right: 16px;
+  white-space: nowrap;
 }
 
-@media (max-width: 1024px) {
-  .nav-item__label {
-    display: none;
-  }
-  .nav-item {
-    justify-content: center;
-  }
-  .post-btn :deep(.t-button__text) {
-    display: none;
-  }
-  .post-btn {
-    width: 52px !important;
-    height: 52px !important;
-    padding: 0 !important;
-    border-radius: 50% !important;
-  }
-  .user-info__text,
-  .user-info__more {
-    display: none;
-  }
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
 }
 
 .sidebar-post {
-  padding: 16px 0;
+  padding: var(--space-4) 0;
 }
 
 .post-btn {
-  font-size: var(--font-lg) !important;
-  font-weight: 700 !important;
-  padding: 14px 0 !important;
+  width: 100%;
+  min-height: 52px;
+  font-size: var(--font-lg);
+  letter-spacing: var(--tracking-wide);
 }
 
 .sidebar-user {
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   margin-top: auto;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   border-radius: var(--radius-full);
   cursor: pointer;
-  transition: background-color var(--transition-fast);
+  transition: all var(--transition-fast);
 }
 
 .user-info:hover {
   background-color: var(--bg-hover);
+}
+
+.user-info:active {
+  transform: scale(0.98);
 }
 
 .user-info__text {
@@ -196,8 +207,9 @@ function handleLogout() {
 }
 
 .user-info__name {
-  font-weight: 700;
+  font-weight: var(--font-bold);
   font-size: var(--font-md);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -213,5 +225,46 @@ function handleLogout() {
 
 .user-info__more {
   color: var(--text-secondary);
+}
+
+/* Responsive */
+@media (max-width: 1280px) {
+  .nav-item__label {
+    display: none;
+  }
+  
+  .nav-item {
+    justify-content: center;
+    padding: var(--space-3);
+  }
+  
+  .post-btn {
+    width: 52px;
+    height: 52px;
+    min-height: auto;
+    padding: 0;
+    border-radius: 50%;
+  }
+  
+  .post-btn::before {
+    content: '+';
+    font-size: var(--font-2xl);
+  }
+  
+  .user-info__text,
+  .user-info__more {
+    display: none;
+  }
+  
+  .user-info {
+    justify-content: center;
+    padding: var(--space-2);
+  }
+}
+
+@media (max-width: 768px) {
+  .left-sidebar {
+    padding: 0 var(--space-2);
+  }
 }
 </style>

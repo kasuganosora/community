@@ -1,43 +1,48 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import type { MastodonTag } from '@/shared/types/mastodon'
-import client from '@/shared/api/client'
 import { formatCount } from '@/shared/utils/format'
+import { useCachedRequest } from '@/shared/composables/useCachedRequest'
 
-const trends = ref<MastodonTag[]>([])
-
-onMounted(async () => {
-  try {
-    const { data } = await client.get<MastodonTag[]>('/api/v1/trends/tags', { params: { limit: 5 } })
-    trends.value = data
-  } catch {
-    // Silently fail - card will be hidden if empty
-  }
+const { data: trends, execute } = useCachedRequest<MastodonTag[]>('/api/v1/trends/tags', {
+  params: { limit: 5 },
+  ttl: 5 * 60 * 1000, // Cache for 5 minutes
 })
 
-function getTagPosts(tag: MastodonTag): string {
-  const first = tag.history?.[0]
-  if (first) {
-    return formatCount(parseInt(first.uses)) + ' posts'
+// Execute on mount
+watch(() => true, () => execute(), { immediate: true })
+
+// Use computed to cache results instead of calling function in template
+const trendStats = computed(() => {
+  const stats: Record<string, string> = {}
+  if (!trends.value) return stats
+  
+  for (const tag of trends.value) {
+    const first = tag.history?.[0]
+    if (first) {
+      stats[tag.name] = formatCount(parseInt(first.uses, 10)) + ' posts'
+    }
   }
-  return ''
-}
+  return stats
+})
 </script>
 
 <template>
-  <div class="trending-card" v-if="trends.length">
+  <div class="trending-card" v-if="trends?.length">
     <h2 class="trending-card__title">What's happening</h2>
-    <div
+    <router-link
       v-for="tag in trends"
       :key="tag.name"
+      :to="`/explore?q=${encodeURIComponent('#' + tag.name)}`"
       class="trending-item"
+      role="button"
     >
       <div class="trending-item__category">Trending</div>
       <div class="trending-item__name">#{{ tag.name }}</div>
-      <div class="trending-item__count" v-if="getTagPosts(tag)">
-        {{ getTagPosts(tag) }}
+      <div class="trending-item__count" v-if="trendStats[tag.name]">
+        {{ trendStats[tag.name] }}
       </div>
-    </div>
+    </router-link>
     <div class="trending-card__more">
       <router-link to="/explore">Show more</router-link>
     </div>
@@ -54,14 +59,16 @@ function getTagPosts(tag: MastodonTag): string {
 .trending-card__title {
   font-size: var(--font-xl);
   font-weight: 800;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   color: var(--text-primary);
 }
 
 .trending-item {
-  padding: 12px 16px;
+  display: block;
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
   transition: background-color var(--transition-fast);
+  text-decoration: none;
 }
 
 .trending-item:hover {
@@ -77,7 +84,7 @@ function getTagPosts(tag: MastodonTag): string {
   font-weight: 700;
   font-size: var(--font-md);
   color: var(--text-primary);
-  margin: 2px 0;
+  margin: var(--space-1) 0;
 }
 
 .trending-item__count {
@@ -86,7 +93,7 @@ function getTagPosts(tag: MastodonTag): string {
 }
 
 .trending-card__more {
-  padding: 16px;
+  padding: var(--space-4);
 }
 
 .trending-card__more a {

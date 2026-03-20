@@ -59,7 +59,7 @@ func RegisterFederationRoutes(r gin.IRouter) {
 		fed.GET("/v1/event/:eventId", handleGetFederationEvent)
 		fed.PUT("/v1/send/:txnId", handleFederationSend)
 		fed.GET("/v1/publicRooms", handleGetPublicRooms)
-		fed.GET("/v1/user/devices/:userId", handleGetUserDevices)
+		// Note: /v1/user/devices/:userId is registered by RegisterDeviceListRoutes
 		fed.GET("/v1/query/server_key", handleGetServerKey)
 		fed.GET("/v1/3pid/onbind", handleThirdPartyOnBind)
 	}
@@ -791,6 +791,7 @@ func computeReferenceHash(event map[string]interface{}, eventType string) string
 		"m.room.power_levels":         {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"},
 		"m.room.history_visibility":   {"history_visibility"},
 		"m.room.redaction":            {},
+		"m.room.message":              {"msgtype", "body"},
 	}
 
 	redacted := make(map[string]interface{})

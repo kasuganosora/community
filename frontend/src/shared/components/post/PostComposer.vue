@@ -79,13 +79,13 @@ async function handlePost() {
 
 <style scoped>
 .composer {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-color);
 }
 
 .composer__body {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .composer__avatar {
@@ -102,7 +102,7 @@ async function handlePost() {
   border: none !important;
   color: var(--text-primary) !important;
   font-size: var(--font-xl) !important;
-  padding: 8px 0 !important;
+  padding: var(--space-2) 0 !important;
   resize: none !important;
 }
 
@@ -118,18 +118,18 @@ async function handlePost() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 12px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--border-color);
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .composer__tools {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .tool-btn {
-  padding: 8px;
+  padding: var(--space-2);
   border-radius: var(--radius-full);
   color: var(--accent-blue);
   transition: background-color var(--transition-fast);
@@ -142,7 +142,7 @@ async function handlePost() {
 .composer__right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .composer__count {

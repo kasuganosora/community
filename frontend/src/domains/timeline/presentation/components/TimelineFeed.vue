@@ -6,6 +6,7 @@ import PostCard from '@/shared/components/post/PostCard.vue'
 const props = defineProps<{
   statuses: MastodonStatus[]
   loading?: boolean
+  hasMore?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,12 +19,17 @@ const emit = defineEmits<{
 const sentinel = ref<HTMLElement>()
 
 let observer: IntersectionObserver | null = null
+// Loading lock to prevent duplicate requests
+let isLoadingMore = false
 
 onMounted(() => {
   observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0]?.isIntersecting && !props.loading) {
+      if (entries[0]?.isIntersecting && !props.loading && !isLoadingMore && props.hasMore !== false) {
+        isLoadingMore = true
         emit('loadMore')
+        // Reset lock after a delay
+        setTimeout(() => { isLoadingMore = false }, 500)
       }
     },
     { rootMargin: '200px' },
@@ -77,7 +83,7 @@ onUnmounted(() => {
 .timeline-loading {
   display: flex;
   justify-content: center;
-  padding: 32px;
+  padding: var(--space-8);
 }
 
 </style>

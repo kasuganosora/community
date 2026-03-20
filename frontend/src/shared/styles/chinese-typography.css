@@ -1,0 +1,330 @@
+/* ========================================
+   Chinese Typography Optimizations
+   ======================================== */
+
+/* Base Chinese text optimizations */
+.chinese-text {
+  line-height: 1.8;
+  letter-spacing: 0.02em;
+  text-align: justify;
+  text-justify: inter-ideograph;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hanging-punctuation: allow-end;
+}
+
+/* Paragraph spacing for Chinese */
+.chinese-paragraph {
+  margin-bottom: 1.5em;
+  text-indent: 2em;
+}
+
+.chinese-paragraph-no-indent {
+  margin-bottom: 1.5em;
+  text-indent: 0;
+}
+
+/* Chinese heading styles */
+.chinese-heading-1 {
+  font-size: var(--font-3xl);
+  font-weight: var(--font-bold);
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-6);
+}
+
+.chinese-heading-2 {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--space-5);
+}
+
+.chinese-heading-3 {
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  margin-bottom: var(--space-4);
+}
+
+/* Prevent punctuation at start/end of lines */
+.chinese-punct-fix {
+  text-spacing-trim: trim-start;
+}
+
+/* Emphasis styles */
+.chinese-emphasis {
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.chinese-emphasis-dot {
+  text-emphasis: dot;
+  text-emphasis-position: under right;
+}
+
+/* Quote styles for Chinese */
+.chinese-quote {
+  margin: var(--space-6) 0;
+  padding: var(--space-4) var(--space-6);
+  border-left: 4px solid var(--accent-blue);
+  background: var(--bg-secondary);
+  font-style: normal;
+  line-height: 1.8;
+}
+
+.chinese-quote::before,
+.chinese-quote::after {
+  content: none;
+}
+
+/* List styles for Chinese */
+.chinese-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.chinese-list li {
+  position: relative;
+  padding-left: 1.5em;
+  margin-bottom: var(--space-3);
+  line-height: 1.8;
+}
+
+.chinese-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0.5em;
+  color: var(--accent-blue);
+}
+
+/* Numbered list for Chinese */
+.chinese-list-numbered {
+  list-style: none;
+  padding-left: 0;
+  counter-reset: item;
+}
+
+.chinese-list-numbered li {
+  position: relative;
+  padding-left: 2.5em;
+  margin-bottom: var(--space-3);
+  line-height: 1.8;
+  counter-increment: item;
+}
+
+.chinese-list-numbered li::before {
+  content: "(" counter(item) ")";
+  position: absolute;
+  left: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+/* Link styles for Chinese text */
+.chinese-link {
+  color: var(--accent-blue);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.chinese-link:hover {
+  border-bottom-color: var(--accent-blue);
+  text-decoration: none;
+}
+
+/* Small text for Chinese (captions, notes) */
+.chinese-small {
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* Meta text (timestamps, sources) */
+.chinese-meta {
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+}
+
+/* Title with subtitle */
+.chinese-title-group {
+  margin-bottom: var(--space-6);
+}
+
+.chinese-title-group__main {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  line-height: 1.4;
+  margin-bottom: var(--space-2);
+}
+
+.chinese-title-group__sub {
+  font-size: var(--font-md);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Card with Chinese content */
+.chinese-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  backdrop-filter: blur(10px);
+}
+
+.chinese-card__title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  margin-bottom: var(--space-4);
+  letter-spacing: 0.02em;
+}
+
+.chinese-card__content {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+/* Button text for Chinese */
+.btn-chinese {
+  font-weight: var(--font-bold);
+  letter-spacing: 0.04em;
+  padding: var(--space-3) var(--space-6);
+}
+
+/* Form labels for Chinese */
+.form-label-chinese {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  display: block;
+}
+
+/* Input placeholder for Chinese */
+.input-chinese::placeholder {
+  color: var(--text-tertiary);
+  font-size: var(--font-md);
+}
+
+/* Toast/Notification for Chinese */
+.toast-chinese {
+  font-size: var(--font-md);
+  line-height: 1.6;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+}
+
+/* Badge for Chinese */
+.badge-chinese {
+  font-size: var(--font-xs);
+  font-weight: var(--font-bold);
+  padding: var(--space-1) var(--space-2);
+  letter-spacing: 0.02em;
+}
+
+/* Tag/Pill for Chinese */
+.tag-chinese {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+}
+
+/* Navigation item for Chinese */
+.nav-item-chinese {
+  font-size: var(--font-lg);
+  font-weight: var(--font-medium);
+  padding: var(--space-3) var(--space-4);
+  letter-spacing: 0.02em;
+}
+
+.nav-item-chinese--active {
+  font-weight: var(--font-bold);
+}
+
+/* Section title for Chinese */
+.section-title-chinese {
+  font-size: var(--font-xl);
+  font-weight: var(--font-extrabold);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: var(--space-4);
+}
+
+/* Comment/Reply for Chinese */
+.comment-chinese {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.comment-chinese__author {
+  font-weight: var(--font-bold);
+  margin-bottom: var(--space-1);
+}
+
+.comment-chinese__time {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.comment-chinese__content {
+  line-height: 1.8;
+}
+
+/* Article content for Chinese */
+.article-chinese {
+  font-size: var(--font-lg);
+  line-height: 1.9;
+  color: var(--text-primary);
+}
+
+.article-chinese p {
+  margin-bottom: 1.5em;
+  text-align: justify;
+}
+
+.article-chinese h2 {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-4);
+  letter-spacing: 0.02em;
+}
+
+.article-chinese h3 {
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+}
+
+/* Responsive adjustments for Chinese */
+@media (max-width: 768px) {
+  .chinese-text {
+    font-size: var(--font-md);
+    line-height: 1.7;
+  }
+  
+  .chinese-heading-1 {
+    font-size: var(--font-2xl);
+  }
+  
+  .chinese-heading-2 {
+    font-size: var(--font-xl);
+  }
+  
+  .chinese-paragraph {
+    text-indent: 1.5em;
+  }
+}

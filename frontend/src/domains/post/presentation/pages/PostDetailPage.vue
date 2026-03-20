@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
 import PostCard from '@/shared/components/post/PostCard.vue'
+import RichText from '@/shared/components/common/RichText.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,14 +32,19 @@ onMounted(async () => {
 })
 
 function goBack() {
-  router.back()
+  // Check if there's history to go back to, otherwise go to home
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push({ name: 'home' })
+  }
 }
 </script>
 
 <template>
   <div class="detail-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" @click="goBack">
+      <button class="page-header__back-btn" @click="goBack" aria-label="Go back">
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title">Post</h1>
@@ -64,10 +70,12 @@ function goBack() {
           </div>
         </div>
 
-        <div class="detail-main__content rich-text" v-html="status.content" />
+        <RichText class="detail-main__content rich-text" :html="status.content" />
 
         <div class="detail-main__time">
-          {{ new Date(status.created_at).toLocaleString() }}
+          <time :datetime="status.created_at">
+            {{ new Date(status.created_at).toLocaleString() }}
+          </time>
         </div>
 
         <div class="detail-main__stats">
@@ -89,15 +97,15 @@ function goBack() {
 }
 
 .detail-main {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-color);
 }
 
 .detail-main__header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .detail-main__user {
@@ -117,20 +125,20 @@ function goBack() {
 .detail-main__content {
   font-size: var(--font-lg);
   line-height: 1.5;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .detail-main__time {
   color: var(--text-secondary);
   font-size: var(--font-md);
-  padding: 16px 0;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border-color);
 }
 
 .detail-main__stats {
   display: flex;
-  gap: 20px;
-  padding: 16px 0;
+  gap: var(--space-5);
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-secondary);
   font-size: var(--font-sm);

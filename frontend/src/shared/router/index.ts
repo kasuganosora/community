@@ -1,5 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './routes'
+import { AUTH_TOKEN_KEY } from '@/shared/api/client'
+
+// Extend RouteMeta interface
+declare module 'vue-router' {
+  interface RouteMeta {
+    guestOnly?: boolean
+    requiresAuth?: boolean
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -7,7 +16,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('auth_token')
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
 
   // Redirect authenticated users away from guest-only pages to home
   if (to.meta.guestOnly && token) {

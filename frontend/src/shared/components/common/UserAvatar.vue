@@ -16,6 +16,8 @@ const avatarSize = computed(() => props.size || 40)
     :image="account.avatar || undefined"
     shape="circle"
     class="user-avatar"
+    role="img"
+    :aria-label="`${account.display_name || account.username}'s avatar`"
   >
     {{ account.display_name?.charAt(0) || account.username?.charAt(0) || 'U' }}
   </t-avatar>
@@ -25,5 +27,10 @@ const avatarSize = computed(() => props.size || 40)
 .user-avatar {
   flex-shrink: 0;
   cursor: pointer;
+}
+
+.user-avatar:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
 }
 </style>

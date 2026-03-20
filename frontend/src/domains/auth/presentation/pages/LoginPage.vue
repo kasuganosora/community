@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
@@ -7,12 +7,27 @@ import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const form = reactive({
+interface LoginForm {
+  username: string
+  password: string
+}
+
+const form = reactive<LoginForm>({
   username: '',
   password: '',
 })
 
+const showPassword = ref(false)
+const loginAttempts = ref(0)
+const MAX_LOGIN_ATTEMPTS = 5
+
 async function handleLogin() {
+  if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
+    return
+  }
+  
+  loginAttempts.value++
+  
   try {
     await authStore.login(form)
     router.push({ name: 'home' })
@@ -31,7 +46,7 @@ async function handleLogin() {
 
       <h1 class="login-title">Sign in to Community</h1>
 
-      <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: 16px" />
+      <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
 
       <t-form @submit="handleLogin" class="login-form" label-width="0">
         <t-form-item>
@@ -40,16 +55,33 @@ async function handleLogin() {
             placeholder="Username"
             size="large"
             clearable
+            autocomplete="username"
+            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
           />
         </t-form-item>
         <t-form-item>
           <t-input
             v-model="form.password"
-            type="password"
+            :type="showPassword ? 'text' : 'password'"
             placeholder="Password"
             size="large"
-          />
+            autocomplete="current-password"
+            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
+          >
+            <template #suffixIcon>
+              <t-button 
+                variant="text" 
+                shape="square" 
+                size="small"
+                @click="showPassword = !showPassword"
+                :icon="showPassword ? 'browse-off' : 'browse'"
+              />
+            </template>
+          </t-input>
         </t-form-item>
+        <p v-if="loginAttempts >= MAX_LOGIN_ATTEMPTS" class="login-locked">
+          Too many failed attempts. Please try again later.
+        </p>
         <t-form-item>
           <t-button
             theme="primary"
@@ -58,6 +90,7 @@ async function handleLogin() {
             size="large"
             shape="round"
             :loading="authStore.loading"
+            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
           >
             Sign in
           </t-button>
@@ -79,18 +112,18 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .login-card {
   width: 100%;
   max-width: 400px;
-  padding: 32px;
+  padding: var(--space-8);
 }
 
 .login-logo {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
   color: var(--text-primary);
 }
 
@@ -98,12 +131,12 @@ async function handleLogin() {
   font-size: var(--font-2xl);
   font-weight: 700;
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: var(--space-8);
   color: var(--text-primary);
 }
 
 .login-form :deep(.t-form__item) {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .login-form :deep(.t-form__controls) {
@@ -113,7 +146,7 @@ async function handleLogin() {
 .login-form :deep(.t-input) {
   background: var(--bg-secondary) !important;
   border-radius: var(--radius-md) !important;
-  padding: 0 12px !important;
+  padding: 0 var(--space-3) !important;
 }
 
 .login-form :deep(.t-button--theme-primary) {
@@ -125,13 +158,20 @@ async function handleLogin() {
 
 .login-footer {
   text-align: center;
-  margin-top: 24px;
+  margin-top: var(--space-6);
   color: var(--text-secondary);
   font-size: var(--font-sm);
 }
 
 .login-link {
   color: var(--accent-blue);
-  margin-left: 4px;
+  margin-left: var(--space-1);
+}
+
+.login-locked {
+  color: var(--danger);
+  font-size: var(--font-sm);
+  text-align: center;
+  margin-bottom: var(--space-4);
 }
 </style>

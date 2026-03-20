@@ -45,7 +45,7 @@ const gridClass = computed(() => {
   gap: 2px;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-top: 12px;
+  margin-top: var(--space-3);
   max-height: 510px;
 }
 

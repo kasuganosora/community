@@ -5,7 +5,8 @@ import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
 const timelineStore = useTimelineStore()
-const activeTab = ref('for-you')
+type TabType = 'for-you' | 'following'
+const activeTab = ref<TabType>('for-you')
 
 const statuses = computed(() => {
   return activeTab.value === 'for-you'
@@ -13,7 +14,7 @@ const statuses = computed(() => {
     : timelineStore.homeStatuses
 })
 
-function onTabChange(val: string) {
+function onTabChange(val: TabType) {
   activeTab.value = val
   loadTimeline()
 }
@@ -26,11 +27,11 @@ function loadTimeline() {
   }
 }
 
-function handleLoadMore() {
+async function handleLoadMore() {
   if (activeTab.value === 'for-you') {
-    timelineStore.loadMorePublic()
+    await timelineStore.loadMorePublic()
   } else {
-    timelineStore.loadMoreHome()
+    await timelineStore.loadMoreHome()
   }
 }
 
@@ -96,6 +97,6 @@ onMounted(() => {
 }
 
 .home-header :deep(.page-header__title) {
-  padding: 12px 16px 0;
+  padding: var(--space-3) var(--space-4) 0;
 }
 </style>

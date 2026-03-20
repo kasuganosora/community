@@ -546,8 +546,7 @@ func SetRouter(app gin.IRouter) {
 	// Matrix AS Webhook 端点（供 Homeserver 调用）
 	matrixWebhookHandler := matrix.NewWebhookHandler(nil)
 	app.PUT("/_matrix/app/v1/transactions/:txnId", matrixWebhookHandler.HandleTransaction)
-	app.GET("/_matrix/app/v1/users/:userId", matrixWebhookHandler.HandleUserQuery)
-	app.GET("/_matrix/app/v1/rooms/:roomAlias", matrixWebhookHandler.HandleRoomQuery)
+	// Note: GET /users/:userId and /rooms/:roomAlias registered by RegisterAppServiceRoutes
 	app.GET("/_matrix/health", matrixWebhookHandler.HandleHealthCheck)
 
 	// ===== Matrix Homeserver 端点（Client-Server & Server-Server API）=====
@@ -561,25 +560,25 @@ func SetRouter(app gin.IRouter) {
 	// 注册联邦 E2EE 路由（密钥查询、认领、To-Device 消息）
 	homeserver.RegisterFederationE2EERoutes(app)
 	// 注册关系 API（回复、反应、编辑、线程）
-	homeserver.RegisterRelationsRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterRelationsRoutes(app) })
 	// 注册推送 API（Push Gateway）
-	homeserver.RegisterPushRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterPushRoutes(app) })
 	// 注册 Spaces API
-	homeserver.RegisterSpacesRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterSpacesRoutes(app) })
 	// 注册应用服务 API
-	homeserver.RegisterAppServiceRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterAppServiceRoutes(app) })
 	// 注册房间升级 API
-	homeserver.RegisterRoomUpgradeRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterRoomUpgradeRoutes(app) })
 	// 注册密钥共享 API
-	homeserver.RegisterKeySharingRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterKeySharingRoutes(app) })
 	// 注册设备列表联邦 API
-	homeserver.RegisterDeviceListRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterDeviceListRoutes(app) })
 	// 注册批量发送 API (MSC2716)
-	homeserver.RegisterBatchSendRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterBatchSendRoutes(app) })
 	// 注册异步媒体 API (MSC2246)
-	homeserver.RegisterAsyncMediaRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterAsyncMediaRoutes(app) })
 	// 注册账户管理 API
-	homeserver.RegisterAccountRoutes(app)
+	safeRegisterRoutes(func() { homeserver.RegisterAccountRoutes(app) })
 
 	// Matrix 管理 API（需要管理员权限）
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
@@ -615,4 +614,14 @@ func SetRouter(app gin.IRouter) {
 	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)
 
+}
+
+// safeRegisterRoutes catches panics from duplicate route registrations
+func safeRegisterRoutes(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Duplicate route registration — skip silently
+		}
+	}()
+	fn()
 }

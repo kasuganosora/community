@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { authApi } from '../../infrastructure/authApi'
 
 const router = useRouter()
 
@@ -29,11 +30,39 @@ const form = reactive({
 const registering = ref(false)
 const error = ref<string | null>(null)
 
+// Server domain from environment or default
+const serverDomain = computed(() => {
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (apiUrl) {
+    try {
+      const url = new URL(apiUrl)
+      return url.hostname
+    } catch {
+      return 'community.local'
+    }
+  }
+  return 'community.local'
+})
+
+// Email validation regex
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const isValidEmail = computed(() => emailRegex.test(form.email))
+
+// Password validation: at least 8 chars, one uppercase, one lowercase, one number
+const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
+const isStrongPassword = computed(() => passwordRegex.test(form.password))
+
 const passwordMatch = computed(() => form.password === form.passwordConfirm)
+
+// Fixed: Check for non-empty password confirm correctly
+const showPasswordMismatch = computed(() => 
+  form.passwordConfirm !== '' && !passwordMatch.value
+)
+
 const canRegister = computed(() =>
-  form.username.length > 0 &&
-  form.email.length > 0 &&
-  form.password.length >= 8 &&
+  form.username.length >= 2 &&
+  isValidEmail.value &&
+  isStrongPassword.value &&
   passwordMatch.value &&
   !registering.value,
 )
@@ -49,8 +78,11 @@ async function handleRegister() {
   registering.value = true
   error.value = null
   try {
-    // TODO: Replace with real API call
-    // await authApi.register({ username: form.username, email: form.email, password: form.password })
+    await authApi.register({ 
+      username: form.username, 
+      email: form.email, 
+      password: form.password 
+    })
     router.push({ name: 'login' })
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Registration failed'
@@ -164,7 +196,7 @@ function close() {
           </svg>
         </div>
 
-        <t-alert v-if="error" theme="error" :message="error" style="margin-bottom: 16px" />
+        <t-alert v-if="error" theme="error" :message="error" style="margin-bottom: var(--space-4)" />
 
         <t-form @submit="handleRegister" class="register-form" label-align="top">
           <t-form-item label="Username" :help="'Cannot be changed later.'">
@@ -177,7 +209,7 @@ function close() {
                 <span class="input-prefix">@</span>
               </template>
               <template #suffix>
-                <span class="input-suffix">@community.local</span>
+                <span class="input-suffix">@{{ serverDomain }}</span>
               </template>
             </t-input>
           </t-form-item>
@@ -214,13 +246,13 @@ function close() {
               type="password"
               size="large"
               placeholder="Enter password again"
-              :status="form.passwordConfirm && !passwordMatch ? 'error' : 'default'"
+              :status="showPasswordMismatch ? 'error' : 'default'"
             >
               <template #prefixIcon>
                 <t-icon name="lock-on" />
               </template>
             </t-input>
-            <div v-if="form.passwordConfirm && !passwordMatch" class="form-error">
+            <div v-if="showPasswordMismatch" class="form-error">
               Passwords do not match
             </div>
           </t-form-item>
@@ -251,7 +283,7 @@ function close() {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.7);
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .register-modal {
@@ -267,8 +299,8 @@ function close() {
 .register-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px 20px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
@@ -277,7 +309,7 @@ function close() {
 }
 
 .register-header__close {
-  padding: 4px;
+  padding: var(--space-1);
   border-radius: var(--radius-full);
   color: var(--text-primary);
   transition: background-color var(--transition-fast);
@@ -293,20 +325,20 @@ function close() {
 }
 
 .register-body {
-  padding: 24px 40px;
+  padding: var(--space-6) var(--space-10);
 }
 
 .rules-icon,
 .form-icon {
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .rules-intro {
   text-align: center;
   color: var(--text-secondary);
   font-size: var(--font-sm);
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
   line-height: 1.5;
 }
 
@@ -318,7 +350,7 @@ function close() {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
   overflow: hidden;
 }
 
@@ -326,7 +358,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   font-weight: 700;
   font-size: var(--font-md);
   color: var(--text-primary);
@@ -334,14 +366,14 @@ function close() {
 }
 
 .rules-list {
-  padding: 0 16px 8px;
+  padding: 0 var(--space-4) var(--space-2);
 }
 
 .rule-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
 }
 
 .rule-number {
@@ -368,8 +400,8 @@ function close() {
 .agree-check {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-color);
   cursor: pointer;
 }
@@ -387,13 +419,13 @@ function close() {
 }
 
 .rules-tos {
-  padding: 4px 16px 12px;
+  padding: var(--space-1) var(--space-4) var(--space-3);
 }
 
 .tos-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--accent-green);
   font-size: var(--font-md);
 }
@@ -402,18 +434,18 @@ function close() {
   text-align: center;
   color: var(--text-secondary);
   font-size: var(--font-sm);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .register-actions {
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .register-actions--center {
   justify-content: center;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 .btn-continue {
@@ -432,13 +464,13 @@ function close() {
   color: var(--accent-green) !important;
   font-weight: 700;
   font-size: var(--font-sm);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   padding: 0 !important;
   width: auto !important;
 }
 
 .register-form :deep(.t-form__item) {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .register-form :deep(.t-form__controls) {
@@ -456,7 +488,7 @@ function close() {
 .register-form :deep(.t-input) {
   background: var(--bg-primary) !important;
   border-radius: var(--radius-md) !important;
-  padding: 0 12px !important;
+  padding: 0 var(--space-3) !important;
 }
 
 .input-prefix {
@@ -469,7 +501,7 @@ function close() {
 }
 
 .form-error {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-xs);
   color: var(--danger);
 }

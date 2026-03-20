@@ -1,5 +1,7 @@
+export type ProfileTabValue = 'posts' | 'replies' | 'media' | 'likes'
+
 export interface ProfileTab {
-  value: string
+  value: ProfileTabValue
   label: string
 }
 

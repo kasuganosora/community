@@ -5,6 +5,14 @@ import type { MastodonStatus, MastodonAccount, MastodonTag, SearchResult } from 
 import client from '@/shared/api/client'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import RichText from '@/shared/components/common/RichText.vue'
+
+// Type-safe route params helper
+function getQueryParam(q: unknown): string {
+  if (typeof q === 'string') return q
+  if (Array.isArray(q) && typeof q[0] === 'string') return q[0]
+  return ''
+}
 
 function getTagPostCount(tag: MastodonTag): string {
   const first = tag.history?.[0]
@@ -15,19 +23,23 @@ function getTagPostCount(tag: MastodonTag): string {
 }
 
 const route = useRoute()
-const activeTab = ref('posts')
+type TabType = 'posts' | 'people' | 'tags'
+const activeTab = ref<TabType>('posts')
 const loading = ref(false)
 
 const statuses = ref<MastodonStatus[]>([])
 const accounts = ref<MastodonAccount[]>([])
 const hashtags = ref<MastodonTag[]>([])
 
+const SEARCH_LIMIT = 20
+
 async function search(query: string) {
-  if (!query) return
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) return
   loading.value = true
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
-      params: { q: query, limit: 20 },
+      params: { q: trimmedQuery, limit: SEARCH_LIMIT },
     })
     statuses.value = data.statuses || []
     accounts.value = data.accounts || []
@@ -42,12 +54,13 @@ async function search(query: string) {
 }
 
 onMounted(() => {
-  const q = route.query.q as string
+  const q = getQueryParam(route.query.q)
   if (q) search(q)
 })
 
 watch(() => route.query.q, (q) => {
-  if (q) search(q as string)
+  const query = getQueryParam(q)
+  if (query) search(query)
 })
 </script>
 
@@ -63,7 +76,7 @@ watch(() => route.query.q, (q) => {
         :key="tab"
         class="tab-bar__item"
         :class="{ 'tab-bar__item--active': activeTab === tab }"
-        @click="activeTab = tab"
+        @click="activeTab = tab as TabType"
       >
         <span class="tab-bar__text">{{ tab.charAt(0).toUpperCase() + tab.slice(1) }}</span>
         <div v-if="activeTab === tab" class="tab-bar__indicator" />
@@ -88,7 +101,7 @@ watch(() => route.query.q, (q) => {
           <div class="user-item__info">
             <div class="user-item__name">{{ user.display_name }}</div>
             <div class="user-item__username">@{{ user.acct }}</div>
-            <div class="user-item__bio" v-html="user.note" />
+            <RichText class="user-item__bio" :html="user.note" />
           </div>
           <t-button theme="default" shape="round" size="small" class="follow-btn">Follow</t-button>
         </div>
@@ -99,7 +112,7 @@ watch(() => route.query.q, (q) => {
       <template v-if="activeTab === 'tags'">
         <div v-for="tag in hashtags" :key="tag.name" class="tag-item">
           <div class="tag-item__name">#{{ tag.name }}</div>
-          <div class="tag-item__count" v-if="getTagPostCount(tag)">
+          <div class="tag-item__count" v-if="getTagPostCount(tag)" :key="tag.name">
             {{ getTagPostCount(tag) }}
           </div>
         </div>
@@ -116,14 +129,14 @@ watch(() => route.query.q, (q) => {
 
 .search-empty {
   text-align: center;
-  padding: 48px;
+  padding: var(--space-12);
   color: var(--text-secondary);
 }
 
 .user-item {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   transition: background-color var(--transition-fast);
@@ -148,7 +161,7 @@ watch(() => route.query.q, (q) => {
 }
 
 .user-item__bio {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-sm);
   color: var(--text-secondary);
   overflow: hidden;
@@ -167,7 +180,7 @@ watch(() => route.query.q, (q) => {
 }
 
 .tag-item {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   transition: background-color var(--transition-fast);

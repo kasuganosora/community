@@ -1,38 +1,85 @@
-/* TDesign dark theme token overrides to match X.com */
+/* ========================================
+   TDesign Dark Theme Token Overrides
+   ======================================== */
 :root {
+  /* Brand Colors */
   --td-brand-color: var(--accent-blue);
   --td-brand-color-hover: var(--accent-blue-hover);
   --td-brand-color-active: #1577bb;
+  --td-brand-color-light: var(--accent-blue-light);
+  --td-brand-color-light-hover: rgba(29, 155, 240, 0.2);
 
+  /* Background Colors */
   --td-bg-color-page: var(--bg-primary);
-  --td-bg-color-container: var(--bg-primary);
+  --td-bg-color-container: var(--bg-secondary);
   --td-bg-color-container-hover: var(--bg-hover);
+  --td-bg-color-container-active: var(--bg-elevated);
   --td-bg-color-secondarycontainer: var(--bg-secondary);
   --td-bg-color-secondarycontainer-hover: var(--bg-hover);
   --td-bg-color-component: var(--bg-secondary);
   --td-bg-color-component-hover: var(--bg-hover);
+  --td-bg-color-component-disabled: var(--bg-elevated);
 
+  /* Text Colors */
   --td-text-color-primary: var(--text-primary);
   --td-text-color-secondary: var(--text-secondary);
   --td-text-color-placeholder: var(--text-tertiary);
+  --td-text-color-disabled: var(--text-disabled);
+  --td-text-color-anti: #fff;
+  --td-text-color-brand: var(--accent-blue);
 
+  /* Border Colors */
   --td-border-level-1-color: var(--border-color);
   --td-border-level-2-color: var(--border-light);
+  --td-component-border: var(--border-color);
+  --td-component-border-hover: var(--border-light);
 
+  /* Status Colors */
   --td-error-color: var(--danger);
+  --td-error-color-hover: rgba(244, 33, 46, 0.9);
+  --td-error-color-light: var(--danger-light);
   --td-success-color: var(--success);
+  --td-success-color-hover: rgba(0, 186, 124, 0.9);
+  --td-success-color-light: var(--success-light);
   --td-warning-color: var(--warning);
+  --td-warning-color-hover: rgba(255, 173, 31, 0.9);
+  --td-warning-color-light: var(--warning-light);
 
+  /* Typography */
+  --td-font-family: var(--font-family-base);
+  --td-font-size-body-small: var(--font-xs);
   --td-font-size-body-medium: var(--font-md);
+  --td-font-size-body-large: var(--font-lg);
+  --td-font-size-title-small: var(--font-lg);
+  --td-font-size-title-medium: var(--font-xl);
+  --td-font-size-title-large: var(--font-2xl);
 
-  --td-comp-paddingLR-l: 16px;
-  --td-comp-paddingTB-m: 10px;
+  /* Spacing */
+  --td-comp-paddingLR-xs: var(--space-2);
+  --td-comp-paddingLR-s: var(--space-3);
+  --td-comp-paddingLR-m: var(--space-4);
+  --td-comp-paddingLR-l: var(--space-5);
+  --td-comp-paddingLR-xl: var(--space-6);
 
+  /* Border Radius */
+  --td-radius-small: var(--radius-sm);
   --td-radius-default: var(--radius-md);
-  --td-radius-large: var(--radius-lg);
+  --td-radius-medium: var(--radius-lg);
+  --td-radius-large: var(--radius-xl);
+  --td-radius-extraLarge: var(--radius-2xl);
+  --td-radius-round: var(--radius-full);
+
+  /* Shadows */
+  --td-shadow-1: var(--shadow-sm);
+  --td-shadow-2: var(--shadow-md);
+  --td-shadow-3: var(--shadow-lg);
 }
 
-/* Override TDesign menu for X.com nav style */
+/* ========================================
+   TDesign Component Overrides
+   ======================================== */
+
+/* Menu - Navigation style */
 .t-menu {
   background: transparent !important;
   border: none !important;
@@ -41,10 +88,10 @@
 .t-menu__item {
   color: var(--text-primary) !important;
   border-radius: var(--radius-full) !important;
-  padding: 12px !important;
-  margin: 2px 0 !important;
+  padding: var(--space-3) !important;
+  margin: var(--space-1) 0 !important;
   font-size: var(--font-xl) !important;
-  font-weight: 400 !important;
+  font-weight: var(--font-normal) !important;
   transition: background-color var(--transition-fast) !important;
 }
 
@@ -53,20 +100,25 @@
 }
 
 .t-menu__item.t-is-active {
-  font-weight: 700 !important;
+  font-weight: var(--font-bold) !important;
   color: var(--text-primary) !important;
   background: transparent !important;
 }
 
-/* Override TDesign tabs */
+/* Tabs */
 .t-tabs__nav-item {
   color: var(--text-secondary) !important;
-  font-weight: 500;
+  font-weight: var(--font-medium);
+  font-size: var(--font-md);
+}
+
+.t-tabs__nav-item:hover {
+  color: var(--text-primary) !important;
 }
 
 .t-tabs__nav-item.t-is-active {
   color: var(--text-primary) !important;
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 .t-tabs__bar {
@@ -75,42 +127,488 @@
   height: 4px !important;
 }
 
-/* Override TDesign input */
+/* Input */
 .t-input {
   background-color: var(--bg-secondary) !important;
   border-color: transparent !important;
   border-radius: var(--radius-full) !important;
   color: var(--text-primary) !important;
+  font-size: var(--font-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.t-input:hover {
+  border-color: var(--border-light) !important;
+  background-color: var(--bg-hover) !important;
 }
 
 .t-input:focus-within,
 .t-input.t-is-focused {
   border-color: var(--accent-blue) !important;
   background-color: var(--bg-primary) !important;
+  box-shadow: 0 0 0 1px var(--accent-blue);
 }
 
-/* Override TDesign button primary */
+.t-input__inner {
+  font-size: var(--font-md);
+}
+
+.t-input__placeholder {
+  color: var(--text-tertiary) !important;
+}
+
+/* Button - Primary */
 .t-button--theme-primary {
   background-color: var(--accent-blue) !important;
   border-color: var(--accent-blue) !important;
+  color: white !important;
+  font-weight: var(--font-bold);
+  border-radius: var(--radius-full);
 }
 
-.t-button--theme-primary:hover {
+.t-button--theme-primary:hover:not(:disabled) {
   background-color: var(--accent-blue-hover) !important;
+  border-color: var(--accent-blue-hover) !important;
 }
 
-/* Override TDesign card */
+.t-button--theme-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Button - Default */
+.t-button--theme-default {
+  background-color: transparent !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-weight: var(--font-bold);
+  border-radius: var(--radius-full);
+}
+
+.t-button--theme-default:hover:not(:disabled) {
+  background-color: var(--accent-blue-light) !important;
+  border-color: var(--accent-blue) !important;
+  color: var(--accent-blue) !important;
+}
+
+/* Button - Danger */
+.t-button--theme-danger {
+  background-color: var(--danger) !important;
+  border-color: var(--danger) !important;
+  color: white !important;
+}
+
+.t-button--theme-danger:hover:not(:disabled) {
+  background-color: rgba(244, 33, 46, 0.9) !important;
+  border-color: rgba(244, 33, 46, 0.9) !important;
+}
+
+/* Button Sizes */
+.t-button--size-small {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+}
+
+.t-button--size-medium {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-md);
+}
+
+.t-button--size-large {
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--font-lg);
+}
+
+/* Card */
 .t-card {
-  background-color: var(--bg-secondary) !important;
+  background-color: var(--bg-card) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: var(--radius-lg) !important;
+  border-radius: var(--radius-xl) !important;
+  backdrop-filter: blur(10px);
 }
 
-/* Override TDesign dialog */
+.t-card__header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.t-card__body {
+  padding: var(--space-4);
+}
+
+/* Dialog */
 .t-dialog {
   background-color: var(--bg-primary) !important;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-lg);
 }
 
 .t-dialog__header {
   color: var(--text-primary) !important;
+  font-weight: var(--font-bold);
+  font-size: var(--font-xl);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.t-dialog__body {
+  padding: var(--space-5);
+}
+
+.t-dialog__footer {
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-color);
+}
+
+/* Alert */
+.t-alert {
+  border-radius: var(--radius-lg);
+  font-size: var(--font-md);
+}
+
+.t-alert--theme-error {
+  background-color: var(--danger-light) !important;
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+
+.t-alert--theme-success {
+  background-color: var(--success-light) !important;
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+}
+
+.t-alert--theme-warning {
+  background-color: var(--warning-light) !important;
+  border-color: var(--warning) !important;
+  color: var(--warning) !important;
+}
+
+/* Dropdown */
+.t-dropdown__menu {
+  background-color: var(--bg-primary) !important;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+}
+
+.t-dropdown__item {
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-primary);
+  font-size: var(--font-md);
+}
+
+.t-dropdown__item:hover {
+  background-color: var(--bg-hover);
+}
+
+/* Avatar */
+.t-avatar {
+  border: 2px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.t-avatar img {
+  object-fit: cover;
+}
+
+/* Loading */
+.t-loading__gradient {
+  display: none;
+}
+
+.t-loading__text {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  margin-top: var(--space-2);
+}
+
+/* Form Item */
+.t-form__label {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+}
+
+.t-form__item {
+  margin-bottom: var(--space-4);
+}
+
+/* Tooltip */
+.t-tooltip {
+  font-size: var(--font-sm);
+}
+
+.t-tooltip--default {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Switch */
+.t-switch {
+  border-radius: var(--radius-full);
+}
+
+.t-switch--checked {
+  background-color: var(--accent-green) !important;
+}
+
+/* Checkbox & Radio */
+.t-checkbox,
+.t-radio {
+  color: var(--text-primary);
+  font-size: var(--font-md);
+}
+
+.t-checkbox__input.t-is-checked,
+.t-radio__input.t-is-checked {
+  background-color: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+/* Textarea */
+.t-textarea {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+}
+
+.t-textarea:hover {
+  border-color: var(--border-light);
+}
+
+.t-textarea:focus-within {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px var(--accent-blue);
+}
+
+.t-textarea__inner {
+  line-height: var(--leading-relaxed);
+}
+
+/* Select */
+.t-select {
+  background-color: var(--bg-secondary);
+}
+
+.t-select .t-input {
+  background-color: transparent;
+}
+
+.t-select__dropdown {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.t-select-option {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-primary);
+}
+
+.t-select-option:hover,
+.t-select-option.t-is-selected {
+  background-color: var(--bg-hover);
+}
+
+/* Badge */
+.t-badge__dot,
+.t-badge--circle {
+  background-color: var(--accent-blue);
+}
+
+/* List */
+.t-list {
+  background: transparent;
+}
+
+.t-list__item {
+  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-4);
+}
+
+.t-list__item:hover {
+  background-color: var(--bg-hover);
+}
+
+/* Divider */
+.t-divider {
+  border-color: var(--border-color);
+}
+
+/* Skeleton */
+.t-skeleton__row {
+  margin-bottom: var(--space-2);
+}
+
+.t-skeleton__col {
+  background: linear-gradient(
+    90deg,
+    var(--bg-hover) 25%,
+    var(--bg-elevated) 50%,
+    var(--bg-hover) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Message */
+.t-message {
+  border-radius: var(--radius-lg);
+  font-size: var(--font-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.t-message--theme-error {
+  background-color: var(--danger);
+  color: white;
+}
+
+.t-message--theme-success {
+  background-color: var(--success);
+  color: white;
+}
+
+.t-message--theme-warning {
+  background-color: var(--warning);
+  color: white;
+}
+
+/* Notification */
+.t-notification {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.t-notification__title {
+  color: var(--text-primary);
+  font-weight: var(--font-bold);
+}
+
+.t-notification__content {
+  color: var(--text-secondary);
+}
+
+/* Popover */
+.t-popover {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Table */
+.t-table {
+  background: transparent;
+}
+
+.t-table__header {
+  background-color: var(--bg-secondary);
+}
+
+.t-table__th {
+  color: var(--text-secondary);
+  font-weight: var(--font-bold);
+  font-size: var(--font-sm);
+}
+
+.t-table__tr {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.t-table__tr:hover {
+  background-color: var(--bg-hover);
+}
+
+.t-table__td {
+  color: var(--text-primary);
+}
+
+/* Pagination */
+.t-pagination__btn {
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+
+.t-pagination__btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.t-pagination__btn.t-is-current {
+  background-color: var(--accent-blue);
+  color: white;
+}
+
+/* Upload */
+.t-upload__card {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.t-upload__card:hover {
+  border-color: var(--accent-blue);
+}
+
+/* Progress */
+.t-progress__bar {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-full);
+}
+
+.t-progress__inner {
+  background-color: var(--accent-blue);
+  border-radius: var(--radius-full);
+}
+
+/* Slider */
+.t-slider__rail {
+  background-color: var(--bg-secondary);
+}
+
+.t-slider__track {
+  background-color: var(--accent-blue);
+}
+
+.t-slider__button {
+  background-color: var(--accent-blue);
+  border-color: white;
+}
+
+/* TimePicker / DatePicker */
+.t-time-picker__panel,
+.t-date-picker__panel {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.t-calendar__cell:hover,
+.t-time-picker__item:hover {
+  background-color: var(--bg-hover);
+}
+
+.t-calendar__cell--selected,
+.t-time-picker__item--selected {
+  background-color: var(--accent-blue);
+  color: white;
 }

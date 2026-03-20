@@ -17,7 +17,7 @@ require (
 	github.com/h2non/filetype v1.1.3
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
-	github.com/kasuganosora/sqlexec v0.6.0
+	github.com/kasuganosora/sqlexec v0.6.1
 	github.com/meilisearch/meilisearch-go v0.36.1
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/monoculum/formam/v3 v3.6.0
