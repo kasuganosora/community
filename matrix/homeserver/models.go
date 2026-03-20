@@ -70,7 +70,7 @@ type MatrixEvent struct {
 	// 关联
 	Room *MatrixRoom `gorm:"foreignKey:RoomID;references:RoomID" json:"-"`
 
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt *time.Time `gorm:"autoCreateTime;index" json:"created_at"`
 }
 
 func (MatrixEvent) TableName() string {

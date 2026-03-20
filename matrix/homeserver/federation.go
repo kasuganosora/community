@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/utils"
 )
 
@@ -547,6 +548,7 @@ func handleMakeLeave(c *gin.Context) {
 
 func handleSendLeave(c *gin.Context) {
 	roomID := c.Param("roomId")
+	hs := GetHomeServer()
 
 	// 解析请求体
 	var event map[string]interface{}
@@ -560,13 +562,91 @@ func handleSendLeave(c *gin.Context) {
 
 	// 验证并处理离开事件
 	userID, _ := event["sender"].(string)
+	stateKey, _ := event["state_key"].(string)
+	content, _ := event["content"].(map[string]interface{})
+	sender, _ := event["sender"].(string)
+	originServerTS, _ := event["origin_server_ts"].(float64)
+	if originServerTS == 0 {
+		originServerTS = float64(time.Now().UnixMilli())
+	}
+
+	// 提取事件 ID
+	eventID, _ := event["event_id"].(string)
+	if eventID == "" {
+		eventID = fmt.Sprintf("$%s", generateEventID())
+	}
+
+	// 存储 leave 事件到 matrix_events 表（这对 sync 是必需的）
+	leaveEvent := &MatrixEvent{
+		EventID:        eventID,
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         sender,
+		StateKey:       &stateKey,
+		Content:        content,
+		OriginServerTS: int64(originServerTS),
+		SenderDomain:   extractServerName(sender),
+	}
+	// Extract additional fields if present
+	if depth, ok := event["depth"].(float64); ok {
+		leaveEvent.Depth = int64(depth)
+	}
+	if prevEvents, ok := event["prev_events"].([]interface{}); ok {
+		for _, v := range prevEvents {
+			if s, ok := v.(string); ok {
+				leaveEvent.PrevEvents = append(leaveEvent.PrevEvents, s)
+			}
+		}
+	}
+	if authEvents, ok := event["auth_events"].([]interface{}); ok {
+		for _, v := range authEvents {
+			if s, ok := v.(string); ok {
+				leaveEvent.AuthEvents = append(leaveEvent.AuthEvents, s)
+			}
+		}
+	}
+	
+	if err := db.GetDB().Create(leaveEvent).Error; err != nil {
+		log.Error("Failed to store leave event: %v", err)
+	}
 
 	// 更新房间成员状态
 	db.GetDB().Model(&MatrixRoomMember{}).
 		Where("room_id = ? AND user_id = ?", roomID, userID).
-		Update("membership", MembershipLeave)
+		Updates(map[string]interface{}{
+			"membership": MembershipLeave,
+			"event_id":   eventID,
+		})
 
-	c.JSON(http.StatusOK, gin.H{})
+	// 更新房间状态表
+	roomState := &MatrixRoomState{
+		RoomID:     roomID,
+		EventType:  EventTypeRoomMember,
+		StateKey:   stateKey,
+		Content:    content,
+		EventID:    eventID,
+	}
+	db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", 
+		roomID, EventTypeRoomMember, stateKey).
+		Assign(roomState).
+		FirstOrCreate(roomState)
+
+	// 触发设备列表更新推送（如果这是远程用户离开）
+	if hs.DeviceList != nil && !isLocalUser(userID, hs.Config.ServerName) {
+		hs.DeviceList.RecordDeviceChange(userID, "", "left")
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"event": gin.H{
+			"event_id":         leaveEvent.EventID,
+			"room_id":          roomID,
+			"type":             "m.room.member",
+			"sender":           sender,
+			"state_key":        stateKey,
+			"content":          content,
+			"origin_server_ts": leaveEvent.OriginServerTS,
+		},
+	})
 }
 
 // ===== 邀请 =====

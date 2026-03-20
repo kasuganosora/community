@@ -167,7 +167,17 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	if req.CreationContent != nil {
 		for k, v := range req.CreationContent {
 			if k != "room_version" {
-				createEvent.Content[k] = v
+				// 特殊处理 predecessor 字段，确保格式正确
+				if k == "predecessor" {
+					if predecessor, ok := v.(map[string]interface{}); ok {
+						// 验证 predecessor 包含必需的字段
+						if roomID, hasRoomID := predecessor["room_id"].(string); hasRoomID && roomID != "" {
+							createEvent.Content[k] = predecessor
+						}
+					}
+				} else {
+					createEvent.Content[k] = v
+				}
 			}
 		}
 	}
@@ -742,6 +752,16 @@ func (r *RoomService) processRemoteStateEvent(stateMap map[string]interface{}) {
 
 // backfillFromRemote fetches message history from a remote server after joining
 func (r *RoomService) backfillFromRemote(fedClient *FederationClient, serverName, roomID string) {
+	r.backfillFromRemoteWithLimit(fedClient, serverName, roomID, 0)
+}
+
+// backfillFromRemoteWithLimit 从远程服务器 backfill 事件，支持指定最大事件数
+// maxEvents: 最大要获取的事件数，0 表示使用默认值（100）
+func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, serverName, roomID string, maxEvents int) {
+	if maxEvents <= 0 {
+		maxEvents = 100
+	}
+
 	// Use the LATEST local event as the backfill starting point.
 	// After a federation join, the latest event is the join event itself.
 	// Backfill returns events at or before this point, giving us the room history.
@@ -751,49 +771,106 @@ func (r *RoomService) backfillFromRemote(fedClient *FederationClient, serverName
 		return
 	}
 
-	pdus, err := fedClient.FetchBackfill(serverName, roomID, []string{latestEvent.EventID}, 100)
-	if err != nil {
-		log.Warn("backfillFromRemote: failed to fetch backfill from %s: %v", serverName, err)
-		return
+	// 迭代 backfill，直到获取足够的事件或没有更多事件
+	fetchedCount := 0
+	batchLimit := 100
+	startEventIDs := []string{latestEvent.EventID}
+	maxIterations := 10 // 防止无限循环
+
+	for i := 0; i < maxIterations && fetchedCount < maxEvents; i++ {
+		remaining := maxEvents - fetchedCount
+		if remaining < batchLimit {
+			batchLimit = remaining
+		}
+
+		pdus, err := fedClient.FetchBackfill(serverName, roomID, startEventIDs, batchLimit)
+		if err != nil {
+			log.Warn("backfillFromRemote: failed to fetch backfill from %s: %v", serverName, err)
+			return
+		}
+
+		if len(pdus) == 0 {
+			// 没有更多事件
+			break
+		}
+
+		// 找到这批事件中最早的，用于下一次 backfill
+		var earliestTS int64 = -1
+		var earliestEventID string
+
+		for _, pdu := range pdus {
+			eventID, _ := pdu["event_id"].(string)
+			if eventID == "" {
+				continue
+			}
+			// Skip events we already have
+			var existing MatrixEvent
+			if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
+				continue
+			}
+
+			eventType, _ := pdu["type"].(string)
+			sender, _ := pdu["sender"].(string)
+			originTS, _ := pdu["origin_server_ts"].(float64)
+			content, _ := pdu["content"].(map[string]interface{})
+			if content == nil {
+				content = map[string]interface{}{}
+			}
+
+			event := &MatrixEvent{
+				EventID:        eventID,
+				RoomID:         roomID,
+				EventType:      EventType(eventType),
+				Sender:         sender,
+				Content:        content,
+				OriginServerTS: int64(originTS),
+				SenderDomain:   extractServerName(sender),
+			}
+			if sk, ok := pdu["state_key"].(string); ok {
+				event.StateKey = &sk
+			}
+			if depth, ok := pdu["depth"].(float64); ok {
+				event.Depth = int64(depth)
+			}
+			if prevEvents, ok := pdu["prev_events"].([]interface{}); ok {
+				for _, v := range prevEvents {
+					if s, ok := v.(string); ok {
+						event.PrevEvents = append(event.PrevEvents, s)
+					}
+				}
+			}
+			if authEvents, ok := pdu["auth_events"].([]interface{}); ok {
+				for _, v := range authEvents {
+					if s, ok := v.(string); ok {
+						event.AuthEvents = append(event.AuthEvents, s)
+					}
+				}
+			}
+
+			if err := db.GetDB().Create(event).Error; err != nil {
+				log.Error("Failed to store backfilled event: %v", err)
+				continue
+			}
+
+			fetchedCount++
+
+			// 跟踪最早的事件
+			if earliestTS == -1 || int64(originTS) < earliestTS {
+				earliestTS = int64(originTS)
+				earliestEventID = eventID
+			}
+		}
+
+		// 如果没有获取到新事件或者没有找到更早的事件，停止
+		if earliestEventID == "" {
+			break
+		}
+
+		// 使用最早的事件作为下一次 backfill 的起点
+		startEventIDs = []string{earliestEventID}
 	}
 
-	for _, pdu := range pdus {
-		eventID, _ := pdu["event_id"].(string)
-		if eventID == "" {
-			continue
-		}
-		// Skip events we already have
-		var existing MatrixEvent
-		if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
-			continue
-		}
-
-		eventType, _ := pdu["type"].(string)
-		sender, _ := pdu["sender"].(string)
-		originTS, _ := pdu["origin_server_ts"].(float64)
-		content, _ := pdu["content"].(map[string]interface{})
-		if content == nil {
-			content = map[string]interface{}{}
-		}
-
-		event := &MatrixEvent{
-			EventID:        eventID,
-			RoomID:         roomID,
-			EventType:      EventType(eventType),
-			Sender:         sender,
-			Content:        content,
-			OriginServerTS: int64(originTS),
-			SenderDomain:   extractServerName(sender),
-		}
-		if sk, ok := pdu["state_key"].(string); ok {
-			event.StateKey = &sk
-		}
-		if depth, ok := pdu["depth"].(float64); ok {
-			event.Depth = int64(depth)
-		}
-
-		db.GetDB().Create(event)
-	}
+	log.Info("Backfilled %d events for room %s from %s", fetchedCount, roomID, serverName)
 }
 
 // ===== 房间离开 =====

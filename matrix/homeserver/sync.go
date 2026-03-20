@@ -472,11 +472,13 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 			}
 		} else {
 			// 增量同步：返回 since 之后的所有事件（按时间升序）
-			// Use created_at (local receive time) for the "since" filter to correctly
-			// capture federation events whose origin_server_ts may predate our sync token
+			// Use created_at (local receive time) for both filtering and ordering to correctly
+			// handle federation events whose origin_server_ts may predate our sync token.
+			// This ensures consistent ordering between backfilled events (which have similar created_at
+			// but potentially very different origin_server_ts) and local events.
 			sinceTime := time.UnixMilli(since)
 			db.GetDB().Where("room_id = ? AND created_at > ?", roomID, sinceTime).
-				Order("origin_server_ts ASC").Limit(timelineLimit + 1).Find(&events)
+				Order("created_at ASC, origin_server_ts ASC").Limit(timelineLimit + 1).Find(&events)
 			if len(events) > timelineLimit {
 				events = events[:timelineLimit]
 				room.Timeline.Limited = true
