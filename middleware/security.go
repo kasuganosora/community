@@ -1,11 +1,13 @@
 package middleware
 
 import (
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 // SecurityHeadersMiddleware 添加安全 HTTP 头部
@@ -103,8 +105,57 @@ func IPWhitelistMiddleware(whitelist []string) gin.HandlerFunc {
 	}
 }
 
-// isIPInCIDR 检查 IP 是否在 CIDR 范围内
+// isIPInCIDR 检查 IP 是否在 CIDR 范围内（支持 IPv4 和 IPv6）
 func isIPInCIDR(ip, cidr string) bool {
-	// 简化实现，实际项目中可以使用 net 包
-	return false
+	// 解析 IP 地址
+	clientIP := net.ParseIP(ip)
+	if clientIP == nil {
+		return false
+	}
+
+	// 解析 CIDR
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		// 如果不是 CIDR 格式，尝试作为单个 IP 比较
+		allowedIP := net.ParseIP(cidr)
+		if allowedIP == nil {
+			return false
+		}
+		return clientIP.Equal(allowedIP)
+	}
+
+	// 检查 IP 是否在 CIDR 范围内
+	return ipNet.Contains(clientIP)
+}
+
+// isValidIP 验证 IP 地址是否有效（支持 IPv4 和 IPv6）
+func isValidIP(ip string) bool {
+	return net.ParseIP(ip) != nil
+}
+
+// getIPVersion 获取 IP 版本（4 或 6）
+func getIPVersion(ip string) int {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return 0
+	}
+	if parsedIP.To4() != nil {
+		return 4
+	}
+	return 6
+}
+
+// normalizeIP 规范化 IP 地址（处理 IPv4-mapped IPv6 地址）
+func normalizeIP(ip string) string {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return ip
+	}
+
+	// 如果是 IPv4-mapped IPv6 地址（如 ::ffff:192.168.1.1），转换为 IPv4
+	if ipv4 := parsedIP.To4(); ipv4 != nil {
+		return ipv4.String()
+	}
+
+	return parsedIP.String()
 }

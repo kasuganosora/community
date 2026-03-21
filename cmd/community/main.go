@@ -136,7 +136,13 @@ func setupFrontend(app *gin.Engine) {
 		app.StaticFile("/logo.svg", filepath.Join(frontendDir, "logo.svg"))
 
 		// SPA fallback: serve index.html for all non-API routes
-		indexHTML, _ := os.ReadFile(filepath.Join(frontendDir, "index.html"))
+		indexPath := filepath.Join(frontendDir, "index.html")
+		indexHTML, err := os.ReadFile(indexPath)
+		if err != nil {
+			log.Warn("Failed to read index.html: %v", err)
+			return
+		}
+
 		app.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
 			// Don't serve frontend for API, OAuth, ActivityPub, Matrix routes

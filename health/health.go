@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -267,18 +269,13 @@ func StorageChecker(storageType string) HealthCheckerFunc {
 		// 简单的存储检查
 		switch storageType {
 		case "local":
-			// 检查本地存储目录
-			// TODO: 实际检查目录可写性
-			return ServiceHealth{
-				Status:  StatusHealthy,
-				Latency: time.Since(start).String(),
-			}
+			return checkLocalStorage(start)
 		case "s3", "oss", "cos":
-			// TODO: 检查云存储连接
+			// 云存储健康检查需要具体的客户端配置
 			return ServiceHealth{
 				Status:  StatusHealthy,
 				Latency: time.Since(start).String(),
-				Message: fmt.Sprintf("%s storage health check not implemented", storageType),
+				Message: fmt.Sprintf("%s storage health check requires client configuration", storageType),
 			}
 		default:
 			return ServiceHealth{
@@ -287,6 +284,47 @@ func StorageChecker(storageType string) HealthCheckerFunc {
 				Message: "unknown storage type",
 			}
 		}
+	}
+}
+
+// checkLocalStorage 检查本地存储健康状态
+func checkLocalStorage(start time.Time) ServiceHealth {
+	// 检查默认存储目录
+	storageDirs := []string{"uploads", "media", "cache", "logs"}
+	var failedDirs []string
+
+	for _, dir := range storageDirs {
+		// 检查目录是否存在，不存在则尝试创建
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			failedDirs = append(failedDirs, dir)
+			continue
+		}
+
+		// 检查目录是否可写（尝试创建一个临时文件）
+		testFile := filepath.Join(dir, ".health_check_tmp")
+		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+			failedDirs = append(failedDirs, dir)
+			continue
+		}
+		os.Remove(testFile) // 清理测试文件
+	}
+
+	latency := time.Since(start)
+
+	if len(failedDirs) > 0 {
+		return ServiceHealth{
+			Status:  StatusDegraded,
+			Latency: latency.String(),
+			Message: fmt.Sprintf("Failed to access directories: %v", failedDirs),
+		}
+	}
+
+	return ServiceHealth{
+		Status:  StatusHealthy,
+		Latency: latency.String(),
+		Metadata: map[string]interface{}{
+			"checked_dirs": storageDirs,
+		},
 	}
 }
 
