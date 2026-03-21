@@ -16,14 +16,15 @@ var logObj *logrus.Logger
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level      string // debug, info, warn, error
-	Output     string // stdout, file, both
-	FilePath   string
-	MaxSize    int  // MB
-	MaxBackups int  // 保留旧文件个数
-	MaxAge     int  // 保留天数
-	Compress   bool // 是否压缩
-	Format     string // text, json
+	Level       string // debug, info, warn, error
+	Output      string // stdout, file, both
+	FilePath    string
+	MaxSize     int  // MB，单个日志文件最大大小
+	MaxBackups  int  // 保留旧文件个数
+	MaxAge      int  // 保留天数
+	Compress    bool // 是否压缩
+	Format      string // text, json
+	MaxDiskUsage int64 // MB，日志目录最大磁盘使用量（0表示不限制）
 }
 
 func init() {
@@ -37,8 +38,46 @@ func init() {
 	})
 }
 
+// DefaultLogConfig 返回安全的默认日志配置
+// 默认配置确保日志不会占满磁盘：
+// - 单个文件最大 100MB
+// - 最多保留 10 个备份文件
+// - 最多保留 30 天
+// - 启用压缩节省空间
+// - 日志目录最大 1GB
+func DefaultLogConfig() LogConfig {
+	return LogConfig{
+		Level:        "info",
+		Output:       "stdout",
+		FilePath:     "logs/community.log",
+		MaxSize:      100,  // 单个文件最大 100MB
+		MaxBackups:   10,   // 保留 10 个备份
+		MaxAge:       30,   // 保留 30 天
+		Compress:     true, // 启用压缩
+		Format:       "text",
+		MaxDiskUsage: 1024, // 日志目录最大 1GB
+	}
+}
+
 // InitLogger 初始化日志配置
 func InitLogger(config LogConfig) {
+	// 保存配置用于后续统计
+	SetGlobalLogConfig(config)
+
+	// 设置默认值
+	if config.MaxSize <= 0 {
+		config.MaxSize = 100
+	}
+	if config.MaxBackups <= 0 {
+		config.MaxBackups = 10
+	}
+	if config.MaxAge <= 0 {
+		config.MaxAge = 30
+	}
+	if config.MaxDiskUsage <= 0 {
+		config.MaxDiskUsage = 1024 // 默认 1GB
+	}
+
 	// 设置日志级别
 	level, err := logrus.ParseLevel(config.Level)
 	if err != nil {
@@ -78,15 +117,162 @@ func getLogWriter(config LogConfig) io.Writer {
 		if dir != "" && dir != "." {
 			os.MkdirAll(dir, 0755)
 		}
+
+		// 检查磁盘空间
+		if config.MaxDiskUsage > 0 {
+			if usage := getDirSize(dir); usage > config.MaxDiskUsage*1024*1024 {
+				// 磁盘使用超过限制，清理旧日志
+				cleanupOldLogs(dir, config)
+			}
+		}
 	}
 
+	// 使用 lumberjack 实现日志轮转
+	// 配置说明：
+	// - MaxSize: 单个日志文件最大大小（MB），超过后自动轮转
+	// - MaxBackups: 保留的旧日志文件个数，超过后删除最旧的
+	// - MaxAge: 日志文件保留天数，超过后自动删除
+	// - Compress: 是否压缩旧日志（gzip），节省磁盘空间
 	return &lumberjack.Logger{
 		Filename:   config.FilePath,
-		MaxSize:    config.MaxSize,    // MB
+		MaxSize:    config.MaxSize,    // MB，单个文件最大大小
 		MaxBackups: config.MaxBackups, // 保留旧文件个数
 		MaxAge:     config.MaxAge,     // 保留天数
-		Compress:   config.Compress,   // 是否压缩
+		Compress:   config.Compress,   // 是否压缩（推荐启用）
+		LocalTime:  true,              // 使用本地时间
 	}
+}
+
+// getDirSize 获取目录大小（字节）
+func getDirSize(dir string) int64 {
+	var size int64
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size
+}
+
+// cleanupOldLogs 清理旧日志文件
+func cleanupOldLogs(dir string, config LogConfig) {
+	// 获取所有日志文件
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	// 按修改时间排序
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+		size    int64
+	}
+
+	var logFiles []fileInfo
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+		// 只处理日志文件（包括轮转后的日志如 test.log.1, test.log.2.gz 等）
+		name := file.Name()
+		if strings.Contains(name, ".log") || strings.HasSuffix(name, ".gz") {
+			logFiles = append(logFiles, fileInfo{
+				path:    filepath.Join(dir, name),
+				modTime: info.ModTime(),
+				size:    info.Size(),
+			})
+		}
+	}
+
+	// 按修改时间排序（最旧的在前）
+	for i := 0; i < len(logFiles)-1; i++ {
+		for j := i + 1; j < len(logFiles); j++ {
+			if logFiles[i].modTime.After(logFiles[j].modTime) {
+				logFiles[i], logFiles[j] = logFiles[j], logFiles[i]
+			}
+		}
+	}
+
+	// 删除旧日志直到低于限制
+	var currentSize int64
+	for _, f := range logFiles {
+		currentSize += f.size
+	}
+
+	targetSize := config.MaxDiskUsage * 1024 * 1024 * 80 / 100 // 目标使用 80%
+	for _, f := range logFiles {
+		if currentSize <= targetSize {
+			break
+		}
+		// 删除最旧的日志
+		if err := os.Remove(f.path); err == nil {
+			currentSize -= f.size
+			logObj.Warn("Cleaned up old log file: " + f.path)
+		}
+	}
+}
+
+// GetLogStats 获取日志统计信息
+func GetLogStats(config LogConfig) map[string]interface{} {
+	stats := map[string]interface{}{
+		"config": map[string]interface{}{
+			"max_size_mb":       config.MaxSize,
+			"max_backups":       config.MaxBackups,
+			"max_age_days":      config.MaxAge,
+			"compress":          config.Compress,
+			"max_disk_usage_mb": config.MaxDiskUsage,
+		},
+	}
+
+	if config.FilePath != "" {
+		dir := filepath.Dir(config.FilePath)
+		if size := getDirSize(dir); size > 0 {
+			stats["current_size_mb"] = size / 1024 / 1024
+			stats["current_size_bytes"] = size
+		}
+
+		// 统计日志文件数量
+		files, _ := os.ReadDir(dir)
+		var logFileCount int
+		for _, f := range files {
+			if !f.IsDir() && (strings.HasSuffix(f.Name(), ".log") || strings.HasSuffix(f.Name(), ".gz")) {
+				logFileCount++
+			}
+		}
+		stats["log_file_count"] = logFileCount
+
+		// 检查是否接近磁盘限制
+		if config.MaxDiskUsage > 0 {
+			currentSize := getDirSize(dir)
+			usagePercent := float64(currentSize) / float64(config.MaxDiskUsage*1024*1024) * 100
+			stats["disk_usage_percent"] = usagePercent
+			stats["is_near_limit"] = usagePercent > 80
+		}
+	}
+
+	return stats
+}
+
+// globalLogConfig 全局日志配置（用于统计）
+var globalLogConfig LogConfig
+
+// SetGlobalLogConfig 设置全局日志配置
+func SetGlobalLogConfig(config LogConfig) {
+	globalLogConfig = config
+}
+
+// GetCurrentLogStats 获取当前日志统计（使用全局配置）
+func GetCurrentLogStats() map[string]interface{} {
+	if globalLogConfig.FilePath == "" {
+		globalLogConfig = DefaultLogConfig()
+	}
+	return GetLogStats(globalLogConfig)
 }
 
 func GetLogObject() *logrus.Logger {

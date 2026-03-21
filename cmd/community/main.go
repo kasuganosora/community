@@ -72,16 +72,20 @@ func initLogger() {
 		level = "debug"
 	}
 
-	log.InitLogger(log.LogConfig{
-		Level:      level,
-		Output:     "stdout",
-		FilePath:   "logs/community.log",
-		MaxSize:    100,
-		MaxBackups: 7,
-		MaxAge:     30,
-		Compress:   true,
-		Format:     "text",
-	})
+	// 使用安全的默认配置
+	logConfig := log.DefaultLogConfig()
+	logConfig.Level = level
+
+	// 生产环境启用文件日志
+	if config.C.DevMode != "true" {
+		logConfig.Output = "both" // 同时输出到 stdout 和文件
+	}
+
+	log.InitLogger(logConfig)
+
+	// 记录日志配置
+	log.Info("Logger initialized with rotation: max_size=%dMB, max_backups=%d, max_age=%ddays, compress=%v",
+		logConfig.MaxSize, logConfig.MaxBackups, logConfig.MaxAge, logConfig.Compress)
 }
 
 // setupServer 配置 HTTP 服务器
@@ -121,6 +125,10 @@ func setupServer() *gin.Engine {
 
 	// Prometheus 指标端点
 	app.GET("/metrics", metrics.Handler())
+
+	// 日志统计端点
+	app.GET("/admin/logs/stats", log.StatsHandler())
+	app.GET("/admin/logs/health", log.HealthHandler())
 
 	// 前端静态文件服务
 	setupFrontend(app)
