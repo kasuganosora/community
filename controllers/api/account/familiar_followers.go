@@ -79,7 +79,7 @@ func FamiliarFollowers(c *gin.Context) {
 		familiarFollowers := serializer.ToAccounts(accounts)
 
 		result = append(result, gin.H{
-			"id":      strconv.FormatUint(targetId, 10),
+			"id":       strconv.FormatUint(targetId, 10),
 			"accounts": familiarFollowers,
 		})
 	}

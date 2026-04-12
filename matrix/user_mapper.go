@@ -96,12 +96,12 @@ func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.Matr
 
 	// 创建数据库记录
 	matrixUser := &models.MatrixUser{
-		LocalAccountId:   localAccountID,
-		MatrixUserID:     matrixUserID,
-		MatrixLocalpart:  matrixLocalpart,
-		MatrixServer:     GlobalConfig.ServerName,
-		Direction:        "local",
-		DisplayName:      displayName,
+		LocalAccountId:  localAccountID,
+		MatrixUserID:    matrixUserID,
+		MatrixLocalpart: matrixLocalpart,
+		MatrixServer:    GlobalConfig.ServerName,
+		Direction:       "local",
+		DisplayName:     displayName,
 	}
 
 	if err := db.GetDB().Create(matrixUser).Error; err != nil {
@@ -187,13 +187,13 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 
 	// 创建映射记录
 	matrixUser := &models.MatrixUser{
-		LocalAccountId:   account.Id,
-		MatrixUserID:     matrixUserID,
-		MatrixLocalpart:  localpart,
-		MatrixServer:     server,
-		Direction:        "remote",
-		DisplayName:      profile.DisplayName,
-		AvatarURL:        profile.AvatarURL,
+		LocalAccountId:  account.Id,
+		MatrixUserID:    matrixUserID,
+		MatrixLocalpart: localpart,
+		MatrixServer:    server,
+		Direction:       "remote",
+		DisplayName:     profile.DisplayName,
+		AvatarURL:       profile.AvatarURL,
 	}
 
 	if err := tx.Create(matrixUser).Error; err != nil {

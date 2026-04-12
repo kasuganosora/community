@@ -12,23 +12,23 @@ type MediaAttachmentSerializer struct{}
 
 // MediaAttachmentResponse 媒体附件响应
 type MediaAttachmentResponse struct {
-	Id                string                   `json:"id"`
-	Type              string                   `json:"type"`
-	Url               string                   `json:"url"`
-	PreviewUrl        string                   `json:"preview_url"`
-	RemoteUrl         *string                  `json:"remote_url"`
-	PreviewRemoteUrl  *string                  `json:"preview_remote_url"`
-	TextUrl           *string                  `json:"text_url"`
-	Meta              *MediaAttachmentMeta     `json:"meta"`
-	Description       string                   `json:"description"`
-	Blurhash          string                   `json:"blurhash"`
+	Id               string               `json:"id"`
+	Type             string               `json:"type"`
+	Url              string               `json:"url"`
+	PreviewUrl       string               `json:"preview_url"`
+	RemoteUrl        *string              `json:"remote_url"`
+	PreviewRemoteUrl *string              `json:"preview_remote_url"`
+	TextUrl          *string              `json:"text_url"`
+	Meta             *MediaAttachmentMeta `json:"meta"`
+	Description      string               `json:"description"`
+	Blurhash         string               `json:"blurhash"`
 }
 
 // MediaAttachmentMeta 媒体元数据
 type MediaAttachmentMeta struct {
-	Focus    *MediaAttachmentFocus      `json:"focus,omitempty"`
-	Original *MediaAttachmentOriginal   `json:"original,omitempty"`
-	Small    *MediaAttachmentSmall      `json:"small,omitempty"`
+	Focus    *MediaAttachmentFocus    `json:"focus,omitempty"`
+	Original *MediaAttachmentOriginal `json:"original,omitempty"`
+	Small    *MediaAttachmentSmall    `json:"small,omitempty"`
 }
 
 // MediaAttachmentFocus 焦点位置
@@ -49,9 +49,9 @@ type MediaAttachmentOriginal struct {
 
 // MediaAttachmentSmall 缩略图尺寸
 type MediaAttachmentSmall struct {
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
-	Size   string `json:"size,omitempty"`
+	Width  int     `json:"width,omitempty"`
+	Height int     `json:"height,omitempty"`
+	Size   string  `json:"size,omitempty"`
 	Aspect float64 `json:"aspect,omitempty"`
 }
 
@@ -66,7 +66,7 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 
 	// 构建文件 URL
 	url := fmt.Sprintf("%s/media/%s/%s", baseURL, strconv.FormatUint(media.Id, 10), media.FileName)
-	
+
 	// 构建缩略图 URL
 	var previewUrl string
 	if media.ThumbnailPath != nil && *media.ThumbnailPath != "" {

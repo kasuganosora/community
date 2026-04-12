@@ -41,7 +41,7 @@ func RegisterFederationRoutes(r gin.IRouter) {
 	if hs == nil || !hs.Config.Enabled {
 		return
 	}
-	
+
 	fed := r.Group("/_matrix/federation")
 	{
 		fed.GET("/v1/version", handleFederationVersion)
@@ -64,7 +64,7 @@ func RegisterFederationRoutes(r gin.IRouter) {
 		fed.GET("/v1/query/server_key", handleGetServerKey)
 		fed.GET("/v1/3pid/onbind", handleThirdPartyOnBind)
 	}
-	
+
 	// 密钥端点
 	r.GET("/_matrix/key/v2/server", handleGetServerKey)
 	r.GET("/_matrix/key/v2/server/:keyId", handleGetServerKey)
@@ -73,11 +73,11 @@ func RegisterFederationRoutes(r gin.IRouter) {
 // ===== 服务器密钥 =====
 
 type ServerKeyResponse struct {
-	ServerName string            `json:"server_name"`
-	ValidUntil int64             `json:"valid_until_ts"`
-	VerifyKeys map[string]KeyInfo `json:"verify_keys"`
-	OldVerifyKeys map[string]KeyInfo `json:"old_verify_keys"`
-	Signatures map[string]map[string]string `json:"signatures"`
+	ServerName    string                       `json:"server_name"`
+	ValidUntil    int64                        `json:"valid_until_ts"`
+	VerifyKeys    map[string]KeyInfo           `json:"verify_keys"`
+	OldVerifyKeys map[string]KeyInfo           `json:"old_verify_keys"`
+	Signatures    map[string]map[string]string `json:"signatures"`
 }
 
 type KeyInfo struct {
@@ -119,7 +119,9 @@ func (f *FederationService) signJSON(data interface{}) string {
 		}
 	default:
 		jsonBytes, _ := json.Marshal(data)
-		json.Unmarshal(jsonBytes, &objMap)
+		if err := json.Unmarshal(jsonBytes, &objMap); err != nil {
+			return ""
+		}
 	}
 
 	delete(objMap, "signatures")
@@ -176,17 +178,17 @@ type QueryDirectoryResponse struct {
 func handleQueryDirectory(c *gin.Context) {
 	roomAlias := c.Query("room_alias")
 	hs := GetHomeServer()
-	
+
 	// 查找房间别名对应的房间
 	var roomID string
 	var servers []string
-	
+
 	// 检查是否是本地别名
 	if strings.HasSuffix(roomAlias, ":"+hs.Config.ServerName) {
 		// 解析别名
 		localpart := strings.TrimPrefix(roomAlias, "#")
 		localpart = strings.Split(localpart, ":")[0]
-		
+
 		// 查找房间
 		aliasService := NewAliasService(hs)
 		resolvedRoomID, err := aliasService.GetRoomIDByAlias(roomAlias)
@@ -196,7 +198,7 @@ func handleQueryDirectory(c *gin.Context) {
 		}
 		_ = localpart
 	}
-	
+
 	if roomID == "" {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
@@ -204,7 +206,7 @@ func handleQueryDirectory(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, QueryDirectoryResponse{
 		RoomID:  roomID,
 		Servers: servers,
@@ -221,7 +223,7 @@ type QueryProfileResponse struct {
 func handleQueryProfile(c *gin.Context) {
 	userID := c.Query("user_id")
 	hs := GetHomeServer()
-	
+
 	// 解析用户 ID
 	localpart, domain, ok := ParseMatrixUserID(userID)
 	if !ok {
@@ -231,7 +233,7 @@ func handleQueryProfile(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 检查是否是本地用户
 	if domain != hs.Config.ServerName {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -240,7 +242,7 @@ func handleQueryProfile(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 获取用户档案
 	accountID, err := hs.Auth.GetLocalAccountID(userID)
 	if err != nil {
@@ -250,10 +252,10 @@ func handleQueryProfile(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	_ = accountID
 	_ = localpart
-	
+
 	c.JSON(http.StatusOK, QueryProfileResponse{
 		DisplayName: localpart,
 		AvatarURL:   "",
@@ -273,7 +275,7 @@ func handleMakeJoin(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := c.Param("userId")
 	hs := GetHomeServer()
-	
+
 	// 检查房间是否存在
 	room, err := hs.Room.GetRoom(roomID)
 	if err != nil {
@@ -283,7 +285,7 @@ func handleMakeJoin(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 创建加入事件模板（不含 room_version，room_version 在顶层返回）
 	event := gin.H{
 		"type":             "m.room.member",
@@ -312,8 +314,8 @@ func handleMakeJoin(c *gin.Context) {
 }
 
 type SendJoinResponse struct {
-	Origin string   `json:"origin"`
-	State  []gin.H  `json:"state"`
+	Origin    string  `json:"origin"`
+	State     []gin.H `json:"state"`
 	AuthChain []gin.H `json:"auth_chain"`
 }
 
@@ -515,7 +517,7 @@ func handleMakeLeave(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := c.Param("userId")
 	hs := GetHomeServer()
-	
+
 	// 检查房间是否存在
 	_, err := hs.Room.GetRoom(roomID)
 	if err != nil {
@@ -525,7 +527,7 @@ func handleMakeLeave(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 创建离开事件模板
 	event := gin.H{
 		"type":      "m.room.member",
@@ -535,14 +537,14 @@ func handleMakeLeave(c *gin.Context) {
 		"content": gin.H{
 			"membership": "leave",
 		},
-		"origin":          hs.Config.ServerName,
+		"origin":           hs.Config.ServerName,
 		"origin_server_ts": time.Now().UnixMilli(),
 	}
-	
+
 	c.JSON(http.StatusOK, MakeJoinResponse{
-		Origin:          hs.Config.ServerName,
-		OriginServerTS:  time.Now().UnixMilli(),
-		Event:           event,
+		Origin:         hs.Config.ServerName,
+		OriginServerTS: time.Now().UnixMilli(),
+		Event:          event,
 	})
 }
 
@@ -605,7 +607,7 @@ func handleSendLeave(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	if err := db.GetDB().Create(leaveEvent).Error; err != nil {
 		log.Error("Failed to store leave event: %v", err)
 	}
@@ -620,20 +622,20 @@ func handleSendLeave(c *gin.Context) {
 
 	// 更新房间状态表
 	roomState := &MatrixRoomState{
-		RoomID:     roomID,
-		EventType:  EventTypeRoomMember,
-		StateKey:   stateKey,
-		Content:    content,
-		EventID:    eventID,
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		StateKey:  stateKey,
+		Content:   content,
+		EventID:   eventID,
 	}
-	db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", 
+	db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
 		roomID, EventTypeRoomMember, stateKey).
 		Assign(roomState).
 		FirstOrCreate(roomState)
 
 	// 触发设备列表更新推送（如果这是远程用户离开）
 	if hs.DeviceList != nil && !isLocalUser(userID, hs.Config.ServerName) {
-		hs.DeviceList.RecordDeviceChange(userID, "", "left")
+		_ = hs.DeviceList.RecordDeviceChange(userID, "", "left")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -685,12 +687,12 @@ func handleFederationInvite(c *gin.Context) {
 
 	// 创建邀请事件
 	inviteEvent := &MatrixEvent{
-		EventID:       fmt.Sprintf("$%s", generateEventID()),
-		RoomID:        roomID,
-		EventType:     EventTypeRoomMember,
-		Sender:        sender,
-		StateKey:      &stateKey,
-		Content:       content,
+		EventID:        fmt.Sprintf("$%s", generateEventID()),
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         sender,
+		StateKey:       &stateKey,
+		Content:        content,
 		OriginServerTS: time.Now().UnixMilli(),
 	}
 	db.GetDB().Create(inviteEvent)
@@ -699,12 +701,12 @@ func handleFederationInvite(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"event": gin.H{
-			"event_id":        inviteEvent.EventID,
-			"room_id":         roomID,
-			"type":            "m.room.member",
-			"sender":          sender,
-			"state_key":       stateKey,
-			"content":         content,
+			"event_id":         inviteEvent.EventID,
+			"room_id":          roomID,
+			"type":             "m.room.member",
+			"sender":           sender,
+			"state_key":        stateKey,
+			"content":          content,
 			"origin_server_ts": inviteEvent.OriginServerTS,
 		},
 	})
@@ -752,23 +754,23 @@ func buildAuthChainForRoom(roomID string, stateEvents []*ClientEvent) []gin.H {
 func handleGetState(c *gin.Context) {
 	roomID := c.Param("roomId")
 	hs := GetHomeServer()
-	
+
 	// 获取房间状态
 	state, _ := hs.Room.GetRoomStateAll(roomID)
-	
+
 	stateEvents := make([]gin.H, len(state))
 	for i, e := range state {
 		stateEvents[i] = gin.H{
-			"event_id":   e.EventID,
-			"type":       e.Type,
-			"room_id":    e.RoomID,
-			"sender":     e.Sender,
-			"state_key":  e.StateKey,
-			"content":    e.Content,
+			"event_id":         e.EventID,
+			"type":             e.Type,
+			"room_id":          e.RoomID,
+			"sender":           e.Sender,
+			"state_key":        e.StateKey,
+			"content":          e.Content,
 			"origin_server_ts": e.OriginServerTS,
 		}
 	}
-	
+
 	// 构建 auth chain
 	authChain := buildAuthChainForRoom(roomID, state)
 
@@ -782,15 +784,15 @@ func handleGetState(c *gin.Context) {
 func handleGetStateIDs(c *gin.Context) {
 	roomID := c.Param("roomId")
 	hs := GetHomeServer()
-	
+
 	// 获取房间状态
 	state, _ := hs.Room.GetRoomStateAll(roomID)
-	
+
 	stateEventIDs := make([]string, len(state))
 	for i, e := range state {
 		stateEventIDs[i] = e.EventID
 	}
-	
+
 	// 构建 auth chain IDs
 	authChainEvents := buildAuthChainForRoom(roomID, state)
 	authChainIDs := make([]string, 0, len(authChainEvents))
@@ -801,9 +803,9 @@ func handleGetStateIDs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"origin":          hs.Config.ServerName,
-		"pdu_ids":         stateEventIDs,
-		"auth_chain_ids":  authChainIDs,
+		"origin":         hs.Config.ServerName,
+		"pdu_ids":        stateEventIDs,
+		"auth_chain_ids": authChainIDs,
 	})
 }
 
@@ -812,7 +814,7 @@ func handleGetStateIDs(c *gin.Context) {
 func handleGetFederationEvent(c *gin.Context) {
 	eventID := c.Param("eventId")
 	hs := GetHomeServer()
-	
+
 	event, err := hs.Event.GetEvent(eventID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -821,18 +823,18 @@ func handleGetFederationEvent(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"origin": hs.Config.ServerName,
+		"origin":           hs.Config.ServerName,
 		"origin_server_ts": time.Now().UnixMilli(),
 		"pdus": []gin.H{
 			{
-				"event_id":        event.EventID,
-				"room_id":         event.RoomID,
-				"type":            event.Type,
-				"sender":          event.Sender,
-				"state_key":       event.StateKey,
-				"content":         event.Content,
+				"event_id":         event.EventID,
+				"room_id":          event.RoomID,
+				"type":             event.Type,
+				"sender":           event.Sender,
+				"state_key":        event.StateKey,
+				"content":          event.Content,
 				"origin_server_ts": event.OriginServerTS,
 			},
 		},
@@ -842,10 +844,10 @@ func handleGetFederationEvent(c *gin.Context) {
 // ===== 事务发送 =====
 
 type FederationTransaction struct {
-	Origin      string             `json:"origin"`
-	OriginServerTS int64           `json:"origin_server_ts"`
-	PDUs        []json.RawMessage  `json:"pdus"`
-	EDUs        []json.RawMessage  `json:"edus"`
+	Origin         string            `json:"origin"`
+	OriginServerTS int64             `json:"origin_server_ts"`
+	PDUs           []json.RawMessage `json:"pdus"`
+	EDUs           []json.RawMessage `json:"edus"`
 }
 
 // computeReferenceHash computes the event ID for room version 4+ per the Matrix spec:
@@ -865,13 +867,13 @@ func computeReferenceHash(event map[string]interface{}, eventType string) string
 
 	// Content keys protected from redaction, by event type
 	protectedContent := map[string][]string{
-		"m.room.member":               {"membership", "join_authorised_via_users_server", "third_party_invite"},
-		"m.room.create":               {"creator"},
-		"m.room.join_rules":           {"join_rule", "allow"},
-		"m.room.power_levels":         {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"},
-		"m.room.history_visibility":   {"history_visibility"},
-		"m.room.redaction":            {},
-		"m.room.message":              {"msgtype", "body"},
+		"m.room.member":             {"membership", "join_authorised_via_users_server", "third_party_invite"},
+		"m.room.create":             {"creator"},
+		"m.room.join_rules":         {"join_rule", "allow"},
+		"m.room.power_levels":       {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"},
+		"m.room.history_visibility": {"history_visibility"},
+		"m.room.redaction":          {},
+		"m.room.message":            {"msgtype", "body"},
 	}
 
 	redacted := make(map[string]interface{})
@@ -1128,10 +1130,12 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 	// Store each missing event (they come in chronological order from oldest to newest)
 	for _, rawPDU := range missingPDUs {
 		var missingEvent map[string]interface{}
-		if json.Unmarshal(rawPDU, &missingEvent) != nil {
+		if err := json.Unmarshal(rawPDU, &missingEvent); err != nil {
 			continue
 		}
-		storeFederationPDU(hs, missingEvent)
+		if _, err := storeFederationPDU(hs, missingEvent); err != nil {
+					continue
+				}
 	}
 }
 
@@ -1275,7 +1279,7 @@ func handleFederationSend(c *gin.Context) {
 				if origin == "" {
 					origin = txn.Origin
 				}
-				hs.DeviceList.HandleIncomingDeviceListUpdate(origin, &edu)
+				_ = hs.DeviceList.HandleIncomingDeviceListUpdate(origin, &edu)
 			}
 		}
 	}
@@ -1294,7 +1298,7 @@ func handleGetPublicRooms(c *gin.Context) {
 	since := c.Query("since")
 	limit := 100
 	if l := c.Query("limit"); l != "" {
-		fmt.Sscanf(l, "%d", &limit)
+		_, _ = fmt.Sscanf(l, "%d", &limit)
 	}
 
 	// 获取公共房间
@@ -1326,15 +1330,15 @@ func handleGetPublicRooms(c *gin.Context) {
 		}
 
 		chunk[i] = gin.H{
-			"room_id":          room.RoomID,
-			"name":             name,
-			"topic":            room.Topic,
-			"avatar_url":       avatarURL,
-			"joined_members":   joinedCount,
-			"world_readable":   room.HistoryVisibility == "world_readable",
-			"guest_can_join":   room.GuestAccess == "can_join",
-			"join_rule":        room.JoinRule,
-			"room_type":        room.RoomType,
+			"room_id":        room.RoomID,
+			"name":           name,
+			"topic":          room.Topic,
+			"avatar_url":     avatarURL,
+			"joined_members": joinedCount,
+			"world_readable": room.HistoryVisibility == "world_readable",
+			"guest_can_join": room.GuestAccess == "can_join",
+			"join_rule":      room.JoinRule,
+			"room_type":      room.RoomType,
 		}
 	}
 
@@ -1345,11 +1349,11 @@ func handleGetPublicRooms(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"origin":     hs.Config.ServerName,
-		"chunk":      chunk,
+		"origin":                    hs.Config.ServerName,
+		"chunk":                     chunk,
 		"total_room_count_estimate": len(rooms),
-		"next_batch": nextBatch,
-		"prev_batch": since,
+		"next_batch":                nextBatch,
+		"prev_batch":                since,
 	})
 
 	_ = since
@@ -1358,48 +1362,18 @@ func handleGetPublicRooms(c *gin.Context) {
 // ===== 用户设备 =====
 
 type UserDevicesResponse struct {
-	UserID   string          `json:"user_id"`
-	Devices  []DeviceKeyInfo `json:"devices"`
-	MasterKey interface{}    `json:"master_key,omitempty"`
-	SelfSigningKey interface{} `json:"self_signing_key,omitempty"`
+	UserID         string          `json:"user_id"`
+	Devices        []DeviceKeyInfo `json:"devices"`
+	MasterKey      interface{}     `json:"master_key,omitempty"`
+	SelfSigningKey interface{}     `json:"self_signing_key,omitempty"`
 }
 
 type DeviceKeyInfo struct {
-	DeviceID  string            `json:"device_id"`
-	Keys      map[string]string `json:"keys"`
-	Algorithms []string         `json:"algorithms"`
-	Signatures map[string]map[string]string `json:"signatures"`
-	DisplayName string          `json:"device_display_name,omitempty"`
-}
-
-func handleGetUserDevices(c *gin.Context) {
-	userID := c.Param("userId")
-	hs := GetHomeServer()
-	
-	// 解析用户 ID
-	_, domain, ok := ParseMatrixUserID(userID)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_INVALID_PARAM",
-			"error":   "Invalid user ID",
-		})
-		return
-	}
-	
-	// 检查是否是本地用户
-	if domain != hs.Config.ServerName {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "User not found",
-		})
-		return
-	}
-	
-	// 获取用户设备
-	c.JSON(http.StatusOK, UserDevicesResponse{
-		UserID:  userID,
-		Devices: []DeviceKeyInfo{},
-	})
+	DeviceID    string                       `json:"device_id"`
+	Keys        map[string]string            `json:"keys"`
+	Algorithms  []string                     `json:"algorithms"`
+	Signatures  map[string]map[string]string `json:"signatures"`
+	DisplayName string                       `json:"device_display_name,omitempty"`
 }
 
 // ===== 第三方网络 =====

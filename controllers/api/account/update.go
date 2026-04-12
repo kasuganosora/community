@@ -21,7 +21,7 @@ type UpdateAccountRequest struct {
 	Bot             *bool                 `json:"bot"`
 	Discoverable    *bool                 `json:"discoverable"`
 	HideCollections *bool                 `json:"hide_collections"`
-	Fields          []models.AccountField `json:"fields" json:"fields_attributes"`
+	Fields          []models.AccountField `json:"fields_attributes"`
 }
 
 func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {

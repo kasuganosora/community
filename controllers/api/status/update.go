@@ -1,6 +1,10 @@
 package status
 
 import (
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
@@ -8,8 +12,6 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strconv"
-	"time"
 )
 
 type UpdateStatusRequest struct {
@@ -112,7 +114,10 @@ func Update(c *gin.Context) {
 	}
 
 	if req.Visibility != nil {
-		status.SetVisibilityByString(*req.Visibility)
+		if err := status.SetVisibilityByString(*req.Visibility); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility value"})
+			return
+		}
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {

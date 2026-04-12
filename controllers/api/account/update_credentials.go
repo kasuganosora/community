@@ -30,9 +30,7 @@ type UpdateCredentialsRequest struct {
 // UpdateCredentials handles PATCH /api/v1/accounts/update_credentials
 func UpdateCredentials(c *gin.Context) {
 	var req UpdateCredentialsRequest
-	if err := c.ShouldBind(&req); err != nil {
-		// Try to continue even with partial binding errors
-	}
+	_ = c.ShouldBind(&req)
 
 	// Get current account
 	account := c.MustGet("account").(*models.Account)

@@ -20,8 +20,8 @@ import (
 const (
 	proxyUsername    = "system.proxy"
 	proxyDisplayName = "System Proxy"
-	proxyNote       = "System proxy account for federation content delivery"
-	rsaKeyBits      = 2048
+	proxyNote        = "System proxy account for federation content delivery"
+	rsaKeyBits       = 2048
 )
 
 // ProxyService manages the system proxy account that follows remote users

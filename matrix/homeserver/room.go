@@ -26,25 +26,25 @@ func NewRoomService(hs *HomeServer) *RoomService {
 
 // CreateRoomRequest 创建房间请求
 type CreateRoomRequest struct {
-	Visibility      string                     `json:"visibility"` // public, private
-	RoomAliasName   *string                    `json:"room_alias_name"`
-	Name            *string                    `json:"name"`
-	Topic           *string                    `json:"topic"`
-	Invite          []string                   `json:"invite"`
-	Invite3PID      []Invite3PID               `json:"invite_3pid"`
-	RoomVersion     string                     `json:"room_version"`
-	CreationContent map[string]interface{}     `json:"creation_content"`
-	InitialState    []CreateRoomStateEvent     `json:"initial_state"`
-	Preset          string                     `json:"preset"` // private_chat, trusted_private_chat, public_chat
-	IsDirect        bool                       `json:"is_direct"`
-	PowerLevelContentOverride *PowerLevelContent `json:"power_level_content_override"`
+	Visibility                string                 `json:"visibility"` // public, private
+	RoomAliasName             *string                `json:"room_alias_name"`
+	Name                      *string                `json:"name"`
+	Topic                     *string                `json:"topic"`
+	Invite                    []string               `json:"invite"`
+	Invite3PID                []Invite3PID           `json:"invite_3pid"`
+	RoomVersion               string                 `json:"room_version"`
+	CreationContent           map[string]interface{} `json:"creation_content"`
+	InitialState              []CreateRoomStateEvent `json:"initial_state"`
+	Preset                    string                 `json:"preset"` // private_chat, trusted_private_chat, public_chat
+	IsDirect                  bool                   `json:"is_direct"`
+	PowerLevelContentOverride *PowerLevelContent     `json:"power_level_content_override"`
 }
 
 // Invite3PID 第三方邀请
 type Invite3PID struct {
-	Medium     string `json:"medium"`
-	Address    string `json:"address"`
-	IDServer   string `json:"id_server"`
+	Medium        string `json:"medium"`
+	Address       string `json:"address"`
+	IDServer      string `json:"id_server"`
 	IDAccessToken string `json:"id_access_token"`
 }
 
@@ -57,15 +57,15 @@ type CreateRoomStateEvent struct {
 
 // PowerLevelContent 权限级别
 type PowerLevelContent struct {
-	Users      map[string]int64 `json:"users"`
-	UsersDefault int64           `json:"users_default"`
-	Events     map[string]int64 `json:"events"`
-	EventsDefault int64          `json:"events_default"`
-	StateDefault int64           `json:"state_default"`
-	Ban        int64            `json:"ban"`
-	Kick       int64            `json:"kick"`
-	Redact     int64            `json:"redact"`
-	Invite     int64            `json:"invite"`
+	Users         map[string]int64 `json:"users"`
+	UsersDefault  int64            `json:"users_default"`
+	Events        map[string]int64 `json:"events"`
+	EventsDefault int64            `json:"events_default"`
+	StateDefault  int64            `json:"state_default"`
+	Ban           int64            `json:"ban"`
+	Kick          int64            `json:"kick"`
+	Redact        int64            `json:"redact"`
+	Invite        int64            `json:"invite"`
 }
 
 // CreateRoomResponse 创建房间响应
@@ -77,7 +77,7 @@ type CreateRoomResponse struct {
 func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*CreateRoomResponse, *MatrixError) {
 	// 生成房间 ID
 	roomID := "!" + uuid.New().String() + ":" + r.HS.Config.ServerName
-	
+
 	// 默认房间版本
 	roomVersion := req.RoomVersion
 	if roomVersion == "" {
@@ -95,10 +95,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			Error:   fmt.Sprintf("Room version %q is not supported", roomVersion),
 		}
 	}
-	
+
 	// 开始事务
 	tx := db.GetDB().Begin()
-	
+
 	// 创建房间记录
 	visibility := req.Visibility
 	if visibility == "" {
@@ -111,19 +111,19 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		IsDirect:    req.IsDirect,
 		Visibility:  visibility,
 	}
-	
+
 	if req.Name != nil {
 		room.Name = req.Name
 	}
 	if req.Topic != nil {
 		room.Topic = req.Topic
 	}
-	
+
 	if err := tx.Create(room).Error; err != nil {
 		tx.Rollback()
 		return nil, ErrInternal
 	}
-	
+
 	// 处理预设
 	preset := req.Preset
 	if preset == "" {
@@ -162,7 +162,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		SenderDomain:   r.HS.Config.ServerName,
 	}
 	tsCounter++
-	
+
 	// 添加 creation_content（Matrix spec: room_version in creation_content is ignored）
 	if req.CreationContent != nil {
 		for k, v := range req.CreationContent {
@@ -181,16 +181,16 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			}
 		}
 	}
-	
+
 	if err := tx.Create(createEvent).Error; err != nil {
 		tx.Rollback()
 		return nil, ErrInternal
 	}
 	authEvents = append(authEvents, createEvent.EventID)
-	
+
 	// 更新状态表
 	r.updateRoomState(tx, roomID, createEvent)
-	
+
 	// 2. 创建 m.room.power_levels 事件
 	plContent := r.getDefaultPowerLevels()
 	if req.PowerLevelContentOverride != nil {
@@ -200,7 +200,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		plContent.Users = make(map[string]int64)
 	}
 	plContent.Users[creatorID] = 100 // 创建者拥有最高权限
-	
+
 	plEvent := &MatrixEvent{
 		EventID:   "$" + uuid.New().String(),
 		RoomID:    roomID,
@@ -230,7 +230,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	}
 	authEvents = append(authEvents, plEvent.EventID)
 	r.updateRoomState(tx, roomID, plEvent)
-	
+
 	// 3. 根据 preset 设置其他默认事件
 	// Pass tsCounter to ensure deterministic timestamp ordering
 	eventTS := baseTS + tsCounter
@@ -267,7 +267,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		}, nil, &eventTS)
 	}
 	tsCounter = eventTS - baseTS
-	
+
 	// 4. 处理 initial_state
 	for _, state := range req.InitialState {
 		tsCounter++
@@ -311,7 +311,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	authEvents = append(authEvents, memberEvent.EventID)
 	r.updateRoomState(tx, roomID, memberEvent)
 	r.updateRoomMember(tx, roomID, creatorID, MembershipJoin, memberEvent.EventID)
-	
+
 	// 6. 设置房间名称和主题
 	if req.Name != nil {
 		tsCounter++
@@ -410,11 +410,6 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	return &CreateRoomResponse{RoomID: roomID}, nil
 }
 
-// createDefaultEvent 创建默认事件
-func (r *RoomService) createDefaultEvent(tx *gorm.DB, roomID, sender string, eventType EventType, content map[string]interface{}, authEvents *[]string) {
-	r.createDefaultEventTS(tx, roomID, sender, eventType, content, authEvents, nil)
-}
-
 func (r *RoomService) createDefaultEventTS(tx *gorm.DB, roomID, sender string, eventType EventType, content map[string]interface{}, authEvents *[]string, tsCounter *int64) {
 	// 收集当前 auth events
 	var currentAuth []string
@@ -485,7 +480,7 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 		}
 		return "", ErrNotFound
 	}
-	
+
 	// 检查用户是否已在房间中
 	var member MatrixRoomMember
 	// Build member event content, merging any extra content from request
@@ -888,18 +883,18 @@ func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *M
 	if err != nil {
 		return ErrNotFound
 	}
-	
+
 	if member.Membership == MembershipLeave || member.Membership == MembershipBan {
 		return nil // 已经离开
 	}
-	
+
 	// 创建成员事件
 	event := &MatrixEvent{
-		EventID:        "$" + uuid.New().String(),
-		RoomID:         roomID,
-		EventType:      EventTypeRoomMember,
-		Sender:         userID,
-		StateKey:       utils.GetPtr(userID),
+		EventID:   "$" + uuid.New().String(),
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    userID,
+		StateKey:  utils.GetPtr(userID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 		},
@@ -952,7 +947,7 @@ func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserReques
 			return ErrForbidden
 		}
 	}
-	
+
 	// 创建邀请
 	if err := r.inviteUser(db.GetDB(), roomID, inviterID, req.UserID); err != nil {
 		return ErrInternal
@@ -963,11 +958,11 @@ func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserReques
 // inviteUser 内部邀请函数
 func (r *RoomService) inviteUser(tx *gorm.DB, roomID, inviterID, inviteeID string) error {
 	event := &MatrixEvent{
-		EventID:        "$" + uuid.New().String(),
-		RoomID:         roomID,
-		EventType:      EventTypeRoomMember,
-		Sender:         inviterID,
-		StateKey:       utils.GetPtr(inviteeID),
+		EventID:   "$" + uuid.New().String(),
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    inviterID,
+		StateKey:  utils.GetPtr(inviteeID),
 		Content: map[string]interface{}{
 			"membership": "invite",
 		},
@@ -1001,21 +996,21 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 	if !r.canUserKick(roomID, kickerID) {
 		return ErrForbidden
 	}
-	
+
 	// 检查被踢者是否在房间中且是 joined 状态
 	var member MatrixRoomMember
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, req.UserID).First(&member).Error
 	if err != nil || member.Membership != MembershipJoin {
 		return ErrForbidden
 	}
-	
+
 	// 创建 leave 事件
 	event := &MatrixEvent{
-		EventID:        "$" + uuid.New().String(),
-		RoomID:         roomID,
-		EventType:      EventTypeRoomMember,
-		Sender:         kickerID,
-		StateKey:       utils.GetPtr(req.UserID),
+		EventID:   "$" + uuid.New().String(),
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    kickerID,
+		StateKey:  utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "leave",
 			"reason":     req.Reason,
@@ -1048,14 +1043,14 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 	if !r.canUserBan(roomID, bannerID) {
 		return ErrForbidden
 	}
-	
+
 	// 创建 ban 事件
 	event := &MatrixEvent{
-		EventID:        "$" + uuid.New().String(),
-		RoomID:         roomID,
-		EventType:      EventTypeRoomMember,
-		Sender:         bannerID,
-		StateKey:       utils.GetPtr(req.UserID),
+		EventID:   "$" + uuid.New().String(),
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    bannerID,
+		StateKey:  utils.GetPtr(req.UserID),
 		Content: map[string]interface{}{
 			"membership": "ban",
 			"reason":     req.Reason,
@@ -1122,16 +1117,16 @@ func (r *RoomService) GetRoomStateAll(roomID string) ([]*ClientEvent, *MatrixErr
 // GetRoomMembers 获取房间成员
 func (r *RoomService) GetRoomMembers(roomID string, membership []MembershipState) ([]*MatrixRoomMember, *MatrixError) {
 	query := db.GetDB().Where("room_id = ?", roomID)
-	
+
 	if len(membership) > 0 {
 		query = query.Where("membership IN ?", membership)
 	}
-	
+
 	var members []*MatrixRoomMember
 	if err := query.Find(&members).Error; err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	return members, nil
 }
 
@@ -1154,13 +1149,13 @@ func (r *RoomService) canUserInvite(roomID, userID string) bool {
 	if membership != MembershipJoin {
 		return false
 	}
-	
+
 	// 获取 power levels
 	pl, err := r.getRoomPowerLevels(roomID)
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := r.getUserPowerLevel(pl, userID)
 	return userPL >= pl.Invite
 }
@@ -1391,11 +1386,11 @@ func (r *RoomService) GetRoom(roomID string) (*MatrixRoom, error) {
 func (r *RoomService) GetJoinedRooms(userID string) ([]string, error) {
 	var members []MatrixRoomMember
 	db.GetDB().Where("user_id = ? AND membership = ?", userID, MembershipJoin).Find(&members)
-	
+
 	roomIDs := make([]string, len(members))
 	for i, m := range members {
 		roomIDs[i] = m.RoomID
 	}
-	
+
 	return roomIDs, nil
 }

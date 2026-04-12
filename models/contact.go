@@ -26,21 +26,21 @@ const (
 // Contact 联系人（本地用户与其他用户的联系关系）
 // 用于支持 Matrix 用户添加本地用户为好友
 type Contact struct {
-	Id              uint64         `gorm:"primaryKey;autoIncrement" json:"id"`
-	AccountId       uint64         `gorm:"index" json:"account_id"`        // 本地用户ID
-	ContactType     ContactType    `gorm:"type:tinyint" json:"contact_type"` // 联系人类型
-	ContactAccountId *uint64       `gorm:"index" json:"contact_account_id"` // 联系人（本地用户）
-	ContactMatrixId *string        `gorm:"type:varchar(255);index" json:"contact_matrix_id"` // 联系人（Matrix用户）
-	DisplayName     string         `gorm:"type:varchar(255)" json:"display_name"` // 自定义显示名称
-	Status          ContactStatus  `gorm:"type:tinyint;default:0" json:"status"` // 状态
-	Notes           string         `gorm:"type:text" json:"notes"`         // 备注
-	CreatedAt       *time.Time     `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Id               uint64         `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountId        uint64         `gorm:"index" json:"account_id"`                          // 本地用户ID
+	ContactType      ContactType    `gorm:"type:tinyint" json:"contact_type"`                 // 联系人类型
+	ContactAccountId *uint64        `gorm:"index" json:"contact_account_id"`                  // 联系人（本地用户）
+	ContactMatrixId  *string        `gorm:"type:varchar(255);index" json:"contact_matrix_id"` // 联系人（Matrix用户）
+	DisplayName      string         `gorm:"type:varchar(255)" json:"display_name"`            // 自定义显示名称
+	Status           ContactStatus  `gorm:"type:tinyint;default:0" json:"status"`             // 状态
+	Notes            string         `gorm:"type:text" json:"notes"`                           // 备注
+	CreatedAt        *time.Time     `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt        *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// 关联
-	Account         *Account `gorm:"foreignKey:AccountId" json:"account"`
-	ContactAccount  *Account `gorm:"foreignKey:ContactAccountId" json:"contact_account"`
+	Account        *Account `gorm:"foreignKey:AccountId" json:"account"`
+	ContactAccount *Account `gorm:"foreignKey:ContactAccountId" json:"contact_account"`
 }
 
 func (c *Contact) TableName() string {
@@ -60,12 +60,12 @@ func (c *Contact) IsMatrixContact() bool {
 // ContactRequest 好友请求（跨平台）
 type ContactRequest struct {
 	Id               uint64         `gorm:"primaryKey;autoIncrement" json:"id"`
-	FromAccountId    *uint64        `gorm:"index" json:"from_account_id"`    // 发起者（本地用户）
+	FromAccountId    *uint64        `gorm:"index" json:"from_account_id"`                       // 发起者（本地用户）
 	FromMatrixUserId *string        `gorm:"type:varchar(255);index" json:"from_matrix_user_id"` // 发起者（Matrix用户）
-	ToAccountId      *uint64        `gorm:"index" json:"to_account_id"`      // 接收者（本地用户）
-	ToMatrixUserId   *string        `gorm:"type:varchar(255);index" json:"to_matrix_user_id"` // 接收者（Matrix用户）
-	Message          string         `gorm:"type:text" json:"message"`        // 请求消息
-	Status           ContactStatus  `gorm:"type:tinyint;default:0" json:"status"` // 状态
+	ToAccountId      *uint64        `gorm:"index" json:"to_account_id"`                         // 接收者（本地用户）
+	ToMatrixUserId   *string        `gorm:"type:varchar(255);index" json:"to_matrix_user_id"`   // 接收者（Matrix用户）
+	Message          string         `gorm:"type:text" json:"message"`                           // 请求消息
+	Status           ContactStatus  `gorm:"type:tinyint;default:0" json:"status"`               // 状态
 	CreatedAt        *time.Time     `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt        gorm.DeletedAt `gorm:"index" json:"deleted_at"`

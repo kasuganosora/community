@@ -30,7 +30,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	if params == nil {
 		// 从缓存中取出timeline status id
 		var statusesIdStr []string
-		statusesIdStr, err = redisConn.ZRevRange(ctx, timelineKey, 0, -1).Result()
+		statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: 0, Stop: -1, Rev: true}).Result()
 		if err != nil {
 			return
 		}
@@ -41,10 +41,10 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 
 		if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
 			min, max := params.GetRedisRangeMinMax()
-			statusesIdStr = redisConn.ZRevRangeByScore(ctx, timelineKey, &redis.ZRangeBy{Min: min, Max: max}).Val()
+			statusesIdStr = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: min, Stop: max, ByScore: true, Rev: true}).Val()
 		} else {
 			start, end := params.GetRedisRangeOffsetCount()
-			statusesIdStr = redisConn.ZRevRange(ctx, timelineKey, start, end).Val()
+			statusesIdStr = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: start, Stop: end, Rev: true}).Val()
 		}
 
 		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)

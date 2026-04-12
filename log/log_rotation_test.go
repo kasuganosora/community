@@ -114,7 +114,7 @@ func TestCleanupOldLogs(t *testing.T) {
 		}
 		// 修改文件时间使其不同（越旧的索引越大）
 		oldTime := time.Now().Add(-time.Duration(10-i) * time.Hour)
-		os.Chtimes(filename, oldTime, oldTime)
+		_ = os.Chtimes(filename, oldTime, oldTime)
 	}
 
 	// 执行清理

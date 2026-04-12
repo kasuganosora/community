@@ -75,7 +75,7 @@ func Save(c *gin.Context) {
 
 	ret := make(map[string]*models.MarkerTimelineItem)
 
-	for timeline, _ := range req {
+	for timeline := range req {
 		ret[timeline] = marker.Timelines[timeline]
 	}
 

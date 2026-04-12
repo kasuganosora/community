@@ -14,22 +14,22 @@ import (
 type EventType string
 
 const (
-	EventTypeRoomCreate             EventType = "m.room.create"
-	EventTypeRoomName               EventType = "m.room.name"
-	EventTypeRoomTopic              EventType = "m.room.topic"
-	EventTypeRoomAvatar             EventType = "m.room.avatar"
-	EventTypeRoomMember             EventType = "m.room.member"
-	EventTypeRoomJoinRules          EventType = "m.room.join_rules"
-	EventTypeRoomPowerLevels        EventType = "m.room.power_levels"
-	EventTypeRoomMessage            EventType = "m.room.message"
-	EventTypeRoomRedaction          EventType = "m.room.redaction"
-	EventTypeRoomHistoryVisibility  EventType = "m.room.history_visibility"
-	EventTypeRoomCanonicalAlias     EventType = "m.room.canonical_alias"
-	EventTypeRoomAliases            EventType = "m.room.aliases"
-	EventTypeRoomGuestAccess        EventType = "m.room.guest_access"
-	EventTypeRoomEncryption         EventType = "m.room.encryption"
-	EventTypeRoomKey                EventType = "m.room.key"
-	EventTypeRoomKeyRequest         EventType = "m.room.key_request"
+	EventTypeRoomCreate            EventType = "m.room.create"
+	EventTypeRoomName              EventType = "m.room.name"
+	EventTypeRoomTopic             EventType = "m.room.topic"
+	EventTypeRoomAvatar            EventType = "m.room.avatar"
+	EventTypeRoomMember            EventType = "m.room.member"
+	EventTypeRoomJoinRules         EventType = "m.room.join_rules"
+	EventTypeRoomPowerLevels       EventType = "m.room.power_levels"
+	EventTypeRoomMessage           EventType = "m.room.message"
+	EventTypeRoomRedaction         EventType = "m.room.redaction"
+	EventTypeRoomHistoryVisibility EventType = "m.room.history_visibility"
+	EventTypeRoomCanonicalAlias    EventType = "m.room.canonical_alias"
+	EventTypeRoomAliases           EventType = "m.room.aliases"
+	EventTypeRoomGuestAccess       EventType = "m.room.guest_access"
+	EventTypeRoomEncryption        EventType = "m.room.encryption"
+	EventTypeRoomKey               EventType = "m.room.key"
+	EventTypeRoomKeyRequest        EventType = "m.room.key_request"
 )
 
 // MembershipState 成员状态
@@ -64,8 +64,8 @@ type MatrixEvent struct {
 	Signatures map[string]map[string]string `gorm:"type:json;serializer:json" json:"signatures,omitempty"`
 
 	// 客户端事务 ID（用于 unsigned.transaction_id）
-	TxnID    *string `gorm:"type:varchar(255);index" json:"-"`
-	SenderDeviceID string `gorm:"type:varchar(255)" json:"-"`
+	TxnID          *string `gorm:"type:varchar(255);index" json:"-"`
+	SenderDeviceID string  `gorm:"type:varchar(255)" json:"-"`
 
 	// 关联
 	Room *MatrixRoom `gorm:"foreignKey:RoomID;references:RoomID" json:"-"`
@@ -135,30 +135,30 @@ type ClientEvent struct {
 
 // MatrixRoom 房间状态（当前状态快照）
 type MatrixRoom struct {
-	RoomID            string     `gorm:"primaryKey;type:varchar(255)" json:"room_id"`
-	RoomVersion       string     `gorm:"type:varchar(16);default:'10'" json:"room_version"`
-	RoomType          *string    `gorm:"type:varchar(32)" json:"room_type"`
-	Creator           string     `gorm:"type:varchar(255)" json:"creator"`
-	Name              *string    `gorm:"type:varchar(255)" json:"name"`
-	Topic             *string    `gorm:"type:varchar(512)" json:"topic"`
-	AvatarURL         *string    `gorm:"type:varchar(512)" json:"avatar_url"`
-	JoinRule          string     `gorm:"type:varchar(32);default:'invite'" json:"join_rule"`
-	Visibility        string     `gorm:"type:varchar(16);default:'private'" json:"visibility"`
-	HistoryVisibility string     `gorm:"type:varchar(32);default:'shared'" json:"history_visibility"`
-	GuestAccess       string     `gorm:"type:varchar(32);default:'forbidden'" json:"guest_access"`
-	IsDirect          bool       `gorm:"default:false" json:"is_direct"`
-	IsEncrypted       bool       `gorm:"default:false" json:"is_encrypted"`
-	CurrentStateID    *string    `gorm:"type:varchar(255)" json:"current_state_id"`
+	RoomID            string  `gorm:"primaryKey;type:varchar(255)" json:"room_id"`
+	RoomVersion       string  `gorm:"type:varchar(16);default:'10'" json:"room_version"`
+	RoomType          *string `gorm:"type:varchar(32)" json:"room_type"`
+	Creator           string  `gorm:"type:varchar(255)" json:"creator"`
+	Name              *string `gorm:"type:varchar(255)" json:"name"`
+	Topic             *string `gorm:"type:varchar(512)" json:"topic"`
+	AvatarURL         *string `gorm:"type:varchar(512)" json:"avatar_url"`
+	JoinRule          string  `gorm:"type:varchar(32);default:'invite'" json:"join_rule"`
+	Visibility        string  `gorm:"type:varchar(16);default:'private'" json:"visibility"`
+	HistoryVisibility string  `gorm:"type:varchar(32);default:'shared'" json:"history_visibility"`
+	GuestAccess       string  `gorm:"type:varchar(32);default:'forbidden'" json:"guest_access"`
+	IsDirect          bool    `gorm:"default:false" json:"is_direct"`
+	IsEncrypted       bool    `gorm:"default:false" json:"is_encrypted"`
+	CurrentStateID    *string `gorm:"type:varchar(255)" json:"current_state_id"`
 
 	// 联邦相关
-	LastEventID *string    `gorm:"type:varchar(255)" json:"last_event_id"`
-	LastEventTS *int64     `json:"last_event_ts"`
+	LastEventID *string `gorm:"type:varchar(255)" json:"last_event_id"`
+	LastEventTS *int64  `json:"last_event_ts"`
 
 	// 关联本地会话（可选）
 	ConversationID *uint64 `gorm:"index" json:"conversation_id"`
 
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	CreatedAt *time.Time     `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
@@ -258,7 +258,7 @@ type MatrixReceipt struct {
 	EventID     string `gorm:"index;type:varchar(255);not null" json:"event_id"`
 	UserID      string `gorm:"index;type:varchar(255);not null" json:"user_id"`
 	ReceiptType string `gorm:"type:varchar(32);not null" json:"receipt_type"` // m.read, m.read.private
-	ThreadID    string `gorm:"type:varchar(255)" json:"thread_id,omitempty"` // thread_id for threaded receipts
+	ThreadID    string `gorm:"type:varchar(255)" json:"thread_id,omitempty"`  // thread_id for threaded receipts
 	TS          int64  `json:"ts"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
@@ -321,11 +321,11 @@ func (MatrixFilter) TableName() string {
 
 // MatrixPresence 用户在线状态
 type MatrixPresence struct {
-	ID           uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       string `gorm:"uniqueIndex;type:varchar(255);not null" json:"user_id"`
-	Presence     string `gorm:"type:varchar(32);not null;default:'offline'" json:"presence"` // online, unavailable, offline
+	ID           uint64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID       string  `gorm:"uniqueIndex;type:varchar(255);not null" json:"user_id"`
+	Presence     string  `gorm:"type:varchar(32);not null;default:'offline'" json:"presence"` // online, unavailable, offline
 	StatusMsg    *string `gorm:"type:varchar(255)" json:"status_msg"`
-	LastActiveTS int64  `json:"last_active_ts"`
+	LastActiveTS int64   `json:"last_active_ts"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`

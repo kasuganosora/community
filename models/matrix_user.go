@@ -33,8 +33,8 @@ type MatrixUser struct {
 	AvatarURL   string `gorm:"type:varchar(512)" json:"avatar_url"`
 
 	// 时间戳
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	CreatedAt *time.Time     `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// 关联
@@ -85,8 +85,8 @@ type MatrixRoom struct {
 	LastSyncAt *time.Time `gorm:"type:datetime" json:"last_sync_at"`
 
 	// 时间戳
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	CreatedAt *time.Time     `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// 关联

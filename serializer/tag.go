@@ -8,18 +8,18 @@ import (
 
 // Tag represents a Mastodon-compatible hashtag
 type Tag struct {
-	Name          string          `json:"name"`
-	Url           string          `json:"url"`
-	History       []TagHistory    `json:"history,omitempty"`
-	Following     bool            `json:"following,omitempty"`
-	StatusCount   *uint64         `json:"status_count,omitempty"`
-	AccountCount  *uint64         `json:"account_count,omitempty"`
+	Name         string       `json:"name"`
+	Url          string       `json:"url"`
+	History      []TagHistory `json:"history,omitempty"`
+	Following    bool         `json:"following,omitempty"`
+	StatusCount  *uint64      `json:"status_count,omitempty"`
+	AccountCount *uint64      `json:"account_count,omitempty"`
 }
 
 // TagHistory represents tag usage history
 type TagHistory struct {
-	Day  string `json:"day"`
-	Uses string `json:"uses"`
+	Day      string `json:"day"`
+	Uses     string `json:"uses"`
 	Accounts string `json:"accounts"`
 }
 

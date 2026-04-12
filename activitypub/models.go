@@ -4,31 +4,31 @@ import "time"
 
 // Actor represents an ActivityPub Actor
 type Actor struct {
-	Context           interface{} `json:"@context,omitempty"`
-	ID                string      `json:"id"`
-	Type              string      `json:"type"`
-	Following         string      `json:"following"`
-	Followers         string      `json:"followers"`
-	Inbox             string      `json:"inbox"`
-	Outbox            string      `json:"outbox"`
-	SharedInbox       string      `json:"sharedInbox,omitempty"`
-	PreferredUsername string      `json:"preferredUsername"`
-	Name              string      `json:"name,omitempty"`
-	Summary           string      `json:"summary,omitempty"`
-	URL               string      `json:"url"`
-	Icon              *Image      `json:"icon,omitempty"`
-	Image             *Image      `json:"image,omitempty"`
-	Endpoints         *Endpoints  `json:"endpoints,omitempty"`
-	PublicKey         *PublicKey  `json:"publicKey,omitempty"`
-	Published         *time.Time  `json:"published,omitempty"`
+	Context           interface{}  `json:"@context,omitempty"`
+	ID                string       `json:"id"`
+	Type              string       `json:"type"`
+	Following         string       `json:"following"`
+	Followers         string       `json:"followers"`
+	Inbox             string       `json:"inbox"`
+	Outbox            string       `json:"outbox"`
+	SharedInbox       string       `json:"sharedInbox,omitempty"`
+	PreferredUsername string       `json:"preferredUsername"`
+	Name              string       `json:"name,omitempty"`
+	Summary           string       `json:"summary,omitempty"`
+	URL               string       `json:"url"`
+	Icon              *Image       `json:"icon,omitempty"`
+	Image             *Image       `json:"image,omitempty"`
+	Endpoints         *Endpoints   `json:"endpoints,omitempty"`
+	PublicKey         *PublicKey   `json:"publicKey,omitempty"`
+	Published         *time.Time   `json:"published,omitempty"`
 	Attachments       []Attachment `json:"attachment,omitempty"`
-	AlsoKnownAs       string      `json:"alsoKnownAs,omitempty"`
-	MovedTo           string      `json:"movedTo,omitempty"`
+	AlsoKnownAs       string       `json:"alsoKnownAs,omitempty"`
+	MovedTo           string       `json:"movedTo,omitempty"`
 }
 
 // Endpoints contains additional ActivityPub endpoints
 type Endpoints struct {
-	SharedInbox string `json:"sharedInbox,omitempty"`
+	SharedInbox                string `json:"sharedInbox,omitempty"`
 	OauthAuthorizationEndpoint string `json:"oauthAuthorizationEndpoint,omitempty"`
 	OauthTokenEndpoint         string `json:"oauthTokenEndpoint,omitempty"`
 	ProvideClientKey           string `json:"provideClientKey,omitempty"`
@@ -59,26 +59,26 @@ type Attachment struct {
 
 // Note represents an ActivityPub Note object
 type Note struct {
-	Context       interface{}   `json:"@context,omitempty"`
-	ID            string        `json:"id"`
-	Type          string        `json:"type"`
-	Summary       string        `json:"summary,omitempty"`
-	InReplyTo     string        `json:"inReplyTo,omitempty"`
-	Published     *time.Time    `json:"published"`
-	Updated       *time.Time    `json:"updated,omitempty"`
-	URL           string        `json:"url"`
-	AttributedTo  string        `json:"attributedTo"`
-	To            []string      `json:"to"`
-	CC            []string      `json:"cc"`
-	Bto           []string      `json:"bto,omitempty"`
-	Bcc           []string      `json:"bcc,omitempty"`
-	Sensitive     bool          `json:"sensitive"`
-	Content       string        `json:"content"`
-	Source        *Source       `json:"source,omitempty"`
-	Attachment    []Attachment  `json:"attachment,omitempty"`
-	Tag           []Tag         `json:"tag,omitempty"`
-	InReplyToAtom *string       `json:"inReplyToAtom,omitempty"`
-	Conversation  string        `json:"conversation,omitempty"`
+	Context       interface{}  `json:"@context,omitempty"`
+	ID            string       `json:"id"`
+	Type          string       `json:"type"`
+	Summary       string       `json:"summary,omitempty"`
+	InReplyTo     string       `json:"inReplyTo,omitempty"`
+	Published     *time.Time   `json:"published"`
+	Updated       *time.Time   `json:"updated,omitempty"`
+	URL           string       `json:"url"`
+	AttributedTo  string       `json:"attributedTo"`
+	To            []string     `json:"to"`
+	CC            []string     `json:"cc"`
+	Bto           []string     `json:"bto,omitempty"`
+	Bcc           []string     `json:"bcc,omitempty"`
+	Sensitive     bool         `json:"sensitive"`
+	Content       string       `json:"content"`
+	Source        *Source      `json:"source,omitempty"`
+	Attachment    []Attachment `json:"attachment,omitempty"`
+	Tag           []Tag        `json:"tag,omitempty"`
+	InReplyToAtom *string      `json:"inReplyToAtom,omitempty"`
+	Conversation  string       `json:"conversation,omitempty"`
 }
 
 // Source represents the source property for Note objects
@@ -160,33 +160,33 @@ type BlockActivity struct {
 
 // Collection represents an ActivityPub collection
 type Collection struct {
-	Context     interface{}   `json:"@context,omitempty"`
-	ID          string        `json:"id"`
-	Type        string        `json:"type"`
-	TotalItems  int           `json:"totalItems"`
-	Items       []interface{} `json:"items,omitempty"`
-	First       string        `json:"first,omitempty"`
-	Last        string        `json:"last,omitempty"`
-	Current     string        `json:"current,omitempty"`
+	Context      interface{}   `json:"@context,omitempty"`
+	ID           string        `json:"id"`
+	Type         string        `json:"type"`
+	TotalItems   int           `json:"totalItems"`
+	Items        []interface{} `json:"items,omitempty"`
+	First        string        `json:"first,omitempty"`
+	Last         string        `json:"last,omitempty"`
+	Current      string        `json:"current,omitempty"`
 	OrderedItems []interface{} `json:"orderedItems,omitempty"`
 }
 
 // OrderedCollectionPage represents a page of an ordered collection
 type OrderedCollectionPage struct {
-	Context     interface{}   `json:"@context,omitempty"`
-	ID          string        `json:"id"`
-	Type        string        `json:"type"`
-	Next        string        `json:"next,omitempty"`
-	Prev        string        `json:"prev,omitempty"`
-	PartOf      string        `json:"partOf,omitempty"`
+	Context      interface{}   `json:"@context,omitempty"`
+	ID           string        `json:"id"`
+	Type         string        `json:"type"`
+	Next         string        `json:"next,omitempty"`
+	Prev         string        `json:"prev,omitempty"`
+	PartOf       string        `json:"partOf,omitempty"`
 	OrderedItems []interface{} `json:"orderedItems"`
 }
 
 // WebFingerResponse represents a WebFinger response
 type WebFingerResponse struct {
-	Subject    string              `json:"subject"`
-	Aliases    []string            `json:"aliases,omitempty"`
-	Links      []WebFingerLink     `json:"links"`
+	Subject string          `json:"subject"`
+	Aliases []string        `json:"aliases,omitempty"`
+	Links   []WebFingerLink `json:"links"`
 }
 
 // WebFingerLink represents a link in WebFinger response

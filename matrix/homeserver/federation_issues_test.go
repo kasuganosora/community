@@ -29,7 +29,7 @@ func TestDeviceListEDUSending(t *testing.T) {
 		receivedEDU = &body
 		t.Logf("Received EDU: %+v", body)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"pdus": []interface{}{},
 		})
 	}))
@@ -54,13 +54,13 @@ func TestDeviceListEDUSending(t *testing.T) {
 	// 手动调用发送逻辑（模拟 federateDeviceListUpdate）
 	// 注意：这里需要检查实际发送的请求体
 	t.Logf("Sending device list update EDU: %+v", edu)
-	
+
 	// 验证：EDU 应该包含 edus 数组
 	if receivedEDU != nil {
 		edus, ok := (*receivedEDU)["edus"].([]interface{})
 		require.True(t, ok, "EDU should contain 'edus' array")
 		require.Greater(t, len(edus), 0, "edus array should not be empty")
-		
+
 		eduMap := edus[0].(map[string]interface{})
 		assert.Equal(t, "m.device_list_update", eduMap["edu_type"])
 	} else {
@@ -75,7 +75,7 @@ func TestBackfillResponseFormat(t *testing.T) {
 	// 注意：Backfill 路由需要已初始化的 HomeServer
 	// 这里我们只是验证响应格式
 	t.Log("Testing backfill response format...")
-	
+
 	// 根据代码审查，当前的 BackfillResponse 结构体缺少 auth_chain
 	// 查看 federation_backfill.go:96-97
 	t.Log("Current implementation in federation_backfill.go:96-97:")
@@ -83,7 +83,7 @@ func TestBackfillResponseFormat(t *testing.T) {
 	t.Log("  _ = room")
 	t.Log("")
 	t.Log("This means auth_chain is always empty, violating Matrix spec!")
-	
+
 	// 创建一个模拟响应
 	response := map[string]interface{}{
 		"origin":           "test.server",
@@ -91,7 +91,7 @@ func TestBackfillResponseFormat(t *testing.T) {
 		"pdus":             []interface{}{},
 		// Missing: "auth_chain"
 	}
-	
+
 	// 验证响应缺少 auth_chain
 	_, hasAuthChain := response["auth_chain"]
 	assert.False(t, hasAuthChain, "This test documents the missing auth_chain bug")
@@ -103,19 +103,19 @@ func TestBackfillResponseFormat(t *testing.T) {
 // TestPushRuleMigration 验证房间升级时推送规则是否正确迁移
 func TestPushRuleMigration(t *testing.T) {
 	t.Log("Testing push rule migration...")
-	
+
 	hs := &HomeServer{
 		Config: &HSConfig{
 			ServerName: "test.server",
 		},
 	}
-	
+
 	// 初始化 RoomUpgrade 服务（如果存在）
 	if hs.RoomUpgrade == nil {
 		t.Log("Warning: RoomUpgrade service is nil - push rule migration will not work")
 		t.Log("This is likely why TestPushRuleRoomUpgrade fails")
 	}
-	
+
 	// 由于数据库依赖较复杂，这里主要验证代码逻辑
 	t.Log("Push rule migration is async (go func()) in event.go:184-193")
 	t.Log("This causes race condition with tests that check immediately")
@@ -155,7 +155,7 @@ func TestRedactionOfUnknownEvent(t *testing.T) {
 // TestRedactionInSync 验证 sync 中处理 redaction 目标不存在的情况
 func TestRedactionInSync(t *testing.T) {
 	t.Log("Testing redaction handling in sync...")
-	
+
 	// 创建 redaction 事件，指向不存在的事件
 	redactionEvent := &MatrixEvent{
 		EventID:   "$redact:localhost",
@@ -167,13 +167,13 @@ func TestRedactionInSync(t *testing.T) {
 		},
 		OriginServerTS: time.Now().UnixMilli(),
 	}
-	
+
 	// 注意：Redacts 字段在 MatrixEvent 结构体中
 	// 需要检查 models.go 中的定义
-	
+
 	// 尝试转换为客户端事件
 	clientEvent := redactionEvent.ToClientEvent()
-	
+
 	// 关键检查：不应该 panic
 	assert.NotNil(t, clientEvent)
 	t.Logf("Redaction event converted to client event: %+v", clientEvent)
@@ -184,7 +184,7 @@ func TestRedactionInSync(t *testing.T) {
 // TestFederatedEventTimestampOrdering 验证联邦事件的时间戳处理问题
 func TestFederatedEventTimestampOrdering(t *testing.T) {
 	t.Log("Testing federated event timestamp ordering...")
-	
+
 	t.Log("")
 	t.Log("========== FEDERATION TIMESTAMP PROBLEM ==========")
 	t.Log("")
@@ -217,21 +217,21 @@ func TestFederatedEventTimestampOrdering(t *testing.T) {
 func TestFederationSyncTokenTimestamp(t *testing.T) {
 	eventService := &EventService{}
 	now := time.Now().UnixMilli()
-	
+
 	// Token 基于时间戳生成
 	token := eventService.generatePaginationToken(now)
-	
+
 	t.Logf("Token generated from ts=%d: %s", now, token)
-	
+
 	// 验证 token 格式
 	assert.True(t, strings.HasPrefix(token, "t"), "Token should start with 't'")
-	
+
 	// 检查是否能正确解析
 	parsedTS := eventService.parsePaginationToken(token)
 	assert.Equal(t, now, parsedTS, "Parsed timestamp should match original")
-	
+
 	t.Logf("Token parsing works correctly: %s -> %d", token, parsedTS)
-	
+
 	// 关键问题：token 基于 origin_server_ts 还是 created_at？
 	t.Log("")
 	t.Log("IMPORTANT: Current implementation uses origin_server_ts for token generation.")
@@ -240,11 +240,3 @@ func TestFederationSyncTokenTimestamp(t *testing.T) {
 }
 
 // ===== 辅助函数 =====
-
-func stringPtr(s string) *string {
-	return &s
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
-}

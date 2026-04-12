@@ -676,9 +676,11 @@ func TestListParam_RealRedis(t *testing.T) {
 	t.Run("With MinId and MaxId", func(t *testing.T) {
 		params := &ListParam{MinId: 800100, MaxId: 800150}
 		min, max := params.GetRedisRangeMinMax()
-		result, err := setup.Redis.Client.ZRangeByScore(ctx, "feed:home:list_param_test", &redis.ZRangeBy{
-			Min: min,
-			Max: max,
+		result, err := setup.Redis.Client.ZRangeArgs(ctx, redis.ZRangeArgs{
+			Key:     "feed:home:list_param_test",
+			Start:   min,
+			Stop:    max,
+			ByScore: true,
 		}).Result()
 		require.NoError(t, err)
 		assert.Greater(t, len(result), 0)
@@ -687,7 +689,12 @@ func TestListParam_RealRedis(t *testing.T) {
 	t.Run("With SinceId", func(t *testing.T) {
 		params := &ListParam{SinceId: 800150, Limit: 10}
 		start, end := params.GetRedisRangeOffsetCount()
-		result, err := setup.Redis.Client.ZRevRange(ctx, "feed:home:list_param_test", start, end).Result()
+		result, err := setup.Redis.Client.ZRangeArgs(ctx, redis.ZRangeArgs{
+			Key:   "feed:home:list_param_test",
+			Start: start,
+			Stop:  end,
+			Rev:   true,
+		}).Result()
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(result), 10)
 	})

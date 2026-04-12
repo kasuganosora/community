@@ -9,8 +9,8 @@ import (
 
 func TestFilter_GetFilterActionString(t *testing.T) {
 	tests := []struct {
-		action    uint8
-		expected  string
+		action   uint8
+		expected string
 	}{
 		{FilterActionNone, "none"},
 		{FilterActionWarn, "warn"},

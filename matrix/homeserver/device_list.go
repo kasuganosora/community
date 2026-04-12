@@ -17,11 +17,11 @@ import (
 
 // DeviceListUpdate 设备列表更新
 type DeviceListUpdate struct {
-	UserID      string `json:"user_id"`
-	DeviceID    string `json:"device_id"`
-	StreamID    int64  `json:"stream_id"`    // 单调递增的流 ID
-	Changed     bool   `json:"changed"`      // true = 设备变更, false = 设备移除
-	UpdateTime  int64  `json:"update_time"`  // 更新时间戳
+	UserID     string `json:"user_id"`
+	DeviceID   string `json:"device_id"`
+	StreamID   int64  `json:"stream_id"`   // 单调递增的流 ID
+	Changed    bool   `json:"changed"`     // true = 设备变更, false = 设备移除
+	UpdateTime int64  `json:"update_time"` // 更新时间戳
 }
 
 // DeviceListChange 设备列表变更记录
@@ -41,10 +41,10 @@ func (DeviceListChange) TableName() string {
 
 // DeviceListStream 设备列表流位置
 type DeviceListStream struct {
-	ID       uint64 `gorm:"primaryKey;autoIncrement"`
-	UserID   string `gorm:"uniqueIndex;type:varchar(255);not null"`
-	StreamID int64  `gorm:"not null"`
-	UpdatedAt int64 `gorm:"not null"`
+	ID        uint64 `gorm:"primaryKey;autoIncrement"`
+	UserID    string `gorm:"uniqueIndex;type:varchar(255);not null"`
+	StreamID  int64  `gorm:"not null"`
+	UpdatedAt int64  `gorm:"not null"`
 }
 
 func (DeviceListStream) TableName() string {
@@ -53,12 +53,12 @@ func (DeviceListStream) TableName() string {
 
 // DeviceListUpdateEDU 设备列表更新 EDU
 type DeviceListUpdateEDU struct {
-	UserID     string            `json:"user_id"`
-	DeviceID   string            `json:"device_id,omitempty"`
-	StreamID   int64             `json:"stream_id"`
-	PrevID     []int64           `json:"prev_id,omitempty"`
-	Changed    []string          `json:"changed,omitempty"`  // 变更的设备列表
-	Removed    []string          `json:"removed,omitempty"`  // 移除的设备列表
+	UserID   string   `json:"user_id"`
+	DeviceID string   `json:"device_id,omitempty"`
+	StreamID int64    `json:"stream_id"`
+	PrevID   []int64  `json:"prev_id,omitempty"`
+	Changed  []string `json:"changed,omitempty"` // 变更的设备列表
+	Removed  []string `json:"removed,omitempty"` // 移除的设备列表
 }
 
 // DeviceListService 设备列表服务
@@ -220,7 +220,7 @@ func (dls *DeviceListService) recordSyncStatus(userID string, streamID int64, se
 	}
 
 	var syncedTo []string
-	json.Unmarshal([]byte(change.SyncedTo), &syncedTo)
+	_ = json.Unmarshal([]byte(change.SyncedTo), &syncedTo) //nolint:errcheck // best-effort parsing
 
 	// 检查是否已记录
 	found := false
@@ -366,7 +366,7 @@ func (dls *DeviceListService) GetUserDevices(userID string) (*UserDevicesRespons
 	deviceList := make([]DeviceInfoDL, len(devices))
 	for i, d := range devices {
 		var dk DeviceKeys
-		json.Unmarshal([]byte(d.DeviceKey), &dk)
+		_ = json.Unmarshal([]byte(d.DeviceKey), &dk) //nolint:errcheck // best-effort parsing
 
 		deviceList[i] = DeviceInfoDL{
 			DeviceID:   d.DeviceID,
@@ -378,9 +378,9 @@ func (dls *DeviceListService) GetUserDevices(userID string) (*UserDevicesRespons
 	streamID, _ := dls.GetCurrentStreamID(userID)
 
 	return &UserDevicesResponseDL{
-		UserID:     userID,
-		StreamID:   streamID,
-		Devices:    deviceList,
+		UserID:   userID,
+		StreamID: streamID,
+		Devices:  deviceList,
 	}, nil
 }
 
@@ -447,8 +447,6 @@ func handleFederationGetUserDevices(c *gin.Context) {
 		"devices":   devices,
 	})
 }
-
-
 
 // 辅助函数
 func parseUserID(userID string) string {

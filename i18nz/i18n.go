@@ -15,12 +15,12 @@ var Bundle *i18n.Bundle
 func init() {
 	Bundle = i18n.NewBundle(language.English)
 	Bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
-	
+
 	// Skip i18n loading in test mode
 	if isTestMode() {
 		return
 	}
-	
+
 	_, err := Bundle.LoadMessageFileFS(internalfs.Get(), "i18n/en.toml")
 	if err != nil {
 		panic(err)

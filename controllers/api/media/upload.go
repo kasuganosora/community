@@ -134,12 +134,11 @@ func Upload(c *gin.Context) {
 	}
 
 	// 上传到云存储（如果启用）
+	recordFilePath := filepath.Join(time.Now().Format("2006/01/02"), fileName)
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
-		cloudPath, uploadErr := cloudStorage.Upload(filePath, "media/"+filepath.Join(time.Now().Format("2006/01/02"), fileName))
-		if uploadErr == nil {
-			// 使用云存储路径
-			filePath = cloudPath
+		if cloudPath, uploadErr := cloudStorage.Upload(filePath, "media/"+recordFilePath); uploadErr == nil {
+			recordFilePath = cloudPath
 		}
 	}
 
@@ -147,7 +146,7 @@ func Upload(c *gin.Context) {
 	mediaRecord := &models.MediaAttachment{
 		AccountId:     account.Id,
 		FileName:      fileName,
-		FilePath:      filepath.Join(time.Now().Format("2006/01/02"), fileName),
+		FilePath:      recordFilePath,
 		FileSize:      fileSize,
 		ContentType:   contentType,
 		Type:          mediaType,

@@ -16,12 +16,12 @@ import (
 
 // OpenIDToken OpenID 令牌
 type OpenIDToken struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement"`
-	Token      string    `gorm:"uniqueIndex;type:varchar(128);not null"`
-	UserID     string    `gorm:"index;type:varchar(255);not null"`
-	ExpiresAt  time.Time `gorm:"not null"`
-	Used       bool      `gorm:"default:false"`
-	CreatedAt  time.Time `gorm:"autoCreateTime"`
+	ID        uint64    `gorm:"primaryKey;autoIncrement"`
+	Token     string    `gorm:"uniqueIndex;type:varchar(128);not null"`
+	UserID    string    `gorm:"index;type:varchar(255);not null"`
+	ExpiresAt time.Time `gorm:"not null"`
+	Used      bool      `gorm:"default:false"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
 }
 
 func (OpenIDToken) TableName() string {
@@ -36,10 +36,10 @@ type OpenIDTokenRequest struct {
 
 // OpenIDTokenResponse OpenID 令牌响应
 type OpenIDTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
+	AccessToken      string `json:"access_token"`
+	TokenType        string `json:"token_type"`
 	MatrixServerName string `json:"matrix_server_name"`
-	ExpiresIn   int64  `json:"expires_in,omitempty"`
+	ExpiresIn        int64  `json:"expires_in,omitempty"`
 }
 
 // OpenIDUserInfo OpenID 用户信息
@@ -93,10 +93,10 @@ func (os *OpenIDService) RequestToken(userID string, req *OpenIDTokenRequest) (*
 	}
 
 	return &OpenIDTokenResponse{
-		AccessToken: token,
-		TokenType:   "Bearer",
+		AccessToken:      token,
+		TokenType:        "Bearer",
 		MatrixServerName: os.hs.Config.ServerName,
-		ExpiresIn:   expiresIn,
+		ExpiresIn:        expiresIn,
 	}, nil
 }
 

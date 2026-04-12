@@ -459,8 +459,8 @@ func CheckWithTimeout(checker HealthCheckerFunc, timeout time.Duration) ServiceH
 // LogHealthStatus 记录健康状态日志
 func LogHealthStatus(health HealthResponse) {
 	log.WithFields(map[string]interface{}{
-		"status":   health.Status,
-		"services": len(health.Services),
+		"status":    health.Status,
+		"services":  len(health.Services),
 		"timestamp": health.Timestamp,
 	}).Info("Health check completed")
 

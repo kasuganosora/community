@@ -23,11 +23,11 @@ const (
 type StorageType string
 
 const (
-	StorageTypeLocal        StorageType = "local"
-	StorageTypeS3           StorageType = "s3"
-	StorageTypeMinIO        StorageType = "minio"
-	StorageTypeAliyunOSS    StorageType = "aliyun_oss"
-	StorageTypeTencentCOS   StorageType = "tencent_cos"
+	StorageTypeLocal      StorageType = "local"
+	StorageTypeS3         StorageType = "s3"
+	StorageTypeMinIO      StorageType = "minio"
+	StorageTypeAliyunOSS  StorageType = "aliyun_oss"
+	StorageTypeTencentCOS StorageType = "tencent_cos"
 )
 
 // StorageConfig 存储配置
@@ -59,11 +59,11 @@ type ThumbnailRule struct {
 
 // Config 缩略图服务配置
 type Config struct {
-	Enabled      bool            `json:"enabled"`
-	Storage      StorageConfig   `json:"storage"`
-	AccessMode   AccessMode      `json:"access_mode"`
-	RewriteEnabled bool          `json:"rewrite_enabled"`
-	Rules        []ThumbnailRule `json:"rules"`
+	Enabled        bool            `json:"enabled"`
+	Storage        StorageConfig   `json:"storage"`
+	AccessMode     AccessMode      `json:"access_mode"`
+	RewriteEnabled bool            `json:"rewrite_enabled"`
+	Rules          []ThumbnailRule `json:"rules"`
 }
 
 // DefaultConfig 默认配置
@@ -104,49 +104,49 @@ func DefaultConfig() *Config {
 				MediaType:         "image",
 			},
 			{
-				ContentTypes:      []string{"image/gif"},
-				Extensions:        []string{"gif"},
-				Enabled:           false,
-				MediaType:         "image",
+				ContentTypes: []string{"image/gif"},
+				Extensions:   []string{"gif"},
+				Enabled:      false,
+				MediaType:    "image",
 			},
 			{
-				ContentTypes:      []string{"image/svg+xml"},
-				Extensions:        []string{"svg"},
-				Enabled:           false,
-				MediaType:         "image",
+				ContentTypes: []string{"image/svg+xml"},
+				Extensions:   []string{"svg"},
+				Enabled:      false,
+				MediaType:    "image",
 			},
 			{
-				ContentTypes:      []string{"image/heic", "image/heif"},
-				Extensions:        []string{"heic", "heif"},
-				MaxOriginalSize:   0,
-				MaxWidth:          1920,
-				MaxHeight:         1080,
-				Quality:           85,
-				Format:            "webp",
-				Enabled:           true,
-				MediaType:         "image",
+				ContentTypes:    []string{"image/heic", "image/heif"},
+				Extensions:      []string{"heic", "heif"},
+				MaxOriginalSize: 0,
+				MaxWidth:        1920,
+				MaxHeight:       1080,
+				Quality:         85,
+				Format:          "webp",
+				Enabled:         true,
+				MediaType:       "image",
 			},
 			{
-				ContentTypes:      []string{"image/avif"},
-				Extensions:        []string{"avif"},
-				MaxOriginalSize:   0,
-				MaxWidth:          1920,
-				MaxHeight:         1080,
-				Quality:           85,
-				Format:            "webp",
-				Enabled:           true,
-				MediaType:         "image",
+				ContentTypes:    []string{"image/avif"},
+				Extensions:      []string{"avif"},
+				MaxOriginalSize: 0,
+				MaxWidth:        1920,
+				MaxHeight:       1080,
+				Quality:         85,
+				Format:          "webp",
+				Enabled:         true,
+				MediaType:       "image",
 			},
 			{
-				ContentTypes:      []string{"video/mp4", "video/webm", "video/quicktime"},
-				Extensions:        []string{"mp4", "webm", "mov"},
-				MaxOriginalSize:   10485760, // 10MB
-				MaxWidth:          1280,
-				MaxHeight:         720,
-				Quality:           80,
-				Format:            "webp",
-				Enabled:           true,
-				MediaType:         "video",
+				ContentTypes:    []string{"video/mp4", "video/webm", "video/quicktime"},
+				Extensions:      []string{"mp4", "webm", "mov"},
+				MaxOriginalSize: 10485760, // 10MB
+				MaxWidth:        1280,
+				MaxHeight:       720,
+				Quality:         80,
+				Format:          "webp",
+				Enabled:         true,
+				MediaType:       "video",
 			},
 		},
 	}
@@ -259,7 +259,7 @@ func (c *Config) GetStoragePublicURL() string {
 	if c.Storage.PublicURL != "" {
 		return c.Storage.PublicURL
 	}
-	
+
 	// 根据不同存储类型生成默认URL
 	switch c.Storage.Type {
 	case StorageTypeS3:
@@ -272,6 +272,6 @@ func (c *Config) GetStoragePublicURL() string {
 	case StorageTypeLocal:
 		return "/thumbnails" // 本地存储使用相对路径
 	}
-	
+
 	return ""
 }

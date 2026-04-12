@@ -22,9 +22,9 @@ func TestMuteAccounts_ExcludeExpired(t *testing.T) {
 	future := time.Now().Add(1 * time.Hour)
 
 	mutes := MuteAccounts{
-		{Id: 1, AccountId: 100, TargetId: 200, ExpiredAt: nil},          // no expiry = active
-		{Id: 2, AccountId: 101, TargetId: 201, ExpiredAt: &future},      // future = active
-		{Id: 3, AccountId: 102, TargetId: 202, ExpiredAt: &past},        // past = expired
+		{Id: 1, AccountId: 100, TargetId: 200, ExpiredAt: nil},     // no expiry = active
+		{Id: 2, AccountId: 101, TargetId: 201, ExpiredAt: &future}, // future = active
+		{Id: 3, AccountId: 102, TargetId: 202, ExpiredAt: &past},   // past = expired
 	}
 
 	active := mutes.ExcludeExpired()

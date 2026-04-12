@@ -105,5 +105,3 @@ func (h *HCaptchaProvider) GetSiteKey() string {
 func (h *HCaptchaProvider) IsConfigured() bool {
 	return h.siteKey != "" && h.secretKey != ""
 }
-
-

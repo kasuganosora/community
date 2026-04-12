@@ -36,14 +36,14 @@ func NewAuthService(hs *HomeServer) *AuthService {
 
 // LoginRequest 登录请求
 type LoginRequest struct {
-	Type                   string                 `json:"type"`
-	Identifier             *LoginIdentifier       `json:"identifier"`
-	User                   string                 `json:"user"`                   // 旧格式用户名
-	Password               string                 `json:"password"`
-	Token                  string                 `json:"token"`                  // Token 登录
-	DeviceID               *string                `json:"device_id"`
-	InitialDeviceDisplayName *string              `json:"initial_device_display_name"`
-	RefreshToken           bool                   `json:"refresh_token"`
+	Type                     string           `json:"type"`
+	Identifier               *LoginIdentifier `json:"identifier"`
+	User                     string           `json:"user"` // 旧格式用户名
+	Password                 string           `json:"password"`
+	Token                    string           `json:"token"` // Token 登录
+	DeviceID                 *string          `json:"device_id"`
+	InitialDeviceDisplayName *string          `json:"initial_device_display_name"`
+	RefreshToken             bool             `json:"refresh_token"`
 }
 
 // LoginIdentifier 登录标识
@@ -54,12 +54,12 @@ type LoginIdentifier struct {
 
 // LoginResponse 登录响应
 type LoginResponse struct {
-	UserID      string  `json:"user_id"`
-	AccessToken string  `json:"access_token"`
-	DeviceID    string  `json:"device_id"`
-	ExpiresIn   *int64  `json:"expires_in,omitempty"`
-	RefreshToken *string `json:"refresh_token,omitempty"`
-	WellKnown   *WellKnown `json:"well_known,omitempty"`
+	UserID       string     `json:"user_id"`
+	AccessToken  string     `json:"access_token"`
+	DeviceID     string     `json:"device_id"`
+	ExpiresIn    *int64     `json:"expires_in,omitempty"`
+	RefreshToken *string    `json:"refresh_token,omitempty"`
+	WellKnown    *WellKnown `json:"well_known,omitempty"`
 }
 
 // WellKnown 服务器发现信息
@@ -101,14 +101,14 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 	} else if req.User != "" {
 		username = req.User
 	}
-	
+
 	if username == "" || req.Password == "" {
 		return nil, ErrInvalidParam
 	}
-	
+
 	// 标准化用户名
 	username = strings.ToLower(strings.TrimSpace(username))
-	
+
 	// 解析用户ID
 	var localpart, domain string
 	if strings.HasPrefix(username, "@") {
@@ -122,7 +122,7 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 	} else {
 		localpart = username
 	}
-	
+
 	// 检查域名（如果是远程用户，需要走不同的流程）
 	if domain != "" && domain != a.HS.Config.ServerName {
 		return nil, &MatrixError{
@@ -130,7 +130,7 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 			Error:   "Cannot login as remote user",
 		}
 	}
-	
+
 	// 查找本地用户
 	var account models.Account
 	var user models.User
@@ -141,25 +141,25 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 		}
 		return nil, ErrInternal
 	}
-	
+
 	// 获取用户密钥数据
 	err = db.GetDB().Where("id = ?", account.UserId).First(&user).Error
 	if err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	var secretData models.UserSecretData
 	err = db.GetDB().Where("user_id = ?", user.Id).First(&secretData).Error
 	if err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	// 验证密码
 	err = models.CompareHashAndPassword(secretData.Password, req.Password, secretData.Salt)
 	if err != nil {
 		return nil, ErrForbidden
 	}
-	
+
 	// 检查用户状态
 	if user.IsBan || user.Status != models.UserStatusNormal {
 		return nil, &MatrixError{
@@ -167,7 +167,7 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 			Error:   "User is deactivated or banned",
 		}
 	}
-	
+
 	// 生成访问令牌
 	return a.createSession(account, req.DeviceID, req.InitialDeviceDisplayName, req.RefreshToken)
 }
@@ -178,38 +178,38 @@ func (a *AuthService) loginWithToken(req *LoginRequest) (*LoginResponse, *Matrix
 	if req.Token == "" {
 		return nil, ErrInvalidParam
 	}
-	
+
 	// 尝试解析社区 Token
 	tokenData, err := models.GetAuthTokenData(req.Token, a.HS.Config.EncryptedKey)
 	if err != nil {
 		return nil, ErrUnknownToken
 	}
-	
+
 	// 检查 Token 是否过期
 	if tokenData.ExpiredAt > 0 && tokenData.ExpiredAt < time.Now().Unix() {
 		return nil, ErrUnknownToken
 	}
-	
+
 	// 验证 Token 是否存在于数据库
 	_, err = models.GetTokenByTokenStr(req.Token)
 	if err != nil {
 		return nil, ErrUnknownToken
 	}
-	
+
 	// 获取用户信息
 	var user models.User
 	err = db.GetDB().Where("id = ?", tokenData.UserId).First(&user).Error
 	if err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	// 获取账户信息
 	var account models.Account
 	err = db.GetDB().Where("user_id = ?", tokenData.UserId).First(&account).Error
 	if err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	// 检查用户状态
 	if user.IsBan || user.Status != models.UserStatusNormal {
 		return nil, &MatrixError{
@@ -217,7 +217,7 @@ func (a *AuthService) loginWithToken(req *LoginRequest) (*LoginResponse, *Matrix
 			Error:   "User is deactivated or banned",
 		}
 	}
-	
+
 	// 创建 Matrix 会话
 	return a.createSession(account, req.DeviceID, req.InitialDeviceDisplayName, req.RefreshToken)
 }
@@ -225,16 +225,16 @@ func (a *AuthService) loginWithToken(req *LoginRequest) (*LoginResponse, *Matrix
 // createSession 创建会话
 func (a *AuthService) createSession(account models.Account, deviceID *string, displayName *string, withRefresh bool) (*LoginResponse, *MatrixError) {
 	matrixUserID := fmt.Sprintf("@%s:%s", account.Username, a.HS.Config.ServerName)
-	
+
 	// 生成设备 ID
 	if deviceID == nil || *deviceID == "" {
 		id := generateDeviceID()
 		deviceID = &id
 	}
-	
+
 	// 生成访问令牌
 	accessToken := generateAccessToken()
-	
+
 	// 检查设备是否已存在，如果存在则更新
 	var refreshToken *string
 	var existingSession MatrixUserSession
@@ -291,27 +291,27 @@ func (a *AuthService) createSession(account models.Account, deviceID *string, di
 
 // RegisterRequest 注册请求
 type RegisterRequest struct {
-	Username               string                 `json:"username"`
-	Password               string                 `json:"password"`
-	DeviceID               *string                `json:"device_id"`
-	InitialDeviceDisplayName *string              `json:"initial_device_display_name"`
-	InhibitLogin           bool                   `json:"inhibit_login"`
-	RefreshToken           bool                   `json:"refresh_token"`
-	Auth                   *UIAuthRequest         `json:"auth"`
+	Username                 string         `json:"username"`
+	Password                 string         `json:"password"`
+	DeviceID                 *string        `json:"device_id"`
+	InitialDeviceDisplayName *string        `json:"initial_device_display_name"`
+	InhibitLogin             bool           `json:"inhibit_login"`
+	RefreshToken             bool           `json:"refresh_token"`
+	Auth                     *UIAuthRequest `json:"auth"`
 }
 
 // UIAuthRequest UIAA 认证请求
 type UIAuthRequest struct {
-	Type     string                 `json:"type"`
-	Session  string                 `json:"session"`
-	Params   map[string]interface{} `json:"-"`
+	Type    string                 `json:"type"`
+	Session string                 `json:"session"`
+	Params  map[string]interface{} `json:"-"`
 }
 
 // RegisterResponse 注册响应
 type RegisterResponse struct {
-	UserID      string  `json:"user_id"`
-	AccessToken string  `json:"access_token,omitempty"`
-	DeviceID    string  `json:"device_id,omitempty"`
+	UserID       string  `json:"user_id"`
+	AccessToken  string  `json:"access_token,omitempty"`
+	DeviceID     string  `json:"device_id,omitempty"`
 	RefreshToken *string `json:"refresh_token,omitempty"`
 }
 
@@ -430,9 +430,9 @@ func (a *AuthService) createLocalUser(username, password string, deviceID *strin
 	}
 
 	return &RegisterResponse{
-		UserID:      loginResp.UserID,
-		AccessToken: loginResp.AccessToken,
-		DeviceID:    loginResp.DeviceID,
+		UserID:       loginResp.UserID,
+		AccessToken:  loginResp.AccessToken,
+		DeviceID:     loginResp.DeviceID,
 		RefreshToken: loginResp.RefreshToken,
 	}, nil
 }
@@ -458,18 +458,18 @@ func (a *AuthService) Refresh(req *RefreshRequest) (*RefreshResponse, *MatrixErr
 	if err != nil {
 		return nil, ErrUnknownToken
 	}
-	
+
 	// 生成新令牌
 	accessToken := generateAccessToken()
 	refreshToken := generateRefreshToken()
-	
+
 	// 更新会话
 	db.GetDB().Model(&session).Updates(map[string]interface{}{
 		"access_token":   accessToken,
 		"refresh_token":  refreshToken,
 		"last_active_ts": time.Now().UnixMilli(),
 	})
-	
+
 	return &RefreshResponse{
 		AccessToken:  accessToken,
 		RefreshToken: &refreshToken,
@@ -495,7 +495,7 @@ func (a *AuthService) LogoutAll(accessToken string) *MatrixError {
 	if err != nil {
 		return ErrUnknownToken
 	}
-	
+
 	// 删除所有会话
 	db.GetDB().Where("user_id = ?", session.UserID).Delete(&MatrixUserSession{})
 	return nil
@@ -510,10 +510,10 @@ func (a *AuthService) GetUserIDByToken(accessToken string) (string, *MatrixError
 	if err != nil {
 		return "", ErrUnknownToken
 	}
-	
+
 	// 更新最后活跃时间
 	db.GetDB().Model(&session).Update("last_active_ts", time.Now().UnixMilli())
-	
+
 	return session.UserID, nil
 }
 
@@ -597,7 +597,7 @@ func (a *AuthService) UserExists(username string) bool {
 			localpart = parts[0]
 		}
 	}
-	
+
 	db.GetDB().Model(&models.Account{}).Where("username = ?", localpart).Count(&count)
 	return count > 0
 }
@@ -629,13 +629,13 @@ func (a *AuthService) GetLocalAccountID(matrixUserID string) (uint64, error) {
 	if !ok {
 		return 0, fmt.Errorf("invalid matrix user id")
 	}
-	
+
 	var account models.Account
 	err := db.GetDB().Where("username = ?", localpart).First(&account).Error
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return account.Id, nil
 }
 
@@ -696,15 +696,15 @@ func FormatMatrixUserID(localpart, domain string) string {
 // ===== 错误定义 =====
 
 var (
-	ErrForbidden     = &MatrixError{ErrCode: "M_FORBIDDEN", Error: "Forbidden"}
-	ErrUnknownToken  = &MatrixError{ErrCode: "M_UNKNOWN_TOKEN", Error: "Unknown token"}
-	ErrUnrecognized  = &MatrixError{ErrCode: "M_UNRECOGNIZED", Error: "Unrecognized request"}
-	ErrInvalidParam  = &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid parameter"}
+	ErrForbidden       = &MatrixError{ErrCode: "M_FORBIDDEN", Error: "Forbidden"}
+	ErrUnknownToken    = &MatrixError{ErrCode: "M_UNKNOWN_TOKEN", Error: "Unknown token"}
+	ErrUnrecognized    = &MatrixError{ErrCode: "M_UNRECOGNIZED", Error: "Unrecognized request"}
+	ErrInvalidParam    = &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid parameter"}
 	ErrInvalidUsername = &MatrixError{ErrCode: "M_INVALID_USERNAME", Error: "Invalid username"}
-	ErrUserInUse     = &MatrixError{ErrCode: "M_USER_IN_USE", Error: "Username already in use"}
-	ErrNotFound      = &MatrixError{ErrCode: "M_NOT_FOUND", Error: "Not found"}
-	ErrInternal      = &MatrixError{ErrCode: "M_INTERNAL", Error: "Internal server error"}
-	ErrUnauthorized  = &MatrixError{ErrCode: "M_UNAUTHORIZED", Error: "Unauthorized"}
+	ErrUserInUse       = &MatrixError{ErrCode: "M_USER_IN_USE", Error: "Username already in use"}
+	ErrNotFound        = &MatrixError{ErrCode: "M_NOT_FOUND", Error: "Not found"}
+	ErrInternal        = &MatrixError{ErrCode: "M_INTERNAL", Error: "Internal server error"}
+	ErrUnauthorized    = &MatrixError{ErrCode: "M_UNAUTHORIZED", Error: "Unauthorized"}
 )
 
 // MatrixError Matrix 错误

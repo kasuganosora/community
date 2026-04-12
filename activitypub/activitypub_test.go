@@ -346,7 +346,7 @@ func TestPublicKeyStructure(t *testing.T) {
 
 func TestEndpointsStructure(t *testing.T) {
 	endpoints := &Endpoints{
-		SharedInbox:               "https://example.com/inbox",
+		SharedInbox:                "https://example.com/inbox",
 		OauthAuthorizationEndpoint: "https://example.com/oauth/authorize",
 		OauthTokenEndpoint:         "https://example.com/oauth/token",
 	}

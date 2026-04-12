@@ -227,12 +227,6 @@ func Following(c *gin.Context) {
 		return
 	}
 
-	// Get following - we need to join with accounts
-	type FollowWithTarget struct {
-		Follow      *models.Follow
-		TargetAcct  string
-	}
-	
 	var results []struct {
 		FollowId uint64
 	}

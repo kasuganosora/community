@@ -284,10 +284,10 @@ func importEmoji(c *cli.Context) error {
 		} else {
 			// Create new
 			emoji := &models.Emoji{
-				Shortcode:        shortcode,
-				Url:              "imported/" + shortcode + ext,
-				Category:         category,
-				VisibleInPicker:  !unlisted,
+				Shortcode:       shortcode,
+				Url:             "imported/" + shortcode + ext,
+				Category:        category,
+				VisibleInPicker: !unlisted,
 			}
 			if err := db.GetDB().Create(emoji).Error; err != nil {
 				fmt.Printf("Warning: failed to create %s: %v\n", shortcode, err)
@@ -375,7 +375,7 @@ func purgeEmoji(c *cli.Context) error {
 				for _, emoji := range batch {
 					// Delete from storage
 					if emoji.Url != "" {
-						storage.Delete(emoji.Url)
+						_ = storage.Delete(emoji.Url)
 					}
 					// Delete from database
 					db.GetDB().Delete(emoji)

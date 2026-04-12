@@ -119,9 +119,9 @@ func TestUnpush_VisibilityCheck(t *testing.T) {
 
 func TestUnpush_NoToAccounts(t *testing.T) {
 	status := &models.Status{
-		Id:          1,
-		Visibility:  models.StatusVisibilityPublic,
-		ToAccounts:  nil,
+		Id:         1,
+		Visibility: models.StatusVisibilityPublic,
+		ToAccounts: nil,
 	}
 
 	// 没有 ToAccounts 时应该直接返回
@@ -130,9 +130,9 @@ func TestUnpush_NoToAccounts(t *testing.T) {
 
 func TestUnpush_EmptyToAccounts(t *testing.T) {
 	status := &models.Status{
-		Id:          1,
-		Visibility:  models.StatusVisibilityPublic,
-		ToAccounts:  []*models.Account{},
+		Id:         1,
+		Visibility: models.StatusVisibilityPublic,
+		ToAccounts: []*models.Account{},
 	}
 
 	// 空的 ToAccounts 时应该直接返回

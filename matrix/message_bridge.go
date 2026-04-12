@@ -132,9 +132,9 @@ func (m *MessageBridge) convertStatusToMatrixMessage(content string) *RoomMessag
 	body := strings.TrimSpace(content)
 
 	return &RoomMessageContent{
-		MsgType: MsgTypeText,
-		Body:    body,
-		Format:  "org.matrix.custom.html",
+		MsgType:       MsgTypeText,
+		Body:          body,
+		Format:        "org.matrix.custom.html",
 		FormattedBody: m.textToHTML(body),
 	}
 }

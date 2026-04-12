@@ -109,19 +109,22 @@ func CreateInvite(c *gin.Context) {
 		MaxUses   int `json:"max_uses"`
 		ExpiresIn int `json:"expires_in"` // in seconds
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Generate invite code
 	code := generateInviteCode()
 
 	now := time.Now()
 	invite := models.InviteCode{
-		Code:       code,
-		UserId:     account.UserId,
-		AccountId:  strconv.FormatUint(account.Id, 10),
+		Code:        code,
+		UserId:      account.UserId,
+		AccountId:   strconv.FormatUint(account.Id, 10),
 		MaxUseCount: req.MaxUses,
-		UseCount:   0,
-		CreatedAt:  &now,
+		UseCount:    0,
+		CreatedAt:   &now,
 	}
 
 	if req.ExpiresIn > 0 {

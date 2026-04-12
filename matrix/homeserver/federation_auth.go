@@ -214,8 +214,13 @@ func (v *EventAuthVerifier) verifyAuthEvents(event map[string]interface{}) error
 
 		// 验证 auth_event 的签名
 		var authEventMap map[string]interface{}
-		authEventData, _ := json.Marshal(authEvent)
-		json.Unmarshal(authEventData, &authEventMap)
+			authEventData, err2 := json.Marshal(authEvent)
+			if err2 != nil {
+				return fmt.Errorf("failed to marshal auth event: %w", err2)
+			}
+			if err := json.Unmarshal(authEventData, &authEventMap); err != nil {
+				return fmt.Errorf("failed to unmarshal auth event: %w", err)
+			}
 
 		if err := v.VerifyEventSignature(authEventMap, []string{authEvent.SenderDomain}); err != nil {
 			return fmt.Errorf("auth event signature invalid: %s", eventID)
@@ -240,10 +245,10 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode cached key: %w", err)
 		}
-		
+
 		// 更新内存缓存
 		keyCache.Set(serverName, serverKey.KeyID, ed25519.PublicKey(keyBytes), serverKey.ValidUntil)
-		
+
 		return keyBytes, nil
 	}
 

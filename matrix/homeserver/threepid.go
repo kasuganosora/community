@@ -16,13 +16,13 @@ import (
 
 // ThreePID 第三方标识符
 type ThreePID struct {
-	ID           uint64    `gorm:"primaryKey;autoIncrement"`
-	UserID       string    `gorm:"index;type:varchar(255);not null"`
-	Medium       string    `gorm:"index;type:varchar(16);not null"` // email, msisdn
-	Address      string    `gorm:"index;type:varchar(255);not null"` // 邮箱或手机号
-	ValidatedAt  int64     `json:"validated_at"`
-	AddedAt      int64     `json:"added_at"`
-	Validated    bool      `gorm:"default:false"`
+	ID          uint64 `gorm:"primaryKey;autoIncrement"`
+	UserID      string `gorm:"index;type:varchar(255);not null"`
+	Medium      string `gorm:"index;type:varchar(16);not null"`  // email, msisdn
+	Address     string `gorm:"index;type:varchar(255);not null"` // 邮箱或手机号
+	ValidatedAt int64  `json:"validated_at"`
+	AddedAt     int64  `json:"added_at"`
+	Validated   bool   `gorm:"default:false"`
 }
 
 func (ThreePID) TableName() string {
@@ -372,8 +372,8 @@ func handleSubmitEmailToken(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var req struct {
-		Token   string `json:"token" binding:"required"`
-		Email   string `json:"email" binding:"required"`
+		Token string `json:"token" binding:"required"`
+		Email string `json:"email" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {

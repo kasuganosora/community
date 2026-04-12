@@ -331,18 +331,18 @@ func TestDBClientInterface(t *testing.T) {
 // MockDBClient 实现 DBClient 接口用于测试
 type MockDBClient struct{}
 
-func (m *MockDBClient) Model(value any) *gorm.DB                         { return nil }
-func (m *MockDBClient) Where(query any, args ...any) *gorm.DB            { return nil }
-func (m *MockDBClient) Find(out any, where ...any) *gorm.DB              { return nil }
-func (m *MockDBClient) Preload(query string, args ...any) *gorm.DB       { return nil }
-func (m *MockDBClient) Order(value string) *gorm.DB                      { return nil }
-func (m *MockDBClient) Limit(limit int) *gorm.DB                         { return nil }
-func (m *MockDBClient) Offset(offset int) *gorm.DB                       { return nil }
-func (m *MockDBClient) Association(column string) *gorm.Association      { return nil }
+func (m *MockDBClient) Model(value any) *gorm.DB                    { return nil }
+func (m *MockDBClient) Where(query any, args ...any) *gorm.DB       { return nil }
+func (m *MockDBClient) Find(out any, where ...any) *gorm.DB         { return nil }
+func (m *MockDBClient) Preload(query string, args ...any) *gorm.DB  { return nil }
+func (m *MockDBClient) Order(value string) *gorm.DB                 { return nil }
+func (m *MockDBClient) Limit(limit int) *gorm.DB                    { return nil }
+func (m *MockDBClient) Offset(offset int) *gorm.DB                  { return nil }
+func (m *MockDBClient) Association(column string) *gorm.Association { return nil }
 
 func TestTimelineInterface(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "test:%s", TimelineId: "123"}
-	
+
 	// 测试接口方法
 	assert.Equal(t, "test:%s", timeline.GetKeyFormat())
 	assert.Equal(t, "123", timeline.GetTimelineId())

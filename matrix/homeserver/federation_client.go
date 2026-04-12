@@ -299,9 +299,10 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 		"destination": destServer,
 	}
 	if bodyBytes != nil {
-		var content interface{}
-		json.Unmarshal(bodyBytes, &content)
-		payload["content"] = content
+			var content interface{}
+			if err := json.Unmarshal(bodyBytes, &content); err == nil {
+				payload["content"] = content
+			}
 	}
 	if canonicalBytes, err2 := CanonicalJSON(payload); err2 == nil {
 		sig := ed25519.Sign(c.privateKey, canonicalBytes)
@@ -319,7 +320,9 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	defer resp.Body.Close()
 
 	var buf bytes.Buffer
-	buf.ReadFrom(resp.Body)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
 	return resp, buf.Bytes(), nil
 }
 
@@ -377,10 +380,10 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 		// v1 format: [200, {...}]
 		var arr []json.RawMessage
 		if err := json.Unmarshal(body, &arr); err == nil && len(arr) >= 2 {
-			json.Unmarshal(arr[1], &result)
+			_ = json.Unmarshal(arr[1], &result)
 		}
 	} else {
-		json.Unmarshal(body, &result)
+		_ = json.Unmarshal(body, &result)
 	}
 
 	if result == nil {

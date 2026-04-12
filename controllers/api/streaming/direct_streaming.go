@@ -29,6 +29,4 @@ func DirectStreaming(c *gin.Context) {
 	}
 
 	startSseService(c, procHandle, timeline)
-
-	return
 }

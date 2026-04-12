@@ -16,15 +16,15 @@ var logObj *logrus.Logger
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level       string // debug, info, warn, error
-	Output      string // stdout, file, both
-	FilePath    string
-	MaxSize     int  // MB，单个日志文件最大大小
-	MaxBackups  int  // 保留旧文件个数
-	MaxAge      int  // 保留天数
-	Compress    bool // 是否压缩
-	Format      string // text, json
-	MaxDiskUsage int64 // MB，日志目录最大磁盘使用量（0表示不限制）
+	Level        string // debug, info, warn, error
+	Output       string // stdout, file, both
+	FilePath     string
+	MaxSize      int    // MB，单个日志文件最大大小
+	MaxBackups   int    // 保留旧文件个数
+	MaxAge       int    // 保留天数
+	Compress     bool   // 是否压缩
+	Format       string // text, json
+	MaxDiskUsage int64  // MB，日志目录最大磁盘使用量（0表示不限制）
 }
 
 func init() {
@@ -115,7 +115,9 @@ func getLogWriter(config LogConfig) io.Writer {
 	if config.FilePath != "" {
 		dir := filepath.Dir(config.FilePath)
 		if dir != "" && dir != "." {
-			os.MkdirAll(dir, 0755)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				logObj.Warnf("failed to create log directory %s: %v", dir, err)
+			}
 		}
 
 		// 检查磁盘空间
@@ -146,7 +148,7 @@ func getLogWriter(config LogConfig) io.Writer {
 // getDirSize 获取目录大小（字节）
 func getDirSize(dir string) int64 {
 	var size int64
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			size += info.Size()
 		}

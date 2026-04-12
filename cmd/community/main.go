@@ -21,9 +21,9 @@ import (
 	"github.com/kasuganosora/community/metrics"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
+	_ "github.com/kasuganosora/community/notifications"
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/utils"
-	_ "github.com/kasuganosora/community/notifications"
 )
 
 func main() {

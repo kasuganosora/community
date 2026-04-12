@@ -12,8 +12,8 @@ import (
 
 // ListRequest represents the request for listing follow requests
 type ListRequest struct {
-	Limit  int    `form:"limit" binding:"min=1,max=80"`
-	MaxId  string `form:"max_id"`
+	Limit   int    `form:"limit" binding:"min=1,max=80"`
+	MaxId   string `form:"max_id"`
 	SinceId string `form:"since_id"`
 }
 

@@ -1,8 +1,6 @@
 package homeserver
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -92,7 +90,7 @@ func (kbm *KeyBackupManager) CreateBackupVersion(userID string, authData map[str
 func (kbm *KeyBackupManager) GetBackupVersion(userID, version string) (*KeyBackupVersion, error) {
 	var record MatrixKeyBackup
 	query := db.GetDB().Where("user_id = ?", userID)
-	
+
 	if version != "" {
 		query = query.Where("version = ?", version)
 	} else {
@@ -281,7 +279,7 @@ func (kbm *KeyBackupManager) GetBackupKeysForRoom(userID, version, roomID string
 func (kbm *KeyBackupManager) DeleteBackupKey(userID, version, roomID, sessionID string) error {
 	result := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ? AND session_id = ?",
 		userID, version, roomID, sessionID).Delete(&MatrixKeyBackupSession{})
-	
+
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete session: %w", result.Error)
 	}
@@ -306,7 +304,7 @@ func (kbm *KeyBackupManager) ListBackupVersions(userID string) ([]*KeyBackupVers
 	versions := make([]*KeyBackupVersion, len(records))
 	for i, record := range records {
 		var authData map[string]interface{}
-		json.Unmarshal([]byte(record.AuthData), &authData)
+		_ = json.Unmarshal([]byte(record.AuthData), &authData) //nolint:errcheck // best-effort parsing
 
 		versions[i] = &KeyBackupVersion{
 			Version:   record.Version,
@@ -418,90 +416,15 @@ func (MatrixKeyBackupRecovery) TableName() string {
 // generateBackupVersion 生成备份版本 ID
 func generateBackupVersion() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // generateETag 生成 ETag
 func generateETag() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
 	return base64.RawStdEncoding.EncodeToString(b)
 }
 
 // ===== 加密/解密辅助函数 =====
-
-// encryptBackupData 加密备份数据
-func encryptBackupData(plaintext, key []byte) (*KeyBackupData, error) {
-	// 生成 IV
-	iv := make([]byte, 16)
-	if _, err := rand.Read(iv); err != nil {
-		return nil, err
-	}
-
-	// 创建 AES-GCM 加密器
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	// 加密
-	ciphertext := gcm.Seal(nil, iv, plaintext, nil)
-
-	// 分离 ciphertext 和 tag
-	tag := ciphertext[len(ciphertext)-gcm.Overhead():]
-	ciphertextOnly := ciphertext[:len(ciphertext)-gcm.Overhead()]
-
-	return &KeyBackupData{
-		Algorithm:  "m.megolm_backup.v1.curve25519-aes-sha2",
-		Ciphertext: base64.RawStdEncoding.EncodeToString(ciphertextOnly),
-		MAC:        base64.RawStdEncoding.EncodeToString(tag),
-		IV:         base64.RawStdEncoding.EncodeToString(iv),
-	}, nil
-}
-
-// decryptBackupData 解密备份数据
-func decryptBackupData(data *KeyBackupData, key []byte) ([]byte, error) {
-	// 解码数据
-	ciphertext, err := base64.RawStdEncoding.DecodeString(data.Ciphertext)
-	if err != nil {
-		return nil, err
-	}
-
-	tag, err := base64.RawStdEncoding.DecodeString(data.MAC)
-	if err != nil {
-		return nil, err
-	}
-
-	iv, err := base64.RawStdEncoding.DecodeString(data.IV)
-	if err != nil {
-		return nil, err
-	}
-
-	// 组合 ciphertext 和 tag
-	ciphertextWithTag := append(ciphertext, tag...)
-
-	// 创建 AES-GCM 解密器
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	// 解密
-	plaintext, err := gcm.Open(nil, iv, ciphertextWithTag, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return plaintext, nil
-}

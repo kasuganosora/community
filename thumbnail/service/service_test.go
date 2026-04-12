@@ -221,7 +221,7 @@ func TestThumbnailStats(t *testing.T) {
 	// Skip this test if database is not available
 	// In a real environment, this would need database initialization
 	t.Skip("Skipping test that requires database connection")
-	
+
 	cfg := &models.ThumbnailServiceConfig{
 		Enabled: true,
 		Storage: models.ThumbnailStorageConfig{

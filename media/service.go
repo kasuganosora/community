@@ -22,11 +22,11 @@ import (
 // MediaService 公共媒体服务
 // 统一处理 Community 和 Matrix 的媒体上传/下载
 type MediaService struct {
-	storage      storage.StorageProvider
-	imageProc    *ImageProcessor
-	uploadDir    string
-	useCloud     bool
-	serverName   string // 用于生成 MXC URI
+	storage    storage.StorageProvider
+	imageProc  *ImageProcessor
+	uploadDir  string
+	useCloud   bool
+	serverName string // 用于生成 MXC URI
 }
 
 // MediaInfo 媒体信息
@@ -45,12 +45,12 @@ type MediaInfo struct {
 
 // ThumbnailInfo 缩略图信息
 type ThumbnailInfo struct {
-	MediaID     string
-	Width       int
-	Height      int
+	MediaID      string
+	Width        int
+	Height       int
 	ResizeMethod string
-	FilePath    string
-	CreatedAt   time.Time
+	FilePath     string
+	CreatedAt    time.Time
 }
 
 // NewMediaService 创建媒体服务
@@ -262,12 +262,12 @@ func (s *MediaService) CreateThumbnail(mediaPath string, width, height int, meth
 	}
 
 	return &ThumbnailInfo{
-		MediaID:     "",
-		Width:       width,
-		Height:      height,
+		MediaID:      "",
+		Width:        width,
+		Height:       height,
 		ResizeMethod: method,
-		FilePath:    thumbPath,
-		CreatedAt:   time.Now(),
+		FilePath:     thumbPath,
+		CreatedAt:    time.Now(),
 	}, nil
 }
 

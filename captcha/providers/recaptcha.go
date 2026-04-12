@@ -53,8 +53,8 @@ func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteI
 
 	if response == "" {
 		return &types.VerificationResult{
-			Success: false,
-			Provider: r.Name(),
+			Success:    false,
+			Provider:   r.Name(),
 			ErrorCodes: []string{"missing-input-response"},
 		}, nil
 	}
@@ -102,5 +102,3 @@ func (r *RecaptchaProvider) GetSiteKey() string {
 func (r *RecaptchaProvider) IsConfigured() bool {
 	return r.siteKey != "" && r.secretKey != ""
 }
-
-

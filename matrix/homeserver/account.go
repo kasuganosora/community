@@ -27,13 +27,13 @@ type PasswordResetRequest struct {
 
 // PasswordResetToken 密码重置令牌
 type PasswordResetToken struct {
-	ID          uint64    `gorm:"primaryKey;autoIncrement"`
-	Token       string    `gorm:"uniqueIndex;type:varchar(128);not null"`
-	UserID      string    `gorm:"index;type:varchar(255);not null"`
-	Email       string    `gorm:"type:varchar(255)"`
-	ExpiresAt   time.Time `gorm:"not null"`
-	Used        bool      `gorm:"default:false"`
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
+	ID        uint64    `gorm:"primaryKey;autoIncrement"`
+	Token     string    `gorm:"uniqueIndex;type:varchar(128);not null"`
+	UserID    string    `gorm:"index;type:varchar(255);not null"`
+	Email     string    `gorm:"type:varchar(255)"`
+	ExpiresAt time.Time `gorm:"not null"`
+	Used      bool      `gorm:"default:false"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
 }
 
 func (PasswordResetToken) TableName() string {
@@ -118,7 +118,7 @@ func (as *AccountService) RequestPasswordReset(req *PasswordResetRequest) (strin
 func (as *AccountService) ResetPassword(token, newPassword string) error {
 	// 查找令牌
 	var resetToken PasswordResetToken
-	if err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?", 
+	if err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?",
 		token, false, time.Now()).First(&resetToken).Error; err != nil {
 		return fmt.Errorf("invalid or expired token")
 	}
@@ -340,14 +340,14 @@ func RegisterAccountRoutes(r gin.IRouter) {
 	{
 		// 账户信息
 		account.GET("/account/whoami", MatrixAuthMiddleware(), handleWhoami)
-		
+
 		// 密码管理
 		account.POST("/account/password", MatrixAuthMiddleware(), handleChangePassword)
 		account.POST("/account/password/email/requestToken", handleRequestPasswordReset)
-		
+
 		// 账户停用
 		account.POST("/account/deactivate", MatrixAuthMiddleware(), handleDeactivate)
-		
+
 		// 账户数据
 		account.GET("/user/:userId/account_data/:type", MatrixAuthMiddleware(), handleGetAccountData)
 		account.PUT("/user/:userId/account_data/:type", MatrixAuthMiddleware(), handleSetAccountData)
@@ -622,11 +622,6 @@ func handleSetRoomAccountData(c *gin.Context) {
 }
 
 // ===== 辅助函数 =====
-
-
-
-
-
 
 func generateSID() string {
 	return uuid.New().String()

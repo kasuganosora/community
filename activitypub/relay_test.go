@@ -266,7 +266,7 @@ func TestRelayServiceInboxes(t *testing.T) {
 	_ = relay1
 
 	// Create second relay but don't use the variable directly
-	service.CreateRelay("https://relay-inbox2.example.com/inbox")
+	_, _ = service.CreateRelay("https://relay-inbox2.example.com/inbox")
 
 	// Enable relay1
 	relay1.State = models.RelayStateAccepted
@@ -426,7 +426,7 @@ func TestRelaySerializerFields(t *testing.T) {
 	assert.NoError(t, err)
 
 	var result map[string]interface{}
-	json.Unmarshal(data, &result)
+	_ = json.Unmarshal(data, &result)
 
 	assert.Equal(t, float64(123), result["id"])
 	assert.Equal(t, "https://test.example.com/inbox", result["inbox_url"])
@@ -439,7 +439,7 @@ func TestGetEnabledRelayInboxesEmpty(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
 	// Create only non-accepted relays
-	models.CreateRelay(testDB.GormDB, "https://relay1.example.com/inbox")
+	_, _ = models.CreateRelay(testDB.GormDB, "https://relay1.example.com/inbox")
 	relay2, _ := models.CreateRelay(testDB.GormDB, "https://relay2.example.com/inbox")
 	relay2.State = models.RelayStatePending
 	testDB.GormDB.Save(relay2)

@@ -81,7 +81,7 @@ func TestApplicationScope_RemoveScope(t *testing.T) {
 		// 0x7FF = AppScopeReadStatuses, remove 0x400 (bit 10) keeps 0x3FF
 		scope := &ApplicationScope{ReadScope: AppScopeReadStatuses}
 		scope.RemoveScope(AppScopeTypeRead, 0x400)
-		assert.True(t, scope.HasScope(AppScopeTypeRead, AppScopeReadSearch)) // 0x3FF still set
+		assert.True(t, scope.HasScope(AppScopeTypeRead, AppScopeReadSearch))    // 0x3FF still set
 		assert.False(t, scope.HasScope(AppScopeTypeRead, AppScopeReadStatuses)) // 0x7FF no longer
 	})
 }

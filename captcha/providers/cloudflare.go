@@ -22,13 +22,13 @@ type CloudflareProvider struct {
 
 // cloudflareResponse Cloudflare Turnstile 响应结构
 type cloudflareResponse struct {
-	Success    bool     `json:"success"`
-	ErrorCodes []string `json:"error-codes"`
-	ChallengeTS string  `json:"challenge_ts"`
-	Hostname   string   `json:"hostname"`
-	Action     string   `json:"action"`
-	CData      string   `json:"cdata"`
-	Metadata   struct {
+	Success     bool     `json:"success"`
+	ErrorCodes  []string `json:"error-codes"`
+	ChallengeTS string   `json:"challenge_ts"`
+	Hostname    string   `json:"hostname"`
+	Action      string   `json:"action"`
+	CData       string   `json:"cdata"`
+	Metadata    struct {
 		EphemeralID string `json:"ephemeral_id"`
 	} `json:"metadata"`
 }

@@ -60,7 +60,7 @@ func loadConfig() {
 	}
 
 	if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
-		createDefaultEnvFile(envFilePath)
+		_ = createDefaultEnvFile(envFilePath)
 		os.Exit(1)
 	} else if err != nil {
 		panic(err)
@@ -142,8 +142,6 @@ func loadMapToConfig(data map[string]string) {
 
 		C.Other[key] = value
 	}
-
-	return
 }
 
 // createDefaultEnvFile 创建默认的 .env 文件

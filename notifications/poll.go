@@ -45,7 +45,6 @@ func finishPollNotification(poll *models.Poll) {
 	err = db.GetDB().Model(&models.Status{}).Preload("Account").Where("id = ?", poll.StatusId).First(status).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			err = nil
 			return
 		}
 		err = errors.Wrap(err, fmt.Sprintf("[finishPollNotification] get status faild, poll id %d", poll.Id))

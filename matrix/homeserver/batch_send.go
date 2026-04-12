@@ -17,19 +17,19 @@ import (
 
 // BatchSendRequest 批量发送请求
 type BatchSendRequest struct {
-	Events          []BatchEvent `json:"events" binding:"required"`
-	StateEvents     []BatchEvent `json:"state_events_at_start,omitempty"`
-	PrevEventID     string       `json:"prev_event_id,omitempty"`
+	Events      []BatchEvent `json:"events" binding:"required"`
+	StateEvents []BatchEvent `json:"state_events_at_start,omitempty"`
+	PrevEventID string       `json:"prev_event_id,omitempty"`
 }
 
 // BatchEvent 批量事件
 type BatchEvent struct {
-	Type           string                 `json:"type"`
-	Sender         string                 `json:"sender"`
-	Content        map[string]interface{} `json:"content"`
-	Timestamp      int64                  `json:"timestamp,omitempty"`
-	Unsigned       map[string]interface{} `json:"unsigned,omitempty"`
-	StateKey       *string                `json:"state_key,omitempty"`
+	Type      string                 `json:"type"`
+	Sender    string                 `json:"sender"`
+	Content   map[string]interface{} `json:"content"`
+	Timestamp int64                  `json:"timestamp,omitempty"`
+	Unsigned  map[string]interface{} `json:"unsigned,omitempty"`
+	StateKey  *string                `json:"state_key,omitempty"`
 }
 
 // BatchSendResponse 批量发送响应
@@ -155,7 +155,7 @@ func (bss *BatchSendService) createEvent(roomID string, batchEvent *BatchEvent, 
 
 	// 存储事件关系
 	if bss.hs.Relations != nil {
-		go bss.hs.Relations.StoreRelation(event)
+		go func() { _ = bss.hs.Relations.StoreRelation(event) }()
 	}
 
 	return eventID, nil

@@ -129,7 +129,7 @@ export function usePerformance() {
     const start = performance.now()
     const result = fn()
     const end = performance.now()
-    console.log(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+    console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
     return result
   }
 
@@ -138,7 +138,7 @@ export function usePerformance() {
     const start = performance.now()
     const result = await fn()
     const end = performance.now()
-    console.log(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+    console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
     return result
   }
 
@@ -182,6 +182,6 @@ export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
 
   // Log to console in development
   if (import.meta.env.DEV) {
-    console.log('[Performance Metrics]', metrics)
+    console.warn('[Performance Metrics]', metrics)
   }
 }

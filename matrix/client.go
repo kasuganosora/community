@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/httpclient"
@@ -260,9 +259,4 @@ func doMatrixRequest(httpClient *httpclient.Client, homeserverURL, asToken, meth
 // generateTxnID 生成事务 ID（使用 UUID 保证唯一性）
 func generateTxnID() string {
 	return "community_" + uuid.New().String()
-}
-
-// currentTimeMillis 获取当前时间戳（毫秒）
-func currentTimeMillis() int64 {
-	return time.Now().UnixMilli()
 }

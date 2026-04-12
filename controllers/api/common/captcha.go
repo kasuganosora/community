@@ -12,13 +12,13 @@ import (
 type CaptchaConfigResponse struct {
 	// Enabled 是否启用验证码
 	Enabled bool `json:"enabled"`
-	
+
 	// Provider 验证码供应商
 	Provider string `json:"provider"`
-	
+
 	// SiteKey 站点密钥（前端使用）
 	SiteKey string `json:"site_key"`
-	
+
 	// PublicKey 公钥（某些供应商使用）
 	PublicKey string `json:"public_key,omitempty"`
 }
@@ -27,13 +27,13 @@ type CaptchaConfigResponse struct {
 // GET /api/v1/captcha/config
 func GetCaptchaConfig(c *gin.Context) {
 	service := captcha.GetService()
-	
+
 	resp := CaptchaConfigResponse{
 		Enabled:  service.IsEnabled(),
 		Provider: service.GetProviderType().String(),
 		SiteKey:  service.GetSiteKey(),
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -59,7 +59,7 @@ func VerifyCaptcha(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	service := captcha.GetService()
 	if !service.IsEnabled() {
 		c.JSON(http.StatusOK, VerifyCaptchaResponse{
@@ -68,7 +68,7 @@ func VerifyCaptcha(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	result, err := service.Verify(c.Request.Context(), req.Response, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusOK, VerifyCaptchaResponse{
@@ -77,7 +77,7 @@ func VerifyCaptcha(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	if !result.Success {
 		c.JSON(http.StatusOK, VerifyCaptchaResponse{
 			Success: false,
@@ -85,7 +85,7 @@ func VerifyCaptcha(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, VerifyCaptchaResponse{
 		Success: true,
 		Message: "verification passed",
@@ -121,16 +121,16 @@ func GetCaptchaProviders(c *gin.Context) {
 			"website":     "",
 		},
 	}
-	
+
 	c.JSON(http.StatusOK, providers)
 }
 
 // AdminUpdateCaptchaConfigRequest 管理员更新验证码配置请求
 type AdminUpdateCaptchaConfigRequest struct {
-	Provider   string  `json:"provider"`              // 供应商: recaptcha, cloudflare, hcaptcha, none
-	SiteKey    string  `json:"site_key"`              // 站点密钥
-	SecretKey  string  `json:"secret_key"`            // 密钥（只写）
-	Enabled    *bool   `json:"enabled,omitempty"`     // 是否启用
+	Provider       string   `json:"provider"`                  // 供应商: recaptcha, cloudflare, hcaptcha, none
+	SiteKey        string   `json:"site_key"`                  // 站点密钥
+	SecretKey      string   `json:"secret_key"`                // 密钥（只写）
+	Enabled        *bool    `json:"enabled,omitempty"`         // 是否启用
 	ScoreThreshold *float64 `json:"score_threshold,omitempty"` // 分数阈值
 }
 
@@ -142,30 +142,30 @@ func AdminUpdateCaptchaConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// 验证供应商类型
 	provider, err := captcha.ParseProviderType(req.Provider)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provider"})
 		return
 	}
-	
+
 	// 更新配置
 	systemsettings.Set(systemsettings.KeyCaptchaProvider, string(provider))
 	systemsettings.Set(systemsettings.KeyCaptchaSiteKey, req.SiteKey)
-	
+
 	if req.SecretKey != "" {
 		systemsettings.Set(systemsettings.KeyCaptchaSecretKey, req.SecretKey)
 	}
-	
+
 	if req.Enabled != nil {
 		systemsettings.Set(systemsettings.KeyCaptchaEnabled, *req.Enabled)
 	}
-	
+
 	if req.ScoreThreshold != nil {
 		systemsettings.Set(systemsettings.KeyCaptchaScoreThreshold, *req.ScoreThreshold)
 	}
-	
+
 	// 保存到数据库
 	keys := []string{
 		systemsettings.KeyCaptchaProvider,
@@ -174,17 +174,17 @@ func AdminUpdateCaptchaConfig(c *gin.Context) {
 		systemsettings.KeyCaptchaEnabled,
 		systemsettings.KeyCaptchaScoreThreshold,
 	}
-	
+
 	if err := systemsettings.SaveToDB(keys...); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config"})
 		return
 	}
-	
+
 	// 重新加载验证码服务
 	if err := captcha.GetService().Reload(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload captcha service"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "captcha config updated"})
 }

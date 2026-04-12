@@ -88,8 +88,8 @@ func TestGetVisibilityFromActivity(t *testing.T) {
 			expected: models.StatusVisibilityDirect,
 		},
 		{
-			name: "private - empty to and cc",
-			object: map[string]interface{}{},
+			name:     "private - empty to and cc",
+			object:   map[string]interface{}{},
 			expected: models.StatusVisibilityPrivate,
 		},
 		{
@@ -132,7 +132,7 @@ func TestIsValidActivityPubContentType_Extended(t *testing.T) {
 		{"application/ld+json", true},
 		{"application/json", true},
 		{"application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"", true},
-		{"Application/Activity+JSON", true},          // case insensitive
+		{"Application/Activity+JSON", true}, // case insensitive
 		{"application/activity+json; charset=utf-8", true},
 		{"text/html", false},
 		{"text/plain", false},

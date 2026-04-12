@@ -11,13 +11,13 @@ import (
 func TestSelfDestructStatus(t *testing.T) {
 	// Test the status structure
 	status := SelfDestructStatus{
-		ModeEnabled:             true,
-		TotalAccounts:           100,
-		ProcessedAccounts:       50,
-		RemainingAccounts:       50,
-		TotalInboxes:            25,
-		DeleteActivitiesQueued:  1250,
-		DeliveryStatus:          "In progress",
+		ModeEnabled:            true,
+		TotalAccounts:          100,
+		ProcessedAccounts:      50,
+		RemainingAccounts:      50,
+		TotalInboxes:           25,
+		DeleteActivitiesQueued: 1250,
+		DeliveryStatus:         "In progress",
 	}
 
 	assert.True(t, status.ModeEnabled)
@@ -43,13 +43,13 @@ func TestSelfDestructStatus_ZeroValues(t *testing.T) {
 
 func TestSelfDestructStatus_Complete(t *testing.T) {
 	status := SelfDestructStatus{
-		ModeEnabled:             false,
-		TotalAccounts:           10,
-		ProcessedAccounts:       10,
-		RemainingAccounts:       0,
-		TotalInboxes:            5,
-		DeleteActivitiesQueued:  50,
-		DeliveryStatus:          "Complete",
+		ModeEnabled:            false,
+		TotalAccounts:          10,
+		ProcessedAccounts:      10,
+		RemainingAccounts:      0,
+		TotalInboxes:           5,
+		DeleteActivitiesQueued: 50,
+		DeliveryStatus:         "Complete",
 	}
 
 	assert.False(t, status.ModeEnabled)
@@ -82,9 +82,9 @@ func TestBuildDeleteActivity(t *testing.T) {
 	now := time.Now()
 	deleteActivity := map[string]interface{}{
 		"@context": []string{"https://www.w3.org/ns/activitystreams"},
-		"id":        actorURL + "#delete",
-		"type":      "Delete",
-		"actor":     actorURL,
+		"id":       actorURL + "#delete",
+		"type":     "Delete",
+		"actor":    actorURL,
 		"object": map[string]interface{}{
 			"id":      actorURL,
 			"type":    "Person",

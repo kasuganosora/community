@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"fmt"
+	"log"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
@@ -24,7 +25,11 @@ func init() {
 		}
 
 		//如果是新增的事件
-		go Push(notification, true, true)
+		go func() {
+			if err := Push(notification, true, true); err != nil {
+				log.Printf("notification_timeline: Push failed: %v", err)
+			}
+		}()
 
 		return true
 	}})

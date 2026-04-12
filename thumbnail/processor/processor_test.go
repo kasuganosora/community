@@ -117,12 +117,12 @@ func TestGenerateThumbnail(t *testing.T) {
 
 func TestCalculateDimensions(t *testing.T) {
 	tests := []struct {
-		origWidth   int
-		origHeight  int
-		maxWidth    int
-		maxHeight   int
-		wantWidth   int
-		wantHeight  int
+		origWidth  int
+		origHeight int
+		maxWidth   int
+		maxHeight  int
+		wantWidth  int
+		wantHeight int
 	}{
 		// No scaling needed
 		{100, 100, 200, 200, 100, 100},

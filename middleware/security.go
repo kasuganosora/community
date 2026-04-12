@@ -25,7 +25,7 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
 		// HSTS（仅 HTTPS 环境启用）
 		// c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		
+
 		c.Next()
 	}
 }
@@ -33,13 +33,13 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 // CORSMiddleware CORS 跨域中间件
 func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 	config := cors.DefaultConfig()
-	
+
 	if len(allowOrigins) == 0 {
 		config.AllowAllOrigins = true
 	} else {
 		config.AllowOrigins = allowOrigins
 	}
-	
+
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 	config.AllowHeaders = []string{
 		"Origin",
@@ -56,7 +56,7 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 	}
 	config.AllowCredentials = true
 	config.MaxAge = 12 * time.Hour
-	
+
 	return cors.New(config)
 }
 
@@ -77,13 +77,13 @@ func RequestSizeLimitMiddleware(maxSize int64) gin.HandlerFunc {
 func IPWhitelistMiddleware(whitelist []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
-		
+
 		// 如果没有设置白名单，允许所有
 		if len(whitelist) == 0 {
 			c.Next()
 			return
 		}
-		
+
 		// 检查 IP 是否在白名单中
 		for _, ip := range whitelist {
 			if ip == clientIP {
@@ -98,7 +98,7 @@ func IPWhitelistMiddleware(whitelist []string) gin.HandlerFunc {
 				}
 			}
 		}
-		
+
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 			"error": "IP not allowed",
 		})

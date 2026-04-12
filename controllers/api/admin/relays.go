@@ -6,8 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
-	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/models"
 )
 
 // ListRelays handles GET /api/v1/admin/relays
@@ -179,11 +177,4 @@ func GetRelayInboxes(c *gin.Context) {
 		"inboxes": inboxes,
 		"count":   len(inboxes),
 	})
-}
-
-// Helper function to get enabled relays count
-func getEnabledRelaysCount() int64 {
-	var count int64
-	db.GetDB().Model(&models.Relay{}).Where("state = ?", models.RelayStateAccepted).Count(&count)
-	return count
 }

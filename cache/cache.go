@@ -213,11 +213,13 @@ func (c *Cache) ZRange(ctx context.Context, key string, start, stop int64) ([]st
 
 // ZRangeByScore 按分数获取有序集合范围
 func (c *Cache) ZRangeByScore(ctx context.Context, key string, min, max string, offset, count int64) ([]string, error) {
-	return c.client.ZRangeByScore(ctx, c.prefix+key, &redisv9.ZRangeBy{
-		Min:    min,
-		Max:    max,
-		Offset: offset,
-		Count:  count,
+	return c.client.ZRangeArgs(ctx, redisv9.ZRangeArgs{
+		Key:     c.prefix + key,
+		Start:   min,
+		Stop:    max,
+		Offset:  offset,
+		Count:   count,
+		ByScore: true,
 	}).Result()
 }
 

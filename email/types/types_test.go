@@ -9,10 +9,10 @@ import (
 
 func TestMailStruct(t *testing.T) {
 	mail := &Mail{
-		To:      "test@example.com",
-		Cc:      "cc@example.com",
-		Subject: "Test Subject",
-		Body:    "<html><body>Test</body></html>",
+		To:       "test@example.com",
+		Cc:       "cc@example.com",
+		Subject:  "Test Subject",
+		Body:     "<html><body>Test</body></html>",
 		TextBody: "Test",
 	}
 

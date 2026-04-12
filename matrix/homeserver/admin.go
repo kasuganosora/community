@@ -30,12 +30,12 @@ func NewAdminService(hs *HomeServer) *AdminService {
 
 // ServerStats 服务器统计
 type ServerStats struct {
-	TotalUsers        int64 `json:"total_users"`
-	TotalRooms        int64 `json:"total_rooms"`
-	TotalEvents       int64 `json:"total_events"`
-	DailyActiveUsers  int64 `json:"daily_active_users"`
+	TotalUsers         int64 `json:"total_users"`
+	TotalRooms         int64 `json:"total_rooms"`
+	TotalEvents        int64 `json:"total_events"`
+	DailyActiveUsers   int64 `json:"daily_active_users"`
 	MonthlyActiveUsers int64 `json:"monthly_active_users"`
-	OnlineUsers       int64 `json:"online_users"`
+	OnlineUsers        int64 `json:"online_users"`
 }
 
 // GetServerStats 获取服务器统计
@@ -199,13 +199,13 @@ func (as *AdminService) MakeUserAdmin(userID string, admin bool) error {
 
 // RoomInfo 房间信息
 type RoomInfo struct {
-	RoomID      string    `json:"room_id"`
-	Name        string    `json:"name,omitempty"`
-	Topic       string    `json:"topic,omitempty"`
-	Creator     string    `json:"creator"`
-	Version     string    `json:"version"`
-	JoinedMembers int     `json:"joined_members"`
-	CreatedAt   time.Time `json:"created_at"`
+	RoomID        string    `json:"room_id"`
+	Name          string    `json:"name,omitempty"`
+	Topic         string    `json:"topic,omitempty"`
+	Creator       string    `json:"creator"`
+	Version       string    `json:"version"`
+	JoinedMembers int       `json:"joined_members"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // ListRooms 列出房间
@@ -395,9 +395,9 @@ func handleGetUserStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total":    stats.TotalUsers,
-		"active":   stats.DailyActiveUsers,
-		"online":   stats.OnlineUsers,
+		"total":  stats.TotalUsers,
+		"active": stats.DailyActiveUsers,
+		"online": stats.OnlineUsers,
 	})
 }
 
@@ -557,7 +557,7 @@ func handleDeleteUser(c *gin.Context) {
 	var req struct {
 		Erase bool `json:"erase"`
 	}
-	c.ShouldBindJSON(&req)
+	_ = c.ShouldBindJSON(&req)
 
 	if err := hs.Admin.DeactivateUser(userID, req.Erase); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -644,13 +644,13 @@ func handleGetRoomDetails(c *gin.Context) {
 	db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Count(&memberCount)
 
 	c.JSON(http.StatusOK, gin.H{
-		"room_id":         room.RoomID,
-		"name":            room.Name,
-		"topic":           room.Topic,
-		"creator":         room.Creator,
-		"version":         room.RoomVersion,
-		"joined_members":  memberCount,
-		"federatable":     true,
+		"room_id":        room.RoomID,
+		"name":           room.Name,
+		"topic":          room.Topic,
+		"creator":        room.Creator,
+		"version":        room.RoomVersion,
+		"joined_members": memberCount,
+		"federatable":    true,
 	})
 }
 
@@ -787,8 +787,8 @@ func handleSendServerNotice(c *gin.Context) {
 const sharedRegistrationSecret = "complement"
 
 var (
-	nonceStore   = make(map[string]time.Time)
-	nonceMu      sync.Mutex
+	nonceStore = make(map[string]time.Time)
+	nonceMu    sync.Mutex
 )
 
 // handleSharedSecretRegisterNonce returns a nonce for shared-secret registration

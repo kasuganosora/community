@@ -33,10 +33,10 @@ func TestMigration_ZeroValues(t *testing.T) {
 
 func TestMigration_Fields(t *testing.T) {
 	tests := []struct {
-		name   string
-		id     int64
-		name_  string
-		batch  int
+		name  string
+		id    int64
+		name_ string
+		batch int
 	}{
 		{"migration_1", 1, "create_users_table", 1},
 		{"migration_2", 2, "create_accounts_table", 1},

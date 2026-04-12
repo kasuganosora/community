@@ -13,5 +13,5 @@ func Health(c *gin.Context) {
 		return
 	}
 
-	c.Writer.Write([]byte("OK"))
+	_, _ = c.Writer.Write([]byte("OK"))
 }

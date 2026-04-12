@@ -508,11 +508,11 @@ func (s *Service) GetThumbnailStats() (*ThumbnailStats, error) {
 
 // ThumbnailStats 缩略图统计
 type ThumbnailStats struct {
-	Total      int64 `json:"total"`
-	Completed  int64 `json:"completed"`
-	Failed     int64 `json:"failed"`
-	Pending    int64 `json:"pending"`
-	Processing int64 `json:"processing"`
-	Skipped    int64 `json:"skipped"`
+	Total       int64 `json:"total"`
+	Completed   int64 `json:"completed"`
+	Failed      int64 `json:"failed"`
+	Pending     int64 `json:"pending"`
+	Processing  int64 `json:"processing"`
+	Skipped     int64 `json:"skipped"`
 	StorageUsed int64 `json:"storage_used"`
 }

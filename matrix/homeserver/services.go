@@ -46,7 +46,7 @@ func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
-	
+
 	var roomAlias MatrixRoomAlias
 	err := db.GetDB().Where("room_alias = ?", alias).First(&roomAlias).Error
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *AliasService) SetAlias(alias, roomID, creator string) error {
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
-	
+
 	// 检查别名是否已存在
 	var existing MatrixRoomAlias
 	err := db.GetDB().Where("room_alias = ?", alias).First(&existing).Error
@@ -75,7 +75,7 @@ func (s *AliasService) SetAlias(alias, roomID, creator string) error {
 			"creator": creator,
 		}).Error
 	}
-	
+
 	// 创建新别名
 	roomAlias := &MatrixRoomAlias{
 		RoomAlias: alias,
@@ -104,7 +104,7 @@ func (s *AliasService) GetAliasesForRoom(roomID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	result := make([]string, len(aliases))
 	for i, a := range aliases {
 		result[i] = a.RoomAlias
@@ -133,7 +133,7 @@ func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score i
 		Comment:   fmt.Sprintf("Matrix Room: %s, Event: %s\nReason: %s", roomID, eventID, reason),
 		CreatedAt: &now,
 	}
-	
+
 	// 尝试关联到社区账户
 	localpart, _, ok := ParseMatrixUserID(reporterID)
 	if ok {
@@ -142,7 +142,7 @@ func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score i
 			report.AccountId = account.Id
 		}
 	}
-	
+
 	return db.GetDB().Create(report).Error
 }
 
@@ -152,7 +152,7 @@ func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score i
 func handleGetRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	hs := GetHomeServer()
-	
+
 	aliasService := NewAliasService(hs)
 	roomID, err := aliasService.GetRoomIDByAlias(roomAlias)
 	if err != nil {
@@ -162,11 +162,11 @@ func handleGetRoomAlias(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 返回房间 ID 和服务器列表
 	c.JSON(http.StatusOK, gin.H{
-		"room_id":  roomID,
-		"servers":  []string{hs.Config.ServerName},
+		"room_id": roomID,
+		"servers": []string{hs.Config.ServerName},
 	})
 }
 
@@ -174,7 +174,7 @@ func handleGetRoomAlias(c *gin.Context) {
 func handleSetRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	userID := getUserID(c)
-	
+
 	var req struct {
 		RoomID string `json:"room_id"`
 	}
@@ -185,12 +185,12 @@ func handleSetRoomAlias(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
-	
+
 	// 检查用户是否有权限设置别名（需要是房间成员）
 	var member MatrixRoomMember
-	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", 
+	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
 		req.RoomID, userID, "join").First(&member).Error
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -199,7 +199,7 @@ func handleSetRoomAlias(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	aliasService := NewAliasService(hs)
 	if err := aliasService.SetAlias(roomAlias, req.RoomID, userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -208,7 +208,7 @@ func handleSetRoomAlias(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -216,10 +216,10 @@ func handleSetRoomAlias(c *gin.Context) {
 func handleDeleteRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	userID := getUserID(c)
-	
+
 	hs := GetHomeServer()
 	aliasService := NewAliasService(hs)
-	
+
 	// 标准化别名格式
 	normalizedAlias := roomAlias
 	if !strings.HasPrefix(normalizedAlias, "#") {
@@ -239,7 +239,7 @@ func handleDeleteRoomAlias(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 只有创建者或拥有足够权限的用户可以删除
 	if alias.Creator != userID {
 		// Check user power level via room's power_levels event
@@ -258,7 +258,7 @@ func handleDeleteRoomAlias(c *gin.Context) {
 			return
 		}
 	}
-	
+
 	if err := aliasService.DeleteAlias(normalizedAlias); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL",
@@ -328,7 +328,7 @@ func handleReportRoom(c *gin.Context) {
 	roomID := c.Param("roomId")
 	eventID := c.Param("eventId")
 	userID := getUserID(c)
-	
+
 	var req struct {
 		Score  int64  `json:"score"`
 		Reason string `json:"reason"`
@@ -340,10 +340,10 @@ func handleReportRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	reportService := NewReportService(hs)
-	
+
 	if err := reportService.CreateReport(roomID, eventID, userID, req.Score, req.Reason); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL",
@@ -351,7 +351,7 @@ func handleReportRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 

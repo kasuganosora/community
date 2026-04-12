@@ -19,13 +19,13 @@ const (
 // Relay 联邦中继
 // 中继服务器可以广播公开内容到订阅的实例
 type Relay struct {
-	ID                uint64         `gorm:"primaryKey" json:"id"`
-	InboxURL          string         `gorm:"type:varchar(512);not null;uniqueIndex" json:"inbox_url"` // 中继服务器的 inbox URL
-	FollowActivityID  string         `gorm:"type:varchar(255)" json:"follow_activity_id"`             // Follow 活动的 ID
-	State             RelayState     `gorm:"type:tinyint;not null;default:0" json:"state"`            // 中继状态
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+	ID               uint64         `gorm:"primaryKey" json:"id"`
+	InboxURL         string         `gorm:"type:varchar(512);not null;uniqueIndex" json:"inbox_url"` // 中继服务器的 inbox URL
+	FollowActivityID string         `gorm:"type:varchar(255)" json:"follow_activity_id"`             // Follow 活动的 ID
+	State            RelayState     `gorm:"type:tinyint;not null;default:0" json:"state"`            // 中继状态
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // TableName 指定表名

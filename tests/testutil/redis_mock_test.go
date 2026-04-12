@@ -244,7 +244,7 @@ func TestNewAutoRedis_WhenRedisUnavailable(t *testing.T) {
 
 func TestRedisTestClient_SkipIfMock(t *testing.T) {
 	client := NewMockRedis(t)
-	
+
 	// This should skip the test
 	// client.SkipIfMock(t, "Test requires real Redis")
 	// We can't actually test the skip here as it would stop the test
@@ -255,7 +255,7 @@ func TestRedisTestClient_SkipIfMock(t *testing.T) {
 func TestRedisTestClient_Close(t *testing.T) {
 	client := NewMockRedis(t)
 	assert.NotNil(t, client)
-	
+
 	// Close should not error
 	err := client.Close()
 	assert.NoError(t, err)

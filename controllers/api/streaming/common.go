@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/feed"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
@@ -113,12 +114,12 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			// 处理数据
 			event, payload, err := procDataHandle(msg.Payload)
 			if err != nil {
-				err = errors.Wrap(err, "streaming: procDataHandle error")
+				log.ErrorV(errors.Wrap(err, "streaming: procDataHandle error"))
 				continue
 			}
 
 			// 发送数据
-			c.Writer.Write([]byte("event: " + event + "\n" + "data: " + payload + "\n\n"))
+			_, _ = c.Writer.Write([]byte("event: " + event + "\n" + "data: " + payload + "\n\n"))
 			flusher.Flush()
 		}
 	}
@@ -128,7 +129,6 @@ type RedisChannelEvent struct {
 	Type    string `json:"type"`
 	Payload any    `json:"payload"`
 }
-
 
 // serializerAnnouncementEvent 序列化公告事件
 func serializerAnnouncementEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {

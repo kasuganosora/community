@@ -46,6 +46,4 @@ func ListStreaming(c *gin.Context) {
 	}
 
 	startSseService(c, procHandle, timeline)
-
-	return
 }

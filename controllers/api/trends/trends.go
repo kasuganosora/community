@@ -49,12 +49,12 @@ func ListTags(c *gin.Context) {
 			"url":  "https://" + c.Request.Host + "/tags/" + tag.Name,
 			"history": []gin.H{
 				{
-					"day":         strconv.FormatInt(tag.LastStatusUsedAt.Unix(), 10),
-					"uses":        strconv.FormatUint(tag.StatusCount, 10),
-					"accounts":    strconv.FormatUint(tag.AccountCount, 10),
-					"_version":    "1",
-					"_createdAt":  tag.CreatedAt.Format(time.RFC3339),
-					"_updatedAt":  tag.UpdatedAt.Format(time.RFC3339),
+					"day":        strconv.FormatInt(tag.LastStatusUsedAt.Unix(), 10),
+					"uses":       strconv.FormatUint(tag.StatusCount, 10),
+					"accounts":   strconv.FormatUint(tag.AccountCount, 10),
+					"_version":   "1",
+					"_createdAt": tag.CreatedAt.Format(time.RFC3339),
+					"_updatedAt": tag.UpdatedAt.Format(time.RFC3339),
 				},
 			},
 		})
@@ -130,10 +130,10 @@ func ListLinks(c *gin.Context) {
 		Offset(offset)
 
 	type LinkResult struct {
-		URL         string `gorm:"column:url"`
-		Title       string `gorm:"column:title"`
-		Description string `gorm:"column:description"`
-		ImageURL    string `gorm:"column:image_url"`
+		URL          string `gorm:"column:url"`
+		Title        string `gorm:"column:title"`
+		Description  string `gorm:"column:description"`
+		ImageURL     string `gorm:"column:image_url"`
 		ProviderName string `gorm:"column:provider_name"`
 		SharesCount  int    `gorm:"column:shares_count"`
 	}
@@ -149,16 +149,16 @@ func ListLinks(c *gin.Context) {
 	result := make([]gin.H, 0, len(links))
 	for _, link := range links {
 		result = append(result, gin.H{
-			"url":          link.URL,
-			"title":        link.Title,
-			"description":  link.Description,
-			"image":        link.ImageURL,
+			"url":           link.URL,
+			"title":         link.Title,
+			"description":   link.Description,
+			"image":         link.ImageURL,
 			"provider_name": link.ProviderName,
-			"published_at": nil,
+			"published_at":  nil,
 			"history": []gin.H{
 				{
-					"day":   strconv.FormatInt(time.Now().Unix(), 10),
-					"uses":  strconv.Itoa(link.SharesCount),
+					"day":      strconv.FormatInt(time.Now().Unix(), 10),
+					"uses":     strconv.Itoa(link.SharesCount),
 					"accounts": strconv.Itoa(link.SharesCount),
 				},
 			},

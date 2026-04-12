@@ -47,7 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       currentUser.value = await authApi.verifyCredentials()
       return true
-    } catch (e) {
+    } catch {
       currentUser.value = null
       return false
     }

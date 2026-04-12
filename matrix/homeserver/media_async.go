@@ -33,19 +33,19 @@ type UploadConfigResponse struct {
 
 // AsyncMediaInfo 异步媒体信息（存储在数据库）
 type AsyncMediaInfo struct {
-	ID           uint64    `gorm:"primaryKey;autoIncrement"`
-	MediaID      string    `gorm:"uniqueIndex;type:varchar(64);not null"`
-	UploadURL    string    `gorm:"type:varchar(512)"`
-	ContentType  string    `gorm:"type:varchar(128)"`
-	Filename     string    `gorm:"type:varchar(255)"`
-	Size         int64     `gorm:"default:0"`
-	Sha256Hash   string    `gorm:"type:varchar(64)"`
-	Status       string    `gorm:"type:varchar(16);default:'pending'"` // pending, processing, done, failed
-	ContentURI   string    `gorm:"type:varchar(512)"`
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
-	ExpiresAt    *time.Time
-	Uploader     string    `gorm:"type:varchar(255)"`
+	ID          uint64    `gorm:"primaryKey;autoIncrement"`
+	MediaID     string    `gorm:"uniqueIndex;type:varchar(64);not null"`
+	UploadURL   string    `gorm:"type:varchar(512)"`
+	ContentType string    `gorm:"type:varchar(128)"`
+	Filename    string    `gorm:"type:varchar(255)"`
+	Size        int64     `gorm:"default:0"`
+	Sha256Hash  string    `gorm:"type:varchar(64)"`
+	Status      string    `gorm:"type:varchar(16);default:'pending'"` // pending, processing, done, failed
+	ContentURI  string    `gorm:"type:varchar(512)"`
+	CreatedAt   time.Time `gorm:"autoCreateTime"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+	ExpiresAt   *time.Time
+	Uploader    string `gorm:"type:varchar(255)"`
 }
 
 func (AsyncMediaInfo) TableName() string {
@@ -368,7 +368,12 @@ func handleGetUploadStatus(c *gin.Context) {
 		"status":      media.Status,
 		"content_uri": media.ContentURI,
 		"created_at":  media.CreatedAt.Unix(),
-		"expires_at":  func() int64 { if media.ExpiresAt != nil { return media.ExpiresAt.Unix() }; return 0 }(),
+		"expires_at": func() int64 {
+			if media.ExpiresAt != nil {
+				return media.ExpiresAt.Unix()
+			}
+			return 0
+		}(),
 	})
 }
 

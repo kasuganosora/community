@@ -24,28 +24,28 @@ func RegisterRoutes(r gin.IRouter) {
 	if hs == nil || !hs.Config.Enabled {
 		return
 	}
-	
+
 	// 服务器发现 (在 wellknown.go 中定义)
 	// r.GET("/.well-known/matrix/server", handleWellKnownServer)
 	// r.GET("/.well-known/matrix/client", handleWellKnownClient)
-	
+
 	// 注册 WellKnown 路由
 	RegisterWellKnownRoutes(r)
-	
+
 	// 注册 3PID 路由
 	RegisterThreePIDRoutes(r)
-	
+
 	// 注册管理员路由
 	RegisterAdminRoutes(r)
-	
+
 	// 注册 OpenID 路由
 	RegisterOpenIDRoutes(r)
-	
+
 	// 版本信息
 	r.GET("/_matrix/client/versions", handleVersions)
 	r.GET("/_matrix/client/r0/register/email/requestToken", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{}) })
 	// Note: /_matrix/federation/v1/version is registered in RegisterFederationRoutes
-	
+
 	// 认证相关（不需要 token）
 	auth := r.Group("/_matrix/client/v3")
 	auth.GET("/login", handleGetLoginFlows)
@@ -76,7 +76,7 @@ func RegisterRoutes(r gin.IRouter) {
 		api.POST("/account/password", handleChangePassword)
 		api.PUT("/profile/:userId/displayname", handleSetDisplayName)
 		api.PUT("/profile/:userId/avatar_url", handleSetAvatarURL)
-		
+
 		// 房间管理
 		api.POST("/createRoom", handleCreateRoom)
 		api.GET("/rooms/:roomId", handleGetRoom)
@@ -96,51 +96,51 @@ func RegisterRoutes(r gin.IRouter) {
 		api.GET("/rooms/:roomId/state/:eventType/:stateKey", handleGetRoomStateEvent)
 		api.PUT("/rooms/:roomId/state/:eventType", handleSendStateEvent)
 		api.PUT("/rooms/:roomId/state/:eventType/:stateKey", handleSendStateEvent)
-		
+
 		// 事件发送
 		api.PUT("/rooms/:roomId/send/:eventType/:txnId", handleSendEvent)
 		api.PUT("/rooms/:roomId/send/:eventType", handleSendEvent)
 		api.POST("/rooms/:roomId/send/:eventType/:txnId", handleSendEvent)
 		api.POST("/rooms/:roomId/send/:eventType", handleSendEvent)
-		
+
 		// 消息
 		api.GET("/rooms/:roomId/messages", handleGetMessages)
 		api.GET("/rooms/:roomId/context/:eventId", handleGetEventContext)
 		api.GET("/rooms/:roomId/event/:eventId", handleGetEvent)
-		
+
 		// 删除
 		api.PUT("/rooms/:roomId/redact/:eventId/:txnId", handleRedactEvent)
 		api.PUT("/rooms/:roomId/redact/:eventId", handleRedactEvent)
-		
+
 		// 回执
 		api.POST("/rooms/:roomId/receipt/:receiptType/:eventId", handleSetReceipt)
 		api.POST("/rooms/:roomId/read_markers", handleSetReadMarkers)
-		
+
 		// Typing
 		api.PUT("/rooms/:roomId/typing/:userId", handleSetTyping)
-		
+
 		// 同步
 		api.GET("/sync", handleSync)
-		
+
 		// 已加入房间
 		api.GET("/joined_rooms", handleGetJoinedRooms)
-		
+
 		// 账户数据
 		api.GET("/user/:userId/account_data/:type", handleGetAccountData)
 		api.PUT("/user/:userId/account_data/:type", handleSetAccountData)
 		api.GET("/user/:userId/rooms/:roomId/account_data/:type", handleGetRoomAccountData)
 		api.PUT("/user/:userId/rooms/:roomId/account_data/:type", handleSetRoomAccountData)
-		
+
 		// 设备管理
 		api.GET("/devices", handleGetDevices)
 		api.GET("/devices/:deviceId", handleGetDevice)
 		api.PUT("/devices/:deviceId", handleUpdateDevice)
 		api.DELETE("/devices/:deviceId", handleDeleteDevice)
-		
+
 		// 过滤器
 		api.POST("/user/:userId/filter", handleCreateFilter)
 		api.GET("/user/:userId/filter/:filterId", handleGetFilter)
-		
+
 		// To-Device
 		api.PUT("/sendToDevice/:eventType/:txnId", handleSendToDevice)
 		api.GET("/device/one_time_keys_count", handleGetOneTimeKeysCount)
@@ -149,33 +149,33 @@ func RegisterRoutes(r gin.IRouter) {
 		api.POST("/keys/claim", handleKeysClaim)
 		api.POST("/keys/signatures/upload", handleKeysSignaturesUpload)
 		api.GET("/keys/changes", handleGetKeyChanges)
-		
+
 		// Presence
 		api.PUT("/presence/:userId/status", handleSetPresence)
 		api.GET("/presence/:userId/status", handleGetPresence)
-		
+
 		// 公共房间
 		api.GET("/publicRooms", handleGetPublicRoomsClient)
 		api.POST("/publicRooms", handleGetPublicRoomsClient)
-		
+
 		// 能力
 		api.GET("/capabilities", handleGetCapabilities)
-		
+
 		// 第三方网络
 		api.GET("/thirdparty/protocols", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{}) })
 		api.GET("/thirdparty/protocol/:protocol", handleGetThirdPartyProtocol)
 		api.GET("/thirdparty/user/:protocol", handleGetThirdPartyUser)
 		api.GET("/thirdparty/location/:protocol", handleGetThirdPartyLocation)
-		
+
 		// VoIP / TURN
 		api.GET("/voip/turnServer", handleGetTurnServer)
 
 		// 搜索
 		api.POST("/search", handleSearch)
-		
+
 		// 用户目录
 		api.POST("/user_directory/search", handleUserDirectory)
-		
+
 		// 推送通知
 		api.GET("/pushers", handleGetPushers)
 		api.POST("/pushers/set", handleSetPusher)
@@ -189,7 +189,7 @@ func RegisterRoutes(r gin.IRouter) {
 		api.PUT("/pushrules/:scope/:kind/:ruleId/actions", handleSetPushRuleActions)
 		api.GET("/pushrules/:scope/:kind/:ruleId/enabled", handleGetPushRuleEnabled)
 		api.PUT("/pushrules/:scope/:kind/:ruleId/enabled", handleSetPushRuleEnabled)
-		
+
 		// 房间别名
 		api.GET("/directory/room/:roomAlias", handleGetRoomAlias)
 		api.PUT("/directory/room/:roomAlias", handleSetRoomAlias)
@@ -199,27 +199,27 @@ func RegisterRoutes(r gin.IRouter) {
 		// 公共房间目录可见性
 		api.GET("/directory/list/room/:roomId", handleGetRoomVisibility)
 		api.PUT("/directory/list/room/:roomId", handleSetRoomVisibility)
-		
+
 		// 房间标签
 		api.GET("/user/:userId/rooms/:roomId/tags", handleGetRoomTags)
 		api.PUT("/user/:userId/rooms/:roomId/tags/:tag", handleSetRoomTag)
 		api.DELETE("/user/:userId/rooms/:roomId/tags/:tag", handleDeleteRoomTag)
-		
+
 		// 举报
 		api.POST("/rooms/:roomId/report/:eventId", handleReportRoom)
-		
+
 		// 房间摘要
 		api.GET("/rooms/:roomId/summary", handleGetRoomSummary)
 		api.GET("/room/:roomIdOrAlias", handleGetRoomSummary)
-		
+
 		// Knock
 		api.POST("/knock/:roomIdOrAlias", handleKnockRoom)
-		
+
 		// 空间
 		api.GET("/rooms/:roomId/hierarchy", handleGetSpaceHierarchy)
 		api.GET("/spaces/:roomId", handleGetSpaceSummary)
 		api.POST("/spaces/:roomId", handleGetSpaceSummaryClient)
-		
+
 		// 媒体（本地）
 		api.POST("/media/upload", handleUploadMedia)
 		api.GET("/media/download/:serverName/:mediaId", handleDownloadMedia)
@@ -228,13 +228,13 @@ func RegisterRoutes(r gin.IRouter) {
 		api.GET("/media/config", handleGetMediaConfig)
 		api.GET("/media/config/:userId", handleGetMediaConfigPerUser)
 	}
-	
+
 	// 媒体 (unstable endpoint)
 	r.POST("/_matrix/media/v1/upload", matrixAuthMiddleware(), handleUploadMedia)
 	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleDownloadMedia)
 	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleThumbnailMedia)
 	r.GET("/_matrix/media/v1/preview_url", handlePreviewURL)
-	
+
 	// 媒体 (v3 endpoint)
 	r.POST("/_matrix/media/v3/upload", matrixAuthMiddleware(), handleUploadMedia)
 	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleDownloadMedia)
@@ -250,7 +250,7 @@ func RegisterRoutes(r gin.IRouter) {
 		clientV1Media.GET("/thumbnail/:serverName/*mediaPath", handleThumbnailMediaV1)
 		clientV1Media.POST("/upload", handleUploadMedia)
 	}
-	
+
 	// r0 兼容 - unauthenticated endpoints
 	r0pub := r.Group("/_matrix/client/r0")
 	r0pub.GET("/login", handleGetLoginFlows)
@@ -337,9 +337,7 @@ func matrixAuthMiddleware() gin.HandlerFunc {
 			auth = c.Query("access_token")
 		} else {
 			// Bearer token
-			if strings.HasPrefix(auth, "Bearer ") {
-				auth = auth[7:]
-			}
+			auth = strings.TrimPrefix(auth, "Bearer ")
 		}
 
 		if auth == "" {
@@ -472,7 +470,7 @@ func handleLogin(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	resp, matErr := hs.Auth.Login(&req)
 	if matErr != nil {
@@ -514,14 +512,14 @@ func handleRefresh(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	resp, err := hs.Auth.Refresh(&req)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -623,7 +621,7 @@ func handleCreateRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	userID := getUserID(c)
 	hs := GetHomeServer()
 	resp, err := hs.Room.CreateRoom(userID, &req)
@@ -631,7 +629,7 @@ func handleCreateRoom(c *gin.Context) {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -730,7 +728,7 @@ func handleForgetRoom(c *gin.Context) {
 func handleInviteUser(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req InviteUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -739,20 +737,20 @@ func handleInviteUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	if err := hs.Room.InviteUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 func handleKickUser(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req KickUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -761,20 +759,20 @@ func handleKickUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	if err := hs.Room.KickUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 func handleBanUser(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req BanUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -783,13 +781,13 @@ func handleBanUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	if err := hs.Room.BanUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -797,7 +795,7 @@ func handleBanUser(c *gin.Context) {
 func handleUnbanUser(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req struct {
 		UserID string `json:"user_id"`
 	}
@@ -808,10 +806,10 @@ func handleUnbanUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 检查权限
 	var member MatrixRoomMember
-	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", 
+	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
 		roomID, userID, "join").First(&member).Error
 	if err != nil || member.PowerLevel < 50 {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -820,12 +818,12 @@ func handleUnbanUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 移除封禁状态
 	result := db.GetDB().Model(&MatrixRoomMember{}).
 		Where("room_id = ? AND user_id = ? AND membership = ?", roomID, req.UserID, "ban").
 		Update("membership", "leave")
-	
+
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
@@ -833,7 +831,7 @@ func handleUnbanUser(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -1220,7 +1218,7 @@ func handleSendEvent(c *gin.Context) {
 func handleGetMessages(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	req := &GetRoomMessagesRequest{
 		Dir:    c.Query("dir"),
 		From:   c.Query("from"),
@@ -1232,14 +1230,14 @@ func handleGetMessages(c *gin.Context) {
 			req.Limit = l
 		}
 	}
-	
+
 	hs := GetHomeServer()
 	resp, err := hs.Event.GetRoomMessages(roomID, userID, req)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1247,21 +1245,21 @@ func handleGetEventContext(c *gin.Context) {
 	roomID := c.Param("roomId")
 	eventID := c.Param("eventId")
 	userID := getUserID(c)
-	
+
 	limit := 10
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
 			limit = parsed
 		}
 	}
-	
+
 	hs := GetHomeServer()
 	resp, err := hs.Event.GetRoomContext(roomID, eventID, userID, limit)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1371,19 +1369,19 @@ func handleRedactEvent(c *gin.Context) {
 	}
 	// Reason is optional for redaction; ignore bind errors
 	_ = c.ShouldBindJSON(&req)
-	
+
 	hs := GetHomeServer()
 	var txnIDPtr *string
 	if txnID != "" {
 		txnIDPtr = &txnID
 	}
-	
+
 	resp, err := hs.Event.RedactEvent(roomID, eventID, userID, req.Reason, txnIDPtr)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1477,7 +1475,7 @@ func handleSetReceipt(c *gin.Context) {
 	var body struct {
 		ThreadID string `json:"thread_id"`
 	}
-	c.ShouldBindJSON(&body) // ignore errors - body may be empty
+	c.ShouldBindJSON(&body) //nolint:errcheck // body may be empty
 
 	hs := GetHomeServer()
 	if err := hs.Sync.SetReceiptWithThread(roomID, eventID, userID, receiptType, body.ThreadID); err != nil {
@@ -1491,11 +1489,11 @@ func handleSetReceipt(c *gin.Context) {
 func handleSetReadMarkers(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req struct {
-		Read      string `json:"m.read"`
+		Read        string `json:"m.read"`
 		ReadPrivate string `json:"m.read.private"`
-		FullyRead  string `json:"m.fully_read"`
+		FullyRead   string `json:"m.fully_read"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -1504,7 +1502,7 @@ func handleSetReadMarkers(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	if req.Read != "" {
 		hs.Sync.SetReceipt(roomID, req.Read, userID, "m.read")
@@ -1515,7 +1513,7 @@ func handleSetReadMarkers(c *gin.Context) {
 	if req.FullyRead != "" {
 		// Store m.fully_read as room account data
 		roomIDCopy := roomID
-		hs.Account.SetAccountData(userID, "m.fully_read", &roomIDCopy, map[string]interface{}{
+		_ = hs.Account.SetAccountData(userID, "m.fully_read", &roomIDCopy, map[string]interface{}{
 			"event_id": req.FullyRead,
 		})
 	}
@@ -1528,7 +1526,7 @@ func handleSetReadMarkers(c *gin.Context) {
 func handleSetTyping(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
-	
+
 	var req struct {
 		Typing  bool  `json:"typing"`
 		Timeout int64 `json:"timeout"`
@@ -1540,13 +1538,13 @@ func handleSetTyping(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	if err := hs.Sync.SetTyping(roomID, userID, req.Typing, req.Timeout); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -1554,7 +1552,7 @@ func handleSetTyping(c *gin.Context) {
 
 func handleGetProfile(c *gin.Context) {
 	userID := c.Param("userId")
-	
+
 	hs := GetHomeServer()
 	// 获取用户档案
 	accountID, err := hs.Auth.GetLocalAccountID(userID)
@@ -1565,7 +1563,7 @@ func handleGetProfile(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 获取社区账户信息
 	var account models.Account
 	if err := db.GetDB().First(&account, accountID).Error; err != nil {
@@ -1575,7 +1573,7 @@ func handleGetProfile(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 构建头像 MXC URL
 	avatarURL := ""
 	if account.Avatar != "" {
@@ -1593,7 +1591,7 @@ func handleGetProfile(c *gin.Context) {
 			avatarURL = account.Avatar
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"displayname": account.DisplayName,
 		"avatar_url":  avatarURL,
@@ -1753,7 +1751,7 @@ func propagateProfileChange(hs *HomeServer, userID, field, value string) {
 func handleGetJoinedRooms(c *gin.Context) {
 	userID := getUserID(c)
 	hs := GetHomeServer()
-	
+
 	rooms, err := hs.Room.GetJoinedRooms(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -1762,7 +1760,7 @@ func handleGetJoinedRooms(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"joined_rooms": rooms,
 	})
@@ -1777,28 +1775,28 @@ func handleGetJoinedRooms(c *gin.Context) {
 
 func handleGetDevices(c *gin.Context) {
 	userID := getUserID(c)
-	
+
 	hs := GetHomeServer()
-	
+
 	// 获取用户的所有会话（设备）
 	var sessions []MatrixUserSession
 	db.GetDB().Where("user_id = ?", userID).Find(&sessions)
-	
+
 	devices := []gin.H{}
 	for _, session := range sessions {
 		displayName := ""
 		if session.DisplayName != nil {
 			displayName = *session.DisplayName
 		}
-		
+
 		devices = append(devices, gin.H{
-			"device_id":     session.DeviceID,
-			"display_name":  displayName,
-			"last_seen_ip":  nil,
-			"last_seen_ts":  session.LastActiveTS,
+			"device_id":    session.DeviceID,
+			"display_name": displayName,
+			"last_seen_ip": nil,
+			"last_seen_ts": session.LastActiveTS,
 		})
 	}
-	
+
 	// 如果没有设备，添加当前设备
 	if len(devices) == 0 {
 		session, _ := hs.Auth.GetDeviceByToken(c.GetString("access_token"))
@@ -1811,7 +1809,7 @@ func handleGetDevices(c *gin.Context) {
 			})
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"devices": devices,
 	})
@@ -1820,10 +1818,10 @@ func handleGetDevices(c *gin.Context) {
 func handleGetDevice(c *gin.Context) {
 	userID := getUserID(c)
 	deviceID := c.Param("deviceId")
-	
+
 	var session MatrixUserSession
 	result := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&session)
-	
+
 	if result.Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
@@ -1831,28 +1829,28 @@ func handleGetDevice(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	displayName := ""
 	if session.DisplayName != nil {
 		displayName = *session.DisplayName
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"device_id":     session.DeviceID,
-		"display_name":  displayName,
-		"last_seen_ip":  nil,
-		"last_seen_ts":  session.LastActiveTS,
+		"device_id":    session.DeviceID,
+		"display_name": displayName,
+		"last_seen_ip": nil,
+		"last_seen_ts": session.LastActiveTS,
 	})
 }
 
 func handleUpdateDevice(c *gin.Context) {
 	userID := getUserID(c)
 	deviceID := c.Param("deviceId")
-	
+
 	var req struct {
 		DisplayName string `json:"display_name"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
@@ -1860,7 +1858,7 @@ func handleUpdateDevice(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Check device exists first
 	var existing MatrixUserSession
 	if db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&existing).Error != nil {
@@ -1902,7 +1900,7 @@ func handleDeleteDevice(c *gin.Context) {
 		} `json:"auth,omitempty"`
 	}
 	// Body is optional (some clients may not send a body on first request)
-	c.ShouldBindJSON(&req)
+	c.ShouldBindJSON(&req) //nolint:errcheck // body may be empty
 
 	// Check if device exists
 	var existing MatrixUserSession
@@ -2171,12 +2169,12 @@ func handleGetOneTimeKeysCount(c *gin.Context) {
 	if deviceID == "" {
 		deviceID = "DEVICE"
 	}
-	
+
 	hs := GetHomeServer()
 	keyStore := NewKeyStore(hs)
-	
+
 	counts := keyStore.GetOneTimeKeysCount(userID, deviceID)
-	
+
 	c.JSON(http.StatusOK, counts)
 }
 
@@ -2189,8 +2187,8 @@ func handleGetKeyChanges(c *gin.Context) {
 
 	// Parse sync tokens to timestamps
 	var fromTS, toTS int64
-	fmt.Sscanf(fromToken, "s%d", &fromTS)
-	fmt.Sscanf(toToken, "s%d", &toTS)
+	_, _ = fmt.Sscanf(fromToken, "s%d", &fromTS) //nolint:errcheck // best-effort parse
+	_, _ = fmt.Sscanf(toToken, "s%d", &toTS)     //nolint:errcheck // best-effort parse
 
 	if fromTS == 0 || toTS == 0 {
 		c.JSON(http.StatusOK, gin.H{"changed": []string{}, "left": []string{}})
@@ -2315,7 +2313,7 @@ func handleKeysQuery(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 如果没有指定查询的用户，返回空结果
 	if len(req.DeviceKeys) == 0 {
 		c.JSON(http.StatusOK, gin.H{
@@ -2326,7 +2324,7 @@ func handleKeysQuery(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	keyStore := NewKeyStore(hs)
 
@@ -2391,10 +2389,10 @@ func handleKeysClaim(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	keyStore := NewKeyStore(hs)
-	
+
 	resp, err := keyStore.ClaimOneTimeKeys(&req)
 	if err != nil {
 		log.Error("Failed to claim keys: %v", err)
@@ -2404,14 +2402,14 @@ func handleKeysClaim(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	if resp.OneTimeKeys == nil {
 		resp.OneTimeKeys = make(map[string]map[string]map[string]json.RawMessage)
 	}
 	if resp.Failures == nil {
 		resp.Failures = make(map[string]interface{})
 	}
-	
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -2425,10 +2423,10 @@ func handleKeysSignaturesUpload(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// TODO: 验证并存储签名
 	// 这是交叉签名验证的一部分
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"failures": gin.H{},
 	})
@@ -2492,7 +2490,12 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 	// 解析分页参数
 	limit := 100
 	if l := c.Query("limit"); l != "" {
-		fmt.Sscanf(l, "%d", &limit)
+		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil {
+			limit = 100
+		}
+		if limit < 0 {
+			limit = 0
+		}
 	}
 	if limit > 250 {
 		limit = 250
@@ -2891,7 +2894,7 @@ func handleGetPushRuleActions(c *gin.Context) {
 
 	var actions []interface{}
 	if rule.Actions != "" {
-		json.Unmarshal([]byte(rule.Actions), &actions)
+		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck
 	}
 	c.JSON(http.StatusOK, gin.H{"actions": actions})
 }
@@ -3001,7 +3004,7 @@ func handleGetTurnServer(c *gin.Context) {
 // SearchRequest 搜索请求
 type SearchRequest struct {
 	SearchCategories struct {
-		RoomEvents *RoomEventsSearch `json:"room_events,omitempty"`
+		RoomEvents    *RoomEventsSearch    `json:"room_events,omitempty"`
 		UserDirectory *UserDirectorySearch `json:"user_directory,omitempty"`
 	} `json:"search_categories"`
 	NextBatch string `json:"next_batch,omitempty"`
@@ -3009,13 +3012,13 @@ type SearchRequest struct {
 
 // RoomEventsSearch 房间事件搜索
 type RoomEventsSearch struct {
-	SearchTerm   string   `json:"search_term"`
-	Filter       string   `json:"filter,omitempty"`
-	Rooms        []string `json:"rooms,omitempty"`
-	OrderBy      string   `json:"order_by,omitempty"`
+	SearchTerm   string              `json:"search_term"`
+	Filter       string              `json:"filter,omitempty"`
+	Rooms        []string            `json:"rooms,omitempty"`
+	OrderBy      string              `json:"order_by,omitempty"`
 	EventContext *EventContextSearch `json:"event_context,omitempty"`
-	IncludeState bool     `json:"include_state,omitempty"`
-	GroupBy      []string `json:"group_by,omitempty"`
+	IncludeState bool                `json:"include_state,omitempty"`
+	GroupBy      []string            `json:"group_by,omitempty"`
 }
 
 // UserDirectorySearch 用户目录搜索
@@ -3026,8 +3029,8 @@ type UserDirectorySearch struct {
 
 // EventContextSearch 事件上下文搜索
 type EventContextSearch struct {
-	BeforeLimit int  `json:"before_limit,omitempty"`
-	AfterLimit  int  `json:"after_limit,omitempty"`
+	BeforeLimit    int  `json:"before_limit,omitempty"`
+	AfterLimit     int  `json:"after_limit,omitempty"`
 	IncludeProfile bool `json:"include_profile,omitempty"`
 }
 
@@ -3043,7 +3046,7 @@ type EventContextSearch struct {
 func handleGetThirdPartyProtocol(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
-	
+
 	c.JSON(http.StatusNotFound, gin.H{
 		"errcode": "M_NOT_FOUND",
 		"error":   "Protocol not found",
@@ -3054,7 +3057,7 @@ func handleGetThirdPartyProtocol(c *gin.Context) {
 func handleGetThirdPartyUser(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
-	
+
 	c.JSON(http.StatusOK, []interface{}{})
 }
 
@@ -3062,29 +3065,12 @@ func handleGetThirdPartyUser(c *gin.Context) {
 func handleGetThirdPartyLocation(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
-	
+
 	c.JSON(http.StatusOK, []interface{}{})
 }
 
 // ===== OpenID API =====
 // 在 openid.go 中定义
-
-// ===== 删除群组 API =====
-
-// DeleteGroupAlias 删除群组别名
-func handleDeleteGroupAlias(c *gin.Context) {
-	groupID := c.Param("groupId")
-	_ = groupID
-	
-	c.JSON(http.StatusOK, gin.H{})
-}
-
-// ===== Appservice API =====
-
-// AppservicePing Appservice Ping
-func handleAppservicePing(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
-}
 
 // ===== 房间标签 API =====
 
@@ -3100,7 +3086,7 @@ func handleGetRoomTags(c *gin.Context) {
 	for _, tag := range tags {
 		var content map[string]interface{}
 		if tag.Content != "" {
-			json.Unmarshal([]byte(tag.Content), &content)
+			json.Unmarshal([]byte(tag.Content), &content) //nolint:errcheck
 		}
 		if content == nil {
 			content = map[string]interface{}{}
@@ -3155,41 +3141,20 @@ func handleDeleteRoomTag(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// ===== 账户有效期 API =====
-
-// GetAccountValidity 获取账户有效期
-func handleGetAccountValidity(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"expires_at_ms": 0,
-	})
-}
-
-// RenewAccount 续期账户
-func handleRenewAccount(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
-}
-
 // ===== 举报 API =====
 // 举报相关函数已移至 services.go
 
 // ===== 忽略用户 API =====
-
-// GetIgnoredUsers 获取忽略的用户列表
-func handleGetIgnoredUsers(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"muted_users": []string{},
-	})
-}
 
 // ===== 房间摘要 API =====
 
 // GetRoomSummary 获取房间摘要
 func handleGetRoomSummary(c *gin.Context) {
 	roomIDOrAlias := c.Param("roomIdOrAlias")
-	
+
 	// 通过别名或ID获取房间摘要
 	hs := GetHomeServer()
-	
+
 	// 转换为房间ID
 	roomID := roomIDOrAlias
 	if strings.HasPrefix(roomIDOrAlias, "#") {
@@ -3205,7 +3170,7 @@ func handleGetRoomSummary(c *gin.Context) {
 		}
 		roomID = resolvedRoomID
 	}
-	
+
 	// 获取房间信息
 	room, err := hs.Room.GetRoom(roomID)
 	if err != nil {
@@ -3215,20 +3180,20 @@ func handleGetRoomSummary(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 获取成员
 	members, _ := hs.Room.GetRoomMembers(roomID, []MembershipState{MembershipJoin})
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"room_id":       roomID,
-		"room_type":     room.RoomType,
-		"name":          room.Name,
-		"topic":         room.Topic,
-		"avatar_url":    room.AvatarURL,
+		"room_id":            roomID,
+		"room_type":          room.RoomType,
+		"name":               room.Name,
+		"topic":              room.Topic,
+		"avatar_url":         room.AvatarURL,
 		"num_joined_members": len(members),
-		"join_rule":     room.JoinRule,
-		"world_readable": room.HistoryVisibility == "world_readable",
-		"guest_can_join": room.GuestAccess == "can_join",
+		"join_rule":          room.JoinRule,
+		"world_readable":     room.HistoryVisibility == "world_readable",
+		"guest_can_join":     room.GuestAccess == "can_join",
 	})
 }
 
@@ -3238,14 +3203,14 @@ func handleGetRoomSummary(c *gin.Context) {
 func handleKnockRoom(c *gin.Context) {
 	roomIDOrAlias := c.Param("roomIdOrAlias")
 	userID := getUserID(c)
-	
+
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	c.ShouldBindJSON(&req)
-	
+	c.ShouldBindJSON(&req) //nolint:errcheck // body is optional
+
 	roomID := roomIDOrAlias
-	
+
 	// 检查房间是否存在
 	hs := GetHomeServer()
 	room, err := hs.Room.GetRoom(roomID)
@@ -3256,7 +3221,7 @@ func handleKnockRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 检查是否允许 knock
 	if room.JoinRule != "knock" {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -3265,13 +3230,13 @@ func handleKnockRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 创建 knock 成员事件
 	event := &MatrixEvent{
-		RoomID:     roomID,
-		EventType:  EventTypeRoomMember,
-		Sender:     userID,
-		StateKey:   &userID,
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    userID,
+		StateKey:  &userID,
 		Content: map[string]interface{}{
 			"membership": "knock",
 			"reason":     req.Reason,
@@ -3280,7 +3245,7 @@ func handleKnockRoom(c *gin.Context) {
 	}
 	event.EventID = "$" + uuid.New().String()
 	event.OriginServerTS = time.Now().UnixMilli()
-	
+
 	if err := db.GetDB().Create(event).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL",
@@ -3288,10 +3253,10 @@ func handleKnockRoom(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs.Room.updateRoomState(db.GetDB(), roomID, event)
 	hs.Room.updateRoomMember(db.GetDB(), roomID, userID, MembershipKnock, event.EventID)
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"room_id": roomID,
 	})

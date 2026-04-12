@@ -11,14 +11,14 @@ import (
 // Bridge Matrix Bridge 核心服务
 // 协调各组件，管理 Bridge 的生命周期
 type Bridge struct {
-	config       *Config
-	client       *ASClient
-	userMapper   *UserMapper
-	roomMapper   *RoomMapper
-	msgBridge    *MessageBridge
-	started      atomic.Bool
-	stopChan     chan struct{}
-	stopOnce     sync.Once
+	config     *Config
+	client     *ASClient
+	userMapper *UserMapper
+	roomMapper *RoomMapper
+	msgBridge  *MessageBridge
+	started    atomic.Bool
+	stopChan   chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewBridge 创建 Bridge 实例

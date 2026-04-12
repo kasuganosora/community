@@ -72,8 +72,8 @@ func AddContact(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":          contact.Id,
-		"type":        contactType,
+		"id":           contact.Id,
+		"type":         contactType,
 		"display_name": contact.DisplayName,
 	})
 }
@@ -267,8 +267,8 @@ func LookupMatrixUser(c *gin.Context) {
 	matrixUserID := contactService.GetLocalUserMatrixID(accountID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"account_id":      accountID,
-		"matrix_user_id":  matrixUserID,
+		"account_id":     accountID,
+		"matrix_user_id": matrixUserID,
 	})
 }
 
@@ -304,9 +304,9 @@ func SearchLocalUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"account_id":    account.Id,
-		"username":      account.Username,
-		"display_name":  account.DisplayName,
+		"account_id":     account.Id,
+		"username":       account.Username,
+		"display_name":   account.DisplayName,
 		"matrix_user_id": matrixUserID,
 	})
 }

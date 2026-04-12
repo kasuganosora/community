@@ -49,7 +49,6 @@ type StreamingResponse struct {
 }
 
 type StreamingErrResponse struct {
-	error
 	Err string `json:"error"`
 }
 
@@ -109,8 +108,7 @@ func Streaming(c *gin.Context) {
 			}
 
 		case msg := <-redisMsgChan:
-			err = processRedisMsg(ws, account, msg)
-		default:
+			_ = processRedisMsg(ws, account, msg)
 
 		}
 
@@ -127,7 +125,7 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 	if req.Type == "subscribe" {
 		ret, err = subscribe(redisPub, account, req)
 		if err != nil {
-			ws.WriteJSON(err)
+			_ = ws.WriteJSON(err)
 		}
 		return
 	}
@@ -135,13 +133,13 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 	if req.Type == "unsubscribe" {
 		ret, err = unsubscribe(redisPub, account, req)
 		if err != nil {
-			ws.WriteJSON(err)
+			_ = ws.WriteJSON(err)
 		}
 		return
 	}
 
 	ret = redisPub
-	ws.WriteJSON(&StreamingErrResponse{Err: "unknown type"})
+	_ = ws.WriteJSON(&StreamingErrResponse{Err: "unknown type"})
 	return
 }
 

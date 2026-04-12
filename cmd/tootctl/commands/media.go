@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -137,10 +138,10 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 
 					// Delete from storage
 					if attachment.SavePath != "" {
-						storage.Delete(attachment.SavePath)
+						_ = storage.Delete(attachment.SavePath)
 					}
 					if attachment.PreviewSavePath != "" && attachment.PreviewSavePath != attachment.SavePath {
-						storage.Delete(attachment.PreviewSavePath)
+						_ = storage.Delete(attachment.PreviewSavePath)
 					}
 
 					// Delete from database
@@ -210,13 +211,13 @@ func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool,
 		}
 
 		if !headersOnly && account.Avatar != "" {
-			storage.Delete(account.Avatar)
+			_ = storage.Delete(account.Avatar)
 			account.Avatar = ""
 			removed++
 		}
 
 		if account.Header != "" {
-			storage.Delete(account.Header)
+			_ = storage.Delete(account.Header)
 			account.Header = ""
 			removed++
 		}
@@ -311,7 +312,9 @@ func removeOrphanedMedia(c *cli.Context) error {
 			if dryRun {
 				fmt.Printf("[ORPHAN] %s\n", file)
 			} else {
-				storage.Delete(file)
+				if err := storage.Delete(file); err != nil {
+					log.Printf("Failed to delete orphaned file %s: %v", file, err)
+				}
 				fmt.Printf("[DELETED] %s\n", file)
 			}
 		}
@@ -656,7 +659,7 @@ func MediaLookupCommand() *cli.Command {
 func mediaLookup(c *cli.Context) error {
 	var mediaURL string
 	fmt.Print("Enter media URL: ")
-	fmt.Scanln(&mediaURL)
+	_, _ = fmt.Scanln(&mediaURL)
 
 	// Search for the media in attachments
 	var attachment models.Attachment
@@ -796,7 +799,7 @@ func getStorageInfo() string {
 	// Check local storage
 	dir := "uploads"
 	var size int64
-	filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
 		if !info.IsDir() {
 			size += info.Size()
 		}

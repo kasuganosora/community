@@ -50,11 +50,11 @@ func ListFeaturedTags(c *gin.Context) {
 			Count(&statusesCount)
 
 		result = append(result, gin.H{
-			"id":              strconv.FormatUint(ft.Id, 10),
-			"name":            ft.Name,
-			"url":             "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + ft.Name,
-			"statuses_count":  statusesCount,
-			"last_status_at":  nil,
+			"id":             strconv.FormatUint(ft.Id, 10),
+			"name":           ft.Name,
+			"url":            "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + ft.Name,
+			"statuses_count": statusesCount,
+			"last_status_at": nil,
 		})
 	}
 
@@ -91,11 +91,11 @@ func AccountFeaturedTags(c *gin.Context) {
 	result := make([]gin.H, 0, len(featuredTags))
 	for _, ft := range featuredTags {
 		result = append(result, gin.H{
-			"id":              strconv.FormatUint(ft.Id, 10),
-			"name":            ft.Name,
-			"url":             "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + ft.Name,
-			"statuses_count":  0,
-			"last_status_at":  nil,
+			"id":             strconv.FormatUint(ft.Id, 10),
+			"name":           ft.Name,
+			"url":            "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + ft.Name,
+			"statuses_count": 0,
+			"last_status_at": nil,
 		})
 	}
 
@@ -172,11 +172,11 @@ func CreateFeaturedTag(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"id":              strconv.FormatUint(featuredTag.Id, 10),
-		"name":            name,
-		"url":             "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + name,
-		"statuses_count":  0,
-		"last_status_at":  nil,
+		"id":             strconv.FormatUint(featuredTag.Id, 10),
+		"name":           name,
+		"url":            "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + name,
+		"statuses_count": 0,
+		"last_status_at": nil,
 	})
 }
 
@@ -205,12 +205,6 @@ func DeleteFeaturedTag(c *gin.Context) {
 func SuggestFeaturedTags(c *gin.Context) {
 	// Get current account
 	account := c.MustGet("account").(*models.Account)
-
-	// Get tags that the account uses most frequently
-	type TagUsage struct {
-		Name  string
-		Count int64
-	}
 
 	// Query status content for hashtag patterns
 	var contentStrings []string

@@ -148,9 +148,9 @@ func (r *Request) SetMultipartBody(data map[string]any) *Request {
 
 	for key, value := range data {
 		// 如果是文件
-		switch value.(type) {
+		switch value := value.(type) {
 		case *multipart.FileHeader:
-			fileHeader := value.(*multipart.FileHeader)
+			fileHeader := value
 			file, err := fileHeader.Open()
 			if err != nil {
 				err = errors.WithStack(err)
@@ -169,7 +169,7 @@ func (r *Request) SetMultipartBody(data map[string]any) *Request {
 				panic(err)
 			}
 		case *os.File:
-			file := value.(*os.File)
+			file := value
 			part, err := writer.CreateFormFile(key, file.Name())
 			if err != nil {
 				err = errors.WithStack(err)
@@ -190,7 +190,7 @@ func (r *Request) SetMultipartBody(data map[string]any) *Request {
 			}
 
 			str := utils.ToString(value)
-			_, err = part.Write([]byte(str))
+			_, _ = part.Write([]byte(str))
 		}
 	}
 

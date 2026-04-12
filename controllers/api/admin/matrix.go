@@ -10,12 +10,12 @@ import (
 
 // MatrixBridgeStatus Matrix Bridge 状态响应
 type MatrixBridgeStatus struct {
-	Enabled     bool   `json:"enabled"`
-	Running     bool   `json:"running"`
-	Homeserver  string `json:"homeserver,omitempty"`
-	ServerName  string `json:"server_name,omitempty"`
-	Connected   bool   `json:"connected"`
-	Message     string `json:"message"`
+	Enabled    bool   `json:"enabled"`
+	Running    bool   `json:"running"`
+	Homeserver string `json:"homeserver,omitempty"`
+	ServerName string `json:"server_name,omitempty"`
+	Connected  bool   `json:"connected"`
+	Message    string `json:"message"`
 }
 
 // GetMatrixStatus 获取 Matrix Bridge 状态
@@ -96,12 +96,12 @@ func GetMatrixConfig(c *gin.Context) {
 	cfg := &matrix.GlobalConfig
 
 	c.JSON(http.StatusOK, gin.H{
-		"enabled":              cfg.Enabled,
-		"homeserver_url":       cfg.HomeserverURL,
-		"server_name":          cfg.ServerName,
-		"bridge_username":      cfg.BridgeUsername,
-		"user_namespace":       cfg.UserNamespacePrefix,
-		"room_namespace":       cfg.RoomNamespacePrefix,
+		"enabled":         cfg.Enabled,
+		"homeserver_url":  cfg.HomeserverURL,
+		"server_name":     cfg.ServerName,
+		"bridge_username": cfg.BridgeUsername,
+		"user_namespace":  cfg.UserNamespacePrefix,
+		"room_namespace":  cfg.RoomNamespacePrefix,
 		// 不返回敏感的 token
 	})
 }
@@ -143,8 +143,8 @@ func TestMatrixConnection(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
+		"success":      true,
 		"display_name": profile.DisplayName,
-		"avatar_url":  profile.AvatarURL,
+		"avatar_url":   profile.AvatarURL,
 	})
 }

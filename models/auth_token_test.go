@@ -79,9 +79,9 @@ func TestGetAuthTokenData(t *testing.T) {
 
 		// Using wrong key should result in error or panic
 		defer func() {
-			if r := recover(); r == nil {
-				// If no panic, we expect an error
-				// The function may return error in some cases
+			if r := recover(); r != nil {
+				// If panic occurred, that's expected with wrong key
+				_ = r
 			}
 		}()
 		_, err := GetAuthTokenData(tokenStr, wrongKey)

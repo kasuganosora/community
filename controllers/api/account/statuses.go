@@ -11,13 +11,13 @@ import (
 
 // StatusesRequest represents the request for getting account statuses
 type StatusesRequest struct {
-	Limit         int    `form:"limit" binding:"min=1,max=80"`
-	MaxId         string `form:"max_id"`
-	SinceId       string `form:"since_id"`
-	MinId         string `form:"min_id"`
-	OnlyMedia     bool   `form:"only_media"`
-	ExcludeReplies bool  `form:"exclude_replies"`
-	Pinned        bool   `form:"pinned"`
+	Limit          int    `form:"limit" binding:"min=1,max=80"`
+	MaxId          string `form:"max_id"`
+	SinceId        string `form:"since_id"`
+	MinId          string `form:"min_id"`
+	OnlyMedia      bool   `form:"only_media"`
+	ExcludeReplies bool   `form:"exclude_replies"`
+	Pinned         bool   `form:"pinned"`
 }
 
 // AccountStatuses handles GET /api/v1/accounts/:id/statuses

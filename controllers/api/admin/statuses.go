@@ -110,21 +110,21 @@ func serializeAdminStatus(status *models.Status) gin.H {
 	}
 
 	return gin.H{
-		"id":                 strconv.FormatUint(status.Id, 10),
-		"uri":                uri,
-		"url":                url,
-		"content":            status.Content.Content,
-		"spoiler_text":       status.Content.SpoilerText,
-		"sensitive":          status.Sensitive,
-		"visibility":         status.Visibility,
-		"language":           status.Language,
-		"replies_count":      status.RepliesCount,
-		"reblogs_count":      status.ReblogsCount,
-		"favourites_count":   status.FavouritesCount,
-		"created_at":         createdAt,
-		"updated_at":         updatedAt,
-		"account_id":         strconv.FormatUint(status.AccountId, 10),
-		"account":            serializeAdminStatusAccount(status.Account),
+		"id":               strconv.FormatUint(status.Id, 10),
+		"uri":              uri,
+		"url":              url,
+		"content":          status.Content.Content,
+		"spoiler_text":     status.Content.SpoilerText,
+		"sensitive":        status.Sensitive,
+		"visibility":       status.Visibility,
+		"language":         status.Language,
+		"replies_count":    status.RepliesCount,
+		"reblogs_count":    status.ReblogsCount,
+		"favourites_count": status.FavouritesCount,
+		"created_at":       createdAt,
+		"updated_at":       updatedAt,
+		"account_id":       strconv.FormatUint(status.AccountId, 10),
+		"account":          serializeAdminStatusAccount(status.Account),
 	}
 }
 

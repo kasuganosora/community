@@ -94,15 +94,15 @@ func (OAuthApplication) TableName() string {
 
 // OAuthAuthorizationCode stores temporary authorization codes
 type OAuthAuthorizationCode struct {
-	Id           uint64     `gorm:"primary_key;autoIncrement"`
-	Code         string     `gorm:"type:varchar(128);uniqueIndex;not null"`
-	ApplicationId uint64    `gorm:"not null;index"`
-	AccountId    uint64     `gorm:"not null;index"`
-	RedirectUri  string     `gorm:"type:varchar(255);not null"`
-	Scopes       string     `gorm:"type:varchar(255);not null"`
-	ExpiresAt    *time.Time `gorm:"not null"`
-	CreatedAt    *time.Time `gorm:"autoCreateTime"`
-	Used         bool       `gorm:"default:false"`
+	Id            uint64     `gorm:"primary_key;autoIncrement"`
+	Code          string     `gorm:"type:varchar(128);uniqueIndex;not null"`
+	ApplicationId uint64     `gorm:"not null;index"`
+	AccountId     uint64     `gorm:"not null;index"`
+	RedirectUri   string     `gorm:"type:varchar(255);not null"`
+	Scopes        string     `gorm:"type:varchar(255);not null"`
+	ExpiresAt     *time.Time `gorm:"not null"`
+	CreatedAt     *time.Time `gorm:"autoCreateTime"`
+	Used          bool       `gorm:"default:false"`
 }
 
 func (OAuthAuthorizationCode) TableName() string {
@@ -210,13 +210,13 @@ func AuthorizePage(c *gin.Context) {
 	// Show authorization page
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	c.HTML(http.StatusOK, "oauth_authorize.html", gin.H{
-		"app": serializer.ToApplication(&app.Application),
-		"account": serializer.ToAccount(account),
-		"domain": domain,
-		"scope": req.Scope,
-		"state": req.State,
+		"app":          serializer.ToApplication(&app.Application),
+		"account":      serializer.ToAccount(account),
+		"domain":       domain,
+		"scope":        req.Scope,
+		"state":        req.State,
 		"redirect_uri": req.RedirectUri,
-		"client_id": req.ClientId,
+		"client_id":    req.ClientId,
 	})
 }
 

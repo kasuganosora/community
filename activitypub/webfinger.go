@@ -169,9 +169,9 @@ func DiscoverActor(acct string) (*Actor, error) {
 
 // Error definitions
 var (
-	ErrInvalidAcctFormat  = &ActivityPubError{Message: "invalid acct format"}
-	ErrWebFingerFailed    = &ActivityPubError{Message: "webfinger discovery failed"}
-	ErrActorNotFound      = &ActivityPubError{Message: "actor not found"}
+	ErrInvalidAcctFormat = &ActivityPubError{Message: "invalid acct format"}
+	ErrWebFingerFailed   = &ActivityPubError{Message: "webfinger discovery failed"}
+	ErrActorNotFound     = &ActivityPubError{Message: "actor not found"}
 )
 
 // ActivityPubError represents an ActivityPub error
@@ -182,5 +182,3 @@ type ActivityPubError struct {
 func (e *ActivityPubError) Error() string {
 	return e.Message
 }
-
-

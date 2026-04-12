@@ -34,8 +34,6 @@ func HashtagStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	}
 
 	startSseService(c, procHandle, timeline)
-
-	return
 }
 
 func HashtagStreamingAll(c *gin.Context) {

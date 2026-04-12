@@ -30,20 +30,13 @@ func NewMinIOBackend(cfg Config) (*MinIOBackend, error) {
 			cfg.AccessKey,
 			cfg.SecretKey,
 			"")),
-		config.WithEndpointResolverWithOptions(
-			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:           cfg.Endpoint,
-					SigningRegion: cfg.Region,
-				}, nil
-			}),
-		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load minio config: %w", err)
 	}
 
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(cfg.Endpoint)
 		o.UsePathStyle = true // MinIO 需要使用 path-style
 	})
 

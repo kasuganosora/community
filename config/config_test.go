@@ -46,9 +46,9 @@ func TestLoadMapToConfig(t *testing.T) {
 	testConfig.Other = make(map[string]string)
 
 	data := map[string]string{
-		"LISTEN":     ":9000",
+		"LISTEN":       ":9000",
 		"APP_BASE_URL": "http://test.com",
-		"CUSTOM_KEY": "custom_value",
+		"CUSTOM_KEY":   "custom_value",
 	}
 
 	// Use the original function to load

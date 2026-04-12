@@ -19,24 +19,24 @@ func TestDeviceKeysSerialization(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// 序列化
 	data, err := json.Marshal(dk)
 	if err != nil {
 		t.Fatalf("Failed to marshal DeviceKeys: %v", err)
 	}
-	
+
 	// 反序列化
 	var dk2 DeviceKeys
 	if err := json.Unmarshal(data, &dk2); err != nil {
 		t.Fatalf("Failed to unmarshal DeviceKeys: %v", err)
 	}
-	
+
 	// 验证
 	if dk2.UserID != dk.UserID {
 		t.Errorf("UserID mismatch: %s != %s", dk2.UserID, dk.UserID)
 	}
-	
+
 	if dk2.DeviceID != dk.DeviceID {
 		t.Errorf("DeviceID mismatch: %s != %s", dk2.DeviceID, dk.DeviceID)
 	}
@@ -53,7 +53,7 @@ func TestParseKeyID(t *testing.T) {
 		{"signed_curve25519:abc123", "signed_curve25519", "abc123"},
 		{"plainkey", "plainkey", ""},
 	}
-	
+
 	for _, test := range tests {
 		algo, keyID := parseKeyID(test.input)
 		if algo != test.expectedAlgo || keyID != test.expectedKeyID {
@@ -76,21 +76,21 @@ func TestUploadKeysRequestSerialization(t *testing.T) {
 			"signed_curve25519:AAAA": json.RawMessage(`"otk_public_key"`),
 		},
 	}
-	
+
 	data, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
 	}
-	
+
 	var req2 UploadKeysRequest
 	if err := json.Unmarshal(data, &req2); err != nil {
 		t.Fatalf("Failed to unmarshal request: %v", err)
 	}
-	
+
 	if req2.DeviceKeys == nil {
 		t.Fatal("DeviceKeys should not be nil")
 	}
-	
+
 	if req2.DeviceKeys.UserID != req.DeviceKeys.UserID {
 		t.Errorf("UserID mismatch")
 	}
@@ -105,17 +105,17 @@ func TestQueryKeysRequestSerialization(t *testing.T) {
 		Timeout: 10000,
 		Token:   "sometoken",
 	}
-	
+
 	data, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
 	}
-	
+
 	var req2 QueryKeysRequest
 	if err := json.Unmarshal(data, &req2); err != nil {
 		t.Fatalf("Failed to unmarshal request: %v", err)
 	}
-	
+
 	if len(req2.DeviceKeys) != 2 {
 		t.Errorf("Expected 2 users, got %d", len(req2.DeviceKeys))
 	}
@@ -130,17 +130,17 @@ func TestClaimKeysRequestSerialization(t *testing.T) {
 		},
 		Timeout: 10000,
 	}
-	
+
 	data, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
 	}
-	
+
 	var req2 ClaimKeysRequest
 	if err := json.Unmarshal(data, &req2); err != nil {
 		t.Fatalf("Failed to unmarshal request: %v", err)
 	}
-	
+
 	if len(req2.OneTimeKeys) != 1 {
 		t.Errorf("Expected 1 user, got %d", len(req2.OneTimeKeys))
 	}
@@ -152,11 +152,11 @@ func TestOlmAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOlmAccount failed: %v", err)
 	}
-	
+
 	if account == nil {
 		t.Fatal("Account should not be nil")
 	}
-	
+
 	if account.IdentityKey == nil {
 		t.Fatal("Identity key should not be nil")
 	}
@@ -167,17 +167,17 @@ func TestOlmOneTimeKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOlmAccount failed: %v", err)
 	}
-	
+
 	// 生成一次性密钥
 	err = account.GenerateOneTimeKeys(5)
 	if err != nil {
 		t.Fatalf("GenerateOneTimeKeys failed: %v", err)
 	}
-	
+
 	if len(account.OneTimeKeys) != 5 {
 		t.Errorf("Expected 5 OTKs, got %d", len(account.OneTimeKeys))
 	}
-	
+
 	// 测试获取未发布的密钥
 	unpublished := account.GetUnpublishedOneTimeKeys()
 	if len(unpublished) != 5 {
@@ -193,21 +193,21 @@ func TestBackfillRequest(t *testing.T) {
 		Limit:          50,
 		MinDepth:       10,
 	}
-	
+
 	data, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
 	}
-	
+
 	var req2 GetMissingEventsRequest
 	if err := json.Unmarshal(data, &req2); err != nil {
 		t.Fatalf("Failed to unmarshal request: %v", err)
 	}
-	
+
 	if req2.Limit != req.Limit {
 		t.Errorf("Limit mismatch: %d != %d", req2.Limit, req.Limit)
 	}
-	
+
 	if req2.MinDepth != req.MinDepth {
 		t.Errorf("MinDepth mismatch: %d != %d", req2.MinDepth, req.MinDepth)
 	}

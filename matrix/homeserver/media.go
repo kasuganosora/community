@@ -51,13 +51,13 @@ func (MatrixMedia) TableName() string {
 
 // MatrixThumbnail Matrix 缩略图
 type MatrixThumbnail struct {
-	ID         uint64    `gorm:"primaryKey" json:"-"`
-	MediaID    string    `gorm:"index;size:64;not null" json:"media_id"`
-	Width      int       `json:"width"`
-	Height     int       `json:"height"`
-	ResizeMethod string   `gorm:"size:20;default:'crop'" json:"resize_method"` // crop 或 scale
-	FilePath   string    `gorm:"size:500" json:"-"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           uint64    `gorm:"primaryKey" json:"-"`
+	MediaID      string    `gorm:"index;size:64;not null" json:"media_id"`
+	Width        int       `json:"width"`
+	Height       int       `json:"height"`
+	ResizeMethod string    `gorm:"size:20;default:'crop'" json:"resize_method"` // crop 或 scale
+	FilePath     string    `gorm:"size:500" json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // TableName 表名
@@ -79,7 +79,7 @@ func NewMediaService(hs *HomeServer) *MediaService {
 func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader, contentType, uploaderID string) (*MatrixMedia, error) {
 	// 生成 Media ID (MXC URI 格式的本地部分)
 	mediaID := generateMediaID()
-	
+
 	// 获取文件扩展名
 	ext := ""
 	if header != nil {
@@ -91,35 +91,35 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 			ext = exts[0]
 		}
 	}
-	
+
 	// 确定存储路径
 	datePath := time.Now().Format("2006/01/02")
 	fileName := mediaID + ext
 	relativePath := filepath.Join("matrix", datePath, fileName)
 	fullPath := filepath.Join("uploads", relativePath)
-	
+
 	// 创建目录
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
-	
+
 	// 创建目标文件
 	dst, err := os.Create(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
 	defer dst.Close()
-	
+
 	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
-	
+
 	// 获取文件信息
 	var width, height *int
 	var thumbnailPath string
-	
+
 	// 处理图片
 	if strings.HasPrefix(contentType, "image/") {
 		processor := media.NewImageProcessor()
@@ -130,7 +130,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 			thumbnailPath = thumbPath
 		}
 	}
-	
+
 	// 上传到云存储（如果启用）
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
@@ -139,7 +139,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 			fullPath = cloudPath
 		}
 	}
-	
+
 	// 创建数据库记录
 	matrixMedia := &MatrixMedia{
 		MediaID:     mediaID,
@@ -153,12 +153,12 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 		UploaderID:  uploaderID,
 		CreatedAt:   time.Now(),
 	}
-	
+
 	if err := db.GetDB().Create(matrixMedia).Error; err != nil {
 		os.Remove(fullPath)
 		return nil, fmt.Errorf("failed to create media record: %w", err)
 	}
-	
+
 	// 创建缩略图记录
 	if thumbnailPath != "" {
 		thumbnail := &MatrixThumbnail{
@@ -183,7 +183,7 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 	if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
 		return nil, nil, fmt.Errorf("media not found")
 	}
-	
+
 	// 尝试从云存储获取
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
@@ -192,13 +192,13 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 			return &matrixMedia, reader, nil
 		}
 	}
-	
+
 	// 从本地存储读取
 	file, err := os.Open(matrixMedia.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	
+
 	return &matrixMedia, file, nil
 }
 
@@ -244,12 +244,12 @@ func (s *MediaService) GetMediaByMXC(mxcURI string) (*MatrixMedia, io.ReadCloser
 	if !strings.HasPrefix(mxcURI, "mxc://") {
 		return nil, nil, fmt.Errorf("invalid MXC URI")
 	}
-	
+
 	parts := strings.Split(strings.TrimPrefix(mxcURI, "mxc://"), "/")
 	if len(parts) != 2 {
 		return nil, nil, fmt.Errorf("invalid MXC URI format")
 	}
-	
+
 	return s.GetMedia(parts[0], parts[1])
 }
 
@@ -259,23 +259,23 @@ func (s *MediaService) DeleteMedia(serverName, mediaID string) error {
 	if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
 		return fmt.Errorf("media not found")
 	}
-	
+
 	// 删除缩略图
 	db.GetDB().Where("media_id = ?", mediaID).Delete(&MatrixThumbnail{})
-	
+
 	// 删除媒体记录
 	if err := db.GetDB().Delete(&matrixMedia).Error; err != nil {
 		return err
 	}
-	
+
 	// 删除文件
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
-		cloudStorage.Delete(matrixMedia.FilePath)
+		_ = cloudStorage.Delete(matrixMedia.FilePath)
 	} else {
 		os.Remove(matrixMedia.FilePath)
 	}
-	
+
 	return nil
 }
 
@@ -334,13 +334,13 @@ func handleDownloadMedia(c *gin.Context) {
 	hs := GetHomeServer()
 	serverName := c.Param("serverName")
 	mediaID := c.Param("mediaId")
-	
+
 	// 如果是远程服务器的媒体，需要通过联邦获取
 	if serverName != hs.Config.ServerName {
 		handleRemoteMediaDownload(c, serverName, mediaID)
 		return
 	}
-	
+
 	// 获取本地媒体
 	mediaService := NewMediaService(hs)
 	matrixMedia, reader, err := mediaService.GetMedia(serverName, mediaID)
@@ -361,12 +361,12 @@ func handleDownloadMedia(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	// 设置响应头
 	c.Header("Content-Type", matrixMedia.ContentType)
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", matrixMedia.FileName))
 	c.Header("Content-Length", fmt.Sprintf("%d", matrixMedia.FileSize))
-	
+
 	// 流式传输文件
 	if _, err := io.Copy(c.Writer, reader); err != nil {
 		log.Error("Failed to stream media: %v", err)
@@ -384,7 +384,7 @@ func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
 		defer reader.Close()
 		c.Header("Content-Type", matrixMedia.ContentType)
 		c.Header("Content-Length", fmt.Sprintf("%d", matrixMedia.FileSize))
-		io.Copy(c.Writer, reader)
+		_, _ = io.Copy(c.Writer, reader)
 		return
 	}
 
@@ -411,7 +411,7 @@ func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
 	// 返回媒体
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", len(data)))
-	io.Copy(c.Writer, bytes.NewReader(data))
+	_, _ = io.Copy(c.Writer, bytes.NewReader(data))
 }
 
 // handleThumbnailMedia 处理缩略图请求
@@ -419,22 +419,26 @@ func handleThumbnailMedia(c *gin.Context) {
 	hs := GetHomeServer()
 	serverName := c.Param("serverName")
 	mediaID := c.Param("mediaId")
-	
+
 	// 解析参数
 	width := 0
 	height := 0
 	method := "crop"
-	
+
 	if w := c.Query("width"); w != "" {
-		fmt.Sscanf(w, "%d", &width)
+		if _, err := fmt.Sscanf(w, "%d", &width); err != nil {
+			width = 0
+		}
 	}
 	if h := c.Query("height"); h != "" {
-		fmt.Sscanf(h, "%d", &height)
+		if _, err := fmt.Sscanf(h, "%d", &height); err != nil {
+			height = 0
+		}
 	}
 	if m := c.Query("method"); m != "" {
 		method = m
 	}
-	
+
 	// 默认尺寸
 	if width == 0 {
 		width = 320
@@ -442,7 +446,7 @@ func handleThumbnailMedia(c *gin.Context) {
 	if height == 0 {
 		height = 240
 	}
-	
+
 	// 如果是远程服务器
 	if serverName != hs.Config.ServerName {
 		// 通过联邦获取远程缩略图
@@ -460,10 +464,10 @@ func handleThumbnailMedia(c *gin.Context) {
 		c.Header("Content-Type", contentType)
 		c.Header("Cache-Control", "public, max-age=31536000")
 		c.Header("Content-Length", fmt.Sprintf("%d", len(data)))
-		io.Copy(c.Writer, bytes.NewReader(data))
+		_, _ = io.Copy(c.Writer, bytes.NewReader(data))
 		return
 	}
-	
+
 	// 获取缩略图
 	mediaService := NewMediaService(hs)
 	thumbnail, reader, err := mediaService.GetThumbnail(serverName, mediaID, width, height, method)
@@ -487,8 +491,10 @@ func handleThumbnailMedia(c *gin.Context) {
 			c.Header("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 		}
 	}
-	
-	io.Copy(c.Writer, reader)
+
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		log.Warn("Failed to copy media response: %v", err)
+	}
 	_ = thumbnail
 }
 
@@ -550,16 +556,16 @@ func handlePreviewURL(c *gin.Context) {
 
 // URLPreview URL 预览结果
 type URLPreview struct {
-	MatrixImageSize  int64  `json:"matrix:image:size,omitempty"`
-	OGImage          string `json:"og:image,omitempty"`
-	OGImageHeight    int    `json:"og:image:height,omitempty"`
-	OGImageWidth     int    `json:"og:image:width,omitempty"`
-	OGImageType      string `json:"og:image:type,omitempty"`
-	OGTitle          string `json:"og:title,omitempty"`
-	OGType           string `json:"og:type,omitempty"`
-	OGURL            string `json:"og:url,omitempty"`
-	OGDescription    string `json:"og:description,omitempty"`
-	OGSiteName       string `json:"og:site_name,omitempty"`
+	MatrixImageSize int64  `json:"matrix:image:size,omitempty"`
+	OGImage         string `json:"og:image,omitempty"`
+	OGImageHeight   int    `json:"og:image:height,omitempty"`
+	OGImageWidth    int    `json:"og:image:width,omitempty"`
+	OGImageType     string `json:"og:image:type,omitempty"`
+	OGTitle         string `json:"og:title,omitempty"`
+	OGType          string `json:"og:type,omitempty"`
+	OGURL           string `json:"og:url,omitempty"`
+	OGDescription   string `json:"og:description,omitempty"`
+	OGSiteName      string `json:"og:site_name,omitempty"`
 }
 
 // GetURLPreview 获取 URL 预览
@@ -762,7 +768,7 @@ func extractMetaContent(html string) string {
 // handleGetMediaConfig 获取媒体配置
 func handleGetMediaConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"m.upload.size":       50 * 1024 * 1024, // 50MB
+		"m.upload.size":        50 * 1024 * 1024, // 50MB
 		"m.upload.size.images": 10 * 1024 * 1024, // 10MB for images
 	})
 }
@@ -770,7 +776,7 @@ func handleGetMediaConfig(c *gin.Context) {
 // handleGetMediaConfigPerUser 获取用户媒体配置
 func handleGetMediaConfigPerUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"m.upload.size":       50 * 1024 * 1024,
+		"m.upload.size":        50 * 1024 * 1024,
 		"m.upload.size.images": 10 * 1024 * 1024,
 	})
 }
@@ -782,12 +788,12 @@ func MXCToURL(mxcURI, homeserverURL string) string {
 	if !strings.HasPrefix(mxcURI, "mxc://") {
 		return ""
 	}
-	
+
 	parts := strings.Split(strings.TrimPrefix(mxcURI, "mxc://"), "/")
 	if len(parts) != 2 {
 		return ""
 	}
-	
+
 	return fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", homeserverURL, parts[0], parts[1])
 }
 

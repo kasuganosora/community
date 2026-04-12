@@ -37,7 +37,7 @@ async function handleLoadMore() {
 
 function handlePosted(content: string) {
   // TODO: Call real API to create status
-  console.log('New post:', content)
+  console.warn('New post (not yet persisted):', content)
 }
 
 onMounted(() => {

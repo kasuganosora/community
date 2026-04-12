@@ -113,13 +113,9 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 
 	for _, poll := range polls {
 		voted := false
-		var ownVotes []uint8
 		if current != nil {
-			if mySelOptions, ok := mySelectOptions[poll.Id]; ok {
+			if _, ok := mySelectOptions[poll.Id]; ok {
 				voted = true
-				for _, mySelectOption := range mySelOptions {
-					ownVotes = append(ownVotes, optionsIndexMap[mySelectOption.OptionId])
-				}
 			}
 		}
 

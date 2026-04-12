@@ -72,11 +72,11 @@ func GetThumbnailConfig(c *gin.Context) {
 // PUT /api/v1/admin/thumbnails/config
 func UpdateThumbnailConfig(c *gin.Context) {
 	var req struct {
-		Enabled        bool                       `json:"enabled"`
-		AccessMode     string                     `json:"access_mode"`
-		RewriteEnabled bool                       `json:"rewrite_enabled"`
+		Enabled        bool                          `json:"enabled"`
+		AccessMode     string                        `json:"access_mode"`
+		RewriteEnabled bool                          `json:"rewrite_enabled"`
 		Storage        models.ThumbnailStorageConfig `json:"storage"`
-		Rules          []models.ThumbnailRule     `json:"rules"`
+		Rules          []models.ThumbnailRule        `json:"rules"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -273,10 +273,10 @@ func PurgeThumbnails(c *gin.Context) {
 		}
 
 		c.JSON(200, gin.H{
-			"success":     true,
-			"deleted":     count,
-			"older_days":  req.OlderThanDays,
-			"status":      req.Status,
+			"success":    true,
+			"deleted":    count,
+			"older_days": req.OlderThanDays,
+			"status":     req.Status,
 		})
 	} else {
 		// 直接删除数据库记录
@@ -300,10 +300,10 @@ func PurgeThumbnails(c *gin.Context) {
 		}
 
 		c.JSON(200, gin.H{
-			"success":     true,
-			"deleted":     count,
-			"older_days":  req.OlderThanDays,
-			"status":      req.Status,
+			"success":    true,
+			"deleted":    count,
+			"older_days": req.OlderThanDays,
+			"status":     req.Status,
 		})
 	}
 }

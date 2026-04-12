@@ -127,7 +127,7 @@ func getActiveUsersCount() int {
 	// Count local accounts with recent activity
 	db.GetDB().Model(&models.Account{}).
 		Where("domain IS NULL").
-		Where("last_activity_at >= ? OR last_status_at >= ? OR created_at >= ?", 
+		Where("last_activity_at >= ? OR last_status_at >= ? OR created_at >= ?",
 			thirtyDaysAgo, thirtyDaysAgo, thirtyDaysAgo).
 		Count(&count)
 

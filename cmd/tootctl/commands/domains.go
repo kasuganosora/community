@@ -281,16 +281,16 @@ expose all known peers, and collect statistics from those peers.`,
 }
 
 type InstanceStats struct {
-	Domain              string `json:"domain"`
-	Title               string `json:"title"`
-	Description         string `json:"description"`
-	Version             string `json:"version"`
-	TotalUsers          int64  `json:"total_users"`
-	ActiveUsersWeekly   int64  `json:"active_users_weekly"`
-	NewUsersWeekly      int64  `json:"new_users_weekly"`
-	TotalStatuses       int64  `json:"total_statuses"`
-	TotalPeers          int    `json:"total_peers"`
-	Error               string `json:"error,omitempty"`
+	Domain            string `json:"domain"`
+	Title             string `json:"title"`
+	Description       string `json:"description"`
+	Version           string `json:"version"`
+	TotalUsers        int64  `json:"total_users"`
+	ActiveUsersWeekly int64  `json:"active_users_weekly"`
+	NewUsersWeekly    int64  `json:"new_users_weekly"`
+	TotalStatuses     int64  `json:"total_statuses"`
+	TotalPeers        int    `json:"total_peers"`
+	Error             string `json:"error,omitempty"`
 }
 
 func crawlDomains(c *cli.Context) error {
@@ -516,7 +516,6 @@ func printCrawlSummary(stats []InstanceStats) {
 	fmt.Printf("Total registered users: %d\n", totalUsers)
 	fmt.Printf("Total statuses:         %d\n", totalStatuses)
 }
-
 
 // getBlockedDomains returns all blocked domains from the database
 func getBlockedDomains() (map[string]bool, error) {

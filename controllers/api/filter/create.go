@@ -25,7 +25,7 @@ func Create(c *gin.Context) {
 
 	currentAccount := c.MustGet("account").(*models.Account)
 
-	for i, _ := range req.Keywords {
+	for i := range req.Keywords {
 		req.Keywords[i].Uuid = uuid.NewString()
 	}
 

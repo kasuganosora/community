@@ -81,7 +81,7 @@ func TestRequest_Do_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -105,7 +105,7 @@ func TestRequest_Do_WithRetry(t *testing.T) {
 			return
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
 
@@ -128,7 +128,7 @@ func TestRequest_Do_PostWithBody_Retry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		body := make([]byte, r.ContentLength)
-		r.Body.Read(body)
+		_, _ = r.Body.Read(body)
 		receivedBodies = append(receivedBodies, string(body))
 
 		if callCount < 2 {
@@ -156,7 +156,7 @@ func TestRequest_Do_PostWithBody_Retry(t *testing.T) {
 func TestResponse_Json(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"name":"test","count":42}`))
+		_, _ = w.Write([]byte(`{"name":"test","count":42}`))
 	}))
 	defer server.Close()
 

@@ -65,7 +65,7 @@ func BenchmarkRealRedis_AddToTimelineItem(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	// 清理
@@ -90,7 +90,7 @@ func BenchmarkRealRedis_AddToTimelineItem_WithReblog(b *testing.B) {
 			Id:       uint64(i + 1000),
 			ReblogId: &reblogId,
 		}
-		service.AddToTimelineItem(timeline, status, true)
+		_ = service.AddToTimelineItem(timeline, status, true)
 	}
 
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
@@ -110,12 +110,12 @@ func BenchmarkRealRedis_TrimTimeline(b *testing.B) {
 	// 预填充 1000 条数据
 	for i := 0; i < 1000; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		service.TrimTimeline(timeline)
+		_ = service.TrimTimeline(timeline)
 	}
 
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
@@ -135,8 +135,8 @@ func BenchmarkRealRedis_PushScenario(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, true)
-		service.TrimTimeline(timeline)
+		_ = service.AddToTimelineItem(timeline, status, true)
+		_ = service.TrimTimeline(timeline)
 	}
 
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
@@ -161,7 +161,7 @@ func BenchmarkRealRedis_Parallel(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			status := &models.Status{Id: uint64(i + 1)}
-			service.AddToTimelineItem(timeline, status, false)
+			_ = service.AddToTimelineItem(timeline, status, false)
 			i++
 		}
 	})
@@ -191,7 +191,7 @@ func BenchmarkRealRedis_CleanFeeds(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		service.CleanFeeds(timeline, feedIds)
+		_ = service.CleanFeeds(timeline, feedIds)
 	}
 }
 
@@ -262,7 +262,7 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			status := &models.Status{Id: uint64(i + 1)}
 			for _, timeline := range timelines {
-				service.AddToTimelineItem(timeline, status, false)
+				_ = service.AddToTimelineItem(timeline, status, false)
 			}
 		}
 		// 清理
@@ -278,7 +278,7 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			status := &models.Status{Id: uint64(i + 10000)}
-			service.BatchAddToTimelineItems(timelines, status, false)
+			_ = service.BatchAddToTimelineItems(timelines, status, false)
 		}
 		// 清理
 		ctx := context.Background()
@@ -303,7 +303,7 @@ func BenchmarkAddToTimelineItem_Simple(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		status.Id = uint64(i + 1)
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 }
 
@@ -320,7 +320,7 @@ func BenchmarkAddToTimelineItem_WithReblog(b *testing.B) {
 			Id:       uint64(i + 1000),
 			ReblogId: &reblogId,
 		}
-		service.AddToTimelineItem(timeline, status, true)
+		_ = service.AddToTimelineItem(timeline, status, true)
 	}
 }
 
@@ -334,7 +334,7 @@ func BenchmarkAddToTimelineItem_Parallel(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			status := &models.Status{Id: uint64(i + 1)}
-			service.AddToTimelineItem(timeline, status, false)
+			_ = service.AddToTimelineItem(timeline, status, false)
 			i++
 		}
 	})
@@ -349,13 +349,13 @@ func BenchmarkRemoveTimelineItem_Simple(b *testing.B) {
 	// 预填充数据
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.RemoveTimelineItem(timeline, status, false)
+		_ = service.RemoveTimelineItem(timeline, status, false)
 	}
 }
 
@@ -368,12 +368,14 @@ func BenchmarkTrimTimeline(b *testing.B) {
 	// 预填充 1000 条数据
 	for i := 0; i < 1000; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		service.TrimTimeline(timeline)
+		if err := service.TrimTimeline(timeline); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -389,7 +391,7 @@ func BenchmarkCleanFeeds(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		mockRedis := NewMockRedisClient()
 		service := NewFeedService(mockRedis)
-		service.CleanFeeds(timeline, feedIds)
+		_ = service.CleanFeeds(timeline, feedIds)
 	}
 }
 
@@ -407,8 +409,8 @@ func BenchmarkHomeTimeline_PushScenario(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
 		// 模拟完整的推送流程
-		service.AddToTimelineItem(timeline, status, true)
-		service.TrimTimeline(timeline)
+		_ = service.AddToTimelineItem(timeline, status, true)
+		_ = service.TrimTimeline(timeline)
 	}
 }
 
@@ -430,7 +432,7 @@ func BenchmarkMultipleTimelines(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		timeline := timelines[i%100]
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 }
 
@@ -442,7 +444,7 @@ func BenchmarkReblogScenario(b *testing.B) {
 
 	// 先创建原始状态
 	originalStatus := &models.Status{Id: 1}
-	service.AddToTimelineItem(timeline, originalStatus, true)
+	_ = service.AddToTimelineItem(timeline, originalStatus, true)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -452,7 +454,7 @@ func BenchmarkReblogScenario(b *testing.B) {
 			Id:       uint64(i + 1000),
 			ReblogId: &reblogId,
 		}
-		service.AddToTimelineItem(timeline, status, true)
+		_ = service.AddToTimelineItem(timeline, status, true)
 	}
 }
 
@@ -469,15 +471,15 @@ func BenchmarkLargeTimeline(b *testing.B) {
 	// 预填充 1000 条数据
 	for i := 0; i < 1000; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 在大时间线上添加新状态
 		status := &models.Status{Id: uint64(1000 + i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
-		service.TrimTimeline(timeline)
+		_ = service.AddToTimelineItem(timeline, status, false)
+		_ = service.TrimTimeline(timeline)
 	}
 }
 
@@ -495,7 +497,7 @@ func BenchmarkAddToTimelineItem_Allocs(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 }
 
@@ -528,7 +530,7 @@ func BenchmarkTimelineTypes(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				status := &models.Status{Id: uint64(i + 1)}
-				service.AddToTimelineItem(timeline, status, false)
+				_ = service.AddToTimelineItem(timeline, status, false)
 			}
 		})
 	}
@@ -561,10 +563,6 @@ func TestBenchmarkReport(t *testing.T) {
 	t.Log("| CleanFeeds (100 feeds)  | < 5000     | < 50           |")
 }
 
-func benchmarkWrapper(f func(*testing.B)) func(*testing.B) {
-	return f
-}
-
 // ============================================================================
 // 性能卡点检测
 // ============================================================================
@@ -588,7 +586,7 @@ func TestPerformanceHotspots(t *testing.T) {
 			name: "SingleAdd",
 			fn: func() {
 				status := &models.Status{Id: 1}
-				service.AddToTimelineItem(timeline, status, false)
+				_ = service.AddToTimelineItem(timeline, status, false)
 			},
 		},
 		{
@@ -596,7 +594,7 @@ func TestPerformanceHotspots(t *testing.T) {
 			fn: func() {
 				reblogId := uint64(1)
 				status := &models.Status{Id: 2, ReblogId: &reblogId}
-				service.AddToTimelineItem(timeline, status, true)
+				_ = service.AddToTimelineItem(timeline, status, true)
 			},
 		},
 		{
@@ -605,9 +603,11 @@ func TestPerformanceHotspots(t *testing.T) {
 				// 先添加 100 条
 				for i := 0; i < 100; i++ {
 					status := &models.Status{Id: uint64(i + 100)}
-					service.AddToTimelineItem(timeline, status, false)
+					_ = service.AddToTimelineItem(timeline, status, false)
 				}
-				service.TrimTimeline(timeline)
+				if err := service.TrimTimeline(timeline); err != nil {
+					t.Fatal(err)
+				}
 			},
 		},
 	}
@@ -651,7 +651,7 @@ func TestStressHighConcurrency(t *testing.T) {
 			}
 			for i := 0; i < opsPerGoroutine; i++ {
 				status := &models.Status{Id: uint64(goroutineId*opsPerGoroutine + i + 1)}
-				service.AddToTimelineItem(timeline, status, false)
+				_ = service.AddToTimelineItem(timeline, status, false)
 			}
 			done <- true
 		}(g)
@@ -679,7 +679,7 @@ func TestStressLargeData(t *testing.T) {
 
 	for i := 0; i < itemCount; i++ {
 		status := &models.Status{Id: uint64(i + 1)}
-		service.AddToTimelineItem(timeline, status, false)
+		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	// 检查数据量
@@ -687,7 +687,9 @@ func TestStressLargeData(t *testing.T) {
 	t.Logf("添加了 %d 条数据到时间线", len(zset))
 
 	// 执行裁剪
-	service.TrimTimeline(timeline)
+	if err := service.TrimTimeline(timeline); err != nil {
+		t.Fatal(err)
+	}
 
 	zset = mockRedis.GetZSet("feed:home:1")
 	t.Logf("裁剪后剩余 %d 条数据", len(zset))

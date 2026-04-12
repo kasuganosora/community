@@ -19,8 +19,8 @@ import (
 
 // CacheEntry wraps a cached value with expiration time
 type CacheEntry struct {
-	value      interface{}
-	expiresAt  time.Time
+	value     interface{}
+	expiresAt time.Time
 }
 
 // IsExpired checks if the cache entry has expired
@@ -475,11 +475,11 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 	}
 
 	var collection struct {
-		Type        string        `json:"type"`
-		First       string        `json:"first"`
-		TotalItems  int           `json:"totalItems"`
-		OrderedItems []string     `json:"orderedItems"`
-		Items       []interface{} `json:"items"`
+		Type         string        `json:"type"`
+		First        string        `json:"first"`
+		TotalItems   int           `json:"totalItems"`
+		OrderedItems []string      `json:"orderedItems"`
+		Items        []interface{} `json:"items"`
 	}
 
 	if err := json.Unmarshal(data, &collection); err != nil {
@@ -500,9 +500,7 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 
 	// Extract URIs
 	followers := make([]string, 0)
-	for _, item := range collection.OrderedItems {
-		followers = append(followers, item)
-	}
+	followers = append(followers, collection.OrderedItems...)
 
 	if limit > 0 && len(followers) > limit {
 		followers = followers[:limit]

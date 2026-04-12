@@ -394,7 +394,7 @@ func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canVie
 	}
 
 	// 如果是 rebolg 的，检查原始状态
-	if s.ReblogId != nil && *s.ReblogId > 0 && canView == true {
+	if s.ReblogId != nil && *s.ReblogId > 0 && canView {
 		if s.Reblog == nil {
 			canView = false
 			return

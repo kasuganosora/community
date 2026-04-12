@@ -2,6 +2,7 @@ package mention
 
 import (
 	"github.com/kasuganosora/community/db"
+	"log"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
@@ -28,13 +29,29 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			go Push(status, false, true)
+			go func() {
+				if err := Push(status, false, true); err != nil {
+					log.Printf("mention_timeline: Push failed: %v", err)
+				}
+			}()
 		case "before_update":
-			go Unpush(status, true) // 更新之前，先删除
+			go func() { // 更新之前，先删除
+				if err := Unpush(status, true); err != nil {
+					log.Printf("mention_timeline: Unpush failed: %v", err)
+				}
+			}()
 		case "after_update":
-			go Push(status, true, true)
+			go func() {
+				if err := Push(status, true, true); err != nil {
+					log.Printf("mention_timeline: Push failed: %v", err)
+				}
+			}()
 		case "after_delete":
-			go Unpush(status, true)
+			go func() {
+				if err := Unpush(status, true); err != nil {
+					log.Printf("mention_timeline: Unpush failed: %v", err)
+				}
+			}()
 		}
 
 		return true
@@ -124,7 +141,7 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
-	if status.ToAccounts == nil || len(status.ToAccounts) == 0 {
+	if len(status.ToAccounts) == 0 {
 		return
 	}
 

@@ -17,11 +17,11 @@ import (
 type RelationType string
 
 const (
-	RelationTypeReply   RelationType = "m.in_reply_to"   // 回复
-	RelationTypeReaction RelationType = "m.annotation"   // 反应
-	RelationTypeReplace  RelationType = "m.replace"       // 编辑
-	RelationTypeThread   RelationType = "m.thread"        // 线程
-	RelationTypeReference RelationType = "m.reference"    // 引用
+	RelationTypeReply     RelationType = "m.in_reply_to" // 回复
+	RelationTypeReaction  RelationType = "m.annotation"  // 反应
+	RelationTypeReplace   RelationType = "m.replace"     // 编辑
+	RelationTypeThread    RelationType = "m.thread"      // 线程
+	RelationTypeReference RelationType = "m.reference"   // 引用
 )
 
 // EventRelation 事件关系（存储在数据库中）
@@ -32,7 +32,7 @@ type EventRelation struct {
 	RelatesTo      string       `gorm:"index;type:varchar(255)" json:"relates_to"` // 关联的目标事件ID
 	RelationType   RelationType `gorm:"index;type:varchar(32);not null" json:"relation_type"`
 	Sender         string       `gorm:"type:varchar(255);not null" json:"sender"`
-	Content        string       `gorm:"type:text" json:"content"` // JSON
+	Content        string       `gorm:"type:text" json:"content"`                           // JSON
 	AggregationKey string       `gorm:"type:varchar(255)" json:"aggregation_key,omitempty"` // 用于反应（emoji）
 	OriginServerTS int64        `gorm:"index" json:"origin_server_ts"`
 	CreatedAt      time.Time    `gorm:"autoCreateTime" json:"created_at"`
@@ -62,29 +62,29 @@ type ReplyAggregations struct {
 
 // ThreadAggregations 线程聚合
 type ThreadAggregations struct {
-	LatestEvent *ClientEvent `json:"latest_event,omitempty"`
-	Count       int          `json:"count"`
-	CurrentUserParticipated bool `json:"current_user_participated"`
+	LatestEvent             *ClientEvent `json:"latest_event,omitempty"`
+	Count                   int          `json:"count"`
+	CurrentUserParticipated bool         `json:"current_user_participated"`
 }
 
 // EventRelationResponse 关系事件响应格式
 type EventRelationResponse struct {
-	EventID  string                 `json:"event_id"`
-	Sender   string                 `json:"sender"`
-	Type     string                 `json:"type"`
-	Content  map[string]interface{} `json:"content"`
-	OriginServerTS int64            `json:"origin_server_ts"`
-	AggregationKey string           `json:"key,omitempty"`
-	Count    int                    `json:"count,omitempty"`
+	EventID        string                 `json:"event_id"`
+	Sender         string                 `json:"sender"`
+	Type           string                 `json:"type"`
+	Content        map[string]interface{} `json:"content"`
+	OriginServerTS int64                  `json:"origin_server_ts"`
+	AggregationKey string                 `json:"key,omitempty"`
+	Count          int                    `json:"count,omitempty"`
 }
 
 // RelationsRequest 获取关系请求
 type RelationsRequest struct {
-	RelType      string `form:"rel_type"`       // m.annotation, m.in_reply_to, m.thread
-	EventType    string `form:"event_type"`     // m.room.message, m.reaction
-	Direction    string `form:"dir"`            // f (forward), b (backward)
-	Limit        int    `form:"limit"`
-	From         string `form:"from"`           // 分页令牌
+	RelType   string `form:"rel_type"`   // m.annotation, m.in_reply_to, m.thread
+	EventType string `form:"event_type"` // m.room.message, m.reaction
+	Direction string `form:"dir"`        // f (forward), b (backward)
+	Limit     int    `form:"limit"`
+	From      string `form:"from"` // 分页令牌
 }
 
 // RelationsResponse 获取关系响应
@@ -201,7 +201,7 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 		var fromTS int64
 		if _, err := fmt.Sscanf(req.From, "s%d", &fromTS); err != nil {
 			// Try rel_ format (our own pagination token)
-			fmt.Sscanf(req.From, "rel_%d", &fromTS)
+			_, _ = fmt.Sscanf(req.From, "rel_%d", &fromTS)
 		}
 		if fromTS > 0 {
 			if dir == "f" {
@@ -307,7 +307,7 @@ func (rs *RelationsService) getAnnotationAggregations(roomID, eventID string) (*
 			// 从内容中提取 emoji
 			emoji = rs.extractEmojiFromReaction(rel.Content)
 		}
-		
+
 		emojiCounts[emoji]++
 
 		// 只添加一次每个用户的反应（最新的一次）
@@ -320,10 +320,10 @@ func (rs *RelationsService) getAnnotationAggregations(roomID, eventID string) (*
 		}
 		if !found {
 			chunk = append(chunk, EventRelationResponse{
-				EventID:  rel.EventID,
-				Sender:   rel.Sender,
-				Type:     "m.reaction",
-				Content:  map[string]interface{}{},
+				EventID:        rel.EventID,
+				Sender:         rel.Sender,
+				Type:           "m.reaction",
+				Content:        map[string]interface{}{},
 				AggregationKey: emoji,
 			})
 		}
@@ -371,21 +371,21 @@ func (rs *RelationsService) getThreadAggregations(roomID, eventID, userID string
 		roomID, eventID, RelationTypeThread).
 		Order("created_at DESC").
 		First(&latestRel).Error; err == nil {
-		
+
 		var latestEvent MatrixEvent
 		if err := db.GetDB().Where("event_id = ?", latestRel.EventID).First(&latestEvent).Error; err == nil {
 			clientEvent := latestEvent.ToClientEvent()
-			
+
 			// 检查当前用户是否参与
 			var userCount int64
 			db.GetDB().Model(&EventRelation{}).
 				Where("room_id = ? AND relates_to = ? AND relation_type = ? AND sender = ?",
 					roomID, eventID, RelationTypeThread, userID).
 				Count(&userCount)
-			
+
 			return &ThreadAggregations{
-				LatestEvent: clientEvent,
-				Count:       int(count),
+				LatestEvent:             clientEvent,
+				Count:                   int(count),
 				CurrentUserParticipated: userCount > 0,
 			}, nil
 		}
@@ -417,9 +417,9 @@ func (rs *RelationsService) extractEmojiFromReaction(contentJSON string) string 
 func (rs *RelationsService) SendReaction(roomID, sender, eventID, key string) (*SendMessageResponse, *MatrixError) {
 	content := map[string]interface{}{
 		"m.relates_to": map[string]interface{}{
-			"rel_type":  "m.annotation",
-			"event_id":  eventID,
-			"key":       key,
+			"rel_type": "m.annotation",
+			"event_id": eventID,
+			"key":      key,
 		},
 	}
 
@@ -476,8 +476,8 @@ func (rs *RelationsService) SendThreadReply(roomID, sender, rootEventID, body st
 		"msgtype": "m.text",
 		"body":    body,
 		"m.relates_to": map[string]interface{}{
-			"rel_type": "m.thread",
-			"event_id": rootEventID,
+			"rel_type":        "m.thread",
+			"event_id":        rootEventID,
 			"is_falling_back": !isReplyInThread,
 		},
 	}
@@ -638,8 +638,8 @@ func handleGetThreads(c *gin.Context) {
 		}
 		ce.Unsigned["m.relations"] = map[string]interface{}{
 			"m.thread": map[string]interface{}{
-				"latest_event":             latestCE,
-				"count":                    count,
+				"latest_event":              latestCE,
+				"count":                     count,
 				"current_user_participated": latestEvent.Sender == userID || rootEvent.Sender == userID,
 			},
 		}

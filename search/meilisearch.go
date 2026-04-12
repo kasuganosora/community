@@ -291,7 +291,7 @@ func (m *MeilisearchClient) SearchAccounts(query string, limit, offset int64, fo
 		var doc struct {
 			ID string `json:"id"`
 		}
-		if err := hit.Decode(&doc); err == nil && doc.ID != "" {
+		if err := hit.DecodeInto(&doc); err == nil && doc.ID != "" {
 			ids = append(ids, doc.ID)
 		}
 	}
@@ -338,7 +338,7 @@ func (m *MeilisearchClient) SearchStatuses(query string, limit, offset int64, ac
 		var doc struct {
 			ID string `json:"id"`
 		}
-		if err := hit.Decode(&doc); err == nil && doc.ID != "" {
+		if err := hit.DecodeInto(&doc); err == nil && doc.ID != "" {
 			ids = append(ids, doc.ID)
 		}
 	}
@@ -367,7 +367,7 @@ func (m *MeilisearchClient) SearchHashtags(query string, limit, offset int64) ([
 		var doc struct {
 			Name string `json:"name"`
 		}
-		if err := hit.Decode(&doc); err == nil && doc.Name != "" {
+		if err := hit.DecodeInto(&doc); err == nil && doc.Name != "" {
 			ids = append(ids, doc.Name)
 		}
 	}

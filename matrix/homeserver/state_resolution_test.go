@@ -34,11 +34,12 @@ func makeEvent(eventID, roomID string, eventType EventType, sender string, state
 // gomatrixserverlib's getBaseStateResV2Graph().
 //
 // Graph:
-//   $create (m.room.create, creator=Alice)
-//   $alice_join (m.room.member, Alice joins)
-//   $bob_join (m.room.member, Bob joins)
-//   $power_levels (m.room.power_levels, Alice=100)
-//   $join_rules (m.room.join_rules, "public")
+//
+//	$create (m.room.create, creator=Alice)
+//	$alice_join (m.room.member, Alice joins)
+//	$bob_join (m.room.member, Bob joins)
+//	$power_levels (m.room.power_levels, Alice=100)
+//	$join_rules (m.room.join_rules, "public")
 func buildTestGraph() ([]*MatrixEvent, map[string]*MatrixEvent) {
 	const roomID = "!testroom:example.com"
 	alice := "@alice:example.com"

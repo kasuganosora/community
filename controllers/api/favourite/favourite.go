@@ -11,9 +11,9 @@ import (
 
 // ListRequest represents the request for listing favourites/bookmarks
 type ListRequest struct {
-	Limit  int    `form:"limit" binding:"min=1,max=80"`
-	MaxId  string `form:"max_id"`
-	MinId  string `form:"min_id"`
+	Limit   int    `form:"limit" binding:"min=1,max=80"`
+	MaxId   string `form:"max_id"`
+	MinId   string `form:"min_id"`
 	SinceId string `form:"since_id"`
 }
 

@@ -68,7 +68,7 @@ func GetService() *Service {
 // Reload 重新加载配置
 func (s *Service) Reload() error {
 	cfg := loadConfigFromSettings()
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (s *Service) GetProviderType() ProviderType {
 func (s *Service) GetSiteKey() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.provider == nil {
 		return ""
 	}
@@ -183,7 +183,7 @@ func loadConfigFromSettings() *Config {
 	if providerStr == "" {
 		providerStr = systemsettings.GetString("config.captcha.provider", "")
 	}
-	
+
 	// 如果没有配置新格式，尝试兼容旧格式
 	if providerStr == "" {
 		if systemsettings.GetBool(systemsettings.KeyRecaptchaEnabled, false) {

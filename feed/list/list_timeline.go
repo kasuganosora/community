@@ -30,13 +30,13 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			go Push(status, false, true)
+			go func() { _ = Push(status, false, true) }()
 		case "before_update":
-			go Unpush(status, true) // 更新之前，先删除
+			go func() { _ = Unpush(status, true) }() // 更新之前，先删除
 		case "after_update":
-			go Push(status, true, true)
+			go func() { _ = Push(status, true, true) }()
 		case "after_delete":
-			go Unpush(status, true)
+			go func() { _ = Unpush(status, true) }()
 		}
 
 		return true
@@ -182,39 +182,6 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 			}
 		}
 	}
-	return
-}
-
-func pushAllChannel(status *models.Status, method string) (err error) {
-	timelines := []*ListTimeline{
-		{},
-		{OnlyMedia: true},
-		{OnlyLocal: true},
-		{OnlyRemote: true},
-		{OnlyLocal: true, OnlyMedia: true},
-		{OnlyRemote: true, OnlyMedia: true},
-	}
-
-	for _, timeline := range timelines {
-		if timeline.OnlyMedia && (status.Attachments == nil || len(status.Attachments) == 0) {
-			continue
-		}
-
-		if timeline.OnlyLocal && (status.Account == nil || status.Domain != nil) {
-			continue
-		}
-
-		if timeline.OnlyRemote && (status.Account == nil || status.Domain == nil) {
-			continue
-		}
-
-		if feed.PushUpdateRequired(timeline) {
-			if err = feed.PushToClient(timeline, method, status); err != nil {
-				return
-			}
-		}
-	}
-
 	return
 }
 

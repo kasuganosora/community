@@ -44,8 +44,8 @@ func NewHttpErrorWithCode(err error, code int) error {
 	return err
 }
 
-func NewHttpErrorWithCodeAndMessage(err error, code int, message string) error {
-	err = &HttpError{
+func NewHttpErrorWithCodeAndMessage(_ error, code int, message string) error {
+	err := &HttpError{
 		HttpCode: code,
 		error:    errors.New(message),
 	}

@@ -13,32 +13,32 @@ import (
 
 // HomeServer Matrix Homeserver
 type HomeServer struct {
-	Config         *HSConfig
-	Auth           *AuthService
-	Room           *RoomService
-	Event          *EventService
-	Sync           *SyncService
-	Account        *AccountService        // 账户服务
-	KeyStore       *KeyStore              // E2EE 密钥存储
-	KeyBackup      *KeyBackupManager      // 密钥备份服务
-	Relations      *RelationsService      // 事件关系服务
-	Push           *PushService           // 推送通知服务
-	Spaces         *SpacesService         // Matrix Spaces 服务
-	AppService     *AppServiceService     // 应用服务
-	RoomUpgrade    *RoomUpgradeService    // 房间升级服务
-	KeySharing     *KeySharingService     // 密钥共享服务
-	DeviceList     *DeviceListService     // 设备列表服务
-	BatchSend      *BatchSendService      // 批量发送服务
-	AsyncMedia     *AsyncMediaService     // 异步媒体服务
-	OpenID         *OpenIDService         // OpenID 服务
-	ThreePID       *ThreePIDService       // 3PID 服务
-	Admin          *AdminService          // 管理员服务
-	UserSearch     *UserSearchService     // 用户搜索服务
-	WellKnown      *WellKnownService      // Well-Known 服务
-	SyncNotifier   *SyncNotifier          // 同步通知器
-	privateKey     ed25519.PrivateKey     // 联邦签名密钥
-	publicKey      ed25519.PublicKey      // 联邦验证密钥
-	keyID          string                 // 密钥标识
+	Config       *HSConfig
+	Auth         *AuthService
+	Room         *RoomService
+	Event        *EventService
+	Sync         *SyncService
+	Account      *AccountService     // 账户服务
+	KeyStore     *KeyStore           // E2EE 密钥存储
+	KeyBackup    *KeyBackupManager   // 密钥备份服务
+	Relations    *RelationsService   // 事件关系服务
+	Push         *PushService        // 推送通知服务
+	Spaces       *SpacesService      // Matrix Spaces 服务
+	AppService   *AppServiceService  // 应用服务
+	RoomUpgrade  *RoomUpgradeService // 房间升级服务
+	KeySharing   *KeySharingService  // 密钥共享服务
+	DeviceList   *DeviceListService  // 设备列表服务
+	BatchSend    *BatchSendService   // 批量发送服务
+	AsyncMedia   *AsyncMediaService  // 异步媒体服务
+	OpenID       *OpenIDService      // OpenID 服务
+	ThreePID     *ThreePIDService    // 3PID 服务
+	Admin        *AdminService       // 管理员服务
+	UserSearch   *UserSearchService  // 用户搜索服务
+	WellKnown    *WellKnownService   // Well-Known 服务
+	SyncNotifier *SyncNotifier       // 同步通知器
+	privateKey   ed25519.PrivateKey  // 联邦签名密钥
+	publicKey    ed25519.PublicKey   // 联邦验证密钥
+	keyID        string              // 密钥标识
 }
 
 // HSConfig Homeserver 配置
@@ -136,7 +136,7 @@ func loadHSConfig() *HSConfig {
 	if cfg.ServerName == "" {
 		cfg.ServerName = "localhost"
 	}
-	
+
 	cfg.BaseURL = fmt.Sprintf("https://%s", cfg.ServerName)
 	cfg.FederationPort = 8448
 
@@ -280,10 +280,10 @@ func (n *SyncNotifier) Notify(userID, deviceID string) {
 func (n *SyncNotifier) Wait(userID, deviceID string) <-chan struct{} {
 	key := userID + ":" + deviceID
 	ch := make(chan struct{})
-	
+
 	n.mu.Lock()
 	n.waiters[key] = append(n.waiters[key], ch)
 	n.mu.Unlock()
-	
+
 	return ch
 }

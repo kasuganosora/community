@@ -50,7 +50,7 @@ func ListSuggestions(c *gin.Context) {
 	result := make([]gin.H, 0, len(accounts))
 	for _, acc := range accounts {
 		result = append(result, gin.H{
-			"source": "past_interactions",
+			"source":  "past_interactions",
 			"account": serializer.ToAccount(acc),
 		})
 	}
@@ -74,7 +74,7 @@ func ListSuggestions(c *gin.Context) {
 
 		for _, acc := range popularAccounts {
 			result = append(result, gin.H{
-				"source": "global",
+				"source":  "global",
 				"account": serializer.ToAccount(acc),
 			})
 		}

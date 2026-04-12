@@ -179,11 +179,11 @@ func initSqliteConnection() (err error) {
 	}
 	// Enable WAL mode and busy timeout to prevent SQLITE_BUSY under concurrent writes
 	if sqlDB, dbErr := DB.DB(); dbErr == nil {
-		sqlDB.Exec("PRAGMA journal_mode=WAL")
-		sqlDB.Exec("PRAGMA busy_timeout=5000")
-		sqlDB.Exec("PRAGMA synchronous=NORMAL")
-		sqlDB.Exec("PRAGMA cache_size=-64000") // 64MB cache
-		sqlDB.Exec("PRAGMA temp_store=MEMORY")
+		_, _ = sqlDB.Exec("PRAGMA journal_mode=WAL")
+		_, _ = sqlDB.Exec("PRAGMA busy_timeout=5000")
+		_, _ = sqlDB.Exec("PRAGMA synchronous=NORMAL")
+		_, _ = sqlDB.Exec("PRAGMA cache_size=-64000") // 64MB cache
+		_, _ = sqlDB.Exec("PRAGMA temp_store=MEMORY")
 
 		// 配置连接池（SQLite 只支持一个写入连接，但可以多个读取连接）
 		sqlDB.SetMaxOpenConns(1)
@@ -221,13 +221,13 @@ func GetDBStats() (map[string]interface{}, error) {
 
 	stats := sqlDB.Stats()
 	return map[string]interface{}{
-		"open_connections":     stats.OpenConnections,
-		"in_use":               stats.InUse,
-		"idle":                 stats.Idle,
-		"wait_count":           stats.WaitCount,
-		"wait_duration_ms":     stats.WaitDuration.Milliseconds(),
-		"max_idle_closed":      stats.MaxIdleClosed,
-		"max_lifetime_closed":  stats.MaxLifetimeClosed,
+		"open_connections":    stats.OpenConnections,
+		"in_use":              stats.InUse,
+		"idle":                stats.Idle,
+		"wait_count":          stats.WaitCount,
+		"wait_duration_ms":    stats.WaitDuration.Milliseconds(),
+		"max_idle_closed":     stats.MaxIdleClosed,
+		"max_lifetime_closed": stats.MaxLifetimeClosed,
 	}, nil
 }
 

@@ -19,14 +19,14 @@ import (
 
 // SSSSKeyInfo SSSS 密钥信息
 type SSSSKeyInfo struct {
-	KeyType      string `json:"key_type"`      // passphrase, raw
-	Algorithm    string `json:"algorithm"`     // m.pbkdf2, m.secret_storage.v1.aes-hmac-sha2
-	IV           string `json:"iv,omitempty"`
-	MAC          string `json:"mac,omitempty"`
-	Salt         string `json:"salt,omitempty"` // 用于 passphrase 派生
-	Iterations   int    `json:"iterations,omitempty"`
-	Bits         int    `json:"bits,omitempty"`
-	PublicKey    string `json:"public_key,omitempty"`
+	KeyType       string `json:"key_type"`  // passphrase, raw
+	Algorithm     string `json:"algorithm"` // m.pbkdf2, m.secret_storage.v1.aes-hmac-sha2
+	IV            string `json:"iv,omitempty"`
+	MAC           string `json:"mac,omitempty"`
+	Salt          string `json:"salt,omitempty"` // 用于 passphrase 派生
+	Iterations    int    `json:"iterations,omitempty"`
+	Bits          int    `json:"bits,omitempty"`
+	PublicKey     string `json:"public_key,omitempty"`
 	PrivateKeyMAC string `json:"private_key_mac,omitempty"`
 }
 
@@ -187,7 +187,10 @@ func (sm *SSSSManager) EncryptSecret(secret []byte, key []byte) (*SSSSSecret, er
 	}
 
 	// 派生 AES 密钥和 MAC 密钥
-	aesKey, macKey := sm.deriveKeys(key, iv)
+	aesKey, macKey, err := sm.deriveKeys(key, iv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive keys: %w", err)
+	}
 
 	// 加密
 	block, err := aes.NewCipher(aesKey)
@@ -231,7 +234,10 @@ func (sm *SSSSManager) DecryptSecret(secret *SSSSSecret, key []byte) ([]byte, er
 	}
 
 	// 派生密钥
-	aesKey, macKey := sm.deriveKeys(key, iv)
+	aesKey, macKey, err := sm.deriveKeys(key, iv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive keys: %w", err)
+	}
 
 	// 验证 MAC
 	computedMAC := computeHMAC(ciphertext, macKey)
@@ -264,15 +270,19 @@ func (sm *SSSSManager) DecryptSecret(secret *SSSSSecret, key []byte) ([]byte, er
 }
 
 // deriveKeys 从 SSSS 密钥派生 AES 和 MAC 密钥
-func (sm *SSSSManager) deriveKeys(key, iv []byte) (aesKey, macKey []byte) {
+func (sm *SSSSManager) deriveKeys(key, iv []byte) (aesKey, macKey []byte, err error) {
 	// 使用 HKDF 派生两个密钥
 	hkdfReader := hkdf.New(sha256.New, key, iv, []byte("SSSS_V1"))
 
 	aesKey = make([]byte, 32)
 	macKey = make([]byte, 32)
 
-	hkdfReader.Read(aesKey)
-	hkdfReader.Read(macKey)
+	if _, err = hkdfReader.Read(aesKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to derive AES key: %w", err)
+	}
+	if _, err = hkdfReader.Read(macKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to derive MAC key: %w", err)
+	}
 
 	return
 }
@@ -281,9 +291,9 @@ func (sm *SSSSManager) deriveKeys(key, iv []byte) (aesKey, macKey []byte) {
 
 // SecretShare 密钥分片
 type SecretShare struct {
-	Index   int    `json:"index"`
-	Share   string `json:"share"` // Base64 编码的分片
-	Threshold int  `json:"threshold"`
+	Index     int    `json:"index"`
+	Share     string `json:"share"` // Base64 编码的分片
+	Threshold int    `json:"threshold"`
 }
 
 // SplitSecret 使用 Shamir's Secret Sharing 分割密钥
@@ -300,7 +310,9 @@ func (sm *SSSSManager) SplitSecret(secret []byte, threshold, shares int) ([]*Sec
 	coefficients := make([][]byte, threshold-1)
 	for i := range coefficients {
 		coeff := make([]byte, len(secret))
-		rand.Read(coeff)
+		if _, err := rand.Read(coeff); err != nil {
+			return nil, fmt.Errorf("failed to generate random coefficient: %w", err)
+		}
 		coefficients[i] = coeff
 	}
 
@@ -344,7 +356,7 @@ func (sm *SSSSManager) RecoverSecret(shares []*SecretShare) ([]byte, error) {
 
 	// 简化实现：使用拉格朗日插值
 	// 注意：这是简化版，生产环境应使用完整的拉格朗日插值
-	
+
 	// 解码分片
 	decodedShares := make([][]byte, len(shares))
 	for i, share := range shares {

@@ -19,11 +19,11 @@ func GetCustomEmojis(c *gin.Context) {
 	result := make([]gin.H, 0, len(emojis))
 	for _, emoji := range emojis {
 		result = append(result, gin.H{
-			"shortcode":        emoji.Shortcode,
-			"url":              emoji.Url,
-			"static_url":       emoji.StaticUrl,
+			"shortcode":         emoji.Shortcode,
+			"url":               emoji.Url,
+			"static_url":        emoji.StaticUrl,
 			"visible_in_picker": emoji.VisibleInPicker,
-			"category":         emoji.Category,
+			"category":          emoji.Category,
 		})
 	}
 

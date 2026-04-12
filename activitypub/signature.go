@@ -156,9 +156,9 @@ func VerifyRequest(req *http.Request, publicKey *rsa.PublicKey) error {
 
 // PublicKeyCache caches public keys with TTL
 type PublicKeyCache struct {
-	keys  map[string]*cachedKey
-	mu    sync.RWMutex
-	ttl   time.Duration
+	keys map[string]*cachedKey
+	mu   sync.RWMutex
+	ttl  time.Duration
 }
 
 type cachedKey struct {
@@ -176,7 +176,7 @@ var globalKeyCache = &PublicKeyCache{
 func (c *PublicKeyCache) Get(keyID string) (*rsa.PublicKey, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if cached, ok := c.keys[keyID]; ok {
 		if time.Now().Before(cached.expiresAt) {
 			return cached.key, true
@@ -189,7 +189,7 @@ func (c *PublicKeyCache) Get(keyID string) (*rsa.PublicKey, bool) {
 func (c *PublicKeyCache) Set(keyID string, key *rsa.PublicKey) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.keys[keyID] = &cachedKey{
 		key:       key,
 		expiresAt: time.Now().Add(c.ttl),
@@ -260,10 +260,10 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 
 	// Fetch the actor to get the public key
 	client := NewClient(nil, "")
-	
+
 	// KeyID is typically the actor URI with #main-key suffix
 	actorURI := strings.TrimSuffix(keyID, "#main-key")
-	
+
 	actor, err := client.FetchActor(ctx, actorURI)
 	if err != nil {
 		return nil, fmt.Errorf("fetching actor: %w", err)
@@ -318,7 +318,7 @@ func verifyDigest(body []byte, digestHeader string) error {
 func VerifyActivitySignature(c interface{ GetHeader(string) string }, body []byte) (string, error) {
 	// Type assert to get the underlying request
 	var req *http.Request
-	
+
 	// Gin context has a Request method
 	if ginCtx, ok := c.(interface{ Request() *http.Request }); ok {
 		req = ginCtx.Request()

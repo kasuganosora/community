@@ -143,9 +143,9 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 		thumbData, thumbWidth, thumbHeight, thumbFormat, err = videoProc.GenerateThumbnail(videoFile, opts)
 	} else {
 		// 图片使用图片处理器
-		file, err := os.Open(tempFile)
-		if err != nil {
-			return fmt.Errorf("failed to open temp file: %w", err)
+		file, openErr := os.Open(tempFile)
+		if openErr != nil {
+			return fmt.Errorf("failed to open temp file: %w", openErr)
 		}
 		defer file.Close()
 

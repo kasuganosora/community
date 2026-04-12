@@ -38,8 +38,8 @@ func TestCanonicalJSON_SpecVectors(t *testing.T) {
 			expected: `{"a":"1","b":"2"}`,
 		},
 		{
-			name:  "nested object with arrays",
-			input: `{"auth":{"success":true,"mxid":"@john.doe:example.com","profile":{"display_name":"John Doe","three_pids":[{"medium":"email","address":"john.doe@example.org"},{"medium":"msisdn","address":"123456789"}]}}}`,
+			name:     "nested object with arrays",
+			input:    `{"auth":{"success":true,"mxid":"@john.doe:example.com","profile":{"display_name":"John Doe","three_pids":[{"medium":"email","address":"john.doe@example.org"},{"medium":"msisdn","address":"123456789"}]}}}`,
 			expected: `{"auth":{"mxid":"@john.doe:example.com","profile":{"display_name":"John Doe","three_pids":[{"address":"john.doe@example.org","medium":"email"},{"address":"123456789","medium":"msisdn"}]},"success":true}}`,
 		},
 		{

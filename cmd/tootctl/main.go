@@ -28,9 +28,9 @@ func main() {
 	}
 
 	app := &cli.App{
-		Name:     "tootctl",
-		Usage:    "Community server command-line interface (Mastodon-compatible)",
-		Version:  version,
+		Name:    "tootctl",
+		Usage:   "Community server command-line interface (Mastodon-compatible)",
+		Version: version,
 		Commands: []*cli.Command{
 			commands.SelfDestructCommand(),
 			commands.VersionCommand(version),

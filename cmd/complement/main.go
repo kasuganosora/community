@@ -49,7 +49,6 @@ func main() {
 	// Register all Matrix routes
 	homeserver.RegisterRoutes(app)
 
-
 	// Register Federation API routes
 	homeserver.RegisterFederationRoutes(app)
 	homeserver.RegisterBackfillRoutes(app)

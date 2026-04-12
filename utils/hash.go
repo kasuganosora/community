@@ -10,11 +10,11 @@ type HashDriver interface {
 }
 
 func Hash[T HashDriver](h T, data any) string {
-	switch data.(type) {
+	switch data := data.(type) {
 	case string:
-		h.Write([]byte(data.(string)))
+		_, _ = h.Write([]byte(data))
 	case []byte:
-		h.Write(data.([]byte))
+		_, _ = h.Write(data)
 	default:
 		panic("hash unsupported type")
 	}

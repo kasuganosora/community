@@ -35,7 +35,7 @@ func NewUserSearchService(hs *HomeServer) *UserSearchService {
 // MatrixSearchResult Matrix 搜索结果
 type MatrixSearchResult struct {
 	SearchCategories struct {
-		RoomEvents *RoomEventSearchResult `json:"room_events,omitempty"`
+		RoomEvents    *RoomEventSearchResult     `json:"room_events,omitempty"`
 		UserDirectory *UserDirectorySearchResult `json:"user_directory,omitempty"`
 	} `json:"search_categories"`
 	NextBatch string `json:"next_batch,omitempty"`
@@ -52,9 +52,9 @@ type RoomEventSearchResult struct {
 
 // MatrixSearchEvent 搜索事件结果 (wraps event in "result" per Matrix spec)
 type MatrixSearchEvent struct {
-	Rank    float64                `json:"rank"`
-	Result  MatrixSearchEventBody  `json:"result"`
-	Context *EventSearchContext    `json:"context,omitempty"`
+	Rank    float64               `json:"rank"`
+	Result  MatrixSearchEventBody `json:"result"`
+	Context *EventSearchContext   `json:"context,omitempty"`
 }
 
 // MatrixSearchEventBody 搜索事件内容
@@ -69,11 +69,11 @@ type MatrixSearchEventBody struct {
 
 // EventSearchContext 事件搜索上下文
 type EventSearchContext struct {
-	Start        string                   `json:"start,omitempty"`
-	End          string                   `json:"end,omitempty"`
-	EventsAfter  []MatrixSearchEventBody  `json:"events_after"`
-	EventsBefore []MatrixSearchEventBody  `json:"events_before"`
-	ProfileInfo  map[string]ProfileInfo   `json:"profile_info,omitempty"`
+	Start        string                  `json:"start,omitempty"`
+	End          string                  `json:"end,omitempty"`
+	EventsAfter  []MatrixSearchEventBody `json:"events_after"`
+	EventsBefore []MatrixSearchEventBody `json:"events_before"`
+	ProfileInfo  map[string]ProfileInfo  `json:"profile_info,omitempty"`
 }
 
 // ProfileInfo 用户信息
@@ -159,7 +159,7 @@ func (s *SearchService) searchRoomEventsFromDB(query string, roomIDs []string, l
 	// Apply pagination offset
 	offset := 0
 	if from != "" {
-		fmt.Sscanf(from, "%d", &offset)
+		_, _ = fmt.Sscanf(from, "%d", &offset)
 	}
 
 	// Fetch matching events
@@ -238,28 +238,28 @@ func (s *SearchService) getEventContext(event MatrixEvent, beforeLimit, afterLim
 // convertStatusToMatrixEvents 将社区 Status 转换为 Matrix 事件搜索结果
 func (s *SearchService) convertStatusToMatrixEvents(statusID uint64, query string) []MatrixSearchEvent {
 	results := []MatrixSearchEvent{}
-	
+
 	var status models.Status
 	if err := db.GetDB().Preload("Account").First(&status, statusID).Error; err != nil {
 		return results
 	}
-	
+
 	// 查找对应的 Matrix 房间（如果存在）
 	var roomMapping MatrixRoomMapping
 	err := db.GetDB().Where("conversation_id = ? OR group_id = ?", status.ConversationId, 0).First(&roomMapping).Error
 	if err != nil {
 		return results
 	}
-	
+
 	// 构建 Matrix 用户 ID
 	matrixUserID := fmt.Sprintf("@%s:%s", status.Account.Username, s.hs.Config.ServerName)
-	
+
 	// 构建事件内容
 	content := map[string]interface{}{
 		"msgtype": "m.text",
 		"body":    status.Content,
 	}
-	
+
 	results = append(results, MatrixSearchEvent{
 		Rank: 1.0,
 		Result: MatrixSearchEventBody{
@@ -271,7 +271,7 @@ func (s *SearchService) convertStatusToMatrixEvents(statusID uint64, query strin
 			OriginServerTS: status.CreatedAt.UnixMilli(),
 		},
 	})
-	
+
 	return results
 }
 
@@ -283,17 +283,15 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 	if limit > 50 {
 		limit = 50
 	}
-	
+
 	results := &UserDirectorySearchResult{
 		Results: []UserDirectoryResult{},
 		Limited: false,
 	}
-	
+
 	// Build search terms: strip @ prefix and :domain suffix for localpart matching
 	searchQuery := query
-	if strings.HasPrefix(searchQuery, "@") {
-		searchQuery = searchQuery[1:]
-	}
+	searchQuery = strings.TrimPrefix(searchQuery, "@")
 	if idx := strings.Index(searchQuery, ":"); idx >= 0 {
 		searchQuery = searchQuery[:idx]
 	}
@@ -334,24 +332,24 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 			"%"+searchQuery+"%", "%"+searchQuery+"%").
 		Limit(limit).
 		Find(&accounts)
-	
+
 	// 转换为 Matrix 用户格式
 	for _, account := range accounts {
 		matrixUserID := fmt.Sprintf("@%s:%s", account.Username, s.hs.Config.ServerName)
-		
+
 		// 构建头像 URL
 		avatarURL := ""
 		if account.Avatar != "" {
 			avatarURL = s.convertAvatarToMXC(account.Avatar)
 		}
-		
+
 		results.Results = append(results.Results, UserDirectoryResult{
 			UserID:      matrixUserID,
 			DisplayName: account.DisplayName,
 			AvatarURL:   avatarURL,
 		})
 	}
-	
+
 	return results, nil
 }
 
@@ -385,7 +383,7 @@ func (MatrixRoomMapping) TableName() string {
 // handleSearch 处理搜索请求
 func handleSearch(c *gin.Context) {
 	userID := getUserID(c)
-	
+
 	var req SearchRequestInternal
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -394,17 +392,17 @@ func handleSearch(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	searchService := NewSearchService(hs)
-	
+
 	result := &MatrixSearchResult{
 		SearchCategories: struct {
-			RoomEvents    *RoomEventSearchResult    `json:"room_events,omitempty"`
+			RoomEvents    *RoomEventSearchResult     `json:"room_events,omitempty"`
 			UserDirectory *UserDirectorySearchResult `json:"user_directory,omitempty"`
 		}{},
 	}
-	
+
 	// 搜索房间事件
 	if req.SearchCategories.RoomEvents != nil {
 		roomSearch := req.SearchCategories.RoomEvents
@@ -453,7 +451,7 @@ func handleSearch(c *gin.Context) {
 			result.SearchCategories.RoomEvents = results
 		}
 	}
-	
+
 	// 搜索用户目录
 	if req.SearchCategories.UserDirectory != nil {
 		userSearch := req.SearchCategories.UserDirectory
@@ -461,13 +459,13 @@ func handleSearch(c *gin.Context) {
 		if limit <= 0 {
 			limit = 10
 		}
-		
+
 		results, err := searchService.SearchUserDirectory(userSearch.SearchTerm, limit)
 		if err == nil {
 			result.SearchCategories.UserDirectory = results
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, result)
 }
 
@@ -508,7 +506,7 @@ func handleUserDirectory(c *gin.Context) {
 		SearchTerm string `json:"search_term"`
 		Limit      int    `json:"limit"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
@@ -516,10 +514,10 @@ func handleUserDirectory(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	hs := GetHomeServer()
 	searchService := NewSearchService(hs)
-	
+
 	results, err := searchService.SearchUserDirectory(req.SearchTerm, req.Limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -528,6 +526,6 @@ func handleUserDirectory(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, results)
 }

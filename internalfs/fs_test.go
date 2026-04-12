@@ -45,8 +45,8 @@ func TestGet_DifferentModes(t *testing.T) {
 	originalDevMode := config.C.DevMode
 
 	tests := []struct {
-		name     string
-		devMode  string
+		name    string
+		devMode string
 	}{
 		{"dev mode true", "true"},
 		{"dev mode false", "false"},

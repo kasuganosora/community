@@ -90,8 +90,8 @@ func TestParseSignatureHeader(t *testing.T) {
 		expected  *SignatureHeader
 	}{
 		{
-			name:   "valid signature header",
-			header: `keyId="https://example.com/users/test#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="abc123"`,
+			name:      "valid signature header",
+			header:    `keyId="https://example.com/users/test#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="abc123"`,
 			expectErr: false,
 			expected: &SignatureHeader{
 				KeyID:     "https://example.com/users/test#main-key",
@@ -141,8 +141,8 @@ func TestBuildSigningString(t *testing.T) {
 		},
 		Host: "example.com",
 		Header: http.Header{
-			"Date":    []string{"Tue, 01 Jan 2024 00:00:00 GMT"},
-			"Digest":  []string{"SHA-256=abc123"},
+			"Date":   []string{"Tue, 01 Jan 2024 00:00:00 GMT"},
+			"Digest": []string{"SHA-256=abc123"},
 		},
 	}
 
@@ -152,18 +152,18 @@ func TestBuildSigningString(t *testing.T) {
 		expected string
 	}{
 		{
-			name:    "request-target only",
-			headers: []string{"(request-target)"},
+			name:     "request-target only",
+			headers:  []string{"(request-target)"},
 			expected: "(request-target): post /users/test/inbox?foo=bar",
 		},
 		{
-			name:    "standard headers",
-			headers: []string{"(request-target)", "host", "date", "digest"},
+			name:     "standard headers",
+			headers:  []string{"(request-target)", "host", "date", "digest"},
 			expected: "(request-target): post /users/test/inbox?foo=bar\nhost: example.com\ndate: Tue, 01 Jan 2024 00:00:00 GMT\ndigest: SHA-256=abc123",
 		},
 		{
-			name:    "host header",
-			headers: []string{"host"},
+			name:     "host header",
+			headers:  []string{"host"},
 			expected: "host: example.com",
 		},
 	}

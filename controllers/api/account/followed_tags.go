@@ -54,12 +54,12 @@ func ListFollowedTags(c *gin.Context) {
 	}
 
 	type FollowedTagResult struct {
-		Id          uint64
-		AccountId   uint64
-		TagId       uint64
-		CreatedAt   *time.Time
-		Name        string
-		StatusCount uint64
+		Id           uint64
+		AccountId    uint64
+		TagId        uint64
+		CreatedAt    *time.Time
+		Name         string
+		StatusCount  uint64
 		AccountCount uint64
 	}
 
@@ -85,10 +85,10 @@ func ListFollowedTags(c *gin.Context) {
 		}
 
 		result = append(result, gin.H{
-			"name":       ft.Name,
-			"url":        "https://" + c.Request.Host + "/tags/" + ft.Name,
-			"history":    history,
-			"following":  true,
+			"name":      ft.Name,
+			"url":       "https://" + c.Request.Host + "/tags/" + ft.Name,
+			"history":   history,
+			"following": true,
 		})
 	}
 
@@ -135,10 +135,10 @@ func GetTag(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"name":       tag.Name,
-		"url":        "https://" + c.Request.Host + "/tags/" + tag.Name,
-		"history":    history,
-		"following":  following,
+		"name":      tag.Name,
+		"url":       "https://" + c.Request.Host + "/tags/" + tag.Name,
+		"history":   history,
+		"following": following,
 	})
 }
 
@@ -160,11 +160,11 @@ func FollowTag(c *gin.Context) {
 		// Create tag if not exists
 		now := time.Now()
 		tag = &models.Tag{
-			Name:       tagName,
-			StatusCount: 0,
+			Name:         tagName,
+			StatusCount:  0,
 			AccountCount: 0,
-			CreatedAt:  &now,
-			UpdatedAt:  &now,
+			CreatedAt:    &now,
+			UpdatedAt:    &now,
 		}
 		if err := db.GetDB().Create(tag).Error; err != nil {
 			_ = c.Error(errors.Wrap(err, "create tag error"))

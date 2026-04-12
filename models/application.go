@@ -177,11 +177,11 @@ func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
 
 func (s *ApplicationScope) Scan(ctx context.Context, field *schema.Field, dst reflect.Value, dbValue any) (err error) {
 	var vBytes []byte
-	switch dbValue.(type) {
+	switch dbValue := dbValue.(type) {
 	case []byte:
-		vBytes = dbValue.([]byte)
+		vBytes = dbValue
 	case string:
-		vBytes = []byte(dbValue.(string))
+		vBytes = []byte(dbValue)
 	default:
 		return errors.Errorf("invalid type %#v", dbValue)
 	}

@@ -27,7 +27,7 @@ func GetRandomString(l int) string {
 // GetRandomHex 生成随机十六进制字符串（用于 token、secret 等）
 func GetRandomHex(length int) string {
 	bytes := make([]byte, length/2+1)
-	rand.Read(bytes)
+	_, _ = rand.Read(bytes) //nolint:errcheck // rand.Read always reads len(bytes) bytes with crypto/rand
 	return hex.EncodeToString(bytes)[:length]
 }
 

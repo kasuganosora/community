@@ -12,10 +12,10 @@ type Notification struct {
 	Id        string     `json:"id"`
 	Type      string     `json:"type"`
 	CreatedAt *time.Time `json:"created_at"`
-	Account   *Account   `json:"account;omitempty"`
-	Status    *Status    `json:"status;omitempty"`
-	Report    *Report    `json:"report;omitempty"`
-	List      *List      `json:"list;omitempty"`
+	Account   *Account   `json:"account,omitempty"`
+	Status    *Status    `json:"status,omitempty"`
+	Report    *Report    `json:"report,omitempty"`
+	List      *List      `json:"list,omitempty"`
 }
 
 func ToNotification(n *models.Notification, currentAccount *models.Account) (ret *Notification, err error) {
@@ -50,6 +50,9 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	}
 
 	ret.Status, err = ToStatus(n.Status, currentAccount)
+		if err != nil {
+			return
+		}
 
 	if n.ReportId > 0 && n.Report == nil {
 		n.Report = &models.Report{}
@@ -91,7 +94,7 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		}
 	}
 
-	accounts := make([]*Account, 0)
+	var accounts []*Account
 	_accounts := make(models.Accounts, 0)
 	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountIds).Find(&_accounts).Error
 	if err != nil {

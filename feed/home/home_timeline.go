@@ -27,13 +27,25 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			go Push(status, false)
+			go func() {
+				if err := Push(status, false); err != nil {
+					log.ErrorV(err)
+				}
+			}()
 		case "before_update":
 			go ClearMentionsPushStatus(status)
 		case "after_update":
-			go Push(status, true)
+			go func() {
+				if err := Push(status, true); err != nil {
+					log.ErrorV(err)
+				}
+			}()
 		case "after_delete":
-			go Unpush(status)
+			go func() {
+				if err := Unpush(status); err != nil {
+					log.ErrorV(err)
+				}
+			}()
 		}
 
 		return true
@@ -188,7 +200,7 @@ func Push(status *models.Status, update bool) (err error) {
 		}
 	}
 
-	accountsId := make([]uint64, 0)
+	var accountsId []uint64
 
 	if status.Visibility == models.StatusVisibilityDirect {
 		accountsId = status.ToAccounts.GetIds()
@@ -239,7 +251,7 @@ func Unpush(status *models.Status) (err error) {
 		}
 	}
 
-	accountsId := make([]uint64, 0)
+	var accountsId []uint64
 
 	if status.Visibility == models.StatusVisibilityDirect {
 		accountsId = status.ToAccounts.GetIds()

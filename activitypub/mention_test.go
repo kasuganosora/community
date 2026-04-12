@@ -52,7 +52,7 @@ func TestParseMentions(t *testing.T) {
 			expectURIs:  []string{"https://example.com/users/test"},
 		},
 		{
-			name:    "mixed tags",
+			name: "mixed tags",
 			tags: []interface{}{
 				map[string]interface{}{
 					"type": "Mention",
@@ -73,9 +73,9 @@ func TestParseMentions(t *testing.T) {
 			expectURIs:  []string{"https://example.com/users/alice", "https://other.com/users/bob"},
 		},
 		{
-			name:    "HTML link mentions",
-			content: `<p>Hello <a href="https://example.com/users/test" class="mention">@test</a></p>`,
-			tags:    nil,
+			name:        "HTML link mentions",
+			content:     `<p>Hello <a href="https://example.com/users/test" class="mention">@test</a></p>`,
+			tags:        nil,
 			expectCount: 1,
 		},
 	}
@@ -100,9 +100,9 @@ func TestParseMentions(t *testing.T) {
 
 func TestParseTextMentions(t *testing.T) {
 	tests := []struct {
-		name        string
-		content     string
-		expectCount int
+		name         string
+		content      string
+		expectCount  int
 		checkMention func(t *testing.T, mentions []Mention)
 	}{
 		{
@@ -192,7 +192,7 @@ func TestParseHTMLMentions(t *testing.T) {
 			expect:  nil,
 		},
 		{
-			name: "multiple links",
+			name:    "multiple links",
 			content: `<a href="https://example.com/users/alice">@alice</a> and <a href="https://other.com/users/bob">@bob</a>`,
 			expect: []Mention{
 				{Username: "alice", Domain: "example.com", URI: "https://example.com/users/alice"},
@@ -316,9 +316,9 @@ func TestParseTagMentions(t *testing.T) {
 
 func TestParseMentionFromURI(t *testing.T) {
 	tests := []struct {
-		name    string
-		uri     string
-		expect  Mention
+		name   string
+		uri    string
+		expect Mention
 	}{
 		{
 			name: "standard /users/ format",
@@ -381,10 +381,10 @@ func TestParseMentionFromURI(t *testing.T) {
 
 func TestParseMentionName(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		expectUser    string
-		expectDomain  string
+		name         string
+		input        string
+		expectUser   string
+		expectDomain string
 	}{
 		{
 			name:         "remote user",

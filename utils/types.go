@@ -13,13 +13,13 @@ type Numeric interface {
 }
 
 func ToInt(v any) int {
-	switch v.(type) {
+	switch v := v.(type) {
 	case int:
-		return v.(int)
+		return v
 	case int64:
-		return int(v.(int64))
+		return int(v)
 	case string:
-		str := v.(string)
+		str := v
 		if str == "" {
 			return 0
 		}
@@ -32,11 +32,11 @@ func ToInt(v any) int {
 		return ret
 
 	case float64:
-		return int(v.(float64))
+		return int(v)
 	case float32:
-		return int(v.(float32))
+		return int(v)
 	case bool:
-		if v.(bool) {
+		if v {
 			return 1
 		}
 		return 0
@@ -46,13 +46,13 @@ func ToInt(v any) int {
 }
 
 func ToInt64(v any) int64 {
-	switch v.(type) {
+	switch v := v.(type) {
 	case int:
-		return int64(v.(int))
+		return int64(v)
 	case int64:
-		return v.(int64)
+		return v
 	case string:
-		str := v.(string)
+		str := v
 		if str == "" {
 			return 0
 		}
@@ -65,11 +65,11 @@ func ToInt64(v any) int64 {
 		return ret
 
 	case float64:
-		return int64(v.(float64))
+		return int64(v)
 	case float32:
-		return int64(v.(float32))
+		return int64(v)
 	case bool:
-		if v.(bool) {
+		if v {
 			return 1
 		}
 		return 0
@@ -79,13 +79,13 @@ func ToInt64(v any) int64 {
 }
 
 func ToFloat64(v any) float64 {
-	switch v.(type) {
+	switch v := v.(type) {
 	case int:
-		return float64(v.(int))
+		return float64(v)
 	case int64:
-		return float64(v.(int64))
+		return float64(v)
 	case string:
-		str := v.(string)
+		str := v
 		if str == "" {
 			return 0
 		}
@@ -98,11 +98,11 @@ func ToFloat64(v any) float64 {
 		return ret
 
 	case float64:
-		return v.(float64)
+		return v
 	case float32:
-		return float64(v.(float32))
+		return float64(v)
 	case bool:
-		if v.(bool) {
+		if v {
 			return 1
 		}
 		return 0
@@ -112,13 +112,13 @@ func ToFloat64(v any) float64 {
 }
 
 func ToBool(v any) bool {
-	switch v.(type) {
+	switch v := v.(type) {
 	case int:
-		return v.(int) != 0
+		return v != 0
 	case int64:
-		return v.(int64) != 0
+		return v != 0
 	case string:
-		str := v.(string)
+		str := v
 		if str == "" {
 			return false
 		}
@@ -131,30 +131,30 @@ func ToBool(v any) bool {
 		return ret
 
 	case float64:
-		return v.(float64) != 0
+		return v != 0
 	case float32:
-		return v.(float32) != 0
+		return v != 0
 	case bool:
-		return v.(bool)
+		return v
 	default:
 		return false
 	}
 }
 
 func ToString(v any) string {
-	switch v.(type) {
+	switch v := v.(type) {
 	case int:
-		return strconv.Itoa(v.(int))
+		return strconv.Itoa(v)
 	case int64:
-		return strconv.FormatInt(v.(int64), 10)
+		return strconv.FormatInt(v, 10)
 	case string:
-		return v.(string)
+		return v
 	case float64:
-		return strconv.FormatFloat(v.(float64), 'f', -1, 64)
+		return strconv.FormatFloat(v, 'f', -1, 64)
 	case float32:
-		return strconv.FormatFloat(float64(v.(float32)), 'f', -1, 32)
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
 	case bool:
-		return strconv.FormatBool(v.(bool))
+		return strconv.FormatBool(v)
 	default:
 		return fmt.Sprintf("%v", v)
 	}

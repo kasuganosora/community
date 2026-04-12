@@ -8,9 +8,9 @@ import (
 func MigrateMatrixHS() error {
 	// 使用 GORM 的 AutoMigrate
 	return db.GetDB().AutoMigrate(
-		// Matrix Homeserver 核心表
-		// 注意：这些表在 homeserver 包中定义，需要通过反射导入
-		// 这里手动创建表结构
+	// Matrix Homeserver 核心表
+	// 注意：这些表在 homeserver 包中定义，需要通过反射导入
+	// 这里手动创建表结构
 	)
 }
 

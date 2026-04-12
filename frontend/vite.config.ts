@@ -10,12 +10,12 @@ export default defineConfig({
     vue(),
     Components({
       resolvers: [TDesignResolver({ library: 'vue-next' })],
-      dts: true, // Generate TypeScript declaration
+      dts: 'src/components.d.ts', // Generate TypeScript declaration
     }),
     AutoImport({
       resolvers: [TDesignResolver({ library: 'vue-next' })],
       imports: ['vue', 'vue-router', 'pinia'],
-      dts: true,
+      dts: 'src/components.d.ts',
     }),
   ],
   resolve: {

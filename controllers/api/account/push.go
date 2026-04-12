@@ -12,14 +12,14 @@ import (
 
 // PushSubscription represents a push notification subscription
 type PushSubscription struct {
-	Id           uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId    uint64     `gorm:"not null;index" json:"account_id"`
-	Endpoint     string     `gorm:"type:text;not null" json:"endpoint"`
-	AuthKey      string     `gorm:"type:varchar(64)" json:"auth_key"`
-	P256dhKey    string     `gorm:"type:varchar(128)" json:"p256dh_key"`
-	Alerts       string     `gorm:"type:json" json:"alerts"` // JSON encoded alerts config
-	CreatedAt    *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
-	UpdatedAt    *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
+	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	Endpoint  string     `gorm:"type:text;not null" json:"endpoint"`
+	AuthKey   string     `gorm:"type:varchar(64)" json:"auth_key"`
+	P256dhKey string     `gorm:"type:varchar(128)" json:"p256dh_key"`
+	Alerts    string     `gorm:"type:json" json:"alerts"` // JSON encoded alerts config
+	CreatedAt *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
 }
 
 func (p *PushSubscription) TableName() string {
@@ -37,14 +37,14 @@ type CreatePushSubscriptionRequest struct {
 	} `json:"subscription" binding:"required"`
 	Data struct {
 		Alerts struct {
-			Follow      *bool `json:"follow"`
+			Follow        *bool `json:"follow"`
 			FollowRequest *bool `json:"follow_request"`
-			Favourite    *bool `json:"favourite"`
-			Reblog       *bool `json:"reblog"`
-			Mention      *bool `json:"mention"`
-			Poll         *bool `json:"poll"`
-			Status       *bool `json:"status"`
-			Update       *bool `json:"update"`
+			Favourite     *bool `json:"favourite"`
+			Reblog        *bool `json:"reblog"`
+			Mention       *bool `json:"mention"`
+			Poll          *bool `json:"poll"`
+			Status        *bool `json:"status"`
+			Update        *bool `json:"update"`
 		} `json:"alerts"`
 		Policy *string `json:"policy"`
 	} `json:"data"`
@@ -107,14 +107,14 @@ func GetPushSubscription(c *gin.Context) {
 type UpdatePushSubscriptionRequest struct {
 	Data struct {
 		Alerts struct {
-			Follow      *bool `json:"follow"`
+			Follow        *bool `json:"follow"`
 			FollowRequest *bool `json:"follow_request"`
-			Favourite    *bool `json:"favourite"`
-			Reblog       *bool `json:"reblog"`
-			Mention      *bool `json:"mention"`
-			Poll         *bool `json:"poll"`
-			Status       *bool `json:"status"`
-			Update       *bool `json:"update"`
+			Favourite     *bool `json:"favourite"`
+			Reblog        *bool `json:"reblog"`
+			Mention       *bool `json:"mention"`
+			Poll          *bool `json:"poll"`
+			Status        *bool `json:"status"`
+			Update        *bool `json:"update"`
 		} `json:"alerts"`
 		Policy *string `json:"policy"`
 	} `json:"data"`
@@ -143,7 +143,7 @@ func UpdatePushSubscription(c *gin.Context) {
 	now := time.Now()
 
 	if err := db.GetDB().Model(subscription).Updates(map[string]interface{}{
-		"alerts":    alerts,
+		"alerts":     alerts,
 		"updated_at": &now,
 	}).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "update push subscription error"))
@@ -166,14 +166,14 @@ func DeletePushSubscription(c *gin.Context) {
 
 // buildAlertsJSON builds alerts JSON from request
 func buildAlertsJSON(alerts *struct {
-	Follow      *bool `json:"follow"`
+	Follow        *bool `json:"follow"`
 	FollowRequest *bool `json:"follow_request"`
-	Favourite    *bool `json:"favourite"`
-	Reblog       *bool `json:"reblog"`
-	Mention      *bool `json:"mention"`
-	Poll         *bool `json:"poll"`
-	Status       *bool `json:"status"`
-	Update       *bool `json:"update"`
+	Favourite     *bool `json:"favourite"`
+	Reblog        *bool `json:"reblog"`
+	Mention       *bool `json:"mention"`
+	Poll          *bool `json:"poll"`
+	Status        *bool `json:"status"`
+	Update        *bool `json:"update"`
 }) string {
 	follow := true
 	followRequest := true
@@ -222,17 +222,17 @@ func buildAlertsJSON(alerts *struct {
 // buildPushSubscriptionResponse builds the push subscription response
 func buildPushSubscriptionResponse(subscription *PushSubscription) gin.H {
 	return gin.H{
-		"id":      strconv.FormatUint(subscription.Id, 10),
+		"id":       strconv.FormatUint(subscription.Id, 10),
 		"endpoint": subscription.Endpoint,
 		"alerts": gin.H{
-			"follow":        true,
+			"follow":         true,
 			"follow_request": true,
-			"favourite":     true,
-			"reblog":        true,
-			"mention":       true,
-			"poll":          true,
-			"status":        false,
-			"update":        false,
+			"favourite":      true,
+			"reblog":         true,
+			"mention":        true,
+			"poll":           true,
+			"status":         false,
+			"update":         false,
 		},
 		"server_key": "",
 		"policy":     "all",

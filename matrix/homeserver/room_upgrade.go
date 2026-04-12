@@ -87,16 +87,16 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 
 	// 创建新房间
 	newRoomReq := &CreateRoomRequest{
-		RoomVersion:     newVersion,
-		Name:            oldRoom.Name,
-		Topic:           oldRoom.Topic,
-		Visibility:      "private", // 升级过程中保持私有，之后改为与旧房间相同
-		RoomAliasName:   nil,       // 不创建别名，保留旧房间的别名
+		RoomVersion:   newVersion,
+		Name:          oldRoom.Name,
+		Topic:         oldRoom.Topic,
+		Visibility:    "private", // 升级过程中保持私有，之后改为与旧房间相同
+		RoomAliasName: nil,       // 不创建别名，保留旧房间的别名
 		CreationContent: map[string]interface{}{
 			"room_version": newVersion,
 			"predecessor": map[string]interface{}{
-				"room_id":   roomID,
-				"event_id":  oldRoom.LastEventID,
+				"room_id":  roomID,
+				"event_id": oldRoom.LastEventID,
 			},
 		},
 		InitialState: rus.buildInitialState(oldState),

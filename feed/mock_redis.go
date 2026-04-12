@@ -2,7 +2,6 @@ package feed
 
 import (
 	"context"
-	"strconv"
 	"sync"
 
 	"github.com/redis/go-redis/v9"
@@ -559,18 +558,6 @@ func (m *MockRedisClient) GetSet(key string) map[string]struct{} {
 		}
 	}
 	return result
-}
-
-// parseScore 解析分数
-func parseScore(s string) float64 {
-	if s == "-inf" {
-		return -1e308
-	}
-	if s == "+inf" || s == "inf" {
-		return 1e308
-	}
-	f, _ := strconv.ParseFloat(s, 64)
-	return f
 }
 
 // Scan 非阻塞迭代键（Mock 实现）

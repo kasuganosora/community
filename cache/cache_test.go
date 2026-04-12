@@ -79,8 +79,8 @@ func TestCache_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Delete single key", func(t *testing.T) {
-		c.SetString(ctx, "delkey1", "value1", time.Minute)
-		c.SetString(ctx, "delkey2", "value2", time.Minute)
+		_ = c.SetString(ctx, "delkey1", "value1", time.Minute)
+		_ = c.SetString(ctx, "delkey2", "value2", time.Minute)
 
 		err := c.Delete(ctx, "delkey1")
 		assert.NoError(t, err)
@@ -93,9 +93,9 @@ func TestCache_Delete(t *testing.T) {
 	})
 
 	t.Run("Delete multiple keys", func(t *testing.T) {
-		c.SetString(ctx, "multidel1", "v1", time.Minute)
-		c.SetString(ctx, "multidel2", "v2", time.Minute)
-		c.SetString(ctx, "multidel3", "v3", time.Minute)
+		_ = c.SetString(ctx, "multidel1", "v1", time.Minute)
+		_ = c.SetString(ctx, "multidel2", "v2", time.Minute)
+		_ = c.SetString(ctx, "multidel3", "v3", time.Minute)
 
 		err := c.Delete(ctx, "multidel1", "multidel2")
 		assert.NoError(t, err)
@@ -115,10 +115,10 @@ func TestCache_DeleteByPattern(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Delete by pattern", func(t *testing.T) {
-		c.SetString(ctx, "pattern:a", "1", time.Minute)
-		c.SetString(ctx, "pattern:b", "2", time.Minute)
-		c.SetString(ctx, "pattern:c", "3", time.Minute)
-		c.SetString(ctx, "other:d", "4", time.Minute)
+		_ = c.SetString(ctx, "pattern:a", "1", time.Minute)
+		_ = c.SetString(ctx, "pattern:b", "2", time.Minute)
+		_ = c.SetString(ctx, "pattern:c", "3", time.Minute)
+		_ = c.SetString(ctx, "other:d", "4", time.Minute)
 
 		err := c.DeleteByPattern(ctx, "pattern:*")
 		assert.NoError(t, err)
@@ -138,7 +138,7 @@ func TestCache_Exists(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Key exists", func(t *testing.T) {
-		c.SetString(ctx, "existskey", "value", time.Minute)
+		_ = c.SetString(ctx, "existskey", "value", time.Minute)
 		exists, err := c.Exists(ctx, "existskey")
 		assert.NoError(t, err)
 		assert.True(t, exists)
@@ -157,7 +157,7 @@ func TestCache_ExpireAndTTL(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Expire and TTL", func(t *testing.T) {
-		c.SetString(ctx, "expirekey", "value", 0)
+		_ = c.SetString(ctx, "expirekey", "value", 0)
 
 		err := c.Expire(ctx, "expirekey", 10*time.Second)
 		assert.NoError(t, err)
@@ -195,7 +195,7 @@ func TestCache_IncrementDecrement(t *testing.T) {
 	})
 
 	t.Run("Decrement", func(t *testing.T) {
-		c.IncrementBy(ctx, "counter3", 10)
+		_, _ = c.IncrementBy(ctx, "counter3", 10)
 		val, err := c.Decrement(ctx, "counter3")
 		assert.NoError(t, err)
 		assert.Equal(t, int64(9), val)
@@ -267,7 +267,7 @@ func TestCache_List(t *testing.T) {
 	})
 
 	t.Run("LLen", func(t *testing.T) {
-		c.RPush(ctx, "listlen", "1", "2", "3")
+		_ = c.RPush(ctx, "listlen", "1", "2", "3")
 		len, err := c.LLen(ctx, "listlen")
 		assert.NoError(t, err)
 		assert.Equal(t, int64(3), len)
@@ -292,7 +292,7 @@ func TestCache_SetOperations(t *testing.T) {
 	})
 
 	t.Run("SIsMember", func(t *testing.T) {
-		c.SAdd(ctx, "setcheck", "member1", "member2")
+		_ = c.SAdd(ctx, "setcheck", "member1", "member2")
 
 		isMember, err := c.SIsMember(ctx, "setcheck", "member1")
 		assert.NoError(t, err)
@@ -312,8 +312,8 @@ func TestCache_SortedSet(t *testing.T) {
 	t.Run("ZAdd and ZRange", func(t *testing.T) {
 		err := c.ZAdd(ctx, "zsetkey", 1.0, "one")
 		assert.NoError(t, err)
-		c.ZAdd(ctx, "zsetkey", 2.0, "two")
-		c.ZAdd(ctx, "zsetkey", 3.0, "three")
+		_ = c.ZAdd(ctx, "zsetkey", 2.0, "two")
+		_ = c.ZAdd(ctx, "zsetkey", 3.0, "three")
 
 		result, err := c.ZRange(ctx, "zsetkey", 0, -1)
 		assert.NoError(t, err)
@@ -321,9 +321,9 @@ func TestCache_SortedSet(t *testing.T) {
 	})
 
 	t.Run("ZRangeByScore", func(t *testing.T) {
-		c.ZAdd(ctx, "zsetrange", 1.0, "a")
-		c.ZAdd(ctx, "zsetrange", 5.0, "b")
-		c.ZAdd(ctx, "zsetrange", 10.0, "c")
+		_ = c.ZAdd(ctx, "zsetrange", 1.0, "a")
+		_ = c.ZAdd(ctx, "zsetrange", 5.0, "b")
+		_ = c.ZAdd(ctx, "zsetrange", 10.0, "c")
 
 		result, err := c.ZRangeByScore(ctx, "zsetrange", "2", "8", 0, 10)
 		assert.NoError(t, err)
@@ -331,8 +331,8 @@ func TestCache_SortedSet(t *testing.T) {
 	})
 
 	t.Run("ZRem", func(t *testing.T) {
-		c.ZAdd(ctx, "zsetrem", 1.0, "remove_me")
-		c.ZAdd(ctx, "zsetrem", 2.0, "keep_me")
+		_ = c.ZAdd(ctx, "zsetrem", 1.0, "remove_me")
+		_ = c.ZAdd(ctx, "zsetrem", 2.0, "keep_me")
 
 		err := c.ZRem(ctx, "zsetrem", "remove_me")
 		assert.NoError(t, err)

@@ -67,17 +67,15 @@ func (em *EventManager) Trigger(event Event) {
 	em.mu.RUnlock()
 
 	for _, handler := range handlers {
-		if handler.Exec(event) == false {
+		if !handler.Exec(event) {
 			break
 		}
 	}
 
 	// 如果有通配符 * 的事件，也触发
-	if wildcardHandlers != nil {
-		for _, handler := range wildcardHandlers {
-			if handler.Exec(event) == false {
-				break
-			}
+	for _, handler := range wildcardHandlers {
+		if !handler.Exec(event) {
+			break
 		}
 	}
 }

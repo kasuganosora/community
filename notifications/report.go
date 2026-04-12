@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 )
@@ -30,7 +31,7 @@ func reportProcessedNotification(report *models.Report) {
 	}
 
 	if err := db.GetDB().Create(nf).Error; err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[reportProcessedNotification] create notification failed, reportId: %d", report.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[reportProcessedNotification] create notification failed, reportId: %d", report.Id)))
 		return
 	}
 }

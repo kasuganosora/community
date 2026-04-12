@@ -80,7 +80,7 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 	if membership != MembershipJoin {
 		return nil, ErrForbidden
 	}
-	
+
 	// 检查权限（对于状态事件）
 	if stateKey != nil {
 		// Users are always allowed to update their own m.room.member state
@@ -99,7 +99,7 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 			return nil, ErrForbidden
 		}
 	}
-	
+
 	// State event idempotency: if the current state already has identical content,
 	// return the existing event_id (Matrix spec: setting state twice is idempotent)
 	if stateKey != nil {
@@ -161,18 +161,18 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 		tx.Rollback()
 		return nil, ErrInternal
 	}
-	
+
 	// 如果是状态事件，更新状态
 	if stateKey != nil {
 		e.HS.Room.updateRoomState(tx, roomID, event)
 	}
-	
+
 	// 更新房间最后事件
 	tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(map[string]interface{}{
 		"last_event_id": eventID,
 		"last_event_ts": event.OriginServerTS,
 	})
-	
+
 	// 处理特殊事件类型
 	switch EventType(eventType) {
 	case EventTypeRoomMember:
@@ -189,14 +189,14 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 			}
 		}
 	}
-	
+
 	if err := tx.Commit().Error; err != nil {
 		return nil, ErrInternal
 	}
-	
+
 	// 存储事件关系
 	if e.HS.Relations != nil {
-		e.HS.Relations.StoreRelation(event)
+		go func() { _ = e.HS.Relations.StoreRelation(event) }()
 	}
 
 	// 通知同步等待者（唤醒 long-polling 的 /sync 请求）
@@ -289,7 +289,7 @@ func (e *EventService) SendRoomMessage(roomID, sender, txnID *string, content *S
 		"msgtype": content.MsgType,
 		"body":    content.Body,
 	}
-	
+
 	if content.Format != "" {
 		contentMap["format"] = content.Format
 		contentMap["formatted_body"] = content.FormattedBody
@@ -306,7 +306,7 @@ func (e *EventService) SendRoomMessage(roomID, sender, txnID *string, content *S
 	if content.NewContent != nil {
 		contentMap["m.new_content"] = content.NewContent
 	}
-	
+
 	// 解引用
 	rID := ""
 	sID := ""
@@ -316,7 +316,7 @@ func (e *EventService) SendRoomMessage(roomID, sender, txnID *string, content *S
 	if sender != nil {
 		sID = *sender
 	}
-	
+
 	return e.SendRoomEvent(rID, sID, string(EventTypeRoomMessage), txnID, contentMap, nil)
 }
 
@@ -402,7 +402,7 @@ func (e *EventService) GetEvent(eventID string) (*ClientEvent, *MatrixError) {
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	
+
 	return event.ToClientEvent(), nil
 }
 
@@ -430,19 +430,19 @@ func (e *EventService) GetRoomEventForDevice(roomID, eventID, deviceID string) (
 
 // GetRoomMessagesRequest 获取房间消息请求
 type GetRoomMessagesRequest struct {
-	Dir     string `form:"dir"` // f, b
-	From    string `form:"from"`
-	To      string `form:"to"`
-	Limit   int    `form:"limit"`
-	Filter  string `form:"filter"`
+	Dir    string `form:"dir"` // f, b
+	From   string `form:"from"`
+	To     string `form:"to"`
+	Limit  int    `form:"limit"`
+	Filter string `form:"filter"`
 }
 
 // RoomMessagesResponse 消息响应
 type RoomMessagesResponse struct {
-	Chunk  []*ClientEvent `json:"chunk"`
-	Start  string         `json:"start"`
-	End    string         `json:"end,omitempty"`
-	State  []*ClientEvent `json:"state,omitempty"`
+	Chunk []*ClientEvent `json:"chunk"`
+	Start string         `json:"start"`
+	End   string         `json:"end,omitempty"`
+	State []*ClientEvent `json:"state,omitempty"`
 }
 
 // GetRoomMessages 获取房间消息
@@ -456,14 +456,14 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 	if member.Forgotten {
 		return nil, ErrForbidden
 	}
-	
+
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
 	} else if limit > 1000 {
 		limit = 1000
 	}
-	
+
 	query := db.GetDB().Model(&MatrixEvent{}).Where("room_id = ?", roomID)
 
 	// For departed users, limit visible events to those at or before their leave
@@ -645,31 +645,31 @@ func (e *EventService) GetRoomContext(roomID, eventID, userID string, limit int)
 	if membership != MembershipJoin {
 		return nil, ErrForbidden
 	}
-	
+
 	// 获取目标事件
 	var targetEvent MatrixEvent
 	err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, eventID).First(&targetEvent).Error
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	
+
 	if limit <= 0 || limit > 100 {
 		limit = 10
 	}
-	
+
 	// 获取之前的事件
 	var eventsBefore []MatrixEvent
 	db.GetDB().Where("room_id = ? AND origin_server_ts < ?", roomID, targetEvent.OriginServerTS).
 		Order("origin_server_ts DESC").Limit(limit).Find(&eventsBefore)
-	
+
 	// 获取之后的事件
 	var eventsAfter []MatrixEvent
 	db.GetDB().Where("room_id = ? AND origin_server_ts > ?", roomID, targetEvent.OriginServerTS).
 		Order("origin_server_ts ASC").Limit(limit).Find(&eventsAfter)
-	
+
 	// 获取房间状态
 	state, _ := e.HS.Room.GetRoomStateAll(roomID)
-	
+
 	// Build pagination tokens
 	startToken := ""
 	if len(eventsBefore) > 0 {
@@ -685,12 +685,12 @@ func (e *EventService) GetRoomContext(roomID, eventID, userID string, limit int)
 	}
 
 	return &EventContextResponse{
-		Start:          startToken,
-		End:            endToken,
-		Event:          targetEvent.ToClientEvent(),
-		EventsBefore:   e.eventsToClientEvents(eventsBefore),
-		EventsAfter:    e.eventsToClientEvents(eventsAfter),
-		State:          state,
+		Start:        startToken,
+		End:          endToken,
+		Event:        targetEvent.ToClientEvent(),
+		EventsBefore: e.eventsToClientEvents(eventsBefore),
+		EventsAfter:  e.eventsToClientEvents(eventsAfter),
+		State:        state,
 	}, nil
 }
 
@@ -721,10 +721,10 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 	}
 
 	redactEvent := &MatrixEvent{
-		EventID:        redactEventID,
-		RoomID:         roomID,
-		EventType:      EventTypeRoomRedaction,
-		Sender:         userID,
+		EventID:   redactEventID,
+		RoomID:    roomID,
+		EventType: EventTypeRoomRedaction,
+		Sender:    userID,
 		Content: map[string]interface{}{
 			"reason": reason,
 		},
@@ -763,14 +763,14 @@ func (e *EventService) canUserSendEvent(roomID, userID string, eventType EventTy
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := e.HS.Room.getUserPowerLevel(pl, userID)
-	
+
 	// 检查事件级别
 	if level, ok := pl.Events[string(eventType)]; ok {
 		return userPL >= level
 	}
-	
+
 	return userPL >= pl.EventsDefault
 }
 
@@ -780,14 +780,14 @@ func (e *EventService) canUserSendStateEvent(roomID, userID string, eventType Ev
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := e.HS.Room.getUserPowerLevel(pl, userID)
-	
+
 	// 检查事件级别
 	if level, ok := pl.Events[string(eventType)]; ok {
 		return userPL >= level
 	}
-	
+
 	return userPL >= pl.StateDefault
 }
 
@@ -797,7 +797,7 @@ func (e *EventService) canUserRedact(roomID, userID string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	userPL := e.HS.Room.getUserPowerLevel(pl, userID)
 	return userPL >= pl.Redact
 }
@@ -809,12 +809,12 @@ func (e *EventService) getPrevEvents(roomID string) []string {
 	var events []MatrixEvent
 	db.GetDB().Where("room_id = ?", roomID).
 		Order("depth DESC").Limit(10).Find(&events)
-	
+
 	prevEvents := make([]string, len(events))
 	for i, event := range events {
 		prevEvents[i] = event.EventID
 	}
-	
+
 	return prevEvents
 }
 
@@ -823,13 +823,13 @@ func (e *EventService) handleMemberEvent(tx *gorm.DB, event *MatrixEvent) {
 	if event.StateKey == nil {
 		return
 	}
-	
+
 	userID := *event.StateKey
 	membership, ok := event.Content["membership"].(string)
 	if !ok {
 		return
 	}
-	
+
 	e.HS.Room.updateRoomMember(tx, event.RoomID, userID, MembershipState(membership), event.EventID)
 }
 
@@ -911,7 +911,7 @@ func (e *EventService) GetRoomStateEvent(roomID, eventType, stateKey string) (*C
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	
+
 	return &ClientEvent{
 		EventID:  state.EventID,
 		RoomID:   state.RoomID,

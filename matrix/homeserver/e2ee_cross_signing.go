@@ -504,25 +504,25 @@ func (csm *CrossSigningManager) RevokeCrossSigningKeys(userID string) error {
 
 // DeviceVerification 设备验证状态
 type DeviceVerification struct {
-	TransactionID   string
-	UserID          string
-	DeviceID        string
-	OtherUserID     string
-	OtherDeviceID   string
-	Method          string // sas, qr_code_scan, etc.
-	Stage           string // requested, started, keys_exchanged, accepted, verified, cancelled
-	StartTime       time.Time
-	ExpirationTime  time.Time
-	SASData         map[string]interface{}
-	MACMethod       string
+	TransactionID        string
+	UserID               string
+	DeviceID             string
+	OtherUserID          string
+	OtherDeviceID        string
+	Method               string // sas, qr_code_scan, etc.
+	Stage                string // requested, started, keys_exchanged, accepted, verified, cancelled
+	StartTime            time.Time
+	ExpirationTime       time.Time
+	SASData              map[string]interface{}
+	MACMethod            string
 	KeyAgreementProtocol string
-	HashAlgorithm   string
-	CipherAlgorithm string
+	HashAlgorithm        string
+	CipherAlgorithm      string
 }
 
 // DeviceVerificationManager 设备验证管理器
 type DeviceVerificationManager struct {
-	verifications map[string]*DeviceVerification // transaction_id -> verification
+	verifications map[string]*DeviceVerification  // transaction_id -> verification
 	callbacks     map[string][]func(string, bool) // 验证完成回调
 }
 

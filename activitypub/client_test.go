@@ -42,7 +42,7 @@ func TestClientGet(t *testing.T) {
 		assert.Contains(t, r.Header.Get("User-Agent"), "Community")
 
 		w.Header().Set("Content-Type", "application/activity+json")
-		json.NewEncoder(w).Encode(map[string]string{"type": "Note", "id": "test"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"type": "Note", "id": "test"})
 	}))
 	defer server.Close()
 
@@ -122,7 +122,7 @@ func TestClientPostWithSignature(t *testing.T) {
 func TestClientPostError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		w.Write([]byte("internal server error"))
+		_, _ = w.Write([]byte("internal server error"))
 	}))
 	defer server.Close()
 
@@ -183,16 +183,16 @@ func TestClientSignRequestHostNotLowercased(t *testing.T) {
 
 func TestClientFetchActor(t *testing.T) {
 	actor := Actor{
-		ID:               "https://remote.com/users/alice",
-		Type:             "Person",
+		ID:                "https://remote.com/users/alice",
+		Type:              "Person",
 		PreferredUsername: "alice",
-		Inbox:            "https://remote.com/users/alice/inbox",
-		Outbox:           "https://remote.com/users/alice/outbox",
+		Inbox:             "https://remote.com/users/alice/inbox",
+		Outbox:            "https://remote.com/users/alice/outbox",
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/activity+json")
-		json.NewEncoder(w).Encode(actor)
+		_ = json.NewEncoder(w).Encode(actor)
 	}))
 	defer server.Close()
 
@@ -206,7 +206,7 @@ func TestClientFetchActor(t *testing.T) {
 func TestClientFetchObject(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/activity+json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"type":    "Note",
 			"content": "Hello world",
 		})
@@ -224,7 +224,7 @@ func TestClientFetchStatus(t *testing.T) {
 	now := "2024-01-01T00:00:00Z"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/activity+json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"type":         "Note",
 			"id":           "https://remote.com/statuses/1",
 			"content":      "<p>Hello</p>",

@@ -31,10 +31,10 @@ func VerifyCredentials(c *gin.Context) {
 
 // AccountSource represents the source field in account credentials
 type AccountSource struct {
-	Privacy   string `json:"privacy"`
-	Sensitive bool   `json:"sensitive"`
-	Language  string `json:"language"`
-	Note      string `json:"note"`
+	Privacy   string                `json:"privacy"`
+	Sensitive bool                  `json:"sensitive"`
+	Language  string                `json:"language"`
+	Note      string                `json:"note"`
 	Fields    []models.AccountField `json:"fields"`
 }
 

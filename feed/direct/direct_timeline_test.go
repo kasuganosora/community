@@ -137,9 +137,9 @@ func TestUnpush_VisibilityCheck(t *testing.T) {
 
 func TestUnpush_NoToAccounts(t *testing.T) {
 	status := &models.Status{
-		Id:          1,
-		Visibility:  models.StatusVisibilityDirect,
-		ToAccounts:  nil,
+		Id:         1,
+		Visibility: models.StatusVisibilityDirect,
+		ToAccounts: nil,
 	}
 
 	// 没有 ToAccounts 时不应该推送删除
@@ -148,9 +148,9 @@ func TestUnpush_NoToAccounts(t *testing.T) {
 
 func TestUnpush_EmptyToAccounts(t *testing.T) {
 	status := &models.Status{
-		Id:          1,
-		Visibility:  models.StatusVisibilityDirect,
-		ToAccounts:  []*models.Account{},
+		Id:         1,
+		Visibility: models.StatusVisibilityDirect,
+		ToAccounts: []*models.Account{},
 	}
 
 	// 空的 ToAccounts 时不应该推送删除

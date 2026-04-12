@@ -99,7 +99,9 @@ func TestLocalBackendExists(t *testing.T) {
 	// Create a file
 	key := "exists_test.txt"
 	content := []byte("test content")
-	backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "text/plain")
+	if err := backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "text/plain"); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
 
 	// Test existing file
 	exists, err = backend.Exists(ctx, key)
@@ -125,7 +127,9 @@ func TestLocalBackendDelete(t *testing.T) {
 	content := []byte("delete me")
 
 	// Create file
-	backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "text/plain")
+	if err := backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "text/plain"); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
 
 	// Verify file exists
 	exists, _ := backend.Exists(ctx, key)

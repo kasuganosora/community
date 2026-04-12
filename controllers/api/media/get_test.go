@@ -1,8 +1,6 @@
 package media
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -153,9 +151,9 @@ func TestFocusClamping(t *testing.T) {
 		{0, 0, 0, 0, false},
 		{1, 1, 1, 1, false},
 		{-1, -1, -1, -1, false},
-		{2, 2, 1, 1, true},         // Clamp to 1
-		{-2, -2, -1, -1, true},     // Clamp to -1
-		{0.5, 1.5, 0.5, 1, true},   // Only Y clamped
+		{2, 2, 1, 1, true},       // Clamp to 1
+		{-2, -2, -1, -1, true},   // Clamp to -1
+		{0.5, 1.5, 0.5, 1, true}, // Only Y clamped
 	}
 
 	for _, tt := range tests {
@@ -261,8 +259,6 @@ func TestFocusUpdateLogic(t *testing.T) {
 						assert.InDelta(t, tt.expectY, focusY, 0.0001)
 					}
 				}
-			} else {
-				// For invalid cases, just check that we didn't set anything meaningful
 			}
 		})
 	}
@@ -275,12 +271,4 @@ func BenchmarkFocusParsing(b *testing.B) {
 		parts := strings.Split(input, ",")
 		_ = parts
 	}
-}
-
-// Helper function to create a test context
-func createTestContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
-	return c, w
 }

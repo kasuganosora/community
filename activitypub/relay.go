@@ -16,8 +16,7 @@ var RelayContext = []string{"https://www.w3.org/ns/activitystreams"}
 
 // RelayService 中继服务
 type RelayService struct {
-	db      *gorm.DB
-	encoder *json.Encoder
+	db *gorm.DB
 }
 
 // NewRelayService 创建中继服务

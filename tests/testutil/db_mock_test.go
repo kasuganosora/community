@@ -251,7 +251,7 @@ func TestTestDB_QueryAll(t *testing.T) {
 	assert.NoError(t, err)
 
 	for i := 1; i <= 3; i++ {
-		testDB.Exec("INSERT INTO test_query VALUES (?, ?)", i, "value"+string(rune('0'+i)))
+		_ = testDB.Exec("INSERT INTO test_query VALUES (?, ?)", i, "value"+string(rune('0'+i)))
 	}
 
 	// Query all

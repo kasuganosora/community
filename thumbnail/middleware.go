@@ -2,6 +2,7 @@ package thumbnail
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -89,7 +90,7 @@ func ThumbnailMiddleware(host string) gin.HandlerFunc {
 		if processed != nil {
 			// 修改响应体
 			c.Writer.Header().Set("Content-Length", strconv.Itoa(len(processed)))
-			c.Writer.Write(processed)
+			_, _ = c.Writer.Write(processed)
 		}
 	}
 }
@@ -210,7 +211,7 @@ func processString(s string, svc *service.Service, host string) string {
 	}
 
 	// 批量获取缩略图 URL
-	results := svc.BatchGetThumbnailURLs(nil, urls)
+	results := svc.BatchGetThumbnailURLs(context.TODO(), urls)
 
 	// 替换 URL
 	result := s
@@ -253,7 +254,7 @@ func ApplyThumbnailsToStatuses(statuses []*models.Status, host string) {
 	}
 
 	// 批量获取缩略图
-	results := svc.BatchGetThumbnailURLs(nil, urls)
+	results := svc.BatchGetThumbnailURLs(context.TODO(), urls)
 
 	// 应用到每个状态
 	for _, status := range statuses {
@@ -289,7 +290,7 @@ func ProcessContent(content string, host string) string {
 		return content
 	}
 
-	results := svc.BatchGetThumbnailURLs(nil, urls)
+	results := svc.BatchGetThumbnailURLs(context.TODO(), urls)
 
 	result := content
 	for originalURL, thumbResult := range results {

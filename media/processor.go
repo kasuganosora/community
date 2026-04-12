@@ -157,8 +157,9 @@ func (p *ImageProcessor) CreateThumbnail(img image.Image, srcPath string, format
 		// 更改扩展名
 		newThumbPath := strings.TrimSuffix(thumbPath, ext) + ".jpg"
 		if err == nil {
-			os.Rename(thumbPath, newThumbPath)
-			thumbPath = newThumbPath
+			if renameErr := os.Rename(thumbPath, newThumbPath); renameErr != nil {
+				log.Warn("failed to rename thumbnail: %v", renameErr)
+			}
 		}
 	default:
 		// 默认保存为 JPEG
@@ -273,7 +274,9 @@ func (p *ImageProcessor) DecodeImage(path string) (image.Image, string, error) {
 	img, format, err := image.Decode(file)
 	if err != nil {
 		// 如果标准解码失败，尝试 WebP
-		file.Seek(0, 0)
+		if _, seekErr := file.Seek(0, 0); seekErr != nil {
+			return nil, "", seekErr
+		}
 		img, err = webp.Decode(file)
 		if err != nil {
 			return nil, "", err
@@ -292,7 +295,9 @@ func (p *ImageProcessor) DecodeImageFromBytes(data []byte) (image.Image, string,
 	img, format, err := image.Decode(reader)
 	if err != nil {
 		// 如果标准解码失败，尝试 WebP
-		reader.Seek(0, 0)
+		if _, seekErr := reader.Seek(0, 0); seekErr != nil {
+			return nil, "", seekErr
+		}
 		img, err = webp.Decode(reader)
 		if err != nil {
 			return nil, "", err
@@ -336,7 +341,9 @@ func (p *ImageProcessor) OptimizeImage(srcPath string, quality int) error {
 	// 如果是 JPEG，重新压缩
 	if format == "jpeg" || format == "jpg" {
 		backupPath := srcPath + ".bak"
-		os.Rename(srcPath, backupPath)
+		if err := os.Rename(srcPath, backupPath); err != nil {
+			return fmt.Errorf("failed to create backup: %w", err)
+		}
 		defer os.Remove(backupPath)
 
 		return p.saveJPEGWithQuality(img, srcPath, quality)
@@ -421,7 +428,9 @@ func (p *ImageProcessor) GetImageInfo(path string) (*ImageInfo, error) {
 	}
 
 	// 生成 BlurHash
-	file.Seek(0, 0)
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return nil, seekErr
+	}
 	img, _, err := image.Decode(file)
 	if err == nil {
 		info.BlurHash, _ = p.GenerateBlurHash(img)

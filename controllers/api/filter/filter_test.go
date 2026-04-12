@@ -29,9 +29,9 @@ func TestMain(m *testing.M) {
 }
 
 // setupTestDB 初始化测试数据库
-func setupTestDB(t *testing.T) func() {
+func setupTestDB(t *testing.T) {
 	var err error
-	testDB, err = testutil.NewTestDB()
+	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
@@ -42,11 +42,6 @@ func setupTestDB(t *testing.T) func() {
 	// Auto migrate
 	if err := testDB.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Filter{}); err != nil {
 		t.Fatalf("Failed to migrate: %v", err)
-	}
-
-	return func() {
-		database.ResetTestDB()
-		testDB.Close()
 	}
 }
 
@@ -263,8 +258,7 @@ func TestUpdate_InvalidID(t *testing.T) {
 // Account Tests (使用 sqlexec)
 
 func TestCreateAccount_Success(t *testing.T) {
-	cleanup := setupTestDB(t)
-	defer cleanup()
+	setupTestDB(t)
 
 	account := createTestAccount(t, "testuser")
 
@@ -279,8 +273,7 @@ func TestCreateAccount_Success(t *testing.T) {
 }
 
 func TestAccount_NotFound(t *testing.T) {
-	cleanup := setupTestDB(t)
-	defer cleanup()
+	setupTestDB(t)
 
 	// 查找不存在的账户
 	var found models.Account
@@ -290,8 +283,7 @@ func TestAccount_NotFound(t *testing.T) {
 }
 
 func TestAccount_Delete(t *testing.T) {
-	cleanup := setupTestDB(t)
-	defer cleanup()
+	setupTestDB(t)
 
 	account := createTestAccount(t, "deleteuser")
 

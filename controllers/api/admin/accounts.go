@@ -116,11 +116,11 @@ func GetAccount(c *gin.Context) {
 
 // AccountActionRequest represents an account action request
 type AccountActionRequest struct {
-	Type       string `json:"type"`
-	ReportId   string `json:"report_id"`
-	WarningPresetId string `json:"warning_preset_id"`
-	Text       string `json:"text"`
-	SendEmailNotification bool `json:"send_email_notification"`
+	Type                  string `json:"type"`
+	ReportId              string `json:"report_id"`
+	WarningPresetId       string `json:"warning_preset_id"`
+	Text                  string `json:"text"`
+	SendEmailNotification bool   `json:"send_email_notification"`
 }
 
 // PerformAccountAction handles POST /api/v1/admin/accounts/:id/action
@@ -311,24 +311,24 @@ func serializeAdminAccount(account *models.Account) gin.H {
 	silenced := account.Locked && !account.IsBan
 
 	result := gin.H{
-		"id":                strconv.FormatUint(account.Id, 10),
-		"username":          account.Username,
-		"domain":            domain,
-		"display_name":      account.DisplayName,
-		"avatar":            account.Avatar,
-		"avatar_static":     account.AvatarStatic,
-		"header":            account.Header,
-		"header_static":     account.HeaderStatic,
-		"locked":            account.Locked,
-		"bot":               account.Bot,
-		"discoverable":      account.Discoverable,
-		"note":              account.Note,
-		"created_at":        createdAt,
-		"last_status_at":    lastStatusAt,
-		"last_activity_at":  lastActivityAt,
-		"suspended":         suspended,
-		"silenced":          silenced,
-		"account":           serializer.ToAccount(account),
+		"id":               strconv.FormatUint(account.Id, 10),
+		"username":         account.Username,
+		"domain":           domain,
+		"display_name":     account.DisplayName,
+		"avatar":           account.Avatar,
+		"avatar_static":    account.AvatarStatic,
+		"header":           account.Header,
+		"header_static":    account.HeaderStatic,
+		"locked":           account.Locked,
+		"bot":              account.Bot,
+		"discoverable":     account.Discoverable,
+		"note":             account.Note,
+		"created_at":       createdAt,
+		"last_status_at":   lastStatusAt,
+		"last_activity_at": lastActivityAt,
+		"suspended":        suspended,
+		"silenced":         silenced,
+		"account":          serializer.ToAccount(account),
 	}
 
 	// Add user info for local accounts

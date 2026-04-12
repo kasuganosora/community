@@ -120,7 +120,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 			}
 		}
 
-		ret[i].LastStatus, _ = statusesMap[utils.Max(conversation.StatusesIds)]
+		ret[i].LastStatus = statusesMap[utils.Max(conversation.StatusesIds)]
 
 		if accountConversation, ok := accountConversationsMap[conversation.Id]; ok {
 			ret[i].Unread = accountConversation.IsUnread()

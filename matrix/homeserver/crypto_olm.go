@@ -14,7 +14,6 @@ import (
 	"github.com/awnumar/memguard"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
-	"gorm.io/gorm"
 )
 
 // ===== Olm 双棘轮加密实现（简化版）=====
@@ -24,10 +23,10 @@ import (
 
 // OlmAccount Olm 账户
 type OlmAccount struct {
-	IdentityKey    *memguard.Enclave // Curve25519 身份密钥对
-	SigningKey     *memguard.Enclave // Ed25519 签名密钥对
-	OneTimeKeys    []*OlmOneTimeKey  // 一次性密钥池
-	NextKeyID      uint32            // 下一个密钥 ID
+	IdentityKey *memguard.Enclave // Curve25519 身份密钥对
+	SigningKey  *memguard.Enclave // Ed25519 签名密钥对
+	OneTimeKeys []*OlmOneTimeKey  // 一次性密钥池
+	NextKeyID   uint32            // 下一个密钥 ID
 }
 
 // OlmOneTimeKey Olm 一次性密钥
@@ -42,13 +41,13 @@ type OlmOneTimeKey struct {
 // OlmSession Olm 会话（双棘轮）
 type OlmSession struct {
 	SessionID        string
-	TheirIdentityKey []byte           // 对方身份公钥
-	TheirOTKey       []byte           // 对方一次性公钥
-	OurBaseKey       *memguard.Enclave // 我们的基础密钥
-	RootKey          *memguard.Enclave // 根密钥
+	TheirIdentityKey []byte                       // 对方身份公钥
+	TheirOTKey       []byte                       // 对方一次性公钥
+	OurBaseKey       *memguard.Enclave            // 我们的基础密钥
+	RootKey          *memguard.Enclave            // 根密钥
 	ChainKeys        map[string]*memguard.Enclave // 发送/接收链密钥
-	MessageIndex     uint32           // 消息索引
-	ReceivedCount    uint32           // 接收计数
+	MessageIndex     uint32                       // 消息索引
+	ReceivedCount    uint32                       // 接收计数
 }
 
 // OlmMessage Olm 加密消息
@@ -65,8 +64,6 @@ func NewOlmAccount() (*OlmAccount, error) {
 	if _, err := rand.Read(identityPrivateKey); err != nil {
 		return nil, fmt.Errorf("failed to generate identity key: %w", err)
 	}
-
-
 
 	// 存储私钥（安全）
 	identityKeyEnclave := memguard.NewEnclave(identityPrivateKey)
@@ -483,7 +480,7 @@ func computeMAC(data, key []byte) []byte {
 // generateSessionID 生成会话 ID
 func generateSessionID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
 	return base64.RawStdEncoding.EncodeToString(b)
 }
 
@@ -573,16 +570,14 @@ func (ms *MegolmSession) ExportSessionKey() string {
 		return ""
 	}
 	defer buf.Destroy()
-	
+
 	return base64.RawStdEncoding.EncodeToString(buf.Bytes())
 }
 
 // ===== Olm 账户存储 =====
 
 // OlmAccountStore Olm 账户存储
-type OlmAccountStore struct {
-	db *gorm.DB
-}
+type OlmAccountStore struct{}
 
 // SaveOlmAccount 保存 Olm 账户
 func (store *OlmAccountStore) SaveOlmAccount(userID, deviceID string, account *OlmAccount) error {
@@ -590,7 +585,7 @@ func (store *OlmAccountStore) SaveOlmAccount(userID, deviceID string, account *O
 	data := map[string]interface{}{
 		"next_key_id": account.NextKeyID,
 	}
-	
+
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return err

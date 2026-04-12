@@ -16,40 +16,40 @@ import (
 
 // KeyShareRequest 密钥共享请求
 type KeyShareRequest struct {
-	RequestID      string                 `json:"request_id"`
-	Requestor      string                 `json:"requestor"`       // 请求者设备 ID
-	RequestingDevice string               `json:"requesting_device"`
-	SessionID      string                 `json:"session_id"`      // Megolm 会话 ID
-	RoomID         string                 `json:"room_id"`
-	Algorithm      string                 `json:"algorithm"`       // m.megolm.v1.aes-sha2
-	SenderKey      string                 `json:"sender_key"`      // 发送者的 Curve25519 密钥
+	RequestID        string `json:"request_id"`
+	Requestor        string `json:"requestor"` // 请求者设备 ID
+	RequestingDevice string `json:"requesting_device"`
+	SessionID        string `json:"session_id"` // Megolm 会话 ID
+	RoomID           string `json:"room_id"`
+	Algorithm        string `json:"algorithm"`  // m.megolm.v1.aes-sha2
+	SenderKey        string `json:"sender_key"` // 发送者的 Curve25519 密钥
 }
 
 // KeyShareResponse 密钥共享响应
 type KeyShareResponse struct {
-	RequestID     string                 `json:"request_id"`
-	SessionID     string                 `json:"session_id"`
-	RoomID        string                 `json:"room_id"`
-	Algorithm     string                 `json:"algorithm"`
-	SenderKey     string                 `json:"sender_key"`
-	SessionKey    string                 `json:"session_key"`     // 加密的会话密钥
-	ChainIndex    int                    `json:"chain_index"`
+	RequestID  string `json:"request_id"`
+	SessionID  string `json:"session_id"`
+	RoomID     string `json:"room_id"`
+	Algorithm  string `json:"algorithm"`
+	SenderKey  string `json:"sender_key"`
+	SessionKey string `json:"session_key"` // 加密的会话密钥
+	ChainIndex int    `json:"chain_index"`
 }
 
 // RoomKeyRequest 房间密钥请求（存储在数据库）
 type RoomKeyRequest struct {
-	ID              uint64    `gorm:"primaryKey;autoIncrement"`
-	RequestID       string    `gorm:"index;type:varchar(64);not null"`
-	UserID          string    `gorm:"index;type:varchar(255);not null"`    // 目标用户
-	RequestingUser  string    `gorm:"index;type:varchar(255);not null"`    // 请求者用户 ID
-	RequestingDevice string   `gorm:"type:varchar(255);not null"`
-	SessionID       string    `gorm:"index;type:varchar(255);not null"`
-	RoomID          string    `gorm:"index;type:varchar(255);not null"`
-	Algorithm       string    `gorm:"type:varchar(64);not null"`
-	SenderKey       string    `gorm:"type:varchar(512)"`
-	Status          string    `gorm:"type:varchar(16);default:'pending'"`   // pending, fulfilled, cancelled
-	RequestedAt     time.Time `gorm:"autoCreateTime"`
-	RespondedAt     *time.Time
+	ID               uint64    `gorm:"primaryKey;autoIncrement"`
+	RequestID        string    `gorm:"index;type:varchar(64);not null"`
+	UserID           string    `gorm:"index;type:varchar(255);not null"` // 目标用户
+	RequestingUser   string    `gorm:"index;type:varchar(255);not null"` // 请求者用户 ID
+	RequestingDevice string    `gorm:"type:varchar(255);not null"`
+	SessionID        string    `gorm:"index;type:varchar(255);not null"`
+	RoomID           string    `gorm:"index;type:varchar(255);not null"`
+	Algorithm        string    `gorm:"type:varchar(64);not null"`
+	SenderKey        string    `gorm:"type:varchar(512)"`
+	Status           string    `gorm:"type:varchar(16);default:'pending'"` // pending, fulfilled, cancelled
+	RequestedAt      time.Time `gorm:"autoCreateTime"`
+	RespondedAt      *time.Time
 }
 
 func (RoomKeyRequest) TableName() string {
@@ -112,12 +112,12 @@ func (kss *KeySharingService) sendKeyRequestToDevices(userID, requestingDevice s
 	for _, device := range devices {
 		// 创建 To-Device 消息
 		content := map[string]interface{}{
-			"action":            "request",
+			"action":               "request",
 			"requesting_device_id": requestingDevice,
-			"request_id":        req.RequestID,
-			"session_id":        req.SessionID,
-			"room_id":           req.RoomID,
-			"algorithm":         req.Algorithm,
+			"request_id":           req.RequestID,
+			"session_id":           req.SessionID,
+			"room_id":              req.RoomID,
+			"algorithm":            req.Algorithm,
 		}
 		if req.SenderKey != "" {
 			content["sender_key"] = req.SenderKey
@@ -175,14 +175,14 @@ func (kss *KeySharingService) hasSessionKey(userID, deviceID, sessionID, roomID 
 // sendKeyResponseToDevice 发送密钥响应给设备
 func (kss *KeySharingService) sendKeyResponseToDevice(targetUser, targetDevice string, resp *KeyShareResponse) {
 	content := map[string]interface{}{
-		"action":       "share",
-		"request_id":   resp.RequestID,
-		"session_id":   resp.SessionID,
-		"room_id":      resp.RoomID,
-		"algorithm":    resp.Algorithm,
-		"sender_key":   resp.SenderKey,
-		"session_key":  resp.SessionKey,
-		"chain_index":  resp.ChainIndex,
+		"action":      "share",
+		"request_id":  resp.RequestID,
+		"session_id":  resp.SessionID,
+		"room_id":     resp.RoomID,
+		"algorithm":   resp.Algorithm,
+		"sender_key":  resp.SenderKey,
+		"session_key": resp.SessionKey,
+		"chain_index": resp.ChainIndex,
 	}
 
 	msg := &MatrixToDeviceMessage{

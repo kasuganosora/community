@@ -19,4 +19,3 @@ func GetDB() *gorm.DB {
 func GetRedis(connNum ...int) *redis.Client {
 	return cRedis.GetRedis(connNum...)
 }
-

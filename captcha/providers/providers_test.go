@@ -117,13 +117,13 @@ func TestCloudflareProvider_GetVerifyURL(t *testing.T) {
 func TestHCaptchaProvider_Verify_MockSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
-		r.ParseForm()
+		_ = r.ParseForm()
 		assert.Equal(t, "test-secret", r.FormValue("secret"))
 		assert.Equal(t, "test-token", r.FormValue("response"))
 		assert.Equal(t, "1.2.3.4", r.FormValue("remoteip"))
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success":true,"challenge_ts":"2024-01-01T00:00:00Z","hostname":"example.com","score":0.9}`))
+		_, _ = w.Write([]byte(`{"success":true,"challenge_ts":"2024-01-01T00:00:00Z","hostname":"example.com","score":0.9}`))
 	}))
 	defer server.Close()
 
@@ -136,12 +136,12 @@ func TestHCaptchaProvider_Verify_MockSuccess(t *testing.T) {
 func TestCloudflareProvider_Verify_MockSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
-		r.ParseForm()
+		_ = r.ParseForm()
 		assert.Equal(t, "test-secret", r.FormValue("secret"))
 		assert.Equal(t, "test-token", r.FormValue("response"))
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success":true,"challenge_ts":"2024-01-01T00:00:00Z","hostname":"example.com"}`))
+		_, _ = w.Write([]byte(`{"success":true,"challenge_ts":"2024-01-01T00:00:00Z","hostname":"example.com"}`))
 	}))
 	defer server.Close()
 

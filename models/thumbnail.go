@@ -50,11 +50,11 @@ const (
 
 // ThumbnailServiceConfig 缩略图服务配置
 type ThumbnailServiceConfig struct {
-	Enabled        bool            `json:"enabled"`
+	Enabled        bool                   `json:"enabled"`
 	Storage        ThumbnailStorageConfig `json:"storage"`
-	AccessMode     AccessMode      `json:"access_mode"`
-	RewriteEnabled bool            `json:"rewrite_enabled"`
-	Rules          []ThumbnailRule `json:"rules"`
+	AccessMode     AccessMode             `json:"access_mode"`
+	RewriteEnabled bool                   `json:"rewrite_enabled"`
+	Rules          []ThumbnailRule        `json:"rules"`
 }
 
 // ThumbnailStorageConfig 存储配置
@@ -69,8 +69,6 @@ type ThumbnailStorageConfig struct {
 	AccessKey  string      `json:"access_key"`
 	SecretKey  string      `json:"secret_key"`
 }
-
-
 
 // ThumbnailRule 缩略图规则
 type ThumbnailRule struct {
@@ -96,7 +94,7 @@ func GenerateURLHash(url string) string {
 //
 // swagger:model Thumbnail
 type Thumbnail struct {
-	ID        uint64 `gorm:"primaryKey" json:"id"`
+	ID        uint64    `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -133,17 +131,17 @@ func (Thumbnail) TableName() string {
 //
 // swagger:model ThumbnailJob
 type ThumbnailJob struct {
-	ID          uint64 `gorm:"primaryKey" json:"id"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID        uint64    `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
-	OriginalURL string `gorm:"size:2048" json:"original_url"`
-	Status      string `json:"status"` // pending, processing, completed, failed
-	Priority    int    `json:"priority"`
-	RetryCount  int    `json:"retry_count"`
-	MaxRetries  int    `json:"max_retries"`
-	Error       string `gorm:"size:512" json:"error,omitempty"`
-	ProcessorID string `json:"processor_id,omitempty"`
+	OriginalURL string     `gorm:"size:2048" json:"original_url"`
+	Status      string     `json:"status"` // pending, processing, completed, failed
+	Priority    int        `json:"priority"`
+	RetryCount  int        `json:"retry_count"`
+	MaxRetries  int        `json:"max_retries"`
+	Error       string     `gorm:"size:512" json:"error,omitempty"`
+	ProcessorID string     `json:"processor_id,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }

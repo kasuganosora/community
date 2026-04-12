@@ -122,12 +122,12 @@ func GetNotificationPolicy(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"filter_not_following":     policy.FilterNotFollowing,
-		"filter_not_followers":     policy.FilterNotFollowers,
-		"filter_new_accounts":      policy.FilterNewAccounts,
-		"filter_private_mentions":  policy.FilterPrivateMentions,
+		"filter_not_following":    policy.FilterNotFollowing,
+		"filter_not_followers":    policy.FilterNotFollowers,
+		"filter_new_accounts":     policy.FilterNewAccounts,
+		"filter_private_mentions": policy.FilterPrivateMentions,
 		"summary": gin.H{
-			"pending_requests_count": 0,
+			"pending_requests_count":      0,
 			"pending_notifications_count": 0,
 		},
 	})
@@ -180,12 +180,12 @@ func UpdateNotificationPolicy(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"filter_not_following":     req.FilterNotFollowing != nil && *req.FilterNotFollowing,
-		"filter_not_followers":     req.FilterNotFollowers != nil && *req.FilterNotFollowers,
-		"filter_new_accounts":      req.FilterNewAccounts != nil && *req.FilterNewAccounts,
-		"filter_private_mentions":  req.FilterPrivateMentions != nil && *req.FilterPrivateMentions,
+		"filter_not_following":    req.FilterNotFollowing != nil && *req.FilterNotFollowing,
+		"filter_not_followers":    req.FilterNotFollowers != nil && *req.FilterNotFollowers,
+		"filter_new_accounts":     req.FilterNewAccounts != nil && *req.FilterNewAccounts,
+		"filter_private_mentions": req.FilterPrivateMentions != nil && *req.FilterPrivateMentions,
 		"summary": gin.H{
-			"pending_requests_count": 0,
+			"pending_requests_count":      0,
 			"pending_notifications_count": 0,
 		},
 	})
@@ -203,12 +203,12 @@ func buildNotificationResponse(notification *models.Notification, c *gin.Context
 
 	if notification.Account != nil {
 		response["account"] = gin.H{
-			"id":             strconv.FormatUint(notification.Account.Id, 10),
-			"username":       notification.Account.Username,
-			"display_name":   notification.Account.DisplayName,
-			"avatar":         notification.Account.Avatar,
-			"avatar_static":  notification.Account.Avatar,
-			"url":            "https://" + c.Request.Host + "/@" + notification.Account.Username,
+			"id":            strconv.FormatUint(notification.Account.Id, 10),
+			"username":      notification.Account.Username,
+			"display_name":  notification.Account.DisplayName,
+			"avatar":        notification.Account.Avatar,
+			"avatar_static": notification.Account.Avatar,
+			"url":           "https://" + c.Request.Host + "/@" + notification.Account.Username,
 		}
 	}
 

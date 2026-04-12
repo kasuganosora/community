@@ -21,26 +21,26 @@ const (
 
 // SpaceSummary 空间摘要
 type SpaceSummary struct {
-	RoomID           string          `json:"room_id"`
-	Name             string          `json:"name,omitempty"`
-	Topic            string          `json:"topic,omitempty"`
-	AvatarURL        string          `json:"avatar_url,omitempty"`
-	CanonicalAlias   string          `json:"canonical_alias,omitempty"`
-	JoinedMembers    int             `json:"num_joined_members"`
-	JoinedMemberIDs  []string        `json:"joined_member_ids,omitempty"`
-	Children         []SpaceChildInfo `json:"children,omitempty"`
+	RoomID          string           `json:"room_id"`
+	Name            string           `json:"name,omitempty"`
+	Topic           string           `json:"topic,omitempty"`
+	AvatarURL       string           `json:"avatar_url,omitempty"`
+	CanonicalAlias  string           `json:"canonical_alias,omitempty"`
+	JoinedMembers   int              `json:"num_joined_members"`
+	JoinedMemberIDs []string         `json:"joined_member_ids,omitempty"`
+	Children        []SpaceChildInfo `json:"children,omitempty"`
 }
 
 // SpaceChildInfo 空间子房间信息
 type SpaceChildInfo struct {
-	RoomID       string                 `json:"room_id"`
-	Name         string                 `json:"name,omitempty"`
-	Topic        string                 `json:"topic,omitempty"`
-	AvatarURL    string                 `json:"avatar_url,omitempty"`
-	Type         string                 `json:"type,omitempty"` // space, room
-	Suggested    bool                   `json:"suggested,omitempty"`
-	Order        string                 `json:"order,omitempty"` // 排序权重
-	Via          []string               `json:"via,omitempty"`   // 联邦服务器列表
+	RoomID    string   `json:"room_id"`
+	Name      string   `json:"name,omitempty"`
+	Topic     string   `json:"topic,omitempty"`
+	AvatarURL string   `json:"avatar_url,omitempty"`
+	Type      string   `json:"type,omitempty"` // space, room
+	Suggested bool     `json:"suggested,omitempty"`
+	Order     string   `json:"order,omitempty"` // 排序权重
+	Via       []string `json:"via,omitempty"`   // 联邦服务器列表
 }
 
 // SpaceHierarchyResponse 空间层级响应
@@ -51,25 +51,25 @@ type SpaceHierarchyResponse struct {
 
 // SpaceRoomInfo 空间中的房间信息
 type SpaceRoomInfo struct {
-	RoomID            string          `json:"room_id"`
-	Name              string          `json:"name,omitempty"`
-	Topic             string          `json:"topic,omitempty"`
-	AvatarURL         string          `json:"avatar_url,omitempty"`
-	CanonicalAlias    string          `json:"canonical_alias,omitempty"`
-	WorldReadable     bool            `json:"world_readable"`
-	GuestCanJoin      bool            `json:"guest_can_join"`
-	JoinRule          string          `json:"join_rule,omitempty"`
-	RoomType          string          `json:"room_type,omitempty"`
-	NumJoinedMembers  int             `json:"num_joined_members"`
-	ChildrenState     []SpaceStateInfo `json:"children_state,omitempty"`
+	RoomID           string           `json:"room_id"`
+	Name             string           `json:"name,omitempty"`
+	Topic            string           `json:"topic,omitempty"`
+	AvatarURL        string           `json:"avatar_url,omitempty"`
+	CanonicalAlias   string           `json:"canonical_alias,omitempty"`
+	WorldReadable    bool             `json:"world_readable"`
+	GuestCanJoin     bool             `json:"guest_can_join"`
+	JoinRule         string           `json:"join_rule,omitempty"`
+	RoomType         string           `json:"room_type,omitempty"`
+	NumJoinedMembers int              `json:"num_joined_members"`
+	ChildrenState    []SpaceStateInfo `json:"children_state,omitempty"`
 }
 
 // SpaceStateInfo 空间状态信息
 type SpaceStateInfo struct {
-	Type      string                 `json:"type"`
-	StateKey  string                 `json:"state_key"`
-	Content   map[string]interface{} `json:"content"`
-	Sender    string                 `json:"sender"`
+	Type     string                 `json:"type"`
+	StateKey string                 `json:"state_key"`
+	Content  map[string]interface{} `json:"content"`
+	Sender   string                 `json:"sender"`
 }
 
 // SpacesService 空间服务
@@ -300,8 +300,8 @@ func (ss *SpacesService) getSpaceRoomInfo(roomID string) (*SpaceRoomInfo, error)
 	}
 
 	info := &SpaceRoomInfo{
-		RoomID:       roomID,
-		JoinRule:     room.JoinRule,
+		RoomID:        roomID,
+		JoinRule:      room.JoinRule,
 		WorldReadable: room.HistoryVisibility == "world_readable",
 		GuestCanJoin:  room.GuestAccess == "can_join",
 	}
@@ -393,7 +393,7 @@ func RegisterSpacesRoutes(r gin.IRouter) {
 	{
 		// 空间层级结构
 		spaces.GET("/rooms/:roomId/hierarchy", handleSpaceHierarchy)
-		
+
 		// 空间摘要（MSCs 会添加此端点）
 		spaces.GET("/rooms/:roomId/spaces", handleSpaceSummary)
 	}

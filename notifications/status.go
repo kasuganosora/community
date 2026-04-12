@@ -52,7 +52,7 @@ func unfavouriteNotification(fs *models.FavoriteStatus) {
 		fs.Status = &models.Status{}
 		err = db.GetDB().Model(&models.Status{}).Preload("Reblog").Preload("Account").Where("id = ?", fs.StatusId).First(fs.Status).Error
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] get status faild, status id %d", fs.StatusId))
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] get status faild, status id %d", fs.StatusId)))
 			return
 		}
 	}
@@ -60,8 +60,7 @@ func unfavouriteNotification(fs *models.FavoriteStatus) {
 	originalStatus := fs.Status
 	if originalStatus.ReblogId != nil && *originalStatus.ReblogId > 0 {
 		if originalStatus.Reblog == nil {
-			err = errors.New("reblog status is nil")
-			err = errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
+			err = errors.Wrap(errors.New("reblog status is nil"), fmt.Sprintf("[unfavouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
 			log.ErrorV(err)
 			return
 		}
@@ -75,13 +74,13 @@ func unfavouriteNotification(fs *models.FavoriteStatus) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return
 		}
-		err = errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] find need remove favourite notification error, status id %d", originalStatus.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] find need remove favourite notification error, status id %d", originalStatus.Id)))
 		return
 	}
 
 	err = db.GetDB().Delete(ns).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] remove favourite notification error, status id %d", originalStatus.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] remove favourite notification error, status id %d", originalStatus.Id)))
 		return
 	}
 
@@ -99,7 +98,7 @@ func favouriteNotification(fs *models.FavoriteStatus) {
 		fs.Status = &models.Status{}
 		err = db.GetDB().Model(&models.Status{}).Preload("Reblog").Preload("Account").Where("id = ?", fs.StatusId).First(fs.Status).Error
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[favouriteNotification] get status faild, status id %d", fs.StatusId))
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[favouriteNotification] get status faild, status id %d", fs.StatusId)))
 			return
 		}
 	}
@@ -107,8 +106,7 @@ func favouriteNotification(fs *models.FavoriteStatus) {
 	originalStatus := fs.Status
 	if originalStatus.ReblogId != nil && *originalStatus.ReblogId > 0 {
 		if originalStatus.Reblog == nil {
-			err = errors.New("reblog status is nil")
-			err = errors.Wrap(err, fmt.Sprintf("[favouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
+			err = errors.Wrap(errors.New("reblog status is nil"), fmt.Sprintf("[favouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
 			log.ErrorV(err)
 			return
 		}
@@ -126,7 +124,7 @@ func favouriteNotification(fs *models.FavoriteStatus) {
 	err = db.GetDB().Create(ns).Error
 
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[favouriteNotification] create favourite notification error, status id %d", originalStatus.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[favouriteNotification] create favourite notification error, status id %d", originalStatus.Id)))
 		return
 	}
 }
@@ -137,7 +135,7 @@ func removeMentionNotification(status *models.Status) {
 	nsList := make([]*models.Notification, 0)
 	err := db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&nsList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] find need remove mention notification error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] find need remove mention notification error, status id %d", status.Id)))
 		return
 	}
 
@@ -147,7 +145,7 @@ func removeMentionNotification(status *models.Status) {
 
 	err = db.GetDB().Delete(nsList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] remove mention notification error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] remove mention notification error, status id %d", status.Id)))
 		return
 	}
 
@@ -163,7 +161,7 @@ func updateMentionNotification(status *models.Status) {
 	err := db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&oldNsList).Error
 
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find old mention notification error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find old mention notification error, status id %d", status.Id)))
 		return
 	}
 
@@ -171,7 +169,7 @@ func updateMentionNotification(status *models.Status) {
 	newMentionAccountList := make([]uint64, 0)
 	err = db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find new mention account list error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find new mention account list error, status id %d", status.Id)))
 		return
 	}
 
@@ -189,14 +187,14 @@ func updateMentionNotification(status *models.Status) {
 	if len(needRemoveNsList) > 0 {
 		err = db.GetDB().Delete(needRemoveNsList).Error
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] remove mention notification error, status id %d", status.Id))
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] remove mention notification error, status id %d", status.Id)))
 			return
 		}
 	}
 
 	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] get local accounts error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] get local accounts error, status id %d", status.Id)))
 		return
 	}
 
@@ -220,7 +218,7 @@ func updateMentionNotification(status *models.Status) {
 	if len(needCreateNsList) > 0 {
 		err = db.GetDB().Create(needCreateNsList).Error
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create mention notification error, status id %d", status.Id))
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create mention notification error, status id %d", status.Id)))
 			return
 		}
 	}
@@ -243,7 +241,7 @@ func updateMentionNotification(status *models.Status) {
 	if len(updateNfs) > 0 {
 		err = db.GetDB().Create(updateNfs).Error
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create update notification error, status id %d", status.Id))
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create update notification error, status id %d", status.Id)))
 			return
 		}
 	}
@@ -254,7 +252,7 @@ func creatMentionNotification(status *models.Status) {
 	newMentionAccountList := make([]uint64, 0)
 	err := db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] find new mention account list error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] find new mention account list error, status id %d", status.Id)))
 		return
 	}
 
@@ -264,7 +262,7 @@ func creatMentionNotification(status *models.Status) {
 
 	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] get local accounts error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] get local accounts error, status id %d", status.Id)))
 		return
 	}
 
@@ -280,7 +278,7 @@ func creatMentionNotification(status *models.Status) {
 
 	err = db.GetDB().Create(nsList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] create mention notification error, status id %d", status.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] create mention notification error, status id %d", status.Id)))
 		return
 	}
 }
@@ -345,14 +343,14 @@ func updateReblogNotification(status *models.Status) {
 	accountsId := make([]uint64, 0)
 	err := db.GetDB().Model(&models.Status{}).Where("reblog_id =?", *status.ReblogId).Pluck("account_id", &accountsId).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog accounts error, status id %d", status.Reblog.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog accounts error, status id %d", status.Reblog.Id)))
 		return
 	}
 
 	// 通知只发给本站用户
 	accounts, err := models.GetLocalAccounts(db.GetDB(), accountsId)
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] get local accounts error, status id %d", status.Reblog.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] get local accounts error, status id %d", status.Reblog.Id)))
 		return
 	}
 
@@ -369,7 +367,7 @@ func updateReblogNotification(status *models.Status) {
 
 	err = db.GetDB().Create(nfList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] create reblog notification error, status id %d", status.Reblog.Id))
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] create reblog notification error, status id %d", status.Reblog.Id)))
 		return
 	}
 

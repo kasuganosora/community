@@ -12,7 +12,7 @@ import (
 func RequestLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		
+
 		// 生成请求 ID
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
@@ -36,7 +36,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		// 记录请求结束
 		duration := time.Since(start)
 		status := c.Writer.Status()
-		
+
 		fields := map[string]interface{}{
 			"request_id": requestID,
 			"status":     status,
@@ -72,9 +72,9 @@ func PerformanceLogMiddleware(threshold time.Duration) gin.HandlerFunc {
 
 		if duration > threshold {
 			log.WithFields(map[string]interface{}{
-				"method":   c.Request.Method,
-				"path":     c.Request.URL.Path,
-				"duration": duration.Milliseconds(),
+				"method":    c.Request.Method,
+				"path":      c.Request.URL.Path,
+				"duration":  duration.Milliseconds(),
 				"threshold": threshold.Milliseconds(),
 			}).Warn("Slow request detected")
 		}

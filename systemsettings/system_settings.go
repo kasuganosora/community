@@ -41,17 +41,17 @@ const (
 	KeyRecaptchaSiteKey             = "config.recaptcha.site_key"                       // recaptcha site key (deprecated, use config.captcha.site_key)
 	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key (deprecated, use config.captcha.secret_key)
 	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha (deprecated, use config.captcha.enabled)
-	
+
 	// 新的通用验证码配置
-	KeyCaptchaProvider            = "config.captcha.provider"            // 验证码供应商: recaptcha, cloudflare, hcaptcha, none
-	KeyCaptchaSiteKey             = "config.captcha.site_key"            // 验证码站点密钥
-	KeyCaptchaSecretKey           = "config.captcha.secret_key"          // 验证码密钥
-	KeyCaptchaEnabled             = "config.captcha.enabled"             // 是否启用验证码
-	KeyCaptchaScoreThreshold      = "config.captcha.score_threshold"     // 验证码分数阈值 (0.0 - 1.0)
-	KeyRegistrationCheckEmail       = "config.registration.check_email"                 // 是否检查邮箱
-	KeyMediaAttachmentsBaseURL      = "config.media_attachments.base_url"               // 附件基础URL
-	KeyMediaAttachmentsCacheBaseURL = "config.media_attachments.cache_base_url"         // 附件缓存基础URL
-	KeyDefaultPageSize              = "config.default_page_limit"                       // 默认分页大小
+	KeyCaptchaProvider              = "config.captcha.provider"                 // 验证码供应商: recaptcha, cloudflare, hcaptcha, none
+	KeyCaptchaSiteKey               = "config.captcha.site_key"                 // 验证码站点密钥
+	KeyCaptchaSecretKey             = "config.captcha.secret_key"               // 验证码密钥
+	KeyCaptchaEnabled               = "config.captcha.enabled"                  // 是否启用验证码
+	KeyCaptchaScoreThreshold        = "config.captcha.score_threshold"          // 验证码分数阈值 (0.0 - 1.0)
+	KeyRegistrationCheckEmail       = "config.registration.check_email"         // 是否检查邮箱
+	KeyMediaAttachmentsBaseURL      = "config.media_attachments.base_url"       // 附件基础URL
+	KeyMediaAttachmentsCacheBaseURL = "config.media_attachments.cache_base_url" // 附件缓存基础URL
+	KeyDefaultPageSize              = "config.default_page_limit"               // 默认分页大小
 
 )
 
@@ -193,7 +193,6 @@ func GetInt64s(key string, defaultValue any) []int64 {
 
 func Set(key string, val any) {
 	settings[key] = val
-	return
 }
 
 func SaveToDB(keys ...string) (err error) {
@@ -251,12 +250,12 @@ func GetAllTreeStyle() (settings map[string]any) {
 	ret := make(map[string]any)
 	keys := make([]string, 0)
 
-	for key, _ := range settings {
+	for key := range settings {
 		keys = append(keys, key)
 	}
 
 	// 把key 升序排序
-	sort.Sort(sort.StringSlice(keys))
+	sort.Strings(keys)
 
 	for _, key := range keys {
 		val := settings[key]

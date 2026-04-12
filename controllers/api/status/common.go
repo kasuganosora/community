@@ -39,5 +39,4 @@ func returnFullSingleStatus(c *gin.Context, status *models.Status, currentAccoun
 	}
 
 	c.JSON(200, ret)
-	return
 }

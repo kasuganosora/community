@@ -13,14 +13,14 @@ import (
 // SearchRequest represents the search query parameters for Mastodon API v2
 type SearchRequest struct {
 	Q         string `query:"q" binding:"required,min=1,max=500"`
-	Type      string `query:"type"`        // accounts, statuses, hashtags
-	Limit     int    `query:"limit"`       // max 40, default 20
-	Offset    int    `query:"offset"`      // pagination offset
-	Following bool   `query:"following"`   // only search following accounts
-	AccountId string `query:"account_id"`  // filter by account
-	MaxId     string `query:"max_id"`      // pagination
-	MinId     string `query:"min_id"`      // pagination
-	Resolve   bool   `query:"resolve"`     // WebFinger resolve (non-local accounts)
+	Type      string `query:"type"`       // accounts, statuses, hashtags
+	Limit     int    `query:"limit"`      // max 40, default 20
+	Offset    int    `query:"offset"`     // pagination offset
+	Following bool   `query:"following"`  // only search following accounts
+	AccountId string `query:"account_id"` // filter by account
+	MaxId     string `query:"max_id"`     // pagination
+	MinId     string `query:"min_id"`     // pagination
+	Resolve   bool   `query:"resolve"`    // WebFinger resolve (non-local accounts)
 }
 
 // SearchResult represents the response for search API

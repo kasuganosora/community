@@ -10,16 +10,16 @@ import (
 
 // Announcement represents an announcement
 type Announcement struct {
-	Id           uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	Text         string     `gorm:"type:text;not null" json:"text"`
-	Published    bool       `gorm:"not null;default:false" json:"published"`
-	AllDay       bool       `gorm:"not null;default:false" json:"all_day"`
-	ScheduledAt  *time.Time `json:"scheduled_at"`
-	StartsAt     *time.Time `json:"starts_at"`
-	EndsAt       *time.Time `json:"ends_at"`
-	PublishedAt  *time.Time `json:"published_at"`
-	UpdatedAt    *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
-	CreatedAt    *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	Id          uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Text        string     `gorm:"type:text;not null" json:"text"`
+	Published   bool       `gorm:"not null;default:false" json:"published"`
+	AllDay      bool       `gorm:"not null;default:false" json:"all_day"`
+	ScheduledAt *time.Time `json:"scheduled_at"`
+	StartsAt    *time.Time `json:"starts_at"`
+	EndsAt      *time.Time `json:"ends_at"`
+	PublishedAt *time.Time `json:"published_at"`
+	UpdatedAt   *time.Time `gorm:"not null;autoUpdateTime" json:"updated_at"`
+	CreatedAt   *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
 }
 
 func (a *Announcement) TableName() string {

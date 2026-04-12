@@ -6,22 +6,22 @@ import (
 
 // EventType Matrix 事件类型常量
 const (
-	EventTypeRoomMessage  = "m.room.message"
-	EventTypeRoomMember   = "m.room.member"
-	EventTypeRoomCreate   = "m.room.create"
-	EventTypeRoomName     = "m.room.name"
-	EventTypeRoomTopic    = "m.room.topic"
-	EventTypeRoomAvatar   = "m.room.avatar"
+	EventTypeRoomMessage   = "m.room.message"
+	EventTypeRoomMember    = "m.room.member"
+	EventTypeRoomCreate    = "m.room.create"
+	EventTypeRoomName      = "m.room.name"
+	EventTypeRoomTopic     = "m.room.topic"
+	EventTypeRoomAvatar    = "m.room.avatar"
 	EventTypeRoomEncrypted = "m.room.encrypted"
 )
 
 // MembershipState Matrix 房间成员状态
 const (
-	MembershipJoin    = "join"
-	MembershipInvite  = "invite"
-	MembershipLeave   = "leave"
-	MembershipBan     = "ban"
-	MembershipKnock   = "knock"
+	MembershipJoin   = "join"
+	MembershipInvite = "invite"
+	MembershipLeave  = "leave"
+	MembershipBan    = "ban"
+	MembershipKnock  = "knock"
 )
 
 // MessageType Matrix 消息类型常量
@@ -38,16 +38,16 @@ const (
 
 // Event Matrix 事件结构
 type Event struct {
-	Type           string                 `json:"type"`
-	RoomID         string                 `json:"room_id,omitempty"`
-	Sender         string                 `json:"sender,omitempty"`
-	EventID        string                 `json:"event_id,omitempty"`
-	Content        map[string]interface{} `json:"content"`
-	StateKey       *string                `json:"state_key,omitempty"`
-	Timestamp      int64                  `json:"origin_server_ts,omitempty"`
-	PrevContent    map[string]interface{} `json:"prev_content,omitempty"`
-	Redacts        string                 `json:"redacts,omitempty"`
-	Unsigned       map[string]interface{} `json:"unsigned,omitempty"`
+	Type        string                 `json:"type"`
+	RoomID      string                 `json:"room_id,omitempty"`
+	Sender      string                 `json:"sender,omitempty"`
+	EventID     string                 `json:"event_id,omitempty"`
+	Content     map[string]interface{} `json:"content"`
+	StateKey    *string                `json:"state_key,omitempty"`
+	Timestamp   int64                  `json:"origin_server_ts,omitempty"`
+	PrevContent map[string]interface{} `json:"prev_content,omitempty"`
+	Redacts     string                 `json:"redacts,omitempty"`
+	Unsigned    map[string]interface{} `json:"unsigned,omitempty"`
 }
 
 // RoomMessageContent m.room.message 事件内容
@@ -56,9 +56,9 @@ type RoomMessageContent struct {
 	Body          string `json:"body"`
 	Format        string `json:"format,omitempty"`
 	FormattedBody string `json:"formatted_body,omitempty"`
-	URL           string `json:"url,omitempty"`           // mxc:// URL for media
-	Filename      string `json:"filename,omitempty"`      // Original filename
-	InReplyTo     *Reply `json:"m.relates_to,omitempty"`  // Reply relation
+	URL           string `json:"url,omitempty"`          // mxc:// URL for media
+	Filename      string `json:"filename,omitempty"`     // Original filename
+	InReplyTo     *Reply `json:"m.relates_to,omitempty"` // Reply relation
 }
 
 // Reply 回复关系
@@ -79,7 +79,7 @@ type RoomMemberContent struct {
 // RoomCreateContent m.room.create 事件内容
 type RoomCreateContent struct {
 	Creator  string `json:"creator"`
-	Preset   string `json:"preset,omitempty"`   // private_chat, public_chat, trusted_private_chat
+	Preset   string `json:"preset,omitempty"` // private_chat, public_chat, trusted_private_chat
 	IsDirect bool   `json:"is_direct,omitempty"`
 }
 
@@ -109,9 +109,9 @@ type UserProfile struct {
 type SyncResponse struct {
 	NextBatch string `json:"next_batch"`
 	Rooms     struct {
-		Join   map[string]JoinedRoom   `json:"join,omitempty"`
-		Invite map[string]InvitedRoom  `json:"invite,omitempty"`
-		Leave  map[string]LeftRoom     `json:"leave,omitempty"`
+		Join   map[string]JoinedRoom  `json:"join,omitempty"`
+		Invite map[string]InvitedRoom `json:"invite,omitempty"`
+		Leave  map[string]LeftRoom    `json:"leave,omitempty"`
 	} `json:"rooms,omitempty"`
 	Presence struct {
 		Events []Event `json:"events,omitempty"`
@@ -160,12 +160,12 @@ type ErrorResponse struct {
 
 // RoomCreateRequest 创建房间请求
 type RoomCreateRequest struct {
-	Preset      string          `json:"preset,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Topic       string          `json:"topic,omitempty"`
-	IsDirect    bool            `json:"is_direct,omitempty"`
-	Invite      []string        `json:"invite,omitempty"`
-	InitialState []Event        `json:"initial_state,omitempty"`
+	Preset          string                 `json:"preset,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	Topic           string                 `json:"topic,omitempty"`
+	IsDirect        bool                   `json:"is_direct,omitempty"`
+	Invite          []string               `json:"invite,omitempty"`
+	InitialState    []Event                `json:"initial_state,omitempty"`
 	CreationContent map[string]interface{} `json:"creation_content,omitempty"`
 }
 

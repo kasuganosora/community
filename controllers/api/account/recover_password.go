@@ -70,7 +70,7 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		c.Error(err)
+		_ = c.Error(err)
 		return
 	}
 
@@ -100,14 +100,13 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		c.Error(err)
+		_ = c.Error(err)
 		return
 	}
 
 	// 重定向到前端页面
 	pageUrl := config.C.AppBaseURL + "recover_password"
 	c.Redirect(http.StatusFound, pageUrl)
-	return
 }
 
 type RecoverPasswordRequest struct {
@@ -198,5 +197,4 @@ func RecoverPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
-	return
 }

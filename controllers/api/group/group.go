@@ -14,10 +14,10 @@ import (
 
 // CreateGroupRequest 创建群组请求
 type CreateGroupRequest struct {
-	Name        string `json:"name" binding:"required,min=1,max=100"`
-	Description string `json:"description" binding:"max=500"`
-	Visibility  string `json:"visibility" binding:"omitempty,oneof=public private"`
-	BridgeToMatrix bool `json:"bridge_to_matrix"` // 是否桥接到 Matrix
+	Name           string `json:"name" binding:"required,min=1,max=100"`
+	Description    string `json:"description" binding:"max=500"`
+	Visibility     string `json:"visibility" binding:"omitempty,oneof=public private"`
+	BridgeToMatrix bool   `json:"bridge_to_matrix"` // 是否桥接到 Matrix
 }
 
 // CreateGroup 创建群组
@@ -155,7 +155,9 @@ func InviteMember(c *gin.Context) {
 			if bridge != nil {
 				groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
 				if req.AccountId != nil {
-					groupMapper.AddLocalMemberToGroup(groupID, *req.AccountId, role)
+					if err := groupMapper.AddLocalMemberToGroup(groupID, *req.AccountId, role); err != nil {
+						log.Warn("Failed to add local member to group: %v", err)
+					}
 				}
 			}
 		}

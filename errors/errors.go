@@ -17,14 +17,14 @@ type ErrorCode string
 // 预定义错误码
 const (
 	// 通用错误 (1xxx)
-	ErrCodeInvalidRequest ErrorCode = "INVALID_REQUEST"    // 400
-	ErrCodeUnauthorized   ErrorCode = "UNAUTHORIZED"       // 401
-	ErrCodeForbidden      ErrorCode = "FORBIDDEN"          // 403
-	ErrCodeNotFound       ErrorCode = "NOT_FOUND"          // 404
-	ErrCodeMethodNotAllow ErrorCode = "METHOD_NOT_ALLOWED" // 405
-	ErrCodeConflict       ErrorCode = "CONFLICT"           // 409
-	ErrCodeTooManyRequest ErrorCode = "RATE_LIMITED"       // 429
-	ErrCodeInternal       ErrorCode = "INTERNAL_ERROR"     // 500
+	ErrCodeInvalidRequest ErrorCode = "INVALID_REQUEST"     // 400
+	ErrCodeUnauthorized   ErrorCode = "UNAUTHORIZED"        // 401
+	ErrCodeForbidden      ErrorCode = "FORBIDDEN"           // 403
+	ErrCodeNotFound       ErrorCode = "NOT_FOUND"           // 404
+	ErrCodeMethodNotAllow ErrorCode = "METHOD_NOT_ALLOWED"  // 405
+	ErrCodeConflict       ErrorCode = "CONFLICT"            // 409
+	ErrCodeTooManyRequest ErrorCode = "RATE_LIMITED"        // 429
+	ErrCodeInternal       ErrorCode = "INTERNAL_ERROR"      // 500
 	ErrCodeServiceUnavail ErrorCode = "SERVICE_UNAVAILABLE" // 503
 
 	// 认证错误 (2xxx)

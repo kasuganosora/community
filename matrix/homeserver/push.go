@@ -18,20 +18,20 @@ import (
 
 // Pusher 推送器配置
 type Pusher struct {
-	ID         uint64 `gorm:"primaryKey;autoIncrement" json:"-"`
-	UserID     string `gorm:"index;type:varchar(255);not null" json:"-"`
-	Pushkey    string `gorm:"type:varchar(512);not null" json:"pushkey"`      // 设备推送令牌
-	Kind       string `gorm:"type:varchar(32);not null" json:"kind"`         // http, email
-	AppID      string `gorm:"type:varchar(128);not null" json:"app_id"`      // 应用 ID
-	AppDisplayName string `gorm:"type:varchar(128)" json:"app_display_name"`
-	DeviceDisplayName string `gorm:"type:varchar(128)" json:"device_display_name"`
-	ProfileTag string `gorm:"type:varchar(32)" json:"profile_tag,omitempty"`
-	Lang       string `gorm:"type:varchar(16)" json:"lang"`
-	Data       map[string]interface{} `gorm:"type:text;serializer:json" json:"data"`
-	DeviceID   string `gorm:"type:varchar(255);index" json:"-"`
-	Enabled    bool   `gorm:"default:true" json:"-"`
-	CreatedAt  time.Time `json:"-"`
-	UpdatedAt  time.Time `json:"-"`
+	ID                uint64                 `gorm:"primaryKey;autoIncrement" json:"-"`
+	UserID            string                 `gorm:"index;type:varchar(255);not null" json:"-"`
+	Pushkey           string                 `gorm:"type:varchar(512);not null" json:"pushkey"` // 设备推送令牌
+	Kind              string                 `gorm:"type:varchar(32);not null" json:"kind"`     // http, email
+	AppID             string                 `gorm:"type:varchar(128);not null" json:"app_id"`  // 应用 ID
+	AppDisplayName    string                 `gorm:"type:varchar(128)" json:"app_display_name"`
+	DeviceDisplayName string                 `gorm:"type:varchar(128)" json:"device_display_name"`
+	ProfileTag        string                 `gorm:"type:varchar(32)" json:"profile_tag,omitempty"`
+	Lang              string                 `gorm:"type:varchar(16)" json:"lang"`
+	Data              map[string]interface{} `gorm:"type:text;serializer:json" json:"data"`
+	DeviceID          string                 `gorm:"type:varchar(255);index" json:"-"`
+	Enabled           bool                   `gorm:"default:true" json:"-"`
+	CreatedAt         time.Time              `json:"-"`
+	UpdatedAt         time.Time              `json:"-"`
 }
 
 func (Pusher) TableName() string {
@@ -40,26 +40,26 @@ func (Pusher) TableName() string {
 
 // PusherData 推送器数据
 type PusherData struct {
-	URL      string `json:"url,omitempty"`
-	Format   string `json:"format,omitempty"` // event_id_only, full
-	Brand    string `json:"brand,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Format string `json:"format,omitempty"` // event_id_only, full
+	Brand  string `json:"brand,omitempty"`
 }
 
 // PushRule 推送规则
 type PushRule struct {
-	ID          uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
-	UserID      string    `gorm:"index;type:varchar(255);not null" json:"-"`
-	Scope       string    `gorm:"index;type:varchar(16);not null" json:"-"` // global, device
-	Kind        string    `gorm:"index;type:varchar(32);not null" json:"-"` // override, content, room, sender, underride
-	RuleID      string    `gorm:"type:varchar(128);not null" json:"rule_id"`
-	Default     bool      `gorm:"default:false" json:"default"`
-	Enabled     bool      `gorm:"default:true" json:"enabled"`
-	Conditions  string    `gorm:"type:text" json:"-"` // JSON
-	Actions     string    `gorm:"type:text" json:"-"` // JSON
-	Pattern     string    `gorm:"type:varchar(255)" json:"pattern,omitempty"`
-	PriorityClass int64   `json:"-"`
-	CreatedAt   time.Time `json:"-"`
-	UpdatedAt   time.Time `json:"-"`
+	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
+	UserID        string    `gorm:"index;type:varchar(255);not null" json:"-"`
+	Scope         string    `gorm:"index;type:varchar(16);not null" json:"-"` // global, device
+	Kind          string    `gorm:"index;type:varchar(32);not null" json:"-"` // override, content, room, sender, underride
+	RuleID        string    `gorm:"type:varchar(128);not null" json:"rule_id"`
+	Default       bool      `gorm:"default:false" json:"default"`
+	Enabled       bool      `gorm:"default:true" json:"enabled"`
+	Conditions    string    `gorm:"type:text" json:"-"` // JSON
+	Actions       string    `gorm:"type:text" json:"-"` // JSON
+	Pattern       string    `gorm:"type:varchar(255)" json:"pattern,omitempty"`
+	PriorityClass int64     `json:"-"`
+	CreatedAt     time.Time `json:"-"`
+	UpdatedAt     time.Time `json:"-"`
 }
 
 func (PushRule) TableName() string {
@@ -68,10 +68,10 @@ func (PushRule) TableName() string {
 
 // PushCondition 推送条件
 type PushCondition struct {
-	Kind    string `json:"kind"` // event_match, contains_display_name, room_member_count
-	Key     string `json:"key,omitempty"`    // for event_match
+	Kind    string `json:"kind"`              // event_match, contains_display_name, room_member_count
+	Key     string `json:"key,omitempty"`     // for event_match
 	Pattern string `json:"pattern,omitempty"` // for event_match
-	Is      string `json:"is,omitempty"`     // for room_member_count
+	Is      string `json:"is,omitempty"`      // for room_member_count
 }
 
 // PushAction 推送动作
@@ -102,17 +102,17 @@ type PushNotificationData struct {
 
 // PushCounts 未读计数
 type PushCounts struct {
-	Unread int `json:"unread,omitempty"`
+	Unread      int `json:"unread,omitempty"`
 	MissedCalls int `json:"missed_calls,omitempty"`
 }
 
 // PushDevice 目标设备
 type PushDevice struct {
-	AppID   string `json:"app_id"`
-	Pushkey string `json:"pushkey"`
-	PushkeyTs int64 `json:"pushkey_ts,omitempty"`
-	Data    PusherData `json:"data,omitempty"`
-	Tweaks  []map[string]interface{} `json:"tweaks,omitempty"`
+	AppID     string                   `json:"app_id"`
+	Pushkey   string                   `json:"pushkey"`
+	PushkeyTs int64                    `json:"pushkey_ts,omitempty"`
+	Data      PusherData               `json:"data,omitempty"`
+	Tweaks    []map[string]interface{} `json:"tweaks,omitempty"`
 }
 
 // PushRulesResponse 推送规则响应
@@ -131,12 +131,12 @@ type PushRuleset struct {
 
 // PushRuleResponse 推送规则响应格式
 type PushRuleResponse struct {
-	RuleID      string            `json:"rule_id"`
-	Default     bool              `json:"default"`
-	Enabled     bool              `json:"enabled"`
-	Conditions  []PushCondition   `json:"conditions,omitempty"`
-	Actions     []interface{}     `json:"actions"`
-	Pattern     string            `json:"pattern,omitempty"`
+	RuleID     string          `json:"rule_id"`
+	Default    bool            `json:"default"`
+	Enabled    bool            `json:"enabled"`
+	Conditions []PushCondition `json:"conditions,omitempty"`
+	Actions    []interface{}   `json:"actions"`
+	Pattern    string          `json:"pattern,omitempty"`
 }
 
 // PushService 推送服务
@@ -246,13 +246,13 @@ func (ps *PushService) ruleToResponse(rule *PushRule) PushRuleResponse {
 
 	// 解析条件
 	if rule.Conditions != "" {
-		json.Unmarshal([]byte(rule.Conditions), &resp.Conditions)
+		json.Unmarshal([]byte(rule.Conditions), &resp.Conditions) //nolint:errcheck
 	}
 
 	// 解析动作
 	if rule.Actions != "" {
 		var actions []interface{}
-		json.Unmarshal([]byte(rule.Actions), &actions)
+		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck
 		resp.Actions = actions
 	}
 
@@ -297,56 +297,56 @@ func (ps *PushService) createDefaultRules(userID string) {
 	defaultRules := []PushRule{
 		// .m.rule.master - 主规则（禁用所有通知）
 		{
-			UserID:    userID,
-			Scope:     "global",
-			Kind:      "override",
-			RuleID:    ".m.rule.master",
-			Default:   true,
-			Enabled:   false,
-			Actions:   `["dont_notify"]`,
+			UserID:  userID,
+			Scope:   "global",
+			Kind:    "override",
+			RuleID:  ".m.rule.master",
+			Default: true,
+			Enabled: false,
+			Actions: `["dont_notify"]`,
 		},
 		// .m.rule.suppress_notices - 禁止通知消息
 		{
-			UserID:    userID,
-			Scope:     "global",
-			Kind:      "override",
-			RuleID:    ".m.rule.suppress_notices",
-			Default:   true,
-			Enabled:   true,
+			UserID:     userID,
+			Scope:      "global",
+			Kind:       "override",
+			RuleID:     ".m.rule.suppress_notices",
+			Default:    true,
+			Enabled:    true,
 			Conditions: `[{"kind":"event_match","key":"content.msgtype","pattern":"m.notice"}]`,
-			Actions:   `["dont_notify"]`,
+			Actions:    `["dont_notify"]`,
 		},
 		// .m.rule.invite_for_me - 邀请通知
 		{
-			UserID:    userID,
-			Scope:     "global",
-			Kind:      "underride",
-			RuleID:    ".m.rule.invite_for_me",
-			Default:   true,
-			Enabled:   true,
+			UserID:     userID,
+			Scope:      "global",
+			Kind:       "underride",
+			RuleID:     ".m.rule.invite_for_me",
+			Default:    true,
+			Enabled:    true,
 			Conditions: `[{"kind":"event_match","key":"type","pattern":"m.room.member"},{"kind":"event_match","key":"content.membership","pattern":"invite"},{"kind":"event_match","key":"state_key","pattern":"` + userID + `"}]`,
-			Actions:   `["notify",{"set_tweak":"sound","value":"default"},{"set_tweak":"highlight","value":false}]`,
+			Actions:    `["notify",{"set_tweak":"sound","value":"default"},{"set_tweak":"highlight","value":false}]`,
 		},
 		// .m.rule.contains_display_name - 提到显示名称
 		{
-			UserID:    userID,
-			Scope:     "global",
-			Kind:      "override",
-			RuleID:    ".m.rule.contains_display_name",
-			Default:   true,
-			Enabled:   true,
-			Actions:   `["notify",{"set_tweak":"sound","value":"default"},{"set_tweak":"highlight","value":true}]`,
+			UserID:  userID,
+			Scope:   "global",
+			Kind:    "override",
+			RuleID:  ".m.rule.contains_display_name",
+			Default: true,
+			Enabled: true,
+			Actions: `["notify",{"set_tweak":"sound","value":"default"},{"set_tweak":"highlight","value":true}]`,
 		},
 		// .m.rule.roomnotif - @room 提及
 		{
-			UserID:    userID,
-			Scope:     "global",
-			Kind:      "override",
-			RuleID:    ".m.rule.roomnotif",
-			Default:   true,
-			Enabled:   true,
+			UserID:     userID,
+			Scope:      "global",
+			Kind:       "override",
+			RuleID:     ".m.rule.roomnotif",
+			Default:    true,
+			Enabled:    true,
 			Conditions: `[{"kind":"event_match","key":"content.body","pattern":"@room"}]`,
-			Actions:   `["notify",{"set_tweak":"highlight","value":true}]`,
+			Actions:    `["notify",{"set_tweak":"highlight","value":true}]`,
 		},
 	}
 
@@ -473,7 +473,7 @@ func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent,
 		// 检查房间成员数
 		var count int64
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", event.RoomID, MembershipJoin).Count(&count)
-		
+
 		// 简单解析：只处理 "2" 这样的数字
 		if cond.Is == fmt.Sprintf("%d", count) {
 			return true
@@ -486,7 +486,7 @@ func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent,
 // matchEventField 匹配事件字段
 func (ps *PushService) matchEventField(event *MatrixEvent, key, pattern string) bool {
 	var value string
-	
+
 	switch key {
 	case "type":
 		value = string(event.EventType)
@@ -503,7 +503,7 @@ func (ps *PushService) matchEventField(event *MatrixEvent, key, pattern string) 
 			}
 		}
 	}
-	
+
 	return value == pattern
 }
 
@@ -540,7 +540,7 @@ func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room
 	// 获取发送者的显示名称
 	var senderMember MatrixRoomMember
 	db.GetDB().Where("room_id = ? AND user_id = ?", event.RoomID, event.Sender).First(&senderMember)
-	
+
 	senderDisplayName := event.Sender
 	if senderMember.DisplayName != nil && *senderMember.DisplayName != "" {
 		senderDisplayName = *senderMember.DisplayName
@@ -606,7 +606,9 @@ func (ps *PushService) sendPushRequest(url string, notification *PushNotificatio
 		return
 	}
 	defer func() {
-		io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			log.Warn("Failed to drain push response body: %v", err)
+		}
 		resp.Body.Close()
 	}()
 

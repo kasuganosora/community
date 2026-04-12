@@ -16,9 +16,8 @@ import (
 
 // StateResolver 状态解析器
 type StateResolver struct {
-	db       *gorm.DB
-	roomID   string
-	roomInfo *MatrixRoom
+	db     *gorm.DB
+	roomID string
 	// eventCache 事件缓存，避免重复加载
 	eventCache map[string]*MatrixEvent
 }

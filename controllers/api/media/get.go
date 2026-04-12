@@ -132,17 +132,12 @@ func Delete(c *gin.Context) {
 
 	// 删除物理文件
 	if media.FilePath != "" {
-		if err := storage.Delete(media.FilePath); err != nil {
-			// Log error but continue with database deletion
-			// In production, you might want to handle this differently
-		}
+		_ = storage.Delete(media.FilePath)
 	}
 
 	// 删除缩略图
 	if media.ThumbnailPath != nil && *media.ThumbnailPath != "" {
-		if err := storage.Delete(*media.ThumbnailPath); err != nil {
-			// Log error but continue with database deletion
-		}
+		_ = storage.Delete(*media.ThumbnailPath) // Log error but continue with database deletion
 	}
 
 	// 删除数据库记录

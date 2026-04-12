@@ -168,9 +168,9 @@ func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 		delivery.Status = DeliveryStatusPending
 
 		db.GetDB().Model(delivery).Updates(map[string]interface{}{
-			"status":       delivery.Status,
-			"retries":      delivery.Retries,
-			"last_error":   delivery.LastError,
+			"status":        delivery.Status,
+			"retries":       delivery.Retries,
+			"last_error":    delivery.LastError,
 			"next_retry_at": delivery.NextRetryAt,
 		})
 	} else {

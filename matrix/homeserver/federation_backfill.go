@@ -440,58 +440,6 @@ func handleQueryUser(c *gin.Context) {
 	})
 }
 
-// handleFederationKeysQuery 联邦密钥查询
-func handleFederationKeysQuery(c *gin.Context) {
-	var req QueryKeysRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-		return
-	}
-
-	hs := GetHomeServer()
-	keyStore := NewKeyStore(hs)
-
-	resp, err := keyStore.QueryDeviceKeys(&req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_UNKNOWN",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
-
-// handleFederationKeysClaim 联邦密钥认领
-func handleFederationKeysClaim(c *gin.Context) {
-	var req ClaimKeysRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-		return
-	}
-
-	hs := GetHomeServer()
-	keyStore := NewKeyStore(hs)
-
-	resp, err := keyStore.ClaimOneTimeKeys(&req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_UNKNOWN",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
-
 // handleGetUserSigningKey 获取用户签名密钥
 func handleGetUserSigningKey(c *gin.Context) {
 	userID := c.Param("userId")

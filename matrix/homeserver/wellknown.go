@@ -24,7 +24,7 @@ type ServerInfo struct {
 
 // ClientInfo 客户端发现信息
 type ClientInfo struct {
-	HomeServer HomeServerInfo   `json:"m.homeserver"`
+	HomeServer     HomeServerInfo      `json:"m.homeserver"`
 	IdentityServer *IdentityServerInfo `json:"m.identity_server,omitempty"`
 }
 

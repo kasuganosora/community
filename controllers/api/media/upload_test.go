@@ -2,8 +2,6 @@ package media
 
 import (
 	"bytes"
-	"image"
-	"image/jpeg"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -38,21 +36,12 @@ func createTestMultipartRequest(t *testing.T, fieldName, fileName string, fileCo
 	return req
 }
 
-// createTestJPEGContent 创建测试用的 JPEG 内容
-func createTestJPEGContent(t *testing.T, width, height int) []byte {
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	var buf bytes.Buffer
-	err := jpeg.Encode(&buf, img, nil)
-	assert.NoError(t, err)
-	return buf.Bytes()
-}
-
 // createTestAccount creates a test account for testing
 func createTestAccount() *models.Account {
 	return &models.Account{
-		Id:        1,
-		Username:  "testuser",
-		Acct:      "testuser@test.com",
+		Id:       1,
+		Username: "testuser",
+		Acct:     "testuser@test.com",
 	}
 }
 

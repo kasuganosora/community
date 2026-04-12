@@ -16,16 +16,16 @@ type parsedFilter struct {
 }
 
 type parsedRoomFilter struct {
-	IncludeLeave bool                    `json:"include_leave,omitempty"`
-	Timeline     *parsedEventFilter      `json:"timeline,omitempty"`
-	State        *parsedEventFilter      `json:"state,omitempty"`
+	IncludeLeave bool               `json:"include_leave,omitempty"`
+	Timeline     *parsedEventFilter `json:"timeline,omitempty"`
+	State        *parsedEventFilter `json:"state,omitempty"`
 }
 
 type parsedEventFilter struct {
-	Types                      []string `json:"types,omitempty"`
-	NotTypes                   []string `json:"not_types,omitempty"`
-	Limit                      *int     `json:"limit,omitempty"`
-	UnreadThreadNotifications  *bool    `json:"unread_thread_notifications,omitempty"`
+	Types                     []string `json:"types,omitempty"`
+	NotTypes                  []string `json:"not_types,omitempty"`
+	Limit                     *int     `json:"limit,omitempty"`
+	UnreadThreadNotifications *bool    `json:"unread_thread_notifications,omitempty"`
 }
 
 // loadFilter loads and parses a sync filter from the request
@@ -129,54 +129,54 @@ func NewSyncService(hs *HomeServer) *SyncService {
 
 // SyncRequest 同步请求
 type SyncRequest struct {
-	Filter       string `form:"filter"`
-	Since        string `form:"since"`        // 上次同步的 token
-	FullState    bool   `form:"full_state"`   // 是否返回完整状态
-	SetPresence  string `form:"set_presence"` // 设置在线状态
-	Timeout      int    `form:"timeout"`      // 长轮询超时（毫秒）
-	SinceAll     bool   `form:"_since"`
+	Filter      string `form:"filter"`
+	Since       string `form:"since"`        // 上次同步的 token
+	FullState   bool   `form:"full_state"`   // 是否返回完整状态
+	SetPresence string `form:"set_presence"` // 设置在线状态
+	Timeout     int    `form:"timeout"`      // 长轮询超时（毫秒）
+	SinceAll    bool   `form:"_since"`
 }
 
 // SyncResponse 同步响应
 type SyncResponse struct {
 	NextBatch string `json:"next_batch"`
-	
+
 	// 房间
 	Rooms *SyncRooms `json:"rooms,omitempty"`
-	
+
 	// Presence
 	Presence *SyncPresence `json:"presence,omitempty"`
-	
+
 	// Account Data
 	AccountData *SyncAccountData `json:"account_data,omitempty"`
-	
+
 	// To-Device
 	ToDevice *SyncToDevice `json:"to_device,omitempty"`
-	
+
 	// Device Lists
 	DeviceLists *DeviceLists `json:"device_lists,omitempty"`
-	
+
 	// Device One-Time Keys Count
 	DeviceOneTimeKeysCount map[string]int64 `json:"device_one_time_keys_count,omitempty"`
 }
 
 // SyncRooms 房间同步
 type SyncRooms struct {
-	Join   map[string]*JoinedRoom   `json:"join,omitempty"`
-	Invite map[string]*InvitedRoom  `json:"invite,omitempty"`
-	Leave  map[string]*LeftRoom     `json:"leave,omitempty"`
-	Knock  map[string]*KnockedRoom  `json:"knock,omitempty"`
+	Join   map[string]*JoinedRoom  `json:"join,omitempty"`
+	Invite map[string]*InvitedRoom `json:"invite,omitempty"`
+	Leave  map[string]*LeftRoom    `json:"leave,omitempty"`
+	Knock  map[string]*KnockedRoom `json:"knock,omitempty"`
 }
 
 // JoinedRoom 已加入房间
 type JoinedRoom struct {
-	State        *SyncState       `json:"state,omitempty"`
-	Timeline     *SyncTimeline    `json:"timeline,omitempty"`
-	Ephemeral    *SyncEphemeral   `json:"ephemeral,omitempty"`
-	AccountData  *SyncAccountData `json:"account_data,omitempty"`
+	State                     *SyncState                      `json:"state,omitempty"`
+	Timeline                  *SyncTimeline                   `json:"timeline,omitempty"`
+	Ephemeral                 *SyncEphemeral                  `json:"ephemeral,omitempty"`
+	AccountData               *SyncAccountData                `json:"account_data,omitempty"`
 	UnreadNotifications       *UnreadNotifications            `json:"unread_notifications,omitempty"`
 	UnreadThreadNotifications map[string]*UnreadNotifications `json:"unread_thread_notifications,omitempty"`
-	Summary      *RoomSummary     `json:"summary,omitempty"`
+	Summary                   *RoomSummary                    `json:"summary,omitempty"`
 }
 
 // InvitedRoom 被邀请房间
@@ -230,9 +230,9 @@ type UnreadNotifications struct {
 
 // RoomSummary 房间摘要
 type RoomSummary struct {
-	Heroes                []string `json:"m.heroes,omitempty"`
-	JoinedMemberCount     int64    `json:"m.joined_member_count,omitempty"`
-	InvitedMemberCount    int64    `json:"m.invited_member_count,omitempty"`
+	Heroes             []string `json:"m.heroes,omitempty"`
+	JoinedMemberCount  int64    `json:"m.joined_member_count,omitempty"`
+	InvitedMemberCount int64    `json:"m.invited_member_count,omitempty"`
 }
 
 // SyncPresence 在线状态
@@ -279,7 +279,7 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 	if presence != "offline" {
 		s.setPresence(userID, presence)
 	}
-	
+
 	// 构建响应
 	resp := &SyncResponse{
 		Rooms: &SyncRooms{
@@ -296,10 +296,10 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 		},
 		DeviceOneTimeKeysCount: make(map[string]int64),
 	}
-	
+
 	// 获取用户加入的房间
 	joinedRooms, _ := s.HS.Room.GetJoinedRooms(userID)
-	
+
 	// 处理每个房间
 	for _, roomID := range joinedRooms {
 		joinedRoom := s.buildJoinedRoomForDevice(roomID, userID, deviceID, since, req.FullState, filter)
@@ -327,7 +327,7 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 			resp.Rooms.Join[roomID] = joinedRoom
 		}
 	}
-	
+
 	// 获取被邀请的房间
 	// Get ignored user list
 	ignoredUsers := s.getIgnoredUsers(userID)
@@ -355,7 +355,7 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 			resp.Rooms.Invite[roomID] = invitedRoom
 		}
 	}
-	
+
 	// 获取已离开的房间
 	// include_leave defaults to false; only include left rooms if filter says so or no filter
 	includeLeave := true
@@ -375,7 +375,7 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 			}
 		}
 	}
-	
+
 	// 获取账户数据
 	resp.AccountData = s.getAccountData(userID, since)
 
@@ -394,13 +394,8 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 
 	// 生成下一个 token — use time captured at start of sync to avoid missing events
 	resp.NextBatch = fmt.Sprintf("s%d", syncStartTS)
-	
-	return resp, nil
-}
 
-// buildJoinedRoom 构建已加入房间
-func (s *SyncService) buildJoinedRoom(roomID, userID string, since int64, fullState bool) *JoinedRoom {
-	return s.buildJoinedRoomForDevice(roomID, userID, "", since, fullState, nil)
+	return resp, nil
 }
 
 // buildJoinedRoomForDevice 构建已加入房间（带设备 ID，用于 unsigned.transaction_id）
@@ -411,7 +406,7 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 		Ephemeral:   &SyncEphemeral{Events: make([]*ClientEvent, 0)},
 		AccountData: &SyncAccountData{Events: make([]*ClientEvent, 0)},
 	}
-	
+
 	// Resolve filter settings
 	var timelineFilter *parsedEventFilter
 	var stateFilter *parsedEventFilter
@@ -530,13 +525,13 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 	if timelineFilter != nil {
 		room.Timeline.Events = filterEvents(room.Timeline.Events, timelineFilter)
 	}
-	
+
 	// 获取临时事件（typing, receipts）
 	room.Ephemeral.Events = s.getEphemeralEvents(roomID, since)
-	
+
 	// 获取房间账户数据
 	room.AccountData.Events = s.getRoomAccountData(userID, roomID)
-	
+
 	// 获取未读通知数
 	// Check if the filter requests per-thread unread notifications
 	wantThreadNotifs := false
@@ -555,7 +550,7 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 	}
 	// 获取房间摘要
 	room.Summary = s.getRoomSummary(roomID)
-	
+
 	return room
 }
 
@@ -564,11 +559,11 @@ func (s *SyncService) buildInvitedRoom(roomID, userID string) *InvitedRoom {
 	room := &InvitedRoom{
 		InviteState: &SyncInviteState{Events: make([]*ClientEvent, 0)},
 	}
-	
+
 	// 获取邀请状态
 	state, _ := s.HS.Room.GetRoomStateAll(roomID)
 	room.InviteState.Events = state
-	
+
 	return room
 }
 
@@ -683,11 +678,6 @@ func (s *SyncService) parseSyncToken(token string) int64 {
 		return 0
 	}
 	return ts
-}
-
-// generateSyncToken 生成同步 token
-func (s *SyncService) generateSyncToken() string {
-	return fmt.Sprintf("s%d", time.Now().UnixMilli())
 }
 
 // generatePaginationToken 生成分页 token
@@ -814,7 +804,7 @@ func (s *SyncService) getIgnoredUsers(userID string) map[string]bool {
 func (s *SyncService) getInvitedRooms(userID string) []string {
 	var members []MatrixRoomMember
 	db.GetDB().Where("user_id = ? AND membership = ?", userID, MembershipInvite).Find(&members)
-	
+
 	roomIDs := make([]string, len(members))
 	for i, m := range members {
 		roomIDs[i] = m.RoomID
@@ -867,7 +857,7 @@ func (s *SyncService) getChangedStateEvents(roomID string, since int64) []*Clien
 	sinceTime := time.UnixMilli(since)
 	db.GetDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime).
 		Order("origin_server_ts ASC").Find(&events)
-	
+
 	result := make([]*ClientEvent, len(events))
 	for i, event := range events {
 		result[i] = event.ToClientEvent()
@@ -910,7 +900,7 @@ func (s *SyncService) getEphemeralEvents(roomID string, since int64) []*ClientEv
 func (s *SyncService) getTypingUsers(roomID string) []string {
 	var typing []MatrixTyping
 	db.GetDB().Where("room_id = ? AND expires_at > ?", roomID, time.Now()).Find(&typing)
-	
+
 	userIDs := make([]string, len(typing))
 	for i, t := range typing {
 		userIDs[i] = t.UserID
@@ -927,7 +917,7 @@ func (s *SyncService) getReceipts(roomID string, since int64) map[string]interfa
 		query = query.Where("ts > ?", since)
 	}
 	query.Find(&receipts)
-	
+
 	// Per MSC4102: when both unthreaded and threaded receipts exist for the same
 	// user+event+type, prefer the unthreaded receipt (no thread_id).
 	// Two-pass approach: first collect unthreaded receipts, then add threaded ones
@@ -975,7 +965,7 @@ func (s *SyncService) getReceipts(roomID string, since int64) map[string]interfa
 		}
 		typeReceipts[r.UserID] = userData
 	}
-	
+
 	return result
 }
 
@@ -1043,7 +1033,7 @@ func (s *SyncService) getAccountData(userID string, since int64) *SyncAccountDat
 func (s *SyncService) getRoomAccountData(userID, roomID string) []*ClientEvent {
 	var accountData []MatrixAccountData
 	db.GetDB().Where("user_id = ? AND room_id = ?", userID, roomID).Find(&accountData)
-	
+
 	events := make([]*ClientEvent, len(accountData))
 	for i, data := range accountData {
 		events[i] = &ClientEvent{
@@ -1051,7 +1041,7 @@ func (s *SyncService) getRoomAccountData(userID, roomID string) []*ClientEvent {
 			Content: data.Content,
 		}
 	}
-	
+
 	return events
 }
 
@@ -1059,7 +1049,7 @@ func (s *SyncService) getRoomAccountData(userID, roomID string) []*ClientEvent {
 func (s *SyncService) getToDeviceMessages(userID, deviceID string) *SyncToDevice {
 	var messages []MatrixToDeviceMessage
 	db.GetDB().Where("target_user = ? AND target_device = ?", userID, deviceID).Find(&messages)
-	
+
 	events := make([]*ToDeviceEvent, len(messages))
 	for i, msg := range messages {
 		events[i] = &ToDeviceEvent{
@@ -1068,10 +1058,10 @@ func (s *SyncService) getToDeviceMessages(userID, deviceID string) *SyncToDevice
 			Content: msg.Content,
 		}
 	}
-	
+
 	// 删除已发送的消息
 	db.GetDB().Where("target_user = ? AND target_device = ?", userID, deviceID).Delete(&MatrixToDeviceMessage{})
-	
+
 	return &SyncToDevice{Events: events}
 }
 
@@ -1193,8 +1183,8 @@ func (s *SyncService) getUnreadNotifications(roomID, userID string) *UnreadNotif
 		}
 	}
 
-	unthreadedTS := receiptTSByScope[""]   // applies to ALL events
-	mainTS := receiptTSByScope["main"]      // applies to main-timeline events only
+	unthreadedTS := receiptTSByScope[""] // applies to ALL events
+	mainTS := receiptTSByScope["main"]   // applies to main-timeline events only
 
 	// Fetch all events from other senders
 	var events []MatrixEvent
@@ -1493,10 +1483,10 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 func (s *SyncService) getRoomSummary(roomID string) *RoomSummary {
 	// 获取成员
 	members, _ := s.HS.Room.GetRoomMembers(roomID, []MembershipState{MembershipJoin, MembershipInvite})
-	
+
 	heroes := make([]string, 0)
 	var joinedCount, invitedCount int64
-	
+
 	for _, m := range members {
 		if m.Membership == MembershipJoin {
 			joinedCount++
@@ -1507,7 +1497,7 @@ func (s *SyncService) getRoomSummary(roomID string) *RoomSummary {
 			invitedCount++
 		}
 	}
-	
+
 	return &RoomSummary{
 		Heroes:             heroes,
 		JoinedMemberCount:  joinedCount,

@@ -1,13 +1,9 @@
 package integration
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 )
 
 func init() {
@@ -88,29 +84,4 @@ func TestSearchIntegration(t *testing.T) {
 	t.Run("AdvancedSearch", func(t *testing.T) {
 		// 测试高级搜索语法
 	})
-}
-
-// 辅助函数
-func makeRequest(method, path string, body interface{}, headers map[string]string) *httptest.ResponseRecorder {
-	var reqBody bytes.Buffer
-	if body != nil {
-		json.NewEncoder(&reqBody).Encode(body)
-	}
-
-	req := httptest.NewRequest(method, path, &reqBody)
-	req.Header.Set("Content-Type", "application/json")
-
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	w := httptest.NewRecorder()
-	return w
-}
-
-func parseResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	return response
 }

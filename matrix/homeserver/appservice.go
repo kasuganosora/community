@@ -21,23 +21,23 @@ import (
 
 // AppService 应用服务配置
 type AppService struct {
-	ID              string            `gorm:"primaryKey;type:varchar(64)" json:"id"`
-	URL             string            `gorm:"type:varchar(512);not null" json:"url"`           // 事件推送 URL
-	Token           string            `gorm:"type:varchar(512);not null" json:"token"`         // 访问令牌
-	HS_TOKEN        string            `gorm:"type:varchar(512);not null" json:"hs_token"`      // 验证令牌
-	SenderLocalpart string            `gorm:"type:varchar(128);not null" json:"sender_localpart"` // 发送者本地部分 (@bot:server)
-	Protocols       []string          `gorm:"type:json;serializer:json" json:"protocols,omitempty"` // 支持的协议
-	Namespaces      AppServiceNamespaces `gorm:"type:json;serializer:json" json:"namespaces"`    // 命名空间配置
-	RateLimited     bool              `gorm:"default:true" json:"rate_limited"`
-	Enabled         bool              `gorm:"default:true" json:"enabled"`
-	CreatedAt       time.Time         `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
+	ID              string               `gorm:"primaryKey;type:varchar(64)" json:"id"`
+	URL             string               `gorm:"type:varchar(512);not null" json:"url"`                // 事件推送 URL
+	Token           string               `gorm:"type:varchar(512);not null" json:"token"`              // 访问令牌
+	HS_TOKEN        string               `gorm:"type:varchar(512);not null" json:"hs_token"`           // 验证令牌
+	SenderLocalpart string               `gorm:"type:varchar(128);not null" json:"sender_localpart"`   // 发送者本地部分 (@bot:server)
+	Protocols       []string             `gorm:"type:json;serializer:json" json:"protocols,omitempty"` // 支持的协议
+	Namespaces      AppServiceNamespaces `gorm:"type:json;serializer:json" json:"namespaces"`          // 命名空间配置
+	RateLimited     bool                 `gorm:"default:true" json:"rate_limited"`
+	Enabled         bool                 `gorm:"default:true" json:"enabled"`
+	CreatedAt       time.Time            `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt       time.Time            `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // AppServiceNamespaces 命名空间配置
 type AppServiceNamespaces struct {
-	Users  []NamespaceConfig `json:"users,omitempty"`
-	Rooms  []NamespaceConfig `json:"rooms,omitempty"`
+	Users   []NamespaceConfig `json:"users,omitempty"`
+	Rooms   []NamespaceConfig `json:"rooms,omitempty"`
 	Aliases []NamespaceConfig `json:"aliases,omitempty"`
 }
 
@@ -96,7 +96,7 @@ func (ass *AppServiceService) RegisterAppService(as *AppService) error {
 	if as.SenderLocalpart != "" {
 		userID := fmt.Sprintf("@%s:%s", as.SenderLocalpart, ass.hs.Config.ServerName)
 		// 确保应用服务用户存在
-		ass.ensureAppServiceUser(userID, as.ID)
+		_ = ass.ensureAppServiceUser(userID, as.ID)
 	}
 
 	return db.GetDB().Create(as).Error
@@ -322,8 +322,8 @@ func (ass *AppServiceService) ensureAppServiceUser(userID, appServiceID string) 
 
 	// 创建应用服务用户
 	session := &MatrixUserSession{
-		UserID:     userID,
-		DeviceID:   "APPSERVICE_" + appServiceID,
+		UserID:      userID,
+		DeviceID:    "APPSERVICE_" + appServiceID,
 		AccessToken: "AS_" + generateSecureToken(),
 	}
 
@@ -363,16 +363,16 @@ func (ass *AppServiceService) QueryRoom(alias string) (*AppServiceRoomInfo, erro
 	}
 
 	return &AppServiceRoomInfo{
-		RoomID: roomState.RoomID,
+		RoomID:  roomState.RoomID,
 		Servers: []string{ass.hs.Config.ServerName},
 	}, nil
 }
 
 // AppServiceUserInfo 应用服务用户信息
 type AppServiceUserInfo struct {
-	UserID      string   `json:"user_id"`
-	DisplayName string   `json:"displayname,omitempty"`
-	AvatarURL   string   `json:"avatar_url,omitempty"`
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"displayname,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 // AppServiceRoomInfo 应用服务房间信息
@@ -530,10 +530,10 @@ func handleAppServiceThirdPartyProtocol(c *gin.Context) {
 
 	// 返回协议信息
 	c.JSON(http.StatusOK, gin.H{
-		"user_fields":   []string{},
+		"user_fields":     []string{},
 		"location_fields": []string{},
-		"icon":          "",
-		"field_types":   gin.H{},
+		"icon":            "",
+		"field_types":     gin.H{},
 	})
 }
 

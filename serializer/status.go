@@ -178,7 +178,7 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 
 	dbConn := db.GetDB()
 	statusIds := statuses.GetIdsWithoutReblogWarp()
-	filters := make(models.Filters, 0)
+	var filters models.Filters
 	muteAccounts := make(models.MuteAccounts, 0)
 	blocks := make(models.Blocks, 0)
 	bookmarkedCheckMap := make(map[uint64]bool)

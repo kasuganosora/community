@@ -1,11 +1,13 @@
 package direct
 
 import (
+	"log"
+	"strconv"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
-	"strconv"
 )
 
 func init() {
@@ -27,13 +29,29 @@ func init() {
 		//如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			go Push(status, false, true)
+			go func() {
+				if err := Push(status, false, true); err != nil {
+					log.Printf("direct_timeline: Push failed: %v", err)
+				}
+			}()
 		case "before_update":
-			go Unpush(status, true) // 更新之前，先删除
+			go func() { // 更新之前，先删除
+				if err := Unpush(status, true); err != nil {
+					log.Printf("direct_timeline: Unpush failed: %v", err)
+				}
+			}()
 		case "after_update":
-			go Push(status, true, true)
+			go func() {
+				if err := Push(status, true, true); err != nil {
+					log.Printf("direct_timeline: Push failed: %v", err)
+				}
+			}()
 		case "after_delete":
-			go Unpush(status, true)
+			go func() {
+				if err := Unpush(status, true); err != nil {
+					log.Printf("direct_timeline: Unpush failed: %v", err)
+				}
+			}()
 		}
 
 		return true

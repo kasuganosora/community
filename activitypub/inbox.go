@@ -22,6 +22,11 @@ import (
 // MaxRequestBodySize is the maximum allowed size for request body (1MB)
 const MaxRequestBodySize = 1024 * 1024
 
+// activityContextKey is a custom type for context keys in activity processing
+type activityContextKey string
+
+const actorKey activityContextKey = "actor"
+
 // Inbox handles POST /users/:username/inbox
 // Receives activities from remote instances
 func Inbox(c *gin.Context) {
@@ -88,7 +93,7 @@ func Inbox(c *gin.Context) {
 	activityType, _ := activity["type"].(string)
 
 	// Create context with verified actor info
-	ctx := context.WithValue(c.Request.Context(), "actor", actor)
+	ctx := context.WithValue(c.Request.Context(), actorKey, actor)
 
 	switch activityType {
 	case "Create":
@@ -157,7 +162,7 @@ func isValidActivityPubContentType(contentType string) bool {
 
 // handleCreateActivity handles Create activities (new remote posts)
 func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -232,14 +237,14 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Create status
 	now := time.Now()
 	status := models.Status{
-		AccountId:         remoteAccount.Id,
-		Content:           models.StatusContent{Content: content, SpoilerText: summary},
-		Sensitive:         sensitive,
-		Visibility:        getVisibilityFromActivity(object),
-		OriginUri:         &objectID,
-		InReplyToId:       inReplyToID,
+		AccountId:          remoteAccount.Id,
+		Content:            models.StatusContent{Content: content, SpoilerText: summary},
+		Sensitive:          sensitive,
+		Visibility:         getVisibilityFromActivity(object),
+		OriginUri:          &objectID,
+		InReplyToId:        inReplyToID,
 		InReplyToAccountId: inReplyToAccountID,
-		CreatedAt:         publishedAt,
+		CreatedAt:          publishedAt,
 		UpdatedAt:          &now,
 	}
 
@@ -315,7 +320,7 @@ func parseTagsToAccountIDs(tags []interface{}) []uint64 {
 
 // handleUpdateActivity handles Update activities (edit remote posts)
 func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -394,7 +399,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 // handleDeleteActivity handles Delete activities (delete remote posts/accounts)
 func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(string)
 	if !ok {
 		// Object might be a map
@@ -458,7 +463,7 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 		return
 	}
 
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -529,7 +534,7 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 // handleAcceptActivity handles Accept activities (follow accept / relay accept)
 func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -594,7 +599,7 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 // handleRejectActivity handles Reject activities (follow reject / relay reject)
 func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(map[string]interface{})
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -642,7 +647,7 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 // handleAnnounceActivity handles Announce activities (boosts)
 func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -717,7 +722,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 
 // handleLikeActivity handles Like activities (favourites)
 func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -771,7 +776,7 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 
 // handleUndoActivity handles Undo activities (undo follow/like/announce)
 func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	objectMap, ok := activity["object"].(map[string]interface{})
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -842,7 +847,7 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 
 // handleBlockActivity handles Block activities
 func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	objectStr, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -881,7 +886,7 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 
 // handleFlagActivity handles Flag activities (reports)
 func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 
 	// Get or create remote account (the reporter)
 	remoteAccount, err := getOrCreateRemoteAccount(actor)
@@ -933,11 +938,11 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	report := models.Report{
 		AccountId:       remoteAccount.Id,
 		TargetAccountId: reportedAccountId,
-		StatusIds:         reportedStatusIds,
-		Comment:           content,
-		Forwarded:         forwarded,
-		Category:          models.ReportCategoryOther,
-		Uri:               actor,
+		StatusIds:       reportedStatusIds,
+		Comment:         content,
+		Forwarded:       forwarded,
+		Category:        models.ReportCategoryOther,
+		Uri:             actor,
 	}
 
 	if err := db.GetDB().Create(&report).Error; err != nil {
@@ -955,7 +960,7 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 
 // handleMoveActivity handles Move activities (account migration)
 func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 	oldActorURI, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
@@ -1215,8 +1220,8 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 // handleAddActivity handles Add activities (adding items to collections)
 // Typically used for adding to featured collections or lists
 func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
-	
+	actor, _ := ctx.Value(actorKey).(string)
+
 	object, ok := activity["object"].(string)
 	if !ok {
 		// Object might be a map
@@ -1224,7 +1229,7 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 			object, _ = objMap["id"].(string)
 		}
 	}
-	
+
 	target, ok := activity["target"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid target"})
@@ -1263,7 +1268,7 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 // handleRemoveActivity handles Remove activities (removing items from collections)
 // Typically used for removing from featured collections or lists
 func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
-	actor, _ := ctx.Value("actor").(string)
+	actor, _ := ctx.Value(actorKey).(string)
 
 	object, ok := activity["object"].(string)
 	if !ok {

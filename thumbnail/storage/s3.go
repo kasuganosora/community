@@ -138,8 +138,8 @@ func (s *S3Backend) ListObjects(ctx context.Context, prefix string, maxKeys int3
 	fullPrefix := s.pathPrefix + prefix
 
 	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(fullPrefix),
+		Bucket:  aws.String(s.bucket),
+		Prefix:  aws.String(fullPrefix),
 		MaxKeys: aws.Int32(maxKeys),
 	}
 
