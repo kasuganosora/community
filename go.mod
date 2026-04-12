@@ -1,6 +1,6 @@
 module github.com/kasuganosora/community
 
-go 1.26.0
+go 1.26.2
 
 require (
 	github.com/awnumar/memguard v0.23.0
@@ -33,9 +33,9 @@ require (
 	github.com/u2takey/ffmpeg-go v0.5.0
 	github.com/urfave/cli/v2 v2.27.7
 	golang.org/x/crypto v0.48.0
-	golang.org/x/image v0.36.0
-	golang.org/x/net v0.50.0
-	golang.org/x/text v0.34.0
+	golang.org/x/image v0.38.0
+	golang.org/x/net v0.51.0
+	golang.org/x/text v0.35.0
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/vansante/go-ffprobe.v2 v2.3.0
@@ -138,7 +138,6 @@ require (
 	golang.org/x/arch v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.67.6 // indirect
