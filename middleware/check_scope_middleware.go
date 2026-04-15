@@ -23,8 +23,22 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 
 		tokenData := td.(*models.AuthTokenData)
 
-		// 如果是网站登陆的token 则不需要检查scope
+		// 如果是网站登陆的token 则不需要检查scope（除非是admin scope）
 		if tokenData.AuthType == models.AuthTokenTypeWeb {
+			hasAdminScope := false
+			for _, scope := range scopes {
+				if scope.Type == models.AppScopeTypeAdmin {
+					hasAdminScope = true
+					break
+				}
+			}
+			if hasAdminScope {
+				user := c.MustGet("user").(*models.User)
+				if !user.IsAdmin {
+					returnUnauthorized(c)
+					return
+				}
+			}
 			c.Next()
 			return
 		}

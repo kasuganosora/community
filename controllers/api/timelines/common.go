@@ -19,6 +19,10 @@ func (req *TimelineRequest) ToFeedListParams() *feed.ListParam {
 		req.Limit = uint64(systemsettings.GetDefaultPageSize())
 	}
 
+	if req.Limit > 80 {
+		req.Limit = 80
+	}
+
 	return &feed.ListParam{
 		MaxId:   req.MaxId,
 		MinId:   req.MinId,

@@ -84,7 +84,7 @@ func (timeline *PublicTimeline) Rebuild() (err error) {
 
 	allPublicTimeline := &PublicTimeline{}
 
-	if err = feed.CleanFeeds(allPublicTimeline, []string{"feed:public:all"}); err != nil {
+	if err = feed.CleanFeeds(allPublicTimeline, []string{allPublicTimeline.GetTimelineId()}); err != nil {
 		return
 	}
 

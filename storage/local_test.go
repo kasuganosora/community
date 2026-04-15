@@ -49,7 +49,7 @@ func TestSave_Integration(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "storage_test")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create test data
 	testData := []byte("hello world test content")
@@ -78,7 +78,7 @@ func TestLocalStorage_Save(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "local_storage_test")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	storage := &LocalStorage{Root: tmpDir}
 

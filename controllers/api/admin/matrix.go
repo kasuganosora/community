@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/migrate/scripts"
 )
@@ -38,8 +39,9 @@ func GetMatrixStatus(c *gin.Context) {
 	// 检查连接状态
 	client := matrix.NewASClient()
 	if err := client.PingHS(); err != nil {
+		log.Error("failed to connect to Homeserver: %v", err)
 		status.Connected = false
-		status.Message = "Failed to connect to Homeserver: " + err.Error()
+		status.Message = "Failed to connect to Homeserver"
 	} else {
 		status.Connected = true
 		status.Message = "Connected to Homeserver"
@@ -79,8 +81,9 @@ func StopMatrixBridge(c *gin.Context) {
 // RunMatrixMigration 运行 Matrix 数据库迁移
 func RunMatrixMigration(c *gin.Context) {
 	if err := scripts.MigrateMatrixTables(); err != nil {
+		log.Error("failed to run Matrix migration: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to run Matrix migration: " + err.Error(),
+			"error": "operation failed",
 		})
 		return
 	}
@@ -116,7 +119,7 @@ func TestMatrixConnection(c *gin.Context) {
 	var req MatrixTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request: " + err.Error(),
+			"error": "invalid request",
 		})
 		return
 	}
@@ -135,9 +138,10 @@ func TestMatrixConnection(c *gin.Context) {
 	client := matrix.NewClient()
 	profile, err := client.GetUserID(req.MatrixUserID)
 	if err != nil {
+		log.Error("failed to get user profile: %v", err)
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"error":   "Failed to get user profile: " + err.Error(),
+			"error":   "operation failed",
 		})
 		return
 	}

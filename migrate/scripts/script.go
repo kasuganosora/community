@@ -10,6 +10,15 @@ var ScripsType = []MigrationScript{
 	InitSystemConfigOptions{},
 	AddRoles{},
 	AddOAuthTables{},
+
+	// Previously unregistered scripts — all Up() methods are safe (use IF NOT EXISTS / idempotent):
+	CreateActivityPubTablesScript{},
+	MigrateGroupTablesScript{},
+	MigrateMatrixTablesScript{},
+	MigrateMatrixHSScript{},
+	MigrateMediaTablesScript{},
+	CreatePerformanceIndexesScript{},
+	MigrateRelayTableScript{},
 }
 
 type MigrationScript interface {

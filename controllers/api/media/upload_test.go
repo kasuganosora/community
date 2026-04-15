@@ -108,7 +108,7 @@ func TestUpload_NoFile(t *testing.T) {
 	// 创建空的 multipart 请求
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	writer.Close()
+	_ = writer.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())

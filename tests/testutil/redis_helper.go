@@ -20,7 +20,7 @@ func IsRedisAvailable() bool {
 		DialTimeout: 2 * time.Second,
 		ReadTimeout: 2 * time.Second,
 	})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

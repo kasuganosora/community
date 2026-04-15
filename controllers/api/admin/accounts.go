@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +11,13 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 )
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
 
 // ListAccounts handles GET /api/v1/admin/accounts
 func ListAccounts(c *gin.Context) {
@@ -58,18 +66,18 @@ func ListAccounts(c *gin.Context) {
 
 	// Filter by username
 	if username := c.Query("username"); username != "" {
-		query = query.Where("username LIKE ?", "%"+username+"%")
+		query = query.Where("username LIKE ?", "%"+escapeLike(username)+"%")
 	}
 
 	// Filter by display name
 	if displayName := c.Query("display_name"); displayName != "" {
-		query = query.Where("display_name LIKE ?", "%"+displayName+"%")
+		query = query.Where("display_name LIKE ?", "%"+escapeLike(displayName)+"%")
 	}
 
 	// Filter by email (for local accounts)
 	if email := c.Query("email"); email != "" {
 		query = query.Joins("JOIN users ON users.id = accounts.user_id").
-			Where("users.email LIKE ?", "%"+email+"%")
+			Where("users.email LIKE ?", "%"+escapeLike(email)+"%")
 	}
 
 	// Filter by IP address

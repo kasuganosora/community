@@ -5,7 +5,20 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
+
+// MigrateRelayTableScript registers the relay table migration in the migration framework.
+// Up is safe: uses CREATE TABLE IF NOT EXISTS.
+type MigrateRelayTableScript struct{}
+
+func (MigrateRelayTableScript) Up(db *gorm.DB) (err error) {
+	return MigrateRelayTable()
+}
+
+func (MigrateRelayTableScript) Down(db *gorm.DB) (err error) {
+	return db.Exec("DROP TABLE IF EXISTS relays").Error
+}
 
 // MigrateRelayTable 中继表迁移
 func MigrateRelayTable() error {

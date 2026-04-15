@@ -167,6 +167,10 @@ func AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblog
 	return getDefaultService().AddToTimelineItem(timeline, status, aggregateReblogs)
 }
 
+func BatchAddToTimelineItems(timelines []Timeline, status *models.Status, aggregateReblogs bool) (err error) {
+	return getDefaultService().BatchAddToTimelineItems(timelines, status, aggregateReblogs)
+}
+
 func RemoveTimelineItem(timeline Timeline, status *models.Status, aggregateReblogs bool) (err error) {
 	return getDefaultService().RemoveTimelineItem(timeline, status, aggregateReblogs)
 }

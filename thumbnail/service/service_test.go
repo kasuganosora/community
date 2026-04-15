@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
 	// Cleanup
-	os.RemoveAll("./test_storage")
+	_ = os.RemoveAll("./test_storage")
 	os.Exit(code)
 }
 

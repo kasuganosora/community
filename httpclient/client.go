@@ -144,7 +144,7 @@ func (r *Request) SetJsonBody(v any) *Request {
 func (r *Request) SetMultipartBody(data map[string]any) *Request {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 
 	for key, value := range data {
 		// 如果是文件

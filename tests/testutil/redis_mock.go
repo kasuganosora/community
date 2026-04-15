@@ -56,7 +56,7 @@ func NewRealRedis(t *testing.T) *RedisTestClient {
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		client.Close()
+		_ = client.Close()
 		t.Skipf("Redis not available at %s, skipping test: %v", GetRedisAddr(), err)
 		return nil
 	}
@@ -138,7 +138,7 @@ func SetupRedisTest(t *testing.T, mode RedisTestMode) *RedisTestClient {
 
 	t.Cleanup(func() {
 		client.AssertExpectations(t)
-		client.Close()
+		_ = client.Close()
 	})
 
 	return client

@@ -76,6 +76,15 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
+	// H1: Cross-validate actor from signature keyId with activity JSON actor field
+	if activityActor, ok := activity["actor"].(string); ok && activityActor != "" {
+		if activityActor != actor {
+			log.Warn("Actor mismatch: signature actor=%s, activity actor=%s", actor, activityActor)
+			c.JSON(401, gin.H{"error": "actor mismatch between signature and activity"})
+			return
+		}
+	}
+
 	// De-duplicate activities by ID (spec MUST requirement)
 	activityID, _ := activity["id"].(string)
 	if activityID != "" {

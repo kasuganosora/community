@@ -138,7 +138,7 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 		if videoErr != nil {
 			return fmt.Errorf("failed to open temp file for video: %w", videoErr)
 		}
-		defer videoFile.Close()
+		defer func() { _ = videoFile.Close() }()
 		videoProc := processor.NewVideoProcessor("")
 		thumbData, thumbWidth, thumbHeight, thumbFormat, err = videoProc.GenerateThumbnail(videoFile, opts)
 	} else {
@@ -147,7 +147,7 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 		if openErr != nil {
 			return fmt.Errorf("failed to open temp file: %w", openErr)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		thumbData, thumbWidth, thumbHeight, thumbFormat, err = w.processor.GenerateThumbnail(file, opts)
 	}

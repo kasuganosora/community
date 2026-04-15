@@ -114,7 +114,8 @@ func (timeline *HomeTimeline) Rebuild() (err error) {
 func ClearMentionsPushStatus(status *models.Status) {
 	// 查找原来的提及用户信息
 	toAccounts := make([]*models.StatusToAccount, 0)
-	err := db.GetDB().Model(&models.StatusToAccount{}).
+	err := db.GetDB().Model(
+		&models.StatusToAccount{}).
 		Preload("Account").
 		Preload("Account.User").
 		Preload("Account.User.Settings").
@@ -221,19 +222,59 @@ func Push(status *models.Status, update bool) (err error) {
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
 		accounts := make([]*models.Account, 0)
-		err = db.GetDB().Model(&models.Account{}).Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
+		err = db.GetDB().Model(
+			&models.Account{}).Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
 		if err != nil {
 			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
 			log.ErrorV(err)
 			return
 		}
 
-		for _, account := range accounts {
-			err = PushToHome(account, status, update, true)
-			if err != nil {
-				err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
+		isReblog := status.ReblogId != nil && *status.ReblogId > 0
+
+		if !isReblog {
+			// 非转发：使用批量添加优化性能（Redis Pipeline）
+			// 注意：非转发情况下 aggregateReblogs 参数不影响结果，因为 reblog 分支不会被进入
+			timelines := make([]feed.Timeline, 0, len(accounts))
+			for _, account := range accounts {
+				timelines = append(timelines, &HomeTimeline{Account: account})
+			}
+			if err = feed.BatchAddToTimelineItems(timelines, status, false); err != nil {
+				err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
 				log.ErrorV(err)
-				continue
+				return
+			}
+			for _, timeline := range timelines {
+				if err = feed.TrimTimeline(timeline); err != nil {
+					err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+					log.ErrorV(err)
+					return
+				}
+			}
+			// 推送到客户端
+			for _, account := range accounts {
+				homeTimeline := &HomeTimeline{Account: account}
+				if feed.PushUpdateRequired(homeTimeline) {
+					method := "update"
+					if update {
+						method = "status.update"
+					}
+					if err = feed.PushToClient(homeTimeline, method, status); err != nil {
+						err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
+						log.ErrorV(err)
+						continue
+					}
+				}
+			}
+		} else {
+			// 转发：保留单条调用，因为每个用户可能有不同的 aggregatesReblogs 设置
+			for _, account := range accounts {
+				err = PushToHome(account, status, update, true)
+				if err != nil {
+					err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
+					log.ErrorV(err)
+					continue
+				}
 			}
 		}
 	}()

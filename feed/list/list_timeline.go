@@ -75,17 +75,20 @@ func (timeline *ListTimeline) GetTimelineId() string {
 
 func (timeline *ListTimeline) Rebuild() (err error) {
 	accountIds := make([]uint64, 0)
-	err = db.GetDB().Model(&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Pluck("account_id", &accountIds).Error
+	err = db.GetDB().Model(
+		&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Pluck("account_id", &accountIds).Error
 
 	if err != nil {
 		return
 	}
 
 	statuses := make(models.Statuses, 0)
-	err = db.GetDB().Model(&models.Status{}).Where("account_id in (?)", accountIds).
+	err = db.GetDB().Model(
+		&models.Status{}).Where("account_id in (?)", accountIds).
 		Where("visibility = ?", models.StatusVisibilityPublic).
 		Order("id desc").Limit(feed.MAX_ITEMS / 4).
-		Find(&statuses).Error
+		Find(
+			&statuses).Error
 
 	if err != nil {
 		return
@@ -115,32 +118,60 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
-	err = db.GetDB().Model(&models.List{}).
-		Where("id IN (?)", db.GetDB().Model(&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
+	err = db.GetDB().Model(
+		&models.List{}).
+		Where("id IN (?)", db.GetDB().Model(
+			&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
-		Find(&lists).Error
+		Find(
+			&lists).Error
 
 	if err != nil {
 		return
 	}
 
-	for _, list := range lists {
-		timeline := &ListTimeline{List: &list}
-		if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
+	if len(lists) == 0 {
+		return
+	}
+
+	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
+	if update {
+		method = "status.update"
+	}
+
+	isReblog := status.ReblogId != nil && *status.ReblogId > 0
+
+	if !isReblog {
+		// 非转发：使用批量添加优化性能（Redis Pipeline）
+		timelines := make([]feed.Timeline, 0, len(lists))
+		for i := range lists {
+			timelines = append(timelines, &ListTimeline{List: &lists[i]})
+		}
+		if err = feed.BatchAddToTimelineItems(timelines, status, true); err != nil {
 			return
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+		for _, timeline := range timelines {
+			if err = feed.TrimTimeline(timeline); err != nil {
+				return
+			}
 		}
-
-		method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
-		if update {
-			method = "status.update"
+	} else {
+		// 转发：保留单条调用以保证 reblog 聚合逻辑正确
+		for i := range lists {
+			timeline := &ListTimeline{List: &lists[i]}
+			if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
+				return
+			}
+			if err = feed.TrimTimeline(timeline); err != nil {
+				return
+			}
 		}
+	}
 
-		if pushToClient {
-			err = feed.PushToClient(timeline, method, status)
-			if err != nil {
+	if pushToClient {
+		for i := range lists {
+			timeline := &ListTimeline{List: &lists[i]}
+			if err = feed.PushToClient(timeline, method, status); err != nil {
 				return
 			}
 		}
@@ -155,10 +186,13 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
-	err = db.GetDB().Model(&models.List{}).
-		Where("id IN (?)", db.GetDB().Model(&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
+	err = db.GetDB().Model(
+		&models.List{}).
+		Where("id IN (?)", db.GetDB().Model(
+			&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
-		Find(&lists).Error
+		Find(
+			&lists).Error
 
 	if err != nil {
 		return
@@ -192,7 +226,9 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 
 	// 标记最后查看时间
 	list.LastViewedAt = utils.GetPtr(time.Now())
-	err = db.GetDB().Model(&models.List{}).Where("id = ?", list.Id).Select("last_viewed_at").Updates(list).Error
+
+	err = db.GetDB().Model(
+		&models.List{}).Where("id = ?", list.Id).Select("last_viewed_at").Updates(list).Error
 	if err != nil {
 		return
 	}

@@ -3,7 +3,26 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
+
+// MigrateGroupTablesScript registers the group/contacts table migration in the migration framework.
+// Up is safe: all statements use CREATE TABLE IF NOT EXISTS.
+type MigrateGroupTablesScript struct{}
+
+func (MigrateGroupTablesScript) Up(db *gorm.DB) (err error) {
+	return MigrateGroupTables()
+}
+
+func (MigrateGroupTablesScript) Down(db *gorm.DB) (err error) {
+	return db.Exec(`
+		DROP TABLE IF EXISTS contact_requests;
+		DROP TABLE IF EXISTS contacts;
+		DROP TABLE IF EXISTS group_messages;
+		DROP TABLE IF EXISTS group_members;
+		DROP TABLE IF EXISTS groups;
+	`).Error
+}
 
 // MigrateGroupTables 群组和联系人表迁移
 func MigrateGroupTables() error {

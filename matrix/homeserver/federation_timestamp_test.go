@@ -30,7 +30,7 @@ func (ft *FederationTimestampTest) Setup(t *testing.T) {
 // Teardown 清理
 func (ft *FederationTimestampTest) Teardown() {
 	sqlDB, _ := ft.db.DB()
-	sqlDB.Close()
+		_ = sqlDB.Close()
 }
 
 // TestScenario_FederatedEventArrivesLate 模拟联邦事件延迟到达的场景

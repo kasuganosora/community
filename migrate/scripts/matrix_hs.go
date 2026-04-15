@@ -2,7 +2,39 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"gorm.io/gorm"
 )
+
+// MigrateMatrixHSScript registers the Matrix Homeserver table migration in the migration framework.
+// Up is safe: all SQL statements use CREATE TABLE IF NOT EXISTS (from GetMatrixHSSQL).
+// Note: The original MigrateMatrixHS() function was a no-op (empty AutoMigrate).
+// This script properly executes the SQL definitions from GetMatrixHSSQL().
+type MigrateMatrixHSScript struct{}
+
+func (MigrateMatrixHSScript) Up(db *gorm.DB) (err error) {
+	for _, sql := range GetMatrixHSSQL() {
+		if err = db.Exec(sql).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (MigrateMatrixHSScript) Down(db *gorm.DB) (err error) {
+	tables := []string{
+		"matrix_cross_signing_keys", "matrix_one_time_keys", "matrix_device_keys",
+		"matrix_room_aliases", "matrix_presence", "matrix_filters",
+		"matrix_typing", "matrix_account_data", "matrix_receipts",
+		"matrix_to_device_messages", "matrix_user_sessions", "matrix_room_members",
+		"matrix_room_state", "matrix_rooms_hs", "matrix_events",
+	}
+	for _, table := range tables {
+		if err = db.Exec("DROP TABLE IF EXISTS " + table).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // MigrateMatrixHS Matrix Homeserver 数据库迁移
 func MigrateMatrixHS() error {

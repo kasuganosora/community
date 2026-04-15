@@ -28,6 +28,7 @@ type Config struct {
 	SmtpFrom       string `env:"SMTP_FROM"`
 	SmtpAuthMethod string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
 	SmtpTimeout    string `env:"SMTP_TIMEOUT" default:"10"`
+	SmtpTLS        string `env:"SMTP_TLS" default:"true"` // 是否启用 TLS 加密传输
 	EmailMode      string `env:"EMAIL_MODE" default:"smtp"`
 	DevMode        string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
 	SessionExpire  string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
@@ -35,6 +36,7 @@ type Config struct {
 	Redis0Port     string `env:"REDIS_0_PORT" default:"6379"`
 	Redis0Password string `env:"REDIS_0_PASSWORD" default:""`
 	Redis0Db       string `env:"REDIS_0_DB" default:"0"`
+	WebSocketAllowedOrigins string `env:"WEBSOCKET_ALLOWED_ORIGINS"`
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
@@ -91,7 +93,7 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 	if err != nil {
 		return
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	envData, err := godotenv.Parse(fp)
 

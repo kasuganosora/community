@@ -75,7 +75,7 @@ func TestDeviceListRequestBody(t *testing.T) {
 
 	resp2, err := client.Do(req2)
 	require.NoError(t, err, "Fixed pattern should succeed")
-	resp2.Body.Close()
+		_ = resp2.Body.Close()
 
 	// Verify the server received the correct body
 	require.NotEmpty(t, capturedBody, "Server should receive non-empty body")
@@ -104,7 +104,7 @@ func TestBackfillResponseHasAuthChain(t *testing.T) {
 
 	// Set SERVER_NAME to skip systemsettings.GetDomain() (avoids system_settings table dep)
 	oldServerName := os.Getenv("SERVER_NAME")
-	os.Setenv("SERVER_NAME", "test.server")
+		_ = os.Setenv("SERVER_NAME", "test.server")
 
 	// Reset global homeserver state so InitHomeServer runs fresh
 	savedHS := GlobalHS
@@ -114,7 +114,7 @@ func TestBackfillResponseHasAuthChain(t *testing.T) {
 		GlobalHS = savedHS
 		initOnce = sync.Once{} // Reset so future calls can re-init if needed
 		database.DB = savedDB
-		os.Setenv("SERVER_NAME", oldServerName)
+		_ = os.Setenv("SERVER_NAME", oldServerName)
 	}()
 
 	// AutoMigrate the Matrix models needed for backfill

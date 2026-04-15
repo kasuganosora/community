@@ -178,7 +178,9 @@ func (v *EventAuthVerifier) verifyEventID(event map[string]interface{}) error {
 
 	// 计算实际哈希
 	hash := sha256.New()
-	hash.Write([]byte(fmt.Sprintf("%s:%s:%d", sender, roomID, int64(originServerTS))))
+	if _, err := fmt.Fprintf(hash, "%s:%s:%d", sender, roomID, int64(originServerTS)); err != nil {
+		return fmt.Errorf("failed to write hash data: %w", err)
+	}
 	actualHash := base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 
 	if expectedHash != actualHash {

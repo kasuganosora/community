@@ -196,7 +196,7 @@ func (ks *KeyStore) UploadDeviceKeys(userID, deviceID string, req *UploadKeysReq
 
 			// 提取公钥字符串：curve25519 是字符串，signed_curve25519 是对象 {"key":"...","signatures":{...}}
 			var publicKeyStr string
-			var keyJSON string = string(rawKey)
+			keyJSON := string(rawKey)
 			if len(rawKey) > 0 && rawKey[0] == '"' {
 				// String value — curve25519
 				if err := json.Unmarshal(rawKey, &publicKeyStr); err != nil {

@@ -131,23 +131,47 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		return
 	}
 
-	for _, tag := range status.Tags {
-		timeline := &TagTimeline{Tag: tag.Name}
-		if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
+	if len(status.Tags) == 0 {
+		return
+	}
+
+	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
+	if update {
+		method = "status.update"
+	}
+
+	isReblog := status.ReblogId != nil && *status.ReblogId > 0
+
+	if !isReblog {
+		// 非转发：使用批量添加优化性能（Redis Pipeline）
+		timelines := make([]feed.Timeline, 0, len(status.Tags))
+		for _, tag := range status.Tags {
+			timelines = append(timelines, &TagTimeline{Tag: tag.Name})
+		}
+		if err = feed.BatchAddToTimelineItems(timelines, status, true); err != nil {
 			return
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+		for _, timeline := range timelines {
+			if err = feed.TrimTimeline(timeline); err != nil {
+				return
+			}
 		}
-
-		method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
-		if update {
-			method = "status.update"
+	} else {
+		// 转发：保留单条调用以保证 reblog 聚合逻辑正确
+		for _, tag := range status.Tags {
+			timeline := &TagTimeline{Tag: tag.Name}
+			if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
+				return
+			}
+			if err = feed.TrimTimeline(timeline); err != nil {
+				return
+			}
 		}
+	}
 
-		if pushToClient {
-			err = pushAllChannel(status, method)
-			if err != nil {
+	if pushToClient {
+		for _, tag := range status.Tags {
+			if err = pushAllChannel(status, method, tag.Name); err != nil {
 				return
 			}
 		}
@@ -172,7 +196,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 		}
 
 		if pushToClient {
-			err = pushAllChannel(status, "delete")
+			err = pushAllChannel(status, "delete", tag.Name)
 			if err != nil {
 				return
 			}
@@ -182,14 +206,14 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	return
 }
 
-func pushAllChannel(status *models.Status, method string) (err error) {
+func pushAllChannel(status *models.Status, method string, tagName string) (err error) {
 	timelines := []*TagTimeline{
-		{},
-		{OnlyMedia: true},
-		{OnlyLocal: true},
-		{OnlyRemote: true},
-		{OnlyLocal: true, OnlyMedia: true},
-		{OnlyRemote: true, OnlyMedia: true},
+		{Tag: tagName},
+		{Tag: tagName, OnlyMedia: true},
+		{Tag: tagName, OnlyLocal: true},
+		{Tag: tagName, OnlyRemote: true},
+		{Tag: tagName, OnlyLocal: true, OnlyMedia: true},
+		{Tag: tagName, OnlyRemote: true, OnlyMedia: true},
 	}
 
 	for _, timeline := range timelines {

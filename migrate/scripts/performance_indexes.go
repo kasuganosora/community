@@ -3,7 +3,24 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
+
+// CreatePerformanceIndexesScript registers performance index creation in the migration framework.
+// Up is safe: all statements use CREATE INDEX IF NOT EXISTS.
+// Note: Down is a no-op because dropping individual indexes by name is fragile and
+// indexes are non-destructive; re-creating them is idempotent.
+type CreatePerformanceIndexesScript struct{}
+
+func (CreatePerformanceIndexesScript) Up(db *gorm.DB) (err error) {
+	return CreatePerformanceIndexes()
+}
+
+func (CreatePerformanceIndexesScript) Down(db *gorm.DB) (err error) {
+	// No-op: indexes are non-destructive and IF NOT EXISTS makes Up idempotent.
+	// Dropping indexes by name is fragile and may cause errors if names differ between DB versions.
+	return nil
+}
 
 // CreatePerformanceIndexes 创建性能优化索引
 func CreatePerformanceIndexes() error {

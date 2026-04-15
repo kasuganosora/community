@@ -3,7 +3,20 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
+
+// MigrateMatrixTablesScript registers the Matrix table migration in the migration framework.
+// Up is safe: all statements use CREATE TABLE IF NOT EXISTS.
+type MigrateMatrixTablesScript struct{}
+
+func (MigrateMatrixTablesScript) Up(db *gorm.DB) (err error) {
+	return MigrateMatrixTables()
+}
+
+func (MigrateMatrixTablesScript) Down(db *gorm.DB) (err error) {
+	return DropMatrixTables()
+}
 
 // MigrateMatrixTables Matrix 表迁移
 func MigrateMatrixTables() error {

@@ -236,7 +236,7 @@ func (ass *AppServiceService) PushEvent(as *AppService, event *MatrixEvent) {
 			log.Error("Failed to push event to appservice %s: %v", as.ID, err)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			log.Error("Appservice %s returned status %d", as.ID, resp.StatusCode)
@@ -276,7 +276,7 @@ func (ass *AppServiceService) PushEvents(events []*MatrixEvent) {
 					log.Error("Failed to push events to appservice %s: %v", service.ID, err)
 					return
 				}
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 
 				if resp.StatusCode != http.StatusOK {
 					log.Error("Appservice %s returned status %d", service.ID, resp.StatusCode)

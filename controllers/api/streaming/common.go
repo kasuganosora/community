@@ -2,22 +2,66 @@ package streaming
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
-	"net/http"
-	"strconv"
 )
 
 var upgrade = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
+	CheckOrigin: checkOrigin,
+}
+
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser client (e.g., native app, curl)
 		return true
-	},
+	}
+
+	allowedOrigins := parseAllowedOrigins(config.C.WebSocketAllowedOrigins)
+	if len(allowedOrigins) == 0 {
+		// No allowed origins configured, fall back to r.Host
+		return r.Host != ""
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	for _, allowed := range allowedOrigins {
+		if u.Host == allowed {
+			return true
+		}
+	}
+
+	return false
+}
+
+func parseAllowedOrigins(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func serializerStatusEvent(account *models.Account, payload string) (eventType string, payloadStr string, err error) {
@@ -118,8 +162,10 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 				continue
 			}
 
-			// 发送数据
-			_, _ = c.Writer.Write([]byte("event: " + event + "\n" + "data: " + payload + "\n\n"))
+			// 清理 payload 中的 \r 和 \n，防止 SSE 帧被拆分
+			safeEvent := strings.ReplaceAll(strings.ReplaceAll(event, "\r", " "), "\n", " ")
+			safePayload := strings.ReplaceAll(strings.ReplaceAll(payload, "\r", " "), "\n", " ")
+			_, _ = c.Writer.Write([]byte("event: " + safeEvent + "\n" + "data: " + safePayload + "\n\n"))
 			flusher.Flush()
 		}
 	}

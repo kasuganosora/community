@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/email/smtp"
@@ -14,6 +15,29 @@ import (
 	"regexp"
 	"strings"
 )
+
+// allowedTemplatePrefixes defines the allowed base template names.
+// Language-suffixed variants (e.g. "verify_email_en") are also accepted.
+var allowedTemplatePrefixes = []string{
+	"email_confirmation",
+	"recover_password_verify_email",
+	"verify_email",
+	"welcome_mail",
+}
+
+// isValidTemplateName checks that templateName is either exactly an allowed
+// base name or a base name followed by "_" and a language tag.
+func isValidTemplateName(templateName string) bool {
+	for _, prefix := range allowedTemplatePrefixes {
+		if templateName == prefix {
+			return true
+		}
+		if strings.HasPrefix(templateName, prefix+"_") {
+			return true
+		}
+	}
+	return false
+}
 
 var useDrive types.Drive
 
@@ -46,11 +70,15 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 		return
 	}
 
+	if !isValidTemplateName(templateName) {
+		return fmt.Errorf("invalid template name: %s", templateName)
+	}
+
 	templateFile, err := internalfs.Get().Open("mails/" + templateName + ".html")
 	if err != nil {
 		return
 	}
-	defer templateFile.Close()
+	defer func() { _ = templateFile.Close() }()
 
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {
@@ -100,11 +128,15 @@ func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject st
 		return
 	}
 
+	if !isValidTemplateName(templateName) {
+		return fmt.Errorf("invalid template name: %s", templateName)
+	}
+
 	templateFile, err := internalfs.Get().Open("mails/" + templateName + ".html")
 	if err != nil {
 		return
 	}
-	defer templateFile.Close()
+	defer func() { _ = templateFile.Close() }()
 
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {

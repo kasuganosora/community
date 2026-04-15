@@ -54,15 +54,15 @@ func NewTestDB() (*TestDB, error) {
 		Writable: true,
 	})
 	if err := memDS.Connect(context.Background()); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if err := db.RegisterDataSource("default", memDS); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to register datasource: %w", err)
 	}
 	if err := db.SetDefaultDataSource("default"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to set default datasource: %w", err)
 	}
 
@@ -73,8 +73,8 @@ func NewTestDB() (*TestDB, error) {
 		&gorm.Config{SkipDefaultTransaction: true},
 	)
 	if err != nil {
-		session.Close()
-		db.Close()
+		_ = session.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -126,8 +126,8 @@ func NewIsolatedTestDB(t interface {
 		&gorm.Config{SkipDefaultTransaction: true},
 	)
 	if err != nil {
-		session.Close()
-		db.Close()
+		_ = session.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -179,8 +179,8 @@ func newTestDBNoCleanup() (*TestDB, error) {
 		&gorm.Config{SkipDefaultTransaction: true},
 	)
 	if err != nil {
-		session.Close()
-		db.Close()
+		_ = session.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -238,10 +238,10 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 // Close closes the test database
 func (t *TestDB) Close() {
 	if t.Session != nil {
-		t.Session.Close()
+		_ = t.Session.Close()
 	}
 	if t.DB != nil {
-		t.DB.Close()
+		_ = t.DB.Close()
 	}
 }
 

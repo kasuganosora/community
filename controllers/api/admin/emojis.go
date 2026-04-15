@@ -39,9 +39,10 @@ func ListCustomEmojis(c *gin.Context) {
 	}
 
 	if origin := c.Query("origin"); origin != "" {
-		if origin == "local" {
+		switch origin {
+		case "local":
 			query = query.Where("domain = ''")
-		} else if origin == "remote" {
+		case "remote":
 			query = query.Where("domain != ''")
 		}
 	}

@@ -3,7 +3,24 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
+
+// MigrateMediaTablesScript registers media table migration in the migration framework.
+// Up is safe: all statements use IF NOT EXISTS (CREATE INDEX IF NOT EXISTS, ADD COLUMN IF NOT EXISTS).
+// Note: Down is a no-op because indexes and columns are additive changes;
+// dropping them could break existing functionality.
+type MigrateMediaTablesScript struct{}
+
+func (MigrateMediaTablesScript) Up(db *gorm.DB) (err error) {
+	return MigrateMediaTables()
+}
+
+func (MigrateMediaTablesScript) Down(db *gorm.DB) (err error) {
+	// No-op: media indexes and added columns are additive/non-destructive changes.
+	// Dropping them is fragile and could break application functionality.
+	return nil
+}
 
 // MigrateMediaTables 媒体表迁移
 func MigrateMediaTables() error {

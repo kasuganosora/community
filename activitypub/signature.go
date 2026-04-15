@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/kasuganosora/community/log"
 )
 
@@ -154,51 +154,12 @@ func VerifyRequest(req *http.Request, publicKey *rsa.PublicKey) error {
 	return nil
 }
 
-// PublicKeyCache caches public keys with TTL
-type PublicKeyCache struct {
-	keys map[string]*cachedKey
-	mu   sync.RWMutex
-	ttl  time.Duration
-}
-
-type cachedKey struct {
-	key       *rsa.PublicKey
-	expiresAt time.Time
-}
-
-// Global public key cache
-var globalKeyCache = &PublicKeyCache{
-	keys: make(map[string]*cachedKey),
-	ttl:  1 * time.Hour,
-}
-
-// Get retrieves a cached key
-func (c *PublicKeyCache) Get(keyID string) (*rsa.PublicKey, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if cached, ok := c.keys[keyID]; ok {
-		if time.Now().Before(cached.expiresAt) {
-			return cached.key, true
-		}
-	}
-	return nil, false
-}
-
-// Set stores a key in cache
-func (c *PublicKeyCache) Set(keyID string, key *rsa.PublicKey) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.keys[keyID] = &cachedKey{
-		key:       key,
-		expiresAt: time.Now().Add(c.ttl),
-	}
-}
+// Global public key cache with LRU eviction and TTL
+var globalKeyCache = expirable.NewLRU[string, *rsa.PublicKey](10000, nil, 1*time.Hour)
 
 // SignatureVerifier provides complete HTTP signature verification
 type SignatureVerifier struct {
-	cache *PublicKeyCache
+	cache *expirable.LRU[string, *rsa.PublicKey]
 }
 
 // NewSignatureVerifier creates a new signature verifier
@@ -220,10 +181,20 @@ func (v *SignatureVerifier) VerifyRequestWithKeyID(req *http.Request, body []byt
 		return fmt.Errorf("parsing signature header: %w", err)
 	}
 
+	// C2: Verify request date is within acceptable time window (replay protection)
+	if err := verifyRequestDate(sig, req); err != nil {
+		return fmt.Errorf("request date verification failed: %w", err)
+	}
+
 	// Get public key (from cache or fetch)
 	publicKey, err := v.getPublicKey(req.Context(), sig.KeyID)
 	if err != nil {
 		return fmt.Errorf("getting public key: %w", err)
+	}
+
+	// C3: Enforce digest is signed when body is present
+	if err := verifyDigestIsSigned(sig, req, body); err != nil {
+		return fmt.Errorf("digest signature verification failed: %w", err)
 	}
 
 	// Verify digest if present
@@ -274,13 +245,23 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return nil, fmt.Errorf("actor has no public key")
 	}
 
+	// H2: Verify public key ID matches the keyId from the signature
+	if actor.PublicKey.ID != "" && actor.PublicKey.ID != keyID {
+		return nil, fmt.Errorf("public key ID %q does not match signature keyId %q", actor.PublicKey.ID, keyID)
+	}
+
+	// H2: Verify public key owner is the actor itself
+	if actor.PublicKey.Owner != "" && actor.PublicKey.Owner != actorURI {
+		return nil, fmt.Errorf("public key owner %q does not match actor URI %q", actor.PublicKey.Owner, actorURI)
+	}
+
 	publicKey, err := ParsePublicKey(actor.PublicKey.PublicKeyPem)
 	if err != nil {
 		return nil, fmt.Errorf("parsing public key: %w", err)
 	}
 
 	// Cache the key
-	v.cache.Set(keyID, publicKey)
+	v.cache.Add(keyID, publicKey)
 	log.Info("Cached public key for %s", keyID)
 
 	return publicKey, nil
@@ -311,6 +292,63 @@ func verifyDigest(body []byte, digestHeader string) error {
 		return fmt.Errorf("digest mismatch")
 	}
 
+	return nil
+}
+
+// headerContains checks if a header name (case-insensitive) is in the signed headers list
+func headerContains(headers []string, target string) bool {
+	for _, h := range headers {
+		if strings.EqualFold(h, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyRequestDate checks that the Date header is signed and within an acceptable time window
+func verifyRequestDate(sig *SignatureHeader, req *http.Request) error {
+	// 1. Check date is in the signed headers list
+	if !headerContains(sig.Headers, "date") {
+		return fmt.Errorf("date header must be signed")
+	}
+	// 2. Must have Date header
+	dateStr := req.Header.Get("Date")
+	if dateStr == "" {
+		return fmt.Errorf("missing date header")
+	}
+	// 3. Use http.ParseTime to parse (supports all HTTP date formats)
+	date, err := http.ParseTime(dateStr)
+	if err != nil {
+		return fmt.Errorf("invalid date format: %w", err)
+	}
+	// 4. Check time window
+	skew := 5 * time.Minute
+	now := time.Now()
+	if date.Before(now.Add(-skew)) || date.After(now.Add(skew)) {
+		return fmt.Errorf("request date too far from current time")
+	}
+	return nil
+}
+
+// verifyDigestIsSigned enforces that the Digest header is signed and valid when a body is present
+func verifyDigestIsSigned(sig *SignatureHeader, req *http.Request, body []byte) error {
+	if len(body) == 0 {
+		return nil // No body, no digest needed
+	}
+	if !headerContains(sig.Headers, "digest") {
+		return fmt.Errorf("digest header must be signed when body is present")
+	}
+	digest := req.Header.Get("Digest")
+	if digest == "" {
+		return fmt.Errorf("missing digest header for request with body")
+	}
+	digestHash := sha256.Sum256(body)
+	expected := "SHA-256=" + base64.StdEncoding.EncodeToString(
+		digestHash[:],
+	)
+	if digest != expected {
+		return fmt.Errorf("digest mismatch")
+	}
 	return nil
 }
 

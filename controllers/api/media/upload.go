@@ -3,6 +3,7 @@ package media
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/h2non/filetype"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/models"
@@ -10,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/storage"
 	"github.com/pkg/errors"
 	"io"
+	"mime"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -61,16 +63,10 @@ func Upload(c *gin.Context) {
 		}
 	}
 
-	// 验证文件类型
-	contentType := header.Header.Get("Content-Type")
-	if !isAllowedContentType(contentType) {
-		c.JSON(415, gin.H{"error": "Unsupported media type"})
-		return
-	}
-
-	// 验证文件大小
-	if !isValidFileSize(header.Size, contentType) {
-		c.JSON(413, gin.H{"error": "File size too large"})
+	// 验证文件上传（类型、大小、magic bytes）
+	validatedContentType, err := validateFileUpload(header)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -83,8 +79,12 @@ func Upload(c *gin.Context) {
 		return
 	}
 
-	// 生成文件名
-	ext := filepath.Ext(header.Filename)
+	// 生成文件名（从已验证的 Content-Type 推导扩展名）
+	exts, _ := mime.ExtensionsByType(validatedContentType)
+	ext := ".bin"
+	if len(exts) > 0 {
+		ext = exts[0]
+	}
 	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	filePath := filepath.Join(mediaDir, fileName)
 
@@ -120,7 +120,7 @@ func Upload(c *gin.Context) {
 	var thumbnailPath *string
 	var blurhash string
 	var width, height *int
-	mediaType := models.GetMediaType(contentType)
+	mediaType := models.GetMediaType(validatedContentType)
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()
@@ -148,7 +148,7 @@ func Upload(c *gin.Context) {
 		FileName:      fileName,
 		FilePath:      recordFilePath,
 		FileSize:      fileSize,
-		ContentType:   contentType,
+		ContentType:   validatedContentType,
 		Type:          mediaType,
 		Width:         width,
 		Height:        height,
@@ -202,6 +202,46 @@ func isValidFileSize(size int64, contentType string) bool {
 	}
 }
 
+// validateFileUpload 验证文件上传：检查 Content-Type、文件大小和 magic bytes
+func validateFileUpload(header *multipart.FileHeader) (string, error) {
+	contentType := header.Header.Get("Content-Type")
+
+	// 检查 Content-Type 是否允许
+	if !isAllowedContentType(contentType) {
+		return "", errors.New("unsupported media type")
+	}
+
+	// 检查文件大小
+	if !isValidFileSize(header.Size, contentType) {
+		return "", errors.New("file size too large")
+	}
+
+	// Magic bytes 验证（针对 image/* 类型）
+	if strings.HasPrefix(contentType, "image/") {
+		file, err := header.Open()
+		if err != nil {
+			return "", errors.Wrap(err, "failed to open file for validation")
+		}
+		defer func() { _ = file.Close() }()
+
+		buf := make([]byte, 512)
+		n, err := file.Read(buf)
+		if err != nil && err != io.EOF {
+			return "", errors.Wrap(err, "failed to read file for validation")
+		}
+
+		kind, _ := filetype.Match(buf[:n])
+		detectedMIME := kind.MIME.Value
+
+		// 如果声明的 Content-Type 是 image/*，但 magic bytes 不匹配，拒绝上传
+		if detectedMIME == "" || !strings.HasPrefix(detectedMIME, "image/") {
+			return "", errors.New("file content does not match declared content type")
+		}
+	}
+
+	return contentType, nil
+}
+
 // UploadAsync 异步上传媒体文件（返回 202 Accepted）
 func UploadAsync(c *gin.Context) {
 	// 获取当前用户
@@ -219,13 +259,20 @@ func UploadAsync(c *gin.Context) {
 		return
 	}
 
+	// 验证文件上传（类型、大小、magic bytes）
+	validatedContentType, err := validateFileUpload(request.File)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
 	// 创建临时媒体记录（processing 状态）
 	mediaRecord := &models.MediaAttachment{
 		AccountId:   account.Id,
 		FileName:    "processing",
 		FilePath:    "",
 		FileSize:    0,
-		ContentType: request.File.Header.Get("Content-Type"),
+		ContentType: validatedContentType,
 		Type:        models.MediaTypeUnknown,
 		Description: request.Description,
 	}
@@ -238,7 +285,7 @@ func UploadAsync(c *gin.Context) {
 	}
 
 	// 异步处理文件上传
-	go processUploadAsync(mediaRecord.Id, account.Id, request.File, request.Description, request.Focus)
+	go processUploadAsync(mediaRecord.Id, account.Id, request.File, request.Description, request.Focus, validatedContentType)
 
 	// 返回 202 Accepted
 	c.JSON(202, gin.H{
@@ -252,7 +299,7 @@ func UploadAsync(c *gin.Context) {
 }
 
 // processUploadAsync 异步处理文件上传
-func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.FileHeader, description string, focus string) {
+func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.FileHeader, description string, focus string, validatedContentType string) {
 	// 1. 打开文件
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -268,7 +315,12 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 		return
 	}
 
-	ext := filepath.Ext(fileHeader.Filename)
+	// 从已验证的 Content-Type 推导扩展名
+	exts, _ := mime.ExtensionsByType(validatedContentType)
+	ext := ".bin"
+	if len(exts) > 0 {
+		ext = exts[0]
+	}
 	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	filePath := filepath.Join(mediaDir, fileName)
 
@@ -288,7 +340,7 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 	var thumbnailPath *string
 	var blurhash string
 	var width, height *int
-	mediaType := models.GetMediaType(fileHeader.Header.Get("Content-Type"))
+	mediaType := models.GetMediaType(validatedContentType)
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()

@@ -69,7 +69,7 @@ func Streaming(c *gin.Context) {
 	}
 	defer ws.Close()
 
-	closeChan := make(chan bool)
+	closeChan := make(chan bool, 1)
 	readChan := make(chan []byte)
 
 	go func() {
@@ -95,6 +95,7 @@ func Streaming(c *gin.Context) {
 	for {
 		select {
 		case <-closeChan:
+			_ = ws.Close()
 			return
 
 		case msg := <-readChan:
@@ -150,7 +151,7 @@ func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) 
 	}
 
 	if pub != nil {
-		err = pub.Unsubscribe(context.Background(), channelName)
+		err = pub.Subscribe(context.Background(), channelName)
 		if err != nil {
 			return
 		}

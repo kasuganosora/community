@@ -145,9 +145,9 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 	// Restore original env values
 	if originalListen != "" {
-		os.Setenv("LISTEN", originalListen)
+		_ = os.Setenv("LISTEN", originalListen)
 	} else {
-		os.Unsetenv("LISTEN")
+		_ = os.Unsetenv("LISTEN")
 	}
 	if originalURL != "" {
 		os.Setenv("APP_BASE_URL", originalURL)

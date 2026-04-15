@@ -45,15 +45,12 @@ type MediaAttachments []*MediaAttachment
 
 // GetMediaTypes 根据文件扩展名获取媒体类型
 func GetMediaType(contentType string) MediaType {
-	switch {
-	case contentType == "image/jpeg" || contentType == "image/png" ||
-		contentType == "image/gif" || contentType == "image/webp":
+	switch contentType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
 		return MediaTypeImage
-	case contentType == "video/mp4" || contentType == "video/webm" ||
-		contentType == "video/quicktime":
+	case "video/mp4", "video/webm", "video/quicktime":
 		return MediaTypeVideo
-	case contentType == "audio/mpeg" || contentType == "audio/ogg" ||
-		contentType == "audio/wav":
+	case "audio/mpeg", "audio/ogg", "audio/wav":
 		return MediaTypeAudio
 	default:
 		return MediaTypeUnknown

@@ -102,6 +102,27 @@ func (p *ImageProcessor) ProcessImage(srcPath string) (thumbnailPath string, blu
 	}
 	defer file.Close()
 
+	// Decompression bomb protection: check image dimensions before full decode
+	var cfg image.Config
+	cfg, _, decodeCfgErr := image.DecodeConfig(file)
+	if decodeCfgErr != nil {
+		// image.DecodeConfig may not support all formats (e.g. webp), try webp directly
+		if _, seekErr := file.Seek(0, 0); seekErr != nil {
+			return "", "", 0, 0, seekErr
+		}
+		cfg, decodeCfgErr = webp.DecodeConfig(file)
+		if decodeCfgErr != nil {
+			return "", "", 0, 0, decodeCfgErr
+		}
+	}
+	// Seek back to the beginning for the full decode below
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return "", "", 0, 0, seekErr
+	}
+	if cfg.Width*cfg.Height > 100_000_000 {
+		return "", "", 0, 0, fmt.Errorf("image dimensions too large: %dx%d (max 100M pixels)", cfg.Width, cfg.Height)
+	}
+
 	// 解码图片
 	img, format, err := image.Decode(file)
 	if err != nil {

@@ -59,7 +59,7 @@ func (c *ASClient) PingHS() error {
 	}
 
 	if !resp.StatusOk() {
-		return fmt.Errorf("Homeserver returned status %d", resp.StatusCode)
+		return fmt.Errorf("homeserver returned status %d", resp.StatusCode)
 	}
 
 	return nil

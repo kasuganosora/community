@@ -12,7 +12,7 @@ type PublicStreamingRequest struct {
 
 func PublicStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	var req PublicStreamingRequest
-	var err error = c.ShouldBindQuery(&req)
+	err := c.ShouldBindQuery(&req)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
 
 	account := controllers.GetAccount(c)

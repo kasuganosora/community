@@ -55,7 +55,7 @@ func SaveByMultipart(path string, fileHeader *multipart.FileHeader) (string, err
 	if err != nil {
 		return "", err
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	// 复制文件内容
 	if _, err := io.Copy(dst, file); err != nil {

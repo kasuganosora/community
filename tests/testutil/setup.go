@@ -143,7 +143,7 @@ func (s *TestSetup) RedisClient() *RedisTestClient {
 func (s *TestSetup) Close() {
 	if s.Redis != nil {
 		s.Redis.AssertExpectations(s.t)
-		s.Redis.Close()
+		_ = s.Redis.Close()
 	}
 	if s.DB != nil {
 		s.DB.Close()

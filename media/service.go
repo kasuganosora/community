@@ -102,7 +102,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, cont
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)

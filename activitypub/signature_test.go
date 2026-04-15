@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -213,36 +212,41 @@ func TestVerifyRequest(t *testing.T) {
 }
 
 func TestPublicKeyCache(t *testing.T) {
-	cache := &PublicKeyCache{
-		keys: make(map[string]*cachedKey),
-		ttl:  100 * time.Millisecond,
+	// Test that the global key cache works correctly
+	if globalKeyCache == nil {
+		t.Fatal("globalKeyCache should not be nil")
 	}
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey := &privateKey.PublicKey
 
-	keyID := "https://example.com/users/test#main-key"
+	// Test set and get
+	globalKeyCache.Add("test-key", publicKey)
 
-	// Test cache miss
-	_, ok := cache.Get(keyID)
-	assert.False(t, ok)
-
-	// Set key
-	cache.Set(keyID, &privateKey.PublicKey)
-
-	// Test cache hit
-	cached, ok := cache.Get(keyID)
-	assert.True(t, ok)
-	assert.NotNil(t, cached)
-
-	// Wait for TTL to expire
-	time.Sleep(150 * time.Millisecond)
-
-	// Test cache expired
-	_, ok = cache.Get(keyID)
-	assert.False(t, ok)
+	got, ok := globalKeyCache.Get("test-key")
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if got != publicKey {
+		t.Fatal("cached key mismatch")
+	}
 }
 
+func TestGetPublicKeyWithCache(t *testing.T) {
+	// Verify globalKeyCache is initialized
+	if globalKeyCache == nil {
+		t.Fatal("globalKeyCache should not be nil")
+	}
+
+	// Test cache miss
+	_, ok := globalKeyCache.Get("nonexistent-key-12345")
+	if ok {
+		t.Fatal("expected cache miss for nonexistent key")
+	}
+}
 func TestVerifyDigest(t *testing.T) {
 	tests := []struct {
 		name      string

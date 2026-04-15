@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -132,9 +131,10 @@ func (c *Checker) Handler() gin.HandlerFunc {
 		health := c.Check(ctx.Request.Context())
 
 		statusCode := http.StatusOK
-		if health.Status == StatusUnhealthy {
+		switch health.Status {
+		case StatusUnhealthy:
 			statusCode = http.StatusServiceUnavailable
-		} else if health.Status == StatusDegraded {
+		case StatusDegraded:
 			statusCode = http.StatusOK // 降级服务返回 200，但状态为 degraded
 		}
 
@@ -294,19 +294,17 @@ func checkLocalStorage(start time.Time) ServiceHealth {
 	var failedDirs []string
 
 	for _, dir := range storageDirs {
-		// 检查目录是否存在，不存在则尝试创建
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			failedDirs = append(failedDirs, dir)
+		// 只读检查：使用 os.Stat 检查目录是否存在，不创建目录
+		info, err := os.Stat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				failedDirs = append(failedDirs, dir)
+			}
 			continue
 		}
-
-		// 检查目录是否可写（尝试创建一个临时文件）
-		testFile := filepath.Join(dir, ".health_check_tmp")
-		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		if !info.IsDir() {
 			failedDirs = append(failedDirs, dir)
-			continue
 		}
-		os.Remove(testFile) // 清理测试文件
 	}
 
 	latency := time.Since(start)

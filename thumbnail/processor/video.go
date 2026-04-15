@@ -52,8 +52,8 @@ func (v *VideoProcessor) GenerateThumbnail(input io.Reader, opts ThumbnailOption
 	tempOutput := filepath.Join(tempDir, fmt.Sprintf("video_thumb_%d.jpg", timestamp))
 
 	// 清理临时文件
-	defer os.Remove(tempInput)
-	defer os.Remove(tempOutput)
+	defer func() { _ = os.Remove(tempInput) }()
+	defer func() { _ = os.Remove(tempOutput) }()
 
 	// 写入输入文件
 	inputFile, err := os.Create(tempInput)
@@ -157,7 +157,7 @@ func (v *VideoProcessor) GetVideoInfo(ctx context.Context, input io.Reader) (*Vi
 	}
 
 	_, err = io.Copy(file, input)
-	file.Close()
+	_ = file.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to write temp file: %w", err)
 	}
