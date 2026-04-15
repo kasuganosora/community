@@ -251,7 +251,7 @@ func FeedsClearCommand() *cli.Command {
 func clearFeeds(c *cli.Context) error {
 	redis := db.GetRedis()
 	if redis == nil {
-		return fmt.Errorf("Redis is not available")
+		return fmt.Errorf("redis is not available")
 	}
 
 	ctx := context.Background()

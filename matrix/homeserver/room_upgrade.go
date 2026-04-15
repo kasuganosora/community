@@ -251,13 +251,14 @@ func (rus *RoomUpgradeService) migrateMembers(oldRoomID, newRoomID, creatorID st
 			continue
 		}
 
-		if member.Membership == MembershipJoin {
+		switch member.Membership {
+		case MembershipJoin:
 			// 自动加入成员到新房间
 			// 使用 invite 然后他们可以选择加入
 			rus.hs.Room.InviteUser(newRoomID, creatorID, &InviteUserRequest{
 				UserID: member.UserID,
 			})
-		} else if member.Membership == MembershipInvite {
+		case MembershipInvite:
 			// 邀请成员到新房间
 			rus.hs.Room.InviteUser(newRoomID, creatorID, &InviteUserRequest{
 				UserID: member.UserID,

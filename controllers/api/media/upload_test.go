@@ -138,8 +138,8 @@ func TestUpload_UnsupportedMediaType(t *testing.T) {
 
 	Upload(c)
 
-	// 应该返回 415 Unsupported Media Type
-	assert.Equal(t, http.StatusUnsupportedMediaType, w.Code)
+	// 应该返回 400 Bad Request（magic bytes 验证不通过）
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestUploadAsync_NoFile(t *testing.T) {

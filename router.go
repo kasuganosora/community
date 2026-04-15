@@ -84,14 +84,18 @@ func SetRouter(app gin.IRouter) {
 
 	// ActivityPub Actor endpoints
 	app.GET("/users/:username", activitypub.ActorProfile)
-	app.POST("/users/:username/inbox", activitypub.Inbox)
+	// Rate limit: 50 requests per minute per IP
+	userInboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/users/inbox", 50))
+	userInboxGroup.POST("/users/:username/inbox", activitypub.Inbox)
 	app.GET("/users/:username/outbox", activitypub.Outbox)
 	app.GET("/users/:username/followers", activitypub.Followers)
 	app.GET("/users/:username/following", activitypub.Following)
 	app.GET("/users/:username/collections/featured", activitypub.Featured)
 
 	// Shared inbox for efficient delivery
-	app.POST("/inbox", activitypub.SharedInbox)
+	// Rate limit: 100 requests per minute per IP
+	inboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/inbox", 100))
+	inboxGroup.POST("/inbox", activitypub.SharedInbox)
 
 	// 账户注册和登录（自定义扩展）
 	v1ApiGroup.POST("/accounts/register", account.Register)
@@ -274,7 +278,9 @@ func SetRouter(app gin.IRouter) {
 		POST("/markers", marker.Save)
 
 	// Media API - 媒体上传
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
+	// Rate limit: 30 requests per minute per user
+	mediaGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/media", 30))
+	mediaGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
 		POST("/media", media.Upload).
 		POST("/media/v2", media.UploadAsync).
 		PUT("/media/:id", media.Update).

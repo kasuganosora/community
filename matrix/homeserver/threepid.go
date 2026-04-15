@@ -111,9 +111,10 @@ func (ts *ThreePIDService) RequestValidationToken(medium, address, clientSecret 
 	}
 
 	// 发送验证邮件/短信
-	if medium == "email" {
+	switch medium {
+	case "email":
 		go ts.sendValidationEmail(address, token)
-	} else if medium == "msisdn" {
+	case "msisdn":
 		go ts.sendValidationSMS(address, token)
 	}
 

@@ -110,7 +110,7 @@ type xmlMigratorWrapper struct {
 
 func (m *xmlMigratorWrapper) AutoMigrate(values ...interface{}) error {
 	for _, value := range values {
-		if !m.Migrator.HasTable(value) {
+		if !m.HasTable(value) {
 			if err := m.createXmlTable(value); err != nil {
 				return err
 			}
@@ -122,7 +122,7 @@ func (m *xmlMigratorWrapper) AutoMigrate(values ...interface{}) error {
 
 func (m *xmlMigratorWrapper) CreateTable(values ...interface{}) error {
 	for _, value := range values {
-		if m.Migrator.HasTable(value) {
+		if m.HasTable(value) {
 			continue
 		}
 		if err := m.createXmlTable(value); err != nil {
@@ -220,7 +220,7 @@ func (m *xmlMigratorWrapper) resolveColumnType(f *schema.Field) string {
 	}
 
 	// Use the dialector's DataTypeOf for proper type mapping
-	sqlType := m.db.Config.Dialector.DataTypeOf(f)
+	sqlType := m.db.DataTypeOf(f)
 	if sqlType != "" {
 		return sqlType
 	}

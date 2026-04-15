@@ -358,14 +358,7 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 
 	// 获取已离开的房间
 	// include_leave defaults to false; only include left rooms if filter says so or no filter
-	includeLeave := true
-	if filter != nil && filter.Room != nil && !filter.Room.IncludeLeave {
-		includeLeave = false
-	}
-	// But if no filter is set, still include left rooms (default behavior for full sync)
-	if filter == nil {
-		includeLeave = true
-	}
+	includeLeave := filter == nil || filter.Room == nil || filter.Room.IncludeLeave
 	if includeLeave {
 		leftRooms := s.getLeftRooms(userID, since)
 		for _, roomID := range leftRooms {
@@ -534,11 +527,8 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 
 	// 获取未读通知数
 	// Check if the filter requests per-thread unread notifications
-	wantThreadNotifs := false
-	if filter != nil && filter.Room != nil && filter.Room.Timeline != nil &&
-		filter.Room.Timeline.UnreadThreadNotifications != nil && *filter.Room.Timeline.UnreadThreadNotifications {
-		wantThreadNotifs = true
-	}
+	wantThreadNotifs := filter != nil && filter.Room != nil && filter.Room.Timeline != nil &&
+		filter.Room.Timeline.UnreadThreadNotifications != nil && *filter.Room.Timeline.UnreadThreadNotifications
 	if wantThreadNotifs {
 		// When thread filter is active, unread_notifications counts only main-timeline events
 		room.UnreadNotifications = s.getUnreadNotificationsMainTimeline(roomID, userID)
@@ -1413,10 +1403,11 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 			continue
 		}
 		membership, _ := evt.Content["membership"].(string)
-		if membership == "join" {
+		switch membership {
+		case "join":
 			changedSet[targetUser] = true
 			delete(leftSet, targetUser)
-		} else if membership == "leave" || membership == "ban" {
+		case "leave", "ban":
 			// Only mark as left if no longer sharing any room with the local user
 			var sharedCount int64
 			db.GetDB().Model(&MatrixRoomMember{}).
@@ -1488,12 +1479,13 @@ func (s *SyncService) getRoomSummary(roomID string) *RoomSummary {
 	var joinedCount, invitedCount int64
 
 	for _, m := range members {
-		if m.Membership == MembershipJoin {
+		switch m.Membership {
+		case MembershipJoin:
 			joinedCount++
 			if len(heroes) < 5 {
 				heroes = append(heroes, m.UserID)
 			}
-		} else if m.Membership == MembershipInvite {
+		case MembershipInvite:
 			invitedCount++
 		}
 	}
