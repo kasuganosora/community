@@ -8,4 +8,6 @@ dendrite
 .claude
 build/
 *.exe
+*.test
+!.env.test
 NUL
