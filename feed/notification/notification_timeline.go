@@ -3,13 +3,13 @@ package notification
 import (
 	"context"
 	"fmt"
-	"log"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"strconv"
 )
 
@@ -106,7 +106,11 @@ func (timeline *NotificationTimeline) trim() {
 
 func Push(notification *models.Notification, pushToClient bool, trim bool) (err error) {
 	if notification.Account == nil {
-		err = notification.LoadAllExtendFields(db.GetDB())
+		database := db.GetDB()
+		if database == nil {
+			return fmt.Errorf("database connection is nil")
+		}
+		err = notification.LoadAllExtendFields(database)
 		if err != nil {
 			return
 		}

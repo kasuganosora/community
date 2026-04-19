@@ -299,10 +299,10 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 		"destination": destServer,
 	}
 	if bodyBytes != nil {
-			var content interface{}
-			if err := json.Unmarshal(bodyBytes, &content); err == nil {
-				payload["content"] = content
-			}
+		var content interface{}
+		if err := json.Unmarshal(bodyBytes, &content); err == nil {
+			payload["content"] = content
+		}
 	}
 	if canonicalBytes, err2 := CanonicalJSON(payload); err2 == nil {
 		sig := ed25519.Sign(c.privateKey, canonicalBytes)

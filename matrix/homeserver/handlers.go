@@ -475,12 +475,12 @@ func handleLogin(c *gin.Context) {
 	resp, matErr := hs.Auth.Login(&req)
 	if matErr != nil {
 		status := http.StatusUnauthorized
-			switch matErr.ErrCode {
-			case "M_FORBIDDEN", "M_USER_DEACTIVATED":
-				status = http.StatusForbidden
-			case "M_BAD_JSON", "M_INVALID_PARAM":
-				status = http.StatusBadRequest
-			}
+		switch matErr.ErrCode {
+		case "M_FORBIDDEN", "M_USER_DEACTIVATED":
+			status = http.StatusForbidden
+		case "M_BAD_JSON", "M_INVALID_PARAM":
+			status = http.StatusBadRequest
+		}
 		c.Header("Content-Type", "application/json")
 		c.JSON(status, matErr)
 		return

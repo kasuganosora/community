@@ -1,0 +1,10 @@
+# github.com/kasuganosora/community/controllers/api/timelines [github.com/kasuganosora/community/controllers/api/timelines.test]
+controllers/api/timelines/timelines_test.go:405:5: declared and not used: w
+controllers/api/timelines/timelines_test.go:1133:3: unknown field IsRead in struct literal of type models.Notification
+controllers/api/timelines/timelines_test.go:1142:25: before.IsRead undefined (type models.Notification has no field or method IsRead)
+controllers/api/timelines/timelines_test.go:1156:23: after.IsRead undefined (type models.Notification has no field or method IsRead)
+controllers/api/timelines/timelines_test.go:1173:3: unknown field IsRead in struct literal of type models.Notification
+controllers/api/timelines/timelines_test.go:1207:4: unknown field IsRead in struct literal of type models.Notification
+controllers/api/timelines/timelines_test.go:1257:4: unknown field IsRead in struct literal of type models.Notification
+FAIL	github.com/kasuganosora/community/controllers/api/timelines [build failed]
+FAIL

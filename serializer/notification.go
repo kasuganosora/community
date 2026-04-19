@@ -50,9 +50,9 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	}
 
 	ret.Status, err = ToStatus(n.Status, currentAccount)
-		if err != nil {
-			return
-		}
+	if err != nil {
+		return
+	}
 
 	if n.ReportId > 0 && n.Report == nil {
 		n.Report = &models.Report{}

@@ -24,7 +24,7 @@ type Blocks []*Block
 
 func (bb Blocks) IsBlocked(account *Account) bool {
 	for _, b := range bb {
-		if b.Type == BlockTypeAccount && b.AccountId == account.Id {
+		if b.Type == BlockTypeAccount && (b.AccountId == account.Id || b.TargetAccountId == account.Id) {
 			return true
 		}
 

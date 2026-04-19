@@ -1,0 +1,291 @@
+=== RUN   TestGetCaptchaConfig
+[INFO] DB closed
+--- PASS: TestGetCaptchaConfig (0.00s)
+=== RUN   TestVerifyCaptcha_InvalidRequest
+[INFO] DB closed
+--- PASS: TestVerifyCaptcha_InvalidRequest (0.00s)
+=== RUN   TestVerifyCaptcha_Disabled
+[INFO] DB closed
+--- PASS: TestVerifyCaptcha_Disabled (0.00s)
+=== RUN   TestVerifyCaptcha_NoBody
+[INFO] DB closed
+--- PASS: TestVerifyCaptcha_NoBody (0.00s)
+=== RUN   TestGetCaptchaProviders
+--- PASS: TestGetCaptchaProviders (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_Success
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.089ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:208: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:208
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_Success
+    common_test.go:213: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:213
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_Success
+[INFO] DB closed
+--- FAIL: TestAdminUpdateCaptchaConfig_Success (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_InvalidProvider
+[INFO] DB closed
+--- PASS: TestAdminUpdateCaptchaConfig_InvalidProvider (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_InvalidRequest
+[INFO] DB closed
+--- PASS: TestAdminUpdateCaptchaConfig_InvalidRequest (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_WithNoneProvider
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.075ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:258: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:258
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_WithNoneProvider
+    common_test.go:263: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:263
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_WithNoneProvider
+[INFO] DB closed
+--- FAIL: TestAdminUpdateCaptchaConfig_WithNoneProvider (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_WithEnabledFlag
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.055ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:277: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:277
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_WithEnabledFlag
+    common_test.go:282: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:282
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_WithEnabledFlag
+[INFO] DB closed
+--- FAIL: TestAdminUpdateCaptchaConfig_WithEnabledFlag (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_WithScoreThreshold
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.052ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:298: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:298
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_WithScoreThreshold
+[INFO] DB closed
+--- FAIL: TestAdminUpdateCaptchaConfig_WithScoreThreshold (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_AllProviderTypes
+=== RUN   TestAdminUpdateCaptchaConfig_AllProviderTypes/recaptcha
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.062ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:315: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:315
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/recaptcha
+    common_test.go:320: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:320
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/recaptcha
+[INFO] DB closed
+=== RUN   TestAdminUpdateCaptchaConfig_AllProviderTypes/cloudflare
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.068ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:315: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:315
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/cloudflare
+    common_test.go:320: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:320
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/cloudflare
+[INFO] DB closed
+=== RUN   TestAdminUpdateCaptchaConfig_AllProviderTypes/hcaptcha
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.069ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:315: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:315
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/hcaptcha
+    common_test.go:320: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:320
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/hcaptcha
+[INFO] DB closed
+=== RUN   TestAdminUpdateCaptchaConfig_AllProviderTypes/none
+
+2026/04/17 02:04:05 [31;1m/data/community/systemsettings/system_settings.go:200 [35;1m[SYNTAX_ERROR] failed to execute query: SQL parse failed: parse SQL failed: line 1 column 41 near "key in ('config.captcha.provider','config.captcha.site_key','config.captcha.secret_key','config.captcha.enabled','config.captcha.score_threshold')" 
+[0m[33m[0.075ms] [34;1m[rows:0][0m SELECT * FROM `system_settings` WHERE key in (?,?,?,?,?) [config.captcha.provider config.captcha.site_key config.captcha.secret_key config.captcha.enabled config.captcha.score_threshold]
+    common_test.go:315: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:315
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 500
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/none
+    common_test.go:320: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:320
+        	Error:      	Not equal: 
+        	            	expected: "captcha config updated"
+        	            	actual  : ""
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-captcha config updated
+        	            	+
+        	Test:       	TestAdminUpdateCaptchaConfig_AllProviderTypes/none
+[INFO] DB closed
+--- FAIL: TestAdminUpdateCaptchaConfig_AllProviderTypes (0.01s)
+    --- FAIL: TestAdminUpdateCaptchaConfig_AllProviderTypes/recaptcha (0.00s)
+    --- FAIL: TestAdminUpdateCaptchaConfig_AllProviderTypes/cloudflare (0.00s)
+    --- FAIL: TestAdminUpdateCaptchaConfig_AllProviderTypes/hcaptcha (0.00s)
+    --- FAIL: TestAdminUpdateCaptchaConfig_AllProviderTypes/none (0.00s)
+=== RUN   TestGetInstanceDetail
+    common_test.go:343: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:343
+        	Error:      	Received unexpected error:
+        	            	unexpected end of JSON input
+        	Test:       	TestGetInstanceDetail
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail (0.00s)
+=== RUN   TestGetInstanceDetail_DefaultValues
+    common_test.go:363: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:363
+        	Error:      	Received unexpected error:
+        	            	unexpected end of JSON input
+        	Test:       	TestGetInstanceDetail_DefaultValues
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail_DefaultValues (0.00s)
+=== RUN   TestGetInstanceDetail_WithActiveUsers
+
+2026/04/17 02:04:05 [31;1m/data/community/models/account.go:77 [35;1m[INTERNAL] failed to execute statement: failed to get table info: table accounts_extra not found
+[0m[33m[0.081ms] [34;1m[rows:0][0m INSERT INTO `accounts_extra` (`followers_count`,`following_count`,`statuses_count`,`fields`,`account_id`) VALUES (?,?,?,?,?) [0 0 0 0x20c17de3f030 1]
+
+2026/04/17 02:04:05 [31;1m/data/community/controllers/api/common/common_test.go:391 [35;1m[INTERNAL] failed to execute statement: failed to get table info: table accounts_extra not found
+[0m[33m[0.571ms] [34;1m[rows:1][0m INSERT INTO `accounts` (`user_id`,`username`,`domain`,`origin_id`,`acct`,`display_name`,`avatar`,`avatar_static`,`header`,`header_static`,`locked`,`bot`,`discoverable`,`group`,`no_index`,`hide_collections`,`note`,`website`,`created_at`,`updated_at`,`last_status_at`,`last_activity_at`,`is_ban`,`deleted_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) [0 activeuser <nil>  activeuser@__LOCAL__      false false false false false false   2026-04-17 02:04:05.739523018 +0000 UTC 2026-04-17 02:04:05.739523018 +0000 UTC <nil> <nil> false {0001-01-01 00:00:00 +0000 UTC false}]
+    common_test.go:392: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:392
+        	Error:      	Received unexpected error:
+        	            	[INTERNAL] failed to execute statement: failed to get table info: table accounts_extra not found
+        	Test:       	TestGetInstanceDetail_WithActiveUsers
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail_WithActiveUsers (0.00s)
+=== RUN   TestGetInstanceDetail_WithRegistrationSettings
+    common_test.go:423: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:423
+        	Error:      	Received unexpected error:
+        	            	unexpected end of JSON input
+        	Test:       	TestGetInstanceDetail_WithRegistrationSettings
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail_WithRegistrationSettings (0.00s)
+=== RUN   TestGetInstanceDetail_WithContactEmail
+    common_test.go:443: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:443
+        	Error:      	Received unexpected error:
+        	            	unexpected end of JSON input
+        	Test:       	TestGetInstanceDetail_WithContactEmail
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail_WithContactEmail (0.00s)
+=== RUN   TestGetInstanceDetail_ResponseStructure
+    common_test.go:459: 
+        	Error Trace:	/data/community/controllers/api/common/common_test.go:459
+        	Error:      	Received unexpected error:
+        	            	unexpected end of JSON input
+        	Test:       	TestGetInstanceDetail_ResponseStructure
+[INFO] DB closed
+--- FAIL: TestGetInstanceDetail_ResponseStructure (0.00s)
+=== RUN   TestVerifyCaptchaRequest_MissingResponse
+[INFO] DB closed
+--- PASS: TestVerifyCaptchaRequest_MissingResponse (0.00s)
+=== RUN   TestVerifyCaptchaRequest_ValidResponse
+[INFO] DB closed
+--- PASS: TestVerifyCaptchaRequest_ValidResponse (0.00s)
+=== RUN   TestCaptchaConfigResponse_JSONTags
+--- PASS: TestCaptchaConfigResponse_JSONTags (0.00s)
+=== RUN   TestVerifyCaptchaResponse_JSONTags
+--- PASS: TestVerifyCaptchaResponse_JSONTags (0.00s)
+=== RUN   TestServerRuleResponseItem_JSONTags
+--- PASS: TestServerRuleResponseItem_JSONTags (0.00s)
+=== RUN   TestGetCaptchaProviders_IsIdempotent
+--- PASS: TestGetCaptchaProviders_IsIdempotent (0.00s)
+=== RUN   TestAdminUpdateCaptchaConfig_ProviderAliases
+=== RUN   TestAdminUpdateCaptchaConfig_ProviderAliases/#00
+[INFO] DB closed
+=== RUN   TestAdminUpdateCaptchaConfig_ProviderAliases/google
+[INFO] DB closed
+=== RUN   TestAdminUpdateCaptchaConfig_ProviderAliases/turnstile
+[INFO] DB closed
+--- PASS: TestAdminUpdateCaptchaConfig_ProviderAliases (0.00s)
+    --- PASS: TestAdminUpdateCaptchaConfig_ProviderAliases/#00 (0.00s)
+    --- PASS: TestAdminUpdateCaptchaConfig_ProviderAliases/google (0.00s)
+    --- PASS: TestAdminUpdateCaptchaConfig_ProviderAliases/turnstile (0.00s)
+FAIL
+FAIL	github.com/kasuganosora/community/controllers/api/common	0.045s
+FAIL

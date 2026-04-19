@@ -63,8 +63,14 @@ func Load() {
 		return
 	}
 
+	dbInstance := db.GetDB()
+	if dbInstance == nil {
+		loaded = true
+		return
+	}
+
 	rows := make([]models.SystemSetting, 0)
-	err := db.GetDB().Model(&models.SystemSetting{}).Find(&rows).Error
+	err := dbInstance.Model(&models.SystemSetting{}).Find(&rows).Error
 	if err != nil {
 		// Table may not exist in standalone/complement mode — skip gracefully
 		log.Error("systemsettings.Load: %v (continuing without system settings)", err)

@@ -69,7 +69,7 @@ func handleBackfill(c *gin.Context) {
 
 	// Find the starting point timestamp from the v events
 	var events []MatrixEvent
-		startTS := time.Now().UnixMilli()
+	startTS := time.Now().UnixMilli()
 	if len(v) > 0 {
 		var vEvent MatrixEvent
 		// Use the EARLIEST v event's timestamp to walk backward from
@@ -346,7 +346,7 @@ func handleGetMissingEvents(c *gin.Context) {
 		}
 	}
 
-		latestTS := time.Now().UnixMilli()
+	latestTS := time.Now().UnixMilli()
 	if len(req.LatestEvents) > 0 {
 		var latestEvent MatrixEvent
 		if err := db.GetDB().Where("event_id IN ?", req.LatestEvents).

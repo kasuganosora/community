@@ -42,7 +42,6 @@ func (a *tlsPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 	return nil, nil
 }
 
-
 type Drive struct {
 	server  string
 	auth    smtp.Auth

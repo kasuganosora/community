@@ -108,7 +108,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
-		defer func() { _ = dst.Close() }()
+	defer func() { _ = dst.Close() }()
 
 	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)
@@ -360,7 +360,7 @@ func handleDownloadMedia(c *gin.Context) {
 		})
 		return
 	}
-		defer func() { _ = reader.Close() }()
+	defer func() { _ = reader.Close() }()
 
 	// 设置响应头
 	c.Header("Content-Type", matrixMedia.ContentType)
@@ -381,7 +381,7 @@ func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
 	mediaService := NewMediaService(hs)
 	matrixMedia, reader, err := mediaService.GetMedia(serverName, mediaID)
 	if err == nil {
-			defer func() { _ = reader.Close() }()
+		defer func() { _ = reader.Close() }()
 		c.Header("Content-Type", matrixMedia.ContentType)
 		c.Header("Content-Length", fmt.Sprintf("%d", matrixMedia.FileSize))
 		_, _ = io.Copy(c.Writer, reader)
@@ -478,7 +478,7 @@ func handleThumbnailMedia(c *gin.Context) {
 		})
 		return
 	}
-		defer func() { _ = reader.Close() }()
+	defer func() { _ = reader.Close() }()
 
 	// 设置响应头
 	c.Header("Content-Type", "image/jpeg")

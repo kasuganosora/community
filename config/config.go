@@ -10,32 +10,32 @@ import (
 )
 
 type Config struct {
-	Listen         string `env:"LISTEN" default:":8080"`
-	AppBaseURL     string `env:"APP_BASE_URL" default:"http://localhost:8080"`
-	StorageType    string `env:"STORAGE_TYPE" default:"local"`
-	EncryptedKey   string `env:"ENCRYPTED_KEY" default:"zwKc2UD3Nn8QbkypUkDbpJNyTmKeDbFbUiAGhAArpDa"` // 加密密钥, 如果空则不加密
-	DbConnection   string `env:"DB_CONNECTION" default:"mysql"`
-	DbHost         string `env:"DB_HOST"`
-	DbPort         string `env:"DB_PORT" default:"3306"`
-	DbDatabase     string `env:"DB_DATABASE" default:"community"`
-	DbUsername     string `env:"DB_USERNAME" default:"root"`
-	DbPassword     string `env:"DB_PASSWORD" default:""`
-	HttpProxy      string `env:"HTTP_PROXY"`
-	SmtpServer     string `env:"SMTP_SERVER"`
-	SmtpPort       string `env:"SMTP_PORT"`
-	SmtpUsername   string `env:"SMTP_USERNAME"`
-	SmtpPassword   string `env:"SMTP_PASSWORD"`
-	SmtpFrom       string `env:"SMTP_FROM"`
-	SmtpAuthMethod string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
-	SmtpTimeout    string `env:"SMTP_TIMEOUT" default:"10"`
-	SmtpTLS        string `env:"SMTP_TLS" default:"true"` // 是否启用 TLS 加密传输
-	EmailMode      string `env:"EMAIL_MODE" default:"smtp"`
-	DevMode        string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
-	SessionExpire  string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
-	Redis0Host     string `env:"REDIS_0_HOST" default:""`          // Redis 配置 0, 多个 Redis 请依次递增
-	Redis0Port     string `env:"REDIS_0_PORT" default:"6379"`
-	Redis0Password string `env:"REDIS_0_PASSWORD" default:""`
-	Redis0Db       string `env:"REDIS_0_DB" default:"0"`
+	Listen                  string `env:"LISTEN" default:":8080"`
+	AppBaseURL              string `env:"APP_BASE_URL" default:"http://localhost:8080"`
+	StorageType             string `env:"STORAGE_TYPE" default:"local"`
+	EncryptedKey            string `env:"ENCRYPTED_KEY" default:"zwKc2UD3Nn8QbkypUkDbpJNyTmKeDbFbUiAGhAArpDa"` // 加密密钥, 如果空则不加密
+	DbConnection            string `env:"DB_CONNECTION" default:"mysql"`
+	DbHost                  string `env:"DB_HOST"`
+	DbPort                  string `env:"DB_PORT" default:"3306"`
+	DbDatabase              string `env:"DB_DATABASE" default:"community"`
+	DbUsername              string `env:"DB_USERNAME" default:"root"`
+	DbPassword              string `env:"DB_PASSWORD" default:""`
+	HttpProxy               string `env:"HTTP_PROXY"`
+	SmtpServer              string `env:"SMTP_SERVER"`
+	SmtpPort                string `env:"SMTP_PORT"`
+	SmtpUsername            string `env:"SMTP_USERNAME"`
+	SmtpPassword            string `env:"SMTP_PASSWORD"`
+	SmtpFrom                string `env:"SMTP_FROM"`
+	SmtpAuthMethod          string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
+	SmtpTimeout             string `env:"SMTP_TIMEOUT" default:"10"`
+	SmtpTLS                 string `env:"SMTP_TLS" default:"true"` // 是否启用 TLS 加密传输
+	EmailMode               string `env:"EMAIL_MODE" default:"smtp"`
+	DevMode                 string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
+	SessionExpire           string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
+	Redis0Host              string `env:"REDIS_0_HOST" default:""`          // Redis 配置 0, 多个 Redis 请依次递增
+	Redis0Port              string `env:"REDIS_0_PORT" default:"6379"`
+	Redis0Password          string `env:"REDIS_0_PASSWORD" default:""`
+	Redis0Db                string `env:"REDIS_0_DB" default:"0"`
 	WebSocketAllowedOrigins string `env:"WEBSOCKET_ALLOWED_ORIGINS"`
 
 	// 其他配置

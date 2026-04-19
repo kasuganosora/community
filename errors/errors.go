@@ -291,6 +291,7 @@ func SendCreated(c *gin.Context, data interface{}) {
 // SendNoContent 发送无内容响应
 func SendNoContent(c *gin.Context) {
 	c.Status(http.StatusNoContent)
+	c.Writer.WriteHeaderNow()
 }
 
 // SendError 发送错误响应

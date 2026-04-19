@@ -9,8 +9,10 @@ type Application struct {
 
 func ToApplication(app *models.Application) *Application {
 	if app == nil {
+		empty := ""
 		return &Application{
-			Name: "web",
+			Name:    "web",
+			Website: &empty,
 		}
 	}
 

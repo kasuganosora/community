@@ -2,11 +2,11 @@ package mention
 
 import (
 	"github.com/kasuganosora/community/db"
-	"log"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
+	"log"
 	"strconv"
 )
 
@@ -74,11 +74,11 @@ func (timeline *MentionTimeline) Rebuild() (err error) {
 	statuses := make(models.Statuses, 0)
 
 	err = db.GetDB().Model(
-		&models.Status{}).Where("id in ?", db.GetDB().Model(
-			&models.StatusToAccount{}).
-			Where("account_id = ?", timeline.Account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)).
-			Order("id desc").Find(
-			&statuses).Error
+		&models.Status{}).Where("id in (?)", db.GetDB().Model(
+		&models.StatusToAccount{}).
+		Where("account_id = ?", timeline.Account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)).
+		Order("id desc").Find(
+		&statuses).Error
 
 	if err != nil {
 		return
@@ -106,7 +106,7 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	// 只要本地用户的
 	err = db.GetDB().Model(
 		&models.Account{}).Preload("User").Preload("User.Settings").
-		Where("id in ?", db.GetDB().Model(
+		Where("id in (?)", db.GetDB().Model(
 			&models.StatusToAccount{}).Where("status_id = ?", status.Id).Select("account_id")).
 		Where("domain is null").
 		Find(
@@ -178,7 +178,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	accounts := make(models.Accounts, 0)
 	err = db.GetDB().Model(
 		&models.Account{}).Preload("User").Preload("User.Settings").
-		Where("id in ?", db.GetDB().Model(
+		Where("id in (?)", db.GetDB().Model(
 			&models.StatusToAccount{}).Where("status_id = ?", status.Id).Select("account_id")).
 		Where("domain is null").
 		Find(
@@ -209,7 +209,7 @@ func GetTimelineContent(account *models.Account, params *feed.ListParam) (status
 	timeline := &MentionTimeline{Account: account}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		return tx.Where("id in ?", db.GetDB().Model(
+		return tx.Where("id in (?)", db.GetDB().Model(
 			&models.StatusToAccount{}).
 			Where("account_id = ?", account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)), nil
 	}

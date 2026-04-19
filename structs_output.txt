@@ -1,0 +1,70 @@
+
+=== type List struct ===
+  &{<nil> [Id] uint64 0x17a6f39f83c0 <nil>}
+  &{<nil> [Title] string 0x17a6f39f83f0 <nil>}
+  &{<nil> [AccountId] uint64 0x17a6f39f8420 <nil>}
+  &{<nil> [RepliesPolicy] uint8 0x17a6f39f8450 <nil>}
+  &{<nil> [LastViewedAt] 0x17a6f3980060 0x17a6f39f8480 <nil>}
+  &{<nil> [Visibility] int 0x17a6f39f84b0 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f3980090 0x17a6f39f84e0 <nil>}
+  &{<nil> [UpdatedAt] 0x17a6f39800c0 0x17a6f39f8510 <nil>}
+  &{<nil> [DeletedAt] 0x17a6f39800d8 0x17a6f39f8540 <nil>}
+  &{<nil> [Accounts] 0x17a6f39f8570 0x17a6f39f85a0 <nil>}
+  &{<nil> [Followers] 0x17a6f39f85d0 0x17a6f39f8600 <nil>}
+  &{<nil> [Creator] 0x17a6f3980120 0x17a6f39f8630 <nil>}
+
+=== type ListAccount struct ===
+  &{<nil> [ID] uint64 0x17a6f39f8cc0 <nil>}
+  &{<nil> [ListId] uint64 0x17a6f39f8cf0 <nil>}
+  &{<nil> [AccountId] uint64 0x17a6f39f8d20 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f39802b8 0x17a6f39f8d50 <nil>}
+
+=== type ListFollowAccount struct ===
+  &{<nil> [ID] uint64 0x17a6f39f9230 <nil>}
+  &{<nil> [ListId] uint64 0x17a6f39f9260 <nil>}
+  &{<nil> [AccountId] uint64 0x17a6f39f9290 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f3980408 0x17a6f39f92c0 <nil>}
+
+=== type Group struct ===
+  &{<nil> [Id] uint64 0x17a6f3aa66c0 <nil>}
+  &{<nil> [OwnerId] uint64 0x17a6f3aa66f0 <nil>}
+  &{<nil> [Name] string 0x17a6f3aa6720 <nil>}
+  &{<nil> [Description] string 0x17a6f3aa6750 <nil>}
+  &{<nil> [Avatar] string 0x17a6f3aa6780 <nil>}
+  &{<nil> [Type] GroupType 0x17a6f3aa67b0 <nil>}
+  &{<nil> [Visibility] string 0x17a6f3aa67e0 <nil>}
+  &{<nil> [MatrixRoomId] 0x17a6f39808e8 0x17a6f3aa6810 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f3980918 0x17a6f3aa6840 <nil>}
+  &{<nil> [UpdatedAt] 0x17a6f3980948 0x17a6f3aa6870 <nil>}
+  &{<nil> [DeletedAt] 0x17a6f3980960 0x17a6f3aa68a0 <nil>}
+  &{<nil> [Owner] 0x17a6f3980978 0x17a6f3aa68d0 <nil>}
+  &{<nil> [Members] 0x17a6f3aa6900 0x17a6f3aa6930 <nil>}
+  &{<nil> [Messages] 0x17a6f3aa6960 0x17a6f3aa6990 <nil>}
+
+=== type GroupMember struct ===
+  &{<nil> [Id] uint64 0x17a6f3aa6cc0 <nil>}
+  &{<nil> [GroupId] uint64 0x17a6f3aa6cf0 <nil>}
+  &{<nil> [AccountId] 0x17a6f3980a50 0x17a6f3aa6d20 <nil>}
+  &{<nil> [MatrixUserId] 0x17a6f3980a68 0x17a6f3aa6d50 <nil>}
+  &{<nil> [DisplayName] string 0x17a6f3aa6d80 <nil>}
+  &{<nil> [Role] GroupMemberRole 0x17a6f3aa6db0 <nil>}
+  &{<nil> [InvitedBy] 0x17a6f3980a80 0x17a6f3aa6de0 <nil>}
+  &{<nil> [MatrixInvitedBy] 0x17a6f3980a98 0x17a6f3aa6e10 <nil>}
+  &{<nil> [JoinedAt] 0x17a6f3980ac8 0x17a6f3aa6e40 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f3980af8 0x17a6f3aa6e70 <nil>}
+  &{<nil> [UpdatedAt] 0x17a6f3980b28 0x17a6f3aa6ea0 <nil>}
+  &{<nil> [DeletedAt] 0x17a6f3980b40 0x17a6f3aa6ed0 <nil>}
+  &{<nil> [Group] 0x17a6f3980b58 0x17a6f3aa6f00 <nil>}
+  &{<nil> [Account] 0x17a6f3980b70 0x17a6f3aa6f30 <nil>}
+
+=== type GroupMessage struct ===
+  &{<nil> [Id] uint64 0x17a6f3aa7500 <nil>}
+  &{<nil> [GroupId] uint64 0x17a6f3aa7530 <nil>}
+  &{<nil> [SenderId] 0x17a6f3980cd8 0x17a6f3aa7560 <nil>}
+  &{<nil> [MatrixSenderId] 0x17a6f3980cf0 0x17a6f3aa7590 <nil>}
+  &{<nil> [Content] string 0x17a6f3aa75c0 <nil>}
+  &{<nil> [MatrixEventId] 0x17a6f3980d08 0x17a6f3aa75f0 <nil>}
+  &{<nil> [CreatedAt] 0x17a6f3980d38 0x17a6f3aa7620 <nil>}
+  &{<nil> [DeletedAt] 0x17a6f3980d50 0x17a6f3aa7650 <nil>}
+  &{<nil> [Group] 0x17a6f3980d68 0x17a6f3aa7680 <nil>}
+  &{<nil> [Sender] 0x17a6f3980d80 0x17a6f3aa76b0 <nil>}

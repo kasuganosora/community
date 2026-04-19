@@ -239,9 +239,9 @@ func doMatrixRequest(httpClient *httpclient.Client, homeserverURL, asToken, meth
 	if !resp.StatusOk() {
 		var errResp ErrorResponse
 		if parseErr := resp.Json(&errResp); parseErr == nil && errResp.ErrCode != "" {
-				return fmt.Errorf("matrix API error: %s - %s", errResp.ErrCode, errResp.Error)
+			return fmt.Errorf("matrix API error: %s - %s", errResp.ErrCode, errResp.Error)
 		}
-			return fmt.Errorf("matrix API HTTP error: %d", resp.StatusCode)
+		return fmt.Errorf("matrix API HTTP error: %d", resp.StatusCode)
 	}
 
 	// 如果不需要解析响应体

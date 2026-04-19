@@ -1134,8 +1134,8 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 			continue
 		}
 		if _, err := storeFederationPDU(hs, missingEvent); err != nil {
-					continue
-				}
+			continue
+		}
 	}
 }
 
