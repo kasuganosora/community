@@ -463,7 +463,7 @@ func (m *MeilisearchClient) GetStats() (map[string]any, error) {
 		return nil, errors.New("meilisearch not enabled")
 	}
 
-	stats, err := m.client.GetStats()
+	stats, err := m.client.GetStats(nil)
 	if err != nil {
 		return nil, err
 	}
