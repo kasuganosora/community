@@ -2,7 +2,7 @@ package captcha
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/kasuganosora/community/captcha/providers"
@@ -33,11 +33,11 @@ func TestService_Verify_ProviderError(t *testing.T) {
 	svc := &Service{
 		enabled: true,
 		provider: &mockProvider{
-			name:      "mock",
+			name:      "mock", //nolint:goconst
 			siteKey:   "site",
 			secretKey: "secret",
 			verifyFunc: func(ctx context.Context, response string, remoteIP string) (*types.VerificationResult, error) {
-				return nil, fmt.Errorf("upstream failure")
+				return nil, errors.New("upstream failure")
 			},
 		},
 	}
@@ -76,7 +76,7 @@ func TestService_Verify_ScoreBelowThreshold(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Success, "score below threshold should mark success as false")
-	assert.Equal(t, 0.3, result.Score)
+	assert.InEpsilon(t, 0.3, result.Score, 0.0001)
 	assert.Contains(t, result.ErrorCodes, "score-too-low")
 }
 
@@ -102,7 +102,7 @@ func TestService_Verify_ScoreAboveThreshold(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
-	assert.Equal(t, 0.9, result.Score)
+	assert.InEpsilon(t, 0.9, result.Score, 0.0001)
 	assert.Empty(t, result.ErrorCodes)
 }
 
@@ -213,7 +213,7 @@ func TestService_GetSiteKey(t *testing.T) {
 
 	t.Run("nil provider", func(t *testing.T) {
 		svc := &Service{provider: nil}
-		assert.Equal(t, "", svc.GetSiteKey())
+		assert.Empty(t, svc.GetSiteKey())
 	})
 }
 
@@ -236,6 +236,7 @@ func TestService_Reload(t *testing.T) {
 			// The important thing is the Reload code path was exercised.
 			_ = r
 		}()
+
 		err := svc.Reload()
 		if err != nil {
 			// Error is acceptable if systemsettings/config isn't set up in tests
@@ -255,10 +256,12 @@ func TestNewService_NilConfig(t *testing.T) {
 		r := recover()
 		_ = r
 	}()
+
 	svc, err := NewService(nil)
 	if err != nil {
-		assert.NotNil(t, err)
+		require.Error(t, err)
 	}
+
 	if svc != nil {
 		assert.NotNil(t, svc)
 	}
@@ -333,7 +336,7 @@ func TestNewService_WithScoreThreshold(t *testing.T) {
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
-	assert.Equal(t, 0.8, svc.scoreThreshold)
+	assert.InDelta(t, 0.8, svc.scoreThreshold, 1e-9)
 }
 
 // =============================================================================
@@ -347,6 +350,7 @@ func TestGetConfigValue(t *testing.T) {
 		r := recover()
 		_ = r
 	}()
+
 	val := getConfigValue("NONEXISTENT_ENV_VAR_CAPTCHA_TEST", "nonexistent.settings.key", "default-val")
 	// systemsettings.GetString may return default or empty, but should not panic
 	_ = val
@@ -474,7 +478,7 @@ func TestService_Fields_AfterNewService(t *testing.T) {
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 0.6, svc.scoreThreshold)
+	assert.InDelta(t, 0.6, svc.scoreThreshold, 1e-9)
 	assert.Equal(t, ProviderRecaptcha, svc.providerType)
 }
 

@@ -9,11 +9,11 @@ const (
 
 type Block struct {
 	Id              uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId       uint64     `gorm:"not null;index" json:"account_id"`
-	Type            uint8      `gorm:"not null;index" json:"type"`
+	AccountId       uint64     `gorm:"not null;index"             json:"account_id"`
+	Type            uint8      `gorm:"not null;index"             json:"type"`
 	TargetAccountId uint64     `json:"target_account_id"`
-	TargetDomain    string     `gorm:"size:255" json:"target_domain"`
-	CreatedAt       *time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+	TargetDomain    string     `gorm:"size:255"                   json:"target_domain"`
+	CreatedAt       *time.Time `gorm:"not null;autoCreateTime"    json:"created_at"`
 }
 
 func (b *Block) TableName() string {
@@ -33,6 +33,7 @@ func (bb Blocks) IsBlocked(account *Account) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -40,8 +41,10 @@ func (bb Blocks) IsStatusBlocked(status *Status) bool {
 	if bb.IsBlocked(status.Account) {
 		return true
 	}
+
 	if status.Reblog != nil && bb.IsBlocked(status.Reblog.Account) {
 		return true
 	}
+
 	return false
 }

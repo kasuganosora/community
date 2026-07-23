@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,22 +21,22 @@ import (
 
 // ===== 事件签名验证增强 =====
 
-// EventAuthVerifier 事件认证验证器
+// EventAuthVerifier 事件认证验证器.
 type EventAuthVerifier struct {
 	HS *HomeServer
 }
 
-// NewEventAuthVerifier 创建事件认证验证器
+// NewEventAuthVerifier 创建事件认证验证器.
 func NewEventAuthVerifier(hs *HomeServer) *EventAuthVerifier {
 	return &EventAuthVerifier{HS: hs}
 }
 
-// VerifyEventSignature 验证事件签名（基于 Dendrite 实现）
-func (v *EventAuthVerifier) VerifyEventSignature(event map[string]interface{}, allowedServers []string) error {
+// VerifyEventSignature 验证事件签名（基于 Dendrite 实现）.
+func (v *EventAuthVerifier) VerifyEventSignature(event map[string]any, allowedServers []string) error {
 	// 提取签名
-	signatures, ok := event["signatures"].(map[string]interface{})
+	signatures, ok := event["signatures"].(map[string]any)
 	if !ok {
-		return fmt.Errorf("missing signatures")
+		return errors.New("missing signatures")
 	}
 
 	// 验证每个服务器的签名
@@ -44,7 +46,7 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]interface{}, a
 			continue // 跳过不允许的服务器签名
 		}
 
-		serverSigMap, ok := serverSigs.(map[string]interface{})
+		serverSigMap, ok := serverSigs.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -62,7 +64,8 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]interface{}, a
 				continue
 			}
 
-			if err := v.verifySignature(event, serverName, keyID, sigStr, publicKey); err != nil {
+			err := v.verifySignature(event, serverName, keyID, sigStr, publicKey)
+			if err != nil {
 				return fmt.Errorf("signature verification failed for %s/%s: %w", serverName, keyID, err)
 			}
 		}
@@ -71,10 +74,11 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]interface{}, a
 	return nil
 }
 
-// VerifyFederationEvent 验证联邦事件（完整的认证流程）
-func (v *EventAuthVerifier) VerifyFederationEvent(event map[string]interface{}) error {
+// VerifyFederationEvent 验证联邦事件（完整的认证流程）.
+func (v *EventAuthVerifier) VerifyFederationEvent(event map[string]any) error {
 	// 1. 验证事件基本结构
-	if err := v.validateEventStructure(event); err != nil {
+	err := v.validateEventStructure(event)
+	if err != nil {
 		return fmt.Errorf("invalid event structure: %w", err)
 	}
 
@@ -83,26 +87,29 @@ func (v *EventAuthVerifier) VerifyFederationEvent(event map[string]interface{}) 
 	serverName := extractServerName(sender)
 
 	// 3. 验证发送服务器签名
-	if err := v.VerifyEventSignature(event, []string{serverName}); err != nil {
+	err = v.VerifyEventSignature(event, []string{serverName})
+	if err != nil {
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
 
 	// 4. 验证事件 ID 格式和内容哈希
-	if err := v.verifyEventID(event); err != nil {
+	err = v.verifyEventID(event)
+	if err != nil {
 		return fmt.Errorf("event ID verification failed: %w", err)
 	}
 
 	// 5. 验证事件权限（auth_events 链）
-	if err := v.verifyAuthEvents(event); err != nil {
+	err = v.verifyAuthEvents(event)
+	if err != nil {
 		return fmt.Errorf("auth events verification failed: %w", err)
 	}
 
 	return nil
 }
 
-// validateEventStructure 验证事件基本结构
-func (v *EventAuthVerifier) validateEventStructure(event map[string]interface{}) error {
-	requiredFields := []string{"event_id", "type", "room_id", "sender", "content", "origin_server_ts"}
+// validateEventStructure 验证事件基本结构.
+func (v *EventAuthVerifier) validateEventStructure(event map[string]any) error {
+	requiredFields := []string{"event_id", "type", "room_id", "sender", "content", "origin_server_ts"} //nolint:goconst
 	for _, field := range requiredFields {
 		if _, ok := event[field]; !ok {
 			return fmt.Errorf("missing required field: %s", field)
@@ -112,28 +119,29 @@ func (v *EventAuthVerifier) validateEventStructure(event map[string]interface{})
 	// 验证事件类型
 	eventType, _ := event["type"].(string)
 	if eventType == "" {
-		return fmt.Errorf("invalid event type")
+		return errors.New("invalid event type")
 	}
 
 	// 验证房间 ID
 	roomID, _ := event["room_id"].(string)
 	if !strings.HasPrefix(roomID, "!") {
-		return fmt.Errorf("invalid room ID format")
+		return errors.New("invalid room ID format")
 	}
 
 	// 验证发送者
 	sender, _ := event["sender"].(string)
 	if !strings.HasPrefix(sender, "@") {
-		return fmt.Errorf("invalid sender format")
+		return errors.New("invalid sender format")
 	}
 
 	return nil
 }
 
-// verifySignature 验证单个签名
-func (v *EventAuthVerifier) verifySignature(event map[string]interface{}, serverName, keyID, signature string, publicKey ed25519.PublicKey) error {
+// verifySignature 验证单个签名.
+func (v *EventAuthVerifier) verifySignature(event map[string]any, serverName, keyID, signature string, publicKey ed25519.PublicKey) error { //nolint:unparam // param reserved for future use
 	// 创建不含签名的副本进行验证
-	eventCopy := make(map[string]interface{})
+	eventCopy := make(map[string]any)
+
 	for k, v := range event {
 		if k != "signatures" && k != "unsigned" {
 			eventCopy[k] = v
@@ -154,14 +162,14 @@ func (v *EventAuthVerifier) verifySignature(event map[string]interface{}, server
 
 	// 验证签名（直接验证 canonical bytes，不做 hash）
 	if !ed25519.Verify(publicKey, data, sigBytes) {
-		return fmt.Errorf("invalid signature")
+		return errors.New("invalid signature")
 	}
 
 	return nil
 }
 
-// verifyEventID 验证事件 ID（基于内容哈希）
-func (v *EventAuthVerifier) verifyEventID(event map[string]interface{}) error {
+// verifyEventID 验证事件 ID（基于内容哈希）.
+func (v *EventAuthVerifier) verifyEventID(event map[string]any) error {
 	eventID, _ := event["event_id"].(string)
 	sender, _ := event["sender"].(string)
 	roomID, _ := event["room_id"].(string)
@@ -169,7 +177,7 @@ func (v *EventAuthVerifier) verifyEventID(event map[string]interface{}) error {
 
 	// 所有 Matrix 事件 ID 都以 $ 开头
 	if !strings.HasPrefix(eventID, "$") {
-		return fmt.Errorf("invalid event ID format: must start with $")
+		return errors.New("invalid event ID format: must start with $")
 	}
 
 	// v3+ 房间版本使用基于哈希的事件 ID
@@ -181,24 +189,26 @@ func (v *EventAuthVerifier) verifyEventID(event map[string]interface{}) error {
 	if _, err := fmt.Fprintf(hash, "%s:%s:%d", sender, roomID, int64(originServerTS)); err != nil {
 		return fmt.Errorf("failed to write hash data: %w", err)
 	}
+
 	actualHash := base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 
 	if expectedHash != actualHash {
-		return fmt.Errorf("event ID hash mismatch")
+		return errors.New("event ID hash mismatch")
 	}
 
 	return nil
 }
 
-// verifyAuthEvents 验证 auth_events 链
-func (v *EventAuthVerifier) verifyAuthEvents(event map[string]interface{}) error {
-	authEvents, ok := event["auth_events"].([]interface{})
+// verifyAuthEvents 验证 auth_events 链.
+func (v *EventAuthVerifier) verifyAuthEvents(event map[string]any) error {
+	authEvents, ok := event["auth_events"].([]any)
 	if !ok || len(authEvents) == 0 {
 		// 某些事件类型不需要 auth_events
 		eventType, _ := event["type"].(string)
-		if eventType != "m.room.create" {
-			return fmt.Errorf("missing auth_events")
+		if eventType != "m.room.create" { //nolint:goconst
+			return errors.New("missing auth_events")
 		}
+
 		return nil
 	}
 
@@ -210,21 +220,26 @@ func (v *EventAuthVerifier) verifyAuthEvents(event map[string]interface{}) error
 		}
 
 		var authEvent MatrixEvent
-		if err := db.GetDB().Where("event_id = ?", eventID).First(&authEvent).Error; err != nil {
+		err := db.GetDB().Where("event_id = ?", eventID).First(&authEvent).Error
+		if err != nil {
 			return fmt.Errorf("auth event not found: %s", eventID)
 		}
 
 		// 验证 auth_event 的签名
-		var authEventMap map[string]interface{}
+		var authEventMap map[string]any
+
 		authEventData, err2 := json.Marshal(authEvent)
 		if err2 != nil {
 			return fmt.Errorf("failed to marshal auth event: %w", err2)
 		}
-		if err := json.Unmarshal(authEventData, &authEventMap); err != nil {
+
+		err = json.Unmarshal(authEventData, &authEventMap)
+		if err != nil {
 			return fmt.Errorf("failed to unmarshal auth event: %w", err)
 		}
 
-		if err := v.VerifyEventSignature(authEventMap, []string{authEvent.SenderDomain}); err != nil {
+		err = v.VerifyEventSignature(authEventMap, []string{authEvent.SenderDomain})
+		if err != nil {
 			return fmt.Errorf("auth event signature invalid: %s", eventID)
 		}
 	}
@@ -232,7 +247,7 @@ func (v *EventAuthVerifier) verifyAuthEvents(event map[string]interface{}) error
 	return nil
 }
 
-// getServerPublicKey 获取服务器公钥（带缓存）
+// getServerPublicKey 获取服务器公钥（带缓存）.
 func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.PublicKey, error) {
 	// 使用全局密钥缓存
 	keyCache := GetKeyCache()
@@ -296,8 +311,8 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 	return nil, fmt.Errorf("no valid key found for server %s", serverName)
 }
 
-// fetchServerKeys 从远程服务器获取密钥
-func fetchServerKeys(client *FederationClient, baseURL, serverName string) (*ServerKeyResponse, error) {
+// fetchServerKeys 从远程服务器获取密钥.
+func fetchServerKeys(client *FederationClient, baseURL, serverName string) (*ServerKeyResponse, error) { //nolint:unparam // param reserved for future use
 	// 构建请求 URL
 	urlStr := baseURL + "/_matrix/key/v2/server"
 
@@ -329,16 +344,17 @@ func fetchServerKeys(client *FederationClient, baseURL, serverName string) (*Ser
 
 // ===== 联邦请求认证中间件 =====
 
-// FederationAuthMiddleware 联邦请求认证中间件
+// FederationAuthMiddleware 联邦请求认证中间件.
 func FederationAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hs := GetHomeServer()
 		if hs == nil || !hs.Config.Enabled {
 			c.JSON(http.StatusServiceUnavailable, MatrixError{
-				ErrCode: "M_UNKNOWN",
-				Error:   "Homeserver not available",
+				ErrCode: "M_UNKNOWN",                //nolint:goconst
+				Error:   "Homeserver not available", //nolint:goconst
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -347,6 +363,7 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 		if authHeader == "" {
 			// 某些联邦请求可能没有 Authorization（如获取服务器密钥）
 			c.Next()
+
 			return
 		}
 
@@ -355,15 +372,17 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 			origin, destination, keyID, signature, err := parseXMatrixAuth(authHeader)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, MatrixError{
-					ErrCode: "M_UNAUTHORIZED",
+					ErrCode: "M_UNAUTHORIZED", //nolint:goconst
 					Error:   "Invalid authorization header: " + err.Error(),
 				})
 				c.Abort()
+
 				return
 			}
 
 			// 验证签名
 			verifier := NewEventAuthVerifier(hs)
+
 			publicKey, err := verifier.getServerPublicKey(origin)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, MatrixError{
@@ -371,6 +390,7 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 					Error:   "Failed to get server key: " + err.Error(),
 				})
 				c.Abort()
+
 				return
 			}
 
@@ -381,6 +401,7 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 					Error:   "Invalid request signature",
 				})
 				c.Abort()
+
 				return
 			}
 
@@ -392,35 +413,35 @@ func FederationAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// parseXMatrixAuth 解析 X-Matrix 认证头
+// parseXMatrixAuth 解析 X-Matrix 认证头.
 func parseXMatrixAuth(authHeader string) (origin, destination, keyID, signature string, err error) {
 	// 格式: X-Matrix origin="origin.hs",destination="dest.hs",key="ed25519:abc",sig="base64sig"
 	authHeader = strings.TrimPrefix(authHeader, "X-Matrix ")
 
-	parts := strings.Split(authHeader, ",")
-	for _, part := range parts {
+	for part := range strings.SplitSeq(authHeader, ",") {
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "origin=") {
+		switch {
+		case strings.HasPrefix(part, "origin="):
 			origin = strings.Trim(part[7:], `"`)
-		} else if strings.HasPrefix(part, "destination=") {
+		case strings.HasPrefix(part, "destination="):
 			destination = strings.Trim(part[12:], `"`)
-		} else if strings.HasPrefix(part, "key=") {
+		case strings.HasPrefix(part, "key="):
 			keyID = strings.Trim(part[4:], `"`)
-		} else if strings.HasPrefix(part, "sig=") {
+		case strings.HasPrefix(part, "sig="):
 			signature = strings.Trim(part[4:], `"`)
 		}
 	}
 
 	if origin == "" || keyID == "" || signature == "" {
-		return "", "", "", "", fmt.Errorf("missing required fields")
+		return "", "", "", "", errors.New("missing required fields")
 	}
 
 	return origin, destination, keyID, signature, nil
 }
 
 // verifyRequestSignature 验证请求签名
-// Matrix spec: the signed payload is a JSON object {method, uri, origin, destination, content?}
-func verifyRequestSignature(req *http.Request, origin, destination, keyID, signature string, publicKey ed25519.PublicKey) bool {
+// Matrix spec: the signed payload is a JSON object {method, uri, origin, destination, content?}.
+func verifyRequestSignature(req *http.Request, origin, destination, keyID, signature string, publicKey ed25519.PublicKey) bool { //nolint:unparam // param reserved for future use
 	// 构建 URI (path + query)
 	uri := req.URL.RequestURI()
 
@@ -432,15 +453,17 @@ func verifyRequestSignature(req *http.Request, origin, destination, keyID, signa
 	}
 
 	// 构建待签名的 JSON 对象（Matrix federation spec）
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"method":      req.Method,
 		"uri":         uri,
-		"origin":      origin,
+		"origin":      origin, //nolint:goconst
 		"destination": destination,
 	}
+
 	if len(body) > 0 {
-		var content interface{}
-		if err := json.Unmarshal(body, &content); err == nil {
+		var content any
+		err := json.Unmarshal(body, &content)
+		if err == nil {
 			payload["content"] = content
 		}
 	}
@@ -464,12 +487,7 @@ func verifyRequestSignature(req *http.Request, origin, destination, keyID, signa
 // ===== 辅助函数 =====
 
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }
 
 func extractServerName(userID string) string {
@@ -477,5 +495,6 @@ func extractServerName(userID string) string {
 	if len(parts) >= 2 {
 		return parts[1]
 	}
+
 	return ""
 }

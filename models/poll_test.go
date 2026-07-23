@@ -9,9 +9,9 @@ import (
 
 func TestPollOptions_GetOptionIds(t *testing.T) {
 	options := PollOptions{
-		{Id: 1, Index: 0, Content: "Option A"},
-		{Id: 2, Index: 1, Content: "Option B"},
-		{Id: 3, Index: 2, Content: "Option C"},
+		{Id: 1, Index: 0, Content: "Option A"}, //nolint:goconst
+		{Id: 2, Index: 1, Content: "Option B"}, //nolint:goconst
+		{Id: 3, Index: 2, Content: "Option C"}, //nolint:goconst
 	}
 
 	ids := options.GetOptionIds()
@@ -78,7 +78,7 @@ func TestPollOptionVotes_GetVotedOptionIds(t *testing.T) {
 
 	t.Run("User with no votes", func(t *testing.T) {
 		optionIds := votes.GetVotedOptionIds(999)
-		assert.Len(t, optionIds, 0)
+		assert.Empty(t, optionIds)
 	})
 }
 
@@ -105,6 +105,7 @@ func TestPollOptionVotes_FilterAccountId(t *testing.T) {
 	t.Run("Filter by account ID", func(t *testing.T) {
 		filtered := votes.FilterAccountId(100)
 		assert.Len(t, filtered, 2)
+
 		for _, v := range filtered {
 			assert.Equal(t, uint64(100), v.AccountId)
 		}
@@ -112,7 +113,7 @@ func TestPollOptionVotes_FilterAccountId(t *testing.T) {
 
 	t.Run("No matching account", func(t *testing.T) {
 		filtered := votes.FilterAccountId(999)
-		assert.Len(t, filtered, 0)
+		assert.Empty(t, filtered)
 	})
 }
 
@@ -126,6 +127,7 @@ func TestPollOptionVotes_FilterOptionId(t *testing.T) {
 	t.Run("Filter by option ID", func(t *testing.T) {
 		filtered := votes.FilterOptionId(1)
 		assert.Len(t, filtered, 2)
+
 		for _, v := range filtered {
 			assert.Equal(t, uint64(1), v.OptionId)
 		}
@@ -142,6 +144,7 @@ func TestPollOptionVotes_FilterPollId(t *testing.T) {
 	t.Run("Filter by poll ID", func(t *testing.T) {
 		filtered := votes.FilterPollId(1)
 		assert.Len(t, filtered, 2)
+
 		for _, v := range filtered {
 			assert.Equal(t, uint64(1), v.PollId)
 		}

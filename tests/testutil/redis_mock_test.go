@@ -7,6 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMockRedis(t *testing.T) {
@@ -28,11 +29,11 @@ func TestMockRedis_SetGet(t *testing.T) {
 
 	// Set value
 	err := client.Client.Set(ctx, "test-key", "test-value", time.Minute).Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Get value
 	val, err := client.Client.Get(ctx, "test-key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "test-value", val)
 
 	// Verify expectations
@@ -49,11 +50,11 @@ func TestMockRedis_HashOperations(t *testing.T) {
 
 	// HSet
 	err := client.Client.HSet(ctx, "hash-key", "field1", "value1").Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// HGet
 	val, err := client.Client.HGet(ctx, "hash-key", "field1").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "value1", val)
 
 	// Verify expectations
@@ -71,15 +72,15 @@ func TestMockRedis_ListOperations(t *testing.T) {
 
 	// LPush
 	err := client.Client.LPush(ctx, "list-key", "value1").Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// RPush
 	err = client.Client.RPush(ctx, "list-key", "value2").Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// LLen
 	len, err := client.Client.LLen(ctx, "list-key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(2), len)
 
 	// Verify expectations
@@ -97,15 +98,15 @@ func TestMockRedis_SetOperations(t *testing.T) {
 
 	// SAdd
 	err := client.Client.SAdd(ctx, "set-key", "member1", "member2").Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// SIsMember
 	isMember, err := client.Client.SIsMember(ctx, "set-key", "member1").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, isMember)
 
 	isMember, err = client.Client.SIsMember(ctx, "set-key", "member3").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, isMember)
 
 	// Verify expectations
@@ -122,10 +123,10 @@ func TestMockRedis_SortedSetOperations(t *testing.T) {
 
 	// ZAdd
 	err := client.Client.ZAdd(ctx, "zset-key", redis.Z{Score: 1, Member: "one"}).Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = client.Client.ZAdd(ctx, "zset-key", redis.Z{Score: 2, Member: "two"}).Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify expectations
 	assert.NoError(t, client.Mock.ExpectationsWereMet())
@@ -140,7 +141,7 @@ func TestMockRedis_Delete(t *testing.T) {
 
 	// Delete
 	val, err := client.Client.Del(ctx, "delete-key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1), val)
 
 	// Verify expectations
@@ -158,16 +159,16 @@ func TestMockRedis_IncrDecr(t *testing.T) {
 
 	// Incr
 	val, err := client.Client.Incr(ctx, "counter").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1), val)
 
 	val, err = client.Client.Incr(ctx, "counter").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(2), val)
 
 	// Decr
 	val, err = client.Client.Decr(ctx, "counter").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1), val)
 
 	// Verify expectations
@@ -184,11 +185,11 @@ func TestMockRedis_Exists(t *testing.T) {
 
 	// Exists
 	exists, err := client.Client.Exists(ctx, "existing-key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1), exists)
 
 	exists, err = client.Client.Exists(ctx, "non-existing-key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(0), exists)
 
 	// Verify expectations
@@ -204,7 +205,7 @@ func TestMockRedis_Expire(t *testing.T) {
 
 	// Expire
 	result, err := client.Client.Expire(ctx, "expire-key", time.Minute).Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, result)
 
 	// Verify expectations
@@ -226,10 +227,12 @@ func TestNewAutoRedis_WhenRedisUnavailable(t *testing.T) {
 	if client == nil {
 		return // Test was skipped
 	}
-	defer client.Close()
+
+	defer func() { _ = client.Close() }()
 
 	// Either mock or real Redis should work
 	ctx := context.Background()
+
 	if client.IsMock() {
 		// Setup mock expectation
 		client.Mock.ExpectPing().SetVal("PONG")
@@ -238,7 +241,7 @@ func TestNewAutoRedis_WhenRedisUnavailable(t *testing.T) {
 	// Ping should work
 	err := client.Client.Ping(ctx).Err()
 	if client.IsMock() {
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }
 
@@ -258,12 +261,14 @@ func TestRedisTestClient_Close(t *testing.T) {
 
 	// Close should not error
 	err := client.Close()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestRedisWithMode_Mock(t *testing.T) {
 	client := NewRedisWithMode(t, RedisModeMock)
 	assert.NotNil(t, client)
+
 	assert.True(t, client.IsMock())
-	defer client.Close()
+
+	defer func() { _ = client.Close() }()
 }

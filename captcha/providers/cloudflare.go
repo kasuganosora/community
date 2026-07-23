@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -13,14 +14,14 @@ const (
 	cloudflareVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 )
 
-// CloudflareProvider Cloudflare Turnstile 实现
+// CloudflareProvider Cloudflare Turnstile 实现.
 type CloudflareProvider struct {
 	siteKey   string
 	secretKey string
 	client    *httpclient.Client
 }
 
-// cloudflareResponse Cloudflare Turnstile 响应结构
+// cloudflareResponse Cloudflare Turnstile 响应结构.
 type cloudflareResponse struct {
 	Success     bool     `json:"success"`
 	ErrorCodes  []string `json:"error-codes"`
@@ -33,7 +34,7 @@ type cloudflareResponse struct {
 	} `json:"metadata"`
 }
 
-// NewCloudflareProvider 创建 Cloudflare Turnstile 供应商
+// NewCloudflareProvider 创建 Cloudflare Turnstile 供应商.
 func NewCloudflareProvider(siteKey, secretKey string) *CloudflareProvider {
 	return &CloudflareProvider{
 		siteKey:   siteKey,
@@ -42,22 +43,22 @@ func NewCloudflareProvider(siteKey, secretKey string) *CloudflareProvider {
 	}
 }
 
-// Name 返回供应商名称
+// Name 返回供应商名称.
 func (c *CloudflareProvider) Name() string {
 	return "cloudflare"
 }
 
-// Verify 验证用户响应
+// Verify 验证用户响应.
 func (c *CloudflareProvider) Verify(ctx context.Context, response string, remoteIP string) (*types.VerificationResult, error) {
 	if c.secretKey == "" {
-		return nil, fmt.Errorf("cloudflare turnstile secret key is not configured")
+		return nil, errors.New("cloudflare turnstile secret key is not configured")
 	}
 
 	if response == "" {
 		return &types.VerificationResult{
 			Success:    false,
 			Provider:   c.Name(),
-			ErrorCodes: []string{"missing-input-response"},
+			ErrorCodes: []string{"missing-input-response"}, //nolint:goconst
 		}, nil
 	}
 
@@ -65,6 +66,7 @@ func (c *CloudflareProvider) Verify(ctx context.Context, response string, remote
 	data := url.Values{}
 	data.Set("secret", c.secretKey)
 	data.Set("response", response)
+
 	if remoteIP != "" {
 		data.Set("remoteip", remoteIP)
 	}
@@ -74,7 +76,7 @@ func (c *CloudflareProvider) Verify(ctx context.Context, response string, remote
 	req.SetFormUrlencoded(data)
 	req.SetTimeout(10)
 
-	resp, err := req.Do()
+	resp, err := req.Do() //nolint:contextcheck // custom httpclient type, context handled internally
 	if err != nil {
 		return nil, fmt.Errorf("cloudflare turnstile verify request failed: %w", err)
 	}
@@ -95,17 +97,17 @@ func (c *CloudflareProvider) Verify(ctx context.Context, response string, remote
 	}, nil
 }
 
-// GetSiteKey 获取站点密钥
+// GetSiteKey 获取站点密钥.
 func (c *CloudflareProvider) GetSiteKey() string {
 	return c.siteKey
 }
 
-// IsConfigured 检查是否已配置
+// IsConfigured 检查是否已配置.
 func (c *CloudflareProvider) IsConfigured() bool {
 	return c.siteKey != "" && c.secretKey != ""
 }
 
-// GetVerifyURL 获取验证 URL（用于前端）
+// GetVerifyURL 获取验证 URL（用于前端）.
 func (c *CloudflareProvider) GetVerifyURL() string {
 	return cloudflareVerifyURL
 }

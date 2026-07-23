@@ -75,11 +75,14 @@ func TestEventManager_Trigger(t *testing.T) {
 	em := GetEventManager("test_trigger")
 
 	var executed bool
+
 	handler := &Handler{
 		Exec: func(event Event) bool {
 			executed = true
+
 			assert.Equal(t, "trigger_test", event.Name)
 			assert.Equal(t, "test_data", event.Data)
+
 			return true
 		},
 	}
@@ -98,12 +101,14 @@ func TestEventManager_TriggerMultiple(t *testing.T) {
 	handler1 := &Handler{
 		Exec: func(event Event) bool {
 			callOrder = append(callOrder, 1)
+
 			return true
 		},
 	}
 	handler2 := &Handler{
 		Exec: func(event Event) bool {
 			callOrder = append(callOrder, 2)
+
 			return true
 		},
 	}
@@ -124,12 +129,14 @@ func TestEventManager_TriggerStopOnFalse(t *testing.T) {
 	handler1 := &Handler{
 		Exec: func(event Event) bool {
 			executed = append(executed, 1)
+
 			return false // Stop propagation
 		},
 	}
 	handler2 := &Handler{
 		Exec: func(event Event) bool {
 			executed = append(executed, 2)
+
 			return true
 		},
 	}
@@ -145,18 +152,22 @@ func TestEventManager_TriggerStopOnFalse(t *testing.T) {
 func TestEventManager_WildcardHandler(t *testing.T) {
 	em := GetEventManager("test_wildcard")
 
-	var wildcardExecuted bool
-	var specificExecuted bool
+	var (
+		wildcardExecuted bool
+		specificExecuted bool
+	)
 
 	wildcardHandler := &Handler{
 		Exec: func(event Event) bool {
 			wildcardExecuted = true
+
 			return true
 		},
 	}
 	specificHandler := &Handler{
 		Exec: func(event Event) bool {
 			specificExecuted = true
+
 			return true
 		},
 	}
@@ -174,12 +185,14 @@ func TestEventManager_ConcurrentAccess(t *testing.T) {
 	em := GetEventManager("test_concurrent")
 
 	var wg sync.WaitGroup
+
 	numGoroutines := 100
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
-		go func(id int) {
+		go func(id int) { //nolint:unparam // param reserved for future use
 			defer wg.Done()
+
 			handler := &Handler{
 				Exec: func(event Event) bool {
 					return true
@@ -202,14 +215,16 @@ func TestGlobalFunctions(t *testing.T) {
 	t.Run("Register", func(t *testing.T) {
 		handler := &Handler{Exec: func(event Event) bool { return true }}
 		id := Register("global_test", "global_event", handler)
-		assert.Greater(t, id, 0)
+		assert.Positive(t, id)
 	})
 
 	t.Run("Trigger", func(t *testing.T) {
 		var triggered bool
+
 		handler := &Handler{
 			Exec: func(event Event) bool {
 				triggered = true
+
 				return true
 			},
 		}
@@ -228,7 +243,7 @@ func TestGlobalFunctions(t *testing.T) {
 func TestEventStruct(t *testing.T) {
 	event := Event{
 		Name: "test_event",
-		Data: map[string]interface{}{"key": "value"},
+		Data: map[string]any{"key": "value"},
 	}
 
 	assert.Equal(t, "test_event", event.Name)

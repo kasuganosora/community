@@ -12,19 +12,21 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// CreateGroupRequest 创建群组请求
+// CreateGroupRequest 创建群组请求.
 type CreateGroupRequest struct {
-	Name           string `json:"name" binding:"required,min=1,max=100"`
-	Description    string `json:"description" binding:"max=500"`
-	Visibility     string `json:"visibility" binding:"omitempty,oneof=public private"`
+	Name           string `binding:"required,min=1,max=100"         json:"name"`
+	Description    string `binding:"max=500"                        json:"description"`
+	Visibility     string `binding:"omitempty,oneof=public private" json:"visibility"`
 	BridgeToMatrix bool   `json:"bridge_to_matrix"` // 是否桥接到 Matrix
 }
 
-// CreateGroup 创建群组
+// CreateGroup 创建群组.
 func CreateGroup(c *gin.Context) {
 	var req CreateGroupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -32,7 +34,7 @@ func CreateGroup(c *gin.Context) {
 
 	visibility := req.Visibility
 	if visibility == "" {
-		visibility = "private"
+		visibility = "private" //nolint:goconst
 	}
 
 	group := &models.Group{
@@ -49,6 +51,7 @@ func CreateGroup(c *gin.Context) {
 		if bridge != nil && bridge.IsStarted() {
 			// 使用 GroupMapper 创建桥接群组
 			groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
+
 			bridgedGroup, err := groupMapper.CreateBridgedGroup(currentAccount.Id, req.Name, req.Description)
 			if err != nil {
 				log.Error("Failed to create bridged group: %v", err)
@@ -61,8 +64,10 @@ func CreateGroup(c *gin.Context) {
 	}
 
 	if group.Id == 0 {
-		if err := db.GetDB().Create(group).Error; err != nil {
+		err := db.GetDB().Create(group).Error
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create group"})
+
 			return
 		}
 
@@ -85,29 +90,32 @@ func CreateGroup(c *gin.Context) {
 	})
 }
 
-// InviteMemberRequest 邀请成员请求
+// InviteMemberRequest 邀请成员请求.
 type InviteMemberRequest struct {
 	AccountId    *uint64 `json:"account_id"`     // 本地用户ID
 	MatrixUserId *string `json:"matrix_user_id"` // Matrix 用户ID
 	Role         int     `json:"role"`           // 角色
 }
 
-// InviteMember 邀请成员加入群组
+// InviteMember 邀请成员加入群组.
 func InviteMember(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"}) //nolint:goconst
+
 		return
 	}
 
 	var req InviteMemberRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	if req.AccountId == nil && req.MatrixUserId == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Either account_id or matrix_user_id is required"})
+
 		return
 	}
 
@@ -120,11 +128,13 @@ func InviteMember(c *gin.Context) {
 			groupID, currentAccount.Id, []int{int(models.GroupMemberRoleOwner), int(models.GroupMemberRoleAdmin)}).
 		Count(&memberCount).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+
 		return
 	}
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "No permission to invite members"})
+
 		return
 	}
 
@@ -144,6 +154,7 @@ func InviteMember(c *gin.Context) {
 
 	if err := db.GetDB().Create(newMember).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add member"})
+
 		return
 	}
 
@@ -155,7 +166,8 @@ func InviteMember(c *gin.Context) {
 			if bridge != nil {
 				groupMapper := matrix.NewGroupMapper(bridge.GetClient(), bridge.GetUserMapper())
 				if req.AccountId != nil {
-					if err := groupMapper.AddLocalMemberToGroup(groupID, *req.AccountId, role); err != nil {
+					err := groupMapper.AddLocalMemberToGroup(groupID, *req.AccountId, role)
+					if err != nil {
 						log.Warn("Failed to add local member to group: %v", err)
 					}
 				}
@@ -163,20 +175,22 @@ func InviteMember(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Member invited successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Member invited successfully"}) //nolint:goconst
 }
 
-// RemoveMember 移除群组成员
+// RemoveMember 移除群组成员.
 func RemoveMember(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
 	memberID, err := strconv.ParseUint(c.Param("member_id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member ID"})
+
 		return
 	}
 
@@ -189,48 +203,55 @@ func RemoveMember(c *gin.Context) {
 			groupID, currentAccount.Id, []int{int(models.GroupMemberRoleOwner), int(models.GroupMemberRoleAdmin)}).
 		Count(&memberCount).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+
 		return
 	}
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "No permission to remove members"})
+
 		return
 	}
 
 	if err := db.GetDB().Where("id = ? AND group_id = ?", memberID, groupID).
 		Delete(&models.GroupMember{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove member"})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Member removed successfully"})
 }
 
-// GetGroup 获取群组详情
+// GetGroup 获取群组详情.
 func GetGroup(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
 	group := &models.Group{}
 	if err := db.GetDB().Preload("Owner").Preload("Members.Account").First(group, groupID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"}) //nolint:goconst
+
 		return
 	}
 
 	c.JSON(http.StatusOK, group)
 }
 
-// GetMyGroups 获取当前用户的群组列表
+// GetMyGroups 获取当前用户的群组列表.
 func GetMyGroups(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	var memberships []*models.GroupMember
+
 	db.GetDB().Where("account_id = ?", currentAccount.Id).Preload("Group").Find(&memberships)
 
 	groups := make([]*models.Group, 0, len(memberships))
+
 	for _, m := range memberships {
 		if m.Group != nil {
 			groups = append(groups, m.Group)
@@ -240,11 +261,12 @@ func GetMyGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, groups)
 }
 
-// GetGroupMessages 获取群组消息
+// GetGroupMessages 获取群组消息.
 func GetGroupMessages(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
@@ -252,12 +274,14 @@ func GetGroupMessages(c *gin.Context) {
 
 	// 检查是否为成员
 	var memberCount int64
+
 	db.GetDB().Model(&models.GroupMember{}).
 		Where("group_id = ? AND account_id = ?", groupID, currentAccount.Id).
 		Count(&memberCount)
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this group"})
+
 		return
 	}
 
@@ -267,6 +291,7 @@ func GetGroupMessages(c *gin.Context) {
 	}
 
 	var messages []*models.GroupMessage
+
 	db.GetDB().Where("group_id = ?", groupID).
 		Order("created_at DESC").
 		Limit(limit).
@@ -276,22 +301,24 @@ func GetGroupMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, messages)
 }
 
-// SendMessageRequest 发送消息请求
+// SendMessageRequest 发送消息请求.
 type SendMessageRequest struct {
-	Content string `json:"content" binding:"required"`
+	Content string `binding:"required" json:"content"`
 }
 
-// SendGroupMessage 发送群组消息
+// SendGroupMessage 发送群组消息.
 func SendGroupMessage(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -299,12 +326,14 @@ func SendGroupMessage(c *gin.Context) {
 
 	// 检查是否为成员
 	var memberCount int64
+
 	db.GetDB().Model(&models.GroupMember{}).
 		Where("group_id = ? AND account_id = ?", groupID, currentAccount.Id).
 		Count(&memberCount)
 
 	if memberCount == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this group"})
+
 		return
 	}
 
@@ -317,6 +346,7 @@ func SendGroupMessage(c *gin.Context) {
 
 	if err := db.GetDB().Create(message).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+
 		return
 	}
 
@@ -344,11 +374,12 @@ func SendGroupMessage(c *gin.Context) {
 	c.JSON(http.StatusCreated, message)
 }
 
-// DeleteGroup 删除群组
+// DeleteGroup 删除群组.
 func DeleteGroup(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
@@ -358,27 +389,31 @@ func DeleteGroup(c *gin.Context) {
 	group := &models.Group{}
 	if err := db.GetDB().First(group, groupID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+
 		return
 	}
 
 	if group.OwnerId != currentAccount.Id {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the owner can delete the group"})
+
 		return
 	}
 
 	if err := db.GetDB().Delete(group).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete group"})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Group deleted successfully"})
 }
 
-// BridgeGroup 将本地群组桥接到 Matrix
+// BridgeGroup 将本地群组桥接到 Matrix.
 func BridgeGroup(c *gin.Context) {
 	groupID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group ID"})
+
 		return
 	}
 
@@ -388,27 +423,32 @@ func BridgeGroup(c *gin.Context) {
 	group := &models.Group{}
 	if err := db.GetDB().First(group, groupID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+
 		return
 	}
 
 	if group.OwnerId != currentAccount.Id {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the owner can bridge the group"})
+
 		return
 	}
 
 	if group.IsBridged() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Group is already bridged"})
+
 		return
 	}
 
 	if !matrix.IsEnabled() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Matrix bridge is not enabled"})
+
 		return
 	}
 
 	bridge := matrix.GetBridge()
 	if bridge == nil || !bridge.IsStarted() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Matrix bridge is not running"})
+
 		return
 	}
 
@@ -416,6 +456,7 @@ func BridgeGroup(c *gin.Context) {
 	if err := groupMapper.BridgeExistingGroup(groupID); err != nil {
 		log.Error("Failed to bridge group: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to bridge group to Matrix"})
+
 		return
 	}
 

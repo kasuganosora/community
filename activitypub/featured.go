@@ -10,14 +10,16 @@ import (
 )
 
 // Featured handles GET /users/:username/collections/featured
-// Returns the user's pinned statuses as an OrderedCollection
+// Returns the user's pinned statuses as an OrderedCollection.
 func Featured(c *gin.Context) {
 	username := c.Param("username")
 
 	// Verify the local user exists
 	var account models.Account
-	if err := db.GetDB().Preload("Extra").Where("username = ? AND domain IS NULL", username).First(&account).Error; err != nil {
+	err := db.GetDB().Preload("Extra").Where("username = ? AND domain IS NULL", username).First(&account).Error
+	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
+
 		return
 	}
 
@@ -27,6 +29,7 @@ func Featured(c *gin.Context) {
 
 	// Get pinned status IDs
 	var pinnedStatuses []models.PinStatus
+
 	db.GetDB().Where("account_id = ?", account.Id).
 		Order("created_at DESC").
 		Limit(10).
@@ -51,7 +54,8 @@ func Featured(c *gin.Context) {
 	}
 
 	// Build ordered items
-	items := make([]interface{}, 0, len(statuses))
+	items := make([]any, 0, len(statuses))
+
 	for _, status := range statuses {
 		note := buildNoteFromStatus(status, &account, baseURL)
 		items = append(items, note)
@@ -69,12 +73,12 @@ func Featured(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// buildNoteFromStatus builds an ActivityPub Note object from a Status
-func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL string) map[string]interface{} {
+// buildNoteFromStatus builds an ActivityPub Note object from a Status.
+func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL string) map[string]any {
 	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
 	actorURL := baseURL + "/users/" + account.Username
 
-	note := map[string]interface{}{
+	note := map[string]any{
 		"id":           statusURL,
 		"type":         "Note",
 		"attributedTo": actorURL,
@@ -93,7 +97,8 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	// Add inReplyTo if applicable
 	if status.InReplyToId != nil {
 		var replyToStatus models.Status
-		if err := db.GetDB().Preload("Account").First(&replyToStatus, *status.InReplyToId).Error; err == nil {
+		err := db.GetDB().Preload("Account").First(&replyToStatus, *status.InReplyToId).Error
+		if err == nil {
 			if replyToStatus.Account != nil {
 				replyURL := baseURL + "/users/" + replyToStatus.Account.Username + "/statuses/" + strconv.FormatUint(replyToStatus.Id, 10)
 				note["inReplyTo"] = replyURL
@@ -104,17 +109,20 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	// Add attachments if any
 	if len(status.Attachments) > 0 {
 		mediaBaseURL := systemsettings.GetString(systemsettings.KeyMediaAttachmentsBaseURL, baseURL)
-		attachments := make([]map[string]interface{}, 0, len(status.Attachments))
+
+		attachments := make([]map[string]any, 0, len(status.Attachments))
+
 		for _, att := range status.Attachments {
 			// Determine media type from file extension or meta
 			mediaType := "application/octet-stream"
+
 			if att.Meta != nil {
 				if mt, ok := att.Meta["mime_type"].(string); ok {
 					mediaType = mt
 				}
 			}
 
-			attachment := map[string]interface{}{
+			attachment := map[string]any{
 				"type":      "Document",
 				"mediaType": mediaType,
 				"url":       mediaBaseURL + att.SavePath,
@@ -122,16 +130,17 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 			}
 			attachments = append(attachments, attachment)
 		}
+
 		note["attachment"] = attachments
 	}
 
 	// Add tags (mentions, hashtags)
-	tags := make([]map[string]interface{}, 0)
+	tags := make([]map[string]any, 0)
 
 	// Add mentions
 	if len(status.ToAccounts) > 0 {
 		for _, mentioned := range status.ToAccounts {
-			tag := map[string]interface{}{
+			tag := map[string]any{
 				"type": "Mention",
 				"href": baseURL + "/users/" + mentioned.Username,
 				"name": "@" + mentioned.Username,
@@ -143,7 +152,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	// Add hashtags
 	if len(status.Tags) > 0 {
 		for _, tag := range status.Tags {
-			tagObj := map[string]interface{}{
+			tagObj := map[string]any{
 				"type": "Hashtag",
 				"href": baseURL + "/tags/" + tag.Name,
 				"name": "#" + tag.Name,

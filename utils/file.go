@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// sourceDir 源文件夹
+// sourceDir 源文件夹.
 var sourceDir string
 
 func init() {
@@ -26,11 +26,12 @@ func GetSourceDir() string {
 	return sourceDir
 }
 
-// ReadFileToString 以字符串形式读取文件
+// ReadFileToString 以字符串形式读取文件.
 func ReadFileToString(filename string) (content string, err error) {
-	ret, err := os.ReadFile(filename)
+	ret, err := os.ReadFile(filename) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		err = errors.WithMessagef(err, "Read file %s have error: %v", filename, err)
+
 		return
 	}
 
@@ -39,7 +40,7 @@ func ReadFileToString(filename string) (content string, err error) {
 	return
 }
 
-// FileWithLineNum 返回调用者当前行
+// FileWithLineNum 返回调用者当前行.
 func FileWithLineNum(level ...int) string {
 	start := 2
 
@@ -62,7 +63,7 @@ func FileWithLineNum(level ...int) string {
 	return ""
 }
 
-// IsFileExists 判断文件是否存在
+// IsFileExists 判断文件是否存在.
 func IsFileExists(path string) bool {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return false
@@ -71,7 +72,7 @@ func IsFileExists(path string) bool {
 	return true
 }
 
-// GetFullPath 获取文件的绝对路径
+// GetFullPath 获取文件的绝对路径.
 func GetFullPath(path string) string {
 	if strings.HasPrefix(path, "/") {
 		return path

@@ -12,8 +12,9 @@ import (
 
 func List(c *gin.Context) {
 	var req TimelineRequest
+
 	err := c.BindQuery(&req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	listObj := controllers.GetIdFromContext(&models.List{}, c, db.GetDB())
 
@@ -22,6 +23,7 @@ func List(c *gin.Context) {
 	statuses, err = listTimeline.GetTimelineContent(listObj, req.ToFeedListParams())
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -30,6 +32,7 @@ func List(c *gin.Context) {
 	ret, err := serializer.ToStatuses(statuses, account)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

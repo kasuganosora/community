@@ -18,7 +18,7 @@ func (MigrateMatrixTablesScript) Down(db *gorm.DB) (err error) {
 	return DropMatrixTables()
 }
 
-// MigrateMatrixTables Matrix 表迁移
+// MigrateMatrixTables Matrix 表迁移.
 func MigrateMatrixTables() error {
 	log.Info("Running Matrix tables migration...")
 
@@ -84,16 +84,19 @@ func MigrateMatrixTables() error {
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Matrix消息映射表';
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to run Matrix tables migration: %v", err)
+
 		return err
 	}
 
 	log.Info("Matrix tables migration completed successfully")
+
 	return nil
 }
 
-// DropMatrixTables 删除 Matrix 表（用于回滚）
+// DropMatrixTables 删除 Matrix 表（用于回滚）.
 func DropMatrixTables() error {
 	log.Info("Dropping Matrix tables...")
 
@@ -103,11 +106,14 @@ func DropMatrixTables() error {
 		DROP TABLE IF EXISTS matrix_users;
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to drop Matrix tables: %v", err)
+
 		return err
 	}
 
 	log.Info("Matrix tables dropped successfully")
+
 	return nil
 }

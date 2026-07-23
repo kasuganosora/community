@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
@@ -19,21 +20,22 @@ func init() {
 		if event.Data == nil {
 			return false
 		}
-		notification := event.Data.(*models.Notification)
+
+		notification := event.Data.(*models.Notification) //nolint:forcetypeassert
 		if notification == nil {
 			return false
 		}
 
-		//如果是新增的事件
+		// 如果是新增的事件
 		go func() {
-			if err := Push(notification, true, true); err != nil {
+			err := Push(notification, true, true)
+			if err != nil {
 				log.Printf("notification_timeline: Push failed: %v", err)
 			}
 		}()
 
 		return true
 	}})
-
 }
 
 type NotificationTimeline struct {
@@ -50,11 +52,11 @@ func (timeline *NotificationTimeline) GetTimelineId() string {
 
 func (timeline *NotificationTimeline) Rebuild() (err error) {
 	notifications := make(models.Notifications, 0)
+
 	err = db.GetDB().Model(&models.Notification{}).Where("account_id = ?", timeline.Account.Id).
 		Order("id desc").
 		Limit(feed.MAX_ITEMS/2).
 		Pluck("id", &notifications).Error
-
 	if err != nil {
 		return
 	}
@@ -81,6 +83,7 @@ func (timeline *NotificationTimeline) push(notification *models.Notification, pu
 
 	if pushToClient && feed.PushUpdateRequired(timeline) {
 		var payload any
+
 		payload, err = serializer.ToNotification(notification, timeline.Account)
 		if err != nil {
 			return
@@ -108,8 +111,9 @@ func Push(notification *models.Notification, pushToClient bool, trim bool) (err 
 	if notification.Account == nil {
 		database := db.GetDB()
 		if database == nil {
-			return fmt.Errorf("database connection is nil")
+			return errors.New("database connection is nil")
 		}
+
 		err = notification.LoadAllExtendFields(database)
 		if err != nil {
 			return
@@ -118,6 +122,6 @@ func Push(notification *models.Notification, pushToClient bool, trim bool) (err 
 
 	timeline := &NotificationTimeline{Account: notification.Account}
 	err = timeline.push(notification, pushToClient, trim)
-	return
 
+	return
 }

@@ -1,11 +1,11 @@
-package media
+package media //nolint:goconst // acceptable string literal usage
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------- IsImage ----------
@@ -16,17 +16,17 @@ func TestIsImage(t *testing.T) {
 		contentType string
 		want        bool
 	}{
-		{"JPEG", "image/jpeg", true},
+		{"JPEG", "image/jpeg", true}, //nolint:goconst
 		{"PNG", "image/png", true},
 		{"GIF", "image/gif", true},
 		{"WebP", "image/webp", true},
 		{"SVG", "image/svg+xml", true},
 		{"Lowercase prefix", "image/something", true},
-		{"Video", "video/mp4", false},
-		{"Audio", "audio/mpeg", false},
-		{"Empty", "", false},
+		{"Video", "video/mp4", false},  //nolint:goconst
+		{"Audio", "audio/mpeg", false}, //nolint:goconst
+		{"Empty", "", false},           //nolint:goconst
 		{"Plain text", "text/plain", false},
-		{"Application", "application/pdf", false},
+		{"Application", "application/pdf", false}, //nolint:goconst
 		{"Image uppercase prefix", "Image/jpeg", false},
 	}
 	for _, tt := range tests {
@@ -88,13 +88,13 @@ func TestGetMediaType(t *testing.T) {
 		contentType string
 		want        string
 	}{
-		{"JPEG", "image/jpeg", "image"},
+		{"JPEG", "image/jpeg", "image"}, //nolint:goconst
 		{"PNG", "image/png", "image"},
-		{"MP4", "video/mp4", "video"},
+		{"MP4", "video/mp4", "video"}, //nolint:goconst
 		{"WebM", "video/webm", "video"},
-		{"MP3", "audio/mpeg", "audio"},
+		{"MP3", "audio/mpeg", "audio"}, //nolint:goconst
 		{"OGG", "audio/ogg", "audio"},
-		{"Text", "text/plain", "unknown"},
+		{"Text", "text/plain", "unknown"}, //nolint:goconst
 		{"PDF", "application/pdf", "unknown"},
 		{"Empty", "", "unknown"},
 	}
@@ -109,49 +109,49 @@ func TestGetMediaType(t *testing.T) {
 
 func TestParseMXCURI(t *testing.T) {
 	server, mediaID, err := ParseMXCURI("mxc://example.com/abc123")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "example.com", server)
 	assert.Equal(t, "abc123", mediaID)
 }
 
 func TestParseMXCURI_WithComplexID(t *testing.T) {
 	server, mediaID, err := ParseMXCURI("mxc://matrix.org/some_long_media_id_with_underscores")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "matrix.org", server)
 	assert.Equal(t, "some_long_media_id_with_underscores", mediaID)
 }
 
 func TestParseMXCURI_EmptyString(t *testing.T) {
 	_, _, err := ParseMXCURI("")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParseMXCURI_InvalidPrefix(t *testing.T) {
 	_, _, err := ParseMXCURI("http://example.com/abc")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParseMXCURI_MissingSlash(t *testing.T) {
 	_, _, err := ParseMXCURI("mxc://example.com")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParseMXCURI_EmptyMediaID(t *testing.T) {
 	// "mxc://server/" — after trim, split gives ["server", ""] which is accepted by format
 	server, mediaID, err := ParseMXCURI("mxc://server/")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "server", server)
-	assert.Equal(t, "", mediaID)
+	assert.Empty(t, mediaID)
 }
 
 func TestParseMXCURI_TooManySlashes(t *testing.T) {
 	_, _, err := ParseMXCURI("mxc://server/media/extra")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParseMXCURI_NoServer(t *testing.T) {
 	_, _, err := ParseMXCURI("mxc://")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 // ---------- GetMXCURI ----------
@@ -197,20 +197,22 @@ func TestGenerateMediaID(t *testing.T) {
 
 	assert.NotEmpty(t, id)
 	// Should be base64url-encoded 16 bytes → 22 characters
-	assert.Equal(t, 22, len(id))
+	assert.Len(t, id, 22)
 	// No padding
-	assert.False(t, strings.Contains(id, "="))
+	assert.NotContains(t, id, "=")
 }
 
 func TestGenerateMediaID_Uniqueness(t *testing.T) {
 	s := &MediaService{}
 	ids := make(map[string]bool)
-	for i := 0; i < 100; i++ {
+
+	for range 100 {
 		id := s.generateMediaID()
 		assert.False(t, ids[id], "generated duplicate ID: %s", id)
 		ids[id] = true
 	}
-	assert.Equal(t, 100, len(ids))
+
+	assert.Len(t, ids, 100)
 }
 
 // ---------- NewMediaService ----------
@@ -287,11 +289,11 @@ func TestThumbnailInfo_StructCreation(t *testing.T) {
 func TestThumbnailInfo_ZeroValues(t *testing.T) {
 	info := &ThumbnailInfo{}
 
-	assert.Equal(t, "", info.MediaID)
+	assert.Empty(t, info.MediaID)
 	assert.Equal(t, 0, info.Width)
 	assert.Equal(t, 0, info.Height)
-	assert.Equal(t, "", info.ResizeMethod)
-	assert.Equal(t, "", info.FilePath)
+	assert.Empty(t, info.ResizeMethod)
+	assert.Empty(t, info.FilePath)
 	assert.True(t, info.CreatedAt.IsZero())
 }
 

@@ -8,15 +8,16 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-// setupRelayTestDB 使用 sqlexec 创建测试数据库
+// setupRelayTestDB 使用 sqlexec 创建测试数据库.
 func setupRelayTestDB(t *testing.T) *testutil.TestDB {
 	return testutil.QuickDBSetup(t, &models.Relay{}, &Delivery{})
 }
 
-// TestRelayState tests the relay state methods
+// TestRelayState tests the relay state methods.
 func TestRelayState(t *testing.T) {
 	tests := []struct {
 		state    models.RelayState
@@ -24,13 +25,14 @@ func TestRelayState(t *testing.T) {
 	}{
 		{models.RelayStateIdle, "idle"},
 		{models.RelayStatePending, "pending"},
-		{models.RelayStateAccepted, "accepted"},
+		{models.RelayStateAccepted, "accepted"}, //nolint:goconst
 		{models.RelayStateRejected, "rejected"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			relay := &models.Relay{State: tt.state}
+
 			switch tt.expected {
 			case "idle":
 				assert.False(t, relay.IsEnabled())
@@ -49,25 +51,25 @@ func TestRelayState(t *testing.T) {
 	}
 }
 
-// TestRelayCRUD tests basic CRUD operations for relays
+// TestRelayCRUD tests basic CRUD operations for relays.
 func TestRelayCRUD(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
 	// Test Create
 	relay, err := models.CreateRelay(testDB.GormDB, "https://relay.example.com/inbox")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, relay)
 	assert.Equal(t, "https://relay.example.com/inbox", relay.InboxURL)
 	assert.Equal(t, models.RelayStateIdle, relay.State)
 
 	// Test Get by ID
 	fetched, err := models.GetRelayByID(testDB.GormDB, relay.ID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, relay.InboxURL, fetched.InboxURL)
 
 	// Test Get by InboxURL
 	fetchedByURL, err := models.GetRelayByInboxURL(testDB.GormDB, "https://relay.example.com/inbox")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, relay.ID, fetchedByURL.ID)
 
 	// Test Update State
@@ -77,7 +79,7 @@ func TestRelayCRUD(t *testing.T) {
 
 	// Test Delete
 	err = models.DeleteRelay(testDB.GormDB, relay.ID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify deleted - sqlexec may not fully support soft delete
 	// So we just check that delete doesn't error
@@ -89,7 +91,7 @@ func TestRelayCRUD(t *testing.T) {
 	}
 }
 
-// TestGetEnabledRelays tests getting enabled relays
+// TestGetEnabledRelays tests getting enabled relays.
 func TestGetEnabledRelays(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
@@ -101,25 +103,27 @@ func TestGetEnabledRelays(t *testing.T) {
 	// Set states
 	relay1.State = models.RelayStateAccepted
 	testDB.GormDB.Save(relay1)
+
 	relay2.State = models.RelayStatePending
 	testDB.GormDB.Save(relay2)
+
 	relay3.State = models.RelayStateAccepted
 	testDB.GormDB.Save(relay3)
 
 	// Get enabled relays
 	enabled, err := models.GetEnabledRelays(testDB.GormDB)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, enabled, 2)
 
 	// Get enabled inbox URLs
 	inboxes, err := models.GetEnabledRelayInboxes(testDB.GormDB)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, inboxes, 2)
 	assert.Contains(t, inboxes, "https://relay1.example.com/inbox")
 	assert.Contains(t, inboxes, "https://relay3.example.com/inbox")
 }
 
-// TestGetRelayByFollowActivityID tests getting relay by follow activity ID
+// TestGetRelayByFollowActivityID tests getting relay by follow activity ID.
 func TestGetRelayByFollowActivityID(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
@@ -129,15 +133,15 @@ func TestGetRelayByFollowActivityID(t *testing.T) {
 
 	// Test Get by FollowActivityID
 	fetched, err := models.GetRelayByFollowActivityID(testDB.GormDB, "https://example.com/activities/follow/123")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, relay.ID, fetched.ID)
 
 	// Test non-existent
 	_, err = models.GetRelayByFollowActivityID(testDB.GormDB, "https://example.com/activities/follow/999")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
-// TestSerializeRelay tests relay serialization
+// TestSerializeRelay tests relay serialization.
 func TestSerializeRelay(t *testing.T) {
 	now := time.Now()
 	relay := &models.Relay{
@@ -155,7 +159,7 @@ func TestSerializeRelay(t *testing.T) {
 	assert.Equal(t, "accepted", serialized.State)
 }
 
-// TestSerializeRelays tests serializing multiple relays
+// TestSerializeRelays tests serializing multiple relays.
 func TestSerializeRelays(t *testing.T) {
 	relays := []models.Relay{
 		{ID: 1, InboxURL: "https://relay1.example.com/inbox", State: models.RelayStateAccepted},
@@ -168,37 +172,37 @@ func TestSerializeRelays(t *testing.T) {
 	assert.Equal(t, "pending", serialized[1].State)
 }
 
-// TestRelayServiceWithMockDB tests RelayService with injected DB
+// TestRelayServiceWithMockDB tests RelayService with injected DB.
 func TestRelayServiceWithMockDB(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 	service := &RelayService{db: testDB.GormDB}
 
 	// Test CreateRelay
 	relay, err := service.CreateRelay("https://relay-test.example.com/inbox")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "https://relay-test.example.com/inbox", relay.InboxURL)
 
 	// Test duplicate
 	_, err = service.CreateRelay("https://relay-test.example.com/inbox")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 
 	// Test GetAllRelays
 	relays, err := service.GetAllRelays()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, relays, 1)
 
 	// Test GetRelayByID
 	fetched, err := service.GetRelayByID(relay.ID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, relay.InboxURL, fetched.InboxURL)
 
 	// Test GetRelayByID non-existent
 	_, err = service.GetRelayByID(9999)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
-// TestRelayServiceAcceptReject tests AcceptRelay and RejectRelay
+// TestRelayServiceAcceptReject tests AcceptRelay and RejectRelay.
 func TestRelayServiceAcceptReject(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 	service := &RelayService{db: testDB.GormDB}
@@ -211,7 +215,7 @@ func TestRelayServiceAcceptReject(t *testing.T) {
 
 	// Test AcceptRelay
 	err := service.AcceptRelay(relay.FollowActivityID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify state changed
 	accepted, _ := service.GetRelayByID(relay.ID)
@@ -224,7 +228,7 @@ func TestRelayServiceAcceptReject(t *testing.T) {
 	testDB.GormDB.Save(relay2)
 
 	err = service.RejectRelay(relay2.FollowActivityID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify state changed
 	rejected, _ := service.GetRelayByID(relay2.ID)
@@ -232,10 +236,10 @@ func TestRelayServiceAcceptReject(t *testing.T) {
 
 	// Test AcceptRelay with non-existent activity ID (should return nil, no error)
 	err = service.AcceptRelay("https://non-existent/activity")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
-// TestRelayServiceDelete tests DeleteRelay for idle relay
+// TestRelayServiceDelete tests DeleteRelay for idle relay.
 func TestRelayServiceDeleteIdleRelay(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 	service := &RelayService{db: testDB.GormDB}
@@ -245,7 +249,7 @@ func TestRelayServiceDeleteIdleRelay(t *testing.T) {
 
 	// Test DeleteRelay
 	err := service.DeleteRelay(relay.ID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// sqlexec in-memory DB may retain soft-deleted records
 	// So we just verify the delete operation doesn't error
@@ -256,7 +260,7 @@ func TestRelayServiceDeleteIdleRelay(t *testing.T) {
 	_ = err
 }
 
-// TestRelayServiceInboxes tests GetRelayInboxes and IsRelayInbox
+// TestRelayServiceInboxes tests GetRelayInboxes and IsRelayInbox.
 func TestRelayServiceInboxes(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 	service := &RelayService{db: testDB.GormDB}
@@ -274,7 +278,7 @@ func TestRelayServiceInboxes(t *testing.T) {
 
 	// Test GetRelayInboxes
 	inboxes, err := service.GetRelayInboxes()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, inboxes, 1)
 	assert.Contains(t, inboxes, "https://relay-inbox1.example.com/inbox")
 
@@ -284,7 +288,7 @@ func TestRelayServiceInboxes(t *testing.T) {
 	assert.False(t, service.IsRelayInbox("https://non-existent.example.com/inbox"))
 }
 
-// TestStatusReachFinderIsPublicVisibility tests isPublicVisibility
+// TestStatusReachFinderIsPublicVisibility tests isPublicVisibility.
 func TestStatusReachFinderIsPublicVisibility(t *testing.T) {
 	tests := []struct {
 		visibility uint8
@@ -305,12 +309,12 @@ func TestStatusReachFinderIsPublicVisibility(t *testing.T) {
 	}
 }
 
-// TestRelayContext tests relay context constant
+// TestRelayContext tests relay context constant.
 func TestRelayContext(t *testing.T) {
 	assert.Contains(t, RelayContext, "https://www.w3.org/ns/activitystreams")
 }
 
-// TestDeliveryModel tests Delivery model
+// TestDeliveryModel tests Delivery model.
 func TestDeliveryModel(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
@@ -323,16 +327,16 @@ func TestDeliveryModel(t *testing.T) {
 	}
 
 	err := testDB.GormDB.Create(delivery).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotZero(t, delivery.ID)
 
 	// Test status constants
-	assert.Equal(t, DeliveryStatus("pending"), DeliveryStatusPending)
-	assert.Equal(t, DeliveryStatus("delivered"), DeliveryStatusDelivered)
-	assert.Equal(t, DeliveryStatus("failed"), DeliveryStatusFailed)
+	assert.Equal(t, DeliveryStatusPending, DeliveryStatus("pending"))
+	assert.Equal(t, DeliveryStatusDelivered, DeliveryStatus("delivered"))
+	assert.Equal(t, DeliveryStatusFailed, DeliveryStatus("failed"))
 }
 
-// TestSerializeRelayAllStates tests serialization of all relay states
+// TestSerializeRelayAllStates tests serialization of all relay states.
 func TestSerializeRelayAllStates(t *testing.T) {
 	states := []struct {
 		state    models.RelayState
@@ -358,19 +362,23 @@ func TestSerializeRelayAllStates(t *testing.T) {
 	}
 }
 
-// TestGetAllRelays tests GetAllRelays ordering
+// TestGetAllRelays tests GetAllRelays ordering.
 func TestGetAllRelays(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
 	// Create relays with slight delay to ensure different timestamps
 	relay1, _ := models.CreateRelay(testDB.GormDB, "https://relay1.example.com/inbox")
+
 	time.Sleep(10 * time.Millisecond)
+
 	relay2, _ := models.CreateRelay(testDB.GormDB, "https://relay2.example.com/inbox")
+
 	time.Sleep(10 * time.Millisecond)
+
 	relay3, _ := models.CreateRelay(testDB.GormDB, "https://relay3.example.com/inbox")
 
 	relays, err := models.GetAllRelays(testDB.GormDB)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, relays, 3)
 
 	// Should be ordered by created_at DESC (newest first)
@@ -379,19 +387,19 @@ func TestGetAllRelays(t *testing.T) {
 	assert.Equal(t, relay1.ID, relays[2].ID)
 }
 
-// TestRelayTableName tests the TableName method
+// TestRelayTableName tests the TableName method.
 func TestRelayTableName(t *testing.T) {
 	relay := models.Relay{}
 	assert.Equal(t, "relays", relay.TableName())
 }
 
-// TestDeliveryTableName tests Delivery TableName method
+// TestDeliveryTableName tests Delivery TableName method.
 func TestDeliveryTableName(t *testing.T) {
 	delivery := Delivery{}
 	assert.Equal(t, "activitypub_deliveries", delivery.TableName())
 }
 
-// TestRelaySetState tests SetState method
+// TestRelaySetState tests SetState method.
 func TestRelaySetState(t *testing.T) {
 	relay := &models.Relay{}
 	relay.SetState(models.RelayStateAccepted)
@@ -401,7 +409,7 @@ func TestRelaySetState(t *testing.T) {
 	assert.Equal(t, models.RelayStatePending, relay.State)
 }
 
-// TestDeliveryStatusValues tests DeliveryStatus string values
+// TestDeliveryStatusValues tests DeliveryStatus string values.
 func TestDeliveryStatusValues(t *testing.T) {
 	assert.Equal(t, "pending", string(DeliveryStatusPending))
 	assert.Equal(t, "processing", string(DeliveryStatusProcessing))
@@ -409,7 +417,7 @@ func TestDeliveryStatusValues(t *testing.T) {
 	assert.Equal(t, "failed", string(DeliveryStatusFailed))
 }
 
-// TestRelaySerializerFields tests RelaySerializer field JSON tags
+// TestRelaySerializerFields tests RelaySerializer field JSON tags.
 func TestRelaySerializerFields(t *testing.T) {
 	now := time.Now()
 	serializer := RelaySerializer{
@@ -423,18 +431,19 @@ func TestRelaySerializerFields(t *testing.T) {
 
 	// Marshal to JSON to verify field names
 	data, err := json.Marshal(serializer)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
+
 	_ = json.Unmarshal(data, &result)
 
-	assert.Equal(t, float64(123), result["id"])
+	assert.InEpsilon(t, 123.0, result["id"], 0.001)
 	assert.Equal(t, "https://test.example.com/inbox", result["inbox_url"])
 	assert.Equal(t, "https://example.com/activities/456", result["follow_activity_id"])
 	assert.Equal(t, "accepted", result["state"])
 }
 
-// TestGetEnabledRelayInboxesEmpty tests GetEnabledRelayInboxes with no enabled relays
+// TestGetEnabledRelayInboxesEmpty tests GetEnabledRelayInboxes with no enabled relays.
 func TestGetEnabledRelayInboxesEmpty(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
@@ -445,26 +454,26 @@ func TestGetEnabledRelayInboxesEmpty(t *testing.T) {
 	testDB.GormDB.Save(relay2)
 
 	inboxes, err := models.GetEnabledRelayInboxes(testDB.GormDB)
-	assert.NoError(t, err)
-	assert.Len(t, inboxes, 0)
+	require.NoError(t, err)
+	assert.Empty(t, inboxes)
 }
 
-// TestGetRelayByInboxURLNotFound tests GetRelayByInboxURL with non-existent URL
+// TestGetRelayByInboxURLNotFound tests GetRelayByInboxURL with non-existent URL.
 func TestGetRelayByInboxURLNotFound(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
 	_, err := models.GetRelayByInboxURL(testDB.GormDB, "https://non-existent.example.com/inbox")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
 
-// TestCreateRelayDuplicate tests creating duplicate relay
+// TestCreateRelayDuplicate tests creating duplicate relay.
 func TestCreateRelayDuplicate(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
 	// Create first relay
 	_, err := models.CreateRelay(testDB.GormDB, "https://duplicate.example.com/inbox")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Try to create duplicate - sqlexec may not enforce unique constraints
 	_, err = models.CreateRelay(testDB.GormDB, "https://duplicate.example.com/inbox")
@@ -475,7 +484,7 @@ func TestCreateRelayDuplicate(t *testing.T) {
 	}
 }
 
-// TestDeliveryCRUD tests basic Delivery CRUD operations
+// TestDeliveryCRUD tests basic Delivery CRUD operations.
 func TestDeliveryCRUD(t *testing.T) {
 	testDB := setupRelayTestDB(t)
 
@@ -488,30 +497,33 @@ func TestDeliveryCRUD(t *testing.T) {
 		Retries:     0,
 	}
 	err := testDB.GormDB.Create(delivery).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Read
 	var fetched Delivery
+
 	err = testDB.GormDB.First(&fetched, delivery.ID).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, delivery.ActivityID, fetched.ActivityID)
 
 	// Update
 	fetched.Status = DeliveryStatusDelivered
 	err = testDB.GormDB.Save(&fetched).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify update
 	var updated Delivery
+
 	testDB.GormDB.First(&updated, delivery.ID)
 	assert.Equal(t, DeliveryStatusDelivered, updated.Status)
 
 	// Delete
 	err = testDB.GormDB.Delete(&fetched).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify delete
 	var count int64
+
 	testDB.GormDB.Model(&Delivery{}).Where("id = ?", delivery.ID).Count(&count)
 	assert.Equal(t, int64(0), count)
 }

@@ -5,7 +5,6 @@ import (
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 	"strings"
 	"time"
@@ -17,7 +16,8 @@ func init() {
 		if event.Data == nil {
 			return false
 		}
-		status := event.Data.(*models.Status)
+
+		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
 		}
@@ -27,7 +27,7 @@ func init() {
 			return true
 		}
 
-		//如果是新增的事件
+		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
 			go func() { _ = Push(status, false, true) }()
@@ -75,49 +75,54 @@ func (timeline *ListTimeline) GetTimelineId() string {
 
 func (timeline *ListTimeline) Rebuild() (err error) {
 	accountIds := make([]uint64, 0)
+
 	err = db.GetDB().Model(
 		&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Pluck("account_id", &accountIds).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	statuses := make(models.Statuses, 0)
+
 	err = db.GetDB().Model(
 		&models.Status{}).Where("account_id in (?)", accountIds).
 		Where("visibility = ?", models.StatusVisibilityPublic).
 		Order("id desc").Limit(feed.MAX_ITEMS / 4).
 		Find(
 			&statuses).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()})
 	if err != nil {
-		return
+		return err
 	}
 
 	for _, status := range statuses {
-		if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
-			return
+		err = feed.AddToTimelineItem(timeline, status, true)
+		if err != nil {
+			return err
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+
+		err = feed.TrimTimeline(timeline)
+
+		if err != nil {
+			return err
 		}
 	}
 
-	return
+	return err
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	if status.Visibility != models.StatusVisibilityPublic {
-		return
+		return err
 	}
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
+
 	err = db.GetDB().Model(
 		&models.List{}).
 		Where("id IN (?)", db.GetDB().Model(
@@ -125,13 +130,12 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
 		Find(
 			&lists).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	if len(lists) == 0 {
-		return
+		return err
 	}
 
 	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
@@ -147,23 +151,32 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		for i := range lists {
 			timelines = append(timelines, &ListTimeline{List: &lists[i]})
 		}
-		if err = feed.BatchAddToTimelineItems(timelines, status, true); err != nil {
-			return
+
+		err = feed.BatchAddToTimelineItems(timelines, status, true)
+
+		if err != nil {
+			return err
 		}
+
 		for _, timeline := range timelines {
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+			err = feed.TrimTimeline(timeline)
+			if err != nil {
+				return err
 			}
 		}
 	} else {
 		// 转发：保留单条调用以保证 reblog 聚合逻辑正确
 		for i := range lists {
 			timeline := &ListTimeline{List: &lists[i]}
-			if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
-				return
+			err = feed.AddToTimelineItem(timeline, status, true)
+			if err != nil {
+				return err
 			}
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+
+			err = feed.TrimTimeline(timeline)
+
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -171,21 +184,24 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	if pushToClient {
 		for i := range lists {
 			timeline := &ListTimeline{List: &lists[i]}
-			if err = feed.PushToClient(timeline, method, status); err != nil {
-				return
+			err = feed.PushToClient(timeline, method, status)
+			if err != nil {
+				return err
 			}
 		}
 	}
-	return
+
+	return err
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
 	if status.Visibility != models.StatusVisibilityPublic {
-		return
+		return err
 	}
 
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
+
 	err = db.GetDB().Model(
 		&models.List{}).
 		Where("id IN (?)", db.GetDB().Model(
@@ -193,30 +209,31 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
 		Find(
 			&lists).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	for _, list := range lists {
 		timeline := &ListTimeline{List: &list}
-		if err = feed.RemoveTimelineItem(timeline, status, true); err != nil {
-			return
+		err = feed.RemoveTimelineItem(timeline, status, true)
+		if err != nil {
+			return err
 		}
 
 		err = feed.TrimTimeline(timeline)
 		if err != nil {
-			return
+			return err
 		}
 
 		if pushToClient {
 			err = feed.PushToClient(timeline, "delete", status)
 			if err != nil {
-				return
+				return err
 			}
 		}
 	}
-	return
+
+	return err
 }
 
 func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses models.Statuses, err error) {
@@ -225,7 +242,7 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	}
 
 	// 标记最后查看时间
-	list.LastViewedAt = utils.GetPtr(time.Now())
+	list.LastViewedAt = new(time.Now())
 
 	err = db.GetDB().Model(
 		&models.List{}).Where("id = ?", list.Id).Select("last_viewed_at").Updates(list).Error
@@ -235,6 +252,7 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)
+
 		return
 	}
 

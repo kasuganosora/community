@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuthTokenData_GetTokenStr(t *testing.T) {
-	key := "0123456789abcdef0123456789abcdef" // 32 bytes key
+	key := "0123456789abcdef0123456789abcdef" // 32 bytes key //nolint:goconst //nolint:goconst //nolint:goconst //nolint:goconst
 
 	tokenData := &AuthTokenData{
 		UserId:        1,
@@ -42,7 +43,7 @@ func TestGetAuthTokenData(t *testing.T) {
 		tokenStr := tokenData.GetTokenStr(key)
 
 		parsedData, err := GetAuthTokenData(tokenStr, key)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, parsedData)
 		assert.Equal(t, tokenData.UserId, parsedData.UserId)
 		assert.Equal(t, tokenData.AuthType, parsedData.AuthType)
@@ -51,7 +52,7 @@ func TestGetAuthTokenData(t *testing.T) {
 
 	t.Run("Invalid token length", func(t *testing.T) {
 		_, err := GetAuthTokenData("short", key)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid token length")
 	})
 
@@ -59,7 +60,7 @@ func TestGetAuthTokenData(t *testing.T) {
 		// 16个字符 + 一些额外字符，但校验码错误
 		invalidToken := "12345678123456789" + "someinvalidstring"
 		_, err := GetAuthTokenData(invalidToken, key)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid token check code")
 	})
 
@@ -84,9 +85,10 @@ func TestGetAuthTokenData(t *testing.T) {
 				_ = r
 			}
 		}()
+
 		_, err := GetAuthTokenData(tokenStr, wrongKey)
 		// If we get here without panic, should have error
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -140,7 +142,7 @@ func TestNewAuthToken(t *testing.T) {
 
 		// Parse token
 		parsedData, err := GetAuthTokenData(tokenStr, key)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		assert.Equal(t, userId, parsedData.UserId)
 		assert.Equal(t, authType, parsedData.AuthType)
@@ -149,7 +151,7 @@ func TestNewAuthToken(t *testing.T) {
 
 		// Verify stored token hash
 		assert.NotEmpty(t, tokenRow.Token)
-		assert.Equal(t, 64, len(tokenRow.Token)) // SHA256 hex encoded = 64 chars
+		assert.Len(t, tokenRow.Token, 64) // SHA256 hex encoded = 64 chars
 	})
 }
 

@@ -16,18 +16,18 @@ import (
 
 type CreateStatusRequest struct {
 	Status      string             `json:"status"`
-	InReplyToId string             `json:"in_reply_to_id" binding:"omitempty,numeric"`
+	InReplyToId string             `binding:"omitempty,numeric"                             json:"in_reply_to_id"`
 	MediaIds    []string           `json:"media_ids"`
 	Sensitive   bool               `json:"sensitive"`
 	SpoilerText string             `json:"spoiler_text"`
-	Visibility  string             `json:"visibility" binding:"required,oneof=public unlisted private direct"`
+	Visibility  string             `binding:"required,oneof=public unlisted private direct" json:"visibility"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    string             `json:"language"`
 }
 
 type CreatePollContent struct {
 	Options    []string `json:"options"`
-	ExpiresIn  uint64   `json:"expires_in" binding:"required,numeric"`
+	ExpiresIn  uint64   `binding:"required,numeric" json:"expires_in"`
 	Multiple   bool     `json:"multiple"`
 	HideTotals bool     `json:"hide_totals"`
 }
@@ -35,7 +35,8 @@ type CreatePollContent struct {
 func Create(c *gin.Context) {
 	var req CreateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -53,13 +54,15 @@ func Create(c *gin.Context) {
 
 	if req.InReplyToId != "" {
 		var inReplyToId uint64
+
 		inReplyToId, err = strconv.ParseUint(req.InReplyToId, 10, 64)
 		controllers.AbortIfError(c, err)
+
 		status.InReplyToId = &inReplyToId
 	}
 
 	if req.Poll != nil {
-		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second)
+		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
 		poll := &models.Poll{
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
@@ -79,12 +82,15 @@ func Create(c *gin.Context) {
 
 	if len(req.MediaIds) > 0 {
 		attachmentIds := make([]uint64, 0, len(req.MediaIds))
+
 		for _, mediaId := range req.MediaIds {
 			var attachmentId uint64
+
 			attachmentId, err = strconv.ParseUint(mediaId, 10, 64)
 			if err != nil {
 				continue // ignore invalid media id
 			}
+
 			attachmentIds = append(attachmentIds, attachmentId)
 		}
 
@@ -98,9 +104,9 @@ func Create(c *gin.Context) {
 	}
 
 	err = db.GetDB().Create(status).Error
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -14,14 +15,14 @@ const (
 	recaptchaVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
 )
 
-// RecaptchaProvider Google reCAPTCHA 实现
+// RecaptchaProvider Google reCAPTCHA 实现.
 type RecaptchaProvider struct {
 	siteKey   string
 	secretKey string
 	client    *httpclient.Client
 }
 
-// recaptchaResponse Google reCAPTCHA 响应结构
+// recaptchaResponse Google reCAPTCHA 响应结构.
 type recaptchaResponse struct {
 	Success     bool      `json:"success"`
 	Score       float64   `json:"score"`
@@ -31,7 +32,7 @@ type recaptchaResponse struct {
 	ErrorCodes  []string  `json:"error-codes"`
 }
 
-// NewRecaptchaProvider 创建 reCAPTCHA 供应商
+// NewRecaptchaProvider 创建 reCAPTCHA 供应商.
 func NewRecaptchaProvider(siteKey, secretKey string) *RecaptchaProvider {
 	return &RecaptchaProvider{
 		siteKey:   siteKey,
@@ -40,22 +41,22 @@ func NewRecaptchaProvider(siteKey, secretKey string) *RecaptchaProvider {
 	}
 }
 
-// Name 返回供应商名称
+// Name 返回供应商名称.
 func (r *RecaptchaProvider) Name() string {
 	return "recaptcha"
 }
 
-// Verify 验证用户响应
+// Verify 验证用户响应.
 func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteIP string) (*types.VerificationResult, error) {
 	if r.secretKey == "" {
-		return nil, fmt.Errorf("recaptcha secret key is not configured")
+		return nil, errors.New("recaptcha secret key is not configured")
 	}
 
 	if response == "" {
 		return &types.VerificationResult{
 			Success:    false,
 			Provider:   r.Name(),
-			ErrorCodes: []string{"missing-input-response"},
+			ErrorCodes: []string{"missing-input-response"}, //nolint:goconst
 		}, nil
 	}
 
@@ -63,6 +64,7 @@ func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteI
 	data := url.Values{}
 	data.Set("secret", r.secretKey)
 	data.Set("response", response)
+
 	if remoteIP != "" {
 		data.Set("remoteip", remoteIP)
 	}
@@ -72,7 +74,7 @@ func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteI
 	req.SetFormUrlencoded(data)
 	req.SetTimeout(10)
 
-	resp, err := req.Do()
+	resp, err := req.Do() //nolint:contextcheck // custom httpclient type, context handled internally
 	if err != nil {
 		return nil, fmt.Errorf("recaptcha verify request failed: %w", err)
 	}
@@ -93,12 +95,12 @@ func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteI
 	}, nil
 }
 
-// GetSiteKey 获取站点密钥
+// GetSiteKey 获取站点密钥.
 func (r *RecaptchaProvider) GetSiteKey() string {
 	return r.siteKey
 }
 
-// IsConfigured 检查是否已配置
+// IsConfigured 检查是否已配置.
 func (r *RecaptchaProvider) IsConfigured() bool {
 	return r.siteKey != "" && r.secretKey != ""
 }

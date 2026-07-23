@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// TestConfig holds test configuration
+// TestConfig holds test configuration.
 type TestConfig struct {
 	RedisHost     string
 	RedisPort     int
@@ -17,18 +17,19 @@ type TestConfig struct {
 	RedisDB       int
 }
 
-// testConfig is the global test configuration
+// testConfig is the global test configuration.
 var (
 	testConfig     *TestConfig
 	testConfigOnce sync.Once
 )
 
-// loadEnvFile loads environment variables from .env.test file
+// loadEnvFile loads environment variables from .env.test file.
 func loadEnvFile(filename string) {
-	file, err := os.Open(filename)
+	file, err := os.Open(filename) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		return
 	}
+
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
@@ -50,31 +51,33 @@ func loadEnvFile(filename string) {
 			}
 			// Only set if not already set in environment
 			if os.Getenv(key) == "" {
-				os.Setenv(key, value)
+				_ = os.Setenv(key, value)
 			}
 		}
 	}
 }
 
-// getEnv returns environment variable value or default
+// getEnv returns environment variable value or default.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
+
 	return defaultValue
 }
 
-// getEnvInt returns environment variable as int or default
+// getEnvInt returns environment variable as int or default.
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if result, err := strconv.Atoi(value); err == nil {
 			return result
 		}
 	}
+
 	return defaultValue
 }
 
-// findProjectRoot finds the project root directory by looking for go.mod
+// findProjectRoot finds the project root directory by looking for go.mod.
 func findProjectRoot() string {
 	// Start from current directory
 	dir, err := os.Getwd()
@@ -93,12 +96,13 @@ func findProjectRoot() string {
 			// Reached root, give up
 			return "."
 		}
+
 		dir = parent
 	}
 }
 
 // GetTestConfig returns the test configuration
-// It loads from .env.test file first, then falls back to environment variables
+// It loads from .env.test file first, then falls back to environment variables.
 func GetTestConfig() *TestConfig {
 	testConfigOnce.Do(func() {
 		// Find project root
@@ -115,5 +119,6 @@ func GetTestConfig() *TestConfig {
 			RedisDB:       getEnvInt("REDIS_TEST_DB", 15),
 		}
 	})
+
 	return testConfig
 }

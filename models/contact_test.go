@@ -11,14 +11,14 @@ import (
 // ============================================================================
 
 func TestContact_TypeConstants(t *testing.T) {
-	assert.Equal(t, ContactType(0), ContactTypeLocal)
-	assert.Equal(t, ContactType(1), ContactTypeMatrix)
+	assert.Equal(t, ContactTypeLocal, ContactType(0))
+	assert.Equal(t, ContactTypeMatrix, ContactType(1))
 }
 
 func TestContact_StatusConstants(t *testing.T) {
-	assert.Equal(t, ContactStatus(0), ContactStatusPending)
-	assert.Equal(t, ContactStatus(1), ContactStatusAccepted)
-	assert.Equal(t, ContactStatus(2), ContactStatusBlocked)
+	assert.Equal(t, ContactStatusPending, ContactStatus(0))
+	assert.Equal(t, ContactStatusAccepted, ContactStatus(1))
+	assert.Equal(t, ContactStatusBlocked, ContactStatus(2))
 }
 
 // ============================================================================

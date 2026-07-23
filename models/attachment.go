@@ -14,24 +14,24 @@ const (
 	AttachmentTypeGifv
 )
 
-type Attachment struct {
-	Id               uint64         `gorm:"primary_key;autoIncrement" json:"id"`
-	Type             uint           `gorm:"type:tinyint(2);not null" json:"type"`
-	SavePath         string         `gorm:"type:varchar(255);not null" json:"save_path"`
-	PreviewSavePath  string         `gorm:"type:varchar(255);" json:"preview_save_path"`
-	RemoteUrl        string         `gorm:"type:varchar(255);" json:"remote_url"`
-	PreviewRemoteUrl string         `gorm:"type:varchar(255);" json:"preview_remote_url"`
-	TextUrl          string         `gorm:"type:varchar(255);" json:"text_url"`
-	Meta             map[string]any `gorm:"type:json;serializer:json" json:"meta"`
-	Description      string         `gorm:"type:varchar(255);not null" json:"description"`
-	BlurHash         *string        `gorm:"type:varchar(255);not null" json:"blurhash"`
-	AccountId        uint64         `gorm:"type:bigint(20);index" json:"account_id"`
-	FileSize         uint64         `gorm:"type:bigint(20);not null" json:"file_size"`
-	PreviewFileSize  uint64         `gorm:"type:bigint(20);not null" json:"preview_file_size"`
-	TotalSize        uint64         `gorm:"type:bigint(20);not null" json:"total_size"`
+type Attachment struct { //nolint:recvcheck
+	Id               uint64         `gorm:"primary_key;autoIncrement"     json:"id"`
+	Type             uint           `gorm:"type:tinyint(2);not null"      json:"type"`
+	SavePath         string         `gorm:"type:varchar(255);not null"    json:"save_path"`
+	PreviewSavePath  string         `gorm:"type:varchar(255);"            json:"preview_save_path"`
+	RemoteUrl        string         `gorm:"type:varchar(255);"            json:"remote_url"`
+	PreviewRemoteUrl string         `gorm:"type:varchar(255);"            json:"preview_remote_url"`
+	TextUrl          string         `gorm:"type:varchar(255);"            json:"text_url"`
+	Meta             map[string]any `gorm:"type:json;serializer:json"     json:"meta"`
+	Description      string         `gorm:"type:varchar(255);not null"    json:"description"`
+	BlurHash         *string        `gorm:"type:varchar(255);not null"    json:"blurhash"`
+	AccountId        uint64         `gorm:"type:bigint(20);index"         json:"account_id"`
+	FileSize         uint64         `gorm:"type:bigint(20);not null"      json:"file_size"`
+	PreviewFileSize  uint64         `gorm:"type:bigint(20);not null"      json:"preview_file_size"`
+	TotalSize        uint64         `gorm:"type:bigint(20);not null"      json:"total_size"`
 	CreatedAt        *time.Time     `gorm:"type:timestamp;autoCreateTime" json:"created_at"`
 	UpdatedAt        *time.Time     `gorm:"type:timestamp;autoUpdateTime" json:"updated_at"`
-	DeleteAt         gorm.DeletedAt `gorm:"type:timestamp;index" json:"delete_at"`
+	DeleteAt         gorm.DeletedAt `gorm:"type:timestamp;index"          json:"delete_at"`
 }
 
 func (Attachment) TableName() string {
@@ -40,21 +40,22 @@ func (Attachment) TableName() string {
 
 func (a *Attachment) BeforeSave(tx *gorm.DB) (err error) {
 	a.TotalSize = a.FileSize + a.PreviewFileSize
+
 	return
 }
 
 func (a *Attachment) GetTypeString() string {
 	switch a.Type {
 	case AttachmentTypeImage:
-		return "image"
+		return "image" //nolint:goconst
 	case AttachmentTypeVideo:
-		return "video"
+		return "video" //nolint:goconst
 	case AttachmentTypeAudio:
-		return "audio"
+		return "audio" //nolint:goconst
 	case AttachmentTypeFile:
-		return "file"
+		return "file" //nolint:goconst
 	case AttachmentTypeGifv:
-		return "gifv"
+		return "gifv" //nolint:goconst
 	default:
 		return "file"
 	}
@@ -63,9 +64,10 @@ func (a *Attachment) GetTypeString() string {
 type Attachments []*Attachment
 
 func (a Attachments) GetIds() []uint64 {
-	var ids []uint64
+	ids := make([]uint64, 0, len(a))
 	for _, attachment := range a {
 		ids = append(ids, attachment.Id)
 	}
+
 	return ids
 }

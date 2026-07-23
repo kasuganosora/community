@@ -80,7 +80,7 @@ func TestRequest_SetJsonBody(t *testing.T) {
 func TestRequest_Do_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
@@ -98,13 +98,16 @@ func TestRequest_Do_Success(t *testing.T) {
 
 func TestRequest_Do_WithRetry(t *testing.T) {
 	callCount := 0
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount < 3 {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
+
 			return
 		}
-		w.WriteHeader(200)
+
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
@@ -123,6 +126,7 @@ func TestRequest_Do_WithRetry(t *testing.T) {
 func TestRequest_Do_PostWithBody_Retry(t *testing.T) {
 	// Verify that POST body is resent correctly on retry
 	callCount := 0
+
 	var receivedBodies []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,10 +136,12 @@ func TestRequest_Do_PostWithBody_Retry(t *testing.T) {
 		receivedBodies = append(receivedBodies, string(body))
 
 		if callCount < 2 {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
+
 			return
 		}
-		w.WriteHeader(200)
+
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
@@ -171,6 +177,7 @@ func TestResponse_Json(t *testing.T) {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
 	}
+
 	err = resp.Json(&result)
 	require.NoError(t, err)
 	assert.Equal(t, "test", result.Name)
@@ -206,7 +213,7 @@ func TestResponse_StatusOk(t *testing.T) {
 			req.SetTimeout(5)
 
 			_, err := req.Do()
-			assert.Error(t, err, "expected error for status %d", code)
+			require.Error(t, err, "expected error for status %d", code)
 			server.Close()
 		}
 	})
@@ -218,7 +225,7 @@ func TestRequest_Do_InvalidURL(t *testing.T) {
 	req.SetTimeout(2)
 
 	resp, err := req.Do()
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, resp)
 }
 

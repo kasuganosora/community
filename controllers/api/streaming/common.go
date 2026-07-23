@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -40,27 +41,25 @@ func checkOrigin(r *http.Request) bool {
 		return false
 	}
 
-	for _, allowed := range allowedOrigins {
-		if u.Host == allowed {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(allowedOrigins, u.Host)
 }
 
 func parseAllowedOrigins(s string) []string {
 	if s == "" {
 		return nil
 	}
+
 	parts := strings.Split(s, ",")
+
 	result := make([]string, 0, len(parts))
+
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p != "" {
 			result = append(result, p)
 		}
 	}
+
 	return result
 }
 
@@ -71,44 +70,49 @@ func serializerStatusEvent(account *models.Account, payload string) (eventType s
 	}
 
 	event := &statusEvent{}
-	err = json.Unmarshal([]byte(payload), event)
+
+	err = json.Unmarshal([]byte(payload), event) //nolint:musttag // struct already has json tags
 	if err != nil {
-		return
+		return eventType, payloadStr, err
 	}
 
 	// 查看扩展字段是否加载全, 如果没有加载全, 则加载全
 	err = event.Payload.CheckAndLoadAllExtendFields(db.GetDB())
 	if err != nil {
-		return
+		return eventType, payloadStr, err
 	}
 
-	if event.Type == "delete" {
+	if event.Type == "delete" { //nolint:goconst
 		// 删除事件, 不需要序列化，只需要返回被删除的status id
 		eventType = event.Type
 		payloadStr = strconv.FormatUint(event.Payload.Id, 10)
-		return
+
+		return eventType, payloadStr, err
 	}
 
 	// 序列化
 	sStatus, err := serializer.ToStatus(event.Payload, account)
-
 	if err != nil {
-		return
+		return eventType, payloadStr, err
 	}
 
-	_payloadStr, _ := json.Marshal(sStatus)
+	_payloadStr, err := json.Marshal(sStatus)
+	if err != nil {
+		return eventType, payloadStr, err
+	}
 	eventType = event.Type
 	payloadStr = string(_payloadStr)
 
-	return
+	return eventType, payloadStr, err
 }
 
-func serializerNotificationEvent(account *models.Account, payload string) (eventType string, payloadStr string, err error) {
+func serializerNotificationEvent(account *models.Account, payload string) (eventType string, payloadStr string, err error) { //nolint:unparam // param reserved for future use
 	type notificationEvent struct {
 		Payload *serializer.Notification `json:"payload"`
 	}
 
 	event := &notificationEvent{}
+
 	err = json.Unmarshal([]byte(payload), event)
 	if err != nil {
 		return
@@ -119,7 +123,7 @@ func serializerNotificationEvent(account *models.Account, payload string) (event
 		return
 	}
 
-	eventType = "notification"
+	eventType = "notification" //nolint:goconst
 	payloadStr = string(_payloadStr)
 
 	return
@@ -130,7 +134,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 		panic("streaming: has not any timelines")
 	}
 
-	//订阅相关redis频道
+	// 订阅相关redis频道
 	channelName := make([]string, len(timelines))
 
 	for i, timeline := range timelines {
@@ -141,7 +145,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 	topicChan := db.GetRedis().Subscribe(ctx, channelName...)
 
 	defer func() {
-		topicChan.Close()
+		_ = topicChan.Close()
 	}()
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -159,6 +163,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			event, payload, err := procDataHandle(msg.Payload)
 			if err != nil {
 				log.ErrorV(errors.Wrap(err, "streaming: procDataHandle error"))
+
 				continue
 			}
 
@@ -166,6 +171,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			safeEvent := strings.ReplaceAll(strings.ReplaceAll(event, "\r", " "), "\n", " ")
 			safePayload := strings.ReplaceAll(strings.ReplaceAll(payload, "\r", " "), "\n", " ")
 			_, _ = c.Writer.Write([]byte("event: " + safeEvent + "\n" + "data: " + safePayload + "\n\n"))
+
 			flusher.Flush()
 		}
 	}
@@ -176,19 +182,19 @@ type RedisChannelEvent struct {
 	Payload any    `json:"payload"`
 }
 
-// serializerAnnouncementEvent 序列化公告事件
+// serializerAnnouncementEvent 序列化公告事件.
 func serializerAnnouncementEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
 	// 公告事件直接传递原始 payload
 	return "announcement", string(payload), nil
 }
 
-// serializerAnnouncementDeleteEvent 序列化公告删除事件
+// serializerAnnouncementDeleteEvent 序列化公告删除事件.
 func serializerAnnouncementDeleteEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
 	// 公告删除事件 payload 应该是公告 ID
 	return "announcement.delete", string(payload), nil
 }
 
-// serializerAnnouncementReactionEvent 序列化公告反应事件
+// serializerAnnouncementReactionEvent 序列化公告反应事件.
 func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
 	return "announcement.reaction", string(payload), nil
 }

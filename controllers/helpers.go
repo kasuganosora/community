@@ -17,10 +17,11 @@ type query func(db *gorm.DB) *gorm.DB
 
 func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ...query) (ret *T) {
 	ret = t
+
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid id"})
-		panic("abort")
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid id"}) //nolint:goconst
+		AbortPanic()
 	}
 
 	query := db.Model(t).Where("id = ?", id)
@@ -30,15 +31,15 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 	}
 
 	err = query.First(t).Error
-
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
-			panic("abort")
+			AbortPanic()
 		}
 
 		_ = c.Error(err)
-		panic("abort")
+
+		AbortPanic()
 	}
 
 	return
@@ -46,7 +47,7 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 
 func GetAccount(c *gin.Context) *models.Account {
 	if account, ok := c.Get("account"); ok {
-		return account.(*models.Account)
+		return account.(*models.Account) //nolint:forcetypeassert
 	}
 
 	return nil
@@ -56,7 +57,7 @@ func MustGetAccount(c *gin.Context) *models.Account {
 	account := GetAccount(c)
 	if account == nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "must login"})
-		panic("abort")
+		AbortPanic()
 	}
 
 	return account
@@ -66,12 +67,12 @@ func AbortIfError(c *gin.Context, err error) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
-			panic("abort")
+			AbortPanic()
 		}
 
 		_ = c.Error(err)
 		c.Abort()
-		panic("abort")
+		AbortPanic()
 	}
 }
 
@@ -85,7 +86,8 @@ func AbortIf(c *gin.Context, condition bool, statusCode int, data any) {
 	} else {
 		c.AbortWithStatus(statusCode)
 	}
-	panic("abort")
+
+	AbortPanic()
 }
 
 func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage string) {
@@ -94,8 +96,16 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 	}
 
 	if errors.As(err, &apierrors.HttpError{}) {
-		c.AbortWithStatusJSON(err.(*apierrors.HttpError).HttpCode, err.(*apierrors.HttpError).Json())
-		panic("abort")
+		c.AbortWithStatusJSON(func() *apierrors.HttpError {
+			target := &apierrors.HttpError{}
+			_ = errors.As(err, &target)
+			return target
+		}().HttpCode, func() *apierrors.HttpError {
+			target := &apierrors.HttpError{}
+			_ = errors.As(err, &target)
+			return target
+		}().Json())
+		AbortPanic()
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -105,5 +115,5 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 	}
 
-	panic("abort")
+	AbortPanic()
 }

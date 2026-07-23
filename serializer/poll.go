@@ -40,6 +40,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 		Options:     []PollOption{},
 		Emojis:      []Emoji{},
 	}
+
 	return ret
 }
 
@@ -56,9 +57,10 @@ func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
 	}
 
 	votes := make(models.PollOptionVotes, 0)
+
 	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Find(&votes).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	ret.VotesCount = uint64(len(votes))
@@ -75,7 +77,7 @@ func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
 		}
 	}
 
-	return
+	return ret, err
 }
 
 type Counts struct {
@@ -86,7 +88,7 @@ type Counts struct {
 func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret map[uint64]*Poll, err error) {
 	// 一次过取出所有投票的选项
 	optionsIndexMap := make(map[uint64]uint8)
-	pollIds := make([]uint64, 0)
+	pollIds := make([]uint64, 0, len(polls))
 	ret = make(map[uint64]*Poll)
 
 	for _, poll := range polls {
@@ -98,9 +100,10 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 	}
 
 	votes := make(models.PollOptionVotes, 0)
+
 	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id in (?)", pollIds).Find(&votes).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	var mySelectOptions map[uint64]models.PollOptionVotes
@@ -113,6 +116,7 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 
 	for _, poll := range polls {
 		voted := false
+
 		if current != nil {
 			if _, ok := mySelectOptions[poll.Id]; ok {
 				voted = true
@@ -125,5 +129,5 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 		ret[poll.Id] = ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
 	}
 
-	return
+	return ret, err
 }

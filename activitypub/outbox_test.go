@@ -18,7 +18,7 @@ func TestBuildCreateActivity(t *testing.T) {
 	status.Id = 42
 
 	account := &models.Account{
-		Username: "alice",
+		Username: "alice", //nolint:goconst
 	}
 
 	result := buildCreateActivity(status, account, "https://example.com")
@@ -41,7 +41,7 @@ func TestBuildCreateActivity(t *testing.T) {
 	assert.Contains(t, cc, "https://example.com/users/alice/followers")
 
 	// Verify embedded Note object
-	noteObj, ok := result["object"].(map[string]interface{})
+	noteObj, ok := result["object"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "Note", noteObj["type"])
 	assert.Equal(t, "https://example.com/users/alice/statuses/42", noteObj["id"])
@@ -62,7 +62,7 @@ func TestBuildCreateActivityWithSpoiler(t *testing.T) {
 	account := &models.Account{Username: "bob"}
 	result := buildCreateActivity(status, account, "https://example.com")
 
-	noteObj := result["object"].(map[string]interface{})
+	noteObj := result["object"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, true, noteObj["sensitive"])
 	assert.Equal(t, "CW: spoiler", noteObj["summary"])
 }
@@ -79,7 +79,7 @@ func TestBuildCreateActivityNoSpoiler(t *testing.T) {
 	account := &models.Account{Username: "alice"}
 	result := buildCreateActivity(status, account, "https://example.com")
 
-	noteObj := result["object"].(map[string]interface{})
+	noteObj := result["object"].(map[string]any) //nolint:forcetypeassert
 	_, hasSummary := noteObj["summary"]
 	assert.False(t, hasSummary, "summary should not be present when SpoilerText is empty")
 }
@@ -99,6 +99,6 @@ func TestBuildCreateActivityPublishedTime(t *testing.T) {
 	// Both the activity and the note should use the status creation time
 	assert.Equal(t, &past, result["published"])
 
-	noteObj := result["object"].(map[string]interface{})
+	noteObj := result["object"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, &past, noteObj["published"])
 }

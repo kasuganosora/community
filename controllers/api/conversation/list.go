@@ -22,10 +22,11 @@ func List(c *gin.Context) {
 		c.JSON(422, gin.H{
 			"error": err.Error(),
 		})
+
 		return
 	}
 
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	conversations := make([]*models.Conversation, 0)
 	subQuery := db.GetDB().Model(&models.AccountConversation{}).Select("conversation_id").Where("account_id = ?", account.Id)
@@ -35,6 +36,7 @@ func List(c *gin.Context) {
 		if err != nil {
 			err = errors.Wrap(err, "min_id must be number")
 			_ = c.Error(err)
+
 			return
 		}
 
@@ -46,6 +48,7 @@ func List(c *gin.Context) {
 		if err != nil {
 			err = errors.Wrap(err, "max_id must be number")
 			_ = c.Error(err)
+
 			return
 		}
 
@@ -57,6 +60,7 @@ func List(c *gin.Context) {
 		if err != nil {
 			err = errors.Wrap(err, "since_id must be number")
 			_ = c.Error(err)
+
 			return
 		}
 
@@ -68,10 +72,10 @@ func List(c *gin.Context) {
 	}
 
 	err := db.GetDB().Where("id IN (?)", subQuery).Limit(req.Limit).Find(&conversations).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "get conversations error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -79,6 +83,7 @@ func List(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "serializer conversations error")
 		_ = c.Error(err)
+
 		return
 	}
 

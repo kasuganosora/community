@@ -77,7 +77,6 @@ func ToReport(r *models.Report, account *models.Account) (ret *Report, err error
 
 		if r.AssignedAccount == nil && r.AssignedAccountId != 0 {
 			r.AssignedAccount = accountsMap[r.AssignedAccountId]
-
 		}
 	}
 
@@ -101,14 +100,15 @@ func ToReport(r *models.Report, account *models.Account) (ret *Report, err error
 		statuses := make([]*models.Status, 0)
 		query := db.GetDB().Where("id IN ?", r.StatusIds)
 		query = models.StatusLoadAllQuery(query)
+
 		err = query.Find(&statuses).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		ret.Statuses, err = ToStatuses(statuses, account)
 		if err != nil {
-			return
+			return ret, err
 		}
 	} else {
 		ret.Statuses = make([]*Status, 0)
@@ -116,9 +116,10 @@ func ToReport(r *models.Report, account *models.Account) (ret *Report, err error
 
 	if len(r.RuleIds) > 0 {
 		rules := make([]*models.Rule, 0)
+
 		err = db.GetDB().Where("id IN ?", r.RuleIds).Find(&rules).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		ret.Rules = ToRules(rules)
@@ -126,7 +127,7 @@ func ToReport(r *models.Report, account *models.Account) (ret *Report, err error
 		ret.Rules = make([]*Rule, 0)
 	}
 
-	return
+	return ret, err
 }
 
 func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err error) {
@@ -161,24 +162,27 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 
 	if len(statusesId) > 0 {
 		_status := make(models.Statuses, 0)
+
 		err = models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{})).
 			Where("id in ?", statusesId).Find(&_status).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		status, err = ToStatuses(_status, account)
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
 	var rules []*Rule
+
 	if len(rulesId) > 0 {
 		_rules := make([]*models.Rule, 0)
+
 		err = db.GetDB().Model(&models.Rule{}).Where("id in ?", rulesId).Find(&_rules).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		rules = ToRules(_rules)
@@ -186,9 +190,10 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 
 	if len(accountsId) > 0 {
 		_accounts := make(models.Accounts, 0)
+
 		err = db.GetDB().Model(&models.Account{}).Preload(clause.Associations).Where("id in ?", accountsId).Find(&_accounts).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		accounts = ToAccounts(_accounts)
@@ -238,6 +243,7 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 
 		if len(r.StatusIds) > 0 {
 			report.Statuses = make([]*Status, 0)
+
 			for _, statusId := range r.StatusIds {
 				if statusesMap[statusId] != nil {
 					report.Statuses = append(report.Statuses, statusesMap[statusId])
@@ -249,6 +255,7 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 
 		if len(r.RuleIds) > 0 {
 			report.Rules = make([]*Rule, 0)
+
 			for _, ruleId := range r.RuleIds {
 				if routesMap[ruleId] != nil {
 					report.Rules = append(report.Rules, routesMap[ruleId])
@@ -260,5 +267,6 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 
 		ret = append(ret, report)
 	}
-	return
+
+	return ret, err
 }

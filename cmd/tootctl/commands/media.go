@@ -2,6 +2,8 @@ package commands
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,7 +21,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-// MediaCommand implements tootctl media subcommands
+// MediaCommand implements tootctl media subcommands.
 func MediaCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "media",
@@ -35,10 +37,10 @@ func MediaCommand() *cli.Command {
 }
 
 // MediaRemoveCommand implements tootctl media remove
-// Version history: 2.5.0 - added
+// Version history: 2.5.0 - added.
 func MediaRemoveCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "remove",
+		Name:  "remove", //nolint:goconst
 		Usage: "Remove locally cached copies of media attachments",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
@@ -47,10 +49,10 @@ func MediaRemoveCommand() *cli.Command {
 				Usage: "How old media attachments have to be before removal",
 			},
 			&cli.IntFlag{
-				Name:    "concurrency",
+				Name:    "concurrency", //nolint:goconst
 				Aliases: []string{"c"},
 				Value:   5,
-				Usage:   "The number of workers to use",
+				Usage:   "The number of workers to use", //nolint:goconst
 			},
 			&cli.BoolFlag{
 				Name:  "prune-profiles",
@@ -65,12 +67,12 @@ func MediaRemoveCommand() *cli.Command {
 				Usage: "Remove from all accounts regardless of follow status",
 			},
 			&cli.BoolFlag{
-				Name:    "verbose",
+				Name:    "verbose", //nolint:goconst
 				Aliases: []string{"v"},
 				Usage:   "Print additional information",
 			},
 			&cli.BoolFlag{
-				Name:  "dry-run",
+				Name:  "dry-run", //nolint:goconst
 				Usage: "Print expected results only",
 			},
 		},
@@ -88,7 +90,7 @@ func removeMedia(c *cli.Context) error {
 	dryRun := c.Bool("dry-run")
 
 	if pruneProfiles && removeHeaders {
-		return fmt.Errorf("--prune-profiles and --remove-headers cannot be combined")
+		return errors.New("--prune-profiles and --remove-headers cannot be combined")
 	}
 
 	cutoff := time.Now().AddDate(0, 0, -days)
@@ -108,6 +110,7 @@ func removeMedia(c *cli.Context) error {
 
 func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dryRun bool) error {
 	var count int64
+
 	db.GetDB().Model(&models.Attachment{}).
 		Where("created_at < ?", cutoff).
 		Count(&count)
@@ -121,18 +124,20 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 	// Process in batches
 	batchSize := 100
 	jobs := make(chan []uint64, 10)
+
 	var wg sync.WaitGroup
+
 	removed := 0
+
 	var mu sync.Mutex
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for ids := range jobs {
 				for _, id := range ids {
 					var attachment models.Attachment
-					if err := db.GetDB().First(&attachment, id).Error; err != nil {
+					err := db.GetDB().First(&attachment, id).Error
+					if err != nil {
 						continue
 					}
 
@@ -140,6 +145,7 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 					if attachment.SavePath != "" {
 						_ = storage.Delete(attachment.SavePath)
 					}
+
 					if attachment.PreviewSavePath != "" && attachment.PreviewSavePath != attachment.SavePath {
 						_ = storage.Delete(attachment.PreviewSavePath)
 					}
@@ -148,6 +154,7 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 					db.GetDB().Delete(&attachment)
 
 					mu.Lock()
+
 					removed++
 					if verbose && removed%100 == 0 {
 						fmt.Printf("Removed %d attachments...\n", removed)
@@ -155,13 +162,15 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
 	var lastID uint64 = 0
+
 	for {
 		var attachments []models.Attachment
+
 		err := db.GetDB().Where("created_at < ? AND id > ?", cutoff, lastID).
 			Order("id ASC").
 			Limit(batchSize).
@@ -175,17 +184,21 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 		for i, a := range attachments {
 			ids[i] = a.Id
 		}
+
 		lastID = attachments[len(attachments)-1].Id
+
 		jobs <- ids
 	}
+
 	close(jobs)
 
 	wg.Wait()
 	fmt.Printf("Removed %d media attachments\n", removed)
-	return nil
+
+	return nil //nolint:nilerr
 }
 
-func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool, verbose bool, dryRun bool) error {
+func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool, verbose bool, dryRun bool) error { //nolint:unparam // param reserved for future use
 	query := db.GetDB().Model(&models.Account{}).
 		Where("domain IS NOT NULL AND domain != ''")
 
@@ -195,18 +208,21 @@ func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool,
 	}
 
 	var accounts []*models.Account
-	if err := query.Find(&accounts).Error; err != nil {
+	err := query.Find(&accounts).Error
+	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Processing %d remote accounts...\n", len(accounts))
 
 	removed := 0
+
 	for _, account := range accounts {
 		if dryRun {
 			if verbose {
 				fmt.Printf("[DRY-RUN] Would remove media for: %s\n", account.Username)
 			}
+
 			continue
 		}
 
@@ -222,18 +238,19 @@ func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool,
 			removed++
 		}
 
-		db.GetDB().Model(account).Updates(map[string]interface{}{
+		db.GetDB().Model(account).Updates(map[string]any{
 			"avatar": account.Avatar,
 			"header": account.Header,
 		})
 	}
 
 	fmt.Printf("Removed %d profile images\n", removed)
+
 	return nil
 }
 
 // MediaRemoveOrphansCommand implements tootctl media remove-orphans
-// Version history: 3.1.0 - added
+// Version history: 3.1.0 - added.
 func MediaRemoveOrphansCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "remove-orphans",
@@ -266,19 +283,23 @@ func removeOrphanedMedia(c *cli.Context) error {
 	prefix := c.String("prefix")
 
 	fmt.Println("Scanning for orphaned media files...")
+
 	if dryRun {
 		fmt.Println("Dry run mode - no changes will be made")
 	}
 
 	// Get all media URLs from database
 	var attachmentURLs []string
+
 	db.GetDB().Model(&models.Attachment{}).Pluck("save_path", &attachmentURLs)
 	db.GetDB().Model(&models.Attachment{}).Pluck("preview_save_path", &attachmentURLs)
 
 	var avatarURLs []string
+
 	db.GetDB().Model(&models.Account{}).Where("avatar IS NOT NULL AND avatar != ''").Pluck("avatar", &avatarURLs)
 
 	var headerURLs []string
+
 	db.GetDB().Model(&models.Account{}).Where("header IS NOT NULL AND header != ''").Pluck("header", &headerURLs)
 
 	// Combine all valid URLs
@@ -286,9 +307,11 @@ func removeOrphanedMedia(c *cli.Context) error {
 	for _, url := range attachmentURLs {
 		validURLs[url] = true
 	}
+
 	for _, url := range avatarURLs {
 		validURLs[url] = true
 	}
+
 	for _, url := range headerURLs {
 		validURLs[url] = true
 	}
@@ -302,6 +325,7 @@ func removeOrphanedMedia(c *cli.Context) error {
 	}
 
 	orphans := 0
+
 	for _, file := range files {
 		if startAfter != "" && file < startAfter {
 			continue
@@ -309,23 +333,27 @@ func removeOrphanedMedia(c *cli.Context) error {
 
 		if !validURLs[file] {
 			orphans++
+
 			if dryRun {
 				fmt.Printf("[ORPHAN] %s\n", file)
 			} else {
-				if err := storage.Delete(file); err != nil {
+				err := storage.Delete(file)
+				if err != nil {
 					log.Printf("Failed to delete orphaned file %s: %v", file, err)
 				}
+
 				fmt.Printf("[DELETED] %s\n", file)
 			}
 		}
 	}
 
 	fmt.Printf("Found %d orphaned files\n", orphans)
+
 	return nil
 }
 
 // MediaRefreshCommand implements tootctl media refresh
-// Version history: 3.0.0 - added
+// Version history: 3.0.0 - added.
 func MediaRefreshCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "refresh",
@@ -360,7 +388,7 @@ func MediaRefreshCommand() *cli.Command {
 	}
 }
 
-func refreshMedia(c *cli.Context) error {
+func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter composition, inherent to CLI multi-flag logic
 	// Need at least one filter
 	account := c.String("account")
 	domain := c.String("domain")
@@ -372,10 +400,11 @@ func refreshMedia(c *cli.Context) error {
 	force := c.Bool("force")
 
 	if account == "" && domain == "" && status == "" && days == 0 {
-		return fmt.Errorf("must specify --account, --domain, --status, or --days")
+		return errors.New("must specify --account, --domain, --status, or --days")
 	}
 
 	fmt.Println("Refreshing remote media attachments...")
+
 	if dryRun {
 		fmt.Println("Dry run mode - no changes will be made")
 	}
@@ -390,41 +419,60 @@ func refreshMedia(c *cli.Context) error {
 		if len(parts) == 2 {
 			// username@domain format
 			var acc models.Account
-			if err := db.GetDB().Where("username = ? AND domain = ?", parts[0], parts[1]).First(&acc).Error; err != nil {
+			err := db.GetDB().Where("username = ? AND domain = ?", parts[0], parts[1]).First(&acc).Error
+			if err != nil {
 				return fmt.Errorf("account not found: %s", account)
 			}
 			// Get statuses from this account
 			var statusIDs []uint64
+
 			db.GetDB().Model(&models.Status{}).Where("account_id = ?", acc.Id).Pluck("id", &statusIDs)
+
 			if len(statusIDs) == 0 {
 				fmt.Println("No statuses found for this account")
+
 				return nil
 			}
+
 			var mediaIDs []uint64
+
 			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+
 			if len(mediaIDs) == 0 {
 				fmt.Println("No media found for this account")
+
 				return nil
 			}
+
 			query = query.Where("id IN ?", mediaIDs)
 		} else {
 			// Local username only
 			var acc models.Account
-			if err := db.GetDB().Where("username = ? AND domain IS NULL", account).First(&acc).Error; err != nil {
+			err := db.GetDB().Where("username = ? AND domain IS NULL", account).First(&acc).Error
+			if err != nil {
 				return fmt.Errorf("account not found: %s", account)
 			}
+
 			var statusIDs []uint64
+
 			db.GetDB().Model(&models.Status{}).Where("account_id = ?", acc.Id).Pluck("id", &statusIDs)
+
 			if len(statusIDs) == 0 {
 				fmt.Println("No statuses found for this account")
+
 				return nil
 			}
+
 			var mediaIDs []uint64
+
 			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+
 			if len(mediaIDs) == 0 {
 				fmt.Println("No media found for this account")
+
 				return nil
 			}
+
 			query = query.Where("id IN ?", mediaIDs)
 		}
 	}
@@ -433,23 +481,35 @@ func refreshMedia(c *cli.Context) error {
 	if domain != "" {
 		// Get accounts from this domain
 		var accountIDs []uint64
+
 		db.GetDB().Model(&models.Account{}).Where("domain = ?", domain).Pluck("id", &accountIDs)
+
 		if len(accountIDs) == 0 {
 			fmt.Printf("No accounts found from domain %s\n", domain)
+
 			return nil
 		}
+
 		var statusIDs []uint64
+
 		db.GetDB().Model(&models.Status{}).Where("account_id IN ?", accountIDs).Pluck("id", &statusIDs)
+
 		if len(statusIDs) == 0 {
 			fmt.Printf("No statuses found from domain %s\n", domain)
+
 			return nil
 		}
+
 		var mediaIDs []uint64
+
 		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+
 		if len(mediaIDs) == 0 {
 			fmt.Printf("No media found from domain %s\n", domain)
+
 			return nil
 		}
+
 		query = query.Where("id IN ?", mediaIDs)
 	}
 
@@ -459,12 +519,17 @@ func refreshMedia(c *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("invalid status ID: %s", status)
 		}
+
 		var mediaIDs []uint64
+
 		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id = ?", statusID).Pluck("media_id", &mediaIDs)
+
 		if len(mediaIDs) == 0 {
 			fmt.Println("No media found for this status")
+
 			return nil
 		}
+
 		query = query.Where("id IN ?", mediaIDs)
 	}
 
@@ -475,6 +540,7 @@ func refreshMedia(c *cli.Context) error {
 	}
 
 	var count int64
+
 	query.Count(&count)
 	fmt.Printf("Found %d attachments to refresh\n", count)
 
@@ -485,15 +551,16 @@ func refreshMedia(c *cli.Context) error {
 	// Process in batches
 	batchSize := 100
 	jobs := make(chan []uint64, 10)
+
 	var wg sync.WaitGroup
+
 	refreshed := 0
 	failed := 0
+
 	var mu sync.Mutex
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for ids := range jobs {
 				for _, id := range ids {
 					var attachment models.Attachment
@@ -519,10 +586,12 @@ func refreshMedia(c *cli.Context) error {
 					if err != nil {
 						mu.Lock()
 						failed++
+
 						if verbose {
 							fmt.Printf("Failed to download %s: %v\n", attachment.RemoteUrl, err)
 						}
 						mu.Unlock()
+
 						continue
 					}
 
@@ -538,15 +607,17 @@ func refreshMedia(c *cli.Context) error {
 						mu.Lock()
 						failed++
 						mu.Unlock()
+
 						continue
 					}
 
 					// Update attachment record
-					db.GetDB().Model(&attachment).Updates(map[string]interface{}{
+					db.GetDB().Model(&attachment).Updates(map[string]any{
 						"save_path": objectKey,
 					})
 
 					mu.Lock()
+
 					refreshed++
 					if refreshed%100 == 0 {
 						fmt.Printf("Refreshed %d attachments...\n", refreshed)
@@ -554,13 +625,15 @@ func refreshMedia(c *cli.Context) error {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
 	var lastID uint64 = 0
+
 	for {
 		var attachments []models.Attachment
+
 		err := query.Where("id > ?", lastID).
 			Order("id ASC").
 			Limit(batchSize).
@@ -574,26 +647,35 @@ func refreshMedia(c *cli.Context) error {
 		for i, a := range attachments {
 			ids[i] = a.Id
 		}
+
 		lastID = attachments[len(attachments)-1].Id
+
 		jobs <- ids
 	}
+
 	close(jobs)
 
 	wg.Wait()
 
 	fmt.Printf("\nRefresh completed: %d refreshed, %d failed\n", refreshed, failed)
-	return nil
+
+	return nil //nolint:nilerr
 }
 
-// downloadRemoteMedia downloads media from a remote URL
+// downloadRemoteMedia downloads media from a remote URL.
 func downloadRemoteMedia(url string) ([]byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -603,7 +685,7 @@ func downloadRemoteMedia(url string) ([]byte, error) {
 }
 
 // MediaUsageCommand implements tootctl media usage
-// Version history: 3.0.1 - added
+// Version history: 3.0.1 - added.
 func MediaUsageCommand() *cli.Command {
 	return &cli.Command{
 		Name:   "usage",
@@ -617,17 +699,21 @@ func mediaUsage(c *cli.Context) error {
 
 	// Count attachments
 	var attachmentCount int64
+
 	db.GetDB().Model(&models.Attachment{}).Count(&attachmentCount)
 
 	// Count accounts with avatars/headers
 	var avatarCount int64
+
 	db.GetDB().Model(&models.Account{}).Where("avatar IS NOT NULL AND avatar != ''").Count(&avatarCount)
 
 	var headerCount int64
+
 	db.GetDB().Model(&models.Account{}).Where("header IS NOT NULL AND header != ''").Count(&headerCount)
 
 	// Count custom emojis
 	var emojiCount int64
+
 	db.GetDB().Model(&models.Emoji{}).Count(&emojiCount)
 
 	fmt.Printf("\nMedia Usage Summary:\n")
@@ -647,7 +733,7 @@ func mediaUsage(c *cli.Context) error {
 }
 
 // MediaLookupCommand implements tootctl media lookup
-// Version history: 3.1.0 - added
+// Version history: 3.1.0 - added.
 func MediaLookupCommand() *cli.Command {
 	return &cli.Command{
 		Name:   "lookup",
@@ -658,36 +744,43 @@ func MediaLookupCommand() *cli.Command {
 
 func mediaLookup(c *cli.Context) error {
 	var mediaURL string
+
 	fmt.Print("Enter media URL: ")
+
 	_, _ = fmt.Scanln(&mediaURL)
 
 	// Search for the media in attachments
 	var attachment models.Attachment
+
 	err := db.GetDB().Where("save_path = ? OR preview_save_path = ? OR remote_url = ?", mediaURL, mediaURL, mediaURL).
 		First(&attachment).Error
-
 	if err != nil {
 		fmt.Println("Media not found in any attachment")
-		return nil
+
+		return nil //nolint:nilerr
 	}
 
 	// Get the status that references this attachment
 	var statusMedia models.StatusMediaAttachment
+
 	err = db.GetDB().Where("media_id = ?", attachment.Id).First(&statusMedia).Error
 	if err != nil {
 		fmt.Printf("Found attachment ID %d but no status references it\n", attachment.Id)
-		return nil
+
+		return nil //nolint:nilerr
 	}
 
 	// Get the status
 	var status models.Status
 	if err := db.GetDB().First(&status, statusMedia.StatusId).Error; err != nil {
 		fmt.Printf("Found attachment ID %d but status %d not found\n", attachment.Id, statusMedia.StatusId)
-		return nil
+
+		return nil //nolint:nilerr
 	}
 
 	// Get the account
 	var account models.Account
+
 	db.GetDB().First(&account, status.AccountId)
 
 	fmt.Printf("\nStatus found:\n")
@@ -696,21 +789,23 @@ func mediaLookup(c *cli.Context) error {
 	fmt.Printf("Account:      @%s\n", account.Username)
 	fmt.Printf("Created at:   %s\n", status.CreatedAt)
 	fmt.Printf("Visibility:   %d\n", status.Visibility)
+
 	if status.Content.Content != "" {
 		content := status.Content.Content
 		if len(content) > 100 {
 			content = content[:100] + "..."
 		}
+
 		fmt.Printf("Content:      %s\n", content)
 	}
 
 	return nil
 }
 
-// StatusesCommand implements tootctl statuses subcommands
+// StatusesCommand implements tootctl statuses subcommands.
 func StatusesCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "statuses",
+		Name:  "statuses", //nolint:goconst
 		Usage: "Manage statuses",
 		Subcommands: []*cli.Command{
 			{
@@ -728,7 +823,7 @@ func StatusesCommand() *cli.Command {
 
 func removeStatuses(c *cli.Context) error {
 	if c.NArg() < 1 {
-		return fmt.Errorf("USERNAME is required")
+		return errors.New("USERNAME is required")
 	}
 
 	username := c.Args().First()
@@ -742,18 +837,22 @@ func removeStatuses(c *cli.Context) error {
 	}
 
 	var account models.Account
-	if err := query.First(&account).Error; err != nil {
-		return fmt.Errorf("account not found")
+	err := query.First(&account).Error
+	if err != nil {
+		return errors.New("account not found")
 	}
 
 	// Get status count
 	var statusCount int64
+
 	db.GetDB().Model(&models.Status{}).Where("account_id = ?", account.Id).Count(&statusCount)
 
 	fmt.Printf("Removing %d statuses from account %s", statusCount, username)
+
 	if domain != "" {
 		fmt.Printf("@%s", domain)
 	}
+
 	fmt.Println()
 
 	result := db.GetDB().Where("account_id = ?", account.Id).Delete(&models.Status{})
@@ -762,10 +861,11 @@ func removeStatuses(c *cli.Context) error {
 	}
 
 	fmt.Printf("Removed %d statuses from account %s\n", result.RowsAffected, username)
+
 	return nil
 }
 
-// listStorageFiles lists files in storage with a given prefix
+// listStorageFiles lists files in storage with a given prefix.
 func listStorageFiles(prefix string) ([]string, error) {
 	// For local storage, list files in the uploads directory
 	dir := "uploads"
@@ -774,21 +874,24 @@ func listStorageFiles(prefix string) ([]string, error) {
 	}
 
 	var files []string
+
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return nil //nolint:nilerr // skip errors
 		}
+
 		if !info.IsDir() {
 			relPath, _ := filepath.Rel("uploads", path)
 			files = append(files, relPath)
 		}
+
 		return nil
 	})
 
 	return files, err
 }
 
-// getStorageInfo returns storage information
+// getStorageInfo returns storage information.
 func getStorageInfo() string {
 	// Check if cloud storage is enabled
 	cloudStorage := storage.GetStorage()
@@ -798,11 +901,14 @@ func getStorageInfo() string {
 
 	// Check local storage
 	dir := "uploads"
+
 	var size int64
+
 	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
 		if !info.IsDir() {
 			size += info.Size()
 		}
+
 		return nil
 	})
 

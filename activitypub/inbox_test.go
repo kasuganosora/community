@@ -10,91 +10,91 @@ import (
 func TestGetVisibilityFromActivity(t *testing.T) {
 	tests := []struct {
 		name     string
-		object   map[string]interface{}
+		object   map[string]any
 		expected uint8
 	}{
 		{
 			name: "public - Public in to",
-			object: map[string]interface{}{
-				"to": []interface{}{"https://www.w3.org/ns/activitystreams#Public"},
-				"cc": []interface{}{"https://example.com/users/alice/followers"},
+			object: map[string]any{
+				"to": []any{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
+				"cc": []any{"https://example.com/users/alice/followers"},
 			},
 			expected: models.StatusVisibilityPublic,
 		},
 		{
 			name: "public - as:Public shorthand",
-			object: map[string]interface{}{
-				"to": []interface{}{"as:Public"},
-				"cc": []interface{}{},
+			object: map[string]any{
+				"to": []any{"as:Public"},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityPublic,
 		},
 		{
 			name: "public - Public string",
-			object: map[string]interface{}{
-				"to": []interface{}{"Public"},
+			object: map[string]any{
+				"to": []any{"Public"}, //nolint:goconst
 			},
 			expected: models.StatusVisibilityPublic,
 		},
 		{
 			name: "unlisted - Public in cc only",
-			object: map[string]interface{}{
-				"to": []interface{}{"https://example.com/users/alice/followers"},
-				"cc": []interface{}{"https://www.w3.org/ns/activitystreams#Public"},
+			object: map[string]any{
+				"to": []any{"https://example.com/users/alice/followers"},
+				"cc": []any{"https://www.w3.org/ns/activitystreams#Public"},
 			},
 			expected: models.StatusVisibilityUnlisted,
 		},
 		{
 			name: "private - followers collection, no public",
-			object: map[string]interface{}{
-				"to": []interface{}{"https://example.com/users/alice/followers"},
-				"cc": []interface{}{},
+			object: map[string]any{
+				"to": []any{"https://example.com/users/alice/followers"},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityPrivate,
 		},
 		{
 			name: "private - followers in cc, no public",
-			object: map[string]interface{}{
-				"to": []interface{}{},
-				"cc": []interface{}{"https://example.com/users/alice/followers"},
+			object: map[string]any{
+				"to": []any{},
+				"cc": []any{"https://example.com/users/alice/followers"},
 			},
 			expected: models.StatusVisibilityPrivate,
 		},
 		{
 			name: "direct - specific user only, no followers",
-			object: map[string]interface{}{
-				"to": []interface{}{"https://remote.com/users/bob"},
-				"cc": []interface{}{},
+			object: map[string]any{
+				"to": []any{"https://remote.com/users/bob"},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityDirect,
 		},
 		{
 			name: "direct - multiple specific users only",
-			object: map[string]interface{}{
-				"to": []interface{}{
+			object: map[string]any{
+				"to": []any{
 					"https://remote.com/users/bob",
 					"https://other.com/users/carol",
 				},
-				"cc": []interface{}{},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityDirect,
 		},
 		{
 			name: "direct - user with @ format",
-			object: map[string]interface{}{
-				"to": []interface{}{"https://remote.com/@bob"},
-				"cc": []interface{}{},
+			object: map[string]any{
+				"to": []any{"https://remote.com/@bob"},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityDirect,
 		},
 		{
 			name:     "private - empty to and cc",
-			object:   map[string]interface{}{},
+			object:   map[string]any{},
 			expected: models.StatusVisibilityPrivate,
 		},
 		{
 			name: "private - nil to and cc",
-			object: map[string]interface{}{
+			object: map[string]any{
 				"to": nil,
 				"cc": nil,
 			},
@@ -102,13 +102,13 @@ func TestGetVisibilityFromActivity(t *testing.T) {
 		},
 		{
 			name: "public takes priority over everything",
-			object: map[string]interface{}{
-				"to": []interface{}{
+			object: map[string]any{
+				"to": []any{
 					"https://www.w3.org/ns/activitystreams#Public",
 					"https://example.com/users/alice/followers",
 					"https://remote.com/users/bob",
 				},
-				"cc": []interface{}{},
+				"cc": []any{},
 			},
 			expected: models.StatusVisibilityPublic,
 		},
@@ -155,16 +155,16 @@ func TestParseTagsToAccountIDs(t *testing.T) {
 	assert.Empty(t, result)
 
 	// Test with empty tags
-	result = parseTagsToAccountIDs([]interface{}{})
+	result = parseTagsToAccountIDs([]any{})
 	assert.Empty(t, result)
 
 	// Test with non-mention tags (Hashtag, Emoji) - should be filtered out
-	tags := []interface{}{
-		map[string]interface{}{
-			"type": "Hashtag",
-			"name": "#test",
+	tags := []any{
+		map[string]any{
+			"type": "Hashtag", //nolint:goconst
+			"name": "#test",   //nolint:goconst
 		},
-		map[string]interface{}{
+		map[string]any{
 			"type": "Emoji",
 			"name": ":smile:",
 		},
@@ -173,7 +173,7 @@ func TestParseTagsToAccountIDs(t *testing.T) {
 	assert.Empty(t, result)
 
 	// Test with invalid tag format
-	invalidTags := []interface{}{
+	invalidTags := []any{
 		"not a map",
 		42,
 		nil,
@@ -182,11 +182,11 @@ func TestParseTagsToAccountIDs(t *testing.T) {
 	assert.Empty(t, result)
 
 	// Test with mention tag but empty href
-	mentionNoHref := []interface{}{
-		map[string]interface{}{
-			"type": "Mention",
+	mentionNoHref := []any{
+		map[string]any{
+			"type": "Mention", //nolint:goconst
 			"name": "@test",
-			"href": "",
+			"href": "", //nolint:goconst
 		},
 	}
 	result = parseTagsToAccountIDs(mentionNoHref)

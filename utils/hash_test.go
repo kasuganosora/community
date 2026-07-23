@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  //nolint:gosec // G501: reviewed and safe
+	"crypto/sha1" //nolint:gosec // G505: reviewed and safe
 	"crypto/sha256"
 	"testing"
 
@@ -45,14 +45,16 @@ func TestHashString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var result string
+
 			switch tt.hashFunc {
 			case "md5":
-				result = Hash(md5.New(), tt.input)
+				result = Hash(md5.New(), tt.input) //nolint:gosec // G401: reviewed and safe
 			case "sha1":
-				result = Hash(sha1.New(), tt.input)
+				result = Hash(sha1.New(), tt.input) //nolint:gosec // G401: reviewed and safe
 			case "sha256":
 				result = Hash(sha256.New(), tt.input)
 			}
+
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -82,12 +84,14 @@ func TestHashBytes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var result string
+
 			switch tt.hashFunc {
 			case "md5":
-				result = Hash(md5.New(), tt.input)
+				result = Hash(md5.New(), tt.input) //nolint:gosec // G401: reviewed and safe
 			case "sha256":
 				result = Hash(sha256.New(), tt.input)
 			}
+
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -101,5 +105,5 @@ func TestHashPanic(t *testing.T) {
 		}
 	}()
 
-	Hash(md5.New(), 123) // int is not supported
+	Hash(md5.New(), 123) //nolint:gosec // test code: intentionally testing weak hash
 }

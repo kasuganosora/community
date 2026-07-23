@@ -6,16 +6,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/log"
 )
 
 // ListRelays handles GET /api/v1/admin/relays
-// 列出所有中继
+// 列出所有中继.
 func ListRelays(c *gin.Context) {
 	relayService := activitypub.NewRelayService()
 
 	relays, err := relayService.GetAllRelays()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch relays"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch relays"}) //nolint:goconst
+
 		return
 	}
 
@@ -23,14 +25,15 @@ func ListRelays(c *gin.Context) {
 }
 
 // CreateRelay handles POST /api/v1/admin/relays
-// 创建并启用中继
+// 创建并启用中继.
 func CreateRelay(c *gin.Context) {
 	var params struct {
-		InboxURL string `json:"inbox_url" binding:"required,url"`
+		InboxURL string `binding:"required,url" json:"inbox_url"`
 	}
 
 	if err := c.ShouldBindJSON(&params); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid inbox_url"})
+
 		return
 	}
 
@@ -40,12 +43,14 @@ func CreateRelay(c *gin.Context) {
 	relay, err := relayService.CreateRelay(params.InboxURL)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	// 启用中继（发送 Follow 活动）
 	if err := relayService.EnableRelay(relay.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable relay"})
+
 		return
 	}
 
@@ -56,11 +61,12 @@ func CreateRelay(c *gin.Context) {
 }
 
 // EnableRelay handles POST /api/v1/admin/relays/:id/enable
-// 启用中继
+// 启用中继.
 func EnableRelay(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relay ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relay ID"}) //nolint:goconst
+
 		return
 	}
 
@@ -69,13 +75,16 @@ func EnableRelay(c *gin.Context) {
 	// 检查中继是否存在
 	relay, err := relayService.GetRelayByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Relay not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Relay not found"}) //nolint:goconst
+
 		return
 	}
 
 	// 启用中继
 	if err := relayService.EnableRelay(relay.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.ErrorV(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+
 		return
 	}
 
@@ -86,11 +95,12 @@ func EnableRelay(c *gin.Context) {
 }
 
 // DisableRelay handles POST /api/v1/admin/relays/:id/disable
-// 禁用中继
+// 禁用中继.
 func DisableRelay(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relay ID"})
+
 		return
 	}
 
@@ -100,12 +110,15 @@ func DisableRelay(c *gin.Context) {
 	relay, err := relayService.GetRelayByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Relay not found"})
+
 		return
 	}
 
 	// 禁用中继
 	if err := relayService.DisableRelay(relay.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.ErrorV(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+
 		return
 	}
 
@@ -116,11 +129,12 @@ func DisableRelay(c *gin.Context) {
 }
 
 // DeleteRelay handles DELETE /api/v1/admin/relays/:id
-// 删除中继
+// 删除中继.
 func DeleteRelay(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relay ID"})
+
 		return
 	}
 
@@ -130,12 +144,14 @@ func DeleteRelay(c *gin.Context) {
 	_, err = relayService.GetRelayByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Relay not found"})
+
 		return
 	}
 
 	// 删除中继
 	if err := relayService.DeleteRelay(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete relay"})
+
 		return
 	}
 
@@ -143,11 +159,12 @@ func DeleteRelay(c *gin.Context) {
 }
 
 // GetRelay handles GET /api/v1/admin/relays/:id
-// 获取单个中继
+// 获取单个中继.
 func GetRelay(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relay ID"})
+
 		return
 	}
 
@@ -156,6 +173,7 @@ func GetRelay(c *gin.Context) {
 	relay, err := relayService.GetRelayByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Relay not found"})
+
 		return
 	}
 
@@ -163,13 +181,14 @@ func GetRelay(c *gin.Context) {
 }
 
 // GetRelayInboxes handles GET /api/v1/admin/relays/inboxes
-// 获取所有已启用中继的 inbox URL（用于调试）
+// 获取所有已启用中继的 inbox URL（用于调试）.
 func GetRelayInboxes(c *gin.Context) {
 	relayService := activitypub.NewRelayService()
 
 	inboxes, err := relayService.GetRelayInboxes()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch relay inboxes"})
+
 		return
 	}
 

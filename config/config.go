@@ -10,33 +10,34 @@ import (
 )
 
 type Config struct {
-	Listen                  string `env:"LISTEN" default:":8080"`
-	AppBaseURL              string `env:"APP_BASE_URL" default:"http://localhost:8080"`
-	StorageType             string `env:"STORAGE_TYPE" default:"local"`
-	EncryptedKey            string `env:"ENCRYPTED_KEY" default:"zwKc2UD3Nn8QbkypUkDbpJNyTmKeDbFbUiAGhAArpDa"` // 加密密钥, 如果空则不加密
-	DbConnection            string `env:"DB_CONNECTION" default:"mysql"`
+	Listen                  string `default:":8080"                 env:"LISTEN"`
+	AppBaseURL              string `default:"http://localhost:8080" env:"APP_BASE_URL"`
+	StorageType             string `default:"local"                 env:"STORAGE_TYPE"`
+	EncryptedKey            string `env:"ENCRYPTED_KEY"` // 加密密钥, 必须通过环境变量配置
+	DbConnection            string `default:"mysql"                 env:"DB_CONNECTION"`
 	DbHost                  string `env:"DB_HOST"`
-	DbPort                  string `env:"DB_PORT" default:"3306"`
-	DbDatabase              string `env:"DB_DATABASE" default:"community"`
-	DbUsername              string `env:"DB_USERNAME" default:"root"`
-	DbPassword              string `env:"DB_PASSWORD" default:""`
+	DbPort                  string `default:"3306"                  env:"DB_PORT"`
+	DbDatabase              string `default:"community"             env:"DB_DATABASE"`
+	DbUsername              string `default:"root"                  env:"DB_USERNAME"`
+	DbPassword              string `default:""                      env:"DB_PASSWORD"`
 	HttpProxy               string `env:"HTTP_PROXY"`
 	SmtpServer              string `env:"SMTP_SERVER"`
 	SmtpPort                string `env:"SMTP_PORT"`
 	SmtpUsername            string `env:"SMTP_USERNAME"`
 	SmtpPassword            string `env:"SMTP_PASSWORD"`
 	SmtpFrom                string `env:"SMTP_FROM"`
-	SmtpAuthMethod          string `env:"SMTP_AUTH_METHOD" default:"PLAIN"`
-	SmtpTimeout             string `env:"SMTP_TIMEOUT" default:"10"`
-	SmtpTLS                 string `env:"SMTP_TLS" default:"true"` // 是否启用 TLS 加密传输
-	EmailMode               string `env:"EMAIL_MODE" default:"smtp"`
-	DevMode                 string `env:"DEV_MODE" default:"false"`         // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
-	SessionExpire           string `env:"SESSION_EXPIRE" default:"1382400"` // Session 过期时间, 默认 16 天
-	Redis0Host              string `env:"REDIS_0_HOST" default:""`          // Redis 配置 0, 多个 Redis 请依次递增
-	Redis0Port              string `env:"REDIS_0_PORT" default:"6379"`
-	Redis0Password          string `env:"REDIS_0_PASSWORD" default:""`
-	Redis0Db                string `env:"REDIS_0_DB" default:"0"`
+	SmtpAuthMethod          string `default:"PLAIN"                 env:"SMTP_AUTH_METHOD"`
+	SmtpTimeout             string `default:"10"                    env:"SMTP_TIMEOUT"`
+	SmtpTLS                 string `default:"true"                  env:"SMTP_TLS"` // 是否启用 TLS 加密传输
+	EmailMode               string `default:"smtp"                  env:"EMAIL_MODE"`
+	DevMode                 string `default:"false"                 env:"DEV_MODE"`       // 开发模式,如果是,则从本地加载内嵌的静态文件(resources文件夹下的文件)
+	SessionExpire           string `default:"1382400"               env:"SESSION_EXPIRE"` // Session 过期时间, 默认 16 天
+	Redis0Host              string `default:""                      env:"REDIS_0_HOST"`   // Redis 配置 0, 多个 Redis 请依次递增
+	Redis0Port              string `default:"6379"                  env:"REDIS_0_PORT"`
+	Redis0Password          string `default:""                      env:"REDIS_0_PASSWORD"`
+	Redis0Db                string `default:"0"                     env:"REDIS_0_DB"`
 	WebSocketAllowedOrigins string `env:"WEBSOCKET_ALLOWED_ORIGINS"`
+	CORSAllowedOrigins      string `env:"CORS_ALLOWED_ORIGINS"` // 逗号分隔的允许来源列表，为空则允许所有（仅开发模式）
 
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
@@ -46,12 +47,14 @@ var C Config
 
 func init() {
 	C.Other = make(map[string]string)
+
 	loadConfig()
 }
 
 func loadConfig() {
 	// 取得当前运行目录下有没有 .env 文件，如果有则通过他来设置配置
 	envFilePath := utils.GetFullPath(".env")
+
 	var err error
 
 	envFileExists := utils.IsFileExists(envFilePath)
@@ -63,14 +66,29 @@ func loadConfig() {
 
 	if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
 		_ = createDefaultEnvFile(envFilePath)
+
 		os.Exit(1)
 	} else if err != nil {
 		panic(err)
 	}
+
+	// 校验加密密钥
+	if C.EncryptedKey == "" {
+		log.Fatal("ENCRYPTED_KEY is not set. Please configure it in .env file or environment variable.")
+	}
+
+	if len(C.EncryptedKey) < 16 {
+		log.Fatal("ENCRYPTED_KEY must be at least 16 characters long for security.")
+	}
+
+	// 生产环境校验数据库密码
+	if C.DevMode != "true" && C.DbPassword == "" {
+		log.Fatal("DB_PASSWORD is not set. Please configure it in .env file or environment variable. (In development mode, set DEV_MODE=true to bypass this check.)")
+	}
 }
 
-// loadConfigFromEnv 从环境变量中加载配置
-func loadConfigFromEnv() (err error) {
+// loadConfigFromEnv 从环境变量中加载配置.
+func loadConfigFromEnv() (err error) { //nolint:unparam // param reserved for future use
 	envData := make(map[string]string)
 
 	for _, env := range os.Environ() {
@@ -78,25 +96,24 @@ func loadConfigFromEnv() (err error) {
 		if len(envPair) < 2 {
 			continue
 		}
+
 		envData[envPair[0]] = envPair[1]
 	}
 
 	loadMapToConfig(envData)
 
 	return
-
 }
 
-// loadConfigFromEnvFile 从 .env 文件中加载配置
+// loadConfigFromEnvFile 从 .env 文件中加载配置.
 func loadConfigFromEnvFile(envPath string) (err error) {
-	fp, err := os.Open(envPath)
+	fp, err := os.Open(envPath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		return
 	}
 	defer func() { _ = fp.Close() }()
 
 	envData, err := godotenv.Parse(fp)
-
 	if err != nil {
 		return
 	}
@@ -106,14 +123,14 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 	return
 }
 
-// loadMapToConfig 将 map 中的数据加载到 Config 中
+// loadMapToConfig 将 map 中的数据加载到 Config 中.
 func loadMapToConfig(data map[string]string) {
-	sType := reflect.TypeOf(C)
+	sType := reflect.TypeFor[Config]()
 	sValue := reflect.ValueOf(&C).Elem()
 
 	standardConfigsKeyMap := make(map[string]bool)
 
-	for i := 0; i < sType.NumField(); i++ {
+	for i := range sType.NumField() {
 		field := sType.Field(i)
 		value := sValue.Field(i)
 		envName, ok := field.Tag.Lookup("env")
@@ -146,20 +163,21 @@ func loadMapToConfig(data map[string]string) {
 	}
 }
 
-// createDefaultEnvFile 创建默认的 .env 文件
+// createDefaultEnvFile 创建默认的 .env 文件.
 func createDefaultEnvFile(path string) (err error) {
 	log.Info("Create default .env file")
-	sType := reflect.TypeOf(C)
+
+	sType := reflect.TypeFor[Config]()
 	sValue := reflect.ValueOf(&C).Elem()
 
-	fp, err := os.Create(path)
-
+	fp, err := os.Create(path) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
-		return
+		return err
 	}
-	defer fp.Close()
 
-	for i := 0; i < sType.NumField(); i++ {
+	defer func() { _ = fp.Close() }()
+
+	for i := range sType.NumField() {
 		field := sType.Field(i)
 		value := sValue.Field(i)
 		envName, ok := field.Tag.Lookup("env")
@@ -180,9 +198,9 @@ func createDefaultEnvFile(path string) (err error) {
 		}
 
 		if err != nil {
-			return
+			return err
 		}
 	}
 
-	return
+	return err
 }

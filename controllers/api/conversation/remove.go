@@ -14,6 +14,7 @@ func Remove(c *gin.Context) {
 	if idStr == "" {
 		err := errors.New("id is empty")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -21,31 +22,37 @@ func Remove(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "id must be number")
 		_ = c.Error(err)
+
 		return
 	}
 
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	ac := &models.AccountConversation{}
+
 	err = db.GetDB().Model(ac).Where("account_id = ? AND conversation_id = ?", account.Id, id).First(ac).Error
 	if err != nil {
 		err = errors.Wrap(err, "can't find conversation")
 		_ = c.Error(err)
+
 		return
 	}
 
 	if err = db.GetDB().Delete(ac).Error; err != nil {
 		err = errors.Wrap(err, "can't delete conversation")
 		_ = c.Error(err)
+
 		return
 	}
 
 	// 删除 Conversation 上面的 userid
 	conversation := &models.Conversation{}
+
 	err = db.GetDB().Model(conversation).Where("id = ?", id).First(conversation).Error
 	if err != nil {
 		err = errors.Wrap(err, "can't find conversation")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -57,6 +64,7 @@ func Remove(c *gin.Context) {
 	if err = db.GetDB().Select("accounts_ids").Save(conversation).Error; err != nil {
 		err = errors.Wrap(err, "can't save conversation")
 		_ = c.Error(err)
+
 		return
 	}
 

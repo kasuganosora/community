@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 
@@ -14,27 +15,27 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestDB holds the test database connection
+// TestDB holds the test database connection.
 type TestDB struct {
 	DB      *api.DB
 	GormDB  *gorm.DB
 	Session *api.Session
 }
 
-// DBMode defines the test database mode
+// DBMode defines the test database mode.
 type DBMode int
 
 const (
-	// ModeIsolated creates a new isolated database for each test (recommended for parallel tests)
+	// ModeIsolated creates a new isolated database for each test (recommended for parallel tests).
 	ModeIsolated DBMode = iota
-	// ModeShared uses a shared database with data cleanup between tests (better performance)
+	// ModeShared uses a shared database with data cleanup between tests (better performance).
 	ModeShared
 )
 
 var (
 	sharedDB     *TestDB
 	sharedDBOnce sync.Once
-	sharedDBErr  error
+	errSharedDB  error
 	sharedDBMu   sync.Mutex
 )
 
@@ -55,14 +56,19 @@ func NewTestDB() (*TestDB, error) {
 	})
 	if err := memDS.Connect(context.Background()); err != nil {
 		_ = db.Close()
+
 		return nil, err
 	}
+
 	if err := db.RegisterDataSource("default", memDS); err != nil {
 		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to register datasource: %w", err)
 	}
+
 	if err := db.SetDefaultDataSource("default"); err != nil {
 		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to set default datasource: %w", err)
 	}
 
@@ -75,6 +81,7 @@ func NewTestDB() (*TestDB, error) {
 	if err != nil {
 		_ = session.Close()
 		_ = db.Close()
+
 		return nil, err
 	}
 
@@ -91,9 +98,10 @@ func NewTestDB() (*TestDB, error) {
 func NewIsolatedTestDB(t interface {
 	Helper()
 	Cleanup(func())
-	Fatalf(format string, args ...interface{})
+	Fatalf(format string, args ...any)
 }) (*TestDB, error) {
 	t.Helper()
+
 	dsName := "test_" + uuid.New().String()[:8]
 
 	db, err := api.NewDB(nil)
@@ -107,15 +115,20 @@ func NewIsolatedTestDB(t interface {
 		Writable: true,
 	})
 	if err := memDS.Connect(context.Background()); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, err
 	}
+
 	if err := db.RegisterDataSource(dsName, memDS); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to register datasource: %w", err)
 	}
+
 	if err := db.SetDefaultDataSource(dsName); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to set default datasource: %w", err)
 	}
 
@@ -128,6 +141,7 @@ func NewIsolatedTestDB(t interface {
 	if err != nil {
 		_ = session.Close()
 		_ = db.Close()
+
 		return nil, err
 	}
 
@@ -160,15 +174,20 @@ func newTestDBNoCleanup() (*TestDB, error) {
 		Writable: true,
 	})
 	if err := memDS.Connect(context.Background()); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, err
 	}
+
 	if err := db.RegisterDataSource(dsName, memDS); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to register datasource: %w", err)
 	}
+
 	if err := db.SetDefaultDataSource(dsName); err != nil {
-		db.Close()
+		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to set default datasource: %w", err)
 	}
 
@@ -181,6 +200,7 @@ func newTestDBNoCleanup() (*TestDB, error) {
 	if err != nil {
 		_ = session.Close()
 		_ = db.Close()
+
 		return nil, err
 	}
 
@@ -196,9 +216,10 @@ func newTestDBNoCleanup() (*TestDB, error) {
 // Not safe for parallel tests.
 func GetSharedTestDB() (*TestDB, error) {
 	sharedDBOnce.Do(func() {
-		sharedDB, sharedDBErr = NewTestDB()
+		sharedDB, errSharedDB = NewTestDB()
 	})
-	return sharedDB, sharedDBErr
+
+	return sharedDB, errSharedDB
 }
 
 // SetupSharedTestDB sets up a shared test database with automatic cleanup.
@@ -216,7 +237,8 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 
 	// Truncate tables to ensure clean state (per sqlexec doc Approach 2)
 	if len(tables) > 0 {
-		if err := db.TruncateTables(tables...); err != nil {
+		err := db.TruncateTables(tables...)
+		if err != nil {
 			return nil, fmt.Errorf("failed to truncate tables: %w", err)
 		}
 	}
@@ -225,7 +247,7 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 	session := db.DB.Session()
 
 	t.Cleanup(func() {
-		session.Close()
+		_ = session.Close()
 	})
 
 	return &TestDB{
@@ -235,22 +257,23 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 	}, nil
 }
 
-// Close closes the test database
+// Close closes the test database.
 func (t *TestDB) Close() {
 	if t.Session != nil {
 		_ = t.Session.Close()
 	}
+
 	if t.DB != nil {
 		_ = t.DB.Close()
 	}
 }
 
-// AutoMigrate runs auto migration for given models
-func (t *TestDB) AutoMigrate(models ...interface{}) error {
+// AutoMigrate runs auto migration for given models.
+func (t *TestDB) AutoMigrate(models ...any) error {
 	return t.GormDB.AutoMigrate(models...)
 }
 
-// TruncateTables clears data from specified tables
+// TruncateTables clears data from specified tables.
 func (t *TestDB) TruncateTables(tables ...string) error {
 	for _, table := range tables {
 		_, err := t.Session.Execute("TRUNCATE TABLE " + table)
@@ -258,48 +281,53 @@ func (t *TestDB) TruncateTables(tables ...string) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// CreateTable creates a table using raw SQL
+// CreateTable creates a table using raw SQL.
 func (t *TestDB) CreateTable(sql string) error {
 	_, err := t.Session.Execute(sql)
+
 	return err
 }
 
-// CreateTables creates multiple tables
+// CreateTables creates multiple tables.
 func (t *TestDB) CreateTables(sqls ...string) error {
 	for _, sql := range sqls {
-		if err := t.CreateTable(sql); err != nil {
+		err := t.CreateTable(sql)
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// Exec executes a raw SQL statement
-func (t *TestDB) Exec(sql string, args ...interface{}) error {
+// Exec executes a raw SQL statement.
+func (t *TestDB) Exec(sql string, args ...any) error {
 	_, err := t.Session.Execute(sql, args...)
+
 	return err
 }
 
-// QueryOne executes a query and returns one row
-func (t *TestDB) QueryOne(sql string, args ...interface{}) (map[string]interface{}, error) {
+// QueryOne executes a query and returns one row.
+func (t *TestDB) QueryOne(sql string, args ...any) (map[string]any, error) {
 	return t.Session.QueryOne(sql, args...)
 }
 
-// QueryAll executes a query and returns all rows
-func (t *TestDB) QueryAll(sql string, args ...interface{}) ([]map[string]interface{}, error) {
+// QueryAll executes a query and returns all rows.
+func (t *TestDB) QueryAll(sql string, args ...any) ([]map[string]any, error) {
 	rows, err := t.Session.QueryAll(sql, args...)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]map[string]interface{}, len(rows))
+
+	result := make([]map[string]any, len(rows))
 	for i, row := range rows {
-		result[i] = make(map[string]interface{})
-		for k, v := range row {
-			result[i][k] = v
-		}
+		result[i] = make(map[string]any)
+		maps.Copy(result[i], row)
 	}
+
 	return result, nil
 }

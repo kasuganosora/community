@@ -7,9 +7,11 @@ import (
 
 func Health(c *gin.Context) {
 	ctx := c.Request.Context()
+
 	err := db.GetRedis().Ping(ctx).Err()
 	if err != nil {
 		c.AbortWithStatus(500)
+
 		return
 	}
 

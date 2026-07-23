@@ -81,14 +81,16 @@ func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 				return
 			}
 		}
+
 		return
 	})
 
-	return
+	return err
 }
 
 func (InitSystemConfigOptions) Down(db *gorm.DB) (err error) {
 	// 删除所有系统配置项
 	err = db.Delete(&models.SystemSetting{}).Error
+
 	return
 }

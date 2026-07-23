@@ -16,6 +16,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	// Cleanup
 	_ = os.RemoveAll("./test_storage")
+
 	os.Exit(code)
 }
 
@@ -28,26 +29,26 @@ func TestNewService(t *testing.T) {
 			Type:       models.StorageTypeLocal,
 			Bucket:     "test-bucket",
 			PathPrefix: "thumbnails/",
-			LocalPath:  "./test_storage",
+			LocalPath:  "./test_storage", //nolint:goconst
 			PublicURL:  "",
 		},
 		Rules: []models.ThumbnailRule{
 			{
-				ContentTypes:    []string{"image/jpeg", "image/png"},
-				Extensions:      []string{"jpg", "jpeg", "png"},
+				ContentTypes:    []string{"image/jpeg", "image/png"}, //nolint:goconst
+				Extensions:      []string{"jpg", "jpeg", "png"},      //nolint:goconst
 				MaxOriginalSize: 524288,
 				MaxWidth:        1920,
 				MaxHeight:       1080,
 				Quality:         85,
-				Format:          "jpeg",
+				Format:          "jpeg", //nolint:goconst
 				Enabled:         true,
-				MediaType:       "image",
+				MediaType:       "image", //nolint:goconst
 			},
 		},
 	}
 
 	storageCfg := storage.Config{
-		Type:       "local",
+		Type:       "local", //nolint:goconst
 		Bucket:     "test-bucket",
 		PathPrefix: "thumbnails/",
 		LocalPath:  "./test_storage",
@@ -92,11 +93,11 @@ func TestMatchRule(t *testing.T) {
 				MediaType:       "image",
 			},
 			{
-				ContentTypes:    []string{"video/mp4"},
+				ContentTypes:    []string{"video/mp4"}, //nolint:goconst
 				Extensions:      []string{"mp4"},
 				MaxOriginalSize: 10485760,
 				Enabled:         true,
-				MediaType:       "video",
+				MediaType:       "video", //nolint:goconst
 			},
 		},
 	}
@@ -114,7 +115,7 @@ func TestMatchRule(t *testing.T) {
 		expectedMatch     bool
 		expectedMediaType string
 	}{
-		{"https://example.com/image.jpg", true, "image"},
+		{"https://example.com/image.jpg", true, "image"}, //nolint:goconst
 		{"https://example.com/image.jpeg", true, "image"},
 		{"https://example.com/image.png", false, ""},
 		{"https://example.com/image", false, ""},
@@ -127,9 +128,11 @@ func TestMatchRule(t *testing.T) {
 		if match != tt.expectedMatch {
 			t.Errorf("matchRule(%s) match = %v, want %v", tt.url, match, tt.expectedMatch)
 		}
+
 		if match && rule == nil {
 			t.Errorf("matchRule(%s) returned nil rule", tt.url)
 		}
+
 		if match && mediaType != tt.expectedMediaType {
 			t.Errorf("matchRule(%s) mediaType = %v, want %v", tt.url, mediaType, tt.expectedMediaType)
 		}
@@ -138,7 +141,7 @@ func TestMatchRule(t *testing.T) {
 
 func TestGenerateCacheKey(t *testing.T) {
 	url := "https://example.com/image.jpg"
-	format := "webp"
+	format := "webp" //nolint:goconst
 
 	key1 := GenerateCacheKey(url, format)
 	key2 := GenerateCacheKey(url, format)
@@ -191,6 +194,7 @@ func TestStorageOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check file existence: %v", err)
 	}
+
 	if !exists {
 		t.Error("File should exist")
 	}
@@ -212,6 +216,7 @@ func TestStorageOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check file existence after delete: %v", err)
 	}
+
 	if exists {
 		t.Error("File should not exist after delete")
 	}

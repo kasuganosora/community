@@ -14,7 +14,7 @@ import (
 
 var logObj *logrus.Logger
 
-// LogConfig 日志配置
+// LogConfig 日志配置.
 type LogConfig struct {
 	Level        string // debug, info, warn, error
 	Output       string // stdout, file, both
@@ -44,7 +44,7 @@ func init() {
 // - 最多保留 10 个备份文件
 // - 最多保留 30 天
 // - 启用压缩节省空间
-// - 日志目录最大 1GB
+// - 日志目录最大 1GB.
 func DefaultLogConfig() LogConfig {
 	return LogConfig{
 		Level:        "info",
@@ -59,7 +59,7 @@ func DefaultLogConfig() LogConfig {
 	}
 }
 
-// InitLogger 初始化日志配置
+// InitLogger 初始化日志配置.
 func InitLogger(config LogConfig) {
 	// 保存配置用于后续统计
 	SetGlobalLogConfig(config)
@@ -68,12 +68,15 @@ func InitLogger(config LogConfig) {
 	if config.MaxSize <= 0 {
 		config.MaxSize = 100
 	}
+
 	if config.MaxBackups <= 0 {
 		config.MaxBackups = 10
 	}
+
 	if config.MaxAge <= 0 {
 		config.MaxAge = 30
 	}
+
 	if config.MaxDiskUsage <= 0 {
 		config.MaxDiskUsage = 1024 // 默认 1GB
 	}
@@ -83,6 +86,7 @@ func InitLogger(config LogConfig) {
 	if err != nil {
 		level = logrus.InfoLevel
 	}
+
 	logObj.SetLevel(level)
 
 	// 设置日志格式
@@ -109,13 +113,14 @@ func InitLogger(config LogConfig) {
 	}
 }
 
-// getLogWriter 获取日志写入器（支持轮转）
+// getLogWriter 获取日志写入器（支持轮转）.
 func getLogWriter(config LogConfig) io.Writer {
 	// 确保日志目录存在
 	if config.FilePath != "" {
 		dir := filepath.Dir(config.FilePath)
 		if dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			err := os.MkdirAll(dir, 0755) //nolint:gosec // G301: reviewed and safe
+			if err != nil {
 				logObj.Warnf("failed to create log directory %s: %v", dir, err)
 			}
 		}
@@ -145,19 +150,22 @@ func getLogWriter(config LogConfig) io.Writer {
 	}
 }
 
-// getDirSize 获取目录大小（字节）
+// getDirSize 获取目录大小（字节）.
 func getDirSize(dir string) int64 {
 	var size int64
+
 	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			size += info.Size()
 		}
+
 		return nil
 	})
+
 	return size
 }
 
-// cleanupOldLogs 清理旧日志文件
+// cleanupOldLogs 清理旧日志文件.
 func cleanupOldLogs(dir string, config LogConfig) {
 	// 获取所有日志文件
 	files, err := os.ReadDir(dir)
@@ -173,10 +181,12 @@ func cleanupOldLogs(dir string, config LogConfig) {
 	}
 
 	var logFiles []fileInfo
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
+
 		info, err := file.Info()
 		if err != nil {
 			continue
@@ -193,7 +203,7 @@ func cleanupOldLogs(dir string, config LogConfig) {
 	}
 
 	// 按修改时间排序（最旧的在前）
-	for i := 0; i < len(logFiles)-1; i++ {
+	for i := range len(logFiles) - 1 {
 		for j := i + 1; j < len(logFiles); j++ {
 			if logFiles[i].modTime.After(logFiles[j].modTime) {
 				logFiles[i], logFiles[j] = logFiles[j], logFiles[i]
@@ -213,17 +223,18 @@ func cleanupOldLogs(dir string, config LogConfig) {
 			break
 		}
 		// 删除最旧的日志
-		if err := os.Remove(f.path); err == nil {
+		err := os.Remove(f.path)
+		if err == nil {
 			currentSize -= f.size
 			logObj.Warn("Cleaned up old log file: " + f.path)
 		}
 	}
 }
 
-// GetLogStats 获取日志统计信息
-func GetLogStats(config LogConfig) map[string]interface{} {
-	stats := map[string]interface{}{
-		"config": map[string]interface{}{
+// GetLogStats 获取日志统计信息.
+func GetLogStats(config LogConfig) map[string]any {
+	stats := map[string]any{
+		"config": map[string]any{
 			"max_size_mb":       config.MaxSize,
 			"max_backups":       config.MaxBackups,
 			"max_age_days":      config.MaxAge,
@@ -241,12 +252,15 @@ func GetLogStats(config LogConfig) map[string]interface{} {
 
 		// 统计日志文件数量
 		files, _ := os.ReadDir(dir)
+
 		var logFileCount int
+
 		for _, f := range files {
 			if !f.IsDir() && (strings.HasSuffix(f.Name(), ".log") || strings.HasSuffix(f.Name(), ".gz")) {
 				logFileCount++
 			}
 		}
+
 		stats["log_file_count"] = logFileCount
 
 		// 检查是否接近磁盘限制
@@ -261,19 +275,20 @@ func GetLogStats(config LogConfig) map[string]interface{} {
 	return stats
 }
 
-// globalLogConfig 全局日志配置（用于统计）
+// globalLogConfig 全局日志配置（用于统计）.
 var globalLogConfig LogConfig
 
-// SetGlobalLogConfig 设置全局日志配置
+// SetGlobalLogConfig 设置全局日志配置.
 func SetGlobalLogConfig(config LogConfig) {
 	globalLogConfig = config
 }
 
-// GetCurrentLogStats 获取当前日志统计（使用全局配置）
-func GetCurrentLogStats() map[string]interface{} {
+// GetCurrentLogStats 获取当前日志统计（使用全局配置）.
+func GetCurrentLogStats() map[string]any {
 	if globalLogConfig.FilePath == "" {
 		globalLogConfig = DefaultLogConfig()
 	}
+
 	return GetLogStats(globalLogConfig)
 }
 
@@ -281,39 +296,39 @@ func GetLogObject() *logrus.Logger {
 	return logObj
 }
 
-// WriteLog 写入日志
+// WriteLog 写入日志.
 func WriteLog(level logrus.Level, msg string, args ...any) {
 	msg = fmt.Sprintf(msg, args...)
 	logObj.Log(level, msg)
 }
 
-// Debug 调试日志
+// Debug 调试日志.
 func Debug(msg string, args ...any) {
 	WriteLog(logrus.DebugLevel, msg, args...)
 }
 
-// Info 信息日志
+// Info 信息日志.
 func Info(msg string, args ...any) {
 	WriteLog(logrus.InfoLevel, msg, args...)
 }
 
-// Warn 警告日志
+// Warn 警告日志.
 func Warn(msg string, args ...any) {
 	WriteLog(logrus.WarnLevel, msg, args...)
 }
 
-// Error 错误日志
+// Error 错误日志.
 func Error(msg string, args ...any) {
 	WriteLog(logrus.ErrorLevel, msg, args...)
 }
 
-// Fatal 致命错误日志
+// Fatal 致命错误日志.
 func Fatal(msg string, args ...any) {
 	WriteLog(logrus.FatalLevel, msg, args...)
 	os.Exit(1)
 }
 
-// FatalIf 致命错误日志, 如果错误不为空
+// FatalIf 致命错误日志, 如果错误不为空.
 func FatalIf(err error) {
 	if err == nil {
 		return
@@ -323,12 +338,12 @@ func FatalIf(err error) {
 	Fatal(msg)
 }
 
-// Panic 恐慌日志
+// Panic 恐慌日志.
 func Panic(msg string, args ...any) {
 	WriteLog(logrus.PanicLevel, msg, args...)
 }
 
-// ErrorV 错误日志
+// ErrorV 错误日志.
 func ErrorV(err error) {
 	if err == nil {
 		return
@@ -338,26 +353,27 @@ func ErrorV(err error) {
 	Error(msg)
 }
 
-// WithFields 创建带字段的日志条目
-func WithFields(fields map[string]interface{}) *logrus.Entry {
+// WithFields 创建带字段的日志条目.
+func WithFields(fields map[string]any) *logrus.Entry {
 	return logObj.WithFields(fields)
 }
 
-// WithField 创建带单个字段的日志条目
-func WithField(key string, value interface{}) *logrus.Entry {
+// WithField 创建带单个字段的日志条目.
+func WithField(key string, value any) *logrus.Entry {
 	return logObj.WithField(key, value)
 }
 
-// WithError 创建带错误字段的日志条目
+// WithError 创建带错误字段的日志条目.
 func WithError(err error) *logrus.Entry {
 	return logObj.WithError(err)
 }
 
-// SetLevel 设置日志等级
+// SetLevel 设置日志等级.
 func SetLevel(level string) {
 	level = strings.ToUpper(level)
 
 	var lv logrus.Level
+
 	switch level {
 	case "DEBUG":
 		lv = logrus.DebugLevel

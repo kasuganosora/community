@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -49,15 +50,16 @@ func TestSearchRequest_Binding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search"+tt.query, nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search"+tt.query, nil) //nolint:noctx
 
 			var req SearchRequest
+
 			err := c.ShouldBindQuery(&req)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -67,11 +69,12 @@ func TestSearchRequest_Fields(t *testing.T) {
 	t.Run("all fields parsed correctly", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=accounts&limit=10&offset=5&following=true&account_id=123&resolve=true", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=accounts&limit=10&offset=5&following=true&account_id=123&resolve=true", nil) //nolint:noctx
 
 		var req SearchRequest
+
 		err := c.ShouldBindQuery(&req)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "test", req.Q)
 		assert.Equal(t, "accounts", req.Type)
 		assert.Equal(t, 10, req.Limit)
@@ -84,30 +87,32 @@ func TestSearchRequest_Fields(t *testing.T) {
 	t.Run("default values when optional fields omitted", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil) //nolint:noctx
 
 		var req SearchRequest
+
 		err := c.ShouldBindQuery(&req)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "test", req.Q)
-		assert.Equal(t, "", req.Type)
+		assert.Empty(t, req.Type)
 		assert.Equal(t, 0, req.Limit)
 		assert.Equal(t, 0, req.Offset)
 		assert.False(t, req.Following)
-		assert.Equal(t, "", req.AccountId)
-		assert.Equal(t, "", req.MaxId)
-		assert.Equal(t, "", req.MinId)
+		assert.Empty(t, req.AccountId)
+		assert.Empty(t, req.MaxId)
+		assert.Empty(t, req.MinId)
 		assert.False(t, req.Resolve)
 	})
 
 	t.Run("max_id and min_id parsed", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&max_id=100&min_id=50", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&max_id=100&min_id=50", nil) //nolint:noctx
 
 		var req SearchRequest
+
 		err := c.ShouldBindQuery(&req)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "100", req.MaxId)
 		assert.Equal(t, "50", req.MinId)
 	})
@@ -118,7 +123,7 @@ func TestSearchRequest_Fields(t *testing.T) {
 func TestSearch_MissingQuery(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search", nil) //nolint:noctx
 
 	Search(c)
 
@@ -129,7 +134,7 @@ func TestSearch_MissingQuery(t *testing.T) {
 func TestSearch_EmptyQuery(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=%20%20%20", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=%20%20%20", nil) //nolint:noctx
 
 	Search(c)
 
@@ -145,7 +150,7 @@ func TestSearch_ResponseStructure(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=something", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=something", nil) //nolint:noctx
 
 	// Search will try to hit DB/Meilisearch but still returns 200 with empty arrays
 	// This test verifies the response format even if DB errors occur or returns empty
@@ -167,7 +172,7 @@ func TestSearch_DefaultLimitApplied(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil) //nolint:noctx
 
 	Search(c)
 
@@ -181,7 +186,7 @@ func TestSearch_LimitCappedAt40(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&limit=100", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&limit=100", nil) //nolint:noctx
 
 	Search(c)
 
@@ -195,7 +200,7 @@ func TestSearch_TypeAccounts(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=accounts", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=accounts", nil) //nolint:noctx
 
 	Search(c)
 
@@ -210,7 +215,7 @@ func TestSearch_TypeStatuses(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=statuses", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=statuses", nil) //nolint:noctx
 
 	Search(c)
 
@@ -225,7 +230,7 @@ func TestSearch_TypeHashtags(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=hashtags", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&type=hashtags", nil) //nolint:noctx
 
 	Search(c)
 
@@ -240,7 +245,7 @@ func TestSearch_AuthenticatedUser(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test", nil) //nolint:noctx
 	c.Set("authenticated", true)
 
 	Search(c)
@@ -251,11 +256,12 @@ func TestSearch_AuthenticatedUser(t *testing.T) {
 func TestSearch_InvalidLimitTooSmall(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&limit=0", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v2/search?q=test&limit=0", nil) //nolint:noctx
 
 	var req SearchRequest
+
 	err := c.ShouldBindQuery(&req)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 0, req.Limit)
 	// Default of 20 is applied inside handler logic
 }
@@ -317,7 +323,7 @@ func TestSearchAccount_QueryParsing(t *testing.T) {
 	}
 }
 
-// trimForSearch replicates the trimming logic used in searchAccounts
+// trimForSearch replicates the trimming logic used in searchAccounts.
 func trimForSearch(s string) string {
 	// The source code does: strings.Trim(req.Q, " \t\n@")
 	return trimChars(s, " \t\n@")
@@ -326,32 +332,44 @@ func trimForSearch(s string) string {
 func trimChars(s, cutset string) string {
 	// Simple implementation of strings.Trim behavior
 	start := 0
+
 	end := len(s)
+
 	for start < end {
 		found := false
+
 		for _, c := range cutset {
 			if rune(s[start]) == c {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			break
 		}
+
 		start++
 	}
+
 	for end > start {
 		found := false
+
 		for _, c := range cutset {
 			if rune(s[end-1]) == c {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			break
 		}
+
 		end--
 	}
+
 	return s[start:end]
 }

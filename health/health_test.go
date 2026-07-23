@@ -29,9 +29,9 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func TestHealthStatusConstants(t *testing.T) {
-	assert.Equal(t, HealthStatus("healthy"), StatusHealthy)
-	assert.Equal(t, HealthStatus("degraded"), StatusDegraded)
-	assert.Equal(t, HealthStatus("unhealthy"), StatusUnhealthy)
+	assert.Equal(t, StatusHealthy, HealthStatus("healthy"))
+	assert.Equal(t, StatusDegraded, HealthStatus("degraded"))
+	assert.Equal(t, StatusUnhealthy, HealthStatus("unhealthy"))
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +71,7 @@ func TestRegister_Overwrites(t *testing.T) {
 	fn2 := func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusDegraded, Message: "second"}
 	}
+
 	c.Register("svc", fn1)
 	c.Register("svc", fn2)
 	// re-register should replace
@@ -151,11 +152,12 @@ func TestCheck_NoCheckers(t *testing.T) {
 func TestCheck_AllHealthy(t *testing.T) {
 	c := NewChecker("1.0.0")
 	c.Register("svc1", func(ctx context.Context) ServiceHealth {
-		return ServiceHealth{Status: StatusHealthy, Latency: "1ms"}
+		return ServiceHealth{Status: StatusHealthy, Latency: "1ms"} //nolint:goconst
 	})
 	c.Register("svc2", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusHealthy, Latency: "2ms"}
 	})
+
 	resp := c.Check(context.Background())
 	assert.Equal(t, StatusHealthy, resp.Status)
 	assert.Len(t, resp.Services, 2)
@@ -168,6 +170,7 @@ func TestCheck_DegradedService(t *testing.T) {
 	c.Register("svc1", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusDegraded}
 	})
+
 	resp := c.Check(context.Background())
 	assert.Equal(t, StatusDegraded, resp.Status)
 }
@@ -177,6 +180,7 @@ func TestCheck_UnhealthyService(t *testing.T) {
 	c.Register("svc1", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusUnhealthy, Message: "down"}
 	})
+
 	resp := c.Check(context.Background())
 	assert.Equal(t, StatusUnhealthy, resp.Status)
 }
@@ -189,6 +193,7 @@ func TestCheck_UnhealthyOverridesDegraded(t *testing.T) {
 	c.Register("svc2", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusUnhealthy}
 	})
+
 	resp := c.Check(context.Background())
 	assert.Equal(t, StatusUnhealthy, resp.Status)
 }
@@ -232,6 +237,7 @@ func TestCheck_ContextTimeout(t *testing.T) {
 	// pass a context that is already cancelled
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+
 	resp := c.Check(ctx)
 	// The checker itself sets a 5s timeout, but the passed context is already done.
 	// The result depends on timing, but we mainly care it doesn't hang.
@@ -240,7 +246,9 @@ func TestCheck_ContextTimeout(t *testing.T) {
 
 func TestCheck_Uptime(t *testing.T) {
 	c := NewChecker("1.0.0")
+
 	time.Sleep(5 * time.Millisecond)
+
 	resp := c.Check(context.Background())
 	assert.Contains(t, resp.Uptime, "ms")
 }
@@ -252,6 +260,7 @@ func TestCheck_Uptime(t *testing.T) {
 func setupRouter(handler gin.HandlerFunc) *gin.Engine {
 	r := gin.New()
 	r.GET("/health", handler)
+
 	return r
 }
 
@@ -260,15 +269,17 @@ func TestHandler_Healthy(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusHealthy, Latency: "1ms"}
 	})
+
 	r := setupRouter(c.Handler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var body HealthResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, StatusHealthy, body.Status)
@@ -280,9 +291,10 @@ func TestHandler_Degraded(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusDegraded}
 	})
+
 	r := setupRouter(c.Handler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -290,6 +302,7 @@ func TestHandler_Degraded(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var body HealthResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, StatusDegraded, body.Status)
@@ -300,15 +313,17 @@ func TestHandler_Unhealthy(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusUnhealthy, Message: "down"}
 	})
+
 	r := setupRouter(c.Handler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
 	var body HealthResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, StatusUnhealthy, body.Status)
@@ -322,13 +337,14 @@ func TestLivenessHandler(t *testing.T) {
 	c := NewChecker("1.0.0")
 	r := setupRouter(c.LivenessHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, "alive", body["status"])
@@ -346,15 +362,17 @@ func TestReadinessHandler_Ready(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusHealthy}
 	})
+
 	r := setupRouter(c.ReadinessHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, "ready", body["status"])
@@ -365,15 +383,17 @@ func TestReadinessHandler_NotReady(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusUnhealthy, Message: "critical"}
 	})
+
 	r := setupRouter(c.ReadinessHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, "not_ready", body["status"])
@@ -385,16 +405,18 @@ func TestReadinessHandler_Degraded(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusDegraded}
 	})
+
 	r := setupRouter(c.ReadinessHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	// Degraded is still "ready"
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, "ready", body["status"])
@@ -407,7 +429,9 @@ func TestReadinessHandler_Degraded(t *testing.T) {
 func TestDatabaseChecker_Healthy(t *testing.T) {
 	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+
 	sqlDB1, _ := testDB.DB()
+
 	defer func() { _ = sqlDB1.Close() }()
 
 	checker := DatabaseChecker(testDB)
@@ -416,7 +440,7 @@ func TestDatabaseChecker_Healthy(t *testing.T) {
 	assert.NotEmpty(t, health.Latency)
 	assert.NotNil(t, health.Metadata)
 
-	meta, ok := health.Metadata.(map[string]interface{})
+	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, meta, "open_connections")
 	assert.Contains(t, meta, "in_use")
@@ -470,7 +494,7 @@ func TestRedisChecker_DeadServer(t *testing.T) {
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:1",
 	})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	checker := RedisChecker(client)
 	health := checker(context.Background())
@@ -483,12 +507,13 @@ func TestRedisChecker_Success(t *testing.T) {
 	// Use miniredis to test the success path
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
+
 	defer mr.Close()
 
 	client := redis.NewClient(&redis.Options{
 		Addr: mr.Addr(),
 	})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	checker := RedisChecker(client)
 	health := checker(context.Background())
@@ -496,11 +521,11 @@ func TestRedisChecker_Success(t *testing.T) {
 	assert.NotEmpty(t, health.Latency)
 	assert.NotNil(t, health.Metadata)
 
-	meta, ok := health.Metadata.(map[string]interface{})
+	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
 	// parseRedisInfo always returns empty map, so version/mode will be empty strings
-	assert.Equal(t, "", meta["version"])
-	assert.Equal(t, "", meta["mode"])
+	assert.Empty(t, meta["version"])
+	assert.Empty(t, meta["mode"])
 }
 
 // ---------------------------------------------------------------------------
@@ -510,11 +535,13 @@ func TestRedisChecker_Success(t *testing.T) {
 func TestStorageChecker_Local(t *testing.T) {
 	checker := StorageChecker("local")
 	// Create temporary dirs for testing
-	dirs := []string{"uploads", "media", "cache", "logs"}
+	dirs := []string{"uploads", "media", "cache", "logs"} //nolint:goconst
 	for _, d := range dirs {
-		_ = os.MkdirAll(d, 0755)
+		_ = os.MkdirAll(d, 0755) //nolint:gosec // G301: reviewed and safe
+
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
+
 	health := checker(context.Background())
 	// local checks for directories; result depends on environment
 	assert.NotEmpty(t, health.Latency)
@@ -557,12 +584,14 @@ func TestStorageChecker_Unknown(t *testing.T) {
 func TestCheckLocalStorage_AllDirsExist(t *testing.T) {
 	dirs := []string{"uploads", "media", "cache", "logs"}
 	for _, d := range dirs {
-		_ = os.MkdirAll(d, 0755)
+		_ = os.MkdirAll(d, 0755) //nolint:gosec // G301: reviewed and safe
+
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
+
 	health := checkLocalStorage(time.Now())
 	assert.Equal(t, StatusHealthy, health.Status)
-	meta, ok := health.Metadata.(map[string]interface{})
+	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, dirs, meta["checked_dirs"])
 }
@@ -572,6 +601,7 @@ func TestCheckLocalStorage_SomeDirsMissing(t *testing.T) {
 	dirs := []string{"uploads", "media", "cache", "logs"}
 	for _, d := range dirs {
 		_ = os.RemoveAll(d)
+
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 
@@ -582,9 +612,10 @@ func TestCheckLocalStorage_SomeDirsMissing(t *testing.T) {
 
 func TestCheckLocalStorage_DirIsFile(t *testing.T) {
 	// Create a file named "uploads" so os.Stat succeeds but IsDir returns false
-	tmpFile, err := os.CreateTemp("", "uploads")
+	tmpFile, err := os.CreateTemp(t.TempDir(), "uploads")
 	require.NoError(t, err)
-	tmpFile.Close()
+
+	_ = tmpFile.Close()
 	// Move the temp file to "uploads" in cwd
 	_ = os.Remove("uploads")
 	err = os.Rename(tmpFile.Name(), "uploads")
@@ -605,7 +636,7 @@ func TestMatrixHomeserverChecker(t *testing.T) {
 	health := checker(context.Background())
 	assert.Equal(t, StatusHealthy, health.Status)
 	assert.NotEmpty(t, health.Latency)
-	meta, ok := health.Metadata.(map[string]interface{})
+	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "example.com", meta["server_name"])
 }
@@ -632,7 +663,9 @@ func TestActivityPubChecker_URLConfigured(t *testing.T) {
 func TestActivityPubChecker_EmptyURL(t *testing.T) {
 	// Save and restore config
 	origURL := config.C.AppBaseURL
+
 	config.C.AppBaseURL = ""
+
 	defer func() { config.C.AppBaseURL = origURL }()
 
 	checker := ActivityPubChecker()
@@ -643,7 +676,9 @@ func TestActivityPubChecker_EmptyURL(t *testing.T) {
 
 func TestActivityPubChecker_WithURL(t *testing.T) {
 	origURL := config.C.AppBaseURL
+
 	config.C.AppBaseURL = "https://example.com"
+
 	defer func() { config.C.AppBaseURL = origURL }()
 
 	checker := ActivityPubChecker()
@@ -704,13 +739,14 @@ func TestCheckWithTimeout_ExceedsTimeout(t *testing.T) {
 
 func TestSimpleHealthHandler(t *testing.T) {
 	r := setupRouter(SimpleHealthHandler())
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Equal(t, "healthy", body["status"])
@@ -725,7 +761,7 @@ func TestLogHealthStatus_AllHealthy(t *testing.T) {
 	health := HealthResponse{
 		Status:    StatusHealthy,
 		Timestamp: time.Now().UTC(),
-		Version:   "1.0.0",
+		Version:   "1.0.0", //nolint:goconst
 		Uptime:    "10s",
 		Services: map[string]ServiceHealth{
 			"svc1": {Status: StatusHealthy, Latency: "1ms"},
@@ -803,12 +839,16 @@ func TestDefaultChecker_WithDB(t *testing.T) {
 
 	// Save original and restore
 	origDB := database.DB
+
 	database.DB = testDB
+
 	defer func() { database.DB = origDB }()
 
 	// Reset defaultChecker so it gets re-created
 	origDefault := defaultChecker
+
 	defaultChecker = nil
+
 	defer func() { defaultChecker = origDefault }()
 
 	c := DefaultChecker()
@@ -833,7 +873,7 @@ func TestInitChecker_WithRedisClient(t *testing.T) {
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:1",
 	})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	c := InitChecker(client)
 	require.NotNil(t, c)
@@ -847,7 +887,9 @@ func TestInitChecker_WithDB(t *testing.T) {
 	require.NoError(t, err)
 
 	origDB := database.DB
+
 	database.DB = testDB
+
 	defer func() { database.DB = origDB }()
 
 	c := InitChecker(nil)
@@ -864,7 +906,7 @@ func TestServiceHealth_JSONEncoding(t *testing.T) {
 		Status:   StatusDegraded,
 		Latency:  "10ms",
 		Message:  "slow",
-		Metadata: map[string]interface{}{"key": "value"},
+		Metadata: map[string]any{"key": "value"},
 	}
 	data, err := json.Marshal(sh)
 	require.NoError(t, err)
@@ -913,7 +955,7 @@ func TestHealthResponse_JSONEncoding(t *testing.T) {
 
 func TestDetailedHealthHandler(t *testing.T) {
 	r := setupRouter(DetailedHealthHandler())
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	// Should not panic; status code should be 200 or 503
@@ -922,7 +964,7 @@ func TestDetailedHealthHandler(t *testing.T) {
 
 func TestPackageLivenessHandler(t *testing.T) {
 	r := setupRouter(LivenessHandler())
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -930,7 +972,7 @@ func TestPackageLivenessHandler(t *testing.T) {
 
 func TestPackageReadinessHandler(t *testing.T) {
 	r := setupRouter(ReadinessHandler())
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil) //nolint:noctx
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	// Should not panic
@@ -946,9 +988,10 @@ func TestCheck_FreshResponse(t *testing.T) {
 	c.Register("svc", func(ctx context.Context) ServiceHealth {
 		return ServiceHealth{Status: StatusHealthy, Latency: "1ms"}
 	})
+
 	r1 := c.Check(context.Background())
 	r2 := c.Check(context.Background())
 	// They should be different instances
-	assert.True(t, &r1.Services != &r2.Services)
+	assert.NotSame(t, &r1.Services, &r2.Services)
 	assert.False(t, r2.Timestamp.Before(r1.Timestamp))
 }

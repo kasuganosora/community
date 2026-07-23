@@ -1,0 +1,25 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - unconvert
+    - unparam
+    - gocritic
+    - prealloc
+    - nilerr
+    - nilnil
+    - forcetypeassert
+    - contextcheck
+    - noctx
+    - wastedassign
+    - misspell
+    - gosec
+    - errcheck
+
+  settings:
+    goconst:
+      min-occurrences: 15
+      min-length: 8
+      ignore-tests: true

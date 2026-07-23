@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,27 +31,27 @@ const (
 	RoomVersion11 RoomUpgradeVersion = "11"
 )
 
-// UpgradeRoomRequest 房间升级请求
+// UpgradeRoomRequest 房间升级请求.
 type UpgradeRoomRequest struct {
-	NewVersion string `json:"new_version" binding:"required"`
+	NewVersion string `binding:"required" json:"new_version"`
 }
 
-// UpgradeRoomResponse 房间升级响应
+// UpgradeRoomResponse 房间升级响应.
 type UpgradeRoomResponse struct {
 	ReplacementRoom string `json:"replacement_room"`
 }
 
-// RoomUpgradeService 房间升级服务
+// RoomUpgradeService 房间升级服务.
 type RoomUpgradeService struct {
 	hs *HomeServer
 }
 
-// NewRoomUpgradeService 创建房间升级服务
+// NewRoomUpgradeService 创建房间升级服务.
 func NewRoomUpgradeService(hs *HomeServer) *RoomUpgradeService {
 	return &RoomUpgradeService{hs: hs}
 }
 
-// UpgradeRoom 升级房间到新版本
+// UpgradeRoom 升级房间到新版本.
 func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*UpgradeRoomResponse, *MatrixError) {
 	// 验证新版本是否支持
 	if !isSupportedRoomVersion(newVersion) {
@@ -74,7 +75,7 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 	// 检查房间是否已经是目标版本
 	if oldRoom.RoomVersion == newVersion {
 		return nil, &MatrixError{
-			ErrCode: "M_BAD_REQUEST",
+			ErrCode: "M_BAD_REQUEST", //nolint:goconst
 			Error:   "Room is already at the requested version",
 		}
 	}
@@ -92,11 +93,11 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 		Topic:         oldRoom.Topic,
 		Visibility:    "private", // 升级过程中保持私有，之后改为与旧房间相同
 		RoomAliasName: nil,       // 不创建别名，保留旧房间的别名
-		CreationContent: map[string]interface{}{
+		CreationContent: map[string]any{
 			"room_version": newVersion,
-			"predecessor": map[string]interface{}{
-				"room_id":  roomID,
-				"event_id": oldRoom.LastEventID,
+			"predecessor": map[string]any{
+				"room_id":  roomID,              //nolint:goconst
+				"event_id": oldRoom.LastEventID, //nolint:goconst
 			},
 		},
 		InitialState: rus.buildInitialState(oldState),
@@ -118,8 +119,8 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 	rus.migratePushRules(roomID, newRoomID)
 
 	// 在旧房间发送 tombstone 事件
-	tombstoneContent := map[string]interface{}{
-		"body":             fmt.Sprintf("This room has been replaced by %s", newRoomID),
+	tombstoneContent := map[string]any{
+		"body":             "This room has been replaced by " + newRoomID, //nolint:goconst
 		"replacement_room": newRoomID,
 	}
 	stateKey := ""
@@ -142,11 +143,11 @@ func (rus *RoomUpgradeService) UpgradeRoom(userID, roomID, newVersion string) (*
 }
 
 const (
-	// EventTypeRoomTombstone 房间墓碑事件
+	// EventTypeRoomTombstone 房间墓碑事件.
 	EventTypeRoomTombstone = "m.room.tombstone"
 )
 
-// canUpgradeRoom 检查用户是否可以升级房间
+// canUpgradeRoom 检查用户是否可以升级房间.
 func (rus *RoomUpgradeService) canUpgradeRoom(roomID, userID string) bool {
 	// 获取用户的权限等级
 	var member MatrixRoomMember
@@ -162,14 +163,17 @@ func (rus *RoomUpgradeService) canUpgradeRoom(roomID, userID string) bool {
 		if room != nil {
 			return room.Creator == userID
 		}
+
 		return false
 	}
 
 	var plContent PowerLevelContent
+
 	data, err := json.Marshal(powerLevels.Content)
 	if err != nil {
 		return false
 	}
+
 	if err := json.Unmarshal(data, &plContent); err != nil {
 		return false
 	}
@@ -183,26 +187,29 @@ func (rus *RoomUpgradeService) canUpgradeRoom(roomID, userID string) bool {
 	return userLevel >= 100
 }
 
-// getRoomState 获取房间的完整状态
+// getRoomState 获取房间的完整状态.
 func (rus *RoomUpgradeService) getRoomState(roomID string) (map[string]MatrixRoomState, error) {
 	var states []MatrixRoomState
-	if err := db.GetDB().Where("room_id = ?", roomID).Find(&states).Error; err != nil {
+	err := db.GetDB().Where("room_id = ?", roomID).Find(&states).Error
+	if err != nil {
 		return nil, err
 	}
 
 	stateMap := make(map[string]MatrixRoomState)
+
 	for _, state := range states {
 		key := string(state.EventType)
 		if state.StateKey != "" {
 			key = key + ":" + state.StateKey
 		}
+
 		stateMap[key] = state
 	}
 
 	return stateMap, nil
 }
 
-// buildInitialState 构建新房间的初始状态
+// buildInitialState 构建新房间的初始状态.
 func (rus *RoomUpgradeService) buildInitialState(oldState map[string]MatrixRoomState) []CreateRoomStateEvent {
 	initialState := []CreateRoomStateEvent{}
 
@@ -239,11 +246,12 @@ func (rus *RoomUpgradeService) buildInitialState(oldState map[string]MatrixRoomS
 	return initialState
 }
 
-// migrateMembers 迁移房间成员
+// migrateMembers 迁移房间成员.
 func (rus *RoomUpgradeService) migrateMembers(oldRoomID, newRoomID, creatorID string) {
 	// 获取旧房间的所有成员
 	var members []MatrixRoomMember
-	db.GetDB().Where("room_id = ? AND membership IN ?", oldRoomID, []string{"join", "invite"}).Find(&members)
+
+	db.GetDB().Where("room_id = ? AND membership IN ?", oldRoomID, []string{"join", "invite"}).Find(&members) //nolint:goconst
 
 	for _, member := range members {
 		if member.UserID == creatorID {
@@ -271,7 +279,9 @@ func (rus *RoomUpgradeService) migrateMembers(oldRoomID, newRoomID, creatorID st
 // Uses FirstOrCreate for idempotency — safe to call multiple times (e.g. from both local and federated tombstone events).
 func (rus *RoomUpgradeService) migratePushRules(oldRoomID, newRoomID string) {
 	var rules []PushRule
+
 	db.GetDB().Where("kind = ? AND rule_id = ?", "room", oldRoomID).Find(&rules)
+
 	for _, rule := range rules {
 		newRule := PushRule{
 			UserID:        rule.UserID,
@@ -291,14 +301,15 @@ func (rus *RoomUpgradeService) migratePushRules(oldRoomID, newRoomID string) {
 	}
 }
 
-// migrateRoomAlias 迁移房间别名
+// migrateRoomAlias 迁移房间别名.
 func (rus *RoomUpgradeService) migrateRoomAlias(oldRoomID, newRoomID string) {
 	// 查找旧房间的别名
 	var aliasStates []MatrixRoomState
+
 	db.GetDB().Where("room_id = ? AND event_type = ?", oldRoomID, EventTypeRoomAliases).Find(&aliasStates)
 
 	for _, state := range aliasStates {
-		if aliases, ok := state.Content["aliases"].([]interface{}); ok {
+		if aliases, ok := state.Content["aliases"].([]any); ok {
 			for _, alias := range aliases {
 				if aliasStr, ok := alias.(string); ok {
 					// 更新别名指向新房间
@@ -310,14 +321,15 @@ func (rus *RoomUpgradeService) migrateRoomAlias(oldRoomID, newRoomID string) {
 
 	// 更新 canonical_alias
 	var canonicalAlias MatrixRoomState
-	if err := db.GetDB().Where("room_id = ? AND event_type = ?", oldRoomID, EventTypeRoomCanonicalAlias).First(&canonicalAlias).Error; err == nil {
+	err := db.GetDB().Where("room_id = ? AND event_type = ?", oldRoomID, EventTypeRoomCanonicalAlias).First(&canonicalAlias).Error
+	if err == nil {
 		if alias, ok := canonicalAlias.Content["alias"].(string); ok {
 			rus.updateRoomAlias(alias, newRoomID)
 		}
 	}
 }
 
-// updateRoomAlias 更新房间别名
+// updateRoomAlias 更新房间别名.
 func (rus *RoomUpgradeService) updateRoomAlias(alias, newRoomID string) {
 	// 删除旧别名映射
 	db.GetDB().Where("alias = ?", alias).Delete(&MatrixRoomAlias{})
@@ -330,7 +342,7 @@ func (rus *RoomUpgradeService) updateRoomAlias(alias, newRoomID string) {
 	db.GetDB().Create(newAlias)
 }
 
-// recordRoomUpgrade 记录房间升级历史
+// recordRoomUpgrade 记录房间升级历史.
 func (rus *RoomUpgradeService) recordRoomUpgrade(oldRoomID, newRoomID, newVersion string) {
 	upgrade := &MatrixRoomUpgrade{
 		OldRoomID:  oldRoomID,
@@ -341,29 +353,33 @@ func (rus *RoomUpgradeService) recordRoomUpgrade(oldRoomID, newRoomID, newVersio
 	db.GetDB().Create(upgrade)
 }
 
-// GetRoomUpgradeHistory 获取房间升级历史
+// GetRoomUpgradeHistory 获取房间升级历史.
 func (rus *RoomUpgradeService) GetRoomUpgradeHistory(roomID string) ([]MatrixRoomUpgrade, error) {
 	var history []MatrixRoomUpgrade
-	if err := db.GetDB().Where("old_room_id = ? OR new_room_id = ?", roomID, roomID).
+	err := db.GetDB().Where("old_room_id = ? OR new_room_id = ?", roomID, roomID).
 		Order("upgraded_at DESC").
-		Find(&history).Error; err != nil {
+		Find(&history).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return history, nil
 }
 
-// IsRoomUpgraded 检查房间是否已被升级
+// IsRoomUpgraded 检查房间是否已被升级.
 func (rus *RoomUpgradeService) IsRoomUpgraded(roomID string) (string, bool) {
 	var upgrade MatrixRoomUpgrade
-	if err := db.GetDB().Where("old_room_id = ?", roomID).First(&upgrade).Error; err == nil {
+	err := db.GetDB().Where("old_room_id = ?", roomID).First(&upgrade).Error
+	if err == nil {
 		return upgrade.NewRoomID, true
 	}
+
 	return "", false
 }
 
 // ===== 数据库模型 =====
 
-// MatrixRoomUpgrade 房间升级记录
+// MatrixRoomUpgrade 房间升级记录.
 type MatrixRoomUpgrade struct {
 	ID         uint64    `gorm:"primaryKey;autoIncrement"`
 	OldRoomID  string    `gorm:"index;type:varchar(255);not null"`
@@ -378,7 +394,7 @@ func (MatrixRoomUpgrade) TableName() string {
 
 // ===== HTTP Handlers =====
 
-// RegisterRoomUpgradeRoutes 注册房间升级路由
+// RegisterRoomUpgradeRoutes 注册房间升级路由.
 func RegisterRoomUpgradeRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -393,31 +409,34 @@ func RegisterRoomUpgradeRoutes(r gin.IRouter) {
 	}
 }
 
-// handleUpgradeRoom 处理房间升级请求
+// handleUpgradeRoom 处理房间升级请求.
 func handleUpgradeRoom(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 	roomID := c.Param("roomId")
 
 	var req UpgradeRoomRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   err.Error(),
+			"errcode": "M_BAD_JSON", //nolint:goconst
+			"error":   err.Error(),  //nolint:goconst
 		})
+
 		return
 	}
 
 	resp, matrixErr := hs.RoomUpgrade.UpgradeRoom(userID, roomID, req.NewVersion)
 	if matrixErr != nil {
 		c.JSON(http.StatusBadRequest, ginErrFromMatrix(matrixErr))
+
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// ginErrFromMatrix 转换 MatrixError 为 gin.H
+// ginErrFromMatrix 转换 MatrixError 为 gin.H.
 func ginErrFromMatrix(err *MatrixError) gin.H {
 	return gin.H{
 		"errcode": err.ErrCode,
@@ -425,23 +444,19 @@ func ginErrFromMatrix(err *MatrixError) gin.H {
 	}
 }
 
-// isSupportedRoomVersion 检查是否支持该房间版本
+// isSupportedRoomVersion 检查是否支持该房间版本.
 func isSupportedRoomVersion(version string) bool {
 	supported := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}
-	for _, v := range supported {
-		if v == version {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supported, version)
 }
 
-// updateJoinRule 更新房间加入规则
+// updateJoinRule 更新房间加入规则.
 func (rus *RoomUpgradeService) updateJoinRule(roomID, userID, joinRule string) *MatrixError {
-	content := map[string]interface{}{
-		"join_rule": joinRule,
+	content := map[string]any{
+		"join_rule": joinRule, //nolint:goconst
 	}
 	stateKey := ""
 	_, err := rus.hs.Event.SendRoomEvent(roomID, userID, string(EventTypeRoomJoinRules), nil, content, &stateKey)
+
 	return err
 }

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // 对于生产环境，建议使用 mautrix/go 的 crypto 包
 // 或使用纯 Go 实现的 Matrix 加密库
 
-// OlmAccount Olm 账户
+// OlmAccount Olm 账户.
 type OlmAccount struct {
 	IdentityKey *memguard.Enclave // Curve25519 身份密钥对
 	SigningKey  *memguard.Enclave // Ed25519 签名密钥对
@@ -29,7 +30,7 @@ type OlmAccount struct {
 	NextKeyID   uint32            // 下一个密钥 ID
 }
 
-// OlmOneTimeKey Olm 一次性密钥
+// OlmOneTimeKey Olm 一次性密钥.
 type OlmOneTimeKey struct {
 	KeyID      uint32
 	PublicKey  []byte
@@ -38,7 +39,7 @@ type OlmOneTimeKey struct {
 	Used       bool
 }
 
-// OlmSession Olm 会话（双棘轮）
+// OlmSession Olm 会话（双棘轮）.
 type OlmSession struct {
 	SessionID        string
 	TheirIdentityKey []byte                       // 对方身份公钥
@@ -50,14 +51,14 @@ type OlmSession struct {
 	ReceivedCount    uint32                       // 接收计数
 }
 
-// OlmMessage Olm 加密消息
+// OlmMessage Olm 加密消息.
 type OlmMessage struct {
 	Ciphertext string `json:"ciphertext"`
 	MAC        string `json:"mac"`
 	IV         string `json:"iv"`
 }
 
-// NewOlmAccount 创建新的 Olm 账户
+// NewOlmAccount 创建新的 Olm 账户.
 func NewOlmAccount() (*OlmAccount, error) {
 	// 生成 Curve25519 身份密钥对
 	identityPrivateKey := make([]byte, 32)
@@ -76,9 +77,9 @@ func NewOlmAccount() (*OlmAccount, error) {
 	}, nil
 }
 
-// GenerateOneTimeKeys 生成一次性密钥
+// GenerateOneTimeKeys 生成一次性密钥.
 func (acc *OlmAccount) GenerateOneTimeKeys(count int) error {
-	for i := 0; i < count; i++ {
+	for range count {
 		// 生成 Curve25519 密钥对
 		privateKey := make([]byte, 32)
 		if _, err := rand.Read(privateKey); err != nil {
@@ -100,25 +101,28 @@ func (acc *OlmAccount) GenerateOneTimeKeys(count int) error {
 
 		acc.OneTimeKeys = append(acc.OneTimeKeys, otk)
 		acc.NextKeyID++
+
 		memguard.WipeBytes(privateKey)
 	}
 
 	return nil
 }
 
-// GetUnpublishedOneTimeKeys 获取未发布的一次性密钥
+// GetUnpublishedOneTimeKeys 获取未发布的一次性密钥.
 func (acc *OlmAccount) GetUnpublishedOneTimeKeys() map[string]string {
 	keys := make(map[string]string)
+
 	for _, otk := range acc.OneTimeKeys {
 		if !otk.Published && !otk.Used {
 			keyID := fmt.Sprintf("curve25519:%d", otk.KeyID)
 			keys[keyID] = base64.RawStdEncoding.EncodeToString(otk.PublicKey)
 		}
 	}
+
 	return keys
 }
 
-// MarkOneTimeKeysAsPublished 标记一次性密钥为已发布
+// MarkOneTimeKeysAsPublished 标记一次性密钥为已发布.
 func (acc *OlmAccount) MarkOneTimeKeysAsPublished() {
 	for _, otk := range acc.OneTimeKeys {
 		if !otk.Used {
@@ -127,7 +131,7 @@ func (acc *OlmAccount) MarkOneTimeKeysAsPublished() {
 	}
 }
 
-// RemoveOneTimeKey 移除已使用的一次性密钥
+// RemoveOneTimeKey 移除已使用的一次性密钥.
 func (acc *OlmAccount) RemoveOneTimeKey(keyID uint32) {
 	for i, otk := range acc.OneTimeKeys {
 		if otk.KeyID == keyID {
@@ -140,12 +144,13 @@ func (acc *OlmAccount) RemoveOneTimeKey(keyID uint32) {
 			}
 			// 从列表中移除
 			acc.OneTimeKeys = append(acc.OneTimeKeys[:i], acc.OneTimeKeys[i+1:]...)
+
 			return
 		}
 	}
 }
 
-// CreateOutboundSession 创建出站会话（Alice 模式）
+// CreateOutboundSession 创建出站会话（Alice 模式）.
 func (acc *OlmAccount) CreateOutboundSession(
 	theirIdentityKey, theirOTKey []byte,
 ) (*OlmSession, error) {
@@ -154,7 +159,9 @@ func (acc *OlmAccount) CreateOutboundSession(
 	if err != nil {
 		return nil, fmt.Errorf("failed to open identity key: %w", err)
 	}
+
 	defer identityKeyBuf.Destroy()
+
 	ourIdentityPrivate := identityKeyBuf.Bytes()
 
 	// 生成临时密钥对（Triple DH 的一部分）
@@ -162,6 +169,7 @@ func (acc *OlmAccount) CreateOutboundSession(
 	if _, err := rand.Read(ourBasePrivate); err != nil {
 		return nil, fmt.Errorf("failed to generate base key: %w", err)
 	}
+
 	_, err = curve25519.X25519(ourBasePrivate, curve25519.Basepoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive base public key: %w", err)
@@ -212,7 +220,7 @@ func (acc *OlmAccount) CreateOutboundSession(
 	return session, nil
 }
 
-// CreateInboundSession 创建入站会话（Bob 模式）
+// CreateInboundSession 创建入站会话（Bob 模式）.
 func (acc *OlmAccount) CreateInboundSession(
 	theirIdentityKey, theirBaseKey []byte,
 	oneTimeKeyID uint32,
@@ -222,20 +230,24 @@ func (acc *OlmAccount) CreateInboundSession(
 	if err != nil {
 		return nil, fmt.Errorf("failed to open identity key: %w", err)
 	}
+
 	defer identityKeyBuf.Destroy()
+
 	ourIdentityPrivate := identityKeyBuf.Bytes()
 
 	// 查找并使用一次性密钥
 	var ourOTK *OlmOneTimeKey
+
 	for _, otk := range acc.OneTimeKeys {
 		if otk.KeyID == oneTimeKeyID && !otk.Used {
 			ourOTK = otk
+
 			break
 		}
 	}
 
 	if ourOTK == nil {
-		return nil, fmt.Errorf("one-time key not found or already used")
+		return nil, errors.New("one-time key not found or already used")
 	}
 
 	// 获取一次性私钥
@@ -243,7 +255,9 @@ func (acc *OlmAccount) CreateInboundSession(
 	if err != nil {
 		return nil, fmt.Errorf("failed to open OTK: %w", err)
 	}
+
 	defer otkBuf.Destroy()
+
 	ourOTPrivate := otkBuf.Bytes()
 
 	// 执行 Triple Diffie-Hellman
@@ -285,6 +299,7 @@ func (acc *OlmAccount) CreateInboundSession(
 
 	// 标记一次性密钥为已使用
 	ourOTK.Used = true
+
 	acc.RemoveOneTimeKey(oneTimeKeyID)
 
 	memguard.WipeBytes(rootKey)
@@ -292,14 +307,16 @@ func (acc *OlmAccount) CreateInboundSession(
 	return session, nil
 }
 
-// EncryptMessage 加密消息（使用当前发送链密钥）
+// EncryptMessage 加密消息（使用当前发送链密钥）.
 func (sess *OlmSession) EncryptMessage(plaintext []byte) (*OlmMessage, error) {
 	// 获取当前发送链密钥
 	chainKeyBuf, err := sess.ChainKeys["sending"].Open()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open chain key: %w", err)
 	}
+
 	defer chainKeyBuf.Destroy()
+
 	chainKey := chainKeyBuf.Bytes()
 
 	// 派生消息密钥和下一个链密钥
@@ -332,14 +349,16 @@ func (sess *OlmSession) EncryptMessage(plaintext []byte) (*OlmMessage, error) {
 	}, nil
 }
 
-// DecryptMessage 解密消息
+// DecryptMessage 解密消息.
 func (sess *OlmSession) DecryptMessage(msg *OlmMessage) ([]byte, error) {
 	// 获取当前接收链密钥
 	chainKeyBuf, err := sess.ChainKeys["receiving"].Open()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open chain key: %w", err)
 	}
+
 	defer chainKeyBuf.Destroy()
+
 	chainKey := chainKeyBuf.Bytes()
 
 	// 派生消息密钥
@@ -369,7 +388,7 @@ func (sess *OlmSession) DecryptMessage(msg *OlmMessage) ([]byte, error) {
 	// 验证 MAC
 	computedMAC := computeMAC(ciphertext, messageKey)
 	if !hmac.Equal(computedMAC, expectedMAC) {
-		return nil, fmt.Errorf("MAC verification failed")
+		return nil, errors.New("MAC verification failed")
 	}
 
 	// 解密消息
@@ -383,7 +402,7 @@ func (sess *OlmSession) DecryptMessage(msg *OlmMessage) ([]byte, error) {
 
 // ===== 密钥派生函数 =====
 
-// deriveRootKey 派生根密钥
+// deriveRootKey 派生根密钥.
 func deriveRootKey(dh1, dh2, dh3 []byte) []byte {
 	// 连接所有 DH 结果
 	input := make([]byte, 0, len(dh1)+len(dh2)+len(dh3))
@@ -393,7 +412,9 @@ func deriveRootKey(dh1, dh2, dh3 []byte) []byte {
 
 	// 使用 HKDF 派生根密钥
 	hkdfReader := hkdf.New(sha256.New, input, nil, []byte("OlmRootKey"))
+
 	rootKey := make([]byte, 32)
+
 	if _, err := hkdfReader.Read(rootKey); err != nil {
 		panic(fmt.Sprintf("hkdf failed: %v", err))
 	}
@@ -401,30 +422,37 @@ func deriveRootKey(dh1, dh2, dh3 []byte) []byte {
 	return rootKey
 }
 
-// deriveChainKey 派生链密钥
+// deriveChainKey 派生链密钥.
 func deriveChainKey(rootKey []byte, index uint32) *memguard.Enclave {
 	info := fmt.Sprintf("OlmChainKey|%d", index)
 	hkdfReader := hkdf.New(sha256.New, rootKey, nil, []byte(info))
+
 	chainKey := make([]byte, 32)
+
 	if _, err := hkdfReader.Read(chainKey); err != nil {
 		panic(fmt.Sprintf("hkdf failed: %v", err))
 	}
+
 	return memguard.NewEnclave(chainKey)
 }
 
-// deriveMessageKey 派生消息密钥
+// deriveMessageKey 派生消息密钥.
 func deriveMessageKey(chainKey []byte, index uint32) (messageKey, nextChainKey []byte) {
 	// 派生消息密钥
 	info := fmt.Sprintf("OlmMessageKey|%d", index)
 	hkdfReader := hkdf.New(sha256.New, chainKey, nil, []byte(info))
+
 	messageKey = make([]byte, 32)
+
 	if _, err := hkdfReader.Read(messageKey); err != nil {
 		panic(fmt.Sprintf("hkdf failed: %v", err))
 	}
 
 	// 派生下一个链密钥
 	nextChainKey = make([]byte, 32)
+
 	nextReader := hkdf.New(sha256.New, chainKey, nil, []byte("OlmNextChainKey"))
+
 	if _, err := nextReader.Read(nextChainKey); err != nil {
 		panic(fmt.Sprintf("hkdf failed: %v", err))
 	}
@@ -434,7 +462,7 @@ func deriveMessageKey(chainKey []byte, index uint32) (messageKey, nextChainKey [
 
 // ===== 加密/解密函数 =====
 
-// encryptAESGCM 使用 AES-GCM 加密
+// encryptAESGCM 使用 AES-GCM 加密.
 func encryptAESGCM(plaintext, key, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -447,10 +475,11 @@ func encryptAESGCM(plaintext, key, iv []byte) ([]byte, error) {
 	}
 
 	ciphertext := gcm.Seal(nil, iv, plaintext, nil)
+
 	return ciphertext, nil
 }
 
-// decryptAESGCM 使用 AES-GCM 解密
+// decryptAESGCM 使用 AES-GCM 解密.
 func decryptAESGCM(ciphertext, key, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -470,23 +499,25 @@ func decryptAESGCM(ciphertext, key, iv []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// computeMAC 计算 MAC
+// computeMAC 计算 MAC.
 func computeMAC(data, key []byte) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(data)
+
 	return mac.Sum(nil)[:16] // 使用 128 位 MAC
 }
 
-// generateSessionID 生成会话 ID
+// generateSessionID 生成会话 ID.
 func generateSessionID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
+	_, _ = rand.Read(b)
+
 	return base64.RawStdEncoding.EncodeToString(b)
 }
 
 // ===== Megolm 群聊加密（简化实现）=====
 
-// MegolmSession Megolm 会话（用于群聊）
+// MegolmSession Megolm 会话（用于群聊）.
 type MegolmSession struct {
 	SessionID    string
 	RoomID       string
@@ -495,7 +526,7 @@ type MegolmSession struct {
 	CreationTime time.Time
 }
 
-// NewMegolmSession 创建新的 Megolm 会话
+// NewMegolmSession 创建新的 Megolm 会话.
 func NewMegolmSession(roomID string) (*MegolmSession, error) {
 	// 生成随机会话密钥
 	sessionKey := make([]byte, 32)
@@ -514,14 +545,16 @@ func NewMegolmSession(roomID string) (*MegolmSession, error) {
 	}, nil
 }
 
-// Encrypt 加密群聊消息
+// Encrypt 加密群聊消息.
 func (ms *MegolmSession) Encrypt(plaintext []byte) (*OlmMessage, error) {
 	// 获取会话密钥
 	sessionKeyBuf, err := ms.SessionKey.Open()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session key: %w", err)
 	}
+
 	defer sessionKeyBuf.Destroy()
+
 	sessionKey := sessionKeyBuf.Bytes()
 
 	// 派生消息密钥
@@ -552,18 +585,21 @@ func (ms *MegolmSession) Encrypt(plaintext []byte) (*OlmMessage, error) {
 	}, nil
 }
 
-// deriveMegolmMessageKey 派生 Megolm 消息密钥
+// deriveMegolmMessageKey 派生 Megolm 消息密钥.
 func deriveMegolmMessageKey(sessionKey []byte, index uint32) []byte {
 	info := fmt.Sprintf("MegolmMessageKey|%d", index)
 	hkdfReader := hkdf.New(sha256.New, sessionKey, nil, []byte(info))
+
 	messageKey := make([]byte, 32)
+
 	if _, err := hkdfReader.Read(messageKey); err != nil {
 		panic(fmt.Sprintf("hkdf failed: %v", err))
 	}
+
 	return messageKey
 }
 
-// ExportSessionKey 导出会话密钥（用于密钥共享）
+// ExportSessionKey 导出会话密钥（用于密钥共享）.
 func (ms *MegolmSession) ExportSessionKey() string {
 	buf, err := ms.SessionKey.Open()
 	if err != nil {
@@ -576,13 +612,13 @@ func (ms *MegolmSession) ExportSessionKey() string {
 
 // ===== Olm 账户存储 =====
 
-// OlmAccountStore Olm 账户存储
+// OlmAccountStore Olm 账户存储.
 type OlmAccountStore struct{}
 
-// SaveOlmAccount 保存 Olm 账户
+// SaveOlmAccount 保存 Olm 账户.
 func (store *OlmAccountStore) SaveOlmAccount(userID, deviceID string, account *OlmAccount) error {
 	// 序列化账户数据
-	data := map[string]interface{}{
+	data := map[string]any{
 		"next_key_id": account.NextKeyID,
 	}
 
@@ -594,5 +630,6 @@ func (store *OlmAccountStore) SaveOlmAccount(userID, deviceID string, account *O
 	// 保存到数据库
 	// 这里应该有一个专门的表来存储 Olm 账户
 	_ = jsonData
+
 	return nil
 }

@@ -3,6 +3,7 @@ package errors
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 
@@ -11,12 +12,12 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// ErrorCode 错误码类型
+// ErrorCode 错误码类型.
 type ErrorCode string
 
-// 预定义错误码
+// 预定义错误码.
 const (
-	// 通用错误 (1xxx)
+	// 通用错误 (1xxx).
 	ErrCodeInvalidRequest ErrorCode = "INVALID_REQUEST"     // 400
 	ErrCodeUnauthorized   ErrorCode = "UNAUTHORIZED"        // 401
 	ErrCodeForbidden      ErrorCode = "FORBIDDEN"           // 403
@@ -27,14 +28,14 @@ const (
 	ErrCodeInternal       ErrorCode = "INTERNAL_ERROR"      // 500
 	ErrCodeServiceUnavail ErrorCode = "SERVICE_UNAVAILABLE" // 503
 
-	// 认证错误 (2xxx)
+	// 认证错误 (2xxx).
 	ErrCodeInvalidToken      ErrorCode = "INVALID_TOKEN"
 	ErrCodeTokenExpired      ErrorCode = "TOKEN_EXPIRED"
-	ErrCodeInvalidCredential ErrorCode = "INVALID_CREDENTIAL"
+	ErrCodeInvalidCredential ErrorCode = "INVALID_CREDENTIAL" //nolint:gosec // G101: reviewed and safe
 	ErrCodeAccountDisabled   ErrorCode = "ACCOUNT_DISABLED"
 	ErrCodeAccountLocked     ErrorCode = "ACCOUNT_LOCKED"
 
-	// 业务错误 (3xxx)
+	// 业务错误 (3xxx).
 	ErrCodeValidation      ErrorCode = "VALIDATION_ERROR"
 	ErrCodeResourceExhaust ErrorCode = "RESOURCE_EXHAUSTED"
 	ErrCodeDuplicateEntry  ErrorCode = "DUPLICATE_ENTRY"
@@ -42,7 +43,7 @@ const (
 	ErrCodeDependencyFail  ErrorCode = "DEPENDENCY_FAILURE"
 )
 
-// AppError 应用错误结构
+// AppError 应用错误结构.
 type AppError struct {
 	Code       ErrorCode `json:"code"`
 	Message    string    `json:"message"`
@@ -52,15 +53,16 @@ type AppError struct {
 	InternalID string    `json:"error_id,omitempty"` // 内部错误 ID，用于追踪
 }
 
-// Error 实现 error 接口
+// Error 实现 error 接口.
 func (e *AppError) Error() string {
 	if e.Detail != "" {
 		return fmt.Sprintf("[%s] %s: %s", e.Code, e.Message, e.Detail)
 	}
+
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// WithDetail 添加详细错误信息
+// WithDetail 添加详细错误信息.
 func (e *AppError) WithDetail(detail string) *AppError {
 	return &AppError{
 		Code:    e.Code,
@@ -70,7 +72,7 @@ func (e *AppError) WithDetail(detail string) *AppError {
 	}
 }
 
-// WithRequestID 添加请求 ID
+// WithRequestID 添加请求 ID.
 func (e *AppError) WithRequestID(requestID string) *AppError {
 	return &AppError{
 		Code:      e.Code,
@@ -81,30 +83,30 @@ func (e *AppError) WithRequestID(requestID string) *AppError {
 	}
 }
 
-// JSON 返回 JSON 格式的错误响应
+// JSON 返回 JSON 格式的错误响应.
 func (e *AppError) JSON() gin.H {
 	response := gin.H{
-		"error": gin.H{
+		"error": gin.H{ //nolint:goconst
 			"code":    e.Code,
 			"message": e.Message,
 		},
 	}
 
 	// 开发模式显示详细信息
-	if config.C.DevMode == "true" && e.Detail != "" {
-		response["error"].(gin.H)["detail"] = e.Detail
+	if config.C.DevMode == "true" && e.Detail != "" { //nolint:goconst
+		response["error"].(gin.H)["detail"] = e.Detail //nolint:forcetypeassert
 	}
 
 	if e.RequestID != "" {
-		response["error"].(gin.H)["request_id"] = e.RequestID
+		response["error"].(gin.H)["request_id"] = e.RequestID //nolint:forcetypeassert
 	}
 
 	return response
 }
 
-// 预定义错误实例
+// 预定义错误实例.
 var (
-	// 通用错误
+	// 通用错误.
 	ErrInvalidRequest = NewAppError(ErrCodeInvalidRequest, "Invalid request", http.StatusBadRequest)
 	ErrUnauthorized   = NewAppError(ErrCodeUnauthorized, "Unauthorized", http.StatusUnauthorized)
 	ErrForbidden      = NewAppError(ErrCodeForbidden, "Forbidden", http.StatusForbidden)
@@ -115,14 +117,14 @@ var (
 	ErrInternal       = NewAppError(ErrCodeInternal, "Internal server error", http.StatusInternalServerError)
 	ErrServiceUnavail = NewAppError(ErrCodeServiceUnavail, "Service unavailable", http.StatusServiceUnavailable)
 
-	// 认证错误
+	// 认证错误.
 	ErrInvalidToken      = NewAppError(ErrCodeInvalidToken, "Invalid token", http.StatusUnauthorized)
 	ErrTokenExpired      = NewAppError(ErrCodeTokenExpired, "Token expired", http.StatusUnauthorized)
 	ErrInvalidCredential = NewAppError(ErrCodeInvalidCredential, "Invalid credentials", http.StatusUnauthorized)
 	ErrAccountDisabled   = NewAppError(ErrCodeAccountDisabled, "Account disabled", http.StatusForbidden)
 	ErrAccountLocked     = NewAppError(ErrCodeAccountLocked, "Account locked", http.StatusForbidden)
 
-	// 业务错误
+	// 业务错误.
 	ErrValidation      = NewAppError(ErrCodeValidation, "Validation error", http.StatusBadRequest)
 	ErrResourceExhaust = NewAppError(ErrCodeResourceExhaust, "Resource exhausted", http.StatusTooManyRequests)
 	ErrDuplicateEntry  = NewAppError(ErrCodeDuplicateEntry, "Duplicate entry", http.StatusConflict)
@@ -130,7 +132,7 @@ var (
 	ErrDependencyFail  = NewAppError(ErrCodeDependencyFail, "Dependency failure", http.StatusServiceUnavailable)
 )
 
-// NewAppError 创建新的应用错误
+// NewAppError 创建新的应用错误.
 func NewAppError(code ErrorCode, message string, status int) *AppError {
 	return &AppError{
 		Code:    code,
@@ -139,17 +141,17 @@ func NewAppError(code ErrorCode, message string, status int) *AppError {
 	}
 }
 
-// NewValidationError 创建验证错误
+// NewValidationError 创建验证错误.
 func NewValidationError(field, message string) *AppError {
 	return ErrValidation.WithDetail(fmt.Sprintf("%s: %s", field, message))
 }
 
-// NewNotFoundError 创建资源未找到错误
+// NewNotFoundError 创建资源未找到错误.
 func NewNotFoundError(resource string) *AppError {
-	return ErrNotFound.WithDetail(fmt.Sprintf("%s not found", resource))
+	return ErrNotFound.WithDetail(resource + " not found")
 }
 
-// ErrorHandler 统一错误处理中间件
+// ErrorHandler 统一错误处理中间件.
 func ErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
@@ -166,12 +168,14 @@ func ErrorHandler() gin.HandlerFunc {
 		if AsAppError(err, &appErr) {
 			// 添加请求 ID
 			if requestID, exists := c.Get("request_id"); exists {
-				appErr = appErr.WithRequestID(requestID.(string))
+				if rid, ok := requestID.(string); ok {
+					appErr = appErr.WithRequestID(rid)
+				}
 			}
 
 			// 记录错误日志
 			if appErr.Status >= 500 {
-				log.WithFields(map[string]interface{}{
+				log.WithFields(map[string]any{
 					"code":       appErr.Code,
 					"status":     appErr.Status,
 					"path":       c.Request.URL.Path,
@@ -181,6 +185,7 @@ func ErrorHandler() gin.HandlerFunc {
 			}
 
 			c.JSON(appErr.Status, appErr.JSON())
+
 			return
 		}
 
@@ -192,11 +197,13 @@ func ErrorHandler() gin.HandlerFunc {
 
 		// 添加请求 ID
 		if requestID, exists := c.Get("request_id"); exists {
-			response = response.WithRequestID(requestID.(string))
+			if rid, ok := requestID.(string); ok {
+				response = response.WithRequestID(rid)
+			}
 		}
 
 		// 记录错误
-		log.WithFields(map[string]interface{}{
+		log.WithFields(map[string]any{
 			"error":      err.Error(),
 			"path":       c.Request.URL.Path,
 			"method":     c.Request.Method,
@@ -207,35 +214,38 @@ func ErrorHandler() gin.HandlerFunc {
 	}
 }
 
-// AsAppError 将错误转换为 AppError
+// AsAppError 将错误转换为 AppError.
 func AsAppError(err error, target **AppError) bool {
 	if err == nil {
 		return false
 	}
 
 	// 检查是否是 AppError
-	if appErr, ok := err.(*AppError); ok {
+	appErr := &AppError{}
+	if stderrors.As(err, &appErr) {
 		*target = appErr
+
 		return true
 	}
 
 	// 检查是否是 gin.Error
-	if ginErr, ok := err.(*gin.Error); ok {
+	ginErr := &gin.Error{}
+	if stderrors.As(err, &ginErr) {
 		return AsAppError(ginErr.Err, target)
 	}
 
 	return false
 }
 
-// Response 统一响应结构
+// Response 统一响应结构.
 type Response struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *AppError   `json:"error,omitempty"`
-	Meta    *Meta       `json:"meta,omitempty"`
+	Success bool      `json:"success"`
+	Data    any       `json:"data,omitempty"`
+	Error   *AppError `json:"error,omitempty"`
+	Meta    *Meta     `json:"meta,omitempty"`
 }
 
-// Meta 分页元数据
+// Meta 分页元数据.
 type Meta struct {
 	Page       int   `json:"page"`
 	PageSize   int   `json:"page_size"`
@@ -243,16 +253,16 @@ type Meta struct {
 	TotalPages int   `json:"total_pages"`
 }
 
-// Success 成功响应
-func Success(data interface{}) *Response {
+// Success 成功响应.
+func Success(data any) *Response {
 	return &Response{
 		Success: true,
 		Data:    data,
 	}
 }
 
-// SuccessWithMeta 带分页的成功响应
-func SuccessWithMeta(data interface{}, meta *Meta) *Response {
+// SuccessWithMeta 带分页的成功响应.
+func SuccessWithMeta(data any, meta *Meta) *Response {
 	return &Response{
 		Success: true,
 		Data:    data,
@@ -260,7 +270,7 @@ func SuccessWithMeta(data interface{}, meta *Meta) *Response {
 	}
 }
 
-// Fail 失败响应
+// Fail 失败响应.
 func Fail(err *AppError) *Response {
 	return &Response{
 		Success: false,
@@ -268,53 +278,53 @@ func Fail(err *AppError) *Response {
 	}
 }
 
-// JSON 序列化为 JSON
+// JSON 序列化为 JSON.
 func (r *Response) JSON() ([]byte, error) {
 	return json.Marshal(r)
 }
 
-// Send 发送响应
+// Send 发送响应.
 func (r *Response) Send(c *gin.Context, status int) {
 	c.JSON(status, r)
 }
 
-// SendSuccess 发送成功响应
-func SendSuccess(c *gin.Context, data interface{}) {
+// SendSuccess 发送成功响应.
+func SendSuccess(c *gin.Context, data any) {
 	Success(data).Send(c, http.StatusOK)
 }
 
-// SendCreated 发送创建成功响应
-func SendCreated(c *gin.Context, data interface{}) {
+// SendCreated 发送创建成功响应.
+func SendCreated(c *gin.Context, data any) {
 	Success(data).Send(c, http.StatusCreated)
 }
 
-// SendNoContent 发送无内容响应
+// SendNoContent 发送无内容响应.
 func SendNoContent(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 	c.Writer.WriteHeaderNow()
 }
 
-// SendError 发送错误响应
+// SendError 发送错误响应.
 func SendError(c *gin.Context, err *AppError) {
 	Fail(err).Send(c, err.Status)
 }
 
-// SendValidationError 发送验证错误
+// SendValidationError 发送验证错误.
 func SendValidationError(c *gin.Context, field, message string) {
 	SendError(c, NewValidationError(field, message))
 }
 
-// SendNotFound 发送资源未找到错误
+// SendNotFound 发送资源未找到错误.
 func SendNotFound(c *gin.Context, resource string) {
 	SendError(c, NewNotFoundError(resource))
 }
 
-// ErrorWrapper 错误包装器，用于统一处理错误
+// ErrorWrapper 错误包装器，用于统一处理错误.
 type ErrorWrapper struct {
 	RequestID string
 }
 
-// Wrap 包装错误
+// Wrap 包装错误.
 func (w *ErrorWrapper) Wrap(err error, defaultErr *AppError) *AppError {
 	if err == nil {
 		return nil
@@ -325,6 +335,7 @@ func (w *ErrorWrapper) Wrap(err error, defaultErr *AppError) *AppError {
 		if w.RequestID != "" {
 			appErr = appErr.WithRequestID(w.RequestID)
 		}
+
 		return appErr
 	}
 
@@ -332,17 +343,19 @@ func (w *ErrorWrapper) Wrap(err error, defaultErr *AppError) *AppError {
 	if w.RequestID != "" {
 		result = result.WithRequestID(w.RequestID)
 	}
+
 	return result
 }
 
-// WrapWithLog 包装错误并记录日志
+// WrapWithLog 包装错误并记录日志.
 func (w *ErrorWrapper) WrapWithLog(err error, defaultErr *AppError, msg string) *AppError {
 	appErr := w.Wrap(err, defaultErr)
 	if appErr != nil {
-		log.WithFields(map[string]interface{}{
+		log.WithFields(map[string]any{
 			"error": appErr.Code,
 			"msg":   msg,
 		}).Error(appErr.Detail)
 	}
+
 	return appErr
 }

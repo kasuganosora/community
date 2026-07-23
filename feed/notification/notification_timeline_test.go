@@ -21,6 +21,7 @@ func TestNotificationTimeline_GetTimelineId(t *testing.T) {
 
 func TestNotificationTimeline_TimelineInterface(t *testing.T) {
 	account := &models.Account{Id: 999}
+
 	var timeline feed.Timeline = &NotificationTimeline{Account: account}
 
 	assert.Equal(t, "feed:notification:%s", timeline.GetKeyFormat())
@@ -48,17 +49,18 @@ func TestNotificationTimeline_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = timeline.GetKeyFormat()
 				_ = timeline.GetTimelineId()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

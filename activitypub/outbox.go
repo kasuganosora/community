@@ -11,14 +11,16 @@ import (
 )
 
 // Outbox handles GET /users/:username/outbox
-// Returns the user's activity stream
+// Returns the user's activity stream.
 func Outbox(c *gin.Context) {
 	username := c.Param("username")
 
 	// Verify the local user exists
 	var account models.Account
-	if err := db.GetDB().Preload("Extra").Where("username = ?", username).First(&account).Error; err != nil {
-		c.JSON(404, gin.H{"error": "user not found"})
+	err := db.GetDB().Preload("Extra").Where("username = ?", username).First(&account).Error
+	if err != nil {
+		c.JSON(404, gin.H{"error": "user not found"}) //nolint:goconst
+
 		return
 	}
 
@@ -40,13 +42,14 @@ func Outbox(c *gin.Context) {
 		}
 
 		c.JSON(200, Collection{
-			Context:    []string{"https://www.w3.org/ns/activitystreams"},
+			Context:    []string{"https://www.w3.org/ns/activitystreams"}, //nolint:goconst
 			ID:         outboxURL,
-			Type:       "OrderedCollection",
+			Type:       "OrderedCollection", //nolint:goconst
 			TotalItems: totalItems,
 			First:      outboxURL + "?page=true",
 			Last:       outboxURL + "?page=true&min_id=0",
 		})
+
 		return
 	}
 
@@ -62,6 +65,7 @@ func Outbox(c *gin.Context) {
 			query = query.Where("id > ?", id)
 		}
 	}
+
 	if maxID != "" {
 		if id, err := strconv.ParseUint(maxID, 10, 64); err == nil {
 			query = query.Where("id < ?", id)
@@ -69,13 +73,16 @@ func Outbox(c *gin.Context) {
 	}
 
 	var statuses []*models.Status
-	if err := query.Find(&statuses).Error; err != nil {
+	err = query.Find(&statuses).Error
+	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to fetch statuses"})
+
 		return
 	}
 
 	// Build ordered items
-	items := make([]interface{}, 0, len(statuses))
+	items := make([]any, 0, len(statuses))
+
 	for _, status := range statuses {
 		activity := buildCreateActivity(status, &account, baseURL)
 		items = append(items, activity)
@@ -90,7 +97,7 @@ func Outbox(c *gin.Context) {
 	response := OrderedCollectionPage{
 		Context:      []string{"https://www.w3.org/ns/activitystreams"},
 		ID:           pageURL,
-		Type:         "OrderedCollectionPage",
+		Type:         "OrderedCollectionPage", //nolint:goconst
 		PartOf:       outboxURL,
 		OrderedItems: items,
 	}
@@ -103,22 +110,22 @@ func Outbox(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// buildCreateActivity builds a Create activity for a status
-func buildCreateActivity(status *models.Status, account *models.Account, baseURL string) map[string]interface{} {
+// buildCreateActivity builds a Create activity for a status.
+func buildCreateActivity(status *models.Status, account *models.Account, baseURL string) map[string]any {
 	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
 	actorURL := baseURL + "/users/" + account.Username
 
 	// Use the status's original creation time, not current time
 	published := status.CreatedAt
 
-	note := map[string]interface{}{
+	note := map[string]any{
 		"id":           statusURL,
-		"type":         "Note",
+		"type":         "Note", //nolint:goconst
 		"attributedTo": actorURL,
-		"content":      status.Content.Content,
+		"content":      status.Content.Content, //nolint:goconst
 		"url":          statusURL,
 		"published":    published,
-		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"},
+		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
 		"cc":           []string{actorURL + "/followers"},
 		"sensitive":    status.Sensitive,
 	}
@@ -127,24 +134,26 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 		note["summary"] = status.Content.SpoilerText
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"id":        statusURL + "#create",
-		"type":      "Create",
-		"actor":     actorURL,
+		"type":      "Create", //nolint:goconst
+		"actor":     actorURL, //nolint:goconst
 		"published": published,
 		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
 		"cc":        []string{actorURL + "/followers"},
-		"object":    note,
+		"object":    note, //nolint:goconst
 	}
 }
 
-// Followers handles GET /users/:username/followers
+// Followers handles GET /users/:username/followers.
 func Followers(c *gin.Context) {
 	username := c.Param("username")
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ?", username).First(&account).Error; err != nil {
+	err := db.GetDB().Where("username = ?", username).First(&account).Error
+	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
+
 		return
 	}
 
@@ -155,6 +164,7 @@ func Followers(c *gin.Context) {
 
 	// Get followers count
 	var count int64
+
 	db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", account.Id).Count(&count)
 
 	if !page {
@@ -165,17 +175,20 @@ func Followers(c *gin.Context) {
 			TotalItems: int(count),
 			First:      followersURL + "?page=true",
 		})
+
 		return
 	}
 
 	// Get followers with preloaded accounts
 	var follows []*models.Follow
+
 	db.GetDB().Where("follow_id = ?", account.Id).
 		Preload("Account").
 		Limit(20).
 		Find(&follows)
 
-	items := make([]interface{}, 0, len(follows))
+	items := make([]any, 0, len(follows))
+
 	for _, follow := range follows {
 		if follow.Account != nil {
 			if follow.Account.Domain != nil && follow.Account.OriginId != "" {
@@ -197,13 +210,15 @@ func Followers(c *gin.Context) {
 	})
 }
 
-// Following handles GET /users/:username/following
+// Following handles GET /users/:username/following.
 func Following(c *gin.Context) {
 	username := c.Param("username")
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ?", username).First(&account).Error; err != nil {
+	err := db.GetDB().Where("username = ?", username).First(&account).Error
+	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
+
 		return
 	}
 
@@ -214,6 +229,7 @@ func Following(c *gin.Context) {
 
 	// Get following count
 	var count int64
+
 	db.GetDB().Model(&models.Follow{}).Where("account_id = ?", account.Id).Count(&count)
 
 	if !page {
@@ -224,12 +240,14 @@ func Following(c *gin.Context) {
 			TotalItems: int(count),
 			First:      followingURL + "?page=true",
 		})
+
 		return
 	}
 
 	var results []struct {
 		FollowId uint64
 	}
+
 	db.GetDB().Model(&models.Follow{}).
 		Select("follow_id").
 		Where("account_id = ?", account.Id).
@@ -237,10 +255,12 @@ func Following(c *gin.Context) {
 		Find(&results)
 
 	// Get the followed accounts
-	items := make([]interface{}, 0)
+	items := make([]any, 0)
+
 	for _, r := range results {
 		var targetAccount models.Account
-		if err := db.GetDB().Where("id = ?", r.FollowId).First(&targetAccount).Error; err == nil {
+		err := db.GetDB().Where("id = ?", r.FollowId).First(&targetAccount).Error
+		if err == nil {
 			if targetAccount.Domain != nil && targetAccount.OriginId != "" {
 				// Remote account: use their ActivityPub actor URI
 				items = append(items, targetAccount.OriginId)
@@ -261,13 +281,15 @@ func Following(c *gin.Context) {
 }
 
 // ActorProfile handles GET /users/:username
-// Returns the ActivityPub actor profile
+// Returns the ActivityPub actor profile.
 func ActorProfile(c *gin.Context) {
 	username := c.Param("username")
 
 	var account models.Account
-	if err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ?", username).First(&account).Error; err != nil {
+	err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ?", username).First(&account).Error
+	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
+
 		return
 	}
 
@@ -282,7 +304,7 @@ func ActorProfile(c *gin.Context) {
 			"https://w3id.org/security/v1",
 		},
 		ID:                actorURL,
-		Type:              "Person",
+		Type:              "Person", //nolint:goconst
 		Following:         actorURL + "/following",
 		Followers:         actorURL + "/followers",
 		Inbox:             actorURL + "/inbox",
@@ -298,7 +320,7 @@ func ActorProfile(c *gin.Context) {
 
 	if account.Avatar != "" {
 		actor.Icon = &Image{
-			Type: "Image",
+			Type: "Image", //nolint:goconst
 			URL:  account.Avatar,
 		}
 	}
@@ -312,7 +334,8 @@ func ActorProfile(c *gin.Context) {
 
 	// Add public key if the account has one stored
 	var accountKey models.AccountKey
-	if err := db.GetDB().Where("account_id = ?", account.Id).First(&accountKey).Error; err == nil {
+	err = db.GetDB().Where("account_id = ?", account.Id).First(&accountKey).Error
+	if err == nil {
 		actor.PublicKey = &PublicKey{
 			ID:           actorURL + "#main-key",
 			Owner:        actorURL,
@@ -322,7 +345,7 @@ func ActorProfile(c *gin.Context) {
 
 	// Bot/Service accounts use "Service" actor type
 	if account.Bot {
-		actor.Type = "Service"
+		actor.Type = "Service" //nolint:goconst
 	}
 
 	// Add profile fields

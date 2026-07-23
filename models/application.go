@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	// 读取权限单独一组
+	// 读取权限单独一组.
 
 	AppScopeRead              = 0xFFFFFFFFFFFFFFFF // 读取你的账户数据
 	AppScopeReadAccounts      = 0x1                // 查看账号信息
@@ -28,7 +28,7 @@ const (
 	AppScopeReadSearch        = 0x3FF              // 以你的身份搜索
 	AppScopeReadStatuses      = 0x7FF              // 查看所有嘟文
 
-	// 写入权限单独一组
+	// 写入权限单独一组.
 
 	AppScopeWrite              = 0xFFFFFFFFFFFFFFFF // 写入你的账户数据
 	AppScopeWriteAccounts      = 0x1                // 修改你的个人资料
@@ -45,7 +45,7 @@ const (
 	AppScopeWriteReports       = 0xFFF              // 举报他人
 	AppScopeWriteStatuses      = 0x1FFF             // 发表嘟文
 
-	// 管理权限单独一组
+	// 管理权限单独一组.
 
 	AppScopeAdmin                          = 0xFFFFFFFFFFFFFFFF // 管理服务器上的所有数据
 	AppScopeAdminRead                      = 0xFFFFFFFF
@@ -68,12 +68,12 @@ const (
 	AppScopeAdminReadThumbnails            = 0x1F000000000
 	AppScopeAdminWriteThumbnails           = 0x3F000000000
 
-	// 其他权限单独一组
+	// 其他权限单独一组.
 	AppScopeFollow = 0x1
 	AppScopePush   = 0x2
 	AppScopeCrypto = 0x4
 
-	// 权限类型
+	// 权限类型.
 	AppScopeTypeRead  = 0
 	AppScopeTypeWrite = 1
 	AppScopeTypeAdmin = 2
@@ -87,8 +87,9 @@ type ApplicationScope struct {
 	OtherScope uint64 `json:"other_scope"`
 }
 
-func (s ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
+func (s *ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
 	var sc uint64
+
 	switch scopeType {
 	case AppScopeTypeRead:
 		sc = s.ReadScope
@@ -132,13 +133,13 @@ func (s *ApplicationScope) RemoveScope(scopeType uint8, scope uint64) {
 }
 
 // MarshalJSON JSON序列化
-// 把3个uint64 转换成byte数组,然后按照顺序拼接起来再转换成hex字符串
-func (s ApplicationScope) MarshalJSON() ([]byte, error) {
+// 把3个uint64 转换成byte数组,然后按照顺序拼接起来再转换成hex字符串.
+func (s *ApplicationScope) MarshalJSON() ([]byte, error) {
 	rValue := reflect.ValueOf(s)
 	vBytes := make([]byte, 0, rValue.NumField()*8)
 
-	for i := 0; i < rValue.NumField(); i++ {
-		v := rValue.Field(i).Uint()
+	for _, field := range rValue.Fields() {
+		v := field.Uint()
 		// uint64转换成byte数组
 		bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(bytes, v)
@@ -147,11 +148,12 @@ func (s ApplicationScope) MarshalJSON() ([]byte, error) {
 
 	// 拼接成hex字符串
 	ret := hex.EncodeToString(vBytes)
+
 	return []byte(ret), nil
 }
 
 // UnmarshalJSON JSON反序列化
-// 把hex字符串转换成byte数组,然后按照8个byte分割成3个uint64
+// 把hex字符串转换成byte数组,然后按照8个byte分割成3个uint64.
 func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
 	vBytes, err := hex.DecodeString(string(data))
 	if err != nil {
@@ -159,12 +161,13 @@ func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	rValue := reflect.ValueOf(s).Elem()
+
 	expectedLen := rValue.NumField() * 8
 	if len(vBytes) < expectedLen {
 		return errors.Errorf("invalid scope data length: expected %d bytes, got %d", expectedLen, len(vBytes))
 	}
 
-	for i := 0; i < rValue.NumField(); i++ {
+	for i := range rValue.NumField() {
 		// 每次取8个byte
 		bytes := vBytes[i*8 : (i+1)*8]
 		// byte数组转换成uint64
@@ -177,6 +180,7 @@ func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
 
 func (s *ApplicationScope) Scan(ctx context.Context, field *schema.Field, dst reflect.Value, dbValue any) (err error) {
 	var vBytes []byte
+
 	switch dbValue := dbValue.(type) {
 	case []byte:
 		vBytes = dbValue
@@ -189,22 +193,22 @@ func (s *ApplicationScope) Scan(ctx context.Context, field *schema.Field, dst re
 	return s.UnmarshalJSON(vBytes)
 }
 
-func (s ApplicationScope) Value(ctx context.Context, field *schema.Field, dst reflect.Value, fieldValue any) (ret any, err error) {
+func (s *ApplicationScope) Value(ctx context.Context, field *schema.Field, dst reflect.Value, fieldValue any) (ret any, err error) {
 	return s.MarshalJSON()
 }
 
 type Application struct {
-	Id          uint64           `json:"id" gorm:"primary_key;autoIncrement"`
-	Uuid        *uuid.UUID       `json:"uuid" gorm:"type:char(36);uniqueIndex;not null"`
-	UserId      int64            `json:"user_id" gorm:"index"`
-	Name        string           `json:"name" gorm:"type:varchar(32);not null"`
-	Website     string           `json:"website" gorm:"type:varchar(255);not null"`
-	RedirectUri string           `json:"redirect_uri" gorm:"type:varchar(255);not null"`
-	Scopes      ApplicationScope `json:"scopes" gorm:"type:varchar(255);not null"`
-	IsEnabled   bool             `json:"is_enabled" gorm:"not null;default:true"`
-	CreatedAt   *time.Time       `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   *time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
-	DeletedAt   gorm.DeletedAt   `json:"deleted_at" gorm:"index"`
+	Id          uint64           `gorm:"primary_key;autoIncrement"          json:"id"`
+	Uuid        *uuid.UUID       `gorm:"type:char(36);uniqueIndex;not null" json:"uuid"`
+	UserId      int64            `gorm:"index"                              json:"user_id"`
+	Name        string           `gorm:"type:varchar(32);not null"          json:"name"`
+	Website     string           `gorm:"type:varchar(255);not null"         json:"website"`
+	RedirectUri string           `gorm:"type:varchar(255);not null"         json:"redirect_uri"`
+	Scopes      ApplicationScope `gorm:"type:varchar(255);not null"         json:"scopes"`
+	IsEnabled   bool             `gorm:"not null;default:true"              json:"is_enabled"`
+	CreatedAt   *time.Time       `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt   *time.Time       `gorm:"autoUpdateTime"                     json:"updated_at"`
+	DeletedAt   gorm.DeletedAt   `gorm:"index"                              json:"deleted_at"`
 }
 
 func (a *Application) BeforeCreate(tx *gorm.DB) (err error) {
@@ -212,6 +216,7 @@ func (a *Application) BeforeCreate(tx *gorm.DB) (err error) {
 		uuidObj := uuid.New()
 		a.Uuid = &uuidObj
 	}
+
 	return
 }
 
@@ -220,13 +225,13 @@ func (a *Application) TableName() string {
 }
 
 type ApplicationUserAuth struct {
-	ID uint64 `json:"id" gorm:"primary_key;autoIncrement"`
+	ID uint64 `gorm:"primary_key;autoIncrement" json:"id"`
 	// 应用ID
-	ApplicationId uint64 `json:"application_id" gorm:"index"`
+	ApplicationId uint64 `gorm:"index" json:"application_id"`
 	// 用户ID
-	UserId    int64      `json:"user_id" gorm:"index"`
-	CreatedAt *time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	UserId    int64      `gorm:"index"          json:"user_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (a *ApplicationUserAuth) TableName() string {

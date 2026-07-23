@@ -6,6 +6,7 @@ import (
 
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupDeliverTestDB(t *testing.T) *testutil.TestDB {
@@ -13,10 +14,10 @@ func setupDeliverTestDB(t *testing.T) *testutil.TestDB {
 }
 
 func TestDeliveryConstants(t *testing.T) {
-	assert.Equal(t, DeliveryStatus("pending"), DeliveryStatusPending)
-	assert.Equal(t, DeliveryStatus("processing"), DeliveryStatusProcessing)
-	assert.Equal(t, DeliveryStatus("delivered"), DeliveryStatusDelivered)
-	assert.Equal(t, DeliveryStatus("failed"), DeliveryStatusFailed)
+	assert.Equal(t, DeliveryStatusPending, DeliveryStatus("pending"))
+	assert.Equal(t, DeliveryStatusProcessing, DeliveryStatus("processing"))
+	assert.Equal(t, DeliveryStatusDelivered, DeliveryStatus("delivered"))
+	assert.Equal(t, DeliveryStatusFailed, DeliveryStatus("failed"))
 }
 
 func TestDeliveryTableNameMethod(t *testing.T) {
@@ -37,17 +38,19 @@ func TestProcessedActivityCRUD(t *testing.T) {
 		ActivityID: "https://example.com/activities/1",
 	}
 	err := testDB.GormDB.Create(pa).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotZero(t, pa.ID)
 
 	// Read
 	var fetched ProcessedActivity
+
 	err = testDB.GormDB.Where("activity_id = ?", "https://example.com/activities/1").First(&fetched).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "https://example.com/activities/1", fetched.ActivityID)
 
 	// Count
 	var count int64
+
 	testDB.GormDB.Model(&ProcessedActivity{}).Where("activity_id = ?", "https://example.com/activities/1").Count(&count)
 	assert.Equal(t, int64(1), count)
 
@@ -58,8 +61,8 @@ func TestProcessedActivityCRUD(t *testing.T) {
 
 func TestStripPrivacyFieldsExtended(t *testing.T) {
 	t.Run("does not modify original", func(t *testing.T) {
-		original := map[string]interface{}{
-			"type": "Create",
+		original := map[string]any{
+			"type": "Create", //nolint:goconst
 			"bto":  []string{"secret@user.com"},
 			"bcc":  []string{"hidden@user.com"},
 		}
@@ -76,12 +79,12 @@ func TestStripPrivacyFieldsExtended(t *testing.T) {
 	})
 
 	t.Run("preserves all other fields", func(t *testing.T) {
-		input := map[string]interface{}{
-			"@context": "https://www.w3.org/ns/activitystreams",
+		input := map[string]any{
+			"@context": "https://www.w3.org/ns/activitystreams", //nolint:goconst
 			"type":     "Create",
 			"id":       "https://example.com/activities/1",
-			"actor":    "https://example.com/users/test",
-			"to":       []string{"https://www.w3.org/ns/activitystreams#Public"},
+			"actor":    "https://example.com/users/test",                         //nolint:goconst
+			"to":       []string{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
 			"cc":       []string{"https://example.com/users/test/followers"},
 			"bto":      []string{"secret"},
 			"bcc":      []string{"hidden"},
@@ -95,28 +98,29 @@ func TestStripPrivacyFieldsExtended(t *testing.T) {
 		assert.NotNil(t, result["cc"])
 		_, hasBto := result["bto"]
 		_, hasBcc := result["bcc"]
+
 		assert.False(t, hasBto)
 		assert.False(t, hasBcc)
 	})
 
 	t.Run("handles nested object with no bto/bcc", func(t *testing.T) {
-		input := map[string]interface{}{
+		input := map[string]any{
 			"type": "Create",
-			"object": map[string]interface{}{
-				"type":    "Note",
-				"content": "Hello",
+			"object": map[string]any{ //nolint:goconst
+				"type":    "Note",  //nolint:goconst
+				"content": "Hello", //nolint:goconst
 			},
 		}
 
 		result := stripPrivacyFields(input)
-		obj := result["object"].(map[string]interface{})
+		obj := result["object"].(map[string]any) //nolint:forcetypeassert
 		assert.Equal(t, "Note", obj["type"])
 		assert.Equal(t, "Hello", obj["content"])
 	})
 
 	t.Run("handles non-map object", func(t *testing.T) {
-		input := map[string]interface{}{
-			"type":   "Like",
+		input := map[string]any{
+			"type":   "Like", //nolint:goconst
 			"object": "https://example.com/statuses/1",
 		}
 

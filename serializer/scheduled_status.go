@@ -2,7 +2,6 @@ package serializer
 
 import (
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/utils"
 	"strconv"
 	"time"
 )
@@ -43,30 +42,32 @@ func ToScheduledStatus(status *models.Status) (ret *ScheduledStatus) {
 
 	if status.ScheduledAt != nil {
 		ret.ScheduledAt = status.ScheduledAt
-		ret.Params.ScheduledAt = utils.GetPtr(status.ScheduledAt.Format(time.RFC3339))
+		ret.Params.ScheduledAt = new(status.ScheduledAt.Format(time.RFC3339))
 	}
 
 	if status.Poll != nil {
 		poll := &ScheduledStatusPollParams{}
 		if status.Poll.ExpiresAt != nil {
-			poll.ExpiresIn = utils.GetPtr(status.Poll.Properties["expires_in"].(uint64))
+			poll.ExpiresIn = new(status.Poll.Properties["expires_in"].(uint64)) //nolint:forcetypeassert
 		}
 
-		poll.Multiple = status.Poll.Properties["multiple"].(bool)
+		poll.Multiple = status.Poll.Properties["multiple"].(bool) //nolint:forcetypeassert
 		poll.Options = status.Poll.Options.GetNames()
-		poll.HideTotals = utils.GetPtr(status.Poll.Properties["hide_totals"].(bool))
+		poll.HideTotals = new(status.Poll.Properties["hide_totals"].(bool)) //nolint:forcetypeassert
 	}
 
 	ret.Params.Text = status.Content.Content
 	ret.Params.Sensitive = status.Sensitive
 	ret.Params.Visibility = status.GetVisibilityString()
+
 	ret.Params.SpoilerText = status.Content.SpoilerText
+
 	if appId, ok := status.Properties["application_id"]; ok {
-		ret.Params.ApplicationId = utils.GetPtr(appId.(uint64))
+		ret.Params.ApplicationId = new(appId.(uint64)) //nolint:forcetypeassert
 	}
 
 	if status.InReplyToId != nil {
-		ret.Params.InReplyToId = utils.GetPtr(strconv.FormatUint(*status.InReplyToId, 10))
+		ret.Params.InReplyToId = new(strconv.FormatUint(*status.InReplyToId, 10))
 	}
 
 	ret.Params.Language = &status.Language
@@ -81,7 +82,7 @@ func ToScheduledStatus(status *models.Status) (ret *ScheduledStatus) {
 		}
 	}
 
-	return
+	return ret
 }
 
 func ToScheduledStatuses(statuses []*models.Status) (ret []*ScheduledStatus) {

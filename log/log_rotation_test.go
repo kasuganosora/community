@@ -14,15 +14,19 @@ func TestDefaultLogConfig(t *testing.T) {
 	if config.MaxSize != 100 {
 		t.Errorf("expected MaxSize=100, got %d", config.MaxSize)
 	}
+
 	if config.MaxBackups != 10 {
 		t.Errorf("expected MaxBackups=10, got %d", config.MaxBackups)
 	}
+
 	if config.MaxAge != 30 {
 		t.Errorf("expected MaxAge=30, got %d", config.MaxAge)
 	}
+
 	if !config.Compress {
 		t.Error("expected Compress=true")
 	}
+
 	if config.MaxDiskUsage != 1024 {
 		t.Errorf("expected MaxDiskUsage=1024, got %d", config.MaxDiskUsage)
 	}
@@ -30,16 +34,14 @@ func TestDefaultLogConfig(t *testing.T) {
 
 func TestGetDirSize(t *testing.T) {
 	// 创建临时目录
-	tempDir, err := os.MkdirTemp("", "log_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	// 创建测试文件
 	testFile := filepath.Join(tempDir, "test.log")
+
 	content := []byte("test content")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
+
+	if err := os.WriteFile(testFile, content, 0644); err != nil { //nolint:gosec // G306: reviewed and safe
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -52,11 +54,7 @@ func TestGetDirSize(t *testing.T) {
 
 func TestGetLogStats(t *testing.T) {
 	// 创建临时目录
-	tempDir, err := os.MkdirTemp("", "log_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	config := LogConfig{
 		FilePath:     filepath.Join(tempDir, "test.log"),
@@ -69,7 +67,7 @@ func TestGetLogStats(t *testing.T) {
 
 	// 创建测试日志文件
 	testLogFile := filepath.Join(tempDir, "test.log")
-	if err := os.WriteFile(testLogFile, []byte("test log content"), 0644); err != nil {
+	if err := os.WriteFile(testLogFile, []byte("test log content"), 0644); err != nil { //nolint:gosec // G306: reviewed and safe
 		t.Fatalf("failed to write test log: %v", err)
 	}
 
@@ -77,10 +75,11 @@ func TestGetLogStats(t *testing.T) {
 	stats := GetLogStats(config)
 
 	// 验证配置信息
-	configInfo, ok := stats["config"].(map[string]interface{})
+	configInfo, ok := stats["config"].(map[string]any)
 	if !ok {
 		t.Fatal("expected config in stats")
 	}
+
 	if configInfo["max_size_mb"] != 100 {
 		t.Errorf("expected max_size_mb=100, got %v", configInfo["max_size_mb"])
 	}
@@ -93,11 +92,7 @@ func TestGetLogStats(t *testing.T) {
 
 func TestCleanupOldLogs(t *testing.T) {
 	// 创建临时目录
-	tempDir, err := os.MkdirTemp("", "log_cleanup_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	config := LogConfig{
 		MaxDiskUsage: 1, // 1MB 限制
@@ -105,11 +100,12 @@ func TestCleanupOldLogs(t *testing.T) {
 
 	// 创建测试日志文件（模拟超过限制）
 	// 创建 10 个 150KB 的文件 = 1.5MB，超过 1MB 限制
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		filename := filepath.Join(tempDir, fmt.Sprintf("test.log.%d", i))
 		// 创建 150KB 的文件
 		content := make([]byte, 150*1024)
-		if err := os.WriteFile(filename, content, 0644); err != nil {
+		err := os.WriteFile(filename, content, 0644) //nolint:gosec // G306: reviewed and safe
+		if err != nil {
 			t.Fatalf("failed to write test file: %v", err)
 		}
 		// 修改文件时间使其不同（越旧的索引越大）

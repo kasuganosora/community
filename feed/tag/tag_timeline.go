@@ -18,7 +18,8 @@ func init() {
 		if event.Data == nil {
 			return false
 		}
-		status := event.Data.(*models.Status)
+
+		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
 		}
@@ -28,29 +29,33 @@ func init() {
 			return true
 		}
 
-		//如果是新增的事件
+		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
 			go func() {
-				if err := Push(status, false, true); err != nil {
+				err := Push(status, false, true)
+				if err != nil {
 					log.Printf("tag_timeline: Push failed: %v", err)
 				}
 			}()
 		case "before_update":
 			go func() { // 更新之前，先删除
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("tag_timeline: Unpush failed: %v", err)
 				}
 			}()
 		case "after_update":
 			go func() {
-				if err := Push(status, true, true); err != nil {
+				err := Push(status, true, true)
+				if err != nil {
 					log.Printf("tag_timeline: Push failed: %v", err)
 				}
 			}()
 		case "after_delete":
 			go func() {
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("tag_timeline: Unpush failed: %v", err)
 				}
 			}()
@@ -93,46 +98,49 @@ func (timeline *TagTimeline) GetTimelineId() string {
 func (timeline *TagTimeline) Rebuild() (err error) {
 	statuses := make(models.Statuses, 0)
 	tag := &models.Tag{}
-	err = db.GetDB().Model(&models.Tag{}).Where("name = ?", timeline.Tag).First(tag).Error
 
+	err = db.GetDB().Model(&models.Tag{}).Where("name = ?", timeline.Tag).First(tag).Error
 	if err != nil {
-		return
+		return err
 	}
 
 	err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()})
 	if err != nil {
-		return
+		return err
 	}
 
 	err = db.GetDB().Model(&models.Status{}).
 		Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tag.Id).Select("status_id")).
 		Order("id desc").Limit(feed.MAX_ITEMS / 2).
 		Find(&statuses).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	for _, status := range statuses {
-		if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
-			return
+		err = feed.AddToTimelineItem(timeline, status, true)
+		if err != nil {
+			return err
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+
+		err = feed.TrimTimeline(timeline)
+
+		if err != nil {
+			return err
 		}
 	}
 
-	return
+	return err
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	// 取得这个status有那些tag
 	if err = getTags(status); err != nil {
-		return
+		return err
 	}
 
 	if len(status.Tags) == 0 {
-		return
+		return err
 	}
 
 	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
@@ -148,36 +156,46 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		for _, tag := range status.Tags {
 			timelines = append(timelines, &TagTimeline{Tag: tag.Name})
 		}
-		if err = feed.BatchAddToTimelineItems(timelines, status, true); err != nil {
-			return
+
+		err = feed.BatchAddToTimelineItems(timelines, status, true)
+
+		if err != nil {
+			return err
 		}
+
 		for _, timeline := range timelines {
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+			err = feed.TrimTimeline(timeline)
+			if err != nil {
+				return err
 			}
 		}
 	} else {
 		// 转发：保留单条调用以保证 reblog 聚合逻辑正确
 		for _, tag := range status.Tags {
 			timeline := &TagTimeline{Tag: tag.Name}
-			if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
-				return
+			err = feed.AddToTimelineItem(timeline, status, true)
+			if err != nil {
+				return err
 			}
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+
+			err = feed.TrimTimeline(timeline)
+
+			if err != nil {
+				return err
 			}
 		}
 	}
 
 	if pushToClient {
 		for _, tag := range status.Tags {
-			if err = pushAllChannel(status, method, tag.Name); err != nil {
-				return
+			err = pushAllChannel(status, method, tag.Name)
+			if err != nil {
+				return err
 			}
 		}
 	}
 
-	return
+	return err
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
@@ -188,10 +206,14 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	for _, tag := range status.Tags {
 		timeline := &TagTimeline{Tag: tag.Name}
-		if err = feed.RemoveTimelineItem(timeline, status, true); err != nil {
+		err = feed.RemoveTimelineItem(timeline, status, true)
+		if err != nil {
 			return
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
+
+		err = feed.TrimTimeline(timeline)
+
+		if err != nil {
 			return
 		}
 
@@ -230,13 +252,14 @@ func pushAllChannel(status *models.Status, method string, tagName string) (err e
 		}
 
 		if feed.PushUpdateRequired(timeline) {
-			if err = feed.PushToClient(timeline, method, status); err != nil {
-				return
+			err = feed.PushToClient(timeline, method, status)
+			if err != nil {
+				return err
 			}
 		}
 	}
 
-	return
+	return err
 }
 
 func getTags(status *models.Status) (err error) {
@@ -255,9 +278,9 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tag).Select("status_id"))
-		if isLocal := params.Other["local"]; isLocal != nil && isLocal.(bool) {
+		if isLocal := params.Other["local"]; isLocal != nil && isLocal.(bool) { //nolint:forcetypeassert
 			query = query.Where("domain is null")
-		} else if isRemote := params.Other["remote"]; isRemote != nil && isRemote.(bool) {
+		} else if isRemote := params.Other["remote"]; isRemote != nil && isRemote.(bool) { //nolint:forcetypeassert
 			query = query.Where("domain is not null")
 		}
 
@@ -268,7 +291,7 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 	if account != nil {
 		err = db.GetDB().Model(&models.Follows{}).Where("account_id = ?", account.Id).Select("follow_id").Find(&followingIds).Error
 		if err != nil {
-			return
+			return statuses, err
 		}
 	}
 
@@ -278,7 +301,7 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 		ret := make(models.Statuses, 0, len(statuses))
 
 		for _, status := range statuses {
-			if onlyMedia, ok := params.Other["only_media"]; ok && onlyMedia.(bool) && len(status.Attachments) == 0 {
+			if onlyMedia, ok := params.Other["only_media"]; ok && onlyMedia.(bool) && len(status.Attachments) == 0 { //nolint:forcetypeassert
 				continue
 			}
 
@@ -289,18 +312,21 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 
 			if status.Visibility == models.StatusVisibilityDirect && status.ToAccounts.Contains(account.Id) {
 				ret = append(ret, status)
+
 				continue
 			}
 
 			// 如果是私有的那么只有关注的人才能看到
 			if status.Visibility == models.StatusVisibilityPrivate && followingCheckMap[status.AccountId] {
 				ret = append(ret, status)
+
 				continue
 			}
 
 			// 公开的，所有人都能看到
 			if status.Visibility == models.StatusVisibilityPublic {
 				ret = append(ret, status)
+
 				continue
 			}
 		}

@@ -17,34 +17,38 @@ type CreateKeywordRequest struct {
 
 func KeywordCreate(c *gin.Context) {
 	filterId, err := strconv.ParseUint(c.Param("filter_id"), 10, 64)
-
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "filter_id must be a number"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "filter_id must be a number"}) //nolint:goconst
+
 		return
 	}
 
 	if filterId == 0 {
 		c.AbortWithStatusJSON(400, gin.H{"error": "filter_id must be a number"})
+
 		return
 	}
 
-	currentUser := c.MustGet("user").(*models.User)
+	currentUser := c.MustGet("user").(*models.User) //nolint:forcetypeassert
 	filter := &models.Filter{}
-	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
 
+	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"})
+			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
+
 			return
 		}
 
 		_ = c.Error(err)
+
 		return
 	}
 
 	req := &CreateKeywordRequest{}
 	if err = c.ShouldBindJSON(req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -55,6 +59,7 @@ func KeywordCreate(c *gin.Context) {
 
 	if err = db.GetDB().Select("keywords").Save(filter).Error; err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

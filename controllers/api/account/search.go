@@ -10,9 +10,9 @@ import (
 )
 
 type SearchRequest struct {
-	Keyword   string `query:"q" binding:"required,min=1,max=100"`
-	Limit     int    `query:"limit" binding:"min=1,max=100"`
-	Offset    int    `query:"offset" binding:"min=0"`
+	Keyword   string `binding:"required,min=1,max=100" query:"q"`
+	Limit     int    `binding:"min=1,max=100"          query:"limit"`
+	Offset    int    `binding:"min=0"                  query:"offset"`
 	Resolve   bool   `query:"resolve"`   // 是否使用 WebFinger 协议 查找， q必须为精确的账号地址 TODO ...
 	Following bool   `query:"following"` // 是否只查找关注的账号
 }
@@ -21,8 +21,9 @@ func Search(c *gin.Context) {
 	var req SearchRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(),
+			"error": err.Error(), //nolint:goconst
 		})
+
 		return
 	}
 
@@ -47,6 +48,7 @@ func Search(c *gin.Context) {
 		c.AbortWithStatusJSON(422, gin.H{
 			"error": "invalid keyword",
 		})
+
 		return
 	}
 
@@ -60,15 +62,15 @@ func Search(c *gin.Context) {
 
 	// 只搜索关注的账号
 	if req.Following && c.GetBool("authenticated") {
-		selfAccount := c.MustGet("account").(*models.Account)
+		selfAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 		query = query.Where("id IN (?)", db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Select("follow_id").Where("account_id = ?", selfAccount.Id))
 	}
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "search accounts error")
 		_ = c.Error(err)
+
 		return
 	}
 

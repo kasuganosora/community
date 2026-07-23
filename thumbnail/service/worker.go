@@ -3,11 +3,13 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/kasuganosora/community/db"
@@ -17,7 +19,7 @@ import (
 	"github.com/kasuganosora/community/thumbnail/storage"
 )
 
-// Worker 缩略图生成工作器
+// Worker 缩略图生成工作器.
 type Worker struct {
 	config    *models.ThumbnailServiceConfig
 	storage   storage.Backend
@@ -25,7 +27,7 @@ type Worker struct {
 	stopChan  chan struct{}
 }
 
-// NewWorker 创建工作器
+// NewWorker 创建工作器.
 func NewWorker(cfg *models.ThumbnailServiceConfig, backend storage.Backend) *Worker {
 	return &Worker{
 		config:    cfg,
@@ -35,7 +37,7 @@ func NewWorker(cfg *models.ThumbnailServiceConfig, backend storage.Backend) *Wor
 	}
 }
 
-// Start 启动工作器
+// Start 启动工作器.
 func (w *Worker) Start(workers int) {
 	if workers <= 0 {
 		workers = 3
@@ -43,18 +45,18 @@ func (w *Worker) Start(workers int) {
 
 	log.Info("Starting thumbnail workers: %d", workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		go w.run(i)
 	}
 }
 
-// Stop 停止工作器
+// Stop 停止工作器.
 func (w *Worker) Stop() {
 	close(w.stopChan)
 	log.Info("Thumbnail workers stopped")
 }
 
-// run 工作循环
+// run 工作循环.
 func (w *Worker) run(id int) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -69,7 +71,7 @@ func (w *Worker) run(id int) {
 	}
 }
 
-// processJobs 处理任务
+// processJobs 处理任务.
 func (w *Worker) processJobs(workerID int) {
 	// 获取待处理的任务
 	var jobs []models.ThumbnailJob
@@ -80,14 +82,15 @@ func (w *Worker) processJobs(workerID int) {
 		Find(&jobs)
 
 	for _, job := range jobs {
-		if err := w.processJob(&job); err != nil {
+		err := w.processJob(&job)
+		if err != nil {
 			log.Error("Worker %d failed to process job %d: %v", workerID, job.ID, err)
 			w.markFailed(&job, err.Error())
 		}
 	}
 }
 
-// processJob 处理单个任务
+// processJob 处理单个任务.
 func (w *Worker) processJob(job *models.ThumbnailJob) error {
 	// 标记为处理中
 	now := time.Now()
@@ -108,7 +111,7 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 	// 匹配规则
 	_, rule, mediaType := w.matchRule(job.OriginalURL)
 	if rule == nil {
-		return fmt.Errorf("no matching rule found")
+		return errors.New("no matching rule found")
 	}
 
 	// 下载原图
@@ -116,12 +119,14 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 	if err != nil {
 		return fmt.Errorf("failed to download original: %w", err)
 	}
-	defer os.Remove(tempFile)
+	defer func() { _ = os.Remove(tempFile) }()
 
 	// 生成缩略图
-	var thumbData io.Reader
-	var thumbWidth, thumbHeight int
-	var thumbFormat string
+	var (
+		thumbData               io.Reader
+		thumbWidth, thumbHeight int
+		thumbFormat             string
+	)
 
 	opts := processor.ThumbnailOptions{
 		MaxOriginalSize:   rule.MaxOriginalSize,
@@ -132,18 +137,19 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 		ExcludeAnimations: rule.ExcludeAnimations,
 	}
 
-	if mediaType == "video" {
+	if mediaType == "video" { //nolint:goconst
 		// 视频使用视频处理器
-		videoFile, videoErr := os.Open(tempFile)
+		videoFile, videoErr := os.Open(tempFile) //nolint:gosec // G304: reviewed and safe
 		if videoErr != nil {
 			return fmt.Errorf("failed to open temp file for video: %w", videoErr)
 		}
 		defer func() { _ = videoFile.Close() }()
+
 		videoProc := processor.NewVideoProcessor("")
 		thumbData, thumbWidth, thumbHeight, thumbFormat, err = videoProc.GenerateThumbnail(videoFile, opts)
 	} else {
 		// 图片使用图片处理器
-		file, openErr := os.Open(tempFile)
+		file, openErr := os.Open(tempFile) //nolint:gosec // G304: reviewed and safe
 		if openErr != nil {
 			return fmt.Errorf("failed to open temp file: %w", openErr)
 		}
@@ -158,6 +164,7 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 
 	// 读取数据到buffer
 	buf := new(bytes.Buffer)
+
 	size, err := buf.ReadFrom(thumbData)
 	if err != nil {
 		return fmt.Errorf("failed to read thumbnail data: %w", err)
@@ -168,7 +175,8 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 
 	// 上传到存储
 	ctx := context.Background()
-	contentType := fmt.Sprintf("image/%s", thumbFormat)
+
+	contentType := "image/" + thumbFormat
 	if err := w.storage.Put(ctx, cacheKey, bytes.NewReader(buf.Bytes()), size, contentType); err != nil {
 		return fmt.Errorf("failed to upload thumbnail: %w", err)
 	}
@@ -200,40 +208,45 @@ func (w *Worker) processJob(job *models.ThumbnailJob) error {
 	return nil
 }
 
-// downloadOriginal 下载原图
+// downloadOriginal 下载原图.
 func (w *Worker) downloadOriginal(url string) (string, error) {
 	// 创建临时文件
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("thumb_dl_%d", time.Now().UnixNano()))
 
 	// 下载
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status: %d", resp.StatusCode)
 	}
 
 	// 写入文件
-	file, err := os.Create(tempFile)
+	file, err := os.Create(tempFile) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
-		os.Remove(tempFile)
+		_ = os.Remove(tempFile)
+
 		return "", err
 	}
 
 	return tempFile, nil
 }
 
-// markFailed 标记失败
+// markFailed 标记失败.
 func (w *Worker) markFailed(job *models.ThumbnailJob, errorMsg string) {
 	job.Status = "failed"
 	job.Error = errorMsg
@@ -242,14 +255,15 @@ func (w *Worker) markFailed(job *models.ThumbnailJob, errorMsg string) {
 
 	// 更新缩略图记录
 	var thumb models.Thumbnail
-	if err := db.GetDB().Where("original_url = ?", job.OriginalURL).First(&thumb).Error; err == nil {
+	err := db.GetDB().Where("original_url = ?", job.OriginalURL).First(&thumb).Error
+	if err == nil {
 		thumb.Status = models.ThumbnailStatusFailed
 		thumb.ErrorMessage = errorMsg
 		db.GetDB().Save(&thumb)
 	}
 }
 
-// matchRule 匹配规则
+// matchRule 匹配规则.
 func (w *Worker) matchRule(url string) (bool, *models.ThumbnailRule, string) {
 	ext := filepath.Ext(url)
 	if ext != "" {
@@ -257,6 +271,7 @@ func (w *Worker) matchRule(url string) (bool, *models.ThumbnailRule, string) {
 	}
 
 	contentType := ""
+
 	for _, rule := range w.config.Rules {
 		if !rule.Enabled {
 			continue
@@ -264,19 +279,15 @@ func (w *Worker) matchRule(url string) (bool, *models.ThumbnailRule, string) {
 
 		// 检查扩展名
 		if len(rule.Extensions) > 0 {
-			for _, e := range rule.Extensions {
-				if e == ext {
-					return true, &rule, rule.MediaType
-				}
+			if slices.Contains(rule.Extensions, ext) {
+				return true, &rule, rule.MediaType
 			}
 		}
 
 		// 检查content-type
 		if len(rule.ContentTypes) > 0 && contentType != "" {
-			for _, ct := range rule.ContentTypes {
-				if contentType == ct {
-					return true, &rule, rule.MediaType
-				}
+			if slices.Contains(rule.ContentTypes, contentType) {
+				return true, &rule, rule.MediaType
 			}
 		}
 	}

@@ -7,22 +7,24 @@ import (
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestFeedService() *FeedService {
 	return NewFeedService(NewMockRedisClient())
 }
 
-// setupMockService 设置默认服务使用 mock
-func setupMockService(t *testing.T) *MockRedisClient {
+// setupMockService 设置默认服务使用 mock.
+func setupMockService(t *testing.T) *MockRedisClient { //nolint:unparam // param reserved for future use
 	mockRedis := NewMockRedisClient()
 	SetDefaultService(NewFeedService(mockRedis))
+
 	return mockRedis
 }
 
 func TestFeedService_AddToTimelineItem(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"} //nolint:goconst
 
 	t.Run("Add simple status", func(t *testing.T) {
 		status := &models.Status{
@@ -32,10 +34,10 @@ func TestFeedService_AddToTimelineItem(t *testing.T) {
 		}
 
 		err := svc.AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// 验证数据已添加
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("feed:home:123")
 		assert.NotNil(t, zSet)
 		assert.Contains(t, zSet, "1001")
@@ -50,25 +52,25 @@ func TestFeedService_AddToTimelineItem(t *testing.T) {
 		}
 
 		err := svc.AddToTimelineItem(timeline, status, true)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("feed:home:123:reblogs")
 		assert.NotNil(t, zSet)
 		assert.Contains(t, zSet, "500")
 	})
 
 	t.Run("Add multiple statuses", func(t *testing.T) {
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			status := &models.Status{
 				Id:        uint64(2000 + i),
 				AccountId: 1,
 			}
 			err := svc.AddToTimelineItem(timeline, status, false)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		}
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("feed:home:123")
 		assert.NotNil(t, zSet)
 		assert.GreaterOrEqual(t, len(zSet), 10)
@@ -77,9 +79,9 @@ func TestFeedService_AddToTimelineItem(t *testing.T) {
 	t.Run("Timeline update tracking", func(t *testing.T) {
 		status := &models.Status{Id: 3000}
 		err := svc.AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("timelines")
 		assert.NotNil(t, zSet)
 		assert.Contains(t, zSet, "feed:home:123")
@@ -91,7 +93,7 @@ func TestFeedService_RemoveTimelineItem(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "456"}
 
 	// 先添加一些数据
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		status := &models.Status{
 			Id:        uint64(100 + i),
 			AccountId: 1,
@@ -102,9 +104,10 @@ func TestFeedService_RemoveTimelineItem(t *testing.T) {
 	t.Run("Remove existing status", func(t *testing.T) {
 		status := &models.Status{Id: 100}
 		err := svc.RemoveTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
+
 		zSet := mockRedis.GetZSet("feed:home:456")
 		if zSet != nil {
 			assert.NotContains(t, zSet, "100")
@@ -114,7 +117,7 @@ func TestFeedService_RemoveTimelineItem(t *testing.T) {
 	t.Run("Remove non-existing status", func(t *testing.T) {
 		status := &models.Status{Id: 99999}
 		err := svc.RemoveTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("Remove reblog status", func(t *testing.T) {
@@ -130,7 +133,7 @@ func TestFeedService_RemoveTimelineItem(t *testing.T) {
 
 		// 再删除
 		err := svc.RemoveTimelineItem(timeline, status, true)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -139,7 +142,7 @@ func TestFeedService_TrimTimeline(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "789"}
 
 	// 添加超过 MAX_ITEMS 的数据
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		status := &models.Status{
 			Id:        uint64(1000 + i),
 			AccountId: 1,
@@ -148,7 +151,7 @@ func TestFeedService_TrimTimeline(t *testing.T) {
 	}
 
 	err := svc.TrimTimeline(timeline)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_CleanFeeds(t *testing.T) {
@@ -156,7 +159,7 @@ func TestFeedService_CleanFeeds(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "111"}
 
 	// 添加一些数据
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		status := &models.Status{
 			Id:        uint64(500 + i),
 			AccountId: 1,
@@ -165,12 +168,12 @@ func TestFeedService_CleanFeeds(t *testing.T) {
 	}
 
 	err := svc.CleanFeeds(timeline, []string{"111"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_PushToClient(t *testing.T) {
 	svc := newTestFeedService()
-	timeline := &TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"} //nolint:goconst
 
 	status := &models.Status{
 		Id:        1001,
@@ -178,7 +181,7 @@ func TestFeedService_PushToClient(t *testing.T) {
 	}
 
 	err := svc.PushToClient(timeline, "update", status)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_PushUpdateRequired(t *testing.T) {
@@ -196,8 +199,9 @@ func TestFeedService_PushUpdateRequired(t *testing.T) {
 		subCache = &subscriptionCache{ttl: 5 * time.Second}
 		svc := newTestFeedService()
 		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "push_has_sub"}
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		mockRedis.SetChannel("subscribed:feed:home:push_has_sub", true)
+
 		result := svc.PushUpdateRequired(timeline)
 		assert.True(t, result)
 	})
@@ -212,7 +216,7 @@ func TestFeedService_GcTimelines(t *testing.T) {
 	_ = svc.AddToTimelineItem(timeline, status, false)
 
 	err := svc.GcTimelines()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_ConcurrentOperations(t *testing.T) {
@@ -223,18 +227,20 @@ func TestFeedService_ConcurrentOperations(t *testing.T) {
 	done := make(chan bool)
 
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			status := &models.Status{Id: uint64(i)}
 			_ = svc.AddToTimelineItem(timeline, status, false)
 		}
+
 		done <- true
 	}()
 
 	go func() {
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			status := &models.Status{Id: uint64(i)}
 			_ = svc.RemoveTimelineItem(timeline, status, false)
 		}
+
 		done <- true
 	}()
 
@@ -242,7 +248,7 @@ func TestFeedService_ConcurrentOperations(t *testing.T) {
 	<-done
 
 	// 验证没有 panic，操作完成
-	mockRedis := svc.redis.(*MockRedisClient)
+	mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 	zSet := mockRedis.GetZSet("feed:home:concurrent")
 	t.Logf("Final zSet size: %d", len(zSet))
 }
@@ -264,16 +270,16 @@ func TestFeedService_EdgeCases(t *testing.T) {
 		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: ""}
 		status := &models.Status{Id: 1}
 		err := svc.AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("Large status ID", func(t *testing.T) {
 		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "large"}
 		status := &models.Status{Id: uint64(1 << 62)}
 		err := svc.AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("feed:home:large")
 		assert.NotNil(t, zSet)
 		assert.Contains(t, zSet, strconv.FormatUint(uint64(1<<62), 10))
@@ -286,14 +292,14 @@ func TestFeedService_ReblogAggregation(t *testing.T) {
 
 	// 测试转发功能不会崩溃
 	reblogId := uint64(1000)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		reblog := &models.Status{
 			Id:        uint64(2000 + i),
 			AccountId: uint64(10 + i),
 			ReblogId:  &reblogId,
 		}
 		err := svc.AddToTimelineItem(timeline, reblog, true)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }
 
@@ -312,7 +318,7 @@ func TestFeedService_RemoveTimelineItem_WithReblog(t *testing.T) {
 	// 添加后再删除
 	_ = svc.AddToTimelineItem(timeline, status, true)
 	err := svc.RemoveTimelineItem(timeline, status, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_TrimTimeline_WithReblogs(t *testing.T) {
@@ -320,7 +326,7 @@ func TestFeedService_TrimTimeline_WithReblogs(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "trim_reblog"}
 
 	// 添加大量数据
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		status := &models.Status{
 			Id:        uint64(10000 + i),
 			AccountId: 1,
@@ -329,7 +335,7 @@ func TestFeedService_TrimTimeline_WithReblogs(t *testing.T) {
 	}
 
 	err := svc.TrimTimeline(timeline)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
@@ -337,8 +343,8 @@ func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_multi"}
 
 	// 添加数据到多个 feed
-	for i := 0; i < 3; i++ {
-		for j := 0; j < 5; j++ {
+	for i := range 3 {
+		for j := range 5 {
 			status := &models.Status{
 				Id:        uint64(i*100 + j),
 				AccountId: 1,
@@ -349,7 +355,7 @@ func TestFeedService_CleanFeeds_Multiple(t *testing.T) {
 	}
 
 	err := svc.CleanFeeds(timeline, []string{"0", "1", "2"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_AddToTimelineItem_ExistingReblog(t *testing.T) {
@@ -371,7 +377,7 @@ func TestFeedService_AddToTimelineItem_ExistingReblog(t *testing.T) {
 		ReblogId:  &reblogId,
 	}
 	err := svc.AddToTimelineItem(timeline, reblog, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// 添加另一个转发
 	reblog2 := &models.Status{
@@ -380,7 +386,7 @@ func TestFeedService_AddToTimelineItem_ExistingReblog(t *testing.T) {
 		ReblogId:  &reblogId,
 	}
 	err = svc.AddToTimelineItem(timeline, reblog2, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_PushToClient_DifferentEvents(t *testing.T) {
@@ -390,10 +396,10 @@ func TestFeedService_PushToClient_DifferentEvents(t *testing.T) {
 	status := &models.Status{Id: 1}
 
 	// 测试不同的事件类型
-	eventTypes := []string{"update", "delete", "status.update"}
+	eventTypes := []string{"update", "delete", "status.update"} //nolint:goconst
 	for _, eventType := range eventTypes {
 		err := svc.PushToClient(timeline, eventType, status)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }
 
@@ -414,7 +420,7 @@ func TestFeedService_MultipleTimelines(t *testing.T) {
 			AccountId: 1,
 		}
 		err := svc.AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }
 
@@ -427,7 +433,7 @@ func TestFeedService_GcTimelines_WithOldData(t *testing.T) {
 	_ = svc.AddToTimelineItem(timeline, status, false)
 
 	err := svc.GcTimelines()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_RemoveNonExistentStatus(t *testing.T) {
@@ -437,7 +443,7 @@ func TestFeedService_RemoveNonExistentStatus(t *testing.T) {
 	// 删除不存在的状态
 	status := &models.Status{Id: 99999}
 	err := svc.RemoveTimelineItem(timeline, status, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_AddToTimelineItem_WithoutReblogAggregation(t *testing.T) {
@@ -452,10 +458,10 @@ func TestFeedService_AddToTimelineItem_WithoutReblogAggregation(t *testing.T) {
 		ReblogId:  &reblogId,
 	}
 	err := svc.AddToTimelineItem(timeline, reblog, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
-// 测试 feed.go 中的全局函数（通过 defaultService）
+// 测试 feed.go 中的全局函数（通过 defaultService）.
 func TestGlobalFunctions_WithMock(t *testing.T) {
 	// 设置 mock 服务
 	mockRedis := setupMockService(t)
@@ -464,7 +470,7 @@ func TestGlobalFunctions_WithMock(t *testing.T) {
 	t.Run("AddToTimelineItem global function", func(t *testing.T) {
 		status := &models.Status{Id: 1001}
 		err := AddToTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		zSet := mockRedis.GetZSet("feed:home:global")
 		assert.Contains(t, zSet, "1001")
@@ -473,18 +479,18 @@ func TestGlobalFunctions_WithMock(t *testing.T) {
 	t.Run("RemoveTimelineItem global function", func(t *testing.T) {
 		status := &models.Status{Id: 1001}
 		err := RemoveTimelineItem(timeline, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("TrimTimeline global function", func(t *testing.T) {
 		err := TrimTimeline(timeline)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("PushToClient global function", func(t *testing.T) {
 		status := &models.Status{Id: 1002}
 		err := PushToClient(timeline, "update", status)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("PushUpdateRequired global function", func(t *testing.T) {
@@ -501,11 +507,11 @@ func TestGlobalFunctions_WithMock(t *testing.T) {
 
 	t.Run("GcTimelines global function", func(t *testing.T) {
 		err := GcTimelines()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 
-// 测试 resetDefaultService 函数
+// 测试 resetDefaultService 函数.
 func TestResetDefaultService(t *testing.T) {
 	// 创建新的 mock 服务
 	mockRedis := NewMockRedisClient()
@@ -515,10 +521,10 @@ func TestResetDefaultService(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:test:%s", TimelineId: "reset"}
 	status := &models.Status{Id: 1}
 	err := AddToTimelineItem(timeline, status, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
-// 测试 CleanFeeds 全局函数
+// 测试 CleanFeeds 全局函数.
 func TestCleanFeeds_Global(t *testing.T) {
 	mockRedis := NewMockRedisClient()
 	SetDefaultService(NewFeedService(mockRedis))
@@ -526,16 +532,16 @@ func TestCleanFeeds_Global(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_global"}
 
 	// 添加数据
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		status := &models.Status{Id: uint64(i)}
 		_ = AddToTimelineItem(timeline, status, false)
 	}
 
 	err := CleanFeeds(timeline, []string{"clean_global"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
-// 测试 PushUpdateRequired 有订阅者
+// 测试 PushUpdateRequired 有订阅者.
 func TestPushUpdateRequired_WithSubscribers(t *testing.T) {
 	// 清除缓存
 	subCache = &subscriptionCache{ttl: 5 * time.Second}
@@ -556,16 +562,16 @@ func TestFeedService_BatchAddToTimelineItems(t *testing.T) {
 	t.Run("Empty timelines", func(t *testing.T) {
 		status := &models.Status{Id: 1000}
 		err := svc.BatchAddToTimelineItems([]Timeline{}, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("Single timeline", func(t *testing.T) {
 		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "batch_single"}
 		status := &models.Status{Id: 1001}
 		err := svc.BatchAddToTimelineItems([]Timeline{timeline}, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		mockRedis := svc.redis.(*MockRedisClient)
+		mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 		zSet := mockRedis.GetZSet("feed:home:batch_single")
 		assert.NotNil(t, zSet)
 		assert.Contains(t, zSet, "1001")
@@ -581,7 +587,7 @@ func TestFeedService_BatchAddToTimelineItems(t *testing.T) {
 		}
 		status := &models.Status{Id: 2001}
 		err := svc.BatchAddToTimelineItems(timelines, status, false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		// 注意：由于 Pipelined 的 mock 实现不实际执行操作，
 		// 所以这里不验证数据是否添加成功
 	})
@@ -610,6 +616,7 @@ func TestSubscriptionCache(t *testing.T) {
 		shortCache.Set("expire_key", true)
 		// 等待过期
 		time.Sleep(2 * time.Nanosecond)
+
 		val, ok := shortCache.Get("expire_key")
 		assert.False(t, ok)
 		assert.False(t, val)
@@ -628,10 +635,10 @@ func TestFeedService_AddToTimelineItem_ReblogInFalloff(t *testing.T) {
 	reblogId := uint64(10000)
 	reblog := &models.Status{Id: 10001, ReblogId: &reblogId}
 	err := svc.AddToTimelineItem(timeline, reblog, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// 验证 reblog 集合
-	mockRedis := svc.redis.(*MockRedisClient)
+	mockRedis := svc.redis.(*MockRedisClient) //nolint:forcetypeassert
 	reblogSet := mockRedis.GetZSet("feed:home:reblog_falloff:reblogs")
 	assert.NotNil(t, reblogSet)
 }
@@ -648,7 +655,7 @@ func TestFeedService_AddToTimelineItem_ExistingScore(t *testing.T) {
 	// 再次添加相同原始状态的另一个转发
 	reblog2 := &models.Status{Id: 20002, ReblogId: &reblogId}
 	err := svc.AddToTimelineItem(timeline, reblog2, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_RemoveTimelineItem_WithOtherReblogs(t *testing.T) {
@@ -657,7 +664,7 @@ func TestFeedService_RemoveTimelineItem_WithOtherReblogs(t *testing.T) {
 
 	// 添加多个转发
 	reblogId := uint64(30000)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		reblog := &models.Status{Id: uint64(30001 + i), ReblogId: &reblogId}
 		_ = svc.AddToTimelineItem(timeline, reblog, true)
 	}
@@ -665,7 +672,7 @@ func TestFeedService_RemoveTimelineItem_WithOtherReblogs(t *testing.T) {
 	// 删除其中一个转发
 	reblog := &models.Status{Id: 30001, ReblogId: &reblogId}
 	err := svc.RemoveTimelineItem(timeline, reblog, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_TrimTimeline_WithReblogData(t *testing.T) {
@@ -673,7 +680,7 @@ func TestFeedService_TrimTimeline_WithReblogData(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "trim_reblog_data"}
 
 	// 添加普通状态
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		status := &models.Status{Id: uint64(40000 + i)}
 		_ = svc.AddToTimelineItem(timeline, status, false)
 	}
@@ -684,7 +691,7 @@ func TestFeedService_TrimTimeline_WithReblogData(t *testing.T) {
 	_ = svc.AddToTimelineItem(timeline, reblog, true)
 
 	err := svc.TrimTimeline(timeline)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestSetDefaultDBService(t *testing.T) {
@@ -713,18 +720,19 @@ func TestSubscriptionCache_ConcurrentLegacy(t *testing.T) {
 	done := make(chan bool)
 
 	// 并发读写
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
-			for j := 0; j < 100; j++ {
-				key := "key_" + string(rune(id))
+			for range 100 {
+				key := "key_" + string(rune(id)) //nolint:gosec // G115: reviewed and safe
 				cache.Set(key, true)
 				cache.Get(key)
 			}
+
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -741,7 +749,7 @@ func TestFeedService_AddToTimelineItem_ReblogRankCheck(t *testing.T) {
 	// 添加在 REBLOG_FALLOFF 范围内的转发
 	reblog := &models.Status{Id: 50001, ReblogId: &originalId}
 	err := svc.AddToTimelineItem(timeline, reblog, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_AddToTimelineItem_ZAddError(t *testing.T) {
@@ -750,7 +758,7 @@ func TestFeedService_AddToTimelineItem_ZAddError(t *testing.T) {
 
 	status := &models.Status{Id: 60000}
 	err := svc.AddToTimelineItem(timeline, status, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_AddToTimelineItem_ExistingReblogScore(t *testing.T) {
@@ -765,7 +773,7 @@ func TestFeedService_AddToTimelineItem_ExistingReblogScore(t *testing.T) {
 	// 再添加另一个转发，验证不重复添加
 	secondReblog := &models.Status{Id: 70002, ReblogId: &reblogId}
 	err := svc.AddToTimelineItem(timeline, secondReblog, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_RemoveTimelineItem_ErrorPath(t *testing.T) {
@@ -775,7 +783,7 @@ func TestFeedService_RemoveTimelineItem_ErrorPath(t *testing.T) {
 	// 删除不存在的状态
 	status := &models.Status{Id: 99999}
 	err := svc.RemoveTimelineItem(timeline, status, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_RemoveTimelineItem_WithPipeline(t *testing.T) {
@@ -789,7 +797,7 @@ func TestFeedService_RemoveTimelineItem_WithPipeline(t *testing.T) {
 
 	// 删除转发
 	err := svc.RemoveTimelineItem(timeline, status, true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_CleanFeeds_Empty(t *testing.T) {
@@ -797,13 +805,13 @@ func TestFeedService_CleanFeeds_Empty(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "clean_empty"}
 
 	err := svc.CleanFeeds(timeline, []string{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_GcTimelines_Empty(t *testing.T) {
 	svc := newTestFeedService()
 	err := svc.GcTimelines()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestFeedService_PushToClient_EventTypes(t *testing.T) {
@@ -814,6 +822,6 @@ func TestFeedService_PushToClient_EventTypes(t *testing.T) {
 	for _, eventType := range eventTypes {
 		status := &models.Status{Id: 1}
 		err := svc.PushToClient(timeline, eventType, status)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }

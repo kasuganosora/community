@@ -12,9 +12,10 @@ func GetList(c *gin.Context) {
 
 	if err != nil || listId == 0 {
 		c.AbortWithStatusJSON(400, gin.H{
-			"code": 400,
-			"msg":  "invalid list id",
+			"code": 400,               //nolint:goconst
+			"msg":  "invalid list id", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -25,19 +26,21 @@ func GetList(c *gin.Context) {
 
 	var currentAccount *models.Account
 	if _currentAccount, ok := c.Get("account"); ok {
-		currentAccount = _currentAccount.(*models.Account)
+		currentAccount = _currentAccount.(*models.Account) //nolint:forcetypeassert
 	}
 
 	canView, err := models.ListCanView(list, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
 	if !canView {
 		c.AbortWithStatusJSON(403, gin.H{
-			"error": "forbidden",
+			"error": "forbidden", //nolint:goconst
 		})
+
 		return
 	}
 

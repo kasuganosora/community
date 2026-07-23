@@ -11,7 +11,7 @@ import (
 
 // ===== 联邦 E2EE 端点 =====
 
-// RegisterFederationE2EERoutes 注册联邦 E2EE 路由
+// RegisterFederationE2EERoutes 注册联邦 E2EE 路由.
 func RegisterFederationE2EERoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -31,12 +31,12 @@ func RegisterFederationE2EERoutes(r gin.IRouter) {
 
 // ===== 设备密钥查询 =====
 
-// FederationQueryKeysRequest 联邦密钥查询请求
+// FederationQueryKeysRequest 联邦密钥查询请求.
 type FederationQueryKeysRequest struct {
 	DeviceKeys map[string][]string `json:"device_keys"` // user_id -> device_ids
 }
 
-// FederationQueryKeysResponse 联邦密钥查询响应
+// FederationQueryKeysResponse 联邦密钥查询响应.
 type FederationQueryKeysResponse struct {
 	DeviceKeys      map[string]map[string]*DeviceKeys `json:"device_keys"`
 	MasterKeys      map[string]*CrossSigningKey       `json:"master_keys,omitempty"`
@@ -45,7 +45,7 @@ type FederationQueryKeysResponse struct {
 }
 
 // handleFederationQueryKeys 处理联邦设备密钥查询
-// POST /_matrix/federation/v1/user/keys/query
+// POST /_matrix/federation/v1/user/keys/query.
 func handleFederationQueryKeys(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -53,20 +53,23 @@ func handleFederationQueryKeys(c *gin.Context) {
 	var req FederationQueryKeysRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
-			ErrCode: "M_BAD_JSON",
+			ErrCode: "M_BAD_JSON", //nolint:goconst
 			Error:   "Invalid JSON: " + err.Error(),
 		})
+
 		return
 	}
 
 	// 验证并过滤只查询本服务器的用户
 	filteredReq := make(map[string][]string)
+
 	for userID, deviceIDs := range req.DeviceKeys {
 		// 解析用户 ID 获取服务器名
 		parts := strings.Split(userID, ":")
 		if len(parts) != 2 {
 			continue
 		}
+
 		serverName := parts[1]
 
 		// 只处理本服务器的用户
@@ -79,12 +82,14 @@ func handleFederationQueryKeys(c *gin.Context) {
 	queryReq := &QueryKeysRequest{
 		DeviceKeys: filteredReq,
 	}
+
 	queryResp, err := hs.KeyStore.QueryDeviceKeys(queryReq)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
-			ErrCode: "M_INTERNAL_ERROR",
+			ErrCode: "M_INTERNAL_ERROR", //nolint:goconst
 			Error:   "Failed to query keys: " + err.Error(),
 		})
+
 		return
 	}
 
@@ -99,6 +104,7 @@ func handleFederationQueryKeys(c *gin.Context) {
 	// 查询交叉签名密钥
 	for userID := range filteredReq {
 		var crossSigningKeys []MatrixCrossSigningKey
+
 		db.GetDB().Where("user_id = ?", userID).Find(&crossSigningKeys)
 
 		for _, key := range crossSigningKeys {
@@ -110,19 +116,22 @@ func handleFederationQueryKeys(c *gin.Context) {
 			}
 
 			// 解析密钥数据
-			var keyData map[string]interface{}
-			if err := json.Unmarshal([]byte(key.KeyData), &keyData); err == nil {
-				if keys, ok := keyData["keys"].(map[string]interface{}); ok {
+			var keyData map[string]any
+			err := json.Unmarshal([]byte(key.KeyData), &keyData)
+			if err == nil {
+				if keys, ok := keyData["keys"].(map[string]any); ok {
 					for k, v := range keys {
 						if str, ok := v.(string); ok {
 							csk.Keys[k] = str
 						}
 					}
 				}
-				if sigs, ok := keyData["signatures"].(map[string]interface{}); ok {
+
+				if sigs, ok := keyData["signatures"].(map[string]any); ok {
 					for domain, domainSigs := range sigs {
-						if domainSigMap, ok := domainSigs.(map[string]interface{}); ok {
+						if domainSigMap, ok := domainSigs.(map[string]any); ok {
 							csk.Signatures[domain] = make(map[string]string)
+
 							for k, v := range domainSigMap {
 								if str, ok := v.(string); ok {
 									csk.Signatures[domain][k] = str
@@ -149,18 +158,18 @@ func handleFederationQueryKeys(c *gin.Context) {
 
 // ===== 一次性密钥认领 =====
 
-// FederationClaimKeysRequest 联邦密钥认领请求
+// FederationClaimKeysRequest 联邦密钥认领请求.
 type FederationClaimKeysRequest struct {
 	OneTimeKeys map[string]map[string]string `json:"one_time_keys"` // user_id -> device_id -> algorithm
 }
 
-// FederationClaimKeysResponse 联邦密钥认领响应
+// FederationClaimKeysResponse 联邦密钥认领响应.
 type FederationClaimKeysResponse struct {
 	OneTimeKeys map[string]map[string]map[string]json.RawMessage `json:"one_time_keys"`
 }
 
 // handleFederationClaimKeys 处理联邦一次性密钥认领
-// POST /_matrix/federation/v1/user/keys/claim
+// POST /_matrix/federation/v1/user/keys/claim.
 func handleFederationClaimKeys(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -171,17 +180,20 @@ func handleFederationClaimKeys(c *gin.Context) {
 			ErrCode: "M_BAD_JSON",
 			Error:   "Invalid JSON: " + err.Error(),
 		})
+
 		return
 	}
 
 	// 验证并过滤只认领本服务器的用户
 	filteredReq := make(map[string]map[string]string)
+
 	for userID, devices := range req.OneTimeKeys {
 		// 解析用户 ID 获取服务器名
 		parts := strings.Split(userID, ":")
 		if len(parts) != 2 {
 			continue
 		}
+
 		serverName := parts[1]
 
 		// 只处理本服务器的用户
@@ -194,12 +206,14 @@ func handleFederationClaimKeys(c *gin.Context) {
 	claimReq := &ClaimKeysRequest{
 		OneTimeKeys: filteredReq,
 	}
+
 	claimResp, err := hs.KeyStore.ClaimOneTimeKeys(claimReq)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
 			ErrCode: "M_INTERNAL_ERROR",
 			Error:   "Failed to claim keys: " + err.Error(),
 		})
+
 		return
 	}
 
@@ -210,14 +224,14 @@ func handleFederationClaimKeys(c *gin.Context) {
 
 // ===== To-Device 消息联邦传输 =====
 
-// FederationSendToDeviceRequest 联邦 To-Device 消息请求
+// FederationSendToDeviceRequest 联邦 To-Device 消息请求.
 type FederationSendToDeviceRequest struct {
-	Messages map[string]map[string]map[string]interface{} `json:"messages"` // user_id -> device_id -> content
-	Sender   string                                       `json:"sender"`
+	Messages map[string]map[string]map[string]any `json:"messages"` // user_id -> device_id -> content
+	Sender   string                               `json:"sender"`
 }
 
 // handleFederationSendToDevice 处理联邦 To-Device 消息发送
-// PUT /_matrix/federation/v1/send_to_device/:eventType/:txnId
+// PUT /_matrix/federation/v1/send_to_device/:eventType/:txnId.
 func handleFederationSendToDevice(c *gin.Context) {
 	hs := GetHomeServer()
 	eventType := c.Param("eventType")
@@ -225,24 +239,29 @@ func handleFederationSendToDevice(c *gin.Context) {
 
 	// 检查事务 ID 是否已处理（去重）
 	var existingTxn MatrixFederationTxn
-	if err := db.GetDB().Where("txn_id = ? AND origin = ?", txnID, c.GetString("origin")).First(&existingTxn).Error; err == nil {
+	err := db.GetDB().Where("txn_id = ? AND origin = ?", txnID, c.GetString("origin")).First(&existingTxn).Error
+	if err == nil {
 		// 事务已处理，返回成功（幂等）
 		c.JSON(http.StatusOK, gin.H{})
+
 		return
 	}
 
 	// 解析请求
 	var req FederationSendToDeviceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err = c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Invalid JSON: " + err.Error(),
 		})
+
 		return
 	}
 
 	// 处理消息
 	processedCount := 0
+
 	for userID, devices := range req.Messages {
 		// 验证用户是否属于本服务器
 		parts := strings.Split(userID, ":")
@@ -261,9 +280,11 @@ func handleFederationSendToDevice(c *gin.Context) {
 				Content:      content,
 			}
 
-			if err := db.GetDB().Create(msg).Error; err != nil {
+			err := db.GetDB().Create(msg).Error
+			if err != nil {
 				continue
 			}
+
 			processedCount++
 
 			// 触发同步通知

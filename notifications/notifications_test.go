@@ -320,27 +320,33 @@ func TestUpdateMentionNotification_DiffLogic(t *testing.T) {
 	}
 
 	toRemove := make([]uint64, 0)
+
 	for _, id := range oldAccounts {
 		if !newMap[id] {
 			toRemove = append(toRemove, id)
 		}
 	}
+
 	assert.Equal(t, []uint64{1}, toRemove)
 
 	toAdd := make([]uint64, 0)
+
 	for _, id := range newAccounts {
 		if !oldMap[id] {
 			toAdd = append(toAdd, id)
 		}
 	}
+
 	assert.Equal(t, []uint64{4}, toAdd)
 
 	toUpdate := make([]uint64, 0)
+
 	for _, id := range oldAccounts {
 		if newMap[id] {
 			toUpdate = append(toUpdate, id)
 		}
 	}
+
 	assert.Equal(t, []uint64{2, 3}, toUpdate)
 }
 
@@ -389,6 +395,7 @@ func TestNotification_BulkCreation(t *testing.T) {
 	}
 
 	assert.Len(t, nfList, 3)
+
 	for i, nf := range nfList {
 		assert.Equal(t, uint64(i+1), nf.AccountId)
 		assert.Equal(t, uint64(10), nf.FromAccountId)
@@ -402,7 +409,6 @@ func TestNotification_BulkCreation(t *testing.T) {
 func TestEventHandlers_PanicRecovery(t *testing.T) {
 	// Verify that notification functions handle nil pointers gracefully
 	// by testing the early return conditions
-
 	t.Run("nil Follow.Account", func(t *testing.T) {
 		follow := &models.Follow{
 			Id:        1,
@@ -466,6 +472,7 @@ func TestUnfavouriteNotification_ReblogResolution(t *testing.T) {
 				original = original.Reblog
 			}
 		}
+
 		assert.Equal(t, uint64(5), original.Id)
 		assert.Equal(t, uint64(3), original.AccountId)
 	})

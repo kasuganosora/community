@@ -10,9 +10,9 @@ import (
 	"strconv"
 )
 
-// ListRequest represents the request for listing follow requests
+// ListRequest represents the request for listing follow requests.
 type ListRequest struct {
-	Limit   int    `form:"limit" binding:"min=1,max=80"`
+	Limit   int    `binding:"min=1,max=80" form:"limit"`
 	MaxId   string `form:"max_id"`
 	SinceId string `form:"since_id"`
 }
@@ -20,11 +20,13 @@ type ListRequest struct {
 // FollowRequestResponse represents the response for follow requests (Account)
 // In Mastodon API, follow requests are returned as accounts
 
-// List handles GET /api/v1/follow_requests
+// List handles GET /api/v1/follow_requests.
 func List(c *gin.Context) {
 	var req ListRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+	err := c.ShouldBindQuery(&req)
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -33,7 +35,7 @@ func List(c *gin.Context) {
 	}
 
 	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query follow requests (accounts that want to follow me)
 	query := db.GetDB().Model(&models.Follow{}).
@@ -50,6 +52,7 @@ func List(c *gin.Context) {
 			query = query.Where("id < ?", maxId)
 		}
 	}
+
 	if req.SinceId != "" {
 		if sinceId, err := strconv.ParseUint(req.SinceId, 10, 64); err == nil {
 			query = query.Where("id > ?", sinceId)
@@ -57,13 +60,16 @@ func List(c *gin.Context) {
 	}
 
 	followRequests := make([]*models.Follow, 0)
-	if err := query.Limit(req.Limit).Find(&followRequests).Error; err != nil {
+	err = query.Limit(req.Limit).Find(&followRequests).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get follow requests error"))
+
 		return
 	}
 
 	// Extract accounts from follow requests
 	accounts := make([]*models.Account, 0, len(followRequests))
+
 	for _, fr := range followRequests {
 		if fr.Account != nil {
 			accounts = append(accounts, fr.Account)
@@ -73,36 +79,41 @@ func List(c *gin.Context) {
 	c.JSON(200, serializer.ToAccounts(accounts))
 }
 
-// Authorize handles POST /api/v1/follow_requests/:id/authorize
+// Authorize handles POST /api/v1/follow_requests/:id/authorize.
 func Authorize(c *gin.Context) {
 	// Get the account ID from URL
 	targetAccountId := c.Param("id")
 	if targetAccountId == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"}) //nolint:goconst
+
 		return
 	}
 
 	targetId, err := strconv.ParseUint(targetAccountId, 10, 64)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+
 		return
 	}
 
 	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Find the follow request
 	followRequest := &models.Follow{}
+
 	err = db.GetDB().Scopes(models.FollowRequested).
 		Where("account_id = ? AND follow_id = ?", targetId, currentAccount.Id).
 		First(followRequest).Error
-
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "follow request not found"})
+
 			return
 		}
+
 		_ = c.Error(errors.Wrap(err, "get follow request error"))
+
 		return
 	}
 
@@ -110,6 +121,7 @@ func Authorize(c *gin.Context) {
 	followRequest.Status = models.FollowStatusFollowed
 	if err := db.GetDB().Save(followRequest).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "update follow request error"))
+
 		return
 	}
 
@@ -143,23 +155,25 @@ func Authorize(c *gin.Context) {
 	})
 }
 
-// Reject handles POST /api/v1/follow_requests/:id/reject
+// Reject handles POST /api/v1/follow_requests/:id/reject.
 func Reject(c *gin.Context) {
 	// Get the account ID from URL
 	targetAccountId := c.Param("id")
 	if targetAccountId == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+
 		return
 	}
 
 	targetId, err := strconv.ParseUint(targetAccountId, 10, 64)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+
 		return
 	}
 
 	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Find and delete the follow request
 	result := db.GetDB().Scopes(models.FollowRequested).
@@ -168,11 +182,13 @@ func Reject(c *gin.Context) {
 
 	if result.Error != nil {
 		_ = c.Error(errors.Wrap(result.Error, "delete follow request error"))
+
 		return
 	}
 
 	if result.RowsAffected == 0 {
 		c.AbortWithStatusJSON(404, gin.H{"error": "follow request not found"})
+
 		return
 	}
 

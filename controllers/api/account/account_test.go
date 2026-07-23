@@ -15,7 +15,7 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// TestRegisterRequest_Binding 测试注册请求绑定
+// TestRegisterRequest_Binding 测试注册请求绑定.
 func TestRegisterRequest_Binding(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -25,10 +25,10 @@ func TestRegisterRequest_Binding(t *testing.T) {
 		{
 			name: "valid request",
 			formData: map[string]string{
-				"user[account_attributes][display_name]": "Test User",
+				"user[account_attributes][display_name]": "Test User", //nolint:goconst
 				"user[account_attributes][username]":     "testuser",
 				"user[email]":                            "test@example.com",
-				"user[password]":                         "password123",
+				"user[password]":                         "password123", //nolint:goconst
 				"user[password_confirmation]":            "password123",
 			},
 			expectError: false,
@@ -65,11 +65,12 @@ func TestRegisterRequest_Binding(t *testing.T) {
 				form.Set(key, value)
 			}
 
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(form.Encode()))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(form.Encode())) //nolint:noctx // test code //nolint:noctx
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			c.Request = req
 
 			var reqStruct RegisterRequest
+
 			err := c.ShouldBind(&reqStruct)
 
 			if tt.expectError {
@@ -81,7 +82,7 @@ func TestRegisterRequest_Binding(t *testing.T) {
 	}
 }
 
-// TestLoginRequest_Binding 测试登录请求绑定
+// TestLoginRequest_Binding 测试登录请求绑定.
 func TestLoginRequest_Binding(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -123,11 +124,12 @@ func TestLoginRequest_Binding(t *testing.T) {
 				form.Set(key, value)
 			}
 
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/sign_in", strings.NewReader(form.Encode()))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/sign_in", strings.NewReader(form.Encode())) //nolint:noctx // test code //nolint:noctx
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			c.Request = req
 
 			var reqStruct AuthRequest
+
 			err := c.ShouldBind(&reqStruct)
 
 			if tt.expectError {
@@ -139,7 +141,7 @@ func TestLoginRequest_Binding(t *testing.T) {
 	}
 }
 
-// TestAuthRequest_Validation 测试登录请求验证逻辑
+// TestAuthRequest_Validation 测试登录请求验证逻辑.
 func TestAuthRequest_Validation(t *testing.T) {
 	tests := []struct {
 		name          string

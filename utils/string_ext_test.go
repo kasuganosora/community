@@ -11,7 +11,7 @@ func TestGetRandomString(t *testing.T) {
 	// 测试长度
 	for _, length := range []int{1, 10, 32, 64} {
 		result := GetRandomString(length)
-		assert.Equal(t, length, len(result), "Length should match")
+		assert.Len(t, result, length, "Length should match")
 	}
 
 	// 测试随机性
@@ -21,7 +21,9 @@ func TestGetRandomString(t *testing.T) {
 
 	// 测试字符集
 	result := GetRandomString(100)
+
 	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
 	for _, c := range result {
 		assert.True(t, strings.ContainsRune(chars, c), "Character should be in allowed set")
 	}

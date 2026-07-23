@@ -21,7 +21,8 @@ type ListRequest struct {
 func List(c *gin.Context) {
 	req := &ListRequest{}
 	err := c.ShouldBindQuery(req)
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
+
 	query := db.GetDB().Model(&models.Report{})
 
 	if req.Resolved != nil {

@@ -40,13 +40,13 @@ func TestMuteAccounts_ExcludeExpired_AllExpired(t *testing.T) {
 		{Id: 2, ExpiredAt: &past},
 	}
 	active := mutes.ExcludeExpired()
-	assert.Len(t, active, 0)
+	assert.Empty(t, active)
 }
 
 func TestMuteAccounts_ExcludeExpired_Empty(t *testing.T) {
 	mutes := MuteAccounts{}
 	active := mutes.ExcludeExpired()
-	assert.Len(t, active, 0)
+	assert.Empty(t, active)
 }
 
 func TestMuteAccounts_IsMuted(t *testing.T) {

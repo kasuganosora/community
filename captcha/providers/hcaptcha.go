@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -13,14 +14,14 @@ const (
 	hcaptchaVerifyURL = "https://hcaptcha.com/siteverify"
 )
 
-// HCaptchaProvider hCaptcha 实现
+// HCaptchaProvider hCaptcha 实现.
 type HCaptchaProvider struct {
 	siteKey   string
 	secretKey string
 	client    *httpclient.Client
 }
 
-// hcaptchaResponse hCaptcha 响应结构
+// hcaptchaResponse hCaptcha 响应结构.
 type hcaptchaResponse struct {
 	Success     bool     `json:"success"`
 	ChallengeTS string   `json:"challenge_ts"`
@@ -31,7 +32,7 @@ type hcaptchaResponse struct {
 	ScoreReason string   `json:"score_reason"`
 }
 
-// NewHCaptchaProvider 创建 hCaptcha 供应商
+// NewHCaptchaProvider 创建 hCaptcha 供应商.
 func NewHCaptchaProvider(siteKey, secretKey string) *HCaptchaProvider {
 	return &HCaptchaProvider{
 		siteKey:   siteKey,
@@ -40,22 +41,22 @@ func NewHCaptchaProvider(siteKey, secretKey string) *HCaptchaProvider {
 	}
 }
 
-// Name 返回供应商名称
+// Name 返回供应商名称.
 func (h *HCaptchaProvider) Name() string {
 	return "hcaptcha"
 }
 
-// Verify 验证用户响应
+// Verify 验证用户响应.
 func (h *HCaptchaProvider) Verify(ctx context.Context, response string, remoteIP string) (*types.VerificationResult, error) {
 	if h.secretKey == "" {
-		return nil, fmt.Errorf("hcaptcha secret key is not configured")
+		return nil, errors.New("hcaptcha secret key is not configured")
 	}
 
 	if response == "" {
 		return &types.VerificationResult{
 			Success:    false,
 			Provider:   h.Name(),
-			ErrorCodes: []string{"missing-input-response"},
+			ErrorCodes: []string{"missing-input-response"}, //nolint:goconst
 		}, nil
 	}
 
@@ -63,6 +64,7 @@ func (h *HCaptchaProvider) Verify(ctx context.Context, response string, remoteIP
 	data := url.Values{}
 	data.Set("secret", h.secretKey)
 	data.Set("response", response)
+
 	if remoteIP != "" {
 		data.Set("remoteip", remoteIP)
 	}
@@ -76,7 +78,7 @@ func (h *HCaptchaProvider) Verify(ctx context.Context, response string, remoteIP
 	req.SetFormUrlencoded(data)
 	req.SetTimeout(10)
 
-	resp, err := req.Do()
+	resp, err := req.Do() //nolint:contextcheck // custom httpclient type, context handled internally
 	if err != nil {
 		return nil, fmt.Errorf("hcaptcha verify request failed: %w", err)
 	}
@@ -96,12 +98,12 @@ func (h *HCaptchaProvider) Verify(ctx context.Context, response string, remoteIP
 	}, nil
 }
 
-// GetSiteKey 获取站点密钥
+// GetSiteKey 获取站点密钥.
 func (h *HCaptchaProvider) GetSiteKey() string {
 	return h.siteKey
 }
 
-// IsConfigured 检查是否已配置
+// IsConfigured 检查是否已配置.
 func (h *HCaptchaProvider) IsConfigured() bool {
 	return h.siteKey != "" && h.secretKey != ""
 }

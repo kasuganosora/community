@@ -9,14 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// ContextResponse represents the context response for a status
+// ContextResponse represents the context response for a status.
 type ContextResponse struct {
 	Ancestors   []*serializer.Status `json:"ancestors"`
 	Descendants []*serializer.Status `json:"descendants"`
 }
 
 // Context handles GET /api/v1/statuses/:id/context
-// Returns ancestors and descendants of a status
+// Returns ancestors and descendants of a status.
 func Context(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
 	account := controllers.GetAccount(c)
@@ -24,16 +24,21 @@ func Context(c *gin.Context) {
 	// Check permission
 	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
 		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"})
+			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
+
 			return
 		}
+
 		canView, err := status.CanViewEx(db.GetDB(), account)
 		if err != nil {
 			controllers.AbortIfError(c, err)
+
 			return
 		}
+
 		if !canView {
 			c.JSON(403, gin.H{"error": "has no permission"})
+
 			return
 		}
 	}
@@ -48,7 +53,7 @@ func Context(c *gin.Context) {
 	descendants := getDescendants(db.GetDB(), status.Id, 60, 0)
 
 	// Load extended fields for all statuses
-	allStatuses := append(ancestors, descendants...)
+	allStatuses := append(append([]*models.Status{}, ancestors...), descendants...)
 	for i := range allStatuses {
 		if allStatuses[i] != nil {
 			_ = allStatuses[i].CheckAndLoadAllExtendFields(db.GetDB())
@@ -59,12 +64,14 @@ func Context(c *gin.Context) {
 	ancestorStatuses, err := serializer.ToStatuses(ancestors, account)
 	if err != nil {
 		controllers.AbortIfError(c, err)
+
 		return
 	}
 
 	descendantStatuses, err := serializer.ToStatuses(descendants, account)
 	if err != nil {
 		controllers.AbortIfError(c, err)
+
 		return
 	}
 
@@ -74,7 +81,7 @@ func Context(c *gin.Context) {
 	})
 }
 
-// getAncestors recursively gets parent statuses
+// getAncestors recursively gets parent statuses.
 func getAncestors(dbConn *gorm.DB, statusId uint64, limit int) []*models.Status {
 	ancestors := make([]*models.Status, 0)
 	visited := make(map[uint64]bool)
@@ -84,11 +91,13 @@ func getAncestors(dbConn *gorm.DB, statusId uint64, limit int) []*models.Status 
 		if visited[currentId] {
 			break
 		}
+
 		visited[currentId] = true
 
 		parent := &models.Status{}
 		query := dbConn.Model(&models.Status{})
 		query = models.StatusLoadAllQuery(query)
+
 		err := query.First(parent, currentId).Error
 		if err != nil {
 			break
@@ -99,13 +108,14 @@ func getAncestors(dbConn *gorm.DB, statusId uint64, limit int) []*models.Status 
 		if parent.InReplyToId == nil || *parent.InReplyToId == 0 {
 			break
 		}
+
 		currentId = *parent.InReplyToId
 	}
 
 	return ancestors
 }
 
-// getDescendants recursively gets child statuses
+// getDescendants recursively gets child statuses.
 func getDescendants(dbConn *gorm.DB, statusId uint64, limit int, depth int) []*models.Status {
 	if depth > 20 { // Depth limit to prevent infinite recursion
 		return []*models.Status{}
@@ -121,6 +131,7 @@ func getDescendants(dbConn *gorm.DB, statusId uint64, limit int, depth int) []*m
 		Limit(limit)
 
 	query = models.StatusLoadAllQuery(query)
+
 	err := query.Find(&replies).Error
 	if err != nil {
 		return descendants
@@ -130,6 +141,7 @@ func getDescendants(dbConn *gorm.DB, statusId uint64, limit int, depth int) []*m
 		if len(descendants) >= limit {
 			break
 		}
+
 		descendants = append(descendants, reply)
 
 		// Recursively get replies to this reply

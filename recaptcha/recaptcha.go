@@ -15,7 +15,8 @@ func SiteVerify(response string, remoteIp string) (ok bool, err error) {
 	secret := systemsettings.GetString(systemsettings.KeyRecaptchaSecretKey, "")
 	if secret == "" {
 		err = errors.New("recaptcha secret key is empty")
-		return
+
+		return ok, err
 	}
 
 	client := httpclient.NewClient()
@@ -34,22 +35,26 @@ func SiteVerify(response string, remoteIp string) (ok bool, err error) {
 	resp, err := req.Do()
 	if err != nil {
 		err = errors.WithStack(err)
-		return
+
+		return ok, err
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	result, err := resp.JsonMap()
 	if err != nil {
 		err = errors.WithStack(err)
-		return
+
+		return ok, err
 	}
 
 	if result["success"] == nil {
 		err = errors.New("recaptcha response error")
-		return
+
+		return ok, err
 	}
 
-	ok = result["success"].(bool)
-	return
+	ok = result["success"].(bool) //nolint:forcetypeassert
+
+	return ok, err
 }

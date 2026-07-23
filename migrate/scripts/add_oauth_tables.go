@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// AddOAuthTables adds OAuth related tables
+// AddOAuthTables adds OAuth related tables.
 type AddOAuthTables struct{}
 
-// OAuthApplication extends Application with OAuth-specific fields for migration
+// OAuthApplication extends Application with OAuth-specific fields for migration.
 type OAuthApplicationMigrate struct {
 	Id           uint64         `gorm:"primary_key;autoIncrement"`
 	Uuid         *string        `gorm:"type:char(36);uniqueIndex;not null"`
@@ -29,7 +29,7 @@ func (OAuthApplicationMigrate) TableName() string {
 	return "applications"
 }
 
-// OAuthAuthorizationCode stores temporary authorization codes
+// OAuthAuthorizationCode stores temporary authorization codes.
 type OAuthAuthorizationCodeMigrate struct {
 	Id            uint64     `gorm:"primary_key;autoIncrement"`
 	Code          string     `gorm:"type:varchar(128);uniqueIndex;not null"`
@@ -49,19 +49,23 @@ func (OAuthAuthorizationCodeMigrate) TableName() string {
 func (s AddOAuthTables) Up(db *gorm.DB) error {
 	// Add client_id and client_secret columns to applications table if they don't exist
 	if !db.Migrator().HasColumn(&OAuthApplicationMigrate{}, "client_id") {
-		if err := db.Migrator().AddColumn(&OAuthApplicationMigrate{}, "client_id"); err != nil {
+		err := db.Migrator().AddColumn(&OAuthApplicationMigrate{}, "client_id")
+		if err != nil {
 			return err
 		}
 	}
+
 	if !db.Migrator().HasColumn(&OAuthApplicationMigrate{}, "client_secret") {
-		if err := db.Migrator().AddColumn(&OAuthApplicationMigrate{}, "client_secret"); err != nil {
+		err := db.Migrator().AddColumn(&OAuthApplicationMigrate{}, "client_secret")
+		if err != nil {
 			return err
 		}
 	}
 
 	// Create oauth_authorization_codes table if it doesn't exist
 	if !db.Migrator().HasTable(&OAuthAuthorizationCodeMigrate{}) {
-		if err := db.Migrator().CreateTable(&OAuthAuthorizationCodeMigrate{}); err != nil {
+		err := db.Migrator().CreateTable(&OAuthAuthorizationCodeMigrate{})
+		if err != nil {
 			return err
 		}
 	}
@@ -72,19 +76,23 @@ func (s AddOAuthTables) Up(db *gorm.DB) error {
 func (s AddOAuthTables) Down(db *gorm.DB) error {
 	// Drop oauth_authorization_codes table
 	if db.Migrator().HasTable(&OAuthAuthorizationCodeMigrate{}) {
-		if err := db.Migrator().DropTable(&OAuthAuthorizationCodeMigrate{}); err != nil {
+		err := db.Migrator().DropTable(&OAuthAuthorizationCodeMigrate{})
+		if err != nil {
 			return err
 		}
 	}
 
 	// Remove client_id and client_secret columns from applications table
 	if db.Migrator().HasColumn(&OAuthApplicationMigrate{}, "client_id") {
-		if err := db.Migrator().DropColumn(&OAuthApplicationMigrate{}, "client_id"); err != nil {
+		err := db.Migrator().DropColumn(&OAuthApplicationMigrate{}, "client_id")
+		if err != nil {
 			return err
 		}
 	}
+
 	if db.Migrator().HasColumn(&OAuthApplicationMigrate{}, "client_secret") {
-		if err := db.Migrator().DropColumn(&OAuthApplicationMigrate{}, "client_secret"); err != nil {
+		err := db.Migrator().DropColumn(&OAuthApplicationMigrate{}, "client_secret")
+		if err != nil {
 			return err
 		}
 	}

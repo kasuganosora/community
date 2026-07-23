@@ -9,7 +9,7 @@ import (
 )
 
 func Get() fs.FS {
-	if config.C.DevMode == "true" {
+	if config.C.DevMode == "true" { //nolint:goconst
 		return os.DirFS(utils.GetFullPath("resources"))
 	} else {
 		return embed.FS{}

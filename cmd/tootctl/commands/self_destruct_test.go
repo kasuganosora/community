@@ -6,6 +6,7 @@ import (
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSelfDestructStatus(t *testing.T) {
@@ -80,17 +81,17 @@ func TestBuildDeleteActivity(t *testing.T) {
 	actorURL := "https://" + domain + "/users/" + username
 
 	now := time.Now()
-	deleteActivity := map[string]interface{}{
-		"@context": []string{"https://www.w3.org/ns/activitystreams"},
+	deleteActivity := map[string]any{
+		"@context": []string{"https://www.w3.org/ns/activitystreams"}, //nolint:goconst
 		"id":       actorURL + "#delete",
-		"type":     "Delete",
+		"type":     "Delete", //nolint:goconst
 		"actor":    actorURL,
-		"object": map[string]interface{}{
+		"object": map[string]any{
 			"id":      actorURL,
 			"type":    "Person",
 			"deleted": now.Format(time.RFC3339),
 		},
-		"published": now.Format(time.RFC3339),
+		"published": now.Format(time.RFC3339), //nolint:goconst
 		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
 	}
 
@@ -98,14 +99,14 @@ func TestBuildDeleteActivity(t *testing.T) {
 	assert.Equal(t, actorURL, deleteActivity["actor"])
 	assert.Contains(t, deleteActivity["id"], "#delete")
 
-	obj := deleteActivity["object"].(map[string]interface{})
+	obj := deleteActivity["object"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, actorURL, obj["id"])
 	assert.Equal(t, "Person", obj["type"])
 }
 
 func TestBuildDeleteActivity_Context(t *testing.T) {
 	// Test that the @context is properly set
-	deleteActivity := map[string]interface{}{
+	deleteActivity := map[string]any{
 		"@context": []string{"https://www.w3.org/ns/activitystreams"},
 		"type":     "Delete",
 	}
@@ -118,7 +119,7 @@ func TestBuildDeleteActivity_Context(t *testing.T) {
 func TestBuildDeleteActivity_Timestamps(t *testing.T) {
 	now := time.Now()
 
-	deleteActivity := map[string]interface{}{
+	deleteActivity := map[string]any{
 		"published": now.Format(time.RFC3339),
 	}
 
@@ -127,7 +128,7 @@ func TestBuildDeleteActivity_Timestamps(t *testing.T) {
 	assert.True(t, ok)
 
 	parsed, err := time.Parse(time.RFC3339, publishedStr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, parsed.IsZero())
 }
 

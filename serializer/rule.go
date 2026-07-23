@@ -20,9 +20,10 @@ func ToRule(r *models.Rule) *Rule {
 }
 
 func ToRules(rs []*models.Rule) []*Rule {
-	ret := make([]*Rule, 0)
+	ret := make([]*Rule, 0, len(rs))
 	for _, r := range rs {
 		ret = append(ret, ToRule(r))
 	}
+
 	return ret
 }

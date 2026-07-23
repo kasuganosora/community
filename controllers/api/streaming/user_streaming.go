@@ -19,17 +19,18 @@ func UserStreaming(c *gin.Context) {
 		}
 
 		ev := &RedisChannelEvent{}
-		err = json.Unmarshal([]byte(data.(string)), ev)
+
+		err = json.Unmarshal([]byte(data.(string)), ev) //nolint:forcetypeassert
 		if err != nil {
-			return
+			return event, payload, err
 		}
 
 		switch ev.Type {
-		case "update", "delete", "status.update":
-			return serializerStatusEvent(account, data.(string))
-		case "notification":
-			return serializerNotificationEvent(account, data.(string))
-		case "filters_changed":
+		case "update", "delete", "status.update": //nolint:goconst
+			return serializerStatusEvent(account, data.(string)) //nolint:forcetypeassert
+		case "notification": //nolint:goconst
+			return serializerNotificationEvent(account, data.(string)) //nolint:forcetypeassert
+		case "filters_changed": //nolint:goconst
 			// 过滤器变更事件 - 通知客户端重新获取过滤器
 			return "filters_changed", "{}", nil
 		case "announcement":
@@ -44,6 +45,7 @@ func UserStreaming(c *gin.Context) {
 		default:
 			// 对于未知的事件类型，记录日志但不返回错误
 			log.Debug("Unknown streaming event type: %s", ev.Type)
+
 			return ev.Type, string(ev.Payload), nil
 		}
 	}

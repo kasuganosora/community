@@ -33,10 +33,11 @@ type FilterKeyword struct {
 }
 
 func ToFilterKeywords(filter *models.Filter) []*FilterKeyword {
-	var keywords []*FilterKeyword
+	keywords := make([]*FilterKeyword, 0, len(filter.Keywords))
 	for _, keyword := range filter.Keywords {
 		keywords = append(keywords, ToFilterKeyword(filter, keyword))
 	}
+
 	return keywords
 }
 

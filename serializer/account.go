@@ -45,6 +45,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 	if domain == "" {
 		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	}
+
 	acc = &Account{
 		Username:        account.Username,
 		Acct:            account.Username + "@" + domain,
@@ -79,7 +80,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		acc.Fields = ToFields(account.Extra.Fields)
 	}
 
-	return
+	return acc
 }
 
 func ToAccounts(accounts []*models.Account) (accs []*Account) {
@@ -103,6 +104,7 @@ func ToMention(account *models.Account) (mention *Mention) {
 	if domain == "" {
 		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	}
+
 	mention = &Mention{
 		Username: account.Username,
 		Acct:     account.Username + "@" + domain,

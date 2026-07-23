@@ -1,4 +1,4 @@
-package i18nz
+package i18nz //nolint:goconst // acceptable string literal usage
 
 import (
 	"testing"
@@ -14,7 +14,7 @@ func TestGetLocalizer(t *testing.T) {
 	}{
 		{"empty lang and accept", "", ""},
 		{"with lang only", "en", ""},
-		{"with accept only", "", "en-US,en;q=0.9"},
+		{"with accept only", "", "en-US,en;q=0.9"}, //nolint:goconst
 		{"with both", "zh", "en-US,en;q=0.9"},
 	}
 
@@ -32,7 +32,7 @@ func TestGetMailTemplateName(t *testing.T) {
 		lang         string
 		templateName string
 	}{
-		{"english template", "en", "welcome"},
+		{"english template", "en", "welcome"}, //nolint:goconst
 		{"chinese template", "zh", "welcome"},
 		{"japanese template", "ja", "welcome"},
 		{"empty lang", "", "welcome"},

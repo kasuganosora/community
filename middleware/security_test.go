@@ -12,15 +12,15 @@ func TestIsIPInCIDR(t *testing.T) {
 		expected bool
 	}{
 		// IPv4 测试
-		{"IPv4 in CIDR", "192.168.1.100", "192.168.1.0/24", true},
+		{"IPv4 in CIDR", "192.168.1.100", "192.168.1.0/24", true}, //nolint:goconst
 		{"IPv4 not in CIDR", "192.168.2.100", "192.168.1.0/24", false},
-		{"IPv4 exact match", "192.168.1.1", "192.168.1.1/32", true},
+		{"IPv4 exact match", "192.168.1.1", "192.168.1.1/32", true}, //nolint:goconst
 		{"IPv4 single IP mismatch", "192.168.1.2", "192.168.1.1/32", false},
-		{"IPv4 large subnet", "10.0.0.50", "10.0.0.0/8", true},
+		{"IPv4 large subnet", "10.0.0.50", "10.0.0.0/8", true}, //nolint:goconst
 		{"IPv4 outside large subnet", "11.0.0.1", "10.0.0.0/8", false},
 
 		// IPv6 测试
-		{"IPv6 in CIDR", "2001:db8::1", "2001:db8::/32", true},
+		{"IPv6 in CIDR", "2001:db8::1", "2001:db8::/32", true}, //nolint:goconst
 		{"IPv6 not in CIDR", "2001:db9::1", "2001:db8::/32", false},
 		{"IPv6 exact match", "2001:db8::1", "2001:db8::1/128", true},
 		{"IPv6 loopback", "::1", "::1/128", true},
@@ -32,7 +32,7 @@ func TestIsIPInCIDR(t *testing.T) {
 		// 边缘情况
 		{"empty IP", "", "192.168.1.0/24", false},
 		{"empty CIDR", "192.168.1.1", "", false},
-		{"invalid IP", "invalid", "192.168.1.0/24", false},
+		{"invalid IP", "invalid", "192.168.1.0/24", false}, //nolint:goconst
 		{"invalid CIDR", "192.168.1.1", "invalid", false},
 	}
 

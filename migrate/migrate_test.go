@@ -27,7 +27,7 @@ func TestMigration_ZeroValues(t *testing.T) {
 	m := Migration{}
 
 	assert.Equal(t, int64(0), m.ID)
-	assert.Equal(t, "", m.Name)
+	assert.Empty(t, m.Name)
 	assert.Equal(t, 0, m.Batch)
 }
 

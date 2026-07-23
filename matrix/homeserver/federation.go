@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +18,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 )
 
-// FederationService 联邦服务
+// FederationService 联邦服务.
 type FederationService struct {
 	HS         *HomeServer
 	privateKey ed25519.PrivateKey
@@ -24,7 +26,7 @@ type FederationService struct {
 	keyID      string
 }
 
-// NewFederationService 创建联邦服务
+// NewFederationService 创建联邦服务.
 func NewFederationService(hs *HomeServer) *FederationService {
 	// 使用 HomeServer 中缓存的密钥
 	return &FederationService{
@@ -35,7 +37,7 @@ func NewFederationService(hs *HomeServer) *FederationService {
 	}
 }
 
-// RegisterFederationRoutes 注册联邦 API 路由
+// RegisterFederationRoutes 注册联邦 API 路由.
 func RegisterFederationRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -84,23 +86,23 @@ type KeyInfo struct {
 	Key string `json:"key"`
 }
 
-func (f *FederationService) GetServerKey() map[string]interface{} {
+func (f *FederationService) GetServerKey() map[string]any {
 	fed := NewFederationService(f.HS)
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"server_name":    f.HS.Config.ServerName,
 		"valid_until_ts": time.Now().Add(24 * time.Hour).UnixMilli(),
-		"verify_keys": map[string]interface{}{
-			fed.keyID: map[string]interface{}{
+		"verify_keys": map[string]any{
+			fed.keyID: map[string]any{
 				"key": base64.RawStdEncoding.EncodeToString(fed.publicKey),
 			},
 		},
-		"old_verify_keys": map[string]interface{}{},
+		"old_verify_keys": map[string]any{},
 	}
 
 	sig := fed.signJSON(resp)
-	resp["signatures"] = map[string]interface{}{
-		f.HS.Config.ServerName: map[string]interface{}{
+	resp["signatures"] = map[string]any{
+		f.HS.Config.ServerName: map[string]any{
 			fed.keyID: sig,
 		},
 	}
@@ -108,18 +110,18 @@ func (f *FederationService) GetServerKey() map[string]interface{} {
 	return resp
 }
 
-func (f *FederationService) signJSON(data interface{}) string {
+func (f *FederationService) signJSON(data any) string {
 	// 按照 Matrix 规范：1) 转为 map 2) 移除 signatures/unsigned 3) canonical JSON 4) 直接签名
-	var objMap map[string]interface{}
+	var objMap map[string]any
+
 	switch v := data.(type) {
-	case map[string]interface{}:
-		objMap = make(map[string]interface{})
-		for k, val := range v {
-			objMap[k] = val
-		}
+	case map[string]any:
+		objMap = make(map[string]any)
+		maps.Copy(objMap, v)
 	default:
-		jsonBytes, _ := json.Marshal(data)
-		if err := json.Unmarshal(jsonBytes, &objMap); err != nil {
+		jsonBytes, _ := json.Marshal(data) //nolint:errchkjson // any type, checked by Unmarshal below
+		err := json.Unmarshal(jsonBytes, &objMap)
+		if err != nil {
 			return ""
 		}
 	}
@@ -133,20 +135,24 @@ func (f *FederationService) signJSON(data interface{}) string {
 	}
 
 	signature := ed25519.Sign(f.privateKey, canonicalBytes)
+
 	return base64.RawStdEncoding.EncodeToString(signature)
 }
 
-// signEvent 签名事件并将签名嵌入事件
-func (f *FederationService) signEvent(event map[string]interface{}) map[string]interface{} {
+// signEvent 签名事件并将签名嵌入事件.
+func (f *FederationService) signEvent(event map[string]any) map[string]any {
 	sig := f.signJSON(event)
-	sigs, _ := event["signatures"].(map[string]interface{})
+
+	sigs, _ := event["signatures"].(map[string]any)
 	if sigs == nil {
-		sigs = make(map[string]interface{})
+		sigs = make(map[string]any)
 	}
-	sigs[f.HS.Config.ServerName] = map[string]interface{}{
+
+	sigs[f.HS.Config.ServerName] = map[string]any{
 		f.keyID: sig,
 	}
 	event["signatures"] = sigs
+
 	return event
 }
 
@@ -160,9 +166,10 @@ func handleGetServerKey(c *gin.Context) {
 
 func handleFederationVersion(c *gin.Context) {
 	_ = GetHomeServer() // hs - unused but kept for potential future use
+
 	c.JSON(http.StatusOK, gin.H{
 		"server": gin.H{
-			"name":    "Community Matrix Homeserver",
+			"name":    "Community Matrix Homeserver", //nolint:goconst
 			"version": "1.0.0",
 		},
 	})
@@ -180,8 +187,10 @@ func handleQueryDirectory(c *gin.Context) {
 	hs := GetHomeServer()
 
 	// 查找房间别名对应的房间
-	var roomID string
-	var servers []string
+	var (
+		roomID  string
+		servers []string
+	)
 
 	// 检查是否是本地别名
 	if strings.HasSuffix(roomAlias, ":"+hs.Config.ServerName) {
@@ -191,19 +200,22 @@ func handleQueryDirectory(c *gin.Context) {
 
 		// 查找房间
 		aliasService := NewAliasService(hs)
+
 		resolvedRoomID, err := aliasService.GetRoomIDByAlias(roomAlias)
 		if err == nil {
 			roomID = resolvedRoomID
 			servers = []string{hs.Config.ServerName}
 		}
+
 		_ = localpart
 	}
 
 	if roomID == "" {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room alias not found",
+			"errcode": "M_NOT_FOUND",          //nolint:goconst
+			"error":   "Room alias not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -228,9 +240,10 @@ func handleQueryProfile(c *gin.Context) {
 	localpart, domain, ok := ParseMatrixUserID(userID)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_INVALID_PARAM",
+			"errcode": "M_INVALID_PARAM", //nolint:goconst
 			"error":   "Invalid user ID",
 		})
+
 		return
 	}
 
@@ -238,8 +251,9 @@ func handleQueryProfile(c *gin.Context) {
 	if domain != hs.Config.ServerName {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "User not found",
+			"error":   "User not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -250,6 +264,7 @@ func handleQueryProfile(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "User not found",
 		})
+
 		return
 	}
 
@@ -281,23 +296,24 @@ func handleMakeJoin(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
+			"error":   "Room not found", //nolint:goconst
 		})
+
 		return
 	}
 
 	// 创建加入事件模板（不含 room_version，room_version 在顶层返回）
 	event := gin.H{
-		"type":             "m.room.member",
-		"room_id":          roomID,
-		"sender":           userID,
-		"state_key":        userID,
-		"content":          gin.H{"membership": "join"},
-		"origin":           hs.Config.ServerName,
-		"origin_server_ts": time.Now().UnixMilli(),
-		"depth":            1,
-		"auth_events":      []string{},
-		"prev_events":      []string{},
+		"type":             "m.room.member",             //nolint:goconst
+		"room_id":          roomID,                      //nolint:goconst
+		"sender":           userID,                      //nolint:goconst
+		"state_key":        userID,                      //nolint:goconst
+		"content":          gin.H{"membership": "join"}, //nolint:goconst
+		"origin":           hs.Config.ServerName,        //nolint:goconst
+		"origin_server_ts": time.Now().UnixMilli(),      //nolint:goconst
+		"depth":            1,                           //nolint:goconst
+		"auth_events":      []string{},                  //nolint:goconst
+		"prev_events":      []string{},                  //nolint:goconst
 	}
 
 	roomVersion := room.RoomVersion
@@ -323,12 +339,14 @@ func handleSendJoin(c *gin.Context) {
 	roomID := c.Param("roomId")
 
 	// 解析请求体
-	var event map[string]interface{}
-	if err := c.ShouldBindJSON(&event); err != nil {
+	var event map[string]any
+	err := c.ShouldBindJSON(&event)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Bad JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
+			"error":   "Bad JSON",   //nolint:goconst
 		})
+
 		return
 	}
 
@@ -336,6 +354,7 @@ func handleSendJoin(c *gin.Context) {
 
 	// 验证事件签名
 	sender, _ := event["sender"].(string)
+
 	origin, _ := event["origin"].(string)
 	if origin == "" {
 		origin = hs.Config.ServerName
@@ -346,10 +365,12 @@ func handleSendJoin(c *gin.Context) {
 
 	// 处理加入事件
 	userID, _ := event["sender"].(string)
-	content, _ := event["content"].(map[string]interface{})
+
+	content, _ := event["content"].(map[string]any)
 	if content == nil {
-		content = map[string]interface{}{"membership": "join"}
+		content = map[string]any{"membership": "join"}
 	}
+
 	displayName, _ := content["displayname"].(string)
 	avatarURL, _ := content["avatar_url"].(string)
 
@@ -358,12 +379,15 @@ func handleSendJoin(c *gin.Context) {
 	if eventID == "" {
 		eventID = "$" + generateRandomString(32)
 	}
+
 	originServerTS, _ := event["origin_server_ts"].(float64)
 	if originServerTS == 0 {
 		originServerTS = float64(time.Now().UnixMilli())
 	}
+
 	senderDomain := extractServerName(userID)
 	stateKeyStr := userID
+
 	joinEvent := &MatrixEvent{
 		EventID:        eventID,
 		RoomID:         roomID,
@@ -376,7 +400,8 @@ func handleSendJoin(c *gin.Context) {
 		Depth:          hs.Room.getNextDepth(db.GetDB(), roomID),
 	}
 	if db.GetDB().Where("event_id = ?", eventID).First(&MatrixEvent{}).Error != nil {
-		if err := db.GetDB().Create(joinEvent).Error; err == nil {
+		err := db.GetDB().Create(joinEvent).Error
+		if err == nil {
 			hs.Room.updateRoomState(db.GetDB(), roomID, joinEvent)
 		}
 	}
@@ -394,10 +419,11 @@ func handleSendJoin(c *gin.Context) {
 
 	// 返回房间状态
 	state, _ := hs.Room.GetRoomStateAll(roomID)
+
 	stateEvents := make([]gin.H, len(state))
 	for i, e := range state {
 		stateEvents[i] = gin.H{
-			"event_id":         e.EventID,
+			"event_id":         e.EventID, //nolint:goconst
 			"type":             e.Type,
 			"room_id":          e.RoomID,
 			"sender":           e.Sender,
@@ -423,28 +449,33 @@ func handleSendJoin(c *gin.Context) {
 	_ = origin
 }
 
-// handleSendJoinV1 wraps the v2 send_join response in a [200, {...}] array per the v1 spec
+// handleSendJoinV1 wraps the v2 send_join response in a [200, {...}] array per the v1 spec.
 func handleSendJoinV1(c *gin.Context) {
 	roomID := c.Param("roomId")
 
-	var event map[string]interface{}
-	if err := c.ShouldBindJSON(&event); err != nil {
+	var event map[string]any
+	err := c.ShouldBindJSON(&event)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	sender, _ := event["sender"].(string)
+
 	origin, _ := event["origin"].(string)
 	if origin == "" {
 		origin = hs.Config.ServerName
 	}
 
 	userID, _ := event["sender"].(string)
-	content, _ := event["content"].(map[string]interface{})
+
+	content, _ := event["content"].(map[string]any)
 	if content == nil {
-		content = map[string]interface{}{"membership": "join"}
+		content = map[string]any{"membership": "join"}
 	}
+
 	displayName, _ := content["displayname"].(string)
 	avatarURL, _ := content["avatar_url"].(string)
 
@@ -452,12 +483,15 @@ func handleSendJoinV1(c *gin.Context) {
 	if eventID == "" {
 		eventID = "$" + generateRandomString(32)
 	}
+
 	originServerTS, _ := event["origin_server_ts"].(float64)
 	if originServerTS == 0 {
 		originServerTS = float64(time.Now().UnixMilli())
 	}
+
 	senderDomain := extractServerName(userID)
 	stateKeyStr := userID
+
 	joinEvent := &MatrixEvent{
 		EventID:        eventID,
 		RoomID:         roomID,
@@ -470,7 +504,8 @@ func handleSendJoinV1(c *gin.Context) {
 		Depth:          hs.Room.getNextDepth(db.GetDB(), roomID),
 	}
 	if db.GetDB().Where("event_id = ?", eventID).First(&MatrixEvent{}).Error != nil {
-		if err := db.GetDB().Create(joinEvent).Error; err == nil {
+		err := db.GetDB().Create(joinEvent).Error
+		if err == nil {
 			hs.Room.updateRoomState(db.GetDB(), roomID, joinEvent)
 		}
 	}
@@ -486,6 +521,7 @@ func handleSendJoinV1(c *gin.Context) {
 	db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).Assign(member).FirstOrCreate(member)
 
 	state, _ := hs.Room.GetRoomStateAll(roomID)
+
 	stateEvents := make([]gin.H, len(state))
 	for i, e := range state {
 		stateEvents[i] = gin.H{
@@ -495,10 +531,11 @@ func handleSendJoinV1(c *gin.Context) {
 			"prev_events": []string{}, "depth": 0,
 		}
 	}
+
 	authChain := buildAuthChainForRoom(roomID, state)
 
 	// V1 format: wrap response in [200, {...}]
-	c.JSON(http.StatusOK, []interface{}{
+	c.JSON(http.StatusOK, []any{
 		200,
 		SendJoinResponse{
 			Origin:    hs.Config.ServerName,
@@ -525,6 +562,7 @@ func handleMakeLeave(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "Room not found",
 		})
+
 		return
 	}
 
@@ -535,7 +573,7 @@ func handleMakeLeave(c *gin.Context) {
 		"sender":    userID,
 		"state_key": userID,
 		"content": gin.H{
-			"membership": "leave",
+			"membership": "leave", //nolint:goconst
 		},
 		"origin":           hs.Config.ServerName,
 		"origin_server_ts": time.Now().UnixMilli(),
@@ -553,20 +591,23 @@ func handleSendLeave(c *gin.Context) {
 	hs := GetHomeServer()
 
 	// 解析请求体
-	var event map[string]interface{}
-	if err := c.ShouldBindJSON(&event); err != nil {
+	var event map[string]any
+	err := c.ShouldBindJSON(&event)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	// 验证并处理离开事件
 	userID, _ := event["sender"].(string)
 	stateKey, _ := event["state_key"].(string)
-	content, _ := event["content"].(map[string]interface{})
+	content, _ := event["content"].(map[string]any)
 	sender, _ := event["sender"].(string)
+
 	originServerTS, _ := event["origin_server_ts"].(float64)
 	if originServerTS == 0 {
 		originServerTS = float64(time.Now().UnixMilli())
@@ -575,7 +616,7 @@ func handleSendLeave(c *gin.Context) {
 	// 提取事件 ID
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
-		eventID = fmt.Sprintf("$%s", generateEventID())
+		eventID = "$" + generateEventID()
 	}
 
 	// 存储 leave 事件到 matrix_events 表（这对 sync 是必需的）
@@ -593,14 +634,16 @@ func handleSendLeave(c *gin.Context) {
 	if depth, ok := event["depth"].(float64); ok {
 		leaveEvent.Depth = int64(depth)
 	}
-	if prevEvents, ok := event["prev_events"].([]interface{}); ok {
+
+	if prevEvents, ok := event["prev_events"].([]any); ok {
 		for _, v := range prevEvents {
 			if s, ok := v.(string); ok {
 				leaveEvent.PrevEvents = append(leaveEvent.PrevEvents, s)
 			}
 		}
 	}
-	if authEvents, ok := event["auth_events"].([]interface{}); ok {
+
+	if authEvents, ok := event["auth_events"].([]any); ok {
 		for _, v := range authEvents {
 			if s, ok := v.(string); ok {
 				leaveEvent.AuthEvents = append(leaveEvent.AuthEvents, s)
@@ -608,14 +651,15 @@ func handleSendLeave(c *gin.Context) {
 		}
 	}
 
-	if err := db.GetDB().Create(leaveEvent).Error; err != nil {
+	err = db.GetDB().Create(leaveEvent).Error
+	if err != nil {
 		log.Error("Failed to store leave event: %v", err)
 	}
 
 	// 更新房间成员状态
 	db.GetDB().Model(&MatrixRoomMember{}).
 		Where("room_id = ? AND user_id = ?", roomID, userID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"membership": MembershipLeave,
 			"event_id":   eventID,
 		})
@@ -657,12 +701,14 @@ func handleFederationInvite(c *gin.Context) {
 	roomID := c.Param("roomId")
 
 	// 解析请求体
-	var event map[string]interface{}
-	if err := c.ShouldBindJSON(&event); err != nil {
+	var event map[string]any
+	err := c.ShouldBindJSON(&event)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
@@ -670,7 +716,7 @@ func handleFederationInvite(c *gin.Context) {
 
 	// 获取被邀请用户
 	stateKey, _ := event["state_key"].(string)
-	content, _ := event["content"].(map[string]interface{})
+	content, _ := event["content"].(map[string]any)
 	sender, _ := event["sender"].(string)
 	displayName, _ := content["displayname"].(string)
 	avatarURL, _ := content["avatar_url"].(string)
@@ -687,7 +733,7 @@ func handleFederationInvite(c *gin.Context) {
 
 	// 创建邀请事件
 	inviteEvent := &MatrixEvent{
-		EventID:        fmt.Sprintf("$%s", generateEventID()),
+		EventID:        "$" + generateEventID(),
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMember,
 		Sender:         sender,
@@ -712,7 +758,7 @@ func handleFederationInvite(c *gin.Context) {
 	})
 }
 
-// buildAuthChainForRoom 根据房间状态事件构建 auth chain
+// buildAuthChainForRoom 根据房间状态事件构建 auth chain.
 func buildAuthChainForRoom(roomID string, stateEvents []*ClientEvent) []gin.H {
 	resolver := NewStateResolver(roomID)
 	authChainMap := make(map[string]*MatrixEvent)
@@ -722,10 +768,12 @@ func buildAuthChainForRoom(roomID string, stateEvents []*ClientEvent) []gin.H {
 		if err != nil {
 			continue
 		}
+
 		chain, err := resolver.BuildAuthChain(evt)
 		if err != nil {
 			continue
 		}
+
 		for _, ae := range chain {
 			authChainMap[ae.EventID] = ae
 		}
@@ -776,7 +824,7 @@ func handleGetState(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"origin":     hs.Config.ServerName,
-		"pdus":       stateEvents,
+		"pdus":       stateEvents, //nolint:goconst
 		"auth_chain": authChain,
 	})
 }
@@ -795,6 +843,7 @@ func handleGetStateIDs(c *gin.Context) {
 
 	// 构建 auth chain IDs
 	authChainEvents := buildAuthChainForRoom(roomID, state)
+
 	authChainIDs := make([]string, 0, len(authChainEvents))
 	for _, e := range authChainEvents {
 		if id, ok := e["event_id"].(string); ok {
@@ -819,8 +868,9 @@ func handleGetFederationEvent(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "Event not found",
+			"error":   "Event not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -853,8 +903,8 @@ type FederationTransaction struct {
 // computeReferenceHash computes the event ID for room version 4+ per the Matrix spec:
 // 1. Redact the event (keep only allowed top-level keys and type-specific content keys)
 // 2. Remove signatures, unsigned, and _-prefixed keys
-// 3. Canonical JSON → SHA-256 → "$" + base64url(unpadded)
-func computeReferenceHash(event map[string]interface{}, eventType string) string {
+// 3. Canonical JSON → SHA-256 → "$" + base64url(unpadded).
+func computeReferenceHash(event map[string]any, eventType string) string {
 	// Allowed top-level keys after redaction (room version 4+)
 	// Per Matrix spec: event_id, type, room_id, sender, state_key, content,
 	// hashes, signatures, depth, prev_events, auth_events, origin_server_ts
@@ -868,28 +918,32 @@ func computeReferenceHash(event map[string]interface{}, eventType string) string
 	// Content keys protected from redaction, by event type
 	protectedContent := map[string][]string{
 		"m.room.member":             {"membership", "join_authorised_via_users_server", "third_party_invite"},
-		"m.room.create":             {"creator"},
-		"m.room.join_rules":         {"join_rule", "allow"},
-		"m.room.power_levels":       {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"},
+		"m.room.create":             {"creator"},                                                                                                //nolint:goconst
+		"m.room.join_rules":         {"join_rule", "allow"},                                                                                     //nolint:goconst
+		"m.room.power_levels":       {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"}, //nolint:goconst
 		"m.room.history_visibility": {"history_visibility"},
 		"m.room.redaction":          {},
-		"m.room.message":            {"msgtype", "body"},
+		"m.room.message":            {"msgtype", "body"}, //nolint:goconst
 	}
 
-	redacted := make(map[string]interface{})
+	redacted := make(map[string]any)
+
 	for k, v := range event {
 		if !allowedKeys[k] {
 			continue
 		}
+
 		if strings.HasPrefix(k, "_") {
 			continue
 		}
+
 		redacted[k] = v
 	}
 
 	// Redact content: keep only protected keys for this event type
-	if origContent, ok := event["content"].(map[string]interface{}); ok {
-		newContent := make(map[string]interface{})
+	if origContent, ok := event["content"].(map[string]any); ok {
+		newContent := make(map[string]any)
+
 		if protected, ok := protectedContent[eventType]; ok {
 			for _, key := range protected {
 				if val, exists := origContent[key]; exists {
@@ -897,6 +951,7 @@ func computeReferenceHash(event map[string]interface{}, eventType string) string
 				}
 			}
 		}
+
 		redacted["content"] = newContent
 	}
 
@@ -908,23 +963,27 @@ func computeReferenceHash(event map[string]interface{}, eventType string) string
 	if err != nil {
 		return "$" + fmt.Sprintf("%x", time.Now().UnixNano())
 	}
+
 	hash := sha256.Sum256(canonicalBytes)
+
 	return "$" + base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
 // parseFederationPDU extracts fields from a raw PDU map and computes event_id for room v4+.
-func parseFederationPDU(event map[string]interface{}) (eventID, roomID, eventType, sender string, stateKey string, hasStateKey bool, content map[string]interface{}, originServerTS float64) {
+func parseFederationPDU(event map[string]any) (eventID, roomID, eventType, sender string, stateKey string, hasStateKey bool, content map[string]any, originServerTS float64) {
 	eventID, _ = event["event_id"].(string)
 	roomID, _ = event["room_id"].(string)
 	eventType, _ = event["type"].(string)
 	sender, _ = event["sender"].(string)
+
 	stateKey, hasStateKey = event["state_key"].(string)
 	if !hasStateKey {
 		if val, exists := event["state_key"]; exists && val != nil {
 			hasStateKey = true
 		}
 	}
-	content, _ = event["content"].(map[string]interface{})
+
+	content, _ = event["content"].(map[string]any)
 	originServerTS, _ = event["origin_server_ts"].(float64)
 
 	// Room version 4+: compute event_id from reference hash
@@ -932,16 +991,17 @@ func parseFederationPDU(event map[string]interface{}) (eventID, roomID, eventTyp
 		eventID = computeReferenceHash(event, eventType)
 		event["event_id"] = eventID
 	}
+
 	return
 }
 
 // storeFederationPDU stores a single federation event and updates state/membership.
 // Returns the event ID and any error.
-func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, error) {
+func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 	eventID, roomID, eventType, sender, stateKey, hasStateKey, content, originServerTS := parseFederationPDU(event)
 
 	if eventID == "" || roomID == "" || eventType == "" || sender == "" {
-		return eventID, fmt.Errorf("missing required fields")
+		return eventID, errors.New("missing required fields")
 	}
 
 	// Check if event already exists
@@ -960,6 +1020,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 				newRoom.RoomVersion = ver
 			}
 		}
+
 		db.GetDB().Create(&newRoom)
 	}
 
@@ -968,20 +1029,25 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 	if r, ok := event["redacts"].(string); ok && r != "" {
 		redactsPtr = &r
 	}
+
 	var depth int64
 	if d, ok := event["depth"].(float64); ok {
 		depth = int64(d)
 	}
+
 	var prevEvents []string
-	if pe, ok := event["prev_events"].([]interface{}); ok {
+
+	if pe, ok := event["prev_events"].([]any); ok {
 		for _, v := range pe {
 			if s, ok := v.(string); ok {
 				prevEvents = append(prevEvents, s)
 			}
 		}
 	}
+
 	var authEvents []string
-	if ae, ok := event["auth_events"].([]interface{}); ok {
+
+	if ae, ok := event["auth_events"].([]any); ok {
 		for _, v := range ae {
 			if s, ok := v.(string); ok {
 				authEvents = append(authEvents, s)
@@ -993,6 +1059,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 	if hasStateKey {
 		stateKeyPtr = &stateKey
 	}
+
 	matrixEvent := &MatrixEvent{
 		EventID:        eventID,
 		RoomID:         roomID,
@@ -1008,7 +1075,8 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 		AuthEvents:     authEvents,
 	}
 
-	if err := db.GetDB().Create(matrixEvent).Error; err != nil {
+	err := db.GetDB().Create(matrixEvent).Error
+	if err != nil {
 		return eventID, err
 	}
 
@@ -1020,6 +1088,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 				redactsID = r
 			}
 		}
+
 		if redactsID != "" {
 			db.GetDB().Exec("UPDATE matrix_events SET content = '{}' WHERE event_id = ? AND room_id = ?", redactsID, roomID)
 		}
@@ -1067,7 +1136,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]interface{}) (string, e
 }
 
 // fetchMissingEvents detects gaps in prev_events and fetches missing events from the origin server.
-func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin string) {
+func fetchMissingEvents(hs *HomeServer, event map[string]any, origin string) {
 	roomID, _ := event["room_id"].(string)
 	if roomID == "" || origin == "" || origin == hs.Config.ServerName {
 		return
@@ -1075,13 +1144,15 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 
 	// Collect prev_events
 	var prevEventIDs []string
-	if pe, ok := event["prev_events"].([]interface{}); ok {
+
+	if pe, ok := event["prev_events"].([]any); ok {
 		for _, v := range pe {
 			if s, ok := v.(string); ok {
 				prevEventIDs = append(prevEventIDs, s)
 			}
 		}
 	}
+
 	if len(prevEventIDs) == 0 {
 		return
 	}
@@ -1089,18 +1160,22 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 	// Check which prev_events we're missing
 	var knownIDs []string
 	db.GetDB().Model(&MatrixEvent{}).Where("event_id IN ?", prevEventIDs).Pluck("event_id", &knownIDs)
+
 	knownSet := make(map[string]bool, len(knownIDs))
 	for _, id := range knownIDs {
 		knownSet[id] = true
 	}
 
 	hasMissing := false
+
 	for _, id := range prevEventIDs {
 		if !knownSet[id] {
 			hasMissing = true
+
 			break
 		}
 	}
+
 	if !hasMissing {
 		return
 	}
@@ -1109,6 +1184,7 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 	var earliestEvents []string
 	db.GetDB().Model(&MatrixEvent{}).Where("room_id = ?", roomID).
 		Order("origin_server_ts ASC").Limit(20).Pluck("event_id", &earliestEvents)
+
 	if len(earliestEvents) == 0 {
 		return
 	}
@@ -1122,6 +1198,7 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 
 	// Fetch missing events from origin server
 	fedClient := NewFederationClient(hs)
+
 	missingPDUs, err := fedClient.GetMissingEvents(origin, roomID, earliestEvents, []string{eventID}, 100)
 	if err != nil {
 		return
@@ -1129,10 +1206,12 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 
 	// Store each missing event (they come in chronological order from oldest to newest)
 	for _, rawPDU := range missingPDUs {
-		var missingEvent map[string]interface{}
-		if err := json.Unmarshal(rawPDU, &missingEvent); err != nil {
+		var missingEvent map[string]any
+		err := json.Unmarshal(rawPDU, &missingEvent)
+		if err != nil {
 			continue
 		}
+
 		if _, err := storeFederationPDU(hs, missingEvent); err != nil {
 			continue
 		}
@@ -1141,21 +1220,23 @@ func fetchMissingEvents(hs *HomeServer, event map[string]interface{}, origin str
 
 func handleFederationSend(c *gin.Context) {
 	var txn FederationTransaction
-	if err := c.ShouldBindJSON(&txn); err != nil {
+	err := c.ShouldBindJSON(&txn)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
-	pduResults := make(map[string]interface{})
+	pduResults := make(map[string]any)
 	notifiedRooms := make(map[string]bool)
 
 	// Process PDUs
 	for _, pdu := range txn.PDUs {
-		var event map[string]interface{}
+		var event map[string]any
 		if err := json.Unmarshal(pdu, &event); err != nil {
 			continue
 		}
@@ -1168,8 +1249,10 @@ func handleFederationSend(c *gin.Context) {
 			if eventID != "" {
 				pduResults[eventID] = gin.H{"error": err.Error()}
 			}
+
 			continue
 		}
+
 		pduResults[eventID] = gin.H{}
 
 		// Notify local users
@@ -1182,19 +1265,21 @@ func handleFederationSend(c *gin.Context) {
 
 	// 处理 EDUs（临时事件）
 	for _, edu := range txn.EDUs {
-		var eduEvent map[string]interface{}
-		if err := json.Unmarshal(edu, &eduEvent); err != nil {
+		var eduEvent map[string]any
+		err := json.Unmarshal(edu, &eduEvent)
+		if err != nil {
 			continue
 		}
 
 		eduType, _ := eduEvent["edu_type"].(string)
-		content, _ := eduEvent["content"].(map[string]interface{})
+		content, _ := eduEvent["content"].(map[string]any)
 
 		switch eduType {
 		case "m.typing":
 			// 处理 typing 事件
 			roomID, _ := content["room_id"].(string)
-			userIDs, _ := content["user_ids"].([]interface{})
+
+			userIDs, _ := content["user_ids"].([]any)
 			for _, uid := range userIDs {
 				userID, _ := uid.(string)
 				typing := &MatrixTyping{
@@ -1208,6 +1293,7 @@ func handleFederationSend(c *gin.Context) {
 		case "m.presence":
 			// 处理 presence 事件
 			userID, _ := content["user_id"].(string)
+
 			presence, _ := content["presence"].(string)
 			if userID != "" && presence != "" {
 				presenceRecord := &MatrixPresence{
@@ -1221,26 +1307,31 @@ func handleFederationSend(c *gin.Context) {
 			// Process federated receipt EDUs
 			// Content format: { "room_id": { "event_id": { "m.read": { "user_id": { "ts": 12345, "thread_id": "..." } } } } }
 			receiptRooms := make(map[string]bool)
+
 			for roomID, roomData := range content {
-				roomMap, ok := roomData.(map[string]interface{})
+				roomMap, ok := roomData.(map[string]any)
 				if !ok {
 					continue
 				}
+
 				for eventID, eventData := range roomMap {
-					eventMap, ok := eventData.(map[string]interface{})
+					eventMap, ok := eventData.(map[string]any)
 					if !ok {
 						continue
 					}
+
 					for receiptType, typeData := range eventMap {
-						typeMap, ok := typeData.(map[string]interface{})
+						typeMap, ok := typeData.(map[string]any)
 						if !ok {
 							continue
 						}
+
 						for fedUserID, userData := range typeMap {
-							userMap, ok := userData.(map[string]interface{})
+							userMap, ok := userData.(map[string]any)
 							if !ok {
 								continue
 							}
+
 							ts, _ := userMap["ts"].(float64)
 							threadID, _ := userMap["thread_id"].(string)
 
@@ -1252,6 +1343,7 @@ func handleFederationSend(c *gin.Context) {
 								db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND (thread_id = '' OR thread_id IS NULL)",
 									roomID, fedUserID, receiptType).Delete(&MatrixReceipt{})
 							}
+
 							receipt := &MatrixReceipt{
 								RoomID:      roomID,
 								EventID:     eventID,
@@ -1261,6 +1353,7 @@ func handleFederationSend(c *gin.Context) {
 								TS:          int64(ts),
 							}
 							db.GetDB().Create(receipt)
+
 							receiptRooms[roomID] = true
 						}
 					}
@@ -1273,12 +1366,18 @@ func handleFederationSend(c *gin.Context) {
 		case "m.device_list_update":
 			// Process incoming device list update EDU
 			var edu DeviceListUpdateEDU
-			eduBytes, _ := json.Marshal(content)
+
+			eduBytes, mErr := json.Marshal(content)
+			if mErr != nil {
+				log.Warn("Failed to marshal EDU content: %v", mErr)
+				continue
+			}
 			if json.Unmarshal(eduBytes, &edu) == nil {
 				origin, _ := eduEvent["origin"].(string)
 				if origin == "" {
 					origin = txn.Origin
 				}
+
 				_ = hs.DeviceList.HandleIncomingDeviceListUpdate(origin, &edu)
 			}
 		}
@@ -1296,6 +1395,7 @@ func handleGetPublicRooms(c *gin.Context) {
 
 	// 解析分页参数
 	since := c.Query("since")
+
 	limit := 100
 	if l := c.Query("limit"); l != "" {
 		_, _ = fmt.Sscanf(l, "%d", &limit)
@@ -1335,7 +1435,7 @@ func handleGetPublicRooms(c *gin.Context) {
 			"topic":          room.Topic,
 			"avatar_url":     avatarURL,
 			"joined_members": joinedCount,
-			"world_readable": room.HistoryVisibility == "world_readable",
+			"world_readable": room.HistoryVisibility == "world_readable", //nolint:goconst
 			"guest_can_join": room.GuestAccess == "can_join",
 			"join_rule":      room.JoinRule,
 			"room_type":      room.RoomType,
@@ -1364,8 +1464,8 @@ func handleGetPublicRooms(c *gin.Context) {
 type UserDevicesResponse struct {
 	UserID         string          `json:"user_id"`
 	Devices        []DeviceKeyInfo `json:"devices"`
-	MasterKey      interface{}     `json:"master_key,omitempty"`
-	SelfSigningKey interface{}     `json:"self_signing_key,omitempty"`
+	MasterKey      any             `json:"master_key,omitempty"`
+	SelfSigningKey any             `json:"self_signing_key,omitempty"`
 }
 
 type DeviceKeyInfo struct {

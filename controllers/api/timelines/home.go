@@ -11,7 +11,8 @@ import (
 func Home(c *gin.Context) {
 	var req TimelineRequest
 	if err := c.Bind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 

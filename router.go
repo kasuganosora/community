@@ -617,15 +617,15 @@ func SetRouter(app gin.IRouter) {
 	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
 		PUT("/admin/captcha/config", common.AdminUpdateCaptchaConfig)
 
-	//maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+	// maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 	//	GET("/statuses/:id", status.Show)
-
 }
 
-// safeRegisterRoutes catches panics from duplicate route registrations
+// safeRegisterRoutes catches panics from duplicate route registrations.
 func safeRegisterRoutes(fn func()) {
 	defer func() {
 		_ = recover()
 	}()
+
 	fn()
 }

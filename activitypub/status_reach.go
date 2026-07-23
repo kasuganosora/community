@@ -9,14 +9,14 @@ import (
 )
 
 // StatusReachFinder 状态触达查找器
-// 用于确定一个状态应该被分发到哪些 inbox
+// 用于确定一个状态应该被分发到哪些 inbox.
 type StatusReachFinder struct {
 	db     *gorm.DB
 	status *models.Status
 	unsafe bool // 是否包含被屏蔽/暂停的用户
 }
 
-// NewStatusReachFinder 创建状态触达查找器
+// NewStatusReachFinder 创建状态触达查找器.
 func NewStatusReachFinder(status *models.Status, unsafe bool) *StatusReachFinder {
 	return &StatusReachFinder{
 		db:     db.GetDB(),
@@ -25,9 +25,10 @@ func NewStatusReachFinder(status *models.Status, unsafe bool) *StatusReachFinder
 	}
 }
 
-// GetInboxes 获取所有应该接收该状态的 inbox URL
+// GetInboxes 获取所有应该接收该状态的 inbox URL.
 func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 	var inboxes []string
+
 	seen := make(map[string]bool)
 
 	// 1. 获取粉丝的 inbox
@@ -35,6 +36,7 @@ func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, inbox := range followerInboxes {
 		if !seen[inbox] {
 			inboxes = append(inboxes, inbox)
@@ -47,6 +49,7 @@ func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, inbox := range mentionInboxes {
 		if !seen[inbox] {
 			inboxes = append(inboxes, inbox)
@@ -60,6 +63,7 @@ func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		for _, inbox := range relayInboxes {
 			if !seen[inbox] {
 				inboxes = append(inboxes, inbox)
@@ -71,12 +75,13 @@ func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 	return inboxes, nil
 }
 
-// getFollowerInboxes 获取粉丝的 inbox URL
+// getFollowerInboxes 获取粉丝的 inbox URL.
 func (f *StatusReachFinder) getFollowerInboxes() ([]string, error) {
 	var inboxes []string
 
 	// 获取账户的粉丝
 	var follows []models.Follow
+
 	err := f.db.Where("follow_id = ?", f.status.AccountId).
 		Preload("Account").
 		Find(&follows).Error
@@ -99,8 +104,8 @@ func (f *StatusReachFinder) getFollowerInboxes() ([]string, error) {
 	return inboxes, nil
 }
 
-// getMentionInboxes 获取被提及用户的 inbox URL
-func (f *StatusReachFinder) getMentionInboxes() ([]string, error) {
+// getMentionInboxes 获取被提及用户的 inbox URL.
+func (f *StatusReachFinder) getMentionInboxes() ([]string, error) { //nolint:unparam // param reserved for future use
 	var inboxes []string
 
 	// 获取状态中提及的账户
@@ -119,7 +124,7 @@ func (f *StatusReachFinder) getMentionInboxes() ([]string, error) {
 	return inboxes, nil
 }
 
-// getRelayInboxes 获取中继的 inbox URL
+// getRelayInboxes 获取中继的 inbox URL.
 func (f *StatusReachFinder) getRelayInboxes() ([]string, error) {
 	// 只有公开状态才发送到中继
 	if !f.isPublicVisibility() {
@@ -130,20 +135,22 @@ func (f *StatusReachFinder) getRelayInboxes() ([]string, error) {
 	return GetEnabledRelayInboxes()
 }
 
-// isPublicVisibility 检查状态是否是公开可见
+// isPublicVisibility 检查状态是否是公开可见.
 func (f *StatusReachFinder) isPublicVisibility() bool {
 	return f.status.Visibility == models.StatusVisibilityPublic || f.status.Visibility == models.StatusVisibilityUnlisted
 }
 
-// isAccountBlocked 检查账户是否被屏蔽
+// isAccountBlocked 检查账户是否被屏蔽.
 func (f *StatusReachFinder) isAccountBlocked(accountId uint64) bool {
 	var block models.Block
+
 	err := f.db.Where("account_id = ? AND target_account_id = ?", f.status.AccountId, accountId).
 		First(&block).Error
+
 	return err == nil
 }
 
-// getStatusMentions 获取状态中提及的账户
+// getStatusMentions 获取状态中提及的账户.
 func (f *StatusReachFinder) getStatusMentions() []*models.Account {
 	var accounts []*models.Account
 
@@ -159,16 +166,20 @@ func (f *StatusReachFinder) getStatusMentions() []*models.Account {
 
 		// Try to find by origin ID first
 		if mention.URI != "" {
-			if err := f.db.Where("origin_id = ?", mention.URI).First(&account).Error; err == nil {
+			err := f.db.Where("origin_id = ?", mention.URI).First(&account).Error
+			if err == nil {
 				accounts = append(accounts, &account)
+
 				continue
 			}
 		}
 
 		// Try to find by username and domain
 		if mention.Domain != "" {
-			if err := f.db.Where("username = ? AND domain = ?", mention.Username, mention.Domain).First(&account).Error; err == nil {
+			err := f.db.Where("username = ? AND domain = ?", mention.Username, mention.Domain).First(&account).Error
+			if err == nil {
 				accounts = append(accounts, &account)
+
 				continue
 			}
 		}
@@ -177,19 +188,19 @@ func (f *StatusReachFinder) getStatusMentions() []*models.Account {
 	return accounts
 }
 
-// GetEnabledRelayInboxes 获取所有已启用中继的 inbox URL（全局函数）
+// GetEnabledRelayInboxes 获取所有已启用中继的 inbox URL（全局函数）.
 func GetEnabledRelayInboxes() ([]string, error) {
 	return models.GetEnabledRelayInboxes(db.GetDB())
 }
 
 // AccountReachFinder 账户触达查找器
-// 用于确定账户相关的活动应该被分发到哪些 inbox
+// 用于确定账户相关的活动应该被分发到哪些 inbox.
 type AccountReachFinder struct {
 	db      *gorm.DB
 	account *models.Account
 }
 
-// NewAccountReachFinder 创建账户触达查找器
+// NewAccountReachFinder 创建账户触达查找器.
 func NewAccountReachFinder(account *models.Account) *AccountReachFinder {
 	return &AccountReachFinder{
 		db:      db.GetDB(),
@@ -197,9 +208,10 @@ func NewAccountReachFinder(account *models.Account) *AccountReachFinder {
 	}
 }
 
-// GetInboxes 获取所有应该接收账户活动的 inbox URL
+// GetInboxes 获取所有应该接收账户活动的 inbox URL.
 func (f *AccountReachFinder) GetInboxes() ([]string, error) {
 	var inboxes []string
+
 	seen := make(map[string]bool)
 
 	// 1. 获取粉丝的 inbox
@@ -207,6 +219,7 @@ func (f *AccountReachFinder) GetInboxes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, inbox := range followerInboxes {
 		if !seen[inbox] {
 			inboxes = append(inboxes, inbox)
@@ -219,6 +232,7 @@ func (f *AccountReachFinder) GetInboxes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, inbox := range relayInboxes {
 		if !seen[inbox] {
 			inboxes = append(inboxes, inbox)
@@ -229,11 +243,12 @@ func (f *AccountReachFinder) GetInboxes() ([]string, error) {
 	return inboxes, nil
 }
 
-// getFollowerInboxes 获取粉丝的 inbox URL
+// getFollowerInboxes 获取粉丝的 inbox URL.
 func (f *AccountReachFinder) getFollowerInboxes() ([]string, error) {
 	var inboxes []string
 
 	var follows []models.Follow
+
 	err := f.db.Where("follow_id = ?", f.account.Id).
 		Preload("Account").
 		Find(&follows).Error
@@ -252,13 +267,13 @@ func (f *AccountReachFinder) getFollowerInboxes() ([]string, error) {
 	return inboxes, nil
 }
 
-// getRelayInboxes 获取中继的 inbox URL
+// getRelayInboxes 获取中继的 inbox URL.
 func (f *AccountReachFinder) getRelayInboxes() ([]string, error) {
 	return GetEnabledRelayInboxes()
 }
 
-// DistributeToRelays 将活动分发到所有已启用的中继
-func DistributeToRelays(activity map[string]interface{}, activityID string) error {
+// DistributeToRelays 将活动分发到所有已启用的中继.
+func DistributeToRelays(activity map[string]any, activityID string) error {
 	inboxes, err := GetEnabledRelayInboxes()
 	if err != nil {
 		return err
@@ -270,14 +285,16 @@ func DistributeToRelays(activity map[string]interface{}, activityID string) erro
 
 	// 使用投递队列批量发送
 	queue := NewDeliveryQueue(nil, "", 0) // 实际使用时需要正确的私钥和 actor ID
+
 	return queue.EnqueueToMany(activityID, inboxes, activity)
 }
 
-// IsRequestedThroughRelay 检查活动是否通过中继请求
+// IsRequestedThroughRelay 检查活动是否通过中继请求.
 func IsRequestedThroughRelay(inboxURL string) bool {
 	relay, err := models.GetRelayByInboxURL(db.GetDB(), inboxURL)
 	if err != nil {
 		return false
 	}
+
 	return relay.IsEnabled()
 }

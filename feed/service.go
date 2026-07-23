@@ -14,10 +14,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// 共享的 context，避免重复创建
+// 共享的 context，避免重复创建.
 var sharedCtx = context.Background()
 
-// 订阅状态缓存（使用 sync.Map 优化并发性能）
+// 订阅状态缓存（使用 sync.Map 优化并发性能）.
 type subscriptionCache struct {
 	cache sync.Map
 	ttl   time.Duration
@@ -29,12 +29,14 @@ var subCache = &subscriptionCache{
 
 func (sc *subscriptionCache) Get(key string) (bool, bool) {
 	if val, ok := sc.cache.Load(key); ok {
-		entry := val.(*subCacheEntry)
+		entry := val.(*subCacheEntry) //nolint:forcetypeassert
 		if time.Now().Before(entry.expires) {
 			return entry.val, true
 		}
+
 		sc.cache.Delete(key)
 	}
+
 	return false, false
 }
 
@@ -51,17 +53,17 @@ type subCacheEntry struct {
 	expires time.Time
 }
 
-// FeedService 封装 feed 相关的 Redis 操作
+// FeedService 封装 feed 相关的 Redis 操作.
 type FeedService struct {
 	redis RedisClient
 }
 
-// NewFeedService 创建 FeedService 实例
+// NewFeedService 创建 FeedService 实例.
 func NewFeedService(redis RedisClient) *FeedService {
 	return &FeedService{redis: redis}
 }
 
-// AddToTimelineItem 将状态添加到时间轴
+// AddToTimelineItem 将状态添加到时间轴.
 func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status, aggregateReblogs bool) (err error) {
 	timelineKeyFormat := timeline.GetKeyFormat()
 	timelineKey := fmt.Sprintf(timelineKeyFormat, timeline.GetTimelineId())
@@ -71,7 +73,7 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 	// 插入一个 sorted set, 用来记录这个时间线是啥时候更新的，用于判断是否要对其进行删除释放空间
 	_, err = s.redis.ZAdd(sharedCtx, "timelines", redis.Z{Score: float64(time.Now().Unix()), Member: timelineKey}).Result()
 	if err != nil {
-		return
+		return err
 	}
 
 	if status.ReblogId != nil && *status.ReblogId > 0 && aggregateReblogs {
@@ -79,57 +81,61 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 		reblogIdStr := strconv.FormatUint(*status.ReblogId, 10)
 		rank, redisErr := s.redis.ZRevRank(sharedCtx, timelineKey, reblogIdStr).Result()
 		isRankNil := false
+
 		if redisErr != nil {
 			if errors.Is(redisErr, redis.Nil) {
 				isRankNil = true
 			} else {
 				err = redisErr
-				return
+
+				return err
 			}
 		}
 
 		if !isRankNil && rank < REBLOG_FALLOFF {
-			return
+			return err
 		}
 
 		var isNewRebolog int64
 		// 如果原始状态或其转发不在时间线的前 REBLOG_FALLOFF 个状态中，则将新的转发添加到 reblog_key 有序集合中，同时将转发状态添加到 timeline_key 有序集合中，返回
 		isNewRebolog, err = s.redis.ZAddNX(sharedCtx, reblogKey, redis.Z{Score: float64(status.Id), Member: reblogIdStr}).Result()
 		if err != nil {
-			return
+			return err
 		}
 
 		// 新的转发状态
 		if isNewRebolog > 0 {
 			err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(status.Id), Member: statusIdStr}).Err()
 			if err != nil {
-				return
+				return err
 			}
 		} else {
 			// 在同一条状态被多次连续转发的实况下，除了第一条会被记录到时间线上（feed:home:1), 和转推集合（feed:home:1:reblogs）中，其他的都会记录在 feed:home:1:reblogs:{reblogId} 中
 			// 前提是这些转发都是在 REBLOG_FALLOFF 时间内发生的
 			reblogSetKey := fmt.Sprintf(reblogKey+":%d", *status.ReblogId)
+
 			err = s.redis.SAdd(sharedCtx, reblogSetKey, statusIdStr).Err()
 			if err != nil {
-				return
+				return err
 			}
 		}
 
-		return
+		return err
 	}
 
 	// 判断是否转发的状态比原始状态早，如果是，则不再插入,或者转发的状态已经存在，则不再插入
 	isExists := s.redis.ZScore(sharedCtx, reblogKey, statusIdStr).Val()
 	if isExists > 0 {
-		return
+		return err
 	}
 
 	// 如果不是转发的，直接插入 timeline_key 有序集合中
 	err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(status.Id), Member: statusIdStr}).Err()
-	return
+
+	return err
 }
 
-// RemoveTimelineItem 从时间轴移除状态
+// RemoveTimelineItem 从时间轴移除状态.
 func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Status, aggregateReblogs bool) (err error) {
 	timelineKeyFormat := timeline.GetKeyFormat()
 	timelineKey := fmt.Sprintf(timelineKeyFormat, timeline.GetTimelineId())
@@ -138,13 +144,13 @@ func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Statu
 
 	if status.ReblogId != nil && *status.ReblogId > 0 && aggregateReblogs {
 		_, redisErr := s.redis.ZRevRank(sharedCtx, timelineKey, statusIdStr).Result()
-
 		if redisErr != nil {
 			if errors.Is(redisErr, redis.Nil) {
-				return
+				return err
 			} else {
 				err = redisErr
-				return
+
+				return err
 			}
 		}
 
@@ -155,15 +161,18 @@ func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Statu
 		_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) error {
 			pipe.SRem(sharedCtx, reblogSetKey, statusIdStr)
 			pipe.ZRem(sharedCtx, reblogKey, reblogIdStr)
+
 			return nil
 		})
 		if err != nil {
-			return
+			return err
 		}
 
 		// 获取剩余的转发
 		otherReblog := s.redis.SMembers(sharedCtx, reblogSetKey).Val()
+
 		var reblogIds []uint64
+
 		for _, rid := range otherReblog {
 			reblogIdUint, _ := strconv.ParseUint(rid, 10, 64)
 			reblogIds = append(reblogIds, reblogIdUint)
@@ -176,38 +185,42 @@ func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Statu
 			_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) error {
 				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(minReblogId), Member: minReblogIdStr})
 				pipe.ZAdd(sharedCtx, reblogKey, redis.Z{Score: float64(minReblogId), Member: reblogIdStr})
+
 				return nil
 			})
 		} else {
 			_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) error {
 				pipe.Del(sharedCtx, reblogSetKey)
 				pipe.ZRem(sharedCtx, reblogKey, reblogIdStr)
+
 				return nil
 			})
 		}
+
 		if err != nil {
-			return
+			return err
 		}
 	}
 
 	err = s.redis.ZRem(sharedCtx, timelineKey, statusIdStr).Err()
-	return
+
+	return err
 }
 
-// TrimTimeline 裁剪时间轴
+// TrimTimeline 裁剪时间轴.
 func (s *FeedService) TrimTimeline(timeline Timeline) (err error) {
 	timelineKeyFormat := timeline.GetKeyFormat()
 	timelineKey := fmt.Sprintf(timelineKeyFormat, timeline.GetTimelineId())
 	reblogKey := timelineKey + ":reblogs"
 
 	if err = s.redis.ZRemRangeByRank(sharedCtx, timelineKey, 0, -(MAX_ITEMS + 1)).Err(); err != nil {
-		return
+		return err
 	}
 
 	falloffRange := s.redis.ZRangeWithScores(sharedCtx, timelineKey, REBLOG_FALLOFF, REBLOG_FALLOFF).Val()
 
 	if len(falloffRange) == 0 {
-		return
+		return err
 	}
 
 	rebloggedIdsStr := s.redis.ZRangeByScore(sharedCtx, reblogKey, &redis.ZRangeBy{
@@ -216,7 +229,7 @@ func (s *FeedService) TrimTimeline(timeline Timeline) (err error) {
 	}).Val()
 
 	if len(rebloggedIdsStr) == 0 {
-		return
+		return err
 	}
 
 	// 使用 Pipeline 批量删除，避免 N+1 问题
@@ -226,13 +239,14 @@ func (s *FeedService) TrimTimeline(timeline Timeline) (err error) {
 			reblogSetKey := reblogKey + ":" + rebloggedIdStr
 			pipe.Del(sharedCtx, reblogSetKey)
 		}
+
 		return nil
 	})
 
-	return
+	return err
 }
 
-// CleanFeeds 清理 feed
+// CleanFeeds 清理 feed.
 func (s *FeedService) CleanFeeds(timeline Timeline, feedIds []string) (err error) {
 	timelineKeyFormat := timeline.GetKeyFormat()
 	rebloggedIdSets := make(map[any]*redis.StringSliceCmd)
@@ -244,14 +258,15 @@ func (s *FeedService) CleanFeeds(timeline Timeline, feedIds []string) (err error
 			rebloggedIdSets[feedId] = pipe.ZRange(sharedCtx, reblogKey, 0, -1)
 			pipe.Del(sharedCtx, timelineKey, reblogKey)
 		}
+
 		return
 	})
-
 	if err != nil {
-		return
+		return err
 	}
 
 	deleteKeys := make([]string, 0)
+
 	for feedId, rebloggedIds := range rebloggedIdSets {
 		for _, rebloggedId := range rebloggedIds.Val() {
 			reblogSetKey := fmt.Sprintf(timelineKeyFormat+":reblogs:%s", feedId, rebloggedId)
@@ -262,26 +277,31 @@ func (s *FeedService) CleanFeeds(timeline Timeline, feedIds []string) (err error
 	if len(deleteKeys) > 0 {
 		_, err = s.redis.Del(sharedCtx, deleteKeys...).Result()
 		if err != nil {
-			return
+			return err
 		}
 	}
-	return
+
+	return err
 }
 
-// PushToClient 推送到客户端
+// PushToClient 推送到客户端.
 func (s *FeedService) PushToClient(timeline Timeline, eventType string, eventPayload any) (err error) {
 	msg := map[string]any{
 		"type":    eventType,
 		"payload": eventPayload,
 	}
 
-	msgJson, _ := json.Marshal(msg)
+	msgJson, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
 	key := GetRedisChannelName(timeline)
 	_, err = s.redis.Publish(sharedCtx, key, msgJson).Result()
+
 	return
 }
 
-// PushUpdateRequired 检查是否需要推送更新（带缓存）
+// PushUpdateRequired 检查是否需要推送更新（带缓存）.
 func (s *FeedService) PushUpdateRequired(timeline Timeline) (ret bool) {
 	key := fmt.Sprintf("subscribed:"+timeline.GetKeyFormat(), timeline.GetTimelineId())
 
@@ -298,10 +318,11 @@ func (s *FeedService) PushUpdateRequired(timeline Timeline) (ret bool) {
 	result := len(channels) > 0
 	// 缓存结果
 	subCache.Set(key, result)
+
 	return result
 }
 
-// BatchAddToTimelineItems 批量向多个时间线添加状态（使用 Pipeline 优化）
+// BatchAddToTimelineItems 批量向多个时间线添加状态（使用 Pipeline 优化）.
 func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *models.Status, aggregateReblogs bool) (err error) {
 	if len(timelines) == 0 {
 		return nil
@@ -315,10 +336,12 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 	// 如果需要处理 reblog 聚合，使用逐个处理的方式（保证正确性）
 	if aggregateReblogs && status.ReblogId != nil && *status.ReblogId > 0 {
 		for _, timeline := range timelines {
-			if err = s.AddToTimelineItem(timeline, status, true); err != nil {
+			err = s.AddToTimelineItem(timeline, status, true)
+			if err != nil {
 				return err
 			}
 		}
+
 		return nil
 	}
 
@@ -342,43 +365,52 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 				if status.ReblogId != nil && *status.ReblogId > 0 {
 					pipe.ZScore(sharedCtx, reblogKey, statusIdStr)
 				}
+
 				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: nowScore, Member: statusIdStr})
 			}
 		}
+
 		return nil
 	})
 
-	return
+	return err
 }
 
-// GcTimelines 回收过期的时间轴
+// GcTimelines 回收过期的时间轴.
 func (s *FeedService) GcTimelines() (err error) {
 	deleteRange := time.Now().Add(-1 * time.Hour * 24 * MAX_AGE_DAYS).Unix()
 	max := strconv.FormatInt(deleteRange, 10)
 	timelines := s.redis.ZRevRangeByScoreWithScores(sharedCtx, "timelines", &redis.ZRangeBy{Max: max, Min: "-inf"}).Val()
 
 	if len(timelines) == 0 {
-		return
+		return err
 	}
 
 	batchSize := 1000 // 每批次删除的键的数量
 	keysToDelete := make([]string, 0)
 
 	for _, timeline := range timelines {
-		key := timeline.Member.(string)
+		key := timeline.Member.(string) //nolint:forcetypeassert
 		keysToDelete = append(keysToDelete, key, key+":reblogs")
 
 		// 使用 SCAN 替代 KEYS（非阻塞）
 		var cursor uint64
+
 		pattern := key + ":reblogs:*"
+
 		for {
 			var scanKeys []string
+
 			scanCmd := s.redis.Scan(sharedCtx, cursor, pattern, 100)
+
 			scanKeys, cursor = scanCmd.Val()
+
 			if scanCmd.Err() != nil {
 				return scanCmd.Err()
 			}
+
 			keysToDelete = append(keysToDelete, scanKeys...)
+
 			if cursor == 0 {
 				break
 			}
@@ -387,17 +419,14 @@ func (s *FeedService) GcTimelines() (err error) {
 
 	// 分批删除 keysToDelete
 	for i := 0; i < len(keysToDelete); i += batchSize {
-		end := i + batchSize
-		if end > len(keysToDelete) {
-			end = len(keysToDelete)
-		}
+		end := min(i+batchSize, len(keysToDelete))
 
 		// 优先使用 Unlink（非阻塞），如果失败则回退到 Del
 		_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) (err error) {
 			pipe.Unlink(sharedCtx, keysToDelete[i:end]...)
+
 			return
 		})
-
 		if err != nil {
 			// Unlink 失败（可能是旧版 Redis），尝试使用 Del
 			_, err = s.redis.Del(sharedCtx, keysToDelete[i:end]...).Result()
@@ -410,5 +439,5 @@ func (s *FeedService) GcTimelines() (err error) {
 	// 删除过期的timelines
 	_, err = s.redis.ZRemRangeByScore(sharedCtx, "timelines", "-inf", max).Result()
 
-	return
+	return err
 }

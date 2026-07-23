@@ -8,11 +8,11 @@ import (
 	"github.com/kasuganosora/community/thumbnail/storage"
 )
 
-// globalService 全局缩略图服务
+// globalService 全局缩略图服务.
 var globalService *service.Service
 var globalWorker *service.Worker
 
-// Init 初始化缩略图服务
+// Init 初始化缩略图服务.
 func Init() error {
 	// 自动迁移数据库
 	if err := autoMigrate(); err != nil {
@@ -23,11 +23,13 @@ func Init() error {
 	cfg, err := LoadConfig()
 	if err != nil {
 		log.Warn("Failed to load thumbnail config: %v", err)
+
 		return nil
 	}
 
 	if !cfg.Enabled {
 		log.Info("Thumbnail service is disabled")
+
 		return nil
 	}
 
@@ -43,9 +45,11 @@ func Init() error {
 		AccessKey:  cfg.Storage.AccessKey,
 		SecretKey:  cfg.Storage.SecretKey,
 	}
+
 	backend, err := storage.NewBackend(storageCfg)
 	if err != nil {
 		log.Error("Failed to create storage backend: %v", err)
+
 		return nil
 	}
 
@@ -72,6 +76,7 @@ func Init() error {
 	svc, err := service.NewService(svcCfg, backend)
 	if err != nil {
 		log.Error("Failed to create thumbnail service: %v", err)
+
 		return nil // 不阻塞启动
 	}
 
@@ -87,14 +92,14 @@ func Init() error {
 	return nil
 }
 
-// Shutdown 关闭缩略图服务
+// Shutdown 关闭缩略图服务.
 func Shutdown() {
 	if globalWorker != nil {
 		globalWorker.Stop()
 	}
 }
 
-// autoMigrate 自动迁移数据库
+// autoMigrate 自动迁移数据库.
 func autoMigrate() error {
 	return db.GetDB().AutoMigrate(
 		&models.Thumbnail{},
@@ -104,12 +109,12 @@ func autoMigrate() error {
 	)
 }
 
-// GetService 获取全局服务
+// GetService 获取全局服务.
 func GetService() *service.Service {
 	return globalService
 }
 
-// convertRules 转换规则
+// convertRules 转换规则.
 func convertRules(rules []ThumbnailRule) []models.ThumbnailRule {
 	result := make([]models.ThumbnailRule, len(rules))
 	for i, r := range rules {
@@ -126,5 +131,6 @@ func convertRules(rules []ThumbnailRule) []models.ThumbnailRule {
 			MediaType:         r.MediaType,
 		}
 	}
+
 	return result
 }

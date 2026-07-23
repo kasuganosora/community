@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io"
 	"io/fs"
@@ -32,6 +33,7 @@ type tlsPlainAuth struct {
 func (a *tlsPlainAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
 	// Encode as: identity\0username\0password per RFC 4616
 	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
+
 	return "PLAIN", resp, nil
 }
 func (a *tlsPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
@@ -39,6 +41,7 @@ func (a *tlsPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 		// We've already sent everything.
 		return nil, errors.New("unexpected server challenge")
 	}
+
 	return nil, nil
 }
 
@@ -63,6 +66,7 @@ func NewDrive() *Drive {
 
 	// Parse connection timeout (seconds, default 10)
 	timeoutSec := 10
+
 	if config.C.SmtpTimeout != "" {
 		if t, err := strconv.Atoi(config.C.SmtpTimeout); err == nil && t > 0 {
 			timeoutSec = t
@@ -97,10 +101,11 @@ func (d Drive) sendWithTLS(from string, to []string, body []byte) error {
 
 	dialer := &net.Dialer{Timeout: d.timeout}
 
-	conn, err := tls.DialWithDialer(dialer, "tcp", d.server, tlsConfig)
+	conn, err := (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(context.Background(), "tcp", d.server)
 	if err != nil {
 		return errors.Wrap(err, "TLS dial failed")
 	}
+
 	defer func() { _ = conn.Close() }()
 
 	// 30s deadline for all subsequent SMTP operations
@@ -110,6 +115,7 @@ func (d Drive) sendWithTLS(from string, to []string, body []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "create SMTP client failed")
 	}
+
 	defer func() { _ = client.Close() }()
 
 	return d.doSend(client, from, to, body)
@@ -120,10 +126,11 @@ func (d Drive) sendWithTLS(from string, to []string, body []byte) error {
 // back to plaintext transmission (with a warning log).
 // Connection timeout is controlled by Drive.timeout, SMTP operations have a 30s deadline.
 func (d Drive) sendWithSTARTTLS(from string, to []string, body []byte) error {
-	conn, err := net.DialTimeout("tcp", d.server, d.timeout)
+	conn, err := (&net.Dialer{Timeout: d.timeout}).DialContext(context.Background(), "tcp", d.server)
 	if err != nil {
 		return errors.Wrap(err, "dial failed")
 	}
+
 	defer func() { _ = conn.Close() }()
 
 	// 30s deadline for all subsequent SMTP operations (including STARTTLS handshake)
@@ -133,12 +140,14 @@ func (d Drive) sendWithSTARTTLS(from string, to []string, body []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "create SMTP client failed")
 	}
+
 	defer func() { _ = client.Close() }()
 
 	// Attempt STARTTLS upgrade if server supports it
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		tlsConfig := &tls.Config{ServerName: config.C.SmtpServer}
-		if err := client.StartTLS(tlsConfig); err != nil {
+		err := client.StartTLS(tlsConfig)
+		if err != nil {
 			// STARTTLS failed; log warning and fall back to plaintext
 			log.Warn("SMTP STARTTLS failed, falling back to plaintext: %v", err)
 		}
@@ -163,7 +172,8 @@ func (d Drive) doSend(client *smtp.Client, from string, to []string, body []byte
 
 	// Set recipients
 	for _, addr := range to {
-		if err := client.Rcpt(addr); err != nil {
+		err := client.Rcpt(addr)
+		if err != nil {
 			return errors.Wrapf(err, "SMTP RCPT TO %s failed", addr)
 		}
 	}
@@ -251,6 +261,7 @@ func (d Drive) SendMail(to string, cc string, mailObject *types.Mail) (err error
 
 	for _, att := range mailObject.Attachments {
 		var fileStat fs.FileInfo
+
 		fileStat, err = att.File.Stat()
 		if err != nil {
 			return err
@@ -262,6 +273,7 @@ func (d Drive) SendMail(to string, cc string, mailObject *types.Mail) (err error
 		}
 
 		var fileData []byte
+
 		fileData, err = io.ReadAll(att.File)
 		if err != nil {
 			return err
@@ -283,20 +295,21 @@ func (d Drive) SendMail(to string, cc string, mailObject *types.Mail) (err error
 	root, err := msg.Build()
 	if err != nil {
 		err = errors.WithMessagef(err, "build mail failed")
+
 		return err
 	}
 
 	err = root.Encode(buf)
 	if err != nil {
 		err = errors.WithMessagef(err, "encode mail failed")
+
 		return err
 	}
 
 	err = d.Send(to, cc, buf.Bytes())
-
 	if err != nil {
 		err = errors.WithMessagef(err, "send mail failed")
 	}
 
-	return
+	return err
 }

@@ -11,9 +11,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ListCustomEmojis handles GET /api/v1/admin/custom_emojis
+// ListCustomEmojis handles GET /api/v1/admin/custom_emojis.
 func ListCustomEmojis(c *gin.Context) {
 	limit := 40
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
 			limit = parsed
@@ -48,9 +49,11 @@ func ListCustomEmojis(c *gin.Context) {
 	}
 
 	emojis := make([]*models.Emoji, 0)
-	if err := query.Order("shortcode ASC").Limit(limit).Find(&emojis).Error; err != nil {
+	err := query.Order("shortcode ASC").Limit(limit).Find(&emojis).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "list emojis error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 
@@ -62,43 +65,51 @@ func ListCustomEmojis(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// GetCustomEmoji handles GET /api/v1/admin/custom_emojis/:id
+// GetCustomEmoji handles GET /api/v1/admin/custom_emojis/:id.
 func GetCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"}) //nolint:goconst
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
+		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"}) //nolint:goconst
+
 		return
 	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }
 
-// CreateEmojiRequest represents a create emoji request
+// CreateEmojiRequest represents a create emoji request.
 type CreateEmojiRequest struct {
-	Shortcode       string `json:"shortcode" binding:"required"`
+	Shortcode       string `binding:"required"       json:"shortcode"`
 	Category        string `json:"category"`
 	Image           string `json:"image"`
 	VisibleInPicker bool   `json:"visible_in_picker"`
 }
 
-// CreateCustomEmoji handles POST /api/v1/admin/custom_emojis
+// CreateCustomEmoji handles POST /api/v1/admin/custom_emojis.
 func CreateCustomEmoji(c *gin.Context) {
 	var req CreateEmojiRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request"})
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request"}) //nolint:goconst
+
 		return
 	}
 
 	var count int64
+
 	db.GetDB().Model(&models.Emoji{}).Where("shortcode = ? AND domain = ''", req.Shortcode).Count(&count)
+
 	if count > 0 {
 		c.AbortWithStatusJSON(422, gin.H{"error": "shortcode already taken"})
+
 		return
 	}
 
@@ -111,16 +122,18 @@ func CreateCustomEmoji(c *gin.Context) {
 		Domain:          "",
 	}
 
-	if err := db.GetDB().Create(emoji).Error; err != nil {
+	err = db.GetDB().Create(emoji).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create emoji error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }
 
-// UpdateEmojiRequest represents an update emoji request
+// UpdateEmojiRequest represents an update emoji request.
 type UpdateEmojiRequest struct {
 	Shortcode       string `json:"shortcode"`
 	Category        string `json:"category"`
@@ -128,101 +141,124 @@ type UpdateEmojiRequest struct {
 	VisibleInPicker *bool  `json:"visible_in_picker"`
 }
 
-// UpdateCustomEmoji handles PUT /api/v1/admin/custom_emojis/:id
+// UpdateCustomEmoji handles PUT /api/v1/admin/custom_emojis/:id.
 func UpdateCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+
 		return
 	}
 
 	var req UpdateEmojiRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err = c.ShouldBindJSON(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request"})
+
 		return
 	}
 
 	if req.Shortcode != "" {
 		emoji.Shortcode = req.Shortcode
 	}
+
 	if req.Category != "" {
 		emoji.Category = req.Category
 	}
+
 	if req.Image != "" {
 		emoji.Url = req.Image
 		emoji.StaticUrl = req.Image
 	}
+
 	if req.VisibleInPicker != nil {
 		emoji.VisibleInPicker = *req.VisibleInPicker
 	}
 
-	if err := db.GetDB().Save(emoji).Error; err != nil {
+	err = db.GetDB().Save(emoji).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "update emoji error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }
 
-// DeleteCustomEmoji handles DELETE /api/v1/admin/custom_emojis/:id
+// DeleteCustomEmoji handles DELETE /api/v1/admin/custom_emojis/:id.
 func DeleteCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+
 		return
 	}
 
-	if err := db.GetDB().Delete(emoji).Error; err != nil {
+	err = db.GetDB().Delete(emoji).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "delete emoji error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, gin.H{})
 }
 
-// CopyEmojiRequest represents a copy emoji request
+// CopyEmojiRequest represents a copy emoji request.
 type CopyEmojiRequest struct {
-	Shortcode string `json:"shortcode" binding:"required"`
+	Shortcode string `binding:"required" json:"shortcode"`
 }
 
-// CopyCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/copy
+// CopyCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/copy.
 func CopyCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+
 		return
 	}
 
 	var req CopyEmojiRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err = c.ShouldBindJSON(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request"})
+
 		return
 	}
 
 	var count int64
+
 	db.GetDB().Model(&models.Emoji{}).Where("shortcode = ? AND domain = ''", req.Shortcode).Count(&count)
+
 	if count > 0 {
 		c.AbortWithStatusJSON(422, gin.H{"error": "shortcode already taken"})
+
 		return
 	}
 
@@ -235,55 +271,67 @@ func CopyCustomEmoji(c *gin.Context) {
 		Domain:          "",
 	}
 
-	if err := db.GetDB().Create(newEmoji).Error; err != nil {
+	err = db.GetDB().Create(newEmoji).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "copy emoji error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, serializeAdminEmoji(newEmoji))
 }
 
-// EnableCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/enable
+// EnableCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/enable.
 func EnableCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+
 		return
 	}
 
 	emoji.VisibleInPicker = true
-	if err := db.GetDB().Save(emoji).Error; err != nil {
+	err = db.GetDB().Save(emoji).Error
+	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, serializeAdminEmoji(emoji))
 }
 
-// DisableCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/disable
+// DisableCustomEmoji handles POST /api/v1/admin/custom_emojis/:id/disable.
 func DisableCustomEmoji(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "emoji id required"})
+
 		return
 	}
 
 	emoji := &models.Emoji{}
-	if err := db.GetDB().First(emoji, id).Error; err != nil {
+	err := db.GetDB().First(emoji, id).Error
+	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "emoji not found"})
+
 		return
 	}
 
 	emoji.VisibleInPicker = false
-	if err := db.GetDB().Save(emoji).Error; err != nil {
+	err = db.GetDB().Save(emoji).Error
+	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -291,7 +339,7 @@ func DisableCustomEmoji(c *gin.Context) {
 }
 
 func serializeAdminEmoji(emoji *models.Emoji) gin.H {
-	var domain interface{}
+	var domain any
 	if emoji.Domain != "" {
 		domain = emoji.Domain
 	}
@@ -306,15 +354,15 @@ func serializeAdminEmoji(emoji *models.Emoji) gin.H {
 		"static_url":        emoji.StaticUrl,
 		"visible_in_picker": emoji.VisibleInPicker,
 		"category":          emoji.Category,
-		"domain":            domain,
+		"domain":            domain, //nolint:goconst
 		"disabled":          !emoji.VisibleInPicker,
 		"updated_at":        updatedAt,
-		"created_at":        createdAt,
+		"created_at":        createdAt, //nolint:goconst
 		"total_file_size":   0,
 		"content_type":      "image/png",
 		"uri":               config.C.AppBaseURL + "/emojis/" + emoji.Shortcode,
 	}
 }
 
-// Ensure config is loaded
+// Ensure config is loaded.
 var _ = config.C

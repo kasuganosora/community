@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// setupTestDB creates an in-memory SQLite database for testing
+// setupTestDB creates an in-memory SQLite database for testing.
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	// Use shared cache + busy timeout to handle concurrent goroutine DB access
@@ -22,6 +22,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
+
 	database.DB = db
 
 	// Auto-migrate all required models
@@ -45,7 +46,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// createTestHomeServer creates a minimal HomeServer for testing
+// createTestHomeServer creates a minimal HomeServer for testing.
 func createTestHomeServer(t *testing.T) *HomeServer {
 	t.Helper()
 	setupTestDB(t)
@@ -73,44 +74,51 @@ func createTestHomeServer(t *testing.T) *HomeServer {
 	return hs
 }
 
-// helper to create a public room with a user
-func createRoomWithUser(t *testing.T, hs *HomeServer, userID string) string {
+// helper to create a public room with a user.
+func createRoomWithUser(t *testing.T, hs *HomeServer, userID string) string { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	resp, err := hs.Room.CreateRoom(userID, &CreateRoomRequest{
 		Preset: "public_chat",
 	})
 	if err != nil {
 		t.Fatalf("failed to create room: %v", err)
 	}
+
 	return resp.RoomID
 }
 
-// helper to create a private room with a user
+// helper to create a private room with a user.
 func createPrivateRoom(t *testing.T, hs *HomeServer, userID string) string {
 	t.Helper()
+
 	resp, err := hs.Room.CreateRoom(userID, &CreateRoomRequest{})
 	if err != nil {
 		t.Fatalf("failed to create room: %v", err)
 	}
+
 	return resp.RoomID
 }
 
-// helper to join a user to a room
-func joinUser(t *testing.T, hs *HomeServer, roomID, userID string) {
+// helper to join a user to a room.
+func joinUser(t *testing.T, hs *HomeServer, roomID, userID string) { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	if _, err := hs.Room.JoinRoom(userID, roomID, &JoinRoomRequest{}); err != nil {
 		t.Fatalf("failed to join room: %v", err)
 	}
 }
 
-// helper to send a message event
-func sendMessage(t *testing.T, hs *HomeServer, roomID, userID, body string) string {
+// helper to send a message event.
+func sendMessage(t *testing.T, hs *HomeServer, roomID, userID, body string) string { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	resp, err := hs.Event.SendRoomEvent(roomID, userID, "m.room.message", nil,
-		map[string]interface{}{"msgtype": "m.text", "body": body}, nil)
+		map[string]any{"msgtype": "m.text", "body": body}, nil) //nolint:goconst
 	if err != nil {
 		t.Fatalf("failed to send message: %v", err)
 	}
+
 	return resp.EventID
 }
 
@@ -118,8 +126,8 @@ func sendMessage(t *testing.T, hs *HomeServer, roomID, userID, body string) stri
 
 func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 	hs := createTestHomeServer(t)
-	alice := "@alice:test.local"
-	bob := "@bob:test.local"
+	alice := "@alice:test.local" //nolint:goconst
+	bob := "@bob:test.local"     //nolint:goconst
 
 	// Alice creates a room, Bob joins
 	roomID := createRoomWithUser(t, hs, alice)
@@ -127,7 +135,9 @@ func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 
 	// Record time before leave
 	time.Sleep(50 * time.Millisecond)
+
 	beforeLeave := time.Now().UnixMilli()
+
 	time.Sleep(50 * time.Millisecond)
 
 	// Bob leaves
@@ -136,7 +146,9 @@ func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
+
 	afterLeave := time.Now().UnixMilli()
+
 	time.Sleep(50 * time.Millisecond)
 
 	// Full sync should include left room
@@ -144,6 +156,7 @@ func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync failed: %v", err)
 	}
+
 	if _, ok := resp.Rooms.Leave[roomID]; !ok {
 		t.Error("full sync should include left room in leave section")
 	}
@@ -155,6 +168,7 @@ func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync failed: %v", err)
 	}
+
 	if _, ok := resp2.Rooms.Leave[roomID]; ok {
 		t.Error("incremental sync after leave should NOT include left room in leave section")
 	}
@@ -166,6 +180,7 @@ func TestOlderLeftRoomsNotInLeaveSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync failed: %v", err)
 	}
+
 	if _, ok := resp3.Rooms.Leave[roomID]; !ok {
 		t.Error("incremental sync before leave should include left room in leave section")
 	}
@@ -183,7 +198,7 @@ func TestLeftRoomState(t *testing.T) {
 	// Set room name before Bob leaves
 	stateKey := ""
 	hs.Event.SendRoomEvent(roomID, alice, string(EventTypeRoomName), nil,
-		map[string]interface{}{"name": "Before Leave"}, &stateKey)
+		map[string]any{"name": "Before Leave"}, &stateKey) //nolint:goconst
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -194,7 +209,7 @@ func TestLeftRoomState(t *testing.T) {
 
 	// Alice changes room name AFTER Bob left
 	hs.Event.SendRoomEvent(roomID, alice, string(EventTypeRoomName), nil,
-		map[string]interface{}{"name": "After Leave"}, &stateKey)
+		map[string]any{"name": "After Leave"}, &stateKey)
 
 	// Bob should see the old name via state endpoint
 	stateEvent, matErr := hs.Event.GetRoomStateEvent(roomID, string(EventTypeRoomName), "")
@@ -218,9 +233,9 @@ func TestIgnoredUsersInviteFiltering(t *testing.T) {
 	database.DB.Create(&MatrixAccountData{
 		UserID:   alice,
 		DataType: "m.ignored_user_list",
-		Content: map[string]interface{}{
-			"ignored_users": map[string]interface{}{
-				bob: map[string]interface{}{},
+		Content: map[string]any{
+			"ignored_users": map[string]any{
+				bob: map[string]any{},
 			},
 		},
 	})
@@ -242,6 +257,7 @@ func TestIgnoredUsersInviteFiltering(t *testing.T) {
 	if _, ok := resp.Rooms.Invite[bobRoom]; ok {
 		t.Error("should NOT see invite from ignored user Bob")
 	}
+
 	if _, ok := resp.Rooms.Invite[chrisRoom]; !ok {
 		t.Error("should see invite from non-ignored user Chris")
 	}
@@ -311,7 +327,9 @@ func TestGetRoomMembersAtPoint(t *testing.T) {
 	sendMessage(t, hs, roomID, alice, "hello")
 
 	time.Sleep(50 * time.Millisecond)
+
 	beforeBobJoins := time.Now().UnixMilli()
+
 	time.Sleep(50 * time.Millisecond)
 
 	// Bob joins after the sync point
@@ -328,6 +346,7 @@ func TestGetRoomMembersAtPoint(t *testing.T) {
 	for _, m := range members {
 		found[m.UserID] = true
 	}
+
 	if !found[alice] || !found[bob] {
 		t.Errorf("without at filter: want both alice and bob, got %v", found)
 	}
@@ -338,6 +357,7 @@ func TestGetRoomMembersAtPoint(t *testing.T) {
 
 	// Manually filter as the handler does
 	filtered := make([]*MatrixRoomMember, 0)
+
 	for _, m := range members {
 		if m.EventID != "" {
 			var evt MatrixEvent
@@ -345,9 +365,11 @@ func TestGetRoomMembersAtPoint(t *testing.T) {
 				if evt.OriginServerTS <= beforeBobJoins {
 					filtered = append(filtered, m)
 				}
+
 				continue
 			}
 		}
+
 		filtered = append(filtered, m)
 	}
 
@@ -355,9 +377,11 @@ func TestGetRoomMembersAtPoint(t *testing.T) {
 	for _, m := range filtered {
 		foundFiltered[m.UserID] = true
 	}
+
 	if !foundFiltered[alice] {
 		t.Error("at filter: alice should be present")
 	}
+
 	if foundFiltered[bob] {
 		t.Errorf("at filter (at=%s): bob should NOT be present (joined after)", atToken)
 	}
@@ -379,8 +403,11 @@ func TestLeftRoomMessagesForward(t *testing.T) {
 
 	// Get Bob's leave event timestamp for the forward pagination token
 	var member MatrixRoomMember
+
 	database.DB.Where("room_id = ? AND user_id = ?", roomID, bob).First(&member)
+
 	var leaveEvent MatrixEvent
+
 	database.DB.Where("event_id = ?", member.EventID).First(&leaveEvent)
 	leaveTS := leaveEvent.OriginServerTS
 

@@ -46,6 +46,7 @@ func TestProxyFollowModel(t *testing.T) {
 
 		// Read back
 		var fetched models.ProxyFollow
+
 		err = testDB.GormDB.First(&fetched, pf.ID).Error
 		require.NoError(t, err)
 		assert.Equal(t, uint64(100), fetched.AccountID)
@@ -55,13 +56,17 @@ func TestProxyFollowModel(t *testing.T) {
 
 		// Update
 		testDB.GormDB.Model(&fetched).Update("status", models.ProxyFollowStatusAccepted)
+
 		var updated models.ProxyFollow
+
 		testDB.GormDB.First(&updated, pf.ID)
 		assert.Equal(t, models.ProxyFollowStatusAccepted, updated.Status)
 
 		// Delete
 		testDB.GormDB.Delete(&updated)
+
 		var count int64
+
 		testDB.GormDB.Model(&models.ProxyFollow{}).Where("id = ?", pf.ID).Count(&count)
 		assert.Equal(t, int64(0), count)
 	})
@@ -82,7 +87,7 @@ func TestProxyFollowModel(t *testing.T) {
 			ReasonID:  10,
 		}
 		err = testDB.GormDB.Create(pf2).Error
-		assert.Error(t, err)
+		require.Error(t, err)
 
 		// Different reason_id should succeed
 		pf3 := &models.ProxyFollow{
@@ -91,7 +96,7 @@ func TestProxyFollowModel(t *testing.T) {
 			ReasonID:  20,
 		}
 		err = testDB.GormDB.Create(pf3).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -104,9 +109,9 @@ func TestAccountKeyModel(t *testing.T) {
 	})
 
 	t.Run("CRUD", func(t *testing.T) {
-		ak := &models.AccountKey{
+		ak := &models.AccountKey{ //nolint:gosec // G101: reviewed and safe
 			AccountID:  1,
-			PublicKey:  "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----",
+			PublicKey:  "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----", //nolint:goconst
 			PrivateKey: "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
 		}
 		err := testDB.GormDB.Create(ak).Error
@@ -114,6 +119,7 @@ func TestAccountKeyModel(t *testing.T) {
 		assert.NotZero(t, ak.ID)
 
 		var fetched models.AccountKey
+
 		err = testDB.GormDB.Where("account_id = ?", 1).First(&fetched).Error
 		require.NoError(t, err)
 		assert.Equal(t, uint64(1), fetched.AccountID)
@@ -136,7 +142,7 @@ func TestAccountKeyModel(t *testing.T) {
 			PrivateKey: "priv2",
 		}
 		err = testDB.GormDB.Create(ak2).Error
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -158,7 +164,7 @@ func TestProxyServiceHasLocalFollowers(t *testing.T) {
 	// Create a remote account
 	remoteDomain := "remote.com"
 	remoteAccount := &models.Account{
-		Username: "alice",
+		Username: "alice", //nolint:goconst
 		Domain:   &remoteDomain,
 		OriginId: "https://remote.com/users/alice",
 	}
@@ -266,15 +272,17 @@ func TestProxyServiceHandleAccept(t *testing.T) {
 
 		// Accept
 		err := service.HandleAccept("https://example.com/follow/1")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Check proxy follow updated
 		var updatedPF models.ProxyFollow
+
 		testDB.GormDB.First(&updatedPF, pf.ID)
 		assert.Equal(t, models.ProxyFollowStatusAccepted, updatedPF.Status)
 
 		// Check follow updated
 		var updatedFollow models.Follow
+
 		testDB.GormDB.Where("account_id = ? AND follow_id = ?",
 			proxyAccount.Id, remoteAccount.Id).First(&updatedFollow)
 		assert.Equal(t, models.FollowStatusFollowed, updatedFollow.Status)
@@ -282,7 +290,7 @@ func TestProxyServiceHandleAccept(t *testing.T) {
 
 	t.Run("accept non-existent activity returns error", func(t *testing.T) {
 		err := service.HandleAccept("https://example.com/follow/nonexistent")
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -306,7 +314,7 @@ func TestProxyServiceGetProxyActorURI(t *testing.T) {
 func TestParsePrivateKey(t *testing.T) {
 	t.Run("invalid PEM returns error", func(t *testing.T) {
 		_, err := parsePrivateKey("not a PEM")
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("valid PEM round-trip", func(t *testing.T) {
@@ -368,6 +376,7 @@ func TestProxyServiceCleanupProxyFollow(t *testing.T) {
 			ReasonID:  2,
 			Status:    models.ProxyFollowStatusAccepted,
 		}
+
 		require.NoError(t, testDB.GormDB.Create(pf1).Error)
 		require.NoError(t, testDB.GormDB.Create(pf2).Error)
 
@@ -381,15 +390,17 @@ func TestProxyServiceCleanupProxyFollow(t *testing.T) {
 
 		// Remove from list 1
 		err := service.CleanupProxyFollow(remoteAccount.Id, models.ProxyFollowReasonList, 1)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// pf1 should be deleted, pf2 should remain
 		var remaining int64
+
 		testDB.GormDB.Model(&models.ProxyFollow{}).Where("account_id = ?", remoteAccount.Id).Count(&remaining)
 		assert.Equal(t, int64(1), remaining)
 
 		// Follow should still exist
 		var followCount int64
+
 		testDB.GormDB.Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?",
 			proxyAccount.Id, remoteAccount.Id).Count(&followCount)
 		assert.Equal(t, int64(1), followCount)
@@ -400,15 +411,17 @@ func TestProxyServiceCleanupProxyFollow(t *testing.T) {
 		// Note: sendUndoFollowActivity will fail (no real remote server)
 		// but the local follow record should still be deleted
 		err := service.CleanupProxyFollow(remoteAccount.Id, models.ProxyFollowReasonList, 2)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// No proxy follows should remain
 		var remaining int64
+
 		testDB.GormDB.Model(&models.ProxyFollow{}).Where("account_id = ?", remoteAccount.Id).Count(&remaining)
 		assert.Equal(t, int64(0), remaining)
 
 		// Follow should be deleted
 		var followCount int64
+
 		testDB.GormDB.Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?",
 			proxyAccount.Id, remoteAccount.Id).Count(&followCount)
 		assert.Equal(t, int64(0), followCount)
@@ -441,10 +454,11 @@ func TestProxyServiceEnsureProxyFollowLocalAccount(t *testing.T) {
 
 	// Should skip silently for local accounts
 	err := service.EnsureProxyFollow(localAccount.Id, models.ProxyFollowReasonList, 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// No proxy follow should be created
 	var count int64
+
 	testDB.GormDB.Model(&models.ProxyFollow{}).Count(&count)
 	assert.Equal(t, int64(0), count)
 }
@@ -488,15 +502,16 @@ func TestProxyServiceEnsureProxyFollowIdempotent(t *testing.T) {
 
 	// First call should create proxy follow
 	err := service.EnsureProxyFollow(remoteAccount.Id, models.ProxyFollowReasonList, 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var count int64
+
 	testDB.GormDB.Model(&models.ProxyFollow{}).Count(&count)
 	assert.Equal(t, int64(1), count)
 
 	// Second call should be idempotent
 	err = service.EnsureProxyFollow(remoteAccount.Id, models.ProxyFollowReasonList, 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	testDB.GormDB.Model(&models.ProxyFollow{}).Count(&count)
 	assert.Equal(t, int64(1), count) // Still 1

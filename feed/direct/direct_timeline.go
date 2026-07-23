@@ -16,7 +16,8 @@ func init() {
 		if event.Data == nil {
 			return false
 		}
-		status := event.Data.(*models.Status)
+
+		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
 		}
@@ -26,29 +27,33 @@ func init() {
 			return true
 		}
 
-		//如果是新增的事件
+		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
 			go func() {
-				if err := Push(status, false, true); err != nil {
+				err := Push(status, false, true)
+				if err != nil {
 					log.Printf("direct_timeline: Push failed: %v", err)
 				}
 			}()
 		case "before_update":
 			go func() { // 更新之前，先删除
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("direct_timeline: Unpush failed: %v", err)
 				}
 			}()
 		case "after_update":
 			go func() {
-				if err := Push(status, true, true); err != nil {
+				err := Push(status, true, true)
+				if err != nil {
 					log.Printf("direct_timeline: Push failed: %v", err)
 				}
 			}()
 		case "after_delete":
 			go func() {
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("direct_timeline: Unpush failed: %v", err)
 				}
 			}()
@@ -77,41 +82,44 @@ func (timeline *DirectTimeline) Rebuild() (err error) {
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	if status.Visibility != models.StatusVisibilityDirect || !pushToClient {
-		return
+		return err
 	}
 
 	if status.ConversationId == nil {
-		return
+		return err
 	}
 
 	if status.ToAccounts == nil {
 		status.ToAccounts = make([]*models.Account, 0)
+
 		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
 		if err != nil {
-			return
+			return err
 		}
 	}
 
 	if status.ToAccounts == nil {
-		return
+		return err
 	}
 
 	conversation := &models.Conversation{}
+
 	err = db.GetDB().Where("id = ?", *status.ConversationId).First(conversation).Error
 	if err != nil {
-		return
+		return err
 	}
 
 	for _, account := range status.ToAccounts {
 		timeline := &DirectTimeline{Account: account}
 		if feed.PushUpdateRequired(timeline) {
-			if err = feed.PushToClient(timeline, "conversation", conversation); err != nil {
-				return
+			err = feed.PushToClient(timeline, "conversation", conversation)
+			if err != nil {
+				return err
 			}
 		}
 	}
 
-	return
+	return err
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
@@ -121,6 +129,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	if status.ToAccounts == nil {
 		status.ToAccounts = make([]*models.Account, 0)
+
 		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
 		if err != nil {
 			return
@@ -134,10 +143,12 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	for _, account := range status.ToAccounts {
 		timeline := &DirectTimeline{Account: account}
 		if feed.PushUpdateRequired(timeline) {
-			if err = feed.PushToClient(timeline, "delete", status); err != nil {
+			err = feed.PushToClient(timeline, "delete", status)
+			if err != nil {
 				return
 			}
 		}
 	}
+
 	return
 }

@@ -25,14 +25,15 @@ func GetListAccounts(c *gin.Context) {
 
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(),
+			"error": err.Error(), //nolint:goconst
 		})
+
 		return
 	}
 
 	var currentAccount *models.Account
 	if _currentAccount, ok := c.Get("account"); ok {
-		currentAccount = _currentAccount.(*models.Account)
+		currentAccount = _currentAccount.(*models.Account) //nolint:forcetypeassert
 	}
 
 	list, abort := GetListByParam(c)
@@ -43,13 +44,15 @@ func GetListAccounts(c *gin.Context) {
 	canView, err := models.ListCanView(list, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
 	if !canView {
 		c.AbortWithStatusJSON(403, gin.H{
-			"error": "forbidden",
+			"error": "forbidden", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -73,16 +76,16 @@ func GetListAccounts(c *gin.Context) {
 	}
 
 	if req.Limit != nil {
-		query = query.Limit(int(*req.Limit))
+		query = query.Limit(int(*req.Limit)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	query = query.Preload("Emojis").Preload("Extra")
 
 	err = query.Find(&accounts).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "GetListAccounts error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -90,7 +93,7 @@ func GetListAccounts(c *gin.Context) {
 }
 
 type AddAccountsToListRequest struct {
-	AccountIds []string `json:"account_ids" binding:"required"`
+	AccountIds []string `binding:"required" json:"account_ids"`
 }
 
 func AddAccountToList(c *gin.Context) {
@@ -99,6 +102,7 @@ func AddAccountToList(c *gin.Context) {
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": err.Error(),
 		})
+
 		return
 	}
 
@@ -108,12 +112,13 @@ func AddAccountToList(c *gin.Context) {
 		return
 	}
 
-	selfAccount := c.MustGet("account").(*models.Account)
+	selfAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	if list.AccountId != selfAccount.Id {
 		c.AbortWithStatusJSON(403, gin.H{
-			"apierrors": "you are not the owner of the list",
+			"apierrors": "you are not the owner of the list", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -121,7 +126,6 @@ func AddAccountToList(c *gin.Context) {
 
 	for _, accountId := range req.AccountIds {
 		uint64AccountId, err := strconv.ParseUint(accountId, 10, 64)
-
 		if err != nil {
 			continue
 		}
@@ -133,19 +137,21 @@ func AddAccountToList(c *gin.Context) {
 		c.AbortWithStatusJSON(400, gin.H{
 			"apierrors": "invalid account ids",
 		})
+
 		return
 	}
 
 	// 取出已经存在的账号，并且在插入的时候忽略
 	existRecords := make([]*models.ListAccount, 0)
+
 	err := db.GetDB().Model(&models.ListAccount{}).
 		Where("list_id = ?", list.Id).
 		Where("account_id IN ?", uint64AccountIds).
 		Find(&existRecords).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "AddAccountsToList error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -166,6 +172,7 @@ func AddAccountToList(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"error": "all accounts already exist",
 		})
+
 		return
 	}
 
@@ -181,10 +188,10 @@ func AddAccountToList(c *gin.Context) {
 	}
 
 	err = db.GetDB().Create(&listAccounts).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "AddAccountsToList error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -197,13 +204,17 @@ func AddAccountToList(c *gin.Context) {
 // ensureProxyFollowsForList checks each account and triggers proxy follow if needed.
 func ensureProxyFollowsForList(accountIDs []uint64, listID uint64) {
 	proxyService := activitypub.NewProxyService()
+
 	for _, accountID := range accountIDs {
 		var acc models.Account
-		if err := db.GetDB().First(&acc, accountID).Error; err != nil {
+		err := db.GetDB().First(&acc, accountID).Error
+		if err != nil {
 			continue
 		}
+
 		if acc.Domain != nil { // Remote account
-			if err := proxyService.EnsureProxyFollow(acc.Id, models.ProxyFollowReasonList, listID); err != nil {
+			err := proxyService.EnsureProxyFollow(acc.Id, models.ProxyFollowReasonList, listID)
+			if err != nil {
 				log.Error("Failed to ensure proxy follow for account %d in list %d: %v", acc.Id, listID, err)
 			}
 		}
@@ -217,58 +228,65 @@ func RemoveAccountFromList(c *gin.Context) {
 		return
 	}
 
-	selfAccount := c.MustGet("account").(*models.Account)
+	selfAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	if list.AccountId != selfAccount.Id {
 		c.AbortWithStatusJSON(403, gin.H{
 			"apierrors": "you are not the owner of the list",
 		})
+
 		return
 	}
 
 	accountId, err := strconv.ParseUint(c.Param("account_id"), 10, 64)
-
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"apierrors": "invalid account id",
 		})
+
 		return
 	}
 
 	listAccount := &models.ListAccount{}
+
 	err = db.GetDB().Where("list_id = ?", list.Id).
 		Where("account_id = ?", accountId).
 		First(listAccount).Error
-
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{
 				"apierrors": "account not found in list",
 			})
+
 			return
 		}
+
 		err = errors.Wrap(err, "RemoveAccountIdFromList error")
 		_ = c.Error(err)
+
 		return
 	}
 
 	err = db.GetDB().Delete(listAccount).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "RemoveAccountIdFromList error")
 		_ = c.Error(err)
+
 		return
 	}
 
 	// Trigger proxy follow cleanup for remote accounts
 	go func() {
 		var acc models.Account
-		if err := db.GetDB().First(&acc, accountId).Error; err != nil {
+		err := db.GetDB().First(&acc, accountId).Error
+		if err != nil {
 			return
 		}
+
 		if acc.Domain != nil {
 			proxyService := activitypub.NewProxyService()
-			if err := proxyService.CleanupProxyFollow(acc.Id, models.ProxyFollowReasonList, list.Id); err != nil {
+			err := proxyService.CleanupProxyFollow(acc.Id, models.ProxyFollowReasonList, list.Id)
+			if err != nil {
 				log.Error("Failed to cleanup proxy follow for account %d in list %d: %v", acc.Id, list.Id, err)
 			}
 		}

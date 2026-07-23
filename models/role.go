@@ -29,12 +29,12 @@ const (
 	PermissionDeleteUserData      = 0x80000
 )
 
-type Role struct {
-	ID          int64  `json:"id" gorm:"primary_key;autoIncrement"`
-	Name        string `json:"name" gorm:"unique;not null;type:varchar(20)"`
-	Color       string `json:"color" gorm:"type:varchar(20)"`
-	Highlighted bool   `json:"highlighted" gorm:"default:false"`
-	Permissions uint64 `json:"-" gorm:"type:bigint"`
+type Role struct { //nolint:recvcheck
+	ID          int64  `gorm:"primary_key;autoIncrement"        json:"id"`
+	Name        string `gorm:"unique;not null;type:varchar(20)" json:"name"`
+	Color       string `gorm:"type:varchar(20)"                 json:"color"`
+	Highlighted bool   `gorm:"default:false"                    json:"highlighted"`
+	Permissions uint64 `gorm:"type:bigint"                      json:"-"`
 }
 
 func (Role) TableName() string {
@@ -47,13 +47,14 @@ func (r *Role) HasPermission(permission uint64) bool {
 
 func (r *Role) SetPermission(permission uint64) *Role {
 	r.Permissions |= permission
+
 	return r
 }
 
 type RoleUser struct {
-	RoleID    uint64     `json:"role_id" gorm:"primary_key"`
-	UserID    uint64     `json:"user_id" gorm:"primary_key"`
-	CreatedAt *time.Time `json:"created_at" gorm:"autoCreateTime"`
+	RoleID    uint64     `gorm:"primary_key"    json:"role_id"`
+	UserID    uint64     `gorm:"primary_key"    json:"user_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
 
 func (RoleUser) TableName() string {
@@ -70,18 +71,22 @@ func AssignRole(db *gorm.DB, userID uint64, roleID uint64) (err error) {
 	if err = db.First(&Role{}, "id = ?", roleID).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			err = errors.Wrap(err, "failed to check if role exists")
+
 			return
 		}
 	}
 
 	err = db.Create(r).Error
+
 	return
 }
 
 func GetUserRoles(db *gorm.DB, userID uint64) (roles []*Role, err error) {
 	roles = make([]*Role, 0)
 	userRoles := make([]*RoleUser, 0)
+
 	err = db.Model(&RoleUser{}).Where("user_id = ?", userID).Find(&userRoles).Error
+
 	if err != nil || len(userRoles) == 0 {
 		return
 	}

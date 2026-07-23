@@ -10,20 +10,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Endorsement represents an account endorsement
+// Endorsement represents an account endorsement.
 type Endorsement struct {
 	Id        uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId uint64 `gorm:"not null;index" json:"account_id"`
-	TargetId  uint64 `gorm:"not null;index" json:"target_id"`
+	AccountId uint64 `gorm:"not null;index"             json:"account_id"`
+	TargetId  uint64 `gorm:"not null;index"             json:"target_id"`
 }
 
 func (e *Endorsement) TableName() string {
 	return "endorsements"
 }
 
-// ListEndorsements handles GET /api/v1/endorsements
+// ListEndorsements handles GET /api/v1/endorsements.
 func ListEndorsements(c *gin.Context) {
 	limit := 40
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
 			limit = parsed
@@ -31,7 +32,7 @@ func ListEndorsements(c *gin.Context) {
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query endorsements
 	query := db.GetDB().Table("endorsements").
@@ -57,9 +58,11 @@ func ListEndorsements(c *gin.Context) {
 	}
 
 	results := make([]EndorsementResult, 0)
-	if err := query.Limit(limit).Find(&results).Error; err != nil {
+	err := query.Limit(limit).Find(&results).Error
+	if err != nil {
 		// If table doesn't exist, return empty array
-		c.JSON(200, []interface{}{})
+		c.JSON(200, []any{})
+
 		return
 	}
 
@@ -71,9 +74,11 @@ func ListEndorsements(c *gin.Context) {
 
 	accounts := make([]*models.Account, 0)
 	if len(accountIds) > 0 {
-		if err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", accountIds).Find(&accounts).Error; err != nil {
+		err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", accountIds).Find(&accounts).Error
+		if err != nil {
 			_ = c.Error(errors.Wrap(err, "get accounts error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 			return
 		}
 	}
@@ -81,30 +86,34 @@ func ListEndorsements(c *gin.Context) {
 	c.JSON(200, serializer.ToAccounts(accounts))
 }
 
-// PinAccount handles POST /api/v1/accounts/:id/pin
+// PinAccount handles POST /api/v1/accounts/:id/pin.
 func PinAccount(c *gin.Context) {
 	accid, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || accid == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"}) //nolint:goconst
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Cannot pin self
 	if account.Id == accid {
 		c.AbortWithStatusJSON(400, gin.H{"error": "cannot pin yourself"})
+
 		return
 	}
 
 	// Check target account exists and is followed
 	follow := &models.Follow{}
+
 	err = db.GetDB().Scopes(models.Followed).
 		Where("account_id = ? AND follow_id = ?", account.Id, accid).
 		First(follow).Error
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "can only endorse accounts you follow"})
+
 		return
 	}
 
@@ -115,17 +124,23 @@ func PinAccount(c *gin.Context) {
 		Count(&count).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "check endorsement error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
+
 	if count > 0 {
 		// Already endorsed, return relationship
 		targetAccount := &models.Account{}
-		if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
+		err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error
+		if err != nil {
 			_ = c.Error(errors.Wrap(err, "load target account error"))
 			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 			return
 		}
+
 		c.JSON(200, buildRelationship(account, targetAccount))
+
 		return
 	}
 
@@ -137,6 +152,7 @@ func PinAccount(c *gin.Context) {
 	if err := db.GetDB().Create(endorsement).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create endorsement error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -145,22 +161,24 @@ func PinAccount(c *gin.Context) {
 	if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "load target account error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))
 }
 
-// UnpinAccount handles POST /api/v1/accounts/:id/unpin
+// UnpinAccount handles POST /api/v1/accounts/:id/unpin.
 func UnpinAccount(c *gin.Context) {
 	accid, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || accid == 0 {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Delete endorsement
 	if err := db.GetDB().Table("endorsements").
@@ -168,6 +186,7 @@ func UnpinAccount(c *gin.Context) {
 		Delete(&Endorsement{}).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "delete endorsement error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -176,6 +195,7 @@ func UnpinAccount(c *gin.Context) {
 	if err := db.GetDB().Preload("Extra").First(targetAccount, accid).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "load target account error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 

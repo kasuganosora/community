@@ -25,14 +25,14 @@ func ViewPoll(c *gin.Context) {
 }
 
 type VotePollRequest struct {
-	Choices []int `json:"choices" binding:"required"`
+	Choices []int `binding:"required" json:"choices"`
 }
 
 func VotePoll(c *gin.Context) {
 	req := &VotePollRequest{}
 	err := c.ShouldBindJSON(req)
 
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
 	poll, abort := getPoll(c)
 	if abort {
@@ -42,12 +42,14 @@ func VotePoll(c *gin.Context) {
 	// 判断是否已经过期
 	if poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()) {
 		c.JSON(400, gin.H{"error": "poll expired"})
+
 		return
 	}
 
 	// 判断单选还是多选
 	if !poll.Multiple && len(req.Choices) > 1 {
 		c.JSON(400, gin.H{"error": "poll is single choice"})
+
 		return
 	}
 
@@ -55,6 +57,7 @@ func VotePoll(c *gin.Context) {
 	for _, choice := range req.Choices {
 		if choice < 0 || choice >= len(poll.Options) {
 			c.JSON(400, gin.H{"error": "invalid choice"})
+
 			return
 		}
 	}
@@ -63,6 +66,7 @@ func VotePoll(c *gin.Context) {
 
 	// 判断是否已经投过票
 	var voteCount int64
+
 	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? and account_id = ?", poll.Id, currentAccount).Count(&voteCount).Error
 
 	controllers.AbortIfError(c, err)
@@ -122,7 +126,7 @@ func getPoll(c *gin.Context) (poll *models.Poll, abort bool) {
 	currentAccount := controllers.GetAccount(c)
 	canView, err := status.CanViewEx(db.GetDB(), currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	return
 }

@@ -22,7 +22,7 @@ func (MigrateMediaTablesScript) Down(db *gorm.DB) (err error) {
 	return nil
 }
 
-// MigrateMediaTables 媒体表迁移
+// MigrateMediaTables 媒体表迁移.
 func MigrateMediaTables() error {
 	log.Info("Running media tables migration...")
 
@@ -89,16 +89,19 @@ func MigrateMediaTables() error {
 	CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account_id ON push_subscriptions(account_id);
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to run media tables migration: %v", err)
+
 		return err
 	}
 
 	log.Info("Media tables migration completed successfully")
+
 	return nil
 }
 
-// CreateSearchIndexes 创建搜索相关索引
+// CreateSearchIndexes 创建搜索相关索引.
 func CreateSearchIndexes() error {
 	log.Info("Creating search indexes...")
 
@@ -115,16 +118,19 @@ func CreateSearchIndexes() error {
 	CREATE INDEX IF NOT EXISTS idx_statuses_scheduled_at ON statuses(scheduled_at);
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to create search indexes: %v", err)
+
 		return err
 	}
 
 	log.Info("Search indexes created successfully")
+
 	return nil
 }
 
-// OptimizeTables 优化数据库表
+// OptimizeTables 优化数据库表.
 func OptimizeTables() error {
 	log.Info("Optimizing database tables...")
 
@@ -144,22 +150,29 @@ func OptimizeTables() error {
 
 	for _, table := range tables {
 		sql := "OPTIMIZE TABLE " + table
-		if err := db.GetDB().Exec(sql).Error; err != nil {
+		err := db.GetDB().Exec(sql).Error
+		if err != nil {
 			log.Warn("Failed to optimize table %s: %v", table, err)
 		}
 	}
 
 	log.Info("Database tables optimized successfully")
+
 	return nil
 }
 
-// RunAllMigrations 运行所有迁移
+// RunAllMigrations 运行所有迁移.
 func RunAllMigrations() error {
-	if err := MigrateMediaTables(); err != nil {
+	err := MigrateMediaTables()
+	if err != nil {
 		return err
 	}
-	if err := CreateSearchIndexes(); err != nil {
+
+	err = CreateSearchIndexes()
+
+	if err != nil {
 		return err
 	}
+
 	return nil
 }

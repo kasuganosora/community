@@ -2,7 +2,7 @@ package homeserver
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 // ===== 端到端密钥共享 (Key Sharing) 实现 =====
 // 允许设备之间安全地共享加密密钥
 
-// KeyShareRequest 密钥共享请求
+// KeyShareRequest 密钥共享请求.
 type KeyShareRequest struct {
 	RequestID        string `json:"request_id"`
 	Requestor        string `json:"requestor"` // 请求者设备 ID
@@ -25,7 +25,7 @@ type KeyShareRequest struct {
 	SenderKey        string `json:"sender_key"` // 发送者的 Curve25519 密钥
 }
 
-// KeyShareResponse 密钥共享响应
+// KeyShareResponse 密钥共享响应.
 type KeyShareResponse struct {
 	RequestID  string `json:"request_id"`
 	SessionID  string `json:"session_id"`
@@ -36,7 +36,7 @@ type KeyShareResponse struct {
 	ChainIndex int    `json:"chain_index"`
 }
 
-// RoomKeyRequest 房间密钥请求（存储在数据库）
+// RoomKeyRequest 房间密钥请求（存储在数据库）.
 type RoomKeyRequest struct {
 	ID               uint64    `gorm:"primaryKey;autoIncrement"`
 	RequestID        string    `gorm:"index;type:varchar(64);not null"`
@@ -56,26 +56,27 @@ func (RoomKeyRequest) TableName() string {
 	return "matrix_room_key_requests"
 }
 
-// KeySharingService 密钥共享服务
+// KeySharingService 密钥共享服务.
 type KeySharingService struct {
 	hs *HomeServer
 }
 
-// NewKeySharingService 创建密钥共享服务
+// NewKeySharingService 创建密钥共享服务.
 func NewKeySharingService(hs *HomeServer) *KeySharingService {
 	return &KeySharingService{hs: hs}
 }
 
-// RequestRoomKey 请求房间密钥
+// RequestRoomKey 请求房间密钥.
 func (kss *KeySharingService) RequestRoomKey(userID, deviceID string, req *KeyShareRequest) error {
 	// 验证请求
 	if req.SessionID == "" || req.RoomID == "" {
-		return fmt.Errorf("missing required fields")
+		return errors.New("missing required fields")
 	}
 
 	// 检查是否已存在相同的请求
 	var existing RoomKeyRequest
-	if err := db.GetDB().Where("request_id = ?", req.RequestID).First(&existing).Error; err == nil {
+	err := db.GetDB().Where("request_id = ?", req.RequestID).First(&existing).Error
+	if err == nil {
 		// 请求已存在，更新状态
 		return nil
 	}
@@ -93,7 +94,8 @@ func (kss *KeySharingService) RequestRoomKey(userID, deviceID string, req *KeySh
 		Status:           "pending",
 	}
 
-	if err := db.GetDB().Create(request).Error; err != nil {
+	err = db.GetDB().Create(request).Error
+	if err != nil {
 		return err
 	}
 
@@ -103,20 +105,21 @@ func (kss *KeySharingService) RequestRoomKey(userID, deviceID string, req *KeySh
 	return nil
 }
 
-// sendKeyRequestToDevices 发送密钥请求给用户的其他设备
+// sendKeyRequestToDevices 发送密钥请求给用户的其他设备.
 func (kss *KeySharingService) sendKeyRequestToDevices(userID, requestingDevice string, req *KeyShareRequest) {
 	// 获取用户的所有设备
 	var devices []MatrixDeviceKey
+
 	db.GetDB().Where("user_id = ? AND device_id != ?", userID, requestingDevice).Find(&devices)
 
 	for _, device := range devices {
 		// 创建 To-Device 消息
-		content := map[string]interface{}{
+		content := map[string]any{
 			"action":               "request",
 			"requesting_device_id": requestingDevice,
 			"request_id":           req.RequestID,
 			"session_id":           req.SessionID,
-			"room_id":              req.RoomID,
+			"room_id":              req.RoomID, //nolint:goconst
 			"algorithm":            req.Algorithm,
 		}
 		if req.SenderKey != "" {
@@ -136,17 +139,18 @@ func (kss *KeySharingService) sendKeyRequestToDevices(userID, requestingDevice s
 	}
 }
 
-// RespondToKeyRequest 响应密钥请求
+// RespondToKeyRequest 响应密钥请求.
 func (kss *KeySharingService) RespondToKeyRequest(userID, deviceID string, resp *KeyShareResponse, forDevice string) error {
 	// 查找原始请求
 	var request RoomKeyRequest
-	if err := db.GetDB().Where("request_id = ? AND status = ?", resp.RequestID, "pending").First(&request).Error; err != nil {
-		return fmt.Errorf("request not found or already fulfilled")
+	err := db.GetDB().Where("request_id = ? AND status = ?", resp.RequestID, "pending").First(&request).Error
+	if err != nil {
+		return errors.New("request not found or already fulfilled")
 	}
 
 	// 验证响应者是否有该密钥
 	if !kss.hasSessionKey(userID, deviceID, resp.SessionID, resp.RoomID) {
-		return fmt.Errorf("responder does not have the requested key")
+		return errors.New("responder does not have the requested key")
 	}
 
 	// 更新请求状态
@@ -161,20 +165,22 @@ func (kss *KeySharingService) RespondToKeyRequest(userID, deviceID string, resp 
 	return nil
 }
 
-// hasSessionKey 检查设备是否拥有会话密钥
-func (kss *KeySharingService) hasSessionKey(userID, deviceID, sessionID, roomID string) bool {
+// hasSessionKey 检查设备是否拥有会话密钥.
+func (kss *KeySharingService) hasSessionKey(userID, deviceID, sessionID, roomID string) bool { //nolint:unparam // param reserved for future use
 	// 检查设备是否有该会话密钥
 	// 实际实现应该检查密钥存储
 	var count int64
+
 	db.GetDB().Model(&MatrixKeyBackupSession{}).
 		Where("room_id = ? AND session_id = ?", roomID, sessionID).
 		Count(&count)
+
 	return count > 0
 }
 
-// sendKeyResponseToDevice 发送密钥响应给设备
+// sendKeyResponseToDevice 发送密钥响应给设备.
 func (kss *KeySharingService) sendKeyResponseToDevice(targetUser, targetDevice string, resp *KeyShareResponse) {
-	content := map[string]interface{}{
+	content := map[string]any{
 		"action":      "share",
 		"request_id":  resp.RequestID,
 		"session_id":  resp.SessionID,
@@ -200,26 +206,28 @@ func (kss *KeySharingService) sendKeyResponseToDevice(targetUser, targetDevice s
 	kss.hs.NotifyToDeviceUpdate(targetUser, targetDevice)
 }
 
-// CancelKeyRequest 取消密钥请求
+// CancelKeyRequest 取消密钥请求.
 func (kss *KeySharingService) CancelKeyRequest(userID, requestID string) error {
 	return db.GetDB().Model(&RoomKeyRequest{}).
 		Where("request_id = ? AND requesting_user = ?", requestID, userID).
 		Update("status", "cancelled").Error
 }
 
-// GetPendingKeyRequests 获取待处理的密钥请求
+// GetPendingKeyRequests 获取待处理的密钥请求.
 func (kss *KeySharingService) GetPendingKeyRequests(userID string) ([]RoomKeyRequest, error) {
 	var requests []RoomKeyRequest
-	if err := db.GetDB().Where("user_id = ? AND status = ?", userID, "pending").
+	err := db.GetDB().Where("user_id = ? AND status = ?", userID, "pending").
 		Order("requested_at DESC").
-		Find(&requests).Error; err != nil {
+		Find(&requests).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return requests, nil
 }
 
-// HandleIncomingKeyRequest 处理收到的密钥请求（来自其他设备）
-func (kss *KeySharingService) HandleIncomingKeyRequest(userID, deviceID string, content map[string]interface{}) {
+// HandleIncomingKeyRequest 处理收到的密钥请求（来自其他设备）.
+func (kss *KeySharingService) HandleIncomingKeyRequest(userID, deviceID string, content map[string]any) {
 	action, _ := content["action"].(string)
 	if action != "request" {
 		return
@@ -252,14 +260,15 @@ func (kss *KeySharingService) HandleIncomingKeyRequest(userID, deviceID string, 
 	}
 
 	// 使用 Upsert
-	if err := db.GetDB().Where("request_id = ?", requestID).First(&RoomKeyRequest{}).Error; err != nil {
+	err := db.GetDB().Where("request_id = ?", requestID).First(&RoomKeyRequest{}).Error
+	if err != nil {
 		db.GetDB().Create(request)
 		log.Info("Received key request from %s for session %s", requestingDevice, sessionID)
 	}
 }
 
-// HandleIncomingKeyShare 处理收到的密钥共享
-func (kss *KeySharingService) HandleIncomingKeyShare(userID, deviceID string, content map[string]interface{}) {
+// HandleIncomingKeyShare 处理收到的密钥共享.
+func (kss *KeySharingService) HandleIncomingKeyShare(userID, deviceID string, content map[string]any) {
 	action, _ := content["action"].(string)
 	if action != "share" {
 		return
@@ -273,7 +282,7 @@ func (kss *KeySharingService) HandleIncomingKeyShare(userID, deviceID string, co
 	// 更新请求状态
 	db.GetDB().Model(&RoomKeyRequest{}).
 		Where("request_id = ? AND requesting_user = ?", requestID, userID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"status": "fulfilled",
 		})
 
@@ -285,10 +294,10 @@ func (kss *KeySharingService) HandleIncomingKeyShare(userID, deviceID string, co
 	log.Info("Received key share for session %s", sessionID)
 }
 
-// storeReceivedKey 存储收到的密钥
-func (kss *KeySharingService) storeReceivedKey(userID, deviceID, roomID, sessionID, sessionKey string, content map[string]interface{}) {
+// storeReceivedKey 存储收到的密钥.
+func (kss *KeySharingService) storeReceivedKey(userID, deviceID, roomID, sessionID, sessionKey string, content map[string]any) { //nolint:unparam // param reserved for future use
 	// 创建密钥备份条目
-	sessionData := map[string]interface{}{
+	sessionData := map[string]any{
 		"algorithm":   content["algorithm"],
 		"sender_key":  content["sender_key"],
 		"session_key": sessionKey,
@@ -298,6 +307,7 @@ func (kss *KeySharingService) storeReceivedKey(userID, deviceID, roomID, session
 	dataJSON, err := json.Marshal(sessionData)
 	if err != nil {
 		log.Error("Failed to marshal session data: %v", err)
+
 		return
 	}
 
@@ -318,7 +328,7 @@ func (kss *KeySharingService) storeReceivedKey(userID, deviceID, roomID, session
 
 // ===== HTTP Handlers =====
 
-// RegisterKeySharingRoutes 注册密钥共享路由
+// RegisterKeySharingRoutes 注册密钥共享路由.
 func RegisterKeySharingRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -345,7 +355,7 @@ func RegisterKeySharingRoutes(r gin.IRouter) {
 	}
 }
 
-// handleGetKeyBackupVersion 获取密钥备份版本
+// handleGetKeyBackupVersion 获取密钥备份版本.
 func handleGetKeyBackupVersion(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -353,68 +363,74 @@ func handleGetKeyBackupVersion(c *gin.Context) {
 	version, err := hs.KeyBackup.GetBackupVersion(userID, "")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "No backup found",
+			"errcode": "M_NOT_FOUND",     //nolint:goconst
+			"error":   "No backup found", //nolint:goconst
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, version)
 }
 
-// handleCreateKeyBackupVersion 创建密钥备份版本
+// handleCreateKeyBackupVersion 创建密钥备份版本.
 func handleCreateKeyBackupVersion(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 
 	var req struct {
-		Algorithm string                 `json:"algorithm"`
-		AuthData  map[string]interface{} `json:"auth_data"`
+		Algorithm string         `json:"algorithm"`
+		AuthData  map[string]any `json:"auth_data"`
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	version, err := hs.KeyBackup.CreateBackupVersion(userID, req.AuthData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, version)
 }
 
-// handleUpdateKeyBackupVersion 更新密钥备份版本
+// handleUpdateKeyBackupVersion 更新密钥备份版本.
 func handleUpdateKeyBackupVersion(c *gin.Context) {
 	// 简化实现
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleDeleteKeyBackupVersion 删除密钥备份版本
+// handleDeleteKeyBackupVersion 删除密钥备份版本.
 func handleDeleteKeyBackupVersion(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 	version := c.Param("version")
 
-	if err := hs.KeyBackup.DeleteBackupVersion(userID, version); err != nil {
+	err := hs.KeyBackup.DeleteBackupVersion(userID, version)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleGetRoomKeys 获取房间的所有密钥
+// handleGetRoomKeys 获取房间的所有密钥.
 func handleGetRoomKeys(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -427,6 +443,7 @@ func handleGetRoomKeys(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -435,7 +452,7 @@ func handleGetRoomKeys(c *gin.Context) {
 	})
 }
 
-// handleGetSessionKey 获取特定会话密钥
+// handleGetSessionKey 获取特定会话密钥.
 func handleGetSessionKey(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -449,13 +466,14 @@ func handleGetSessionKey(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "Session not found",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, session)
 }
 
-// handleStoreSessionKey 存储会话密钥
+// handleStoreSessionKey 存储会话密钥.
 func handleStoreSessionKey(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -464,11 +482,13 @@ func handleStoreSessionKey(c *gin.Context) {
 	version := c.Query("version")
 
 	var session KeyBackupSession
-	if err := c.ShouldBindJSON(&session); err != nil {
+	err := c.ShouldBindJSON(&session)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -481,17 +501,20 @@ func handleStoreSessionKey(c *gin.Context) {
 		},
 	}
 
-	if err := hs.KeyBackup.StoreBackupKeys(userID, version, sessions); err != nil {
+	err = hs.KeyBackup.StoreBackupKeys(userID, version, sessions)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// Return updated backup info
 	var backup MatrixKeyBackup
-	if err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error; err == nil {
+	err = db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error
+	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"etag":  backup.ETag,
 			"count": backup.Count,
@@ -501,7 +524,7 @@ func handleStoreSessionKey(c *gin.Context) {
 	}
 }
 
-// handleDeleteSessionKey 删除会话密钥
+// handleDeleteSessionKey 删除会话密钥.
 func handleDeleteSessionKey(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -509,18 +532,20 @@ func handleDeleteSessionKey(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 	version := c.Query("version")
 
-	if err := hs.KeyBackup.DeleteBackupKey(userID, version, roomID, sessionID); err != nil {
+	err := hs.KeyBackup.DeleteBackupKey(userID, version, roomID, sessionID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleStoreRoomKeys 批量存储房间密钥
+// handleStoreRoomKeys 批量存储房间密钥.
 func handleStoreRoomKeys(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -532,11 +557,14 @@ func handleStoreRoomKeys(c *gin.Context) {
 			Sessions map[string]KeyBackupSession `json:"sessions"`
 		} `json:"rooms"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	err := c.ShouldBindJSON(&body)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -546,17 +574,20 @@ func handleStoreRoomKeys(c *gin.Context) {
 		rooms[roomID] = roomData.Sessions
 	}
 
-	if err := hs.KeyBackup.StoreBackupKeys(userID, version, rooms); err != nil {
+	err = hs.KeyBackup.StoreBackupKeys(userID, version, rooms)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// Return updated backup info
 	var backup MatrixKeyBackup
-	if err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error; err == nil {
+	err = db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error
+	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"etag":  backup.ETag,
 			"count": backup.Count,

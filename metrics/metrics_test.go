@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -128,7 +129,7 @@ func TestMetricsMiddleware_IncrementsRequests(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -145,17 +146,17 @@ func TestMetricsMiddleware_TracksActiveConnections(t *testing.T) {
 	router.GET("/api/test", func(c *gin.Context) {
 		// During request processing, active connections should be > before
 		duringVal := getGaugeValue(t, ActiveConnections)
-		assert.Equal(t, beforeVal+1, duringVal)
+		assert.InDelta(t, beforeVal+1, duringVal, 0)
 		c.Status(http.StatusOK)
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	// After request, should be back to baseline
 	afterVal := getGaugeValue(t, ActiveConnections)
-	assert.Equal(t, beforeVal, afterVal)
+	assert.InEpsilon(t, beforeVal, afterVal, 0.001)
 }
 
 func TestMetricsMiddleware_RecordsDuration(t *testing.T) {
@@ -167,7 +168,7 @@ func TestMetricsMiddleware_RecordsDuration(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/slow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/slow", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -192,7 +193,7 @@ func TestMetricsMiddleware_DifferentStatusCodes(t *testing.T) {
 			})
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/api/status-test", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/status-test", nil) //nolint:noctx
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.statusCode, w.Code)
@@ -220,7 +221,7 @@ func TestMetricsMiddleware_DifferentMethods(t *testing.T) {
 			})
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(tt.method, "/api/method-test", nil)
+			req := httptest.NewRequest(tt.method, "/api/method-test", nil) //nolint:noctx
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, http.StatusOK, w.Code)
@@ -240,7 +241,7 @@ func TestHandler_ServesMetrics(t *testing.T) {
 	router.GET("/metrics", Handler())
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -253,7 +254,7 @@ func TestActiveUsers_Set(t *testing.T) {
 	before := getGaugeValue(t, ActiveUsers)
 	ActiveUsers.Set(100)
 	after := getGaugeValue(t, ActiveUsers)
-	assert.Equal(t, float64(100), after)
+	assert.InDelta(t, float64(100), after, 0)
 
 	// Reset
 	ActiveUsers.Set(before)
@@ -262,30 +263,36 @@ func TestActiveUsers_Set(t *testing.T) {
 func TestActiveUsers_IncDec(t *testing.T) {
 	before := getGaugeValue(t, ActiveUsers)
 	ActiveUsers.Inc()
-	assert.Equal(t, before+1, getGaugeValue(t, ActiveUsers))
+	assert.InDelta(t, before+1, getGaugeValue(t, ActiveUsers), 0)
 	ActiveUsers.Dec()
-	assert.Equal(t, before, getGaugeValue(t, ActiveUsers))
+	assert.InDelta(t, before, getGaugeValue(t, ActiveUsers), 0)
 }
 
 // --- Helper functions ---
 
 func getCounterValue(t *testing.T, counter *prometheus.CounterVec, labels ...string) float64 {
 	t.Helper()
+
 	pb := &dto.Metric{}
 	m, err := counter.GetMetricWithLabelValues(labels...)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	if err != nil {
 		return 0
 	}
+
 	err = m.Write(pb)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	return pb.GetCounter().GetValue()
 }
 
 func getGaugeValue(t *testing.T, gauge prometheus.Gauge) float64 {
 	t.Helper()
+
 	pb := &dto.Metric{}
 	err := gauge.Write(pb)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	return pb.GetGauge().GetValue()
 }

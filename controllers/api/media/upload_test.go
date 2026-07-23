@@ -10,33 +10,34 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// createTestMultipartRequest 创建测试用的 multipart 请求
+// createTestMultipartRequest 创建测试用的 multipart 请求.
 func createTestMultipartRequest(t *testing.T, fieldName, fileName string, fileContent []byte) *http.Request {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	part, err := writer.CreateFormFile(fieldName, fileName)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = part.Write(fileContent)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = writer.Close()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body) //nolint:noctx
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	return req
 }
 
-// createTestAccount creates a test account for testing
+// createTestAccount creates a test account for testing.
 func createTestAccount() *models.Account {
 	return &models.Account{
 		Id:       1,
@@ -110,7 +111,7 @@ func TestUpload_NoFile(t *testing.T) {
 	writer := multipart.NewWriter(body)
 	_ = writer.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body) //nolint:noctx
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	c.Request = req
 
@@ -148,9 +149,9 @@ func TestUploadAsync_NoFile(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	writer.Close()
+	_ = writer.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/media/v2", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/media/v2", body) //nolint:noctx
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	c.Request = req
 

@@ -11,8 +11,9 @@ import (
 
 func Mention(c *gin.Context) {
 	var req TimelineRequest
+
 	err := c.BindQuery(&req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	account := controllers.MustGetAccount(c)
 

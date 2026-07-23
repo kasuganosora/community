@@ -13,18 +13,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// Get 获取媒体信息
+// Get 获取媒体信息.
 func Get(c *gin.Context) {
 	mediaId := c.Param("id")
 
 	var media models.MediaAttachment
 	if err := db.GetDB().Where("id = ?", mediaId).First(&media).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "Not found"})
+			c.JSON(404, gin.H{"error": "Not found"}) //nolint:goconst
+
 			return
 		}
+
 		err = errors.Wrap(err, "Get media")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -32,26 +35,30 @@ func Get(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "Serialize media")
 		_ = c.Error(err)
+
 		return
 	}
 
 	c.JSON(200, response)
 }
 
-// Update 更新媒体信息
+// Update 更新媒体信息.
 func Update(c *gin.Context) {
 	// 获取当前用户
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	mediaId := c.Param("id")
 
 	var media models.MediaAttachment
 	if err := db.GetDB().Where("id = ? AND account_id = ?", mediaId, account.Id).First(&media).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"})
+
 			return
 		}
+
 		err = errors.Wrap(err, "Get media")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -63,6 +70,7 @@ func Update(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request"})
+
 		return
 	}
 
@@ -77,12 +85,15 @@ func Update(c *gin.Context) {
 		parts := strings.Split(request.Focus, ",")
 		if len(parts) == 2 {
 			x, errX := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+
 			y, errY := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+
 			if errX == nil && errY == nil {
 				// Focus coordinates should be in range [-1, 1]
 				if x >= -1 && x <= 1 {
 					media.FocusX = x
 				}
+
 				if y >= -1 && y <= 1 {
 					media.FocusY = y
 				}
@@ -94,6 +105,7 @@ func Update(c *gin.Context) {
 	if err := db.GetDB().Save(&media).Error; err != nil {
 		err = errors.Wrap(err, "Update media")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -101,32 +113,38 @@ func Update(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "Serialize media")
 		_ = c.Error(err)
+
 		return
 	}
 
 	c.JSON(200, response)
 }
 
-// Delete 删除媒体
+// Delete 删除媒体.
 func Delete(c *gin.Context) {
 	// 获取当前用户
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	mediaId := c.Param("id")
 
 	var media models.MediaAttachment
-	if err := db.GetDB().Where("id = ? AND account_id = ?", mediaId, account.Id).First(&media).Error; err != nil {
+	err := db.GetDB().Where("id = ? AND account_id = ?", mediaId, account.Id).First(&media).Error
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"})
+
 			return
 		}
+
 		err = errors.Wrap(err, "Get media")
 		_ = c.Error(err)
+
 		return
 	}
 
 	// 检查是否已被嘟文使用
 	if media.StatusId != nil {
 		c.JSON(422, gin.H{"error": "Cannot delete media that is attached to a status"})
+
 		return
 	}
 
@@ -141,9 +159,11 @@ func Delete(c *gin.Context) {
 	}
 
 	// 删除数据库记录
-	if err := db.GetDB().Delete(&media).Error; err != nil {
+	err = db.GetDB().Delete(&media).Error
+	if err != nil {
 		err = errors.Wrap(err, "Delete media")
 		_ = c.Error(err)
+
 		return
 	}
 

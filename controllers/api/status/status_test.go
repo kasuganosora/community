@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,8 +21,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// allTestModels lists all models needed for auto-migration in tests
-var allTestModels = []interface{}{
+// allTestModels lists all models needed for auto-migration in tests.
+var allTestModels = []any{
 	&models.User{},
 	&models.Account{},
 	&models.AccountExtra{},
@@ -50,7 +51,7 @@ var allTestModels = []interface{}{
 	&models.AuthToken{},
 }
 
-// testSetup holds common test setup data
+// testSetup holds common test setup data.
 type testSetup struct {
 	t      *testing.T
 	setup  *testutil.TestSetup
@@ -61,7 +62,7 @@ type testSetup struct {
 	status *models.Status
 }
 
-// newTestSetup creates a fresh test environment with DB and fixtures
+// newTestSetup creates a fresh test environment with DB and fixtures.
 func newTestSetup(t *testing.T) *testSetup {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -88,10 +89,11 @@ func newTestSetup(t *testing.T) *testSetup {
 	return ts
 }
 
-// setupTestDB creates a test DB with models and sets it as global
+// setupTestDB creates a test DB with models and sets it as global.
 func setupTestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+
 	s := testutil.NewTestSetup(t, testutil.WithModels(allTestModels...))
 	database.SetTestDB(s.GormDB())
 	t.Cleanup(func() {
@@ -99,72 +101,91 @@ func setupTestDB(t *testing.T) {
 	})
 }
 
-// newGinContext creates a gin.Context with a response recorder and optional params
+// newGinContext creates a gin.Context with a response recorder and optional params.
 func newGinContext(t *testing.T, params gin.Params) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil) //nolint:noctx
+
 	if params != nil {
 		c.Params = params
 	}
+
 	return c, w
 }
 
-// newGinContextPost creates a gin.Context with POST method and body
+// newGinContextPost creates a gin.Context with POST method and body.
 func newGinContextPost(t *testing.T, params gin.Params, body any) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
+
 	var bodyReader *bytes.Reader
+
 	if body != nil {
 		b, err := json.Marshal(body)
 		require.NoError(t, err)
+
 		bodyReader = bytes.NewReader(b)
 	} else {
 		bodyReader = bytes.NewReader([]byte{})
 	}
+
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", bodyReader)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bodyReader) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
+
 	if params != nil {
 		c.Params = params
 	}
+
 	return c, w
 }
 
-// newGinContextPut creates a gin.Context with PUT method and body
+// newGinContextPut creates a gin.Context with PUT method and body.
 func newGinContextPut(t *testing.T, params gin.Params, body any) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
+
 	var bodyReader *bytes.Reader
+
 	if body != nil {
 		b, err := json.Marshal(body)
 		require.NoError(t, err)
+
 		bodyReader = bytes.NewReader(b)
 	} else {
 		bodyReader = bytes.NewReader([]byte{})
 	}
+
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/", bodyReader)
+	c.Request = httptest.NewRequest(http.MethodPut, "/", bodyReader) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
+
 	if params != nil {
 		c.Params = params
 	}
+
 	return c, w
 }
 
-// setAccount sets the account in the gin context
+// setAccount sets the account in the gin context.
 func setAccount(c *gin.Context, acct *models.Account) {
 	if acct != nil {
 		c.Set("account", acct)
 	}
 }
 
-// safeHandler calls a handler and recovers from panic("abort")
+// safeHandler calls a handler and recovers from panic("abort").
 func safeHandler(c *gin.Context, f func(*gin.Context)) {
 	defer func() {
 		_ = recover()
 	}()
+
 	f(c)
 }
 
@@ -172,7 +193,7 @@ func safeHandler(c *gin.Context, f func(*gin.Context)) {
 
 func TestDelete_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Delete)
@@ -186,7 +207,7 @@ func TestDelete_Forbidden_OtherUser(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "other" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "other" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, Delete)
@@ -196,7 +217,7 @@ func TestDelete_Forbidden_OtherUser(t *testing.T) {
 
 func TestDelete_InvalidID(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: "invalid"}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: "invalid"}}) //nolint:goconst
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Delete)
@@ -216,7 +237,7 @@ func TestDelete_NotFound(t *testing.T) {
 
 func TestDelete_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, Delete)
 
@@ -227,7 +248,7 @@ func TestDelete_NoAccount(t *testing.T) {
 
 func TestShow_PublicStatus(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
@@ -237,7 +258,7 @@ func TestShow_PublicStatus(t *testing.T) {
 
 func TestShow_PublicStatus_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, Show)
 
@@ -251,7 +272,7 @@ func TestShow_PrivateStatus_Owner(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
@@ -265,7 +286,7 @@ func TestShow_PrivateStatus_NoAccount(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 
 	safeHandler(c, Show)
 
@@ -274,7 +295,7 @@ func TestShow_PrivateStatus_NoAccount(t *testing.T) {
 
 func TestShow_InvalidID(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: "abc"}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: "abc"}}) //nolint:goconst
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
@@ -298,7 +319,7 @@ func TestCreate_Success(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContextPost(t, nil, CreateStatusRequest{
 		Status:     "Hello world",
-		Visibility: "public",
+		Visibility: "public", //nolint:goconst
 		Language:   "en",
 	})
 	setAccount(c, ts.acct)
@@ -311,8 +332,8 @@ func TestCreate_Success(t *testing.T) {
 func TestCreate_InvalidVisibility(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContextPost(t, nil, map[string]string{
-		"status":     "Hello",
-		"visibility": "invalid",
+		"status":     "Hello",   //nolint:goconst
+		"visibility": "invalid", //nolint:goconst
 	})
 	setAccount(c, ts.acct)
 
@@ -351,7 +372,7 @@ func TestCreate_WithPoll(t *testing.T) {
 		Status:     "Test poll",
 		Visibility: "public",
 		Poll: &CreatePollContent{
-			Options:   []string{"Option A", "Option B"},
+			Options:   []string{"Option A", "Option B"}, //nolint:goconst
 			ExpiresIn: 3600,
 			Multiple:  false,
 		},
@@ -406,8 +427,8 @@ func TestCreate_UnlistedVisibility(t *testing.T) {
 
 func TestUpdate_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Updated content"),
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+		Status: new("Updated content"),
 	})
 	setAccount(c, ts.acct)
 
@@ -421,8 +442,8 @@ func TestUpdate_Forbidden(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "other2" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "other2" })
 
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Hacked!"),
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+		Status: new("Hacked!"),
 	})
 	setAccount(c, otherAcct)
 
@@ -434,7 +455,7 @@ func TestUpdate_Forbidden(t *testing.T) {
 func TestUpdate_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: "99999"}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Updated"),
+		Status: new("Updated"),
 	})
 	setAccount(c, ts.acct)
 
@@ -446,7 +467,7 @@ func TestUpdate_NotFound(t *testing.T) {
 func TestUpdate_InvalidID(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: "abc"}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Updated"),
+		Status: new("Updated"),
 	})
 	setAccount(c, ts.acct)
 
@@ -457,7 +478,7 @@ func TestUpdate_InvalidID(t *testing.T) {
 
 func TestUpdate_InvalidBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, _ := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, "not json")
+	c, _ := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, "not json")
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Update)
@@ -469,7 +490,7 @@ func TestUpdate_InvalidBody(t *testing.T) {
 
 func TestFavourite_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Favourite)
@@ -487,7 +508,7 @@ func TestFavourite_AlreadyFavourited(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Favourite)
@@ -497,7 +518,7 @@ func TestFavourite_AlreadyFavourited(t *testing.T) {
 
 func TestFavourite_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, Favourite)
 
@@ -514,7 +535,7 @@ func TestUnfavourite_Success(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unfavourite)
@@ -524,7 +545,7 @@ func TestUnfavourite_Success(t *testing.T) {
 
 func TestUnfavourite_NotFavourited(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unfavourite)
@@ -545,7 +566,7 @@ func TestFavouritedBy_Success(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, FavouritedBy)
@@ -555,7 +576,7 @@ func TestFavouritedBy_Success(t *testing.T) {
 
 func TestFavouritedBy_EmptyList(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, FavouritedBy)
@@ -565,8 +586,8 @@ func TestFavouritedBy_EmptyList(t *testing.T) {
 
 func TestFavouritedBy_WithPagination(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
-	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=10&offset=0", nil)
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=10&offset=0", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, FavouritedBy)
@@ -578,7 +599,7 @@ func TestFavouritedBy_WithPagination(t *testing.T) {
 
 func TestReblog_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, ReblogRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, ReblogRequest{
 		Visibility: "public",
 	})
 	setAccount(c, ts.acct)
@@ -590,7 +611,7 @@ func TestReblog_Success(t *testing.T) {
 
 func TestReblog_DefaultVisibility(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, ReblogRequest{})
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, ReblogRequest{})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Reblog)
@@ -610,7 +631,7 @@ func TestReblog_AlreadyReblogged(t *testing.T) {
 	err := ts.db.Create(reblog).Error
 	require.NoError(t, err)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, ReblogRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, ReblogRequest{
 		Visibility: "public",
 	})
 	setAccount(c, ts.acct)
@@ -622,7 +643,7 @@ func TestReblog_AlreadyReblogged(t *testing.T) {
 
 func TestReblog_InvalidBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, _ := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, map[string]string{
+	c, _ := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, map[string]string{
 		"visibility": "invalid_value",
 	})
 	setAccount(c, ts.acct)
@@ -644,7 +665,7 @@ func TestUnreblog_Success(t *testing.T) {
 	err := ts.db.Create(reblog).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unreblog)
@@ -654,7 +675,7 @@ func TestUnreblog_Success(t *testing.T) {
 
 func TestUnreblog_NotReblogged(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unreblog)
@@ -677,7 +698,7 @@ func TestRebloggedBy_Success(t *testing.T) {
 	err := ts.db.Create(reblog).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, RebloggedBy)
@@ -687,7 +708,7 @@ func TestRebloggedBy_Success(t *testing.T) {
 
 func TestRebloggedBy_Empty(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, RebloggedBy)
@@ -697,8 +718,8 @@ func TestRebloggedBy_Empty(t *testing.T) {
 
 func TestRebloggedBy_WithPagination(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
-	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=5&max_id=100", nil)
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=5&max_id=100", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, RebloggedBy)
@@ -710,7 +731,7 @@ func TestRebloggedBy_WithPagination(t *testing.T) {
 
 func TestBookmark_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Bookmark)
@@ -727,7 +748,7 @@ func TestBookmark_AlreadyBookmarked(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Bookmark)
@@ -737,7 +758,7 @@ func TestBookmark_AlreadyBookmarked(t *testing.T) {
 
 func TestBookmark_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, Bookmark)
 
@@ -753,7 +774,7 @@ func TestUnbookmark_Success(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unbookmark)
@@ -763,7 +784,7 @@ func TestUnbookmark_Success(t *testing.T) {
 
 func TestUnbookmark_NotBookmarked(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Unbookmark)
@@ -775,7 +796,7 @@ func TestUnbookmark_NotBookmarked(t *testing.T) {
 
 func TestPin_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Pin)
@@ -792,7 +813,7 @@ func TestPin_AlreadyPinned(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Pin)
@@ -806,7 +827,7 @@ func TestPin_Forbidden(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "pinuser" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "pinuser" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, Pin)
@@ -823,7 +844,7 @@ func TestUnPin_Success(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, UnPin)
@@ -833,7 +854,7 @@ func TestUnPin_Success(t *testing.T) {
 
 func TestUnPin_NotPinned(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, UnPin)
@@ -847,7 +868,7 @@ func TestUnPin_Forbidden(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "unpinuser" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "unpinuser" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, UnPin)
@@ -859,7 +880,7 @@ func TestUnPin_Forbidden(t *testing.T) {
 
 func TestMuteStatus_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, MuteStatus)
@@ -876,7 +897,7 @@ func TestMuteStatus_AlreadyMuted(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, MuteStatus)
@@ -890,7 +911,7 @@ func TestMuteStatus_Forbidden(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "muteuser" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "muteuser" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, MuteStatus)
@@ -907,7 +928,7 @@ func TestUnmuteStatus_Success(t *testing.T) {
 	}).Error
 	require.NoError(t, err)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, UnmuteStatus)
@@ -917,7 +938,7 @@ func TestUnmuteStatus_Success(t *testing.T) {
 
 func TestUnmuteStatus_NotMuted(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, UnmuteStatus)
@@ -931,7 +952,7 @@ func TestUnmuteStatus_Forbidden(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "unmuteuser" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "unmuteuser" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, UnmuteStatus)
@@ -943,7 +964,7 @@ func TestUnmuteStatus_Forbidden(t *testing.T) {
 
 func TestGetHistory_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, GetHistory)
@@ -953,7 +974,7 @@ func TestGetHistory_Success(t *testing.T) {
 
 func TestGetHistory_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, GetHistory)
 
@@ -967,7 +988,7 @@ func TestGetHistory_PrivateStatus_Owner(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, GetHistory)
@@ -981,7 +1002,7 @@ func TestGetHistory_PrivateStatus_NoAccount(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 
 	safeHandler(c, GetHistory)
 
@@ -992,7 +1013,7 @@ func TestGetHistory_PrivateStatus_NoAccount(t *testing.T) {
 
 func TestGetSource_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, GetSource)
@@ -1002,7 +1023,7 @@ func TestGetSource_Success(t *testing.T) {
 
 func TestGetSource_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, GetSource)
 
@@ -1033,7 +1054,7 @@ func TestGetSource_InvalidID(t *testing.T) {
 
 func TestContext_PublicStatus(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Context)
@@ -1041,15 +1062,16 @@ func TestContext_PublicStatus(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	var resp ContextResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp.Ancestors)
 	assert.NotNil(t, resp.Descendants)
 }
 
 func TestContext_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 
 	safeHandler(c, Context)
 
@@ -1062,7 +1084,7 @@ func TestContext_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 
 	safeHandler(c, Context)
 
@@ -1075,7 +1097,7 @@ func TestContext_DirectStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityDirect
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", directStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
 
 	safeHandler(c, Context)
 
@@ -1096,8 +1118,9 @@ func TestContext_WithReplyThread(t *testing.T) {
 		s.InReplyToId = &inReplyTo
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
+
 	_ = parent
 	_ = replyStatus
 
@@ -1111,8 +1134,8 @@ func TestContext_WithReplyThread(t *testing.T) {
 func TestTranslate_PublicStatus(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContext(t, gin.Params{
-		{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)},
-		{Key: "lang", Value: "en"},
+		{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)},
+		{Key: "lang", Value: "en"}, //nolint:goconst
 	})
 	setAccount(c, ts.acct)
 
@@ -1124,7 +1147,7 @@ func TestTranslate_PublicStatus(t *testing.T) {
 
 func TestTranslate_NoLangParam(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Translate)
@@ -1139,7 +1162,7 @@ func TestTranslate_PrivateStatus_Forbidden(t *testing.T) {
 	})
 
 	c, w := newGinContext(t, gin.Params{
-		{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)},
+		{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)},
 		{Key: "lang", Value: "en"},
 	})
 
@@ -1155,7 +1178,7 @@ func TestTranslate_DirectStatus_NoAccount(t *testing.T) {
 	})
 
 	c, w := newGinContext(t, gin.Params{
-		{Key: "id", Value: fmt.Sprintf("%d", directStatus.Id)},
+		{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)},
 		{Key: "lang", Value: "en"},
 	})
 
@@ -1190,6 +1213,7 @@ func TestListScheduledStatuses_WithScheduledStatus(t *testing.T) {
 	safeHandler(c, ListScheduledStatuses)
 
 	assert.Equal(t, 200, w.Code)
+
 	_ = scheduledStatus
 }
 
@@ -1205,7 +1229,7 @@ func TestListScheduledStatuses_NoAccount(t *testing.T) {
 func TestListScheduledStatuses_WithPagination(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContext(t, nil)
-	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=10&offset=0", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=10&offset=0", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, ListScheduledStatuses)
@@ -1221,7 +1245,7 @@ func TestViewSingleScheduledStatus_Success(t *testing.T) {
 		s.ScheduledAt = &scheduledAt
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, ViewSingleScheduledStatus)
@@ -1262,7 +1286,7 @@ func TestViewSingleScheduledStatus_NotFound(t *testing.T) {
 func TestViewSingleScheduledStatus_NotScheduled(t *testing.T) {
 	ts := newTestSetup(t)
 	// ts.status has no ScheduledAt, so it's not a scheduled status
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, ViewSingleScheduledStatus)
@@ -1281,7 +1305,7 @@ func TestViewSingleScheduledStatus_OtherUser(t *testing.T) {
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "schedother" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "schedother" })
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}})
 	setAccount(c, otherAcct)
 
 	safeHandler(c, ViewSingleScheduledStatus)
@@ -1298,7 +1322,7 @@ func TestUpdateStatusScheduledAt_Success(t *testing.T) {
 	})
 
 	newScheduledAt := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}}, UpdateStatusScheduledAtRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}}, UpdateStatusScheduledAtRequest{
 		ScheduledAt: newScheduledAt,
 	})
 	setAccount(c, ts.acct)
@@ -1334,7 +1358,7 @@ func TestUpdateStatusScheduledAt_InvalidID(t *testing.T) {
 
 func TestUpdateStatusScheduledAt_InvalidScheduledAt(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusScheduledAtRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusScheduledAtRequest{
 		ScheduledAt: "not-a-date",
 	})
 	setAccount(c, ts.acct)
@@ -1358,7 +1382,7 @@ func TestUpdateStatusScheduledAt_NotFound(t *testing.T) {
 
 func TestUpdateStatusScheduledAt_MissingBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, map[string]string{})
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, map[string]string{})
 
 	safeHandler(c, UpdateStatusScheduledAt)
 
@@ -1378,13 +1402,14 @@ func TestViewPoll_Success(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	option2 := &models.PollOption{PollId: poll.Id, Content: "Option B", Index: 1}
+
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 
 	// Link poll to status
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, ViewPoll)
@@ -1414,7 +1439,7 @@ func TestViewPoll_NoAccount(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}})
 
 	safeHandler(c, ViewPoll)
 
@@ -1432,11 +1457,12 @@ func TestVotePoll_Success(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	option2 := &models.PollOption{PollId: poll.Id, Content: "Option B", Index: 1}
+
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0},
 	})
 	setAccount(c, ts.acct)
@@ -1459,7 +1485,7 @@ func TestVotePoll_Expired(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0},
 	})
 	setAccount(c, ts.acct)
@@ -1480,11 +1506,12 @@ func TestVotePoll_SingleChoiceMultipleVotes(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	option2 := &models.PollOption{PollId: poll.Id, Content: "Option B", Index: 1}
+
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0, 1},
 	})
 	setAccount(c, ts.acct)
@@ -1507,7 +1534,7 @@ func TestVotePoll_InvalidChoice(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{5}, // invalid index
 	})
 	setAccount(c, ts.acct)
@@ -1537,7 +1564,7 @@ func TestVotePoll_AlreadyVoted(t *testing.T) {
 		AccountId: ts.acct.Id,
 	}).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0},
 	})
 	setAccount(c, ts.acct)
@@ -1560,7 +1587,7 @@ func TestVotePoll_EmptyChoices(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{},
 	})
 	setAccount(c, ts.acct)
@@ -1584,7 +1611,7 @@ func TestVotePoll_NegativeChoice(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{-1},
 	})
 	setAccount(c, ts.acct)
@@ -1606,12 +1633,13 @@ func TestVotePoll_MultipleChoice(t *testing.T) {
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	option2 := &models.PollOption{PollId: poll.Id, Content: "Option B", Index: 1}
 	option3 := &models.PollOption{PollId: poll.Id, Content: "Option C", Index: 2}
+
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 	require.NoError(t, ts.db.Create(option3).Error)
 	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", poll.Id)}}, VotePollRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0, 2},
 	})
 	setAccount(c, ts.acct)
@@ -1638,7 +1666,7 @@ func TestFavourite_ReblogStatus(t *testing.T) {
 	reblogStatus.Reblog = ts.status
 	require.NoError(t, ts.db.Save(reblogStatus).Error)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Favourite)
@@ -1658,7 +1686,7 @@ func TestDelete_ReblogForbidden(t *testing.T) {
 		s.ReblogId = &reblogIDCopy
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Delete)
@@ -1728,13 +1756,13 @@ func TestBookmarkThenUnbookmark(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Bookmark
-	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c1, ts.acct)
 	safeHandler(c1, Bookmark)
 	assert.Equal(t, 200, w1.Code)
 
 	// Unbookmark
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Unbookmark)
 	assert.Equal(t, 200, w2.Code)
@@ -1746,13 +1774,13 @@ func TestFavouriteThenUnfavourite(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Favourite
-	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c1, ts.acct)
 	safeHandler(c1, Favourite)
 	assert.Equal(t, 200, w1.Code)
 
 	// Unfavourite
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Unfavourite)
 	assert.Equal(t, 200, w2.Code)
@@ -1764,13 +1792,13 @@ func TestPinThenUnPin(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Pin
-	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c1, ts.acct)
 	safeHandler(c1, Pin)
 	assert.Equal(t, 200, w1.Code)
 
 	// UnPin
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, UnPin)
 	assert.Equal(t, 200, w2.Code)
@@ -1782,13 +1810,13 @@ func TestMuteThenUnmute(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Mute
-	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c1, ts.acct)
 	safeHandler(c1, MuteStatus)
 	assert.Equal(t, 200, w1.Code)
 
 	// Unmute
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, UnmuteStatus)
 	assert.Equal(t, 200, w2.Code)
@@ -1800,7 +1828,7 @@ func TestReblogThenUnreblog(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Reblog
-	c1, w1 := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, ReblogRequest{
+	c1, w1 := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, ReblogRequest{
 		Visibility: "public",
 	})
 	setAccount(c1, ts.acct)
@@ -1808,7 +1836,7 @@ func TestReblogThenUnreblog(t *testing.T) {
 	assert.Equal(t, 200, w1.Code)
 
 	// Unreblog
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Unreblog)
 	assert.Equal(t, 200, w2.Code)
@@ -1829,9 +1857,11 @@ func TestCreateThenDelete(t *testing.T) {
 	assert.Equal(t, 200, w1.Code)
 
 	// Parse response to get the new status ID
-	var created map[string]interface{}
+	var created map[string]any
+
 	err := json.Unmarshal(w1.Body.Bytes(), &created)
 	require.NoError(t, err)
+
 	newId, ok := created["id"].(float64)
 	require.True(t, ok, "response should contain id")
 
@@ -1857,15 +1887,17 @@ func TestCreateThenUpdate(t *testing.T) {
 	safeHandler(c1, Create)
 	assert.Equal(t, 200, w1.Code)
 
-	var created map[string]interface{}
+	var created map[string]any
+
 	err := json.Unmarshal(w1.Body.Bytes(), &created)
 	require.NoError(t, err)
+
 	newId, ok := created["id"].(float64)
 	require.True(t, ok, "response should contain id")
 
 	// Update
 	c2, w2 := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%.0f", newId)}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Updated content"),
+		Status: new("Updated content"),
 	})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Update)
@@ -1884,7 +1916,7 @@ func TestCreate_WithMediaIds(t *testing.T) {
 	c, w := newGinContextPost(t, nil, CreateStatusRequest{
 		Status:     "With media",
 		Visibility: "public",
-		MediaIds:   []string{fmt.Sprintf("%d", attachment.Id)},
+		MediaIds:   []string{strconv.FormatUint(attachment.Id, 10)},
 	})
 	setAccount(c, ts.acct)
 
@@ -1915,7 +1947,7 @@ func TestCreate_WithInReplyTo(t *testing.T) {
 	c, w := newGinContextPost(t, nil, CreateStatusRequest{
 		Status:      "A reply",
 		Visibility:  "public",
-		InReplyToId: fmt.Sprintf("%d", ts.status.Id),
+		InReplyToId: strconv.FormatUint(ts.status.Id, 10),
 	})
 	setAccount(c, ts.acct)
 
@@ -1930,7 +1962,7 @@ func TestReblog_WithApplication(t *testing.T) {
 	app := &models.Application{Name: "TestApp"}
 	require.NoError(t, ts.db.Create(app).Error)
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, ReblogRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, ReblogRequest{
 		Visibility: "public",
 	})
 	setAccount(c, ts.acct)
@@ -1951,7 +1983,7 @@ func TestShow_ReblogStatus(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPublic
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
@@ -2016,16 +2048,18 @@ func TestRebloggedBy_InvalidID(t *testing.T) {
 
 func TestShow_ResponseContainsID(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
 
 	assert.Equal(t, 200, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	_, hasID := resp["id"]
 	assert.True(t, hasID, "response should contain 'id' field")
 }
@@ -2042,9 +2076,11 @@ func TestCreate_ResponseContainsContent(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	content, ok := resp["content"]
 	assert.True(t, ok, "response should contain 'content' field")
 	assert.Contains(t, fmt.Sprintf("%v", content), "Test content")
@@ -2052,7 +2088,7 @@ func TestCreate_ResponseContainsContent(t *testing.T) {
 
 func TestDelete_ResponseNoBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Delete)
@@ -2073,7 +2109,7 @@ func TestFavourite_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Favourite)
@@ -2091,7 +2127,7 @@ func TestBookmark_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Bookmark)
@@ -2109,7 +2145,7 @@ func TestReblog_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}}, ReblogRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}}, ReblogRequest{
 		Visibility: "public",
 	})
 	setAccount(c, ts.acct)
@@ -2129,7 +2165,7 @@ func TestFavouritedBy_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, FavouritedBy)
@@ -2147,7 +2183,7 @@ func TestRebloggedBy_PrivateStatus_Forbidden(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPrivate
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", privateStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, RebloggedBy)
@@ -2259,13 +2295,13 @@ func TestGetRealStatus_ReblogWithNilReblog(t *testing.T) {
 	reblogStatus.Reblog = nil
 
 	// Use Bookmark which calls getRealStatus
-	c, _ := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c, _ := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	// This should panic because getRealStatus will panic("abort") when Reblog is nil
 	// safeHandler already recovers from panics
 	// Create a new context with a fresh recorder
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Bookmark)
 	// The panic should be caught by safeHandler
@@ -2286,7 +2322,7 @@ func TestUpdateStatusScheduledAt_OtherUser(t *testing.T) {
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "schedupdother" })
 
 	newScheduledAt := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}}, UpdateStatusScheduledAtRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}}, UpdateStatusScheduledAtRequest{
 		ScheduledAt: newScheduledAt,
 	})
 	setAccount(c, otherAcct)
@@ -2303,17 +2339,19 @@ func TestConcurrentBookmarks(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
-			c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+			c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 			setAccount(c, ts.acct)
 			safeHandler(c, Bookmark)
+
 			_ = w
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		<-done
 	}
 }
@@ -2322,8 +2360,8 @@ func TestConcurrentBookmarks(t *testing.T) {
 
 func TestFavouritedBy_WithMaxIdAndSinceId(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
-	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=999&since_id=1&limit=10&offset=0", nil)
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=999&since_id=1&limit=10&offset=0", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, FavouritedBy)
@@ -2333,8 +2371,8 @@ func TestFavouritedBy_WithMaxIdAndSinceId(t *testing.T) {
 
 func TestRebloggedBy_WithMaxIdAndSinceId(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
-	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=999&since_id=1&limit=10&offset=0", nil)
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=999&since_id=1&limit=10&offset=0", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, RebloggedBy)
@@ -2350,6 +2388,7 @@ func TestSafeHandler_RecoversFromPanic(t *testing.T) {
 
 	safeHandler(c, func(c *gin.Context) {
 		called = true
+
 		panic("abort")
 	})
 
@@ -2367,17 +2406,19 @@ func TestGinParams(t *testing.T) {
 	assert.Len(t, params, 2)
 	id, _ := params.Get("id")
 	assert.Equal(t, "123", id)
+
 	lang, _ := params.Get("lang")
 	assert.Equal(t, "en", lang)
+
 	nonexistent, _ := params.Get("nonexistent")
-	assert.Equal(t, "", nonexistent)
+	assert.Empty(t, nonexistent)
 }
 
 // ============== Test that JSON binding works for empty body ==============
 
 func TestReblog_EmptyBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, nil)
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, nil)
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Reblog)
@@ -2390,7 +2431,7 @@ func TestReblog_EmptyBody(t *testing.T) {
 
 func TestShow_ResponseContentType(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Show)
@@ -2431,8 +2472,8 @@ func TestCreate_WithSpoilerText(t *testing.T) {
 
 func TestUpdate_ChangeVisibility(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
-		Visibility: testutil.PtrString("private"),
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+		Visibility: new("private"),
 	})
 	setAccount(c, ts.acct)
 
@@ -2443,7 +2484,7 @@ func TestUpdate_ChangeVisibility(t *testing.T) {
 
 func TestUpdate_InvalidVisibility(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, map[string]string{
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, map[string]string{
 		"visibility": "invalid",
 	})
 	setAccount(c, ts.acct)
@@ -2457,8 +2498,8 @@ func TestUpdate_InvalidVisibility(t *testing.T) {
 
 func TestUpdate_WithPoll(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
-		Status: testutil.PtrString("Updated with poll"),
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+		Status: new("Updated with poll"),
 		Poll: &CreatePollContent{
 			Options:   []string{"New A", "New B"},
 			ExpiresIn: 7200,
@@ -2481,8 +2522,8 @@ func TestUpdate_WithMediaIds(t *testing.T) {
 		a.AccountId = ts.acct.Id
 	})
 
-	mediaIds := []string{fmt.Sprintf("%d", attachment.Id)}
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
+	mediaIds := []string{strconv.FormatUint(attachment.Id, 10)}
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		MediaIds: &mediaIds,
 	})
 	setAccount(c, ts.acct)
@@ -2496,7 +2537,7 @@ func TestUpdate_InvalidMediaIds(t *testing.T) {
 	ts := newTestSetup(t)
 
 	mediaIds := []string{"99999"}
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}}, UpdateStatusRequest{
+	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		MediaIds: &mediaIds,
 	})
 	setAccount(c, ts.acct)
@@ -2522,7 +2563,7 @@ func TestContext_StatusWithAncestors(t *testing.T) {
 	ts.status.InReplyToId = &inReplyTo
 	require.NoError(t, ts.db.Save(ts.status).Error)
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", ts.status.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Context)
@@ -2530,10 +2571,11 @@ func TestContext_StatusWithAncestors(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	var resp ContextResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Should have at least the parent as ancestor
-	assert.True(t, len(resp.Ancestors) > 0, "should have ancestors")
+	assert.NotEmpty(t, resp.Ancestors, "should have ancestors")
 }
 
 // ============== Unfavourite after delete ==============
@@ -2633,7 +2675,7 @@ func TestGetSource_ReblogStatus(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPublic
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", reblogStatus.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, GetSource)
@@ -2647,7 +2689,7 @@ func TestGetSource_ReblogStatus(t *testing.T) {
 func TestListScheduledStatuses_WithAllPaginationParams(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContext(t, nil)
-	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=100&since_id=1&limit=10&offset=5", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?max_id=100&since_id=1&limit=10&offset=5", nil) //nolint:noctx
 	setAccount(c, ts.acct)
 
 	safeHandler(c, ListScheduledStatuses)
@@ -2665,7 +2707,7 @@ func TestViewSingleScheduledStatus_NoAccount(t *testing.T) {
 		s.ScheduledAt = &scheduledAt
 	})
 
-	c, w := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}})
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}})
 
 	safeHandler(c, ViewSingleScheduledStatus)
 
@@ -2683,7 +2725,7 @@ func TestUpdateStatusScheduledAt_NoAccount(t *testing.T) {
 	})
 
 	newScheduledAt := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
-	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%d", scheduled.Id)}}, UpdateStatusScheduledAtRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(scheduled.Id, 10)}}, UpdateStatusScheduledAtRequest{
 		ScheduledAt: newScheduledAt,
 	})
 

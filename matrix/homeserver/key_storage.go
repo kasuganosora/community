@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -16,7 +17,7 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// MatrixFederationKey 联邦密钥数据库模型
+// MatrixFederationKey 联邦密钥数据库模型.
 type MatrixFederationKey struct {
 	ID         uint64    `gorm:"primary_key;auto_increment"`
 	KeyID      string    `gorm:"not null;uniqueIndex;size:64"`
@@ -32,15 +33,15 @@ func (MatrixFederationKey) TableName() string {
 	return "matrix_federation_keys"
 }
 
-// KeyStorage 密钥存储管理器
+// KeyStorage 密钥存储管理器.
 type KeyStorage struct{}
 
-// NewKeyStorage 创建密钥存储管理器
+// NewKeyStorage 创建密钥存储管理器.
 func NewKeyStorage() *KeyStorage {
 	return &KeyStorage{}
 }
 
-// LoadOrGenerateKey 加载或生成联邦密钥
+// LoadOrGenerateKey 加载或生成联邦密钥.
 func (ks *KeyStorage) LoadOrGenerateKey() (ed25519.PrivateKey, ed25519.PublicKey, string, error) {
 	// 首先尝试加载现有的活动密钥
 	var existingKey MatrixFederationKey
@@ -68,7 +69,9 @@ func (ks *KeyStorage) LoadOrGenerateKey() (ed25519.PrivateKey, ed25519.PublicKey
 			} else {
 				privateKey := ed25519.PrivateKey(privateKeyBytes)
 				publicKey := ed25519.PublicKey(publicKeyBytes)
+
 				log.Info("Loaded existing federation key: %s", existingKey.KeyID)
+
 				return privateKey, publicKey, existingKey.KeyID, nil
 			}
 		}
@@ -87,6 +90,7 @@ func (ks *KeyStorage) LoadOrGenerateKey() (ed25519.PrivateKey, ed25519.PublicKey
 	if err != nil {
 		// 如果加密失败，回退到 base64 编码
 		log.Error("Failed to encrypt private key, falling back to base64: %v", err)
+
 		encryptedPrivateKey = base64.RawStdEncoding.EncodeToString(privateKey)
 	}
 
@@ -99,20 +103,23 @@ func (ks *KeyStorage) LoadOrGenerateKey() (ed25519.PrivateKey, ed25519.PublicKey
 
 	if err := db.GetDB().Create(&record).Error; err != nil {
 		log.Error("Failed to save federation key to database: %v", err)
+
 		return privateKey, publicKey, keyID, nil
 	}
 
 	log.Info("Generated and saved new federation key: %s", keyID)
+
 	return privateKey, publicKey, keyID, nil
 }
 
-// deriveEncryptionKey 从配置密钥派生 AES-256 密钥
+// deriveEncryptionKey 从配置密钥派生 AES-256 密钥.
 func deriveEncryptionKey(secret string) []byte {
 	hash := sha256.Sum256([]byte(secret))
+
 	return hash[:]
 }
 
-// encryptKey 使用 AES-GCM 加密密钥
+// encryptKey 使用 AES-GCM 加密密钥.
 func (ks *KeyStorage) encryptKey(plaintext []byte) (string, error) {
 	secret := config.C.EncryptedKey
 	if secret == "" {
@@ -120,6 +127,7 @@ func (ks *KeyStorage) encryptKey(plaintext []byte) (string, error) {
 	}
 
 	key := deriveEncryptionKey(secret)
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("failed to create cipher: %w", err)
@@ -136,19 +144,20 @@ func (ks *KeyStorage) encryptKey(plaintext []byte) (string, error) {
 	}
 
 	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+
 	return "enc:" + base64.RawStdEncoding.EncodeToString(ciphertext), nil
 }
 
-// decryptKey 使用 AES-GCM 解密密钥
+// decryptKey 使用 AES-GCM 解密密钥.
 func (ks *KeyStorage) decryptKey(encoded string) ([]byte, error) {
 	// 检查是否是加密格式
 	if len(encoded) < 4 || encoded[:4] != "enc:" {
-		return nil, fmt.Errorf("not an encrypted key")
+		return nil, errors.New("not an encrypted key")
 	}
 
 	secret := config.C.EncryptedKey
 	if secret == "" {
-		return nil, fmt.Errorf("encryption key not configured")
+		return nil, errors.New("encryption key not configured")
 	}
 
 	data, err := base64.RawStdEncoding.DecodeString(encoded[4:])
@@ -157,6 +166,7 @@ func (ks *KeyStorage) decryptKey(encoded string) ([]byte, error) {
 	}
 
 	key := deriveEncryptionKey(secret)
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
@@ -169,10 +179,11 @@ func (ks *KeyStorage) decryptKey(encoded string) ([]byte, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short")
+		return nil, errors.New("ciphertext too short")
 	}
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt: %w", err)
@@ -181,7 +192,7 @@ func (ks *KeyStorage) decryptKey(encoded string) ([]byte, error) {
 	return plaintext, nil
 }
 
-// GetPublicKey 获取指定密钥 ID 的公钥
+// GetPublicKey 获取指定密钥 ID 的公钥.
 func (ks *KeyStorage) GetPublicKey(keyID string) (ed25519.PublicKey, error) {
 	var record MatrixFederationKey
 	if err := db.GetDB().Where("key_id = ?", keyID).First(&record).Error; err != nil {
@@ -196,19 +207,22 @@ func (ks *KeyStorage) GetPublicKey(keyID string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(publicKeyBytes), nil
 }
 
-// GetActiveKey 获取当前活动的密钥
+// GetActiveKey 获取当前活动的密钥.
 func (ks *KeyStorage) GetActiveKey() (*MatrixFederationKey, error) {
 	var record MatrixFederationKey
-	if err := db.GetDB().Where("is_active = ?", true).First(&record).Error; err != nil {
+	err := db.GetDB().Where("is_active = ?", true).First(&record).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return &record, nil
 }
 
-// RotateKey 轮换密钥（生成新密钥并停用旧密钥）
+// RotateKey 轮换密钥（生成新密钥并停用旧密钥）.
 func (ks *KeyStorage) RotateKey() (ed25519.PrivateKey, ed25519.PublicKey, string, error) {
 	// 停用所有现有密钥
-	if err := db.GetDB().Model(&MatrixFederationKey{}).Where("is_active = ?", true).Update("is_active", false).Error; err != nil {
+	err := db.GetDB().Model(&MatrixFederationKey{}).Where("is_active = ?", true).Update("is_active", false).Error
+	if err != nil {
 		log.Error("Failed to deactivate old keys: %v", err)
 	}
 
@@ -216,16 +230,18 @@ func (ks *KeyStorage) RotateKey() (ed25519.PrivateKey, ed25519.PublicKey, string
 	return ks.LoadOrGenerateKey()
 }
 
-// ListKeys 列出所有密钥
+// ListKeys 列出所有密钥.
 func (ks *KeyStorage) ListKeys() ([]MatrixFederationKey, error) {
 	var keys []MatrixFederationKey
-	if err := db.GetDB().Order("created_at DESC").Find(&keys).Error; err != nil {
+	err := db.GetDB().Order("created_at DESC").Find(&keys).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return keys, nil
 }
 
-// DeleteKey 删除指定密钥
+// DeleteKey 删除指定密钥.
 func (ks *KeyStorage) DeleteKey(keyID string) error {
 	return db.GetDB().Where("key_id = ?", keyID).Delete(&MatrixFederationKey{}).Error
 }

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ─────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ func TestMockProvider_Translate(t *testing.T) {
 
 	result, err := m.Translate("hello world", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, "hello world", result.Text)
 	assert.Equal(t, "en", result.DetectedSource)
@@ -33,7 +33,7 @@ func TestMockProvider_DetectLanguage(t *testing.T) {
 
 	lang, err := m.DetectLanguage("any text")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -42,7 +42,7 @@ func TestMockProvider_DetectLanguage_EmptyText(t *testing.T) {
 
 	lang, err := m.DetectLanguage("")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -61,7 +61,7 @@ func TestService_Translate_NilProvider(t *testing.T) {
 
 	result, err := s.Translate("hello", "en", "zh")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Equal(t, "no translation provider configured", err.Error())
 }
@@ -71,7 +71,7 @@ func TestService_DetectLanguage_NilProvider(t *testing.T) {
 
 	_, err := s.DetectLanguage("hello")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "no translation provider configured", err.Error())
 }
 
@@ -96,7 +96,7 @@ func TestService_Translate_Delegates(t *testing.T) {
 
 	result, err := s.Translate("bonjour", "fr", "en")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "bonjour", result.Text)
 	assert.Equal(t, "fr", result.DetectedSource)
 	assert.Equal(t, "mock", result.Provider)
@@ -107,7 +107,7 @@ func TestService_DetectLanguage_Delegates(t *testing.T) {
 
 	lang, err := s.DetectLanguage("something")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -117,6 +117,7 @@ func TestService_DetectLanguage_Delegates(t *testing.T) {
 
 func TestNewService_DeepL(t *testing.T) {
 	t.Setenv("TRANSLATION_PROVIDER", "deepl")
+
 	s := NewService()
 
 	assert.NotNil(t, s)
@@ -126,6 +127,7 @@ func TestNewService_DeepL(t *testing.T) {
 
 func TestNewService_Google(t *testing.T) {
 	t.Setenv("TRANSLATION_PROVIDER", "google")
+
 	s := NewService()
 
 	assert.NotNil(t, s)
@@ -135,6 +137,7 @@ func TestNewService_Google(t *testing.T) {
 
 func TestNewService_LibreTranslate(t *testing.T) {
 	t.Setenv("TRANSLATION_PROVIDER", "libretranslate")
+
 	s := NewService()
 
 	assert.NotNil(t, s)
@@ -144,6 +147,7 @@ func TestNewService_LibreTranslate(t *testing.T) {
 
 func TestNewService_UnknownProvider(t *testing.T) {
 	t.Setenv("TRANSLATION_PROVIDER", "unknown_provider_xyz")
+
 	s := NewService()
 
 	assert.NotNil(t, s)
@@ -153,7 +157,7 @@ func TestNewService_UnknownProvider(t *testing.T) {
 
 func TestNewService_EmptyEnv_DefaultsToLibreTranslate(t *testing.T) {
 	// Clear the env var so it falls through to the default.
-	os.Unsetenv("TRANSLATION_PROVIDER")
+	_ = os.Unsetenv("TRANSLATION_PROVIDER")
 	s := NewService()
 
 	assert.NotNil(t, s)
@@ -166,7 +170,7 @@ func TestNewService_EmptyEnv_DefaultsToLibreTranslate(t *testing.T) {
 // ─────────────────────────────────────────────────────────────
 
 func TestNewLibreTranslateProvider_DefaultURL(t *testing.T) {
-	os.Unsetenv("LIBRETRANSLATE_URL")
+	_ = os.Unsetenv("LIBRETRANSLATE_URL")
 	p := NewLibreTranslateProvider()
 
 	assert.Equal(t, "https://libretranslate.de", p.baseURL)
@@ -176,6 +180,7 @@ func TestNewLibreTranslateProvider_DefaultURL(t *testing.T) {
 
 func TestNewLibreTranslateProvider_CustomURL(t *testing.T) {
 	t.Setenv("LIBRETRANSLATE_URL", "http://localhost:5000")
+
 	p := NewLibreTranslateProvider()
 
 	assert.Equal(t, "http://localhost:5000", p.baseURL)
@@ -195,9 +200,9 @@ func TestLibreTranslateProvider_Translate_EmptyText(t *testing.T) {
 
 	result, err := p.Translate("", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "", result.Text)
+	assert.Empty(t, result.Text)
 	assert.Equal(t, "libretranslate", result.Provider)
 }
 
@@ -225,7 +230,7 @@ func TestLibreTranslateProvider_Translate_Success(t *testing.T) {
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "你好", result.Text)
 	assert.Equal(t, "en", result.DetectedSource)
 	assert.Equal(t, "libretranslate", result.Provider)
@@ -234,7 +239,7 @@ func TestLibreTranslateProvider_Translate_Success(t *testing.T) {
 func TestLibreTranslateProvider_Translate_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, "internal server error")
+		_, _ = fmt.Fprintln(w, "internal server error")
 	}))
 	defer srv.Close()
 
@@ -243,7 +248,7 @@ func TestLibreTranslateProvider_Translate_HTTPError(t *testing.T) {
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "500")
 	assert.Contains(t, err.Error(), "internal server error")
@@ -261,7 +266,7 @@ func TestLibreTranslateProvider_Translate_InvalidJSON(t *testing.T) {
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 
@@ -274,7 +279,7 @@ func TestLibreTranslateProvider_DetectLanguage_EmptyText(t *testing.T) {
 
 	lang, err := p.DetectLanguage("")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -287,7 +292,7 @@ func TestLibreTranslateProvider_DetectLanguage_Success(t *testing.T) {
 		assert.Equal(t, "bonjour", r.FormValue("q"))
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"language": "fr", "confidence": 0.95},
 		})
 	}))
@@ -298,7 +303,7 @@ func TestLibreTranslateProvider_DetectLanguage_Success(t *testing.T) {
 
 	lang, err := p.DetectLanguage("bonjour")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "fr", lang)
 }
 
@@ -314,7 +319,7 @@ func TestLibreTranslateProvider_DetectLanguage_EmptyArray(t *testing.T) {
 
 	lang, err := p.DetectLanguage("something")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang) // fallback when no results
 }
 
@@ -329,9 +334,9 @@ func TestLibreTranslateProvider_DetectLanguage_HTTPError(t *testing.T) {
 
 	lang, err := p.DetectLanguage("hello")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "503")
-	assert.Equal(t, "", lang)
+	assert.Empty(t, lang)
 }
 
 func TestLibreTranslateProvider_DetectLanguage_InvalidJSON(t *testing.T) {
@@ -346,8 +351,8 @@ func TestLibreTranslateProvider_DetectLanguage_InvalidJSON(t *testing.T) {
 
 	lang, err := p.DetectLanguage("hello")
 
-	assert.Error(t, err)
-	assert.Equal(t, "", lang)
+	require.Error(t, err)
+	assert.Empty(t, lang)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -372,7 +377,7 @@ func TestLibreTranslateProvider_Translate_WithAPIKey(t *testing.T) {
 
 	result, err := p.Translate("test", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "翻译结果", result.Text)
 }
 
@@ -382,7 +387,7 @@ func TestLibreTranslateProvider_DetectLanguage_WithAPIKey(t *testing.T) {
 		assert.Equal(t, "secret-key-456", r.FormValue("api_key"))
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"language": "de", "confidence": 0.9},
 		})
 	}))
@@ -394,7 +399,7 @@ func TestLibreTranslateProvider_DetectLanguage_WithAPIKey(t *testing.T) {
 
 	lang, err := p.DetectLanguage("Guten Tag")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "de", lang)
 }
 
@@ -412,20 +417,20 @@ func TestDeepLProvider_Translate_EmptyText(t *testing.T) {
 
 	result, err := p.Translate("", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "", result.Text)
+	assert.Empty(t, result.Text)
 	assert.Equal(t, "deepl", result.Provider)
 }
 
 func TestDeepLProvider_Translate_NoAPIKey_FallsBackToMock(t *testing.T) {
-	os.Unsetenv("DEEPL_API_KEY")
+	_ = os.Unsetenv("DEEPL_API_KEY")
 	p := NewDeepLProvider()
 	assert.Empty(t, p.apiKey)
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	// Falls back to MockProvider → returns text as-is
 	assert.Equal(t, "hello", result.Text)
@@ -434,12 +439,13 @@ func TestDeepLProvider_Translate_NoAPIKey_FallsBackToMock(t *testing.T) {
 
 func TestDeepLProvider_Translate_WithAPIKey_FallsBackToMock(t *testing.T) {
 	t.Setenv("DEEPL_API_KEY", "test-key")
+
 	p := NewDeepLProvider()
 	assert.Equal(t, "test-key", p.apiKey)
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	// Not fully implemented → still falls back to MockProvider
 	assert.Equal(t, "hello", result.Text)
@@ -451,7 +457,7 @@ func TestDeepLProvider_DetectLanguage(t *testing.T) {
 
 	lang, err := p.DetectLanguage("anything")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -460,7 +466,7 @@ func TestDeepLProvider_DetectLanguage_EmptyText(t *testing.T) {
 
 	lang, err := p.DetectLanguage("")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -478,20 +484,20 @@ func TestGoogleProvider_Translate_EmptyText(t *testing.T) {
 
 	result, err := p.Translate("", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "", result.Text)
+	assert.Empty(t, result.Text)
 	assert.Equal(t, "google", result.Provider)
 }
 
 func TestGoogleProvider_Translate_NoAPIKey_FallsBackToMock(t *testing.T) {
-	os.Unsetenv("GOOGLE_TRANSLATE_API_KEY")
+	_ = os.Unsetenv("GOOGLE_TRANSLATE_API_KEY")
 	p := NewGoogleProvider()
 	assert.Empty(t, p.apiKey)
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	// Falls back to MockProvider → returns text as-is
 	assert.Equal(t, "hello", result.Text)
@@ -500,12 +506,13 @@ func TestGoogleProvider_Translate_NoAPIKey_FallsBackToMock(t *testing.T) {
 
 func TestGoogleProvider_Translate_WithAPIKey_FallsBackToMock(t *testing.T) {
 	t.Setenv("GOOGLE_TRANSLATE_API_KEY", "test-google-key")
+
 	p := NewGoogleProvider()
 	assert.Equal(t, "test-google-key", p.apiKey)
 
 	result, err := p.Translate("hello", "en", "zh")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	// Not fully implemented → still falls back to MockProvider
 	assert.Equal(t, "hello", result.Text)
@@ -517,7 +524,7 @@ func TestGoogleProvider_DetectLanguage(t *testing.T) {
 
 	lang, err := p.DetectLanguage("anything")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -526,7 +533,7 @@ func TestGoogleProvider_DetectLanguage_EmptyText(t *testing.T) {
 
 	lang, err := p.DetectLanguage("")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -566,7 +573,7 @@ func TestLibreTranslateProvider_Translate_SetsCorrectHeaders(t *testing.T) {
 
 	result, err := p.Translate("test", "en", "de")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "ok", result.Text)
 }
 
@@ -585,7 +592,7 @@ func TestLibreTranslateProvider_Translate_SendsFormat(t *testing.T) {
 
 	result, err := p.Translate("test", "en", "de")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
 }
 
@@ -595,7 +602,7 @@ func TestLibreTranslateProvider_DetectLanguage_SetsCorrectHeaders(t *testing.T) 
 		assert.Equal(t, "application/json", r.Header.Get("Accept"))
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"language": "es", "confidence": 0.88},
 		})
 	}))
@@ -606,7 +613,7 @@ func TestLibreTranslateProvider_DetectLanguage_SetsCorrectHeaders(t *testing.T) 
 
 	lang, err := p.DetectLanguage("hola")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "es", lang)
 }
 
@@ -619,8 +626,8 @@ func TestService_Translate_EmptyText(t *testing.T) {
 
 	result, err := s.Translate("", "en", "zh")
 
-	assert.NoError(t, err)
-	assert.Equal(t, "", result.Text)
+	require.NoError(t, err)
+	assert.Empty(t, result.Text)
 }
 
 func TestService_DetectLanguage_EmptyText(t *testing.T) {
@@ -628,7 +635,7 @@ func TestService_DetectLanguage_EmptyText(t *testing.T) {
 
 	lang, err := s.DetectLanguage("")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "en", lang)
 }
 
@@ -673,7 +680,7 @@ func TestService_NilProvider_ErrorMessagesConsistent(t *testing.T) {
 func TestLibreTranslateProvider_Translate_HTTPError_IncludesBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"error": "bad input"}`)
+		_, _ = fmt.Fprint(w, `{"error": "bad input"}`)
 	}))
 	defer srv.Close()
 
@@ -682,8 +689,8 @@ func TestLibreTranslateProvider_Translate_HTTPError_IncludesBody(t *testing.T) {
 
 	_, err := p.Translate("test", "en", "zh")
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	errMsg := err.Error()
-	assert.True(t, strings.Contains(errMsg, "400"), "should include status code: %s", errMsg)
-	assert.True(t, strings.Contains(errMsg, `{"error": "bad input"}`), "should include response body: %s", errMsg)
+	assert.Contains(t, errMsg, "400", "should include status code: %s", errMsg)
+	assert.Contains(t, errMsg, `{"error": "bad input"}`, "should include response body: %s", errMsg)
 }

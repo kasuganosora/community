@@ -14,9 +14,10 @@ func getRealStatus(c *gin.Context) (status *models.Status) {
 	// 判断当前的 status 是否是转发的 status, 如果是则替换成原始的 status
 	if status.ReblogId != nil && *status.ReblogId > 0 {
 		if status.Reblog == nil {
-			c.AbortWithStatusJSON(404, gin.H{"error": "status not found"})
+			c.AbortWithStatusJSON(404, gin.H{"error": "status not found"}) //nolint:goconst
 			panic("abort")
 		}
+
 		status = status.Reblog
 	}
 
@@ -25,16 +26,18 @@ func getRealStatus(c *gin.Context) (status *models.Status) {
 
 func returnFullSingleStatus(c *gin.Context, status *models.Status, currentAccount *models.Account) {
 	query := models.StatusLoadAllQuery(db.GetDB().Model(status))
-	err := query.First(status, status.Id).Error
 
+	err := query.First(status, status.Id).Error
 	if err != nil {
 		_ = c.Error(err)
+
 		panic("abort")
 	}
 
 	ret, err := serializer.ToStatus(status, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		panic("abort")
 	}
 

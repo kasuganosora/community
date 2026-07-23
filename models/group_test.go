@@ -36,13 +36,13 @@ func TestGroup_IsBridged(t *testing.T) {
 }
 
 func TestGroupType_Constants(t *testing.T) {
-	assert.Equal(t, GroupType(0), GroupTypeLocal)
-	assert.Equal(t, GroupType(1), GroupTypeBridged)
-	assert.Equal(t, GroupType(2), GroupTypeMatrix)
+	assert.Equal(t, GroupTypeLocal, GroupType(0))
+	assert.Equal(t, GroupTypeBridged, GroupType(1))
+	assert.Equal(t, GroupTypeMatrix, GroupType(2))
 }
 
 func TestGroupMemberRole_Constants(t *testing.T) {
-	assert.Equal(t, GroupMemberRole(0), GroupMemberRoleMember)
-	assert.Equal(t, GroupMemberRole(1), GroupMemberRoleAdmin)
-	assert.Equal(t, GroupMemberRole(2), GroupMemberRoleOwner)
+	assert.Equal(t, GroupMemberRoleMember, GroupMemberRole(0))
+	assert.Equal(t, GroupMemberRoleAdmin, GroupMemberRole(1))
+	assert.Equal(t, GroupMemberRoleOwner, GroupMemberRole(2))
 }

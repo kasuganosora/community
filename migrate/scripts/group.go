@@ -24,7 +24,7 @@ func (MigrateGroupTablesScript) Down(db *gorm.DB) (err error) {
 	`).Error
 }
 
-// MigrateGroupTables 群组和联系人表迁移
+// MigrateGroupTables 群组和联系人表迁移.
 func MigrateGroupTables() error {
 	log.Info("Running Group tables migration...")
 
@@ -144,11 +144,14 @@ CREATE TABLE IF NOT EXISTS contact_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='好友请求表';
 `
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to migrate Group tables: %v", err)
+
 		return err
 	}
 
 	log.Info("Group tables migration completed successfully")
+
 	return nil
 }

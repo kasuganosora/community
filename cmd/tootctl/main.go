@@ -23,7 +23,8 @@ func main() {
 	}
 
 	// 迁移数据库
-	if err := migrate.Up(db.GetDB()); err != nil {
+	err := migrate.Up(db.GetDB())
+	if err != nil {
 		log.Warn("Database migration warning: %v", err)
 	}
 
@@ -54,20 +55,24 @@ func main() {
 			if c.Bool("verbose") {
 				log.SetLevel("debug")
 			}
+
 			return nil
 		},
 	}
 
 	// 处理中断信号
 	sigChan := make(chan os.Signal, 1)
+
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
 		<-sigChan
 		fmt.Println("\nOperation cancelled.")
 		os.Exit(130)
 	}()
 
-	if err := app.Run(os.Args); err != nil {
+	err = app.Run(os.Args)
+	if err != nil {
 		log.Error("%v", err)
 		os.Exit(1)
 	}

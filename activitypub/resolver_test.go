@@ -11,7 +11,7 @@ import (
 func TestCacheEntryIsExpired(t *testing.T) {
 	t.Run("not expired", func(t *testing.T) {
 		entry := &CacheEntry{
-			value:     "test",
+			value:     "test", //nolint:goconst
 			expiresAt: time.Now().Add(1 * time.Hour),
 		}
 		assert.False(t, entry.IsExpired())
@@ -96,7 +96,7 @@ func TestResolverAccountCache(t *testing.T) {
 
 	// Store and retrieve
 	testAccount := &models.Account{
-		Username: "alice",
+		Username: "alice", //nolint:goconst
 	}
 	resolver.storeAccountCache("https://remote.com/users/alice", testAccount)
 	account, ok = resolver.loadAccountCache("https://remote.com/users/alice")

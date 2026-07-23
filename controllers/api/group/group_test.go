@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// callHandler recovers from panic("abort") used by gin.Abort()
+// callHandler recovers from panic("abort") used by gin.Abort().
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r == "abort" {
@@ -27,6 +27,7 @@ func callHandler(fn func(*gin.Context), c *gin.Context) {
 			_ = r
 		}
 	}()
+
 	fn(c)
 }
 
@@ -43,9 +44,12 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	tdb, err = testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err)
+
 	testDB = tdb.GormDB
 	database.SetTestDB(testDB)
 
@@ -105,6 +109,7 @@ func setupTestDB(t *testing.T) {
 
 func createTestUser(t *testing.T) *models.User {
 	t.Helper()
+
 	now := time.Now()
 	user := &models.User{
 		UserName:       "testuser_" + testutil.RandomString(8),
@@ -116,11 +121,13 @@ func createTestUser(t *testing.T) *models.User {
 	}
 	err := testDB.Create(user).Error
 	require.NoError(t, err)
+
 	return user
 }
 
 func createTestAccount(t *testing.T, userID uint64) *models.Account {
 	t.Helper()
+
 	now := time.Now()
 	account := &models.Account{
 		UserId:      userID,
@@ -134,17 +141,19 @@ func createTestAccount(t *testing.T, userID uint64) *models.Account {
 	}
 	err := testDB.Create(account).Error
 	require.NoError(t, err)
+
 	return account
 }
 
 func createTestGroup(t *testing.T, ownerID uint64) *models.Group {
 	t.Helper()
+
 	group := &models.Group{
 		OwnerId:     ownerID,
 		Name:        "Test Group " + testutil.RandomString(4),
 		Description: "A test group",
 		Type:        models.GroupTypeLocal,
-		Visibility:  "private",
+		Visibility:  "private", //nolint:goconst
 	}
 	err := testDB.Create(group).Error
 	require.NoError(t, err)
@@ -162,19 +171,23 @@ func createTestGroup(t *testing.T, ownerID uint64) *models.Group {
 
 func newContext(t *testing.T, method, path string, body []byte, account *models.Account) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+
 	var req *http.Request
 	if body != nil {
-		req = httptest.NewRequest(method, path, bytes.NewBuffer(body))
+		req = httptest.NewRequest(method, path, bytes.NewBuffer(body)) //nolint:noctx
 		req.Header.Set("Content-Type", "application/json")
 	} else {
-		req = httptest.NewRequest(method, path, nil)
+		req = httptest.NewRequest(method, path, nil) //nolint:noctx
 	}
+
 	c.Request = req
 	if account != nil {
 		c.Set("account", account)
 	}
+
 	return c, w
 }
 
@@ -201,7 +214,8 @@ func TestCreateGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, "Private Group", resp["name"])
 		assert.Equal(t, "private", resp["visibility"])
@@ -218,7 +232,8 @@ func TestCreateGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, "public", resp["visibility"])
 	})
@@ -233,7 +248,8 @@ func TestCreateGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, "private", resp["visibility"])
 	})
@@ -250,9 +266,10 @@ func TestCreateGroup(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		// Should fall back to local since matrix is not enabled
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		assert.Equal(t, float64(0), resp["type"]) // GroupTypeLocal = 0
+		assert.InDelta(t, float64(0), resp["type"], 1e-9) // GroupTypeLocal = 0
 	})
 
 	t.Run("verifies group created with owner member", func(t *testing.T) {
@@ -266,7 +283,8 @@ func TestCreateGroup(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		// Check the response has an ID
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		groupID, ok := resp["id"].(float64)
 		assert.True(t, ok)
@@ -274,6 +292,7 @@ func TestCreateGroup(t *testing.T) {
 
 		// Check owner member was created
 		var memberCount int64
+
 		testDB.Model(&models.GroupMember{}).Where("group_id = ? AND account_id = ?", uint64(groupID), account.Id).Count(&memberCount)
 		assert.Equal(t, int64(1), memberCount)
 	})
@@ -293,6 +312,7 @@ func TestCreateGroup(t *testing.T) {
 		for i := range longName {
 			longName[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateGroupRequest{
 			Name: string(longName),
 		})
@@ -307,6 +327,7 @@ func TestCreateGroup(t *testing.T) {
 		for i := range name {
 			name[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateGroupRequest{
 			Name: string(name),
 		})
@@ -332,6 +353,7 @@ func TestCreateGroup(t *testing.T) {
 		for i := range longDesc {
 			longDesc[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateGroupRequest{
 			Name:        "Long Desc Group",
 			Description: string(longDesc),
@@ -347,6 +369,7 @@ func TestCreateGroup(t *testing.T) {
 		for i := range desc {
 			desc[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateGroupRequest{
 			Name:        "Max Desc Group",
 			Description: string(desc),
@@ -362,6 +385,7 @@ func TestCreateGroup(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		body, _ := json.Marshal(CreateGroupRequest{
 			Name: "No Account Group",
 		})
@@ -402,8 +426,9 @@ func TestInviteMember(t *testing.T) {
 
 		// Verify member was added
 		var member models.GroupMember
+
 		err := testDB.Where("group_id = ? AND account_id = ?", group.Id, otherAccount.Id).First(&member).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, models.GroupMemberRoleMember, member.Role)
 	})
 
@@ -419,8 +444,9 @@ func TestInviteMember(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var member models.GroupMember
+
 		err := testDB.Where("group_id = ? AND matrix_user_id = ?", group.Id, matrixID).First(&member).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("success - invite as admin role", func(t *testing.T) {
@@ -439,8 +465,9 @@ func TestInviteMember(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var member models.GroupMember
+
 		err := testDB.Where("group_id = ? AND account_id = ?", group.Id, thirdAccount.Id).First(&member).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, models.GroupMemberRoleAdmin, member.Role)
 	})
 
@@ -460,8 +487,9 @@ func TestInviteMember(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var member models.GroupMember
+
 		err := testDB.Where("group_id = ? AND account_id = ?", group.Id, thirdAccount.Id).First(&member).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, models.GroupMemberRoleMember, member.Role) // defaults to member
 	})
 
@@ -471,7 +499,7 @@ func TestInviteMember(t *testing.T) {
 			AccountId: &accountID,
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/groups/abc/invite", body, account)
-		setParams(c, gin.Params{{Key: "id", Value: "abc"}})
+		setParams(c, gin.Params{{Key: "id", Value: "abc"}}) //nolint:goconst
 		callHandler(InviteMember, c)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -538,8 +566,9 @@ func TestInviteMember(t *testing.T) {
 
 		// Verify member was added
 		var member models.GroupMember
+
 		err := testDB.Where("group_id = ? AND account_id = ?", group.Id, thirdAccount.Id).First(&member).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -567,7 +596,7 @@ func TestRemoveMember(t *testing.T) {
 		c, w := newContext(t, http.MethodDelete, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/members/"+strconv.FormatUint(member.Id, 10), nil, account)
 		setParams(c, gin.Params{
 			{Key: "id", Value: strconv.FormatUint(group.Id, 10)},
-			{Key: "member_id", Value: strconv.FormatUint(member.Id, 10)},
+			{Key: "member_id", Value: strconv.FormatUint(member.Id, 10)}, //nolint:goconst
 		})
 		callHandler(RemoveMember, c)
 
@@ -575,6 +604,7 @@ func TestRemoveMember(t *testing.T) {
 
 		// Verify member was removed (soft delete)
 		var count int64
+
 		testDB.Model(&models.GroupMember{}).Where("id = ?", member.Id).Count(&count)
 		assert.Equal(t, int64(0), count)
 	})
@@ -685,7 +715,8 @@ func TestGetGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, group.Name, resp["name"])
 	})
@@ -697,9 +728,10 @@ func TestGetGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		assert.Equal(t, float64(group.Id), resp["id"])
+		assert.InDelta(t, float64(group.Id), resp["id"], 0.01)
 		assert.Equal(t, group.Name, resp["name"])
 		assert.Equal(t, group.Description, resp["description"])
 		assert.Equal(t, group.Visibility, resp["visibility"])
@@ -739,7 +771,8 @@ func TestGetMyGroups(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var groups []interface{}
+		var groups []any
+
 		err := json.Unmarshal(w.Body.Bytes(), &groups)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(groups), 2)
@@ -754,10 +787,11 @@ func TestGetMyGroups(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var groups []interface{}
+		var groups []any
+
 		err := json.Unmarshal(w.Body.Bytes(), &groups)
 		require.NoError(t, err)
-		assert.Equal(t, 0, len(groups))
+		assert.Empty(t, groups)
 	})
 
 	t.Run("no account in context panics", func(t *testing.T) {
@@ -765,6 +799,7 @@ func TestGetMyGroups(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		c, _ := newContext(t, http.MethodGet, "/api/v1/groups/mine", nil, nil)
 		callHandler(GetMyGroups, c)
 	})
@@ -779,7 +814,8 @@ func TestGetMyGroups(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var groups []map[string]interface{}
+		var groups []map[string]any
+
 		err := json.Unmarshal(w.Body.Bytes(), &groups)
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, len(groups), 1)
@@ -803,10 +839,11 @@ func TestGetGroupMessages(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var messages []interface{}
+		var messages []any
+
 		err := json.Unmarshal(w.Body.Bytes(), &messages)
 		require.NoError(t, err)
-		assert.Equal(t, 0, len(messages)) // no messages yet
+		assert.Empty(t, messages) // no messages yet
 	})
 
 	t.Run("success - with limit", func(t *testing.T) {
@@ -857,6 +894,7 @@ func TestGetGroupMessages(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		c, _ := newContext(t, http.MethodGet, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/messages", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(group.Id, 10)}})
 		callHandler(GetGroupMessages, c)
@@ -877,7 +915,8 @@ func TestGetGroupMessages(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var messages []map[string]interface{}
+		var messages []map[string]any
+
 		err := json.Unmarshal(w.Body.Bytes(), &messages)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(messages), 1)
@@ -905,6 +944,7 @@ func TestSendGroupMessage(t *testing.T) {
 
 		// Verify message was created
 		var count int64
+
 		testDB.Model(&models.GroupMessage{}).Where("group_id = ?", group.Id).Count(&count)
 		assert.Equal(t, int64(1), count)
 	})
@@ -919,7 +959,8 @@ func TestSendGroupMessage(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, "Test message content", resp["content"])
 	})
@@ -959,6 +1000,7 @@ func TestSendGroupMessage(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		body, _ := json.Marshal(SendMessageRequest{Content: "Hi"})
 		c, _ := newContext(t, http.MethodPost, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/messages", body, nil)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(group.Id, 10)}})
@@ -978,6 +1020,7 @@ func TestSendGroupMessage(t *testing.T) {
 		for i := range longContent {
 			longContent[i] = 'a'
 		}
+
 		body, _ := json.Marshal(SendMessageRequest{Content: string(longContent)})
 		c, w := newContext(t, http.MethodPost, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/messages", body, account)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(group.Id, 10)}})
@@ -1006,8 +1049,9 @@ func TestDeleteGroup(t *testing.T) {
 
 		// Verify group is soft-deleted
 		var found models.Group
+
 		err := testDB.Unscoped().First(&found, group.Id).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, found.DeletedAt)
 	})
 
@@ -1020,8 +1064,9 @@ func TestDeleteGroup(t *testing.T) {
 
 		// Try to find it with normal query
 		var found models.Group
+
 		err := testDB.First(&found, group.Id).Error
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("invalid group id - non numeric", func(t *testing.T) {
@@ -1057,6 +1102,7 @@ func TestDeleteGroup(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		c, _ := newContext(t, http.MethodDelete, "/api/v1/groups/1", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: "1"}})
 		callHandler(DeleteGroup, c)
@@ -1071,7 +1117,8 @@ func TestDeleteGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
+
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Equal(t, "Group deleted successfully", resp["message"])
 	})
@@ -1142,6 +1189,7 @@ func TestBridgeGroup(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		c, _ := newContext(t, http.MethodPost, "/api/v1/groups/1/bridge", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: "1"}})
 		callHandler(BridgeGroup, c)

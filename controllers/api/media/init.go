@@ -2,7 +2,7 @@ package media
 
 import "github.com/gin-gonic/gin"
 
-// RegisterRoutes 注册媒体路由
+// RegisterRoutes 注册媒体路由.
 func RegisterRoutes(rg *gin.RouterGroup) {
 	mediaGroup := rg.Group("/media")
 

@@ -1,7 +1,7 @@
 package types
 
 // VerificationResult 验证结果
-// 所有供应商共用的验证结果结构体
+// 所有供应商共用的验证结果结构体.
 type VerificationResult struct {
 	// Success 是否验证通过
 	Success bool

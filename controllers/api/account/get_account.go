@@ -12,16 +12,20 @@ import (
 func GetAccount(c *gin.Context) {
 	accountId := c.Param("id")
 
-	var account *models.Account
-	var err error
+	var (
+		account *models.Account
+		err     error
+	)
+
 	if accountId == "me" {
 		_, exists := c.Get("account")
 		if !exists {
-			c.JSON(401, gin.H{"error": "Unauthorized"})
+			c.JSON(401, gin.H{"error": "Unauthorized"}) //nolint:goconst
+
 			return
 		}
 
-		account = c.MustGet("account").(*models.Account)
+		account = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
 	if account == nil {
@@ -31,11 +35,13 @@ func GetAccount(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not Found"})
+
 			return
 		}
 
 		err = errors.Wrap(err, "GetAccount")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -43,19 +49,21 @@ func GetAccount(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "GetAccount")
 		_ = c.Error(err)
+
 		return
 	}
 
 	account.Extra = &models.AccountExtra{}
+
 	err = db.GetDB().Model(account).Association("Extra").Find(account.Extra)
 	if err != nil {
 		err = errors.Wrap(err, "GetAccount")
 		_ = c.Error(err)
+
 		return
 	}
 
 	acc := serializer.ToAccount(account)
 
 	c.JSON(200, acc)
-
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 )
 
-// HomeServer Matrix Homeserver
+// HomeServer Matrix Homeserver.
 type HomeServer struct {
 	Config       *HSConfig
 	Auth         *AuthService
@@ -41,7 +41,7 @@ type HomeServer struct {
 	keyID        string              // 密钥标识
 }
 
-// HSConfig Homeserver 配置
+// HSConfig Homeserver 配置.
 type HSConfig struct {
 	Enabled        bool
 	ServerName     string
@@ -52,16 +52,16 @@ type HSConfig struct {
 	FederationPort int    // 联邦端口，默认 8448
 }
 
-// GlobalHS 全局 Homeserver 实例
+// GlobalHS 全局 Homeserver 实例.
 var GlobalHS *HomeServer
 
-// initOnce 确保只初始化一次
+// initOnce 确保只初始化一次.
 var (
 	initOnce sync.Once
-	initErr  error
+	errInit  error
 )
 
-// InitHomeServer 初始化 Homeserver
+// InitHomeServer 初始化 Homeserver.
 func InitHomeServer() error {
 	cfg := loadHSConfig()
 
@@ -76,6 +76,7 @@ func InitHomeServer() error {
 
 	// 加载或生成联邦密钥
 	keyStorage := NewKeyStorage()
+
 	privateKey, publicKey, keyID, err := keyStorage.LoadOrGenerateKey()
 	if err != nil {
 		return fmt.Errorf("failed to load or generate federation key: %w", err)
@@ -117,7 +118,7 @@ func InitHomeServer() error {
 	return nil
 }
 
-// loadHSConfig 加载配置
+// loadHSConfig 加载配置.
 func loadHSConfig() *HSConfig {
 	cfg := &HSConfig{
 		Enabled:      true, // 默认启用
@@ -137,13 +138,13 @@ func loadHSConfig() *HSConfig {
 		cfg.ServerName = "localhost"
 	}
 
-	cfg.BaseURL = fmt.Sprintf("https://%s", cfg.ServerName)
+	cfg.BaseURL = "https://" + cfg.ServerName
 	cfg.FederationPort = 8448
 
 	return cfg
 }
 
-// autoMigrate 自动迁移数据库
+// autoMigrate 自动迁移数据库.
 func autoMigrate() error {
 	return db.GetDB().AutoMigrate(
 		&MatrixEvent{},
@@ -188,41 +189,44 @@ func autoMigrate() error {
 	)
 }
 
-// GetHomeServer 获取 Homeserver 实例
+// GetHomeServer 获取 Homeserver 实例.
 func GetHomeServer() *HomeServer {
 	initOnce.Do(func() {
 		if GlobalHS == nil {
-			initErr = InitHomeServer()
+			errInit = InitHomeServer()
 		}
 	})
+
 	return GlobalHS
 }
 
-// GetInitError 获取初始化错误（供需要检查初始化状态的调用者使用）
+// GetInitError 获取初始化错误（供需要检查初始化状态的调用者使用）.
 func GetInitError() error {
-	return initErr
+	return errInit
 }
 
-// IsEnabled 检查是否启用
+// IsEnabled 检查是否启用.
 func IsEnabled() bool {
 	return GlobalHS != nil && GlobalHS.Config.Enabled
 }
 
-// NotifyToDeviceUpdate 通知用户有新的 To-Device 消息
+// NotifyToDeviceUpdate 通知用户有新的 To-Device 消息.
 func (hs *HomeServer) NotifyToDeviceUpdate(userID, deviceID string) {
 	if hs.SyncNotifier != nil {
 		hs.SyncNotifier.Notify(userID, deviceID)
 	}
 }
 
-// NotifyRoomEvent 通知房间内所有本地用户有新事件（用于联邦事件）
+// NotifyRoomEvent 通知房间内所有本地用户有新事件（用于联邦事件）.
 func (hs *HomeServer) NotifyRoomEvent(roomID string) {
 	if hs.SyncNotifier == nil {
 		return
 	}
 	// 找到所有已 join 的本地用户
 	var members []MatrixRoomMember
+
 	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
+
 	for _, m := range members {
 		// 只通知本地用户（domain 匹配本服务器）
 		_, domain, ok := ParseMatrixUserID(m.UserID)
@@ -231,41 +235,47 @@ func (hs *HomeServer) NotifyRoomEvent(roomID string) {
 		}
 		// 通知该用户的所有设备
 		var sessions []MatrixUserSession
+
 		db.GetDB().Where("user_id = ?", m.UserID).Find(&sessions)
+
 		for _, s := range sessions {
 			hs.SyncNotifier.Notify(m.UserID, s.DeviceID)
 		}
 	}
 }
 
-// NotifyUser notifies all devices of a specific local user (e.g. after push rule changes)
+// NotifyUser notifies all devices of a specific local user (e.g. after push rule changes).
 func (hs *HomeServer) NotifyUser(userID string) {
 	if hs.SyncNotifier == nil {
 		return
 	}
+
 	var sessions []MatrixUserSession
+
 	db.GetDB().Where("user_id = ?", userID).Find(&sessions)
+
 	for _, s := range sessions {
 		hs.SyncNotifier.Notify(userID, s.DeviceID)
 	}
 }
 
-// SyncNotifier 同步通知器
+// SyncNotifier 同步通知器.
 type SyncNotifier struct {
 	waiters map[string][]chan struct{}
 	mu      sync.RWMutex
 }
 
-// NewSyncNotifier 创建新的同步通知器
+// NewSyncNotifier 创建新的同步通知器.
 func NewSyncNotifier() *SyncNotifier {
 	return &SyncNotifier{
 		waiters: make(map[string][]chan struct{}),
 	}
 }
 
-// Notify 通知特定用户的设备有新数据
+// Notify 通知特定用户的设备有新数据.
 func (n *SyncNotifier) Notify(userID, deviceID string) {
 	key := userID + ":" + deviceID
+
 	n.mu.Lock()
 	waiters := n.waiters[key]
 	delete(n.waiters, key)
@@ -276,7 +286,7 @@ func (n *SyncNotifier) Notify(userID, deviceID string) {
 	}
 }
 
-// Wait 等待通知
+// Wait 等待通知.
 func (n *SyncNotifier) Wait(userID, deviceID string) <-chan struct{} {
 	key := userID + ":" + deviceID
 	ch := make(chan struct{})

@@ -19,8 +19,8 @@ import (
 )
 
 type RecoverPasswordVerifyEmailRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required"`
+	Username string `binding:"required" json:"username"`
+	Email    string `binding:"required" json:"email"`
 }
 
 type RecoverPasswordVerifyEmailToken struct {
@@ -31,7 +31,8 @@ type RecoverPasswordVerifyEmailToken struct {
 func RecoverPasswordVerifyEmail(c *gin.Context) {
 	req := &RecoverPasswordVerifyEmailRequest{}
 	if err := c.ShouldBind(req); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -40,21 +41,23 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 	emailHash := models.GetEmailHash(req.Email)
 
 	err := db.GetDB().Where("username = ?", req.Username).First(user).Error
-
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "user name or email error"})
+
 			return
 		}
 
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
 		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 
 	if user.EmailHash != emailHash {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user name or email error"})
+
 		return
 	}
 
@@ -66,11 +69,12 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 
 	// 保存到数据库
 	err = models.SaveUserMeta(db.GetDB(), user.Id, "recover_password_verify_email_token", token)
-
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -83,24 +87,25 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 
 	toUrl := config.C.AppBaseURL + "api/v2/recover_password?token=" + token.Token
 	mailData := map[string]any{
-		"UserName": user.UserName,
+		"UserName": user.UserName, //nolint:goconst
 		"Token":    token.Token,
-		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
+		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"), //nolint:goconst
 		"URL":      toUrl,
 	}
 
-	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage.(string), "recover_password_verify_email")
-	subject := i18nz.GetLocalizer("", acceptLanguage.(string)).T("recover_password_verify_email_subject", map[string]any{
+	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage.(string), "recover_password_verify_email")                   //nolint:forcetypeassert // type checked by caller
+	subject := i18nz.GetLocalizer("", acceptLanguage.(string)).T("recover_password_verify_email_subject", map[string]any{ //nolint:forcetypeassert
 		"UserName": user.UserName,
 		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	})
 
 	err = email.SendHtmlTemplate(req.Email, "", "", subject, "", mailTemplate, mailData)
-
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPasswordVerifyEmail")
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -110,8 +115,8 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 }
 
 type RecoverPasswordRequest struct {
-	Token    string `json:"Token" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Token    string `binding:"required" json:"Token"`
+	Password string `binding:"required" json:"password"`
 }
 
 func RecoverPassword(c *gin.Context) {
@@ -119,6 +124,7 @@ func RecoverPassword(c *gin.Context) {
 
 	if err := c.ShouldBindQuery(req); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -126,13 +132,14 @@ func RecoverPassword(c *gin.Context) {
 	tokenParts := strings.Split(req.Token, "-")
 	if len(tokenParts) < 3 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 		return
 	}
 
 	userId, err := strconv.ParseInt(tokenParts[1], 10, 64)
-
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 		return
 	}
 
@@ -143,31 +150,37 @@ func RecoverPassword(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 			return
 		}
 
 		err = errors.Wrap(err, "RecoverPassword")
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
+
 		return
 	}
 
 	// 检查token是否正确
 	token := &RecoverPasswordVerifyEmailToken{}
-	err = models.GetUserMeta(db.GetDB(), user.Id, "recover_password_verify_email_token", token)
 
+	err = models.GetUserMeta(db.GetDB(), user.Id, "recover_password_verify_email_token", token)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 		return
 	}
 
 	if token.Token != req.Token {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 		return
 	}
 
 	if token.ExpireAt < time.Now().Unix() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
 		return
 	}
 
@@ -175,16 +188,20 @@ func RecoverPassword(c *gin.Context) {
 	user.UserSecret.Password, err = models.EncryptPassword(req.Password, user.UserSecret.Salt)
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPassword")
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
+
 		return
 	}
 
 	err = db.GetDB().Save(user.UserSecret).Error
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPassword")
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -193,6 +210,7 @@ func RecoverPassword(c *gin.Context) {
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPassword")
 		_ = c.Error(err)
+
 		return
 	}
 

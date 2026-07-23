@@ -8,9 +8,9 @@ import (
 )
 
 type CreateListRequest struct {
-	Title         string `json:"title" binding:"required;min:1;max:64"`
-	RepliesPolicy string `json:"replies_policy" binding:"in:followed,list,none"`
-	Visibility    string `json:"visibility" binding:"in:public,private,followers"`
+	Title         string `binding:"required;min:1;max:64"       json:"title"`
+	RepliesPolicy string `binding:"in:followed,list,none"       json:"replies_policy"`
+	Visibility    string `binding:"in:public,private,followers" json:"visibility"`
 }
 
 func CreateList(c *gin.Context) {
@@ -18,12 +18,13 @@ func CreateList(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(),
+			"error": err.Error(), //nolint:goconst
 		})
+
 		return
 	}
 
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	list := &models.List{
 		Title:     req.Title,
@@ -31,20 +32,20 @@ func CreateList(c *gin.Context) {
 	}
 
 	switch req.Visibility {
-	case "public":
+	case "public": //nolint:goconst
 		list.Visibility = models.ListVisibilityPublic
-	case "private":
+	case "private": //nolint:goconst
 		list.Visibility = models.ListVisibilityPrivate
-	case "followers":
+	case "followers": //nolint:goconst
 		list.Visibility = models.ListVisibilityFollowers
 	}
 
 	list.SetRepliesPolicy(req.RepliesPolicy)
 
 	err := db.GetDB().Create(list).Error
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

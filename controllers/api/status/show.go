@@ -12,6 +12,7 @@ func Show(c *gin.Context) {
 	account := controllers.GetAccount(c)
 
 	var err error
+
 	if status.ReblogId != nil {
 		reblog := &models.Status{}
 		query := db.GetDB().Model(&models.Status{})
@@ -26,14 +27,14 @@ func Show(c *gin.Context) {
 	// 如果是私有的，只有自己和关注者/提及的人可以看到
 	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
 		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"})
+			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
+
 			return
 		} else {
 			canview, err := status.CanViewEx(db.GetDB(), account)
 			controllers.AbortIfError(c, err)
 			controllers.AbortIf(c, !canview, 403, gin.H{"error": "has no permission"})
 		}
-
 	}
 
 	returnFullSingleStatus(c, status, account)

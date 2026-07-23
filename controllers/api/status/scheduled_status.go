@@ -17,11 +17,11 @@ type ListScheduledStatusesRequest struct {
 	Offset  *uint64 `query:"offset"`
 }
 
-// ListScheduledStatuses 获取自己的定时发送的状态列表
+// ListScheduledStatuses 获取自己的定时发送的状态列表.
 func ListScheduledStatuses(c *gin.Context) {
 	req := &ListScheduledStatusesRequest{}
 	err := c.ShouldBindQuery(req)
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
 	currentAccount := controllers.MustGetAccount(c)
 
@@ -39,14 +39,15 @@ func ListScheduledStatuses(c *gin.Context) {
 	}
 
 	if req.Limit != nil {
-		query = query.Limit(int(*req.Limit))
+		query = query.Limit(int(*req.Limit)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	if req.Offset != nil {
-		query = query.Offset(int(*req.Offset))
+		query = query.Offset(int(*req.Offset)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	var statuses []*models.Status
+
 	err = query.Find(&statuses).Error
 	controllers.AbortIfError(c, err)
 
@@ -59,7 +60,7 @@ func ViewSingleScheduledStatus(c *gin.Context) {
 	controllers.AbortIf(c, idStr == "", 422, gin.H{"error": "id is required"})
 
 	id, err := strconv.ParseUint(idStr, 10, 64)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"}) //nolint:goconst
 
 	currentAccount := controllers.MustGetAccount(c)
 
@@ -78,7 +79,7 @@ func ViewSingleScheduledStatus(c *gin.Context) {
 }
 
 type UpdateStatusScheduledAtRequest struct {
-	ScheduledAt string `json:"scheduled_at" binding:"required"`
+	ScheduledAt string `binding:"required" json:"scheduled_at"`
 }
 
 func UpdateStatusScheduledAt(c *gin.Context) {

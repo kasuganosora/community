@@ -19,15 +19,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// CreateAppRequest represents the request for creating an OAuth application
+// CreateAppRequest represents the request for creating an OAuth application.
 type CreateAppRequest struct {
-	ClientName   string `json:"client_name" binding:"required,min=1,max=128"`
-	RedirectUris string `json:"redirect_uris" binding:"required"`
+	ClientName   string `binding:"required,min=1,max=128" json:"client_name"`
+	RedirectUris string `binding:"required"               json:"redirect_uris"`
 	Scopes       string `json:"scopes"`
 	Website      string `json:"website"`
 }
 
-// CreateAppResponse represents the response for creating an OAuth application
+// CreateAppResponse represents the response for creating an OAuth application.
 type CreateAppResponse struct {
 	Id           string `json:"id"`
 	Name         string `json:"name"`
@@ -38,33 +38,33 @@ type CreateAppResponse struct {
 	VapidKey     string `json:"vapid_key"`
 }
 
-// AuthorizeRequest represents the request for OAuth authorization
+// AuthorizeRequest represents the request for OAuth authorization.
 type AuthorizeRequest struct {
-	ResponseType string `form:"response_type" binding:"required"`
-	ClientId     string `form:"client_id" binding:"required"`
-	RedirectUri  string `form:"redirect_uri" binding:"required"`
+	ResponseType string `binding:"required" form:"response_type"`
+	ClientId     string `binding:"required" form:"client_id"`
+	RedirectUri  string `binding:"required" form:"redirect_uri"`
 	Scope        string `form:"scope"`
 	State        string `form:"state"`
 	ForceLogin   bool   `form:"force_login"`
 	Lang         string `form:"lang"`
 }
 
-// TokenRequest represents the request for obtaining a token
+// TokenRequest represents the request for obtaining a token.
 type TokenRequest struct {
-	GrantType    string `json:"grant_type" form:"grant_type" binding:"required"`
-	ClientId     string `json:"client_id" form:"client_id" binding:"required"`
-	ClientSecret string `json:"client_secret" form:"client_secret" binding:"required"`
-	RedirectUri  string `json:"redirect_uri" form:"redirect_uri"`
-	Code         string `json:"code" form:"code"`
-	Scope        string `json:"scope" form:"scope"`
+	GrantType    string `binding:"required"  form:"grant_type"    json:"grant_type"`
+	ClientId     string `binding:"required"  form:"client_id"     json:"client_id"`
+	ClientSecret string `binding:"required"  form:"client_secret" json:"client_secret"`
+	RedirectUri  string `form:"redirect_uri" json:"redirect_uri"`
+	Code         string `form:"code"         json:"code"`
+	Scope        string `form:"scope"        json:"scope"`
 	// Password grant
-	Username string `json:"username" form:"username"`
-	Password string `json:"password" form:"password"`
+	Username string `form:"username" json:"username"`
+	Password string `form:"password" json:"password"`
 	// Refresh token
-	RefreshToken string `json:"refresh_token" form:"refresh_token"`
+	RefreshToken string `form:"refresh_token" json:"refresh_token"`
 }
 
-// TokenResponse represents the response for token endpoint
+// TokenResponse represents the response for token endpoint.
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
@@ -74,16 +74,17 @@ type TokenResponse struct {
 	ExpiresIn    int    `json:"expires_in,omitempty"`
 }
 
-// RevokeRequest represents the request for revoking a token
+// RevokeRequest represents the request for revoking a token.
 type RevokeRequest struct {
-	ClientId     string `json:"client_id" form:"client_id"`
-	ClientSecret string `json:"client_secret" form:"client_secret"`
-	Token        string `json:"token" form:"token" binding:"required"`
+	ClientId     string `form:"client_id"     json:"client_id"`
+	ClientSecret string `form:"client_secret" json:"client_secret"`
+	Token        string `binding:"required"   form:"token"         json:"token"`
 }
 
-// OAuthApplication extends Application with OAuth-specific fields
+// OAuthApplication extends Application with OAuth-specific fields.
 type OAuthApplication struct {
 	models.Application
+
 	ClientId     string `gorm:"type:varchar(64);uniqueIndex;not null"`
 	ClientSecret string `gorm:"type:varchar(128);not null"`
 }
@@ -92,7 +93,7 @@ func (OAuthApplication) TableName() string {
 	return "applications"
 }
 
-// OAuthAuthorizationCode stores temporary authorization codes
+// OAuthAuthorizationCode stores temporary authorization codes.
 type OAuthAuthorizationCode struct {
 	Id            uint64     `gorm:"primary_key;autoIncrement"`
 	Code          string     `gorm:"type:varchar(128);uniqueIndex;not null"`
@@ -109,11 +110,13 @@ func (OAuthAuthorizationCode) TableName() string {
 	return "oauth_authorization_codes"
 }
 
-// CreateApp handles POST /api/v1/apps
+// CreateApp handles POST /api/v1/apps.
 func CreateApp(c *gin.Context) {
 	var req CreateAppRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -137,8 +140,10 @@ func CreateApp(c *gin.Context) {
 		ClientSecret: clientSecret,
 	}
 
-	if err := db.GetDB().Create(app).Error; err != nil {
+	err = db.GetDB().Create(app).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create application error"))
+
 		return
 	}
 
@@ -153,17 +158,19 @@ func CreateApp(c *gin.Context) {
 	})
 }
 
-// AuthorizePage handles GET /oauth/authorize
+// AuthorizePage handles GET /oauth/authorize.
 func AuthorizePage(c *gin.Context) {
 	var req AuthorizeRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	// Validate response_type
 	if req.ResponseType != "code" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "unsupported response_type"})
+
 		return
 	}
 
@@ -171,12 +178,14 @@ func AuthorizePage(c *gin.Context) {
 	app := &OAuthApplication{}
 	if err := db.GetDB().Where("client_id = ?", req.ClientId).First(app).Error; err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid client_id"})
+
 		return
 	}
 
 	// Validate redirect_uri
 	if !isValidRedirectUri(app.RedirectUri, req.RedirectUri) {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid redirect_uri"})
+
 		return
 	}
 
@@ -186,24 +195,29 @@ func AuthorizePage(c *gin.Context) {
 		loginUrl := fmt.Sprintf("/login?redirect_uri=%s&client_id=%s&scope=%s&state=%s&response_type=code",
 			req.RedirectUri, req.ClientId, req.Scope, req.State)
 		c.Redirect(http.StatusTemporaryRedirect, loginUrl)
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert // guaranteed by auth middleware //nolint:forcetypeassert
 
 	// Check if application is already authorized
 	var userAuth models.ApplicationUserAuth
+
 	err := db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).First(&userAuth).Error
 	if err == nil && !req.ForceLogin {
 		// Already authorized, generate code and redirect
 		code := generateAuthorizationCode(app.Id, account.Id, req.RedirectUri, req.Scope)
 		if code == "" {
 			c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate authorization code"})
+
 			return
 		}
+
 		redirectUrl := buildRedirectUrl(req.RedirectUri, code, req.State)
 		c.Redirect(http.StatusTemporaryRedirect, redirectUrl)
+
 		return
 	}
 
@@ -220,55 +234,64 @@ func AuthorizePage(c *gin.Context) {
 	})
 }
 
-// Authorize handles POST /oauth/authorize
+// Authorize handles POST /oauth/authorize.
 func Authorize(c *gin.Context) {
 	var req struct {
-		ClientId    string `form:"client_id" binding:"required"`
-		RedirectUri string `form:"redirect_uri" binding:"required"`
+		ClientId    string `binding:"required" form:"client_id"`
+		RedirectUri string `binding:"required" form:"redirect_uri"`
 		Scope       string `form:"scope"`
 		State       string `form:"state"`
 		Deny        string `form:"deny"`
 	}
 
-	if err := c.ShouldBind(&req); err != nil {
+	err := c.ShouldBind(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	// Check if user is authenticated
 	if !c.GetBool("authenticated") {
 		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert // guaranteed by auth middleware //nolint:forcetypeassert
 
 	// Find application
 	app := &OAuthApplication{}
-	if err := db.GetDB().Where("client_id = ?", req.ClientId).First(app).Error; err != nil {
+	err = db.GetDB().Where("client_id = ?", req.ClientId).First(app).Error
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid client_id"})
+
 		return
 	}
 
 	// If user denied authorization
 	if req.Deny != "" {
-		redirectUrl := fmt.Sprintf("%s?error=access_denied&error_description=User%%20denied%%20access", req.RedirectUri)
+		redirectUrl := req.RedirectUri + "?error=access_denied&error_description=User%20denied%20access"
 		if req.State != "" {
 			redirectUrl += "&state=" + req.State
 		}
+
 		c.Redirect(http.StatusTemporaryRedirect, redirectUrl)
+
 		return
 	}
 
 	// Create or update user authorization
 	userAuth := &models.ApplicationUserAuth{
 		ApplicationId: app.Id,
-		UserId:        int64(account.UserId),
+		UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
 	}
-	if err := db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth).Error; err != nil {
+	err = db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create user auth error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -276,6 +299,7 @@ func Authorize(c *gin.Context) {
 	code := generateAuthorizationCode(app.Id, account.Id, req.RedirectUri, req.Scope)
 	if code == "" {
 		c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate authorization code"})
+
 		return
 	}
 
@@ -284,18 +308,22 @@ func Authorize(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, redirectUrl)
 }
 
-// Token handles POST /oauth/token
+// Token handles POST /oauth/token.
 func Token(c *gin.Context) {
 	var req TokenRequest
-	if err := c.ShouldBind(&req); err != nil {
+	err := c.ShouldBind(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	// Find application
 	app := &OAuthApplication{}
-	if err := db.GetDB().Where("client_id = ? AND client_secret = ?", req.ClientId, req.ClientSecret).First(app).Error; err != nil {
+	err = db.GetDB().Where("client_id = ? AND client_secret = ?", req.ClientId, req.ClientSecret).First(app).Error
+	if err != nil {
 		c.AbortWithStatusJSON(401, gin.H{"error": "invalid_client"})
+
 		return
 	}
 
@@ -313,16 +341,19 @@ func Token(c *gin.Context) {
 	}
 }
 
-// handleAuthorizationCodeGrant handles the authorization code grant type
+// handleAuthorizationCodeGrant handles the authorization code grant type.
 func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
 	// Use transaction to prevent race condition when exchanging code
-	var code *OAuthAuthorizationCode
-	var account *models.Account
+	var (
+		code    *OAuthAuthorizationCode
+		account *models.Account
+	)
 
 	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
 		// Find authorization code
 		code = &OAuthAuthorizationCode{}
-		if err := tx.Where("code = ? AND application_id = ?", req.Code, app.Id).First(code).Error; err != nil {
+		err := tx.Where("code = ? AND application_id = ?", req.Code, app.Id).First(code).Error
+		if err != nil {
 			return errors.New("invalid_grant")
 		}
 
@@ -342,21 +373,23 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 		}
 
 		// Mark code as used atomically within transaction
-		if err := tx.Model(code).Update("used", true).Error; err != nil {
+		err = tx.Model(code).Update("used", true).Error
+		if err != nil {
 			return err
 		}
 
 		// Get account
 		account = &models.Account{}
-		if err := tx.Preload("User").Preload("Extra").First(account, code.AccountId).Error; err != nil {
+		err = tx.Preload("User").Preload("Extra").First(account, code.AccountId).Error
+		if err != nil {
 			return errors.New("invalid_grant")
 		}
 
 		return nil
 	})
-
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -375,11 +408,13 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 	// Save token to database
 	if err := db.GetDB().Create(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
+
 		return
 	}
 
 	// Generate refresh token
 	refreshTokenStr := utils.GetRandomHex(64)
+
 	refreshToken, _ := models.NewAuthToken(
 		account.UserId,
 		models.AuthTokenTypeOauth,
@@ -395,26 +430,29 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 
 	c.JSON(200, TokenResponse{
 		AccessToken:  tokenStr,
-		TokenType:    "Bearer",
+		TokenType:    "Bearer", //nolint:goconst
 		Scope:        code.Scopes,
 		CreatedAt:    time.Now().Unix(),
 		RefreshToken: refreshTokenStr,
 	})
 }
 
-// handlePasswordGrant handles the password grant type
+// handlePasswordGrant handles the password grant type.
 func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
 	// Password grant requires username and password
 	if req.Username == "" || req.Password == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"}) //nolint:goconst
+
 		return
 	}
 
 	// Find user by username (email or username)
 	user := &models.User{}
+
 	err := db.GetDB().Where("email = ?", req.Username).First(user).Error
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
@@ -422,12 +460,14 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	userSecret := &models.UserSecretData{}
 	if err := db.GetDB().Where("user_id = ?", user.Id).First(userSecret).Error; err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
 	// Verify password
 	if err := models.CompareHashAndPassword(userSecret.Password, req.Password, userSecret.Salt); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
@@ -446,11 +486,13 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	// Save token to database
 	if err := db.GetDB().Create(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
+
 		return
 	}
 
 	// Generate refresh token
 	refreshTokenStr := utils.GetRandomHex(64)
+
 	refreshToken, _ := models.NewAuthToken(
 		user.Id,
 		models.AuthTokenTypeOauth,
@@ -473,10 +515,11 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	})
 }
 
-// handleRefreshTokenGrant handles the refresh token grant type
+// handleRefreshTokenGrant handles the refresh token grant type.
 func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
 	if req.RefreshToken == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
@@ -484,24 +527,28 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	oldToken, err := models.GetTokenByTokenStr(req.RefreshToken)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
 	// Check if token is revoked
 	if oldToken.Revoke != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
 	// Check if token belongs to the same application
 	if oldToken.ApplicationId != app.Id {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
 	// Check if it's an OAuth token
 	if oldToken.Type != models.AuthTokenTypeOauth {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
@@ -512,11 +559,13 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	account := &models.Account{}
 	if err := db.GetDB().Where("user_id = ?", userId).First(account).Error; err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
 		return
 	}
 
 	// Revoke the old token
 	now := time.Now()
+
 	oldToken.Revoke = &now
 	if err := db.GetDB().Save(oldToken).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "save revoked token error"))
@@ -545,6 +594,7 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	// Save token to database
 	if err := db.GetDB().Create(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
+
 		return
 	}
 
@@ -581,18 +631,20 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	})
 }
 
-// handleClientCredentialsGrant handles the client credentials grant type
+// handleClientCredentialsGrant handles the client credentials grant type.
 func handleClientCredentialsGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
 	// Client credentials grant is for application-level access
 	// It creates a token associated with the application itself (not a specific user)
 
 	// Create scopes - client_credentials typically has limited scope
 	scopes := parseScopes(req.Scope)
+
 	scopeStr := req.Scope
 	if req.Scope == "" {
 		// Default to read-only for client credentials
 		scopes = models.ApplicationScope{}
 		scopes.AddScope(models.AppScopeTypeRead, models.AppScopeRead)
+
 		scopeStr = "read"
 	}
 
@@ -608,8 +660,10 @@ func handleClientCredentialsGrant(c *gin.Context, app *OAuthApplication, req *To
 	)
 
 	// Save token to database
-	if err := db.GetDB().Create(token).Error; err != nil {
+	err := db.GetDB().Create(token).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
+
 		return
 	}
 
@@ -621,11 +675,12 @@ func handleClientCredentialsGrant(c *gin.Context, app *OAuthApplication, req *To
 	})
 }
 
-// Revoke handles POST /oauth/revoke
+// Revoke handles POST /oauth/revoke.
 func Revoke(c *gin.Context) {
 	var req RevokeRequest
 	if err := c.ShouldBind(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -634,11 +689,13 @@ func Revoke(c *gin.Context) {
 	if err != nil {
 		// Token is invalid or already revoked, return success anyway
 		c.JSON(200, gin.H{})
+
 		return
 	}
 
 	// Set revoke time
 	now := time.Now()
+
 	token.Revoke = &now
 	if err := db.GetDB().Save(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "save revoked token error"))
@@ -647,11 +704,12 @@ func Revoke(c *gin.Context) {
 	c.JSON(200, gin.H{})
 }
 
-// VerifyCredentials handles GET /api/v1/apps/verify_credentials
+// VerifyCredentials handles GET /api/v1/apps/verify_credentials.
 func VerifyCredentials(c *gin.Context) {
 	// Check if user is authenticated
 	if !c.GetBool("authenticated") {
 		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+
 		return
 	}
 
@@ -659,10 +717,11 @@ func VerifyCredentials(c *gin.Context) {
 	app, exists := c.Get("application")
 	if !exists {
 		c.AbortWithStatusJSON(404, gin.H{"error": "application not found"})
+
 		return
 	}
 
-	application := app.(*models.Application)
+	application := app.(*models.Application) //nolint:forcetypeassert // type guaranteed by caller
 	c.JSON(200, serializer.ToApplication(application))
 }
 
@@ -675,8 +734,8 @@ func parseScopes(scopesStr string) models.ApplicationScope {
 		return scopes
 	}
 
-	scopeList := strings.Split(scopesStr, " ")
-	for _, scope := range scopeList {
+	scopeList := strings.SplitSeq(scopesStr, " ")
+	for scope := range scopeList {
 		scope = strings.TrimSpace(scope)
 		switch {
 		case scope == "read" || strings.HasPrefix(scope, "read:"):
@@ -691,13 +750,14 @@ func parseScopes(scopesStr string) models.ApplicationScope {
 			scopes.AddScope(models.AppScopeTypeOther, models.AppScopePush)
 		}
 	}
+
 	return scopes
 }
 
 func isValidRedirectUri(registeredUris, requestedUri string) bool {
 	// Check for exact match
-	uris := strings.Split(registeredUris, "\n")
-	for _, uri := range uris {
+	uris := strings.SplitSeq(registeredUris, "\n")
+	for uri := range uris {
 		uri = strings.TrimSpace(uri)
 		if uri == requestedUri {
 			return true
@@ -707,6 +767,7 @@ func isValidRedirectUri(registeredUris, requestedUri string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -724,10 +785,13 @@ func generateAuthorizationCode(appId, accountId uint64, redirectUri, scopes stri
 		Used:          false,
 	}
 
-	if err := db.GetDB().Create(authCode).Error; err != nil {
+	err := db.GetDB().Create(authCode).Error
+	if err != nil {
 		log.Error("Failed to create auth code: %v", err)
+
 		return ""
 	}
+
 	return code
 }
 
@@ -736,9 +800,11 @@ func buildRedirectUrl(baseUri, code, state string) string {
 	if strings.Contains(baseUri, "?") {
 		separator = "&"
 	}
+
 	redirectUrl := fmt.Sprintf("%s%scode=%s", baseUri, separator, code)
 	if state != "" {
 		redirectUrl += "&state=" + state
 	}
+
 	return redirectUrl
 }

@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// Tag represents a Mastodon-compatible hashtag
+// Tag represents a Mastodon-compatible hashtag.
 type Tag struct {
 	Name         string       `json:"name"`
 	Url          string       `json:"url"`
@@ -16,14 +16,14 @@ type Tag struct {
 	AccountCount *uint64      `json:"account_count,omitempty"`
 }
 
-// TagHistory represents tag usage history
+// TagHistory represents tag usage history.
 type TagHistory struct {
 	Day      string `json:"day"`
 	Uses     string `json:"uses"`
 	Accounts string `json:"accounts"`
 }
 
-// ToTag converts a models.Tag to serializer.Tag
+// ToTag converts a models.Tag to serializer.Tag.
 func ToTag(tag *models.Tag) (ret *Tag) {
 	if tag == nil {
 		return nil
@@ -45,6 +45,7 @@ func ToTag(tag *models.Tag) (ret *Tag) {
 	if tag.StatusCount > 0 {
 		ret.StatusCount = &tag.StatusCount
 	}
+
 	if tag.AccountCount > 0 {
 		ret.AccountCount = &tag.AccountCount
 	}
@@ -52,21 +53,24 @@ func ToTag(tag *models.Tag) (ret *Tag) {
 	return
 }
 
-// ToTags converts a slice of models.Tag to serializer.Tag
+// ToTags converts a slice of models.Tag to serializer.Tag.
 func ToTags(tags []*models.Tag) (ret []*Tag) {
 	if tags == nil {
 		ret = make([]*Tag, 0)
+
 		return
 	}
+
 	for _, tag := range tags {
 		if t := ToTag(tag); t != nil {
 			ret = append(ret, t)
 		}
 	}
+
 	return
 }
 
-// ToTagWithHistory creates a tag with usage history
+// ToTagWithHistory creates a tag with usage history.
 func ToTagWithHistory(tag *models.Tag) (ret *Tag) {
 	ret = ToTag(tag)
 	if ret == nil {

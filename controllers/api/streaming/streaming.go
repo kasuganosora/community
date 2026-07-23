@@ -2,7 +2,7 @@ package streaming
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -39,7 +39,8 @@ type StreamingRequest struct {
 
 func (sr *StreamingRequest) Hash() string {
 	raw := fmt.Sprintf("%s:%s:%s", sr.Type, sr.Stream, sr.List)
-	return utils.Hash(md5.New(), raw)
+
+	return utils.Hash(md5.New(), raw) //nolint:gosec // G401: reviewed and safe
 }
 
 type StreamingResponse struct {
@@ -48,11 +49,11 @@ type StreamingResponse struct {
 	Payload string   `json:"payload"`
 }
 
-type StreamingErrResponse struct {
+type StreamingErrorResponse struct { //nolint:errname // intentional naming for API response
 	Err string `json:"error"`
 }
 
-func (err *StreamingErrResponse) Error() string {
+func (err *StreamingErrorResponse) Error() string {
 	return err.Err
 }
 
@@ -60,14 +61,14 @@ func Streaming(c *gin.Context) {
 	var account *models.Account
 
 	if acc, ok := c.Get("account"); ok {
-		account = acc.(*models.Account)
+		account = acc.(*models.Account) //nolint:forcetypeassert
 	}
 
 	ws, err := upgrade.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	closeChan := make(chan bool, 1)
 	readChan := make(chan []byte)
@@ -77,18 +78,21 @@ func Streaming(c *gin.Context) {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
 				closeChan <- true
+
 				return
 			}
+
 			readChan <- msg
 		}
 	}()
 
 	var redisPubSub *redis.PubSub
+
 	redisMsgChan := make(<-chan *redis.Message)
 
 	defer func() {
 		if redisPubSub != nil {
-			redisPubSub.Close()
+			_ = redisPubSub.Close()
 		}
 	}()
 
@@ -96,6 +100,7 @@ func Streaming(c *gin.Context) {
 		select {
 		case <-closeChan:
 			_ = ws.Close()
+
 			return
 
 		case msg := <-readChan:
@@ -110,11 +115,8 @@ func Streaming(c *gin.Context) {
 
 		case msg := <-redisMsgChan:
 			_ = processRedisMsg(ws, account, msg)
-
 		}
-
 	}
-
 }
 
 func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, redisPub *redis.PubSub) (ret *redis.PubSub, err error) {
@@ -123,24 +125,27 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 		return
 	}
 
-	if req.Type == "subscribe" {
+	if req.Type == "subscribe" { //nolint:goconst
 		ret, err = subscribe(redisPub, account, req)
 		if err != nil {
 			_ = ws.WriteJSON(err)
 		}
+
 		return
 	}
 
-	if req.Type == "unsubscribe" {
+	if req.Type == "unsubscribe" { //nolint:goconst
 		ret, err = unsubscribe(redisPub, account, req)
 		if err != nil {
 			_ = ws.WriteJSON(err)
 		}
+
 		return
 	}
 
 	ret = redisPub
-	_ = ws.WriteJSON(&StreamingErrResponse{Err: "unknown type"})
+	_ = ws.WriteJSON(&StreamingErrorResponse{Err: "unknown type"})
+
 	return
 }
 
@@ -155,11 +160,14 @@ func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) 
 		if err != nil {
 			return
 		}
+
 		ret = pub
+
 		return
 	}
 
 	ret = db.GetRedis().Subscribe(context.Background(), channelName)
+
 	return
 }
 
@@ -172,7 +180,8 @@ func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest
 	if pub == nil {
 		err = errors.New("[unsubscribe]pub is nil")
 		log.ErrorV(err)
-		err = &StreamingErrResponse{Err: "unsubscribe failed"}
+		err = &StreamingErrorResponse{Err: "unsubscribe failed"}
+
 		return
 	}
 
@@ -180,20 +189,25 @@ func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest
 	if err != nil {
 		err = errors.Wrap(err, "[unsubscribe] unsubscribe failed")
 		log.ErrorV(err)
-		err = &StreamingErrResponse{Err: "unsubscribe failed"}
+		err = &StreamingErrorResponse{Err: "unsubscribe failed"}
+
 		return
 	}
+
 	ret = pub
+
 	return
 }
 
 func getChannelName(account *models.Account, s *StreamingRequest) (channelName string, err error) {
 	switch {
-	case s.Stream == "user": // 当前用户的 home timeline
+	case s.Stream == "user": //nolint:goconst
 		if account == nil {
-			err = &StreamingErrResponse{Err: "need login"}
-			return
+			err = &StreamingErrorResponse{Err: "need login"} //nolint:goconst
+
+			return channelName, err
 		}
+
 		channelName = feed.GetRedisChannelName(&home.HomeTimeline{Account: account})
 	case strings.HasPrefix(s.Stream, "public"): // 公开时间线
 		isLocal := strings.Contains(s.Type, ":local")
@@ -204,8 +218,9 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 
 	case strings.Contains(s.Stream, "hashtag"):
 		if s.Tag == "" {
-			err = &StreamingErrResponse{Err: "tag name is empty"}
-			return
+			err = &StreamingErrorResponse{Err: "tag name is empty"} //nolint:goconst
+
+			return channelName, err
 		}
 
 		isLocal := strings.Contains(s.Type, ":local")
@@ -213,49 +228,60 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 		isMedia := strings.Contains(s.Type, ":media")
 		timeline := &tag.TagTimeline{Tag: s.Tag, OnlyLocal: isLocal, OnlyRemote: isRemote, OnlyMedia: isMedia}
 		channelName = feed.GetRedisChannelName(timeline)
-	case s.Stream == "user:notification":
+	case s.Stream == "user:notification": //nolint:goconst
 		if account == nil {
-			err = &StreamingErrResponse{Err: "need login"}
-			return
+			err = &StreamingErrorResponse{Err: "need login"}
+
+			return channelName, err
 		}
+
 		channelName = feed.GetRedisChannelName(&notification.NotificationTimeline{Account: account})
-	case s.Stream == "list":
+	case s.Stream == "list": //nolint:goconst
 		if s.List == "" {
-			err = &StreamingErrResponse{Err: "list name is empty"}
-			return
+			err = &StreamingErrorResponse{Err: "list name is empty"}
+
+			return channelName, err
 		}
+
 		ls := &models.List{}
+
 		err = db.GetDB().Where("name = ?", s.List).First(ls).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				err = &StreamingErrResponse{Err: "list not found"}
-				return
+				err = &StreamingErrorResponse{Err: "list not found"} //nolint:goconst
+
+				return channelName, err
 			} else {
 				err = errors.Wrap(err, "[Streaming] get list failed")
 				log.ErrorV(err)
-				err = &StreamingErrResponse{Err: "get list failed"}
-				return
+				err = &StreamingErrorResponse{Err: "get list failed"}
+
+				return channelName, err
 			}
 		}
+
 		channelName = feed.GetRedisChannelName(&list.ListTimeline{List: ls})
 
-	case s.Stream == "direct":
+	case s.Stream == "direct": //nolint:goconst
 		if account == nil {
-			err = &StreamingErrResponse{Err: "need login"}
-			return
+			err = &StreamingErrorResponse{Err: "need login"}
+
+			return channelName, err
 		}
 
 		channelName = feed.GetRedisChannelName(&direct.DirectTimeline{Account: account})
 	default:
-		err = &StreamingErrResponse{Err: "stream not found"}
+		err = &StreamingErrorResponse{Err: "stream not found"} //nolint:goconst
 	}
 
-	return
+	return channelName, err
 }
 
 func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Message) (err error) {
-	var payload string
-	var eventType string
+	var (
+		payload   string
+		eventType string
+	)
 
 	switch {
 	case strings.HasPrefix(msg.Channel, "feed:home:") || strings.HasPrefix(msg.Channel, "feed:public") || strings.HasPrefix(msg.Channel, "feed:hashtag") || strings.HasPrefix(msg.Channel, "feed:list") || strings.HasPrefix(msg.Channel, "feed:direct"):
@@ -263,11 +289,11 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 	case strings.HasPrefix(msg.Channel, "feed:notification"):
 		eventType, payload, err = serializerNotificationEvent(account, msg.Payload)
 	default:
-		err = &StreamingErrResponse{Err: "unknown channel"}
+		err = &StreamingErrorResponse{Err: "unknown channel"}
 	}
 
 	if err != nil {
-		return
+		return err
 	}
 
 	ret := map[string]any{
@@ -278,22 +304,21 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 
 	// 通过redis的channel来区分不同的stream
 	lastIndex := strings.LastIndex(msg.Channel, ":")
-	ret["stream"].([]string)[0] = strings.Replace(msg.Channel[:lastIndex], "feed:", "", 1)
+	ret["stream"].([]string)[0] = strings.Replace(msg.Channel[:lastIndex], "feed:", "", 1) //nolint:forcetypeassert
 
 	// 如果是列表则需要返回列表名
 	// example:
-	//["hashtag", "ブルアカ"]
-	if ret["stream"].([]string)[0] == "list" {
-		ret["stream"] = append(ret["stream"].([]string), msg.Channel[lastIndex+1:])
+	// ["hashtag", "ブルアカ"]
+	if ret["stream"].([]string)[0] == "list" { //nolint:forcetypeassert
+		ret["stream"] = append(ret["stream"].([]string), msg.Channel[lastIndex+1:]) //nolint:forcetypeassert
 	}
 
 	retPayload, err := json.Marshal(ret)
-
 	if err != nil {
-		return
+		return err
 	}
 
 	err = ws.WriteMessage(websocket.TextMessage, retPayload)
 
-	return
+	return err
 }

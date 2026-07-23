@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,19 +121,15 @@ func TestConfigFields(t *testing.T) {
 	assert.Equal(t, "1382400", cfg.SessionExpire)
 	assert.Equal(t, "localhost", cfg.Redis0Host)
 	assert.Equal(t, "6379", cfg.Redis0Port)
-	assert.Equal(t, "", cfg.Redis0Password)
+	assert.Empty(t, cfg.Redis0Password)
 	assert.Equal(t, "0", cfg.Redis0Db)
 	assert.Equal(t, "value", cfg.Other["key"])
 }
 
 func TestLoadConfigFromEnv(t *testing.T) {
-	// Save original env values
-	originalListen := os.Getenv("LISTEN")
-	originalURL := os.Getenv("APP_BASE_URL")
-
 	// Set test env values
-	os.Setenv("LISTEN", ":7777")
-	os.Setenv("APP_BASE_URL", "http://envtest.com")
+	t.Setenv("LISTEN", ":7777")
+	t.Setenv("APP_BASE_URL", "http://envtest.com")
 
 	// Reload config from env
 	err := loadConfigFromEnv()
@@ -142,16 +137,4 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 	// Check values were loaded
 	// Note: This affects global config C
-
-	// Restore original env values
-	if originalListen != "" {
-		_ = os.Setenv("LISTEN", originalListen)
-	} else {
-		_ = os.Unsetenv("LISTEN")
-	}
-	if originalURL != "" {
-		os.Setenv("APP_BASE_URL", originalURL)
-	} else {
-		os.Unsetenv("APP_BASE_URL")
-	}
 }

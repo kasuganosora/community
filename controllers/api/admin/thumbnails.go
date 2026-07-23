@@ -12,21 +12,25 @@ import (
 )
 
 // GetThumbnailStats 获取缩略图统计
-// GET /api/v1/admin/thumbnails/stats
+// GET /api/v1/admin/thumbnails/stats.
 func GetThumbnailStats(c *gin.Context) {
 	svc := thumbnail.GetService()
 	if svc != nil {
 		stats, err := svc.GetThumbnailStats()
 		if err == nil {
 			c.JSON(200, stats)
+
 			return
 		}
+
 		log.Warn("Failed to get thumbnail stats: %v", err)
 	}
 
 	// 直接查询数据库作为 fallback
-	var totalCount, completedCount, failedCount, pendingCount int64
-	var totalStorage int64
+	var (
+		totalCount, completedCount, failedCount, pendingCount int64
+		totalStorage                                          int64
+	)
 
 	db.GetDB().Model(&models.Thumbnail{}).Count(&totalCount)
 	db.GetDB().Model(&models.Thumbnail{}).Where("status = ?", models.ThumbnailStatusCompleted).Count(&completedCount)
@@ -36,12 +40,13 @@ func GetThumbnailStats(c *gin.Context) {
 
 	// 获取今日统计
 	today := time.Now().Truncate(24 * time.Hour)
+
 	var todayGenerated, todayFailed int64
 	db.GetDB().Model(&models.Thumbnail{}).Where("status = ? AND updated_at >= ?", models.ThumbnailStatusCompleted, today).Count(&todayGenerated)
 	db.GetDB().Model(&models.Thumbnail{}).Where("status = ? AND updated_at >= ?", models.ThumbnailStatusFailed, today).Count(&todayFailed)
 
 	c.JSON(200, gin.H{
-		"total":           totalCount,
+		"total":           totalCount, //nolint:goconst
 		"completed":       completedCount,
 		"failed":          failedCount,
 		"pending":         pendingCount,
@@ -52,12 +57,13 @@ func GetThumbnailStats(c *gin.Context) {
 }
 
 // GetThumbnailConfig 获取缩略图配置
-// GET /api/v1/admin/thumbnails/config
+// GET /api/v1/admin/thumbnails/config.
 func GetThumbnailConfig(c *gin.Context) {
 	cfg, err := thumbnail.LoadConfig()
 	if err != nil {
 		log.Warn("Failed to load thumbnail config: %v", err)
 		c.JSON(200, thumbnail.DefaultConfig())
+
 		return
 	}
 
@@ -69,7 +75,7 @@ func GetThumbnailConfig(c *gin.Context) {
 }
 
 // UpdateThumbnailConfig 更新缩略图配置
-// PUT /api/v1/admin/thumbnails/config
+// PUT /api/v1/admin/thumbnails/config.
 func UpdateThumbnailConfig(c *gin.Context) {
 	var req struct {
 		Enabled        bool                          `json:"enabled"`
@@ -79,8 +85,10 @@ func UpdateThumbnailConfig(c *gin.Context) {
 		Rules          []models.ThumbnailRule        `json:"rules"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid request"})
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"}) //nolint:goconst
+
 		return
 	}
 
@@ -91,6 +99,7 @@ func UpdateThumbnailConfig(c *gin.Context) {
 		if req.Storage.AccessKey == "" {
 			req.Storage.AccessKey = oldCfg.Storage.AccessKey
 		}
+
 		if req.Storage.SecretKey == "" {
 			req.Storage.SecretKey = oldCfg.Storage.SecretKey
 		}
@@ -114,9 +123,11 @@ func UpdateThumbnailConfig(c *gin.Context) {
 		Rules: convertRules(req.Rules),
 	}
 
-	if err := thumbnail.SaveConfig(cfg); err != nil {
+	err = thumbnail.SaveConfig(cfg)
+	if err != nil {
 		log.Error("Failed to save thumbnail config: %v", err)
 		c.JSON(500, gin.H{"error": "failed to save config"})
+
 		return
 	}
 
@@ -127,7 +138,7 @@ func UpdateThumbnailConfig(c *gin.Context) {
 }
 
 // ListThumbnails 获取缩略图列表
-// GET /api/v1/admin/thumbnails
+// GET /api/v1/admin/thumbnails.
 func ListThumbnails(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
@@ -136,11 +147,13 @@ func ListThumbnails(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
 
 	var thumbnails []models.Thumbnail
+
 	query := db.GetDB().Model(&models.Thumbnail{}).Order("created_at DESC")
 
 	if status != "" {
@@ -154,7 +167,7 @@ func ListThumbnails(c *gin.Context) {
 	query.Offset(offset).Limit(limit).Find(&thumbnails)
 
 	c.JSON(200, gin.H{
-		"data":  thumbnails,
+		"data":  thumbnails, //nolint:goconst
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -162,17 +175,19 @@ func ListThumbnails(c *gin.Context) {
 }
 
 // GetThumbnail 获取单个缩略图详情
-// GET /api/v1/admin/thumbnails/:id
+// GET /api/v1/admin/thumbnails/:id.
 func GetThumbnail(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		c.JSON(400, gin.H{"error": "invalid id"}) //nolint:goconst
+
 		return
 	}
 
 	var thumb models.Thumbnail
 	if err := db.GetDB().First(&thumb, id).Error; err != nil {
-		c.JSON(404, gin.H{"error": "not found"})
+		c.JSON(404, gin.H{"error": "not found"}) //nolint:goconst
+
 		return
 	}
 
@@ -180,64 +195,81 @@ func GetThumbnail(c *gin.Context) {
 }
 
 // DeleteThumbnail 删除缩略图
-// DELETE /api/v1/admin/thumbnails/:id
+// DELETE /api/v1/admin/thumbnails/:id.
 func DeleteThumbnail(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(400, gin.H{"error": "invalid id"})
+
 		return
 	}
 
 	svc := thumbnail.GetService()
 	if svc != nil {
-		if err := svc.DeleteThumbnail(c, id); err != nil {
+		err := svc.DeleteThumbnail(c, id)
+		if err != nil {
 			log.Error("Failed to delete thumbnail: %v", err)
-			c.JSON(500, gin.H{"error": "failed to delete"})
+			c.JSON(500, gin.H{"error": "failed to delete"}) //nolint:goconst
+
 			return
 		}
 	} else {
 		// 直接删除数据库记录
 		var thumb models.Thumbnail
-		if err := db.GetDB().First(&thumb, id).Error; err != nil {
+		err := db.GetDB().First(&thumb, id).Error
+		if err != nil {
 			c.JSON(404, gin.H{"error": "not found"})
+
 			return
 		}
-		if err := db.GetDB().Delete(&thumb).Error; err != nil {
+
+		err = db.GetDB().Delete(&thumb).Error
+		if err != nil {
 			c.JSON(500, gin.H{"error": "failed to delete"})
+
 			return
 		}
 	}
 
-	c.JSON(200, gin.H{"success": true})
+	c.JSON(200, gin.H{"success": true}) //nolint:goconst
 }
 
 // RegenerateThumbnail 重新生成缩略图
-// POST /api/v1/admin/thumbnails/:id/regenerate
+// POST /api/v1/admin/thumbnails/:id/regenerate.
 func RegenerateThumbnail(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(400, gin.H{"error": "invalid id"})
+
 		return
 	}
 
 	svc := thumbnail.GetService()
 	if svc != nil {
-		if err := svc.RegenerateThumbnail(c, id); err != nil {
+		err := svc.RegenerateThumbnail(c, id)
+		if err != nil {
 			log.Error("Failed to regenerate thumbnail: %v", err)
 			c.JSON(500, gin.H{"error": "failed to regenerate"})
+
 			return
 		}
 	} else {
 		// 直接重置状态
 		var thumb models.Thumbnail
-		if err := db.GetDB().First(&thumb, id).Error; err != nil {
+		err := db.GetDB().First(&thumb, id).Error
+		if err != nil {
 			c.JSON(404, gin.H{"error": "not found"})
+
 			return
 		}
+
 		thumb.Status = models.ThumbnailStatusPending
+
 		thumb.ErrorMessage = ""
-		if err := db.GetDB().Save(&thumb).Error; err != nil {
-			c.JSON(500, gin.H{"error": "internal error"})
+		err = db.GetDB().Save(&thumb).Error
+		if err != nil {
+			c.JSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 			return
 		}
 	}
@@ -246,15 +278,17 @@ func RegenerateThumbnail(c *gin.Context) {
 }
 
 // PurgeThumbnails 清理缩略图
-// POST /api/v1/admin/thumbnails/purge
+// POST /api/v1/admin/thumbnails/purge.
 func PurgeThumbnails(c *gin.Context) {
 	var req struct {
 		OlderThanDays int    `json:"older_than_days"`
 		Status        string `json:"status"` // failed, completed, all
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(400, gin.H{"error": "invalid request"})
+
 		return
 	}
 
@@ -269,6 +303,7 @@ func PurgeThumbnails(c *gin.Context) {
 		if err != nil {
 			log.Error("Failed to cleanup thumbnails: %v", err)
 			c.JSON(500, gin.H{"error": "failed to cleanup"})
+
 			return
 		}
 
@@ -294,8 +329,10 @@ func PurgeThumbnails(c *gin.Context) {
 		var count int64
 		query.Count(&count)
 
-		if err := query.Delete(&models.Thumbnail{}).Error; err != nil {
+		err := query.Delete(&models.Thumbnail{}).Error
+		if err != nil {
 			c.JSON(500, gin.H{"error": "failed to delete"})
+
 			return
 		}
 
@@ -308,7 +345,7 @@ func PurgeThumbnails(c *gin.Context) {
 	}
 }
 
-// convertRules 将 models.ThumbnailRule 转换为 thumbnail.ThumbnailRule
+// convertRules 将 models.ThumbnailRule 转换为 thumbnail.ThumbnailRule.
 func convertRules(rules []models.ThumbnailRule) []thumbnail.ThumbnailRule {
 	result := make([]thumbnail.ThumbnailRule, len(rules))
 	for i, r := range rules {
@@ -325,5 +362,6 @@ func convertRules(rules []models.ThumbnailRule) []thumbnail.ThumbnailRule {
 			MediaType:         r.MediaType,
 		}
 	}
+
 	return result
 }

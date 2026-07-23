@@ -11,16 +11,17 @@ import (
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 // setupRedisTest creates a Redis test client using the test framework
-// Returns the RedisTestClient which handles cleanup automatically
+// Returns the RedisTestClient which handles cleanup automatically.
 func setupRedisTest(t *testing.T) *testutil.RedisTestClient {
 	return testutil.SetupRealRedisTest(t)
 }
 
-// TestMockTimeline implements Timeline interface for testing (using different name to avoid conflicts)
+// TestMockTimeline implements Timeline interface for testing (using different name to avoid conflicts).
 type TestMockTimeline struct {
 	KeyFormat  string
 	TimelineId string
@@ -119,10 +120,10 @@ func TestRedisTimelineOperations(t *testing.T) {
 		timelineKey := "test:feed:user1"
 
 		err := client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, result, "1001")
 	})
 
@@ -134,13 +135,13 @@ func TestRedisTimelineOperations(t *testing.T) {
 		reblogKey := timelineKey + ":reblogs"
 
 		err := client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(status.Id, 10)}).Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		err = client.ZAdd(ctx, reblogKey, redis.Z{Score: float64(status.Id), Member: strconv.FormatUint(reblogId, 10)}).Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, result, "2002")
 	})
 
@@ -151,10 +152,10 @@ func TestRedisTimelineOperations(t *testing.T) {
 		client.ZAdd(ctx, timelineKey, redis.Z{Score: 3002, Member: "3002"})
 
 		err := client.ZRem(ctx, timelineKey, "3001").Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result, err := client.ZRange(ctx, timelineKey, 0, -1).Result()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotContains(t, result, "3001")
 		assert.Contains(t, result, "3002")
 	})
@@ -162,15 +163,15 @@ func TestRedisTimelineOperations(t *testing.T) {
 	t.Run("Trim timeline", func(t *testing.T) {
 		timelineKey := "test:feed:user4"
 
-		for i := 0; i < 600; i++ {
+		for i := range 600 {
 			client.ZAdd(ctx, timelineKey, redis.Z{Score: float64(i), Member: strconv.Itoa(i)})
 		}
 
 		err := client.ZRemRangeByRank(ctx, timelineKey, 0, -(MAX_ITEMS + 1)).Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		count, err := client.ZCard(ctx, timelineKey).Result()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.LessOrEqual(t, count, int64(MAX_ITEMS))
 	})
 }
@@ -185,19 +186,19 @@ func TestPubSub(t *testing.T) {
 		channel := "test:channel:pubsub"
 
 		pubsub := client.Subscribe(ctx, channel)
-		defer pubsub.Close()
+		defer func() { _ = pubsub.Close() }()
 
 		_, err := pubsub.Receive(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		msg := map[string]any{
-			"type":    "update",
+			"type":    "update", //nolint:goconst
 			"payload": "test payload",
 		}
 		msgJson, _ := json.Marshal(msg)
 
 		err = client.Publish(ctx, channel, msgJson).Err()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		msgCh := pubsub.Channel()
 		select {
@@ -210,7 +211,7 @@ func TestPubSub(t *testing.T) {
 }
 
 func TestGetRedisChannelName(t *testing.T) {
-	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "123"} //nolint:goconst
 	result := GetRedisChannelName(timeline)
 	assert.Equal(t, "subscribed:feed:home:123", result)
 }
@@ -328,7 +329,7 @@ func TestDBClientInterface(t *testing.T) {
 	var _ DBClient = (*MockDBClient)(nil)
 }
 
-// MockDBClient 实现 DBClient 接口用于测试
+// MockDBClient 实现 DBClient 接口用于测试.
 type MockDBClient struct{}
 
 func (m *MockDBClient) Model(value any) *gorm.DB                    { return nil }
@@ -346,7 +347,7 @@ func TestTimelineInterface(t *testing.T) {
 	// 测试接口方法
 	assert.Equal(t, "test:%s", timeline.GetKeyFormat())
 	assert.Equal(t, "123", timeline.GetTimelineId())
-	assert.Nil(t, timeline.Rebuild())
+	assert.NoError(t, timeline.Rebuild())
 }
 
 func TestRedisClientInterface(t *testing.T) {

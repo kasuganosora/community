@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testDB *testutil.TestDB
@@ -25,11 +26,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(
@@ -40,9 +44,11 @@ func setupTestDB(t *testing.T) {
 	}
 }
 
-func createTestAccount(t *testing.T, username string, domain *string) *models.Account {
+func createTestAccount(t *testing.T, username string, domain *string) *models.Account { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	now := time.Now()
+
 	account := &models.Account{
 		Username:    username,
 		DisplayName: "Test " + username,
@@ -52,16 +58,20 @@ func createTestAccount(t *testing.T, username string, domain *string) *models.Ac
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(account).Error; err != nil {
+	err := testDB.GormDB.Create(account).Error
+	if err != nil {
 		t.Fatalf("Failed to create account: %v", err)
 	}
+
 	return account
 }
 
 func newTestContext(t *testing.T, w *httptest.ResponseRecorder, method, path string) *gin.Context {
 	t.Helper()
+
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
+
 	return c
 }
 
@@ -74,6 +84,7 @@ func TestPeers_Success(t *testing.T) {
 	domain1 := "example.com"
 	domain2 := "mastodon.social"
 	domain3 := "example.com" // duplicate domain
+
 	createTestAccount(t, "user1", &domain1)
 	createTestAccount(t, "user2", &domain2)
 	createTestAccount(t, "user3", &domain3)
@@ -88,8 +99,9 @@ func TestPeers_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var domains []string
+
 	err := json.Unmarshal(w.Body.Bytes(), &domains)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, domains, "example.com")
 	assert.Contains(t, domains, "mastodon.social")
 	assert.GreaterOrEqual(t, len(domains), 2) // distinct behavior may vary in SQLite
@@ -110,8 +122,9 @@ func TestPeers_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var domains []string
+
 	err := json.Unmarshal(w.Body.Bytes(), &domains)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, domains)
 }
 
@@ -130,7 +143,8 @@ func TestPeers_NilDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var domains []string
+
 	err := json.Unmarshal(w.Body.Bytes(), &domains)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, []string{"remote.example"}, domains)
 }

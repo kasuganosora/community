@@ -9,7 +9,7 @@ import (
 	"github.com/kasuganosora/community/utils/translation"
 )
 
-// TranslationResponse represents the translation response
+// TranslationResponse represents the translation response.
 type TranslationResponse struct {
 	Content          string `json:"content"`
 	Language         string `json:"language"`
@@ -18,7 +18,7 @@ type TranslationResponse struct {
 }
 
 // Translate handles POST /api/v1/statuses/:id/translate
-// Translates a status content to the specified language
+// Translates a status content to the specified language.
 func Translate(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
 	account := controllers.GetAccount(c)
@@ -26,16 +26,21 @@ func Translate(c *gin.Context) {
 	// Check permission
 	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
 		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"})
+			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
+
 			return
 		}
+
 		canView, err := status.CanViewEx(db.GetDB(), account)
 		if err != nil {
 			controllers.AbortIfError(c, err)
+
 			return
 		}
+
 		if !canView {
 			c.JSON(403, gin.H{"error": "has no permission"})
+
 			return
 		}
 	}
@@ -44,6 +49,7 @@ func Translate(c *gin.Context) {
 	targetLang := c.Param("lang")
 	if targetLang == "" {
 		c.JSON(400, gin.H{"error": "target language required"})
+
 		return
 	}
 
@@ -56,6 +62,7 @@ func Translate(c *gin.Context) {
 		detected, err := service.DetectLanguage(status.Content.Content)
 		if err != nil {
 			log.Warn("Failed to detect language: %v", err)
+
 			sourceLang = "auto"
 		} else {
 			sourceLang = detected
@@ -73,6 +80,7 @@ func Translate(c *gin.Context) {
 			DetectedLanguage: sourceLang,
 			Provider:         "error",
 		})
+
 		return
 	}
 

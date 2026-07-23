@@ -10,7 +10,7 @@ func TestParseMentions(t *testing.T) {
 	tests := []struct {
 		name        string
 		content     string
-		tags        []interface{}
+		tags        []any
 		expectCount int
 		expectURIs  []string
 	}{
@@ -41,11 +41,11 @@ func TestParseMentions(t *testing.T) {
 		{
 			name:    "tag array mentions",
 			content: "Hello",
-			tags: []interface{}{
-				map[string]interface{}{
-					"type": "Mention",
-					"href": "https://example.com/users/test",
-					"name": "@test@example.com",
+			tags: []any{
+				map[string]any{
+					"type": "Mention",                        //nolint:goconst
+					"href": "https://example.com/users/test", //nolint:goconst
+					"name": "@test@example.com",              //nolint:goconst
 				},
 			},
 			expectCount: 1,
@@ -53,17 +53,17 @@ func TestParseMentions(t *testing.T) {
 		},
 		{
 			name: "mixed tags",
-			tags: []interface{}{
-				map[string]interface{}{
+			tags: []any{
+				map[string]any{
 					"type": "Mention",
 					"href": "https://example.com/users/alice",
 					"name": "@alice@example.com",
 				},
-				map[string]interface{}{
-					"type": "Hashtag",
-					"name": "#test",
+				map[string]any{
+					"type": "Hashtag", //nolint:goconst
+					"name": "#test",   //nolint:goconst
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type": "Mention",
 					"href": "https://other.com/users/bob",
 					"name": "@bob@other.com",
@@ -90,6 +90,7 @@ func TestParseMentions(t *testing.T) {
 				for _, m := range mentions {
 					uriMap[m.URI] = true
 				}
+
 				for _, uri := range tt.expectURIs {
 					assert.True(t, uriMap[uri], "expected URI %s not found", uri)
 				}
@@ -126,7 +127,7 @@ func TestParseTextMentions(t *testing.T) {
 			expectCount: 1,
 			checkMention: func(t *testing.T, mentions []Mention) {
 				assert.Equal(t, "localuser", mentions[0].Username)
-				assert.Equal(t, "", mentions[0].Domain)
+				assert.Empty(t, mentions[0].Domain)
 				assert.Equal(t, "localuser", mentions[0].Acct)
 			},
 		},
@@ -161,6 +162,7 @@ func TestParseTextMentions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mentions := parseTextMentions(tt.content)
 			assert.Len(t, mentions, tt.expectCount)
+
 			if tt.checkMention != nil {
 				tt.checkMention(t, mentions)
 			}
@@ -183,7 +185,7 @@ func TestParseHTMLMentions(t *testing.T) {
 			name:    "mention link",
 			content: `<a href="https://example.com/users/test">@test</a>`,
 			expect: []Mention{
-				{Username: "test", Domain: "example.com", URI: "https://example.com/users/test"},
+				{Username: "test", Domain: "example.com", URI: "https://example.com/users/test"}, //nolint:goconst
 			},
 		},
 		{
@@ -195,7 +197,7 @@ func TestParseHTMLMentions(t *testing.T) {
 			name:    "multiple links",
 			content: `<a href="https://example.com/users/alice">@alice</a> and <a href="https://other.com/users/bob">@bob</a>`,
 			expect: []Mention{
-				{Username: "alice", Domain: "example.com", URI: "https://example.com/users/alice"},
+				{Username: "alice", Domain: "example.com", URI: "https://example.com/users/alice"}, //nolint:goconst
 				{Username: "bob", Domain: "other.com", URI: "https://other.com/users/bob"},
 			},
 		},
@@ -212,9 +214,10 @@ func TestParseHTMLMentions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mentions := parseHTMLMentions(tt.content)
 			if tt.expect == nil {
-				assert.Len(t, mentions, 0)
+				assert.Empty(t, mentions)
 			} else {
 				assert.Len(t, mentions, len(tt.expect))
+
 				for i, expected := range tt.expect {
 					if i < len(mentions) {
 						assert.Equal(t, expected.Username, mentions[i].Username)
@@ -229,7 +232,7 @@ func TestParseHTMLMentions(t *testing.T) {
 func TestParseTagMentions(t *testing.T) {
 	tests := []struct {
 		name string
-		tags []interface{}
+		tags []any
 		want []Mention
 	}{
 		{
@@ -239,13 +242,13 @@ func TestParseTagMentions(t *testing.T) {
 		},
 		{
 			name: "empty tags",
-			tags: []interface{}{},
+			tags: []any{},
 			want: nil,
 		},
 		{
 			name: "single mention tag",
-			tags: []interface{}{
-				map[string]interface{}{
+			tags: []any{
+				map[string]any{
 					"type": "Mention",
 					"href": "https://example.com/users/test",
 					"name": "@test@example.com",
@@ -257,17 +260,17 @@ func TestParseTagMentions(t *testing.T) {
 		},
 		{
 			name: "mixed tag types",
-			tags: []interface{}{
-				map[string]interface{}{
+			tags: []any{
+				map[string]any{
 					"type": "Hashtag",
 					"name": "#test",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type": "Mention",
 					"href": "https://example.com/users/alice",
 					"name": "@alice@example.com",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type": "Emoji",
 					"name": ":smile:",
 				},
@@ -278,8 +281,8 @@ func TestParseTagMentions(t *testing.T) {
 		},
 		{
 			name: "missing href",
-			tags: []interface{}{
-				map[string]interface{}{
+			tags: []any{
+				map[string]any{
 					"type": "Mention",
 					"name": "@test",
 				},
@@ -288,7 +291,7 @@ func TestParseTagMentions(t *testing.T) {
 		},
 		{
 			name: "invalid tag type",
-			tags: []interface{}{
+			tags: []any{
 				"invalid",
 			},
 			want: nil,
@@ -299,9 +302,10 @@ func TestParseTagMentions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := parseTagMentions(tt.tags)
 			if tt.want == nil {
-				assert.Len(t, got, 0)
+				assert.Empty(t, got)
 			} else {
 				assert.Len(t, got, len(tt.want))
+
 				for i, expected := range tt.want {
 					if i < len(got) {
 						assert.Equal(t, expected.URI, got[i].URI)

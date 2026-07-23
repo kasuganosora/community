@@ -21,11 +21,11 @@ import (
 )
 
 type RegisterRequest struct {
-	DisplayName       string `form:"user[account_attributes][display_name]" binding:"required"`
-	UserName          string `form:"user[account_attributes][username]" binding:"required"`
-	Email             string `form:"user[email]" binding:"required"`
-	Password          string `form:"user[password]" binding:"required"`
-	PasswordConfirm   string `form:"user[password_confirmation]" binding:"required"`
+	DisplayName       string `binding:"required"          form:"user[account_attributes][display_name]"`
+	UserName          string `binding:"required"          form:"user[account_attributes][username]"`
+	Email             string `binding:"required"          form:"user[email]"`
+	Password          string `binding:"required"          form:"user[password]"`
+	PasswordConfirm   string `binding:"required"          form:"user[password_confirmation]"`
 	Website           string `form:"user[website]"`
 	InviteCode        string `form:"user[invite_code]"`
 	RecaptchaResponse string `form:"grecaptcha[response]"`
@@ -34,26 +34,31 @@ type RegisterRequest struct {
 func Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
 	// 检查当前是否开放注册
 	if !systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "registration is not open"})
+
 		return
 	}
 
 	// 检查是否需要邀请码才能注册, 而当前请求没有邀请码
 	if systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false) && req.InviteCode == "" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "invite code is required"})
+
 		return
 	}
 
 	// 检查当前用户名和邮箱有没被注册
 	existsFieldName, err := checkExists(req.UserName, req.Email)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.ErrorV(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+
 		return
 	}
 
@@ -62,6 +67,7 @@ func Register(c *gin.Context) {
 			"error": existsFieldName + " has been registered",
 			"field": existsFieldName,
 		})
+
 		return
 	}
 
@@ -69,6 +75,7 @@ func Register(c *gin.Context) {
 	invCode, err := checkAndGetInviteCode(req.InviteCode)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -77,6 +84,7 @@ func Register(c *gin.Context) {
 		err = checkCaptcha(c, req.RecaptchaResponse)
 		if err != nil {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+
 			return
 		}
 	}
@@ -85,6 +93,7 @@ func Register(c *gin.Context) {
 	user, account, err := createUserAndAccount(c, req, invCode)
 	if err != nil {
 		log.ErrorV(err)
+
 		return
 	}
 
@@ -101,10 +110,12 @@ func Register(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "send verify email failed"})
 			log.ErrorV(err)
+
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "verify email has been sent"})
+
 		return
 	}
 
@@ -112,17 +123,18 @@ func Register(c *gin.Context) {
 	err = sendWelcomeEmail(c, req, user)
 	if err != nil {
 		log.ErrorV(err)
+
 		return
 	}
 
 	acc := serializer.ToAccount(account)
 	if acc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": acc})
-
+	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": acc}) //nolint:goconst
 }
 
 func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
@@ -130,8 +142,8 @@ func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (e
 	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage, "welcome_mail")
 
 	mailData := map[string]any{
-		"UserName": user.UserName,
-		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
+		"UserName": user.UserName,                                                  //nolint:goconst
+		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"), //nolint:goconst
 	}
 
 	subject := i18nz.GetLocalizer("", acceptLanguage).T("welcome_mail_subject", map[string]any{
@@ -159,7 +171,6 @@ func sendVerifyEmail(c *gin.Context, req RegisterRequest, user *models.User) (er
 	}
 
 	err = models.SaveUserMeta(db.GetDB(), user.Id, "verify_email_token", token)
-
 	if err != nil {
 		return errors.Wrap(err, "save verify email token failed")
 	}
@@ -204,11 +215,13 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 	userSecret := &models.UserSecretData{}
 	userSecret.Email = req.Email
 	userSecret.Salt = utils.GetRandomString(64)
+
 	userSecret.Password, err = models.EncryptPassword(req.Password, userSecret.Salt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt password failed"})
 		log.ErrorV(err)
-		return
+
+		return user, account, err
 	}
 
 	account = &models.Account{
@@ -218,33 +231,36 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(user).Error; err != nil {
+		err := tx.Create(user).Error
+		if err != nil {
 			return err
 		}
 
 		userSecret.UserId = user.Id
-		if err := tx.Create(userSecret).Error; err != nil {
+		err = tx.Create(userSecret).Error
+		if err != nil {
 			return err
 		}
 
 		account.UserId = user.Id
-		if err := tx.Create(account).Error; err != nil {
+		err = tx.Create(account).Error
+		if err != nil {
 			return err
 		}
 
 		return nil
 	})
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "create user error"})
+
 		err = errors.WithMessage(err, "create user error")
 		log.ErrorV(err)
 	}
 
-	return
+	return user, account, err
 }
 
-// checkCaptcha 检查验证码
+// checkCaptcha 检查验证码.
 func checkCaptcha(c *gin.Context, response string) (err error) {
 	remoteIP := c.ClientIP()
 
@@ -266,49 +282,58 @@ func checkAndGetInviteCode(code string) (inviteCode *models.InviteCode, err erro
 	}
 
 	inv := &models.InviteCode{}
+
 	err = db.GetDB().Model(&models.InviteCode{}).Where("code = ?", code).First(&inv).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = errors.New("invite code not found")
+
 			return
 		}
 	}
 
 	if !inv.IsAvailable() {
 		err = errors.New("invite code is not available")
+
 		return
 	}
 
 	inviteCode = inv
+
 	return
 }
 
 func checkExists(username string, email string) (existsFieldName string, err error) {
 	var exists int64
+
 	err = db.GetDB().Model(&models.User{}).Where("username = ?", username).Count(&exists).Error
 	if err != nil {
 		err = errors.WithMessage(err, "check username exists error")
-		return
+
+		return "", err
 	}
 
 	if exists > 0 {
 		existsFieldName = "username"
-		return
+
+		return existsFieldName, nil
 	}
 
 	exists = 0
 	emailHash := models.GetEmailHash(email)
-	err = db.GetDB().Model(&models.User{}).Where("email_hash = ?", emailHash).Count(&exists).Error
 
+	err = db.GetDB().Model(&models.User{}).Where("email_hash = ?", emailHash).Count(&exists).Error
 	if err != nil {
 		err = errors.WithMessage(err, "check email exists error")
-		return
+
+		return "", err
 	}
 
 	if exists > 0 {
 		existsFieldName = "email"
-		return
+
+		return existsFieldName, nil
 	}
 
-	return
+	return "", nil
 }

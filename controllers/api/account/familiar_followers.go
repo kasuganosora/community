@@ -10,25 +10,27 @@ import (
 	"github.com/pkg/errors"
 )
 
-// FamiliarFollowersRequest represents the request for familiar followers
+// FamiliarFollowersRequest represents the request for familiar followers.
 type FamiliarFollowersRequest struct {
-	Id []string `form:"id" binding:"required"`
+	Id []string `binding:"required" form:"id"`
 }
 
-// FamiliarFollowers handles GET /api/v1/accounts/familiar_followers
+// FamiliarFollowers handles GET /api/v1/accounts/familiar_followers.
 func FamiliarFollowers(c *gin.Context) {
 	// Get target account IDs
 	ids := c.QueryArray("id")
 	if len(ids) == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "id parameter required"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "id parameter required"}) //nolint:goconst
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Parse target IDs
 	targetIds := make([]uint64, 0, len(ids))
+
 	for _, idStr := range ids {
 		if id, err := strconv.ParseUint(idStr, 10, 64); err == nil {
 			targetIds = append(targetIds, id)
@@ -36,7 +38,8 @@ func FamiliarFollowers(c *gin.Context) {
 	}
 
 	if len(targetIds) == 0 {
-		c.JSON(200, []interface{}{})
+		c.JSON(200, []any{})
+
 		return
 	}
 
@@ -57,6 +60,7 @@ func FamiliarFollowers(c *gin.Context) {
 
 		// Get familiar followers (intersection)
 		var familiarIds []uint64
+
 		db.GetDB().Table("accounts").
 			Select("accounts.id").
 			Where("accounts.id IN (?)", followingSubquery).
@@ -68,9 +72,10 @@ func FamiliarFollowers(c *gin.Context) {
 		// Load accounts
 		accounts := make([]*models.Account, 0)
 		if len(familiarIds) > 0 {
-			if err := db.GetDB().Preload("Emojis").Preload("Extra").
+			err := db.GetDB().Preload("Emojis").Preload("Extra").
 				Where("id IN ?", familiarIds).
-				Find(&accounts).Error; err != nil {
+				Find(&accounts).Error
+			if err != nil {
 				_ = c.Error(errors.Wrap(err, "get familiar followers error"))
 			}
 		}
@@ -80,7 +85,7 @@ func FamiliarFollowers(c *gin.Context) {
 
 		result = append(result, gin.H{
 			"id":       strconv.FormatUint(targetId, 10),
-			"accounts": familiarFollowers,
+			"accounts": familiarFollowers, //nolint:goconst
 		})
 	}
 

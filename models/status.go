@@ -1,14 +1,22 @@
 package models
 
 import (
+	"regexp"
+	"strings"
+	"time"
+
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"regexp"
-	"strings"
-	"time"
+)
+
+// 预编译正则表达式，避免每次请求时重复编译.
+var (
+	statusEmojiRegex   = regexp.MustCompile(`:[a-zA-Z0-9_]+:`)
+	statusTagRegex     = regexp.MustCompile(`#\S+`)
+	statusMentionRegex = regexp.MustCompile(`@\S+`)
 )
 
 const (
@@ -26,40 +34,40 @@ const (
 	StatusVisibilityDirect          // 只有提到的用户可见
 )
 
-type Status struct {
+type Status struct { //nolint:recvcheck
 	Id            uint64        `gorm:"primary_key;autoIncrement" json:"id"`
 	Content       StatusContent `json:"content"`
-	AccountId     uint64        `gorm:"not null;index" json:"account_id"`
+	AccountId     uint64        `gorm:"not null;index"            json:"account_id"`
 	ApplicationId *uint64       `json:"application_id"`
-	Visibility    uint8         `gorm:"not null;default:0" json:"visibility"`
+	Visibility    uint8         `gorm:"not null;default:0"        json:"visibility"`
 	ReblogId      *uint64       `json:"reblog_id"`
-	ReblogsCount  uint64        `gorm:"not null;default:0" json:"reblogs_count"`
-	RepliesCount  uint64        `gorm:"not null;default:0" json:"replies_count"`
+	ReblogsCount  uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
+	RepliesCount  uint64        `gorm:"not null;default:0"        json:"replies_count"`
 
 	InReplyToId        *uint64        `json:"in_reply_to_id"`
 	InReplyToAccountId *uint64        `json:"in_reply_to_account_id"`
-	Sensitive          bool           `gorm:"not null;default:false" json:"sensitive"`
-	Language           string         `gorm:"type:varchar(16)" json:"language"`
-	FavouritesCount    uint64         `gorm:"not null;default:0" json:"favourites_count"`
-	ScheduledAt        *time.Time     `gorm:"index" json:"scheduled_at"`
-	OriginUri          *string        `gorm:"type:varchar(255)" json:"origin_uri"`
-	OriginUrl          *string        `gorm:"type:varchar(255)" json:"origin_url"`
+	Sensitive          bool           `gorm:"not null;default:false"        json:"sensitive"`
+	Language           string         `gorm:"type:varchar(16)"              json:"language"`
+	FavouritesCount    uint64         `gorm:"not null;default:0"            json:"favourites_count"`
+	ScheduledAt        *time.Time     `gorm:"index"                         json:"scheduled_at"`
+	OriginUri          *string        `gorm:"type:varchar(255)"             json:"origin_uri"`
+	OriginUrl          *string        `gorm:"type:varchar(255)"             json:"origin_url"`
 	CreatedAt          *time.Time     `gorm:"not null;autoCreateTime;index" json:"created_at"`
-	UpdatedAt          *time.Time     `gorm:"not null;autoUpdateTime" json:"updated_at"`
-	DeletedAt          *time.Time     `gorm:"index" json:"-"`
-	Properties         map[string]any `gorm:"type:json;serializer:json" json:"properties"`
-	Domain             *string        `gorm:"type:varchar(128);index" json:"domain"`
-	ConversationId     *uint64        `gorm:"index" json:"conversation_id"`
+	UpdatedAt          *time.Time     `gorm:"not null;autoUpdateTime"       json:"updated_at"`
+	DeletedAt          *time.Time     `gorm:"index"                         json:"-"`
+	Properties         map[string]any `gorm:"type:json;serializer:json"     json:"properties"`
+	Domain             *string        `gorm:"type:varchar(128);index"       json:"domain"`
+	ConversationId     *uint64        `gorm:"index"                         json:"conversation_id"`
 
-	Application  *Application `gorm:"foreignKey:application_id" json:"application"`
+	Application  *Application `gorm:"foreignKey:application_id"           json:"application"`
 	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
-	ReplyAccount *Account     `gorm:"foreignKey:InReplyToAccountId" json:"reply_account"`
-	Emojis       Emojis       `gorm:"many2many:status_emojis;" json:"emojis"`
-	ToAccounts   Accounts     `gorm:"many2many:status_to_accounts;" json:"to_accounts"`
-	Poll         *Poll        `gorm:"foreignKey:status_id" json:"poll"`
-	Account      *Account     `gorm:"foreignKey:account_id" json:"account"`
-	Reblog       *Status      `gorm:"foreignKey:reblog_id" json:"relog"`
-	Tags         Tags         `gorm:"many2many:status_tags;" json:"tags"`
+	ReplyAccount *Account     `gorm:"foreignKey:InReplyToAccountId"       json:"reply_account"`
+	Emojis       Emojis       `gorm:"many2many:status_emojis;"            json:"emojis"`
+	ToAccounts   Accounts     `gorm:"many2many:status_to_accounts;"       json:"to_accounts"`
+	Poll         *Poll        `gorm:"foreignKey:status_id"                json:"poll"`
+	Account      *Account     `gorm:"foreignKey:account_id"               json:"account"`
+	Reblog       *Status      `gorm:"foreignKey:reblog_id"                json:"relog"`
+	Tags         Tags         `gorm:"many2many:status_tags;"              json:"tags"`
 
 	isLoadAllExtendFields bool `gorm:"-"`
 	conversationIdChanged bool `gorm:"-"`
@@ -75,28 +83,31 @@ func (s *Status) SetAllExtendFieldsLoaded() {
 
 func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 	if s.isLoadAllExtendFields {
-		return
+		return err
 	}
 
 	if s.ApplicationId != nil && *s.ApplicationId > 0 && s.Application == nil {
 		s.Application = &Application{}
-		if err = tx.Model(s).Association("Application").Find(s.Application); err != nil {
-			return
+		err = tx.Model(s).Association("Application").Find(s.Application)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.ReblogId != nil && *s.ReblogId > 0 && s.Reblog == nil {
 		s.Reblog = &Status{}
-		if err = tx.Model(s).Association("Reblog").Find(s.Reblog); err != nil {
-			return
+		err = tx.Model(s).Association("Reblog").Find(s.Reblog)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.Poll == nil {
 		poll := &Poll{}
+
 		err = tx.Model(poll).Preload("Options").Where("status_id = ?", s.Id).First(poll).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return
+			return err
 		}
 
 		if err == nil {
@@ -108,52 +119,116 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 
 	if s.AccountId > 0 && s.Account == nil {
 		s.Account = &Account{}
-		if err = tx.Model(s).Association("Account").Find(s.Account); err != nil {
-			return
+		err = tx.Model(s).Association("Account").Find(s.Account)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.InReplyToAccountId != nil && *s.InReplyToAccountId > 0 && s.ReplyAccount == nil {
 		s.ReplyAccount = &Account{}
-		if err = tx.Model(s).Association("ReplyAccount").Find(s.ReplyAccount); err != nil {
-			return
+		err = tx.Model(s).Association("ReplyAccount").Find(s.ReplyAccount)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.Emojis == nil {
 		s.Emojis = make(Emojis, 0)
-		if err = tx.Model(s).Association("Emojis").Find(&s.Emojis); err != nil {
-			return
+		err = tx.Model(s).Association("Emojis").Find(&s.Emojis)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.Attachments == nil {
 		s.Attachments = make(Attachments, 0)
-		if err = tx.Model(s).Association("Attachments").Find(&s.Attachments); err != nil {
-			return
+		err = tx.Model(s).Association("Attachments").Find(&s.Attachments)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.Tags == nil {
 		s.Tags = make([]*Tag, 0)
-		if err = tx.Model(s).Association("Tags").Find(&s.Tags); err != nil {
-			return
+		err = tx.Model(s).Association("Tags").Find(&s.Tags)
+		if err != nil {
+			return err
 		}
 	}
 
 	if s.Content.Content == "" {
-		if err = tx.Model(s).Association("Content").Find(&s.Content); err != nil {
-			return
+		err = tx.Model(s).Association("Content").Find(&s.Content)
+		if err != nil {
+			return err
 		}
 	}
 
 	s.isLoadAllExtendFields = true
-	return
+
+	return err
+}
+
+// BatchLoadAllExtendFields 批量加载多条 Status 的扩展字段，减少 N+1 查询问题。
+// 对于切片中的每个 Status，如果尚未加载扩展字段，则统一使用 IN 查询批量加载。
+func BatchLoadAllExtendFields(tx *gorm.DB, statuses []*Status) (err error) {
+	if len(statuses) == 0 {
+		return err
+	}
+
+	// 收集需要加载的 ID
+	notLoaded := make([]*Status, 0, len(statuses))
+	accountIDs := make([]uint64, 0)
+
+	for _, s := range statuses {
+		if !s.isLoadAllExtendFields {
+			notLoaded = append(notLoaded, s)
+			if s.AccountId > 0 {
+				accountIDs = append(accountIDs, s.AccountId)
+			}
+		}
+	}
+
+	if len(notLoaded) == 0 {
+		return err
+	}
+
+	// 批量加载 Accounts
+	if len(accountIDs) > 0 {
+		accounts := make([]*Account, 0, len(accountIDs))
+		err = tx.Where("id IN ?", accountIDs).Find(&accounts).Error
+		if err != nil {
+			return err
+		}
+
+		accountMap := make(map[uint64]*Account, len(accounts))
+		for _, a := range accounts {
+			accountMap[a.Id] = a
+		}
+
+		for _, s := range notLoaded {
+			if s.Account == nil && s.AccountId > 0 {
+				if a, ok := accountMap[s.AccountId]; ok {
+					s.Account = a
+				}
+			}
+		}
+	}
+
+	// 对每条 status 调用单个加载（此时大部分关联已被预加载，查询单条很快）
+	for _, s := range notLoaded {
+		err = s.CheckAndLoadAllExtendFields(tx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "before_save",
+		Name: "before_save", //nolint:goconst
 		Data: s,
 	})
 
@@ -166,9 +241,11 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 	}
 
 	if s.conversationIdChanged {
-		if err = tx.Table(s.TableName()).Select("conversation_id").Update("conversation_id", s.ConversationId).Error; err != nil {
+		err = tx.Table(s.TableName()).Select("conversation_id").Update("conversation_id", s.ConversationId).Error
+		if err != nil {
 			return
 		}
+
 		s.conversationIdChanged = false
 	}
 
@@ -182,7 +259,7 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_create",
+		Name: "after_create", //nolint:goconst
 		Data: s,
 	})
 
@@ -191,7 +268,7 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_update",
+		Name: "after_update", //nolint:goconst
 		Data: s,
 	})
 
@@ -218,17 +295,18 @@ func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
 
 func (s *Status) SetVisibilityByString(visibility string) (err error) {
 	switch strings.ToLower(visibility) {
-	case "public":
+	case "public": //nolint:goconst
 		s.Visibility = StatusVisibilityPublic
-	case "unlisted":
+	case "unlisted": //nolint:goconst
 		s.Visibility = StatusVisibilityUnlisted
-	case "private":
+	case "private": //nolint:goconst
 		s.Visibility = StatusVisibilityPrivate
-	case "direct":
+	case "direct": //nolint:goconst
 		s.Visibility = StatusVisibilityDirect
 	default:
 		err = errors.New("invalid visibility")
 	}
+
 	return
 }
 
@@ -243,7 +321,7 @@ func (s *Status) GetVisibilityString() string {
 	case StatusVisibilityDirect:
 		return "direct"
 	default:
-		return "unknown"
+		return "unknown" //nolint:goconst
 	}
 }
 
@@ -252,9 +330,12 @@ func (s *Status) IsPinned(db *gorm.DB, account *Account) (ret bool, err error) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
+
 	ret = true
+
 	return
 }
 
@@ -263,9 +344,12 @@ func (s *Status) IsFavourited(db *gorm.DB, account *Account) (ret bool, err erro
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
+
 	ret = true
+
 	return
 }
 
@@ -274,9 +358,12 @@ func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
+
 	ret = true
+
 	return
 }
 
@@ -287,11 +374,13 @@ func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
 
 	if record.ExpiredAt != nil && record.ExpiredAt.Before(time.Now()) {
 		ret = false
+
 		return
 	}
 
@@ -301,10 +390,12 @@ func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
 
 	ret = true
+
 	return
 }
 
@@ -313,14 +404,17 @@ func (s *Status) IsBookmarked(db *gorm.DB, account *Account) (ret bool, err erro
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
+
 		return
 	}
+
 	ret = true
+
 	return
 }
 
 // IsScheduled 是否是定时动态
-// 如果 ScheduledAt 不为空，则是定时动态，到期的时候会自动发布（ScheduledAt 会被置空）
+// 如果 ScheduledAt 不为空，则是定时动态，到期的时候会自动发布（ScheduledAt 会被置空）.
 func (s *Status) IsScheduled() bool {
 	return s.ScheduledAt != nil
 }
@@ -330,11 +424,12 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 		// 更新 expire_at
 		if s.Poll.Properties != nil {
 			if expireIn, ok := s.Poll.Properties["expires_in"].(uint64); ok {
-				s.Poll.ExpiresAt = utils.GetPtr(time.Now().Add(time.Duration(expireIn) * time.Second))
+				s.Poll.ExpiresAt = new(time.Now().Add(time.Duration(expireIn) * time.Second)) //nolint:gosec // G115: reviewed and safe
 			}
 		}
 
-		if err = db.Omit(clause.Associations).Save(s.Poll).Error; err != nil {
+		err = db.Omit(clause.Associations).Save(s.Poll).Error
+		if err != nil {
 			return
 		}
 	}
@@ -351,25 +446,30 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
 	if s.AccountId == account.Id {
 		canView = true
-		return
+
+		return canView
 	}
 
 	if s.IsScheduled() && (account == nil || s.AccountId != account.Id) {
 		canView = false
-		return
+
+		return canView
 	}
 
 	// 公开或者对所有人可见
 	if s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted {
 		canView = true
-		return
+
+		return canView
 	}
 
 	// 有没提到我的
 	isMention := false
+
 	for _, a := range s.ToAccounts {
 		if a.Id == account.Id {
 			isMention = true
+
 			break
 		}
 	}
@@ -377,46 +477,54 @@ func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canVie
 	if s.Visibility == StatusVisibilityPrivate {
 		if _, ok := myFollows[s.AccountId]; ok {
 			canView = true
-			return
+
+			return canView
 		}
 
 		if isMention {
 			canView = true
-			return
+
+			return canView
 		}
 
-		return
+		return canView
 	}
 
 	if s.Visibility == StatusVisibilityDirect && isMention {
 		canView = true
-		return
+
+		return canView
 	}
 
 	// 如果是 rebolg 的，检查原始状态
 	if s.ReblogId != nil && *s.ReblogId > 0 && canView {
 		if s.Reblog == nil {
 			canView = false
-			return
+
+			return canView
 		}
 
 		canView = s.Reblog.CanView(account, myFollows)
-		return
+
+		return canView
 	}
 
-	return
+	return canView
 }
 
 func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
 	if s.AccountId == account.Id {
 		ok = true
+
 		return
 	}
 
 	follows := make(Follows, 0)
+
 	err = db.Scopes(Followed).Where("account_id = ?", account.Id).Find(&follows).Error
 	if err != nil {
 		err = errors.Wrap(err, "get follows failed")
+
 		return
 	}
 
@@ -426,6 +534,7 @@ func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
 	}
 
 	ok = s.CanView(account, followMap)
+
 	return
 }
 
@@ -433,6 +542,7 @@ func (s *Status) SetConversationId(id uint64) {
 	if s.ConversationId != nil && *s.ConversationId == id {
 		return
 	}
+
 	if s.ConversationId == nil && id == 0 {
 		return
 	}
@@ -447,13 +557,15 @@ func (s *Status) SetConversationId(id uint64) {
 }
 
 func (s *Status) SetConversation(tx *gorm.DB) (err error) {
-
 	var conversation *Conversation
+
 	if s.InReplyToId != nil && *s.InReplyToId > 0 {
 		originStatus := &Status{}
-		if err = tx.Where("id = ?", *s.InReplyToId).Preload("Reblog").First(originStatus).Error; err != nil {
+		err = tx.Where("id = ?", *s.InReplyToId).Preload("Reblog").First(originStatus).Error
+		if err != nil {
 			err = errors.New("reply status not found")
-			return
+
+			return err
 		}
 
 		if originStatus.ReblogId != nil && *originStatus.ReblogId > 0 {
@@ -463,14 +575,16 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 		// 如果被回复的 status 的 conversation_id 不为空，则使用被回复的 status 的 conversation_id,否则创建一个新的 conversation，并使用新的 conversation_id
 		if originStatus.ConversationId == nil {
 			conversation = &Conversation{}
-			if err = tx.Create(conversation).Error; err != nil {
-				return
+			err = tx.Create(conversation).Error
+			if err != nil {
+				return err
 			}
 
 			originStatus.ConversationId = &conversation.Id
 
-			if err = tx.Select("conversation_id").Save(originStatus).Error; err != nil {
-				return
+			err = tx.Select("conversation_id").Save(originStatus).Error
+			if err != nil {
+				return err
 			}
 		}
 
@@ -480,8 +594,9 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 	// 如果 visibility 是 direct，则自动创建 conversation
 	if s.Visibility == StatusVisibilityDirect && s.ConversationId == nil {
 		conversation = &Conversation{}
-		if err = tx.Create(conversation).Error; err != nil {
-			return
+		err = tx.Create(conversation).Error
+		if err != nil {
+			return err
 		}
 
 		s.SetConversationId(conversation.Id)
@@ -489,8 +604,9 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 
 	if conversation == nil && s.ConversationId != nil {
 		conversation = &Conversation{}
-		if err = tx.Where("id = ?", *s.ConversationId).First(conversation).Error; err != nil {
-			return
+		err = tx.Where("id = ?", *s.ConversationId).First(conversation).Error
+		if err != nil {
+			return err
 		}
 	}
 
@@ -498,12 +614,13 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 		conversation.AppendStatus(s.Id)
 		conversation.AppendAccount(s.AccountId)
 
-		if err = tx.Select("statuses_ids,accounts_ids").Save(conversation).Error; err != nil {
-			return
+		err = tx.Select("statuses_ids,accounts_ids").Save(conversation).Error
+		if err != nil {
+			return err
 		}
 	}
 
-	return
+	return err
 }
 
 func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
@@ -538,6 +655,7 @@ func (ss *Statuses) GetIds() (ids []uint64) {
 	for _, s := range *ss {
 		ids = append(ids, s.Id)
 	}
+
 	return
 }
 
@@ -549,6 +667,7 @@ func (ss *Statuses) GetIdsWithoutReblogWarp() (ids []uint64) {
 			ids = append(ids, *s.ReblogId)
 		}
 	}
+
 	return
 }
 
@@ -559,6 +678,7 @@ func (ss *Statuses) GetAccountIds() (ids []uint64) {
 	}
 
 	ids = utils.UniqueSlice(ids)
+
 	return
 }
 
@@ -569,14 +689,15 @@ func (ss *Statuses) Filter(filter func(s *Status) bool) (ret Statuses) {
 			ret = append(ret, s)
 		}
 	}
+
 	return
 }
 
 type StatusContent struct {
 	StatusId    uint64         `gorm:"primary_key;auto_increment" json:"status_id"`
-	Content     string         `gorm:"type:text;not null" json:"content"`
-	SpoilerText string         `gorm:"type:text;" json:"spoiler_text"`
-	Card        map[string]any `gorm:"type:json;serializer:json" json:"card"`
+	Content     string         `gorm:"type:text;not null"         json:"content"`
+	SpoilerText string         `gorm:"type:text;"                 json:"spoiler_text"`
+	Card        map[string]any `gorm:"type:json;serializer:json"  json:"card"`
 }
 
 func (sc *StatusContent) TableName() string {
@@ -585,11 +706,13 @@ func (sc *StatusContent) TableName() string {
 
 func (sc *StatusContent) BeforeCreate(tx *gorm.DB) (err error) {
 	err = sc.bindAnyThingsByStatusContent(tx, false)
+
 	return
 }
 
 func (sc *StatusContent) BeforeUpdate(tx *gorm.DB) (err error) {
 	err = sc.bindAnyThingsByStatusContent(tx, true)
+
 	return
 }
 
@@ -605,29 +728,32 @@ func (sc *StatusContent) bindAnyThingsByStatusContent(tx *gorm.DB, refresh bool)
 	if err = sc.bindToAccountsByStatusContent(tx, refresh); err != nil {
 		return
 	}
+
 	return
 }
 
 func (sc *StatusContent) bindEmojiByStatusContent(tx *gorm.DB, refresh bool) (err error) {
 	if refresh {
-		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusEmoji{}).Error; err != nil {
-			return
+		err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusEmoji{}).Error
+		if err != nil {
+			return err
 		}
 	}
 
 	// emoji tag format: :emoji_name:
 	// example: :ablobdj:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:ablobdj:
 
-	preg := regexp.MustCompile(`:[a-zA-Z0-9_]+:`)
+	preg := statusEmojiRegex
+
 	emojiNames := preg.FindAllString(sc.Content, -1)
 	if len(emojiNames) == 0 {
-		return
+		return err
 	}
 
 	emojiNames = utils.FilterDuplicateAndEmptyString(emojiNames)
 
 	if len(emojiNames) == 0 {
-		return
+		return err
 	}
 
 	for i, emojiName := range emojiNames {
@@ -636,11 +762,11 @@ func (sc *StatusContent) bindEmojiByStatusContent(tx *gorm.DB, refresh bool) (er
 
 	emojis := make([]*Emoji, 0)
 	if err = tx.Where("shortcode IN ?", emojiNames).Find(&emojis).Error; err != nil {
-		return
+		return err
 	}
 
 	if len(emojis) == 0 {
-		return
+		return err
 	}
 
 	statusEmojis := make([]*StatusEmoji, 0)
@@ -652,7 +778,8 @@ func (sc *StatusContent) bindEmojiByStatusContent(tx *gorm.DB, refresh bool) (er
 	}
 
 	err = tx.Create(&statusEmojis).Error
-	return
+
+	return err
 }
 
 func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
@@ -660,29 +787,29 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 		// 把之前的tag的使用次数减一
 		err = tx.Model(&Tag{}).Where("id IN (?)", tx.Model(&StatusTag{}).Select("tag_id").Where("status_id = ?", sc.StatusId)).
 			Update("status_count", gorm.Expr("if(status_count > 0, status_count - ?, 0)", 1)).Error
-
 		if err != nil {
-			return
+			return err
 		}
 
-		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusTag{}).Error; err != nil {
-			return
+		err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusTag{}).Error
+		if err != nil {
+			return err
 		}
 	}
 
 	// tag format: #tag_name
 	// example: #abc #def #ghi #你好
-	reg := regexp.MustCompile(`#\S+`)
+	reg := statusTagRegex
 	tagNames := reg.FindAllString(sc.Content, -1)
 
 	if len(tagNames) == 0 {
-		return
+		return err
 	}
 
 	tagNames = utils.FilterDuplicateAndEmptyString(tagNames)
 
 	if len(tagNames) == 0 {
-		return
+		return err
 	}
 
 	for i, tagName := range tagNames {
@@ -691,7 +818,7 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 
 	tags := make([]*Tag, 0)
 	if err = tx.Where("name IN ?", tagNames).Find(&tags).Error; err != nil {
-		return
+		return err
 	}
 
 	tagMap := make(map[string]*Tag)
@@ -701,6 +828,7 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 
 	// 找出不存在的tag
 	notExistTagNames := make([]string, 0)
+
 	for _, tagName := range tagNames {
 		if _, ok := tagMap[tagName]; !ok {
 			notExistTagNames = append(notExistTagNames, tagName)
@@ -713,9 +841,11 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 			tag := &Tag{
 				Name: tagName,
 			}
-			if err = tx.Create(tag).Error; err != nil {
-				return
+			err = tx.Create(tag).Error
+			if err != nil {
+				return err
 			}
+
 			tagMap[tagName] = tag
 		}
 	}
@@ -732,40 +862,43 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 
 	// 刷新tag的使用次数
 	for _, tag := range tagMap {
-		if err = tx.Model(tag).UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error; err != nil {
-			return
+		err = tx.Model(tag).UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error
+		if err != nil {
+			return err
 		}
 	}
-	return
+
+	return err
 }
 
 func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
-
 	if refresh {
-		if err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusToAccount{}).Error; err != nil {
-			return
+		err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusToAccount{}).Error
+		if err != nil {
+			return err
 		}
 	}
 
 	// format: @username1 @username2 @username3@domain1 @username4@domain2
-	reg := regexp.MustCompile(`@\S+`)
+	reg := statusMentionRegex
 	accountNames := reg.FindAllString(sc.Content, -1)
 
 	if len(accountNames) == 0 {
-		return
+		return err
 	}
 
 	accountNames = utils.FilterDuplicateAndEmptyString(accountNames)
 
 	if len(accountNames) == 0 {
-		return
+		return err
 	}
 	// 根据 domain 聚合
 	domainAccountNames := make(map[string][]string)
+
 	for _, accountName := range accountNames {
 		accountName = strings.Trim(accountName, "@ \t\n\r")
 		domain := ""
-		userName := ""
+		var userName string
 
 		if strings.Contains(accountName, "@") {
 			parts := strings.Split(accountName, "@")
@@ -802,14 +935,14 @@ func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool
 		}
 
 		if err != nil {
-			return
+			return err
 		}
 
 		accounts = append(accounts, _accounts...)
 	}
 
 	if len(accounts) == 0 {
-		return
+		return err
 	}
 
 	statusAccounts := make([]*StatusToAccount, 0)
@@ -821,13 +954,14 @@ func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool
 	}
 
 	err = tx.Create(&statusAccounts).Error
-	return
+
+	return err
 }
 
 type StatusMediaAttachment struct {
 	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId uint64 `gorm:"not null;index" json:"status_id"`
-	MediaId  uint64 `gorm:"not null;index" json:"media_id"`
+	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
+	MediaId  uint64 `gorm:"not null;index"             json:"media_id"`
 }
 
 func (sma *StatusMediaAttachment) TableName() string {
@@ -836,8 +970,8 @@ func (sma *StatusMediaAttachment) TableName() string {
 
 type StatusTag struct {
 	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId uint64 `gorm:"not null;index" json:"status_id"`
-	TagId    uint64 `gorm:"not null;index" json:"tag_id"`
+	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
+	TagId    uint64 `gorm:"not null;index"             json:"tag_id"`
 }
 
 func (st *StatusTag) TableName() string {
@@ -846,8 +980,8 @@ func (st *StatusTag) TableName() string {
 
 type StatusEmoji struct {
 	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId uint64 `gorm:"not null;index" json:"status_id"`
-	EmojiId  uint64 `gorm:"not null;index" json:"emoji_id"`
+	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
+	EmojiId  uint64 `gorm:"not null;index"             json:"emoji_id"`
 }
 
 func (se *StatusEmoji) TableName() string {
@@ -855,9 +989,9 @@ func (se *StatusEmoji) TableName() string {
 }
 
 type StatusToAccount struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
+	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
+	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 	Account   *Account   `json:"account"`
 }
@@ -867,9 +1001,9 @@ func (StatusToAccount) TableName() string {
 }
 
 type FavoriteStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 	Status    *Status    `json:"status"`
 }
@@ -884,9 +1018,10 @@ func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
 	}
 
 	event.Trigger("favourite", event.Event{
-		Name: "favourite",
+		Name: "favourite", //nolint:goconst
 		Data: fs,
 	})
+
 	return
 }
 
@@ -899,13 +1034,14 @@ func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
 		Name: "unfavourite",
 		Data: fs,
 	})
+
 	return
 }
 
 type BookmarkStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 }
 
@@ -914,9 +1050,9 @@ func (bs *BookmarkStatus) TableName() string {
 }
 
 type PinStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	StatusId  uint64     `gorm:"not null;index" json:"status_id"`
+	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
+	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 }
 
@@ -925,16 +1061,16 @@ func (ps *PinStatus) TableName() string {
 }
 
 type StatusHistory struct {
-	Id                  uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	StatusId            uint64     `gorm:"not null;index" json:"status_id"`
-	AccountId           uint64     `gorm:"not null;index" json:"account_id"`
-	Content             string     `gorm:"type:text;not null" json:"content"`
-	SpoilerText         string     `gorm:"type:text;not null" json:"spoiler_text"`
-	Sensitive           bool       `gorm:"not null" json:"sensitive"`
-	MediaAttachmentsIds []uint64   `gorm:"type:json;serializer:json" json:"media_attachments_ids"`
-	EmojisIds           []uint64   `gorm:"type:json;serializer:json" json:"emojis_ids"`
+	Id                  uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	StatusId            uint64     `gorm:"not null;index"                json:"status_id"`
+	AccountId           uint64     `gorm:"not null;index"                json:"account_id"`
+	Content             string     `gorm:"type:text;not null"            json:"content"`
+	SpoilerText         string     `gorm:"type:text;not null"            json:"spoiler_text"`
+	Sensitive           bool       `gorm:"not null"                      json:"sensitive"`
+	MediaAttachmentsIds []uint64   `gorm:"type:json;serializer:json"     json:"media_attachments_ids"`
+	EmojisIds           []uint64   `gorm:"type:json;serializer:json"     json:"emojis_ids"`
 	CreatedAt           *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
-	Account             *Account   `gorm:"foreignKey:AccountId" json:"account"`
+	Account             *Account   `gorm:"foreignKey:AccountId"          json:"account"`
 }
 
 func (StatusHistory) TableName() string {

@@ -15,26 +15,26 @@ import (
 // ===== 密钥备份（Server-Side Key Backup）实现 =====
 // 允许用户将 Megolm 会话密钥备份到服务器
 
-// KeyBackupVersion 密钥备份版本
+// KeyBackupVersion 密钥备份版本.
 type KeyBackupVersion struct {
-	Version   string                 `json:"version"`
-	Algorithm string                 `json:"algorithm"` // m.megolm_backup.v1.curve25519-aes-sha2
-	AuthData  map[string]interface{} `json:"auth_data"` // 包含备份的公钥和签名
-	Count     int                    `json:"count"`     // 备份的会话数量
-	ETag      string                 `json:"etag"`      // 版本标识
+	Version   string         `json:"version"`
+	Algorithm string         `json:"algorithm"` // m.megolm_backup.v1.curve25519-aes-sha2
+	AuthData  map[string]any `json:"auth_data"` // 包含备份的公钥和签名
+	Count     int            `json:"count"`     // 备份的会话数量
+	ETag      string         `json:"etag"`      // 版本标识
 }
 
-// KeyBackupSession 备份的会话密钥
+// KeyBackupSession 备份的会话密钥.
 type KeyBackupSession struct {
-	RoomID            string      `json:"room_id,omitempty"`
-	SessionID         string      `json:"session_id,omitempty"`
-	FirstMessageIndex int         `json:"first_message_index"`
-	ForwardedCount    int         `json:"forwarded_count"`
-	IsVerified        bool        `json:"is_verified"`
-	SessionData       interface{} `json:"session_data"` // 加密的会话数据（object or string）
+	RoomID            string `json:"room_id,omitempty"`
+	SessionID         string `json:"session_id,omitempty"`
+	FirstMessageIndex int    `json:"first_message_index"`
+	ForwardedCount    int    `json:"forwarded_count"`
+	IsVerified        bool   `json:"is_verified"`
+	SessionData       any    `json:"session_data"` // 加密的会话数据（object or string）
 }
 
-// KeyBackupData 密钥备份数据（存储在数据库中）
+// KeyBackupData 密钥备份数据（存储在数据库中）.
 type KeyBackupData struct {
 	Algorithm  string `json:"algorithm"`
 	Ciphertext string `json:"ciphertext"` // 加密的备份密钥
@@ -42,18 +42,18 @@ type KeyBackupData struct {
 	IV         string `json:"iv"`
 }
 
-// KeyBackupManager 密钥备份管理器
+// KeyBackupManager 密钥备份管理器.
 type KeyBackupManager struct {
 	hs *HomeServer
 }
 
-// NewKeyBackupManager 创建密钥备份管理器
+// NewKeyBackupManager 创建密钥备份管理器.
 func NewKeyBackupManager(hs *HomeServer) *KeyBackupManager {
 	return &KeyBackupManager{hs: hs}
 }
 
-// CreateBackupVersion 创建新的密钥备份版本
-func (kbm *KeyBackupManager) CreateBackupVersion(userID string, authData map[string]interface{}) (*KeyBackupVersion, error) {
+// CreateBackupVersion 创建新的密钥备份版本.
+func (kbm *KeyBackupManager) CreateBackupVersion(userID string, authData map[string]any) (*KeyBackupVersion, error) {
 	// 生成版本 ID
 	version := generateBackupVersion()
 
@@ -86,9 +86,10 @@ func (kbm *KeyBackupManager) CreateBackupVersion(userID string, authData map[str
 	}, nil
 }
 
-// GetBackupVersion 获取密钥备份版本
+// GetBackupVersion 获取密钥备份版本.
 func (kbm *KeyBackupManager) GetBackupVersion(userID, version string) (*KeyBackupVersion, error) {
 	var record MatrixKeyBackup
+
 	query := db.GetDB().Where("user_id = ?", userID)
 
 	if version != "" {
@@ -98,14 +99,16 @@ func (kbm *KeyBackupManager) GetBackupVersion(userID, version string) (*KeyBacku
 		query = query.Order("created_at DESC")
 	}
 
-	if err := query.First(&record).Error; err != nil {
+	err := query.First(&record).Error
+	if err != nil {
 		return nil, fmt.Errorf("backup not found: %w", err)
 	}
 
 	// 解析 auth_data
-	var authData map[string]interface{}
-	if err := json.Unmarshal([]byte(record.AuthData), &authData); err != nil {
-		authData = make(map[string]interface{})
+	var authData map[string]any
+	err = json.Unmarshal([]byte(record.AuthData), &authData)
+	if err != nil {
+		authData = make(map[string]any)
 	}
 
 	return &KeyBackupVersion{
@@ -117,7 +120,7 @@ func (kbm *KeyBackupManager) GetBackupVersion(userID, version string) (*KeyBacku
 	}, nil
 }
 
-// DeleteBackupVersion 删除密钥备份版本
+// DeleteBackupVersion 删除密钥备份版本.
 func (kbm *KeyBackupManager) DeleteBackupVersion(userID, version string) error {
 	// 删除备份记录
 	result := db.GetDB().Where("user_id = ? AND version = ?", userID, version).Delete(&MatrixKeyBackup{})
@@ -140,6 +143,7 @@ func shouldReplaceKey(existing, incoming *KeyBackupSession) bool {
 	if incoming.FirstMessageIndex < existing.FirstMessageIndex {
 		return true
 	}
+
 	if incoming.FirstMessageIndex > existing.FirstMessageIndex {
 		return false
 	}
@@ -147,6 +151,7 @@ func shouldReplaceKey(existing, incoming *KeyBackupSession) bool {
 	if incoming.ForwardedCount < existing.ForwardedCount {
 		return true
 	}
+
 	if incoming.ForwardedCount > existing.ForwardedCount {
 		return false
 	}
@@ -154,14 +159,16 @@ func shouldReplaceKey(existing, incoming *KeyBackupSession) bool {
 	if incoming.IsVerified && !existing.IsVerified {
 		return true
 	}
+
 	return false
 }
 
-// StoreBackupKeys 存储备份的会话密钥
+// StoreBackupKeys 存储备份的会话密钥.
 func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[string]map[string]KeyBackupSession) error {
 	// 检查备份版本是否存在
 	var backup MatrixKeyBackup
-	if err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND version = ?", userID, version).First(&backup).Error
+	if err != nil {
 		return fmt.Errorf("backup version not found: %w", err)
 	}
 
@@ -173,13 +180,14 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 		for sessionID, session := range sessions {
 			// Check if an existing key exists for this session
 			var existing MatrixKeyBackupSession
+
 			err := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ? AND session_id = ?",
 				userID, version, roomID, sessionID).First(&existing).Error
-
 			if err == nil {
 				// Existing key found — apply replacement rules
 				var existingSession KeyBackupSession
-				if jsonErr := json.Unmarshal([]byte(existing.SessionData), &existingSession); jsonErr == nil {
+				jsonErr := json.Unmarshal([]byte(existing.SessionData), &existingSession)
+				if jsonErr == nil {
 					if !shouldReplaceKey(&existingSession, &session) {
 						// New key is not better; skip
 						continue
@@ -191,6 +199,7 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 			sessionData, err := json.Marshal(session)
 			if err != nil {
 				log.Error("Failed to marshal session %s: %v", sessionID, err)
+
 				continue
 			}
 
@@ -208,6 +217,7 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 				Assign(record).
 				FirstOrCreate(&MatrixKeyBackupSession{}).Error; err != nil {
 				log.Error("Failed to store session %s: %v", sessionID, err)
+
 				continue
 			}
 
@@ -219,10 +229,14 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 	if newCount > 0 {
 		// Recount total sessions for accuracy
 		var totalCount int64
+
 		db.GetDB().Model(&MatrixKeyBackupSession{}).Where("user_id = ? AND version = ?", userID, version).Count(&totalCount)
 		backup.Count = int(totalCount)
+
 		backup.ETag = generateETag()
-		if err := db.GetDB().Save(&backup).Error; err != nil {
+		err := db.GetDB().Save(&backup).Error
+
+		if err != nil {
 			return err
 		}
 	}
@@ -230,52 +244,60 @@ func (kbm *KeyBackupManager) StoreBackupKeys(userID, version string, rooms map[s
 	return nil
 }
 
-// GetBackupKeys 获取备份的会话密钥
+// GetBackupKeys 获取备份的会话密钥.
 func (kbm *KeyBackupManager) GetBackupKeys(userID, version, roomID, sessionID string) (*KeyBackupSession, error) {
 	var record MatrixKeyBackupSession
+
 	query := db.GetDB().Where("user_id = ? AND version = ?", userID, version)
 
 	if roomID != "" {
 		query = query.Where("room_id = ?", roomID)
 	}
+
 	if sessionID != "" {
 		query = query.Where("session_id = ?", sessionID)
 	}
 
-	if err := query.First(&record).Error; err != nil {
+	err := query.First(&record).Error
+	if err != nil {
 		return nil, fmt.Errorf("session not found: %w", err)
 	}
 
 	// 解析会话数据
 	var session KeyBackupSession
-	if err := json.Unmarshal([]byte(record.SessionData), &session); err != nil {
+	err = json.Unmarshal([]byte(record.SessionData), &session)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse session data: %w", err)
 	}
 
 	return &session, nil
 }
 
-// GetBackupKeysForRoom 获取房间的所有备份密钥
+// GetBackupKeysForRoom 获取房间的所有备份密钥.
 func (kbm *KeyBackupManager) GetBackupKeysForRoom(userID, version, roomID string) (map[string]KeyBackupSession, error) {
 	var records []MatrixKeyBackupSession
-	if err := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ?", userID, version, roomID).
-		Find(&records).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ?", userID, version, roomID).
+		Find(&records).Error
+	if err != nil {
 		return nil, fmt.Errorf("failed to fetch sessions: %w", err)
 	}
 
 	sessions := make(map[string]KeyBackupSession)
+
 	for _, record := range records {
 		var session KeyBackupSession
-		if err := json.Unmarshal([]byte(record.SessionData), &session); err != nil {
+		err := json.Unmarshal([]byte(record.SessionData), &session)
+		if err != nil {
 			continue
 		}
+
 		sessions[record.SessionID] = session
 	}
 
 	return sessions, nil
 }
 
-// DeleteBackupKey 删除单个备份密钥
+// DeleteBackupKey 删除单个备份密钥.
 func (kbm *KeyBackupManager) DeleteBackupKey(userID, version, roomID, sessionID string) error {
 	result := db.GetDB().Where("user_id = ? AND version = ? AND room_id = ? AND session_id = ?",
 		userID, version, roomID, sessionID).Delete(&MatrixKeyBackupSession{})
@@ -294,17 +316,22 @@ func (kbm *KeyBackupManager) DeleteBackupKey(userID, version, roomID, sessionID 
 	return nil
 }
 
-// ListBackupVersions 列出用户的所有备份版本
+// ListBackupVersions 列出用户的所有备份版本.
 func (kbm *KeyBackupManager) ListBackupVersions(userID string) ([]*KeyBackupVersion, error) {
 	var records []MatrixKeyBackup
-	if err := db.GetDB().Where("user_id = ?", userID).Order("created_at DESC").Find(&records).Error; err != nil {
+	err := db.GetDB().Where("user_id = ?", userID).Order("created_at DESC").Find(&records).Error
+	if err != nil {
 		return nil, fmt.Errorf("failed to fetch backups: %w", err)
 	}
 
 	versions := make([]*KeyBackupVersion, len(records))
+
 	for i, record := range records {
-		var authData map[string]interface{}
-		_ = json.Unmarshal([]byte(record.AuthData), &authData) //nolint:errcheck // best-effort parsing
+		var authData map[string]any
+
+		if err := json.Unmarshal([]byte(record.AuthData), &authData); err != nil {
+			log.ErrorV(err)
+		}
 
 		versions[i] = &KeyBackupVersion{
 			Version:   record.Version,
@@ -320,7 +347,7 @@ func (kbm *KeyBackupManager) ListBackupVersions(userID string) ([]*KeyBackupVers
 
 // ===== 密钥恢复令牌 =====
 
-// RecoveryKey 恢复密钥
+// RecoveryKey 恢复密钥.
 type RecoveryKey struct {
 	UserID      string    `json:"user_id"`
 	RecoveryKey string    `json:"recovery_key"` // 用户提供的恢复密钥哈希
@@ -329,7 +356,7 @@ type RecoveryKey struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// SetRecoveryKey 设置恢复密钥
+// SetRecoveryKey 设置恢复密钥.
 func (kbm *KeyBackupManager) SetRecoveryKey(userID, version, recoveryKey string) error {
 	// 哈希恢复密钥
 	hash := sha256.Sum256([]byte(recoveryKey))
@@ -347,16 +374,17 @@ func (kbm *KeyBackupManager) SetRecoveryKey(userID, version, recoveryKey string)
 		FirstOrCreate(&MatrixKeyBackupRecovery{}).Error
 }
 
-// VerifyRecoveryKey 验证恢复密钥
+// VerifyRecoveryKey 验证恢复密钥.
 func (kbm *KeyBackupManager) VerifyRecoveryKey(userID, version, recoveryKey string) (bool, error) {
 	// 哈希提供的恢复密钥
 	hash := sha256.Sum256([]byte(recoveryKey))
 	recoveryKeyHash := base64.RawStdEncoding.EncodeToString(hash[:])
 
 	var record MatrixKeyBackupRecovery
-	if err := db.GetDB().Where("user_id = ? AND version = ? AND recovery_key = ?",
-		userID, version, recoveryKeyHash).First(&record).Error; err != nil {
-		return false, nil
+	err := db.GetDB().Where("user_id = ? AND version = ? AND recovery_key = ?",
+		userID, version, recoveryKeyHash).First(&record).Error
+	if err != nil {
+		return false, nil //nolint:nilerr
 	}
 
 	return true, nil
@@ -364,7 +392,7 @@ func (kbm *KeyBackupManager) VerifyRecoveryKey(userID, version, recoveryKey stri
 
 // ===== 数据库模型 =====
 
-// MatrixKeyBackup 密钥备份版本表
+// MatrixKeyBackup 密钥备份版本表.
 type MatrixKeyBackup struct {
 	ID        uint64 `gorm:"primaryKey;autoIncrement"`
 	UserID    string `gorm:"index;type:varchar(255);not null"`
@@ -381,7 +409,7 @@ func (MatrixKeyBackup) TableName() string {
 	return "matrix_key_backups"
 }
 
-// MatrixKeyBackupSession 密钥备份会话表
+// MatrixKeyBackupSession 密钥备份会话表.
 type MatrixKeyBackupSession struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
 	UserID      string `gorm:"index;type:varchar(255);not null"`
@@ -397,7 +425,7 @@ func (MatrixKeyBackupSession) TableName() string {
 	return "matrix_key_backup_sessions"
 }
 
-// MatrixKeyBackupRecovery 密钥备份恢复表
+// MatrixKeyBackupRecovery 密钥备份恢复表.
 type MatrixKeyBackupRecovery struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
 	UserID      string `gorm:"index;type:varchar(255);not null"`
@@ -413,17 +441,19 @@ func (MatrixKeyBackupRecovery) TableName() string {
 
 // ===== 辅助函数 =====
 
-// generateBackupVersion 生成备份版本 ID
+// generateBackupVersion 生成备份版本 ID.
 func generateBackupVersion() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
+	_, _ = rand.Read(b)
+
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// generateETag 生成 ETag
+// generateETag 生成 ETag.
 func generateETag() string {
 	b := make([]byte, 8)
-	_, _ = rand.Read(b) //nolint:errcheck // rand.Read always succeeds with crypto/rand
+	_, _ = rand.Read(b)
+
 	return base64.RawStdEncoding.EncodeToString(b)
 }
 

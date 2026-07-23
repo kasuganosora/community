@@ -12,7 +12,7 @@ import (
 )
 
 // RoomMapper 房间映射服务
-// 负责 Matrix 房间与本地 Conversation 之间的双向映射
+// 负责 Matrix 房间与本地 Conversation 之间的双向映射.
 type RoomMapper struct {
 	client     *ASClient
 	userMapper *UserMapper
@@ -21,11 +21,12 @@ type RoomMapper struct {
 
 type roomCache struct {
 	sync.RWMutex
+
 	convToRoom map[uint64]*models.MatrixRoom // conversation_id -> MatrixRoom
 	roomToConv map[string]*models.MatrixRoom // matrix_room_id -> MatrixRoom
 }
 
-// NewRoomMapper 创建房间映射服务
+// NewRoomMapper 创建房间映射服务.
 func NewRoomMapper(client *ASClient, userMapper *UserMapper) *RoomMapper {
 	return &RoomMapper{
 		client:     client,
@@ -38,22 +39,26 @@ func NewRoomMapper(client *ASClient, userMapper *UserMapper) *RoomMapper {
 }
 
 // GetOrCreateRoomByConversation 获取或创建本地会话对应的 Matrix 房间
-// 方向：本地 Conversation -> Matrix Room
+// 方向：本地 Conversation -> Matrix Room.
 func (r *RoomMapper) GetOrCreateRoomByConversation(convID uint64, participants []string) (*models.MatrixRoom, error) {
 	// 1. 先查缓存
 	r.cache.RLock()
+
 	if room, ok := r.cache.convToRoom[convID]; ok {
 		r.cache.RUnlock()
+
 		return room, nil
 	}
+
 	r.cache.RUnlock()
 
 	// 2. 查数据库
 	var matrixRoom models.MatrixRoom
-	err := db.GetDB().Where("conversation_id = ?", convID).First(&matrixRoom).Error
 
+	err := db.GetDB().Where("conversation_id = ?", convID).First(&matrixRoom).Error
 	if err == nil {
 		r.cacheRoom(&matrixRoom)
+
 		return &matrixRoom, nil
 	}
 
@@ -65,7 +70,7 @@ func (r *RoomMapper) GetOrCreateRoomByConversation(convID uint64, participants [
 	return r.createRoomForConversation(convID, participants)
 }
 
-// createRoomForConversation 为本地会话创建 Matrix 房间
+// createRoomForConversation 为本地会话创建 Matrix 房间.
 func (r *RoomMapper) createRoomForConversation(convID uint64, participants []string) (*models.MatrixRoom, error) {
 	LoadConfig()
 
@@ -99,7 +104,9 @@ func (r *RoomMapper) createRoomForConversation(convID uint64, participants []str
 		if i == 0 {
 			continue // 第一个已经在创建时邀请
 		}
-		if err := r.client.InviteToRoom(resp.RoomID, bridgeUserID, participant); err != nil {
+
+		err := r.client.InviteToRoom(resp.RoomID, bridgeUserID, participant)
+		if err != nil {
 			log.Warn("failed to invite user %s to room %s: %v", participant, resp.RoomID, err)
 		}
 	}
@@ -124,26 +131,31 @@ func (r *RoomMapper) createRoomForConversation(convID uint64, participants []str
 	}
 
 	r.cacheRoom(matrixRoom)
+
 	return matrixRoom, nil
 }
 
 // GetOrCreateConversationByRoom 获取或创建 Matrix 房间对应的本地会话
-// 方向：Matrix Room -> 本地 Conversation
+// 方向：Matrix Room -> 本地 Conversation.
 func (r *RoomMapper) GetOrCreateConversationByRoom(roomID string, participantIDs []string) (*models.MatrixRoom, error) {
 	// 1. 先查缓存
 	r.cache.RLock()
+
 	if room, ok := r.cache.roomToConv[roomID]; ok {
 		r.cache.RUnlock()
+
 		return room, nil
 	}
+
 	r.cache.RUnlock()
 
 	// 2. 查数据库
 	var matrixRoom models.MatrixRoom
-	err := db.GetDB().Where("matrix_room_id = ?", roomID).First(&matrixRoom).Error
 
+	err := db.GetDB().Where("matrix_room_id = ?", roomID).First(&matrixRoom).Error
 	if err == nil {
 		r.cacheRoom(&matrixRoom)
+
 		return &matrixRoom, nil
 	}
 
@@ -155,7 +167,7 @@ func (r *RoomMapper) GetOrCreateConversationByRoom(roomID string, participantIDs
 	return r.createConversationForRoom(roomID, participantIDs)
 }
 
-// createConversationForRoom 为 Matrix 房间创建本地会话
+// createConversationForRoom 为 Matrix 房间创建本地会话.
 func (r *RoomMapper) createConversationForRoom(roomID string, participantIDs []string) (*models.MatrixRoom, error) {
 	LoadConfig()
 
@@ -173,11 +185,12 @@ func (r *RoomMapper) createConversationForRoom(roomID string, participantIDs []s
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get local account for matrix user")
 		}
+
 		accountIDs = append(accountIDs, localAccountID)
 	}
 
 	if len(accountIDs) == 0 {
-		return nil, fmt.Errorf("no valid participants for conversation")
+		return nil, errors.New("no valid participants for conversation")
 	}
 
 	// 创建本地会话
@@ -186,8 +199,10 @@ func (r *RoomMapper) createConversationForRoom(roomID string, participantIDs []s
 	}
 
 	tx := db.GetDB().Begin()
-	if err := tx.Create(conv).Error; err != nil {
+	err := tx.Create(conv).Error
+	if err != nil {
 		tx.Rollback()
+
 		return nil, errors.Wrap(err, "failed to create conversation")
 	}
 
@@ -195,6 +210,7 @@ func (r *RoomMapper) createConversationForRoom(roomID string, participantIDs []s
 	localpart, server, ok := ParseMatrixRoomID(roomID)
 	if !ok {
 		tx.Rollback()
+
 		return nil, fmt.Errorf("invalid room id: %s", roomID)
 	}
 
@@ -207,81 +223,96 @@ func (r *RoomMapper) createConversationForRoom(roomID string, participantIDs []s
 		IsDirect:            true,
 	}
 
-	if err := tx.Create(matrixRoom).Error; err != nil {
+	err = tx.Create(matrixRoom).Error
+	if err != nil {
 		tx.Rollback()
+
 		return nil, errors.Wrap(err, "failed to create matrix room mapping")
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to commit transaction")
 	}
 
 	matrixRoom.Conversation = conv
 	r.cacheRoom(matrixRoom)
+
 	return matrixRoom, nil
 }
 
-// getExistingRoom 仅查找已有的房间映射（不创建新会话）
+// getExistingRoom 仅查找已有的房间映射（不创建新会话）.
 func (r *RoomMapper) getExistingRoom(roomID string) (*models.MatrixRoom, error) {
 	// 1. 先查缓存
 	r.cache.RLock()
+
 	if room, ok := r.cache.roomToConv[roomID]; ok {
 		r.cache.RUnlock()
+
 		return room, nil
 	}
+
 	r.cache.RUnlock()
 
 	// 2. 查数据库
 	var matrixRoom models.MatrixRoom
+
 	err := db.GetDB().Where("matrix_room_id = ?", roomID).First(&matrixRoom).Error
 	if err != nil {
 		return nil, errors.Wrap(err, "room mapping not found")
 	}
 
 	r.cacheRoom(&matrixRoom)
+
 	return &matrixRoom, nil
 }
 
-// GetConversationID 获取 Matrix 房间对应的本地会话 ID（仅查找已有映射）
+// GetConversationID 获取 Matrix 房间对应的本地会话 ID（仅查找已有映射）.
 func (r *RoomMapper) GetConversationID(roomID string) (uint64, error) {
 	matrixRoom, err := r.getExistingRoom(roomID)
 	if err != nil {
 		return 0, err
 	}
+
 	return matrixRoom.ConversationId, nil
 }
 
-// GetMatrixRoomID 获取本地会话对应的 Matrix 房间 ID
+// GetMatrixRoomID 获取本地会话对应的 Matrix 房间 ID.
 func (r *RoomMapper) GetMatrixRoomID(convID uint64) (string, error) {
 	// 先查缓存
 	r.cache.RLock()
+
 	if room, ok := r.cache.convToRoom[convID]; ok {
 		r.cache.RUnlock()
+
 		return room.MatrixRoomID, nil
 	}
+
 	r.cache.RUnlock()
 
 	// 查数据库
 	var matrixRoom models.MatrixRoom
+
 	err := db.GetDB().Where("conversation_id = ?", convID).First(&matrixRoom).Error
 	if err != nil {
 		return "", errors.Wrap(err, "room mapping not found")
 	}
 
 	r.cacheRoom(&matrixRoom)
+
 	return matrixRoom.MatrixRoomID, nil
 }
 
-// UpdateLastSync 更新房间的最后同步信息
+// UpdateLastSync 更新房间的最后同步信息.
 func (r *RoomMapper) UpdateLastSync(roomID, eventID string) error {
 	now := timeNow()
+
 	err := db.GetDB().Model(&models.MatrixRoom{}).
 		Where("matrix_room_id = ?", roomID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"last_event_id": eventID,
 			"last_sync_at":  &now,
 		}).Error
-
 	if err != nil {
 		return errors.Wrap(err, "failed to update last sync")
 	}
@@ -297,16 +328,17 @@ func (r *RoomMapper) UpdateLastSync(roomID, eventID string) error {
 	return nil
 }
 
-// IsDirectRoom 检查是否为私信房间（仅查找已有映射）
+// IsDirectRoom 检查是否为私信房间（仅查找已有映射）.
 func (r *RoomMapper) IsDirectRoom(roomID string) (bool, error) {
 	matrixRoom, err := r.getExistingRoom(roomID)
 	if err != nil {
 		return false, err
 	}
+
 	return matrixRoom.IsDirect, nil
 }
 
-// GetRoomInfo 获取 Matrix 房间信息
+// GetRoomInfo 获取 Matrix 房间信息.
 func (r *RoomMapper) GetRoomInfo(roomID string) (*RoomInfo, error) {
 	events, err := r.client.GetRoomMembers(roomID, "")
 	if err != nil {
@@ -330,7 +362,7 @@ func (r *RoomMapper) GetRoomInfo(roomID string) (*RoomInfo, error) {
 	return info, nil
 }
 
-// cacheRoom 缓存房间映射
+// cacheRoom 缓存房间映射.
 func (r *RoomMapper) cacheRoom(room *models.MatrixRoom) {
 	r.cache.Lock()
 	defer r.cache.Unlock()
@@ -339,7 +371,7 @@ func (r *RoomMapper) cacheRoom(room *models.MatrixRoom) {
 	r.cache.roomToConv[room.MatrixRoomID] = room
 }
 
-// ClearCache 清除缓存
+// ClearCache 清除缓存.
 func (r *RoomMapper) ClearCache() {
 	r.cache.Lock()
 	defer r.cache.Unlock()

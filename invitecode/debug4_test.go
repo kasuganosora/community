@@ -9,10 +9,11 @@ import (
 	"github.com/kasuganosora/community/tests/testutil"
 )
 
-// TestFollowMeDebug4 tries altering the bot column type to integer
+// TestFollowMeDebug4 tries altering the bot column type to integer.
 func TestFollowMeDebug4(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 	database.DB = db.GormDB
+
 	systemsettings.Set(systemsettings.KeyRegistrationApprovalRequired, false)
 	systemsettings.Set(systemsettings.KeyRegistrationCheckEmail, false)
 
@@ -44,13 +45,16 @@ func TestFollowMeDebug4(t *testing.T) {
 
 	// Now check
 	var cnt int64
+
 	db.GormDB.Model(&models.Account{}).Where("user_id = ?", ownerUser.Id).Where("bot = ?", false).Count(&cnt)
 	t.Logf("Count after raw update with bot=false: %d", cnt)
 
 	// Try querying the same way followMe does
 	var found models.Account
+
 	qerr := db.GormDB.Where("user_id = ?", ownerUser.Id).Where("bot = ?", false).First(&found).Error
 	t.Logf("followMe-style query: err=%v", qerr)
+
 	if qerr == nil {
 		t.Logf("Found account! Id=%d, Bot=%v", found.Id, found.Bot)
 	}

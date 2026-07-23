@@ -9,7 +9,7 @@ import (
 )
 
 type UpdateRequest struct {
-	Text     *string `json:"text" binding:"min=1,max=255"`
+	Text     *string `binding:"min=1,max=255" json:"text"`
 	Priority *uint   `json:"priority"`
 }
 

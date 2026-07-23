@@ -10,17 +10,18 @@ import (
 )
 
 type UpdateRequest struct {
-	Category *string   `json:"category" binding:"in:spam,other,legal,violation"`
+	Category *string   `binding:"in:spam,other,legal,violation" json:"category"`
 	RuleIds  *[]string `json:"rule_ids"`
 }
 
 func Update(c *gin.Context) {
 	report := controllers.GetIdFromContext(&models.Report{}, c, db.GetDB())
+
 	var err error
 
 	req := &UpdateRequest{}
 	err = c.ShouldBindJSON(req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	if req.Category != nil {
 		report.SetCategory(*req.Category)
@@ -28,6 +29,7 @@ func Update(c *gin.Context) {
 
 	if req.RuleIds != nil {
 		var ruleIds []uint64
+
 		ruleIds, err = utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(*req.RuleIds))
 		controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid rule ids"})
 

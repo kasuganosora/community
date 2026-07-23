@@ -87,7 +87,7 @@ func TestTagTimeline_DifferentTags(t *testing.T) {
 
 func TestTagTimeline_EmptyTag(t *testing.T) {
 	timeline := &TagTimeline{Tag: ""}
-	assert.Equal(t, "", timeline.GetTimelineId())
+	assert.Empty(t, timeline.GetTimelineId())
 }
 
 func TestTagTimeline_AllFlagsFalse(t *testing.T) {
@@ -119,7 +119,7 @@ func TestTagTimeline_AllFlagsTrue(t *testing.T) {
 func TestTagTimeline_ZeroValues(t *testing.T) {
 	timeline := &TagTimeline{}
 	assert.Equal(t, "feed:hashtag:%s", timeline.GetKeyFormat())
-	assert.Equal(t, "", timeline.GetTimelineId())
+	assert.Empty(t, timeline.GetTimelineId())
 }
 
 func TestPush_VisibilityCheck(t *testing.T) {
@@ -251,17 +251,18 @@ func TestTagTimeline_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = timeline.GetKeyFormat()
 				_ = timeline.GetTimelineId()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -305,7 +306,7 @@ func TestPushAllChannel(t *testing.T) {
 	// pushAllChannel 需要 Redis 连接
 	assert.NotNil(t, status)
 	assert.NotNil(t, status.Attachments)
-	assert.Greater(t, len(status.Attachments), 0)
+	assert.NotEmpty(t, status.Attachments)
 }
 
 func TestTagTimeline_StatusWithAttachments(t *testing.T) {

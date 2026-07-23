@@ -22,7 +22,9 @@ func init() {
 	// 第0个直接从 REDIS_0_HOST 取，其他从Orther中取
 	for i := 0; ; i++ {
 		var host, port, password, dbStr string
-		ok := false
+
+		var ok bool
+
 		if i == 0 {
 			host = config.C.Redis0Host
 			port = config.C.Redis0Port
@@ -33,6 +35,7 @@ func init() {
 			if !ok {
 				break
 			}
+
 			port = config.C.Other[fmt.Sprintf("REDIS_%d_PORT", i)]
 			password = config.C.Other[fmt.Sprintf("REDIS_%d_PASSWORD", i)]
 			dbStr = config.C.Other[fmt.Sprintf("REDIS_%d_DB", i)]
@@ -47,6 +50,7 @@ func init() {
 		}
 
 		db := 0
+
 		if dbStr != "" {
 			if parsedDB, err := strconv.Atoi(dbStr); err == nil {
 				db = parsedDB
@@ -75,6 +79,7 @@ func GetRedis(connNum ...int) *redis.Client {
 	if idx < 0 || idx >= len(redises) {
 		panic(fmt.Sprintf("redis connection index out of range: %d", idx))
 	}
+
 	return redises[idx]
 }
 

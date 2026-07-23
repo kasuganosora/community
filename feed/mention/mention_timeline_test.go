@@ -21,6 +21,7 @@ func TestMentionTimeline_GetTimelineId(t *testing.T) {
 
 func TestMentionTimeline_TimelineInterface(t *testing.T) {
 	account := &models.Account{Id: 999}
+
 	var timeline feed.Timeline = &MentionTimeline{Account: account}
 
 	assert.Equal(t, "feed:mention:%s", timeline.GetKeyFormat())
@@ -48,17 +49,18 @@ func TestMentionTimeline_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = timeline.GetKeyFormat()
 				_ = timeline.GetTimelineId()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -207,7 +209,7 @@ func TestMention_LocalUserFilter(t *testing.T) {
 
 	remoteAccount := &models.Account{
 		Id:     2,
-		Domain: getPtr("remote.example.com"), // 远程用户
+		Domain: new("remote.example.com"), // 远程用户
 	}
 
 	// Rebuild 时应该只查询本地用户
@@ -221,9 +223,4 @@ func TestMentionTimeline_Rebuild(t *testing.T) {
 
 	// Rebuild 需要 Redis 和数据库连接
 	assert.NotNil(t, timeline)
-}
-
-// 辅助函数
-func getPtr(s string) *string {
-	return &s
 }

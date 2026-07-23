@@ -2,6 +2,7 @@ package captcha
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -11,7 +12,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 )
 
-// Service 验证码服务
+// Service 验证码服务.
 type Service struct {
 	provider       Provider
 	providerType   ProviderType
@@ -20,11 +21,11 @@ type Service struct {
 	mu             sync.RWMutex
 }
 
-// globalService 全局验证码服务实例
+// globalService 全局验证码服务实例.
 var globalService *Service
 var once sync.Once
 
-// NewService 创建验证码服务
+// NewService 创建验证码服务.
 func NewService(cfg *Config) (*Service, error) {
 	if cfg == nil {
 		cfg = loadConfigFromSettings()
@@ -41,16 +42,18 @@ func NewService(cfg *Config) (*Service, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		service.provider = provider
 	}
 
 	return service, nil
 }
 
-// GetService 获取全局验证码服务实例
+// GetService 获取全局验证码服务实例.
 func GetService() *Service {
 	once.Do(func() {
 		cfg := loadConfigFromSettings()
+
 		service, err := NewService(cfg)
 		if err != nil {
 			log.Error("Failed to initialize captcha service: %v", err)
@@ -60,12 +63,14 @@ func GetService() *Service {
 				providerType: ProviderNone,
 			}
 		}
+
 		globalService = service
 	})
+
 	return globalService
 }
 
-// Reload 重新加载配置
+// Reload 重新加载配置.
 func (s *Service) Reload() error {
 	cfg := loadConfigFromSettings()
 
@@ -81,6 +86,7 @@ func (s *Service) Reload() error {
 		if err != nil {
 			return err
 		}
+
 		s.provider = provider
 	} else {
 		s.provider = nil
@@ -89,7 +95,7 @@ func (s *Service) Reload() error {
 	return nil
 }
 
-// Verify 验证用户响应
+// Verify 验证用户响应.
 func (s *Service) Verify(ctx context.Context, response string, remoteIP string) (*VerificationResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -98,12 +104,12 @@ func (s *Service) Verify(ctx context.Context, response string, remoteIP string) 
 		// 如果验证码未启用，直接返回成功
 		return &VerificationResult{
 			Success:  true,
-			Provider: "none",
+			Provider: "none", //nolint:goconst
 		}, nil
 	}
 
 	if s.provider == nil {
-		return nil, fmt.Errorf("captcha provider is not initialized")
+		return nil, errors.New("captcha provider is not initialized")
 	}
 
 	if response == "" {
@@ -111,7 +117,7 @@ func (s *Service) Verify(ctx context.Context, response string, remoteIP string) 
 			Success:    false,
 			Provider:   s.provider.Name(),
 			ErrorCodes: []string{"missing-input-response"},
-		}, fmt.Errorf("captcha response is empty")
+		}, errors.New("captcha response is empty")
 	}
 
 	result, err := s.provider.Verify(ctx, response, remoteIP)
@@ -128,28 +134,31 @@ func (s *Service) Verify(ctx context.Context, response string, remoteIP string) 
 	return result, nil
 }
 
-// IsEnabled 检查验证码是否启用
+// IsEnabled 检查验证码是否启用.
 func (s *Service) IsEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.enabled
 }
 
-// GetProvider 获取当前供应商
+// GetProvider 获取当前供应商.
 func (s *Service) GetProvider() Provider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.provider
 }
 
-// GetProviderType 获取当前供应商类型
+// GetProviderType 获取当前供应商类型.
 func (s *Service) GetProviderType() ProviderType {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.providerType
 }
 
-// GetSiteKey 获取站点密钥
+// GetSiteKey 获取站点密钥.
 func (s *Service) GetSiteKey() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -157,10 +166,11 @@ func (s *Service) GetSiteKey() string {
 	if s.provider == nil {
 		return ""
 	}
+
 	return s.provider.GetSiteKey()
 }
 
-// createProvider 根据配置创建供应商实例
+// createProvider 根据配置创建供应商实例.
 func createProvider(cfg *Config) (Provider, error) {
 	switch cfg.Provider {
 	case ProviderRecaptcha:
@@ -170,13 +180,13 @@ func createProvider(cfg *Config) (Provider, error) {
 	case ProviderHCaptcha:
 		return providers.NewHCaptchaProvider(cfg.SiteKey, cfg.SecretKey), nil
 	case ProviderNone:
-		return nil, nil
+		return nil, nil //nolint:nilnil // no provider when disabled
 	default:
 		return nil, fmt.Errorf("unknown captcha provider: %s", cfg.Provider)
 	}
 }
 
-// loadConfigFromSettings 从系统设置加载配置
+// loadConfigFromSettings 从系统设置加载配置.
 func loadConfigFromSettings() *Config {
 	// 从环境变量或系统设置中读取配置
 	providerStr := os.Getenv("CAPTCHA_PROVIDER")
@@ -187,13 +197,14 @@ func loadConfigFromSettings() *Config {
 	// 如果没有配置新格式，尝试兼容旧格式
 	if providerStr == "" {
 		if systemsettings.GetBool(systemsettings.KeyRecaptchaEnabled, false) {
-			providerStr = "recaptcha"
+			providerStr = "recaptcha" //nolint:goconst
 		}
 	}
 
 	provider, err := ParseProviderType(providerStr)
 	if err != nil {
 		log.Warn("Unknown captcha provider '%s', using none", providerStr)
+
 		provider = ProviderNone
 	}
 
@@ -224,34 +235,36 @@ func loadConfigFromSettings() *Config {
 	return cfg
 }
 
-// getConfigValue 获取配置值（优先环境变量）
+// getConfigValue 获取配置值（优先环境变量）.
 func getConfigValue(envKey, settingsKey, defaultValue string) string {
 	if value := os.Getenv(envKey); value != "" {
 		return value
 	}
+
 	return systemsettings.GetString(settingsKey, defaultValue)
 }
 
-// SiteVerify 便捷的验证函数（使用全局服务）
+// SiteVerify 便捷的验证函数（使用全局服务）.
 func SiteVerify(response string, remoteIP string) (bool, error) {
 	result, err := GetService().Verify(context.Background(), response, remoteIP)
 	if err != nil {
 		return false, err
 	}
+
 	return result.Success, nil
 }
 
-// IsCaptchaEnabled 便捷的启用状态检查
+// IsCaptchaEnabled 便捷的启用状态检查.
 func IsCaptchaEnabled() bool {
 	return GetService().IsEnabled()
 }
 
-// GetCurrentSiteKey 便捷的获取站点密钥
+// GetCurrentSiteKey 便捷的获取站点密钥.
 func GetCurrentSiteKey() string {
 	return GetService().GetSiteKey()
 }
 
-// GetCurrentProvider 便捷的获取供应商类型
+// GetCurrentProvider 便捷的获取供应商类型.
 func GetCurrentProvider() string {
 	return GetService().GetProviderType().String()
 }

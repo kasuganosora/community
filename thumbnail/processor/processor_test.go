@@ -22,13 +22,13 @@ func TestIsSupported(t *testing.T) {
 		format   string
 		expected bool
 	}{
-		{"jpeg", true},
-		{"jpg", true},
-		{"png", true},
-		{"gif", true},
-		{"webp", true},
+		{"jpeg", true}, //nolint:goconst
+		{"jpg", true},  //nolint:goconst
+		{"png", true},  //nolint:goconst
+		{"gif", true},  //nolint:goconst
+		{"webp", true}, //nolint:goconst
 		{"bmp", true},
-		{"tiff", true},
+		{"tiff", true}, //nolint:goconst
 		{"svg", false},
 		{"", false},
 	}
@@ -46,7 +46,9 @@ func TestGetDimensions(t *testing.T) {
 
 	// Create a test image
 	img := image.NewRGBA(image.Rect(0, 0, 100, 200))
+
 	var buf bytes.Buffer
+
 	err := jpeg.Encode(&buf, img, nil)
 	if err != nil {
 		t.Fatalf("Failed to encode test image: %v", err)
@@ -60,9 +62,11 @@ func TestGetDimensions(t *testing.T) {
 	if width != 100 {
 		t.Errorf("Width = %d, want 100", width)
 	}
+
 	if height != 200 {
 		t.Errorf("Height = %d, want 200", height)
 	}
+
 	if format != "jpeg" {
 		t.Errorf("Format = %s, want jpeg", format)
 	}
@@ -73,7 +77,9 @@ func TestGenerateThumbnail(t *testing.T) {
 
 	// Create a test image
 	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+
 	var buf bytes.Buffer
+
 	err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
 	if err != nil {
 		t.Fatalf("Failed to encode test image: %v", err)
@@ -98,9 +104,11 @@ func TestGenerateThumbnail(t *testing.T) {
 	if width > 800 {
 		t.Errorf("Width %d exceeds max 800", width)
 	}
+
 	if height > 600 {
 		t.Errorf("Height %d exceeds max 600", height)
 	}
+
 	if format != "jpeg" {
 		t.Errorf("Format = %s, want jpeg", format)
 	}
@@ -110,6 +118,7 @@ func TestGenerateThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read output: %v", err)
 	}
+
 	if output == 0 {
 		t.Error("Output should not be empty")
 	}
@@ -155,13 +164,13 @@ func TestVideoProcessorIsSupported(t *testing.T) {
 		format   string
 		expected bool
 	}{
-		{"mp4", true},
-		{"webm", true},
-		{"mov", true},
-		{"avi", true},
-		{"mkv", true},
-		{"flv", true},
-		{"wmv", true},
+		{"mp4", true},  //nolint:goconst
+		{"webm", true}, //nolint:goconst
+		{"mov", true},  //nolint:goconst
+		{"avi", true},  //nolint:goconst
+		{"mkv", true},  //nolint:goconst
+		{"flv", true},  //nolint:goconst
+		{"wmv", true},  //nolint:goconst
 		{"jpg", false},
 		{"png", false},
 		{"", false},
@@ -184,6 +193,7 @@ func TestVideoProcessorSetSeekTime(t *testing.T) {
 func TestEncodeWebP(t *testing.T) {
 	// Create a test image
 	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+
 	var buf bytes.Buffer
 
 	// Test with high quality (should use PNG)
@@ -191,16 +201,19 @@ func TestEncodeWebP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeWebP failed: %v", err)
 	}
+
 	if buf.Len() == 0 {
 		t.Error("Output should not be empty")
 	}
 
 	// Test with low quality (should use JPEG)
 	buf.Reset()
+
 	err = encodeWebP(&buf, img, 50)
 	if err != nil {
 		t.Fatalf("encodeWebP failed: %v", err)
 	}
+
 	if buf.Len() == 0 {
 		t.Error("Output should not be empty")
 	}
@@ -211,7 +224,9 @@ func TestGenerateThumbnailPNG(t *testing.T) {
 
 	// Create a PNG test image
 	img := image.NewRGBA(image.Rect(0, 0, 500, 500))
+
 	var buf bytes.Buffer
+
 	err := png.Encode(&buf, img)
 	if err != nil {
 		t.Fatalf("Failed to encode PNG: %v", err)
@@ -236,9 +251,11 @@ func TestGenerateThumbnailPNG(t *testing.T) {
 	if width > 200 {
 		t.Errorf("Width %d exceeds max 200", width)
 	}
+
 	if height > 200 {
 		t.Errorf("Height %d exceeds max 200", height)
 	}
+
 	if format != "png" {
 		t.Errorf("Format = %s, want png", format)
 	}
@@ -249,7 +266,9 @@ func TestGenerateThumbnailNoScaling(t *testing.T) {
 
 	// Create a small test image (smaller than max dimensions)
 	img := image.NewRGBA(image.Rect(0, 0, 50, 50))
+
 	var buf bytes.Buffer
+
 	err := jpeg.Encode(&buf, img, nil)
 	if err != nil {
 		t.Fatalf("Failed to encode test image: %v", err)

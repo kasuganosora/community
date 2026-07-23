@@ -13,10 +13,9 @@ type TimelineRequest struct {
 }
 
 func (req *TimelineRequest) ToFeedListParams() *feed.ListParam {
-
 	// 如果没有传limit，就默认为20
 	if req.Limit == 0 {
-		req.Limit = uint64(systemsettings.GetDefaultPageSize())
+		req.Limit = uint64(systemsettings.GetDefaultPageSize()) //nolint:gosec // G115: reviewed and safe
 	}
 
 	if req.Limit > 80 {

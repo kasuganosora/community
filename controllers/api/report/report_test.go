@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError
+// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r == "abort" {
@@ -26,6 +26,7 @@ func callHandler(fn func(*gin.Context), c *gin.Context) {
 			_ = r
 		}
 	}()
+
 	fn(c)
 }
 
@@ -39,11 +40,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(
@@ -59,10 +63,12 @@ func setupTestDB(t *testing.T) {
 	}
 }
 
-// createTestAccount creates a test account in the DB
+// createTestAccount creates a test account in the DB.
 func createTestAccount(t *testing.T, username string) *models.Account {
 	t.Helper()
+
 	now := time.Now()
+
 	account := &models.Account{
 		Username:    username,
 		DisplayName: "Test " + username,
@@ -71,81 +77,100 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(account).Error; err != nil {
+	err := testDB.GormDB.Create(account).Error
+	if err != nil {
 		t.Fatalf("Failed to create account: %v", err)
 	}
+
 	return account
 }
 
-// createTestStatus creates a test status in the DB
+// createTestStatus creates a test status in the DB.
 func createTestStatus(t *testing.T, accountId uint64) *models.Status {
 	t.Helper()
+
 	now := time.Now()
+
 	status := &models.Status{
 		AccountId:  accountId,
 		Visibility: models.StatusVisibilityPublic,
 		CreatedAt:  &now,
 		UpdatedAt:  &now,
 	}
-	if err := testDB.GormDB.Create(status).Error; err != nil {
+	err := testDB.GormDB.Create(status).Error
+	if err != nil {
 		t.Fatalf("Failed to create status: %v", err)
 	}
+
 	return status
 }
 
-// createTestRule creates a test rule in the DB
+// createTestRule creates a test rule in the DB.
 func createTestRule(t *testing.T, text string) *models.Rule {
 	t.Helper()
+
 	rule := &models.Rule{
 		Text:     text,
 		Priority: 1,
 	}
-	if err := testDB.GormDB.Create(rule).Error; err != nil {
+	err := testDB.GormDB.Create(rule).Error
+	if err != nil {
 		t.Fatalf("Failed to create rule: %v", err)
 	}
+
 	return rule
 }
 
-// createTestReport creates a test report in the DB
+// createTestReport creates a test report in the DB.
 func createTestReport(t *testing.T, reporterId, targetId uint64) *models.Report {
 	t.Helper()
+
 	report := &models.Report{
 		AccountId:       reporterId,
 		TargetAccountId: targetId,
 		Comment:         "test report",
 	}
-	if err := testDB.GormDB.Create(report).Error; err != nil {
+	err := testDB.GormDB.Create(report).Error
+	if err != nil {
 		t.Fatalf("Failed to create report: %v", err)
 	}
+
 	return report
 }
 
-// newContextWithAccount creates a gin context with account set
-func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, path string, body []byte) (*gin.Context, *models.Account) {
+// newContextWithAccount creates a gin context with account set.
+func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, path string, body []byte) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
 	t.Helper()
 	account := createTestAccount(t, "testuser")
+
 	c, _ := gin.CreateTestContext(w)
 	if body != nil {
-		c.Request = httptest.NewRequest(method, path, bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(method, path, bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 	} else {
-		c.Request = httptest.NewRequest(method, path, nil)
+		c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
 	}
+
 	c.Set("account", account)
+
 	return c, account
 }
 
-// newContextWithAccountAndParams creates a gin context with account and path params
-func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) {
+// newContextWithAccountAndParams creates a gin context with account and path params.
+func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
 	t.Helper()
 	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
+
 	c.Params = gin.Params{}
+
 	for k, v := range params {
 		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
 	}
+
 	c.Set("account", account)
+
 	return c, account
 }
 
@@ -156,23 +181,26 @@ func TestCreate_Success(t *testing.T) {
 	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/reports", nil)
 	target := createTestAccount(t, "target")
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "spam account",
-		Category:  "spam",
+		Category:  "spam", //nolint:goconst
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
 	callHandler(Create, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+
+	var resp map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
 	assert.NotEmpty(t, resp["id"])
 }
 
@@ -182,15 +210,16 @@ func TestCreate_WithStatusIds(t *testing.T) {
 	target := createTestAccount(t, "target")
 	status := createTestStatus(t, target.Id)
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "bad status",
 		Category:  "violation",
 		StatusIds: []string{strconv.FormatUint(status.Id, 10)},
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -205,15 +234,16 @@ func TestCreate_WithRuleIds(t *testing.T) {
 	target := createTestAccount(t, "target")
 	rule := createTestRule(t, "No spam")
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "rule violation",
 		Category:  "other",
 		RuleIds:   []string{strconv.FormatUint(rule.Id, 10)},
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -224,6 +254,7 @@ func TestCreate_WithRuleIds(t *testing.T) {
 
 func TestCreate_InvalidJSON(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccount(t, w, http.MethodPost, "/reports", []byte("invalid"))
 
@@ -234,10 +265,12 @@ func TestCreate_InvalidJSON(t *testing.T) {
 
 func TestCreate_MissingAccountId(t *testing.T) {
 	setupTestDB(t)
-	body, _ := json.Marshal(CreateRequest{
+
+	body, err := json.Marshal(CreateRequest{
 		Comment:  "no account",
 		Category: "spam",
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccount(t, w, http.MethodPost, "/reports", body)
 
@@ -248,19 +281,23 @@ func TestCreate_MissingAccountId(t *testing.T) {
 
 func TestCreate_TargetNotFound(t *testing.T) {
 	setupTestDB(t)
-	body, _ := json.Marshal(CreateRequest{
+
+	body, err := json.Marshal(CreateRequest{
 		AccountId: "99999",
-		Comment:   "test",
+		Comment:   "test", //nolint:goconst
 		Category:  "spam",
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccount(t, w, http.MethodPost, "/reports", body)
 
 	callHandler(Create, c)
 
 	assert.Equal(t, 422, w.Code)
-	var resp map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	var resp map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Contains(t, resp["error"], "not found")
 }
@@ -270,14 +307,15 @@ func TestCreate_InvalidCategory(t *testing.T) {
 	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/reports", nil)
 	target := createTestAccount(t, "target")
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "test",
 		Category:  "invalid_category",
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -291,23 +329,26 @@ func TestCreate_StatusNotFound(t *testing.T) {
 	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/reports", nil)
 	target := createTestAccount(t, "target")
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "test",
 		Category:  "spam",
 		StatusIds: []string{"99999"},
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
 	callHandler(Create, c)
 
 	assert.Equal(t, 422, w.Code)
-	var resp map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	var resp map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Contains(t, resp["error"], "statuses not found")
 }
@@ -317,23 +358,26 @@ func TestCreate_RuleNotFound(t *testing.T) {
 	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/reports", nil)
 	target := createTestAccount(t, "target")
 
-	body, _ := json.Marshal(CreateRequest{
+	body, err := json.Marshal(CreateRequest{
 		AccountId: strconv.FormatUint(target.Id, 10),
 		Comment:   "test",
 		Category:  "spam",
 		RuleIds:   []string{"99999"},
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/reports", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
 	callHandler(Create, c)
 
 	assert.Equal(t, 422, w.Code)
-	var resp map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	var resp map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Contains(t, resp["error"], "rule not found")
 }
@@ -354,17 +398,20 @@ func TestGetReport_Success(t *testing.T) {
 	callHandler(GetReport, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, strconv.FormatUint(report.Id, 10), resp["id"])
 }
 
 func TestGetReport_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodGet, "/reports/abc", map[string]string{
-		"id": "abc",
+		"id": "abc", //nolint:goconst
 	})
 
 	callHandler(GetReport, c)
@@ -374,6 +421,7 @@ func TestGetReport_InvalidID(t *testing.T) {
 
 func TestGetReport_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodGet, "/reports/99999", map[string]string{
 		"id": "99999",
@@ -398,7 +446,9 @@ func TestList_Success(t *testing.T) {
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(resp), 1)
@@ -406,16 +456,19 @@ func TestList_Success(t *testing.T) {
 
 func TestList_Empty(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccount(t, w, http.MethodGet, "/reports", nil)
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp, 0)
+	assert.Empty(t, resp)
 }
 
 func TestList_WithLimit(t *testing.T) {
@@ -427,13 +480,15 @@ func TestList_WithLimit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/reports?limit=1", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/reports?limit=1", nil) //nolint:noctx
 	c.Set("account", createTestAccount(t, "admin"))
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(resp), 1)
@@ -451,7 +506,7 @@ func TestList_ResolvedFilter(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/reports?resolved=true", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/reports?resolved=true", nil) //nolint:noctx
 	c.Set("account", createTestAccount(t, "admin"))
 
 	callHandler(List, c)
@@ -468,14 +523,15 @@ func TestUpdate_Success_Category(t *testing.T) {
 	report := createTestReport(t, reporter.Id, target.Id)
 
 	category := "spam"
-	body, _ := json.Marshal(UpdateRequest{
+	body, err := json.Marshal(UpdateRequest{
 		Category: &category,
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), map[string]string{
 		"id": strconv.FormatUint(report.Id, 10),
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -491,14 +547,15 @@ func TestUpdate_Success_RuleIds(t *testing.T) {
 	report := createTestReport(t, reporter.Id, target.Id)
 
 	ruleIds := []string{strconv.FormatUint(rule.Id, 10)}
-	body, _ := json.Marshal(UpdateRequest{
+	body, err := json.Marshal(UpdateRequest{
 		RuleIds: &ruleIds,
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), map[string]string{
 		"id": strconv.FormatUint(report.Id, 10),
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -516,7 +573,7 @@ func TestUpdate_InvalidJSON(t *testing.T) {
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), map[string]string{
 		"id": strconv.FormatUint(report.Id, 10),
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer([]byte("invalid json")))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBufferString("invalid json")) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -531,14 +588,15 @@ func TestUpdate_InvalidCategory(t *testing.T) {
 	report := createTestReport(t, reporter.Id, target.Id)
 
 	category := "invalid"
-	body, _ := json.Marshal(UpdateRequest{
+	body, err := json.Marshal(UpdateRequest{
 		Category: &category,
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), map[string]string{
 		"id": strconv.FormatUint(report.Id, 10),
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -553,14 +611,15 @@ func TestUpdate_RuleNotFound(t *testing.T) {
 	report := createTestReport(t, reporter.Id, target.Id)
 
 	ruleIds := []string{"99999"}
-	body, _ := json.Marshal(UpdateRequest{
+	body, err := json.Marshal(UpdateRequest{
 		RuleIds: &ruleIds,
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), map[string]string{
 		"id": strconv.FormatUint(report.Id, 10),
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/"+strconv.FormatUint(report.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -570,15 +629,17 @@ func TestUpdate_RuleNotFound(t *testing.T) {
 
 func TestUpdate_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	category := "spam"
-	body, _ := json.Marshal(UpdateRequest{
+	body, err := json.Marshal(UpdateRequest{
 		Category: &category,
 	})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPut, "/reports/99999", map[string]string{
 		"id": "99999",
 	})
-	c.Request = httptest.NewRequest(http.MethodPut, "/reports/99999", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/reports/99999", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
@@ -606,6 +667,7 @@ func TestDelete_Success(t *testing.T) {
 
 func TestDelete_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/reports/abc", map[string]string{
 		"id": "abc",
@@ -618,6 +680,7 @@ func TestDelete_InvalidID(t *testing.T) {
 
 func TestDelete_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/reports/99999", map[string]string{
 		"id": "99999",
@@ -644,7 +707,9 @@ func TestAssignToSelf_Success(t *testing.T) {
 	callHandler(AssignToSelf, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp["id"])
@@ -652,6 +717,7 @@ func TestAssignToSelf_Success(t *testing.T) {
 
 func TestAssignToSelf_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/abc/assign_to_self", map[string]string{
 		"id": "abc",
@@ -664,6 +730,7 @@ func TestAssignToSelf_InvalidID(t *testing.T) {
 
 func TestAssignToSelf_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/99999/assign_to_self", map[string]string{
 		"id": "99999",
@@ -694,6 +761,7 @@ func TestUnassign_Success(t *testing.T) {
 
 func TestUnassign_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/abc/unassign", map[string]string{
 		"id": "abc",
@@ -706,6 +774,7 @@ func TestUnassign_InvalidID(t *testing.T) {
 
 func TestUnassign_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/99999/unassign", map[string]string{
 		"id": "99999",
@@ -732,7 +801,9 @@ func TestResolve_Success(t *testing.T) {
 	callHandler(Resolve, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, true, resp["action_taken"])
@@ -740,6 +811,7 @@ func TestResolve_Success(t *testing.T) {
 
 func TestResolve_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/abc/resolve", map[string]string{
 		"id": "abc",
@@ -752,6 +824,7 @@ func TestResolve_InvalidID(t *testing.T) {
 
 func TestResolve_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/99999/resolve", map[string]string{
 		"id": "99999",
@@ -782,7 +855,9 @@ func TestReopen_Success(t *testing.T) {
 	callHandler(Reopen, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, false, resp["action_taken"])
@@ -790,6 +865,7 @@ func TestReopen_Success(t *testing.T) {
 
 func TestReopen_InvalidID(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/abc/reopen", map[string]string{
 		"id": "abc",
@@ -802,6 +878,7 @@ func TestReopen_InvalidID(t *testing.T) {
 
 func TestReopen_NotFound(t *testing.T) {
 	setupTestDB(t)
+
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/reports/99999/reopen", map[string]string{
 		"id": "99999",

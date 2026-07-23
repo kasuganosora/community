@@ -17,5 +17,6 @@ func ToSource(sc *models.StatusContent) (source *Source) {
 		Text:        sc.Content,
 		SpoilerText: sc.SpoilerText,
 	}
+
 	return
 }

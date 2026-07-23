@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 	"github.com/kasuganosora/community/thumbnail/storage"
 )
 
-// Service 缩略图服务
+// Service 缩略图服务.
 type Service struct {
 	config    *models.ThumbnailServiceConfig
 	storage   storage.Backend
@@ -26,10 +27,10 @@ type Service struct {
 	enabled   bool
 }
 
-// NewService 创建缩略图服务
+// NewService 创建缩略图服务.
 func NewService(cfg *models.ThumbnailServiceConfig, backend storage.Backend) (*Service, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is nil")
+		return nil, errors.New("config is nil")
 	}
 
 	s := &Service{
@@ -42,22 +43,22 @@ func NewService(cfg *models.ThumbnailServiceConfig, backend storage.Backend) (*S
 	return s, nil
 }
 
-// IsEnabled 是否启用
+// IsEnabled 是否启用.
 func (s *Service) IsEnabled() bool {
 	return s.enabled
 }
 
-// GetConfig 获取配置
+// GetConfig 获取配置.
 func (s *Service) GetConfig() *models.ThumbnailServiceConfig {
 	return s.config
 }
 
-// GetStorage 获取存储后端
+// GetStorage 获取存储后端.
 func (s *Service) GetStorage() storage.Backend {
 	return s.storage
 }
 
-// ThumbnailResult 缩略图结果
+// ThumbnailResult 缩略图结果.
 type ThumbnailResult struct {
 	OriginalURL  string `json:"original_url"`
 	ThumbnailURL string `json:"thumbnail_url,omitempty"`
@@ -68,7 +69,7 @@ type ThumbnailResult struct {
 	Height       int    `json:"height,omitempty"`
 }
 
-// GetThumbnailURL 获取缩略图URL
+// GetThumbnailURL 获取缩略图URL.
 func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*ThumbnailResult, error) {
 	if !s.enabled {
 		return &ThumbnailResult{
@@ -81,9 +82,10 @@ func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*Thu
 
 	// 检查数据库中是否已有记录
 	var thumb models.Thumbnail
-	urlHash := models.GenerateURLHash(originalURL)
-	err := db.GetDB().Where("original_url_hash = ?", urlHash).First(&thumb).Error
 
+	urlHash := models.GenerateURLHash(originalURL)
+
+	err := db.GetDB().Where("original_url_hash = ?", urlHash).First(&thumb).Error
 	if err == nil {
 		// 找到记录
 		switch thumb.Status {
@@ -129,6 +131,7 @@ func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*Thu
 	if !match {
 		// 不匹配规则，记录为跳过
 		s.recordSkip(originalURL, "no matching rule")
+
 		return &ThumbnailResult{
 			OriginalURL: originalURL,
 			Status:      models.ThumbnailStatusSkipped,
@@ -138,7 +141,7 @@ func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*Thu
 	}
 
 	// 检查原图大小
-	needThumbnail, size, err := s.checkOriginalSize(originalURL, rule)
+	needThumbnail, size, err := s.checkOriginalSize(originalURL, rule) //nolint:contextcheck // internal method
 	if err != nil {
 		log.Warn("Failed to check original size for %s: %v", originalURL, err)
 		// 出错时降级到原图
@@ -152,6 +155,7 @@ func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*Thu
 
 	if !needThumbnail {
 		s.recordSkip(originalURL, fmt.Sprintf("size %d <= threshold %d", size, rule.MaxOriginalSize))
+
 		return &ThumbnailResult{
 			OriginalURL: originalURL,
 			Status:      models.ThumbnailStatusSkipped,
@@ -186,7 +190,7 @@ func (s *Service) GetThumbnailURL(ctx context.Context, originalURL string) (*Thu
 	}, nil
 }
 
-// BatchGetThumbnailURLs 批量获取缩略图URL
+// BatchGetThumbnailURLs 批量获取缩略图URL.
 func (s *Service) BatchGetThumbnailURLs(ctx context.Context, urls []string) map[string]*ThumbnailResult {
 	results := make(map[string]*ThumbnailResult)
 
@@ -206,7 +210,7 @@ func (s *Service) BatchGetThumbnailURLs(ctx context.Context, urls []string) map[
 	return results
 }
 
-// ProcessContent 处理内容中的链接
+// ProcessContent 处理内容中的链接.
 func (s *Service) ProcessContent(ctx context.Context, content string) (string, error) {
 	if !s.enabled || !s.config.RewriteEnabled {
 		return content, nil
@@ -223,6 +227,7 @@ func (s *Service) ProcessContent(ctx context.Context, content string) (string, e
 
 	// 替换内容中的URL
 	processed := content
+
 	for originalURL, result := range results {
 		if result.Status == models.ThumbnailStatusCompleted && result.ThumbnailURL != "" {
 			processed = strings.ReplaceAll(processed, originalURL, result.ThumbnailURL)
@@ -232,7 +237,7 @@ func (s *Service) ProcessContent(ctx context.Context, content string) (string, e
 	return processed, nil
 }
 
-// matchRule 匹配规则
+// matchRule 匹配规则.
 func (s *Service) matchRule(url string) (bool, *models.ThumbnailRule, string) {
 	// 获取文件扩展名
 	ext := strings.ToLower(filepath.Ext(url))
@@ -270,14 +275,19 @@ func (s *Service) matchRule(url string) (bool, *models.ThumbnailRule, string) {
 	return false, nil, ""
 }
 
-// checkOriginalSize 检查原图大小
+// checkOriginalSize 检查原图大小.
 func (s *Service) checkOriginalSize(url string, rule *models.ThumbnailRule) (bool, int64, error) {
 	// 发送HEAD请求获取大小
-	resp, err := http.Head(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, url, nil)
 	if err != nil {
 		return false, 0, err
 	}
-	defer resp.Body.Close()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, 0, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
 
 	size := resp.ContentLength
 
@@ -289,7 +299,7 @@ func (s *Service) checkOriginalSize(url string, rule *models.ThumbnailRule) (boo
 	return size > rule.MaxOriginalSize, size, nil
 }
 
-// recordSkip 记录跳过
+// recordSkip 记录跳过.
 func (s *Service) recordSkip(url, reason string) {
 	urlHash := models.GenerateURLHash(url)
 	thumb := models.Thumbnail{
@@ -306,7 +316,7 @@ func (s *Service) recordSkip(url, reason string) {
 		FirstOrCreate(&models.Thumbnail{})
 }
 
-// extractImageURLs 提取内容中的图片URL
+// extractImageURLs 提取内容中的图片URL.
 func extractImageURLs(content string) []string {
 	// 使用正则表达式提取图片URL
 	// 匹配常见的图片URL格式
@@ -316,14 +326,17 @@ func extractImageURLs(content string) []string {
 	}
 
 	var urls []string
+
 	seen := make(map[string]bool)
 
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(`(?i)` + pattern)
+
 		matches := re.FindAllString(content, -1)
 		for _, match := range matches {
 			if !seen[match] {
 				seen[match] = true
+
 				urls = append(urls, match)
 			}
 		}
@@ -332,7 +345,7 @@ func extractImageURLs(content string) []string {
 	return urls
 }
 
-// inferContentType 从URL推断Content-Type
+// inferContentType 从URL推断Content-Type.
 func inferContentType(url string) string {
 	ext := strings.ToLower(filepath.Ext(url))
 	switch ext {
@@ -355,14 +368,15 @@ func inferContentType(url string) string {
 	}
 }
 
-// GenerateCacheKey 生成缓存key
+// GenerateCacheKey 生成缓存key.
 func GenerateCacheKey(url string, format string) string {
-	hash := md5.Sum([]byte(url))
+	hash := md5.Sum([]byte(url)) //nolint:gosec // G401: reviewed and safe
 	hashStr := hex.EncodeToString(hash[:])
+
 	return fmt.Sprintf("%s.%s", hashStr[:16], format)
 }
 
-// TriggerAsyncGeneration 触发异步生成
+// TriggerAsyncGeneration 触发异步生成.
 func TriggerAsyncGeneration(url string, rule *models.ThumbnailRule) {
 	// 添加到任务队列
 	job := models.ThumbnailJob{
@@ -372,41 +386,46 @@ func TriggerAsyncGeneration(url string, rule *models.ThumbnailRule) {
 		MaxRetries:  3,
 	}
 
-	if err := db.GetDB().Create(&job).Error; err != nil {
+	err := db.GetDB().Create(&job).Error
+	if err != nil {
 		log.Error("Failed to create thumbnail job: %v", err)
 	}
 }
 
-// DeleteThumbnail 删除缩略图（包括存储和数据库记录）
+// DeleteThumbnail 删除缩略图（包括存储和数据库记录）.
 func (s *Service) DeleteThumbnail(ctx context.Context, id uint64) error {
 	// 获取缩略图记录
 	var thumb models.Thumbnail
-	if err := db.GetDB().First(&thumb, id).Error; err != nil {
+	err := db.GetDB().First(&thumb, id).Error
+	if err != nil {
 		return fmt.Errorf("thumbnail not found: %w", err)
 	}
 
 	// 从存储删除文件
 	if thumb.StorageKey != "" && s.storage != nil {
-		if err := s.storage.Delete(ctx, thumb.StorageKey); err != nil {
+		err := s.storage.Delete(ctx, thumb.StorageKey)
+		if err != nil {
 			log.Error("Failed to delete thumbnail from storage: %v", err)
 			// 继续删除数据库记录，不返回错误
 		}
 	}
 
 	// 删除数据库记录
-	if err := db.GetDB().Delete(&thumb).Error; err != nil {
+	err = db.GetDB().Delete(&thumb).Error
+	if err != nil {
 		return fmt.Errorf("failed to delete thumbnail record: %w", err)
 	}
 
 	return nil
 }
 
-// DeleteThumbnailByURL 根据URL删除缩略图
+// DeleteThumbnailByURL 根据URL删除缩略图.
 func (s *Service) DeleteThumbnailByURL(ctx context.Context, url string) error {
 	urlHash := models.GenerateURLHash(url)
 
 	var thumb models.Thumbnail
-	if err := db.GetDB().Where("original_url_hash = ?", urlHash).First(&thumb).Error; err != nil {
+	err := db.GetDB().Where("original_url_hash = ?", urlHash).First(&thumb).Error
+	if err != nil {
 		return fmt.Errorf("thumbnail not found: %w", err)
 	}
 
@@ -430,23 +449,29 @@ func (s *Service) CleanupThumbnails(ctx context.Context, olderThanDays int, stat
 
 	// 获取要删除的记录
 	var thumbs []models.Thumbnail
-	if err := query.Find(&thumbs).Error; err != nil {
+	err := query.Find(&thumbs).Error
+	if err != nil {
 		return 0, fmt.Errorf("failed to find thumbnails: %w", err)
 	}
 
 	var deletedCount int64
+
 	for _, thumb := range thumbs {
 		// 从存储删除
 		if thumb.StorageKey != "" && s.storage != nil {
-			if err := s.storage.Delete(ctx, thumb.StorageKey); err != nil {
+			err := s.storage.Delete(ctx, thumb.StorageKey)
+			if err != nil {
 				log.Error("Failed to delete thumbnail %d from storage: %v", thumb.ID, err)
+
 				continue
 			}
 		}
 
 		// 删除数据库记录
-		if err := db.GetDB().Delete(&thumb).Error; err != nil {
+		err := db.GetDB().Delete(&thumb).Error
+		if err != nil {
 			log.Error("Failed to delete thumbnail %d from database: %v", thumb.ID, err)
+
 			continue
 		}
 
@@ -456,17 +481,19 @@ func (s *Service) CleanupThumbnails(ctx context.Context, olderThanDays int, stat
 	return deletedCount, nil
 }
 
-// RegenerateThumbnail 重新生成缩略图
+// RegenerateThumbnail 重新生成缩略图.
 func (s *Service) RegenerateThumbnail(ctx context.Context, id uint64) error {
 	// 获取缩略图记录
 	var thumb models.Thumbnail
-	if err := db.GetDB().First(&thumb, id).Error; err != nil {
+	err := db.GetDB().First(&thumb, id).Error
+	if err != nil {
 		return fmt.Errorf("thumbnail not found: %w", err)
 	}
 
 	// 删除旧的存储文件
 	if thumb.StorageKey != "" && s.storage != nil {
-		if err := s.storage.Delete(ctx, thumb.StorageKey); err != nil {
+		err := s.storage.Delete(ctx, thumb.StorageKey)
+		if err != nil {
 			log.Warn("Failed to delete old thumbnail from storage: %v", err)
 		}
 	}
@@ -475,8 +502,11 @@ func (s *Service) RegenerateThumbnail(ctx context.Context, id uint64) error {
 	thumb.Status = models.ThumbnailStatusPending
 	thumb.ErrorMessage = ""
 	thumb.ThumbnailURL = ""
+
 	thumb.StorageKey = ""
-	if err := db.GetDB().Save(&thumb).Error; err != nil {
+	err = db.GetDB().Save(&thumb).Error
+
+	if err != nil {
 		return fmt.Errorf("failed to reset thumbnail status: %w", err)
 	}
 
@@ -489,7 +519,7 @@ func (s *Service) RegenerateThumbnail(ctx context.Context, id uint64) error {
 	return nil
 }
 
-// GetThumbnailStats 获取缩略图统计
+// GetThumbnailStats 获取缩略图统计.
 func (s *Service) GetThumbnailStats() (*ThumbnailStats, error) {
 	var stats ThumbnailStats
 
@@ -506,7 +536,7 @@ func (s *Service) GetThumbnailStats() (*ThumbnailStats, error) {
 	return &stats, nil
 }
 
-// ThumbnailStats 缩略图统计
+// ThumbnailStats 缩略图统计.
 type ThumbnailStats struct {
 	Total       int64 `json:"total"`
 	Completed   int64 `json:"completed"`

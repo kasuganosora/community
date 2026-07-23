@@ -8,7 +8,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 )
 
-// CaptchaConfigResponse 验证码配置响应
+// CaptchaConfigResponse 验证码配置响应.
 type CaptchaConfigResponse struct {
 	// Enabled 是否启用验证码
 	Enabled bool `json:"enabled"`
@@ -24,7 +24,7 @@ type CaptchaConfigResponse struct {
 }
 
 // GetCaptchaConfig 获取验证码配置
-// GET /api/v1/captcha/config
+// GET /api/v1/captcha/config.
 func GetCaptchaConfig(c *gin.Context) {
 	service := captcha.GetService()
 
@@ -37,19 +37,19 @@ func GetCaptchaConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// VerifyCaptchaRequest 验证码验证请求
+// VerifyCaptchaRequest 验证码验证请求.
 type VerifyCaptchaRequest struct {
-	Response string `json:"response" binding:"required"`
+	Response string `binding:"required" json:"response"`
 }
 
-// VerifyCaptchaResponse 验证码验证响应
+// VerifyCaptchaResponse 验证码验证响应.
 type VerifyCaptchaResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 }
 
 // VerifyCaptcha 验证验证码（测试用）
-// POST /api/v1/captcha/verify
+// POST /api/v1/captcha/verify.
 func VerifyCaptcha(c *gin.Context) {
 	var req VerifyCaptchaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -57,6 +57,7 @@ func VerifyCaptcha(c *gin.Context) {
 			Success: false,
 			Message: "invalid request",
 		})
+
 		return
 	}
 
@@ -66,6 +67,7 @@ func VerifyCaptcha(c *gin.Context) {
 			Success: true,
 			Message: "captcha is disabled",
 		})
+
 		return
 	}
 
@@ -75,6 +77,7 @@ func VerifyCaptcha(c *gin.Context) {
 			Success: false,
 			Message: err.Error(),
 		})
+
 		return
 	}
 
@@ -83,6 +86,7 @@ func VerifyCaptcha(c *gin.Context) {
 			Success: false,
 			Message: "verification failed",
 		})
+
 		return
 	}
 
@@ -93,17 +97,17 @@ func VerifyCaptcha(c *gin.Context) {
 }
 
 // GetCaptchaProviders 获取支持的验证码供应商列表
-// GET /api/v1/captcha/providers
+// GET /api/v1/captcha/providers.
 func GetCaptchaProviders(c *gin.Context) {
 	providers := []map[string]string{
 		{
-			"id":          "recaptcha",
-			"name":        "Google reCAPTCHA",
-			"description": "Google reCAPTCHA v2/v3",
-			"website":     "https://www.google.com/recaptcha",
+			"id":          "recaptcha",                        //nolint:goconst
+			"name":        "Google reCAPTCHA",                 //nolint:goconst
+			"description": "Google reCAPTCHA v2/v3",           //nolint:goconst
+			"website":     "https://www.google.com/recaptcha", //nolint:goconst
 		},
 		{
-			"id":          "cloudflare",
+			"id":          "cloudflare", //nolint:goconst
 			"name":        "Cloudflare Turnstile",
 			"description": "Cloudflare Turnstile - Privacy-preserving CAPTCHA alternative",
 			"website":     "https://www.cloudflare.com/products/turnstile/",
@@ -115,7 +119,7 @@ func GetCaptchaProviders(c *gin.Context) {
 			"website":     "https://www.hcaptcha.com/",
 		},
 		{
-			"id":          "none",
+			"id":          "none", //nolint:goconst
 			"name":        "Disabled",
 			"description": "No CAPTCHA verification",
 			"website":     "",
@@ -125,7 +129,7 @@ func GetCaptchaProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, providers)
 }
 
-// AdminUpdateCaptchaConfigRequest 管理员更新验证码配置请求
+// AdminUpdateCaptchaConfigRequest 管理员更新验证码配置请求.
 type AdminUpdateCaptchaConfigRequest struct {
 	Provider       string   `json:"provider"`                  // 供应商: recaptcha, cloudflare, hcaptcha, none
 	SiteKey        string   `json:"site_key"`                  // 站点密钥
@@ -135,11 +139,12 @@ type AdminUpdateCaptchaConfigRequest struct {
 }
 
 // AdminUpdateCaptchaConfig 管理员更新验证码配置
-// PUT /api/v1/admin/captcha/config
+// PUT /api/v1/admin/captcha/config.
 func AdminUpdateCaptchaConfig(c *gin.Context) {
 	var req AdminUpdateCaptchaConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -147,6 +152,7 @@ func AdminUpdateCaptchaConfig(c *gin.Context) {
 	provider, err := captcha.ParseProviderType(req.Provider)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provider"})
+
 		return
 	}
 
@@ -177,12 +183,14 @@ func AdminUpdateCaptchaConfig(c *gin.Context) {
 
 	if err := systemsettings.SaveToDB(keys...); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config"})
+
 		return
 	}
 
 	// 重新加载验证码服务
 	if err := captcha.GetService().Reload(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload captcha service"})
+
 		return
 	}
 

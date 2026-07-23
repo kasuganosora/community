@@ -18,7 +18,7 @@ func TestToApplication_Nil(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "web", result.Name)
 	assert.NotNil(t, result.Website)
-	assert.Equal(t, "", *result.Website)
+	assert.Empty(t, *result.Website)
 }
 
 func TestToApplication_WithValues(t *testing.T) {
@@ -45,7 +45,7 @@ func TestToApplication_EmptyWebsite(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "MyApp", result.Name)
 	require.NotNil(t, result.Website)
-	assert.Equal(t, "", *result.Website)
+	assert.Empty(t, *result.Website)
 }
 
 // =============================================================================
@@ -76,8 +76,8 @@ func TestToSource_EmptyFields(t *testing.T) {
 	result := ToSource(sc)
 	require.NotNil(t, result)
 	assert.Equal(t, "1", result.Id)
-	assert.Equal(t, "", result.Text)
-	assert.Equal(t, "", result.SpoilerText)
+	assert.Empty(t, result.Text)
+	assert.Empty(t, result.SpoilerText)
 }
 
 func TestToSource_LargeId(t *testing.T) {
@@ -174,13 +174,13 @@ func TestToLists_Multiple(t *testing.T) {
 func TestToLists_Empty(t *testing.T) {
 	result := ToLists([]*models.List{})
 	assert.NotNil(t, result)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestToLists_Nil(t *testing.T) {
 	result := ToLists(nil)
 	assert.NotNil(t, result)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // =============================================================================
@@ -209,7 +209,7 @@ func TestToRule_ZeroId(t *testing.T) {
 	result := ToRule(rule)
 	require.NotNil(t, result)
 	assert.Equal(t, "0", result.Id)
-	assert.Equal(t, "", result.Text)
+	assert.Empty(t, result.Text)
 	assert.Equal(t, uint64(0), result.intId)
 }
 
@@ -263,7 +263,7 @@ func TestToFollowStatus_NilFollow(t *testing.T) {
 	assert.False(t, result.RequestedBy)
 	assert.False(t, result.DomainBlocking)
 	assert.False(t, result.Endorsed)
-	assert.Equal(t, "", result.Note)
+	assert.Empty(t, result.Note)
 }
 
 func TestToFollowStatus_WithReblogsTrue(t *testing.T) {
@@ -370,9 +370,9 @@ func TestToScheduledStatus_Basic(t *testing.T) {
 	assert.Nil(t, result.Params.ApplicationId)
 	assert.Nil(t, result.Params.InReplyToId)
 	assert.NotNil(t, result.MediaAttachments)
-	assert.Len(t, result.MediaAttachments, 0)
+	assert.Empty(t, result.MediaAttachments)
 	assert.NotNil(t, result.Params.MediaIds)
-	assert.Len(t, result.Params.MediaIds, 0)
+	assert.Empty(t, result.Params.MediaIds)
 }
 
 func TestToScheduledStatus_WithScheduledAt(t *testing.T) {
@@ -436,7 +436,7 @@ func TestToScheduledStatus_DifferentVisibilities(t *testing.T) {
 		visibility uint8
 		expected   string
 	}{
-		{"public", models.StatusVisibilityPublic, "public"},
+		{"public", models.StatusVisibilityPublic, "public"}, //nolint:goconst
 		{"unlisted", models.StatusVisibilityUnlisted, "unlisted"},
 		{"private", models.StatusVisibilityPrivate, "private"},
 		{"direct", models.StatusVisibilityDirect, "direct"},
@@ -527,9 +527,9 @@ func TestToReport_Minimal(t *testing.T) {
 	assert.True(t, result.Forwarded)
 	assert.False(t, result.ActionTaken)
 	assert.NotNil(t, result.Statuses)
-	assert.Len(t, result.Statuses, 0)
+	assert.Empty(t, result.Statuses)
 	assert.NotNil(t, result.Rules)
-	assert.Len(t, result.Rules, 0)
+	assert.Empty(t, result.Rules)
 }
 
 func TestToReport_WithActionTaken(t *testing.T) {
@@ -600,7 +600,7 @@ func TestToReport_EmptyComment(t *testing.T) {
 
 	result, err := ToReport(r, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", result.Comment)
+	assert.Empty(t, result.Comment)
 	assert.False(t, result.Forwarded)
 }
 
@@ -631,7 +631,7 @@ func TestToReports_Empty(t *testing.T) {
 	result, err := ToReports([]*models.Report{}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestToReports_WithStatusIdsAndRuleIds(t *testing.T) {
@@ -647,9 +647,9 @@ func TestToReports_WithStatusIdsAndRuleIds(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.NotNil(t, result.StatusIds)
-	assert.Len(t, result.StatusIds, 0)
+	assert.Empty(t, result.StatusIds)
 	assert.NotNil(t, result.RuleIds)
-	assert.Len(t, result.RuleIds, 0)
+	assert.Empty(t, result.RuleIds)
 }
 
 // =============================================================================
@@ -695,8 +695,8 @@ func TestToMediaAttachment_Image(t *testing.T) {
 	// Check meta
 	require.NotNil(t, result.Meta)
 	require.NotNil(t, result.Meta.Focus)
-	assert.Equal(t, 0.5, result.Meta.Focus.X)
-	assert.Equal(t, -0.5, result.Meta.Focus.Y)
+	assert.InDelta(t, 0.5, result.Meta.Focus.X, 1e-9)
+	assert.InDelta(t, -0.5, result.Meta.Focus.Y, 1e-9)
 
 	// Check original dimensions
 	require.NotNil(t, result.Meta.Original)
@@ -827,7 +827,7 @@ func TestToMediaAttachment_ZeroDuration(t *testing.T) {
 	// Duration of 0 should not be included
 	require.NotNil(t, result.Meta)
 	require.NotNil(t, result.Meta.Original)
-	assert.Equal(t, float64(0), result.Meta.Original.Duration)
+	assert.InDelta(t, float64(0), result.Meta.Original.Duration, 1e-9)
 }
 
 func TestToMediaAttachment_AudioType(t *testing.T) {
@@ -856,15 +856,15 @@ func TestToMediaAttachment_FocusCoordinates(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.Meta)
 	require.NotNil(t, result.Meta.Focus)
-	assert.Equal(t, 1.0, result.Meta.Focus.X)
-	assert.Equal(t, -1.0, result.Meta.Focus.Y)
+	assert.InDelta(t, 1.0, result.Meta.Focus.X, 0)
+	assert.InDelta(t, -1.0, result.Meta.Focus.Y, 0)
 }
 
 func TestToMediaAttachmentList_Empty(t *testing.T) {
 	result, err := ToMediaAttachmentList(nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestToMediaAttachmentList_WithItems(t *testing.T) {
@@ -891,7 +891,7 @@ func TestToMediaAttachmentList_WithNilItems(t *testing.T) {
 	medias := models.MediaAttachments{nil}
 	result, err := ToMediaAttachmentList(medias)
 	require.NoError(t, err)
-	require.Len(t, result, 0) // nil items should be skipped
+	require.Empty(t, result) // nil items should be skipped
 }
 
 func TestToMediaAttachment_VerifyBaseURL(t *testing.T) {
@@ -1020,6 +1020,7 @@ func TestReportToCategoryString_AllCategories(t *testing.T) {
 
 func TestReportGetStatusString(t *testing.T) {
 	actionTime := time.Now()
+
 	t.Run("resolved", func(t *testing.T) {
 		r := &models.Report{ActionTakenAt: &actionTime}
 		assert.Equal(t, "Resolved", r.GetStatusString())

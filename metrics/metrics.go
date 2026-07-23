@@ -10,11 +10,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+const namespace = "community"
+
 var (
-	// HTTP 请求指标
+	// HTTP 请求指标.
 	HttpRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "http_requests_total",
 			Help:      "Total number of HTTP requests",
 		},
@@ -23,7 +25,7 @@ var (
 
 	HttpRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "http_request_duration_seconds",
 			Help:      "HTTP request duration in seconds",
 			Buckets:   prometheus.DefBuckets,
@@ -33,7 +35,7 @@ var (
 
 	HttpRequestSize = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "http_request_size_bytes",
 			Help:      "HTTP request size in bytes",
 			Buckets:   prometheus.ExponentialBuckets(100, 10, 8), // 100B to 1GB
@@ -43,7 +45,7 @@ var (
 
 	HttpResponseSize = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "http_response_size_bytes",
 			Help:      "HTTP response size in bytes",
 			Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
@@ -51,10 +53,10 @@ var (
 		[]string{"method", "path"},
 	)
 
-	// 数据库指标
+	// 数据库指标.
 	DbQueryDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "db_query_duration_seconds",
 			Help:      "Database query duration in seconds",
 			Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
@@ -64,17 +66,17 @@ var (
 
 	DbQueryTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "db_queries_total",
 			Help:      "Total number of database queries",
 		},
 		[]string{"operation", "table"},
 	)
 
-	// 业务指标
+	// 业务指标.
 	ActiveConnections = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "active_connections",
 			Help:      "Number of active connections",
 		},
@@ -82,7 +84,7 @@ var (
 
 	ActiveUsers = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "active_users",
 			Help:      "Number of active users",
 		},
@@ -90,17 +92,17 @@ var (
 
 	FederatedEvents = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "federated_events_total",
 			Help:      "Total number of federated events",
 		},
 		[]string{"direction", "type", "status"},
 	)
 
-	// 缓存指标
+	// 缓存指标.
 	CacheHits = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "cache_hits_total",
 			Help:      "Total number of cache hits",
 		},
@@ -109,7 +111,7 @@ var (
 
 	CacheMisses = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "community",
+			Namespace: namespace,
 			Name:      "cache_misses_total",
 			Help:      "Total number of cache misses",
 		},
@@ -132,7 +134,7 @@ func init() {
 	prometheus.MustRegister(CacheMisses)
 }
 
-// MetricsMiddleware Prometheus 指标收集中间件
+// MetricsMiddleware Prometheus 指标收集中间件.
 func MetricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -166,28 +168,28 @@ func MetricsMiddleware() gin.HandlerFunc {
 	}
 }
 
-// Handler 返回 Prometheus metrics HTTP handler
+// Handler 返回 Prometheus metrics HTTP handler.
 func Handler() gin.HandlerFunc {
 	return gin.WrapH(promhttp.Handler())
 }
 
-// RecordDbQuery 记录数据库查询指标
+// RecordDbQuery 记录数据库查询指标.
 func RecordDbQuery(operation, table string, duration time.Duration) {
 	DbQueryTotal.WithLabelValues(operation, table).Inc()
 	DbQueryDuration.WithLabelValues(operation, table).Observe(duration.Seconds())
 }
 
-// RecordCacheHit 记录缓存命中
+// RecordCacheHit 记录缓存命中.
 func RecordCacheHit(cacheName string) {
 	CacheHits.WithLabelValues(cacheName).Inc()
 }
 
-// RecordCacheMiss 记录缓存未命中
+// RecordCacheMiss 记录缓存未命中.
 func RecordCacheMiss(cacheName string) {
 	CacheMisses.WithLabelValues(cacheName).Inc()
 }
 
-// RecordFederatedEvent 记录联邦事件
+// RecordFederatedEvent 记录联邦事件.
 func RecordFederatedEvent(direction, eventType, status string) {
 	FederatedEvents.WithLabelValues(direction, eventType, status).Inc()
 }

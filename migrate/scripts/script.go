@@ -38,7 +38,7 @@ func GetScripts() map[string]MigrationScript {
 }
 
 func GetScriptsName() []string {
-	ret := make([]string, 0)
+	ret := make([]string, 0, len(ScripsType))
 
 	for _, script := range ScripsType {
 		rType := reflect.TypeOf(script)

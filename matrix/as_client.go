@@ -6,12 +6,11 @@ import (
 	"strings"
 
 	"github.com/kasuganosora/community/httpclient"
-	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 )
 
 // ASClient Application Service API 客户端
-// 用于与 Matrix Homeserver 的 AS API 交互
+// 用于与 Matrix Homeserver 的 AS API 交互.
 type ASClient struct {
 	homeserverURL string
 	asToken       string
@@ -19,9 +18,10 @@ type ASClient struct {
 	httpClient    *httpclient.Client
 }
 
-// NewASClient 创建 AS 客户端
+// NewASClient 创建 AS 客户端.
 func NewASClient() *ASClient {
 	LoadConfig()
+
 	return &ASClient{
 		homeserverURL: strings.TrimSuffix(GlobalConfig.HomeserverURL, "/"),
 		asToken:       GlobalConfig.ASToken,
@@ -30,7 +30,7 @@ func NewASClient() *ASClient {
 	}
 }
 
-// NewASClientWithConfig 使用指定配置创建 AS 客户端
+// NewASClientWithConfig 使用指定配置创建 AS 客户端.
 func NewASClientWithConfig(cfg *Config) *ASClient {
 	return &ASClient{
 		homeserverURL: strings.TrimSuffix(cfg.HomeserverURL, "/"),
@@ -40,12 +40,12 @@ func NewASClientWithConfig(cfg *Config) *ASClient {
 	}
 }
 
-// ValidateHSToken 验证来自 HS 的 Token
+// ValidateHSToken 验证来自 HS 的 Token.
 func (c *ASClient) ValidateHSToken(token string) bool {
 	return token == c.hsToken
 }
 
-// PingHS 测试与 Homeserver 的连接
+// PingHS 测试与 Homeserver 的连接.
 func (c *ASClient) PingHS() error {
 	path := "/_matrix/client/versions"
 
@@ -65,33 +65,36 @@ func (c *ASClient) PingHS() error {
 	return nil
 }
 
-// RegisterVirtualUser 注册虚拟用户
+// RegisterVirtualUser 注册虚拟用户.
 func (c *ASClient) RegisterVirtualUser(localpart string) error {
 	path := "/_matrix/client/v3/register"
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"type":          "m.login.application_service",
 		"username":      localpart,
 		"inhibit_login": true,
 	}
 
-	var result interface{}
+	var result any
+
 	return c.doASRequest("POST", path, body, &result)
 }
 
-// EnsureVirtualUser 确保虚拟用户存在
+// EnsureVirtualUser 确保虚拟用户存在.
 func (c *ASClient) EnsureVirtualUser(localpart string) error {
 	err := c.RegisterVirtualUser(localpart)
 	if err != nil {
 		if strings.Contains(err.Error(), "M_USER_IN_USE") {
 			return nil
 		}
+
 		return err
 	}
+
 	return nil
 }
 
-// CreateDirectRoom 创建私信房间
+// CreateDirectRoom 创建私信房间.
 func (c *ASClient) CreateDirectRoom(creator, invitee string, isDirect bool) (*RoomCreateResponse, error) {
 	path := "/_matrix/client/v3/createRoom?user_id=" + url.QueryEscape(creator)
 
@@ -102,23 +105,25 @@ func (c *ASClient) CreateDirectRoom(creator, invitee string, isDirect bool) (*Ro
 		InitialState: []Event{
 			{
 				Type:     EventTypeRoomCreate,
-				Content:  map[string]interface{}{"creator": creator, "is_direct": isDirect},
-				StateKey: utils.GetPtr(""),
+				Content:  map[string]any{"creator": creator, "is_direct": isDirect},
+				StateKey: new(""),
 			},
 		},
-		CreationContent: map[string]interface{}{
+		CreationContent: map[string]any{
 			"is_direct": isDirect,
 		},
 	}
 
 	var resp RoomCreateResponse
-	if err := c.doASRequest("POST", path, req, &resp); err != nil {
+	err := c.doASRequest("POST", path, req, &resp)
+	if err != nil {
 		return nil, err
 	}
+
 	return &resp, nil
 }
 
-// SendRoomMessage 发送房间消息
+// SendRoomMessage 发送房间消息.
 func (c *ASClient) SendRoomMessage(roomID, sender string, content *RoomMessageContent) (*SendEventResponse, error) {
 	encodedRoomID := url.PathEscape(roomID)
 	txnID := generateTxnID()
@@ -126,39 +131,45 @@ func (c *ASClient) SendRoomMessage(roomID, sender string, content *RoomMessageCo
 		encodedRoomID, EventTypeRoomMessage, txnID, url.QueryEscape(sender))
 
 	var resp SendEventResponse
-	if err := c.doASRequest("PUT", path, content, &resp); err != nil {
+	err := c.doASRequest("PUT", path, content, &resp)
+	if err != nil {
 		return nil, err
 	}
+
 	return &resp, nil
 }
 
-// SendRoomMessageSimple 发送简单文本消息
+// SendRoomMessageSimple 发送简单文本消息.
 func (c *ASClient) SendRoomMessageSimple(roomID, sender, body string) (*SendEventResponse, error) {
 	content := &RoomMessageContent{
 		MsgType: MsgTypeText,
 		Body:    body,
 	}
+
 	return c.SendRoomMessage(roomID, sender, content)
 }
 
-// InviteToRoom 邀请用户加入房间
+// InviteToRoom 邀请用户加入房间.
 func (c *ASClient) InviteToRoom(roomID, inviter, invitee string) error {
 	encodedRoomID := url.PathEscape(roomID)
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/invite?user_id=%s",
 		encodedRoomID, url.QueryEscape(inviter))
 
 	body := map[string]string{"user_id": invitee}
+
 	return c.doASRequest("POST", path, body, nil)
 }
 
-// InviteUser 邀请用户加入房间（简化版，使用 bridge 用户邀请）
+// InviteUser 邀请用户加入房间（简化版，使用 bridge 用户邀请）.
 func (c *ASClient) InviteUser(roomID, invitee string) error {
 	LoadConfig()
+
 	inviter := "@" + GlobalConfig.BridgeUsername + ":" + GlobalConfig.ServerName
+
 	return c.InviteToRoom(roomID, inviter, invitee)
 }
 
-// CreateRoomConfig 房间创建配置
+// CreateRoomConfig 房间创建配置.
 type CreateRoomConfig struct {
 	Name       string   `json:"name,omitempty"`
 	Topic      string   `json:"topic,omitempty"`
@@ -169,24 +180,27 @@ type CreateRoomConfig struct {
 	Invite     []string `json:"invite,omitempty"`
 }
 
-// CreateRoom 创建房间
+// CreateRoom 创建房间.
 func (c *ASClient) CreateRoom(config *CreateRoomConfig) (string, error) {
 	LoadConfig()
+
 	bridgeUser := "@" + GlobalConfig.BridgeUsername + ":" + GlobalConfig.ServerName
 	path := "/_matrix/client/v3/createRoom?user_id=" + url.QueryEscape(bridgeUser)
 
 	if config.Preset == "" {
-		config.Preset = "private_chat"
+		config.Preset = "private_chat" //nolint:goconst
 	}
 
 	var resp RoomCreateResponse
-	if err := c.doASRequest("POST", path, config, &resp); err != nil {
+	err := c.doASRequest("POST", path, config, &resp)
+	if err != nil {
 		return "", err
 	}
+
 	return resp.RoomID, nil
 }
 
-// JoinRoom 加入房间
+// JoinRoom 加入房间.
 func (c *ASClient) JoinRoom(roomID, userID string) error {
 	encodedRoomID := url.PathEscape(roomID)
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/join?user_id=%s",
@@ -195,7 +209,7 @@ func (c *ASClient) JoinRoom(roomID, userID string) error {
 	return c.doASRequest("POST", path, struct{}{}, nil)
 }
 
-// LeaveRoom 离开房间
+// LeaveRoom 离开房间.
 func (c *ASClient) LeaveRoom(roomID, userID string) error {
 	encodedRoomID := url.PathEscape(roomID)
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/leave?user_id=%s",
@@ -204,14 +218,17 @@ func (c *ASClient) LeaveRoom(roomID, userID string) error {
 	return c.doASRequest("POST", path, struct{}{}, nil)
 }
 
-// SetUserProfile 设置用户档案
+// SetUserProfile 设置用户档案.
 func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
 	if displayName != "" {
 		encodedUserID := url.PathEscape(userID)
 		path := fmt.Sprintf("/_matrix/client/v3/profile/%s/displayname?user_id=%s",
 			encodedUserID, url.QueryEscape(userID))
+
 		body := map[string]string{"displayname": displayName}
-		if err := c.doASRequest("PUT", path, body, nil); err != nil {
+		err := c.doASRequest("PUT", path, body, nil)
+
+		if err != nil {
 			return err
 		}
 	}
@@ -220,8 +237,11 @@ func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
 		encodedUserID := url.PathEscape(userID)
 		path := fmt.Sprintf("/_matrix/client/v3/profile/%s/avatar_url?user_id=%s",
 			encodedUserID, url.QueryEscape(userID))
-		body := map[string]string{"avatar_url": avatarURL}
-		if err := c.doASRequest("PUT", path, body, nil); err != nil {
+
+		body := map[string]string{"avatar_url": avatarURL} //nolint:goconst
+		err := c.doASRequest("PUT", path, body, nil)
+
+		if err != nil {
 			return err
 		}
 	}
@@ -229,39 +249,46 @@ func (c *ASClient) SetUserProfile(userID, displayName, avatarURL string) error {
 	return nil
 }
 
-// GetUserProfile 获取用户档案
+// GetUserProfile 获取用户档案.
 func (c *ASClient) GetUserProfile(matrixUserID string) (*UserProfile, error) {
 	encodedUserID := url.PathEscape(matrixUserID)
-	path := fmt.Sprintf("/_matrix/client/v3/profile/%s", encodedUserID)
+	path := "/_matrix/client/v3/profile/" + encodedUserID
 
 	var profile UserProfile
-	if err := c.doASRequest("GET", path, nil, &profile); err != nil {
+	err := c.doASRequest("GET", path, nil, &profile)
+	if err != nil {
 		return nil, err
 	}
+
 	return &profile, nil
 }
 
-// GetRoomStateEvent 获取房间状态事件
+// GetRoomStateEvent 获取房间状态事件.
 func (c *ASClient) GetRoomStateEvent(roomID, eventType, stateKey, asUserID string) (*Event, error) {
 	encodedRoomID := url.PathEscape(roomID)
+
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/state/%s", encodedRoomID, eventType)
 	if stateKey != "" {
 		path += "/" + url.PathEscape(stateKey)
 	}
+
 	if asUserID != "" {
 		path += "?user_id=" + url.QueryEscape(asUserID)
 	}
 
 	var event Event
-	if err := c.doASRequest("GET", path, nil, &event); err != nil {
+	err := c.doASRequest("GET", path, nil, &event)
+	if err != nil {
 		return nil, err
 	}
+
 	return &event, nil
 }
 
-// GetRoomMembers 获取房间成员列表
+// GetRoomMembers 获取房间成员列表.
 func (c *ASClient) GetRoomMembers(roomID, asUserID string) ([]Event, error) {
 	encodedRoomID := url.PathEscape(roomID)
+
 	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/members", encodedRoomID)
 	if asUserID != "" {
 		path += "?user_id=" + url.QueryEscape(asUserID)
@@ -270,31 +297,38 @@ func (c *ASClient) GetRoomMembers(roomID, asUserID string) ([]Event, error) {
 	var resp struct {
 		Chunk []Event `json:"chunk"`
 	}
-	if err := c.doASRequest("GET", path, nil, &resp); err != nil {
+	err := c.doASRequest("GET", path, nil, &resp)
+
+	if err != nil {
 		return nil, err
 	}
+
 	return resp.Chunk, nil
 }
 
-// SyncRoomEvents 同步房间事件
+// SyncRoomEvents 同步房间事件.
 func (c *ASClient) SyncRoomEvents(asUserID, since string, timeout int) (*SyncResponse, error) {
 	path := fmt.Sprintf("/_matrix/client/v3/sync?user_id=%s&set_presence=offline", url.QueryEscape(asUserID))
 	if since != "" {
 		path += "&since=" + url.QueryEscape(since)
 	}
+
 	if timeout > 0 {
 		path += fmt.Sprintf("&timeout=%d", timeout)
 	}
+
 	path += "&filter=" + url.QueryEscape(`{"room":{"timeline":{"limit":50}}}`)
 
 	var resp SyncResponse
-	if err := c.doASRequest("GET", path, nil, &resp); err != nil {
+	err := c.doASRequest("GET", path, nil, &resp)
+	if err != nil {
 		return nil, err
 	}
+
 	return &resp, nil
 }
 
-// doASRequest 执行 AS API 请求（复用共享的 HTTP 请求逻辑）
-func (c *ASClient) doASRequest(method, path string, body interface{}, result interface{}) error {
+// doASRequest 执行 AS API 请求（复用共享的 HTTP 请求逻辑）.
+func (c *ASClient) doASRequest(method, path string, body any, result any) error {
 	return doMatrixRequest(c.httpClient, c.homeserverURL, c.asToken, method, path, body, result)
 }

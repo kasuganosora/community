@@ -13,14 +13,14 @@ import (
 )
 
 // MessageBridge 消息桥接服务
-// 负责消息在 Matrix 和本地系统之间的双向转换和同步
+// 负责消息在 Matrix 和本地系统之间的双向转换和同步.
 type MessageBridge struct {
 	client     *ASClient
 	userMapper *UserMapper
 	roomMapper *RoomMapper
 }
 
-// NewMessageBridge 创建消息桥接服务
+// NewMessageBridge 创建消息桥接服务.
 func NewMessageBridge(client *ASClient, userMapper *UserMapper, roomMapper *RoomMapper) *MessageBridge {
 	return &MessageBridge{
 		client:     client,
@@ -29,7 +29,7 @@ func NewMessageBridge(client *ASClient, userMapper *UserMapper, roomMapper *Room
 	}
 }
 
-// HandleMatrixMessage 处理来自 Matrix 的消息
+// HandleMatrixMessage 处理来自 Matrix 的消息.
 func (m *MessageBridge) HandleMatrixMessage(event *Event) error {
 	// 解析消息内容
 	content := event.ToRoomMessageContent()
@@ -82,7 +82,7 @@ func (m *MessageBridge) HandleMatrixMessage(event *Event) error {
 	return nil
 }
 
-// SendLocalMessageToMatrix 将本地消息发送到 Matrix
+// SendLocalMessageToMatrix 将本地消息发送到 Matrix.
 func (m *MessageBridge) SendLocalMessageToMatrix(convID uint64, senderAccountID uint64, content string) (string, error) {
 	// 获取发送者对应的 Matrix 用户
 	matrixUserID, err := m.userMapper.GetMatrixUserID(senderAccountID)
@@ -108,7 +108,7 @@ func (m *MessageBridge) SendLocalMessageToMatrix(convID uint64, senderAccountID 
 	return resp.EventID, nil
 }
 
-// convertMatrixMessageToStatus 将 Matrix 消息转换为本地 Status 格式
+// convertMatrixMessageToStatus 将 Matrix 消息转换为本地 Status 格式.
 func (m *MessageBridge) convertMatrixMessageToStatus(content *RoomMessageContent) string {
 	body := content.Body
 
@@ -126,7 +126,7 @@ func (m *MessageBridge) convertMatrixMessageToStatus(content *RoomMessageContent
 	return body
 }
 
-// convertStatusToMatrixMessage 将本地 Status 转换为 Matrix 消息格式
+// convertStatusToMatrixMessage 将本地 Status 转换为 Matrix 消息格式.
 func (m *MessageBridge) convertStatusToMatrixMessage(content string) *RoomMessageContent {
 	// 清理内容
 	body := strings.TrimSpace(content)
@@ -139,8 +139,8 @@ func (m *MessageBridge) convertStatusToMatrixMessage(content string) *RoomMessag
 	}
 }
 
-// createLocalStatus 创建本地 Status
-func (m *MessageBridge) createLocalStatus(convID uint64, accountID uint64, content string, eventID string) (*models.Status, error) {
+// createLocalStatus 创建本地 Status.
+func (m *MessageBridge) createLocalStatus(convID uint64, accountID uint64, content string, eventID string) (*models.Status, error) { //nolint:unparam // param reserved for future use
 	// 创建 Status 记录
 	status := &models.Status{
 		AccountId:      accountID,
@@ -150,15 +150,18 @@ func (m *MessageBridge) createLocalStatus(convID uint64, accountID uint64, conte
 
 	// 获取会话，添加参与者
 	var conv models.Conversation
-	if err := db.GetDB().First(&conv, convID).Error; err != nil {
+	err := db.GetDB().First(&conv, convID).Error
+	if err != nil {
 		return nil, err
 	}
 
 	tx := db.GetDB().Begin()
 
 	// 创建 Status
-	if err := tx.Create(status).Error; err != nil {
+	err = tx.Create(status).Error
+	if err != nil {
 		tx.Rollback()
+
 		return nil, err
 	}
 
@@ -168,26 +171,32 @@ func (m *MessageBridge) createLocalStatus(convID uint64, accountID uint64, conte
 		Content:     content,
 		SpoilerText: "",
 	}
-	if err := tx.Create(statusContent).Error; err != nil {
+	err = tx.Create(statusContent).Error
+	if err != nil {
 		tx.Rollback()
+
 		return nil, err
 	}
 
 	// 更新会话的状态列表
 	conv.AppendStatus(status.Id)
-	if err := tx.Save(&conv).Error; err != nil {
+
+	err = tx.Save(&conv).Error
+	if err != nil {
 		tx.Rollback()
+
 		return nil, err
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+	if err != nil {
 		return nil, err
 	}
 
 	return status, nil
 }
 
-// createMessageMapping 创建消息映射记录
+// createMessageMapping 创建消息映射记录.
 func (m *MessageBridge) createMessageMapping(statusID uint64, event *Event) error {
 	mapping := &models.MatrixMessage{
 		StatusId:       statusID,
@@ -200,18 +209,20 @@ func (m *MessageBridge) createMessageMapping(statusID uint64, event *Event) erro
 	return db.GetDB().Create(mapping).Error
 }
 
-// isEventProcessed 检查事件是否已处理
+// isEventProcessed 检查事件是否已处理.
 func (m *MessageBridge) isEventProcessed(eventID string) bool {
 	var count int64
-	if err := db.GetDB().Model(&models.MatrixMessage{}).
+	err := db.GetDB().Model(&models.MatrixMessage{}).
 		Where("matrix_event_id = ?", eventID).
-		Count(&count).Error; err != nil {
+		Count(&count).Error
+	if err != nil {
 		return false
 	}
+
 	return count > 0
 }
 
-// stripHTMLTags 使用 HTML 解析器正确去除 HTML 标签并提取文本内容
+// stripHTMLTags 使用 HTML 解析器正确去除 HTML 标签并提取文本内容.
 func (m *MessageBridge) stripHTMLTags(htmlContent string) string {
 	doc, err := xhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
@@ -219,12 +230,16 @@ func (m *MessageBridge) stripHTMLTags(htmlContent string) string {
 		return html.UnescapeString(htmlContent)
 	}
 
-	var buf strings.Builder
-	var extractText func(*xhtml.Node)
+	var (
+		buf         strings.Builder
+		extractText func(*xhtml.Node)
+	)
+
 	extractText = func(n *xhtml.Node) {
 		if n.Type == xhtml.TextNode {
 			buf.WriteString(n.Data)
 		}
+
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			extractText(c)
 		}
@@ -234,40 +249,46 @@ func (m *MessageBridge) stripHTMLTags(htmlContent string) string {
 	return strings.TrimSpace(buf.String())
 }
 
-// textToHTML 将纯文本转换为简单的 HTML
+// textToHTML 将纯文本转换为简单的 HTML.
 func (m *MessageBridge) textToHTML(text string) string {
 	// 转义 HTML 特殊字符
 	text = html.EscapeString(text)
 	// 将换行符转换为 <br>
 	text = strings.ReplaceAll(text, "\n", "<br>")
+
 	return text
 }
 
-// GetStatusByEventID 通过 Matrix 事件 ID 获取本地 Status
+// GetStatusByEventID 通过 Matrix 事件 ID 获取本地 Status.
 func (m *MessageBridge) GetStatusByEventID(eventID string) (*models.Status, error) {
 	var mapping models.MatrixMessage
-	if err := db.GetDB().Where("matrix_event_id = ?", eventID).First(&mapping).Error; err != nil {
+	err := db.GetDB().Where("matrix_event_id = ?", eventID).First(&mapping).Error
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
+			return nil, nil //nolint:nilnil
 		}
+
 		return nil, err
 	}
 
 	var status models.Status
-	if err := db.GetDB().First(&status, mapping.StatusId).Error; err != nil {
+	err = db.GetDB().First(&status, mapping.StatusId).Error
+	if err != nil {
 		return nil, err
 	}
 
 	return &status, nil
 }
 
-// GetEventIDByStatusID 通过本地 Status ID 获取 Matrix 事件 ID
+// GetEventIDByStatusID 通过本地 Status ID 获取 Matrix 事件 ID.
 func (m *MessageBridge) GetEventIDByStatusID(statusID uint64) (string, error) {
 	var mapping models.MatrixMessage
-	if err := db.GetDB().Where("status_id = ?", statusID).First(&mapping).Error; err != nil {
+	err := db.GetDB().Where("status_id = ?", statusID).First(&mapping).Error
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", nil
 		}
+
 		return "", err
 	}
 

@@ -47,7 +47,7 @@ func TestHCaptchaProvider_IsConfigured(t *testing.T) {
 func TestHCaptchaProvider_Verify_MissingSecret(t *testing.T) {
 	p := NewHCaptchaProvider("site", "")
 	result, err := p.Verify(context.Background(), "token", "1.2.3.4")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "not configured")
 }
@@ -93,7 +93,7 @@ func TestCloudflareProvider_IsConfigured(t *testing.T) {
 func TestCloudflareProvider_Verify_MissingSecret(t *testing.T) {
 	p := NewCloudflareProvider("site", "")
 	result, err := p.Verify(context.Background(), "token", "1.2.3.4")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "not configured")
 }

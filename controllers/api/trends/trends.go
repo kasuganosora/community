@@ -11,9 +11,10 @@ import (
 	"strconv"
 )
 
-// ListTags handles GET /api/v1/trends/tags
+// ListTags handles GET /api/v1/trends/tags.
 func ListTags(c *gin.Context) {
 	limit := 10
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
 			limit = parsed
@@ -21,6 +22,7 @@ func ListTags(c *gin.Context) {
 	}
 
 	offset := 0
+
 	if o := c.Query("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
@@ -35,9 +37,11 @@ func ListTags(c *gin.Context) {
 		Order("status_count DESC, last_status_used_at DESC")
 
 	tags := make([]*models.Tag, 0)
-	if err := query.Limit(limit).Offset(offset).Find(&tags).Error; err != nil {
+	err := query.Limit(limit).Offset(offset).Find(&tags).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get trending tags error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -63,9 +67,10 @@ func ListTags(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// ListStatuses handles GET /api/v1/trends/statuses
+// ListStatuses handles GET /api/v1/trends/statuses.
 func ListStatuses(c *gin.Context) {
 	limit := 10
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
 			limit = parsed
@@ -73,6 +78,7 @@ func ListStatuses(c *gin.Context) {
 	}
 
 	offset := 0
+
 	if o := c.Query("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
@@ -91,9 +97,11 @@ func ListStatuses(c *gin.Context) {
 		Order("(reblogs_count + favourites_count) DESC, created_at DESC")
 
 	statuses := make([]*models.Status, 0)
-	if err := query.Limit(limit).Offset(offset).Find(&statuses).Error; err != nil {
+	err := query.Limit(limit).Offset(offset).Find(&statuses).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get trending statuses error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
@@ -103,9 +111,10 @@ func ListStatuses(c *gin.Context) {
 	c.JSON(200, serializedStatuses)
 }
 
-// ListLinks handles GET /api/v1/trends/links
+// ListLinks handles GET /api/v1/trends/links.
 func ListLinks(c *gin.Context) {
 	limit := 10
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
 			limit = parsed
@@ -113,6 +122,7 @@ func ListLinks(c *gin.Context) {
 	}
 
 	offset := 0
+
 	if o := c.Query("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
@@ -139,9 +149,11 @@ func ListLinks(c *gin.Context) {
 	}
 
 	links := make([]LinkResult, 0)
-	if err := query.Find(&links).Error; err != nil {
+	err := query.Find(&links).Error
+	if err != nil {
 		// If the table doesn't exist, return empty array
-		c.JSON(200, []interface{}{})
+		c.JSON(200, []any{})
+
 		return
 	}
 

@@ -11,7 +11,7 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// AccessMode 访问模式
+// AccessMode 访问模式.
 type AccessMode string
 
 const (
@@ -19,7 +19,7 @@ const (
 	AccessModeRedirect AccessMode = "redirect" // 直通模式（重定向到原URL）
 )
 
-// StorageType 存储类型
+// StorageType 存储类型.
 type StorageType string
 
 const (
@@ -30,7 +30,7 @@ const (
 	StorageTypeTencentCOS StorageType = "tencent_cos"
 )
 
-// StorageConfig 存储配置
+// StorageConfig 存储配置.
 type StorageConfig struct {
 	Type       StorageType `json:"type"`
 	Bucket     string      `json:"bucket"`
@@ -43,7 +43,7 @@ type StorageConfig struct {
 	SecretKey  string      `json:"secret_key"`
 }
 
-// ThumbnailRule 缩略图规则
+// ThumbnailRule 缩略图规则.
 type ThumbnailRule struct {
 	ContentTypes      []string `json:"content_types"`
 	Extensions        []string `json:"extensions"`
@@ -57,7 +57,7 @@ type ThumbnailRule struct {
 	MediaType         string   `json:"media_type"` // image, video
 }
 
-// Config 缩略图服务配置
+// Config 缩略图服务配置.
 type Config struct {
 	Enabled        bool            `json:"enabled"`
 	Storage        StorageConfig   `json:"storage"`
@@ -66,7 +66,7 @@ type Config struct {
 	Rules          []ThumbnailRule `json:"rules"`
 }
 
-// DefaultConfig 默认配置
+// DefaultConfig 默认配置.
 func DefaultConfig() *Config {
 	return &Config{
 		Enabled:        false,
@@ -74,22 +74,22 @@ func DefaultConfig() *Config {
 		RewriteEnabled: true,
 		Storage: StorageConfig{
 			Type:       StorageTypeLocal,
-			PathPrefix: "thumbnails/",
+			PathPrefix: "thumbnails/", //nolint:goconst
 			LocalPath:  "./storage/thumbnails",
 			PublicURL:  "",
 		},
 		Rules: []ThumbnailRule{
 			{
-				ContentTypes:      []string{"image/jpeg", "image/png"},
-				Extensions:        []string{"jpg", "jpeg", "png"},
-				MaxOriginalSize:   524288, // 512KB
+				ContentTypes:      []string{"image/jpeg", "image/png"}, //nolint:goconst
+				Extensions:        []string{"jpg", "jpeg", "png"},      //nolint:goconst
+				MaxOriginalSize:   524288,                              // 512KB
 				MaxWidth:          1920,
 				MaxHeight:         1080,
 				Quality:           85,
-				Format:            "webp",
+				Format:            "webp", //nolint:goconst
 				Enabled:           true,
 				ExcludeAnimations: false,
-				MediaType:         "image",
+				MediaType:         "image", //nolint:goconst
 			},
 			{
 				ContentTypes:      []string{"image/webp"},
@@ -105,7 +105,7 @@ func DefaultConfig() *Config {
 			},
 			{
 				ContentTypes: []string{"image/gif"},
-				Extensions:   []string{"gif"},
+				Extensions:   []string{"gif"}, //nolint:goconst
 				Enabled:      false,
 				MediaType:    "image",
 			},
@@ -152,14 +152,16 @@ func DefaultConfig() *Config {
 	}
 }
 
-// LoadConfig 从数据库加载配置
+// LoadConfig 从数据库加载配置.
 func LoadConfig() (*Config, error) {
 	cfg := DefaultConfig()
 
 	// 从数据库加载各项配置
 	var configs []models.ThumbnailConfig
-	if err := db.GetDB().Find(&configs).Error; err != nil {
+	err := db.GetDB().Find(&configs).Error
+	if err != nil {
 		log.Warn("Failed to load thumbnail configs from database: %v", err)
+
 		return cfg, nil
 	}
 
@@ -172,9 +174,11 @@ func LoadConfig() (*Config, error) {
 	if v, ok := configMap[models.ConfigKeyEnabled]; ok {
 		cfg.Enabled = v == "true"
 	}
+
 	if v, ok := configMap[models.ConfigKeyAccessMode]; ok {
 		cfg.AccessMode = AccessMode(v)
 	}
+
 	if v, ok := configMap[models.ConfigKeyRewriteEnabled]; ok {
 		cfg.RewriteEnabled = v == "true"
 	}
@@ -183,18 +187,23 @@ func LoadConfig() (*Config, error) {
 	if v, ok := configMap[models.ConfigKeyStorageType]; ok {
 		cfg.Storage.Type = StorageType(v)
 	}
+
 	if v, ok := configMap[models.ConfigKeyStorageBucket]; ok {
 		cfg.Storage.Bucket = v
 	}
+
 	if v, ok := configMap[models.ConfigKeyStorageRegion]; ok {
 		cfg.Storage.Region = v
 	}
+
 	if v, ok := configMap[models.ConfigKeyStorageEndpoint]; ok {
 		cfg.Storage.Endpoint = v
 	}
+
 	if v, ok := configMap[models.ConfigKeyStoragePrefix]; ok {
 		cfg.Storage.PathPrefix = v
 	}
+
 	if v, ok := configMap[models.ConfigKeyStoragePublicURL]; ok {
 		cfg.Storage.PublicURL = v
 	}
@@ -206,7 +215,8 @@ func LoadConfig() (*Config, error) {
 	// 解析规则
 	if v, ok := configMap[models.ConfigKeyRules]; ok && v != "" {
 		var rules []ThumbnailRule
-		if err := json.Unmarshal([]byte(v), &rules); err == nil {
+		err := json.Unmarshal([]byte(v), &rules)
+		if err == nil {
 			cfg.Rules = rules
 		}
 	}
@@ -214,12 +224,12 @@ func LoadConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// SaveConfig 保存配置到数据库
+// SaveConfig 保存配置到数据库.
 func SaveConfig(cfg *Config) error {
 	tx := db.GetDB().Begin()
 
 	// 保存基本配置
-	configs := []models.ThumbnailConfig{
+	configs := []models.ThumbnailConfig{ //nolint:prealloc
 		{Key: models.ConfigKeyEnabled, Value: strconv.FormatBool(cfg.Enabled)},
 		{Key: models.ConfigKeyAccessMode, Value: string(cfg.AccessMode)},
 		{Key: models.ConfigKeyRewriteEnabled, Value: strconv.FormatBool(cfg.RewriteEnabled)},
@@ -236,6 +246,7 @@ func SaveConfig(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal rules: %w", err)
 	}
+
 	configs = append(configs, models.ThumbnailConfig{
 		Key:   models.ConfigKeyRules,
 		Value: string(rulesJSON),
@@ -243,10 +254,12 @@ func SaveConfig(cfg *Config) error {
 
 	// 批量保存
 	for _, c := range configs {
-		if err := tx.Where(models.ThumbnailConfig{Key: c.Key}).
+		err := tx.Where(models.ThumbnailConfig{Key: c.Key}).
 			Assign(c).
-			FirstOrCreate(&models.ThumbnailConfig{}).Error; err != nil {
+			FirstOrCreate(&models.ThumbnailConfig{}).Error
+		if err != nil {
 			tx.Rollback()
+
 			return err
 		}
 	}
@@ -254,7 +267,7 @@ func SaveConfig(cfg *Config) error {
 	return tx.Commit().Error
 }
 
-// GetStoragePublicURL 获取存储公共URL
+// GetStoragePublicURL 获取存储公共URL.
 func (c *Config) GetStoragePublicURL() string {
 	if c.Storage.PublicURL != "" {
 		return c.Storage.PublicURL
@@ -266,6 +279,7 @@ func (c *Config) GetStoragePublicURL() string {
 		if c.Storage.Region != "" {
 			return fmt.Sprintf("https://%s.s3.%s.amazonaws.com", c.Storage.Bucket, c.Storage.Region)
 		}
+
 		return fmt.Sprintf("https://%s.s3.amazonaws.com", c.Storage.Bucket)
 	case StorageTypeMinIO:
 		return fmt.Sprintf("%s/%s", c.Storage.Endpoint, c.Storage.Bucket)

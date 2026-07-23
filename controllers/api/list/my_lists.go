@@ -8,14 +8,14 @@ import (
 )
 
 func GetMyLists(c *gin.Context) {
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	lists := make([]*models.List, 0)
 
 	err := db.GetDB().Where("account_id = ?", account.Id).Find(&lists).Error
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

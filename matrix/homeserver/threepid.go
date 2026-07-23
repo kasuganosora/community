@@ -1,7 +1,7 @@
 package homeserver
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +14,7 @@ import (
 // ===== 第三方标识符 (3PID) 管理 =====
 // 邮箱和手机号绑定
 
-// ThreePID 第三方标识符
+// ThreePID 第三方标识符.
 type ThreePID struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
 	UserID      string `gorm:"index;type:varchar(255);not null"`
@@ -29,7 +29,7 @@ func (ThreePID) TableName() string {
 	return "matrix_threepids"
 }
 
-// ThreePIDToken 3PID 验证令牌
+// ThreePIDToken 3PID 验证令牌.
 type ThreePIDToken struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement"`
 	Token     string    `gorm:"uniqueIndex;type:varchar(128);not null"`
@@ -45,33 +45,37 @@ func (ThreePIDToken) TableName() string {
 	return "matrix_threepid_tokens"
 }
 
-// ThreePIDService 3PID 服务
+// ThreePIDService 3PID 服务.
 type ThreePIDService struct {
 	hs *HomeServer
 }
 
-// NewThreePIDService 创建 3PID 服务
+// NewThreePIDService 创建 3PID 服务.
 func NewThreePIDService(hs *HomeServer) *ThreePIDService {
 	return &ThreePIDService{hs: hs}
 }
 
-// GetThreePIDs 获取用户的所有 3PID
+// GetThreePIDs 获取用户的所有 3PID.
 func (ts *ThreePIDService) GetThreePIDs(userID string) ([]ThreePID, error) {
 	var threepids []ThreePID
-	if err := db.GetDB().Where("user_id = ? AND validated = ?", userID, true).Find(&threepids).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND validated = ?", userID, true).Find(&threepids).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return threepids, nil
 }
 
-// AddThreePID 添加 3PID
+// AddThreePID 添加 3PID.
 func (ts *ThreePIDService) AddThreePID(userID, medium, address string) error {
 	// 检查是否已存在
 	var existing ThreePID
-	if err := db.GetDB().Where("medium = ? AND address = ? AND validated = ?", medium, address, true).First(&existing).Error; err == nil {
+	err := db.GetDB().Where("medium = ? AND address = ? AND validated = ?", medium, address, true).First(&existing).Error
+	if err == nil {
 		if existing.UserID != userID {
-			return fmt.Errorf("3pid already in use by another user")
+			return errors.New("3pid already in use by another user")
 		}
+
 		return nil // 已存在
 	}
 
@@ -88,12 +92,12 @@ func (ts *ThreePIDService) AddThreePID(userID, medium, address string) error {
 	return db.GetDB().Create(threepid).Error
 }
 
-// DeleteThreePID 删除 3PID
+// DeleteThreePID 删除 3PID.
 func (ts *ThreePIDService) DeleteThreePID(userID, medium, address string) error {
 	return db.GetDB().Where("user_id = ? AND medium = ? AND address = ?", userID, medium, address).Delete(&ThreePID{}).Error
 }
 
-// RequestValidationToken 请求验证令牌
+// RequestValidationToken 请求验证令牌.
 func (ts *ThreePIDService) RequestValidationToken(medium, address, clientSecret string, sendAttempt int) (string, error) {
 	// 生成验证令牌
 	token := generateValidationToken()
@@ -106,7 +110,8 @@ func (ts *ThreePIDService) RequestValidationToken(medium, address, clientSecret 
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
-	if err := db.GetDB().Create(tokenRecord).Error; err != nil {
+	err := db.GetDB().Create(tokenRecord).Error
+	if err != nil {
 		return "", err
 	}
 
@@ -120,16 +125,18 @@ func (ts *ThreePIDService) RequestValidationToken(medium, address, clientSecret 
 
 	// 返回 sid
 	sid := generateSID()
+
 	return sid, nil
 }
 
-// ValidateThreePID 验证 3PID
+// ValidateThreePID 验证 3PID.
 func (ts *ThreePIDService) ValidateThreePID(token, medium, address string) (bool, error) {
 	// 查找令牌
 	var tokenRecord ThreePIDToken
-	if err := db.GetDB().Where("token = ? AND medium = ? AND address = ? AND used = ? AND expires_at > ?",
-		token, medium, address, false, time.Now()).First(&tokenRecord).Error; err != nil {
-		return false, fmt.Errorf("invalid or expired token")
+	err := db.GetDB().Where("token = ? AND medium = ? AND address = ? AND used = ? AND expires_at > ?",
+		token, medium, address, false, time.Now()).First(&tokenRecord).Error
+	if err != nil {
+		return false, errors.New("invalid or expired token")
 	}
 
 	// 标记令牌为已使用
@@ -139,35 +146,37 @@ func (ts *ThreePIDService) ValidateThreePID(token, medium, address string) (bool
 	return true, nil
 }
 
-// LookupThreePID 查找 3PID 对应的用户
+// LookupThreePID 查找 3PID 对应的用户.
 func (ts *ThreePIDService) LookupThreePID(medium, address string) (string, error) {
 	var threepid ThreePID
-	if err := db.GetDB().Where("medium = ? AND address = ? AND validated = ?", medium, address, true).First(&threepid).Error; err != nil {
-		return "", fmt.Errorf("3pid not found")
+	err := db.GetDB().Where("medium = ? AND address = ? AND validated = ?", medium, address, true).First(&threepid).Error
+	if err != nil {
+		return "", errors.New("3pid not found")
 	}
+
 	return threepid.UserID, nil
 }
 
-// sendValidationEmail 发送验证邮件
+// sendValidationEmail 发送验证邮件.
 func (ts *ThreePIDService) sendValidationEmail(email, token string) {
 	// TODO: 实现邮件发送
 	log.Info("Would send validation email to %s with token %s", email, token)
 }
 
-// sendValidationSMS 发送验证短信
+// sendValidationSMS 发送验证短信.
 func (ts *ThreePIDService) sendValidationSMS(phone, token string) {
 	// TODO: 实现短信发送
 	log.Info("Would send validation SMS to %s with token %s", phone, token)
 }
 
-// UnbindThreePID 解绑 3PID
+// UnbindThreePID 解绑 3PID.
 func (ts *ThreePIDService) UnbindThreePID(userID, medium, address string) error {
 	return db.GetDB().Where("user_id = ? AND medium = ? AND address = ?", userID, medium, address).Delete(&ThreePID{}).Error
 }
 
 // ===== HTTP Handlers =====
 
-// RegisterThreePIDRoutes 注册 3PID 路由
+// RegisterThreePIDRoutes 注册 3PID 路由.
 func RegisterThreePIDRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -192,7 +201,7 @@ func RegisterThreePIDRoutes(r gin.IRouter) {
 	r.GET("/_matrix/identity/v2/lookup", handleLookupThreePID)
 }
 
-// handleGetThreePIDs 获取用户的 3PID 列表
+// handleGetThreePIDs 获取用户的 3PID 列表.
 func handleGetThreePIDs(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -200,9 +209,10 @@ func handleGetThreePIDs(c *gin.Context) {
 	threepids, err := hs.ThreePID.GetThreePIDs(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
-			"error":   err.Error(),
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
+			"error":   err.Error(),        //nolint:goconst
 		})
+
 		return
 	}
 
@@ -229,80 +239,89 @@ func handleGetThreePIDs(c *gin.Context) {
 	})
 }
 
-// handleAddThreePID 添加 3PID
+// handleAddThreePID 添加 3PID.
 func handleAddThreePID(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 
 	var req struct {
-		Medium  string `json:"medium" binding:"required"`
-		Address string `json:"address" binding:"required"`
+		Medium  string `binding:"required" json:"medium"`
+		Address string `binding:"required" json:"address"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// 验证 3PID
 	if req.Medium != "email" && req.Medium != "msisdn" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_INVALID_PARAM",
+			"errcode": "M_INVALID_PARAM", //nolint:goconst
 			"error":   "Invalid medium",
 		})
+
 		return
 	}
 
-	if err := hs.ThreePID.AddThreePID(userID, req.Medium, req.Address); err != nil {
+	err = hs.ThreePID.AddThreePID(userID, req.Medium, req.Address)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_THREEPID_IN_USE",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleDeleteThreePID 删除 3PID
+// handleDeleteThreePID 删除 3PID.
 func handleDeleteThreePID(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 
 	var req struct {
-		Medium  string `json:"medium" binding:"required"`
-		Address string `json:"address" binding:"required"`
+		Medium  string `binding:"required" json:"medium"`
+		Address string `binding:"required" json:"address"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
-	if err := hs.ThreePID.DeleteThreePID(userID, req.Medium, req.Address); err != nil {
+	err = hs.ThreePID.DeleteThreePID(userID, req.Medium, req.Address)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleRequestEmailToken 请求邮箱验证令牌
+// handleRequestEmailToken 请求邮箱验证令牌.
 func handleRequestEmailToken(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var req struct {
-		ClientSecret string `json:"client_secret" binding:"required"`
-		Email        string `json:"email" binding:"required"`
+		ClientSecret string `binding:"required"  json:"client_secret"`
+		Email        string `binding:"required"  json:"email"`
 		SendAttempt  int    `json:"send_attempt"`
 	}
 
@@ -311,6 +330,7 @@ func handleRequestEmailToken(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -320,6 +340,7 @@ func handleRequestEmailToken(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -328,13 +349,13 @@ func handleRequestEmailToken(c *gin.Context) {
 	})
 }
 
-// handleRequestMSISDNToken 请求手机号验证令牌
+// handleRequestMSISDNToken 请求手机号验证令牌.
 func handleRequestMSISDNToken(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var req struct {
-		ClientSecret string `json:"client_secret" binding:"required"`
-		Phone        string `json:"phone_number" binding:"required"`
+		ClientSecret string `binding:"required"  json:"client_secret"`
+		Phone        string `binding:"required"  json:"phone_number"`
 		Country      string `json:"country"`
 		SendAttempt  int    `json:"send_attempt"`
 	}
@@ -344,6 +365,7 @@ func handleRequestMSISDNToken(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -360,6 +382,7 @@ func handleRequestMSISDNToken(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -368,13 +391,13 @@ func handleRequestMSISDNToken(c *gin.Context) {
 	})
 }
 
-// handleSubmitEmailToken 提交邮箱验证令牌
+// handleSubmitEmailToken 提交邮箱验证令牌.
 func handleSubmitEmailToken(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var req struct {
-		Token string `json:"token" binding:"required"`
-		Email string `json:"email" binding:"required"`
+		Token string `binding:"required" json:"token"`
+		Email string `binding:"required" json:"email"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -382,6 +405,7 @@ func handleSubmitEmailToken(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -391,13 +415,14 @@ func handleSubmitEmailToken(c *gin.Context) {
 			"errcode": "M_INVALID_PARAM",
 			"error":   "Invalid token",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleLookupThreePID 查找 3PID
+// handleLookupThreePID 查找 3PID.
 func handleLookupThreePID(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -409,15 +434,17 @@ func handleLookupThreePID(c *gin.Context) {
 			"errcode": "M_MISSING_PARAMS",
 			"error":   "Missing medium or address",
 		})
+
 		return
 	}
 
 	userID, err := hs.ThreePID.LookupThreePID(medium, address)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
+			"errcode": "M_NOT_FOUND", //nolint:goconst
 			"error":   "3PID not found",
 		})
+
 		return
 	}
 
@@ -426,7 +453,7 @@ func handleLookupThreePID(c *gin.Context) {
 	})
 }
 
-// 辅助函数
+// 辅助函数.
 func generateValidationToken() string {
 	return generateOpenIDToken()
 }

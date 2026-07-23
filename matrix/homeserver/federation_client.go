@@ -2,13 +2,16 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,7 +23,7 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// FederationClient 联邦客户端
+// FederationClient 联邦客户端.
 type FederationClient struct {
 	hs         *HomeServer
 	privateKey ed25519.PrivateKey
@@ -28,7 +31,7 @@ type FederationClient struct {
 	keyCache   *KeyCache
 }
 
-// NewFederationClient 创建联邦客户端
+// NewFederationClient 创建联邦客户端.
 func NewFederationClient(hs *HomeServer) *FederationClient {
 	return &FederationClient{
 		hs:         hs,
@@ -43,13 +46,13 @@ func NewFederationClient(hs *HomeServer) *FederationClient {
 func (c *FederationClient) federationBaseURL(serverName string) string {
 	// If serverName already contains a port, use it directly
 	if strings.Contains(serverName, ":") {
-		return fmt.Sprintf("https://%s", serverName)
+		return "https://" + serverName
 	}
 	// Default to port 8448 for federation (Matrix spec)
-	return fmt.Sprintf("https://%s:8448", serverName)
+	return fmt.Sprintf("https://%s", net.JoinHostPort(serverName, "8448"))
 }
 
-// FetchMedia 从远程服务器获取媒体
+// FetchMedia 从远程服务器获取媒体.
 func (c *FederationClient) FetchMedia(serverName, mediaID string) ([]byte, string, error) {
 	// 构建 URL
 	mediaURL := fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", c.federationBaseURL(serverName), serverName, mediaID)
@@ -83,7 +86,7 @@ func (c *FederationClient) FetchMedia(serverName, mediaID string) ([]byte, strin
 	return data, contentType, nil
 }
 
-// FetchThumbnail 从远程服务器获取缩略图
+// FetchThumbnail 从远程服务器获取缩略图.
 func (c *FederationClient) FetchThumbnail(serverName, mediaID string, width, height int, method string) ([]byte, string, error) {
 	// 构建 URL
 	thumbURL := fmt.Sprintf("%s/_matrix/media/v3/thumbnail/%s/%s?width=%d&height=%d&method=%s",
@@ -118,60 +121,68 @@ func (c *FederationClient) FetchThumbnail(serverName, mediaID string, width, hei
 	return data, contentType, nil
 }
 
-// SendTransaction 发送联邦事务
+// SendTransaction 发送联邦事务.
 func (c *FederationClient) SendTransaction(destServer string, txnID string, pdus []json.RawMessage, edus []json.RawMessage) error {
 	// Ensure non-null arrays in JSON (Matrix spec requires arrays, not null)
 	if pdus == nil {
 		pdus = []json.RawMessage{}
 	}
+
 	if edus == nil {
 		edus = []json.RawMessage{}
 	}
 
 	// 构建请求体
-	body := map[string]interface{}{
-		"origin":           c.hs.Config.ServerName,
-		"origin_server_ts": time.Now().UnixMilli(),
-		"pdus":             pdus,
+	body := map[string]any{
+		"origin":           c.hs.Config.ServerName, //nolint:goconst
+		"origin_server_ts": time.Now().UnixMilli(), //nolint:goconst
+		"pdus":             pdus,                   //nolint:goconst
 		"edus":             edus,
 	}
 
 	// Use doFederationRequest which properly loads Complement CA and handles TLS
 	txnURL := fmt.Sprintf("%s/_matrix/federation/v1/send/%s", c.federationBaseURL(destServer), txnID)
-	resp, _, err := c.doFederationRequest("PUT", txnURL, destServer, body)
+
+	resp, _, err := c.doFederationRequest("PUT", txnURL, destServer, body) //nolint:bodyclose // body already closed inside doFederationRequest
 	if err != nil {
 		return err
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("send transaction returned status %d", resp.StatusCode)
 	}
+
 	return nil
 }
 
 // QueryRemoteKeys queries device keys from a remote server via federation.
-// POST /_matrix/federation/v1/user/keys/query
+// POST /_matrix/federation/v1/user/keys/query.
 func (c *FederationClient) QueryRemoteKeys(destServer string, deviceKeys map[string][]string) (map[string]map[string]*DeviceKeys, error) {
-	body := map[string]interface{}{
+	body := map[string]any{
 		"device_keys": deviceKeys,
 	}
-	reqURL := fmt.Sprintf("%s/_matrix/federation/v1/user/keys/query", c.federationBaseURL(destServer))
-	_, respBody, err := c.doFederationRequest("POST", reqURL, destServer, body)
+	reqURL := c.federationBaseURL(destServer) + "/_matrix/federation/v1/user/keys/query"
+
+	_, respBody, err := c.doFederationRequest("POST", reqURL, destServer, body) //nolint:bodyclose // body already closed inside doFederationRequest
 	if err != nil {
 		return nil, err
 	}
+
 	var result struct {
 		DeviceKeys map[string]map[string]*DeviceKeys `json:"device_keys"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
+
 	if result.DeviceKeys == nil {
 		result.DeviceKeys = make(map[string]map[string]*DeviceKeys)
 	}
+
 	return result.DeviceKeys, nil
 }
 
-// QueryDirectory 查询远程目录
+// QueryDirectory 查询远程目录.
 func (c *FederationClient) QueryDirectory(destServer, roomAlias string) (*QueryDirectoryResponse, error) {
 	// 构建 URL
 	queryURL := fmt.Sprintf("%s/_matrix/federation/v1/query/directory?room_alias=%s",
@@ -201,7 +212,7 @@ func (c *FederationClient) QueryDirectory(destServer, roomAlias string) (*QueryD
 }
 
 // signRequest 签名请求（Matrix federation 格式）
-// Matrix spec: sign {method, uri, origin, destination, content?} as canonical JSON
+// Matrix spec: sign {method, uri, origin, destination, content?} as canonical JSON.
 func (c *FederationClient) signRequest(req *httpclient.Request, destServer string) {
 	origin := c.hs.Config.ServerName
 	keyID := c.hs.keyID
@@ -211,15 +222,17 @@ func (c *FederationClient) signRequest(req *httpclient.Request, destServer strin
 	parsedURL, _ := url.Parse(requestURL)
 	uri := parsedURL.RequestURI()
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"method":      method,
 		"uri":         uri,
 		"origin":      origin,
 		"destination": destServer,
 	}
+
 	if body := req.GetBody(); len(body) > 0 {
-		var content interface{}
-		if err := json.Unmarshal(body, &content); err == nil {
+		var content any
+		err := json.Unmarshal(body, &content)
+		if err == nil {
 			payload["content"] = content
 		}
 	}
@@ -252,30 +265,36 @@ func (c *FederationClient) federationHTTPClient() *http.Client {
 		pool.AppendCertsFromPEM(caCert)
 		tlsConfig.RootCAs = pool
 	}
+
 	return &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &http.Transport{TLSClientConfig: tlsConfig},
 	}
 }
 
-// doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码
-func (c *FederationClient) doFederationRequest(method, targetURL, destServer string, body interface{}) (*http.Response, []byte, error) {
+// doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码.
+func (c *FederationClient) doFederationRequest(method, targetURL, destServer string, body any) (*http.Response, []byte, error) {
 	var bodyBytes []byte
+
 	if body != nil {
 		var err error
+
 		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 	}
 
-	var httpReq *http.Request
-	var err error
+	var (
+		httpReq *http.Request
+		err     error
+	)
 	if bodyBytes != nil {
-		httpReq, err = http.NewRequest(method, targetURL, bytes.NewReader(bodyBytes))
+		httpReq, err = http.NewRequestWithContext(context.Background(), method, targetURL, bytes.NewReader(bodyBytes))
 	} else {
-		httpReq, err = http.NewRequest(method, targetURL, nil)
+		httpReq, err = http.NewRequestWithContext(context.Background(), method, targetURL, nil)
 	}
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -283,6 +302,7 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	// Set headers
 	httpReq.Header.Set("User-Agent", "Community-Matrix/1.0")
 	httpReq.Header.Set("Host", destServer)
+
 	if bodyBytes != nil {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
@@ -292,18 +312,21 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	keyID := c.hs.keyID
 	parsedURL, _ := url.Parse(targetURL)
 	requestURI := parsedURL.RequestURI()
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"method":      method,
 		"uri":         requestURI,
 		"origin":      origin,
 		"destination": destServer,
 	}
+
 	if bodyBytes != nil {
-		var content interface{}
-		if err := json.Unmarshal(bodyBytes, &content); err == nil {
+		var content any
+		err := json.Unmarshal(bodyBytes, &content)
+		if err == nil {
 			payload["content"] = content
 		}
 	}
+
 	if canonicalBytes, err2 := CanonicalJSON(payload); err2 == nil {
 		sig := ed25519.Sign(c.privateKey, canonicalBytes)
 		sigB64 := base64.RawStdEncoding.EncodeToString(sig)
@@ -313,33 +336,37 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	}
 
 	client := c.federationHTTPClient()
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
 	return resp, buf.Bytes(), nil
 }
 
-// MakeJoin 向远程服务器请求加入事件模板
-func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[string]interface{}, error) {
+// MakeJoin 向远程服务器请求加入事件模板.
+func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[string]any, error) {
 	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=9&ver=10",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(userID))
 
-	resp, body, err := c.doFederationRequest("GET", makeJoinURL, destServer, nil)
+	resp, body, err := c.doFederationRequest("GET", makeJoinURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("make_join request failed: %w", err)
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("make_join returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse make_join response: %w", err)
 	}
@@ -347,8 +374,8 @@ func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[stri
 	return result, nil
 }
 
-// SendJoin 向远程服务器发送已签名的加入事件
-func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]interface{}) (map[string]interface{}, error) {
+// SendJoin 向远程服务器发送已签名的加入事件.
+func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]any) (map[string]any, error) {
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
 		eventID = "$" + generateRandomString(32)
@@ -359,27 +386,30 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	sendJoinURL := fmt.Sprintf("%s/_matrix/federation/v2/send_join/%s/%s",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
 
-	resp, body, err := c.doFederationRequest("PUT", sendJoinURL, destServer, event)
+	resp, body, err := c.doFederationRequest("PUT", sendJoinURL, destServer, event) //nolint:bodyclose // body closed inside doFederationRequest
 	if err != nil || (resp != nil && resp.StatusCode == http.StatusNotFound) {
 		// Fall back to v1
 		sendJoinURL = fmt.Sprintf("%s/_matrix/federation/v1/send_join/%s/%s",
 			c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
-		resp, body, err = c.doFederationRequest("PUT", sendJoinURL, destServer, event)
+		resp, body, err = c.doFederationRequest("PUT", sendJoinURL, destServer, event) //nolint:bodyclose // closed in doFederationRequest
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("send_join request failed: %w", err)
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("send_join returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Handle v1 array format [200, {...}] and v2 object format {...}
-	var result map[string]interface{}
+	var result map[string]any
+
 	if len(body) > 0 && body[0] == '[' {
 		// v1 format: [200, {...}]
 		var arr []json.RawMessage
-		if err := json.Unmarshal(body, &arr); err == nil && len(arr) >= 2 {
+		err := json.Unmarshal(body, &arr)
+		if err == nil && len(arr) >= 2 {
 			_ = json.Unmarshal(arr[1], &result)
 		}
 	} else {
@@ -387,56 +417,63 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("empty send_join response")
+		return nil, errors.New("empty send_join response")
 	}
 
 	return result, nil
 }
 
 // GetMissingEvents fetches missing events from a remote server.
-// POST /_matrix/federation/v1/get_missing_events/{roomId}
+// POST /_matrix/federation/v1/get_missing_events/{roomId}.
 func (c *FederationClient) GetMissingEvents(destServer, roomID string, earliestEvents, latestEvents []string, limit int) ([]json.RawMessage, error) {
 	reqURL := fmt.Sprintf("%s/_matrix/federation/v1/get_missing_events/%s",
 		c.federationBaseURL(destServer), url.PathEscape(roomID))
-	body := map[string]interface{}{
+	body := map[string]any{
 		"earliest_events": earliestEvents,
 		"latest_events":   latestEvents,
 		"limit":           limit,
 	}
-	resp, respBody, err := c.doFederationRequest("POST", reqURL, destServer, body)
+
+	resp, respBody, err := c.doFederationRequest("POST", reqURL, destServer, body) //nolint:bodyclose
 	if err != nil {
 		return nil, fmt.Errorf("get_missing_events request failed: %w", err)
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("get_missing_events returned status %d: %s", resp.StatusCode, string(respBody))
 	}
+
 	var result struct {
 		Events []json.RawMessage `json:"events"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse get_missing_events response: %w", err)
 	}
+
 	return result.Events, nil
 }
 
-// FetchBackfill fetches message history from a remote server after joining a room
-func (c *FederationClient) FetchBackfill(serverName, roomID string, eventIDs []string, limit int) ([]map[string]interface{}, error) {
+// FetchBackfill fetches message history from a remote server after joining a room.
+func (c *FederationClient) FetchBackfill(serverName, roomID string, eventIDs []string, limit int) ([]map[string]any, error) {
 	backfillURL := fmt.Sprintf("%s/_matrix/federation/v1/backfill/%s?limit=%d",
 		c.federationBaseURL(serverName), url.PathEscape(roomID), limit)
+	var backfillURLSb426 strings.Builder
 	for _, eid := range eventIDs {
-		backfillURL += "&v=" + url.QueryEscape(eid)
+		backfillURLSb426.WriteString("&v=" + url.QueryEscape(eid))
 	}
+	backfillURL += backfillURLSb426.String()
 
-	resp, body, err := c.doFederationRequest("GET", backfillURL, serverName, nil)
+	resp, body, err := c.doFederationRequest("GET", backfillURL, serverName, nil) //nolint:bodyclose
 	if err != nil {
 		return nil, fmt.Errorf("backfill request failed: %w", err)
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("backfill returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
-		PDUs []map[string]interface{} `json:"pdus"`
+		PDUs []map[string]any `json:"pdus"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse backfill response: %w", err)
@@ -445,8 +482,8 @@ func (c *FederationClient) FetchBackfill(serverName, roomID string, eventIDs []s
 	return result.PDUs, nil
 }
 
-// VerifySignature 验证事件签名
-func (c *FederationClient) VerifySignature(event map[string]interface{}, serverName string, keyID string, signature string) bool {
+// VerifySignature 验证事件签名.
+func (c *FederationClient) VerifySignature(event map[string]any, serverName string, keyID string, signature string) bool {
 	// 首先从缓存获取公钥
 	publicKey, found := c.keyCache.Get(serverName, keyID)
 	if !found {
@@ -454,6 +491,7 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 		keyResp, err := c.FetchServerKey(serverName)
 		if err != nil {
 			log.Error("Failed to fetch server key for %s: %v", serverName, err)
+
 			return false
 		}
 
@@ -461,6 +499,7 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 		keyInfo, ok := keyResp.VerifyKeys[keyID]
 		if !ok {
 			log.Error("Key %s not found for server %s", keyID, serverName)
+
 			return false
 		}
 
@@ -468,6 +507,7 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 		publicKeyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
 		if err != nil {
 			log.Error("Failed to decode public key for %s:%s: %v", serverName, keyID, err)
+
 			return false
 		}
 
@@ -487,6 +527,7 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 	signatureBytes, err := base64.RawStdEncoding.DecodeString(signature)
 	if err != nil {
 		log.Error("Failed to decode signature: %v", err)
+
 		return false
 	}
 
@@ -494,6 +535,7 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 	canonicalBytes, err := CanonicalJSON(event)
 	if err != nil {
 		log.Error("Failed to canonicalize JSON: %v", err)
+
 		return false
 	}
 
@@ -501,10 +543,10 @@ func (c *FederationClient) VerifySignature(event map[string]interface{}, serverN
 	return ed25519.Verify(publicKey, canonicalBytes, signatureBytes)
 }
 
-// FetchServerKey 获取远程服务器密钥
+// FetchServerKey 获取远程服务器密钥.
 func (c *FederationClient) FetchServerKey(serverName string) (*ServerKeyResponse, error) {
 	// 构建 URL
-	keyURL := fmt.Sprintf("%s/_matrix/key/v2/server", c.federationBaseURL(serverName))
+	keyURL := c.federationBaseURL(serverName) + "/_matrix/key/v2/server"
 
 	// 创建请求
 	req := c.httpClient.NewRequest("GET", keyURL)
@@ -526,7 +568,7 @@ func (c *FederationClient) FetchServerKey(serverName string) (*ServerKeyResponse
 	return &result, nil
 }
 
-// GetWellKnown 获取 .well-known 配置
+// GetWellKnown 获取 .well-known 配置.
 func (c *FederationClient) GetWellKnown(serverName string) (string, error) {
 	// 构建 URL
 	wkURL := fmt.Sprintf("https://%s/.well-known/matrix/server", serverName)
@@ -539,7 +581,7 @@ func (c *FederationClient) GetWellKnown(serverName string) (string, error) {
 	resp, err := req.Do()
 	if err != nil {
 		// 如果失败，使用默认端口
-		return serverName + ":8448", nil
+		return serverName + ":8448", nil //nolint:nilerr
 	}
 
 	// 解析响应
@@ -547,7 +589,7 @@ func (c *FederationClient) GetWellKnown(serverName string) (string, error) {
 		Server string `json:"m.server"`
 	}
 	if err := resp.Json(&result); err != nil {
-		return serverName + ":8448", nil
+		return serverName + ":8448", nil //nolint:nilerr
 	}
 
 	if result.Server == "" {
@@ -557,7 +599,7 @@ func (c *FederationClient) GetWellKnown(serverName string) (string, error) {
 	return result.Server, nil
 }
 
-// DownloadAndSaveMedia 下载并保存远程媒体
+// DownloadAndSaveMedia 下载并保存远程媒体.
 func (c *FederationClient) DownloadAndSaveMedia(serverName, mediaID string) (*MatrixMedia, error) {
 	// 下载媒体
 	data, contentType, err := c.FetchMedia(serverName, mediaID)

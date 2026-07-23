@@ -8,7 +8,7 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// RequestLogMiddleware 请求日志中间件
+// RequestLogMiddleware 请求日志中间件.
 func RequestLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -18,11 +18,12 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		if requestID == "" {
 			requestID = uuid.New().String()
 		}
+
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 
 		// 记录请求开始
-		entry := log.WithFields(map[string]interface{}{
+		entry := log.WithFields(map[string]any{
 			"request_id": requestID,
 			"method":     c.Request.Method,
 			"path":       c.Request.URL.Path,
@@ -37,9 +38,9 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		duration := time.Since(start)
 		status := c.Writer.Status()
 
-		fields := map[string]interface{}{
+		fields := map[string]any{
 			"request_id": requestID,
-			"status":     status,
+			"status":     status, //nolint:goconst
 			"duration":   duration.Milliseconds(),
 			"size":       c.Writer.Size(),
 		}
@@ -63,15 +64,17 @@ func RequestLogMiddleware() gin.HandlerFunc {
 	}
 }
 
-// PerformanceLogMiddleware 性能日志中间件（只记录慢请求）
+// PerformanceLogMiddleware 性能日志中间件（只记录慢请求）.
 func PerformanceLogMiddleware(threshold time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+
 		c.Next()
+
 		duration := time.Since(start)
 
 		if duration > threshold {
-			log.WithFields(map[string]interface{}{
+			log.WithFields(map[string]any{
 				"method":    c.Request.Method,
 				"path":      c.Request.URL.Path,
 				"duration":  duration.Milliseconds(),

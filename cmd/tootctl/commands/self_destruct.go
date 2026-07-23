@@ -3,8 +3,10 @@ package commands
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,7 +74,7 @@ Version history:
 	}
 }
 
-// SelfDestructStatus represents the current status of self-destruct operation
+// SelfDestructStatus represents the current status of self-destruct operation.
 type SelfDestructStatus struct {
 	ModeEnabled            bool       `json:"mode_enabled"`
 	StartedAt              *time.Time `json:"started_at,omitempty"`
@@ -131,7 +133,7 @@ func handleSelfDestructModeActive(c *cli.Context, ctx context.Context, status Se
 	return nil
 }
 
-func initiateSelfDestruct(c *cli.Context, ctx context.Context) error {
+func initiateSelfDestruct(c *cli.Context, ctx context.Context) error { //nolint:unparam // param reserved for future use
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("⚠️  SELF-DESTRUCT INITIATION")
 	fmt.Println(strings.Repeat("=", 60))
@@ -165,12 +167,14 @@ Estimated time depends on:
 	// First confirmation
 	if !c.Bool("force") {
 		fmt.Print("\nDo you want to continue? (type 'yes' to confirm): ")
+
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
 
-		if response != "yes" {
+		if response != "yes" { //nolint:goconst
 			fmt.Println("Self-destruct cancelled.")
+
 			return nil
 		}
 	}
@@ -189,12 +193,14 @@ Estimated time depends on:
 	// Second confirmation
 	if !c.Bool("force") {
 		fmt.Print("\nThis is your LAST CHANCE. Type 'yes' again to begin self-destruct: ")
+
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
 
 		if response != "yes" {
 			fmt.Println("Self-destruct cancelled.")
+
 			return nil
 		}
 	}
@@ -211,7 +217,7 @@ Estimated time depends on:
 	return nil
 }
 
-func continueSelfDestruct(c *cli.Context, ctx context.Context, status SelfDestructStatus) error {
+func continueSelfDestruct(c *cli.Context, ctx context.Context, status SelfDestructStatus) error { //nolint:unparam // param reserved for future use
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("🚀 STARTING SELF-DESTRUCT PROCESS")
 	fmt.Println(strings.Repeat("=", 60))
@@ -221,11 +227,12 @@ func continueSelfDestruct(c *cli.Context, ctx context.Context, status SelfDestru
 
 	// Get all local accounts
 	var accounts []*models.Account
+
 	err := db.GetDB().Where("domain IS NULL").FindInBatches(&accounts, batchSize, func(tx *gorm.DB, batch int) error {
 		log.Info("Processing batch %d: %d accounts", batch, len(accounts))
+
 		return nil
 	}).Error
-
 	if err != nil {
 		return fmt.Errorf("failed to fetch local accounts: %w", err)
 	}
@@ -244,12 +251,14 @@ func continueSelfDestruct(c *cli.Context, ctx context.Context, status SelfDestru
 	if !c.Bool("force") {
 		fmt.Printf("\nEstimated total messages: %d\n", len(accounts)*len(inboxes))
 		fmt.Print("Begin broadcasting Delete activities? (type 'yes'): ")
+
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
 
 		if response != "yes" {
 			fmt.Println("Operation cancelled.")
+
 			return nil
 		}
 	}
@@ -264,14 +273,17 @@ func broadcastDeleteActivities(ctx context.Context, accounts []*models.Account, 
 
 	// Create delivery queue
 	queue := activitypub.NewDeliveryQueue(nil, baseURL, workers)
-	queue.Start()
+
+	queue.Start() //nolint:contextcheck // CLI command, no context propagation needed
 	defer queue.Stop()
 
 	fmt.Println("\nBroadcasting Delete activities...")
 
-	var processedCount int64
-	var errorCount int64
-	var mu sync.Mutex
+	var (
+		processedCount int64
+		errorCount     int64
+		mu             sync.Mutex
+	)
 
 	// Process each account
 	for i, account := range accounts {
@@ -279,27 +291,29 @@ func broadcastDeleteActivities(ctx context.Context, accounts []*models.Account, 
 
 		// Build Delete activity
 		now := time.Now()
-		deleteActivity := map[string]interface{}{
-			"@context": []string{"https://www.w3.org/ns/activitystreams"},
+		deleteActivity := map[string]any{
+			"@context": []string{"https://www.w3.org/ns/activitystreams"}, //nolint:goconst
 			"id":       actorURL + "#delete",
-			"type":     "Delete",
+			"type":     "Delete", //nolint:goconst
 			"actor":    actorURL,
-			"object": map[string]interface{}{
+			"object": map[string]any{
 				"id":      actorURL,
 				"type":    "Person",
 				"deleted": now.Format(time.RFC3339),
 			},
-			"published": now.Format(time.RFC3339),
+			"published": now.Format(time.RFC3339), //nolint:goconst
 			"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
 		}
 
 		// Enqueue delivery to all known inboxes
 		activityID := actorURL + "#delete"
-		if err := queue.EnqueueToMany(activityID, inboxes, deleteActivity); err != nil {
+		err := queue.EnqueueToMany(activityID, inboxes, deleteActivity)
+		if err != nil {
 			log.Error("Failed to enqueue Delete for account %s: %v", account.Username, err)
 			mu.Lock()
 			errorCount++
 			mu.Unlock()
+
 			continue
 		}
 
@@ -314,6 +328,7 @@ func broadcastDeleteActivities(ctx context.Context, accounts []*models.Account, 
 	}
 
 	fmt.Printf("\n\n✓ Enqueued Delete activities for %d accounts\n", processedCount)
+
 	if errorCount > 0 {
 		fmt.Printf("⚠️  %d accounts had errors\n", errorCount)
 	}
@@ -342,8 +357,10 @@ func broadcastDeleteActivities(ctx context.Context, accounts []*models.Account, 
 				fmt.Println("  1. Export any remaining user data")
 				fmt.Println("  2. Empty the database")
 				fmt.Println("  3. Decommission the server")
+
 				return nil
 			}
+
 			fmt.Printf("\rPending deliveries: %d   ", pending)
 		}
 	}
@@ -380,11 +397,12 @@ func getSelfDestructStatus() SelfDestructStatus {
 		status.DeleteActivitiesQueued = countPendingDeliveries()
 
 		// Set delivery status
-		if status.DeleteActivitiesQueued > 0 {
+		switch {
+		case status.DeleteActivitiesQueued > 0:
 			status.DeliveryStatus = "In progress"
-		} else if status.ProcessedAccounts > 0 {
+		case status.ProcessedAccounts > 0:
 			status.DeliveryStatus = "Completed"
-		} else {
+		default:
 			status.DeliveryStatus = "Not started"
 		}
 	}
@@ -410,15 +428,17 @@ func gatherSelfDestructStats() (*selfDestructStats, error) {
 	stats := &selfDestructStats{}
 
 	// Count local accounts
-	if err := db.GetDB().Model(&models.Account{}).Where("domain IS NULL").Count(&stats.LocalAccounts).Error; err != nil {
+	err := db.GetDB().Model(&models.Account{}).Where("domain IS NULL").Count(&stats.LocalAccounts).Error
+	if err != nil {
 		return nil, err
 	}
 
 	// Count distinct remote domains
-	if err := db.GetDB().Model(&models.Account{}).
+	err = db.GetDB().Model(&models.Account{}).
 		Where("domain IS NOT NULL AND domain != ''").
 		Distinct("domain").
-		Count(&stats.RemoteInstances).Error; err != nil {
+		Count(&stats.RemoteInstances).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -430,7 +450,8 @@ func getAllKnownInboxes() ([]string, error) {
 
 	// Get inboxes from remote accounts
 	var accounts []*models.Account
-	if err := db.GetDB().Where("domain IS NOT NULL AND domain != ''").Find(&accounts).Error; err != nil {
+	err := db.GetDB().Where("domain IS NOT NULL AND domain != ''").Find(&accounts).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -460,6 +481,7 @@ func getCachedInboxes() []string {
 	if err != nil {
 		return []string{}
 	}
+
 	return inboxes
 }
 
@@ -471,6 +493,7 @@ func countPendingDeliveries() int64 {
 			activitypub.DeliveryStatusProcessing,
 		}).
 		Count(&count)
+
 	return count
 }
 
@@ -483,22 +506,25 @@ func countProcessedAccounts() int64 {
 		WHERE status = 'delivered'
 		AND JSON_EXTRACT(payload, '$.type') = 'Delete'
 	`).Scan(&count)
+
 	return count
 }
 
-// VersionCommand implements tootctl --version
+// VersionCommand implements tootctl --version.
 func VersionCommand(version string) *cli.Command {
 	return &cli.Command{
 		Name:  "version",
 		Usage: "Show the version of the currently running Community instance",
 		Action: func(c *cli.Context) error {
 			domain := systemsettings.GetString(systemsettings.KeyDomain, "unknown")
+
 			fmt.Printf("Community (Mastodon-compatible) %s\n", version)
 			fmt.Printf("Domain: %s\n", domain)
 
 			// Get database info
 			var dbVersion string
-			if err := db.GetDB().Raw("SELECT VERSION()").Scan(&dbVersion).Error; err == nil {
+			err := db.GetDB().Raw("SELECT VERSION()").Scan(&dbVersion).Error
+			if err == nil {
 				fmt.Printf("Database: %s\n", dbVersion)
 			}
 
@@ -507,18 +533,18 @@ func VersionCommand(version string) *cli.Command {
 	}
 }
 
-// AccountsCommand implements tootctl accounts subcommands
+// AccountsCommand implements tootctl accounts subcommands.
 func AccountsCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "accounts",
+		Name:  "accounts", //nolint:goconst
 		Usage: "Manage accounts",
 		Subcommands: []*cli.Command{
 			{
 				Name:  "create",
 				Usage: "Create a new account",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "username", Required: true},
-					&cli.StringFlag{Name: "email", Required: true},
+					&cli.StringFlag{Name: "username", Required: true}, //nolint:goconst
+					&cli.StringFlag{Name: "email", Required: true},    //nolint:goconst
 					&cli.BoolFlag{Name: "confirmed"},
 					&cli.BoolFlag{Name: "admin"},
 				},
@@ -577,7 +603,8 @@ func createAccount(c *cli.Context) error {
 	}
 
 	// Create user secret data with email
-	salt := fmt.Sprintf("%d", time.Now().UnixNano())
+	salt := strconv.FormatInt(time.Now().UnixNano(), 10)
+
 	password, err := models.EncryptPassword("changeme", salt)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt password: %w", err)
@@ -607,6 +634,7 @@ func createAccount(c *cli.Context) error {
 	}
 
 	fmt.Printf("Account created: %s\n", username)
+
 	return nil
 }
 
@@ -614,16 +642,19 @@ func deleteAccount(c *cli.Context) error {
 	username := c.String("username")
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error; err != nil {
-		return fmt.Errorf("account not found")
+	err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error
+	if err != nil {
+		return errors.New("account not found")
 	}
 
 	// Delete user (cascade will handle related data)
-	if err := db.GetDB().Delete(&models.User{}, account.UserId).Error; err != nil {
+	err = db.GetDB().Delete(&models.User{}, account.UserId).Error
+	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
 	fmt.Printf("Account deleted: %s\n", username)
+
 	return nil
 }
 
@@ -631,16 +662,18 @@ func modifyAccount(c *cli.Context) error {
 	username := c.String("username")
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error; err != nil {
-		return fmt.Errorf("account not found")
+	err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error
+	if err != nil {
+		return errors.New("account not found")
 	}
 
 	var user models.User
-	if err := db.GetDB().First(&user, account.UserId).Error; err != nil {
-		return fmt.Errorf("user not found")
+	err = db.GetDB().First(&user, account.UserId).Error
+	if err != nil {
+		return errors.New("user not found")
 	}
 
-	updates := make(map[string]interface{})
+	updates := make(map[string]any)
 
 	if c.Bool("confirm") {
 		updates["is_mail_verified"] = true
@@ -667,11 +700,13 @@ func modifyAccount(c *cli.Context) error {
 	}
 
 	if len(updates) > 0 {
-		if err := db.GetDB().Model(&user).Updates(updates).Error; err != nil {
+		err := db.GetDB().Model(&user).Updates(updates).Error
+		if err != nil {
 			return fmt.Errorf("failed to update user: %w", err)
 		}
 	}
 
 	fmt.Printf("Account modified: %s\n", username)
+
 	return nil
 }

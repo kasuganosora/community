@@ -64,7 +64,7 @@ func TestAbortIf(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 
 		// Should not panic when condition is false
-		AbortIf(c, false, 400, gin.H{"error": "bad"})
+		AbortIf(c, false, 400, gin.H{"error": "bad"}) //nolint:goconst
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 

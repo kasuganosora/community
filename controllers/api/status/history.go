@@ -17,7 +17,7 @@ func GetHistory(c *gin.Context) {
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	history := []*models.StatusHistory{}
 	err = dbConn.Model(&models.StatusHistory{}).Preload("Account").Where("status_id = ?", status.Id).Order("id desc").Find(&history).Error

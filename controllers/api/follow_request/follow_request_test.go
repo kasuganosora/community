@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testDB *testutil.TestDB
@@ -26,11 +27,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(
@@ -46,7 +50,9 @@ func setupTestDB(t *testing.T) {
 
 func createTestAccount(t *testing.T, username string) *models.Account {
 	t.Helper()
+
 	now := time.Now()
+
 	account := &models.Account{
 		Username:    username,
 		DisplayName: "Test " + username,
@@ -55,35 +61,43 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(account).Error; err != nil {
+	err := testDB.GormDB.Create(account).Error
+	if err != nil {
 		t.Fatalf("Failed to create account: %v", err)
 	}
+
 	return account
 }
 
 func createTestAccountExtra(t *testing.T, accountID uint64) *models.AccountExtra {
 	t.Helper()
+
 	extra := &models.AccountExtra{
 		AccountId:      accountID,
 		FollowersCount: 0,
 		FollowingCount: 0,
 	}
-	if err := testDB.GormDB.Create(extra).Error; err != nil {
+	err := testDB.GormDB.Create(extra).Error
+	if err != nil {
 		t.Fatalf("Failed to create account extra: %v", err)
 	}
+
 	return extra
 }
 
 func createTestFollowRequest(t *testing.T, accountID, followID uint64) *models.Follow {
 	t.Helper()
+
 	follow := &models.Follow{
 		AccountId: accountID,
 		FollowId:  followID,
 		Status:    models.FollowStatusRequested,
 	}
-	if err := testDB.GormDB.Create(follow).Error; err != nil {
+	err := testDB.GormDB.Create(follow).Error
+	if err != nil {
 		t.Fatalf("Failed to create follow request: %v", err)
 	}
+
 	return follow
 }
 
@@ -91,21 +105,26 @@ func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, p
 	t.Helper()
 	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
 	c.Set("account", account)
+
 	return c, account
 }
 
-func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) {
+func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
 	t.Helper()
 	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
+
 	c.Params = gin.Params{}
+
 	for k, v := range params {
 		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
 	}
+
 	c.Set("account", account)
+
 	return c, account
 }
 
@@ -123,15 +142,17 @@ func TestList_Success(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=40", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=40", nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, resp, 1)
 }
 
@@ -144,9 +165,11 @@ func TestList_Empty(t *testing.T) {
 	List(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, resp)
 }
 
@@ -157,22 +180,24 @@ func TestList_WithLimit(t *testing.T) {
 	_, currentAccount := newContextWithAccount(t, w, http.MethodGet, "/api/v1/follow_requests?limit=40")
 
 	// Create multiple follow requests
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		other := createTestAccount(t, "requester"+strconv.Itoa(i))
 		createTestFollowRequest(t, other.Id, currentAccount.Id)
 	}
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=2", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=2", nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, resp, 2)
 }
 
@@ -188,22 +213,21 @@ func TestList_WithMaxId(t *testing.T) {
 	fr2 := createTestFollowRequest(t, other2.Id, currentAccount.Id)
 
 	// Use the higher ID as max_id to filter out one result
-	maxId := fr2.Id
-	if fr1.Id > fr2.Id {
-		maxId = fr1.Id
-	}
+	maxId := max(fr1.Id, fr2.Id)
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?max_id="+strconv.FormatUint(maxId, 10), nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?max_id="+strconv.FormatUint(maxId, 10), nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, resp, 1)
 }
 
@@ -226,7 +250,7 @@ func TestList_WithSinceId(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?since_id="+strconv.FormatUint(sinceId, 10), nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?since_id="+strconv.FormatUint(sinceId, 10), nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
@@ -242,7 +266,7 @@ func TestList_InvalidLimit(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=999", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=999", nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
@@ -257,22 +281,24 @@ func TestList_DefaultLimit(t *testing.T) {
 	_, currentAccount := newContextWithAccount(t, w, http.MethodGet, "/api/v1/follow_requests?limit=40")
 
 	// When no limit is specified, default is 40 - create 50 requests
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		other := createTestAccount(t, "requester"+strconv.Itoa(i))
 		createTestFollowRequest(t, other.Id, currentAccount.Id)
 	}
 
 	w = httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=40", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/follow_requests?limit=40", nil) //nolint:noctx
 	c.Set("account", currentAccount)
 
 	List(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, resp, 40)
 }
 
@@ -299,9 +325,10 @@ func TestAuthorize_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, strconv.FormatUint(otherAccount.Id, 10), resp["id"])
 	assert.Equal(t, true, resp["following"])
 	assert.Equal(t, false, resp["followed_by"])
@@ -309,8 +336,9 @@ func TestAuthorize_Success(t *testing.T) {
 
 	// Verify follow status was updated
 	var follow models.Follow
+
 	err = testDB.GormDB.Where("account_id = ? AND follow_id = ?", otherAccount.Id, currentAccount.Id).First(&follow).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, models.FollowStatusFollowed, follow.Status)
 }
 
@@ -371,6 +399,7 @@ func TestAuthorize_FollowersCountIncremented(t *testing.T) {
 
 	// Verify followers_count was incremented for current account
 	var updatedExtra models.AccountExtra
+
 	testDB.GormDB.Where("account_id = ?", currentAccount.Id).First(&updatedExtra)
 	assert.Equal(t, extra.FollowersCount+1, updatedExtra.FollowersCount)
 }
@@ -398,6 +427,7 @@ func TestAuthorize_FollowingCountIncremented(t *testing.T) {
 
 	// Verify following_count was incremented for target account
 	var updatedExtra models.AccountExtra
+
 	testDB.GormDB.Where("account_id = ?", otherAccount.Id).First(&updatedExtra)
 	assert.Equal(t, otherExtra.FollowingCount+1, updatedExtra.FollowingCount)
 }
@@ -423,9 +453,10 @@ func TestReject_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, strconv.FormatUint(otherAccount.Id, 10), resp["id"])
 	assert.Equal(t, false, resp["following"])
 	assert.Equal(t, false, resp["followed_by"])
@@ -433,8 +464,9 @@ func TestReject_Success(t *testing.T) {
 
 	// Verify follow request was deleted
 	var follow models.Follow
+
 	err = testDB.GormDB.Where("account_id = ? AND follow_id = ?", otherAccount.Id, currentAccount.Id).First(&follow).Error
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestReject_InvalidID(t *testing.T) {

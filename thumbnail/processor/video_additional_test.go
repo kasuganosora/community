@@ -3,7 +3,6 @@ package processor
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -32,7 +31,7 @@ func TestNewVideoProcessorDefaultPath(t *testing.T) {
 
 func TestVideoInfoStructFields(t *testing.T) {
 	info := &VideoInfo{
-		Format:     "mp4",
+		Format:     "mp4", //nolint:goconst
 		Duration:   120.5,
 		Size:       1024000,
 		BitRate:    8000000,
@@ -44,21 +43,27 @@ func TestVideoInfoStructFields(t *testing.T) {
 	if info.Format != "mp4" {
 		t.Errorf("Format = %q, want %q", info.Format, "mp4")
 	}
+
 	if info.Duration != 120.5 {
 		t.Errorf("Duration = %f, want %f", info.Duration, 120.5)
 	}
+
 	if info.Size != 1024000 {
 		t.Errorf("Size = %d, want %d", info.Size, 1024000)
 	}
+
 	if info.BitRate != 8000000 {
 		t.Errorf("BitRate = %d, want %d", info.BitRate, 8000000)
 	}
+
 	if info.Width != 1920 {
 		t.Errorf("Width = %d, want %d", info.Width, 1920)
 	}
+
 	if info.Height != 1080 {
 		t.Errorf("Height = %d, want %d", info.Height, 1080)
 	}
+
 	if info.VideoCodec != "h264" {
 		t.Errorf("VideoCodec = %q, want %q", info.VideoCodec, "h264")
 	}
@@ -69,9 +74,11 @@ func TestVideoInfoZeroValues(t *testing.T) {
 	if info.Format != "" {
 		t.Errorf("Zero-value Format should be empty, got %q", info.Format)
 	}
+
 	if info.Duration != 0 {
 		t.Errorf("Zero-value Duration should be 0, got %f", info.Duration)
 	}
+
 	if info.Size != 0 {
 		t.Errorf("Zero-value Size should be 0, got %d", info.Size)
 	}
@@ -105,7 +112,7 @@ func TestVideoProcessorIsSupportedNegativeCases(t *testing.T) {
 	negativeFormats := []string{
 		"txt", "doc", "pdf", "mp3", "wav", "ogg", "flac",
 		"exe", "zip", "tar", "gz", "html", "css", "js",
-		"tiff", "tif", "heic", "heif", "avif",
+		"tiff", "tif", "heic", "heif", "avif", //nolint:goconst
 		"3gp", "ts", "m4v", "f4v",
 	}
 	for _, format := range negativeFormats {
@@ -156,18 +163,22 @@ func TestGenerateThumbnailNoFFmpeg(t *testing.T) {
 		if reader != nil {
 			_, _ = io.Copy(io.Discard, reader)
 		}
+
 		t.Skip("ffmpeg appears to be available, skipping no-ffmpeg test")
 	}
 
 	if !strings.Contains(err.Error(), "failed to extract frame") {
 		t.Errorf("Expected 'failed to extract frame' in error, got: %v", err)
 	}
+
 	if reader != nil {
 		t.Error("Reader should be nil on error")
 	}
+
 	if w != 0 || h != 0 {
 		t.Errorf("Width/Height should be 0 on error, got (%d, %d)", w, h)
 	}
+
 	if format != "" {
 		t.Errorf("Format should be empty on error, got %q", format)
 	}
@@ -189,12 +200,14 @@ func TestGenerateThumbnailNoFFmpegWithDimensions(t *testing.T) {
 		if reader != nil {
 			_, _ = io.Copy(io.Discard, reader)
 		}
+
 		t.Skip("ffmpeg appears to be available")
 	}
 
 	if err == nil {
 		t.Fatal("Expected error when ffmpeg is not available")
 	}
+
 	if !strings.Contains(err.Error(), "failed to extract frame") {
 		t.Errorf("Error should mention frame extraction failure, got: %v", err)
 	}
@@ -202,6 +215,7 @@ func TestGenerateThumbnailNoFFmpegWithDimensions(t *testing.T) {
 	if w != 0 || h != 0 {
 		t.Errorf("Width/Height should be 0 on error, got (%d, %d)", w, h)
 	}
+
 	if format != "" {
 		t.Errorf("Format should be empty on error, got %q", format)
 	}
@@ -265,18 +279,22 @@ func TestGenerateThumbnailFromPathNonExistent(t *testing.T) {
 		if reader != nil {
 			_, _ = io.Copy(io.Discard, reader)
 		}
+
 		t.Skip("ffmpeg appears to be available")
 	}
 
 	if err == nil {
 		t.Fatal("Expected error for non-existent path")
 	}
+
 	if reader != nil {
 		t.Error("Reader should be nil on error")
 	}
+
 	if w != 0 || h != 0 {
 		t.Errorf("Width/Height should be 0 on error, got (%d, %d)", w, h)
 	}
+
 	if format != "" {
 		t.Errorf("Format should be empty on error, got %q", format)
 	}
@@ -289,7 +307,7 @@ func TestGenerateThumbnailFromPathWithDimensions(t *testing.T) {
 		MaxWidth:  640,
 		MaxHeight: 480,
 		Quality:   75,
-		Format:    "jpeg",
+		Format:    "jpeg", //nolint:goconst
 	}
 
 	_, _, _, _, err := vp.GenerateThumbnailFromPath("/nonexistent/video.avi", opts)
@@ -402,7 +420,7 @@ func TestSeekTimeFormatting(t *testing.T) {
 
 func TestVideoProcessorType(t *testing.T) {
 	// Verify that VideoProcessor is a concrete type (not interface)
-	var _ *VideoProcessor = &VideoProcessor{}
+	var _ = &VideoProcessor{}
 
 	// Verify NewVideoProcessor returns non-nil
 	vp := NewVideoProcessor("custom-ffmpeg")
@@ -531,11 +549,12 @@ func TestVideoInfoFieldCount(t *testing.T) {
 
 func TestGenerateThumbnailFromPathVariousFormats(t *testing.T) {
 	vp := NewVideoProcessor("")
-	formats := []string{"mp4", "webm", "mov", "avi", "mkv", "flv", "wmv"}
+	formats := []string{"mp4", "webm", "mov", "avi", "mkv", "flv", "wmv"} //nolint:goconst
 
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
-			path := fmt.Sprintf("/nonexistent/video.%s", format)
+			path := "/nonexistent/video." + format
+
 			_, _, _, _, err := vp.GenerateThumbnailFromPath(path, ThumbnailOptions{
 				MaxWidth:  320,
 				MaxHeight: 240,

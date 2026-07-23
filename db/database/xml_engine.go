@@ -32,6 +32,7 @@ func initSqlexecXmlConnection() error {
 	}
 
 	var err error
+
 	sqlexecDB, err = api.NewDB(&api.DBConfig{
 		DatabaseDir: databaseDir,
 	})
@@ -46,15 +47,20 @@ func initSqlexecXmlConnection() error {
 		Writable: true,
 	})
 	if err := memDS.Connect(context.Background()); err != nil {
-		sqlexecDB.Close()
+		_ = sqlexecDB.Close()
+
 		return fmt.Errorf("failed to connect datasource: %w", err)
 	}
+
 	if err := sqlexecDB.RegisterDataSource(dbName, memDS); err != nil {
-		sqlexecDB.Close()
+		_ = sqlexecDB.Close()
+
 		return fmt.Errorf("failed to register datasource: %w", err)
 	}
+
 	if err := sqlexecDB.SetDefaultDataSource(dbName); err != nil {
-		sqlexecDB.Close()
+		_ = sqlexecDB.Close()
+
 		return fmt.Errorf("failed to set default datasource: %w", err)
 	}
 
@@ -67,27 +73,31 @@ func initSqlexecXmlConnection() error {
 
 	// Create GORM with wrapped dialector for ENGINE=xml support
 	innerDialector := sqlexecgorm.NewDialector(sqlexecSession)
+
 	DB, err = gorm.Open(
 		&xmlDialectorWrapper{Dialector: innerDialector, session: sqlexecSession},
 		&gorm.Config{SkipDefaultTransaction: true},
 	)
 	if err != nil {
-		sqlexecSession.Close()
-		sqlexecDB.Close()
+		_ = sqlexecSession.Close()
+		_ = sqlexecDB.Close()
+
 		return fmt.Errorf("failed to open GORM with sqlexec: %w", err)
 	}
 
-	if config.C.DevMode == "true" {
+	if config.C.DevMode == "true" { //nolint:goconst
 		DB = DB.Debug()
 	}
 
 	log.Info("Database connected: sqlexec XML (dir=%s, db=%s)", databaseDir, dbName)
+
 	return nil
 }
 
-// xmlDialectorWrapper wraps sqlexec GORM dialector to add ENGINE=xml to table creation
+// xmlDialectorWrapper wraps sqlexec GORM dialector to add ENGINE=xml to table creation.
 type xmlDialectorWrapper struct {
 	gorm.Dialector
+
 	session *api.Session
 }
 
@@ -104,62 +114,73 @@ func (d *xmlDialectorWrapper) Migrator(db *gorm.DB) gorm.Migrator {
 // and skip ALTER TABLE operations (not supported by sqlexec).
 type xmlMigratorWrapper struct {
 	gorm.Migrator
+
 	session *api.Session
 	db      *gorm.DB
 }
 
-func (m *xmlMigratorWrapper) AutoMigrate(values ...interface{}) error {
+func (m *xmlMigratorWrapper) AutoMigrate(values ...any) error {
 	for _, value := range values {
 		if !m.HasTable(value) {
-			if err := m.createXmlTable(value); err != nil {
+			err := m.createXmlTable(value)
+			if err != nil {
 				return err
 			}
 		}
 		// Skip ALTER TABLE for existing tables — sqlexec doesn't support it
 	}
+
 	return nil
 }
 
-func (m *xmlMigratorWrapper) CreateTable(values ...interface{}) error {
+func (m *xmlMigratorWrapper) CreateTable(values ...any) error {
 	for _, value := range values {
 		if m.HasTable(value) {
 			continue
 		}
-		if err := m.createXmlTable(value); err != nil {
+
+		err := m.createXmlTable(value)
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// AddColumn is a no-op — sqlexec doesn't support ALTER TABLE
-func (m *xmlMigratorWrapper) AddColumn(dst interface{}, field string) error {
+// AddColumn is a no-op — sqlexec doesn't support ALTER TABLE.
+func (m *xmlMigratorWrapper) AddColumn(dst any, field string) error {
 	tableName := m.resolveTableName(dst)
 	log.Debug("AddColumn %s.%s skipped (sqlexec: ALTER TABLE not supported)", tableName, field)
+
 	return nil
 }
 
-// DropColumn is a no-op — sqlexec doesn't support ALTER TABLE
-func (m *xmlMigratorWrapper) DropColumn(dst interface{}, field string) error {
+// DropColumn is a no-op — sqlexec doesn't support ALTER TABLE.
+func (m *xmlMigratorWrapper) DropColumn(dst any, field string) error {
 	return nil
 }
 
-// AlterColumn is a no-op — sqlexec doesn't support ALTER TABLE
-func (m *xmlMigratorWrapper) AlterColumn(dst interface{}, field string) error {
+// AlterColumn is a no-op — sqlexec doesn't support ALTER TABLE.
+func (m *xmlMigratorWrapper) AlterColumn(dst any, field string) error {
 	return nil
 }
 
-// createXmlTable generates full CREATE TABLE ... ENGINE=xml from a GORM model
-func (m *xmlMigratorWrapper) createXmlTable(model interface{}) error {
+// createXmlTable generates full CREATE TABLE ... ENGINE=xml from a GORM model.
+func (m *xmlMigratorWrapper) createXmlTable(model any) error {
 	stmt := &gorm.Statement{DB: m.db}
-	if err := stmt.Parse(model); err != nil {
+	err := stmt.Parse(model)
+	if err != nil {
 		return fmt.Errorf("failed to parse model: %w", err)
 	}
+
 	s := stmt.Schema
 	tableName := s.Table
 
-	var cols []string
-	var pks []string
+	var (
+		cols []string
+		pks  []string
+	)
 
 	for _, field := range s.Fields {
 		if field.DBName == "" || field.IgnoreMigration {
@@ -179,23 +200,28 @@ func (m *xmlMigratorWrapper) createXmlTable(model interface{}) error {
 	}
 
 	sql := "CREATE TABLE IF NOT EXISTS `" + tableName + "` (" + strings.Join(cols, ", ")
+
 	if len(pks) > 0 {
 		quotedPks := make([]string, len(pks))
 		for i, pk := range pks {
 			quotedPks[i] = "`" + pk + "`"
 		}
+
 		sql += ", PRIMARY KEY (" + strings.Join(quotedPks, ", ") + ")"
 	}
+
 	sql += ") ENGINE=xml"
 
 	if _, err := m.session.Execute(sql); err != nil {
 		return fmt.Errorf("create XML table %s failed: %w", tableName, err)
 	}
+
 	log.Debug("Created XML table: %s", tableName)
+
 	return nil
 }
 
-// buildColumnDef generates a column definition like "`username` VARCHAR(64) NOT NULL"
+// buildColumnDef generates a column definition like "`username` VARCHAR(64) NOT NULL".
 func (m *xmlMigratorWrapper) buildColumnDef(f *schema.Field) string {
 	sqlType := m.resolveColumnType(f)
 	def := "`" + f.DBName + "` " + sqlType
@@ -203,16 +229,19 @@ func (m *xmlMigratorWrapper) buildColumnDef(f *schema.Field) string {
 	if f.AutoIncrement {
 		def += " AUTO_INCREMENT"
 	}
+
 	if f.NotNull {
 		def += " NOT NULL"
 	}
+
 	if f.HasDefaultValue && f.DefaultValue != "" {
 		def += " DEFAULT " + m.quoteDefault(f.DefaultValue)
 	}
+
 	return def
 }
 
-// resolveColumnType maps GORM field to SQL type, preferring explicit tag types
+// resolveColumnType maps GORM field to SQL type, preferring explicit tag types.
 func (m *xmlMigratorWrapper) resolveColumnType(f *schema.Field) string {
 	// Prefer explicit type from GORM tag: gorm:"type:varchar(64)"
 	if tagType, ok := f.TagSettings["TYPE"]; ok && tagType != "" {
@@ -233,11 +262,13 @@ func (m *xmlMigratorWrapper) resolveColumnType(f *schema.Field) string {
 		if f.Size > 32 || f.AutoIncrement {
 			return "BIGINT"
 		}
+
 		return "INT"
 	case schema.Uint:
 		if f.Size > 32 || f.AutoIncrement {
 			return "BIGINT UNSIGNED"
 		}
+
 		return "INT UNSIGNED"
 	case schema.Float:
 		return "DOUBLE"
@@ -245,6 +276,7 @@ func (m *xmlMigratorWrapper) resolveColumnType(f *schema.Field) string {
 		if f.Size > 0 && f.Size <= 65535 {
 			return fmt.Sprintf("VARCHAR(%d)", f.Size)
 		}
+
 		return "TEXT"
 	case schema.Time:
 		return "DATETIME"
@@ -267,18 +299,21 @@ func (m *xmlMigratorWrapper) quoteDefault(val string) string {
 			return "'" + strings.ReplaceAll(val, "'", "''") + "'"
 		}
 	}
+
 	return val
 }
 
-func (m *xmlMigratorWrapper) resolveTableName(model interface{}) string {
+func (m *xmlMigratorWrapper) resolveTableName(model any) string {
 	stmt := &gorm.Statement{DB: m.db}
-	if err := stmt.Parse(model); err == nil {
+	err := stmt.Parse(model)
+	if err == nil {
 		return stmt.Table
 	}
+
 	return ""
 }
 
-// IsXmlMode returns true if using sqlexec XML persistence
+// IsXmlMode returns true if using sqlexec XML persistence.
 func IsXmlMode() bool {
-	return config.C.DbConnection == "xml"
+	return config.C.DbConnection == "xml" //nolint:goconst
 }

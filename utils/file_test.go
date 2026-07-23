@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetSourceDir(t *testing.T) {
@@ -20,12 +21,12 @@ func TestGetSourceDir(t *testing.T) {
 func TestReadFileToString(t *testing.T) {
 	// 测试读取存在的文件
 	content, err := ReadFileToString("file.go")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, content, "package utils")
 
 	// 测试读取不存在的文件
 	_, err = ReadFileToString("nonexistent_file_12345.txt")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestFileWithLineNum(t *testing.T) {
@@ -106,12 +107,13 @@ func TestReadFileToStringIntegration(t *testing.T) {
 	tmpFile := filepath.Join(os.TempDir(), "test_read_file.txt")
 	content := "Hello, World!"
 
-	err := os.WriteFile(tmpFile, []byte(content), 0644)
-	assert.NoError(t, err)
-	defer os.Remove(tmpFile)
+	err := os.WriteFile(tmpFile, []byte(content), 0644) //nolint:gosec // G306: reviewed and safe
+	require.NoError(t, err)
+
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// 测试读取
 	readContent, err := ReadFileToString(tmpFile)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, content, readContent)
 }

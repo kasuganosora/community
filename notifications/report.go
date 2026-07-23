@@ -15,10 +15,11 @@ func init() {
 		if !ok {
 			return false
 		}
+
 		if report.ActionTakenAt != nil {
 			go reportProcessedNotification(report)
-
 		}
+
 		return true
 	}})
 }
@@ -30,8 +31,10 @@ func reportProcessedNotification(report *models.Report) {
 		AccountId: report.AccountId,
 	}
 
-	if err := db.GetDB().Create(nf).Error; err != nil {
+	err := db.GetDB().Create(nf).Error
+	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[reportProcessedNotification] create notification failed, reportId: %d", report.Id)))
+
 		return
 	}
 }

@@ -16,7 +16,8 @@ func Bookmark(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 
 	if !canView {
-		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"}) //nolint:goconst
+
 		return
 	}
 
@@ -26,6 +27,7 @@ func Bookmark(c *gin.Context) {
 
 	if isBookmarked {
 		c.AbortWithStatusJSON(400, gin.H{"error": "already bookmarked"})
+
 		return
 	}
 
@@ -49,11 +51,13 @@ func Unbookmark(c *gin.Context) {
 	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
 	if !isBookmarked {
 		c.JSON(400, gin.H{"error": "not bookmarked"})
+
 		return
 	}
 
@@ -61,17 +65,20 @@ func Unbookmark(c *gin.Context) {
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
 	if !canView {
 		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+
 		return
 	}
 
 	err = dbConn.Delete(&models.BookmarkStatus{}, "account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Error
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

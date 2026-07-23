@@ -19,14 +19,15 @@ func Favourite(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 
 	if isFavourited {
-		c.AbortWithStatusJSON(400, gin.H{"error": "already favourited"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "already favourited"}) //nolint:goconst
+
 		return
 	}
 
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	favourite := &models.FavoriteStatus{}
 	favourite.AccountId = currentAccount.Id
@@ -42,9 +43,9 @@ func Favourite(c *gin.Context) {
 
 		return nil
 	})
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -72,9 +73,9 @@ func Unfavourite(c *gin.Context) {
 
 		return nil
 	})
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -96,10 +97,11 @@ func FavouritedBy(c *gin.Context) {
 	status := getRealStatus(c)
 
 	var currentAccount *models.Account
+
 	_currentAccount, exists := c.Get("account")
 
 	if exists {
-		currentAccount = _currentAccount.(*models.Account)
+		currentAccount = _currentAccount.(*models.Account) //nolint:forcetypeassert
 	}
 
 	dbConn := db.GetDB()
@@ -125,11 +127,11 @@ func FavouritedBy(c *gin.Context) {
 	}
 
 	if req.Limit > 0 {
-		query = query.Limit(int(req.Limit))
+		query = query.Limit(int(req.Limit)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	if req.Offset > 0 {
-		query = query.Offset(int(req.Offset))
+		query = query.Offset(int(req.Offset)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	err = query.Find(&accounts).Error
@@ -139,5 +141,4 @@ func FavouritedBy(c *gin.Context) {
 	ret := serializer.ToAccounts(accounts)
 
 	c.JSON(200, ret)
-
 }

@@ -11,7 +11,7 @@ func init() {
 	database.InitGorm()
 }
 
-// GetDB 获取数据库连接
+// GetDB 获取数据库连接.
 func GetDB() *gorm.DB {
 	return database.DB
 }

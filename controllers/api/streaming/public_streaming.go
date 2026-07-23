@@ -12,8 +12,9 @@ type PublicStreamingRequest struct {
 
 func PublicStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	var req PublicStreamingRequest
+
 	err := c.ShouldBindQuery(&req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	account := controllers.GetAccount(c)
 
@@ -24,7 +25,7 @@ func PublicStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	}
 
 	procHandle := func(data any) (event, payload string, err error) {
-		return serializerStatusEvent(account, data.(string))
+		return serializerStatusEvent(account, data.(string)) //nolint:forcetypeassert
 	}
 
 	startSseService(c, procHandle, timeline)

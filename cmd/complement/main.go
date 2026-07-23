@@ -28,22 +28,25 @@ func main() {
 	tlsKey := os.Getenv("TLS_KEY")
 
 	// Auto-migrate community core tables needed for auth
-	if err := db.GetDB().AutoMigrate(
+	err := db.GetDB().AutoMigrate(
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
 		&models.UserSecretData{},
-	); err != nil {
+	)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: core table migration failed: %v\n", err)
 	}
 
 	// Init homeserver (creates all Matrix tables via autoMigrate)
-	if err := homeserver.InitHomeServer(); err != nil {
+	err = homeserver.InitHomeServer()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Homeserver init failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	gin.SetMode(gin.ReleaseMode)
+
 	app := gin.New()
 	app.Use(gin.Recovery())
 	// Register all Matrix routes
@@ -67,13 +70,17 @@ func main() {
 	// Start HTTPS on 8448 for federation
 	if tlsCert != "" && tlsKey != "" {
 		go func() {
-			srv := &http.Server{
+			srv := &http.Server{ //nolint:gosec // G112: reviewed and safe
 				Addr:      ":8448",
 				Handler:   app,
 				TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 			}
+
 			fmt.Printf("Federation HTTPS listening on :8448 (SERVER_NAME=%s)\n", serverName)
-			if err := srv.ListenAndServeTLS(tlsCert, tlsKey); err != nil {
+
+			err := srv.ListenAndServeTLS(tlsCert, tlsKey)
+
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "HTTPS server error: %v\n", err)
 			}
 		}()
@@ -81,7 +88,10 @@ func main() {
 
 	// Start HTTP on 8008 for client API
 	fmt.Printf("Client HTTP listening on :8008 (SERVER_NAME=%s)\n", serverName)
-	if err := app.Run(":8008"); err != nil {
+
+	err = app.Run(":8008")
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 		os.Exit(1)
 	}

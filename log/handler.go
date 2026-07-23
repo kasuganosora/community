@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// StatsHandler 返回日志统计信息的 HTTP handler
+// StatsHandler 返回日志统计信息的 HTTP handler.
 func StatsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats := GetCurrentLogStats()
@@ -15,7 +15,7 @@ func StatsHandler() gin.HandlerFunc {
 }
 
 // HealthHandler 返回日志健康状况的 HTTP handler
-// 当日志磁盘使用超过 90% 时返回警告状态
+// 当日志磁盘使用超过 90% 时返回警告状态.
 func HealthHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats := GetCurrentLogStats()

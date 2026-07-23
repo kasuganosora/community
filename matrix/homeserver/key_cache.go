@@ -11,21 +11,21 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// KeyCacheEntry 缓存的密钥条目
+// KeyCacheEntry 缓存的密钥条目.
 type KeyCacheEntry struct {
 	PublicKey   ed25519.PublicKey
 	ValidUntil  time.Time
 	LastUpdated time.Time
 }
 
-// KeyCache 服务器密钥缓存
+// KeyCache 服务器密钥缓存.
 type KeyCache struct {
 	mu    sync.RWMutex
 	cache map[string]*KeyCacheEntry // key: "serverName:keyID"
 	ttl   time.Duration
 }
 
-// NewKeyCache 创建新的密钥缓存
+// NewKeyCache 创建新的密钥缓存.
 func NewKeyCache() *KeyCache {
 	return &KeyCache{
 		cache: make(map[string]*KeyCacheEntry),
@@ -33,7 +33,7 @@ func NewKeyCache() *KeyCache {
 	}
 }
 
-// Get 从缓存获取密钥
+// Get 从缓存获取密钥.
 func (kc *KeyCache) Get(serverName, keyID string) (ed25519.PublicKey, bool) {
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 
@@ -54,13 +54,14 @@ func (kc *KeyCache) Get(serverName, keyID string) (ed25519.PublicKey, bool) {
 		kc.mu.Lock()
 		delete(kc.cache, cacheKey)
 		kc.mu.Unlock()
+
 		return nil, false
 	}
 
 	return entry.PublicKey, true
 }
 
-// Set 设置缓存密钥
+// Set 设置缓存密钥.
 func (kc *KeyCache) Set(serverName, keyID string, publicKey ed25519.PublicKey, validUntil time.Time) {
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 
@@ -78,7 +79,7 @@ func (kc *KeyCache) Set(serverName, keyID string, publicKey ed25519.PublicKey, v
 	kc.saveToDB(serverName, keyID, entry)
 }
 
-// loadFromDB 从数据库加载密钥
+// loadFromDB 从数据库加载密钥.
 func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 	var record MatrixServerKey
 	if err := db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).First(&record).Error; err != nil {
@@ -89,6 +90,7 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 	publicKeyBytes, err := base64.RawStdEncoding.DecodeString(record.PublicKey)
 	if err != nil {
 		log.Error("Failed to decode cached public key for %s:%s: %v", serverName, keyID, err)
+
 		return nil
 	}
 
@@ -100,6 +102,7 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 
 	// 添加到内存缓存
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
+
 	kc.mu.Lock()
 	kc.cache[cacheKey] = entry
 	kc.mu.Unlock()
@@ -107,7 +110,7 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 	return entry
 }
 
-// saveToDB 保存密钥到数据库
+// saveToDB 保存密钥到数据库.
 func (kc *KeyCache) saveToDB(serverName, keyID string, entry *KeyCacheEntry) {
 	record := MatrixServerKey{
 		ServerName: serverName,
@@ -117,14 +120,15 @@ func (kc *KeyCache) saveToDB(serverName, keyID string, entry *KeyCacheEntry) {
 	}
 
 	// 使用 Upsert 操作
-	if err := db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).
+	err := db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).
 		Assign(record).
-		FirstOrCreate(&record).Error; err != nil {
+		FirstOrCreate(&record).Error
+	if err != nil {
 		log.Error("Failed to cache server key to DB for %s:%s: %v", serverName, keyID, err)
 	}
 }
 
-// Invalidate 使缓存失效
+// Invalidate 使缓存失效.
 func (kc *KeyCache) Invalidate(serverName, keyID string) {
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 
@@ -136,7 +140,7 @@ func (kc *KeyCache) Invalidate(serverName, keyID string) {
 	db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).Delete(&MatrixServerKey{})
 }
 
-// Cleanup 清理过期缓存
+// Cleanup 清理过期缓存.
 func (kc *KeyCache) Cleanup() {
 	kc.mu.Lock()
 	defer kc.mu.Unlock()
@@ -149,7 +153,7 @@ func (kc *KeyCache) Cleanup() {
 	}
 }
 
-// MatrixServerKey 服务器密钥数据库模型
+// MatrixServerKey 服务器密钥数据库模型.
 type MatrixServerKey struct {
 	ID         uint64    `gorm:"primary_key;auto_increment"`
 	ServerName string    `gorm:"not null;index;size:255"`
@@ -164,19 +168,20 @@ func (MatrixServerKey) TableName() string {
 	return "matrix_server_keys"
 }
 
-// 全局密钥缓存实例
+// 全局密钥缓存实例.
 var globalKeyCache *KeyCache
 var keyCacheOnce sync.Once
 
-// GetKeyCache 获取全局密钥缓存实例
+// GetKeyCache 获取全局密钥缓存实例.
 func GetKeyCache() *KeyCache {
 	keyCacheOnce.Do(func() {
 		globalKeyCache = NewKeyCache()
 	})
+
 	return globalKeyCache
 }
 
-// StartKeyCacheCleanup 启动定期清理任务
+// StartKeyCacheCleanup 启动定期清理任务.
 func StartKeyCacheCleanup() {
 	ticker := time.NewTicker(1 * time.Hour)
 	go func() {

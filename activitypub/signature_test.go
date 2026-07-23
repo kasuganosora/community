@@ -15,70 +15,72 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSignWithRSA(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	data := []byte("test data to sign")
 	signature, err := SignWithRSA(privateKey, data)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, signature)
 
 	// Verify the signature
 	hash := sha256.Sum256(data)
 	err = rsa.VerifyPKCS1v15(&privateKey.PublicKey, crypto.SHA256, hash[:], signature)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestVerifyWithRSA(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	data := []byte("test data to verify")
 	signature, err := SignWithRSA(privateKey, data)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify with correct public key
 	err = VerifyWithRSA(&privateKey.PublicKey, data, signature)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify with wrong data
 	err = VerifyWithRSA(&privateKey.PublicKey, []byte("wrong data"), signature)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Verify with wrong signature
 	wrongSig := make([]byte, len(signature))
 	copy(wrongSig, signature)
 	wrongSig[0] ^= 0xFF
 	err = VerifyWithRSA(&privateKey.PublicKey, data, wrongSig)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParsePublicKey(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Generate PEM encoded public key
 	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	pemStr := string(pem.EncodeToMemory(&pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubKeyBytes,
 	}))
 
 	parsed, err := ParsePublicKey(pemStr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, parsed)
 
 	// Test with invalid PEM
 	_, err = ParsePublicKey("invalid pem")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Test with non-RSA key
 	_, err = ParsePublicKey("-----BEGIN PUBLIC KEY-----\nYW55IGNhcm5hbCBwbGVhc3VyZQ==\n-----END PUBLIC KEY-----")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestParseSignatureHeader(t *testing.T) {
@@ -95,7 +97,7 @@ func TestParseSignatureHeader(t *testing.T) {
 			expected: &SignatureHeader{
 				KeyID:     "https://example.com/users/test#main-key",
 				Algorithm: "rsa-sha256",
-				Headers:   []string{"(request-target)", "host", "date", "digest"},
+				Headers:   []string{"(request-target)", "host", "date", "digest"}, //nolint:goconst
 				Signature: "abc123",
 			},
 		},
@@ -120,9 +122,9 @@ func TestParseSignatureHeader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseSignatureHeader(tt.header)
 			if tt.expectErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expected.KeyID, result.KeyID)
 				assert.Equal(t, tt.expected.Algorithm, result.Algorithm)
 				assert.Equal(t, tt.expected.Signature, result.Signature)
@@ -133,12 +135,12 @@ func TestParseSignatureHeader(t *testing.T) {
 
 func TestBuildSigningString(t *testing.T) {
 	req := &http.Request{
-		Method: "POST",
+		Method: http.MethodPost,
 		URL: &url.URL{
-			Path:     "/users/test/inbox",
+			Path:     "/users/test/inbox", //nolint:goconst
 			RawQuery: "foo=bar",
 		},
-		Host: "example.com",
+		Host: "example.com", //nolint:goconst
 		Header: http.Header{
 			"Date":   []string{"Tue, 01 Jan 2024 00:00:00 GMT"},
 			"Digest": []string{"SHA-256=abc123"},
@@ -170,7 +172,7 @@ func TestBuildSigningString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := BuildSigningString(req, tt.headers)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -178,17 +180,17 @@ func TestBuildSigningString(t *testing.T) {
 
 func TestVerifyRequest(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Create signing string
 	signingString := "(request-target): post /users/test/inbox\nhost: example.com\ndate: Tue, 01 Jan 2024 00:00:00 GMT"
 	signature, err := SignWithRSA(privateKey, []byte(signingString))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	sigHeader := fmt.Sprintf(`keyId="https://example.com/users/test#main-key",algorithm="rsa-sha256",headers="(request-target) host date",signature="%s"`, base64.StdEncoding.EncodeToString(signature))
 
 	req := &http.Request{
-		Method: "POST",
+		Method: http.MethodPost,
 		URL:    &url.URL{Path: "/users/test/inbox"},
 		Host:   "example.com",
 		Header: http.Header{
@@ -198,16 +200,16 @@ func TestVerifyRequest(t *testing.T) {
 	}
 
 	err = VerifyRequest(req, &privateKey.PublicKey)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test with no signature header
 	reqNoSig := &http.Request{
-		Method: "POST",
+		Method: http.MethodPost,
 		URL:    &url.URL{Path: "/users/test/inbox"},
 		Header: http.Header{},
 	}
 	err = VerifyRequest(reqNoSig, &privateKey.PublicKey)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no signature header")
 }
 
@@ -221,6 +223,7 @@ func TestPublicKeyCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	publicKey := &privateKey.PublicKey
 
 	// Test set and get
@@ -230,6 +233,7 @@ func TestPublicKeyCache(t *testing.T) {
 	if !ok {
 		t.Fatal("expected cache hit")
 	}
+
 	if got != publicKey {
 		t.Fatal("cached key mismatch")
 	}
@@ -290,9 +294,9 @@ func TestVerifyDigest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := verifyDigest(tt.body, tt.digest)
 			if tt.expectErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -301,19 +305,19 @@ func TestVerifyDigest(t *testing.T) {
 func TestStripPrivacyFields(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    map[string]interface{}
-		expected map[string]interface{}
+		input    map[string]any
+		expected map[string]any
 	}{
 		{
 			name: "removes bto and bcc",
-			input: map[string]interface{}{
-				"type":    "Create",
-				"to":      []string{"https://www.w3.org/ns/activitystreams#Public"},
+			input: map[string]any{
+				"type":    "Create",                                                 //nolint:goconst
+				"to":      []string{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
 				"bto":     []string{"secret@user.com"},
 				"bcc":     []string{"hidden@user.com"},
-				"content": "test",
+				"content": "test", //nolint:goconst
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":    "Create",
 				"to":      []string{"https://www.w3.org/ns/activitystreams#Public"},
 				"content": "test",
@@ -321,18 +325,18 @@ func TestStripPrivacyFields(t *testing.T) {
 		},
 		{
 			name: "removes bto/bcc from nested object",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"type": "Create",
-				"object": map[string]interface{}{
-					"type":    "Note",
+				"object": map[string]any{ //nolint:goconst
+					"type":    "Note", //nolint:goconst
 					"content": "test",
 					"bto":     []string{"secret@user.com"},
 					"bcc":     []string{"hidden@user.com"},
 				},
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type": "Create",
-				"object": map[string]interface{}{
+				"object": map[string]any{
 					"type":    "Note",
 					"content": "test",
 				},
@@ -340,11 +344,11 @@ func TestStripPrivacyFields(t *testing.T) {
 		},
 		{
 			name: "no bto/bcc fields",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"type":    "Create",
 				"content": "test",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":    "Create",
 				"content": "test",
 			},
@@ -358,14 +362,17 @@ func TestStripPrivacyFields(t *testing.T) {
 			// Check bto and bcc are removed
 			_, hasBto := result["bto"]
 			_, hasBcc := result["bcc"]
+
 			assert.False(t, hasBto)
 			assert.False(t, hasBcc)
 
 			// Check other fields preserved
 			for k, v := range tt.expected {
 				if k == "object" {
-					objResult := result[k].(map[string]interface{})
-					objExpected := v.(map[string]interface{})
+					objResult := result[k].(map[string]any) //nolint:forcetypeassert
+
+					objExpected := v.(map[string]any) //nolint:forcetypeassert
+
 					for ok, ov := range objExpected {
 						assert.Equal(t, ov, objResult[ok])
 					}
@@ -422,8 +429,9 @@ func TestBytesEqual(t *testing.T) {
 	}
 }
 
-// Helper function
+// Helper function.
 func sha256Sum(data []byte) []byte {
 	hash := sha256.Sum256(data)
+
 	return hash[:]
 }

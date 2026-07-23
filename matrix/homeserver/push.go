@@ -2,10 +2,11 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,47 +17,47 @@ import (
 
 // ===== Push Gateway / Notifications 实现 =====
 
-// Pusher 推送器配置
+// Pusher 推送器配置.
 type Pusher struct {
-	ID                uint64                 `gorm:"primaryKey;autoIncrement" json:"-"`
-	UserID            string                 `gorm:"index;type:varchar(255);not null" json:"-"`
-	Pushkey           string                 `gorm:"type:varchar(512);not null" json:"pushkey"` // 设备推送令牌
-	Kind              string                 `gorm:"type:varchar(32);not null" json:"kind"`     // http, email
-	AppID             string                 `gorm:"type:varchar(128);not null" json:"app_id"`  // 应用 ID
-	AppDisplayName    string                 `gorm:"type:varchar(128)" json:"app_display_name"`
-	DeviceDisplayName string                 `gorm:"type:varchar(128)" json:"device_display_name"`
-	ProfileTag        string                 `gorm:"type:varchar(32)" json:"profile_tag,omitempty"`
-	Lang              string                 `gorm:"type:varchar(16)" json:"lang"`
-	Data              map[string]interface{} `gorm:"type:text;serializer:json" json:"data"`
-	DeviceID          string                 `gorm:"type:varchar(255);index" json:"-"`
-	Enabled           bool                   `gorm:"default:true" json:"-"`
-	CreatedAt         time.Time              `json:"-"`
-	UpdatedAt         time.Time              `json:"-"`
+	ID                uint64         `gorm:"primaryKey;autoIncrement"         json:"-"`
+	UserID            string         `gorm:"index;type:varchar(255);not null" json:"-"`
+	Pushkey           string         `gorm:"type:varchar(512);not null"       json:"pushkey"` // 设备推送令牌
+	Kind              string         `gorm:"type:varchar(32);not null"        json:"kind"`    // http, email
+	AppID             string         `gorm:"type:varchar(128);not null"       json:"app_id"`  // 应用 ID
+	AppDisplayName    string         `gorm:"type:varchar(128)"                json:"app_display_name"`
+	DeviceDisplayName string         `gorm:"type:varchar(128)"                json:"device_display_name"`
+	ProfileTag        string         `gorm:"type:varchar(32)"                 json:"profile_tag,omitempty"`
+	Lang              string         `gorm:"type:varchar(16)"                 json:"lang"`
+	Data              map[string]any `gorm:"type:text;serializer:json"        json:"data"`
+	DeviceID          string         `gorm:"type:varchar(255);index"          json:"-"`
+	Enabled           bool           `gorm:"default:true"                     json:"-"`
+	CreatedAt         time.Time      `json:"-"`
+	UpdatedAt         time.Time      `json:"-"`
 }
 
 func (Pusher) TableName() string {
 	return "matrix_pushers"
 }
 
-// PusherData 推送器数据
+// PusherData 推送器数据.
 type PusherData struct {
 	URL    string `json:"url,omitempty"`
 	Format string `json:"format,omitempty"` // event_id_only, full
 	Brand  string `json:"brand,omitempty"`
 }
 
-// PushRule 推送规则
+// PushRule 推送规则.
 type PushRule struct {
-	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
+	ID            uint64    `gorm:"primaryKey;autoIncrement"         json:"-"`
 	UserID        string    `gorm:"index;type:varchar(255);not null" json:"-"`
-	Scope         string    `gorm:"index;type:varchar(16);not null" json:"-"` // global, device
-	Kind          string    `gorm:"index;type:varchar(32);not null" json:"-"` // override, content, room, sender, underride
-	RuleID        string    `gorm:"type:varchar(128);not null" json:"rule_id"`
-	Default       bool      `gorm:"default:false" json:"default"`
-	Enabled       bool      `gorm:"default:true" json:"enabled"`
-	Conditions    string    `gorm:"type:text" json:"-"` // JSON
-	Actions       string    `gorm:"type:text" json:"-"` // JSON
-	Pattern       string    `gorm:"type:varchar(255)" json:"pattern,omitempty"`
+	Scope         string    `gorm:"index;type:varchar(16);not null"  json:"-"` // global, device
+	Kind          string    `gorm:"index;type:varchar(32);not null"  json:"-"` // override, content, room, sender, underride
+	RuleID        string    `gorm:"type:varchar(128);not null"       json:"rule_id"`
+	Default       bool      `gorm:"default:false"                    json:"default"`
+	Enabled       bool      `gorm:"default:true"                     json:"enabled"`
+	Conditions    string    `gorm:"type:text"                        json:"-"` // JSON
+	Actions       string    `gorm:"type:text"                        json:"-"` // JSON
+	Pattern       string    `gorm:"type:varchar(255)"                json:"pattern,omitempty"`
 	PriorityClass int64     `json:"-"`
 	CreatedAt     time.Time `json:"-"`
 	UpdatedAt     time.Time `json:"-"`
@@ -66,7 +67,7 @@ func (PushRule) TableName() string {
 	return "matrix_push_rules"
 }
 
-// PushCondition 推送条件
+// PushCondition 推送条件.
 type PushCondition struct {
 	Kind    string `json:"kind"`              // event_match, contains_display_name, room_member_count
 	Key     string `json:"key,omitempty"`     // for event_match
@@ -74,53 +75,53 @@ type PushCondition struct {
 	Is      string `json:"is,omitempty"`      // for room_member_count
 }
 
-// PushAction 推送动作
+// PushAction 推送动作.
 type PushAction struct {
-	Action string                 `json:"action"` // notify, dont_notify, coalesce, set_tweak
-	Tweak  map[string]interface{} `json:"tweak,omitempty"`
+	Action string         `json:"action"` // notify, dont_notify, coalesce, set_tweak
+	Tweak  map[string]any `json:"tweak,omitempty"`
 }
 
-// PushNotification 推送通知
+// PushNotification 推送通知.
 type PushNotification struct {
 	Notification PushNotificationData `json:"notification"`
 }
 
-// PushNotificationData 通知数据
+// PushNotificationData 通知数据.
 type PushNotificationData struct {
-	EventID           string                 `json:"event_id"`
-	RoomID            string                 `json:"room_id"`
-	Type              string                 `json:"type"`
-	Sender            string                 `json:"sender"`
-	SenderDisplayName string                 `json:"sender_display_name,omitempty"`
-	RoomName          string                 `json:"room_name,omitempty"`
-	RoomAlias         string                 `json:"room_alias,omitempty"`
-	Content           map[string]interface{} `json:"content,omitempty"`
-	Unread            int                    `json:"unread,omitempty"`
-	Counts            *PushCounts            `json:"counts,omitempty"`
-	Devices           []PushDevice           `json:"devices,omitempty"`
+	EventID           string         `json:"event_id"`
+	RoomID            string         `json:"room_id"`
+	Type              string         `json:"type"`
+	Sender            string         `json:"sender"`
+	SenderDisplayName string         `json:"sender_display_name,omitempty"`
+	RoomName          string         `json:"room_name,omitempty"`
+	RoomAlias         string         `json:"room_alias,omitempty"`
+	Content           map[string]any `json:"content,omitempty"`
+	Unread            int            `json:"unread,omitempty"`
+	Counts            *PushCounts    `json:"counts,omitempty"`
+	Devices           []PushDevice   `json:"devices,omitempty"`
 }
 
-// PushCounts 未读计数
+// PushCounts 未读计数.
 type PushCounts struct {
 	Unread      int `json:"unread,omitempty"`
 	MissedCalls int `json:"missed_calls,omitempty"`
 }
 
-// PushDevice 目标设备
+// PushDevice 目标设备.
 type PushDevice struct {
-	AppID     string                   `json:"app_id"`
-	Pushkey   string                   `json:"pushkey"`
-	PushkeyTs int64                    `json:"pushkey_ts,omitempty"`
-	Data      PusherData               `json:"data,omitempty"`
-	Tweaks    []map[string]interface{} `json:"tweaks,omitempty"`
+	AppID     string           `json:"app_id"`
+	Pushkey   string           `json:"pushkey"`
+	PushkeyTs int64            `json:"pushkey_ts,omitempty"`
+	Data      PusherData       `json:"data"`
+	Tweaks    []map[string]any `json:"tweaks,omitempty"`
 }
 
-// PushRulesResponse 推送规则响应
+// PushRulesResponse 推送规则响应.
 type PushRulesResponse struct {
 	Global PushRuleset `json:"global"`
 }
 
-// PushRuleset 规则集
+// PushRuleset 规则集.
 type PushRuleset struct {
 	Override  []PushRuleResponse `json:"override"`
 	Content   []PushRuleResponse `json:"content"`
@@ -129,23 +130,23 @@ type PushRuleset struct {
 	Underride []PushRuleResponse `json:"underride"`
 }
 
-// PushRuleResponse 推送规则响应格式
+// PushRuleResponse 推送规则响应格式.
 type PushRuleResponse struct {
 	RuleID     string          `json:"rule_id"`
 	Default    bool            `json:"default"`
 	Enabled    bool            `json:"enabled"`
 	Conditions []PushCondition `json:"conditions,omitempty"`
-	Actions    []interface{}   `json:"actions"`
+	Actions    []any           `json:"actions"`
 	Pattern    string          `json:"pattern,omitempty"`
 }
 
-// PushService 推送服务
+// PushService 推送服务.
 type PushService struct {
 	hs     *HomeServer
 	client *http.Client
 }
 
-// NewPushService 创建推送服务
+// NewPushService 创建推送服务.
 func NewPushService(hs *HomeServer) *PushService {
 	return &PushService{
 		hs:     hs,
@@ -153,19 +154,22 @@ func NewPushService(hs *HomeServer) *PushService {
 	}
 }
 
-// GetPushers 获取用户的所有推送器
+// GetPushers 获取用户的所有推送器.
 func (ps *PushService) GetPushers(userID string) ([]Pusher, error) {
 	var pushers []Pusher
-	if err := db.GetDB().Where("user_id = ? AND enabled = ?", userID, true).Find(&pushers).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND enabled = ?", userID, true).Find(&pushers).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return pushers, nil
 }
 
-// SetPusher 设置推送器（创建或更新）
+// SetPusher 设置推送器（创建或更新）.
 func (ps *PushService) SetPusher(userID string, pusher *Pusher) error {
 	// 检查是否已存在
 	var existing Pusher
+
 	result := db.GetDB().Where("user_id = ? AND pushkey = ? AND app_id = ?", userID, pusher.Pushkey, pusher.AppID).First(&existing)
 
 	pusher.UserID = userID
@@ -178,25 +182,28 @@ func (ps *PushService) SetPusher(userID string, pusher *Pusher) error {
 		existing.Data = pusher.Data
 		existing.Enabled = true
 		existing.UpdatedAt = time.Now()
+
 		return db.GetDB().Save(&existing).Error
 	}
 
 	// 创建
 	pusher.CreatedAt = time.Now()
 	pusher.UpdatedAt = time.Now()
+
 	return db.GetDB().Create(pusher).Error
 }
 
-// RemovePusher 删除推送器
+// RemovePusher 删除推送器.
 func (ps *PushService) RemovePusher(userID, pushkey, appID string) error {
 	return db.GetDB().Where("user_id = ? AND pushkey = ? AND app_id = ?", userID, pushkey, appID).
 		Delete(&Pusher{}).Error
 }
 
-// GetPushRules 获取推送规则
+// GetPushRules 获取推送规则.
 func (ps *PushService) GetPushRules(userID string) (*PushRulesResponse, error) {
 	var rules []PushRule
-	if err := db.GetDB().Where("user_id = ? AND scope = ?", userID, "global").Find(&rules).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND scope = ?", userID, "global").Find(&rules).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -218,14 +225,15 @@ func (ps *PushService) GetPushRules(userID string) (*PushRulesResponse, error) {
 
 	for _, rule := range rules {
 		resp := ps.ruleToResponse(&rule)
+
 		switch rule.Kind {
 		case "override":
 			response.Global.Override = append(response.Global.Override, resp)
-		case "content":
+		case "content": //nolint:goconst
 			response.Global.Content = append(response.Global.Content, resp)
 		case "room":
 			response.Global.Room = append(response.Global.Room, resp)
-		case "sender":
+		case "sender": //nolint:goconst
 			response.Global.Sender = append(response.Global.Sender, resp)
 		case "underride":
 			response.Global.Underride = append(response.Global.Underride, resp)
@@ -235,7 +243,7 @@ func (ps *PushService) GetPushRules(userID string) (*PushRulesResponse, error) {
 	return response, nil
 }
 
-// ruleToResponse 转换规则为响应格式
+// ruleToResponse 转换规则为响应格式.
 func (ps *PushService) ruleToResponse(rule *PushRule) PushRuleResponse {
 	resp := PushRuleResponse{
 		RuleID:  rule.RuleID,
@@ -246,20 +254,21 @@ func (ps *PushService) ruleToResponse(rule *PushRule) PushRuleResponse {
 
 	// 解析条件
 	if rule.Conditions != "" {
-		json.Unmarshal([]byte(rule.Conditions), &resp.Conditions) //nolint:errcheck
+		json.Unmarshal([]byte(rule.Conditions), &resp.Conditions) //nolint:errcheck,gosec // G104: best effort
 	}
 
 	// 解析动作
 	if rule.Actions != "" {
-		var actions []interface{}
-		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck
+		var actions []any
+
+		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck,gosec // G104: best effort
 		resp.Actions = actions
 	}
 
 	return resp
 }
 
-// SetPushRule 设置推送规则
+// SetPushRule 设置推送规则.
 func (ps *PushService) SetPushRule(userID, scope, kind, ruleID string, rule *PushRule) error {
 	rule.UserID = userID
 	rule.Scope = scope
@@ -269,6 +278,7 @@ func (ps *PushService) SetPushRule(userID, scope, kind, ruleID string, rule *Pus
 
 	// 检查是否已存在
 	var existing PushRule
+
 	result := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?", userID, scope, kind, ruleID).First(&existing)
 
 	if result.Error == nil {
@@ -278,21 +288,23 @@ func (ps *PushService) SetPushRule(userID, scope, kind, ruleID string, rule *Pus
 		existing.Actions = rule.Actions
 		existing.Pattern = rule.Pattern
 		existing.UpdatedAt = time.Now()
+
 		return db.GetDB().Save(&existing).Error
 	}
 
 	// 创建
 	rule.CreatedAt = time.Now()
+
 	return db.GetDB().Create(rule).Error
 }
 
-// DeletePushRule 删除推送规则
+// DeletePushRule 删除推送规则.
 func (ps *PushService) DeletePushRule(userID, scope, kind, ruleID string) error {
 	return db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?", userID, scope, kind, ruleID).
 		Delete(&PushRule{}).Error
 }
 
-// createDefaultRules 创建默认推送规则
+// createDefaultRules 创建默认推送规则.
 func (ps *PushService) createDefaultRules(userID string) {
 	defaultRules := []PushRule{
 		// .m.rule.master - 主规则（禁用所有通知）
@@ -357,10 +369,11 @@ func (ps *PushService) createDefaultRules(userID string) {
 	}
 }
 
-// NotifyEvent 评估事件并发送推送通知
+// NotifyEvent 评估事件并发送推送通知.
 func (ps *PushService) NotifyEvent(event *MatrixEvent, room *MatrixRoom) {
 	// 获取房间中的所有成员
 	var members []MatrixRoomMember
+
 	db.GetDB().Where("room_id = ? AND membership = ?", event.RoomID, MembershipJoin).Find(&members)
 
 	for _, member := range members {
@@ -380,10 +393,11 @@ func (ps *PushService) NotifyEvent(event *MatrixEvent, room *MatrixRoom) {
 	}
 }
 
-// evaluateRules 评估推送规则
+// evaluateRules 评估推送规则.
 func (ps *PushService) evaluateRules(userID string, event *MatrixEvent, room *MatrixRoom) (bool, []PushAction) {
 	// 获取用户的推送规则
 	var rules []PushRule
+
 	db.GetDB().Where("user_id = ? AND scope = ? AND enabled = ?", userID, "global", true).
 		Order("priority_class DESC, id ASC").
 		Find(&rules)
@@ -392,13 +406,15 @@ func (ps *PushService) evaluateRules(userID string, event *MatrixEvent, room *Ma
 	for _, rule := range rules {
 		if ps.matchesRule(&rule, event, room, userID) {
 			var actions []PushAction
-			if err := json.Unmarshal([]byte(rule.Actions), &actions); err == nil {
+			err := json.Unmarshal([]byte(rule.Actions), &actions)
+			if err == nil {
 				// 检查是否是 dont_notify
 				for _, action := range actions {
 					if action.Action == "dont_notify" {
 						return false, nil
 					}
 				}
+
 				return true, actions
 			}
 		}
@@ -407,7 +423,7 @@ func (ps *PushService) evaluateRules(userID string, event *MatrixEvent, room *Ma
 	return false, nil
 }
 
-// matchesRule 检查事件是否匹配规则
+// matchesRule 检查事件是否匹配规则.
 func (ps *PushService) matchesRule(rule *PushRule, event *MatrixEvent, room *MatrixRoom, userID string) bool {
 	// 如果是内容规则，检查模式
 	if rule.Kind == "content" && rule.Pattern != "" {
@@ -434,7 +450,8 @@ func (ps *PushService) matchesRule(rule *PushRule, event *MatrixEvent, room *Mat
 	}
 
 	var conditions []PushCondition
-	if err := json.Unmarshal([]byte(rule.Conditions), &conditions); err != nil {
+	err := json.Unmarshal([]byte(rule.Conditions), &conditions)
+	if err != nil {
 		return false
 	}
 
@@ -447,8 +464,8 @@ func (ps *PushService) matchesRule(rule *PushRule, event *MatrixEvent, room *Mat
 	return true
 }
 
-// matchesCondition 检查条件是否匹配
-func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent, room *MatrixRoom, userID string) bool {
+// matchesCondition 检查条件是否匹配.
+func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent, room *MatrixRoom, userID string) bool { //nolint:unparam // param reserved for future use
 	switch cond.Kind {
 	case "event_match":
 		return ps.matchEventField(event, cond.Key, cond.Pattern)
@@ -457,7 +474,9 @@ func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent,
 		if body, ok := event.Content["body"].(string); ok {
 			// 获取用户的显示名称
 			var member MatrixRoomMember
+
 			db.GetDB().Where("room_id = ? AND user_id = ?", event.RoomID, userID).First(&member)
+
 			if member.DisplayName != nil && *member.DisplayName != "" {
 				return strings.Contains(body, *member.DisplayName)
 			}
@@ -465,39 +484,43 @@ func (ps *PushService) matchesCondition(cond *PushCondition, event *MatrixEvent,
 			parts := strings.Split(userID, ":")
 			if len(parts) > 0 {
 				username := strings.TrimPrefix(parts[0], "@")
+
 				return strings.Contains(body, username)
 			}
 		}
+
 		return false
 	case "room_member_count":
 		// 检查房间成员数
 		var count int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", event.RoomID, MembershipJoin).Count(&count)
 
 		// 简单解析：只处理 "2" 这样的数字
-		if cond.Is == fmt.Sprintf("%d", count) {
+		if cond.Is == strconv.FormatInt(count, 10) {
 			return true
 		}
+
 		return false
 	}
+
 	return false
 }
 
-// matchEventField 匹配事件字段
+// matchEventField 匹配事件字段.
 func (ps *PushService) matchEventField(event *MatrixEvent, key, pattern string) bool {
 	var value string
 
 	switch key {
-	case "type":
+	case "type": //nolint:goconst
 		value = string(event.EventType)
 	case "sender":
 		value = event.Sender
-	case "room_id":
+	case "room_id": //nolint:goconst
 		value = event.RoomID
 	default:
 		// 尝试从 content 获取
-		if strings.HasPrefix(key, "content.") {
-			field := strings.TrimPrefix(key, "content.")
+		if field, ok := strings.CutPrefix(key, "content."); ok {
 			if v, ok := event.Content[field].(string); ok {
 				value = v
 			}
@@ -507,8 +530,8 @@ func (ps *PushService) matchEventField(event *MatrixEvent, key, pattern string) 
 	return value == pattern
 }
 
-// sendPush 发送推送通知
-func (ps *PushService) sendPush(userID string, event *MatrixEvent, room *MatrixRoom, actions []PushAction) {
+// sendPush 发送推送通知.
+func (ps *PushService) sendPush(userID string, event *MatrixEvent, room *MatrixRoom, actions []PushAction) { //nolint:unparam // param reserved for future use
 	// 获取用户的推送器
 	pushers, err := ps.GetPushers(userID)
 	if err != nil || len(pushers) == 0 {
@@ -535,10 +558,11 @@ func (ps *PushService) sendPush(userID string, event *MatrixEvent, room *MatrixR
 	}
 }
 
-// buildNotification 构建推送通知
+// buildNotification 构建推送通知.
 func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room *MatrixRoom, pushers []Pusher) *PushNotification {
 	// 获取发送者的显示名称
 	var senderMember MatrixRoomMember
+
 	db.GetDB().Where("room_id = ? AND user_id = ?", event.RoomID, event.Sender).First(&senderMember)
 
 	senderDisplayName := event.Sender
@@ -554,6 +578,7 @@ func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room
 
 	// 构建设备列表
 	devices := make([]PushDevice, 0, len(pushers))
+
 	for _, pusher := range pushers {
 		var data PusherData
 		if pusher.Data != nil {
@@ -572,6 +597,7 @@ func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room
 
 	// 获取未读计数
 	var unreadCount int64
+
 	db.GetDB().Model(&MatrixReceipt{}).
 		Where("room_id = ? AND user_id = ? AND receipt_type = ?", event.RoomID, userID, "m.read").
 		Count(&unreadCount)
@@ -593,23 +619,33 @@ func (ps *PushService) buildNotification(userID string, event *MatrixEvent, room
 	}
 }
 
-// sendPushRequest 发送推送请求
+// sendPushRequest 发送推送请求.
 func (ps *PushService) sendPushRequest(url string, notification *PushNotification) {
 	data, err := json.Marshal(notification)
 	if err != nil {
 		return
 	}
 
-	resp, err := ps.client.Post(url, "application/json", bytes.NewReader(data))
+	pushReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		log.Error("Failed to send push notification: %v", err)
+		log.Error("Failed to create push request: %v", err)
+
 		return
 	}
+	pushReq.Header.Set("Content-Type", "application/json")
+	resp, err := ps.client.Do(pushReq)
+	if err != nil {
+		log.Error("Failed to send push notification: %v", err)
+
+		return
+	}
+
 	defer func() {
 		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 			log.Warn("Failed to drain push response body: %v", err)
 		}
-		resp.Body.Close()
+
+		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusOK {
@@ -619,7 +655,7 @@ func (ps *PushService) sendPushRequest(url string, notification *PushNotificatio
 
 // ===== HTTP Handlers =====
 
-// RegisterPushRoutes 注册推送 API 路由
+// RegisterPushRoutes 注册推送 API 路由.
 func RegisterPushRoutes(r gin.IRouter) {
 	// 推送路由已在 handlers.go 中定义，这里不需要重复
 	// 这个函数只是为了保持 API 一致性

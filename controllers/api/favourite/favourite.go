@@ -9,19 +9,20 @@ import (
 	"strconv"
 )
 
-// ListRequest represents the request for listing favourites/bookmarks
+// ListRequest represents the request for listing favourites/bookmarks.
 type ListRequest struct {
-	Limit   int    `form:"limit" json:"limit" binding:"omitempty,min=1,max=80"`
-	MaxId   string `form:"max_id" json:"max_id"`
-	MinId   string `form:"min_id" json:"min_id"`
-	SinceId string `form:"since_id" json:"since_id"`
+	Limit   int    `binding:"omitempty,min=1,max=80" form:"limit"    json:"limit"`
+	MaxId   string `form:"max_id"                    json:"max_id"`
+	MinId   string `form:"min_id"                    json:"min_id"`
+	SinceId string `form:"since_id"                  json:"since_id"`
 }
 
-// Favourites handles GET /api/v1/favourites
+// Favourites handles GET /api/v1/favourites.
 func Favourites(c *gin.Context) {
 	var req ListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -30,7 +31,7 @@ func Favourites(c *gin.Context) {
 	}
 
 	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query favourite statuses
 	query := db.GetDB().Model(&models.FavoriteStatus{}).
@@ -45,11 +46,13 @@ func Favourites(c *gin.Context) {
 			query = query.Where("favorite_statuses.id < ?", maxId)
 		}
 	}
+
 	if req.MinId != "" {
 		if minId, err := strconv.ParseUint(req.MinId, 10, 64); err == nil {
 			query = query.Where("favorite_statuses.id > ?", minId)
 		}
 	}
+
 	if req.SinceId != "" {
 		if sinceId, err := strconv.ParseUint(req.SinceId, 10, 64); err == nil {
 			query = query.Where("favorite_statuses.id > ?", sinceId)
@@ -59,6 +62,7 @@ func Favourites(c *gin.Context) {
 	favoriteStatuses := make([]*models.FavoriteStatus, 0)
 	if err := query.Limit(req.Limit).Find(&favoriteStatuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get favourites error"))
+
 		return
 	}
 
@@ -70,6 +74,7 @@ func Favourites(c *gin.Context) {
 
 	if len(statusIds) == 0 {
 		c.JSON(200, []*serializer.Status{})
+
 		return
 	}
 
@@ -81,6 +86,7 @@ func Favourites(c *gin.Context) {
 
 	if err := query.Find(&statuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get statuses error"))
+
 		return
 	}
 
@@ -88,17 +94,19 @@ func Favourites(c *gin.Context) {
 	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
+
 		return
 	}
 
 	c.JSON(200, serializedStatuses)
 }
 
-// Bookmarks handles GET /api/v1/bookmarks
+// Bookmarks handles GET /api/v1/bookmarks.
 func Bookmarks(c *gin.Context) {
 	var req ListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -107,7 +115,7 @@ func Bookmarks(c *gin.Context) {
 	}
 
 	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query bookmarked statuses
 	query := db.GetDB().Model(&models.BookmarkStatus{}).
@@ -122,11 +130,13 @@ func Bookmarks(c *gin.Context) {
 			query = query.Where("bookmark_statuses.id < ?", maxId)
 		}
 	}
+
 	if req.MinId != "" {
 		if minId, err := strconv.ParseUint(req.MinId, 10, 64); err == nil {
 			query = query.Where("bookmark_statuses.id > ?", minId)
 		}
 	}
+
 	if req.SinceId != "" {
 		if sinceId, err := strconv.ParseUint(req.SinceId, 10, 64); err == nil {
 			query = query.Where("bookmark_statuses.id > ?", sinceId)
@@ -136,6 +146,7 @@ func Bookmarks(c *gin.Context) {
 	bookmarkStatuses := make([]*models.BookmarkStatus, 0)
 	if err := query.Limit(req.Limit).Find(&bookmarkStatuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get bookmarks error"))
+
 		return
 	}
 
@@ -147,6 +158,7 @@ func Bookmarks(c *gin.Context) {
 
 	if len(statusIds) == 0 {
 		c.JSON(200, []*serializer.Status{})
+
 		return
 	}
 
@@ -158,6 +170,7 @@ func Bookmarks(c *gin.Context) {
 
 	if err := query.Find(&statuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get statuses error"))
+
 		return
 	}
 
@@ -165,6 +178,7 @@ func Bookmarks(c *gin.Context) {
 	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
+
 		return
 	}
 

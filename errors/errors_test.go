@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -21,29 +22,29 @@ func init() {
 
 func TestErrorCodeConstants(t *testing.T) {
 	// General error codes
-	assert.Equal(t, ErrorCode("INVALID_REQUEST"), ErrCodeInvalidRequest)
-	assert.Equal(t, ErrorCode("UNAUTHORIZED"), ErrCodeUnauthorized)
-	assert.Equal(t, ErrorCode("FORBIDDEN"), ErrCodeForbidden)
-	assert.Equal(t, ErrorCode("NOT_FOUND"), ErrCodeNotFound)
-	assert.Equal(t, ErrorCode("METHOD_NOT_ALLOWED"), ErrCodeMethodNotAllow)
-	assert.Equal(t, ErrorCode("CONFLICT"), ErrCodeConflict)
-	assert.Equal(t, ErrorCode("RATE_LIMITED"), ErrCodeTooManyRequest)
-	assert.Equal(t, ErrorCode("INTERNAL_ERROR"), ErrCodeInternal)
-	assert.Equal(t, ErrorCode("SERVICE_UNAVAILABLE"), ErrCodeServiceUnavail)
+	assert.Equal(t, ErrCodeInvalidRequest, ErrorCode("INVALID_REQUEST"))
+	assert.Equal(t, ErrCodeUnauthorized, ErrorCode("UNAUTHORIZED"))
+	assert.Equal(t, ErrCodeForbidden, ErrorCode("FORBIDDEN"))
+	assert.Equal(t, ErrCodeNotFound, ErrorCode("NOT_FOUND"))
+	assert.Equal(t, ErrCodeMethodNotAllow, ErrorCode("METHOD_NOT_ALLOWED"))
+	assert.Equal(t, ErrCodeConflict, ErrorCode("CONFLICT"))
+	assert.Equal(t, ErrCodeTooManyRequest, ErrorCode("RATE_LIMITED"))
+	assert.Equal(t, ErrCodeInternal, ErrorCode("INTERNAL_ERROR"))
+	assert.Equal(t, ErrCodeServiceUnavail, ErrorCode("SERVICE_UNAVAILABLE"))
 
 	// Auth error codes
-	assert.Equal(t, ErrorCode("INVALID_TOKEN"), ErrCodeInvalidToken)
-	assert.Equal(t, ErrorCode("TOKEN_EXPIRED"), ErrCodeTokenExpired)
-	assert.Equal(t, ErrorCode("INVALID_CREDENTIAL"), ErrCodeInvalidCredential)
-	assert.Equal(t, ErrorCode("ACCOUNT_DISABLED"), ErrCodeAccountDisabled)
-	assert.Equal(t, ErrorCode("ACCOUNT_LOCKED"), ErrCodeAccountLocked)
+	assert.Equal(t, ErrCodeInvalidToken, ErrorCode("INVALID_TOKEN"))
+	assert.Equal(t, ErrCodeTokenExpired, ErrorCode("TOKEN_EXPIRED"))
+	assert.Equal(t, ErrCodeInvalidCredential, ErrorCode("INVALID_CREDENTIAL"))
+	assert.Equal(t, ErrCodeAccountDisabled, ErrorCode("ACCOUNT_DISABLED"))
+	assert.Equal(t, ErrCodeAccountLocked, ErrorCode("ACCOUNT_LOCKED"))
 
 	// Business error codes
-	assert.Equal(t, ErrorCode("VALIDATION_ERROR"), ErrCodeValidation)
-	assert.Equal(t, ErrorCode("RESOURCE_EXHAUSTED"), ErrCodeResourceExhaust)
-	assert.Equal(t, ErrorCode("DUPLICATE_ENTRY"), ErrCodeDuplicateEntry)
-	assert.Equal(t, ErrorCode("NOT_IMPLEMENTED"), ErrCodeNotImplemented)
-	assert.Equal(t, ErrorCode("DEPENDENCY_FAILURE"), ErrCodeDependencyFail)
+	assert.Equal(t, ErrCodeValidation, ErrorCode("VALIDATION_ERROR"))
+	assert.Equal(t, ErrCodeResourceExhaust, ErrorCode("RESOURCE_EXHAUSTED"))
+	assert.Equal(t, ErrCodeDuplicateEntry, ErrorCode("DUPLICATE_ENTRY"))
+	assert.Equal(t, ErrCodeNotImplemented, ErrorCode("NOT_IMPLEMENTED"))
+	assert.Equal(t, ErrCodeDependencyFail, ErrorCode("DEPENDENCY_FAILURE"))
 }
 
 // ============================================================================
@@ -56,9 +57,9 @@ func TestNewAppError(t *testing.T) {
 	assert.Equal(t, ErrCodeInternal, err.Code)
 	assert.Equal(t, "something broke", err.Message)
 	assert.Equal(t, http.StatusInternalServerError, err.Status)
-	assert.Equal(t, "", err.Detail)
-	assert.Equal(t, "", err.RequestID)
-	assert.Equal(t, "", err.InternalID)
+	assert.Empty(t, err.Detail)
+	assert.Empty(t, err.RequestID)
+	assert.Empty(t, err.InternalID)
 }
 
 func TestNewAppError_DifferentCodes(t *testing.T) {
@@ -127,13 +128,13 @@ func TestAppError_WithDetail(t *testing.T) {
 	assert.Equal(t, original.Status, withDetail.Status)
 	assert.Equal(t, "email is required", withDetail.Detail)
 	// Original should be unchanged
-	assert.Equal(t, "", original.Detail)
+	assert.Empty(t, original.Detail)
 }
 
 func TestAppError_WithDetail_EmptyString(t *testing.T) {
 	original := NewAppError(ErrCodeValidation, "validation failed", http.StatusBadRequest)
 	withDetail := original.WithDetail("")
-	assert.Equal(t, "", withDetail.Detail)
+	assert.Empty(t, withDetail.Detail)
 }
 
 func TestAppError_WithDetail_PreservesOriginal(t *testing.T) {
@@ -158,7 +159,7 @@ func TestAppError_WithRequestID(t *testing.T) {
 	assert.Equal(t, original.Message, withID.Message)
 	assert.Equal(t, original.Status, withID.Status)
 	assert.Equal(t, "req-123", withID.RequestID)
-	assert.Equal(t, "", original.RequestID)
+	assert.Empty(t, original.RequestID)
 }
 
 func TestAppError_WithRequestID_PreservesDetail(t *testing.T) {
@@ -173,7 +174,7 @@ func TestAppError_WithRequestID_PreservesDetail(t *testing.T) {
 func TestAppError_WithRequestID_EmptyString(t *testing.T) {
 	original := NewAppError(ErrCodeInternal, "internal error", http.StatusInternalServerError)
 	withID := original.WithRequestID("")
-	assert.Equal(t, "", withID.RequestID)
+	assert.Empty(t, withID.RequestID)
 }
 
 // ============================================================================
@@ -204,7 +205,9 @@ func TestAppError_JSON_WithRequestID(t *testing.T) {
 func TestAppError_JSON_DevModeWithDetail(t *testing.T) {
 	// Save and restore config
 	origDevMode := config.C.DevMode
-	config.C.DevMode = "true"
+
+	config.C.DevMode = "true" //nolint:goconst
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	err := NewAppError(ErrCodeInternal, "server error", http.StatusInternalServerError).WithDetail("db failed")
@@ -217,7 +220,9 @@ func TestAppError_JSON_DevModeWithDetail(t *testing.T) {
 
 func TestAppError_JSON_ProductionModeHidesDetail(t *testing.T) {
 	origDevMode := config.C.DevMode
+
 	config.C.DevMode = "false"
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	err := NewAppError(ErrCodeInternal, "server error", http.StatusInternalServerError).WithDetail("db failed")
@@ -232,7 +237,9 @@ func TestAppError_JSON_ProductionModeHidesDetail(t *testing.T) {
 
 func TestAppError_JSON_DevModeWithoutDetail(t *testing.T) {
 	origDevMode := config.C.DevMode
+
 	config.C.DevMode = "true"
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	err := NewAppError(ErrCodeInternal, "server error", http.StatusInternalServerError)
@@ -240,6 +247,7 @@ func TestAppError_JSON_DevModeWithoutDetail(t *testing.T) {
 
 	errMap, ok := result["error"].(gin.H)
 	assert.True(t, ok)
+
 	_, hasDetail := errMap["detail"]
 	assert.False(t, hasDetail)
 }
@@ -332,6 +340,7 @@ func TestNewNotFoundError_EmptyResource(t *testing.T) {
 
 func TestAsAppError_Nil(t *testing.T) {
 	var appErr *AppError
+
 	result := AsAppError(nil, &appErr)
 	assert.False(t, result)
 	assert.Nil(t, appErr)
@@ -339,7 +348,9 @@ func TestAsAppError_Nil(t *testing.T) {
 
 func TestAsAppError_AppError(t *testing.T) {
 	original := NewAppError(ErrCodeInternal, "server error", http.StatusInternalServerError)
+
 	var appErr *AppError
+
 	result := AsAppError(original, &appErr)
 	assert.True(t, result)
 	assert.Equal(t, original, appErr)
@@ -347,6 +358,7 @@ func TestAsAppError_AppError(t *testing.T) {
 
 func TestAsAppError_RegularError(t *testing.T) {
 	var appErr *AppError
+
 	result := AsAppError(assert.AnError, &appErr)
 	assert.False(t, result)
 	assert.Nil(t, appErr)
@@ -357,6 +369,7 @@ func TestAsAppError_GinError(t *testing.T) {
 	ginErr := &gin.Error{Err: appErrInner}
 
 	var appErr *AppError
+
 	result := AsAppError(ginErr, &appErr)
 	assert.True(t, result)
 	assert.Equal(t, appErrInner, appErr)
@@ -366,6 +379,7 @@ func TestAsAppError_GinErrorWithRegularError(t *testing.T) {
 	ginErr := &gin.Error{Err: assert.AnError}
 
 	var appErr *AppError
+
 	result := AsAppError(ginErr, &appErr)
 	assert.False(t, result)
 	assert.Nil(t, appErr)
@@ -373,7 +387,9 @@ func TestAsAppError_GinErrorWithRegularError(t *testing.T) {
 
 func TestAsAppError_ImplementsError(t *testing.T) {
 	err := NewAppError(ErrCodeNotFound, "not found", http.StatusNotFound)
+
 	var _ error = err // Compile-time check
+
 	assert.Implements(t, (*error)(nil), err)
 }
 
@@ -384,7 +400,7 @@ func TestAsAppError_ImplementsError(t *testing.T) {
 func TestErrorHandler_NoErrors(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	handler(c)
@@ -395,7 +411,7 @@ func TestErrorHandler_NoErrors(t *testing.T) {
 func TestErrorHandler_AppError_Below500(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	_ = c.Error(ErrNotFound) // 404
@@ -403,11 +419,12 @@ func TestErrorHandler_AppError_Below500(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "NOT_FOUND", errObj["code"])
 	assert.Equal(t, "Resource not found", errObj["message"])
@@ -416,7 +433,7 @@ func TestErrorHandler_AppError_Below500(t *testing.T) {
 func TestErrorHandler_AppError_WithRequestID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	c.Set("request_id", "req-xyz-123")
 
 	handler := ErrorHandler()
@@ -425,11 +442,12 @@ func TestErrorHandler_AppError_WithRequestID(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "req-xyz-123", errObj["request_id"])
 }
@@ -437,7 +455,7 @@ func TestErrorHandler_AppError_WithRequestID(t *testing.T) {
 func TestErrorHandler_AppError_500(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	_ = c.Error(ErrInternal) // 500
@@ -445,23 +463,26 @@ func TestErrorHandler_AppError_500(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "INTERNAL_ERROR", errObj["code"])
 }
 
 func TestErrorHandler_NonAppError_DevMode(t *testing.T) {
 	origDevMode := config.C.DevMode
+
 	config.C.DevMode = "true"
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	_ = c.Error(assert.AnError)
@@ -469,11 +490,12 @@ func TestErrorHandler_NonAppError_DevMode(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "INTERNAL_ERROR", errObj["code"])
 	// In dev mode, detail should be visible
@@ -482,12 +504,14 @@ func TestErrorHandler_NonAppError_DevMode(t *testing.T) {
 
 func TestErrorHandler_NonAppError_ProductionMode(t *testing.T) {
 	origDevMode := config.C.DevMode
+
 	config.C.DevMode = "false"
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	_ = c.Error(assert.AnError)
@@ -495,11 +519,12 @@ func TestErrorHandler_NonAppError_ProductionMode(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "INTERNAL_ERROR", errObj["code"])
 	// In production mode, detail should NOT be present
@@ -510,18 +535,19 @@ func TestErrorHandler_NonAppError_ProductionMode(t *testing.T) {
 func TestErrorHandler_NonAppError_WithRequestID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	c.Set("request_id", "req-abc")
 
 	handler := ErrorHandler()
 	_ = c.Error(assert.AnError)
 	handler(c)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
 
-	errObj, ok := response["error"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	errObj, ok := response["error"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "req-abc", errObj["request_id"])
 }
@@ -529,7 +555,7 @@ func TestErrorHandler_NonAppError_WithRequestID(t *testing.T) {
 func TestErrorHandler_MultipleErrors_UsesLast(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	_ = c.Error(ErrInvalidRequest) // 400
@@ -589,7 +615,7 @@ func TestResponse_JSON(t *testing.T) {
 	data := map[string]string{"name": "test"}
 	resp := Success(data)
 	b, err := resp.JSON()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(b), `"success":true`)
 	assert.Contains(t, string(b), `"name":"test"`)
 }
@@ -598,7 +624,7 @@ func TestResponse_JSON_Error(t *testing.T) {
 	appErr := NewAppError(ErrCodeValidation, "bad input", http.StatusBadRequest).WithDetail("field required")
 	resp := Fail(appErr)
 	b, jsonErr := resp.JSON()
-	assert.NoError(t, jsonErr)
+	require.NoError(t, jsonErr)
 	assert.Contains(t, string(b), `"success":false`)
 	assert.Contains(t, string(b), `"VALIDATION_ERROR"`)
 }
@@ -607,7 +633,7 @@ func TestResponse_JSON_WithMeta(t *testing.T) {
 	meta := &Meta{Page: 2, PageSize: 20, Total: 50, TotalPages: 3}
 	resp := SuccessWithMeta([]int{1, 2}, meta)
 	b, err := resp.JSON()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(b), `"page":2`)
 	assert.Contains(t, string(b), `"page_size":20`)
 	assert.Contains(t, string(b), `"total":50`)
@@ -621,13 +647,15 @@ func TestResponse_JSON_WithMeta(t *testing.T) {
 func TestResponse_Send(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	resp := Success(map[string]string{"msg": "hello"})
 	resp.Send(c, http.StatusOK)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, true, body["success"])
 }
@@ -639,12 +667,14 @@ func TestResponse_Send(t *testing.T) {
 func TestSendSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	SendSuccess(c, map[string]string{"result": "ok"})
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, true, body["success"])
 }
@@ -652,12 +682,14 @@ func TestSendSuccess(t *testing.T) {
 func TestSendCreated(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/test", nil) //nolint:noctx
 
 	SendCreated(c, map[string]string{"id": "123"})
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, true, body["success"])
 }
@@ -665,7 +697,7 @@ func TestSendCreated(t *testing.T) {
 func TestSendNoContent(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("DELETE", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/test", nil) //nolint:noctx
 
 	SendNoContent(c)
 
@@ -675,13 +707,15 @@ func TestSendNoContent(t *testing.T) {
 func TestSendError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	err := NewAppError(ErrCodeForbidden, "access denied", http.StatusForbidden)
 	SendError(c, err)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, false, body["success"])
 }
@@ -689,32 +723,36 @@ func TestSendError(t *testing.T) {
 func TestSendValidationError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/test", nil) //nolint:noctx
 
 	SendValidationError(c, "email", "is invalid")
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, false, body["success"])
 
-	errObj := body["error"].(map[string]interface{})
+	errObj := body["error"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "VALIDATION_ERROR", errObj["code"])
 }
 
 func TestSendNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	SendNotFound(c, "user")
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	var body map[string]interface{}
+
+	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	assert.Equal(t, false, body["success"])
 
-	errObj := body["error"].(map[string]interface{})
+	errObj := body["error"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "NOT_FOUND", errObj["code"])
 }
 
@@ -744,7 +782,7 @@ func TestErrorWrapper_Wrap_AppError_NoRequestID(t *testing.T) {
 	result := w.Wrap(appErr, ErrInternal)
 
 	assert.NotNil(t, result)
-	assert.Equal(t, "", result.RequestID)
+	assert.Empty(t, result.RequestID)
 }
 
 func TestErrorWrapper_Wrap_RegularError(t *testing.T) {
@@ -763,7 +801,7 @@ func TestErrorWrapper_Wrap_RegularError_NoRequestID(t *testing.T) {
 	result := w.Wrap(assert.AnError, ErrInternal)
 
 	assert.NotNil(t, result)
-	assert.Equal(t, "", result.RequestID)
+	assert.Empty(t, result.RequestID)
 }
 
 func TestErrorWrapper_WrapWithLog_NilError(t *testing.T) {
@@ -811,7 +849,7 @@ func TestMeta_Fields(t *testing.T) {
 func TestMeta_JSONTags(t *testing.T) {
 	meta := &Meta{Page: 1, PageSize: 10, Total: 5, TotalPages: 1}
 	b, err := json.Marshal(meta)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(b), `"page":1`)
 	assert.Contains(t, string(b), `"page_size":10`)
 	assert.Contains(t, string(b), `"total":5`)
@@ -833,9 +871,10 @@ func TestAppError_JSONSerialization(t *testing.T) {
 	}
 
 	b, marshalErr := json.Marshal(err)
-	assert.NoError(t, marshalErr)
+	require.NoError(t, marshalErr)
 
-	var result map[string]interface{}
+	var result map[string]any
+
 	_ = json.Unmarshal(b, &result)
 
 	assert.Equal(t, "INTERNAL_ERROR", result["code"])
@@ -856,9 +895,10 @@ func TestAppError_JSONSerialization_OmitEmpty(t *testing.T) {
 	}
 
 	b, marshalErr := json.Marshal(err)
-	assert.NoError(t, marshalErr)
+	require.NoError(t, marshalErr)
 
-	var result map[string]interface{}
+	var result map[string]any
+
 	_ = json.Unmarshal(b, &result)
 
 	assert.Equal(t, "NOT_FOUND", result["code"])
@@ -898,7 +938,7 @@ func TestAppError_ChainedWithRequestIDThenDetail(t *testing.T) {
 
 	assert.Equal(t, "detail", err.Detail)
 	// RequestID is lost because WithDetail creates a new AppError without copying RequestID
-	assert.Equal(t, "", err.RequestID)
+	assert.Empty(t, err.RequestID)
 }
 
 // ============================================================================
@@ -913,7 +953,7 @@ func TestNewAppError_ZeroStatus(t *testing.T) {
 func TestErrorHandler_UnwrappedErrorInGinError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	// Pass a regular error wrapped in gin.Error
@@ -927,7 +967,7 @@ func TestErrorHandler_UnwrappedErrorInGinError(t *testing.T) {
 func TestErrorHandler_AppErrorWithDetail(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	errWithDetail := NewNotFoundError("user")
@@ -936,9 +976,10 @@ func TestErrorHandler_AppErrorWithDetail(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	errObj := response["error"].(map[string]interface{})
+	errObj := response["error"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "NOT_FOUND", errObj["code"])
 	// Detail should not be exposed in production
 	_, hasDetail := errObj["detail"]
@@ -947,12 +988,14 @@ func TestErrorHandler_AppErrorWithDetail(t *testing.T) {
 
 func TestErrorHandler_AppErrorWithDetail_DevMode(t *testing.T) {
 	origDevMode := config.C.DevMode
+
 	config.C.DevMode = "true"
+
 	defer func() { config.C.DevMode = origDevMode }()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	errWithDetail := NewNotFoundError("user")
@@ -961,9 +1004,10 @@ func TestErrorHandler_AppErrorWithDetail_DevMode(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	errObj := response["error"].(map[string]interface{})
+	errObj := response["error"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "NOT_FOUND", errObj["code"])
 	// In dev mode, detail should be exposed
 	assert.Equal(t, "user not found", errObj["detail"])
@@ -972,7 +1016,7 @@ func TestErrorHandler_AppErrorWithDetail_DevMode(t *testing.T) {
 func TestResponse_JSON_EmptySuccess(t *testing.T) {
 	resp := &Response{Success: true}
 	b, err := resp.JSON()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(b), `"success":true`)
 }
 
@@ -981,10 +1025,11 @@ func TestResponse_JSON_SerializeData(t *testing.T) {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	}
+
 	data := []Item{{ID: 1, Name: "test"}}
 	resp := Success(data)
 	b, err := resp.JSON()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(b), `"id":1`)
 	assert.Contains(t, string(b), `"name":"test"`)
 }
@@ -992,7 +1037,7 @@ func TestResponse_JSON_SerializeData(t *testing.T) {
 func TestErrorHandler_WithGinErrorWrappingAppError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 	handler := ErrorHandler()
 	// Wrapping AppError inside gin.Error
@@ -1003,9 +1048,10 @@ func TestErrorHandler_WithGinErrorWrappingAppError(t *testing.T) {
 
 	assert.Equal(t, http.StatusConflict, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	errObj := response["error"].(map[string]interface{})
+	errObj := response["error"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "CONFLICT", errObj["code"])
 }
 

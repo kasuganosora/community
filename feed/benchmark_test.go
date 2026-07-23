@@ -16,7 +16,7 @@ import (
 // 真实 Redis 基准测试（使用 .env.test 配置）
 // ============================================================================
 
-// getRealRedisClient 获取真实 Redis 客户端（用于基准测试）
+// getRealRedisClient 获取真实 Redis 客户端（用于基准测试）.
 func getRealRedisClient(b *testing.B) *redis.Client {
 	config := testutil.GetTestConfig()
 
@@ -32,8 +32,10 @@ func getRealRedisClient(b *testing.B) *redis.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	err := client.Ping(ctx).Err()
+	if err != nil {
 		b.Skipf("Redis not available at %s:%d: %v", config.RedisHost, config.RedisPort, err)
+
 		return nil
 	}
 
@@ -43,7 +45,7 @@ func getRealRedisClient(b *testing.B) *redis.Client {
 	return client
 }
 
-// cleanupRedis 清理 Redis 测试数据
+// cleanupRedis 清理 Redis 测试数据.
 func cleanupRedis(client *redis.Client, keys ...string) {
 	ctx := context.Background()
 	for _, key := range keys {
@@ -51,19 +53,20 @@ func cleanupRedis(client *redis.Client, keys ...string) {
 	}
 }
 
-// BenchmarkRealRedis_AddToTimelineItem 使用真实 Redis 测试添加操作
+// BenchmarkRealRedis_AddToTimelineItem 使用真实 Redis 测试添加操作.
 func BenchmarkRealRedis_AddToTimelineItem(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
-	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"}
+	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"} //nolint:goconst
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
@@ -72,20 +75,21 @@ func BenchmarkRealRedis_AddToTimelineItem(b *testing.B) {
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
 }
 
-// BenchmarkRealRedis_AddToTimelineItem_WithReblog 使用真实 Redis 测试转发
+// BenchmarkRealRedis_AddToTimelineItem_WithReblog 使用真实 Redis 测试转发.
 func BenchmarkRealRedis_AddToTimelineItem_WithReblog(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"}
 	reblogId := uint64(1)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{
 			Id:       uint64(i + 1000),
 			ReblogId: &reblogId,
@@ -96,44 +100,46 @@ func BenchmarkRealRedis_AddToTimelineItem_WithReblog(b *testing.B) {
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
 }
 
-// BenchmarkRealRedis_TrimTimeline 使用真实 Redis 测试裁剪
+// BenchmarkRealRedis_TrimTimeline 使用真实 Redis 测试裁剪.
 func BenchmarkRealRedis_TrimTimeline(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"}
 
 	// 预填充 1000 条数据
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for range b.N {
 		_ = service.TrimTimeline(timeline)
 	}
 
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
 }
 
-// BenchmarkRealRedis_PushScenario 完整推送场景（真实 Redis）
+// BenchmarkRealRedis_PushScenario 完整推送场景（真实 Redis）.
 func BenchmarkRealRedis_PushScenario(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, true)
 		_ = service.TrimTimeline(timeline)
@@ -142,13 +148,13 @@ func BenchmarkRealRedis_PushScenario(b *testing.B) {
 	cleanupRedis(client, "bench:feed:home:1", "bench:feed:home:1:reblogs", "timelines")
 }
 
-// BenchmarkRealRedis_Parallel 并行测试（真实 Redis）
+// BenchmarkRealRedis_Parallel 并行测试（真实 Redis）.
 func BenchmarkRealRedis_Parallel(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 
@@ -158,6 +164,7 @@ func BenchmarkRealRedis_Parallel(b *testing.B) {
 			KeyFormat:  "bench:feed:home:%s",
 			TimelineId: timelineId,
 		}
+
 		i := 0
 		for pb.Next() {
 			status := &models.Status{Id: uint64(i + 1)}
@@ -168,88 +175,96 @@ func BenchmarkRealRedis_Parallel(b *testing.B) {
 
 	// 清理所有 benchmark 相关的 key
 	ctx := context.Background()
+
 	keys, _ := client.Keys(ctx, "bench:feed:home:*").Result()
 	if len(keys) > 0 {
 		client.Del(ctx, keys...)
 	}
 }
 
-// BenchmarkRealRedis_CleanFeeds 清理多个 feed（真实 Redis）
+// BenchmarkRealRedis_CleanFeeds 清理多个 feed（真实 Redis）.
 func BenchmarkRealRedis_CleanFeeds(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "bench:feed:home:%s", TimelineId: "1"}
+
 	feedIds := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		feedIds[i] = strconv.Itoa(i + 1)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for range b.N {
 		_ = service.CleanFeeds(timeline, feedIds)
 	}
 }
 
-// BenchmarkRealRedis_PipelineComparison 对比 Pipeline 优化效果
+// BenchmarkRealRedis_PipelineComparison 对比 Pipeline 优化效果.
 func BenchmarkRealRedis_PipelineComparison(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx := context.Background()
 
 	// 测试 1: 逐个操作
 	b.Run("Sequential", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < 10; j++ {
+
+		for i := range b.N {
+			for j := range 10 {
 				client.ZAdd(ctx, "bench:seq", redis.Z{
 					Score:  float64(i*10 + j),
 					Member: strconv.Itoa(i*10 + j),
 				})
 			}
 		}
+
 		client.Del(ctx, "bench:seq")
 	})
 
 	// 测试 2: Pipeline 批量操作
 	b.Run("Pipeline", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+
+		for i := range b.N {
 			_, _ = client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-				for j := 0; j < 10; j++ {
+				for j := range 10 {
 					pipe.ZAdd(ctx, "bench:pipe", redis.Z{
 						Score:  float64(i*10 + j),
 						Member: strconv.Itoa(i*10 + j),
 					})
 				}
+
 				return nil
 			})
 		}
+
 		client.Del(ctx, "bench:pipe")
 	})
 }
 
-// BenchmarkRealRedis_BatchAddToTimelineItems 批量添加到多个时间线
+// BenchmarkRealRedis_BatchAddToTimelineItems 批量添加到多个时间线.
 func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 	client := getRealRedisClient(b)
 	if client == nil {
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	service := NewFeedService(NewRedisClient(client))
 
 	// 创建 100 个时间线
 	timelines := make([]Timeline, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		timelines[i] = &TestMockTimeline{
 			KeyFormat:  "bench:feed:home:%s",
 			TimelineId: strconv.Itoa(i + 1),
@@ -259,7 +274,8 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 	// 测试 1: 逐个添加
 	b.Run("Sequential", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+
+		for i := range b.N {
 			status := &models.Status{Id: uint64(i + 1)}
 			for _, timeline := range timelines {
 				_ = service.AddToTimelineItem(timeline, status, false)
@@ -270,13 +286,15 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 		for i := 1; i <= 100; i++ {
 			client.Del(ctx, fmt.Sprintf("bench:feed:home:%d", i))
 		}
+
 		client.Del(ctx, "timelines")
 	})
 
 	// 测试 2: 批量添加
 	b.Run("Batch", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+
+		for i := range b.N {
 			status := &models.Status{Id: uint64(i + 10000)}
 			_ = service.BatchAddToTimelineItems(timelines, status, false)
 		}
@@ -285,6 +303,7 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 		for i := 1; i <= 100; i++ {
 			client.Del(ctx, fmt.Sprintf("bench:feed:home:%d", i))
 		}
+
 		client.Del(ctx, "timelines")
 	})
 }
@@ -293,21 +312,22 @@ func BenchmarkRealRedis_BatchAddToTimelineItems(b *testing.B) {
 // Mock Redis 基准测试（用于无 Redis 环境的 CI）
 // ============================================================================
 
-// BenchmarkAddToTimelineItem_Simple 测试简单添加操作
+// BenchmarkAddToTimelineItem_Simple 测试简单添加操作.
 func BenchmarkAddToTimelineItem_Simple(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
-	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"} //nolint:goconst
 	status := &models.Status{Id: 1}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status.Id = uint64(i + 1)
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 }
 
-// BenchmarkAddToTimelineItem_WithReblog 测试带转发的添加操作
+// BenchmarkAddToTimelineItem_WithReblog 测试带转发的添加操作.
 func BenchmarkAddToTimelineItem_WithReblog(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
@@ -315,7 +335,8 @@ func BenchmarkAddToTimelineItem_WithReblog(b *testing.B) {
 	reblogId := uint64(1)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{
 			Id:       uint64(i + 1000),
 			ReblogId: &reblogId,
@@ -324,7 +345,7 @@ func BenchmarkAddToTimelineItem_WithReblog(b *testing.B) {
 	}
 }
 
-// BenchmarkAddToTimelineItem_Parallel 测试并行添加
+// BenchmarkAddToTimelineItem_Parallel 测试并行添加.
 func BenchmarkAddToTimelineItem_Parallel(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
@@ -340,55 +361,60 @@ func BenchmarkAddToTimelineItem_Parallel(b *testing.B) {
 	})
 }
 
-// BenchmarkRemoveTimelineItem_Simple 测试简单移除操作
+// BenchmarkRemoveTimelineItem_Simple 测试简单移除操作.
 func BenchmarkRemoveTimelineItem_Simple(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
 
 	// 预填充数据
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.RemoveTimelineItem(timeline, status, false)
 	}
 }
 
-// BenchmarkTrimTimeline 测试裁剪时间线
+// BenchmarkTrimTimeline 测试裁剪时间线.
 func BenchmarkTrimTimeline(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
 
 	// 预填充 1000 条数据
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := service.TrimTimeline(timeline); err != nil {
+
+	for range b.N {
+		err := service.TrimTimeline(timeline)
+		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkCleanFeeds 测试清理 feed
+// BenchmarkCleanFeeds 测试清理 feed.
 func BenchmarkCleanFeeds(b *testing.B) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
+
 	feedIds := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		feedIds[i] = strconv.Itoa(i + 1)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for range b.N {
 		mockRedis := NewMockRedisClient()
 		service := NewFeedService(mockRedis)
 		_ = service.CleanFeeds(timeline, feedIds)
@@ -399,14 +425,15 @@ func BenchmarkCleanFeeds(b *testing.B) {
 // 基准测试：Timeline 操作场景
 // ============================================================================
 
-// BenchmarkHomeTimeline_PushScenario 模拟主页时间线推送场景
+// BenchmarkHomeTimeline_PushScenario 模拟主页时间线推送场景.
 func BenchmarkHomeTimeline_PushScenario(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		// 模拟完整的推送流程
 		_ = service.AddToTimelineItem(timeline, status, true)
@@ -414,14 +441,14 @@ func BenchmarkHomeTimeline_PushScenario(b *testing.B) {
 	}
 }
 
-// BenchmarkMultipleTimelines 多时间线场景
+// BenchmarkMultipleTimelines 多时间线场景.
 func BenchmarkMultipleTimelines(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 
 	// 模拟 100 个用户的时间线
 	timelines := make([]*TestMockTimeline, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		timelines[i] = &TestMockTimeline{
 			KeyFormat:  "feed:home:%s",
 			TimelineId: strconv.Itoa(i + 1),
@@ -429,14 +456,15 @@ func BenchmarkMultipleTimelines(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		timeline := timelines[i%100]
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 }
 
-// BenchmarkReblogScenario 转发场景
+// BenchmarkReblogScenario 转发场景.
 func BenchmarkReblogScenario(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
@@ -447,7 +475,8 @@ func BenchmarkReblogScenario(b *testing.B) {
 	_ = service.AddToTimelineItem(timeline, originalStatus, true)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		// 模拟转发
 		reblogId := uint64(1)
 		status := &models.Status{
@@ -462,20 +491,21 @@ func BenchmarkReblogScenario(b *testing.B) {
 // 基准测试：大规模数据场景
 // ============================================================================
 
-// BenchmarkLargeTimeline 大时间线场景（1000+ 条目）
+// BenchmarkLargeTimeline 大时间线场景（1000+ 条目）.
 func BenchmarkLargeTimeline(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "1"}
 
 	// 预填充 1000 条数据
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		// 在大时间线上添加新状态
 		status := &models.Status{Id: uint64(1000 + i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
@@ -487,7 +517,7 @@ func BenchmarkLargeTimeline(b *testing.B) {
 // 基准测试：内存分配分析
 // ============================================================================
 
-// BenchmarkAddToTimelineItem_Allocs 分析内存分配
+// BenchmarkAddToTimelineItem_Allocs 分析内存分配.
 func BenchmarkAddToTimelineItem_Allocs(b *testing.B) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
@@ -495,7 +525,8 @@ func BenchmarkAddToTimelineItem_Allocs(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := range b.N {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
@@ -511,7 +542,7 @@ func BenchmarkTimelineTypes(b *testing.B) {
 		keyFormat string
 	}{
 		{"Home", "feed:home:%s"},
-		{"Public", "feed:public:%s"},
+		{"Public", "feed:public:%s"}, //nolint:goconst
 		{"Tag", "feed:hashtag:%s"},
 		{"Mention", "feed:mention:%s"},
 		{"Notification", "feed:notification:%s"},
@@ -528,7 +559,8 @@ func BenchmarkTimelineTypes(b *testing.B) {
 			}
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+
+			for i := range b.N {
 				status := &models.Status{Id: uint64(i + 1)}
 				_ = service.AddToTimelineItem(timeline, status, false)
 			}
@@ -540,7 +572,7 @@ func BenchmarkTimelineTypes(b *testing.B) {
 // 性能报告生成
 // ============================================================================
 
-// TestBenchmarkReport 生成性能报告
+// TestBenchmarkReport 生成性能报告.
 func TestBenchmarkReport(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping benchmark report in short mode")
@@ -567,7 +599,7 @@ func TestBenchmarkReport(t *testing.T) {
 // 性能卡点检测
 // ============================================================================
 
-// TestPerformanceHotspots 检测性能热点
+// TestPerformanceHotspots 检测性能热点.
 func TestPerformanceHotspots(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance hotspot detection in short mode")
@@ -601,11 +633,13 @@ func TestPerformanceHotspots(t *testing.T) {
 			name: "TrimAfter100Items",
 			fn: func() {
 				// 先添加 100 条
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					status := &models.Status{Id: uint64(i + 100)}
 					_ = service.AddToTimelineItem(timeline, status, false)
 				}
-				if err := service.TrimTimeline(timeline); err != nil {
+
+				err := service.TrimTimeline(timeline)
+				if err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -613,6 +647,7 @@ func TestPerformanceHotspots(t *testing.T) {
 	}
 
 	t.Log("=== 性能卡点检测结果 ===")
+
 	for _, op := range operations {
 		// 重置 mock
 		mockRedis = NewMockRedisClient()
@@ -629,7 +664,7 @@ func TestPerformanceHotspots(t *testing.T) {
 // 压力测试
 // ============================================================================
 
-// TestStressHighConcurrency 高并发压力测试
+// TestStressHighConcurrency 高并发压力测试.
 func TestStressHighConcurrency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping stress test in short mode")
@@ -638,34 +673,37 @@ func TestStressHighConcurrency(t *testing.T) {
 	mockRedis := NewMockRedisClient()
 	service := NewFeedService(mockRedis)
 
-	const goroutines = 100
-	const opsPerGoroutine = 100
+	const (
+		goroutines      = 100
+		opsPerGoroutine = 100
+	)
 
 	done := make(chan bool, goroutines)
 
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		go func(goroutineId int) {
 			timeline := &TestMockTimeline{
 				KeyFormat:  "feed:home:%s",
 				TimelineId: strconv.Itoa(goroutineId),
 			}
-			for i := 0; i < opsPerGoroutine; i++ {
-				status := &models.Status{Id: uint64(goroutineId*opsPerGoroutine + i + 1)}
+			for i := range opsPerGoroutine {
+				status := &models.Status{Id: uint64(goroutineId*opsPerGoroutine + i + 1)} //nolint:gosec // G115: reviewed and safe
 				_ = service.AddToTimelineItem(timeline, status, false)
 			}
+
 			done <- true
 		}(g)
 	}
 
 	// 等待所有 goroutine 完成
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		<-done
 	}
 
 	t.Logf("完成 %d 并发操作", goroutines*opsPerGoroutine)
 }
 
-// TestStressLargeData 大数据量测试
+// TestStressLargeData 大数据量测试.
 func TestStressLargeData(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping stress test in short mode")
@@ -677,7 +715,7 @@ func TestStressLargeData(t *testing.T) {
 
 	const itemCount = 10000
 
-	for i := 0; i < itemCount; i++ {
+	for i := range itemCount {
 		status := &models.Status{Id: uint64(i + 1)}
 		_ = service.AddToTimelineItem(timeline, status, false)
 	}
@@ -687,7 +725,8 @@ func TestStressLargeData(t *testing.T) {
 	t.Logf("添加了 %d 条数据到时间线", len(zset))
 
 	// 执行裁剪
-	if err := service.TrimTimeline(timeline); err != nil {
+	err := service.TrimTimeline(timeline)
+	if err != nil {
 		t.Fatal(err)
 	}
 

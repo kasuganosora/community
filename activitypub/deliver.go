@@ -5,13 +5,14 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
 )
 
-// DeliveryStatus represents the status of a delivery
+// DeliveryStatus represents the status of a delivery.
 type DeliveryStatus string
 
 const (
@@ -21,7 +22,7 @@ const (
 	DeliveryStatusFailed     DeliveryStatus = "failed"
 )
 
-// Delivery represents a pending ActivityPub delivery
+// Delivery represents a pending ActivityPub delivery.
 type Delivery struct {
 	ID          uint64         `gorm:"primaryKey;autoIncrement"`
 	ActivityID  string         `gorm:"type:varchar(255);not null;index"`
@@ -51,7 +52,7 @@ func (ProcessedActivity) TableName() string {
 	return "activitypub_processed_activities"
 }
 
-// DeliveryQueue manages ActivityPub message delivery
+// DeliveryQueue manages ActivityPub message delivery.
 type DeliveryQueue struct {
 	client    *Client
 	workers   int
@@ -59,8 +60,8 @@ type DeliveryQueue struct {
 	waitGroup sync.WaitGroup
 }
 
-// NewDeliveryQueue creates a new delivery queue
-func NewDeliveryQueue(privateKey interface{}, actorID string, workers int) *DeliveryQueue {
+// NewDeliveryQueue creates a new delivery queue.
+func NewDeliveryQueue(privateKey any, actorID string, workers int) *DeliveryQueue {
 	var rsaKey *rsa.PrivateKey
 	if k, ok := privateKey.(*rsa.PrivateKey); ok {
 		rsaKey = k
@@ -73,22 +74,22 @@ func NewDeliveryQueue(privateKey interface{}, actorID string, workers int) *Deli
 	}
 }
 
-// Start starts the delivery workers
+// Start starts the delivery workers.
 func (q *DeliveryQueue) Start() {
-	for i := 0; i < q.workers; i++ {
+	for i := range q.workers {
 		q.waitGroup.Add(1)
 		go q.worker(i)
 	}
 }
 
-// Stop stops the delivery workers
+// Stop stops the delivery workers.
 func (q *DeliveryQueue) Stop() {
 	close(q.stopChan)
 	q.waitGroup.Wait()
 }
 
-// worker processes deliveries from the queue
-func (q *DeliveryQueue) worker(id int) {
+// worker processes deliveries from the queue.
+func (q *DeliveryQueue) worker(id int) { //nolint:unparam // param reserved for future use
 	defer q.waitGroup.Done()
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -104,9 +105,10 @@ func (q *DeliveryQueue) worker(id int) {
 	}
 }
 
-// processPending processes pending deliveries
+// processPending processes pending deliveries.
 func (q *DeliveryQueue) processPending() {
 	var deliveries []Delivery
+
 	now := time.Now()
 
 	// Find pending deliveries that are ready to be processed
@@ -125,19 +127,20 @@ func (q *DeliveryQueue) processPending() {
 	}
 }
 
-// deliver attempts to deliver a single message
+// deliver attempts to deliver a single message.
 func (q *DeliveryQueue) deliver(delivery Delivery) {
 	// Mark as processing
 	now := time.Now()
-	db.GetDB().Model(&delivery).Updates(map[string]interface{}{
-		"status":     DeliveryStatusProcessing,
-		"updated_at": now,
+	db.GetDB().Model(&delivery).Updates(map[string]any{
+		"status":     DeliveryStatusProcessing, //nolint:goconst
+		"updated_at": now,                      //nolint:goconst
 	})
 
 	// Parse the payload
-	var activity map[string]interface{}
+	var activity map[string]any
 	if err := json.Unmarshal([]byte(delivery.Payload), &activity); err != nil {
 		q.markFailed(&delivery, "invalid payload")
+
 		return
 	}
 
@@ -145,17 +148,18 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 	err := q.client.Post(context.Background(), delivery.TargetInbox, activity)
 	if err != nil {
 		q.handleDeliveryError(&delivery, err)
+
 		return
 	}
 
 	// Mark as delivered
-	db.GetDB().Model(&delivery).Updates(map[string]interface{}{
+	db.GetDB().Model(&delivery).Updates(map[string]any{
 		"status":     DeliveryStatusDelivered,
 		"updated_at": time.Now(),
 	})
 }
 
-// handleDeliveryError handles a delivery error
+// handleDeliveryError handles a delivery error.
 func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 	delivery.Retries++
 	delivery.LastError = err.Error()
@@ -167,7 +171,7 @@ func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 		delivery.NextRetryAt = &nextRetry
 		delivery.Status = DeliveryStatusPending
 
-		db.GetDB().Model(delivery).Updates(map[string]interface{}{
+		db.GetDB().Model(delivery).Updates(map[string]any{
 			"status":        delivery.Status,
 			"retries":       delivery.Retries,
 			"last_error":    delivery.LastError,
@@ -178,17 +182,17 @@ func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 	}
 }
 
-// markFailed marks a delivery as permanently failed
+// markFailed marks a delivery as permanently failed.
 func (q *DeliveryQueue) markFailed(delivery *Delivery, reason string) {
-	db.GetDB().Model(delivery).Updates(map[string]interface{}{
+	db.GetDB().Model(delivery).Updates(map[string]any{
 		"status":     DeliveryStatusFailed,
 		"last_error": reason,
 		"updated_at": time.Now(),
 	})
 }
 
-// Enqueue adds a new delivery to the queue
-func (q *DeliveryQueue) Enqueue(activityID, targetInbox string, payload map[string]interface{}) error {
+// Enqueue adds a new delivery to the queue.
+func (q *DeliveryQueue) Enqueue(activityID, targetInbox string, payload map[string]any) error {
 	// Strip privacy-sensitive fields before storing
 	cleanPayload := stripPrivacyFields(payload)
 
@@ -212,8 +216,8 @@ func (q *DeliveryQueue) Enqueue(activityID, targetInbox string, payload map[stri
 	return nil
 }
 
-// EnqueueToMany adds a delivery to multiple inboxes
-func (q *DeliveryQueue) EnqueueToMany(activityID string, targetInboxes []string, payload map[string]interface{}) error {
+// EnqueueToMany adds a delivery to multiple inboxes.
+func (q *DeliveryQueue) EnqueueToMany(activityID string, targetInboxes []string, payload map[string]any) error {
 	// Strip privacy-sensitive fields before storing
 	cleanPayload := stripPrivacyFields(payload)
 
@@ -242,24 +246,21 @@ func (q *DeliveryQueue) EnqueueToMany(activityID string, targetInboxes []string,
 }
 
 // stripPrivacyFields removes bto, bcc fields from activity before delivery
-// These fields should not be exposed to recipients
-func stripPrivacyFields(activity map[string]interface{}) map[string]interface{} {
+// These fields should not be exposed to recipients.
+func stripPrivacyFields(activity map[string]any) map[string]any {
 	// Create a copy to avoid modifying the original
-	result := make(map[string]interface{})
-	for k, v := range activity {
-		result[k] = v
-	}
+	result := make(map[string]any)
+	maps.Copy(result, activity)
 
 	// Remove privacy-sensitive fields
 	delete(result, "bto")
 	delete(result, "bcc")
 
 	// Also strip from nested object if present
-	if obj, ok := result["object"].(map[string]interface{}); ok {
-		cleanObj := make(map[string]interface{})
-		for k, v := range obj {
-			cleanObj[k] = v
-		}
+	if obj, ok := result["object"].(map[string]any); ok {
+		cleanObj := make(map[string]any)
+		maps.Copy(cleanObj, obj)
+
 		delete(cleanObj, "bto")
 		delete(cleanObj, "bcc")
 		result["object"] = cleanObj
@@ -268,7 +269,7 @@ func stripPrivacyFields(activity map[string]interface{}) map[string]interface{} 
 	return result
 }
 
-// RetryPolicy defines the retry intervals
+// RetryPolicy defines the retry intervals.
 var RetryPolicy = []time.Duration{
 	5 * time.Minute,
 	30 * time.Minute,
@@ -277,10 +278,11 @@ var RetryPolicy = []time.Duration{
 	24 * time.Hour,
 }
 
-// GetNextRetryTime calculates the next retry time based on retry count
+// GetNextRetryTime calculates the next retry time based on retry count.
 func GetNextRetryTime(retries int) time.Time {
 	if retries >= len(RetryPolicy) {
 		retries = len(RetryPolicy) - 1
 	}
+
 	return time.Now().Add(RetryPolicy[retries])
 }

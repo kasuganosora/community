@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,38 +15,39 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// KeyStore 设备密钥存储服务
+// KeyStore 设备密钥存储服务.
 type KeyStore struct {
 	hs         *HomeServer
 	masterKey  *memguard.Enclave // 主密钥（加密存储）
 	deviceKeys sync.Map          // 设备公钥缓存
 }
 
-// NewKeyStore 创建密钥存储服务
+// NewKeyStore 创建密钥存储服务.
 func NewKeyStore(hs *HomeServer) *KeyStore {
 	ks := &KeyStore{
 		hs: hs,
 	}
 
 	// 加载或生成主密钥
-	if err := ks.loadOrGenerateMasterKey(); err != nil {
+	err := ks.loadOrGenerateMasterKey()
+	if err != nil {
 		log.Error("Failed to load master key: %v", err)
 	}
 
 	return ks
 }
 
-// DeviceKeys 设备密钥信息
+// DeviceKeys 设备密钥信息.
 type DeviceKeys struct {
 	UserID     string                       `json:"user_id"`
 	DeviceID   string                       `json:"device_id"`
 	Algorithms []string                     `json:"algorithms"`
 	Keys       map[string]string            `json:"keys"`
 	Signatures map[string]map[string]string `json:"signatures"`
-	Unsigned   map[string]interface{}       `json:"unsigned,omitempty"`
+	Unsigned   map[string]any               `json:"unsigned,omitempty"`
 }
 
-// OneTimeKeys 一次性密钥
+// OneTimeKeys 一次性密钥.
 type OneTimeKeys struct {
 	KeyID      string            `json:"key_id"`
 	Algorithm  string            `json:"algorithm"`
@@ -55,7 +57,7 @@ type OneTimeKeys struct {
 	Used       bool              `json:"used"`
 }
 
-// UploadKeysRequest 上传密钥请求
+// UploadKeysRequest 上传密钥请求.
 type UploadKeysRequest struct {
 	DeviceKeys   *DeviceKeys                `json:"device_keys,omitempty"`
 	OneTimeKeys  map[string]json.RawMessage `json:"one_time_keys,omitempty"`
@@ -63,40 +65,40 @@ type UploadKeysRequest struct {
 	FallbackKeys map[string]json.RawMessage `json:"fallback_keys,omitempty"`
 }
 
-// UploadKeysResponse 上传密钥响应
+// UploadKeysResponse 上传密钥响应.
 type UploadKeysResponse struct {
 	OneTimeKeyCounts map[string]int `json:"one_time_key_counts"`
 }
 
-// QueryKeysRequest 查询密钥请求
+// QueryKeysRequest 查询密钥请求.
 type QueryKeysRequest struct {
 	DeviceKeys map[string][]string `json:"device_keys"` // user_id -> device_ids
 	Timeout    int64               `json:"timeout,omitempty"`
 	Token      string              `json:"token,omitempty"`
 }
 
-// QueryKeysResponse 查询密钥响应
+// QueryKeysResponse 查询密钥响应.
 type QueryKeysResponse struct {
 	DeviceKeys      map[string]map[string]*DeviceKeys `json:"device_keys"`
-	Failures        map[string]interface{}            `json:"failures,omitempty"`
+	Failures        map[string]any                    `json:"failures,omitempty"`
 	MasterKeys      map[string]*CrossSigningKey       `json:"master_keys,omitempty"`
 	SelfSigningKeys map[string]*CrossSigningKey       `json:"self_signing_keys,omitempty"`
 	UserSigningKeys map[string]*CrossSigningKey       `json:"user_signing_keys,omitempty"`
 }
 
-// ClaimKeysRequest 认领密钥请求
+// ClaimKeysRequest 认领密钥请求.
 type ClaimKeysRequest struct {
 	OneTimeKeys map[string]map[string]string `json:"one_time_keys"` // user_id -> device_id -> algorithm
 	Timeout     int64                        `json:"timeout,omitempty"`
 }
 
-// ClaimKeysResponse 认领密钥响应
+// ClaimKeysResponse 认领密钥响应.
 type ClaimKeysResponse struct {
 	OneTimeKeys map[string]map[string]map[string]json.RawMessage `json:"one_time_keys"`
-	Failures    map[string]interface{}                           `json:"failures,omitempty"`
+	Failures    map[string]any                                   `json:"failures,omitempty"`
 }
 
-// CrossSigningKey 交叉签名密钥
+// CrossSigningKey 交叉签名密钥.
 type CrossSigningKey struct {
 	UserID     string                       `json:"user_id"`
 	Usage      []string                     `json:"usage"` // master, self_signing, user_signing
@@ -105,10 +107,11 @@ type CrossSigningKey struct {
 	PrivateKey *memguard.Enclave            `json:"-"` // 仅在内存中，不序列化
 }
 
-// loadOrGenerateMasterKey 加载或生成主密钥
+// loadOrGenerateMasterKey 加载或生成主密钥.
 func (ks *KeyStore) loadOrGenerateMasterKey() error {
 	// 从数据库加载
 	var keyRecord MatrixFederationKey
+
 	result := db.GetDB().Where("key_type = ?", "master").First(&keyRecord)
 
 	if result.Error == nil {
@@ -155,7 +158,7 @@ func (ks *KeyStore) loadOrGenerateMasterKey() error {
 	return nil
 }
 
-// UploadDeviceKeys 上传设备密钥
+// UploadDeviceKeys 上传设备密钥.
 func (ks *KeyStore) UploadDeviceKeys(userID, deviceID string, req *UploadKeysRequest) (*UploadKeysResponse, error) {
 	// device_keys is optional (client may upload only OTKs)
 	if req.DeviceKeys != nil {
@@ -190,38 +193,47 @@ func (ks *KeyStore) UploadDeviceKeys(userID, deviceID string, req *UploadKeysReq
 
 	// 处理一次性密钥
 	counts := make(map[string]int)
+
 	if len(req.OneTimeKeys) > 0 {
 		for keyID, rawKey := range req.OneTimeKeys {
 			algorithm, keyIDClean := parseKeyID(keyID)
 
 			// 提取公钥字符串：curve25519 是字符串，signed_curve25519 是对象 {"key":"...","signatures":{...}}
 			var publicKeyStr string
+
 			keyJSON := string(rawKey)
+
 			if len(rawKey) > 0 && rawKey[0] == '"' {
 				// String value — curve25519
-				if err := json.Unmarshal(rawKey, &publicKeyStr); err != nil {
+				err := json.Unmarshal(rawKey, &publicKeyStr)
+				if err != nil {
 					continue
 				}
 			} else {
 				// Object value — signed_curve25519: extract "key" field
 				var obj map[string]json.RawMessage
-				if err := json.Unmarshal(rawKey, &obj); err == nil {
+				err := json.Unmarshal(rawKey, &obj)
+				if err == nil {
 					if keyVal, ok := obj["key"]; ok {
-						if err := json.Unmarshal(keyVal, &publicKeyStr); err != nil {
+						err := json.Unmarshal(keyVal, &publicKeyStr)
+						if err != nil {
 							continue
 						}
 					}
 				}
+
 				keyJSON = string(rawKey) // store full JSON for signed keys
 			}
+
 			if publicKeyStr == "" {
 				continue
 			}
 
 			// Check if this OTK already exists (idempotent upload)
 			var existing MatrixOneTimeKey
-			if err := db.GetDB().Where("user_id = ? AND device_id = ? AND algorithm = ? AND key_id = ?",
-				userID, deviceID, algorithm, keyIDClean).First(&existing).Error; err == nil {
+			err := db.GetDB().Where("user_id = ? AND device_id = ? AND algorithm = ? AND key_id = ?",
+				userID, deviceID, algorithm, keyIDClean).First(&existing).Error
+			if err == nil {
 				// Already exists — skip to avoid duplicates
 				continue
 			}
@@ -237,13 +249,16 @@ func (ks *KeyStore) UploadDeviceKeys(userID, deviceID string, req *UploadKeysReq
 			}
 
 			db.GetDB().Create(otkRecord)
+
 			counts[algorithm]++
 		}
 	}
 
 	// 查询当前存储的 OTK 总数（按算法分类）
 	var otkRecords []MatrixOneTimeKey
+
 	db.GetDB().Where("user_id = ? AND device_id = ? AND used = ?", userID, deviceID, false).Find(&otkRecords)
+
 	totalCounts := make(map[string]int)
 	for _, otk := range otkRecords {
 		totalCounts[otk.Algorithm]++
@@ -258,11 +273,11 @@ func (ks *KeyStore) UploadDeviceKeys(userID, deviceID string, req *UploadKeysReq
 	}, nil
 }
 
-// QueryDeviceKeys 查询设备密钥
+// QueryDeviceKeys 查询设备密钥.
 func (ks *KeyStore) QueryDeviceKeys(req *QueryKeysRequest) (*QueryKeysResponse, error) {
 	resp := &QueryKeysResponse{
 		DeviceKeys: make(map[string]map[string]*DeviceKeys),
-		Failures:   make(map[string]interface{}),
+		Failures:   make(map[string]any),
 	}
 
 	for userID, deviceIDs := range req.DeviceKeys {
@@ -271,11 +286,13 @@ func (ks *KeyStore) QueryDeviceKeys(req *QueryKeysRequest) (*QueryKeysResponse, 
 		// 如果 deviceIDs 为空，查询所有设备
 		if len(deviceIDs) == 0 {
 			var records []MatrixDeviceKey
+
 			db.GetDB().Where("user_id = ?", userID).Find(&records)
 
 			for _, record := range records {
 				var dk DeviceKeys
-				if err := json.Unmarshal([]byte(record.DeviceKey), &dk); err == nil {
+				err := json.Unmarshal([]byte(record.DeviceKey), &dk)
+				if err == nil {
 					// 添加服务器签名
 					if dk.Signatures == nil {
 						dk.Signatures = make(map[string]map[string]string)
@@ -289,15 +306,18 @@ func (ks *KeyStore) QueryDeviceKeys(req *QueryKeysRequest) (*QueryKeysResponse, 
 			for _, deviceID := range deviceIDs {
 				// 先查缓存
 				if cached, ok := ks.deviceKeys.Load(userID + ":" + deviceID); ok {
-					deviceKeys[deviceID] = cached.(*DeviceKeys)
+					deviceKeys[deviceID] = cached.(*DeviceKeys) //nolint:forcetypeassert
+
 					continue
 				}
 
 				// 查数据库
 				var record MatrixDeviceKey
-				if err := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&record).Error; err == nil {
+				err := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&record).Error
+				if err == nil {
 					var dk DeviceKeys
-					if err := json.Unmarshal([]byte(record.DeviceKey), &dk); err == nil {
+					err := json.Unmarshal([]byte(record.DeviceKey), &dk)
+					if err == nil {
 						deviceKeys[deviceID] = &dk
 						// 更新缓存
 						ks.deviceKeys.Store(userID+":"+deviceID, &dk)
@@ -313,11 +333,11 @@ func (ks *KeyStore) QueryDeviceKeys(req *QueryKeysRequest) (*QueryKeysResponse, 
 	return resp, nil
 }
 
-// ClaimOneTimeKeys 认领一次性密钥
+// ClaimOneTimeKeys 认领一次性密钥.
 func (ks *KeyStore) ClaimOneTimeKeys(req *ClaimKeysRequest) (*ClaimKeysResponse, error) {
 	resp := &ClaimKeysResponse{
 		OneTimeKeys: make(map[string]map[string]map[string]json.RawMessage),
-		Failures:    make(map[string]interface{}),
+		Failures:    make(map[string]any),
 	}
 
 	for userID, devices := range req.OneTimeKeys {
@@ -326,6 +346,7 @@ func (ks *KeyStore) ClaimOneTimeKeys(req *ClaimKeysRequest) (*ClaimKeysResponse,
 		for deviceID, algorithm := range devices {
 			// 查找未使用的一次性密钥
 			var otkRecord MatrixOneTimeKey
+
 			result := db.GetDB().Where("user_id = ? AND device_id = ? AND algorithm = ? AND used = ?",
 				userID, deviceID, algorithm, false).
 				Order("created_at ASC").
@@ -342,6 +363,7 @@ func (ks *KeyStore) ClaimOneTimeKeys(req *ClaimKeysRequest) (*ClaimKeysResponse,
 			if deviceKeys[deviceID] == nil {
 				deviceKeys[deviceID] = make(map[string]json.RawMessage)
 			}
+
 			deviceKeys[deviceID][algorithm+":"+otkRecord.KeyID] = json.RawMessage(otkRecord.PublicKey)
 		}
 
@@ -353,7 +375,7 @@ func (ks *KeyStore) ClaimOneTimeKeys(req *ClaimKeysRequest) (*ClaimKeysResponse,
 	return resp, nil
 }
 
-// GetOneTimeKeysCount 获取一次性密钥数量
+// GetOneTimeKeysCount 获取一次性密钥数量.
 func (ks *KeyStore) GetOneTimeKeysCount(userID, deviceID string) map[string]int {
 	counts := make(map[string]int)
 
@@ -376,6 +398,7 @@ func (ks *KeyStore) GetOneTimeKeysCount(userID, deviceID string) map[string]int 
 	if _, ok := counts["signed_curve25519"]; !ok {
 		counts["signed_curve25519"] = 0
 	}
+
 	if _, ok := counts["curve25519"]; !ok {
 		counts["curve25519"] = 0
 	}
@@ -383,10 +406,10 @@ func (ks *KeyStore) GetOneTimeKeysCount(userID, deviceID string) map[string]int 
 	return counts
 }
 
-// signDeviceKey 为设备密钥添加服务器签名
+// signDeviceKey 为设备密钥添加服务器签名.
 func (ks *KeyStore) signDeviceKey(dk *DeviceKeys) error {
 	if ks.masterKey == nil {
-		return fmt.Errorf("master key not available")
+		return errors.New("master key not available")
 	}
 
 	// 获取私钥
@@ -403,24 +426,30 @@ func (ks *KeyStore) signDeviceKey(dk *DeviceKeys) error {
 	if dkCopy.Signatures == nil {
 		dkCopy.Signatures = make(map[string]map[string]string)
 	}
+
 	delete(dkCopy.Signatures, ks.hs.Config.ServerName)
 
-	data, _ := json.Marshal(dkCopy)
+	data, err := json.Marshal(dkCopy)
+	if err != nil {
+		return fmt.Errorf("failed to marshal device key copy: %w", err)
+	}
 
 	// 签名
 	signature := ed25519.Sign(privateKey, data)
 
 	// 添加签名
 	keyID := "ed25519:" + base64.RawStdEncoding.EncodeToString(privateKey[32:])[:16]
+
 	if dk.Signatures[ks.hs.Config.ServerName] == nil {
 		dk.Signatures[ks.hs.Config.ServerName] = make(map[string]string)
 	}
+
 	dk.Signatures[ks.hs.Config.ServerName][keyID] = base64.RawStdEncoding.EncodeToString(signature)
 
 	return nil
 }
 
-// parseKeyID 解析密钥 ID
+// parseKeyID 解析密钥 ID.
 func parseKeyID(keyID string) (algorithm, cleanID string) {
 	// 格式: "algorithm:key_id" 或 "signed_curve25519:AAAAFw"
 	for i, c := range keyID {
@@ -428,16 +457,18 @@ func parseKeyID(keyID string) (algorithm, cleanID string) {
 			return keyID[:i], keyID[i+1:]
 		}
 	}
+
 	return keyID, ""
 }
 
-// jsonStringSlice 将字符串切片转换为 JSON
+// jsonStringSlice 将字符串切片转换为 JSON.
 func jsonStringSlice(s []string) string {
-	b, _ := json.Marshal(s)
+	b, _ := json.Marshal(s) //nolint:errchkjson
+
 	return string(b)
 }
 
-// GenerateDeviceKeys 为新设备生成密钥对
+// GenerateDeviceKeys 为新设备生成密钥对.
 func (ks *KeyStore) GenerateDeviceKeys(userID, deviceID string) (*DeviceKeys, error) {
 	// 生成 Ed25519 签名密钥对
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -447,7 +478,7 @@ func (ks *KeyStore) GenerateDeviceKeys(userID, deviceID string) (*DeviceKeys, er
 	defer memguard.WipeBytes(privateKey)
 
 	publicKey := privateKey[32:]
-	keyID := fmt.Sprintf("ed25519:%s", deviceID)
+	keyID := "ed25519:" + deviceID
 
 	dk := &DeviceKeys{
 		UserID:     userID,
@@ -460,7 +491,10 @@ func (ks *KeyStore) GenerateDeviceKeys(userID, deviceID string) (*DeviceKeys, er
 	}
 
 	// 自签名
-	data, _ := json.Marshal(dk)
+	data, err := json.Marshal(dk)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal device key: %w", err)
+	}
 	signature := ed25519.Sign(privateKey, data)
 
 	dk.Signatures[userID] = map[string]string{
@@ -475,7 +509,7 @@ func (ks *KeyStore) GenerateDeviceKeys(userID, deviceID string) (*DeviceKeys, er
 	return dk, nil
 }
 
-// MatrixDeviceKey 设备密钥数据库模型
+// MatrixDeviceKey 设备密钥数据库模型.
 type MatrixDeviceKey struct {
 	ID         uint64 `gorm:"primaryKey"`
 	UserID     string `gorm:"index;type:varchar(255);not null"`
@@ -489,7 +523,7 @@ func (MatrixDeviceKey) TableName() string {
 	return "matrix_device_keys"
 }
 
-// MatrixOneTimeKey 一次性密钥数据库模型
+// MatrixOneTimeKey 一次性密钥数据库模型.
 type MatrixOneTimeKey struct {
 	ID         uint64 `gorm:"primaryKey"`
 	UserID     string `gorm:"index;type:varchar(255);not null"`

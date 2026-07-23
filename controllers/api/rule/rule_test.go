@@ -3,10 +3,10 @@ package rule
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -14,16 +14,18 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-// callHandler invokes a gin handler and recovers from panic("abort") used by AbortIf/AbortIfError
+// callHandler invokes a gin handler and recovers from panic("abort") used by AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil && r != "abort" {
 			panic(r)
 		}
 	}()
+
 	fn(c)
 }
 
@@ -37,10 +39,12 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(&models.Rule{}); err != nil {
@@ -54,7 +58,8 @@ func createTestRule(t *testing.T, text string, priority uint) *models.Rule {
 		Priority: priority,
 	}
 	err := testDB.GormDB.Create(rule).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	return rule
 }
 
@@ -88,16 +93,17 @@ func TestCreateRequest_Binding(t *testing.T) {
 			body, _ := json.Marshal(tt.body)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+			c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body)) //nolint:noctx
 			c.Request.Header.Set("Content-Type", "application/json")
 
 			var parsed CreateRequest
+
 			err := c.ShouldBindJSON(&parsed)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tt.body.Text, parsed.Text)
 				assert.Equal(t, tt.body.Priority, parsed.Priority)
 			}
@@ -116,12 +122,13 @@ func TestUpdateRequest_Binding(t *testing.T) {
 		body, _ := json.Marshal(req)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 
 		var parsed UpdateRequest
+
 		err := c.ShouldBindJSON(&parsed)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, parsed.Text)
 		assert.Nil(t, parsed.Priority)
 	})
@@ -131,12 +138,13 @@ func TestUpdateRequest_Binding(t *testing.T) {
 		body, _ := json.Marshal(req)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 
 		var parsed UpdateRequest
+
 		err := c.ShouldBindJSON(&parsed)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, parsed.Text)
 		assert.Equal(t, "Updated rule", *parsed.Text)
 	})
@@ -146,12 +154,13 @@ func TestUpdateRequest_Binding(t *testing.T) {
 		body, _ := json.Marshal(req)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 
 		var parsed UpdateRequest
+
 		err := c.ShouldBindJSON(&parsed)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, parsed.Priority)
 		assert.Equal(t, uint(5), *parsed.Priority)
 	})
@@ -162,12 +171,13 @@ func TestUpdateRequest_Binding(t *testing.T) {
 		body, _ := json.Marshal(req)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 
 		var parsed UpdateRequest
+
 		err := c.ShouldBindJSON(&parsed)
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("text too long should fail", func(t *testing.T) {
@@ -179,12 +189,13 @@ func TestUpdateRequest_Binding(t *testing.T) {
 		body, _ := json.Marshal(req)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body))
+		c.Request = httptest.NewRequest(http.MethodPut, "/rules/1", bytes.NewBuffer(body)) //nolint:noctx
 		c.Request.Header.Set("Content-Type", "application/json")
 
 		var parsed UpdateRequest
+
 		err := c.ShouldBindJSON(&parsed)
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -193,19 +204,21 @@ func TestUpdateRequest_Binding(t *testing.T) {
 func TestCreate_Success(t *testing.T) {
 	setupTestDB(t)
 
-	body, _ := json.Marshal(CreateRequest{Text: "No spam allowed", Priority: 1})
+	body, err := json.Marshal(CreateRequest{Text: "No spam allowed", Priority: 1})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Create, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
 	assert.Equal(t, "No spam allowed", response["text"])
 	assert.NotEmpty(t, response["id"])
 }
@@ -213,10 +226,10 @@ func TestCreate_Success(t *testing.T) {
 func TestCreate_MissingText(t *testing.T) {
 	setupTestDB(t)
 
-	body, _ := json.Marshal(map[string]interface{}{"priority": 1})
+	body, _ := json.Marshal(map[string]any{"priority": 1}) //nolint:errchkjson
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	assert.PanicsWithValue(t, "abort", func() {
@@ -230,7 +243,7 @@ func TestCreate_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBufferString("not json"))
+	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBufferString("not json")) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	assert.PanicsWithValue(t, "abort", func() {
@@ -247,7 +260,7 @@ func TestDelete_InvalidID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "invalid"}}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/invalid", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/invalid", nil) //nolint:noctx
 
 	assert.PanicsWithValue(t, "abort", func() {
 		Delete(c)
@@ -261,7 +274,7 @@ func TestDelete_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "99999"}}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/99999", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/99999", nil) //nolint:noctx
 
 	assert.PanicsWithValue(t, "abort", func() {
 		Delete(c)
@@ -276,8 +289,8 @@ func TestDelete_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", rule.Id)}}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/"+fmt.Sprintf("%d", rule.Id), nil)
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(rule.Id, 10)}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/"+strconv.FormatUint(rule.Id, 10), nil) //nolint:noctx
 
 	callHandler(Delete, c)
 
@@ -285,8 +298,9 @@ func TestDelete_Success(t *testing.T) {
 
 	// Verify deletion
 	var found models.Rule
+
 	err := testDB.GormDB.First(&found, rule.Id).Error
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
 
@@ -298,7 +312,7 @@ func TestGet_InvalidID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "abc"}}
-	c.Request = httptest.NewRequest(http.MethodGet, "/rules/abc", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/rules/abc", nil) //nolint:noctx
 
 	assert.PanicsWithValue(t, "abort", func() {
 		Get(c)
@@ -312,7 +326,7 @@ func TestGet_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "99999"}}
-	c.Request = httptest.NewRequest(http.MethodGet, "/rules/99999", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/rules/99999", nil) //nolint:noctx
 
 	assert.PanicsWithValue(t, "abort", func() {
 		Get(c)
@@ -327,18 +341,19 @@ func TestGet_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", rule.Id)}}
-	c.Request = httptest.NewRequest(http.MethodGet, "/rules/"+fmt.Sprintf("%d", rule.Id), nil)
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(rule.Id, 10)}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/rules/"+strconv.FormatUint(rule.Id, 10), nil) //nolint:noctx
 
 	callHandler(Get, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "Get this rule", response["text"])
-	assert.Equal(t, fmt.Sprintf("%d", rule.Id), response["id"])
+	assert.Equal(t, strconv.FormatUint(rule.Id, 10), response["id"])
 }
 
 // --- List Handler Tests ---
@@ -348,15 +363,16 @@ func TestList_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/rules", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/rules", nil) //nolint:noctx
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response []map[string]interface{}
+	var response []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, response)
 }
 
@@ -369,15 +385,16 @@ func TestList_WithRules(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/rules", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/rules", nil) //nolint:noctx
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response []map[string]interface{}
+	var response []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, response, 3)
 
 	// Rules should be ordered by priority DESC, created_at ASC
@@ -391,11 +408,12 @@ func TestList_WithRules(t *testing.T) {
 func TestUpdate_InvalidID(t *testing.T) {
 	setupTestDB(t)
 
-	body, _ := json.Marshal(UpdateRequest{})
+	body, err := json.Marshal(UpdateRequest{})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "bad"}}
-	c.Request = httptest.NewRequest(http.MethodPut, "/rules/bad", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/rules/bad", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	assert.PanicsWithValue(t, "abort", func() {
@@ -407,11 +425,12 @@ func TestUpdate_InvalidID(t *testing.T) {
 func TestUpdate_NotFound(t *testing.T) {
 	setupTestDB(t)
 
-	body, _ := json.Marshal(UpdateRequest{})
+	body, err := json.Marshal(UpdateRequest{})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "99999"}}
-	c.Request = httptest.NewRequest(http.MethodPut, "/rules/99999", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/rules/99999", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	assert.PanicsWithValue(t, "abort", func() {
@@ -426,20 +445,22 @@ func TestUpdate_Text(t *testing.T) {
 	rule := createTestRule(t, "Original", 0)
 
 	newText := "Updated text"
-	body, _ := json.Marshal(UpdateRequest{Text: &newText})
+	body, err := json.Marshal(UpdateRequest{Text: &newText})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", rule.Id)}}
-	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+fmt.Sprintf("%d", rule.Id), bytes.NewBuffer(body))
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(rule.Id, 10)}}
+	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+strconv.FormatUint(rule.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
 	assert.Equal(t, "Updated text", response["text"])
 }
 
@@ -450,21 +471,23 @@ func TestUpdate_Priority(t *testing.T) {
 
 	newPriority := uint(5)
 	updateText := "Priority test"
-	body, _ := json.Marshal(UpdateRequest{Text: &updateText, Priority: &newPriority})
+	body, err2 := json.Marshal(UpdateRequest{Text: &updateText, Priority: &newPriority})
 	w := httptest.NewRecorder()
+	require.NoError(t, err2)
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", rule.Id)}}
-	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+fmt.Sprintf("%d", rule.Id), bytes.NewBuffer(body))
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(rule.Id, 10)}}
+	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+strconv.FormatUint(rule.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, fmt.Sprintf("%d", rule.Id), response["id"])
+	require.NoError(t, err)
+	assert.Equal(t, strconv.FormatUint(rule.Id, 10), response["id"])
 }
 
 func TestUpdate_EmptyJSON(t *testing.T) {
@@ -472,18 +495,20 @@ func TestUpdate_EmptyJSON(t *testing.T) {
 
 	rule := createTestRule(t, "Keep same", 3)
 
-	body, _ := json.Marshal(UpdateRequest{})
+	body, err := json.Marshal(UpdateRequest{})
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", rule.Id)}}
-	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+fmt.Sprintf("%d", rule.Id), bytes.NewBuffer(body))
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(rule.Id, 10)}}
+	c.Request = httptest.NewRequest(http.MethodPut, "/rules/"+strconv.FormatUint(rule.Id, 10), bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(Update, c)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
+	var response map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
 }

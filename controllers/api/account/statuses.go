@@ -9,9 +9,9 @@ import (
 	"strconv"
 )
 
-// StatusesRequest represents the request for getting account statuses
+// StatusesRequest represents the request for getting account statuses.
 type StatusesRequest struct {
-	Limit          int    `form:"limit" binding:"min=1,max=80"`
+	Limit          int    `binding:"min=1,max=80" form:"limit"`
 	MaxId          string `form:"max_id"`
 	SinceId        string `form:"since_id"`
 	MinId          string `form:"min_id"`
@@ -20,11 +20,12 @@ type StatusesRequest struct {
 	Pinned         bool   `form:"pinned"`
 }
 
-// AccountStatuses handles GET /api/v1/accounts/:id/statuses
+// AccountStatuses handles GET /api/v1/accounts/:id/statuses.
 func AccountStatuses(c *gin.Context) {
 	var req StatusesRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -35,14 +36,15 @@ func AccountStatuses(c *gin.Context) {
 	// Get account ID from URL
 	accountId := c.Param("id")
 	if accountId == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"}) //nolint:goconst
+
 		return
 	}
 
 	// Get current account if authenticated
 	var currentAccount *models.Account
 	if c.GetBool("authenticated") {
-		currentAccount = c.MustGet("account").(*models.Account)
+		currentAccount = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
 	// Query statuses
@@ -57,11 +59,13 @@ func AccountStatuses(c *gin.Context) {
 			query = query.Where("id < ?", maxId)
 		}
 	}
+
 	if req.MinId != "" {
 		if minId, err := strconv.ParseUint(req.MinId, 10, 64); err == nil {
 			query = query.Where("id > ?", minId)
 		}
 	}
+
 	if req.SinceId != "" {
 		if sinceId, err := strconv.ParseUint(req.SinceId, 10, 64); err == nil {
 			query = query.Where("id > ?", sinceId)
@@ -92,19 +96,23 @@ func AccountStatuses(c *gin.Context) {
 	statuses := make(models.Statuses, 0)
 	if err := query.Limit(req.Limit).Find(&statuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get statuses error"))
+
 		return
 	}
 
 	// Filter by visibility
 	if currentAccount != nil {
 		filteredStatuses := make(models.Statuses, 0)
+
 		for _, status := range statuses {
 			canView, err := status.CanViewEx(db.GetDB(), currentAccount)
 			if err != nil || !canView {
 				continue
 			}
+
 			filteredStatuses = append(filteredStatuses, status)
 		}
+
 		statuses = filteredStatuses
 	}
 
@@ -112,6 +120,7 @@ func AccountStatuses(c *gin.Context) {
 	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
+
 		return
 	}
 

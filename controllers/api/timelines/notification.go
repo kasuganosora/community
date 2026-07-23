@@ -22,7 +22,7 @@ type NotificationTimelineRequest struct {
 func NotificationTimeline(c *gin.Context) {
 	req := NotificationTimelineRequest{}
 	err := c.ShouldBindQuery(&req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	account := controllers.MustGetAccount(c)
 
@@ -40,6 +40,7 @@ func NotificationTimeline(c *gin.Context) {
 	if req.AccountId != "" {
 		filterAccountId, err := strconv.ParseUint(req.AccountId, 10, 64)
 		controllers.AbortIf(c, err != nil, 422, gin.H{"error": "account_id is invalid"})
+
 		query = query.Where("from_account_id = ?", filterAccountId)
 	}
 
@@ -70,5 +71,4 @@ func NotificationTimeline(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 
 	c.JSON(200, ret)
-
 }

@@ -57,9 +57,11 @@ func TestHashtagSearchDocument_GetType(t *testing.T) {
 
 func TestSearchDocumentInterface(t *testing.T) {
 	// Verify all document types implement the interface
-	var _ SearchDocument = &AccountSearchDocument{}
-	var _ SearchDocument = &StatusSearchDocument{}
-	var _ SearchDocument = &HashtagSearchDocument{}
+	var (
+		_ SearchDocument = &AccountSearchDocument{}
+		_ SearchDocument = &StatusSearchDocument{}
+		_ SearchDocument = &HashtagSearchDocument{}
+	)
 }
 
 func TestAccountSearchDocument_Struct(t *testing.T) {
@@ -144,6 +146,7 @@ func TestMeilisearchClient_IsEnabled(t *testing.T) {
 	enabled := client.IsEnabled()
 	// The result depends on configuration, just verify no panic
 	assert.NotNil(t, client)
+
 	_ = enabled
 }
 
@@ -160,7 +163,7 @@ func TestMeilisearchClient_IsEnabled_Enabled(t *testing.T) {
 	// So we can only test the disabled case reliably
 	client := &MeilisearchClient{
 		enabled: true,
-		host:    "http://localhost:7700",
+		host:    "http://localhost:7700", //nolint:goconst
 		apiKey:  "test-key",
 		// client is nil, so IsEnabled will return false
 	}
@@ -176,7 +179,7 @@ func TestParseSearchQuery(t *testing.T) {
 	}{
 		{"hello world", "hello world", 0},
 		{"from:user1", "", 1},
-		{"hello from:user1", "hello", 1},
+		{"hello from:user1", "hello", 1}, //nolint:goconst
 		{"has:media", "", 1},
 		{"hello has:media from:user1", "hello", 2},
 	}

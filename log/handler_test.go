@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -21,6 +22,7 @@ func init() {
 func setupTestRouter(handler gin.HandlerFunc) *gin.Engine {
 	router := gin.New()
 	router.GET("/test", handler)
+
 	return router
 }
 
@@ -28,8 +30,8 @@ func setupTestRouter(handler gin.HandlerFunc) *gin.Engine {
 // The caller is responsible for cleaning up via the returned cleanup function.
 func setupTempLogDir(t *testing.T, fileSize int64) (string, func()) {
 	t.Helper()
-	tempDir, err := os.MkdirTemp("", "handler_log_test_*")
-	assert.NoError(t, err)
+
+	tempDir := t.TempDir()
 
 	logFile := filepath.Join(tempDir, "test.log")
 	// Write some content to create a file of the specified size
@@ -37,12 +39,11 @@ func setupTempLogDir(t *testing.T, fileSize int64) (string, func()) {
 	for i := range content {
 		content[i] = 'a'
 	}
-	err = os.WriteFile(logFile, content, 0644)
-	assert.NoError(t, err)
 
-	return tempDir, func() {
-		os.RemoveAll(tempDir)
-	}
+	err := os.WriteFile(logFile, content, 0644) //nolint:gosec // G306: reviewed and safe
+	require.NoError(t, err)
+
+	return tempDir, func() {}
 }
 
 // --- StatsHandler tests ---
@@ -53,7 +54,7 @@ func TestStatsHandler_ReturnsOK(t *testing.T) {
 
 	router := setupTestRouter(StatsHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx // test code
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -64,17 +65,18 @@ func TestStatsHandler_ContainsConfigKeys(t *testing.T) {
 
 	router := setupTestRouter(StatsHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// The response should contain the "config" key from GetLogStats
-	config, ok := body["config"].(map[string]interface{})
+	config, ok := body["config"].(map[string]any)
 	assert.True(t, ok, "response should contain a 'config' object")
 	assert.NotNil(t, config)
 
@@ -92,22 +94,23 @@ func TestStatsHandler_DefaultConfigValues(t *testing.T) {
 
 	router := setupTestRouter(StatsHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	var body map[string]any
 
-	configData, ok := body["config"].(map[string]interface{})
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+
+	configData, ok := body["config"].(map[string]any)
 	assert.True(t, ok)
-	assert.Equal(t, float64(100), configData["max_size_mb"])
-	assert.Equal(t, float64(10), configData["max_backups"])
-	assert.Equal(t, float64(30), configData["max_age_days"])
+	assert.InDelta(t, float64(100), configData["max_size_mb"], 0)
+	assert.InDelta(t, float64(10), configData["max_backups"], 0)
+	assert.InDelta(t, float64(30), configData["max_age_days"], 0)
 	assert.Equal(t, true, configData["compress"])
-	assert.Equal(t, float64(1024), configData["max_disk_usage_mb"])
+	assert.InDelta(t, float64(1024), configData["max_disk_usage_mb"], 0)
 }
 
 func TestStatsHandler_WithEmptyFilePath(t *testing.T) {
@@ -122,14 +125,15 @@ func TestStatsHandler_WithEmptyFilePath(t *testing.T) {
 
 	router := setupTestRouter(StatsHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, body)
 }
 
@@ -148,17 +152,18 @@ func TestStatsHandler_WithTempLogFile(t *testing.T) {
 
 	router := setupTestRouter(StatsHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Should have file count
-	assert.Equal(t, float64(1), body["log_file_count"])
+	assert.InDelta(t, float64(1), body["log_file_count"], 0)
 }
 
 func TestStatsHandler_InvalidMethod(t *testing.T) {
@@ -169,7 +174,7 @@ func TestStatsHandler_InvalidMethod(t *testing.T) {
 
 	// POST to a GET route should return 404 (gin default for method not allowed)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/stats", nil)
+	req, _ := http.NewRequest(http.MethodPost, "/stats", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	// Gin returns 404 for method not matching (since POST is not registered)
@@ -183,7 +188,7 @@ func TestHealthHandler_ReturnsOK(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -204,14 +209,15 @@ func TestHealthHandler_HealthyWhenNotNearLimit(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, "healthy", body["status"])
 	assert.Equal(t, "Log system is healthy", body["message"])
@@ -220,10 +226,11 @@ func TestHealthHandler_HealthyWhenNotNearLimit(t *testing.T) {
 
 func TestHealthHandler_WarningWhenNearLimit(t *testing.T) {
 	// Create a file that exceeds 80% of MaxDiskUsage
-	// MaxDiskUsage = 1KB (1 MB in config = 1024*1024 bytes, but we use raw values)
+	// = 1KB (1 MB in config = 1024*1024 bytes, but we use raw values)
 	// To trigger > 80%, we need actual file size > 0.8 * MaxDiskUsage * 1024 * 1024
 	// Let's use MaxDiskUsage=1 (1MB) and create a file that is > 0.8MB = 838860 bytes
 	fileSize := int64(900 * 1024) // 900KB > 80% of 1MB
+
 	tempDir, cleanup := setupTempLogDir(t, fileSize)
 	defer cleanup()
 
@@ -238,14 +245,15 @@ func TestHealthHandler_WarningWhenNearLimit(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, "warning", body["status"])
 	assert.Equal(t, "Log disk usage is above 80%, cleanup recommended", body["message"])
@@ -257,17 +265,18 @@ func TestHealthHandler_HasStatsField(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// The "stats" field should contain the log stats
-	stats, ok := body["stats"].(map[string]interface{})
+	stats, ok := body["stats"].(map[string]any)
 	assert.True(t, ok, "response should contain a 'stats' object")
 	assert.NotNil(t, stats)
 	assert.Contains(t, stats, "config")
@@ -286,14 +295,15 @@ func TestHealthHandler_DefaultConfigIsHealthy(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "healthy", body["status"])
 }
 
@@ -302,14 +312,15 @@ func TestHealthHandler_ResponseHasRequiredKeys(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify all required keys exist
 	_, hasStatus := body["status"]
@@ -323,22 +334,22 @@ func TestHealthHandler_ResponseHasRequiredKeys(t *testing.T) {
 
 func TestHealthHandler_WarningWithMultipleLogFiles(t *testing.T) {
 	// Create multiple log files to simulate disk pressure
-	tempDir, err := os.MkdirTemp("", "handler_health_test_*")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	// Create 3 log files, each 300KB, total 900KB > 80% of 1MB limit
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		filename := filepath.Join(tempDir, "app.log")
 		if i > 0 {
 			filename = filepath.Join(tempDir, "app.log."+string(rune('0'+i)))
 		}
+
 		content := make([]byte, 300*1024)
 		for j := range content {
 			content[j] = 'b'
 		}
-		err := os.WriteFile(filename, content, 0644)
-		assert.NoError(t, err)
+
+		err := os.WriteFile(filename, content, 0644) //nolint:gosec // G306: reviewed and safe
+		require.NoError(t, err)
 	}
 
 	SetGlobalLogConfig(LogConfig{
@@ -352,14 +363,15 @@ func TestHealthHandler_WarningWithMultipleLogFiles(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
-	err = json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	var body map[string]any
+
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
 	assert.Equal(t, "warning", body["status"])
 }
 
@@ -368,6 +380,7 @@ func TestHealthHandler_EdgeCaseExactly80Percent(t *testing.T) {
 	// MaxDiskUsage=1MB = 1048576 bytes, 80% = 838860.8 bytes
 	// We'll use 800KB which is under 80% to ensure "healthy"
 	fileSize := int64(800 * 1024) // 800KB < 838860 bytes (80% of 1MB)
+
 	tempDir, cleanup := setupTempLogDir(t, fileSize)
 	defer cleanup()
 
@@ -382,14 +395,15 @@ func TestHealthHandler_EdgeCaseExactly80Percent(t *testing.T) {
 
 	router := setupTestRouter(HealthHandler())
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Should still be healthy since 800KB / 1MB = 76.29% < 80%
 	assert.Equal(t, "healthy", body["status"])

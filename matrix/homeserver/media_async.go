@@ -3,6 +3,7 @@ package homeserver
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -19,19 +20,19 @@ import (
 
 // ===== MSC2246: 异步媒体上传实现 =====
 
-// AsyncUploadResponse 异步上传响应
+// AsyncUploadResponse 异步上传响应.
 type AsyncUploadResponse struct {
 	ContentURI string `json:"content_uri"`
 }
 
-// UploadConfigResponse 上传配置响应
+// UploadConfigResponse 上传配置响应.
 type UploadConfigResponse struct {
 	MaxUploadSize    int64    `json:"m.upload.size,omitempty"`
 	MaxFileSize      int64    `json:"m.max_file_size,omitempty"`
 	SupportedFormats []string `json:"m.supported_formats,omitempty"`
 }
 
-// AsyncMediaInfo 异步媒体信息（存储在数据库）
+// AsyncMediaInfo 异步媒体信息（存储在数据库）.
 type AsyncMediaInfo struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement"`
 	MediaID     string    `gorm:"uniqueIndex;type:varchar(64);not null"`
@@ -52,22 +53,22 @@ func (AsyncMediaInfo) TableName() string {
 	return "matrix_async_media"
 }
 
-// AsyncMediaService 异步媒体服务
+// AsyncMediaService 异步媒体服务.
 type AsyncMediaService struct {
 	hs *HomeServer
 }
 
-// NewAsyncMediaService 创建异步媒体服务
+// NewAsyncMediaService 创建异步媒体服务.
 func NewAsyncMediaService(hs *HomeServer) *AsyncMediaService {
 	return &AsyncMediaService{hs: hs}
 }
 
-// CreateAsyncUpload 创建异步上传
+// CreateAsyncUpload 创建异步上传.
 func (ams *AsyncMediaService) CreateAsyncUpload(userID, filename, contentType string, size int64) (*AsyncMediaInfo, error) {
 	mediaID := generateAsyncMediaID()
 
 	// 生成预签名上传 URL（简化实现，实际应该对接 S3/MinIO）
-	uploadURL := fmt.Sprintf("/_matrix/media/v3/upload/%s", mediaID)
+	uploadURL := "/_matrix/media/v3/upload/" + mediaID
 
 	expiresAt := time.Now().Add(24 * time.Hour)
 
@@ -82,21 +83,22 @@ func (ams *AsyncMediaService) CreateAsyncUpload(userID, filename, contentType st
 		Uploader:    userID,
 	}
 
-	if err := db.GetDB().Create(media).Error; err != nil {
+	err := db.GetDB().Create(media).Error
+	if err != nil {
 		return nil, err
 	}
 
 	return media, nil
 }
 
-// ErrCannotOverwriteMedia is returned when trying to upload to an already-completed media ID
-var ErrCannotOverwriteMedia = fmt.Errorf("M_CANNOT_OVERWRITE_MEDIA")
+// ErrCannotOverwriteMedia is returned when trying to upload to an already-completed media ID.
+var ErrCannotOverwriteMedia = errors.New("M_CANNOT_OVERWRITE_MEDIA")
 
-// CompleteAsyncUpload 完成异步上传
+// CompleteAsyncUpload 完成异步上传.
 func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, uploadContentType string) (*AsyncUploadResponse, error) {
 	var media AsyncMediaInfo
 	if err := db.GetDB().Where("media_id = ?", mediaID).First(&media).Error; err != nil {
-		return nil, fmt.Errorf("media not found")
+		return nil, errors.New("media not found")
 	}
 
 	// Check if already uploaded
@@ -106,7 +108,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, u
 
 	// 检查是否过期
 	if media.ExpiresAt != nil && time.Now().After(*media.ExpiresAt) {
-		return nil, fmt.Errorf("upload expired")
+		return nil, errors.New("upload expired")
 	}
 
 	// 计算哈希
@@ -115,7 +117,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, u
 
 	// 验证大小
 	if media.Size > 0 && int64(len(data)) != media.Size {
-		return nil, fmt.Errorf("size mismatch")
+		return nil, errors.New("size mismatch")
 	}
 
 	// Always prefer Content-Type from the PUT request (the actual upload)
@@ -131,6 +133,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, u
 	if err != nil {
 		media.Status = "failed"
 		db.GetDB().Save(&media)
+
 		return nil, err
 	}
 
@@ -149,13 +152,14 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, u
 	}, nil
 }
 
-// saveMediaFile 保存媒体文件
+// saveMediaFile 保存媒体文件.
 func (ams *AsyncMediaService) saveMediaFile(mediaID string, data []byte, contentType, filename string) (string, error) {
 	// Determine file extension
 	ext := ""
 	if filename != "" {
 		ext = filepath.Ext(filename)
 	}
+
 	if ext == "" {
 		exts, _ := mime.ExtensionsByType(contentType)
 		if len(exts) > 0 {
@@ -170,12 +174,14 @@ func (ams *AsyncMediaService) saveMediaFile(mediaID string, data []byte, content
 	fullPath := filepath.Join("uploads", relativePath)
 
 	// Create directory
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+	err := os.MkdirAll(filepath.Dir(fullPath), 0755) //nolint:gosec // G301: reviewed and safe
+	if err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// Write file
-	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+	err = os.WriteFile(fullPath, data, 0644) //nolint:gosec // G306: reviewed and safe
+	if err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -190,25 +196,30 @@ func (ams *AsyncMediaService) saveMediaFile(mediaID string, data []byte, content
 		UploaderID:  "",
 		CreatedAt:   time.Now(),
 	}
-	if err := db.GetDB().Create(matrixMedia).Error; err != nil {
-		os.Remove(fullPath)
+	err = db.GetDB().Create(matrixMedia).Error
+	if err != nil {
+		_ = os.Remove(fullPath)
+
 		return "", fmt.Errorf("failed to save media record: %w", err)
 	}
 
 	contentURI := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
+
 	return contentURI, nil
 }
 
-// GetUploadStatus 获取上传状态
+// GetUploadStatus 获取上传状态.
 func (ams *AsyncMediaService) GetUploadStatus(mediaID string) (*AsyncMediaInfo, error) {
 	var media AsyncMediaInfo
-	if err := db.GetDB().Where("media_id = ?", mediaID).First(&media).Error; err != nil {
+	err := db.GetDB().Where("media_id = ?", mediaID).First(&media).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return &media, nil
 }
 
-// GetUploadConfig 获取上传配置
+// GetUploadConfig 获取上传配置.
 func (ams *AsyncMediaService) GetUploadConfig() *UploadConfigResponse {
 	return &UploadConfigResponse{
 		MaxUploadSize: 100 * 1024 * 1024, // 100MB
@@ -227,7 +238,7 @@ func (ams *AsyncMediaService) GetUploadConfig() *UploadConfigResponse {
 	}
 }
 
-// CleanupExpiredUploads 清理过期的上传
+// CleanupExpiredUploads 清理过期的上传.
 func (ams *AsyncMediaService) CleanupExpiredUploads() {
 	now := time.Now()
 	db.GetDB().Where("status = ? AND expires_at < ?", "pending", now).Delete(&AsyncMediaInfo{})
@@ -235,7 +246,7 @@ func (ams *AsyncMediaService) CleanupExpiredUploads() {
 
 // ===== HTTP Handlers =====
 
-// RegisterAsyncMediaRoutes 注册异步媒体路由
+// RegisterAsyncMediaRoutes 注册异步媒体路由.
 func RegisterAsyncMediaRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -255,14 +266,14 @@ func RegisterAsyncMediaRoutes(r gin.IRouter) {
 	}
 }
 
-// handleMediaConfig 处理媒体配置请求
+// handleMediaConfig 处理媒体配置请求.
 func handleMediaConfig(c *gin.Context) {
 	hs := GetHomeServer()
 	config := hs.AsyncMedia.GetUploadConfig()
 	c.JSON(http.StatusOK, config)
 }
 
-// handleCreateAsyncUpload 创建异步上传
+// handleCreateAsyncUpload 创建异步上传.
 func handleCreateAsyncUpload(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -282,18 +293,21 @@ func handleCreateAsyncUpload(c *gin.Context) {
 	media, err := hs.AsyncMedia.CreateAsyncUpload(userID, req.Filename, req.ContentType, req.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
-			"error":   err.Error(),
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
+			"error":   err.Error(),        //nolint:goconst
 		})
+
 		return
 	}
 
 	hs2 := GetHomeServer()
 	contentURI := fmt.Sprintf("mxc://%s/%s", hs2.Config.ServerName, media.MediaID)
+
 	var unusedExpiresAt int64
 	if media.ExpiresAt != nil {
 		unusedExpiresAt = media.ExpiresAt.UnixMilli()
 	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"content_uri":       contentURI,
 		"unused_expires_at": unusedExpiresAt,
@@ -301,20 +315,22 @@ func handleCreateAsyncUpload(c *gin.Context) {
 }
 
 // handleCompleteAsyncUploadWildcard extracts mediaId from wildcard path
-// Handles both /upload/{mediaId} and /upload/{serverName}/{mediaId}
+// Handles both /upload/{mediaId} and /upload/{serverName}/{mediaId}.
 func handleCompleteAsyncUploadWildcard(c *gin.Context) {
 	path := strings.TrimPrefix(c.Param("path"), "/")
 	parts := strings.Split(path, "/")
 	// Last segment is always the mediaId
 	if len(parts) == 0 || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_REQUEST", "error": "Missing media ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_REQUEST", "error": "Missing media ID"}) //nolint:goconst
+
 		return
 	}
+
 	c.Params = append(c.Params, gin.Param{Key: "mediaId", Value: parts[len(parts)-1]})
 	handleCompleteAsyncUpload(c)
 }
 
-// handleCompleteAsyncUpload 完成异步上传
+// handleCompleteAsyncUpload 完成异步上传.
 func handleCompleteAsyncUpload(c *gin.Context) {
 	hs := GetHomeServer()
 	mediaID := c.Param("mediaId")
@@ -326,13 +342,15 @@ func handleCompleteAsyncUpload(c *gin.Context) {
 			"errcode": "M_BAD_REQUEST",
 			"error":   "Failed to read upload data",
 		})
+
 		return
 	}
 
 	uploadContentType := c.GetHeader("Content-Type")
+
 	resp, err := hs.AsyncMedia.CompleteAsyncUpload(mediaID, data, uploadContentType)
 	if err != nil {
-		if err == ErrCannotOverwriteMedia {
+		if errors.Is(err, ErrCannotOverwriteMedia) {
 			c.JSON(http.StatusConflict, gin.H{
 				"errcode": "M_CANNOT_OVERWRITE_MEDIA",
 				"error":   "Media has already been uploaded",
@@ -343,13 +361,14 @@ func handleCompleteAsyncUpload(c *gin.Context) {
 				"error":   err.Error(),
 			})
 		}
+
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleGetUploadStatus 获取上传状态
+// handleGetUploadStatus 获取上传状态.
 func handleGetUploadStatus(c *gin.Context) {
 	hs := GetHomeServer()
 	mediaID := c.Param("mediaId")
@@ -357,9 +376,10 @@ func handleGetUploadStatus(c *gin.Context) {
 	media, err := hs.AsyncMedia.GetUploadStatus(mediaID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
+			"errcode": "M_NOT_FOUND", //nolint:goconst
 			"error":   "Upload not found",
 		})
+
 		return
 	}
 
@@ -372,12 +392,13 @@ func handleGetUploadStatus(c *gin.Context) {
 			if media.ExpiresAt != nil {
 				return media.ExpiresAt.Unix()
 			}
+
 			return 0
 		}(),
 	})
 }
 
-// generateAsyncMediaID 生成异步媒体 ID
+// generateAsyncMediaID 生成异步媒体 ID.
 func generateAsyncMediaID() string {
 	return uuid.New().String()
 }

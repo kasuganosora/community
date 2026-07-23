@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// MediaType 媒体类型
+// MediaType 媒体类型.
 type MediaType string
 
 const (
@@ -14,36 +14,36 @@ const (
 	MediaTypeUnknown MediaType = "unknown"
 )
 
-// MediaAttachment 媒体附件
+// MediaAttachment 媒体附件.
 type MediaAttachment struct {
-	Id            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	AccountId     uint64    `gorm:"not null;index" json:"account_id"`
-	StatusId      *uint64   `gorm:"index" json:"status_id"`
-	FileName      string    `gorm:"size:255;not null" json:"file_name"`
-	FilePath      string    `gorm:"size:500;not null" json:"file_path"`
-	FileSize      int64     `gorm:"not null" json:"file_size"`
-	ContentType   string    `gorm:"size:100;not null" json:"content_type"`
+	Id            uint64    `gorm:"primaryKey;autoIncrement"           json:"id"`
+	AccountId     uint64    `gorm:"not null;index"                     json:"account_id"`
+	StatusId      *uint64   `gorm:"index"                              json:"status_id"`
+	FileName      string    `gorm:"size:255;not null"                  json:"file_name"`
+	FilePath      string    `gorm:"size:500;not null"                  json:"file_path"`
+	FileSize      int64     `gorm:"not null"                           json:"file_size"`
+	ContentType   string    `gorm:"size:100;not null"                  json:"content_type"`
 	Type          MediaType `gorm:"size:20;not null;default:'unknown'" json:"type"`
 	Width         *int      `json:"width"`
 	Height        *int      `json:"height"`
 	Duration      *float64  `json:"duration"`
-	ThumbnailPath *string   `gorm:"size:500" json:"thumbnail_path"`
-	Description   string    `gorm:"type:text" json:"description"`
-	Blurhash      string    `gorm:"size:50" json:"blurhash"`
-	FocusX        float64   `gorm:"default:0" json:"focus_x"`
-	FocusY        float64   `gorm:"default:0" json:"focus_y"`
-	CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ThumbnailPath *string   `gorm:"size:500"                           json:"thumbnail_path"`
+	Description   string    `gorm:"type:text"                          json:"description"`
+	Blurhash      string    `gorm:"size:50"                            json:"blurhash"`
+	FocusX        float64   `gorm:"default:0"                          json:"focus_x"`
+	FocusY        float64   `gorm:"default:0"                          json:"focus_y"`
+	CreatedAt     time.Time `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt     time.Time `gorm:"autoUpdateTime"                     json:"updated_at"`
 
 	// 关联
 	Account *Account `gorm:"foreignKey:AccountId" json:"-"`
-	Status  *Status  `gorm:"foreignKey:StatusId" json:"-"`
+	Status  *Status  `gorm:"foreignKey:StatusId"  json:"-"`
 }
 
-// MediaAttachments 媒体附件列表
+// MediaAttachments 媒体附件列表.
 type MediaAttachments []*MediaAttachment
 
-// GetMediaTypes 根据文件扩展名获取媒体类型
+// GetMediaTypes 根据文件扩展名获取媒体类型.
 func GetMediaType(contentType string) MediaType {
 	switch contentType {
 	case "image/jpeg", "image/png", "image/gif", "image/webp":
@@ -57,17 +57,17 @@ func GetMediaType(contentType string) MediaType {
 	}
 }
 
-// IsImage 是否为图片
+// IsImage 是否为图片.
 func (m *MediaAttachment) IsImage() bool {
 	return m.Type == MediaTypeImage
 }
 
-// IsVideo 是否为视频
+// IsVideo 是否为视频.
 func (m *MediaAttachment) IsVideo() bool {
 	return m.Type == MediaTypeVideo
 }
 
-// IsAudio 是否为音频
+// IsAudio 是否为音频.
 func (m *MediaAttachment) IsAudio() bool {
 	return m.Type == MediaTypeAudio
 }

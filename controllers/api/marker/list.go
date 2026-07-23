@@ -14,17 +14,21 @@ type ListRequest struct {
 
 func List(c *gin.Context) {
 	var req ListRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
+	err := c.ShouldBindQuery(&req)
+	if err != nil {
 		c.JSON(400, err)
+
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	marker := &models.Marker{}
 
-	if err := db.GetDB().Where("account_id = ?", currentAccount.Id).First(marker).Error; err != nil {
+	err = db.GetDB().Where("account_id = ?", currentAccount.Id).First(marker).Error
+	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			_ = c.Error(err)
+
 			return
 		}
 	}

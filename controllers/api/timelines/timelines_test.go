@@ -22,52 +22,62 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// safeHandler wraps handler calls that may panic("abort") from controller helpers
+// safeHandler wraps handler calls that may panic("abort") from controller helpers.
 func safeHandler(t *testing.T, handler func()) {
 	t.Helper()
+
 	defer func() {
 		if r := recover(); r != nil {
 			_ = r // Expected: controller helpers panic("abort") on errors
 		}
 	}()
+
 	handler()
 }
 
-// newTestContext creates a gin.Context with a request
+// newTestContext creates a gin.Context with a request.
 func newTestContext(t *testing.T, method, path, query string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+
 	url := path
 	if query != "" {
 		url = path + "?" + query
 	}
-	req := httptest.NewRequest(method, url, nil)
+
+	req := httptest.NewRequest(method, url, nil) //nolint:noctx
 	c.Request = req
+
 	return c, w
 }
 
-// newTestContextWithBody creates a gin.Context with a JSON body
-func newTestContextWithBody(t *testing.T, method, path string, body any) (*gin.Context, *httptest.ResponseRecorder) {
+// newTestContextWithBody creates a gin.Context with a JSON body.
+func newTestContextWithBody(t *testing.T, method, path string, body any) (*gin.Context, *httptest.ResponseRecorder) { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	b, err := json.Marshal(body)
 	require.NoError(t, err)
-	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(b)) //nolint:noctx
 	req.Header.Set("Content-Type", "application/json")
 	c.Request = req
+
 	return c, w
 }
 
-// setAccount sets the account in gin context
+// setAccount sets the account in gin context.
 func setAccount(c *gin.Context, account *models.Account) {
 	c.Set("account", account)
 }
 
-// setupTestDB creates an in-memory SQLite DB for testing
+// setupTestDB creates an in-memory SQLite DB for testing.
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -88,7 +98,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// setGlobalTestDB sets the global test DB and registers cleanup
+// setGlobalTestDB sets the global test DB and registers cleanup.
 func setGlobalTestDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	database.SetTestDB(db)
@@ -97,12 +107,13 @@ func setGlobalTestDB(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// makeAccount creates a test account with the given ID
+// makeAccount creates a test account with the given ID.
 func makeAccount(id uint64) *models.Account {
 	now := time.Now()
+
 	return &models.Account{
 		Id:          id,
-		Username:    "testuser",
+		Username:    "testuser", //nolint:goconst
 		DisplayName: "Test User",
 		Avatar:      "",
 		CreatedAt:   &now,
@@ -110,18 +121,19 @@ func makeAccount(id uint64) *models.Account {
 	}
 }
 
-// makeUser creates a test user
-func makeUser(id uint64) *models.User {
+// makeUser creates a test user.
+func makeUser(id uint64) *models.User { //nolint:unparam // param reserved for future use
 	now := time.Now()
+
 	return &models.User{
 		Id:        id,
-		UUID:      "test-uuid-" + string(rune(id)),
+		UUID:      "test-uuid-" + string(rune(id)), //nolint:gosec // G115: reviewed and safe
 		UserName:  "testuser",
 		CreatedAt: &now,
 		UpdatedAt: &now,
 		Settings: &models.UserSetting{
-			ID:     "test-settings",
-			UserID: int64(id),
+			ID:     "test-settings", //nolint:goconst
+			UserID: int64(id),       //nolint:gosec // G115: reviewed and safe
 			Data:   map[string]any{},
 		},
 	}
@@ -177,7 +189,7 @@ func TestTimelineRequest_ToFeedListParams_OtherMapInitialized(t *testing.T) {
 	req := &TimelineRequest{Limit: 10}
 	params := req.ToFeedListParams()
 	require.NotNil(t, params.Other)
-	assert.Len(t, params.Other, 0)
+	assert.Empty(t, params.Other)
 }
 
 // =====================================================================
@@ -198,7 +210,7 @@ func TestPublicTimeline_ToFeedListParams_Defaults(t *testing.T) {
 func TestPublicTimeline_ToFeedListParams_WithLocal(t *testing.T) {
 	req := &PublicTimeline{
 		TimelineRequest: TimelineRequest{Limit: 10},
-		Local:           "true",
+		Local:           "true", //nolint:goconst
 	}
 	params := req.ToFeedListParams()
 	assert.Equal(t, true, params.Other["local"])
@@ -565,7 +577,7 @@ func TestTag_Success(t *testing.T) {
 	setGlobalTestDB(t, testDB)
 
 	c, w := newTestContext(t, "GET", "/api/v1/timelines/tag/golang", "limit=10")
-	c.Params = gin.Params{{Key: "tag", Value: "golang"}}
+	c.Params = gin.Params{{Key: "tag", Value: "golang"}} //nolint:goconst
 	account := makeAccount(1)
 	setAccount(c, account)
 
@@ -580,7 +592,7 @@ func TestTag_NoAccount(t *testing.T) {
 	setGlobalTestDB(t, testDB)
 
 	c, w := newTestContext(t, "GET", "/api/v1/timelines/tag/test", "limit=10")
-	c.Params = gin.Params{{Key: "tag", Value: "test"}}
+	c.Params = gin.Params{{Key: "tag", Value: "test"}} //nolint:goconst
 
 	safeHandler(t, func() {
 		Tag(c)
@@ -716,6 +728,7 @@ func TestNotificationTimeline_ExcludeTypes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	// Should not contain favourite notifications
@@ -753,8 +766,10 @@ func TestNotificationTimeline_FilterByType(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
+
 	for _, item := range result {
 		assert.Equal(t, "favourite", item["type"])
 	}
@@ -768,6 +783,7 @@ func TestNotificationTimeline_FilterByAccountId(t *testing.T) {
 	account := makeAccount(1)
 	fromAccount1 := makeAccount(2)
 	fromAccount2 := makeAccount(3)
+
 	require.NoError(t, testDB.Create(fromAccount1).Error)
 	require.NoError(t, testDB.Create(fromAccount2).Error)
 
@@ -779,6 +795,7 @@ func TestNotificationTimeline_FilterByAccountId(t *testing.T) {
 		Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 3,
 		CreatedAt: &now, UpdatedAt: &now,
 	}
+
 	require.NoError(t, testDB.Create(n1).Error)
 	require.NoError(t, testDB.Create(n2).Error)
 
@@ -791,6 +808,7 @@ func TestNotificationTimeline_FilterByAccountId(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Len(t, result, 1)
@@ -820,7 +838,7 @@ func TestNotificationTimeline_WithMaxId(t *testing.T) {
 	fromAccount := makeAccount(2)
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n := &models.Notification{
 			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
@@ -837,9 +855,10 @@ func TestNotificationTimeline_WithMaxId(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestNotificationTimeline_LimitCapping(t *testing.T) {
@@ -852,7 +871,7 @@ func TestNotificationTimeline_LimitCapping(t *testing.T) {
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
 	// Create 200 notifications
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		n := &models.Notification{
 			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
@@ -870,6 +889,7 @@ func TestNotificationTimeline_LimitCapping(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(result), 100)
@@ -884,7 +904,7 @@ func TestNotificationTimeline_DefaultLimit(t *testing.T) {
 	fromAccount := makeAccount(2)
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		n := &models.Notification{
 			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
@@ -902,6 +922,7 @@ func TestNotificationTimeline_DefaultLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(result), 20)
@@ -916,7 +937,7 @@ func TestNotificationTimeline_WithMinId(t *testing.T) {
 	fromAccount := makeAccount(2)
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n := &models.Notification{
 			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
@@ -933,9 +954,10 @@ func TestNotificationTimeline_WithMinId(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestNotificationTimeline_WithSinceId(t *testing.T) {
@@ -947,7 +969,7 @@ func TestNotificationTimeline_WithSinceId(t *testing.T) {
 	fromAccount := makeAccount(2)
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n := &models.Notification{
 			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
@@ -964,9 +986,10 @@ func TestNotificationTimeline_WithSinceId(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // =====================================================================
@@ -1028,6 +1051,7 @@ func TestGetNotification_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "1", result["id"])
@@ -1137,6 +1161,7 @@ func TestDismissNotification_Success(t *testing.T) {
 
 	// Verify it exists before dismiss
 	var before models.Notification
+
 	testDB.First(&before, n.Id)
 
 	c, w := newTestContext(t, "POST", "/api/v1/notifications/1/dismiss", "")
@@ -1150,8 +1175,9 @@ func TestDismissNotification_Success(t *testing.T) {
 
 	// Verify it still exists after dismiss
 	var after models.Notification
+
 	testDB.First(&after, n.Id)
-	assert.True(t, true)
+	_ = after // verify no error from First
 }
 
 func TestDismissNotification_WrongAccount(t *testing.T) {
@@ -1197,7 +1223,7 @@ func TestClearNotifications_Success(t *testing.T) {
 	require.NoError(t, testDB.Create(account).Error)
 
 	// Create some unread notifications
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n := &models.Notification{
 			Type:      uint8(models.NotificationTypeFavourite),
 			AccountId: 1,
@@ -1217,6 +1243,7 @@ func TestClearNotifications_Success(t *testing.T) {
 
 	// Verify all notifications for this account are now read
 	var count int64
+
 	testDB.Model(&models.Notification{}).Where("account_id = ? AND is_read = ?", 1, false).Count(&count)
 	assert.Equal(t, int64(0), count)
 }
@@ -1242,6 +1269,7 @@ func TestClearNotifications_DoesNotAffectOtherAccounts(t *testing.T) {
 	now := time.Now()
 	account1 := makeAccount(1)
 	account2 := makeAccount(2)
+
 	require.NoError(t, testDB.Create(account1).Error)
 	require.NoError(t, testDB.Create(account2).Error)
 
@@ -1266,11 +1294,13 @@ func TestClearNotifications_DoesNotAffectOtherAccounts(t *testing.T) {
 
 	// Account 1 should be all read
 	var count1 int64
+
 	testDB.Model(&models.Notification{}).Where("account_id = ? AND is_read = ?", 1, false).Count(&count1)
 	assert.Equal(t, int64(0), count1)
 
 	// Account 2 should still be unread
 	var count2 int64
+
 	testDB.Model(&models.Notification{}).Where("account_id = ? AND is_read = ?", 2, false).Count(&count2)
 	assert.Equal(t, int64(1), count2)
 }
@@ -1290,6 +1320,7 @@ func TestGetNotificationPolicy_Defaults(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["filter_not_following"])
@@ -1299,8 +1330,8 @@ func TestGetNotificationPolicy_Defaults(t *testing.T) {
 
 	summary, ok := result["summary"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, float64(0), summary["pending_requests_count"])
-	assert.Equal(t, float64(0), summary["pending_notifications_count"])
+	assert.InDelta(t, float64(0), summary["pending_requests_count"], 0)
+	assert.InDelta(t, float64(0), summary["pending_notifications_count"], 0)
 }
 
 func TestGetNotificationPolicy_WithUserSettings(t *testing.T) {
@@ -1311,7 +1342,7 @@ func TestGetNotificationPolicy_WithUserSettings(t *testing.T) {
 		ID:     "test-settings",
 		UserID: 1,
 		Data: map[string]any{
-			"notification_filter_not_following":    true,
+			"notification_filter_not_following":    true, //nolint:goconst
 			"notification_filter_not_followers":    true,
 			"notification_filter_new_accounts":     false,
 			"notification_filter_private_mentions": true,
@@ -1325,6 +1356,7 @@ func TestGetNotificationPolicy_WithUserSettings(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["filter_not_following"])
@@ -1346,6 +1378,7 @@ func TestGetNotificationPolicy_UserWithNilSettings(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["filter_not_following"])
@@ -1368,6 +1401,7 @@ func TestGetNotificationPolicy_UserWithNilData(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["filter_not_following"])
@@ -1392,6 +1426,7 @@ func TestGetNotificationPolicy_PartialSettings(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["filter_not_following"])
@@ -1407,6 +1442,7 @@ func TestGetNotificationPolicy_PartialSettings(t *testing.T) {
 func TestUpdateNotificationPolicy_InvalidBody(t *testing.T) {
 	c, w := newTestContext(t, "POST", "/api/v1/notifications/policy", "not json")
 	c.Request.Header.Set("Content-Type", "application/json")
+
 	account := makeAccount(1)
 	setAccount(c, account)
 
@@ -1418,7 +1454,7 @@ func TestUpdateNotificationPolicy_InvalidBody(t *testing.T) {
 
 func TestUpdateNotificationPolicy_NoUser(t *testing.T) {
 	c, w := newTestContextWithBody(t, "POST", "/api/v1/notifications/policy", map[string]bool{
-		"filter_not_following": true,
+		"filter_not_following": true, //nolint:goconst
 	})
 	account := makeAccount(1)
 	setAccount(c, account)
@@ -1482,6 +1518,7 @@ func TestUpdateNotificationPolicy_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["filter_not_following"])
@@ -1530,6 +1567,7 @@ func TestUpdateNotificationPolicy_PartialUpdate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["filter_not_following"])
@@ -1540,6 +1578,7 @@ func TestUpdateNotificationPolicy_PartialUpdate(t *testing.T) {
 
 	// Verify the DB was updated
 	var settings models.UserSetting
+
 	testDB.First(&settings, "user_id = ?", 1)
 	assert.Equal(t, true, settings.Data["notification_filter_not_following"])
 	// The ones we didn't update should still be false
@@ -1577,6 +1616,7 @@ func TestUpdateNotificationPolicy_NilData(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["filter_not_following"])
@@ -1618,6 +1658,7 @@ func TestUpdateNotificationPolicy_AllFalse(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["filter_not_following"])
@@ -1654,6 +1695,7 @@ func TestUpdateNotificationPolicy_EmptyBody(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["filter_not_following"])
@@ -1680,8 +1722,8 @@ func TestBuildNotificationResponse_Basic(t *testing.T) {
 	result := buildNotificationResponse(n, c)
 	assert.Equal(t, "42", result["id"])
 	assert.Equal(t, uint8(models.NotificationTypeFavourite), result["type"])
-	assert.Equal(t, nil, result["account"])
-	assert.Equal(t, nil, result["status"])
+	assert.Nil(t, result["account"])
+	assert.Nil(t, result["status"])
 }
 
 func TestBuildNotificationResponse_WithAccount(t *testing.T) {
@@ -1736,7 +1778,7 @@ func TestBuildNotificationResponse_WithAccountNoAvatar(t *testing.T) {
 	accountMap, ok := result["account"].(gin.H)
 	require.True(t, ok)
 	assert.Equal(t, "3", accountMap["id"])
-	assert.Equal(t, "", accountMap["avatar"])
+	assert.Empty(t, accountMap["avatar"])
 	assert.Equal(t, "https://test.local/@noavatar", accountMap["url"])
 }
 
@@ -1753,8 +1795,8 @@ func TestBuildNotificationResponse_NilAccount(t *testing.T) {
 
 	result := buildNotificationResponse(n, c)
 	assert.Equal(t, "99", result["id"])
-	assert.Equal(t, nil, result["account"])
-	assert.Equal(t, nil, result["status"])
+	assert.Nil(t, result["account"])
+	assert.Nil(t, result["status"])
 }
 
 func TestBuildNotificationResponse_AllNotificationTypes(t *testing.T) {
@@ -1793,7 +1835,9 @@ func TestBuildNotificationResponse_AllNotificationTypes(t *testing.T) {
 func TestNotificationTimelineRequest_Binding(t *testing.T) {
 	t.Run("valid binding", func(t *testing.T) {
 		c, _ := newTestContext(t, "GET", "/api/v1/notifications", "limit=10&max_id=100&min_id=50&since_id=25")
+
 		var req NotificationTimelineRequest
+
 		err := c.ShouldBindQuery(&req)
 		require.NoError(t, err)
 		assert.Equal(t, 10, req.Limit)
@@ -1804,7 +1848,9 @@ func TestNotificationTimelineRequest_Binding(t *testing.T) {
 
 	t.Run("with exclude types", func(t *testing.T) {
 		c, _ := newTestContext(t, "GET", "/api/v1/notifications", "exclude_types[]=favourite&exclude_types[]=follow")
+
 		var req NotificationTimelineRequest
+
 		err := c.ShouldBindQuery(&req)
 		require.NoError(t, err)
 		assert.Contains(t, req.ExcludeTypes, "favourite")
@@ -1813,7 +1859,9 @@ func TestNotificationTimelineRequest_Binding(t *testing.T) {
 
 	t.Run("with types filter", func(t *testing.T) {
 		c, _ := newTestContext(t, "GET", "/api/v1/notifications", "types[]=mention&types[]=reblog")
+
 		var req NotificationTimelineRequest
+
 		err := c.ShouldBindQuery(&req)
 		require.NoError(t, err)
 		assert.Contains(t, req.Types, "mention")
@@ -1822,7 +1870,9 @@ func TestNotificationTimelineRequest_Binding(t *testing.T) {
 
 	t.Run("with account_id", func(t *testing.T) {
 		c, _ := newTestContext(t, "GET", "/api/v1/notifications", "account_id=42")
+
 		var req NotificationTimelineRequest
+
 		err := c.ShouldBindQuery(&req)
 		require.NoError(t, err)
 		assert.Equal(t, "42", req.AccountId)

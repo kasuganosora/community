@@ -7,10 +7,10 @@ import (
 	"strconv"
 )
 
-// MediaAttachmentSerializer 媒体附件序列化器
+// MediaAttachmentSerializer 媒体附件序列化器.
 type MediaAttachmentSerializer struct{}
 
-// MediaAttachmentResponse 媒体附件响应
+// MediaAttachmentResponse 媒体附件响应.
 type MediaAttachmentResponse struct {
 	Id               string               `json:"id"`
 	Type             string               `json:"type"`
@@ -24,20 +24,20 @@ type MediaAttachmentResponse struct {
 	Blurhash         string               `json:"blurhash"`
 }
 
-// MediaAttachmentMeta 媒体元数据
+// MediaAttachmentMeta 媒体元数据.
 type MediaAttachmentMeta struct {
 	Focus    *MediaAttachmentFocus    `json:"focus,omitempty"`
 	Original *MediaAttachmentOriginal `json:"original,omitempty"`
 	Small    *MediaAttachmentSmall    `json:"small,omitempty"`
 }
 
-// MediaAttachmentFocus 焦点位置
+// MediaAttachmentFocus 焦点位置.
 type MediaAttachmentFocus struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 }
 
-// MediaAttachmentOriginal 原始尺寸
+// MediaAttachmentOriginal 原始尺寸.
 type MediaAttachmentOriginal struct {
 	Width    int     `json:"width,omitempty"`
 	Height   int     `json:"height,omitempty"`
@@ -47,7 +47,7 @@ type MediaAttachmentOriginal struct {
 	Bitrate  int     `json:"bitrate,omitempty"`
 }
 
-// MediaAttachmentSmall 缩略图尺寸
+// MediaAttachmentSmall 缩略图尺寸.
 type MediaAttachmentSmall struct {
 	Width  int     `json:"width,omitempty"`
 	Height int     `json:"height,omitempty"`
@@ -55,10 +55,10 @@ type MediaAttachmentSmall struct {
 	Aspect float64 `json:"aspect,omitempty"`
 }
 
-// ToMediaAttachment 转换为 Mastodon 格式的媒体附件
+// ToMediaAttachment 转换为 Mastodon 格式的媒体附件.
 func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse, error) {
 	if media == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// 获取基础 URL
@@ -106,6 +106,7 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		if meta.Original == nil {
 			meta.Original = &MediaAttachmentOriginal{}
 		}
+
 		meta.Original.Duration = *media.Duration
 	}
 
@@ -123,18 +124,20 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 	}, nil
 }
 
-// ToMediaAttachmentList 转换为 Mastodon 格式的媒体附件列表
+// ToMediaAttachmentList 转换为 Mastodon 格式的媒体附件列表.
 func ToMediaAttachmentList(medias models.MediaAttachments) ([]*MediaAttachmentResponse, error) {
 	if len(medias) == 0 {
 		return []*MediaAttachmentResponse{}, nil
 	}
 
 	results := make([]*MediaAttachmentResponse, 0, len(medias))
+
 	for _, media := range medias {
 		serialized, err := ToMediaAttachment(media)
 		if err != nil {
 			return nil, err
 		}
+
 		if serialized != nil {
 			results = append(results, serialized)
 		}

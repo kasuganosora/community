@@ -22,7 +22,7 @@ func (CreatePerformanceIndexesScript) Down(db *gorm.DB) (err error) {
 	return nil
 }
 
-// CreatePerformanceIndexes 创建性能优化索引
+// CreatePerformanceIndexes 创建性能优化索引.
 func CreatePerformanceIndexes() error {
 	log.Info("Creating performance indexes...")
 
@@ -127,16 +127,19 @@ func CreatePerformanceIndexes() error {
 	CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account_id ON push_subscriptions(account_id);
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Error("Failed to create performance indexes: %v", err)
+
 		return err
 	}
 
 	log.Info("Performance indexes created successfully")
+
 	return nil
 }
 
-// OptimizeDatabase 优化数据库
+// OptimizeDatabase 优化数据库.
 func OptimizeDatabase() error {
 	log.Info("Optimizing database...")
 
@@ -158,22 +161,29 @@ func OptimizeDatabase() error {
 
 	for _, table := range tables {
 		// 分析表
-		if err := db.GetDB().Exec("ANALYZE TABLE " + table).Error; err != nil {
+		err := db.GetDB().Exec("ANALYZE TABLE " + table).Error
+		if err != nil {
 			log.Warn("Failed to analyze table %s: %v", table, err)
 		}
 	}
 
 	log.Info("Database optimized successfully")
+
 	return nil
 }
 
-// RunPerformanceMigrations 运行性能优化迁移
+// RunPerformanceMigrations 运行性能优化迁移.
 func RunPerformanceMigrations() error {
-	if err := CreatePerformanceIndexes(); err != nil {
+	err := CreatePerformanceIndexes()
+	if err != nil {
 		return err
 	}
-	if err := OptimizeDatabase(); err != nil {
+
+	err = OptimizeDatabase()
+
+	if err != nil {
 		return err
 	}
+
 	return nil
 }

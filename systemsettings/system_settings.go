@@ -39,13 +39,13 @@ const (
 	KeyRegistrationMessage          = "config.registration.message"                     // 注册页面的提示信息
 	KeySiteContactEmail             = "contact.email"                                   // 网站联系邮箱
 	KeyRecaptchaSiteKey             = "config.recaptcha.site_key"                       // recaptcha site key (deprecated, use config.captcha.site_key)
-	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     // recaptcha secret key (deprecated, use config.captcha.secret_key)
+	KeyRecaptchaSecretKey           = "config.recaptcha.secret_key"                     //nolint:gosec // G101: config key name, not a credential
 	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha (deprecated, use config.captcha.enabled)
 
-	// 新的通用验证码配置
+	// 新的通用验证码配置.
 	KeyCaptchaProvider              = "config.captcha.provider"                 // 验证码供应商: recaptcha, cloudflare, hcaptcha, none
 	KeyCaptchaSiteKey               = "config.captcha.site_key"                 // 验证码站点密钥
-	KeyCaptchaSecretKey             = "config.captcha.secret_key"               // 验证码密钥
+	KeyCaptchaSecretKey             = "config.captcha.secret_key"               //nolint:gosec // G101: config key name, not a credential
 	KeyCaptchaEnabled               = "config.captcha.enabled"                  // 是否启用验证码
 	KeyCaptchaScoreThreshold        = "config.captcha.score_threshold"          // 验证码分数阈值 (0.0 - 1.0)
 	KeyRegistrationCheckEmail       = "config.registration.check_email"         // 是否检查邮箱
@@ -66,15 +66,19 @@ func Load() {
 	dbInstance := db.GetDB()
 	if dbInstance == nil {
 		loaded = true
+
 		return
 	}
 
 	rows := make([]models.SystemSetting, 0)
+
 	err := dbInstance.Model(&models.SystemSetting{}).Find(&rows).Error
 	if err != nil {
 		// Table may not exist in standalone/complement mode — skip gracefully
 		log.Error("systemsettings.Load: %v (continuing without system settings)", err)
+
 		loaded = true
+
 		return
 	}
 
@@ -152,9 +156,13 @@ func GetStrings(key string, defaultValue any) []string {
 		return nil
 	}
 
-	ret := make([]string, 0)
-	for _, item := range v.([]any) {
-		ret = append(ret, item.(string))
+	ret := make([]string, 0, len(settings))
+	for _, item := range v.([]any) { //nolint:forcetypeassert
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		ret = append(ret, s)
 	}
 
 	return ret
@@ -166,7 +174,7 @@ func GetMap(key string, defaultValue any) map[string]any {
 		return nil
 	}
 
-	return v.(map[string]any)
+	return v.(map[string]any) //nolint:forcetypeassert
 }
 
 func GetInts(key string, defaultValue any) []int {
@@ -176,8 +184,8 @@ func GetInts(key string, defaultValue any) []int {
 	}
 
 	ret := make([]int, 0)
-	for _, item := range v.([]any) {
-		ret = append(ret, item.(int))
+	for _, item := range v.([]any) { //nolint:forcetypeassert
+		ret = append(ret, item.(int)) //nolint:forcetypeassert
 	}
 
 	return ret
@@ -190,8 +198,8 @@ func GetInt64s(key string, defaultValue any) []int64 {
 	}
 
 	ret := make([]int64, 0)
-	for _, item := range v.([]any) {
-		ret = append(ret, item.(int64))
+	for _, item := range v.([]any) { //nolint:forcetypeassert
+		ret = append(ret, item.(int64)) //nolint:forcetypeassert
 	}
 
 	return ret
@@ -203,11 +211,12 @@ func Set(key string, val any) {
 
 func SaveToDB(keys ...string) (err error) {
 	rows := make([]models.SystemSetting, 0)
-	err = db.GetDB().Model(&models.SystemSetting{}).Where("key in (?)", keys).Find(&rows).Error
 
+	err = db.GetDB().Model(&models.SystemSetting{}).Where("key in (?)", keys).Find(&rows).Error
 	if err != nil {
 		err = errors.Wrapf(err, "failed to get system settings from db, keys: %v", keys)
-		return
+
+		return err
 	}
 
 	existsKeyMap := make(map[string]bool)
@@ -233,28 +242,28 @@ func SaveToDB(keys ...string) (err error) {
 
 		return
 	})
-
 	if err != nil {
 		err = errors.Wrapf(err, "failed to save system settings to db, keys: %v", keys)
-		return
+
+		return err
 	}
 
-	return
+	return err
 }
 
 // GetAllFlatStyle 获取所有扁平化样式
 // 例如： key a.b.c, val 1
-// 返回： map[a.b.c]1
+// 返回： map[a.b.c]1.
 func GetAllFlatStyle() (settings map[string]any) {
 	return settings
 }
 
 // GetAllTreeStyle 获取所有树形样式
 // 例如： key a.b.c, val 1
-// 返回： map[a][b][c]1
+// 返回： map[a][b][c]1.
 func GetAllTreeStyle() (settings map[string]any) {
 	ret := make(map[string]any)
-	keys := make([]string, 0)
+	keys := make([]string, 0, len(settings))
 
 	for key := range settings {
 		keys = append(keys, key)
@@ -268,9 +277,10 @@ func GetAllTreeStyle() (settings map[string]any) {
 		keyParts := strings.Split(key, ".")
 		keyLen := len(keyParts)
 
-		for i := 0; i < keyLen; i++ {
+		for i := range keyLen {
 			if i == keyLen-1 {
 				ret[keyParts[i]] = val
+
 				break
 			}
 
@@ -278,12 +288,11 @@ func GetAllTreeStyle() (settings map[string]any) {
 				ret[keyParts[i]] = make(map[string]any)
 			}
 
-			ret = ret[keyParts[i]].(map[string]any)
+			ret = ret[keyParts[i]].(map[string]any) //nolint:forcetypeassert
 		}
-
 	}
 
-	return
+	return settings
 }
 
 func GetDefaultPageSize() int {

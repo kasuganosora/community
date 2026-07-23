@@ -13,7 +13,7 @@ func TestGet_DevMode(t *testing.T) {
 	originalDevMode := config.C.DevMode
 
 	// Test with DevMode = "true"
-	config.C.DevMode = "true"
+	config.C.DevMode = "true" //nolint:goconst
 	result := Get()
 	assert.NotNil(t, result)
 

@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// callHandler recovers from panic("abort") used by gin.Abort()
+// callHandler recovers from panic("abort") used by gin.Abort().
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r == "abort" {
@@ -27,6 +27,7 @@ func callHandler(fn func(*gin.Context), c *gin.Context) {
 			_ = r
 		}
 	}()
+
 	fn(c)
 }
 
@@ -43,9 +44,12 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	tdb, err = testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err)
+
 	testDB = tdb.GormDB
 	database.SetTestDB(testDB)
 
@@ -91,6 +95,7 @@ func setupTestDB(t *testing.T) {
 
 func createTestUser(t *testing.T) *models.User {
 	t.Helper()
+
 	now := time.Now()
 	user := &models.User{
 		UserName:       "testuser_" + testutil.RandomString(8),
@@ -102,11 +107,13 @@ func createTestUser(t *testing.T) *models.User {
 	}
 	err := testDB.Create(user).Error
 	require.NoError(t, err)
+
 	return user
 }
 
 func createTestAccount(t *testing.T, userID uint64) *models.Account {
 	t.Helper()
+
 	now := time.Now()
 	account := &models.Account{
 		UserId:      userID,
@@ -120,13 +127,15 @@ func createTestAccount(t *testing.T, userID uint64) *models.Account {
 	}
 	err := testDB.Create(account).Error
 	require.NoError(t, err)
+
 	return account
 }
 
 func createTestList(t *testing.T, accountID uint64, visibility ...int) *models.List {
 	t.Helper()
+
 	list := &models.List{
-		Title:         "Test List",
+		Title:         "Test List", //nolint:goconst
 		AccountId:     accountID,
 		RepliesPolicy: models.ListRepliesPolicyList,
 		Visibility:    models.ListVisibilityPublic,
@@ -134,27 +143,33 @@ func createTestList(t *testing.T, accountID uint64, visibility ...int) *models.L
 	if len(visibility) > 0 {
 		list.Visibility = visibility[0]
 	}
+
 	err := testDB.Create(list).Error
 	require.NoError(t, err)
+
 	return list
 }
 
 func newContext(t *testing.T, method, path string, body []byte, account *models.Account) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+
 	var req *http.Request
 	if body != nil {
-		req = httptest.NewRequest(method, path, bytes.NewBuffer(body))
+		req = httptest.NewRequest(method, path, bytes.NewBuffer(body)) //nolint:noctx
 		req.Header.Set("Content-Type", "application/json")
 	} else {
-		req = httptest.NewRequest(method, path, nil)
+		req = httptest.NewRequest(method, path, nil) //nolint:noctx
 	}
+
 	c.Request = req
 	if account != nil {
 		c.Set("account", account)
 		c.Set("accountId", account.Id)
 	}
+
 	return c, w
 }
 
@@ -174,7 +189,7 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("valid list id", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/"+strconv.FormatUint(list.Id, 10), nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/"+strconv.FormatUint(list.Id, 10), nil) //nolint:noctx
 		c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(list.Id, 10)}}
 
 		result, abort := GetListByParam(c)
@@ -186,7 +201,7 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("invalid list id - zero", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/0", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/0", nil) //nolint:noctx
 		c.Params = gin.Params{{Key: "id", Value: "0"}}
 
 		result, abort := GetListByParam(c)
@@ -197,7 +212,7 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("invalid list id - negative number", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/-1", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/-1", nil) //nolint:noctx
 		c.Params = gin.Params{{Key: "id", Value: "-1"}}
 
 		result, abort := GetListByParam(c)
@@ -208,8 +223,8 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("invalid list id - not a number", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/abc", nil)
-		c.Params = gin.Params{{Key: "id", Value: "abc"}}
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/abc", nil) //nolint:noctx
+		c.Params = gin.Params{{Key: "id", Value: "abc"}}                   //nolint:goconst
 
 		result, abort := GetListByParam(c)
 		assert.True(t, abort)
@@ -219,7 +234,7 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("invalid list id - empty string", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/", nil) //nolint:noctx
 		c.Params = gin.Params{{Key: "id", Value: ""}}
 
 		result, abort := GetListByParam(c)
@@ -230,7 +245,7 @@ func TestGetListByParam(t *testing.T) {
 	t.Run("list not found", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/lists/99999", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/lists/99999", nil) //nolint:noctx
 		c.Params = gin.Params{{Key: "id", Value: "99999"}}
 
 		result, abort := GetListByParam(c)
@@ -250,8 +265,8 @@ func TestCreateList(t *testing.T) {
 	t.Run("success - public with list policy", func(t *testing.T) {
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         "My Public List",
-			RepliesPolicy: "list",
-			Visibility:    "public",
+			RepliesPolicy: "list",   //nolint:goconst
+			Visibility:    "public", //nolint:goconst
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/lists", body, account)
 		callHandler(CreateList, c)
@@ -260,6 +275,7 @@ func TestCreateList(t *testing.T) {
 
 		// Verify the list was created
 		var lists []models.List
+
 		testDB.Where("account_id = ?", account.Id).Find(&lists)
 		assert.GreaterOrEqual(t, len(lists), 1)
 	})
@@ -268,7 +284,7 @@ func TestCreateList(t *testing.T) {
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         "My Private List",
 			RepliesPolicy: "followed",
-			Visibility:    "private",
+			Visibility:    "private", //nolint:goconst
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/lists", body, account)
 		callHandler(CreateList, c)
@@ -280,7 +296,7 @@ func TestCreateList(t *testing.T) {
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         "My Followers List",
 			RepliesPolicy: "none",
-			Visibility:    "followers",
+			Visibility:    "followers", //nolint:goconst
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/lists", body, account)
 		callHandler(CreateList, c)
@@ -313,7 +329,7 @@ func TestCreateList(t *testing.T) {
 	t.Run("invalid replies policy", func(t *testing.T) {
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         "Test List",
-			RepliesPolicy: "invalid",
+			RepliesPolicy: "invalid", //nolint:goconst
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/lists", body, account)
 		callHandler(CreateList, c)
@@ -338,6 +354,7 @@ func TestCreateList(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         "Test List",
 			RepliesPolicy: "list",
@@ -358,6 +375,7 @@ func TestCreateList(t *testing.T) {
 		for i := range title {
 			title[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         string(title),
 			RepliesPolicy: "list",
@@ -373,6 +391,7 @@ func TestCreateList(t *testing.T) {
 		for i := range title {
 			title[i] = 'a'
 		}
+
 		body, _ := json.Marshal(CreateListRequest{
 			Title:         string(title),
 			RepliesPolicy: "list",
@@ -492,7 +511,8 @@ func TestGetMyLists(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var lists []interface{}
+		var lists []any
+
 		err := json.Unmarshal(w.Body.Bytes(), &lists)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(lists), 2)
@@ -512,6 +532,7 @@ func TestGetMyLists(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r)
 		}()
+
 		c, _ := newContext(t, http.MethodGet, "/api/v1/lists", nil, nil)
 		callHandler(GetMyLists, c)
 	})
@@ -539,6 +560,7 @@ func TestUpdateList(t *testing.T) {
 
 		// Verify title was updated
 		var updated models.List
+
 		testDB.First(&updated, list.Id)
 		assert.Equal(t, "Updated Title", updated.Title)
 	})
@@ -567,6 +589,7 @@ func TestUpdateList(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var updated models.List
+
 		testDB.First(&updated, list.Id)
 		assert.Equal(t, models.ListVisibilityPrivate, updated.Visibility)
 	})
@@ -600,7 +623,7 @@ func TestUpdateList(t *testing.T) {
 	})
 
 	t.Run("invalid list id - non numeric", func(t *testing.T) {
-		title := "Updated"
+		title := "Updated" //nolint:goconst
 		body, _ := json.Marshal(UpdateListRequest{Title: &title})
 		c, w := newContext(t, http.MethodPut, "/api/v1/lists/abc", body, account)
 		setParams(c, gin.Params{{Key: "id", Value: "abc"}})
@@ -701,8 +724,9 @@ func TestDeleteList(t *testing.T) {
 
 		// Verify list is soft-deleted
 		var found models.List
+
 		err := testDB.Unscoped().First(&found, list.Id).Error
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, found.DeletedAt)
 	})
 
@@ -716,6 +740,7 @@ func TestDeleteList(t *testing.T) {
 
 		// Try to find it with normal query
 		var found models.List
+
 		err := testDB.First(&found, list.Id).Error
 		assert.Error(t, err)
 	})
@@ -872,6 +897,7 @@ func TestAddAccountToList(t *testing.T) {
 
 		// Verify account was added
 		var count int64
+
 		testDB.Model(&models.ListAccount{}).Where("list_id = ? AND account_id = ?", list.Id, otherAccount.Id).Count(&count)
 		assert.Equal(t, int64(1), count)
 	})
@@ -986,6 +1012,7 @@ func TestAddAccountToList(t *testing.T) {
 
 		// Verify third account was added
 		var count int64
+
 		testDB.Model(&models.ListAccount{}).Where("list_id = ? AND account_id = ?", list.Id, thirdAccount.Id).Count(&count)
 		assert.Equal(t, int64(1), count)
 	})
@@ -1011,7 +1038,7 @@ func TestRemoveAccountFromList(t *testing.T) {
 		c, w := newContext(t, http.MethodDelete, "/api/v1/lists/"+strconv.FormatUint(list.Id, 10)+"/accounts/"+strconv.FormatUint(otherAccount.Id, 10), nil, account)
 		setParams(c, gin.Params{
 			{Key: "id", Value: strconv.FormatUint(list.Id, 10)},
-			{Key: "account_id", Value: strconv.FormatUint(otherAccount.Id, 10)},
+			{Key: "account_id", Value: strconv.FormatUint(otherAccount.Id, 10)}, //nolint:goconst
 		})
 		callHandler(RemoveAccountFromList, c)
 
@@ -1019,6 +1046,7 @@ func TestRemoveAccountFromList(t *testing.T) {
 
 		// Verify account was removed
 		var count int64
+
 		testDB.Model(&models.ListAccount{}).Where("list_id = ? AND account_id = ?", list.Id, otherAccount.Id).Count(&count)
 		assert.Equal(t, int64(0), count)
 	})
@@ -1171,6 +1199,7 @@ func TestFollowList(t *testing.T) {
 
 		// Verify follow record was created
 		var count int64
+
 		testDB.Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, otherAccount.Id).Count(&count)
 		assert.Equal(t, int64(1), count)
 	})
@@ -1244,6 +1273,7 @@ func TestUnfollowList(t *testing.T) {
 
 		// Verify follow record was removed
 		var count int64
+
 		testDB.Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).Count(&count)
 		assert.Equal(t, int64(0), count)
 	})
@@ -1297,6 +1327,7 @@ func TestUnfollowList(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var count int64
+
 		testDB.Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", newList.Id, otherAccount.Id).Count(&count)
 		assert.Equal(t, int64(0), count)
 	})

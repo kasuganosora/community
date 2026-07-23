@@ -12,7 +12,8 @@ import (
 func Logout(c *gin.Context) {
 	_, exists := c.Get("user")
 	if !exists {
-		c.JSON(401, gin.H{"error": "Unauthorized"})
+		c.JSON(401, gin.H{"error": "Unauthorized"}) //nolint:goconst
+
 		return
 	}
 
@@ -25,6 +26,7 @@ func Logout(c *gin.Context) {
 
 	if tokenStr == "" {
 		c.JSON(401, gin.H{"error": "Unauthorized"})
+
 		return
 	}
 
@@ -38,21 +40,25 @@ func Logout(c *gin.Context) {
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(500, gin.H{"error": "Internal Server Error"})
+
 			err = errors.Wrap(err, "[Logout] GetTokenByTokenStr error")
 			log.ErrorV(err)
+
 			return
 		}
 	} else {
 		err = db.GetDB().Delete(token).Error
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Internal Server Error"})
+
 			err = errors.Wrap(err, "[Logout] Delete token error")
 			log.ErrorV(err)
+
 			return
 		}
 	}
 
 	// 删除cookie
 	c.SetCookie("app-token", "", -1, "/", "", false, true)
-	c.JSON(200, gin.H{"message": "ok"})
+	c.JSON(200, gin.H{"message": "ok"}) //nolint:goconst
 }

@@ -1,4 +1,4 @@
-package timelines
+package timelines // "error" and similar strings are standard JSON keys, not worth constants
 
 import (
 	"strconv"
@@ -9,19 +9,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-// GetNotification handles GET /api/v1/notifications/:id
+// GetNotification handles GET /api/v1/notifications/:id.
 func GetNotification(c *gin.Context) {
 	notificationId := c.Param("id")
 	if notificationId == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "notification id required"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query notification
 	notification := &models.Notification{}
+
 	err := db.GetDB().Where("id = ? AND account_id = ?", notificationId, account.Id).
 		Preload("Account").
 		Preload("Account.Emojis").
@@ -29,9 +31,9 @@ func GetNotification(c *gin.Context) {
 		Preload("Status").
 		Preload("Status.Account").
 		First(notification).Error
-
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "notification not found"})
+
 		return
 	}
 
@@ -39,16 +41,17 @@ func GetNotification(c *gin.Context) {
 	c.JSON(200, buildNotificationResponse(notification, c))
 }
 
-// DismissNotification handles POST /api/v1/notifications/:id/dismiss
+// DismissNotification handles POST /api/v1/notifications/:id/dismiss.
 func DismissNotification(c *gin.Context) {
 	notificationId := c.Param("id")
 	if notificationId == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "notification id required"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Mark notification as dismissed/read
 	result := db.GetDB().Model(&models.Notification{}).
@@ -57,34 +60,39 @@ func DismissNotification(c *gin.Context) {
 
 	if result.Error != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
+
 	if result.RowsAffected == 0 {
 		c.AbortWithStatusJSON(404, gin.H{"error": "notification not found"})
+
 		return
 	}
 
 	c.JSON(200, gin.H{})
 }
 
-// ClearNotifications handles POST /api/v1/notifications/clear
+// ClearNotifications handles POST /api/v1/notifications/clear.
 func ClearNotifications(c *gin.Context) {
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Mark all notifications as read
-	if err := db.GetDB().Model(&models.Notification{}).
+	err := db.GetDB().Model(&models.Notification{}).
 		Where("account_id = ?", account.Id).
-		Update("is_read", true).Error; err != nil {
+		Update("is_read", true).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "clear notifications error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, gin.H{})
 }
 
-// NotificationPolicy represents notification policy settings
+// NotificationPolicy represents notification policy settings.
 type NotificationPolicy struct {
 	FilterNotFollowing    bool `json:"filter_not_following"`
 	FilterNotFollowers    bool `json:"filter_not_followers"`
@@ -92,10 +100,10 @@ type NotificationPolicy struct {
 	FilterPrivateMentions bool `json:"filter_private_mentions"`
 }
 
-// GetNotificationPolicy handles GET /api/v1/notifications/policy
+// GetNotificationPolicy handles GET /api/v1/notifications/policy.
 func GetNotificationPolicy(c *gin.Context) {
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Get notification policy from user settings
 	policy := NotificationPolicy{
@@ -110,12 +118,15 @@ func GetNotificationPolicy(c *gin.Context) {
 		if v, ok := account.User.Settings.Data["notification_filter_not_following"].(bool); ok {
 			policy.FilterNotFollowing = v
 		}
+
 		if v, ok := account.User.Settings.Data["notification_filter_not_followers"].(bool); ok {
 			policy.FilterNotFollowers = v
 		}
+
 		if v, ok := account.User.Settings.Data["notification_filter_new_accounts"].(bool); ok {
 			policy.FilterNewAccounts = v
 		}
+
 		if v, ok := account.User.Settings.Data["notification_filter_private_mentions"].(bool); ok {
 			policy.FilterPrivateMentions = v
 		}
@@ -133,7 +144,7 @@ func GetNotificationPolicy(c *gin.Context) {
 	})
 }
 
-// UpdateNotificationPolicyRequest represents the request for updating notification policy
+// UpdateNotificationPolicyRequest represents the request for updating notification policy.
 type UpdateNotificationPolicyRequest struct {
 	FilterNotFollowing    *bool `json:"filter_not_following"`
 	FilterNotFollowers    *bool `json:"filter_not_followers"`
@@ -141,16 +152,18 @@ type UpdateNotificationPolicyRequest struct {
 	FilterPrivateMentions *bool `json:"filter_private_mentions"`
 }
 
-// UpdateNotificationPolicy handles POST /api/v1/notifications/policy
+// UpdateNotificationPolicy handles POST /api/v1/notifications/policy.
 func UpdateNotificationPolicy(c *gin.Context) {
 	var req UpdateNotificationPolicyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request body"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Update user settings
 	if account.User != nil && account.User.Settings != nil {
@@ -161,20 +174,25 @@ func UpdateNotificationPolicy(c *gin.Context) {
 		if req.FilterNotFollowing != nil {
 			account.User.Settings.Data["notification_filter_not_following"] = *req.FilterNotFollowing
 		}
+
 		if req.FilterNotFollowers != nil {
 			account.User.Settings.Data["notification_filter_not_followers"] = *req.FilterNotFollowers
 		}
+
 		if req.FilterNewAccounts != nil {
 			account.User.Settings.Data["notification_filter_new_accounts"] = *req.FilterNewAccounts
 		}
+
 		if req.FilterPrivateMentions != nil {
 			account.User.Settings.Data["notification_filter_private_mentions"] = *req.FilterPrivateMentions
 		}
 
 		// Save settings
-		if err := db.GetDB().Save(account.User.Settings).Error; err != nil {
+		err := db.GetDB().Save(account.User.Settings).Error
+		if err != nil {
 			_ = c.Error(errors.Wrap(err, "save notification policy error"))
 			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 			return
 		}
 	}
@@ -191,7 +209,7 @@ func UpdateNotificationPolicy(c *gin.Context) {
 	})
 }
 
-// buildNotificationResponse builds a notification response
+// buildNotificationResponse builds a notification response.
 func buildNotificationResponse(notification *models.Notification, c *gin.Context) gin.H {
 	response := gin.H{
 		"id":         strconv.FormatUint(notification.Id, 10),

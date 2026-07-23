@@ -61,10 +61,12 @@ func ToFollowStatus(account *models.Account, follow *models.Follow) (ret *Follow
 
 	if follow != nil {
 		ret.Following = true
+
 		var isReblog bool
 		if follow.Properties["reblogs"] != nil {
-			isReblog = follow.Properties["reblogs"].(bool)
+			isReblog = follow.Properties["reblogs"].(bool) //nolint:forcetypeassert
 		}
+
 		ret.ShowingReblogs = isReblog
 	}
 

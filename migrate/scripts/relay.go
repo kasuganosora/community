@@ -20,7 +20,7 @@ func (MigrateRelayTableScript) Down(db *gorm.DB) (err error) {
 	return db.Exec("DROP TABLE IF EXISTS relays").Error
 }
 
-// MigrateRelayTable 中继表迁移
+// MigrateRelayTable 中继表迁移.
 func MigrateRelayTable() error {
 	log.Info("Running relay table migration...")
 
@@ -41,11 +41,14 @@ func MigrateRelayTable() error {
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 	`
 
-	if err := db.GetDB().Exec(sql).Error; err != nil {
+	err := db.GetDB().Exec(sql).Error
+	if err != nil {
 		log.Info(fmt.Sprintf("Failed to create relays table: %v", err))
+
 		return err
 	}
 
 	log.Info("Relay table migration completed successfully")
+
 	return nil
 }

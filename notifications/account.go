@@ -11,26 +11,32 @@ import (
 
 func init() {
 	event.Register("account", "follow", &event.Handler{Exec: func(event event.Event) bool {
-		follow := event.Data.(*models.Follow)
+		follow := event.Data.(*models.Follow) //nolint:forcetypeassert
 		go followNotification(follow)
+
 		return true
 	}})
 
 	event.Register("account", "follow-request", &event.Handler{Exec: func(event event.Event) bool {
-		follow := event.Data.(*models.Follow)
+		follow := event.Data.(*models.Follow) //nolint:forcetypeassert
 		go followRequestNotification(follow)
+
 		return true
 	}})
 }
 
 func followRequestNotification(follow *models.Follow) {
 	var err error
+
 	if follow.Account == nil {
 		follow.Account = &models.Account{}
+
 		err = db.GetDB().Model(follow).Association("Account").Find(follow.Account)
+
 		if err != nil {
 			err = errors.Wrap(err, fmt.Sprintf("[followRequestNotification] get account faild, follow id %d", follow.Id))
 			log.ErrorV(err)
+
 			return
 		}
 	}
@@ -48,22 +54,26 @@ func followRequestNotification(follow *models.Follow) {
 	}
 
 	err = db.GetDB().Create(nf).Error
-
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[followRequestNotification] create notification faild, follow id %d", follow.Id))
 		log.ErrorV(err)
+
 		return
 	}
 }
 
 func followNotification(follow *models.Follow) {
 	var err error
+
 	if follow.Account == nil {
 		follow.Account = &models.Account{}
+
 		err = db.GetDB().Model(follow).Association("Account").Find(follow.Account)
+
 		if err != nil {
 			err = errors.Wrap(err, fmt.Sprintf("[followNotification] get account faild, follow id %d", follow.Id))
 			log.ErrorV(err)
+
 			return
 		}
 	}
@@ -81,10 +91,10 @@ func followNotification(follow *models.Follow) {
 	}
 
 	err = db.GetDB().Create(nf).Error
-
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[followNotification] create notification faild, follow id %d", follow.Id))
 		log.ErrorV(err)
+
 		return
 	}
 }

@@ -61,7 +61,7 @@ func TestAnnouncement_Fields(t *testing.T) {
 	now := time.Now()
 	a := Announcement{
 		Id:                1,
-		Text:              "Hello world",
+		Text:              "Hello world", //nolint:goconst
 		Published:         true,
 		AllDay:            true,
 		ScheduledAt:       &now,

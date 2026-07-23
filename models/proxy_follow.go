@@ -2,14 +2,14 @@ package models
 
 import "time"
 
-// ProxyFollow status constants
+// ProxyFollow status constants.
 const (
 	ProxyFollowStatusPending  = 0
 	ProxyFollowStatusAccepted = 1
 	ProxyFollowStatusRejected = 2
 )
 
-// ProxyFollow reason constants
+// ProxyFollow reason constants.
 const (
 	ProxyFollowReasonList = "list"
 )
@@ -18,13 +18,13 @@ const (
 // Multiple reasons can reference the same remote account (e.g., multiple lists).
 // When all references are removed, the proxy unfollow is triggered.
 type ProxyFollow struct {
-	ID               uint64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	AccountID        uint64     `json:"account_id" gorm:"not null;index:idx_proxy_account;uniqueIndex:idx_proxy_unique"`
-	Reason           string     `json:"reason" gorm:"type:varchar(32);not null;uniqueIndex:idx_proxy_unique"`
-	ReasonID         uint64     `json:"reason_id" gorm:"not null;uniqueIndex:idx_proxy_unique"`
-	FollowActivityID string     `json:"follow_activity_id" gorm:"type:varchar(512)"`
-	Status           int        `json:"status" gorm:"not null;default:0"`
-	CreatedAt        *time.Time `json:"created_at" gorm:"autoCreateTime"`
+	ID               uint64     `gorm:"primaryKey;autoIncrement"                                      json:"id"`
+	AccountID        uint64     `gorm:"not null;index:idx_proxy_account;uniqueIndex:idx_proxy_unique" json:"account_id"`
+	Reason           string     `gorm:"type:varchar(32);not null;uniqueIndex:idx_proxy_unique"        json:"reason"`
+	ReasonID         uint64     `gorm:"not null;uniqueIndex:idx_proxy_unique"                         json:"reason_id"`
+	FollowActivityID string     `gorm:"type:varchar(512)"                                             json:"follow_activity_id"`
+	Status           int        `gorm:"not null;default:0"                                            json:"status"`
+	CreatedAt        *time.Time `gorm:"autoCreateTime"                                                json:"created_at"`
 }
 
 func (ProxyFollow) TableName() string {
@@ -33,11 +33,11 @@ func (ProxyFollow) TableName() string {
 
 // AccountKey stores RSA keypairs for local accounts (used for HTTP Signatures).
 type AccountKey struct {
-	ID         uint64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	AccountID  uint64     `json:"account_id" gorm:"not null;uniqueIndex"`
-	PublicKey  string     `json:"-" gorm:"type:text;not null"`
-	PrivateKey string     `json:"-" gorm:"type:text;not null"`
-	CreatedAt  *time.Time `json:"created_at" gorm:"autoCreateTime"`
+	ID         uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountID  uint64     `gorm:"not null;uniqueIndex"     json:"account_id"`
+	PublicKey  string     `gorm:"type:text;not null"       json:"-"`
+	PrivateKey string     `gorm:"type:text;not null"       json:"-"`
+	CreatedAt  *time.Time `gorm:"autoCreateTime"           json:"created_at"`
 }
 
 func (AccountKey) TableName() string {

@@ -11,7 +11,7 @@ func NotificationStreaming(c *gin.Context) {
 	timeline := &notification.NotificationTimeline{Account: account}
 
 	procHandle := func(data any) (event, payload string, err error) {
-		return serializerNotificationEvent(account, data.(string))
+		return serializerNotificationEvent(account, data.(string)) //nolint:forcetypeassert
 	}
 
 	startSseService(c, procHandle, timeline)

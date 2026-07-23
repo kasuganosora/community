@@ -11,17 +11,20 @@ import (
 
 type ListStreamingRequest struct {
 	OnlyMedia bool   `form:"only_media"`
-	List      string `form:"list" binding:"required"`
+	List      string `binding:"required" form:"list"`
 }
 
 func ListStreaming(c *gin.Context) {
-	var req ListStreamingRequest
-	var err error
+	var (
+		req ListStreamingRequest
+		err error
+	)
 
 	err = c.ShouldBindQuery(&req)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	var listId uint64
+
 	listId, err = strconv.ParseUint(req.List, 10, 64)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid list id"})
 
@@ -42,7 +45,7 @@ func ListStreaming(c *gin.Context) {
 	}
 
 	procHandle := func(data any) (event, payload string, err error) {
-		return serializerStatusEvent(account, data.(string))
+		return serializerStatusEvent(account, data.(string)) //nolint:forcetypeassert
 	}
 
 	startSseService(c, procHandle, timeline)

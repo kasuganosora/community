@@ -22,17 +22,19 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	timelineKey := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
 
 	if redisConn.Exists(ctx, timelineKey).Val() == 0 {
-		if err = timeline.Rebuild(); err != nil {
-			return
+		err = timeline.Rebuild()
+		if err != nil {
+			return statuses, err
 		}
 	}
 
 	if params == nil {
 		// 从缓存中取出timeline status id
 		var statusesIdStr []string
+
 		statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: 0, Stop: -1, Rev: true}).Result()
 		if err != nil {
-			return
+			return statuses, err
 		}
 
 		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
@@ -59,15 +61,15 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	if len(statusesId) == 0 {
 		// 如果是第一页，那么就是真的没有数据
 		if params == nil || (params.MaxId == 0 && params.MinId == 0 && params.SinceId == 0) {
-			return
+			return statuses, err
 		}
 
 		// 如果不是一页就是超过redis缓存的范围了，这时候就需要从数据库里取数据了
 		query := db.GetDB().Model(&models.Status{})
-		query, err = newFilterCondition(query)
 
+		query, err = newFilterCondition(query)
 		if err != nil {
-			return
+			return statuses, err
 		}
 
 		if params.MaxId > 0 {
@@ -83,22 +85,21 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		}
 
 		if params.Limit > 0 {
-			query = query.Limit(int(params.Limit))
+			query = query.Limit(int(params.Limit)) //nolint:gosec // G115: reviewed and safe
 		}
 
 		err = query.Pluck("statuses.id", &statusesId).Error
-
 		if err != nil {
-			return
+			return statuses, err
 		}
 	}
 
 	// 还是没有找到，返回空
 	if len(statusesId) == 0 {
-		return
+		return statuses, err
 	}
 
-	if params != nil && params.Limit > 0 && len(statusesId) > int(params.Limit) {
+	if params != nil && params.Limit > 0 && len(statusesId) > int(params.Limit) { //nolint:gosec // G115: reviewed and safe
 		statusesId = statusesId[:params.Limit]
 	}
 
@@ -128,9 +129,8 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		Preload("Reblog.Tags")
 
 	err = query.Where("id in (?)", statusesId).Order("statuses.id desc").Find(&statuses).Error
-
 	if err != nil {
-		return
+		return statuses, err
 	}
 
 	// 如果有设置后置过滤器，那么就过滤一下
@@ -142,5 +142,5 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		status.SetAllExtendFieldsLoaded()
 	}
 
-	return
+	return statuses, err
 }

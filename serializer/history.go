@@ -39,6 +39,7 @@ func ToHistoryStatus(dbConn *gorm.DB, history *models.StatusHistory) (ret *Histo
 	ret.Emojis = ToEmojis(emojis)
 
 	attachments := models.Attachments{}
+
 	err = dbConn.Model(&models.Attachment{}).Where("id in ?", history.MediaAttachmentsIds).Find(attachments).Error
 	if err != nil {
 		return
@@ -61,16 +62,17 @@ func ToHistoryStatuses(dbConn *gorm.DB, histories []*models.StatusHistory) (ret 
 	}
 
 	emojis := models.Emojis{}
-	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojiIds).Find(emojis).Error
 
+	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojiIds).Find(emojis).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	attachments := models.Attachments{}
+
 	err = dbConn.Model(&models.Attachment{}).Where("id in ?", AttachmentIds).Find(attachments).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	attachmentsMap := utils.GetStructsMap[uint64](attachments, "Id")
@@ -78,24 +80,29 @@ func ToHistoryStatuses(dbConn *gorm.DB, histories []*models.StatusHistory) (ret 
 
 	for _, history := range histories {
 		item := ToHistoryStatusBase(history)
+
 		_emojis := make([]*Emoji, 0, len(history.EmojisIds))
+
 		for _, emojiId := range history.EmojisIds {
 			if emoji, ok := emojisMap[emojiId]; ok {
 				_emojis = append(_emojis, ToEmoji(emoji))
 			}
 		}
+
 		item.Emojis = _emojis
 
 		_attachments := make([]*Attachment, 0, len(history.MediaAttachmentsIds))
+
 		for _, attachmentId := range history.MediaAttachmentsIds {
 			if attachment, ok := attachmentsMap[attachmentId]; ok {
 				_attachments = append(_attachments, ToAttachment(attachment))
 			}
 		}
+
 		item.MediaAttachments = _attachments
 
 		ret = append(ret, item)
 	}
 
-	return
+	return ret, err
 }

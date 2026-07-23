@@ -12,9 +12,10 @@ import (
 	"strconv"
 )
 
-// DomainBlocksList handles GET /api/v1/domain_blocks
+// DomainBlocksList handles GET /api/v1/domain_blocks.
 func DomainBlocksList(c *gin.Context) {
 	limit := 80
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
 			limit = parsed
@@ -22,7 +23,7 @@ func DomainBlocksList(c *gin.Context) {
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query domain blocks
 	query := db.GetDB().Model(&models.Block{}).
@@ -37,14 +38,17 @@ func DomainBlocksList(c *gin.Context) {
 	}
 
 	blocks := make([]*models.Block, 0)
-	if err := query.Limit(limit).Find(&blocks).Error; err != nil {
+	err := query.Limit(limit).Find(&blocks).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get domain blocks error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 
 	// Extract domains
 	domains := make([]string, 0, len(blocks))
+
 	for _, b := range blocks {
 		if b.TargetDomain != "" {
 			domains = append(domains, b.TargetDomain)
@@ -54,12 +58,12 @@ func DomainBlocksList(c *gin.Context) {
 	c.JSON(200, domains)
 }
 
-// DomainBlockRequest represents the request for blocking a domain
+// DomainBlockRequest represents the request for blocking a domain.
 type DomainBlockRequest struct {
-	Domain string `json:"domain" binding:"required"`
+	Domain string `binding:"required" json:"domain"`
 }
 
-// BlockDomain handles POST /api/v1/domain_blocks
+// BlockDomain handles POST /api/v1/domain_blocks.
 func BlockDomain(c *gin.Context) {
 	var req DomainBlockRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,6 +71,7 @@ func BlockDomain(c *gin.Context) {
 		req.Domain = c.PostForm("domain")
 		if req.Domain == "" {
 			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required"})
+
 			return
 		}
 	}
@@ -75,6 +80,7 @@ func BlockDomain(c *gin.Context) {
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
 	if domain == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty"})
+
 		return
 	}
 
@@ -82,9 +88,11 @@ func BlockDomain(c *gin.Context) {
 	if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
 		parsedURL, err := url.Parse(domain)
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"})
+			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"}) //nolint:goconst
+
 			return
 		}
+
 		domain = parsedURL.Host
 	}
 
@@ -95,23 +103,27 @@ func BlockDomain(c *gin.Context) {
 
 	if domain == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"})
+
 		return
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Check if already blocked
 	block := &models.Block{}
+
 	err := db.GetDB().Where("account_id = ? AND target_domain = ? AND type = ?", account.Id, domain, models.BlockTypeDomain).First(block).Error
 	if err == nil {
 		// Already blocked
 		c.JSON(200, gin.H{})
+
 		return
 	}
 
 	// Create domain block
 	now := time.Now()
+
 	block = &models.Block{
 		AccountId:    account.Id,
 		Type:         models.BlockTypeDomain,
@@ -121,20 +133,23 @@ func BlockDomain(c *gin.Context) {
 	if err := db.GetDB().Create(block).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create domain block error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, gin.H{})
 }
 
-// UnblockDomain handles DELETE /api/v1/domain_blocks
+// UnblockDomain handles DELETE /api/v1/domain_blocks.
 func UnblockDomain(c *gin.Context) {
 	var req DomainBlockRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		// Also try form binding
 		req.Domain = c.PostForm("domain")
 		if req.Domain == "" {
 			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required"})
+
 			return
 		}
 	}
@@ -143,6 +158,7 @@ func UnblockDomain(c *gin.Context) {
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
 	if domain == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty"})
+
 		return
 	}
 
@@ -151,8 +167,10 @@ func UnblockDomain(c *gin.Context) {
 		parsedURL, err := url.Parse(domain)
 		if err != nil {
 			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"})
+
 			return
 		}
+
 		domain = parsedURL.Host
 	}
 
@@ -162,11 +180,13 @@ func UnblockDomain(c *gin.Context) {
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Delete domain block
-	if err := db.GetDB().Where("account_id = ? AND target_domain = ? AND type = ?", account.Id, domain, models.BlockTypeDomain).Delete(&models.Block{}).Error; err != nil {
+	err = db.GetDB().Where("account_id = ? AND target_domain = ? AND type = ?", account.Id, domain, models.BlockTypeDomain).Delete(&models.Block{}).Error
+	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 

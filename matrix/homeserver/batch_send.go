@@ -1,7 +1,7 @@
 package homeserver
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
@@ -15,44 +15,44 @@ import (
 // ===== MSC2716: 批量发送端点实现 =====
 // 用于桥接器批量导入历史消息
 
-// BatchSendRequest 批量发送请求
+// BatchSendRequest 批量发送请求.
 type BatchSendRequest struct {
-	Events      []BatchEvent `json:"events" binding:"required"`
+	Events      []BatchEvent `binding:"required"                     json:"events"`
 	StateEvents []BatchEvent `json:"state_events_at_start,omitempty"`
 	PrevEventID string       `json:"prev_event_id,omitempty"`
 }
 
-// BatchEvent 批量事件
+// BatchEvent 批量事件.
 type BatchEvent struct {
-	Type      string                 `json:"type"`
-	Sender    string                 `json:"sender"`
-	Content   map[string]interface{} `json:"content"`
-	Timestamp int64                  `json:"timestamp,omitempty"`
-	Unsigned  map[string]interface{} `json:"unsigned,omitempty"`
-	StateKey  *string                `json:"state_key,omitempty"`
+	Type      string         `json:"type"`
+	Sender    string         `json:"sender"`
+	Content   map[string]any `json:"content"`
+	Timestamp int64          `json:"timestamp,omitempty"`
+	Unsigned  map[string]any `json:"unsigned,omitempty"`
+	StateKey  *string        `json:"state_key,omitempty"`
 }
 
-// BatchSendResponse 批量发送响应
+// BatchSendResponse 批量发送响应.
 type BatchSendResponse struct {
 	EventIDs []string `json:"event_ids"`
 }
 
-// BatchSendService 批量发送服务
+// BatchSendService 批量发送服务.
 type BatchSendService struct {
 	hs *HomeServer
 }
 
-// NewBatchSendService 创建批量发送服务
+// NewBatchSendService 创建批量发送服务.
 func NewBatchSendService(hs *HomeServer) *BatchSendService {
 	return &BatchSendService{hs: hs}
 }
 
-// BatchSend 批量发送事件到房间
+// BatchSend 批量发送事件到房间.
 func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*BatchSendResponse, error) {
 	// 验证房间存在
 	_, err := bss.hs.Room.GetRoom(roomID)
 	if err != nil {
-		return nil, fmt.Errorf("room not found")
+		return nil, errors.New("room not found")
 	}
 
 	// 获取或创建虚拟用户（用于桥接）
@@ -64,6 +64,7 @@ func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*B
 	})
 
 	eventIDs := make([]string, 0, len(req.Events))
+
 	var prevEvents []string
 
 	// 如果指定了前序事件，使用它
@@ -83,8 +84,10 @@ func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*B
 			eventID, err := bss.createEvent(roomID, &stateEvent, prevEvents, depth, true)
 			if err != nil {
 				log.Error("Failed to create state event: %v", err)
+
 				continue
 			}
+
 			eventIDs = append(eventIDs, eventID)
 			prevEvents = []string{eventID}
 			depth++
@@ -96,8 +99,10 @@ func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*B
 		eventID, err := bss.createEvent(roomID, &event, prevEvents, depth, false)
 		if err != nil {
 			log.Error("Failed to create event: %v", err)
+
 			continue
 		}
+
 		eventIDs = append(eventIDs, eventID)
 		prevEvents = []string{eventID}
 		depth++
@@ -107,7 +112,7 @@ func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*B
 	if len(eventIDs) > 0 {
 		lastEventID := eventIDs[len(eventIDs)-1]
 		now := time.Now().UnixMilli()
-		db.GetDB().Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(map[string]interface{}{
+		db.GetDB().Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(map[string]any{
 			"last_event_id": lastEventID,
 			"last_event_ts": now,
 		})
@@ -118,7 +123,7 @@ func (bss *BatchSendService) BatchSend(roomID string, req *BatchSendRequest) (*B
 	}, nil
 }
 
-// createEvent 创建单个事件
+// createEvent 创建单个事件.
 func (bss *BatchSendService) createEvent(roomID string, batchEvent *BatchEvent, prevEvents []string, depth int64, isState bool) (string, error) {
 	eventID := "$" + uuid.New().String() + ":" + bss.hs.Config.ServerName
 
@@ -144,7 +149,8 @@ func (bss *BatchSendService) createEvent(roomID string, batchEvent *BatchEvent, 
 	}
 
 	// 保存到数据库
-	if err := db.GetDB().Create(event).Error; err != nil {
+	err := db.GetDB().Create(event).Error
+	if err != nil {
 		return "", err
 	}
 
@@ -161,10 +167,11 @@ func (bss *BatchSendService) createEvent(roomID string, batchEvent *BatchEvent, 
 	return eventID, nil
 }
 
-// getLatestEvents 获取房间的最新事件
+// getLatestEvents 获取房间的最新事件.
 func (bss *BatchSendService) getLatestEvents(roomID string) []string {
 	var room MatrixRoom
-	if err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error; err != nil {
+	err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error
+	if err != nil {
 		return []string{}
 	}
 
@@ -175,48 +182,55 @@ func (bss *BatchSendService) getLatestEvents(roomID string) []string {
 	return []string{}
 }
 
-// getNextDepth 获取下一个深度
+// getNextDepth 获取下一个深度.
 func (bss *BatchSendService) getNextDepth(roomID string) int64 {
 	var maxDepth int64
+
 	db.GetDB().Model(&MatrixEvent{}).Where("room_id = ?", roomID).Select("COALESCE(MAX(depth), 0)").Scan(&maxDepth)
+
 	return maxDepth + 1
 }
 
-// extractDomain 从用户 ID 提取域名
+// extractDomain 从用户 ID 提取域名.
 func (bss *BatchSendService) extractDomain(userID string) string {
 	parts := splitUserID(userID)
 	if len(parts) == 2 {
 		return parts[1]
 	}
+
 	return bss.hs.Config.ServerName
 }
 
-// splitUserID 分割用户 ID
+// splitUserID 分割用户 ID.
 func splitUserID(userID string) []string {
 	// @user:server -> [@user, server]
 	atIndex := -1
+
 	for i, c := range userID {
 		if c == ':' {
 			atIndex = i
+
 			break
 		}
 	}
+
 	if atIndex == -1 {
 		return []string{userID}
 	}
+
 	return []string{userID[:atIndex], userID[atIndex+1:]}
 }
 
-// ImportHistoricalMessages 导入历史消息（桥接器专用）
+// ImportHistoricalMessages 导入历史消息（桥接器专用）.
 func (bss *BatchSendService) ImportHistoricalMessages(roomID string, events []BatchEvent, sender string) (*BatchSendResponse, error) {
 	// 验证发送者权限
 	// 只有应用服务或管理员可以导入历史消息
-
 	// 确保所有事件都有时间戳
 	for i := range events {
 		if events[i].Timestamp == 0 {
 			events[i].Timestamp = time.Now().UnixMilli()
 		}
+
 		if events[i].Sender == "" {
 			events[i].Sender = sender
 		}
@@ -231,7 +245,7 @@ func (bss *BatchSendService) ImportHistoricalMessages(roomID string, events []Ba
 
 // ===== HTTP Handlers =====
 
-// RegisterBatchSendRoutes 注册批量发送路由
+// RegisterBatchSendRoutes 注册批量发送路由.
 func RegisterBatchSendRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -253,7 +267,7 @@ func RegisterBatchSendRoutes(r gin.IRouter) {
 	}
 }
 
-// handleBatchSend 处理批量发送请求
+// handleBatchSend 处理批量发送请求.
 func handleBatchSend(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -263,27 +277,30 @@ func handleBatchSend(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
-			"error":   "User is not in the room",
+			"errcode": "M_FORBIDDEN",             //nolint:goconst
+			"error":   "User is not in the room", //nolint:goconst
 		})
+
 		return
 	}
 
 	var req BatchSendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	resp, err := hs.BatchSend.BatchSend(roomID, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 

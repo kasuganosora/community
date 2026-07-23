@@ -27,6 +27,7 @@ func TestNewClient(t *testing.T) {
 	// With private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
+
 	client = NewClient(privateKey, "https://example.com/users/test")
 	assert.NotNil(t, client.privateKey)
 }
@@ -42,30 +43,31 @@ func TestClientGet(t *testing.T) {
 		assert.Contains(t, r.Header.Get("User-Agent"), "Community")
 
 		w.Header().Set("Content-Type", "application/activity+json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"type": "Note", "id": "test"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"type": "Note", "id": "test"}) //nolint:goconst
 	}))
 	defer server.Close()
 
 	client := NewClient(nil, "")
 	data, err := client.Get(context.Background(), server.URL+"/test")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 
 	var result map[string]string
+
 	err = json.Unmarshal(data, &result)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "Note", result["type"])
 }
 
 func TestClientGetNon200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(404)
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 
 	client := NewClient(nil, "")
 	_, err := client.Get(context.Background(), server.URL+"/notfound")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected status code: 404")
 }
 
@@ -73,17 +75,17 @@ func TestClientPost(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "application/activity+json", r.Header.Get("Content-Type"))
-		w.WriteHeader(202)
+		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer server.Close()
 
 	client := NewClient(nil, "https://example.com/users/test")
-	activity := map[string]interface{}{
-		"type":  "Follow",
-		"actor": "https://example.com/users/test",
+	activity := map[string]any{
+		"type":  "Follow",                         //nolint:goconst
+		"actor": "https://example.com/users/test", //nolint:goconst
 	}
 	err := client.Post(context.Background(), server.URL+"/inbox", activity)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestClientPostWithSignature(t *testing.T) {
@@ -107,28 +109,28 @@ func TestClientPostWithSignature(t *testing.T) {
 		assert.Contains(t, sig, "headers=")
 		assert.Contains(t, sig, "signature=")
 
-		w.WriteHeader(202)
+		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer server.Close()
 
 	client := NewClient(privateKey, "https://example.com/users/test")
-	activity := map[string]interface{}{
-		"type": "Create",
+	activity := map[string]any{
+		"type": "Create", //nolint:goconst
 	}
 	err = client.Post(context.Background(), server.URL+"/inbox", activity)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestClientPostError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("internal server error"))
 	}))
 	defer server.Close()
 
 	client := NewClient(nil, "")
-	err := client.Post(context.Background(), server.URL+"/inbox", map[string]interface{}{})
-	assert.Error(t, err)
+	err := client.Post(context.Background(), server.URL+"/inbox", map[string]any{})
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
@@ -139,10 +141,10 @@ func TestClientSignRequest(t *testing.T) {
 	client := NewClient(privateKey, "https://example.com/users/test")
 
 	body := []byte(`{"type":"Create"}`)
-	req, _ := http.NewRequest("POST", "https://remote.com/inbox", nil)
+	req, _ := http.NewRequest(http.MethodPost, "https://remote.com/inbox", nil) //nolint:noctx // test code
 
 	err = client.signRequest(req, body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify Date header was set
 	assert.NotEmpty(t, req.Header.Get("Date"))
@@ -171,10 +173,10 @@ func TestClientSignRequestHostNotLowercased(t *testing.T) {
 
 	body := []byte(`{}`)
 	// Use a URL with mixed-case host to verify it's not lowercased
-	req, _ := http.NewRequest("POST", "https://Remote.Example.COM/inbox", nil)
+	req, _ := http.NewRequest(http.MethodPost, "https://Remote.Example.COM/inbox", nil) //nolint:noctx // test code
 
 	err = client.signRequest(req, body)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// The signature header should be set - the host in the signing string
 	// should preserve the original casing from the URL
@@ -184,8 +186,8 @@ func TestClientSignRequestHostNotLowercased(t *testing.T) {
 func TestClientFetchActor(t *testing.T) {
 	actor := Actor{
 		ID:                "https://remote.com/users/alice",
-		Type:              "Person",
-		PreferredUsername: "alice",
+		Type:              "Person", //nolint:goconst
+		PreferredUsername: "alice",  //nolint:goconst
 		Inbox:             "https://remote.com/users/alice/inbox",
 		Outbox:            "https://remote.com/users/alice/outbox",
 	}
@@ -198,7 +200,7 @@ func TestClientFetchActor(t *testing.T) {
 
 	client := NewClient(nil, "")
 	result, err := client.FetchActor(context.Background(), server.URL+"/users/alice")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "Person", result.Type)
 	assert.Equal(t, "alice", result.PreferredUsername)
 }
@@ -206,25 +208,26 @@ func TestClientFetchActor(t *testing.T) {
 func TestClientFetchObject(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/activity+json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"type":    "Note",
-			"content": "Hello world",
+			"content": "Hello world", //nolint:goconst
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(nil, "")
 	result, err := client.FetchObject(context.Background(), server.URL+"/note/1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "Note", result["type"])
 	assert.Equal(t, "Hello world", result["content"])
 }
 
 func TestClientFetchStatus(t *testing.T) {
 	now := "2024-01-01T00:00:00Z"
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/activity+json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"type":         "Note",
 			"id":           "https://remote.com/statuses/1",
 			"content":      "<p>Hello</p>",
@@ -236,7 +239,7 @@ func TestClientFetchStatus(t *testing.T) {
 
 	client := NewClient(nil, "")
 	note, err := client.FetchStatus(context.Background(), server.URL+"/statuses/1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "Note", note.Type)
 	assert.Equal(t, "<p>Hello</p>", note.Content)
 }

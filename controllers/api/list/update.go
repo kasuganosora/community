@@ -11,9 +11,9 @@ import (
 )
 
 type UpdateListRequest struct {
-	Title         *string `json:"title" binding:"min:1;max:64"`
-	RepliesPolicy *string `json:"replies_policy" binding:"in:followed,list,none"`
-	Visibility    *string `json:"visibility" binding:"in:public,private,followers"`
+	Title         *string `binding:"min:1;max:64"                json:"title"`
+	RepliesPolicy *string `binding:"in:followed,list,none"       json:"replies_policy"`
+	Visibility    *string `binding:"in:public,private,followers" json:"visibility"`
 }
 
 func UpdateList(c *gin.Context) {
@@ -21,9 +21,10 @@ func UpdateList(c *gin.Context) {
 
 	if err != nil || listId == 0 {
 		c.AbortWithStatusJSON(400, gin.H{
-			"code": 400,
-			"msg":  "invalid list id",
+			"code": 400,               //nolint:goconst
+			"msg":  "invalid list id", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -31,34 +32,37 @@ func UpdateList(c *gin.Context) {
 
 	if err = c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(),
+			"error": err.Error(), //nolint:goconst
 		})
+
 		return
 	}
 
 	list := &models.List{}
 
 	err = db.GetDB().Where("id = ?", listId).First(list).Error
-
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(400, gin.H{
 				"code": 404,
-				"msg":  "list not found",
+				"msg":  "list not found", //nolint:goconst
 			})
+
 			return
 		}
 
 		err = errors.Wrap(err, "UpdateList error")
 		_ = c.Error(err)
+
 		return
 	}
 
-	if list.AccountId != c.MustGet("account").(*models.Account).Id {
+	if list.AccountId != c.MustGet("account").(*models.Account).Id { //nolint:forcetypeassert
 		c.AbortWithStatusJSON(403, gin.H{
 			"code": 403,
 			"msg":  "permission denied",
 		})
+
 		return
 	}
 
@@ -72,20 +76,19 @@ func UpdateList(c *gin.Context) {
 
 	if req.Visibility != nil {
 		switch *req.Visibility {
-		case "public":
+		case "public": //nolint:goconst
 			list.Visibility = models.ListVisibilityPublic
-		case "private":
+		case "private": //nolint:goconst
 			list.Visibility = models.ListVisibilityPrivate
-		case "followers":
+		case "followers": //nolint:goconst
 			list.Visibility = models.ListVisibilityFollowers
-
 		}
 	}
 
 	err = db.GetDB().Save(list).Error
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

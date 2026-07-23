@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"unsafe"
 )
@@ -33,31 +34,37 @@ func TestDeepCopy(t *testing.T) {
 	source.unexportedPtr = &ptrVal
 
 	var target TestStruct
+
 	err := DeepCopy(source, &target)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, source, target)
-	assert.NotEqual(t, unsafe.Pointer(&source), unsafe.Pointer(&target))
+	assert.NotEqual(t, unsafe.Pointer(&source), unsafe.Pointer(&target)) //nolint:gosec // G103: reviewed and safe
 
 	type TestMap map[string]*TestStruct
+
 	sourceMap := TestMap{
 		"1": &source,
 	}
 
 	var targetMap TestMap
+
 	err = DeepCopy(sourceMap, &targetMap)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, sourceMap, targetMap)
 
 	type TestSlice []*TestStruct
+
 	sourceSlice := TestSlice{&source}
 
 	var targetSlice TestSlice
+
 	err = DeepCopy(sourceSlice, &targetSlice)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, sourceSlice, targetSlice)
 
 	type NestedTestStruct struct {
 		TestStruct
+
 		GG int
 	}
 
@@ -67,8 +74,9 @@ func TestDeepCopy(t *testing.T) {
 	}
 
 	var nestedTarget NestedTestStruct
+
 	err = DeepCopy(nestedSource, &nestedTarget)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, nestedSource, nestedTarget)
 
 	fmt.Println("source:", nestedTarget.A, nestedTarget.B, nestedTarget.C, nestedTarget.D, *nestedTarget.E, nestedTarget.GG)

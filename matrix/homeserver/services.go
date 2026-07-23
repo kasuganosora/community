@@ -14,12 +14,12 @@ import (
 
 // ===== 房间别名 =====
 
-// MatrixRoomAlias 房间别名
+// MatrixRoomAlias 房间别名.
 type MatrixRoomAlias struct {
-	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID        uint64    `gorm:"primaryKey;autoIncrement"      json:"id"`
 	RoomAlias string    `gorm:"uniqueIndex;size:255;not null" json:"room_alias"`
-	RoomID    string    `gorm:"index;size:255;not null" json:"room_id"`
-	Creator   string    `gorm:"size:255" json:"creator"`
+	RoomID    string    `gorm:"index;size:255;not null"       json:"room_id"`
+	Creator   string    `gorm:"size:255"                      json:"creator"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -27,51 +27,56 @@ func (MatrixRoomAlias) TableName() string {
 	return "matrix_room_aliases"
 }
 
-// AliasService 别名服务
+// AliasService 别名服务.
 type AliasService struct {
 	hs *HomeServer
 }
 
-// NewAliasService 创建别名服务
+// NewAliasService 创建别名服务.
 func NewAliasService(hs *HomeServer) *AliasService {
 	return &AliasService{hs: hs}
 }
 
-// GetRoomIDByAlias 通过别名获取房间 ID
+// GetRoomIDByAlias 通过别名获取房间 ID.
 func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
 	// 标准化别名格式
 	if !strings.HasPrefix(alias, "#") {
 		alias = "#" + alias
 	}
+
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
 
 	var roomAlias MatrixRoomAlias
+
 	err := db.GetDB().Where("room_alias = ?", alias).First(&roomAlias).Error
 	if err != nil {
 		return "", err
 	}
+
 	return roomAlias.RoomID, nil
 }
 
-// SetAlias 设置房间别名
+// SetAlias 设置房间别名.
 func (s *AliasService) SetAlias(alias, roomID, creator string) error {
 	// 标准化别名格式
 	if !strings.HasPrefix(alias, "#") {
 		alias = "#" + alias
 	}
+
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
 
 	// 检查别名是否已存在
 	var existing MatrixRoomAlias
+
 	err := db.GetDB().Where("room_alias = ?", alias).First(&existing).Error
 	if err == nil {
 		// 别名已存在，更新
-		return db.GetDB().Model(&existing).Updates(map[string]interface{}{
-			"room_id": roomID,
+		return db.GetDB().Model(&existing).Updates(map[string]any{
+			"room_id": roomID, //nolint:goconst
 			"creator": creator,
 		}).Error
 	}
@@ -83,23 +88,27 @@ func (s *AliasService) SetAlias(alias, roomID, creator string) error {
 		Creator:   creator,
 		CreatedAt: time.Now(),
 	}
+
 	return db.GetDB().Create(roomAlias).Error
 }
 
-// DeleteAlias 删除房间别名
+// DeleteAlias 删除房间别名.
 func (s *AliasService) DeleteAlias(alias string) error {
 	if !strings.HasPrefix(alias, "#") {
 		alias = "#" + alias
 	}
+
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
+
 	return db.GetDB().Where("room_alias = ?", alias).Delete(&MatrixRoomAlias{}).Error
 }
 
-// GetAliasesForRoom 获取房间的所有别名
+// GetAliasesForRoom 获取房间的所有别名.
 func (s *AliasService) GetAliasesForRoom(roomID string) ([]string, error) {
 	var aliases []MatrixRoomAlias
+
 	err := db.GetDB().Where("room_id = ?", roomID).Find(&aliases).Error
 	if err != nil {
 		return nil, err
@@ -109,22 +118,23 @@ func (s *AliasService) GetAliasesForRoom(roomID string) ([]string, error) {
 	for i, a := range aliases {
 		result[i] = a.RoomAlias
 	}
+
 	return result, nil
 }
 
 // ===== 举报服务 =====
 
-// ReportService 举报服务
+// ReportService 举报服务.
 type ReportService struct {
 	hs *HomeServer
 }
 
-// NewReportService 创建举报服务
+// NewReportService 创建举报服务.
 func NewReportService(hs *HomeServer) *ReportService {
 	return &ReportService{hs: hs}
 }
 
-// CreateReport 创建举报
+// CreateReport 创建举报.
 func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score int64, reason string) error {
 	// 复用社区的举报模型
 	now := time.Now()
@@ -138,7 +148,8 @@ func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score i
 	localpart, _, ok := ParseMatrixUserID(reporterID)
 	if ok {
 		var account models.Account
-		if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err == nil {
+		err := db.GetDB().Where("username = ?", localpart).First(&account).Error
+		if err == nil {
 			report.AccountId = account.Id
 		}
 	}
@@ -148,18 +159,20 @@ func (s *ReportService) CreateReport(roomID, eventID, reporterID string, score i
 
 // ===== HTTP Handlers 更新 =====
 
-// handleGetRoomAlias 获取房间别名
+// handleGetRoomAlias 获取房间别名.
 func handleGetRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	hs := GetHomeServer()
 
 	aliasService := NewAliasService(hs)
+
 	roomID, err := aliasService.GetRoomIDByAlias(roomAlias)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room alias not found",
+			"errcode": "M_NOT_FOUND",          //nolint:goconst
+			"error":   "Room alias not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -170,7 +183,7 @@ func handleGetRoomAlias(c *gin.Context) {
 	})
 }
 
-// handleSetRoomAlias 设置房间别名
+// handleSetRoomAlias 设置房间别名.
 func handleSetRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	userID := getUserID(c)
@@ -178,11 +191,13 @@ func handleSetRoomAlias(c *gin.Context) {
 	var req struct {
 		RoomID string `json:"room_id"`
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
+			"errcode": "M_BAD_JSON",   //nolint:goconst
+			"error":   "Invalid JSON", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -190,29 +205,32 @@ func handleSetRoomAlias(c *gin.Context) {
 
 	// 检查用户是否有权限设置别名（需要是房间成员）
 	var member MatrixRoomMember
+
 	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
 		req.RoomID, userID, "join").First(&member).Error
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
+			"errcode": "M_FORBIDDEN", //nolint:goconst
 			"error":   "Not a member of this room",
 		})
+
 		return
 	}
 
 	aliasService := NewAliasService(hs)
 	if err := aliasService.SetAlias(roomAlias, req.RoomID, userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL",
+			"errcode": "M_INTERNAL", //nolint:goconst
 			"error":   "Failed to set alias",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleDeleteRoomAlias 删除房间别名
+// handleDeleteRoomAlias 删除房间别名.
 func handleDeleteRoomAlias(c *gin.Context) {
 	roomAlias := c.Param("roomAlias")
 	userID := getUserID(c)
@@ -225,18 +243,21 @@ func handleDeleteRoomAlias(c *gin.Context) {
 	if !strings.HasPrefix(normalizedAlias, "#") {
 		normalizedAlias = "#" + normalizedAlias
 	}
+
 	if !strings.Contains(normalizedAlias, ":") {
 		normalizedAlias = normalizedAlias + ":" + hs.Config.ServerName
 	}
 
 	// 检查别名是否存在及其创建者
 	var alias MatrixRoomAlias
+
 	err := db.GetDB().Where("room_alias = ?", normalizedAlias).First(&alias).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
 			"error":   "Room alias not found",
 		})
+
 		return
 	}
 
@@ -250,11 +271,13 @@ func handleDeleteRoomAlias(c *gin.Context) {
 		if required, ok := pl.Events["m.room.aliases"]; ok {
 			requiredPL = required
 		}
+
 		if userPL < requiredPL {
 			c.JSON(http.StatusForbidden, gin.H{
 				"errcode": "M_FORBIDDEN",
 				"error":   "Not authorized to delete this alias",
 			})
+
 			return
 		}
 	}
@@ -264,6 +287,7 @@ func handleDeleteRoomAlias(c *gin.Context) {
 			"errcode": "M_INTERNAL",
 			"error":   "Failed to delete alias",
 		})
+
 		return
 	}
 
@@ -275,19 +299,23 @@ func handleDeleteRoomAlias(c *gin.Context) {
 		if currentAlias == normalizedAlias {
 			// Send a new canonical_alias event with alias omitted (cleared)
 			// Matrix spec: omit alias field rather than setting empty string
-			newContent := map[string]interface{}{}
-			if altAliases, ok := canonicalState.Content["alt_aliases"].([]interface{}); ok {
+			newContent := map[string]any{}
+
+			if altAliases, ok := canonicalState.Content["alt_aliases"].([]any); ok {
 				// Filter out the deleted alias from alt_aliases
-				var filtered []interface{}
+				var filtered []any
+
 				for _, a := range altAliases {
 					if s, ok := a.(string); ok && s != normalizedAlias {
 						filtered = append(filtered, s)
 					}
 				}
+
 				if len(filtered) > 0 {
 					newContent["alt_aliases"] = filtered
 				}
 			}
+
 			stateKey := ""
 			hs.Event.SendRoomEvent(alias.RoomID, userID, string(EventTypeRoomCanonicalAlias), nil, newContent, &stateKey)
 		}
@@ -296,7 +324,7 @@ func handleDeleteRoomAlias(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleGetAliases 获取房间所有别名
+// handleGetAliases 获取房间所有别名.
 func handleGetAliases(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
@@ -304,15 +332,17 @@ func handleGetAliases(c *gin.Context) {
 
 	// 只有房间成员可以列出别名
 	var member MatrixRoomMember
-	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership IN ?", roomID, userID, []string{"join", "invite"}).First(&member).Error; err != nil {
+	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership IN ?", roomID, userID, []string{"join", "invite"}).First(&member).Error; err != nil { //nolint:goconst
 		c.JSON(http.StatusForbidden, gin.H{
 			"errcode": "M_FORBIDDEN",
 			"error":   "Not a member of this room",
 		})
+
 		return
 	}
 
 	aliasService := NewAliasService(hs)
+
 	aliases, err := aliasService.GetAliasesForRoom(roomID)
 	if err != nil {
 		aliases = []string{}
@@ -323,7 +353,7 @@ func handleGetAliases(c *gin.Context) {
 	})
 }
 
-// handleReportRoom 报告房间事件
+// handleReportRoom 报告房间事件.
 func handleReportRoom(c *gin.Context) {
 	roomID := c.Param("roomId")
 	eventID := c.Param("eventId")
@@ -333,43 +363,51 @@ func handleReportRoom(c *gin.Context) {
 		Score  int64  `json:"score"`
 		Reason string `json:"reason"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Invalid JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	reportService := NewReportService(hs)
 
-	if err := reportService.CreateReport(roomID, eventID, userID, req.Score, req.Reason); err != nil {
+	err = reportService.CreateReport(roomID, eventID, userID, req.Score, req.Reason)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL",
 			"error":   "Failed to create report",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// generateEventID 生成事件 ID
+// generateEventID 生成事件 ID.
 func generateEventID() string {
 	return fmt.Sprintf("$%s:%d", generateRandomString(16), time.Now().UnixNano())
 }
 
-// generateRandomString 生成随机字符串
+// generateRandomString 生成随机字符串.
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
 	b := make([]byte, length)
 	if _, err := rand.Read(b); err != nil {
 		// 回退到基于时间的ID
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
+
 	for i := range b {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
+
 	return string(b)
 }

@@ -32,7 +32,6 @@ func NewClient() *Client {
 
 	if config.C.HttpProxy != "" {
 		proxyURL, err := url.Parse(config.C.HttpProxy)
-
 		if err == nil {
 			client.Transport = &http.Transport{
 				Proxy: http.ProxyURL(proxyURL),
@@ -87,36 +86,43 @@ type Request struct {
 
 func (r *Request) SetHeader(key, value string) *Request {
 	r.header.Set(key, value)
+
 	return r
 }
 
 func (r *Request) AddHeader(key, value string) *Request {
 	r.header.Add(key, value)
+
 	return r
 }
 
 func (r *Request) SetUserAgent(userAgent string) *Request {
 	r.header.Set("User-Agent", userAgent)
+
 	return r
 }
 
 func (r *Request) SetTimeout(timeout int) *Request {
 	r.timeout = timeout
+
 	return r
 }
 
 func (r *Request) SetUrlParams(key, value string) *Request {
 	r.urlParams.Set(key, value)
+
 	return r
 }
 
 func (r *Request) AddUrlParams(key, value string) *Request {
 	r.urlParams.Add(key, value)
+
 	return r
 }
 
 func (r *Request) SetBody(body []byte) *Request {
 	r.body = body
+
 	return r
 }
 
@@ -130,6 +136,7 @@ func (r *Request) GetBody() []byte {
 
 func (r *Request) SetJsonBody(v any) *Request {
 	var err error
+
 	r.body, err = json.Marshal(v)
 	if err != nil {
 		err = errors.WithStack(err)
@@ -143,7 +150,9 @@ func (r *Request) SetJsonBody(v any) *Request {
 
 func (r *Request) SetMultipartBody(data map[string]any) *Request {
 	body := &bytes.Buffer{}
+
 	writer := multipart.NewWriter(body)
+
 	defer func() { _ = writer.Close() }()
 
 	for key, value := range data {
@@ -151,6 +160,7 @@ func (r *Request) SetMultipartBody(data map[string]any) *Request {
 		switch value := value.(type) {
 		case *multipart.FileHeader:
 			fileHeader := value
+
 			file, err := fileHeader.Open()
 			if err != nil {
 				err = errors.WithStack(err)
@@ -170,6 +180,7 @@ func (r *Request) SetMultipartBody(data map[string]any) *Request {
 			}
 		case *os.File:
 			file := value
+
 			part, err := writer.CreateFormFile(key, file.Name())
 			if err != nil {
 				err = errors.WithStack(err)
@@ -209,6 +220,7 @@ func (r *Request) SetFormUrlencoded(data url.Values) *Request {
 
 func (r *Request) SetTryTimes(tryTimes int) *Request {
 	r.tryTimes = tryTimes
+
 	return r
 }
 
@@ -217,14 +229,15 @@ func (r *Request) Do() (resp *Response, err error) {
 		var req *http.Request
 
 		if r.body != nil {
-			req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
+			req, err = http.NewRequestWithContext(context.Background(), r.method, r.url, bytes.NewReader(r.body))
 		} else {
-			req, err = http.NewRequest(r.method, r.url, nil)
+			req, err = http.NewRequestWithContext(context.Background(), r.method, r.url, nil)
 		}
 
 		if err != nil {
 			err = errors.WithStack(err)
-			return
+
+			return resp, err
 		}
 
 		req.Header = r.header.Clone()
@@ -233,22 +246,29 @@ func (r *Request) Do() (resp *Response, err error) {
 		if r.timeout > 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 			defer cancel()
+
 			req = req.WithContext(ctx)
 		}
 
 		var resp1 *http.Response
-		resp1, err = r.client.Do(req)
 
+		resp1, err = r.client.Do(req)
 		if err == nil {
 			resp = &Response{
 				Response: resp1,
 			}
 
 			if resp.StatusOk() {
-				return
+				return resp, err
 			}
 
 			err = errors.New(fmt.Sprintf("status code error: %d", resp.StatusCode))
+		} else {
+			resp1 = nil
+		}
+
+		if resp1 != nil {
+			_ = resp1.Body.Close()
 		}
 
 		err = errors.WithMessagef(err, "try fetch %s %s %d times, error %+v", r.method, req.URL.String(), i, err)
@@ -259,11 +279,12 @@ func (r *Request) Do() (resp *Response, err error) {
 		time.Sleep(time.Duration(200<<i) * time.Millisecond)
 	}
 
-	return
+	return resp, err
 }
 
 type Response struct {
 	*http.Response
+
 	BodyData []byte
 }
 
@@ -275,10 +296,12 @@ func (resp *Response) GetBodyData() (data []byte, err error) {
 	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		err = errors.WithStack(err)
+
 		return
 	}
 
 	resp.BodyData = data
+
 	return
 }
 
@@ -291,6 +314,7 @@ func (resp *Response) Json(v any) (err error) {
 	err = json.Unmarshal(data, v)
 	if err != nil {
 		err = errors.WithStack(err)
+
 		return
 	}
 
@@ -306,6 +330,7 @@ func (resp *Response) JsonMap() (m map[string]any, err error) {
 	err = json.Unmarshal(data, &m)
 	if err != nil {
 		err = errors.WithStack(err)
+
 		return
 	}
 
@@ -319,6 +344,7 @@ func (resp *Response) String() (s string, err error) {
 	}
 
 	s = string(data)
+
 	return
 }
 

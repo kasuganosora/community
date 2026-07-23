@@ -11,33 +11,39 @@ import (
 
 func init() {
 	event.Register("list", "add-to-list", &event.Handler{Exec: func(event event.Event) bool {
-		la := event.Data.(*models.ListAccount)
+		la := event.Data.(*models.ListAccount) //nolint:forcetypeassert
 		go listAddToListNotification(la)
+
 		return true
 	}})
 	event.Register("list", "follow-list", &event.Handler{Exec: func(event event.Event) bool {
-		lfa := event.Data.(*models.ListFollowAccount)
+		lfa := event.Data.(*models.ListFollowAccount) //nolint:forcetypeassert
 		go listFollowListNotification(lfa)
+
 		return true
 	}})
 }
 
 // listAddToListNotification 给被添加的人发通知
-// 只给本地用户发
+// 只给本地用户发.
 func listAddToListNotification(la *models.ListAccount) {
 	list := &models.List{}
+
 	err := db.GetDB().Model(list).Where("id = ?", la.ListId).First(list).Error
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get list faild, list id %d", la.ListId))
 		log.ErrorV(err)
+
 		return
 	}
 
 	account := &models.Account{}
+
 	err = db.GetDB().Model(account).Where("id = ?", la.AccountId).First(account).Error
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get account faild, account id %d", la.AccountId))
 		log.ErrorV(err)
+
 		return
 	}
 
@@ -56,17 +62,20 @@ func listAddToListNotification(la *models.ListAccount) {
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] create notification faild, list id %d", la.ListId))
 		log.ErrorV(err)
+
 		return
 	}
 }
 
-// listFollowListNotification 有人关注了这个列表的时候给列表的创建者发通知
+// listFollowListNotification 有人关注了这个列表的时候给列表的创建者发通知.
 func listFollowListNotification(lfa *models.ListFollowAccount) {
 	list := &models.List{}
+
 	err := db.GetDB().Model(list).Preload("Creator").Where("id = ?", lfa.ListId).First(list).Error
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] get list faild, list id %d", lfa.ListId))
 		log.ErrorV(err)
+
 		return
 	}
 
@@ -85,7 +94,7 @@ func listFollowListNotification(lfa *models.ListFollowAccount) {
 	if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] create notification faild, list id %d", lfa.ListId))
 		log.ErrorV(err)
+
 		return
 	}
-
 }

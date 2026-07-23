@@ -10,20 +10,22 @@ import (
 )
 
 type CreateFilterRequest struct {
-	Title     string                  `json:"title" binding:"required"`
+	Title     string                  `binding:"required" json:"title"`
 	ExpiresIn uint64                  `json:"expires_in"`
-	Context   []string                `json:"context" binding:"required"`
-	Keywords  []*models.FilterKeyword `json:"keywords" binding:"required"`
+	Context   []string                `binding:"required" json:"context"`
+	Keywords  []*models.FilterKeyword `binding:"required" json:"keywords"`
 }
 
 func Create(c *gin.Context) {
 	var req CreateFilterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	for i := range req.Keywords {
 		req.Keywords[i].Uuid = uuid.NewString()
@@ -37,12 +39,14 @@ func Create(c *gin.Context) {
 	}
 
 	if req.ExpiresIn != 0 {
-		expiresAt := time.Now().Add(time.Duration(req.ExpiresIn) * time.Second)
+		expiresAt := time.Now().Add(time.Duration(req.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
 		filter.ExpiresAt = &expiresAt
 	}
 
-	if err := db.GetDB().Create(filter).Error; err != nil {
+	err = db.GetDB().Create(filter).Error
+	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

@@ -6,19 +6,20 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-// TestAccount is a simplified account model for testing
+// TestAccount is a simplified account model for testing.
 type TestAccount struct {
-	Id          uint64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId      uint64     `json:"-" gorm:"not null;index"`
-	Username    string     `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain      *string    `json:"domain" gorm:"type:varchar(128);index"`
-	DisplayName string     `json:"display_name" gorm:"type:varchar(128)"`
-	Locked      bool       `json:"locked" gorm:"default:false"`
-	CreatedAt   *time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	Id          uint64     `gorm:"primaryKey;autoIncrement"  json:"id"`
+	UserId      uint64     `gorm:"not null;index"            json:"-"`
+	Username    string     `gorm:"not null;type:varchar(64)" json:"username"`
+	Domain      *string    `gorm:"type:varchar(128);index"   json:"domain"`
+	DisplayName string     `gorm:"type:varchar(128)"         json:"display_name"`
+	Locked      bool       `gorm:"default:false"             json:"locked"`
+	CreatedAt   *time.Time `gorm:"autoCreateTime"            json:"created_at"`
+	UpdatedAt   *time.Time `gorm:"autoUpdateTime"            json:"updated_at"`
 	DeletedAt   gorm.DeletedAt
 }
 
@@ -26,10 +27,10 @@ func (TestAccount) TableName() string {
 	return "accounts"
 }
 
-// TestUser is a simplified user model for testing
+// TestUser is a simplified user model for testing.
 type TestUser struct {
-	Id        uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
-	Email     string `json:"email" gorm:"not null;type:varchar(128);uniqueIndex"`
+	Id        uint64 `gorm:"primaryKey;autoIncrement"               json:"id"`
+	Email     string `gorm:"not null;type:varchar(128);uniqueIndex" json:"email"`
 	CreatedAt *time.Time
 }
 
@@ -39,17 +40,19 @@ func (TestUser) TableName() string {
 
 func TestNewTestDB(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, testDB)
 	assert.NotNil(t, testDB.GormDB)
 	assert.NotNil(t, testDB.DB)
+
 	assert.NotNil(t, testDB.Session)
+
 	defer testDB.Close()
 }
 
 func TestNewIsolatedTestDB(t *testing.T) {
 	testDB, err := NewIsolatedTestDB(t)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, testDB)
 	assert.NotNil(t, testDB.GormDB)
 	assert.NotNil(t, testDB.DB)
@@ -65,54 +68,58 @@ func TestQuickDBSetup(t *testing.T) {
 
 func TestTestDB_AutoMigrate(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Test auto migrate
 	err = testDB.AutoMigrate(&TestAccount{}, &TestUser{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestTestDB_CreateAndFind(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Migrate
 	err = testDB.AutoMigrate(&TestAccount{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Create
 	now := time.Now()
 	account := TestAccount{
 		UserId:      1,
-		Username:    "testuser",
+		Username:    "testuser", //nolint:goconst
 		DisplayName: "Test User",
 		Locked:      false,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
 	result := testDB.GormDB.Create(&account)
-	assert.NoError(t, result.Error)
-	assert.Greater(t, account.Id, uint64(0), "Auto-increment ID should be returned after Create")
+	require.NoError(t, result.Error)
+	assert.Positive(t, account.Id, "Auto-increment ID should be returned after Create")
 
 	// Find by username
 	var foundAccount TestAccount
+
 	result = testDB.GormDB.Where("username = ?", "testuser").First(&foundAccount)
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 	assert.Equal(t, "testuser", foundAccount.Username)
 	assert.Equal(t, "Test User", foundAccount.DisplayName)
-	assert.Equal(t, false, foundAccount.Locked)
+	assert.False(t, foundAccount.Locked)
 }
 
 func TestTestDB_Update(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Migrate and create
 	err = testDB.AutoMigrate(&TestAccount{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	now := time.Now()
 	account := TestAccount{
@@ -127,31 +134,33 @@ func TestTestDB_Update(t *testing.T) {
 
 	// Update with WHERE condition
 	result := testDB.GormDB.Model(&TestAccount{}).Where("username = ?", "updatetest").Update("display_name", "After Update")
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 
 	// Update bool field
 	result = testDB.GormDB.Model(&TestAccount{}).Where("username = ?", "updatetest").Update("locked", true)
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 
 	// Verify update
 	var updatedAccount TestAccount
+
 	testDB.GormDB.Where("username = ?", "updatetest").First(&updatedAccount)
 	assert.Equal(t, "After Update", updatedAccount.DisplayName)
-	assert.Equal(t, true, updatedAccount.Locked)
+	assert.True(t, updatedAccount.Locked)
 
 	// Test update all records (without WHERE)
 	result = testDB.GormDB.Model(&TestAccount{}).Where("1 = 1").Update("locked", false)
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 }
 
 func TestTestDB_Delete(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Migrate and create
 	err = testDB.AutoMigrate(&TestAccount{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	now := time.Now()
 	account := TestAccount{
@@ -166,11 +175,12 @@ func TestTestDB_Delete(t *testing.T) {
 
 	// Delete with WHERE condition
 	result := testDB.GormDB.Where("username = ?", "deletetest").Delete(&TestAccount{})
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 
 	// Verify deleted - First should return ErrRecordNotFound due to soft delete
 	// Note: sqlexec may not fully support soft delete, so we check with Unscoped to see the actual record
 	var deletedAccount TestAccount
+
 	result = testDB.GormDB.Unscoped().Where("username = ?", "deletetest").First(&deletedAccount)
 	if result.Error == nil {
 		// Record exists, check if deleted_at is set
@@ -183,16 +193,17 @@ func TestTestDB_Delete(t *testing.T) {
 
 func TestTestDB_TruncateTables(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Migrate
 	err = testDB.AutoMigrate(&TestAccount{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Create some data
 	now := time.Now()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		testDB.GormDB.Create(&TestAccount{
 			UserId:      1,
 			Username:    "truncate" + string(rune('a'+i)),
@@ -204,17 +215,19 @@ func TestTestDB_TruncateTables(t *testing.T) {
 
 	// Truncate
 	err = testDB.TruncateTables("accounts")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify all data is gone
 	var count int64
+
 	testDB.GormDB.Model(&TestAccount{}).Count(&count)
 	assert.Equal(t, int64(0), count)
 }
 
 func TestTestDB_Exec(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Create table using Exec
@@ -224,21 +237,22 @@ func TestTestDB_Exec(t *testing.T) {
 			name VARCHAR(100)
 		)
 	`)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Insert using Exec
 	err = testDB.Exec("INSERT INTO test_exec VALUES (?, ?)", 1, "test")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Query
 	row, err := testDB.QueryOne("SELECT * FROM test_exec WHERE id = ?", 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "test", row["name"])
 }
 
 func TestTestDB_QueryAll(t *testing.T) {
 	testDB, err := NewTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	defer testDB.Close()
 
 	// Create table and insert data
@@ -248,7 +262,7 @@ func TestTestDB_QueryAll(t *testing.T) {
 			value VARCHAR(100)
 		)
 	`)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	for i := 1; i <= 3; i++ {
 		_ = testDB.Exec("INSERT INTO test_query VALUES (?, ?)", i, "value"+string(rune('0'+i)))
@@ -256,19 +270,19 @@ func TestTestDB_QueryAll(t *testing.T) {
 
 	// Query all
 	rows, err := testDB.QueryAll("SELECT * FROM test_query ORDER BY id")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, rows, 3)
 }
 
 func TestSharedTestDB(t *testing.T) {
 	// Test shared database
 	db1, err := GetSharedTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, db1)
 
 	// Getting again should return the same instance
 	db2, err := GetSharedTestDB()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, db1.DB, db2.DB, "Should return the same DB instance")
 }
 
@@ -284,7 +298,6 @@ func TestParallelTestWithIsolatedDB(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel() // Safe to parallelize with isolated DB
 
@@ -309,10 +322,11 @@ func TestParallelTestWithIsolatedDB(t *testing.T) {
 				UpdatedAt:   &now,
 			}
 			result := testDB.GormDB.Create(&account)
-			assert.NoError(t, result.Error)
+			require.NoError(t, result.Error)
 
 			// Verify data
 			var found TestAccount
+
 			testDB.GormDB.Where("username = ?", tt.username).First(&found)
 			assert.Equal(t, tt.username, found.Username)
 		})
@@ -327,16 +341,16 @@ func TestRedisTestClient_MockMode(t *testing.T) {
 
 	// Setup mock expectations
 	ctx := context.Background()
+
 	client.Mock.ExpectSet("key", "value", 0).SetVal("OK")
 	client.Mock.ExpectGet("key").SetVal("value")
 
 	// Use client
 	err := client.Client.Set(ctx, "key", "value", 0).Err()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	val, err := client.Client.Get(ctx, "key").Result()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "value", val)
-
 	// Expectations are verified in cleanup
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
@@ -24,6 +25,7 @@ func callHandler(fn func(*gin.Context), c *gin.Context) {
 			panic(r)
 		}
 	}()
+
 	fn(c)
 }
 
@@ -37,11 +39,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(
@@ -53,10 +58,12 @@ func setupTestDB(t *testing.T) {
 	}
 }
 
-// createTestAccount creates a test account in the DB
-func createTestAccount(t *testing.T, username string) *models.Account {
+// createTestAccount creates a test account in the DB.
+func createTestAccount(t *testing.T, username string) *models.Account { //nolint:unparam // param reserved for future use
 	t.Helper()
+
 	now := time.Now()
+
 	account := &models.Account{
 		Username:    username,
 		DisplayName: "Test " + username,
@@ -65,9 +72,11 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(account).Error; err != nil {
+	err := testDB.GormDB.Create(account).Error
+	if err != nil {
 		t.Fatalf("Failed to create account: %v", err)
 	}
+
 	return account
 }
 
@@ -78,15 +87,17 @@ func TestList_NoTimelines(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers", nil) //nolint:noctx
 	c.Set("account", createTestAccount(t, "testuser"))
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// No timelines requested, so empty map
 	assert.Empty(t, resp)
 }
@@ -96,15 +107,17 @@ func TestList_TimelinesNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home&timelines[]=notifications", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home&timelines[]=notifications", nil) //nolint:noctx
 	c.Set("account", createTestAccount(t, "testuser"))
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+
+	var resp map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Should have entries for both timelines but with empty/zero values
 	assert.Contains(t, resp, "home")
 	assert.Contains(t, resp, "notifications")
@@ -116,15 +129,16 @@ func TestList_ExistingMarker(t *testing.T) {
 
 	// Create a marker with timeline data
 	now := time.Now()
+
 	marker := &models.Marker{
 		AccountId: account.Id,
 		Timelines: map[string]*models.MarkerTimelineItem{
-			"home": {
+			"home": { //nolint:goconst
 				LastReadId: 12345,
 				UpdatedAt:  &now,
 				Version:    1,
 			},
-			"notifications": {
+			"notifications": { //nolint:goconst
 				LastReadId: 67890,
 				UpdatedAt:  &now,
 				Version:    3,
@@ -137,21 +151,24 @@ func TestList_ExistingMarker(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp map[string]json.RawMessage
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, resp, "home")
 	assert.NotContains(t, resp, "notifications")
 
 	var homeItem models.MarkerTimelineItem
+
 	err = json.Unmarshal(resp["home"], &homeItem)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(12345), homeItem.LastReadId)
 	assert.Equal(t, uint64(1), homeItem.Version)
 }
@@ -162,6 +179,7 @@ func TestList_ExistingMarker_MultipleTimelines(t *testing.T) {
 
 	// Create a marker with only "home" timeline
 	now := time.Now()
+
 	marker := &models.Marker{
 		AccountId: account.Id,
 		Timelines: map[string]*models.MarkerTimelineItem{
@@ -179,26 +197,30 @@ func TestList_ExistingMarker_MultipleTimelines(t *testing.T) {
 	// Request both home and notifications - notifications doesn't exist so should be empty
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home&timelines[]=notifications", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home&timelines[]=notifications", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp map[string]json.RawMessage
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, resp, 2)
 
 	var homeItem models.MarkerTimelineItem
+
 	err = json.Unmarshal(resp["home"], &homeItem)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(999), homeItem.LastReadId)
 
 	// notifications should have zero values since it doesn't exist
 	var notifItem models.MarkerTimelineItem
+
 	err = json.Unmarshal(resp["notifications"], &notifItem)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(0), notifItem.LastReadId)
 }
 
@@ -216,33 +238,37 @@ func TestSave_CreateNewMarker(t *testing.T) {
 			LastReadId: "67890",
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := json.Marshal(body) //nolint:errchkjson // test data is safe
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
 	callHandler(Save, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp map[string]json.RawMessage
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, resp, "home")
 	assert.Contains(t, resp, "notifications")
 
 	var homeItem models.MarkerTimelineItem
+
 	err = json.Unmarshal(resp["home"], &homeItem)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(12345), homeItem.LastReadId)
 	assert.Equal(t, uint64(1), homeItem.Version)
 
 	// Verify marker was persisted in DB
 	var dbMarker models.Marker
+
 	err = testDB.GormDB.Where("account_id = ?", account.Id).First(&dbMarker).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, account.Id, dbMarker.AccountId)
 	assert.Contains(t, dbMarker.Timelines, "home")
 	assert.Equal(t, uint64(12345), dbMarker.Timelines["home"].LastReadId)
@@ -254,6 +280,7 @@ func TestSave_UpdateExistingMarker(t *testing.T) {
 
 	// Create an existing marker
 	now := time.Now()
+
 	marker := &models.Marker{
 		AccountId: account.Id,
 		Timelines: map[string]*models.MarkerTimelineItem{
@@ -277,11 +304,11 @@ func TestSave_UpdateExistingMarker(t *testing.T) {
 			LastReadId: "300",
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := json.Marshal(body) //nolint:errchkjson // test data is safe
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -290,20 +317,23 @@ func TestSave_UpdateExistingMarker(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]json.RawMessage
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var homeItem models.MarkerTimelineItem
+
 	err = json.Unmarshal(resp["home"], &homeItem)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(200), homeItem.LastReadId)
 	// Version should have been incremented from 2 to 3
 	assert.Equal(t, uint64(3), homeItem.Version)
 
 	// Verify in DB
 	var dbMarker models.Marker
+
 	err = testDB.GormDB.Where("account_id = ?", account.Id).First(&dbMarker).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(200), dbMarker.Timelines["home"].LastReadId)
 	assert.Equal(t, uint64(300), dbMarker.Timelines["notifications"].LastReadId)
 	assert.Equal(t, uint64(3), dbMarker.Timelines["home"].Version)
@@ -319,11 +349,11 @@ func TestSave_InvalidLastReadId(t *testing.T) {
 			LastReadId: "not-a-number",
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := json.Marshal(body) //nolint:errchkjson // test data is safe
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -338,7 +368,7 @@ func TestSave_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader([]byte("invalid json")))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader([]byte("invalid json"))) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
@@ -355,11 +385,11 @@ func TestSave_NoAccountInContext(t *testing.T) {
 			LastReadId: "12345",
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := json.Marshal(body) //nolint:errchkjson // test data is safe
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	// No account set in context - MustGet will panic
 
@@ -373,7 +403,7 @@ func TestList_NoAccountInContext(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home", nil) //nolint:noctx
 	// No account set in context - MustGet will panic
 
 	assert.Panics(t, func() {
@@ -390,16 +420,18 @@ func TestSave_EmptyBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 
 	callHandler(Save, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp map[string]json.RawMessage
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, resp)
 }
 
@@ -412,11 +444,11 @@ func TestSave_NegativeLastReadId(t *testing.T) {
 			LastReadId: "-1",
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := json.Marshal(body) //nolint:errchkjson // test data is safe
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/markers", bytes.NewReader(bodyBytes)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("account", account)
 

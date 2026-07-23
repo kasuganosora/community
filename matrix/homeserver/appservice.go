@@ -2,9 +2,11 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -19,29 +21,29 @@ import (
 // ===== Application Services (Appservices) 实现 =====
 // 应用服务允许桥接其他聊天平台（Telegram, Discord, WhatsApp 等）
 
-// AppService 应用服务配置
+// AppService 应用服务配置.
 type AppService struct {
 	ID              string               `gorm:"primaryKey;type:varchar(64)" json:"id"`
-	URL             string               `gorm:"type:varchar(512);not null" json:"url"`                // 事件推送 URL
-	Token           string               `gorm:"type:varchar(512);not null" json:"token"`              // 访问令牌
-	HS_TOKEN        string               `gorm:"type:varchar(512);not null" json:"hs_token"`           // 验证令牌
-	SenderLocalpart string               `gorm:"type:varchar(128);not null" json:"sender_localpart"`   // 发送者本地部分 (@bot:server)
-	Protocols       []string             `gorm:"type:json;serializer:json" json:"protocols,omitempty"` // 支持的协议
-	Namespaces      AppServiceNamespaces `gorm:"type:json;serializer:json" json:"namespaces"`          // 命名空间配置
-	RateLimited     bool                 `gorm:"default:true" json:"rate_limited"`
-	Enabled         bool                 `gorm:"default:true" json:"enabled"`
-	CreatedAt       time.Time            `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       time.Time            `gorm:"autoUpdateTime" json:"updated_at"`
+	URL             string               `gorm:"type:varchar(512);not null"  json:"url"`                 // 事件推送 URL
+	Token           string               `gorm:"type:varchar(512);not null"  json:"token"`               // 访问令牌
+	HS_TOKEN        string               `gorm:"type:varchar(512);not null"  json:"hs_token"`            // 验证令牌
+	SenderLocalpart string               `gorm:"type:varchar(128);not null"  json:"sender_localpart"`    // 发送者本地部分 (@bot:server)
+	Protocols       []string             `gorm:"type:json;serializer:json"   json:"protocols,omitempty"` // 支持的协议
+	Namespaces      AppServiceNamespaces `gorm:"type:json;serializer:json"   json:"namespaces"`          // 命名空间配置
+	RateLimited     bool                 `gorm:"default:true"                json:"rate_limited"`
+	Enabled         bool                 `gorm:"default:true"                json:"enabled"`
+	CreatedAt       time.Time            `gorm:"autoCreateTime"              json:"created_at"`
+	UpdatedAt       time.Time            `gorm:"autoUpdateTime"              json:"updated_at"`
 }
 
-// AppServiceNamespaces 命名空间配置
+// AppServiceNamespaces 命名空间配置.
 type AppServiceNamespaces struct {
 	Users   []NamespaceConfig `json:"users,omitempty"`
 	Rooms   []NamespaceConfig `json:"rooms,omitempty"`
 	Aliases []NamespaceConfig `json:"aliases,omitempty"`
 }
 
-// NamespaceConfig 命名空间配置项
+// NamespaceConfig 命名空间配置项.
 type NamespaceConfig struct {
 	Exclusive bool   `json:"exclusive"`
 	Regex     string `json:"regex"`
@@ -52,13 +54,13 @@ func (AppService) TableName() string {
 	return "matrix_appservices"
 }
 
-// AppServiceService 应用服务管理
+// AppServiceService 应用服务管理.
 type AppServiceService struct {
 	hs     *HomeServer
 	client *http.Client
 }
 
-// NewAppServiceService 创建应用服务管理器
+// NewAppServiceService 创建应用服务管理器.
 func NewAppServiceService(hs *HomeServer) *AppServiceService {
 	return &AppServiceService{
 		hs:     hs,
@@ -66,29 +68,31 @@ func NewAppServiceService(hs *HomeServer) *AppServiceService {
 	}
 }
 
-// RegisterAppService 注册应用服务
+// RegisterAppService 注册应用服务.
 func (ass *AppServiceService) RegisterAppService(as *AppService) error {
 	// 验证 ID 格式
 	if as.ID == "" || !isValidAppServiceID(as.ID) {
-		return fmt.Errorf("invalid appservice ID")
+		return errors.New("invalid appservice ID")
 	}
 
 	// 验证 URL
 	if as.URL == "" {
-		return fmt.Errorf("appservice URL is required")
+		return errors.New("appservice URL is required")
 	}
 
 	// 生成令牌（如果没有提供）
 	if as.Token == "" {
 		as.Token = generateSecureToken()
 	}
+
 	if as.HS_TOKEN == "" {
 		as.HS_TOKEN = generateSecureToken()
 	}
 
 	// 检查 ID 是否已存在
 	var existing AppService
-	if err := db.GetDB().Where("id = ?", as.ID).First(&existing).Error; err == nil {
+	err := db.GetDB().Where("id = ?", as.ID).First(&existing).Error
+	if err == nil {
 		return fmt.Errorf("appservice with ID %s already exists", as.ID)
 	}
 
@@ -102,45 +106,52 @@ func (ass *AppServiceService) RegisterAppService(as *AppService) error {
 	return db.GetDB().Create(as).Error
 }
 
-// GetAppService 获取应用服务
+// GetAppService 获取应用服务.
 func (ass *AppServiceService) GetAppService(id string) (*AppService, error) {
 	var as AppService
-	if err := db.GetDB().Where("id = ? AND enabled = ?", id, true).First(&as).Error; err != nil {
+	err := db.GetDB().Where("id = ? AND enabled = ?", id, true).First(&as).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return &as, nil
 }
 
-// GetAppServiceByToken 通过令牌获取应用服务
+// GetAppServiceByToken 通过令牌获取应用服务.
 func (ass *AppServiceService) GetAppServiceByToken(token string) (*AppService, error) {
 	var as AppService
-	if err := db.GetDB().Where("token = ? AND enabled = ?", token, true).First(&as).Error; err != nil {
+	err := db.GetDB().Where("token = ? AND enabled = ?", token, true).First(&as).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return &as, nil
 }
 
-// ListAppServices 列出所有应用服务
+// ListAppServices 列出所有应用服务.
 func (ass *AppServiceService) ListAppServices() ([]AppService, error) {
 	var services []AppService
-	if err := db.GetDB().Where("enabled = ?", true).Find(&services).Error; err != nil {
+	err := db.GetDB().Where("enabled = ?", true).Find(&services).Error
+	if err != nil {
 		return nil, err
 	}
+
 	return services, nil
 }
 
-// UpdateAppService 更新应用服务
+// UpdateAppService 更新应用服务.
 func (ass *AppServiceService) UpdateAppService(as *AppService) error {
 	as.UpdatedAt = time.Now()
+
 	return db.GetDB().Save(as).Error
 }
 
-// DeleteAppService 删除应用服务
+// DeleteAppService 删除应用服务.
 func (ass *AppServiceService) DeleteAppService(id string) error {
 	return db.GetDB().Model(&AppService{}).Where("id = ?", id).Update("enabled", false).Error
 }
 
-// IsAppServiceUser 检查用户是否属于应用服务
+// IsAppServiceUser 检查用户是否属于应用服务.
 func (ass *AppServiceService) IsAppServiceUser(userID string) (*AppService, bool) {
 	services, err := ass.ListAppServices()
 	if err != nil {
@@ -159,7 +170,7 @@ func (ass *AppServiceService) IsAppServiceUser(userID string) (*AppService, bool
 	return nil, false
 }
 
-// IsExclusiveAlias 检查别名是否被应用服务独占
+// IsExclusiveAlias 检查别名是否被应用服务独占.
 func (ass *AppServiceService) IsExclusiveAlias(alias string) (*AppService, bool) {
 	services, err := ass.ListAppServices()
 	if err != nil {
@@ -179,63 +190,72 @@ func (ass *AppServiceService) IsExclusiveAlias(alias string) (*AppService, bool)
 	return nil, false
 }
 
-// CanAppServiceClaimUser 检查应用服务是否可以声称某个用户
+// CanAppServiceClaimUser 检查应用服务是否可以声称某个用户.
 func (ass *AppServiceService) CanAppServiceClaimUser(as *AppService, userID string) bool {
 	for _, ns := range as.Namespaces.Users {
 		if matched, _ := regexp.MatchString(ns.Regex, userID); matched {
 			return true
 		}
 	}
+
 	return false
 }
 
-// CanAppServiceClaimRoom 检查应用服务是否可以声称某个房间
+// CanAppServiceClaimRoom 检查应用服务是否可以声称某个房间.
 func (ass *AppServiceService) CanAppServiceClaimRoom(as *AppService, roomID string) bool {
 	for _, ns := range as.Namespaces.Rooms {
 		if matched, _ := regexp.MatchString(ns.Regex, roomID); matched {
 			return true
 		}
 	}
+
 	return false
 }
 
-// CanAppServiceClaimAlias 检查应用服务是否可以声称某个别名
+// CanAppServiceClaimAlias 检查应用服务是否可以声称某个别名.
 func (ass *AppServiceService) CanAppServiceClaimAlias(as *AppService, alias string) bool {
 	for _, ns := range as.Namespaces.Aliases {
 		if matched, _ := regexp.MatchString(ns.Regex, alias); matched {
 			return true
 		}
 	}
+
 	return false
 }
 
-// PushEvent 推送事件到应用服务
+// PushEvent 推送事件到应用服务.
 func (ass *AppServiceService) PushEvent(as *AppService, event *MatrixEvent) {
 	if as.URL == "" {
 		return
 	}
 
-	payload := map[string]interface{}{
-		"events": []map[string]interface{}{eventToMap(event)},
+	payload := map[string]any{
+		"events": []map[string]any{eventToMap(event)},
 	}
 
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
 
 	go func() {
-		req, err := http.NewRequest("POST", as.URL, bytes.NewReader(data))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, as.URL, bytes.NewReader(data))
 		if err != nil {
 			log.Error("Failed to create appservice request: %v", err)
+
 			return
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", as.HS_TOKEN))
+		req.Header.Set("Authorization", "Bearer "+as.HS_TOKEN)
 
 		resp, err := ass.client.Do(req)
 		if err != nil {
 			log.Error("Failed to push event to appservice %s: %v", as.ID, err)
+
 			return
 		}
+
 		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
@@ -244,7 +264,7 @@ func (ass *AppServiceService) PushEvent(as *AppService, event *MatrixEvent) {
 	}()
 }
 
-// PushEvents 批量推送事件
+// PushEvents 批量推送事件.
 func (ass *AppServiceService) PushEvents(events []*MatrixEvent) {
 	services, err := ass.ListAppServices()
 	if err != nil {
@@ -253,7 +273,8 @@ func (ass *AppServiceService) PushEvents(events []*MatrixEvent) {
 
 	for _, as := range services {
 		// 过滤属于该应用服务的事件
-		var asEvents []map[string]interface{}
+		var asEvents []map[string]any
+
 		for _, event := range events {
 			if ass.shouldReceiveEvent(&as, event) {
 				asEvents = append(asEvents, eventToMap(event))
@@ -261,21 +282,27 @@ func (ass *AppServiceService) PushEvents(events []*MatrixEvent) {
 		}
 
 		if len(asEvents) > 0 {
-			payload := map[string]interface{}{
+			payload := map[string]any{
 				"events": asEvents,
 			}
-			data, _ := json.Marshal(payload)
+			data, err := json.Marshal(payload)
+			if err != nil {
+				log.Error("Failed to marshal appservice events: %v", err)
+				return
+			}
 
 			go func(service AppService) {
-				req, _ := http.NewRequest("POST", service.URL, bytes.NewReader(data))
+				req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, service.URL, bytes.NewReader(data))
 				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", service.HS_TOKEN))
+				req.Header.Set("Authorization", "Bearer "+service.HS_TOKEN)
 
 				resp, err := ass.client.Do(req)
 				if err != nil {
 					log.Error("Failed to push events to appservice %s: %v", service.ID, err)
+
 					return
 				}
+
 				defer func() { _ = resp.Body.Close() }()
 
 				if resp.StatusCode != http.StatusOK {
@@ -286,7 +313,7 @@ func (ass *AppServiceService) PushEvents(events []*MatrixEvent) {
 	}
 }
 
-// shouldReceiveEvent 检查应用服务是否应该接收此事件
+// shouldReceiveEvent 检查应用服务是否应该接收此事件.
 func (ass *AppServiceService) shouldReceiveEvent(as *AppService, event *MatrixEvent) bool {
 	// 检查发送者是否属于该应用服务
 	if matched, _ := ass.IsAppServiceUser(event.Sender); matched != nil && matched.ID == as.ID {
@@ -312,11 +339,12 @@ func (ass *AppServiceService) shouldReceiveEvent(as *AppService, event *MatrixEv
 	return false
 }
 
-// ensureAppServiceUser 确保应用服务用户存在
+// ensureAppServiceUser 确保应用服务用户存在.
 func (ass *AppServiceService) ensureAppServiceUser(userID, appServiceID string) error {
 	// 检查用户是否已存在
 	var existing MatrixUserSession
-	if err := db.GetDB().Where("user_id = ?", userID).First(&existing).Error; err == nil {
+	err := db.GetDB().Where("user_id = ?", userID).First(&existing).Error
+	if err == nil {
 		return nil
 	}
 
@@ -330,12 +358,12 @@ func (ass *AppServiceService) ensureAppServiceUser(userID, appServiceID string) 
 	return db.GetDB().Create(session).Error
 }
 
-// QueryUser 查询用户（应用服务 API）
+// QueryUser 查询用户（应用服务 API）.
 func (ass *AppServiceService) QueryUser(userID string) (*AppServiceUserInfo, error) {
 	// 检查是否是应用服务用户
 	_, isAS := ass.IsAppServiceUser(userID)
 	if !isAS {
-		return nil, fmt.Errorf("user not found")
+		return nil, errors.New("user not found")
 	}
 
 	// 返回用户信息
@@ -346,20 +374,22 @@ func (ass *AppServiceService) QueryUser(userID string) (*AppServiceUserInfo, err
 	}, nil
 }
 
-// QueryRoom 查询房间别名（应用服务 API）
+// QueryRoom 查询房间别名（应用服务 API）.
 func (ass *AppServiceService) QueryRoom(alias string) (*AppServiceRoomInfo, error) {
 	// 查找房间
 	var roomState MatrixRoomState
-	if err := db.GetDB().Where("event_type = ? AND content->>'alias' = ?", EventTypeRoomCanonicalAlias, alias).First(&roomState).Error; err != nil {
+	err := db.GetDB().Where("event_type = ? AND content->>'alias' = ?", EventTypeRoomCanonicalAlias, alias).First(&roomState).Error
+	if err != nil {
 		// 检查应用服务是否可以创建此别名
 		services, _ := ass.ListAppServices()
 		for _, as := range services {
 			if ass.CanAppServiceClaimAlias(&as, alias) {
 				// 应用服务可以创建此别名
-				return nil, fmt.Errorf("room not found, but appservice can create it")
+				return nil, errors.New("room not found, but appservice can create it")
 			}
 		}
-		return nil, fmt.Errorf("room not found")
+
+		return nil, errors.New("room not found")
 	}
 
 	return &AppServiceRoomInfo{
@@ -368,14 +398,14 @@ func (ass *AppServiceService) QueryRoom(alias string) (*AppServiceRoomInfo, erro
 	}, nil
 }
 
-// AppServiceUserInfo 应用服务用户信息
+// AppServiceUserInfo 应用服务用户信息.
 type AppServiceUserInfo struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"displayname,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
-// AppServiceRoomInfo 应用服务房间信息
+// AppServiceRoomInfo 应用服务房间信息.
 type AppServiceRoomInfo struct {
 	RoomID  string   `json:"room_id"`
 	Servers []string `json:"servers"`
@@ -383,7 +413,7 @@ type AppServiceRoomInfo struct {
 
 // ===== HTTP Handlers =====
 
-// RegisterAppServiceRoutes 注册应用服务 API 路由
+// RegisterAppServiceRoutes 注册应用服务 API 路由.
 func RegisterAppServiceRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -414,16 +444,17 @@ func RegisterAppServiceRoutes(r gin.IRouter) {
 	}
 }
 
-// AppServiceAuthMiddleware 应用服务认证中间件
+// AppServiceAuthMiddleware 应用服务认证中间件.
 func AppServiceAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hs := GetHomeServer()
 		if hs == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"errcode": "M_UNKNOWN",
-				"error":   "Homeserver not available",
+				"errcode": "M_UNKNOWN",                //nolint:goconst
+				"error":   "Homeserver not available", //nolint:goconst
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -431,20 +462,22 @@ func AppServiceAuthMiddleware() gin.HandlerFunc {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"errcode": "M_MISSING_TOKEN",
+				"errcode": "M_MISSING_TOKEN", //nolint:goconst
 				"error":   "Missing access token",
 			})
 			c.Abort()
+
 			return
 		}
 
 		// 提取 Bearer token
 		if len(authHeader) < 8 || !strings.HasPrefix(authHeader, "Bearer ") {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"errcode": "M_UNKNOWN_TOKEN",
+				"errcode": "M_UNKNOWN_TOKEN", //nolint:goconst
 				"error":   "Invalid token format",
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -458,6 +491,7 @@ func AppServiceAuthMiddleware() gin.HandlerFunc {
 				"error":   "Invalid appservice token",
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -467,18 +501,19 @@ func AppServiceAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// handleAppServiceQueryUser 处理应用服务用户查询
+// handleAppServiceQueryUser 处理应用服务用户查询.
 func handleAppServiceQueryUser(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
-	as := c.MustGet("appservice").(*AppService)
+	as := c.MustGet("appservice").(*AppService) //nolint:forcetypeassert
 
 	// 检查应用服务是否可以声称此用户
 	if !hs.AppService.CanAppServiceClaimUser(as, userID) {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "User not found",
+			"errcode": "M_NOT_FOUND",    //nolint:goconst
+			"error":   "User not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -489,24 +524,26 @@ func handleAppServiceQueryUser(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, userInfo)
 }
 
-// handleAppServiceQueryRoom 处理应用服务房间查询
+// handleAppServiceQueryRoom 处理应用服务房间查询.
 func handleAppServiceQueryRoom(c *gin.Context) {
 	hs := GetHomeServer()
 	roomAlias := c.Param("roomAlias")
-	as := c.MustGet("appservice").(*AppService)
+	as := c.MustGet("appservice").(*AppService) //nolint:forcetypeassert
 
 	// 检查应用服务是否可以声称此别名
 	if !hs.AppService.CanAppServiceClaimAlias(as, roomAlias) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
+			"error":   "Room not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -517,13 +554,14 @@ func handleAppServiceQueryRoom(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, roomInfo)
 }
 
-// handleAppServiceThirdPartyProtocol 处理第三方协议查询
+// handleAppServiceThirdPartyProtocol 处理第三方协议查询.
 func handleAppServiceThirdPartyProtocol(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
@@ -537,36 +575,40 @@ func handleAppServiceThirdPartyProtocol(c *gin.Context) {
 	})
 }
 
-// handleAppServiceThirdPartyLocation 处理第三方位置查询
+// handleAppServiceThirdPartyLocation 处理第三方位置查询.
 func handleAppServiceThirdPartyLocation(c *gin.Context) {
 	// 返回空列表
-	c.JSON(http.StatusOK, []interface{}{})
+	c.JSON(http.StatusOK, []any{})
 }
 
-// handleAppServiceThirdPartyUser 处理第三方用户查询
+// handleAppServiceThirdPartyUser 处理第三方用户查询.
 func handleAppServiceThirdPartyUser(c *gin.Context) {
 	// 返回空列表
-	c.JSON(http.StatusOK, []interface{}{})
+	c.JSON(http.StatusOK, []any{})
 }
 
-// handleRegisterAppService 注册应用服务（管理员）
+// handleRegisterAppService 注册应用服务（管理员）.
 func handleRegisterAppService(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var as AppService
-	if err := c.ShouldBindJSON(&as); err != nil {
+	err := c.ShouldBindJSON(&as)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
-	if err := hs.AppService.RegisterAppService(&as); err != nil {
+	err = hs.AppService.RegisterAppService(&as)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_INVALID_PARAM",
+			"errcode": "M_INVALID_PARAM", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -578,16 +620,17 @@ func handleRegisterAppService(c *gin.Context) {
 	})
 }
 
-// handleListAppServices 列出应用服务（管理员）
+// handleListAppServices 列出应用服务（管理员）.
 func handleListAppServices(c *gin.Context) {
 	hs := GetHomeServer()
 
 	services, err := hs.AppService.ListAppServices()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -596,16 +639,18 @@ func handleListAppServices(c *gin.Context) {
 	})
 }
 
-// handleDeleteAppService 删除应用服务（管理员）
+// handleDeleteAppService 删除应用服务（管理员）.
 func handleDeleteAppService(c *gin.Context) {
 	hs := GetHomeServer()
 	id := c.Param("id")
 
-	if err := hs.AppService.DeleteAppService(id); err != nil {
+	err := hs.AppService.DeleteAppService(id)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -617,6 +662,7 @@ func handleDeleteAppService(c *gin.Context) {
 func isValidAppServiceID(id string) bool {
 	// ID 只能包含字母、数字、下划线和连字符
 	matched, _ := regexp.MatchString("^[a-zA-Z0-9_-]+$", id)
+
 	return matched
 }
 
@@ -625,20 +671,21 @@ func generateSecureToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		// 如果加密随机数生成失败，使用更安全的回退方案
-		return hex.EncodeToString([]byte(fmt.Sprintf("%d%d", time.Now().UnixNano(), time.Now().UnixNano())))
+		return hex.EncodeToString(fmt.Appendf(nil, "%d%d", time.Now().UnixNano(), time.Now().UnixNano()))
 	}
+
 	return hex.EncodeToString(b)
 }
 
-func eventToMap(event *MatrixEvent) map[string]interface{} {
-	return map[string]interface{}{
-		"event_id":         event.EventID,
-		"type":             string(event.EventType),
-		"room_id":          event.RoomID,
-		"sender":           event.Sender,
-		"origin_server_ts": event.OriginServerTS,
-		"content":          event.Content,
-		"state_key":        event.StateKey,
+func eventToMap(event *MatrixEvent) map[string]any {
+	return map[string]any{
+		"event_id":         event.EventID,           //nolint:goconst
+		"type":             string(event.EventType), //nolint:goconst
+		"room_id":          event.RoomID,            //nolint:goconst
+		"sender":           event.Sender,            //nolint:goconst
+		"origin_server_ts": event.OriginServerTS,    //nolint:goconst
+		"content":          event.Content,           //nolint:goconst
+		"state_key":        event.StateKey,          //nolint:goconst
 	}
 }
 
@@ -646,7 +693,9 @@ func extractDisplayName(userID string) string {
 	parts := strings.Split(userID, ":")
 	if len(parts) > 0 {
 		name := strings.TrimPrefix(parts[0], "@")
+
 		return name
 	}
+
 	return userID
 }

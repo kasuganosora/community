@@ -17,7 +17,7 @@ import (
 )
 
 // skipIfNoGlobalRedis 如果没有配置全局 Redis 则跳过测试
-// GetStatusTimelineContent 等函数直接使用 db.GetRedis()，需要全局 Redis 配置
+// GetStatusTimelineContent 等函数直接使用 db.GetRedis()，需要全局 Redis 配置.
 func skipIfNoGlobalRedis(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -31,14 +31,14 @@ func skipIfNoGlobalRedis(t *testing.T) {
 	}
 }
 
-// IntegrationTestSetup 集成测试设置
+// IntegrationTestSetup 集成测试设置.
 type IntegrationTestSetup struct {
 	DB       *testutil.TestDB
 	Redis    *testutil.RedisTestClient
 	Fixtures *testutil.FixtureBuilder
 }
 
-// SetupIntegrationTest 创建集成测试环境
+// SetupIntegrationTest 创建集成测试环境.
 func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 	// 设置 DB
 	db, err := testutil.NewIsolatedTestDB(t)
@@ -79,17 +79,17 @@ func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 // GetStatusTimelineContent 直接使用 db.GetRedis()，在没有全局 Redis 配置时会 panic
 // 因此需要全局 Redis 的测试应该在有 .env 配置的环境中运行
 
-// GetFeedService 获取使用真实 Redis 的 FeedService
+// GetFeedService 获取使用真实 Redis 的 FeedService.
 func (s *IntegrationTestSetup) GetFeedService() *FeedService {
 	return NewFeedService(NewRedisClient(s.Redis.Client))
 }
 
-// GetDBService 获取使用真实 DB 的 DBService
+// GetDBService 获取使用真实 DB 的 DBService.
 func (s *IntegrationTestSetup) GetDBService() *DBService {
 	return NewDBService(s.DB.GormDB)
 }
 
-// Cleanup 清理测试数据
+// Cleanup 清理测试数据.
 func (s *IntegrationTestSetup) Cleanup(t *testing.T) {
 	ctx := context.Background()
 	// 清理 Redis
@@ -98,7 +98,7 @@ func (s *IntegrationTestSetup) Cleanup(t *testing.T) {
 	}
 }
 
-// TestFeedService_AddToTimelineItem_RealRedis 使用真实 Redis 测试添加时间线
+// TestFeedService_AddToTimelineItem_RealRedis 使用真实 Redis 测试添加时间线.
 func TestFeedService_AddToTimelineItem_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -108,7 +108,7 @@ func TestFeedService_AddToTimelineItem_RealRedis(t *testing.T) {
 	defer setup.Cleanup(t)
 
 	svc := setup.GetFeedService()
-	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "test_real_redis"}
+	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "test_real_redis"} //nolint:goconst
 
 	// 创建测试状态
 	status := &models.Status{Id: 100001}
@@ -124,7 +124,7 @@ func TestFeedService_AddToTimelineItem_RealRedis(t *testing.T) {
 	assert.Contains(t, result, "100001")
 }
 
-// TestFeedService_AddToTimelineItem_WithReblog_RealRedis 测试转发聚合
+// TestFeedService_AddToTimelineItem_WithReblog_RealRedis 测试转发聚合.
 func TestFeedService_AddToTimelineItem_WithReblog_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -161,7 +161,7 @@ func TestFeedService_AddToTimelineItem_WithReblog_RealRedis(t *testing.T) {
 	// 转发 200002 不会添加因为原始状态在 falloff 范围内
 }
 
-// TestFeedService_RemoveTimelineItem_RealRedis 使用真实 Redis 测试删除时间线
+// TestFeedService_RemoveTimelineItem_RealRedis 使用真实 Redis 测试删除时间线.
 func TestFeedService_RemoveTimelineItem_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -195,7 +195,7 @@ func TestFeedService_RemoveTimelineItem_RealRedis(t *testing.T) {
 	assert.NotContains(t, result, "300001")
 }
 
-// TestFeedService_TrimTimeline_RealRedis 使用真实 Redis 测试裁剪时间线
+// TestFeedService_TrimTimeline_RealRedis 使用真实 Redis 测试裁剪时间线.
 func TestFeedService_TrimTimeline_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -210,7 +210,7 @@ func TestFeedService_TrimTimeline_RealRedis(t *testing.T) {
 	ctx := context.Background()
 
 	// 添加超过 MAX_ITEMS 的状态
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		status := &models.Status{Id: uint64(400000 + i)}
 		err := svc.AddToTimelineItem(timeline, status, false)
 		require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestFeedService_TrimTimeline_RealRedis(t *testing.T) {
 	t.Logf("Before trim: %d, After trim: %d, MAX_ITEMS: %d", beforeCount, afterCount, MAX_ITEMS)
 }
 
-// TestFeedService_BatchAddToTimelineItems_RealRedis 测试批量添加
+// TestFeedService_BatchAddToTimelineItems_RealRedis 测试批量添加.
 func TestFeedService_BatchAddToTimelineItems_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -247,7 +247,7 @@ func TestFeedService_BatchAddToTimelineItems_RealRedis(t *testing.T) {
 	timelines := []Timeline{
 		&TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "batch_1"},
 		&TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "batch_2"},
-		&TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"},
+		&TestMockTimeline{KeyFormat: "feed:public:%s", TimelineId: "all"}, //nolint:goconst
 	}
 
 	status := &models.Status{Id: 500001}
@@ -266,7 +266,7 @@ func TestFeedService_BatchAddToTimelineItems_RealRedis(t *testing.T) {
 	}
 }
 
-// TestFeedService_CleanFeeds_RealRedis 测试清理 Feed
+// TestFeedService_CleanFeeds_RealRedis 测试清理 Feed.
 func TestFeedService_CleanFeeds_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -281,7 +281,7 @@ func TestFeedService_CleanFeeds_RealRedis(t *testing.T) {
 	ctx := context.Background()
 
 	// 添加一些数据
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		status := &models.Status{Id: uint64(600000 + i)}
 		err := svc.AddToTimelineItem(timeline, status, false)
 		require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestFeedService_CleanFeeds_RealRedis(t *testing.T) {
 	// 验证数据存在
 	result, err := setup.Redis.Client.ZRange(ctx, "feed:home:clean_test", 0, -1).Result()
 	require.NoError(t, err)
-	assert.Greater(t, len(result), 0)
+	assert.NotEmpty(t, result)
 
 	// 清理
 	err = svc.CleanFeeds(timeline, []string{"clean_test"})
@@ -299,10 +299,10 @@ func TestFeedService_CleanFeeds_RealRedis(t *testing.T) {
 	// 验证数据已清理
 	result, err = setup.Redis.Client.ZRange(ctx, "feed:home:clean_test", 0, -1).Result()
 	require.NoError(t, err)
-	assert.Equal(t, 0, len(result))
+	assert.Empty(t, result)
 }
 
-// TestFeedService_GcTimelines_RealRedis 测试垃圾回收
+// TestFeedService_GcTimelines_RealRedis 测试垃圾回收.
 func TestFeedService_GcTimelines_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -334,7 +334,7 @@ func TestFeedService_GcTimelines_RealRedis(t *testing.T) {
 
 	// 验证旧条目被删除
 	_, err = setup.Redis.Client.ZScore(ctx, "timelines", "feed:home:old_user").Result()
-	assert.Error(t, err, "Old timeline should be removed") // redis.Nil error
+	require.Error(t, err, "Old timeline should be removed") // redis.Nil error
 
 	// 验证新条目存在
 	newResult, err := setup.Redis.Client.ZScore(ctx, "timelines", "feed:home:new_user").Result()
@@ -343,7 +343,7 @@ func TestFeedService_GcTimelines_RealRedis(t *testing.T) {
 	_ = newResult // 使用变量避免编译错误
 }
 
-// TestFeedService_PushToClient_RealRedis 测试推送消息
+// TestFeedService_PushToClient_RealRedis 测试推送消息.
 func TestFeedService_PushToClient_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -360,7 +360,7 @@ func TestFeedService_PushToClient_RealRedis(t *testing.T) {
 
 	// 订阅频道
 	pubsub := setup.Redis.Client.Subscribe(ctx, channel)
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 
 	// 等待订阅生效
 	_, err := pubsub.Receive(ctx)
@@ -378,7 +378,7 @@ func TestFeedService_PushToClient_RealRedis(t *testing.T) {
 	assert.Contains(t, msg.Payload, "700001")
 }
 
-// TestFeedService_PushUpdateRequired_RealRedis 测试推送更新检查
+// TestFeedService_PushUpdateRequired_RealRedis 测试推送更新检查.
 func TestFeedService_PushUpdateRequired_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -391,7 +391,7 @@ func TestFeedService_PushUpdateRequired_RealRedis(t *testing.T) {
 	ctx := context.Background()
 
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "push_check"}
-	channel := fmt.Sprintf("subscribed:feed:home:%s", "push_check")
+	channel := "subscribed:feed:home:" + "push_check"
 
 	// 没有订阅者时应该返回 false
 	// 清除缓存
@@ -402,7 +402,7 @@ func TestFeedService_PushUpdateRequired_RealRedis(t *testing.T) {
 
 	// 订阅频道
 	pubsub := setup.Redis.Client.Subscribe(ctx, channel)
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 
 	// 等待订阅生效
 	time.Sleep(100 * time.Millisecond)
@@ -413,7 +413,7 @@ func TestFeedService_PushUpdateRequired_RealRedis(t *testing.T) {
 	assert.True(t, result)
 }
 
-// TestDBService_RealDB 测试数据库操作
+// TestDBService_RealDB 测试数据库操作.
 func TestDBService_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -430,7 +430,7 @@ func TestDBService_RealDB(t *testing.T) {
 	assert.Empty(t, followers)
 }
 
-// TestDBService_GetAccountFollowersId_WithData 测试真实 DB 关注关系
+// TestDBService_GetAccountFollowersId_WithData 测试真实 DB 关注关系.
 func TestDBService_GetAccountFollowersId_WithData(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -438,6 +438,7 @@ func TestDBService_GetAccountFollowersId_WithData(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	// 1. 创建用户和账号（真实场景）
@@ -477,7 +478,7 @@ func TestDBService_GetAccountFollowersId_WithData(t *testing.T) {
 	assert.Empty(t, followers2)
 }
 
-// TestDBService_GetAccountFollowingAccounts 测试获取关注列表
+// TestDBService_GetAccountFollowingAccounts 测试获取关注列表.
 func TestDBService_GetAccountFollowingAccounts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -485,6 +486,7 @@ func TestDBService_GetAccountFollowingAccounts(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	// 创建用户和账号
@@ -522,7 +524,7 @@ func TestDBService_GetAccountFollowingAccounts(t *testing.T) {
 	assert.Empty(t, following2)
 }
 
-// TestDBService_GetAccountRecentActiveLocalFollowersId 测试活跃粉丝查询
+// TestDBService_GetAccountRecentActiveLocalFollowersId 测试活跃粉丝查询.
 func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -530,6 +532,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	// 创建目标账号
@@ -541,6 +544,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	// 创建本地活跃粉丝
 	activeUser := &models.User{UserName: "active_follower"}
 	require.NoError(t, setup.DB.GormDB.Create(activeUser).Error)
+
 	now := time.Now()
 	activeFollower := &models.Account{
 		UserId:         activeUser.Id,
@@ -552,6 +556,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	// 创建本地不活跃粉丝
 	inactiveUser := &models.User{UserName: "inactive_follower"}
 	require.NoError(t, setup.DB.GormDB.Create(inactiveUser).Error)
+
 	oldTime := time.Now().Add(-30 * 24 * time.Hour) // 30天前
 	inactiveFollower := &models.Account{
 		UserId:         inactiveUser.Id,
@@ -563,6 +568,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	// 创建远程粉丝（有 domain）
 	remoteUser := &models.User{UserName: "remote_follower_user"}
 	require.NoError(t, setup.DB.GormDB.Create(remoteUser).Error)
+
 	remoteDomain := "remote.example.com"
 	remoteFollower := &models.Account{
 		UserId:         remoteUser.Id,
@@ -587,7 +593,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	assert.NotContains(t, followers, remoteFollower.Id)   // 远程用户
 }
 
-// TestDBService_GetAccountRemoteFollowers 测试获取远程粉丝
+// TestDBService_GetAccountRemoteFollowers 测试获取远程粉丝.
 func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -595,6 +601,7 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	// 创建目标账号
@@ -612,6 +619,7 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 	// 创建远程粉丝
 	remoteUser1 := &models.User{UserName: "remote_user1"}
 	require.NoError(t, setup.DB.GormDB.Create(remoteUser1).Error)
+
 	domain1 := "remote1.example.com"
 	remoteFollower1 := &models.Account{
 		UserId:   remoteUser1.Id,
@@ -622,6 +630,7 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 
 	remoteUser2 := &models.User{UserName: "remote_user2"}
 	require.NoError(t, setup.DB.GormDB.Create(remoteUser2).Error)
+
 	domain2 := "remote2.example.com"
 	remoteFollower2 := &models.Account{
 		UserId:   remoteUser2.Id,
@@ -642,16 +651,17 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 	// 应该只包含远程粉丝（有 domain 的）
 	assert.Len(t, remoteFollowers, 2)
 
-	remoteIds := make([]uint64, 0)
+	remoteIds := make([]uint64, 0, len(remoteFollowers))
 	for _, f := range remoteFollowers {
 		remoteIds = append(remoteIds, f.Id)
 	}
+
 	assert.Contains(t, remoteIds, remoteFollower1.Id)
 	assert.Contains(t, remoteIds, remoteFollower2.Id)
 	assert.NotContains(t, remoteIds, localFollower.Id)
 }
 
-// TestListParam_RealRedis 测试 ListParam 与真实 Redis 的交互
+// TestListParam_RealRedis 测试 ListParam 与真实 Redis 的交互.
 func TestListParam_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -683,7 +693,7 @@ func TestListParam_RealRedis(t *testing.T) {
 			ByScore: true,
 		}).Result()
 		require.NoError(t, err)
-		assert.Greater(t, len(result), 0)
+		assert.NotEmpty(t, result)
 	})
 
 	t.Run("With SinceId", func(t *testing.T) {
@@ -700,7 +710,7 @@ func TestListParam_RealRedis(t *testing.T) {
 	})
 }
 
-// TestReblogAggregation_RealRedis 测试转发聚合逻辑
+// TestReblogAggregation_RealRedis 测试转发聚合逻辑.
 func TestReblogAggregation_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -726,7 +736,7 @@ func TestReblogAggregation_RealRedis(t *testing.T) {
 	assert.Contains(t, timelineMembers, "900001")
 }
 
-// TestConcurrentAccess_RealRedis 测试并发访问
+// TestConcurrentAccess_RealRedis 测试并发访问.
 func TestConcurrentAccess_RealRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -743,18 +753,19 @@ func TestConcurrentAccess_RealRedis(t *testing.T) {
 	operationsPerGoroutine := 50
 
 	// 并发添加
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(id int) {
-			for j := 0; j < operationsPerGoroutine; j++ {
-				status := &models.Status{Id: uint64(id*10000 + j)}
+			for j := range operationsPerGoroutine {
+				status := &models.Status{Id: uint64(id*10000 + j)} //nolint:gosec // G115: reviewed and safe
 				_ = svc.AddToTimelineItem(timeline, status, false)
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// 等待所有 goroutine 完成
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		<-done
 	}
 
@@ -763,33 +774,34 @@ func TestConcurrentAccess_RealRedis(t *testing.T) {
 	count, err := setup.Redis.Client.ZCard(ctx, "feed:home:concurrent_test").Result()
 	require.NoError(t, err)
 	// 由于并发写入，最终数据量应该接近预期
-	assert.Greater(t, count, int64(0))
+	assert.Positive(t, count)
 }
 
-// TestSubscriptionCache_Concurrent 测试订阅缓存并发安全
+// TestSubscriptionCache_Concurrent 测试订阅缓存并发安全.
 func TestSubscriptionCache_Concurrent(t *testing.T) {
 	cache := &subscriptionCache{ttl: 5 * time.Second}
 
 	done := make(chan bool)
 
 	// 并发读写
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		go func(id int) {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				key := "key_" + strconv.Itoa(id)
 				cache.Set(key, true)
 				cache.Get(key)
 			}
+
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-done
 	}
 }
 
-// TestDBService_CreateTestAccount 测试创建测试账号
+// TestDBService_CreateTestAccount 测试创建测试账号.
 func TestDBService_CreateTestAccount(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -797,6 +809,7 @@ func TestDBService_CreateTestAccount(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	account := &models.Account{
@@ -805,15 +818,16 @@ func TestDBService_CreateTestAccount(t *testing.T) {
 	}
 	err := dbSvc.CreateTestAccount(account)
 	require.NoError(t, err)
-	assert.Greater(t, account.Id, uint64(0))
+	assert.Positive(t, account.Id)
 
 	// 验证账号已创建
 	var found models.Account
+
 	setup.DB.GormDB.First(&found, account.Id)
 	assert.Equal(t, "test_create_account", found.Username)
 }
 
-// TestResetSubscriptionCache 测试重置订阅缓存
+// TestResetSubscriptionCache 测试重置订阅缓存.
 func TestResetSubscriptionCache(t *testing.T) {
 	// 设置一些缓存值
 	subCache.Set("test_key", true)
@@ -828,14 +842,14 @@ func TestResetSubscriptionCache(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestGetRedisChannelNameFunc 测试获取 Redis 频道名称
+// TestGetRedisChannelNameFunc 测试获取 Redis 频道名称.
 func TestGetRedisChannelNameFunc(t *testing.T) {
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "user123"}
 	channel := GetRedisChannelName(timeline)
 	assert.Equal(t, "subscribed:feed:home:user123", channel)
 }
 
-// TestDBService_EmptyResults 测试空结果场景
+// TestDBService_EmptyResults 测试空结果场景.
 func TestDBService_EmptyResults(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -843,6 +857,7 @@ func TestDBService_EmptyResults(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	dbSvc := setup.GetDBService()
 
 	// 测试不存在的账号
@@ -859,7 +874,7 @@ func TestDBService_EmptyResults(t *testing.T) {
 	assert.Empty(t, remoteFollowers)
 }
 
-// TestFeedService_RemoveReblog 测试移除转发状态
+// TestFeedService_RemoveReblog 测试移除转发状态.
 func TestFeedService_RemoveReblog(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -867,6 +882,7 @@ func TestFeedService_RemoveReblog(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	svc := setup.GetFeedService()
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "reblog_remove_test"}
 	ctx := context.Background()
@@ -890,7 +906,7 @@ func TestFeedService_RemoveReblog(t *testing.T) {
 
 	// 验证时间线有数据
 	members, _ := setup.Redis.Client.ZRange(ctx, "feed:home:reblog_remove_test", 0, -1).Result()
-	require.Greater(t, len(members), 0)
+	require.NotEmpty(t, members)
 
 	// 3. 移除一个转发
 	err = svc.RemoveTimelineItem(timeline, reblog1, true)
@@ -905,7 +921,7 @@ func TestFeedService_RemoveReblog(t *testing.T) {
 	assert.NotContains(t, members, "700001")
 }
 
-// TestFeedService_NilStatus 测试空状态处理
+// TestFeedService_NilStatus 测试空状态处理.
 func TestFeedService_NilStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -913,6 +929,7 @@ func TestFeedService_NilStatus(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	svc := setup.GetFeedService()
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "nil_test"}
 
@@ -923,7 +940,7 @@ func TestFeedService_NilStatus(t *testing.T) {
 	_ = err
 }
 
-// TestFeedService_TrimEmptyTimeline 测试裁剪空时间线
+// TestFeedService_TrimEmptyTimeline 测试裁剪空时间线.
 func TestFeedService_TrimEmptyTimeline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -931,6 +948,7 @@ func TestFeedService_TrimEmptyTimeline(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	svc := setup.GetFeedService()
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "empty_trim_test"}
 
@@ -939,7 +957,7 @@ func TestFeedService_TrimEmptyTimeline(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestFeedService_CleanEmptyFeeds 测试清理空 Feed
+// TestFeedService_CleanEmptyFeeds 测试清理空 Feed.
 func TestFeedService_CleanEmptyFeeds(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -947,6 +965,7 @@ func TestFeedService_CleanEmptyFeeds(t *testing.T) {
 
 	setup := SetupIntegrationTest(t)
 	defer setup.Cleanup(t)
+
 	svc := setup.GetFeedService()
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "empty_clean_test"}
 
@@ -957,7 +976,7 @@ func TestFeedService_CleanEmptyFeeds(t *testing.T) {
 
 // TestGetStatusTimelineContent_RealDBAndRedis 测试 GetStatusTimelineContent 函数
 // 需要真实 DB 和 Redis 连接
-// 注意：此测试需要全局 Redis 配置（REDIS_0_HOST 等环境变量）
+// 注意：此测试需要全局 Redis 配置（REDIS_0_HOST 等环境变量）.
 func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -972,6 +991,7 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 	// 设置默认服务，让 GetStatusTimelineContent 能使用
 	feedSvc := setup.GetFeedService()
 	dbSvc := setup.GetDBService()
+
 	SetDefaultService(feedSvc)
 	SetDefaultDBService(dbSvc)
 
@@ -1023,6 +1043,7 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 	// 5. 定义 filter condition
 	filterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("account_id = ?", account2.Id)
+
 		return
 	}
 
@@ -1033,7 +1054,7 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 }
 
 // TestGetStatusTimelineContent_WithPagination 测试分页参数
-// 注意：此测试需要全局 Redis 配置
+// 注意：此测试需要全局 Redis 配置.
 func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1046,6 +1067,7 @@ func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 
 	feedSvc := setup.GetFeedService()
 	dbSvc := setup.GetDBService()
+
 	SetDefaultService(feedSvc)
 	SetDefaultDBService(dbSvc)
 
@@ -1079,6 +1101,7 @@ func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 
 	filterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("account_id = ?", account.Id)
+
 		return
 	}
 
@@ -1090,7 +1113,7 @@ func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 }
 
 // TestGetStatusTimelineContent_EmptyTimeline 测试空时间线
-// 注意：此测试需要全局 Redis 配置
+// 注意：此测试需要全局 Redis 配置.
 func TestGetStatusTimelineContent_EmptyTimeline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1108,6 +1131,7 @@ func TestGetStatusTimelineContent_EmptyTimeline(t *testing.T) {
 
 	filterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("1 = 0") // 永不匹配
+
 		return
 	}
 
@@ -1117,7 +1141,7 @@ func TestGetStatusTimelineContent_EmptyTimeline(t *testing.T) {
 }
 
 // TestBackwardCompatibleFunctions_RealDBAndRedis 测试向后兼容函数
-// 这些函数需要初始化默认服务
+// 这些函数需要初始化默认服务.
 func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1129,6 +1153,7 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 	// 设置默认服务
 	feedSvc := setup.GetFeedService()
 	dbSvc := setup.GetDBService()
+
 	SetDefaultService(feedSvc)
 	SetDefaultDBService(dbSvc)
 
@@ -1140,6 +1165,7 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 
 	user2 := &models.User{UserName: "compat_user2"}
 	require.NoError(t, setup.DB.GormDB.Create(user2).Error)
+
 	now := time.Now()
 	account2 := &models.Account{UserId: user2.Id, Username: "compat_user2", LastActivityAt: &now}
 	require.NoError(t, setup.DB.GormDB.Create(account2).Error)
@@ -1157,6 +1183,7 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 	t.Run("GetAccountFollowingAccounts", func(t *testing.T) {
 		following, err := GetAccountFollowingAccounts(account2.Id)
 		require.NoError(t, err)
+
 		followingIds := following.GetIds()
 		assert.Contains(t, followingIds, account1.Id)
 	})
@@ -1211,6 +1238,7 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 	t.Run("PushUpdateRequired", func(t *testing.T) {
 		// 重置缓存
 		ResetSubscriptionCache()
+
 		timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "compat_push_test"}
 		// 没有订阅者时应该返回 false
 		result := PushUpdateRequired(timeline)
@@ -1219,7 +1247,7 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 }
 
 // TestGetStatusTimelineContent_WithAfterFilter 测试后置过滤器
-// 注意：此测试需要全局 Redis 配置
+// 注意：此测试需要全局 Redis 配置.
 func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1232,6 +1260,7 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 
 	feedSvc := setup.GetFeedService()
 	dbSvc := setup.GetDBService()
+
 	SetDefaultService(feedSvc)
 	SetDefaultDBService(dbSvc)
 
@@ -1275,6 +1304,7 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 
 	filterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("account_id = ?", account.Id)
+
 		return
 	}
 

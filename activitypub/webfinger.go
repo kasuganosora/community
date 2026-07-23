@@ -13,25 +13,29 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 )
 
-// WebFinger handles GET /.well-known/webfinger
+// WebFinger handles GET /.well-known/webfinger.
 func WebFinger(c *gin.Context) {
 	resource := c.Query("resource")
 	if resource == "" {
-		c.JSON(400, gin.H{"error": "resource parameter required"})
+		c.JSON(400, gin.H{"error": "resource parameter required"}) //nolint:goconst
+
 		return
 	}
 
 	// Parse the resource (should be acct:username@domain)
 	if !strings.HasPrefix(resource, "acct:") {
 		c.JSON(400, gin.H{"error": "invalid resource format"})
+
 		return
 	}
 
 	// Extract username
 	acct := strings.TrimPrefix(resource, "acct:")
+
 	parts := strings.Split(acct, "@")
 	if len(parts) != 2 {
 		c.JSON(400, gin.H{"error": "invalid acct format"})
+
 		return
 	}
 
@@ -40,14 +44,17 @@ func WebFinger(c *gin.Context) {
 
 	// Verify the requested domain matches ours
 	if parts[1] != domain {
-		c.JSON(404, gin.H{"error": "user not found"})
+		c.JSON(404, gin.H{"error": "user not found"}) //nolint:goconst
+
 		return
 	}
 
 	// Verify the user exists in our database
 	var account models.Account
-	if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error; err != nil {
+	err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&account).Error
+	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
+
 		return
 	}
 
@@ -82,7 +89,7 @@ func WebFinger(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// HostMeta handles GET /.well-known/host-meta
+// HostMeta handles GET /.well-known/host-meta.
 func HostMeta(c *gin.Context) {
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	baseURL := "https://" + domain
@@ -95,16 +102,16 @@ func HostMeta(c *gin.Context) {
 	c.Data(200, "application/xrd+xml", []byte(xml))
 }
 
-// NodeInfo handles GET /.well-known/nodeinfo
+// NodeInfo handles GET /.well-known/nodeinfo.
 func NodeInfo(c *gin.Context) {
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	baseURL := "https://" + domain
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"links": []map[string]string{
 			{
 				"rel":  "http://nodeinfo.diaspora.software/ns/schema/2.0",
-				"href": baseURL + "/nodeinfo/2.0",
+				"href": baseURL + "/nodeinfo/2.0", //nolint:goconst
 			},
 		},
 	}
@@ -112,15 +119,16 @@ func NodeInfo(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// httpClient is a shared HTTP client with timeout
+// httpClient is a shared HTTP client with timeout.
 var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
 
-// DiscoverActor discovers an actor via WebFinger
+// DiscoverActor discovers an actor via WebFinger.
 func DiscoverActor(acct string) (*Actor, error) {
 	// Parse acct format (user@domain or acct:user@domain)
 	acct = strings.TrimPrefix(acct, "acct:")
+
 	parts := strings.Split(acct, "@")
 	if len(parts) != 2 {
 		return nil, ErrInvalidAcctFormat
@@ -132,13 +140,18 @@ func DiscoverActor(acct string) (*Actor, error) {
 	// Query WebFinger endpoint
 	webfingerURL := "https://" + domain + "/.well-known/webfinger?resource=acct:" + acct
 
-	resp, err := httpClient.Get(webfingerURL)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, webfingerURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 
-	if resp.StatusCode != 200 {
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
 		return nil, ErrWebFingerFailed
 	}
 
@@ -149,9 +162,11 @@ func DiscoverActor(acct string) (*Actor, error) {
 
 	// Find the ActivityPub actor URL
 	var actorURL string
+
 	for _, link := range webfinger.Links {
 		if link.Rel == "self" && (link.Type == "application/activity+json" || link.Type == "application/ld+json") {
 			actorURL = link.Href
+
 			break
 		}
 	}
@@ -162,19 +177,21 @@ func DiscoverActor(acct string) (*Actor, error) {
 
 	// Fetch the actor
 	client := NewClient(nil, "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
 	return client.FetchActor(ctx, actorURL)
 }
 
-// Error definitions
+// Error definitions.
 var (
 	ErrInvalidAcctFormat = &ActivityPubError{Message: "invalid acct format"}
 	ErrWebFingerFailed   = &ActivityPubError{Message: "webfinger discovery failed"}
 	ErrActorNotFound     = &ActivityPubError{Message: "actor not found"}
 )
 
-// ActivityPubError represents an ActivityPub error
+// ActivityPubError represents an ActivityPub error.
 type ActivityPubError struct {
 	Message string
 }

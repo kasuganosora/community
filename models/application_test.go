@@ -100,6 +100,7 @@ func TestApplicationScope_MarshalUnmarshal(t *testing.T) {
 		assert.NotEmpty(t, data)
 
 		var decoded ApplicationScope
+
 		err = decoded.UnmarshalJSON(data)
 		require.NoError(t, err)
 
@@ -116,6 +117,7 @@ func TestApplicationScope_MarshalUnmarshal(t *testing.T) {
 		require.NoError(t, err)
 
 		var decoded ApplicationScope
+
 		err = decoded.UnmarshalJSON(data)
 		require.NoError(t, err)
 
@@ -125,14 +127,16 @@ func TestApplicationScope_MarshalUnmarshal(t *testing.T) {
 
 	t.Run("unmarshal invalid hex", func(t *testing.T) {
 		var scope ApplicationScope
+
 		err := scope.UnmarshalJSON([]byte("not-valid-hex"))
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("unmarshal too short data", func(t *testing.T) {
 		var scope ApplicationScope
+
 		err := scope.UnmarshalJSON([]byte("0102030405060708"))
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid scope data length")
 	})
 }

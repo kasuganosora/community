@@ -26,9 +26,10 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 
 	if n.FromAccountId != 0 && n.FromAccount == nil {
 		fromAccount := &models.Account{}
+
 		err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").First(fromAccount, n.FromAccountId).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		ret.Account = ToAccount(fromAccount)
@@ -41,24 +42,25 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 
 		err = db.GetDB().Model(&models.Status{}).Find(n.Status, n.StatusId).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
 	if err = n.Status.CheckAndLoadAllExtendFields(db.GetDB()); err != nil {
-		return
+		return ret, err
 	}
 
 	ret.Status, err = ToStatus(n.Status, currentAccount)
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	if n.ReportId > 0 && n.Report == nil {
 		n.Report = &models.Report{}
+
 		err = db.GetDB().Model(&models.Report{}).Find(n.Report, n.ReportId).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
@@ -66,13 +68,14 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 
 	if n.ListId > 0 && n.List == nil {
 		n.List = &models.List{}
+
 		err = db.GetDB().Model(&models.List{}).Preload("Creator").Find(n.List, n.ListId).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
-	return
+	return ret, err
 }
 
 func ToNotifications(ns []*models.Notification, currentAccount *models.Account) (ret []*Notification, err error) {
@@ -85,6 +88,7 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		if n.FromAccountId != 0 {
 			accountIds = append(accountIds, n.FromAccountId)
 		}
+
 		if n.StatusId != 0 {
 			statusIds = append(statusIds, n.StatusId)
 		}
@@ -95,79 +99,95 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 	}
 
 	var accounts []*Account
+
 	_accounts := make(models.Accounts, 0)
+
 	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountIds).Find(&_accounts).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	accounts = ToAccounts(_accounts)
 
 	statuses := make([]*Status, 0)
+
 	if len(statusIds) > 0 {
 		_statuses := make(models.Statuses, 0)
+
 		err = models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{})).
 			Where("id in ?", statusIds).Find(&_statuses).Error
-
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		statuses, err = ToStatuses(_statuses, currentAccount)
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
 	reports := make([]*Report, 0)
+
 	if len(reportsIds) > 0 {
 		_reports := make(models.Reports, 0)
+
 		err = db.GetDB().Model(&models.Report{}).Where("id in ?", reportsIds).Find(&_reports).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		reports, err = ToReports(_reports, currentAccount)
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
 	lists := make([]*List, 0)
+
 	if len(listsIds) > 0 {
 		_lists := make([]*models.List, 0)
+
 		err = db.GetDB().Model(&models.List{}).Preload("Creator").Where("id in ?", listsIds).Find(&_lists).Error
 		if err != nil {
-			return
+			return ret, err
 		}
 
 		lists = ToLists(_lists)
+
 		if err != nil {
-			return
+			return ret, err
 		}
 	}
 
 	accountsMap := utils.MapByAnyFiled(accounts, func(t *Account) uint64 {
 		var id uint64
+
 		id, _ = strconv.ParseUint(t.Id, 10, 64)
+
 		return id
 	})
 
 	statusesMap := utils.MapByAnyFiled(statuses, func(t *Status) uint64 {
 		var id uint64
+
 		id, _ = strconv.ParseUint(t.Id, 10, 64)
+
 		return id
 	})
 
 	reportsMap := utils.MapByAnyFiled(reports, func(t *Report) uint64 {
 		var id uint64
+
 		id, _ = strconv.ParseUint(t.Id, 10, 64)
+
 		return id
 	})
 
 	listsMap := utils.MapByAnyFiled(lists, func(t *List) uint64 {
 		var id uint64
+
 		id, _ = strconv.ParseUint(t.Id, 10, 64)
+
 		return id
 	})
 
@@ -206,5 +226,5 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		ret = append(ret, nf)
 	}
 
-	return
+	return ret, err
 }

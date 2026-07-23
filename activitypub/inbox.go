@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,16 +20,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// MaxRequestBodySize is the maximum allowed size for request body (1MB)
+// MaxRequestBodySize is the maximum allowed size for request body (1MB).
 const MaxRequestBodySize = 1024 * 1024
 
-// activityContextKey is a custom type for context keys in activity processing
+// activityContextKey is a custom type for context keys in activity processing.
 type activityContextKey string
 
 const actorKey activityContextKey = "actor"
 
 // Inbox handles POST /users/:username/inbox
-// Receives activities from remote instances
+// Receives activities from remote instances.
 func Inbox(c *gin.Context) {
 	username := c.Param("username")
 
@@ -36,6 +37,7 @@ func Inbox(c *gin.Context) {
 	contentType := c.GetHeader("Content-Type")
 	if !isValidActivityPubContentType(contentType) {
 		c.JSON(400, gin.H{"error": "invalid content-type, expected application/activity+json or application/ld+json"})
+
 		return
 	}
 
@@ -43,14 +45,17 @@ func Inbox(c *gin.Context) {
 	var targetAccount *models.Account
 	if username != "" {
 		targetAccount = &models.Account{}
-		if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(targetAccount).Error; err != nil {
+		err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(targetAccount).Error
+		if err != nil {
 			c.JSON(404, gin.H{"error": "user not found"})
+
 			return
 		}
 	}
 
 	// Read the request body with size limit
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxRequestBodySize)
+
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		if err.Error() == "http: request body too large" {
@@ -58,13 +63,15 @@ func Inbox(c *gin.Context) {
 		} else {
 			c.JSON(400, gin.H{"error": "failed to read body"})
 		}
+
 		return
 	}
 
 	// Parse the activity
-	var activity map[string]interface{}
+	var activity map[string]any
 	if err := json.Unmarshal(body, &activity); err != nil {
 		c.JSON(400, gin.H{"error": "invalid activity"})
+
 		return
 	}
 
@@ -73,6 +80,7 @@ func Inbox(c *gin.Context) {
 	if err != nil {
 		log.Warn("HTTP signature verification failed: %v", err)
 		c.JSON(401, gin.H{"error": "signature verification failed"})
+
 		return
 	}
 
@@ -81,6 +89,7 @@ func Inbox(c *gin.Context) {
 		if activityActor != actor {
 			log.Warn("Actor mismatch: signature actor=%s, activity actor=%s", actor, activityActor)
 			c.JSON(401, gin.H{"error": "actor mismatch between signature and activity"})
+
 			return
 		}
 	}
@@ -89,9 +98,11 @@ func Inbox(c *gin.Context) {
 	activityID, _ := activity["id"].(string)
 	if activityID != "" {
 		var count int64
-		if err := db.GetDB().Model(&ProcessedActivity{}).Where("activity_id = ?", activityID).Count(&count).Error; err == nil && count > 0 {
+		err := db.GetDB().Model(&ProcessedActivity{}).Where("activity_id = ?", activityID).Count(&count).Error
+		if err == nil && count > 0 {
 			// Already processed this activity, skip
 			c.JSON(200, gin.H{"status": "accepted"})
+
 			return
 		}
 		// Record this activity as processed
@@ -140,7 +151,7 @@ func Inbox(c *gin.Context) {
 	}
 }
 
-// isValidActivityPubContentType checks if the Content-Type is valid for ActivityPub
+// isValidActivityPubContentType checks if the Content-Type is valid for ActivityPub.
 func isValidActivityPubContentType(contentType string) bool {
 	if contentType == "" {
 		return false
@@ -155,10 +166,8 @@ func isValidActivityPubContentType(contentType string) bool {
 		"application/json", // Accept plain JSON for compatibility
 	}
 
-	for _, valid := range validTypes {
-		if mediaType == valid {
-			return true
-		}
+	if slices.Contains(validTypes, mediaType) {
+		return true
 	}
 
 	// Also accept ld+json with profile parameter
@@ -169,12 +178,14 @@ func isValidActivityPubContentType(contentType string) bool {
 	return false
 }
 
-// handleCreateActivity handles Create activities (new remote posts)
-func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleCreateActivity handles Create activities (new remote posts).
+func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
-	object, ok := activity["object"].(map[string]interface{})
+
+	object, ok := activity["object"].(map[string]any)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -182,6 +193,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if objectType != "Note" {
 		// We only handle Note objects for now
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -195,7 +207,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	sensitive, _ := object["sensitive"].(bool)
 
 	// Use source property if available (contains original content format)
-	if source, ok := object["source"].(map[string]interface{}); ok {
+	if source, ok := object["source"].(map[string]any); ok {
 		if sourceContent, ok := source["content"].(string); ok && sourceContent != "" {
 			// Prefer source content for storage as it preserves original formatting
 			content = sourceContent
@@ -205,23 +217,27 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Verify actor matches attributedTo
 	if attributedTo != actor {
 		c.JSON(403, gin.H{"error": "actor mismatch"})
+
 		return
 	}
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck // will be refactored
 	if err != nil {
 		log.Error("Failed to get/create remote account: %v", err)
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Check if status already exists
 	var existingStatus models.Status
+
 	err = db.GetDB().Where("origin_uri = ?", objectID).First(&existingStatus).Error
 	if err == nil {
 		// Status already exists, skip
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -229,18 +245,22 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	publishedAt := utils.ParseRFC3339(publishedStr)
 
 	// Find in_reply_to status if specified
-	var inReplyToID *uint64
-	var inReplyToAccountID *uint64
+	var (
+		inReplyToID        *uint64
+		inReplyToAccountID *uint64
+	)
+
 	if inReplyTo != "" {
 		var replyToStatus models.Status
-		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", inReplyTo, inReplyTo).First(&replyToStatus).Error; err == nil {
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", inReplyTo, inReplyTo).First(&replyToStatus).Error
+		if err == nil {
 			inReplyToID = &replyToStatus.Id
 			inReplyToAccountID = &replyToStatus.AccountId
 		}
 	}
 
 	// Parse mentions from tags
-	tags, _ := object["tag"].([]interface{})
+	tags, _ := object["tag"].([]any)
 	mentions := parseTagsToAccountIDs(tags)
 
 	// Create status
@@ -269,12 +289,14 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Begin transaction
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&status).Error; err != nil {
+		err := tx.Create(&status).Error
+		if err != nil {
 			return err
 		}
 		// Create status content
 		status.Content.StatusId = status.Id
-		if err := tx.Create(&status.Content).Error; err != nil {
+		err = tx.Create(&status.Content).Error
+		if err != nil {
 			return err
 		}
 
@@ -286,10 +308,10 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 		return nil
 	})
-
 	if err != nil {
 		log.Error("Failed to create status: %v", err)
 		c.JSON(500, gin.H{"error": "failed to create status"})
+
 		return
 	}
 
@@ -297,12 +319,12 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// parseTagsToAccountIDs extracts mentioned account IDs from ActivityPub tags
-func parseTagsToAccountIDs(tags []interface{}) []uint64 {
+// parseTagsToAccountIDs extracts mentioned account IDs from ActivityPub tags.
+func parseTagsToAccountIDs(tags []any) []uint64 {
 	var accountIDs []uint64
 
 	for _, tag := range tags {
-		tagMap, ok := tag.(map[string]interface{})
+		tagMap, ok := tag.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -319,7 +341,8 @@ func parseTagsToAccountIDs(tags []interface{}) []uint64 {
 
 		// Try to find the account
 		var account models.Account
-		if err := db.GetDB().Where("origin_id = ?", href).First(&account).Error; err == nil {
+		err := db.GetDB().Where("origin_id = ?", href).First(&account).Error
+		if err == nil {
 			accountIDs = append(accountIDs, account.Id)
 		}
 	}
@@ -327,12 +350,14 @@ func parseTagsToAccountIDs(tags []interface{}) []uint64 {
 	return accountIDs
 }
 
-// handleUpdateActivity handles Update activities (edit remote posts)
-func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleUpdateActivity handles Update activities (edit remote posts).
+func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
-	object, ok := activity["object"].(map[string]interface{})
+
+	object, ok := activity["object"].(map[string]any)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -342,9 +367,10 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Handle Actor updates
 	if objectType == "Person" || objectType == "Service" || objectType == "Group" {
 		// Update remote account info
-		remoteAccount, err := getOrCreateRemoteAccount(actor)
+		remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 		if err != nil {
 			c.JSON(500, gin.H{"error": "failed to update account"})
+
 			return
 		}
 
@@ -352,24 +378,28 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		summary, _ := object["summary"].(string)
 		preferredUsername, _ := object["preferredUsername"].(string)
 
-		updates := map[string]interface{}{}
+		updates := map[string]any{}
 		if name != "" {
 			updates["display_name"] = name
 		}
+
 		if summary != "" {
 			updates["note"] = summary
 		}
+
 		if preferredUsername != "" {
 			updates["username"] = preferredUsername
 		}
 
 		if len(updates) > 0 {
-			if err := db.GetDB().Model(remoteAccount).Updates(updates).Error; err != nil {
+			err := db.GetDB().Model(remoteAccount).Updates(updates).Error
+			if err != nil {
 				log.Error("Failed to update remote account: %v", err)
 			}
 		}
 
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -379,24 +409,28 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		summary, _ := object["summary"].(string)
 
 		var status models.Status
-		if err := db.GetDB().Where("origin_uri = ? AND account_id IN (SELECT id FROM accounts WHERE origin_id = ? OR id = (SELECT id FROM accounts WHERE username = ?))",
-			objectID, actor, utils.ExtractUsernameFromURI(actor)).First(&status).Error; err != nil {
+		err := db.GetDB().Where("origin_uri = ? AND account_id IN (SELECT id FROM accounts WHERE origin_id = ? OR id = (SELECT id FROM accounts WHERE username = ?))",
+			objectID, actor, utils.ExtractUsernameFromURI(actor)).First(&status).Error
+		if err != nil {
 			c.JSON(404, gin.H{"error": "status not found"})
+
 			return
 		}
 
 		now := time.Now()
-		if err := db.GetDB().Model(&status).Updates(map[string]interface{}{
+		err = db.GetDB().Model(&status).Updates(map[string]any{
 			"updated_at": now,
-		}).Error; err != nil {
+		}).Error
+		if err != nil {
 			log.Error("Failed to update status %d: %v", status.Id, err)
 		}
 
 		// Update content
-		if err := db.GetDB().Model(&status.Content).Updates(map[string]interface{}{
+		err = db.GetDB().Model(&status.Content).Updates(map[string]any{
 			"content":      content,
 			"spoiler_text": summary,
-		}).Error; err != nil {
+		}).Error
+		if err != nil {
 			log.Error("Failed to update status content %d: %v", status.Id, err)
 		}
 
@@ -406,13 +440,14 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleDeleteActivity handles Delete activities (delete remote posts/accounts)
-func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleDeleteActivity handles Delete activities (delete remote posts/accounts).
+func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
+
 	object, ok := activity["object"].(string)
 	if !ok {
 		// Object might be a map
-		objMap, isMap := activity["object"].(map[string]interface{})
+		objMap, isMap := activity["object"].(map[string]any)
 		if isMap {
 			object, _ = objMap["id"].(string)
 		}
@@ -420,6 +455,7 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	if object == "" {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -427,36 +463,45 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if object == actor {
 		// Delete/suspend the remote account
 		var account models.Account
-		if err := db.GetDB().Where("origin_id = ? OR (username = ? AND domain = ?)",
-			actor, utils.ExtractUsernameFromURI(actor), utils.ExtractDomainFromURI(actor)).First(&account).Error; err == nil {
+		err := db.GetDB().Where("origin_id = ? OR (username = ? AND domain = ?)",
+			actor, utils.ExtractUsernameFromURI(actor), utils.ExtractDomainFromURI(actor)).First(&account).Error
+		if err == nil {
 			// Soft delete the account
 			now := time.Now()
-			if err := db.GetDB().Model(&account).Updates(map[string]interface{}{
+			err := db.GetDB().Model(&account).Updates(map[string]any{
 				"deleted_at": now,
-			}).Error; err != nil {
+			}).Error
+			if err != nil {
 				log.Error("Failed to soft-delete remote account %s: %v", actor, err)
 			} else {
 				log.Info("Deleted remote account %s", actor)
 			}
 		}
+
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
 	// Delete the status
 	var status models.Status
-	if err := db.GetDB().Where("origin_uri = ?", object).First(&status).Error; err == nil {
+	err := db.GetDB().Where("origin_uri = ?", object).First(&status).Error
+	if err == nil {
 		// Verify ownership
 		var account models.Account
-		if err := db.GetDB().First(&account, status.AccountId).Error; err == nil {
+		err := db.GetDB().First(&account, status.AccountId).Error
+		if err == nil {
 			actorURI := ""
 			if account.Domain != nil {
 				actorURI = fmt.Sprintf("https://%s/users/%s", *account.Domain, account.Username)
 			}
+
 			if actorURI == actor || account.OriginId == actor {
-				if err := db.GetDB().Delete(&status).Error; err != nil {
+				err := db.GetDB().Delete(&status).Error
+				if err != nil {
 					log.Error("Failed to delete status %d: %v", status.Id, err)
 				}
+
 				log.Info("Deleted remote status %d from %s", status.Id, actor)
 			}
 		}
@@ -465,41 +510,49 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleFollowActivity handles Follow activities (follow requests)
-func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleFollowActivity handles Follow activities (follow requests).
+func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) {
 	if targetAccount == nil {
 		c.JSON(400, gin.H{"error": "no target account"})
+
 		return
 	}
 
 	actor, _ := ctx.Value(actorKey).(string)
+
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	// Verify the object is our local user
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
 	expectedActorURI := fmt.Sprintf("https://%s/users/%s", domain, targetAccount.Username)
 	if object != expectedActorURI {
 		c.JSON(403, gin.H{"error": "wrong target"})
+
 		return
 	}
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Check if already following
 	var existingFollow models.Follow
+
 	err = db.GetDB().Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).First(&existingFollow).Error
 	if err == nil {
 		// Already following
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -510,8 +563,10 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 			FollowId:  targetAccount.Id,
 			Status:    models.FollowStatusRequested,
 		}
-		if err := db.GetDB().Create(&follow).Error; err != nil {
+		err := db.GetDB().Create(&follow).Error
+		if err != nil {
 			c.JSON(500, gin.H{"error": "failed to create follow request"})
+
 			return
 		}
 
@@ -525,34 +580,40 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 			FollowId:  targetAccount.Id,
 			Status:    models.FollowStatusFollowed,
 		}
-		if err := db.GetDB().Create(&follow).Error; err != nil {
+		err := db.GetDB().Create(&follow).Error
+		if err != nil {
 			c.JSON(500, gin.H{"error": "failed to create follow"})
+
 			return
 		}
 
 		// Send Accept activity back
 		activityID, ok := activity["id"].(string)
 		if ok && activityID != "" {
-			go sendAcceptActivity(targetAccount, remoteAccount, activityID)
+			go sendAcceptActivity(targetAccount, remoteAccount, activityID) //nolint:contextcheck,gosec // G118: async activity delivery
 		}
+
 		log.Info("Auto-accepted follow from %s to %s", actor, targetAccount.Username)
 	}
 
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleAcceptActivity handles Accept activities (follow accept / relay accept)
-func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleAcceptActivity handles Accept activities (follow accept / relay accept).
+func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) {
 	actor, _ := ctx.Value(actorKey).(string)
-	object, ok := activity["object"].(map[string]interface{})
+
+	object, ok := activity["object"].(map[string]any)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	objectType, _ := object["type"].(string)
 	if objectType != "Follow" {
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -560,10 +621,12 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	objectID, _ := object["id"].(string)
 	if objectID != "" {
 		relayService := NewRelayService()
-		if err := relayService.AcceptRelay(objectID); err == nil {
+		err := relayService.AcceptRelay(objectID)
+		if err == nil {
 			// Successfully accepted relay
 			log.Info("Relay accepted: %s", actor)
 			c.JSON(200, gin.H{"status": "accepted"})
+
 			return
 		}
 	}
@@ -571,9 +634,11 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Check if this is a proxy follow acceptance
 	if objectID != "" {
 		proxyService := NewProxyService()
-		if err := proxyService.HandleAccept(objectID); err == nil {
+		err := proxyService.HandleAccept(objectID)
+		if err == nil {
 			log.Info("Proxy follow accepted: %s", actor)
 			c.JSON(200, gin.H{"status": "accepted"})
+
 			return
 		}
 	}
@@ -581,22 +646,26 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Regular follow acceptance
 	if targetAccount == nil {
 		c.JSON(400, gin.H{"error": "no target account"})
+
 		return
 	}
 
 	// Get the remote account that accepted our follow
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Update our follow request to accepted
 	var follow models.Follow
+
 	err = db.GetDB().Where("account_id = ? AND follow_id = ? AND status = ?",
 		targetAccount.Id, remoteAccount.Id, models.FollowStatusRequested).First(&follow).Error
 	if err == nil {
-		if err := db.GetDB().Model(&follow).Update("status", models.FollowStatusFollowed).Error; err != nil {
+		err := db.GetDB().Model(&follow).Update("status", models.FollowStatusFollowed).Error
+		if err != nil {
 			log.Error("Failed to update follow status: %v", err)
 		} else {
 			log.Info("Follow from %s to %s accepted", targetAccount.Username, actor)
@@ -606,18 +675,21 @@ func handleAcceptActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleRejectActivity handles Reject activities (follow reject / relay reject)
-func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleRejectActivity handles Reject activities (follow reject / relay reject).
+func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) {
 	actor, _ := ctx.Value(actorKey).(string)
-	object, ok := activity["object"].(map[string]interface{})
+
+	object, ok := activity["object"].(map[string]any)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	objectType, _ := object["type"].(string)
 	if objectType != "Follow" {
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -625,10 +697,12 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 	objectID, _ := object["id"].(string)
 	if objectID != "" {
 		relayService := NewRelayService()
-		if err := relayService.RejectRelay(objectID); err == nil {
+		err := relayService.RejectRelay(objectID)
+		if err == nil {
 			// Successfully rejected relay
 			log.Info("Relay rejected: %s", actor)
 			c.JSON(200, gin.H{"status": "accepted"})
+
 			return
 		}
 	}
@@ -636,13 +710,15 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Regular follow rejection
 	if targetAccount == nil {
 		c.JSON(400, gin.H{"error": "no target account"})
+
 		return
 	}
 
 	// Get the remote account that rejected our follow
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
@@ -654,12 +730,14 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleAnnounceActivity handles Announce activities (boosts)
-func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleAnnounceActivity handles Announce activities (boosts).
+func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
+
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -667,32 +745,38 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	publishedStr, _ := activity["published"].(string)
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Find the original status (might be local or remote)
 	var originalStatus models.Status
+
 	err = db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&originalStatus).Error
 	if err != nil {
 		// Try to fetch the remote status
-		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(object, remoteAccount)
+		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(object, remoteAccount) //nolint:contextcheck
 		if fetchErr != nil {
 			log.Warn("Could not find or fetch original status for announce: %s, error: %v", object, fetchErr)
 			c.JSON(200, gin.H{"status": "accepted"})
+
 			return
 		}
+
 		originalStatus = *fetchedStatus
 	}
 
 	// Check if we already have this reblog
 	var existingReblog models.Status
+
 	err = db.GetDB().Where("account_id = ? AND reblog_id = ? AND origin_uri = ?",
 		remoteAccount.Id, originalStatus.Id, activityID).First(&existingReblog).Error
 	if err == nil {
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -717,6 +801,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	if err := db.GetDB().Create(&reblog).Error; err != nil {
 		log.Error("Failed to create reblog: %v", err)
 		c.JSON(500, gin.H{"error": "failed to create reblog"})
+
 		return
 	}
 
@@ -729,36 +814,43 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleLikeActivity handles Like activities (favourites)
-func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleLikeActivity handles Like activities (favourites).
+func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
+
 	object, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Find the status
 	var status models.Status
+
 	err = db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
 	if err != nil {
 		log.Warn("Could not find status for like: %s", object)
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
 	// Check if already liked
 	var existingFav models.FavoriteStatus
+
 	err = db.GetDB().Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).First(&existingFav).Error
 	if err == nil {
 		c.JSON(200, gin.H{"status": "accepted"})
+
 		return
 	}
 
@@ -771,6 +863,7 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 	if err := db.GetDB().Create(&fav).Error; err != nil {
 		log.Error("Failed to create favourite: %v", err)
 		c.JSON(500, gin.H{"error": "failed to create favourite"})
+
 		return
 	}
 
@@ -783,12 +876,14 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleUndoActivity handles Undo activities (undo follow/like/announce)
-func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleUndoActivity handles Undo activities (undo follow/like/announce).
+func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) {
 	actor, _ := ctx.Value(actorKey).(string)
-	objectMap, ok := activity["object"].(map[string]interface{})
+
+	objectMap, ok := activity["object"].(map[string]any)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -797,9 +892,10 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	objectObject, _ := objectMap["object"].(string)
 
 	// Get remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
@@ -807,7 +903,8 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Follow":
 		// Undo a follow
 		if targetAccount != nil {
-			if err := db.GetDB().Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Follow{}).Error; err != nil {
+			err := db.GetDB().Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Follow{}).Error
+			if err != nil {
 				log.Error("Failed to undo follow from %s to %s: %v", actor, targetAccount.Username, err)
 			} else {
 				log.Info("Undid follow from %s to %s", actor, targetAccount.Username)
@@ -817,8 +914,10 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Like":
 		// Undo a like
 		var status models.Status
-		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", objectObject, objectObject, objectObject).First(&status).Error; err == nil {
-			if err := db.GetDB().Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error; err != nil {
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", objectObject, objectObject, objectObject).First(&status).Error
+		if err == nil {
+			err := db.GetDB().Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error
+			if err != nil {
 				log.Error("Failed to undo like from %s on status %d: %v", actor, status.Id, err)
 			} else {
 				// Decrement favourites_count
@@ -830,12 +929,14 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Announce":
 		// Undo an announce (reblog)
 		var reblog models.Status
-		if err := db.GetDB().Where("origin_uri = ? AND account_id = ?", objectID, remoteAccount.Id).First(&reblog).Error; err == nil {
+		err := db.GetDB().Where("origin_uri = ? AND account_id = ?", objectID, remoteAccount.Id).First(&reblog).Error
+		if err == nil {
 			// Decrement reblogs_count on the original status
 			if reblog.ReblogId != nil {
 				db.GetDB().Model(&models.Status{}).Where("id = ?", *reblog.ReblogId).
 					UpdateColumn("reblogs_count", gorm.Expr("CASE WHEN reblogs_count > 0 THEN reblogs_count - 1 ELSE 0 END"))
 			}
+
 			db.GetDB().Delete(&reblog)
 			log.Info("Undid announce from %s: %s", actor, objectID)
 		}
@@ -843,7 +944,8 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Block":
 		// Undo a block - remove from blocks list
 		if targetAccount != nil {
-			if err := db.GetDB().Where("account_id = ? AND target_account_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Block{}).Error; err != nil {
+			err := db.GetDB().Where("account_id = ? AND target_account_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Block{}).Error
+			if err != nil {
 				log.Error("Failed to undo block from %s to %s: %v", actor, targetAccount.Username, err)
 			} else {
 				log.Info("Undid block from %s to %s", actor, targetAccount.Username)
@@ -854,35 +956,41 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleBlockActivity handles Block activities
-func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleBlockActivity handles Block activities.
+func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
+
 	objectStr, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	// Get remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
 	// Find the target account
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
 	var blockedAccount models.Account
+
 	expectedURI := fmt.Sprintf("https://%s/users/", domain)
-	if strings.HasPrefix(objectStr, expectedURI) {
-		username := strings.TrimPrefix(objectStr, expectedURI)
-		if err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&blockedAccount).Error; err == nil {
+	if username, ok := strings.CutPrefix(objectStr, expectedURI); ok {
+		err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&blockedAccount).Error
+		if err == nil {
 			// Create block record
 			block := models.Block{
 				AccountId:       remoteAccount.Id,
 				TargetAccountId: blockedAccount.Id,
 			}
-			if err := db.GetDB().Create(&block).Error; err != nil {
+			err := db.GetDB().Create(&block).Error
+			if err != nil {
 				log.Error("Failed to create block from %s to %s: %v", actor, username, err)
 			} else {
 				log.Info("Remote user %s blocked local user %s", actor, username)
@@ -893,23 +1001,26 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleFlagActivity handles Flag activities (reports)
-func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleFlagActivity handles Flag activities (reports).
+func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
 
 	// Get or create remote account (the reporter)
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process reporter account"})
+
 		return
 	}
 
 	// Parse the object(s) being reported
-	var reportedStatusIds []uint64
-	var reportedAccountId uint64
-	var objectIDs []string
+	var (
+		reportedStatusIds []uint64
+		reportedAccountId uint64
+		objectIDs         []string
+	)
 
-	if objects, ok := activity["object"].([]interface{}); ok {
+	if objects, ok := activity["object"].([]any); ok {
 		for _, obj := range objects {
 			if objStr, ok := obj.(string); ok {
 				objectIDs = append(objectIDs, objStr)
@@ -919,6 +1030,7 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 		objectIDs = append(objectIDs, objStr)
 	} else {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
@@ -926,7 +1038,8 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	for _, objectID := range objectIDs {
 		// Check if it's a status
 		var status models.Status
-		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", objectID, objectID).First(&status).Error; err == nil {
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", objectID, objectID).First(&status).Error
+		if err == nil {
 			reportedStatusIds = append(reportedStatusIds, status.Id)
 			if reportedAccountId == 0 {
 				reportedAccountId = status.AccountId
@@ -934,7 +1047,8 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 		} else {
 			// Check if it's an account
 			var account models.Account
-			if err := db.GetDB().Where("origin_id = ?", objectID).First(&account).Error; err == nil {
+			err := db.GetDB().Where("origin_id = ?", objectID).First(&account).Error
+			if err == nil {
 				reportedAccountId = account.Id
 			}
 		}
@@ -957,6 +1071,7 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	if err := db.GetDB().Create(&report).Error; err != nil {
 		log.Error("Failed to create report from flag: %v", err)
 		c.JSON(500, gin.H{"error": "failed to create report"})
+
 		return
 	}
 
@@ -967,18 +1082,21 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// handleMoveActivity handles Move activities (account migration)
-func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// handleMoveActivity handles Move activities (account migration).
+func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
+
 	oldActorURI, ok := activity["object"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid object"})
+
 		return
 	}
 
 	newActorURI, ok := activity["target"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid target"})
+
 		return
 	}
 
@@ -987,6 +1105,7 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 	// Verify the actor matches the old account
 	if actor != oldActorURI {
 		c.JSON(403, gin.H{"error": "actor must match the old account"})
+
 		return
 	}
 
@@ -994,13 +1113,15 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 	var oldAccount models.Account
 	if err := db.GetDB().Where("origin_id = ?", oldActorURI).First(&oldAccount).Error; err != nil {
 		c.JSON(404, gin.H{"error": "old account not found"})
+
 		return
 	}
 
 	// Get or create the new account
-	newAccount, err := getOrCreateRemoteAccount(newActorURI)
+	newAccount, err := getOrCreateRemoteAccount(newActorURI) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process new account"})
+
 		return
 	}
 
@@ -1013,6 +1134,7 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 		for _, follow := range follows {
 			// Check if already following the new account
 			var existingFollow models.Follow
+
 			err := db.GetDB().Where("account_id = ? AND follow_id = ?", follow.AccountId, newAccount.Id).First(&existingFollow).Error
 			if err != nil {
 				// Create new follow to the new account
@@ -1021,7 +1143,8 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 					FollowId:  newAccount.Id,
 					Status:    models.FollowStatusFollowed,
 				}
-				if err := db.GetDB().Create(&newFollow).Error; err != nil {
+				err := db.GetDB().Create(&newFollow).Error
+				if err != nil {
 					log.Error("Failed to create follow to new account during migration: %v", err)
 				}
 			}
@@ -1029,12 +1152,13 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 			// Remove the old follow
 			db.GetDB().Delete(&follow)
 		}
+
 		log.Info("Migrated %d followers from %s to %s", len(follows), oldActorURI, newActorURI)
 	}
 
 	// Mark the old account as moved
 	now := time.Now()
-	db.GetDB().Model(&oldAccount).Updates(map[string]interface{}{
+	db.GetDB().Model(&oldAccount).Updates(map[string]any{
 		"moved_to_account_id": newAccount.Id,
 		"updated_at":          now,
 	})
@@ -1048,20 +1172,23 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 
 // Helper functions
 
-// getOrCreateRemoteAccount gets or creates a remote account from an actor URI
+// getOrCreateRemoteAccount gets or creates a remote account from an actor URI.
 func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 	// Check if we already have this account
 	var account models.Account
+
 	err := db.GetDB().Where("origin_id = ?", actorURI).First(&account).Error
 	if err == nil {
 		// Update last fetched time
 		now := time.Now()
 		db.GetDB().Model(&account).Update("last_activity_at", now)
+
 		return &account, nil
 	}
 
 	// Need to fetch the actor
 	client := NewClient(nil, "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1073,6 +1200,7 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 	// Create the remote account
 	now := time.Now()
 	domain := utils.ExtractDomainFromURI(actorURI)
+
 	username := actor.PreferredUsername
 	if username == "" {
 		username = utils.ExtractUsernameFromURI(actorURI)
@@ -1117,10 +1245,10 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 	return &account, nil
 }
 
-// getVisibilityFromActivity determines the visibility of a Note from its ActivityPub properties
-func getVisibilityFromActivity(object map[string]interface{}) uint8 {
-	to, _ := object["to"].([]interface{})
-	cc, _ := object["cc"].([]interface{})
+// getVisibilityFromActivity determines the visibility of a Note from its ActivityPub properties.
+func getVisibilityFromActivity(object map[string]any) uint8 {
+	to, _ := object["to"].([]any)
+	cc, _ := object["cc"].([]any)
 
 	toStrs := make([]string, len(to))
 	for i, t := range to {
@@ -1148,6 +1276,7 @@ func getVisibilityFromActivity(object map[string]interface{}) uint8 {
 	// Check if "to" only contains specific user URIs (no followers collection)
 	hasFollowersCollection := false
 	hasUserRecipient := false
+
 	for _, t := range toStrs {
 		if strings.HasSuffix(t, "/followers") {
 			hasFollowersCollection = true
@@ -1155,6 +1284,7 @@ func getVisibilityFromActivity(object map[string]interface{}) uint8 {
 			hasUserRecipient = true
 		}
 	}
+
 	for _, c := range ccStrs {
 		if strings.HasSuffix(c, "/followers") {
 			hasFollowersCollection = true
@@ -1175,7 +1305,7 @@ func getVisibilityFromActivity(object map[string]interface{}) uint8 {
 	return models.StatusVisibilityPrivate
 }
 
-// sendAcceptActivity sends an Accept activity to a remote server
+// sendAcceptActivity sends an Accept activity to a remote server.
 func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Account, followActivityID string) {
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	actorURL := fmt.Sprintf("https://%s/users/%s", domain, localAccount.Username)
@@ -1183,6 +1313,7 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 
 	// Get remote inbox
 	var inboxURL string
+
 	if remoteAccount.OriginId != "" {
 		// Try to get inbox from remote actor
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1200,12 +1331,12 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 	}
 
 	now := time.Now()
-	acceptActivity := map[string]interface{}{
+	acceptActivity := map[string]any{
 		"@context": "https://www.w3.org/ns/activitystreams",
 		"id":       actorURL + "#accepts/follows/" + strconv.FormatUint(uint64(time.Now().UnixNano()), 10),
 		"type":     "Accept",
 		"actor":    actorURL,
-		"object": map[string]interface{}{
+		"object": map[string]any{
 			"id":     followActivityID,
 			"type":   "Follow",
 			"actor":  remoteAccount.OriginId,
@@ -1216,10 +1347,12 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 
 	// TODO: Sign with local account's private key
 	client := NewClient(nil, actorURL)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := client.Post(ctx, inboxURL, acceptActivity); err != nil {
+	err := client.Post(ctx, inboxURL, acceptActivity)
+	if err != nil {
 		log.Error("Failed to send Accept activity: %v", err)
 	} else {
 		log.Info("Sent Accept activity to %s", inboxURL)
@@ -1227,14 +1360,14 @@ func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Acco
 }
 
 // handleAddActivity handles Add activities (adding items to collections)
-// Typically used for adding to featured collections or lists
-func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// Typically used for adding to featured collections or lists.
+func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
 
 	object, ok := activity["object"].(string)
 	if !ok {
 		// Object might be a map
-		if objMap, isMap := activity["object"].(map[string]interface{}); isMap {
+		if objMap, isMap := activity["object"].(map[string]any); isMap {
 			object, _ = objMap["id"].(string)
 		}
 	}
@@ -1242,13 +1375,15 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 	target, ok := activity["target"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid target"})
+
 		return
 	}
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
@@ -1258,11 +1393,12 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 	if strings.Contains(target, "/collections/featured") {
 		// Adding to featured/pinned statuses collection
 		var status models.Status
-		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error; err == nil {
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
+		if err == nil {
 			// Mark as featured (pinned)
 			if status.AccountId == remoteAccount.Id {
 				now := time.Now()
-				db.GetDB().Model(&status).Updates(map[string]interface{}{
+				db.GetDB().Model(&status).Updates(map[string]any{
 					"pinned":     true,
 					"updated_at": now,
 				})
@@ -1275,14 +1411,14 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 }
 
 // handleRemoveActivity handles Remove activities (removing items from collections)
-// Typically used for removing from featured collections or lists
-func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[string]interface{}, targetAccount *models.Account) {
+// Typically used for removing from featured collections or lists.
+func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
 
 	object, ok := activity["object"].(string)
 	if !ok {
 		// Object might be a map
-		if objMap, isMap := activity["object"].(map[string]interface{}); isMap {
+		if objMap, isMap := activity["object"].(map[string]any); isMap {
 			object, _ = objMap["id"].(string)
 		}
 	}
@@ -1290,13 +1426,15 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	target, ok := activity["target"].(string)
 	if !ok {
 		c.JSON(400, gin.H{"error": "invalid target"})
+
 		return
 	}
 
 	// Get or create remote account
-	remoteAccount, err := getOrCreateRemoteAccount(actor)
+	remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to process account"})
+
 		return
 	}
 
@@ -1306,11 +1444,12 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if strings.Contains(target, "/collections/featured") {
 		// Removing from featured/pinned statuses collection
 		var status models.Status
-		if err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error; err == nil {
+		err := db.GetDB().Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
+		if err == nil {
 			// Unmark as featured (unpin)
 			if status.AccountId == remoteAccount.Id {
 				now := time.Now()
-				db.GetDB().Model(&status).Updates(map[string]interface{}{
+				db.GetDB().Model(&status).Updates(map[string]any{
 					"pinned":     false,
 					"updated_at": now,
 				})
@@ -1322,13 +1461,13 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 
-// SharedInbox handles POST /inbox (shared inbox)
+// SharedInbox handles POST /inbox (shared inbox).
 func SharedInbox(c *gin.Context) {
 	// For now, delegate to regular inbox handling
 	Inbox(c)
 }
 
-// createFollowRequestNotification creates a notification for follow requests
+// createFollowRequestNotification creates a notification for follow requests.
 func createFollowRequestNotification(fromAccountId, toAccountId uint64) {
 	notification := &models.Notification{
 		AccountId:     toAccountId,
@@ -1336,19 +1475,22 @@ func createFollowRequestNotification(fromAccountId, toAccountId uint64) {
 		Type:          models.NotificationTypeFollowRequest,
 	}
 
-	if err := db.GetDB().Create(notification).Error; err != nil {
+	err := db.GetDB().Create(notification).Error
+	if err != nil {
 		log.Error("Failed to create follow request notification: %v", err)
 	} else {
 		log.Debug("Created follow request notification for account %d from %d", toAccountId, fromAccountId)
 	}
 }
 
-// createAdminReportNotification creates a notification for admins about a new report
-func createAdminReportNotification(reportId uint64, fromAccountId, targetAccountId uint64) {
+// createAdminReportNotification creates a notification for admins about a new report.
+func createAdminReportNotification(reportId uint64, fromAccountId, targetAccountId uint64) { //nolint:unparam // param reserved for future use
 	// Find all admin users
 	var adminRoles []models.Role
-	if err := db.GetDB().Where("name = ? OR name = ?", "admin", "moderator").Find(&adminRoles).Error; err != nil {
+	err := db.GetDB().Where("name = ? OR name = ?", "admin", "moderator").Find(&adminRoles).Error
+	if err != nil {
 		log.Error("Failed to find admin roles: %v", err)
+
 		return
 	}
 
@@ -1359,13 +1501,15 @@ func createAdminReportNotification(reportId uint64, fromAccountId, targetAccount
 
 	var roleIds []uint64
 	for _, role := range adminRoles {
-		roleIds = append(roleIds, uint64(role.ID))
+		roleIds = append(roleIds, uint64(role.ID)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	// Find all users with admin/moderator roles
 	var roleUsers []models.RoleUser
-	if err := db.GetDB().Where("role_id IN ?", roleIds).Find(&roleUsers).Error; err != nil {
+	err = db.GetDB().Where("role_id IN ?", roleIds).Find(&roleUsers).Error
+	if err != nil {
 		log.Error("Failed to find user roles: %v", err)
+
 		return
 	}
 
@@ -1373,7 +1517,8 @@ func createAdminReportNotification(reportId uint64, fromAccountId, targetAccount
 	for _, roleUser := range roleUsers {
 		// Find the account for this user
 		var account models.Account
-		if err := db.GetDB().Where("user_id = ?", roleUser.UserID).First(&account).Error; err != nil {
+		err := db.GetDB().Where("user_id = ?", roleUser.UserID).First(&account).Error
+		if err != nil {
 			continue
 		}
 
@@ -1384,7 +1529,8 @@ func createAdminReportNotification(reportId uint64, fromAccountId, targetAccount
 			Type:          models.NotificationTypeAdminReport,
 		}
 
-		if err := db.GetDB().Create(notification).Error; err != nil {
+		err = db.GetDB().Create(notification).Error
+		if err != nil {
 			log.Error("Failed to create admin report notification: %v", err)
 		}
 	}
@@ -1392,12 +1538,14 @@ func createAdminReportNotification(reportId uint64, fromAccountId, targetAccount
 	log.Debug("Created admin report notifications for report %d", reportId)
 }
 
-// createAccountMoveNotification notifies followers about account migration
-func createAccountMoveNotification(oldAccountId, newAccountId uint64) {
+// createAccountMoveNotification notifies followers about account migration.
+func createAccountMoveNotification(oldAccountId, newAccountId uint64) { //nolint:unparam // param reserved for future use
 	// Find all local followers of the old account
 	var follows []models.Follow
-	if err := db.GetDB().Where("follow_id = ? AND account_id IN (SELECT id FROM accounts WHERE domain IS NULL)", oldAccountId).Find(&follows).Error; err != nil {
+	err := db.GetDB().Where("follow_id = ? AND account_id IN (SELECT id FROM accounts WHERE domain IS NULL)", oldAccountId).Find(&follows).Error
+	if err != nil {
 		log.Error("Failed to find followers for move notification: %v", err)
+
 		return
 	}
 
@@ -1409,7 +1557,8 @@ func createAccountMoveNotification(oldAccountId, newAccountId uint64) {
 			Type:          models.NotificationTypeFollow,
 		}
 
-		if err := db.GetDB().Create(notification).Error; err != nil {
+		err := db.GetDB().Create(notification).Error
+		if err != nil {
 			log.Error("Failed to create move notification: %v", err)
 		}
 	}
@@ -1417,9 +1566,10 @@ func createAccountMoveNotification(oldAccountId, newAccountId uint64) {
 	log.Debug("Created move notifications for %d followers", len(follows))
 }
 
-// fetchAndCreateRemoteStatus fetches a remote status and creates a local copy
+// fetchAndCreateRemoteStatus fetches a remote status and creates a local copy.
 func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) (*models.Status, error) {
 	client := NewClient(nil, "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1454,8 +1604,8 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 
 	// Parse visibility from to/cc fields
 	visibility := uint8(models.StatusVisibilityPublic)
-	to, _ := statusData["to"].([]interface{})
-	cc, _ := statusData["cc"].([]interface{})
+	to, _ := statusData["to"].([]any)
+	cc, _ := statusData["cc"].([]any)
 
 	isPublic := false
 	isUnlisted := false
@@ -1463,6 +1613,7 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 	for _, t := range to {
 		if t == "https://www.w3.org/ns/activitystreams#Public" || t == "as:Public" || t == "Public" {
 			isPublic = true
+
 			break
 		}
 	}
@@ -1470,6 +1621,7 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 	for _, c := range cc {
 		if c == "https://www.w3.org/ns/activitystreams#Public" || c == "as:Public" || c == "Public" {
 			isUnlisted = true
+
 			break
 		}
 	}
@@ -1505,6 +1657,7 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 	// Set in-reply-to if present
 	if inReplyTo != "" {
 		var parentStatus models.Status
+
 		err := db.GetDB().Where("origin_uri = ? OR origin_url = ?", inReplyTo, inReplyTo).First(&parentStatus).Error
 		if err == nil {
 			status.InReplyToId = &parentStatus.Id
@@ -1516,6 +1669,7 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 
 	if err := tx.Create(&status).Error; err != nil {
 		tx.Rollback()
+
 		return nil, fmt.Errorf("failed to create status: %w", err)
 	}
 
@@ -1528,6 +1682,7 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 
 	if err := tx.Create(statusContent).Error; err != nil {
 		tx.Rollback()
+
 		return nil, fmt.Errorf("failed to create status content: %w", err)
 	}
 
@@ -1540,5 +1695,6 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 	status.Content = *statusContent
 
 	log.Info("Created remote status %d from %s", status.Id, statusURI)
+
 	return &status, nil
 }

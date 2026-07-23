@@ -13,7 +13,7 @@ func Pin(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	// 只能自己置顶自己的 status
-	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	// 是否已经置顶
 	isPinned, err := status.IsPinned(dbConn, currentAccount)

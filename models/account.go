@@ -1,7 +1,7 @@
 package models
 
 import (
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"encoding/hex"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/storage"
@@ -14,36 +14,36 @@ import (
 	"time"
 )
 
-type Account struct {
-	Id              uint64     `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
-	UserId          uint64     `json:"-" gorm:"not null;type:bigint(20);index"` // 创建这个账号的用户ID,如果是远程账号则为 null
-	Username        string     `json:"username" gorm:"not null;type:varchar(64)"`
-	Domain          *string    `json:"domain" gorm:"type:varchar(128);index"`        // 远程账号的域名,如果是本地账号则为 null
-	OriginId        string     `json:"origin_id" gorm:"type:varchar(64)"`            // 远程账号的ID,如果是本地账号则为 null
-	Acct            string     `json:"acct" gorm:"not null;type:varchar(128);index"` // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
-	DisplayName     string     `json:"display_name" gorm:"not null;type:varchar(128)"`
-	Avatar          string     `json:"avatar" gorm:"type:varchar(1024)"`
-	AvatarStatic    string     `json:"avatar_static" gorm:"type:varchar(1024)"`
-	Header          string     `json:"header" gorm:"type:varchar(1024)"`
-	HeaderStatic    string     `json:"header_static" gorm:"type:varchar(1024)"`
-	Locked          bool       `json:"locked" gorm:"default:false"`
-	Bot             bool       `json:"bot" gorm:"default:false"`
-	Discoverable    bool       `json:"discoverable" gorm:"default:false"`
-	Group           bool       `json:"group" gorm:"default:false"`
-	NoIndex         bool       `json:"noindex" gorm:"default:false"`
-	HideCollections bool       `json:"hide_collections" gorm:"default:false"`
-	Note            string     `json:"note" gorm:"type:varchar(1024)"`
-	Website         string     `json:"website" gorm:"type:varchar(1024)"`
-	CreatedAt       *time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt       *time.Time `json:"updated_at" gorm:"autoUpdateTime"`
-	LastStatusAt    *time.Time `json:"last_status_at" gorm:"type:datetime"`
-	LastActivityAt  *time.Time `json:"last_activity_at" gorm:"type:datetime"`
-	IsBan           bool       `json:"is_ban" gorm:"default:false"`
+type Account struct { //nolint:recvcheck
+	Id              uint64     `gorm:"primary_key;type:bigint(20);autoIncrement" json:"id"`
+	UserId          uint64     `gorm:"not null;type:bigint(20);index"            json:"-"` // 创建这个账号的用户ID,如果是远程账号则为 null
+	Username        string     `gorm:"not null;type:varchar(64)"                 json:"username"`
+	Domain          *string    `gorm:"type:varchar(128);index"                   json:"domain"`    // 远程账号的域名,如果是本地账号则为 null
+	OriginId        string     `gorm:"type:varchar(64)"                          json:"origin_id"` // 远程账号的ID,如果是本地账号则为 null
+	Acct            string     `gorm:"not null;type:varchar(128);index"          json:"acct"`      // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
+	DisplayName     string     `gorm:"not null;type:varchar(128)"                json:"display_name"`
+	Avatar          string     `gorm:"type:varchar(1024)"                        json:"avatar"`
+	AvatarStatic    string     `gorm:"type:varchar(1024)"                        json:"avatar_static"`
+	Header          string     `gorm:"type:varchar(1024)"                        json:"header"`
+	HeaderStatic    string     `gorm:"type:varchar(1024)"                        json:"header_static"`
+	Locked          bool       `gorm:"default:false"                             json:"locked"`
+	Bot             bool       `gorm:"default:false"                             json:"bot"`
+	Discoverable    bool       `gorm:"default:false"                             json:"discoverable"`
+	Group           bool       `gorm:"default:false"                             json:"group"`
+	NoIndex         bool       `gorm:"default:false"                             json:"noindex"`
+	HideCollections bool       `gorm:"default:false"                             json:"hide_collections"`
+	Note            string     `gorm:"type:varchar(1024)"                        json:"note"`
+	Website         string     `gorm:"type:varchar(1024)"                        json:"website"`
+	CreatedAt       *time.Time `gorm:"autoCreateTime"                            json:"created_at"`
+	UpdatedAt       *time.Time `gorm:"autoUpdateTime"                            json:"updated_at"`
+	LastStatusAt    *time.Time `gorm:"type:datetime"                             json:"last_status_at"`
+	LastActivityAt  *time.Time `gorm:"type:datetime"                             json:"last_activity_at"`
+	IsBan           bool       `gorm:"default:false"                             json:"is_ban"`
 	DeletedAt       gorm.DeletedAt
-	Emojis          []*Emoji      `json:"-" gorm:"many2many:account_emojis;"`
+	Emojis          []*Emoji      `gorm:"many2many:account_emojis;" json:"-"`
 	Extra           *AccountExtra `json:"-"`
 
-	User *User `json:"-" gorm:"foreignKey:UserId;references:Id"`
+	User *User `gorm:"foreignKey:UserId;references:Id" json:"-"`
 }
 
 func (Account) TableName() string {
@@ -59,6 +59,7 @@ func (a *Account) BeforeSave(tx *gorm.DB) (err error) {
 	}
 
 	a.Acct = a.Username + "@" + domain
+
 	return
 }
 
@@ -75,25 +76,28 @@ func (a *Account) AfterCreate(tx *gorm.DB) (err error) {
 	}
 
 	err = tx.Create(a.Extra).Error
+
 	return
 }
 
 func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
 	if !utils.CheckIsImage(avatarFilePath) {
 		err = errors.New("avatar file is not image")
+
 		return
 	}
 
-	avatarData, err := os.ReadFile(avatarFilePath)
+	avatarData, err := os.ReadFile(avatarFilePath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		err = errors.Wrap(err, "read avatar file error")
+
 		return
 	}
 	// 保存头像
 	avatarSavePath, err := storage.Save(avatarFilePath, avatarData)
-
 	if err != nil {
 		err = errors.Wrap(err, "save avatar file error")
+
 		return
 	}
 
@@ -102,16 +106,16 @@ func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
 	return
 }
 
-func (a Account) IsLocal() bool {
+func (a *Account) IsLocal() bool {
 	return a.Domain == nil
 }
 
 type AccountExtra struct {
-	AccountId      uint64         `json:"account_id" gorm:"primary_key;type:varchar(64);"`
-	FollowersCount int            `json:"followers_count" gorm:"not null;type:int(11);default:0"`
-	FollowingCount int            `json:"following_count" gorm:"not null;type:int(11);default:0"`
-	StatusesCount  int            `json:"statuses_count" gorm:"not null;type:int(11);default:0"`
-	Fields         []AccountField `json:"fields" gorm:"type:json;serializer:json"`
+	AccountId      uint64         `gorm:"primary_key;type:varchar(64);"   json:"account_id"`
+	FollowersCount int            `gorm:"not null;type:int(11);default:0" json:"followers_count"`
+	FollowingCount int            `gorm:"not null;type:int(11);default:0" json:"following_count"`
+	StatusesCount  int            `gorm:"not null;type:int(11);default:0" json:"statuses_count"`
+	Fields         []AccountField `gorm:"type:json;serializer:json"       json:"fields"`
 }
 
 func (AccountExtra) TableName() string {
@@ -127,15 +131,15 @@ type AccountField struct {
 func GetEmailHash(email string) string {
 	raw := config.C.EncryptedKey + ":" + email
 
-	b := md5.Sum([]byte(raw))
+	b := md5.Sum([]byte(raw)) //nolint:gosec // G401: reviewed and safe
 
 	return hex.EncodeToString(b[:])
 }
 
 type AccountEmoji struct {
-	Id        int64 `json:"id" gorm:"primary_key;type:bigint(20);autoIncrement"`
-	AccountId int64 `json:"account_id" gorm:"not null;type:varchar(64);index"`
-	EmojiId   int64 `json:"emoji_id" gorm:"not null;type:bigint(20);index"`
+	Id        int64 `gorm:"primary_key;type:bigint(20);autoIncrement" json:"id"`
+	AccountId int64 `gorm:"not null;type:varchar(64);index"           json:"account_id"`
+	EmojiId   int64 `gorm:"not null;type:bigint(20);index"            json:"emoji_id"`
 }
 
 func (AccountEmoji) TableName() string {
@@ -145,10 +149,11 @@ func (AccountEmoji) TableName() string {
 type Accounts []*Account
 
 func (a Accounts) GetIds() []uint64 {
-	var ids []uint64
+	ids := make([]uint64, 0, len(a))
 	for _, account := range a {
 		ids = append(ids, account.Id)
 	}
+
 	return ids
 }
 
@@ -158,11 +163,13 @@ func (a Accounts) Contains(id uint64) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 func GetLocalAccounts(db *gorm.DB, accountsOrAccountId any) (ret Accounts, err error) {
 	ret = make(Accounts, 0)
+
 	if accountsOrAccountId == nil {
 		return
 	}
@@ -173,17 +180,19 @@ func GetLocalAccounts(db *gorm.DB, accountsOrAccountId any) (ret Accounts, err e
 				ret = append(ret, account)
 			}
 		}
+
 		return
 	}
 
 	if accountsId, ok := accountsOrAccountId.([]uint64); ok {
 		err = db.Where("id IN ? and domain is null", accountsId).Find(&ret).Error
+
 		return
 	}
 
 	err = errors.New("invalid accountsOrAccountId type, must be Accounts or []uint64")
-	return
 
+	return
 }
 
 func GetAccountsByText(db *gorm.DB, text string, limit int) (ret map[string]*Account, err error) {
@@ -197,6 +206,7 @@ func GetAccountsByText(db *gorm.DB, text string, limit int) (ret map[string]*Acc
 
 func MatchAccountTags(text string) []string {
 	regex := `@(\S+)`
+
 	return utils.FilterDuplicateAndEmptyString(regexp.MustCompile(regex).FindAllString(text, -1))
 }
 
@@ -242,10 +252,12 @@ func FindAccountByAccountTag(db *gorm.DB, accountsStr []string, limit int) (ret 
 	err = query.Find(&accounts).Error
 	if err != nil {
 		err = errors.Wrap(err, "get accounts error")
-		return
+
+		return ret, err
 	}
 
 	ret = make(map[string]*Account)
+
 	for _, account := range accounts {
 		if account.Domain == nil {
 			ret[account.Username] = account
@@ -253,5 +265,6 @@ func FindAccountByAccountTag(db *gorm.DB, accountsStr []string, limit int) (ret 
 			ret[account.Username+"@"+*account.Domain] = account
 		}
 	}
-	return
+
+	return ret, err
 }

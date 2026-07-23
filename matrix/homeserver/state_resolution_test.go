@@ -10,13 +10,8 @@ import (
 // Based on the scenarios described in gomatrixserverlib/stateresolutionv2_test.go
 // and the Matrix spec (Room Version 2+).
 
-// Helper: create a pointer to string
-func strPtr(s string) *string {
-	return &s
-}
-
-// Helper: create a MatrixEvent with given properties
-func makeEvent(eventID, roomID string, eventType EventType, sender string, stateKey *string, content map[string]interface{}, depth int64, ts int64, authEvents []string) *MatrixEvent {
+// Helper: create a MatrixEvent with given properties.
+func makeEvent(eventID, roomID string, eventType EventType, sender string, stateKey *string, content map[string]any, depth int64, ts int64, authEvents []string) *MatrixEvent {
 	return &MatrixEvent{
 		EventID:        eventID,
 		RoomID:         roomID,
@@ -42,55 +37,59 @@ func makeEvent(eventID, roomID string, eventType EventType, sender string, state
 //	$join_rules (m.room.join_rules, "public")
 func buildTestGraph() ([]*MatrixEvent, map[string]*MatrixEvent) {
 	const roomID = "!testroom:example.com"
-	alice := "@alice:example.com"
-	bob := "@bob:example.com"
 
-	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, strPtr(""),
-		map[string]interface{}{"creator": alice, "room_version": "10"},
+	alice := "@alice:example.com" //nolint:goconst
+	bob := "@bob:example.com"     //nolint:goconst
+
+	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, new(""),
+		map[string]any{"creator": alice, "room_version": "10"},
 		1, 1000, nil)
 
-	aliceJoin := makeEvent("$alice_join", roomID, EventTypeRoomMember, alice, strPtr(alice),
-		map[string]interface{}{"membership": "join"},
-		2, 2000, []string{"$create"})
+	aliceJoin := makeEvent("$alice_join", roomID, EventTypeRoomMember, alice, new(alice),
+		map[string]any{"membership": "join"}, //nolint:goconst
+		2, 2000, []string{"$create"})         //nolint:goconst
 
-	powerLevels := makeEvent("$power_levels", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":          map[string]interface{}{alice: float64(100), bob: float64(0)},
-			"users_default":  float64(0),
-			"events_default": float64(0),
-			"state_default":  float64(50),
-			"ban":            float64(50),
-			"kick":           float64(50),
-			"redact":         float64(50),
-			"invite":         float64(0),
+	powerLevels := makeEvent("$power_levels", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":          map[string]any{alice: float64(100), bob: float64(0)}, //nolint:goconst
+			"users_default":  float64(0),                                           //nolint:goconst
+			"events_default": float64(0),                                           //nolint:goconst
+			"state_default":  float64(50),                                          //nolint:goconst
+			"ban":            float64(50),                                          //nolint:goconst
+			"kick":           float64(50),                                          //nolint:goconst
+			"redact":         float64(50),                                          //nolint:goconst
+			"invite":         float64(0),                                           //nolint:goconst
 		},
-		3, 3000, []string{"$create", "$alice_join"})
+		3, 3000, []string{"$create", "$alice_join"}) //nolint:goconst
 
-	joinRules := makeEvent("$join_rules", roomID, EventTypeRoomJoinRules, alice, strPtr(""),
-		map[string]interface{}{"join_rule": "public"},
-		4, 4000, []string{"$create", "$power_levels", "$alice_join"})
+	joinRules := makeEvent("$join_rules", roomID, EventTypeRoomJoinRules, alice, new(""),
+		map[string]any{"join_rule": "public"},                        //nolint:goconst
+		4, 4000, []string{"$create", "$power_levels", "$alice_join"}) //nolint:goconst
 
-	bobJoin := makeEvent("$bob_join", roomID, EventTypeRoomMember, bob, strPtr(bob),
-		map[string]interface{}{"membership": "join"},
-		5, 5000, []string{"$create", "$power_levels", "$join_rules"})
+	bobJoin := makeEvent("$bob_join", roomID, EventTypeRoomMember, bob, new(bob),
+		map[string]any{"membership": "join"},
+		5, 5000, []string{"$create", "$power_levels", "$join_rules"}) //nolint:goconst
 
 	events := []*MatrixEvent{create, aliceJoin, powerLevels, joinRules, bobJoin}
+
 	eventMap := make(map[string]*MatrixEvent)
+
 	for _, e := range events {
 		eventMap[e.EventID] = e
 	}
+
 	return events, eventMap
 }
 
-// Test: unconflicted state is preserved as-is
+// Test: unconflicted state is preserved as-is.
 func TestStateResV2_Unconflicted(t *testing.T) {
 	events, _ := buildTestGraph()
 	resolver := NewStateResolverWithEvents("!testroom:example.com", events)
 
 	// Two identical state sets → no conflict
 	stateSet := []StateEntry{
-		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: events[0]},
-		{Tuple: StateKeyTuple{"m.room.member", "@alice:example.com"}, EventID: "$alice_join", Event: events[1]},
+		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: events[0]},                       //nolint:goconst
+		{Tuple: StateKeyTuple{"m.room.member", "@alice:example.com"}, EventID: "$alice_join", Event: events[1]}, //nolint:goconst
 	}
 
 	result, err := resolver.ResolveState([][]StateEntry{stateSet, stateSet})
@@ -107,15 +106,17 @@ func TestStateResV2_Unconflicted(t *testing.T) {
 	for _, entry := range result {
 		resultMap[entry.Tuple.EventType+"/"+entry.Tuple.StateKey] = entry.EventID
 	}
+
 	if resultMap["m.room.create/"] != "$create" {
 		t.Errorf("expected create event $create, got %s", resultMap["m.room.create/"])
 	}
+
 	if resultMap["m.room.member/@alice:example.com"] != "$alice_join" {
 		t.Errorf("expected alice join event $alice_join, got %s", resultMap["m.room.member/@alice:example.com"])
 	}
 }
 
-// Test: single state set returns itself
+// Test: single state set returns itself.
 func TestStateResV2_SingleSet(t *testing.T) {
 	events, _ := buildTestGraph()
 	resolver := NewStateResolverWithEvents("!testroom:example.com", events)
@@ -128,12 +129,13 @@ func TestStateResV2_SingleSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveState failed: %v", err)
 	}
+
 	if len(result) != 1 || result[0].EventID != "$create" {
 		t.Fatalf("expected single $create entry, got %v", result)
 	}
 }
 
-// Test: empty state returns nil
+// Test: empty state returns nil.
 func TestStateResV2_Empty(t *testing.T) {
 	resolver := NewStateResolverWithEvents("!testroom:example.com", nil)
 
@@ -141,6 +143,7 @@ func TestStateResV2_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveState failed: %v", err)
 	}
+
 	if result != nil {
 		t.Fatalf("expected nil, got %v", result)
 	}
@@ -151,15 +154,16 @@ func TestStateResV2_Empty(t *testing.T) {
 // Alice's event should win because she has higher power level.
 func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 
 	events, eventMap := buildTestGraph()
 
 	// Fork: Alice sets new power levels (Bob gets PL=50)
-	alicePL := makeEvent("$alice_pl", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":          map[string]interface{}{alice: float64(100), bob: float64(50)},
+	alicePL := makeEvent("$alice_pl", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":          map[string]any{alice: float64(100), bob: float64(50)},
 			"users_default":  float64(0),
 			"events_default": float64(0),
 			"state_default":  float64(50),
@@ -171,9 +175,9 @@ func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 		6, 6000, []string{"$create", "$power_levels", "$alice_join"})
 
 	// Fork: Bob tries to set power levels (which shouldn't pass v1, but let's see v2 handle it)
-	bobPL := makeEvent("$bob_pl", roomID, EventTypeRoomPowerLevels, bob, strPtr(""),
-		map[string]interface{}{
-			"users":          map[string]interface{}{alice: float64(0), bob: float64(100)},
+	bobPL := makeEvent("$bob_pl", roomID, EventTypeRoomPowerLevels, bob, new(""),
+		map[string]any{
+			"users":          map[string]any{alice: float64(0), bob: float64(100)},
 			"users_default":  float64(0),
 			"events_default": float64(0),
 			"state_default":  float64(50),
@@ -182,9 +186,9 @@ func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 			"redact":         float64(50),
 			"invite":         float64(0),
 		},
-		6, 6500, []string{"$create", "$power_levels", "$bob_join"})
+		6, 6500, []string{"$create", "$power_levels", "$bob_join"}) //nolint:goconst
 
-	allEvents := append(events, alicePL, bobPL)
+	allEvents := append(append([]*MatrixEvent{}, events...), alicePL, bobPL)
 	for _, e := range allEvents {
 		eventMap[e.EventID] = e
 	}
@@ -196,8 +200,8 @@ func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: eventMap["$create"]},
 		{Tuple: StateKeyTuple{"m.room.member", alice}, EventID: "$alice_join", Event: eventMap["$alice_join"]},
 		{Tuple: StateKeyTuple{"m.room.member", bob}, EventID: "$bob_join", Event: eventMap["$bob_join"]},
-		{Tuple: StateKeyTuple{"m.room.power_levels", ""}, EventID: "$alice_pl", Event: alicePL},
-		{Tuple: StateKeyTuple{"m.room.join_rules", ""}, EventID: "$join_rules", Event: eventMap["$join_rules"]},
+		{Tuple: StateKeyTuple{"m.room.power_levels", ""}, EventID: "$alice_pl", Event: alicePL},                 //nolint:goconst
+		{Tuple: StateKeyTuple{"m.room.join_rules", ""}, EventID: "$join_rules", Event: eventMap["$join_rules"]}, //nolint:goconst
 	}
 
 	// State set 2: sees Bob's PL change
@@ -216,9 +220,11 @@ func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 
 	// Find the resolved power levels event
 	var resolvedPL string
+
 	for _, entry := range result {
 		if entry.Tuple.EventType == "m.room.power_levels" {
 			resolvedPL = entry.EventID
+
 			break
 		}
 	}
@@ -233,15 +239,16 @@ func TestStateResV2_ControlEventConflict_PowerLevel(t *testing.T) {
 // The one from the user with higher power level should win.
 func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 
 	events, eventMap := buildTestGraph()
 
 	// Give Bob state_default access (PL=50 grants state setting)
-	powerLevels := makeEvent("$power_levels_v2", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":          map[string]interface{}{alice: float64(100), bob: float64(50)},
+	powerLevels := makeEvent("$power_levels_v2", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":          map[string]any{alice: float64(100), bob: float64(50)},
 			"users_default":  float64(0),
 			"events_default": float64(0),
 			"state_default":  float64(50),
@@ -254,18 +261,18 @@ func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 	eventMap["$power_levels_v2"] = powerLevels
 
 	// Fork: Alice sets room name
-	aliceName := makeEvent("$alice_name", roomID, EventTypeRoomName, alice, strPtr(""),
-		map[string]interface{}{"name": "Alice's Room"},
-		7, 7000, []string{"$create", "$power_levels_v2", "$alice_join"})
+	aliceName := makeEvent("$alice_name", roomID, EventTypeRoomName, alice, new(""),
+		map[string]any{"name": "Alice's Room"},                          //nolint:goconst
+		7, 7000, []string{"$create", "$power_levels_v2", "$alice_join"}) //nolint:goconst
 	eventMap["$alice_name"] = aliceName
 
 	// Fork: Bob sets room name
-	bobName := makeEvent("$bob_name", roomID, EventTypeRoomName, bob, strPtr(""),
-		map[string]interface{}{"name": "Bob's Room"},
+	bobName := makeEvent("$bob_name", roomID, EventTypeRoomName, bob, new(""),
+		map[string]any{"name": "Bob's Room"},
 		7, 7500, []string{"$create", "$power_levels_v2", "$bob_join"})
 	eventMap["$bob_name"] = bobName
 
-	allEvents := append(events, powerLevels, aliceName, bobName)
+	allEvents := append(append([]*MatrixEvent{}, events...), powerLevels, aliceName, bobName)
 	resolver := NewStateResolverWithEvents(roomID, allEvents)
 
 	set1 := []StateEntry{
@@ -274,7 +281,7 @@ func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 		{Tuple: StateKeyTuple{"m.room.member", bob}, EventID: "$bob_join", Event: eventMap["$bob_join"]},
 		{Tuple: StateKeyTuple{"m.room.power_levels", ""}, EventID: "$power_levels_v2", Event: powerLevels},
 		{Tuple: StateKeyTuple{"m.room.join_rules", ""}, EventID: "$join_rules", Event: eventMap["$join_rules"]},
-		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$alice_name", Event: aliceName},
+		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$alice_name", Event: aliceName}, //nolint:goconst
 	}
 
 	set2 := []StateEntry{
@@ -283,7 +290,7 @@ func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 		{Tuple: StateKeyTuple{"m.room.member", bob}, EventID: "$bob_join", Event: eventMap["$bob_join"]},
 		{Tuple: StateKeyTuple{"m.room.power_levels", ""}, EventID: "$power_levels_v2", Event: powerLevels},
 		{Tuple: StateKeyTuple{"m.room.join_rules", ""}, EventID: "$join_rules", Event: eventMap["$join_rules"]},
-		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$bob_name", Event: bobName},
+		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$bob_name", Event: bobName}, //nolint:goconst
 	}
 
 	result, err := resolver.ResolveState([][]StateEntry{set1, set2})
@@ -296,9 +303,11 @@ func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 	// Events are applied iteratively — the LAST event to pass auth wins.
 	// Bob's event has later timestamp (7500 > 7000), so it is processed last and wins.
 	var resolvedName string
+
 	for _, entry := range result {
 		if entry.Tuple.EventType == "m.room.name" {
 			resolvedName = entry.EventID
+
 			break
 		}
 	}
@@ -308,7 +317,7 @@ func TestStateResV2_NonControlConflict_RoomName(t *testing.T) {
 	}
 }
 
-// Test: isControlEvent classification
+// Test: isControlEvent classification.
 func TestIsControlEvent(t *testing.T) {
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
@@ -322,7 +331,7 @@ func TestIsControlEvent(t *testing.T) {
 			name: "power levels is control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomPowerLevels,
-				StateKey:  strPtr(""),
+				StateKey:  new(""),
 				Sender:    alice,
 			},
 			expected: true,
@@ -331,7 +340,7 @@ func TestIsControlEvent(t *testing.T) {
 			name: "join rules is control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomJoinRules,
-				StateKey:  strPtr(""),
+				StateKey:  new(""),
 				Sender:    alice,
 			},
 			expected: true,
@@ -340,9 +349,9 @@ func TestIsControlEvent(t *testing.T) {
 			name: "ban is control (membership=ban, sender!=state_key)",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomMember,
-				StateKey:  strPtr(bob),
+				StateKey:  new(bob),
 				Sender:    alice,
-				Content:   map[string]interface{}{"membership": "ban"},
+				Content:   map[string]any{"membership": "ban"},
 			},
 			expected: true,
 		},
@@ -350,9 +359,9 @@ func TestIsControlEvent(t *testing.T) {
 			name: "kick is control (membership=leave, sender!=state_key)",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomMember,
-				StateKey:  strPtr(bob),
+				StateKey:  new(bob),
 				Sender:    alice,
-				Content:   map[string]interface{}{"membership": "leave"},
+				Content:   map[string]any{"membership": "leave"}, //nolint:goconst
 			},
 			expected: true,
 		},
@@ -360,9 +369,9 @@ func TestIsControlEvent(t *testing.T) {
 			name: "self-leave is NOT control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomMember,
-				StateKey:  strPtr(alice),
+				StateKey:  new(alice),
 				Sender:    alice,
-				Content:   map[string]interface{}{"membership": "leave"},
+				Content:   map[string]any{"membership": "leave"},
 			},
 			expected: false,
 		},
@@ -370,9 +379,9 @@ func TestIsControlEvent(t *testing.T) {
 			name: "join is NOT control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomMember,
-				StateKey:  strPtr(alice),
+				StateKey:  new(alice),
 				Sender:    alice,
-				Content:   map[string]interface{}{"membership": "join"},
+				Content:   map[string]any{"membership": "join"},
 			},
 			expected: false,
 		},
@@ -380,7 +389,7 @@ func TestIsControlEvent(t *testing.T) {
 			name: "room name is NOT control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomName,
-				StateKey:  strPtr(""),
+				StateKey:  new(""),
 				Sender:    alice,
 			},
 			expected: false,
@@ -389,7 +398,7 @@ func TestIsControlEvent(t *testing.T) {
 			name: "room topic is NOT control",
 			event: &MatrixEvent{
 				EventType: EventTypeRoomTopic,
-				StateKey:  strPtr(""),
+				StateKey:  new(""),
 				Sender:    alice,
 			},
 			expected: false,
@@ -406,28 +415,29 @@ func TestIsControlEvent(t *testing.T) {
 	}
 }
 
-// Test: auth chain difference calculation
+// Test: auth chain difference calculation.
 func TestStateResV2_AuthChainDifference(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 
-	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, strPtr(""),
-		map[string]interface{}{"creator": alice}, 1, 1000, nil)
+	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, new(""),
+		map[string]any{"creator": alice}, 1, 1000, nil)
 
-	aliceJoin := makeEvent("$alice_join", roomID, EventTypeRoomMember, alice, strPtr(alice),
-		map[string]interface{}{"membership": "join"}, 2, 2000, []string{"$create"})
+	aliceJoin := makeEvent("$alice_join", roomID, EventTypeRoomMember, alice, new(alice),
+		map[string]any{"membership": "join"}, 2, 2000, []string{"$create"})
 
-	bobJoin := makeEvent("$bob_join", roomID, EventTypeRoomMember, bob, strPtr(bob),
-		map[string]interface{}{"membership": "join"}, 3, 3000, []string{"$create"})
+	bobJoin := makeEvent("$bob_join", roomID, EventTypeRoomMember, bob, new(bob),
+		map[string]any{"membership": "join"}, 3, 3000, []string{"$create"})
 
 	// Event A references alice_join in auth chain
-	eventA := makeEvent("$eventA", roomID, EventTypeRoomName, alice, strPtr(""),
-		map[string]interface{}{"name": "A"}, 4, 4000, []string{"$create", "$alice_join"})
+	eventA := makeEvent("$eventA", roomID, EventTypeRoomName, alice, new(""),
+		map[string]any{"name": "A"}, 4, 4000, []string{"$create", "$alice_join"})
 
 	// Event B references bob_join in auth chain
-	eventB := makeEvent("$eventB", roomID, EventTypeRoomName, bob, strPtr(""),
-		map[string]interface{}{"name": "B"}, 4, 4500, []string{"$create", "$bob_join"})
+	eventB := makeEvent("$eventB", roomID, EventTypeRoomName, bob, new(""),
+		map[string]any{"name": "B"}, 4, 4500, []string{"$create", "$bob_join"})
 
 	allEvents := []*MatrixEvent{create, aliceJoin, bobJoin, eventA, eventB}
 	resolver := NewStateResolverWithEvents(roomID, allEvents)
@@ -454,32 +464,35 @@ func TestStateResV2_AuthChainDifference(t *testing.T) {
 	if !diffIDs["$alice_join"] {
 		t.Error("expected $alice_join in auth chain difference")
 	}
+
 	if !diffIDs["$bob_join"] {
 		t.Error("expected $bob_join in auth chain difference")
 	}
+
 	if diffIDs["$create"] {
 		t.Error("$create should NOT be in auth chain difference (it's in the intersection)")
 	}
 }
 
-// Test: reverse topological ordering preserves auth dependencies
+// Test: reverse topological ordering preserves auth dependencies.
 func TestStateResV2_ReverseTopologicalOrdering(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 
-	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, strPtr(""),
-		map[string]interface{}{"creator": alice}, 1, 1000, nil)
+	create := makeEvent("$create", roomID, EventTypeRoomCreate, alice, new(""),
+		map[string]any{"creator": alice}, 1, 1000, nil)
 
-	pl1 := makeEvent("$pl1", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":         map[string]interface{}{alice: float64(100)},
+	pl1 := makeEvent("$pl1", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":         map[string]any{alice: float64(100)},
 			"users_default": float64(0),
 		},
 		2, 2000, []string{"$create"})
 
-	pl2 := makeEvent("$pl2", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":         map[string]interface{}{alice: float64(100)},
+	pl2 := makeEvent("$pl2", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":         map[string]any{alice: float64(100)},
 			"users_default": float64(0),
 		},
 		3, 3000, []string{"$create", "$pl1"})
@@ -498,14 +511,16 @@ func TestStateResV2_ReverseTopologicalOrdering(t *testing.T) {
 	if posOf["$create"] >= posOf["$pl1"] {
 		t.Errorf("$create (pos=%d) should come before $pl1 (pos=%d)", posOf["$create"], posOf["$pl1"])
 	}
+
 	if posOf["$pl1"] >= posOf["$pl2"] {
 		t.Errorf("$pl1 (pos=%d) should come before $pl2 (pos=%d)", posOf["$pl1"], posOf["$pl2"])
 	}
 }
 
-// Test: ban event (control event) overrides join from forked branch
+// Test: ban event (control event) overrides join from forked branch.
 func TestStateResV2_BanOverridesJoin(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 	charlie := "@charlie:example.com"
@@ -513,24 +528,24 @@ func TestStateResV2_BanOverridesJoin(t *testing.T) {
 	events, eventMap := buildTestGraph()
 
 	// Charlie joins
-	charlieJoin := makeEvent("$charlie_join", roomID, EventTypeRoomMember, charlie, strPtr(charlie),
-		map[string]interface{}{"membership": "join"},
+	charlieJoin := makeEvent("$charlie_join", roomID, EventTypeRoomMember, charlie, new(charlie),
+		map[string]any{"membership": "join"},
 		6, 6000, []string{"$create", "$power_levels", "$join_rules"})
 	eventMap["$charlie_join"] = charlieJoin
 
 	// Fork 1: Alice bans Charlie
-	charlieBan := makeEvent("$charlie_ban", roomID, EventTypeRoomMember, alice, strPtr(charlie),
-		map[string]interface{}{"membership": "ban"},
+	charlieBan := makeEvent("$charlie_ban", roomID, EventTypeRoomMember, alice, new(charlie),
+		map[string]any{"membership": "ban"},
 		7, 7000, []string{"$create", "$power_levels", "$alice_join", "$charlie_join"})
 	eventMap["$charlie_ban"] = charlieBan
 
 	// Fork 2: Charlie is still joined (different view of the DAG)
-	charlieStillJoined := makeEvent("$charlie_join2", roomID, EventTypeRoomMember, charlie, strPtr(charlie),
-		map[string]interface{}{"membership": "join"},
+	charlieStillJoined := makeEvent("$charlie_join2", roomID, EventTypeRoomMember, charlie, new(charlie),
+		map[string]any{"membership": "join"},
 		7, 7500, []string{"$create", "$power_levels", "$join_rules", "$charlie_join"})
 	eventMap["$charlie_join2"] = charlieStillJoined
 
-	allEvents := append(events, charlieJoin, charlieBan, charlieStillJoined)
+	allEvents := append(append([]*MatrixEvent{}, events...), charlieJoin, charlieBan, charlieStillJoined)
 	_ = bob // bob is a participant but not directly involved in this conflict
 
 	resolver := NewStateResolverWithEvents(roomID, allEvents)
@@ -563,9 +578,11 @@ func TestStateResV2_BanOverridesJoin(t *testing.T) {
 	// The ban event from Alice (PL=100) is a control event and should be processed first.
 	// Charlie's re-join should fail auth check (banned users can't join).
 	var resolvedCharlie string
+
 	for _, entry := range result {
 		if entry.Tuple == (StateKeyTuple{"m.room.member", charlie}) {
 			resolvedCharlie = entry.EventID
+
 			break
 		}
 	}
@@ -575,7 +592,7 @@ func TestStateResV2_BanOverridesJoin(t *testing.T) {
 	}
 }
 
-// Test: separateConflicted correctly identifies conflicted vs unconflicted entries
+// Test: separateConflicted correctly identifies conflicted vs unconflicted entries.
 func TestStateResV2_SeparateConflicted(t *testing.T) {
 	events, _ := buildTestGraph()
 	resolver := NewStateResolverWithEvents("!testroom:example.com", events)
@@ -587,13 +604,13 @@ func TestStateResV2_SeparateConflicted(t *testing.T) {
 	set1 := []StateEntry{
 		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: events[0]},
 		{Tuple: StateKeyTuple{"m.room.member", alice}, EventID: "$alice_join", Event: events[1]},
-		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$name_a", Event: makeEvent("$name_a", "!testroom:example.com", EventTypeRoomName, alice, strPtr(""), map[string]interface{}{"name": "A"}, 6, 6000, nil)},
+		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$name_a", Event: makeEvent("$name_a", "!testroom:example.com", EventTypeRoomName, alice, new(""), map[string]any{"name": "A"}, 6, 6000, nil)},
 	}
 
 	set2 := []StateEntry{
 		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: events[0]},
 		{Tuple: StateKeyTuple{"m.room.member", alice}, EventID: "$alice_join", Event: events[1]},
-		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$name_b", Event: makeEvent("$name_b", "!testroom:example.com", EventTypeRoomName, bob, strPtr(""), map[string]interface{}{"name": "B"}, 6, 6500, nil)},
+		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$name_b", Event: makeEvent("$name_b", "!testroom:example.com", EventTypeRoomName, bob, new(""), map[string]any{"name": "B"}, 6, 6500, nil)},
 	}
 
 	unconflicted, conflicted, err := resolver.separateConflicted([][]StateEntry{set1, set2})
@@ -619,14 +636,14 @@ func TestStateResV2_SeparateConflicted(t *testing.T) {
 	}
 }
 
-// Test: events missing from one state set are conflicted (v2 stricter definition)
+// Test: events missing from one state set are conflicted (v2 stricter definition).
 func TestStateResV2_MissingEventIsConflicted(t *testing.T) {
 	events, _ := buildTestGraph()
 	resolver := NewStateResolverWithEvents("!testroom:example.com", events)
 
 	// Set 1 has room name, Set 2 doesn't
-	nameEvent := makeEvent("$name", "!testroom:example.com", EventTypeRoomName, "@alice:example.com", strPtr(""),
-		map[string]interface{}{"name": "test"}, 6, 6000, nil)
+	nameEvent := makeEvent("$name", "!testroom:example.com", EventTypeRoomName, "@alice:example.com", new(""),
+		map[string]any{"name": "test"}, 6, 6000, nil)
 
 	set1 := []StateEntry{
 		{Tuple: StateKeyTuple{"m.room.create", ""}, EventID: "$create", Event: events[0]},
@@ -653,7 +670,7 @@ func TestStateResV2_MissingEventIsConflicted(t *testing.T) {
 	}
 }
 
-// Test: ComputeStateDiff detects additions, removals, and modifications
+// Test: ComputeStateDiff detects additions, removals, and modifications.
 func TestComputeStateDiff(t *testing.T) {
 	oldState := []StateEntry{
 		{Tuple: StateKeyTuple{"m.room.name", ""}, EventID: "$name1"},
@@ -671,32 +688,34 @@ func TestComputeStateDiff(t *testing.T) {
 	if len(added) != 1 || added[0].EventID != "$av1" {
 		t.Errorf("expected 1 added ($av1), got %v", added)
 	}
+
 	if len(removed) != 1 || removed[0].EventID != "$topic1" {
 		t.Errorf("expected 1 removed ($topic1), got %v", removed)
 	}
+
 	if len(modified) != 1 || modified[0].EventID != "$name2" {
 		t.Errorf("expected 1 modified ($name2), got %v", modified)
 	}
 }
 
-// Test: power level sorting — higher PL wins, then earlier timestamp, then event ID
+// Test: power level sorting — higher PL wins, then earlier timestamp, then event ID.
 func TestStateResV2_ControlEventSorting(t *testing.T) {
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 
-	plEvent := makeEvent("$pl", "!room", EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{
-			"users":         map[string]interface{}{alice: float64(100), bob: float64(50)},
+	plEvent := makeEvent("$pl", "!room", EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{
+			"users":         map[string]any{alice: float64(100), bob: float64(50)},
 			"users_default": float64(0),
 		}, 1, 1000, nil)
 
 	// Alice PL=100, timestamp=2000
-	eventA := makeEvent("$a", "!room", EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{}, 2, 2000, []string{"$pl"})
+	eventA := makeEvent("$a", "!room", EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{}, 2, 2000, []string{"$pl"}) //nolint:goconst
 
 	// Bob PL=50, timestamp=1500 (earlier but lower PL)
-	eventB := makeEvent("$b", "!room", EventTypeRoomPowerLevels, bob, strPtr(""),
-		map[string]interface{}{}, 2, 1500, []string{"$pl"})
+	eventB := makeEvent("$b", "!room", EventTypeRoomPowerLevels, bob, new(""),
+		map[string]any{}, 2, 1500, []string{"$pl"})
 
 	allEvents := []*MatrixEvent{plEvent, eventA, eventB}
 	resolver := NewStateResolverWithEvents("!room", allEvents)
@@ -710,21 +729,23 @@ func TestStateResV2_ControlEventSorting(t *testing.T) {
 	if events[0].EventID != "$a" {
 		t.Errorf("expected Alice's event first (higher PL), got %s", events[0].EventID)
 	}
+
 	if events[1].EventID != "$b" {
 		t.Errorf("expected Bob's event second, got %s", events[1].EventID)
 	}
 }
 
-// Test: lexicographic sorting tiebreaker
+// Test: lexicographic sorting tiebreaker.
 func TestStateResV2_LexicographicSorting(t *testing.T) {
 	const roomID = "!room:example.com"
+
 	alice := "@alice:example.com"
 
 	// Same sender (same PL), same timestamp → sort by event ID
-	eventA := makeEvent("$aaa", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{}, 1, 1000, nil)
-	eventB := makeEvent("$zzz", roomID, EventTypeRoomPowerLevels, alice, strPtr(""),
-		map[string]interface{}{}, 1, 1000, nil)
+	eventA := makeEvent("$aaa", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{}, 1, 1000, nil)
+	eventB := makeEvent("$zzz", roomID, EventTypeRoomPowerLevels, alice, new(""),
+		map[string]any{}, 1, 1000, nil)
 
 	allEvents := []*MatrixEvent{eventA, eventB}
 	resolver := NewStateResolverWithEvents(roomID, allEvents)
@@ -739,37 +760,38 @@ func TestStateResV2_LexicographicSorting(t *testing.T) {
 	}
 }
 
-// Test: full integration — resolves multiple conflicts simultaneously
+// Test: full integration — resolves multiple conflicts simultaneously.
 func TestStateResV2_MultipleConflicts(t *testing.T) {
 	const roomID = "!testroom:example.com"
+
 	alice := "@alice:example.com"
 	bob := "@bob:example.com"
 
 	events, eventMap := buildTestGraph()
 
 	// Fork: different room names from different users
-	aliceName := makeEvent("$alice_name", roomID, EventTypeRoomName, alice, strPtr(""),
-		map[string]interface{}{"name": "Alice's Room"},
+	aliceName := makeEvent("$alice_name", roomID, EventTypeRoomName, alice, new(""),
+		map[string]any{"name": "Alice's Room"},
 		6, 6000, []string{"$create", "$power_levels", "$alice_join"})
 	eventMap["$alice_name"] = aliceName
 
-	bobName := makeEvent("$bob_name", roomID, EventTypeRoomName, bob, strPtr(""),
-		map[string]interface{}{"name": "Bob's Room"},
+	bobName := makeEvent("$bob_name", roomID, EventTypeRoomName, bob, new(""),
+		map[string]any{"name": "Bob's Room"},
 		6, 6500, []string{"$create", "$power_levels", "$bob_join"})
 	eventMap["$bob_name"] = bobName
 
 	// Fork: different topics
-	aliceTopic := makeEvent("$alice_topic", roomID, EventTypeRoomTopic, alice, strPtr(""),
-		map[string]interface{}{"topic": "Alice's topic"},
+	aliceTopic := makeEvent("$alice_topic", roomID, EventTypeRoomTopic, alice, new(""),
+		map[string]any{"topic": "Alice's topic"},
 		6, 6100, []string{"$create", "$power_levels", "$alice_join"})
 	eventMap["$alice_topic"] = aliceTopic
 
-	bobTopic := makeEvent("$bob_topic", roomID, EventTypeRoomTopic, bob, strPtr(""),
-		map[string]interface{}{"topic": "Bob's topic"},
+	bobTopic := makeEvent("$bob_topic", roomID, EventTypeRoomTopic, bob, new(""),
+		map[string]any{"topic": "Bob's topic"},
 		6, 6200, []string{"$create", "$power_levels", "$bob_join"})
 	eventMap["$bob_topic"] = bobTopic
 
-	allEvents := append(events, aliceName, bobName, aliceTopic, bobTopic)
+	allEvents := append(append([]*MatrixEvent{}, events...), aliceName, bobName, aliceTopic, bobTopic)
 	resolver := NewStateResolverWithEvents(roomID, allEvents)
 
 	set1 := []StateEntry{
@@ -798,6 +820,7 @@ func TestStateResV2_MultipleConflicts(t *testing.T) {
 	}
 
 	resultMap := make(map[string]string)
+
 	for _, entry := range result {
 		key := fmt.Sprintf("%s/%s", entry.Tuple.EventType, entry.Tuple.StateKey)
 		resultMap[key] = entry.EventID
@@ -807,6 +830,7 @@ func TestStateResV2_MultipleConflicts(t *testing.T) {
 	if resultMap["m.room.create/"] != "$create" {
 		t.Errorf("create should be $create, got %s", resultMap["m.room.create/"])
 	}
+
 	if resultMap["m.room.power_levels/"] != "$power_levels" {
 		t.Errorf("power_levels should be $power_levels, got %s", resultMap["m.room.power_levels/"])
 	}
@@ -815,6 +839,7 @@ func TestStateResV2_MultipleConflicts(t *testing.T) {
 	if _, ok := resultMap["m.room.name/"]; !ok {
 		t.Error("expected room name to be in result")
 	}
+
 	if _, ok := resultMap["m.room.topic/"]; !ok {
 		t.Error("expected room topic to be in result")
 	}
@@ -824,6 +849,7 @@ func TestStateResV2_MultipleConflicts(t *testing.T) {
 	if resultMap["m.room.name/"] != "$alice_name" {
 		t.Errorf("expected $alice_name (Bob fails auth), got %s", resultMap["m.room.name/"])
 	}
+
 	if resultMap["m.room.topic/"] != "$alice_topic" {
 		t.Errorf("expected $alice_topic (Bob fails auth), got %s", resultMap["m.room.topic/"])
 	}
@@ -832,10 +858,11 @@ func TestStateResV2_MultipleConflicts(t *testing.T) {
 	expectedCount := 7 // create, alice, bob, PL, join_rules, name, topic
 	if len(result) != expectedCount {
 		// Print what we got
-		var ids []string
+		ids := make([]string, 0, len(result))
 		for _, e := range result {
 			ids = append(ids, fmt.Sprintf("%s/%s=%s", e.Tuple.EventType, e.Tuple.StateKey, e.EventID))
 		}
+
 		sort.Strings(ids)
 		t.Errorf("expected %d entries, got %d: %v", expectedCount, len(result), ids)
 	}

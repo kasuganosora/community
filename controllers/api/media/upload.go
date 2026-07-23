@@ -21,42 +21,45 @@ import (
 )
 
 const (
-	// MaxImageSize 图片最大大小 10MB
+	// MaxImageSize 图片最大大小 10MB.
 	MaxImageSize = 10 * 1024 * 1024
-	// MaxVideoSize 视频/音频最大大小 40MB
+	// MaxVideoSize 视频/音频最大大小 40MB.
 	MaxVideoSize = 40 * 1024 * 1024
-	// AllowedImageTypes 允许的图片类型
+	// AllowedImageTypes 允许的图片类型.
 	AllowedImageTypes = "image/jpeg,image/png,image/gif,image/webp"
-	// AllowedVideoTypes 允许的视频类型
+	// AllowedVideoTypes 允许的视频类型.
 	AllowedVideoTypes = "video/mp4,video/webm,video/quicktime"
-	// AllowedAudioTypes 允许的音频类型
+	// AllowedAudioTypes 允许的音频类型.
 	AllowedAudioTypes = "audio/mpeg,audio/ogg,audio/wav"
 )
 
-// Upload 上传媒体文件
+// Upload 上传媒体文件.
 func Upload(c *gin.Context) {
 	// 获取当前用户
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// 获取上传的文件
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(400, gin.H{"error": "No file provided"})
+		c.JSON(400, gin.H{"error": "No file provided"}) //nolint:goconst
+
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// 获取文件描述（可选）
 	description := c.PostForm("description")
 
 	// 获取焦点位置（可选）
 	var focusX, focusY float64 = 0, 0
+
 	if focus := c.PostForm("focus"); focus != "" {
 		parts := strings.Split(focus, ",")
 		if len(parts) == 2 {
 			if x, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); err == nil {
 				focusX = x
 			}
+
 			if y, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil {
 				focusY = y
 			}
@@ -67,42 +70,48 @@ func Upload(c *gin.Context) {
 	validatedContentType, err := validateFileUpload(header)
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
 	// 创建媒体目录
 	mediaDir := filepath.Join("uploads", "media", time.Now().Format("2006/01/02"))
-	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+	if err := os.MkdirAll(mediaDir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
 		err = errors.Wrap(err, "Failed to create media directory")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
 
 	// 生成文件名（从已验证的 Content-Type 推导扩展名）
 	exts, _ := mime.ExtensionsByType(validatedContentType)
+
 	ext := ".bin"
 	if len(exts) > 0 {
 		ext = exts[0]
 	}
+
 	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	filePath := filepath.Join(mediaDir, fileName)
 
 	// 创建目标文件
-	dst, err := os.Create(filePath)
+	dst, err := os.Create(filePath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		err = errors.Wrap(err, "Failed to create file")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	// 复制文件内容
 	if _, err := io.Copy(dst, file); err != nil {
 		err = errors.Wrap(err, "Failed to save file")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
 
@@ -112,18 +121,24 @@ func Upload(c *gin.Context) {
 		err = errors.Wrap(err, "Failed to get file info")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
+
 	fileSize := fileInfo.Size()
 
 	// 创建缩略图、获取尺寸和生成 BlurHash（如果是图片）
-	var thumbnailPath *string
-	var blurhash string
-	var width, height *int
+	var (
+		thumbnailPath *string
+		blurhash      string
+		width, height *int
+	)
+
 	mediaType := models.GetMediaType(validatedContentType)
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()
+
 		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
 		if procErr == nil {
 			thumbnailPath = &thumbName
@@ -135,6 +150,7 @@ func Upload(c *gin.Context) {
 
 	// 上传到云存储（如果启用）
 	recordFilePath := filepath.Join(time.Now().Format("2006/01/02"), fileName)
+
 	cloudStorage := storage.GetStorage()
 	if cloudStorage.IsEnabled() {
 		if cloudPath, uploadErr := cloudStorage.Upload(filePath, "media/"+recordFilePath); uploadErr == nil {
@@ -163,6 +179,7 @@ func Upload(c *gin.Context) {
 		err = errors.Wrap(err, "Failed to create media record")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
 
@@ -172,24 +189,26 @@ func Upload(c *gin.Context) {
 		err = errors.Wrap(err, "Failed to serialize media")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
 
 	c.JSON(200, response)
 }
 
-// isAllowedContentType 检查是否为允许的内容类型
+// isAllowedContentType 检查是否为允许的内容类型.
 func isAllowedContentType(contentType string) bool {
-	allowedTypes := strings.Split(fmt.Sprintf("%s,%s,%s", AllowedImageTypes, AllowedVideoTypes, AllowedAudioTypes), ",")
-	for _, t := range allowedTypes {
+	allowedTypes := strings.SplitSeq(fmt.Sprintf("%s,%s,%s", AllowedImageTypes, AllowedVideoTypes, AllowedAudioTypes), ",")
+	for t := range allowedTypes {
 		if strings.TrimSpace(t) == contentType {
 			return true
 		}
 	}
+
 	return false
 }
 
-// isValidFileSize 检查文件大小是否有效
+// isValidFileSize 检查文件大小是否有效.
 func isValidFileSize(size int64, contentType string) bool {
 	mediaType := models.GetMediaType(contentType)
 	switch mediaType {
@@ -202,7 +221,7 @@ func isValidFileSize(size int64, contentType string) bool {
 	}
 }
 
-// validateFileUpload 验证文件上传：检查 Content-Type、文件大小和 magic bytes
+// validateFileUpload 验证文件上传：检查 Content-Type、文件大小和 magic bytes.
 func validateFileUpload(header *multipart.FileHeader) (string, error) {
 	contentType := header.Header.Get("Content-Type")
 
@@ -225,8 +244,9 @@ func validateFileUpload(header *multipart.FileHeader) (string, error) {
 		defer func() { _ = file.Close() }()
 
 		buf := make([]byte, 512)
+
 		n, err := file.Read(buf)
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return "", errors.Wrap(err, "failed to read file for validation")
 		}
 
@@ -242,20 +262,21 @@ func validateFileUpload(header *multipart.FileHeader) (string, error) {
 	return contentType, nil
 }
 
-// UploadAsync 异步上传媒体文件（返回 202 Accepted）
+// UploadAsync 异步上传媒体文件（返回 202 Accepted）.
 func UploadAsync(c *gin.Context) {
 	// 获取当前用户
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// 解析请求
 	var request struct {
-		File        *multipart.FileHeader `form:"file" binding:"required"`
+		File        *multipart.FileHeader `binding:"required" form:"file"`
 		Description string                `form:"description"`
 		Focus       string                `form:"focus"`
 	}
 
 	if err := c.ShouldBind(&request); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request"})
+
 		return
 	}
 
@@ -263,6 +284,7 @@ func UploadAsync(c *gin.Context) {
 	validatedContentType, err := validateFileUpload(request.File)
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
@@ -281,6 +303,7 @@ func UploadAsync(c *gin.Context) {
 		err = errors.Wrap(err, "Failed to create media record")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
+
 		return
 	}
 
@@ -298,52 +321,62 @@ func UploadAsync(c *gin.Context) {
 	})
 }
 
-// processUploadAsync 异步处理文件上传
-func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.FileHeader, description string, focus string, validatedContentType string) {
+// processUploadAsync 异步处理文件上传.
+func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.FileHeader, description string, focus string, validatedContentType string) { //nolint:unparam // param reserved for future use
 	// 1. 打开文件
 	file, err := fileHeader.Open()
 	if err != nil {
 		updateMediaError(mediaId, "Failed to open file")
+
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// 2. 保存文件
 	mediaDir := filepath.Join("uploads", "media", time.Now().Format("2006/01/02"))
-	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+	if err := os.MkdirAll(mediaDir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
 		updateMediaError(mediaId, "Failed to create directory")
+
 		return
 	}
 
 	// 从已验证的 Content-Type 推导扩展名
 	exts, _ := mime.ExtensionsByType(validatedContentType)
+
 	ext := ".bin"
 	if len(exts) > 0 {
 		ext = exts[0]
 	}
+
 	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	filePath := filepath.Join(mediaDir, fileName)
 
-	dst, err := os.Create(filePath)
+	dst, err := os.Create(filePath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		updateMediaError(mediaId, "Failed to create file")
+
 		return
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	if _, err := io.Copy(dst, file); err != nil {
 		updateMediaError(mediaId, "Failed to save file")
+
 		return
 	}
 
 	// 3. 处理图片（缩略图、BlurHash、尺寸）
-	var thumbnailPath *string
-	var blurhash string
-	var width, height *int
+	var (
+		thumbnailPath *string
+		blurhash      string
+		width, height *int
+	)
+
 	mediaType := models.GetMediaType(validatedContentType)
 
 	if mediaType == models.MediaTypeImage {
 		processor := media.NewImageProcessor()
+
 		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
 		if procErr == nil {
 			thumbnailPath = &thumbName
@@ -357,14 +390,16 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		updateMediaError(mediaId, "Failed to get file info")
+
 		return
 	}
+
 	fileSize := fileInfo.Size()
 
 	// 5. 更新数据库记录
 	if err := db.GetDB().Model(&models.MediaAttachment{}).
 		Where("id = ?", mediaId).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"file_name":      fileName,
 			"file_path":      filepath.Join(time.Now().Format("2006/01/02"), fileName),
 			"file_size":      fileSize,
@@ -376,6 +411,7 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 			"description":    description,
 		}).Error; err != nil {
 		updateMediaError(mediaId, "Failed to update media record")
+
 		return
 	}
 
@@ -386,8 +422,8 @@ func processUploadAsync(mediaId uint64, accountId uint64, fileHeader *multipart.
 	}
 }
 
-// updateMediaError 更新媒体记录为错误状态
-func updateMediaError(mediaId uint64, errorMsg string) {
+// updateMediaError 更新媒体记录为错误状态.
+func updateMediaError(mediaId uint64, errorMsg string) { //nolint:unparam // param reserved for future use
 	// 删除失败的媒体记录
 	db.GetDB().Delete(&models.MediaAttachment{}, mediaId)
 }

@@ -9,12 +9,12 @@ import (
 )
 
 // CanonicalJSON 将 JSON 对象转换为规范格式
-// 遵循 Matrix 规范中的 JSON 规范化规则
-func CanonicalJSON(v interface{}) ([]byte, error) {
+// 遵循 Matrix 规范中的 JSON 规范化规则.
+func CanonicalJSON(v any) ([]byte, error) {
 	switch val := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return canonicalJSONObject(val)
-	case []interface{}:
+	case []any:
 		return canonicalJSONArray(val)
 	case float64:
 		// Matrix spec: canonical JSON must represent integer-valued numbers without decimal point
@@ -22,15 +22,17 @@ func CanonicalJSON(v interface{}) ([]byte, error) {
 		if val == math.Trunc(val) && !math.IsInf(val, 0) && !math.IsNaN(val) {
 			return []byte(strconv.FormatInt(int64(val), 10)), nil
 		}
+
 		return json.Marshal(val)
 	default:
 		return json.Marshal(val)
 	}
 }
 
-// canonicalJSONObject 规范化 JSON 对象
-func canonicalJSONObject(obj map[string]interface{}) ([]byte, error) {
+// canonicalJSONObject 规范化 JSON 对象.
+func canonicalJSONObject(obj map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
+
 	buf.WriteByte('{')
 
 	// 按键排序
@@ -38,6 +40,7 @@ func canonicalJSONObject(obj map[string]interface{}) ([]byte, error) {
 	for k := range obj {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
 
 	for i, key := range keys {
@@ -50,6 +53,7 @@ func canonicalJSONObject(obj map[string]interface{}) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		buf.Write(keyBytes)
 		buf.WriteByte(':')
 
@@ -58,16 +62,19 @@ func canonicalJSONObject(obj map[string]interface{}) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		buf.Write(valBytes)
 	}
 
 	buf.WriteByte('}')
+
 	return buf.Bytes(), nil
 }
 
-// canonicalJSONArray 规范化 JSON 数组
-func canonicalJSONArray(arr []interface{}) ([]byte, error) {
+// canonicalJSONArray 规范化 JSON 数组.
+func canonicalJSONArray(arr []any) ([]byte, error) {
 	var buf bytes.Buffer
+
 	buf.WriteByte('[')
 
 	for i, val := range arr {
@@ -79,17 +86,20 @@ func canonicalJSONArray(arr []interface{}) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		buf.Write(valBytes)
 	}
 
 	buf.WriteByte(']')
+
 	return buf.Bytes(), nil
 }
 
 // EscapeJSONString 转义 JSON 字符串中的特殊字符
-// 确保符合 Matrix 规范
+// 确保符合 Matrix 规范.
 func EscapeJSONString(s string) string {
 	var buf bytes.Buffer
+
 	for _, r := range s {
 		switch r {
 		case '"':
@@ -107,15 +117,17 @@ func EscapeJSONString(s string) string {
 		case '\t':
 			buf.WriteString(`\t`)
 		default:
-			if r < 0x20 {
+			switch {
+			case r < 0x20:
 				// 控制字符使用 Unicode 转义
 				buf.WriteString(`\u`)
-				buf.WriteString(formatUnicode(uint16(r)))
-			} else if r < 0x10000 {
+				buf.WriteString(formatUnicode(uint16(r))) //nolint:gosec // G115: reviewed and safe
+			case r < 0x10000:
 				buf.WriteRune(r)
-			} else {
+			default:
 				// 辅助平面的字符
 				r1, r2 := utf16Encode(r)
+
 				buf.WriteString(`\u`)
 				buf.WriteString(formatUnicode(r1))
 				buf.WriteString(`\u`)
@@ -123,10 +135,11 @@ func EscapeJSONString(s string) string {
 			}
 		}
 	}
+
 	return buf.String()
 }
 
-// formatUnicode 将 uint16 格式化为 4 位十六进制字符串
+// formatUnicode 将 uint16 格式化为 4 位十六进制字符串.
 func formatUnicode(u uint16) string {
 	hex := []byte{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'}
 	result := make([]byte, 4)
@@ -134,21 +147,25 @@ func formatUnicode(u uint16) string {
 	result[1] = hex[(u>>8)&0xf]
 	result[2] = hex[(u>>4)&0xf]
 	result[3] = hex[u&0xf]
+
 	return string(result)
 }
 
-// utf16Encode 将 Unicode 码点编码为 UTF-16 代理对
+// utf16Encode 将 Unicode 码点编码为 UTF-16 代理对.
 func utf16Encode(r rune) (uint16, uint16) {
-	u := uint32(r) - 0x10000
+	u := uint32(r) - 0x10000 //nolint:gosec // G115: reviewed and safe
+
 	return uint16((u >> 10) + 0xD800), uint16((u & 0x3FF) + 0xDC00)
 }
 
-// SortJSONKeys 返回排序后的 JSON 对象键
-func SortJSONKeys(obj map[string]interface{}) []string {
+// SortJSONKeys 返回排序后的 JSON 对象键.
+func SortJSONKeys(obj map[string]any) []string {
 	keys := make([]string, 0, len(obj))
 	for k := range obj {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
+
 	return keys
 }

@@ -28,6 +28,7 @@ import (
 
 func main() {
 	flag.Parse()
+
 	var err error
 
 	// 初始化日志
@@ -39,6 +40,7 @@ func main() {
 	if flag.Arg(0) == "--rollback" {
 		err = migrate.Down(db.GetDB())
 		log.FatalIf(err)
+
 		return
 	}
 
@@ -65,7 +67,7 @@ func main() {
 	startServer(app)
 }
 
-// initLogger 初始化日志配置
+// initLogger 初始化日志配置.
 func initLogger() {
 	level := "info"
 	if config.C.DevMode == "true" {
@@ -88,7 +90,7 @@ func initLogger() {
 		logConfig.MaxSize, logConfig.MaxBackups, logConfig.MaxAge, logConfig.Compress)
 }
 
-// setupServer 配置 HTTP 服务器
+// setupServer 配置 HTTP 服务器.
 func setupServer() *gin.Engine {
 	// 创建 Gin 引擎
 	app := gin.New()
@@ -99,8 +101,13 @@ func setupServer() *gin.Engine {
 	// 安全头部中间件
 	app.Use(middleware.SecurityHeadersMiddleware())
 
-	// CORS 中间件（允许所有来源，生产环境应配置具体来源）
-	app.Use(middleware.CORSMiddleware([]string{}))
+	// CORS 中间件（从配置读取允许的来源，为空则允许所有来源但不允许携带凭证）
+	var corsOrigins []string
+	if config.C.CORSAllowedOrigins != "" {
+		corsOrigins = strings.Split(config.C.CORSAllowedOrigins, ",")
+	}
+
+	app.Use(middleware.CORSMiddleware(corsOrigins))
 
 	// 超时控制中间件
 	app.Use(middleware.TimeoutMiddleware(30 * time.Second))
@@ -136,7 +143,7 @@ func setupServer() *gin.Engine {
 	return app
 }
 
-// setupFrontend 配置前端静态文件服务
+// setupFrontend 配置前端静态文件服务.
 func setupFrontend(app *gin.Engine) {
 	frontendDir := utils.GetFullPath("frontend/dist")
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
@@ -145,9 +152,11 @@ func setupFrontend(app *gin.Engine) {
 
 		// SPA fallback: serve index.html for all non-API routes
 		indexPath := filepath.Join(frontendDir, "index.html")
-		indexHTML, err := os.ReadFile(indexPath)
+
+		indexHTML, err := os.ReadFile(indexPath) //nolint:gosec // G304: reviewed and safe
 		if err != nil {
 			log.Warn("Failed to read index.html: %v", err)
+
 			return
 		}
 
@@ -165,8 +174,10 @@ func setupFrontend(app *gin.Engine) {
 				strings.HasPrefix(path, "/ready") ||
 				strings.HasPrefix(path, "/metrics") {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
 				return
 			}
+
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 		})
 		log.Info("Serving frontend from %s", frontendDir)
@@ -175,7 +186,7 @@ func setupFrontend(app *gin.Engine) {
 	}
 }
 
-// startServer 启动服务器（带优雅关闭）
+// startServer 启动服务器（带优雅关闭）.
 func startServer(app *gin.Engine) {
 	opts := server.DefaultOptions()
 	opts.ListenAddr = config.C.Listen
@@ -184,7 +195,10 @@ func startServer(app *gin.Engine) {
 	srv := server.New(app, opts)
 
 	log.Info("Server is starting on %s", config.C.Listen)
-	if err := srv.Start(); err != nil {
+
+	err := srv.Start()
+
+	if err != nil {
 		log.Fatal("Server failed: %v", err)
 	}
 }

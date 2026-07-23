@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// UpdateCredentialsRequest represents the request for updating account credentials
+// UpdateCredentialsRequest represents the request for updating account credentials.
 type UpdateCredentialsRequest struct {
 	DisplayName      *string `form:"display_name"`
 	Note             *string `form:"note"`
@@ -27,32 +27,38 @@ type UpdateCredentialsRequest struct {
 	} `form:"fields_attributes"`
 }
 
-// UpdateCredentials handles PATCH /api/v1/accounts/update_credentials
+// UpdateCredentials handles PATCH /api/v1/accounts/update_credentials.
 func UpdateCredentials(c *gin.Context) {
 	var req UpdateCredentialsRequest
+
 	_ = c.ShouldBind(&req)
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Update fields if provided
-	updates := make(map[string]interface{})
+	updates := make(map[string]any)
 
 	if req.DisplayName != nil {
 		updates["display_name"] = *req.DisplayName
 	}
+
 	if req.Note != nil {
 		updates["note"] = *req.Note
 	}
+
 	if req.Locked != nil {
 		updates["locked"] = *req.Locked
 	}
+
 	if req.Bot != nil {
 		updates["bot"] = *req.Bot
 	}
+
 	if req.Discoverable != nil {
 		updates["discoverable"] = *req.Discoverable
 	}
+
 	if req.HideCollections != nil {
 		updates["hide_collections"] = *req.HideCollections
 	}
@@ -73,9 +79,11 @@ func UpdateCredentials(c *gin.Context) {
 
 	// Apply updates to account
 	if len(updates) > 0 {
-		if err := db.GetDB().Model(account).Updates(updates).Error; err != nil {
+		err := db.GetDB().Model(account).Updates(updates).Error
+		if err != nil {
 			_ = c.Error(errors.Wrap(err, "update account error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 			return
 		}
 	}
@@ -84,10 +92,12 @@ func UpdateCredentials(c *gin.Context) {
 	if len(req.FieldsAttributes) > 0 {
 		// Update account's fields array
 		fields := make([]models.AccountField, 0)
+
 		for _, field := range req.FieldsAttributes {
 			if field.Name == "" && field.Value == "" {
 				continue
 			}
+
 			fields = append(fields, models.AccountField{
 				Name: field.Name,
 				Val:  field.Value,
@@ -103,16 +113,17 @@ func UpdateCredentials(c *gin.Context) {
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "reload account error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 
 	c.JSON(200, serializer.ToAccount(account))
 }
 
-// GetAccountSettings handles GET /api/v1/accounts/settings (extension)
+// GetAccountSettings handles GET /api/v1/accounts/settings (extension).
 func GetAccountSettings(c *gin.Context) {
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	settings := gin.H{
 		"locked":           account.Locked,

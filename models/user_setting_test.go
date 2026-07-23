@@ -13,7 +13,7 @@ func TestUserSetting_TableName(t *testing.T) {
 
 func TestUserSetting_GetAggregatesReblogs(t *testing.T) {
 	t.Run("true when explicitly set", func(t *testing.T) {
-		us := &UserSetting{Data: map[string]any{"aggregates_reblogs": true}}
+		us := &UserSetting{Data: map[string]any{"aggregates_reblogs": true}} //nolint:goconst
 		assert.True(t, us.GetAggregatesReblogs())
 	})
 
@@ -40,7 +40,7 @@ func TestUserSetting_GetAggregatesReblogs(t *testing.T) {
 
 func TestUserSetting_IsFollowProtect(t *testing.T) {
 	t.Run("true when explicitly set", func(t *testing.T) {
-		us := &UserSetting{Data: map[string]any{"follow_protect": true}}
+		us := &UserSetting{Data: map[string]any{"follow_protect": true}} //nolint:goconst
 		assert.True(t, us.IsFollowProtect())
 	})
 

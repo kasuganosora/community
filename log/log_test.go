@@ -19,8 +19,11 @@ func TestGetLogObject(t *testing.T) {
 func TestWriteLog(t *testing.T) {
 	// Capture log output
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	WriteLog(logrus.InfoLevel, "test message %s", "arg")
@@ -30,8 +33,11 @@ func TestWriteLog(t *testing.T) {
 func TestDebug(t *testing.T) {
 	logger := GetLogObject()
 	logger.SetLevel(logrus.DebugLevel)
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	Debug("debug message %d", 123)
@@ -40,8 +46,11 @@ func TestDebug(t *testing.T) {
 
 func TestInfo(t *testing.T) {
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	Info("info message")
@@ -50,8 +59,11 @@ func TestInfo(t *testing.T) {
 
 func TestWarn(t *testing.T) {
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	Warn("warn message")
@@ -60,8 +72,11 @@ func TestWarn(t *testing.T) {
 
 func TestError(t *testing.T) {
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	Error("error message")
@@ -70,8 +85,11 @@ func TestError(t *testing.T) {
 
 func TestErrorV(t *testing.T) {
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	t.Run("with error", func(t *testing.T) {
@@ -89,8 +107,11 @@ func TestErrorV(t *testing.T) {
 func TestPanic(t *testing.T) {
 	logger := GetLogObject()
 	logger.SetLevel(logrus.PanicLevel)
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	defer func() {
@@ -133,8 +154,11 @@ func TestSetLevel(t *testing.T) {
 
 func TestWriteLogWithFormat(t *testing.T) {
 	logger := GetLogObject()
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	WriteLog(logrus.InfoLevel, "hello %s, you have %d messages", "user", 5)
@@ -144,8 +168,11 @@ func TestWriteLogWithFormat(t *testing.T) {
 func TestLogLevelFiltering(t *testing.T) {
 	logger := GetLogObject()
 	logger.SetLevel(logrus.WarnLevel)
+
 	var buf bytes.Buffer
+
 	logger.SetOutput(&buf)
+
 	defer logger.SetOutput(nil)
 
 	Debug("debug should not appear")

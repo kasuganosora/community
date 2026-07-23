@@ -9,12 +9,15 @@ func InternalApiMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenRaw, exists := c.Get("token_data")
 		if !exists {
-			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"})
+			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"}) //nolint:goconst
+
 			return
 		}
+
 		token, ok := tokenRaw.(*models.AuthTokenData)
 		if !ok {
 			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"})
+
 			return
 		}
 
@@ -23,6 +26,7 @@ func InternalApiMiddleware() gin.HandlerFunc {
 				"code": 403,
 				"msg":  "invalid token",
 			})
+
 			return
 		}
 

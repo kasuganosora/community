@@ -13,12 +13,13 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 var testDB *testutil.TestDB
 
-// TestMain 在所有测试之前运行，用于设置测试环境
+// TestMain 在所有测试之前运行，用于设置测试环境.
 func TestMain(m *testing.M) {
 	// 设置测试模式，跳过真实数据库连接
 	database.SetTestMode()
@@ -28,9 +29,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// setupTestDB 初始化测试数据库
+// setupTestDB 初始化测试数据库.
 func setupTestDB(t *testing.T) {
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
@@ -45,7 +47,7 @@ func setupTestDB(t *testing.T) {
 	}
 }
 
-// createTestAccount 创建测试账户
+// createTestAccount 创建测试账户.
 func createTestAccount(t *testing.T, username string) *models.Account {
 	account := &models.Account{
 		Username:    username,
@@ -53,7 +55,8 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 		DisplayName: username,
 	}
 	err := testDB.GormDB.Create(account).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
 	return account
 }
 
@@ -66,16 +69,18 @@ func TestCreateFilter_RequestParsing(t *testing.T) {
 			{Keyword: "spam", WholeWord: true},
 		},
 	}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/filters", bytes.NewBuffer(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/filters", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	var parsed CreateFilterRequest
-	err := c.ShouldBindJSON(&parsed)
-	assert.NoError(t, err)
+
+	err = c.ShouldBindJSON(&parsed)
+	require.NoError(t, err)
 	assert.Equal(t, "Test Filter", parsed.Title)
 	assert.Len(t, parsed.Context, 2)
 	assert.Len(t, parsed.Keywords, 1)
@@ -189,7 +194,7 @@ func TestFilters_GetFilterActionsName(t *testing.T) {
 
 func TestFilterKeyword_Hash(t *testing.T) {
 	keyword := &models.FilterKeyword{
-		Keyword:   "test",
+		Keyword:   "test", //nolint:goconst
 		WholeWord: true,
 	}
 
@@ -216,11 +221,11 @@ func TestFilterKeyword_Hash(t *testing.T) {
 func TestDelete_InvalidID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "invalid"}}
+	c.Params = gin.Params{{Key: "id", Value: "invalid"}} //nolint:goconst
 
 	account := &models.Account{Id: 1}
 	c.Set("account", account)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/filters/invalid", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/filters/invalid", nil) //nolint:noctx
 
 	Delete(c)
 
@@ -234,7 +239,7 @@ func TestShow_InvalidID(t *testing.T) {
 
 	account := &models.Account{Id: 1}
 	c.Set("account", account)
-	c.Request = httptest.NewRequest(http.MethodGet, "/filters/invalid", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/filters/invalid", nil) //nolint:noctx
 
 	Show(c)
 
@@ -248,7 +253,7 @@ func TestUpdate_InvalidID(t *testing.T) {
 
 	account := &models.Account{Id: 1}
 	c.Set("account", account)
-	c.Request = httptest.NewRequest(http.MethodPut, "/filters/invalid", nil)
+	c.Request = httptest.NewRequest(http.MethodPut, "/filters/invalid", nil) //nolint:noctx
 
 	Update(c)
 
@@ -267,8 +272,9 @@ func TestCreateAccount_Success(t *testing.T) {
 
 	// 验证可以从数据库读取
 	var found models.Account
+
 	err := testDB.GormDB.First(&found, account.Id).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "testuser", found.Username)
 }
 
@@ -277,8 +283,9 @@ func TestAccount_NotFound(t *testing.T) {
 
 	// 查找不存在的账户
 	var found models.Account
+
 	err := testDB.GormDB.First(&found, 99999).Error
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
 
@@ -289,14 +296,15 @@ func TestAccount_Delete(t *testing.T) {
 
 	// 软删除
 	err := testDB.GormDB.Delete(account).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// 验证已删除
 	var found models.Account
+
 	err = testDB.GormDB.First(&found, account.Id).Error
 	// sqlexec may not support soft delete properly, so we check for error or empty result
 	if err != nil {
-		assert.Error(t, err)
+		require.Error(t, err)
 	} else {
 		// If no error, the record might still exist with deleted_at set
 		// This is acceptable behavior for in-memory DB

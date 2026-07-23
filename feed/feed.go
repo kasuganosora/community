@@ -20,49 +20,53 @@ const (
 
 var ErrFeedRegenerating = errors.New("feed is regenerating")
 
-// defaultService 是默认的 FeedService 实例
+// defaultService 是默认的 FeedService 实例.
 var defaultService *FeedService
 var defaultServiceOnce sync.Once
 var defaultServiceOverride bool
 
-// getDefaultService 获取默认的 FeedService 实例（延迟初始化）
+// getDefaultService 获取默认的 FeedService 实例（延迟初始化）.
 func getDefaultService() *FeedService {
 	if defaultServiceOverride {
 		return defaultService
 	}
+
 	defaultServiceOnce.Do(func() {
 		if defaultService == nil {
 			defaultService = NewFeedService(NewRedisClient(db.GetRedis()))
 		}
 	})
+
 	return defaultService
 }
 
-// SetDefaultService 设置默认的 FeedService 实例（用于测试）
+// SetDefaultService 设置默认的 FeedService 实例（用于测试）.
 func SetDefaultService(service *FeedService) {
 	defaultService = service
 	defaultServiceOverride = true
 }
 
-// defaultDBService 是默认的 DBService 实例
+// defaultDBService 是默认的 DBService 实例.
 var defaultDBService *DBService
 var defaultDBServiceOnce sync.Once
 var defaultDBServiceOverride bool
 
-// getDefaultDBService 获取默认的 DBService 实例（延迟初始化）
+// getDefaultDBService 获取默认的 DBService 实例（延迟初始化）.
 func getDefaultDBService() *DBService {
 	if defaultDBServiceOverride {
 		return defaultDBService
 	}
+
 	defaultDBServiceOnce.Do(func() {
 		if defaultDBService == nil {
 			defaultDBService = NewDBService(db.GetDB())
 		}
 	})
+
 	return defaultDBService
 }
 
-// SetDefaultDBService 设置默认的 DBService 实例（用于测试）
+// SetDefaultDBService 设置默认的 DBService 实例（用于测试）.
 func SetDefaultDBService(service *DBService) {
 	defaultDBService = service
 	defaultDBServiceOverride = true
@@ -105,11 +109,12 @@ func (p *ListParam) GetRedisRangeMinMax() (start, end string) {
 		end = "+inf"
 	}
 
-	if p.MinId > 0 {
+	switch {
+	case p.MinId > 0:
 		start = strconv.FormatUint(p.MinId, 10)
-	} else if p.SinceId > 0 {
+	case p.SinceId > 0:
 		start = strconv.FormatUint(p.SinceId, 10)
-	} else {
+	default:
 		start = "-inf"
 	}
 
@@ -121,7 +126,7 @@ func (p *ListParam) GetRedisRangeOffsetCount() (offset, count int64) {
 	offset = 0
 
 	if p.Limit > 0 {
-		count = offset + int64(p.Limit) - 1
+		count = offset + int64(p.Limit) - 1 //nolint:gosec // G115: reviewed and safe
 	} else {
 		count = -1
 	}
@@ -129,7 +134,7 @@ func (p *ListParam) GetRedisRangeOffsetCount() (offset, count int64) {
 	return
 }
 
-// DBClient 定义数据库操作接口
+// DBClient 定义数据库操作接口.
 type DBClient interface {
 	Model(value any) *gorm.DB
 	Where(query any, args ...any) *gorm.DB
@@ -141,22 +146,22 @@ type DBClient interface {
 	Association(column string) *gorm.Association
 }
 
-// GetAccountFollowersId 获取账号的粉丝 ID 列表（向后兼容）
+// GetAccountFollowersId 获取账号的粉丝 ID 列表（向后兼容）.
 func GetAccountFollowersId(accountId uint64) (followers []uint64, err error) {
 	return getDefaultDBService().GetAccountFollowersId(accountId)
 }
 
-// GetAccountRecentActiveLocalFollowersId 获取账号最近活跃的本地粉丝 ID 列表（向后兼容）
+// GetAccountRecentActiveLocalFollowersId 获取账号最近活跃的本地粉丝 ID 列表（向后兼容）.
 func GetAccountRecentActiveLocalFollowersId(accountId uint64) (followers []uint64, err error) {
 	return getDefaultDBService().GetAccountRecentActiveLocalFollowersId(accountId)
 }
 
-// GetAccountFollowingAccounts 获取账号关注的所有账号（向后兼容）
+// GetAccountFollowingAccounts 获取账号关注的所有账号（向后兼容）.
 func GetAccountFollowingAccounts(accountId uint64) (accounts models.Accounts, err error) {
 	return getDefaultDBService().GetAccountFollowingAccounts(accountId)
 }
 
-// GetAccountRemoteFollowers 获取账号的远程粉丝（向后兼容）
+// GetAccountRemoteFollowers 获取账号的远程粉丝（向后兼容）.
 func GetAccountRemoteFollowers(accountId uint64) (followers []*models.Account, err error) {
 	return getDefaultDBService().GetAccountRemoteFollowers(accountId)
 }
@@ -199,7 +204,7 @@ func GcTimelines() (err error) {
 	return getDefaultService().GcTimelines()
 }
 
-// ResetSubscriptionCache 重置订阅缓存（用于测试）
+// ResetSubscriptionCache 重置订阅缓存（用于测试）.
 func ResetSubscriptionCache() {
 	subCache = &subscriptionCache{ttl: 5 * time.Second}
 }

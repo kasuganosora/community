@@ -10,19 +10,19 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// WebhookHandler Matrix AS Webhook 处理器
+// WebhookHandler Matrix AS Webhook 处理器.
 type WebhookHandler struct {
 	bridge   *Bridge
 	asClient *ASClient
 }
 
-// 事务ID幂等性缓存
+// 事务ID幂等性缓存.
 var (
 	processedTxns   = make(map[string]time.Time)
 	processedTxnsMu sync.Mutex
 )
 
-// isProcessedTxn 检查事务是否已处理（并标记为已处理）
+// isProcessedTxn 检查事务是否已处理（并标记为已处理）.
 func isProcessedTxn(txnID string) bool {
 	processedTxnsMu.Lock()
 	defer processedTxnsMu.Unlock()
@@ -38,11 +38,13 @@ func isProcessedTxn(txnID string) bool {
 	if _, ok := processedTxns[txnID]; ok {
 		return true
 	}
+
 	processedTxns[txnID] = now
+
 	return false
 }
 
-// NewWebhookHandler 创建 Webhook 处理器
+// NewWebhookHandler 创建 Webhook 处理器.
 func NewWebhookHandler(bridge *Bridge) *WebhookHandler {
 	return &WebhookHandler{
 		bridge:   bridge,
@@ -51,7 +53,7 @@ func NewWebhookHandler(bridge *Bridge) *WebhookHandler {
 }
 
 // HandleTransaction 处理 AS Transaction
-// Matrix Homeserver 通过 PUT /_matrix/app/v1/transactions/{txnId} 推送事件
+// Matrix Homeserver 通过 PUT /_matrix/app/v1/transactions/{txnId} 推送事件.
 func (h *WebhookHandler) HandleTransaction(c *gin.Context) {
 	// 验证 HS Token
 	token := c.GetHeader("Authorization")
@@ -62,18 +64,20 @@ func (h *WebhookHandler) HandleTransaction(c *gin.Context) {
 	if !h.asClient.ValidateHSToken(extractBearerToken(token)) {
 		log.Warn("Invalid HS token in Matrix webhook request")
 		c.JSON(http.StatusUnauthorized, gin.H{
-			"errcode": "M_UNAUTHORIZED",
-			"error":   "Invalid or missing access token",
+			"errcode": "M_UNAUTHORIZED",                  //nolint:goconst
+			"error":   "Invalid or missing access token", //nolint:goconst
 		})
+
 		return
 	}
 
 	txnID := c.Param("txnId")
 	if txnID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   "Missing transaction ID",
 		})
+
 		return
 	}
 
@@ -81,23 +85,27 @@ func (h *WebhookHandler) HandleTransaction(c *gin.Context) {
 	if isProcessedTxn(txnID) {
 		log.Info("Skipping already processed transaction %s", txnID)
 		c.JSON(http.StatusOK, gin.H{})
+
 		return
 	}
 
 	// 解析请求体
 	var txn Transaction
-	if err := c.ShouldBindJSON(&txn); err != nil {
+	err := c.ShouldBindJSON(&txn)
+	if err != nil {
 		log.Error("Failed to parse Matrix transaction: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Failed to parse request body",
 		})
+
 		return
 	}
 
 	// 处理事件
 	if h.bridge != nil {
-		if err := h.bridge.HandleTransaction(txnID, txn.Events); err != nil {
+		err := h.bridge.HandleTransaction(txnID, txn.Events)
+		if err != nil {
 			log.Error("Failed to handle Matrix transaction %s: %v", txnID, err)
 			// 仍然返回 200，避免 HS 重试
 		}
@@ -108,7 +116,7 @@ func (h *WebhookHandler) HandleTransaction(c *gin.Context) {
 }
 
 // HandleUserQuery 处理用户查询
-// GET /_matrix/app/v1/users/{userId}
+// GET /_matrix/app/v1/users/{userId}.
 func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 	// 验证 HS Token
 	token := c.GetHeader("Authorization")
@@ -121,6 +129,7 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 			"errcode": "M_UNAUTHORIZED",
 			"error":   "Invalid or missing access token",
 		})
+
 		return
 	}
 
@@ -130,17 +139,20 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Missing user ID",
 		})
+
 		return
 	}
 
 	// 检查是否是本系统映射的用户
 	LoadConfig()
+
 	localpart, _, ok := ParseMatrixUserID(userID)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_INVALID_PARAM",
 			"error":   "Invalid user ID format",
 		})
+
 		return
 	}
 
@@ -149,6 +161,7 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 		strings.HasPrefix(localpart, GlobalConfig.UserNamespacePrefix) {
 		// 是本系统映射的用户，返回用户信息
 		c.JSON(http.StatusOK, gin.H{})
+
 		return
 	}
 
@@ -160,7 +173,7 @@ func (h *WebhookHandler) HandleUserQuery(c *gin.Context) {
 }
 
 // HandleRoomQuery 处理房间查询
-// GET /_matrix/app/v1/rooms/{roomAlias}
+// GET /_matrix/app/v1/rooms/{roomAlias}.
 func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 	// 验证 HS Token
 	token := c.GetHeader("Authorization")
@@ -173,6 +186,7 @@ func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 			"errcode": "M_UNAUTHORIZED",
 			"error":   "Invalid or missing access token",
 		})
+
 		return
 	}
 
@@ -182,14 +196,17 @@ func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Missing room alias",
 		})
+
 		return
 	}
 
 	// 检查是否是本系统映射的房间
 	LoadConfig()
+
 	if GlobalConfig.RoomNamespacePrefix != "" &&
 		strings.HasPrefix(roomAlias, GlobalConfig.RoomNamespacePrefix) {
 		c.JSON(http.StatusOK, gin.H{})
+
 		return
 	}
 
@@ -200,14 +217,16 @@ func (h *WebhookHandler) HandleRoomQuery(c *gin.Context) {
 	})
 }
 
-// HandleHealthCheck 健康检查端点
+// HandleHealthCheck 健康检查端点.
 func (h *WebhookHandler) HandleHealthCheck(c *gin.Context) {
 	LoadConfig()
+
 	if !GlobalConfig.IsEnabled() {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "disabled",
-			"message": "Matrix Bridge is not enabled",
+			"status":  "disabled",                     //nolint:goconst
+			"message": "Matrix Bridge is not enabled", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -216,6 +235,7 @@ func (h *WebhookHandler) HandleHealthCheck(c *gin.Context) {
 			"status":  "running",
 			"message": "Matrix Bridge is running",
 		})
+
 		return
 	}
 
@@ -225,10 +245,11 @@ func (h *WebhookHandler) HandleHealthCheck(c *gin.Context) {
 	})
 }
 
-// extractBearerToken 从 Authorization header 中提取 Bearer token
+// extractBearerToken 从 Authorization header 中提取 Bearer token.
 func extractBearerToken(authHeader string) string {
-	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " { //nolint:goconst
 		return authHeader[7:]
 	}
+
 	return authHeader
 }

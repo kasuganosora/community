@@ -32,10 +32,12 @@ func isValidTemplateName(templateName string) bool {
 		if templateName == prefix {
 			return true
 		}
+
 		if strings.HasPrefix(templateName, prefix+"_") {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -67,7 +69,7 @@ func SendText(to string, cc string, bcc string, subject string, textBody string,
 
 func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody string, templateName string, data map[string]any) (err error) {
 	if useDrive == nil {
-		return
+		return err
 	}
 
 	if !isValidTemplateName(templateName) {
@@ -76,25 +78,25 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 
 	templateFile, err := internalfs.Get().Open("mails/" + templateName + ".html")
 	if err != nil {
-		return
+		return err
 	}
 	defer func() { _ = templateFile.Close() }()
 
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {
-		return
+		return err
 	}
 
 	tpl, err := template.New(templateName).Parse(string(templateContent))
-
 	if err != nil {
-		return
+		return err
 	}
 
 	buf := bytes.NewBufferString("")
+
 	err = tpl.ExecuteTemplate(buf, templateName, data)
 	if err != nil {
-		return
+		return err
 	}
 
 	// 提取出里面的 cid://xxxx.xxx 的内容,然后获取成文件,然后替换
@@ -110,9 +112,8 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 	}
 
 	err = useDrive.SendMail(to, cc, mail)
-
 	if err != nil {
-		return
+		return err
 	}
 
 	if bcc != "" {
@@ -120,12 +121,12 @@ func SendHtmlTemplate(to string, cc string, bcc string, subject string, textBody
 		err = useDrive.SendMail(bcc, "", mail)
 	}
 
-	return
+	return err
 }
 
 func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject string, textBody string, templateName string, data map[string]any, appendAttachments []*types.MailAttachment) (err error) {
 	if useDrive == nil {
-		return
+		return err
 	}
 
 	if !isValidTemplateName(templateName) {
@@ -134,25 +135,25 @@ func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject st
 
 	templateFile, err := internalfs.Get().Open("mails/" + templateName + ".html")
 	if err != nil {
-		return
+		return err
 	}
 	defer func() { _ = templateFile.Close() }()
 
 	templateContent, err := io.ReadAll(templateFile)
 	if err != nil {
-		return
+		return err
 	}
 
 	tpl, err := template.New(templateName).Parse(string(templateContent))
-
 	if err != nil {
-		return
+		return err
 	}
 
 	buf := bytes.NewBufferString("")
+
 	err = tpl.ExecuteTemplate(buf, templateName, data)
 	if err != nil {
-		return
+		return err
 	}
 
 	// 提取出里面的 cid://xxxx.xxx 的内容,然后获取成文件,然后替换
@@ -170,9 +171,8 @@ func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject st
 	}
 
 	err = useDrive.SendMail(to, cc, mail)
-
 	if err != nil {
-		return
+		return err
 	}
 
 	if bcc != "" {
@@ -180,8 +180,7 @@ func SendHtmlTemplateAndAttachments(to string, cc string, bcc string, subject st
 		err = useDrive.SendMail(bcc, "", mail)
 	}
 
-	return
-
+	return err
 }
 
 func extractAttachments(content string) (ret string, attachments []*types.MailAttachment) {
@@ -194,9 +193,11 @@ func extractAttachments(content string) (ret string, attachments []*types.MailAt
 
 	for _, match := range cidMatches {
 		ref := match[1]
+
 		fp, err := internalfs.Get().Open("mails/" + ref)
 		if err != nil {
 			log.Warn("can not find attachment file: %s", ref)
+
 			continue
 		}
 
@@ -212,5 +213,6 @@ func extractAttachments(content string) (ret string, attachments []*types.MailAt
 	}
 
 	ret = content
-	return
+
+	return ret, attachments
 }

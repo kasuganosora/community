@@ -118,7 +118,7 @@ func TestFormatRFC3339Ptr(t *testing.T) {
 
 	// Nil pointer
 	result = FormatRFC3339Ptr(nil)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 }
 
 func TestGetRandomHex(t *testing.T) {

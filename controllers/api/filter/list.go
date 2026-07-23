@@ -8,12 +8,12 @@ import (
 )
 
 func List(c *gin.Context) {
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	// 获取所有的过滤器
 	filters, err := models.GetFilters(db.GetDB(), currentAccount.Id)
-
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 

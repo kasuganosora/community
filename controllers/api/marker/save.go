@@ -20,20 +20,23 @@ func Save(c *gin.Context) {
 	req := make(SaveRequest)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, err)
+
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	marker := &models.Marker{}
 
 	err := db.GetDB().Where("account_id = ?", currentAccount.Id).First(marker).Error
 	isNew := false
+
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			isNew = true
 		} else {
 			_ = c.Error(err)
+
 			return
 		}
 	}
@@ -44,9 +47,11 @@ func Save(c *gin.Context) {
 
 	for timeline, item := range req {
 		var lastReadId uint64
+
 		lastReadId, err = strconv.ParseUint(item.LastReadId, 10, 64)
 		if err != nil {
 			c.JSON(400, gin.H{"message": "invalid last_read_id"})
+
 			return
 		}
 
@@ -62,13 +67,17 @@ func Save(c *gin.Context) {
 
 	if isNew {
 		marker.AccountId = currentAccount.Id
-		if err = db.GetDB().Create(marker).Error; err != nil {
+		err = db.GetDB().Create(marker).Error
+		if err != nil {
 			_ = c.Error(err)
+
 			return
 		}
 	} else {
-		if err = db.GetDB().Save(marker).Error; err != nil {
+		err = db.GetDB().Save(marker).Error
+		if err != nil {
 			_ = c.Error(err)
+
 			return
 		}
 	}

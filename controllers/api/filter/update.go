@@ -21,30 +21,33 @@ type UpdateFilterRequest struct {
 
 func Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "id must be a number"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "id must be a number"}) //nolint:goconst
+
 		return
 	}
 
 	var req UpdateFilterRequest
 	if err = c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account)
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	filter := &models.Filter{}
-	err = db.GetDB().Where("id = ? and account_id = ?", id, currentAccount.Id).First(filter).Error
 
+	err = db.GetDB().Where("id = ? and account_id = ?", id, currentAccount.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"})
+			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
+
 			return
 		}
 
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -56,7 +59,7 @@ func Update(c *gin.Context) {
 		if *req.ExpiresIn == 0 {
 			filter.ExpiresAt = nil
 		} else {
-			expiresAt := time.Now().Add(time.Duration(*req.ExpiresIn) * time.Second)
+			expiresAt := time.Now().Add(time.Duration(*req.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
 			filter.ExpiresAt = &expiresAt
 		}
 	}
@@ -71,6 +74,7 @@ func Update(c *gin.Context) {
 
 	if err = db.GetDB().Save(filter).Error; err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -84,7 +88,7 @@ func updateKeywordsFields(oldKeywords, newKeywords []*models.FilterKeyword) (ret
 		oldKeywordsCheckMap[keyword.Keyword] = keyword
 	}
 
-	ret = make([]*models.FilterKeyword, 0)
+	ret = make([]*models.FilterKeyword, 0, len(newKeywords))
 
 	for _, keyword := range newKeywords {
 		if oldKeyword, ok := oldKeywordsCheckMap[keyword.Keyword]; ok {
@@ -94,7 +98,9 @@ func updateKeywordsFields(oldKeywords, newKeywords []*models.FilterKeyword) (ret
 			// 新的关键词
 			keyword.Uuid = uuid.NewString()
 		}
+
 		ret = append(ret, keyword)
 	}
+
 	return
 }

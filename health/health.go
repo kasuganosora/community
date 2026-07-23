@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// HealthStatus 健康状态
+// HealthStatus 健康状态.
 type HealthStatus string
 
 const (
@@ -25,7 +25,7 @@ const (
 	StatusUnhealthy HealthStatus = "unhealthy"
 )
 
-// HealthResponse 健康检查响应
+// HealthResponse 健康检查响应.
 type HealthResponse struct {
 	Status    HealthStatus             `json:"status"`
 	Timestamp time.Time                `json:"timestamp"`
@@ -34,15 +34,15 @@ type HealthResponse struct {
 	Services  map[string]ServiceHealth `json:"services"`
 }
 
-// ServiceHealth 服务健康状态
+// ServiceHealth 服务健康状态.
 type ServiceHealth struct {
 	Status   HealthStatus `json:"status"`
 	Latency  string       `json:"latency"`
 	Message  string       `json:"message,omitempty"`
-	Metadata interface{}  `json:"metadata,omitempty"`
+	Metadata any          `json:"metadata,omitempty"`
 }
 
-// Checker 健康检查器
+// Checker 健康检查器.
 type Checker struct {
 	startTime time.Time
 	version   string
@@ -50,7 +50,7 @@ type Checker struct {
 	enabled   map[string]bool
 }
 
-// HealthCheckerFunc 健康检查函数类型
+// HealthCheckerFunc 健康检查函数类型.
 type HealthCheckerFunc func(ctx context.Context) ServiceHealth
 
 var (
@@ -58,7 +58,7 @@ var (
 	startTime      = time.Now()
 )
 
-// NewChecker 创建健康检查器
+// NewChecker 创建健康检查器.
 func NewChecker(version string) *Checker {
 	return &Checker{
 		startTime: startTime,
@@ -68,31 +68,31 @@ func NewChecker(version string) *Checker {
 	}
 }
 
-// Register 注册健康检查
+// Register 注册健康检查.
 func (c *Checker) Register(name string, checker HealthCheckerFunc) {
 	c.checkers[name] = checker
 	c.enabled[name] = true
 }
 
-// Unregister 注销健康检查
+// Unregister 注销健康检查.
 func (c *Checker) Unregister(name string) {
 	delete(c.checkers, name)
 	delete(c.enabled, name)
 }
 
-// Enable 启用健康检查
+// Enable 启用健康检查.
 func (c *Checker) Enable(name string) {
 	if _, exists := c.checkers[name]; exists {
 		c.enabled[name] = true
 	}
 }
 
-// Disable 禁用健康检查
+// Disable 禁用健康检查.
 func (c *Checker) Disable(name string) {
 	c.enabled[name] = false
 }
 
-// Check 执行健康检查
+// Check 执行健康检查.
 func (c *Checker) Check(ctx context.Context) HealthResponse {
 	response := HealthResponse{
 		Status:    StatusHealthy,
@@ -110,6 +110,7 @@ func (c *Checker) Check(ctx context.Context) HealthResponse {
 
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		health := checker(checkCtx)
+
 		cancel()
 
 		response.Services[name] = health
@@ -125,12 +126,13 @@ func (c *Checker) Check(ctx context.Context) HealthResponse {
 	return response
 }
 
-// Handler HTTP 处理器
+// Handler HTTP 处理器.
 func (c *Checker) Handler() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		health := c.Check(ctx.Request.Context())
 
 		statusCode := http.StatusOK
+
 		switch health.Status {
 		case StatusUnhealthy:
 			statusCode = http.StatusServiceUnavailable
@@ -142,17 +144,17 @@ func (c *Checker) Handler() gin.HandlerFunc {
 	}
 }
 
-// LivenessHandler 存活检查处理器
+// LivenessHandler 存活检查处理器.
 func (c *Checker) LivenessHandler() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{
-			"status": "alive",
+			"status": "alive", //nolint:goconst
 			"uptime": time.Since(c.startTime).String(),
 		})
 	}
 }
 
-// ReadinessHandler 就绪检查处理器
+// ReadinessHandler 就绪检查处理器.
 func (c *Checker) ReadinessHandler() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		response := c.Check(ctx.Request.Context())
@@ -161,8 +163,9 @@ func (c *Checker) ReadinessHandler() gin.HandlerFunc {
 			ctx.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":   "not_ready",
 				"reason":   "critical services unavailable",
-				"services": response.Services,
+				"services": response.Services, //nolint:goconst
 			})
+
 			return
 		}
 
@@ -175,11 +178,13 @@ func (c *Checker) ReadinessHandler() gin.HandlerFunc {
 
 // 内置健康检查器
 
-// DatabaseChecker 数据库健康检查
+// DatabaseChecker 数据库健康检查.
 func DatabaseChecker(db *gorm.DB) HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		start := time.Now()
+
 		sqlDB, err := db.DB()
+
 		if err != nil {
 			return ServiceHealth{
 				Status:  StatusUnhealthy,
@@ -211,7 +216,7 @@ func DatabaseChecker(db *gorm.DB) HealthCheckerFunc {
 		return ServiceHealth{
 			Status:  status,
 			Latency: latency.String(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"open_connections":    stats.OpenConnections,
 				"in_use":              stats.InUse,
 				"idle":                stats.Idle,
@@ -224,7 +229,7 @@ func DatabaseChecker(db *gorm.DB) HealthCheckerFunc {
 	}
 }
 
-// RedisChecker Redis 健康检查
+// RedisChecker Redis 健康检查.
 func RedisChecker(client *redis.Client) HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		if client == nil {
@@ -253,7 +258,7 @@ func RedisChecker(client *redis.Client) HealthCheckerFunc {
 		return ServiceHealth{
 			Status:  StatusHealthy,
 			Latency: latency.String(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"version": infoMap["redis_version"],
 				"mode":    infoMap["redis_mode"],
 			},
@@ -261,7 +266,7 @@ func RedisChecker(client *redis.Client) HealthCheckerFunc {
 	}
 }
 
-// StorageChecker 存储健康检查
+// StorageChecker 存储健康检查.
 func StorageChecker(storageType string) HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		start := time.Now()
@@ -275,7 +280,7 @@ func StorageChecker(storageType string) HealthCheckerFunc {
 			return ServiceHealth{
 				Status:  StatusHealthy,
 				Latency: time.Since(start).String(),
-				Message: fmt.Sprintf("%s storage health check requires client configuration", storageType),
+				Message: storageType + " storage health check requires client configuration",
 			}
 		default:
 			return ServiceHealth{
@@ -287,10 +292,11 @@ func StorageChecker(storageType string) HealthCheckerFunc {
 	}
 }
 
-// checkLocalStorage 检查本地存储健康状态
+// checkLocalStorage 检查本地存储健康状态.
 func checkLocalStorage(start time.Time) ServiceHealth {
 	// 检查默认存储目录
-	storageDirs := []string{"uploads", "media", "cache", "logs"}
+	storageDirs := []string{"uploads", "media", "cache", "logs"} //nolint:goconst
+
 	var failedDirs []string
 
 	for _, dir := range storageDirs {
@@ -300,8 +306,10 @@ func checkLocalStorage(start time.Time) ServiceHealth {
 			if os.IsNotExist(err) {
 				failedDirs = append(failedDirs, dir)
 			}
+
 			continue
 		}
+
 		if !info.IsDir() {
 			failedDirs = append(failedDirs, dir)
 		}
@@ -320,13 +328,13 @@ func checkLocalStorage(start time.Time) ServiceHealth {
 	return ServiceHealth{
 		Status:  StatusHealthy,
 		Latency: latency.String(),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"checked_dirs": storageDirs,
 		},
 	}
 }
 
-// MatrixHomeserverChecker Matrix Homeserver 健康检查
+// MatrixHomeserverChecker Matrix Homeserver 健康检查.
 func MatrixHomeserverChecker(serverName string) HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		start := time.Now()
@@ -337,14 +345,14 @@ func MatrixHomeserverChecker(serverName string) HealthCheckerFunc {
 		return ServiceHealth{
 			Status:  StatusHealthy,
 			Latency: time.Since(start).String(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"server_name": serverName,
 			},
 		}
 	}
 }
 
-// ActivityPubChecker ActivityPub 健康检查
+// ActivityPubChecker ActivityPub 健康检查.
 func ActivityPubChecker() HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		start := time.Now()
@@ -365,14 +373,14 @@ func ActivityPubChecker() HealthCheckerFunc {
 	}
 }
 
-// parseRedisInfo 解析 Redis INFO 输出
+// parseRedisInfo 解析 Redis INFO 输出.
 func parseRedisInfo(info string) map[string]string {
 	result := make(map[string]string)
 	// 简化解析，实际可以使用更复杂的解析逻辑
 	return result
 }
 
-// DefaultChecker 获取默认健康检查器
+// DefaultChecker 获取默认健康检查器.
 func DefaultChecker() *Checker {
 	if defaultChecker == nil {
 		defaultChecker = NewChecker(config.Version)
@@ -395,7 +403,7 @@ func DefaultChecker() *Checker {
 	return defaultChecker
 }
 
-// InitChecker 初始化健康检查器
+// InitChecker 初始化健康检查器.
 func InitChecker(redisClient *redis.Client) *Checker {
 	checker := NewChecker(config.Version)
 
@@ -419,10 +427,11 @@ func InitChecker(redisClient *redis.Client) *Checker {
 	checker.Register("activitypub", ActivityPubChecker())
 
 	defaultChecker = checker
+
 	return checker
 }
 
-// SimpleHealthHandler 简单健康检查处理器
+// SimpleHealthHandler 简单健康检查处理器.
 func SimpleHealthHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -432,31 +441,32 @@ func SimpleHealthHandler() gin.HandlerFunc {
 	}
 }
 
-// DetailedHealthHandler 详细健康检查处理器
+// DetailedHealthHandler 详细健康检查处理器.
 func DetailedHealthHandler() gin.HandlerFunc {
 	return DefaultChecker().Handler()
 }
 
-// LivenessHandler Kubernetes 存活检查处理器
+// LivenessHandler Kubernetes 存活检查处理器.
 func LivenessHandler() gin.HandlerFunc {
 	return DefaultChecker().LivenessHandler()
 }
 
-// ReadinessHandler Kubernetes 就绪检查处理器
+// ReadinessHandler Kubernetes 就绪检查处理器.
 func ReadinessHandler() gin.HandlerFunc {
 	return DefaultChecker().ReadinessHandler()
 }
 
-// CheckWithTimeout 带超时的健康检查
+// CheckWithTimeout 带超时的健康检查.
 func CheckWithTimeout(checker HealthCheckerFunc, timeout time.Duration) ServiceHealth {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
 	return checker(ctx)
 }
 
-// LogHealthStatus 记录健康状态日志
+// LogHealthStatus 记录健康状态日志.
 func LogHealthStatus(health HealthResponse) {
-	log.WithFields(map[string]interface{}{
+	log.WithFields(map[string]any{
 		"status":    health.Status,
 		"services":  len(health.Services),
 		"timestamp": health.Timestamp,
@@ -464,7 +474,7 @@ func LogHealthStatus(health HealthResponse) {
 
 	for name, service := range health.Services {
 		if service.Status != StatusHealthy {
-			log.WithFields(map[string]interface{}{
+			log.WithFields(map[string]any{
 				"service": name,
 				"status":  service.Status,
 				"message": service.Message,

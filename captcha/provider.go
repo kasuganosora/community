@@ -7,10 +7,10 @@ import (
 	"github.com/kasuganosora/community/captcha/types"
 )
 
-// VerificationResult 是 types.VerificationResult 的别名
+// VerificationResult 是 types.VerificationResult 的别名.
 type VerificationResult = types.VerificationResult
 
-// Provider 验证码供应商接口
+// Provider 验证码供应商接口.
 type Provider interface {
 	// Name 返回供应商名称
 	Name() string
@@ -29,45 +29,45 @@ type Provider interface {
 	IsConfigured() bool
 }
 
-// ProviderType 供应商类型
+// ProviderType 供应商类型.
 type ProviderType string
 
 const (
-	// ProviderRecaptcha Google reCAPTCHA
+	// ProviderRecaptcha Google reCAPTCHA.
 	ProviderRecaptcha ProviderType = "recaptcha"
 
-	// ProviderCloudflare Cloudflare Turnstile
+	// ProviderCloudflare Cloudflare Turnstile.
 	ProviderCloudflare ProviderType = "cloudflare"
 
-	// ProviderHCaptcha hCaptcha
+	// ProviderHCaptcha hCaptcha.
 	ProviderHCaptcha ProviderType = "hcaptcha"
 
-	// ProviderNone 不使用验证码
+	// ProviderNone 不使用验证码.
 	ProviderNone ProviderType = "none"
 )
 
-// String 返回字符串表示
+// String 返回字符串表示.
 func (pt ProviderType) String() string {
 	return string(pt)
 }
 
-// ParseProviderType 解析供应商类型
+// ParseProviderType 解析供应商类型.
 func ParseProviderType(s string) (ProviderType, error) {
 	switch s {
-	case "recaptcha", "google":
+	case "recaptcha", "google": //nolint:goconst
 		return ProviderRecaptcha, nil
-	case "cloudflare", "turnstile":
+	case "cloudflare", "turnstile": //nolint:goconst
 		return ProviderCloudflare, nil
-	case "hcaptcha":
+	case "hcaptcha": //nolint:goconst
 		return ProviderHCaptcha, nil
-	case "none", "":
+	case "none", "": //nolint:goconst
 		return ProviderNone, nil
 	default:
 		return "", fmt.Errorf("unknown captcha provider: %s", s)
 	}
 }
 
-// Config 验证码配置
+// Config 验证码配置.
 type Config struct {
 	// Provider 供应商类型
 	Provider ProviderType

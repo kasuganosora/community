@@ -13,7 +13,7 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// Processor 图片处理器接口
+// Processor 图片处理器接口.
 type Processor interface {
 	// GenerateThumbnail 生成缩略图
 	GenerateThumbnail(input io.Reader, opts ThumbnailOptions) (output io.Reader, width, height int, format string, err error)
@@ -28,33 +28,34 @@ type Processor interface {
 	IsSupported(format string) bool
 }
 
-// DefaultProcessor 默认图片处理器
+// DefaultProcessor 默认图片处理器.
 type DefaultProcessor struct {
 	supportedFormats map[string]bool
 }
 
-// NewDefaultProcessor 创建默认处理器
+// NewDefaultProcessor 创建默认处理器.
 func NewDefaultProcessor() *DefaultProcessor {
 	return &DefaultProcessor{
 		supportedFormats: map[string]bool{
-			"jpeg": true,
-			"jpg":  true,
-			"png":  true,
-			"gif":  true,
-			"webp": true,
+			"jpeg": true, //nolint:goconst
+			"jpg":  true, //nolint:goconst
+			"png":  true, //nolint:goconst
+			"gif":  true, //nolint:goconst
+			"webp": true, //nolint:goconst
 			"bmp":  true,
-			"tiff": true,
+			"tiff": true, //nolint:goconst
 		},
 	}
 }
 
-// IsSupported 是否支持该格式
+// IsSupported 是否支持该格式.
 func (p *DefaultProcessor) IsSupported(format string) bool {
 	format = strings.ToLower(format)
+
 	return p.supportedFormats[format]
 }
 
-// GetDimensions 获取图片尺寸
+// GetDimensions 获取图片尺寸.
 func (p *DefaultProcessor) GetDimensions(input io.Reader) (width, height int, format string, err error) {
 	// 解码图片配置（只读取头部，不加载整个图片）
 	config, format, err := image.DecodeConfig(input)
@@ -65,7 +66,7 @@ func (p *DefaultProcessor) GetDimensions(input io.Reader) (width, height int, fo
 	return config.Width, config.Height, format, nil
 }
 
-// IsAnimation 检查是否是动画（GIF/WebP）
+// IsAnimation 检查是否是动画（GIF/WebP）.
 func (p *DefaultProcessor) IsAnimation(input io.Reader, format string) (bool, error) {
 	format = strings.ToLower(format)
 
@@ -75,6 +76,7 @@ func (p *DefaultProcessor) IsAnimation(input io.Reader, format string) (bool, er
 		if err != nil {
 			return false, err
 		}
+
 		return len(gifImg.Image) > 1, nil
 	}
 
@@ -87,7 +89,7 @@ func (p *DefaultProcessor) IsAnimation(input io.Reader, format string) (bool, er
 	return false, nil
 }
 
-// GenerateThumbnail 生成缩略图
+// GenerateThumbnail 生成缩略图.
 func (p *DefaultProcessor) GenerateThumbnail(input io.Reader, opts ThumbnailOptions) (io.Reader, int, int, string, error) {
 	// 解码原图
 	src, _, err := image.Decode(input)
@@ -111,6 +113,7 @@ func (p *DefaultProcessor) GenerateThumbnail(input io.Reader, opts ThumbnailOpti
 
 	// 编码输出
 	var buf bytes.Buffer
+
 	outputFormat := opts.Format
 	if outputFormat == "" {
 		outputFormat = "jpeg"
@@ -132,7 +135,7 @@ func (p *DefaultProcessor) GenerateThumbnail(input io.Reader, opts ThumbnailOpti
 	return &buf, targetWidth, targetHeight, outputFormat, nil
 }
 
-// calculateDimensions 计算目标尺寸（保持比例）
+// calculateDimensions 计算目标尺寸（保持比例）.
 func calculateDimensions(origWidth, origHeight, maxWidth, maxHeight int) (int, int) {
 	if origWidth <= maxWidth && origHeight <= maxHeight {
 		return origWidth, origHeight
@@ -155,6 +158,7 @@ func calculateDimensions(origWidth, origHeight, maxWidth, maxHeight int) (int, i
 	if targetWidth < 1 {
 		targetWidth = 1
 	}
+
 	if targetHeight < 1 {
 		targetHeight = 1
 	}
@@ -162,12 +166,11 @@ func calculateDimensions(origWidth, origHeight, maxWidth, maxHeight int) (int, i
 	return targetWidth, targetHeight
 }
 
-// encodeWebP 编码为WebP格式
+// encodeWebP 编码为WebP格式.
 func encodeWebP(w io.Writer, m image.Image, quality int) error {
 	// 使用golang.org/x/image/webp
 	// 注意：标准库只支持解码，编码需要额外实现或使用第三方库
 	// 这里简化处理，实际项目中可以使用github.com/chai2010/webp
-
 	// 临时使用PNG作为fallback
 	if quality >= 90 {
 		return png.Encode(w, m)

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,7 +15,7 @@ import (
 
 // AesEncrypt AES加密
 // iv 从Key sha256后中截取前16位
-// 加密结果是base64编码
+// 加密结果是base64编码.
 func AesEncrypt(data []byte, key string) (encrypted string, err error) {
 	keySha1 := sha256.Sum256([]byte(key))
 
@@ -32,12 +32,13 @@ func AesEncrypt(data []byte, key string) (encrypted string, err error) {
 	mode.CryptBlocks(encryptedData, data)
 
 	encrypted = base64.StdEncoding.EncodeToString(encryptedData)
+
 	return
 }
 
 // AesDecrypt AES解密
 // iv 从Key sha256后中截取前16位
-// 解密前需要base64解码
+// 解密前需要base64解码.
 func AesDecrypt(data string, key string) (decrypted []byte, err error) {
 	keySha1 := sha256.Sum256([]byte(key))
 
@@ -58,12 +59,14 @@ func AesDecrypt(data string, key string) (decrypted []byte, err error) {
 	mode.CryptBlocks(decrypted, encryptedData)
 
 	decrypted = Pkcs7unpadding(decrypted)
+
 	return
 }
 
 func Pkcs7padding(data []byte, blockSize int) []byte {
 	padding := blockSize - len(data)%blockSize
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding) //nolint:gosec // G115: reviewed and safe
+
 	return append(data, padtext...)
 }
 
@@ -72,29 +75,32 @@ func Pkcs7unpadding(data []byte) []byte {
 	if length == 0 {
 		return data
 	}
+
 	unpadding := int(data[length-1])
 	if unpadding > length || unpadding == 0 {
 		return data
 	}
+
 	return data[:(length - unpadding)]
 }
 
 // AesEncryptStruct AES加密结构体
-// 加密带有 encrypt tag 的 string 类型的字段
+// 加密带有 encrypt tag 的 string 类型的字段.
 func AesEncryptStruct(data any, key string) (err error) {
 	elm := reflect.ValueOf(data)
-	if elm.Kind() == reflect.Ptr {
+	if elm.Kind() == reflect.Pointer {
 		elm = elm.Elem()
 	}
 
 	if elm.Kind() != reflect.Struct {
 		err = errors.New("data must be a struct")
-		return
+
+		return err
 	}
 
 	eType := elm.Type()
 
-	for i := 0; i < eType.NumField(); i++ {
+	for i := range eType.NumField() {
 		field := eType.Field(i)
 		if field.Type.Kind() != reflect.String {
 			continue
@@ -112,6 +118,7 @@ func AesEncryptStruct(data any, key string) (err error) {
 		}
 
 		var encrypted string
+
 		encrypted, err = AesEncrypt([]byte(fieldContent), key)
 		if err != nil {
 			return err
@@ -120,25 +127,26 @@ func AesEncryptStruct(data any, key string) (err error) {
 		fieldValue.SetString(encrypted)
 	}
 
-	return
+	return err
 }
 
 // AesDecryptStruct AES解密结构体
-// 解密带有 encrypt tag 的 string 类型的字段
+// 解密带有 encrypt tag 的 string 类型的字段.
 func AesDecryptStruct(data any, key string) (err error) {
 	elm := reflect.ValueOf(data)
-	if elm.Kind() == reflect.Ptr {
+	if elm.Kind() == reflect.Pointer {
 		elm = elm.Elem()
 	}
 
 	if elm.Kind() != reflect.Struct {
 		err = errors.New("data must be a struct")
-		return
+
+		return err
 	}
 
 	eType := elm.Type()
 
-	for i := 0; i < eType.NumField(); i++ {
+	for i := range eType.NumField() {
 		field := eType.Field(i)
 		if field.Type.Kind() != reflect.String {
 			continue
@@ -156,8 +164,8 @@ func AesDecryptStruct(data any, key string) (err error) {
 		}
 
 		var decrypted []byte
-		decrypted, err = AesDecrypt(fieldContent, key)
 
+		decrypted, err = AesDecrypt(fieldContent, key)
 		if err != nil {
 			return errors.WithMessagef(err, "field %s decrypt failed", field.Name)
 		}
@@ -165,11 +173,12 @@ func AesDecryptStruct(data any, key string) (err error) {
 		fieldValue.SetString(string(decrypted))
 	}
 
-	return
+	return err
 }
 
-// GetEncryptKey 转换加密key
+// GetEncryptKey 转换加密key.
 func GetEncryptKey(sourceKey string, salt string) string {
-	keyMd5 := md5.Sum([]byte(sourceKey + salt))
+	keyMd5 := md5.Sum([]byte(sourceKey + salt)) //nolint:gosec // G401: reviewed and safe
+
 	return strings.ToUpper(hex.EncodeToString(keyMd5[:]))
 }

@@ -9,17 +9,17 @@ import (
 func HandleErrorsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
-		lastError := c.Errors.Last()
 
+		lastError := c.Errors.Last()
 		if lastError == nil {
 			return
 		}
 
 		ret := gin.H{
-			"error": "internal server error",
+			"error": "internal server error", //nolint:goconst
 		}
 
-		if config.C.DevMode == "true" {
+		if config.C.DevMode == "true" { //nolint:goconst
 			ret["error"] = lastError.Error()
 			ret["stack"] = fmt.Sprintf("%+v", lastError.Err)
 		}

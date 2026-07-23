@@ -3,7 +3,9 @@ package utils
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"unsafe"
 )
@@ -39,6 +41,7 @@ func ToInt(v any) int {
 		if v {
 			return 1
 		}
+
 		return 0
 	default:
 		return 0
@@ -72,6 +75,7 @@ func ToInt64(v any) int64 {
 		if v {
 			return 1
 		}
+
 		return 0
 	default:
 		return 0
@@ -105,6 +109,7 @@ func ToFloat64(v any) float64 {
 		if v {
 			return 1
 		}
+
 		return 0
 	default:
 		return 0
@@ -190,32 +195,40 @@ func StrToAny(str string, obj any) (err error) {
 	switch rType.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		var val int64
+
 		val, err = strconv.ParseInt(str, 10, 64)
 		if err != nil {
-			return
+			return err
 		}
+
 		rValue.SetInt(val)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		var val uint64
+
 		val, err = strconv.ParseUint(str, 10, 64)
 		if err != nil {
-			return
+			return err
 		}
+
 		rValue.SetUint(val)
 	case reflect.Float32, reflect.Float64:
 		var val float64
+
 		val, err = strconv.ParseFloat(str, 64)
 		if err != nil {
-			return
+			return err
 		}
+
 		rValue.SetFloat(val)
 
 	case reflect.Bool:
 		var val bool
+
 		val, err = strconv.ParseBool(str)
 		if err != nil {
-			return
+			return err
 		}
+
 		rValue.SetBool(val)
 	case reflect.String:
 		rValue.SetString(str)
@@ -223,14 +236,15 @@ func StrToAny(str string, obj any) (err error) {
 		err = errors.Errorf("unsupport type: %v", rType.Kind())
 	}
 
-	return
+	return err
 }
 
 func AnyArrayToTypeNameMap(objs []any) map[string]any {
 	ret := make(map[string]any)
+
 	for _, obj := range objs {
 		v := reflect.ValueOf(obj)
-		if v.Kind() == reflect.Ptr {
+		if v.Kind() == reflect.Pointer {
 			v = v.Elem()
 		}
 
@@ -255,25 +269,26 @@ func MergeMap(dst, src map[string]any) (ret map[string]any) {
 		return dst
 	}
 
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
 
 	ret = dst
+
 	return
 }
 
 func GetStructsMap[k Numeric | string, v any](objs []v, key string) map[k]v {
-	sliceType := reflect.TypeOf(objs)
+	sliceType := reflect.TypeFor[[]v]()
+
 	structType := sliceType.Elem()
-	if structType.Kind() == reflect.Ptr {
+	if structType.Kind() == reflect.Pointer {
 		structType = structType.Elem()
 	}
 
 	ret := make(map[k]v)
+
 	for _, obj := range objs {
 		itemV := reflect.ValueOf(obj)
-		if itemV.Kind() == reflect.Ptr {
+		if itemV.Kind() == reflect.Pointer {
 			itemV = itemV.Elem()
 		}
 
@@ -283,7 +298,7 @@ func GetStructsMap[k Numeric | string, v any](objs []v, key string) map[k]v {
 		}
 
 		fieldV := itemV.Field(fieldType.Index[0])
-		ret[fieldV.Interface().(k)] = obj
+		ret[fieldV.Interface().(k)] = obj //nolint:forcetypeassert
 	}
 
 	return ret
@@ -291,6 +306,7 @@ func GetStructsMap[k Numeric | string, v any](objs []v, key string) map[k]v {
 
 func UniqueSlice[T Numeric | string](s []T) []T {
 	result := make([]T, 0, len(s))
+
 	checkMap := make(map[T]bool)
 	for _, item := range s {
 		if _, ok := checkMap[item]; !ok {
@@ -307,24 +323,19 @@ func Contains[T Numeric | string](arr []T, check T) bool {
 		return false
 	}
 
-	for _, item := range arr {
-		if item == check {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(arr, check)
 }
 
 func GetPtr[T any](obj T) *T {
-	return &obj
+	return new(obj)
 }
 
-// GetPtrIfNotEmpty returns a pointer to the string if it's not empty, otherwise returns nil
+// GetPtrIfNotEmpty returns a pointer to the string if it's not empty, otherwise returns nil.
 func GetPtrIfNotEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}
+
 	return &s
 }
 
@@ -342,31 +353,36 @@ func IsExistsForCheckMap[T Numeric | string](m map[T]bool, key T) bool {
 	if !ok {
 		return false
 	}
+
 	return exists
 }
 
 func IsKeyInMap[T Numeric | string](m map[T]any, key T) bool {
 	_, ok := m[key]
+
 	return ok
 }
 
 func DeepCopy(source any, target any) (err error) {
 	// 判断 target 是否为指针类型
-	if reflect.TypeOf(target).Kind() != reflect.Ptr {
+	if reflect.TypeOf(target).Kind() != reflect.Pointer {
 		err = errors.New("target must be a pointer")
-		return
+
+		return err
 	}
 
 	// 判断 source 的类型是否与 target 的类型相同
 	if reflect.TypeOf(source) != reflect.TypeOf(target).Elem() {
 		err = errors.New("source and target must be the same type")
-		return
+
+		return err
 	}
 
 	// 判断 source 不能为 nil
 	if source == nil {
 		err = errors.New("source can not be nil")
-		return
+
+		return err
 	}
 
 	// 如果 target 为 nil，则创建一个新的对象
@@ -375,7 +391,7 @@ func DeepCopy(source any, target any) (err error) {
 	}
 
 	sourceV := reflect.ValueOf(source)
-	if sourceV.Kind() == reflect.Ptr {
+	if sourceV.Kind() == reflect.Pointer {
 		sourceV = sourceV.Elem()
 	}
 
@@ -385,7 +401,7 @@ func DeepCopy(source any, target any) (err error) {
 	newValue := deepCopyValue(sourceV)
 	targetV.Set(newValue)
 
-	return
+	return err
 }
 
 func deepCopyValue(v reflect.Value) (ret reflect.Value) {
@@ -399,23 +415,23 @@ func deepCopyValue(v reflect.Value) (ret reflect.Value) {
 	case reflect.Int:
 		ret = reflect.ValueOf(int(v.Int()))
 	case reflect.Int8:
-		ret = reflect.ValueOf(int8(v.Int()))
+		ret = reflect.ValueOf(int8(v.Int())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Int16:
-		ret = reflect.ValueOf(int16(v.Int()))
+		ret = reflect.ValueOf(int16(v.Int())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Int32:
-		ret = reflect.ValueOf(int32(v.Int()))
+		ret = reflect.ValueOf(int32(v.Int())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Int64:
-		ret = reflect.ValueOf(int64(v.Int()))
+		ret = reflect.ValueOf(v.Int())
 	case reflect.Uint:
 		ret = reflect.ValueOf(uint(v.Uint()))
 	case reflect.Uint8:
-		ret = reflect.ValueOf(uint8(v.Uint()))
+		ret = reflect.ValueOf(uint8(v.Uint())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Uint16:
-		ret = reflect.ValueOf(uint16(v.Uint()))
+		ret = reflect.ValueOf(uint16(v.Uint())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Uint32:
-		ret = reflect.ValueOf(uint32(v.Uint()))
+		ret = reflect.ValueOf(uint32(v.Uint())) //nolint:gosec // G115: reviewed and safe
 	case reflect.Uint64:
-		ret = reflect.ValueOf(uint64(v.Uint()))
+		ret = reflect.ValueOf(v.Uint())
 	case reflect.Float32:
 		ret = reflect.ValueOf(float32(v.Float()))
 	case reflect.Float64:
@@ -424,33 +440,39 @@ func deepCopyValue(v reflect.Value) (ret reflect.Value) {
 		ret = reflect.ValueOf(v.Bool())
 	case reflect.String:
 		ret = reflect.ValueOf(v.String())
-	case reflect.Ptr:
+	case reflect.Pointer:
 		// 则创建一个新的对象
 		if v.IsNil() {
 			return reflect.New(nil)
 		}
+
 		ret = deepCopyValue(v.Elem())
 	default:
 	}
-	return
+
+	return ret
 }
 
 func deepCopyMap(source reflect.Value) (ret reflect.Value) {
 	ret = reflect.MakeMap(source.Type())
 	keyType := source.Type().Key()
+
 	valueType := source.Type().Elem()
 	for _, key := range source.MapKeys() {
 		newKey := deepCopyValue(key)
 		newValue := deepCopyValue(source.MapIndex(key))
-		if keyType.Kind() == reflect.Ptr {
+
+		if keyType.Kind() == reflect.Pointer {
 			newKey = newKey.Addr()
 		}
 
-		if valueType.Kind() == reflect.Ptr {
+		if valueType.Kind() == reflect.Pointer {
 			newValue = newValue.Addr()
 		}
+
 		ret.SetMapIndex(newKey, newValue)
 	}
+
 	return
 }
 
@@ -458,42 +480,43 @@ func deepCopySlice(source reflect.Value) (ret reflect.Value) {
 	ret = reflect.MakeSlice(source.Type(), source.Len(), source.Cap())
 	elementType := source.Type().Elem()
 
-	for i := 0; i < source.Len(); i++ {
+	for i := range source.Len() {
 		newValue := deepCopyValue(source.Index(i))
-		if elementType.Kind() == reflect.Ptr {
+		if elementType.Kind() == reflect.Pointer {
 			newValue = newValue.Addr()
 		}
+
 		ret.Index(i).Set(newValue)
 	}
-	return
 
+	return
 }
 
 func deepCopyStruct(source reflect.Value) (ret reflect.Value) {
 	ret = reflect.New(source.Type()).Elem()
+
 	sourceType := source.Type()
-	for i := 0; i < sourceType.NumField(); i++ {
+	for i := range sourceType.NumField() {
 		field := sourceType.Field(i)
 		fieldValue := source.Field(i)
 		newFieldValue := deepCopyValue(fieldValue)
 		retField := ret.Field(i)
 
 		if field.IsExported() {
-			if field.Type.Kind() == reflect.Ptr {
+			if field.Type.Kind() == reflect.Pointer {
 				retField.Set(reflect.New(field.Type.Elem()))
 				retField.Elem().Set(newFieldValue)
 			} else {
 				retField.Set(newFieldValue)
 			}
-
 		} else {
-			if field.Type.Kind() == reflect.Ptr {
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(reflect.New(field.Type.Elem()))
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue)
+			if field.Type.Kind() == reflect.Pointer {
+				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(reflect.New(field.Type.Elem())) //nolint:gosec // G103: reviewed and safe
+				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue)           //nolint:gosec // G103: reviewed and safe
 			} else {
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).
-					Elem().
-					Set(newFieldValue)
+				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())). //nolint:gosec // G103: reviewed and safe
+													Elem().
+													Set(newFieldValue)
 			}
 		}
 	}
@@ -512,6 +535,7 @@ func Min[T Numeric](arr []T) T {
 			min = v
 		}
 	}
+
 	return min
 }
 
@@ -526,6 +550,7 @@ func Max[T Numeric](arr []T) T {
 			max = v
 		}
 	}
+
 	return max
 }
 
@@ -535,6 +560,7 @@ func NumberArrayConvert[A, B Numeric](arr []A) []B {
 	for i, v := range arr {
 		ret[i] = B(v)
 	}
+
 	return ret
 }
 
@@ -544,6 +570,7 @@ func StringNumberArrayConvertUint64(arr []string) []uint64 {
 	for i, v := range arr {
 		ret[i], _ = strconv.ParseUint(v, 10, 64)
 	}
+
 	return ret
 }
 

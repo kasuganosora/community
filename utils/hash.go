@@ -18,5 +18,6 @@ func Hash[T HashDriver](h T, data any) string {
 	default:
 		panic("hash unsupported type")
 	}
+
 	return hex.EncodeToString(h.Sum(nil))
 }

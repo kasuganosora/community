@@ -2,9 +2,9 @@ package activitypub
 
 import "time"
 
-// Actor represents an ActivityPub Actor
+// Actor represents an ActivityPub Actor.
 type Actor struct {
-	Context           interface{}  `json:"@context,omitempty"`
+	Context           any          `json:"@context,omitempty"`
 	ID                string       `json:"id"`
 	Type              string       `json:"type"`
 	Following         string       `json:"following"`
@@ -26,7 +26,7 @@ type Actor struct {
 	MovedTo           string       `json:"movedTo,omitempty"`
 }
 
-// Endpoints contains additional ActivityPub endpoints
+// Endpoints contains additional ActivityPub endpoints.
 type Endpoints struct {
 	SharedInbox                string `json:"sharedInbox,omitempty"`
 	OauthAuthorizationEndpoint string `json:"oauthAuthorizationEndpoint,omitempty"`
@@ -35,14 +35,14 @@ type Endpoints struct {
 	SignClientKey              string `json:"signClientKey,omitempty"`
 }
 
-// PublicKey represents an actor's public key
+// PublicKey represents an actor's public key.
 type PublicKey struct {
 	ID           string `json:"id"`
 	Owner        string `json:"owner"`
 	PublicKeyPem string `json:"publicKeyPem"`
 }
 
-// Image represents an image attachment
+// Image represents an image attachment.
 type Image struct {
 	Type      string `json:"type"`
 	MediaType string `json:"mediaType,omitempty"`
@@ -50,16 +50,16 @@ type Image struct {
 	Name      string `json:"name,omitempty"`
 }
 
-// Attachment represents a profile field attachment
+// Attachment represents a profile field attachment.
 type Attachment struct {
 	Type  string `json:"type"`
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// Note represents an ActivityPub Note object
+// Note represents an ActivityPub Note object.
 type Note struct {
-	Context       interface{}  `json:"@context,omitempty"`
+	Context       any          `json:"@context,omitempty"`
 	ID            string       `json:"id"`
 	Type          string       `json:"type"`
 	Summary       string       `json:"summary,omitempty"`
@@ -82,13 +82,13 @@ type Note struct {
 }
 
 // Source represents the source property for Note objects
-// Per ActivityPub spec, it contains the original content and media type
+// Per ActivityPub spec, it contains the original content and media type.
 type Source struct {
 	Content   string `json:"content"`
 	MediaType string `json:"mediaType"`
 }
 
-// Tag represents a mention, hashtag, or emoji
+// Tag represents a mention, hashtag, or emoji.
 type Tag struct {
 	Type string `json:"type"`
 	Href string `json:"href,omitempty"`
@@ -96,100 +96,100 @@ type Tag struct {
 	Icon *Image `json:"icon,omitempty"`
 }
 
-// Activity represents a generic ActivityPub activity
+// Activity represents a generic ActivityPub activity.
 type Activity struct {
-	Context   interface{} `json:"@context,omitempty"`
-	ID        string      `json:"id"`
-	Type      string      `json:"type"`
-	Actor     string      `json:"actor"`
-	Object    interface{} `json:"object"`
-	To        []string    `json:"to,omitempty"`
-	CC        []string    `json:"cc,omitempty"`
-	Published *time.Time  `json:"published,omitempty"`
+	Context   any        `json:"@context,omitempty"`
+	ID        string     `json:"id"`
+	Type      string     `json:"type"`
+	Actor     string     `json:"actor"`
+	Object    any        `json:"object"`
+	To        []string   `json:"to,omitempty"`
+	CC        []string   `json:"cc,omitempty"`
+	Published *time.Time `json:"published,omitempty"`
 }
 
-// CreateActivity represents a Create activity
+// CreateActivity represents a Create activity.
 type CreateActivity struct {
 	Activity
 }
 
-// UpdateActivity represents an Update activity
+// UpdateActivity represents an Update activity.
 type UpdateActivity struct {
 	Activity
 }
 
-// DeleteActivity represents a Delete activity
+// DeleteActivity represents a Delete activity.
 type DeleteActivity struct {
 	Activity
 }
 
-// FollowActivity represents a Follow activity
+// FollowActivity represents a Follow activity.
 type FollowActivity struct {
 	Activity
 }
 
-// AcceptActivity represents an Accept activity
+// AcceptActivity represents an Accept activity.
 type AcceptActivity struct {
 	Activity
 }
 
-// RejectActivity represents a Reject activity
+// RejectActivity represents a Reject activity.
 type RejectActivity struct {
 	Activity
 }
 
-// AnnounceActivity represents an Announce (boost) activity
+// AnnounceActivity represents an Announce (boost) activity.
 type AnnounceActivity struct {
 	Activity
 }
 
-// LikeActivity represents a Like (favourite) activity
+// LikeActivity represents a Like (favourite) activity.
 type LikeActivity struct {
 	Activity
 }
 
-// UndoActivity represents an Undo activity
+// UndoActivity represents an Undo activity.
 type UndoActivity struct {
 	Activity
 }
 
-// BlockActivity represents a Block activity
+// BlockActivity represents a Block activity.
 type BlockActivity struct {
 	Activity
 }
 
-// Collection represents an ActivityPub collection
+// Collection represents an ActivityPub collection.
 type Collection struct {
-	Context      interface{}   `json:"@context,omitempty"`
-	ID           string        `json:"id"`
-	Type         string        `json:"type"`
-	TotalItems   int           `json:"totalItems"`
-	Items        []interface{} `json:"items,omitempty"`
-	First        string        `json:"first,omitempty"`
-	Last         string        `json:"last,omitempty"`
-	Current      string        `json:"current,omitempty"`
-	OrderedItems []interface{} `json:"orderedItems,omitempty"`
+	Context      any    `json:"@context,omitempty"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	TotalItems   int    `json:"totalItems"`
+	Items        []any  `json:"items,omitempty"`
+	First        string `json:"first,omitempty"`
+	Last         string `json:"last,omitempty"`
+	Current      string `json:"current,omitempty"`
+	OrderedItems []any  `json:"orderedItems,omitempty"`
 }
 
-// OrderedCollectionPage represents a page of an ordered collection
+// OrderedCollectionPage represents a page of an ordered collection.
 type OrderedCollectionPage struct {
-	Context      interface{}   `json:"@context,omitempty"`
-	ID           string        `json:"id"`
-	Type         string        `json:"type"`
-	Next         string        `json:"next,omitempty"`
-	Prev         string        `json:"prev,omitempty"`
-	PartOf       string        `json:"partOf,omitempty"`
-	OrderedItems []interface{} `json:"orderedItems"`
+	Context      any    `json:"@context,omitempty"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Next         string `json:"next,omitempty"`
+	Prev         string `json:"prev,omitempty"`
+	PartOf       string `json:"partOf,omitempty"`
+	OrderedItems []any  `json:"orderedItems"`
 }
 
-// WebFingerResponse represents a WebFinger response
+// WebFingerResponse represents a WebFinger response.
 type WebFingerResponse struct {
 	Subject string          `json:"subject"`
 	Aliases []string        `json:"aliases,omitempty"`
 	Links   []WebFingerLink `json:"links"`
 }
 
-// WebFingerLink represents a link in WebFinger response
+// WebFingerLink represents a link in WebFinger response.
 type WebFingerLink struct {
 	Rel  string `json:"rel"`
 	Type string `json:"type,omitempty"`

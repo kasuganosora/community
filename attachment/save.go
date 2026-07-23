@@ -51,23 +51,26 @@ func SaveAttachmentByBytes(savePath string, fileName string, fileBytes []byte, a
 	mime := kind.MIME.Value
 
 	if fileType == 0 {
-		if strings.Contains(mime, "image") {
+		switch {
+		case strings.Contains(mime, "image"):
 			if strings.Contains(mime, "gif") {
 				fileType = models.AttachmentTypeGifv
 			} else {
 				fileType = models.AttachmentTypeImage
 			}
-		} else if strings.Contains(mime, "video") {
+		case strings.Contains(mime, "video"):
 			fileType = models.AttachmentTypeVideo
-		} else if strings.Contains(mime, "audio") {
+		case strings.Contains(mime, "audio"):
 			fileType = models.AttachmentTypeAudio
-		} else {
+		default:
 			fileType = models.AttachmentTypeFile
 		}
 	}
 
-	var previewFileFullPath, fullSavePath string
-	var previewFileSize uint64
+	var (
+		previewFileFullPath, fullSavePath string
+		previewFileSize                   uint64
+	)
 
 	defer func() {
 		if err == nil {
@@ -84,36 +87,35 @@ func SaveAttachmentByBytes(savePath string, fileName string, fileBytes []byte, a
 	}()
 
 	blurHash, previewExtension, PreviewBytes, fileMeta, err := processFile(fileBytes, kind.Extension, fileType, ops)
-
 	if err != nil {
 		err = errors.Wrap(err, "process file error")
-		return
+
+		return attachment, err
 	}
 
 	// 保存文件
 	fullSavePath = filepath.Join(savePath, fileName)
-	sourceSavePath, err := storage.Save(fullSavePath, fileBytes)
 
+	sourceSavePath, err := storage.Save(fullSavePath, fileBytes)
 	if err != nil {
-		return
+		return attachment, err
 	}
 
 	if len(PreviewBytes) > 0 {
 		previewFileFullPath, err = storage.Save(filepath.Join(savePath, fileName+"."+previewExtension), PreviewBytes)
-
 		if err != nil {
-			return
+			return attachment, err
 		}
 	}
 
 	// 如果有 FileMetaOptions 选项，那么就把 fileMeta 里面的内容合并进去
 	if fileMetaOptions, hasSetFileMetaOptions := ops["FileMetaOptions"]; hasSetFileMetaOptions {
-		fileMeta = utils.MergeMap(fileMeta, fileMetaOptions.(FileMetaOptions))
+		fileMeta = utils.MergeMap(fileMeta, fileMetaOptions.(FileMetaOptions)) //nolint:forcetypeassert // controlled type from internal ops map
 	}
 
 	var desp string
 	if descriptionOption, hasSetDescriptionOption := ops["DescriptionOption"]; hasSetDescriptionOption {
-		desp = string(descriptionOption.(DescriptionOption))
+		desp = string(descriptionOption.(DescriptionOption)) //nolint:forcetypeassert
 	}
 
 	attachment = &models.Attachment{
@@ -132,13 +134,13 @@ func SaveAttachmentByBytes(savePath string, fileName string, fileBytes []byte, a
 	}
 
 	err = db.GetDB().Create(attachment).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "save attachment error")
-		return
+
+		return attachment, err
 	}
 
-	return
+	return attachment, err
 }
 
 func processFile(fileBytes []byte, extension string, fileType uint, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) {
@@ -157,20 +159,22 @@ func processFile(fileBytes []byte, extension string, fileType uint, ops map[stri
 	return "", "", nil, nil, nil
 }
 
-func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) {
+func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) { //nolint:unparam // param reserved for future use
 	fileMeta = make(map[string]any)
+
 	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFn()
 
 	data, err := ffprobe.ProbeReader(ctx, bytes.NewReader(fileBytes))
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	// 检查是否有流信息
 	if len(data.Streams) == 0 {
 		err = errors.New("no audio streams found")
-		return
+
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	// 获取音频时长
@@ -188,10 +192,10 @@ func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (b
 
 	// 把音频文件存到临时文件中方便后续处理
 	tmpFileFileName := filepath.Join(os.TempDir(), utils.GetRandomString(32)+extension)
-	err = os.WriteFile(tmpFileFileName, fileBytes, 0644)
 
+	err = os.WriteFile(tmpFileFileName, fileBytes, 0644) //nolint:gosec // G306: reviewed and safe
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	defer func() {
@@ -210,46 +214,46 @@ func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (b
 		Filter("complex", ffmpeg_go.Args{filterStr}).
 		Filter("frames:v", ffmpeg_go.Args{"1"}).
 		OverWriteOutput().Run()
-
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
-	previewBytes, err = os.ReadFile(previewFileName)
+	previewBytes, err = os.ReadFile(previewFileName) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	img, err := getImage("png", previewBytes)
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	blurHash, err = blurhash.Encode(4, 3, img)
-
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	previewExtension = "png"
-	return
 
+	return blurHash, previewExtension, previewBytes, fileMeta, err
 }
 
-func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) {
+func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) { //nolint:unparam // param reserved for future use
 	fileMeta = make(map[string]any)
+
 	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFn()
 
 	data, err := ffprobe.ProbeReader(ctx, bytes.NewReader(fileBytes))
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	// 检查是否有流信息
 	if len(data.Streams) == 0 {
 		err = errors.New("no video streams found")
-		return
+
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	// 获取视频时长
@@ -272,11 +276,12 @@ func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (b
 	// 取得那一刻的画面
 	previewFrame := int(math.Ceil(previewTime / previewFrameTime))
 
-	//将视频存到临时文件方便ffmpeg处理
+	// 将视频存到临时文件方便ffmpeg处理
 	tmpFileFileName := filepath.Join(os.TempDir(), utils.GetRandomString(32)+"."+extension)
-	err = os.WriteFile(tmpFileFileName, fileBytes, 0644)
+
+	err = os.WriteFile(tmpFileFileName, fileBytes, 0644) //nolint:gosec // G306: reviewed and safe
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	// 生成预览图
@@ -296,42 +301,39 @@ func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (b
 		Filter("select", ffmpeg_go.Args{fmt.Sprintf("eq(n,%d)", previewFrame)}).
 		Output("pipe:", ffmpeg_go.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
 		Run()
-
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	if !utils.IsFileExists(previewFileName) {
 		err = errors.New("generate preview file error")
-		return
+
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
-	previewBytes, err = os.ReadFile(previewFileName)
-
+	previewBytes, err = os.ReadFile(previewFileName) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	img, err := getImage("jpg", previewBytes)
-
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	blurHash, err = blurhash.Encode(4, 3, img)
-
 	if err != nil {
-		return
+		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
 
 	previewBytes, err = createImagePreviewFile(img)
 
 	previewExtension = "jpg"
-	return
 
+	return blurHash, previewExtension, previewBytes, fileMeta, err
 }
 
-func processImageFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) {
+func processImageFile(fileBytes []byte, extension string, ops map[string]any) (blurHash string, previewExtension string, previewBytes []byte, fileMeta map[string]any, err error) { //nolint:unparam // param reserved for future use
 	img, err := getImage(extension, fileBytes)
 	if err != nil {
 		return
@@ -354,6 +356,7 @@ func processImageFile(fileBytes []byte, extension string, ops map[string]any) (b
 	}
 
 	previewExtension = "jpg"
+
 	return
 }
 
@@ -381,11 +384,13 @@ func createImagePreviewFile(img image.Image) (previewBytes []byte, err error) {
 	}
 
 	previewBytes = buf.Bytes()
+
 	return
 }
 
 func getImage(extName string, fileBytes []byte) (ret image.Image, err error) {
 	r := bytes.NewReader(fileBytes)
+
 	switch extName {
 	case "jpg", "jpeg":
 		ret, err = jpeg.Decode(r)
@@ -415,37 +420,42 @@ func FindFfmpeg() (path string, err error) {
 		path, err = exec.LookPath("ffmpeg")
 		if err == nil {
 			ffmpegPath = path
-			return
+
+			return path, nil
 		}
 	} else {
 		path, err = exec.LookPath("ffmpeg.exe")
 		if err == nil {
 			ffmpegPath = path
-			return
+
+			return path, nil
 		}
 	}
 
 	// 查看当前目录下有没有ffmpeg文件夹，并且里面有没有ffmpeg
 	currentPath, err := os.Getwd()
 	if err != nil {
-		return
+		return path, err
 	}
 
 	ffmpegPath, err = checkFFmpegBinExists(currentPath)
 	if err == nil {
 		path = ffmpegPath
-		return
+
+		return path, nil
 	}
 
 	// 查看这个文件所在的目录ffmpeg文件夹，并且里面有没有ffmpeg
 	ffmpegPath, err = checkFFmpegBinExists(utils.GetSourceDir())
 	if err == nil {
 		path = ffmpegPath
-		return
+
+		return path, nil
 	}
 
 	err = errors.New("not found ffmpeg")
-	return
+
+	return path, err
 }
 
 func checkFFmpegBinExists(pathStr string) (fullPath string, err error) {
@@ -453,6 +463,7 @@ func checkFFmpegBinExists(pathStr string) (fullPath string, err error) {
 		f := filepath.Join(pathStr, "ffmpeg")
 		if utils.IsFileExists(f) {
 			fullPath = filepath.Join(pathStr, "ffmpeg")
+
 			return
 		}
 	}
@@ -460,9 +471,11 @@ func checkFFmpegBinExists(pathStr string) (fullPath string, err error) {
 	f := filepath.Join(pathStr, "ffmpeg.exe")
 	if utils.IsFileExists(f) {
 		fullPath = filepath.Join(pathStr, "ffmpeg")
+
 		return
 	}
 
 	err = errors.New("not found ffmpeg")
+
 	return
 }

@@ -1,7 +1,7 @@
 package models
 
 import (
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,7 +30,7 @@ func (AuthToken) TableName() string {
 	return "auth_tokens"
 }
 
-// AuthTokenData 用于存放在token里面的数据, 用于解析token,降低数据库查询次数
+// AuthTokenData 用于存放在token里面的数据, 用于解析token,降低数据库查询次数.
 type AuthTokenData struct {
 	UserId        uint64            `json:"user_id"`
 	AuthType      uint8             `json:"auth_type"`
@@ -43,7 +43,10 @@ type AuthTokenData struct {
 
 func (a AuthTokenData) GetTokenStr(key string) string {
 	// AuthTokenData 先进行json序列化, 并且在 前面填充 8 个字节的随机字符串, 用于防止被猜解
-	rawData, _ := json.Marshal(a)
+	rawData, err := json.Marshal(a)
+	if err != nil {
+		return ""
+	}
 	randStr := utils.GetRandomString(8)
 
 	rawStr := randStr + string(rawData)
@@ -52,7 +55,7 @@ func (a AuthTokenData) GetTokenStr(key string) string {
 
 	rawResult := randStr + encryptedStr
 	// 把rawResult 进行 m5加密, 用于校验
-	md5Str := md5.Sum([]byte(rawResult))
+	md5Str := md5.Sum([]byte(rawResult)) //nolint:gosec // G401: reviewed and safe
 	// 取md5的前8位
 	rawResult = hex.EncodeToString(md5Str[:])[:8] + rawResult
 
@@ -63,7 +66,8 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 	// 检查 token 长度
 	if len(tokenStr) < 16 {
 		err = errors.New("invalid token length")
-		return
+
+		return tokenData, err
 	}
 
 	// 取出校验码 token 的前 8 位
@@ -74,18 +78,21 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 	encryptedStr := tokenStr[16:]
 
 	// 校验 token
-	md5Bytes := md5.Sum([]byte(randStr + encryptedStr))
+	md5Bytes := md5.Sum([]byte(randStr + encryptedStr)) //nolint:gosec // G401: reviewed and safe
+
 	checkMd5Str := hex.EncodeToString(md5Bytes[:])[:8]
-	if md5Str != string(checkMd5Str[:8]) {
+	if md5Str != checkMd5Str[:8] {
 		err = errors.New("invalid token check code")
-		return
+
+		return tokenData, err
 	}
 
 	// 解密
 	decryptedStr, err := utils.AesDecrypt(encryptedStr, encKey)
 	if err != nil {
 		err = errors.Wrap(err, "invalid token encrypted data")
-		return
+
+		return tokenData, err
 	}
 
 	// 取出随机字符串
@@ -94,7 +101,8 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 	// 判断随机字符串是否正确
 	if innerRandStr != randStr {
 		err = errors.New("invalid token rand str")
-		return
+
+		return tokenData, err
 	}
 
 	// 取出真实的数据
@@ -102,18 +110,20 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 
 	// 解析数据
 	tokenData = &AuthTokenData{}
+
 	err = json.Unmarshal(rawData, tokenData)
 	if err != nil {
 		err = errors.Wrap(err, "invalid token data")
-		return
+
+		return tokenData, err
 	}
 
-	return
-
+	return tokenData, err
 }
 
 func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint64, scopes *ApplicationScope, expiredIn int, encKey string) (tokenRow *AuthToken, tokenStr string) {
 	now := time.Now()
+
 	var expiredAt *time.Time
 
 	if expiredIn > 0 {
@@ -152,16 +162,18 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 		ExpiredAt: expiredAt,
 	}
 
-	return
+	return tokenRow, tokenStr
 }
 
 func GetTokenByTokenStr(tokenStr string) (token *AuthToken, err error) {
 	sha256Token := sha256.Sum256([]byte(tokenStr))
 	sha256TokenStr := hex.EncodeToString(sha256Token[:])
 	token = &AuthToken{}
+
 	err = db.GetDB().Where("token = ?", sha256TokenStr).First(token).Error
 	if err != nil {
 		err = errors.Wrap(err, "get token by token str error")
+
 		return
 	}
 

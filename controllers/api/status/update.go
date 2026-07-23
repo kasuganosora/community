@@ -16,25 +16,26 @@ import (
 
 type UpdateStatusRequest struct {
 	Status      *string            `json:"status"`
-	InReplyToId *string            `json:"in_reply_to_id" binding:"omitempty,numeric"`
+	InReplyToId *string            `binding:"omitempty,numeric"                              json:"in_reply_to_id"`
 	MediaIds    *[]string          `json:"media_ids"`
 	Sensitive   *bool              `json:"sensitive"`
 	SpoilerText *string            `json:"spoiler_text"`
-	Visibility  *string            `json:"visibility" binding:"omitempty,oneof=public unlisted private direct"`
+	Visibility  *string            `binding:"omitempty,oneof=public unlisted private direct" json:"visibility"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    *string            `json:"language"`
 }
 
 func Update(c *gin.Context) {
 	var req UpdateStatusRequest
+
 	err := c.ShouldBindJSON(&req)
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
 	currentAccount := controllers.MustGetAccount(c)
 
 	statusIdStr := c.Param("id")
 	statusId, err := strconv.ParseUint(statusIdStr, 10, 64)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"}) //nolint:goconst
 
 	status := &models.Status{}
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", statusId)
@@ -52,9 +53,10 @@ func Update(c *gin.Context) {
 	historyStatus.MediaAttachmentsIds = status.Attachments.GetIds()
 	historyStatus.EmojisIds = status.Emojis.GetIds()
 
-	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 403, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 403, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	var contentChanged bool
+
 	if req.Status != nil {
 		status.Content.Content = *req.Status
 		contentChanged = true
@@ -66,6 +68,7 @@ func Update(c *gin.Context) {
 	}
 
 	var mediaIdsChanged bool
+
 	if req.MediaIds != nil {
 		attachmentsId := *req.MediaIds
 		if len(attachmentsId) == 0 {
@@ -83,14 +86,17 @@ func Update(c *gin.Context) {
 		mediaIdsChanged = true
 	}
 
-	var pollChanged bool
-	var oldPoll *models.Poll
+	var (
+		pollChanged bool
+		oldPoll     *models.Poll
+	)
+
 	if req.Poll != nil {
 		if status.Poll != nil {
 			oldPoll = status.Poll
 		}
 
-		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second)
+		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
 		poll := &models.Poll{
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
@@ -114,8 +120,10 @@ func Update(c *gin.Context) {
 	}
 
 	if req.Visibility != nil {
-		if err := status.SetVisibilityByString(*req.Visibility); err != nil {
+		err := status.SetVisibilityByString(*req.Visibility)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility value"})
+
 			return
 		}
 	}
@@ -125,7 +133,8 @@ func Update(c *gin.Context) {
 			err = tx.Save(&status.Content).Error
 			if err != nil {
 				err = errors.Wrap(err, "save status content failed")
-				return
+
+				return err
 			}
 		}
 
@@ -138,7 +147,8 @@ func Update(c *gin.Context) {
 
 			if err != nil {
 				err = errors.Wrap(err, "save status attachments failed")
-				return
+
+				return err
 			}
 		}
 
@@ -147,31 +157,35 @@ func Update(c *gin.Context) {
 				err = oldPoll.Delete(tx)
 				if err != nil {
 					err = errors.Wrap(err, "delete old poll failed")
-					return
+
+					return err
 				}
 			}
-			err = tx.Model(status).Association("Poll").Append(status.Poll)
 
+			err = tx.Model(status).Association("Poll").Append(status.Poll)
 			if err != nil {
 				err = errors.Wrap(err, "save status poll failed")
-				return
+
+				return err
 			}
 		}
 
 		err = tx.Omit(clause.Associations).Save(status).Error
 		if err != nil {
 			err = errors.Wrap(err, "save status failed")
-			return
+
+			return err
 		}
 
 		// 插入历史记录
 		err = tx.Create(historyStatus).Error
 		if err != nil {
 			err = errors.Wrap(err, "create status history failed")
-			return
+
+			return err
 		}
 
-		return
+		return err
 	})
 
 	controllers.AbortIfError(c, err)

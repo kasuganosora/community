@@ -34,6 +34,7 @@ func TestParseFocus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var x, y float64
+
 			parsed := false
 
 			if tt.input != "" {
@@ -41,7 +42,9 @@ func TestParseFocus(t *testing.T) {
 				if len(parts) == 2 {
 					trimmedX := strings.TrimSpace(parts[0])
 					trimmedY := strings.TrimSpace(parts[1])
+
 					var errX, errY error
+
 					x, errX = strconv.ParseFloat(trimmedX, 64)
 					y, errY = strconv.ParseFloat(trimmedY, 64)
 					parsed = errX == nil && errY == nil
@@ -59,7 +62,7 @@ func TestParseFocus(t *testing.T) {
 	}
 }
 
-// TestFocusValidation tests focus coordinate validation
+// TestFocusValidation tests focus coordinate validation.
 func TestFocusValidation(t *testing.T) {
 	tests := []struct {
 		x      float64
@@ -110,6 +113,7 @@ func TestMediaUpdateRequest(t *testing.T) {
 func TestDeleteMediaValidation(t *testing.T) {
 	t.Run("status_id nil means not attached", func(t *testing.T) {
 		var statusId *uint64 = nil
+
 		assert.Nil(t, statusId)
 		// This means media is not attached to any status
 	})
@@ -121,7 +125,7 @@ func TestDeleteMediaValidation(t *testing.T) {
 	})
 }
 
-// TestHTTPHandlers tests HTTP handler signatures
+// TestHTTPHandlers tests HTTP handler signatures.
 func TestHTTPHandlers(t *testing.T) {
 	t.Run("Get handler exists", func(t *testing.T) {
 		handler := Get
@@ -139,7 +143,7 @@ func TestHTTPHandlers(t *testing.T) {
 	})
 }
 
-// TestFocusClamping tests that focus coordinates are properly clamped
+// TestFocusClamping tests that focus coordinates are properly clamped.
 func TestFocusClamping(t *testing.T) {
 	tests := []struct {
 		inputX  float64
@@ -167,19 +171,20 @@ func TestFocusClamping(t *testing.T) {
 			} else if clampedX < -1 {
 				clampedX = -1
 			}
+
 			if clampedY > 1 {
 				clampedY = 1
 			} else if clampedY < -1 {
 				clampedY = -1
 			}
 
-			assert.Equal(t, tt.clampX, clampedX)
-			assert.Equal(t, tt.clampY, clampedY)
+			assert.InDelta(t, tt.clampX, clampedX, 0.001)
+			assert.InDelta(t, tt.clampY, clampedY, 0.001)
 		})
 	}
 }
 
-// TestDeleteMediaFileDeletion tests file deletion logic
+// TestDeleteMediaFileDeletion tests file deletion logic.
 func TestDeleteMediaFileDeletion(t *testing.T) {
 	t.Run("both file and thumbnail exist", func(t *testing.T) {
 		filePath := "media/test.jpg"
@@ -191,6 +196,7 @@ func TestDeleteMediaFileDeletion(t *testing.T) {
 
 	t.Run("only file exists no thumbnail", func(t *testing.T) {
 		filePath := "media/test.jpg"
+
 		var thumbnailPath *string = nil
 
 		assert.NotEmpty(t, filePath)
@@ -210,7 +216,7 @@ func TestDeleteMediaFileDeletion(t *testing.T) {
 	})
 }
 
-// TestFocusUpdateLogic tests the actual focus update logic from Update handler
+// TestFocusUpdateLogic tests the actual focus update logic from Update handler.
 func TestFocusUpdateLogic(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -229,20 +235,25 @@ func TestFocusUpdateLogic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var focusX, focusY float64
+
 			set := false
 
 			if tt.focus != "" {
 				parts := strings.Split(tt.focus, ",")
 				if len(parts) == 2 {
 					x, errX := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+
 					y, errY := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+
 					if errX == nil && errY == nil {
 						if x >= -1 && x <= 1 {
 							focusX = x
 						}
+
 						if y >= -1 && y <= 1 {
 							focusY = y
 						}
+
 						set = true
 					}
 				}
@@ -250,11 +261,13 @@ func TestFocusUpdateLogic(t *testing.T) {
 
 			if tt.expectSet {
 				assert.True(t, set || tt.name == "out of range clamped")
+
 				if set {
 					// If values were out of range, they should be clamped in actual code
 					if tt.expectX >= -1 && tt.expectX <= 1 {
 						assert.InDelta(t, tt.expectX, focusX, 0.0001)
 					}
+
 					if tt.expectY >= -1 && tt.expectY <= 1 {
 						assert.InDelta(t, tt.expectY, focusY, 0.0001)
 					}
@@ -264,10 +277,10 @@ func TestFocusUpdateLogic(t *testing.T) {
 	}
 }
 
-// BenchmarkFocusParsing benchmarks focus parsing performance
+// BenchmarkFocusParsing benchmarks focus parsing performance.
 func BenchmarkFocusParsing(b *testing.B) {
 	input := "0.5,-0.3"
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		parts := strings.Split(input, ",")
 		_ = parts
 	}

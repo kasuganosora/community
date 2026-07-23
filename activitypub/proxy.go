@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -34,7 +35,7 @@ var (
 	cachedProxyAccount *models.Account
 	cachedProxyKey     *models.AccountKey
 	proxyOnce          sync.Once
-	proxyInitErr       error
+	errProxyInit       error
 )
 
 // NewProxyService creates a new ProxyService.
@@ -48,13 +49,14 @@ func NewProxyService() *ProxyService {
 // Results are cached after first successful call.
 func (s *ProxyService) GetOrCreateProxyAccount() (*models.Account, *models.AccountKey, error) {
 	proxyOnce.Do(func() {
-		cachedProxyAccount, cachedProxyKey, proxyInitErr = s.getOrCreateProxyAccountInternal()
+		cachedProxyAccount, cachedProxyKey, errProxyInit = s.getOrCreateProxyAccountInternal()
 	})
 
-	if proxyInitErr != nil {
+	if errProxyInit != nil {
 		// Reset so next call retries
 		proxyOnce = sync.Once{}
-		return nil, nil, proxyInitErr
+
+		return nil, nil, errProxyInit
 	}
 
 	return cachedProxyAccount, cachedProxyKey, nil
@@ -63,23 +65,28 @@ func (s *ProxyService) GetOrCreateProxyAccount() (*models.Account, *models.Accou
 func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *models.AccountKey, error) {
 	// Try to find existing proxy account
 	var account models.Account
+
 	err := s.db.Where("username = ? AND domain IS NULL", proxyUsername).First(&account).Error
 	if err == nil {
 		// Account exists, get key
 		var key models.AccountKey
-		if err := s.db.Where("account_id = ?", account.Id).First(&key).Error; err != nil {
+		err := s.db.Where("account_id = ?", account.Id).First(&key).Error
+		if err != nil {
 			return nil, nil, fmt.Errorf("proxy account exists but key not found: %w", err)
 		}
+
 		return &account, &key, nil
 	}
 
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil, fmt.Errorf("querying proxy account: %w", err)
 	}
 
 	// Create proxy account with keypair in a transaction
-	var newAccount models.Account
-	var newKey models.AccountKey
+	var (
+		newAccount models.Account
+		newKey     models.AccountKey
+	)
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		newAccount = models.Account{
@@ -108,6 +115,7 @@ func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *mode
 		if err != nil {
 			return fmt.Errorf("marshaling public key: %w", err)
 		}
+
 		pubPEM := pem.EncodeToMemory(&pem.Block{
 			Type:  "PUBLIC KEY",
 			Bytes: pubBytes,
@@ -124,18 +132,19 @@ func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *mode
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, nil, err
 	}
 
 	log.Info("Created system proxy account (id=%d)", newAccount.Id)
+
 	return &newAccount, &newKey, nil
 }
 
 // getProxyActorURI returns the ActivityPub actor URI for the proxy account.
 func (s *ProxyService) getProxyActorURI() string {
 	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
 	return fmt.Sprintf("https://%s/users/%s", domain, proxyUsername)
 }
 
@@ -143,8 +152,9 @@ func (s *ProxyService) getProxyActorURI() string {
 func parsePrivateKey(pemStr string) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM block")
+		return nil, errors.New("failed to decode PEM block")
 	}
+
 	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }
 
@@ -168,6 +178,7 @@ func (s *ProxyService) HasLocalFollowers(remoteAccountID uint64) bool {
 		Where("follow_id = ? AND account_id IN ? AND status = ?",
 			remoteAccountID, localAccountIDs, models.FollowStatusFollowed).
 		Count(&count)
+
 	return count > 0
 }
 
@@ -177,6 +188,7 @@ func (s *ProxyService) HasLocalFollowers(remoteAccountID uint64) bool {
 func (s *ProxyService) EnsureProxyFollow(remoteAccountID uint64, reason string, reasonID uint64) error {
 	// Check if this exact reference already exists
 	var existing models.ProxyFollow
+
 	err := s.db.Where("account_id = ? AND reason = ? AND reason_id = ?",
 		remoteAccountID, reason, reasonID).First(&existing).Error
 	if err == nil {
@@ -202,6 +214,7 @@ func (s *ProxyService) EnsureProxyFollow(remoteAccountID uint64, reason string, 
 
 	// Check if proxy already follows this account
 	var existingFollow models.Follow
+
 	alreadyFollowing := s.db.Where("account_id = ? AND follow_id = ?",
 		proxyAccount.Id, remoteAccountID).First(&existingFollow).Error == nil
 
@@ -219,9 +232,11 @@ func (s *ProxyService) EnsureProxyFollow(remoteAccountID uint64, reason string, 
 	if alreadyFollowing || hasLocalFollowers {
 		// No need to send Follow activity, just record the reference
 		proxyFollow.Status = models.ProxyFollowStatusAccepted
-		if err := s.db.Create(&proxyFollow).Error; err != nil {
+		err := s.db.Create(&proxyFollow).Error
+		if err != nil {
 			return fmt.Errorf("creating proxy follow record: %w", err)
 		}
+
 		return nil
 	}
 
@@ -231,6 +246,7 @@ func (s *ProxyService) EnsureProxyFollow(remoteAccountID uint64, reason string, 
 		// Still record the reference so we can retry later
 		proxyFollow.Status = models.ProxyFollowStatusRejected
 		s.db.Create(&proxyFollow)
+
 		return fmt.Errorf("sending follow activity: %w", err)
 	}
 
@@ -252,6 +268,7 @@ func (s *ProxyService) EnsureProxyFollow(remoteAccountID uint64, reason string, 
 	}
 
 	log.Info("Sent proxy follow for remote account %d (%s)", remoteAccountID, remoteAccount.OriginId)
+
 	return nil
 }
 
@@ -267,6 +284,7 @@ func (s *ProxyService) CleanupProxyFollow(remoteAccountID uint64, reason string,
 	// Check if any other references remain for this account
 	var remaining int64
 	s.db.Model(&models.ProxyFollow{}).Where("account_id = ?", remoteAccountID).Count(&remaining)
+
 	if remaining > 0 {
 		return nil // Still needed
 	}
@@ -286,7 +304,7 @@ func (s *ProxyService) CleanupProxyFollow(remoteAccountID uint64, reason string,
 	var follow models.Follow
 	if err := s.db.Where("account_id = ? AND follow_id = ?",
 		proxyAccount.Id, remoteAccountID).First(&follow).Error; err != nil {
-		return nil // No follow to undo
+		return nil //nolint:nilerr // No follow to undo
 	}
 
 	// Get the remote account for inbox lookup
@@ -297,6 +315,7 @@ func (s *ProxyService) CleanupProxyFollow(remoteAccountID uint64, reason string,
 
 	// Find the original follow activity ID from any historical proxy follow
 	var proxyFollow models.ProxyFollow
+
 	followActivityID := ""
 	if err := s.db.Unscoped().Where("account_id = ? AND follow_activity_id != ''",
 		remoteAccountID).First(&proxyFollow).Error; err == nil {
@@ -312,6 +331,7 @@ func (s *ProxyService) CleanupProxyFollow(remoteAccountID uint64, reason string,
 	// Delete the follow record
 	s.db.Delete(&follow)
 	log.Info("Proxy unfollowed remote account %d (%s)", remoteAccountID, remoteAccount.OriginId)
+
 	return nil
 }
 
@@ -320,6 +340,7 @@ func (s *ProxyService) CleanupProxyFollow(remoteAccountID uint64, reason string,
 func (s *ProxyService) HandleAccept(followActivityID string) error {
 	// Find proxy follow by activity ID
 	var proxyFollow models.ProxyFollow
+
 	err := s.db.Where("follow_activity_id = ? AND status = ?",
 		followActivityID, models.ProxyFollowStatusPending).First(&proxyFollow).Error
 	if err != nil {
@@ -346,17 +367,18 @@ func (s *ProxyService) HandleAccept(followActivityID string) error {
 		Update("status", models.FollowStatusFollowed)
 
 	log.Info("Proxy follow accepted for remote account %d", proxyFollow.AccountID)
+
 	return nil
 }
 
 // sendFollowActivity sends a Follow activity to a remote account.
 func (s *ProxyService) sendFollowActivity(
-	proxyAccount *models.Account,
+	proxyAccount *models.Account, //nolint:unparam // param reserved for future use
 	proxyKey *models.AccountKey,
 	remoteAccount *models.Account,
 ) (string, error) {
 	if remoteAccount.OriginId == "" {
-		return "", fmt.Errorf("remote account has no OriginId")
+		return "", errors.New("remote account has no OriginId")
 	}
 
 	rsaKey, err := parsePrivateKey(proxyKey.PrivateKey)
@@ -367,16 +389,17 @@ func (s *ProxyService) sendFollowActivity(
 	proxyActorURI := s.getProxyActorURI()
 	activityID := fmt.Sprintf("%s#follows/%d", proxyActorURI, time.Now().UnixNano())
 
-	activity := map[string]interface{}{
-		"@context": "https://www.w3.org/ns/activitystreams",
+	activity := map[string]any{
+		"@context": "https://www.w3.org/ns/activitystreams", //nolint:goconst
 		"id":       activityID,
-		"type":     "Follow",
-		"actor":    proxyActorURI,
-		"object":   remoteAccount.OriginId,
+		"type":     "Follow",               //nolint:goconst
+		"actor":    proxyActorURI,          //nolint:goconst
+		"object":   remoteAccount.OriginId, //nolint:goconst
 	}
 
 	// Fetch remote actor to get inbox
 	client := NewClient(rsaKey, proxyActorURI)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -387,7 +410,7 @@ func (s *ProxyService) sendFollowActivity(
 
 	inboxURL := actor.Inbox
 	if inboxURL == "" {
-		return "", fmt.Errorf("remote actor has no inbox")
+		return "", errors.New("remote actor has no inbox")
 	}
 
 	// Send the Follow activity
@@ -403,13 +426,13 @@ func (s *ProxyService) sendFollowActivity(
 
 // sendUndoFollowActivity sends an Undo{Follow} activity to a remote account.
 func (s *ProxyService) sendUndoFollowActivity(
-	proxyAccount *models.Account,
+	proxyAccount *models.Account, //nolint:unparam // param reserved for future use
 	proxyKey *models.AccountKey,
 	remoteAccount *models.Account,
 	followActivityID string,
 ) error {
 	if remoteAccount.OriginId == "" {
-		return fmt.Errorf("remote account has no OriginId")
+		return errors.New("remote account has no OriginId")
 	}
 
 	rsaKey, err := parsePrivateKey(proxyKey.PrivateKey)
@@ -420,12 +443,12 @@ func (s *ProxyService) sendUndoFollowActivity(
 	proxyActorURI := s.getProxyActorURI()
 	undoID := fmt.Sprintf("%s#undo/%d", proxyActorURI, time.Now().UnixNano())
 
-	activity := map[string]interface{}{
+	activity := map[string]any{
 		"@context": "https://www.w3.org/ns/activitystreams",
 		"id":       undoID,
-		"type":     "Undo",
+		"type":     "Undo", //nolint:goconst
 		"actor":    proxyActorURI,
-		"object": map[string]interface{}{
+		"object": map[string]any{
 			"id":     followActivityID,
 			"type":   "Follow",
 			"actor":  proxyActorURI,
@@ -435,6 +458,7 @@ func (s *ProxyService) sendUndoFollowActivity(
 
 	// Fetch remote actor to get inbox
 	client := NewClient(rsaKey, proxyActorURI)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -445,7 +469,7 @@ func (s *ProxyService) sendUndoFollowActivity(
 
 	inboxURL := actor.Inbox
 	if inboxURL == "" {
-		return fmt.Errorf("remote actor has no inbox")
+		return errors.New("remote actor has no inbox")
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)

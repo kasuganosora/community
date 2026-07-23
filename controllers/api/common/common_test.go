@@ -20,13 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError
+// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil && r != "abort" {
 			panic(r)
 		}
 	}()
+
 	fn(c)
 }
 
@@ -61,27 +62,33 @@ func setupTest(t *testing.T) {
 }
 
 // newJSONContext creates a gin.Context with a JSON request body.
-func newJSONContext(t *testing.T, method, path string, body interface{}) (*gin.Context, *httptest.ResponseRecorder) {
+func newJSONContext(t *testing.T, method, path string, body any) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
 	var bodyReader *bytes.Reader
+
 	if body != nil {
 		data, err := json.Marshal(body)
 		require.NoError(t, err)
+
 		bodyReader = bytes.NewReader(data)
 	} else {
 		bodyReader = bytes.NewReader(nil)
 	}
-	c.Request = httptest.NewRequest(method, path, bodyReader)
+
+	c.Request = httptest.NewRequest(method, path, bodyReader) //nolint:noctx // test code //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
+
 	return c, w
 }
 
 // newGetContext creates a gin.Context for a GET request.
 func newGetContext(t *testing.T, path string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
+
 	return newJSONContext(t, http.MethodGet, path, nil)
 }
 
@@ -96,11 +103,12 @@ func TestGetCaptchaConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp CaptchaConfigResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
 	// By default, captcha should be disabled
-	assert.Equal(t, false, resp.Enabled)
+	assert.False(t, resp.Enabled)
 	assert.Equal(t, "none", resp.Provider)
 }
 
@@ -110,12 +118,13 @@ func TestVerifyCaptcha_InvalidRequest(t *testing.T) {
 	setupTest(t)
 
 	// Send empty body (missing required "response" field)
-	c, w := newJSONContext(t, http.MethodPost, "/api/v1/captcha/verify", map[string]interface{}{})
+	c, w := newJSONContext(t, http.MethodPost, "/api/v1/captcha/verify", map[string]any{})
 	callHandler(VerifyCaptcha, c)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var resp VerifyCaptchaResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.False(t, resp.Success)
@@ -134,6 +143,7 @@ func TestVerifyCaptcha_Disabled(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp VerifyCaptchaResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
@@ -145,7 +155,7 @@ func TestVerifyCaptcha_NoBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/captcha/verify", bytes.NewReader(nil))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/captcha/verify", bytes.NewReader(nil)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	callHandler(VerifyCaptcha, c)
@@ -159,24 +169,26 @@ func TestGetCaptchaProviders(t *testing.T) {
 	// This handler is purely static, no DB dependency needed
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/captcha/providers", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/captcha/providers", nil) //nolint:noctx
 
 	GetCaptchaProviders(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var providers []map[string]string
+
 	err := json.Unmarshal(w.Body.Bytes(), &providers)
 	require.NoError(t, err)
 
 	// Should have 4 providers: recaptcha, cloudflare, hcaptcha, none
-	assert.Equal(t, 4, len(providers))
+	assert.Len(t, providers, 4)
 
 	// Check each expected provider is present
 	ids := make(map[string]bool)
 	for _, p := range providers {
 		ids[p["id"]] = true
 	}
+
 	assert.True(t, ids["recaptcha"], "recaptcha provider should be present")
 	assert.True(t, ids["cloudflare"], "cloudflare provider should be present")
 	assert.True(t, ids["hcaptcha"], "hcaptcha provider should be present")
@@ -198,7 +210,7 @@ func TestAdminUpdateCaptchaConfig_Success(t *testing.T) {
 
 	// Update captcha config to use recaptcha
 	req := AdminUpdateCaptchaConfigRequest{
-		Provider:  "recaptcha",
+		Provider:  "recaptcha", //nolint:goconst
 		SiteKey:   "test-site-key",
 		SecretKey: "test-secret-key",
 	}
@@ -208,6 +220,7 @@ func TestAdminUpdateCaptchaConfig_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]string
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "captcha config updated", resp["message"])
@@ -225,6 +238,7 @@ func TestAdminUpdateCaptchaConfig_InvalidProvider(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var resp map[string]string
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "invalid provider", resp["error"])
@@ -237,7 +251,7 @@ func TestAdminUpdateCaptchaConfig_InvalidRequest(t *testing.T) {
 	// since no fields are required, but let's test with malformed JSON)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/captcha/config",
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/captcha/config", //nolint:noctx
 		bytes.NewReader([]byte("not json")))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -250,7 +264,7 @@ func TestAdminUpdateCaptchaConfig_WithNoneProvider(t *testing.T) {
 	setupTest(t)
 
 	req := AdminUpdateCaptchaConfigRequest{
-		Provider: "none",
+		Provider: "none", //nolint:goconst
 	}
 	c, w := newJSONContext(t, http.MethodPut, "/api/v1/admin/captcha/config", req)
 	callHandler(AdminUpdateCaptchaConfig, c)
@@ -258,6 +272,7 @@ func TestAdminUpdateCaptchaConfig_WithNoneProvider(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]string
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "captcha config updated", resp["message"])
@@ -277,6 +292,7 @@ func TestAdminUpdateCaptchaConfig_WithEnabledFlag(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]string
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "captcha config updated", resp["message"])
@@ -299,7 +315,7 @@ func TestAdminUpdateCaptchaConfig_WithScoreThreshold(t *testing.T) {
 }
 
 func TestAdminUpdateCaptchaConfig_AllProviderTypes(t *testing.T) {
-	providers := []string{"recaptcha", "cloudflare", "hcaptcha", "none"}
+	providers := []string{"recaptcha", "cloudflare", "hcaptcha", "none"} //nolint:goconst
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			setupTest(t)
@@ -315,6 +331,7 @@ func TestAdminUpdateCaptchaConfig_AllProviderTypes(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code)
 
 			var resp map[string]string
+
 			err := json.Unmarshal(w.Body.Bytes(), &resp)
 			require.NoError(t, err)
 			assert.Equal(t, "captcha config updated", resp["message"])
@@ -339,7 +356,8 @@ func TestGetInstanceDetail(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp InstanceResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	err := json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
 	assert.Equal(t, "example.com", resp.Domain)
@@ -359,19 +377,20 @@ func TestGetInstanceDetail_DefaultValues(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp InstanceResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	err := json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
 	// Default values
-	assert.Equal(t, "", resp.Domain)
-	assert.Equal(t, "", resp.Title)
+	assert.Empty(t, resp.Domain)
+	assert.Empty(t, resp.Title)
 	assert.Equal(t, config.GetVersion(), resp.Version)
 	assert.Equal(t, "https://github.com/kasuganosora/community", resp.SourceUrl)
 
 	// Default registrations
-	assert.Equal(t, true, resp.Registrations.Enabled)
-	assert.Equal(t, false, resp.Registrations.ApprovalRequired)
-	assert.Equal(t, false, resp.Registrations.InviteRequired)
+	assert.True(t, resp.Registrations.Enabled)
+	assert.False(t, resp.Registrations.ApprovalRequired)
+	assert.False(t, resp.Registrations.InviteRequired)
 	assert.Equal(t, "admin@admin.com", resp.Contact.Email)
 
 	// Default languages
@@ -397,7 +416,8 @@ func TestGetInstanceDetail_WithActiveUsers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp InstanceResponse
-	err = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
 	// Active user count should be >= 0 (depends on created_at being within 30 days)
@@ -419,12 +439,13 @@ func TestGetInstanceDetail_WithRegistrationSettings(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp InstanceResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	err := json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
-	assert.Equal(t, false, resp.Registrations.Enabled)
-	assert.Equal(t, true, resp.Registrations.ApprovalRequired)
-	assert.Equal(t, true, resp.Registrations.InviteRequired)
+	assert.False(t, resp.Registrations.Enabled)
+	assert.True(t, resp.Registrations.ApprovalRequired)
+	assert.True(t, resp.Registrations.InviteRequired)
 	assert.Equal(t, "Registration is closed", resp.Registrations.Message)
 }
 
@@ -439,7 +460,8 @@ func TestGetInstanceDetail_WithContactEmail(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp InstanceResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
+
+	err := json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
 	assert.Equal(t, "admin@example.com", resp.Contact.Email)
@@ -454,7 +476,8 @@ func TestGetInstanceDetail_ResponseStructure(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Verify the response is valid JSON
-	var raw map[string]interface{}
+	var raw map[string]any
+
 	err := json.Unmarshal(w.Body.Bytes(), &raw)
 	require.NoError(t, err)
 
@@ -473,7 +496,7 @@ func TestGetInstanceDetail_ResponseStructure(t *testing.T) {
 	assert.Contains(t, raw, "rule")
 
 	// Check configuration sub-fields
-	config, ok := raw["configuration"].(map[string]interface{})
+	config, ok := raw["configuration"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, config, "urls")
 	assert.Contains(t, config, "accounts")
@@ -489,7 +512,7 @@ func TestVerifyCaptchaRequest_MissingResponse(t *testing.T) {
 	setupTest(t)
 
 	// Send request without "response" field
-	c, w := newJSONContext(t, http.MethodPost, "/api/v1/captcha/verify", map[string]interface{}{
+	c, w := newJSONContext(t, http.MethodPost, "/api/v1/captcha/verify", map[string]any{
 		"other_field": "value",
 	})
 	callHandler(VerifyCaptcha, c)
@@ -509,6 +532,7 @@ func TestVerifyCaptchaRequest_ValidResponse(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp VerifyCaptchaResponse
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
@@ -528,7 +552,8 @@ func TestCaptchaConfigResponse_JSONTags(t *testing.T) {
 	data, err := json.Marshal(resp)
 	require.NoError(t, err)
 
-	var raw map[string]interface{}
+	var raw map[string]any
+
 	err = json.Unmarshal(data, &raw)
 	require.NoError(t, err)
 
@@ -547,7 +572,8 @@ func TestVerifyCaptchaResponse_JSONTags(t *testing.T) {
 	data, err := json.Marshal(resp)
 	require.NoError(t, err)
 
-	var raw map[string]interface{}
+	var raw map[string]any
+
 	err = json.Unmarshal(data, &raw)
 	require.NoError(t, err)
 
@@ -564,7 +590,8 @@ func TestServerRuleResponseItem_JSONTags(t *testing.T) {
 	data, err := json.Marshal(item)
 	require.NoError(t, err)
 
-	var raw map[string]interface{}
+	var raw map[string]any
+
 	err = json.Unmarshal(data, &raw)
 	require.NoError(t, err)
 
@@ -576,19 +603,20 @@ func TestServerRuleResponseItem_JSONTags(t *testing.T) {
 
 func TestGetCaptchaProviders_IsIdempotent(t *testing.T) {
 	// Call twice and ensure consistent results
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/captcha/providers", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/captcha/providers", nil) //nolint:noctx
 
 		GetCaptchaProviders(c)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var providers []map[string]string
+
 		err := json.Unmarshal(w.Body.Bytes(), &providers)
 		require.NoError(t, err)
-		assert.Equal(t, 4, len(providers))
+		assert.Len(t, providers, 4)
 	}
 }
 

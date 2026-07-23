@@ -13,7 +13,7 @@ import (
 )
 
 // UserMapper 用户映射服务
-// 负责本地用户与 Matrix 虚拟用户之间的双向映射
+// 负责本地用户与 Matrix 虚拟用户之间的双向映射.
 type UserMapper struct {
 	client *ASClient
 	cache  *userCache
@@ -21,11 +21,12 @@ type UserMapper struct {
 
 type userCache struct {
 	sync.RWMutex
+
 	localToMatrix map[uint64]*models.MatrixUser // local_account_id -> MatrixUser
 	matrixToLocal map[string]*models.MatrixUser // matrix_user_id -> MatrixUser
 }
 
-// NewUserMapper 创建用户映射服务
+// NewUserMapper 创建用户映射服务.
 func NewUserMapper(client *ASClient) *UserMapper {
 	return &UserMapper{
 		client: client,
@@ -37,23 +38,27 @@ func NewUserMapper(client *ASClient) *UserMapper {
 }
 
 // GetOrCreateMatrixUserByLocal 获取或创建本地用户对应的 Matrix 虚拟用户
-// 方向：本地用户 -> Matrix
+// 方向：本地用户 -> Matrix.
 func (m *UserMapper) GetOrCreateMatrixUserByLocal(localAccountID uint64) (*models.MatrixUser, error) {
 	// 1. 先查缓存
 	m.cache.RLock()
+
 	if user, ok := m.cache.localToMatrix[localAccountID]; ok {
 		m.cache.RUnlock()
+
 		return user, nil
 	}
+
 	m.cache.RUnlock()
 
 	// 2. 查数据库
 	var matrixUser models.MatrixUser
+
 	err := db.GetDB().Where("local_account_id = ? AND direction = ?", localAccountID, "local").
 		First(&matrixUser).Error
-
 	if err == nil {
 		m.cacheUser(&matrixUser)
+
 		return &matrixUser, nil
 	}
 
@@ -65,13 +70,14 @@ func (m *UserMapper) GetOrCreateMatrixUserByLocal(localAccountID uint64) (*model
 	return m.createLocalUserMapping(localAccountID)
 }
 
-// createLocalUserMapping 为本地用户创建 Matrix 映射
+// createLocalUserMapping 为本地用户创建 Matrix 映射.
 func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.MatrixUser, error) {
 	LoadConfig()
 
 	// 获取本地账户信息
 	var account models.Account
-	if err := db.GetDB().First(&account, localAccountID).Error; err != nil {
+	err := db.GetDB().First(&account, localAccountID).Error
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to find local account")
 	}
 
@@ -80,7 +86,8 @@ func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.Matr
 	matrixUserID := GlobalConfig.FormatMatrixUserID(matrixLocalpart)
 
 	// 在 Matrix 上注册虚拟用户
-	if err := m.client.EnsureVirtualUser(matrixLocalpart); err != nil {
+	err = m.client.EnsureVirtualUser(matrixLocalpart)
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to register virtual user on Matrix")
 	}
 
@@ -90,7 +97,8 @@ func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.Matr
 		displayName = account.Username
 	}
 
-	if err := m.client.SetUserProfile(matrixUserID, displayName, ""); err != nil {
+	err = m.client.SetUserProfile(matrixUserID, displayName, "")
+	if err != nil {
 		log.Warn("failed to set user profile for %s: %v", matrixUserID, err)
 	}
 
@@ -104,32 +112,38 @@ func (m *UserMapper) createLocalUserMapping(localAccountID uint64) (*models.Matr
 		DisplayName:     displayName,
 	}
 
-	if err := db.GetDB().Create(matrixUser).Error; err != nil {
+	err = db.GetDB().Create(matrixUser).Error
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to create matrix user mapping")
 	}
 
 	m.cacheUser(matrixUser)
+
 	return matrixUser, nil
 }
 
 // GetOrCreateLocalUserByMatrix 获取或创建 Matrix 用户对应的本地虚拟账号
-// 方向：Matrix -> 本地
+// 方向：Matrix -> 本地.
 func (m *UserMapper) GetOrCreateLocalUserByMatrix(matrixUserID string) (*models.MatrixUser, error) {
 	// 1. 先查缓存
 	m.cache.RLock()
+
 	if user, ok := m.cache.matrixToLocal[matrixUserID]; ok {
 		m.cache.RUnlock()
+
 		return user, nil
 	}
+
 	m.cache.RUnlock()
 
 	// 2. 查数据库
 	var matrixUser models.MatrixUser
+
 	err := db.GetDB().Where("matrix_user_id = ? AND direction = ?", matrixUserID, "remote").
 		First(&matrixUser).Error
-
 	if err == nil {
 		m.cacheUser(&matrixUser)
+
 		return &matrixUser, nil
 	}
 
@@ -141,7 +155,7 @@ func (m *UserMapper) GetOrCreateLocalUserByMatrix(matrixUserID string) (*models.
 	return m.createRemoteUserMapping(matrixUserID)
 }
 
-// createRemoteUserMapping 为 Matrix 用户创建本地虚拟账号映射
+// createRemoteUserMapping 为 Matrix 用户创建本地虚拟账号映射.
 func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.MatrixUser, error) {
 	LoadConfig()
 
@@ -153,7 +167,7 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 
 	// 检查是否是本地用户的映射（避免循环）
 	if strings.HasPrefix(localpart, GlobalConfig.UserNamespacePrefix) {
-		return nil, fmt.Errorf("matrix user is a local mapping, use GetOrCreateMatrixUserByLocal instead")
+		return nil, errors.New("matrix user is a local mapping, use GetOrCreateMatrixUserByLocal instead")
 	}
 
 	// 获取 Matrix 用户档案
@@ -172,7 +186,7 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 	account := &models.Account{
 		Username:    localUsername,
 		DisplayName: profile.DisplayName,
-		Note:        fmt.Sprintf("Matrix user from %s", server),
+		Note:        "Matrix user from " + server,
 		Domain:      &server, // 标记为远程账号
 		OriginId:    matrixUserID,
 		Bot:         false,
@@ -182,6 +196,7 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 	tx := db.GetDB().Begin()
 	if err := tx.Create(account).Error; err != nil {
 		tx.Rollback()
+
 		return nil, errors.Wrap(err, "failed to create local virtual account")
 	}
 
@@ -198,6 +213,7 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 
 	if err := tx.Create(matrixUser).Error; err != nil {
 		tx.Rollback()
+
 		return nil, errors.Wrap(err, "failed to create matrix user mapping")
 	}
 
@@ -207,38 +223,43 @@ func (m *UserMapper) createRemoteUserMapping(matrixUserID string) (*models.Matri
 
 	matrixUser.LocalAccount = account
 	m.cacheUser(matrixUser)
+
 	return matrixUser, nil
 }
 
-// GetLocalAccountID 获取 Matrix 用户对应的本地账号 ID
+// GetLocalAccountID 获取 Matrix 用户对应的本地账号 ID.
 func (m *UserMapper) GetLocalAccountID(matrixUserID string) (uint64, error) {
 	matrixUser, err := m.GetOrCreateLocalUserByMatrix(matrixUserID)
 	if err != nil {
 		return 0, err
 	}
+
 	return matrixUser.LocalAccountId, nil
 }
 
-// GetMatrixUserID 获取本地用户对应的 Matrix 用户 ID
+// GetMatrixUserID 获取本地用户对应的 Matrix 用户 ID.
 func (m *UserMapper) GetMatrixUserID(localAccountID uint64) (string, error) {
 	matrixUser, err := m.GetOrCreateMatrixUserByLocal(localAccountID)
 	if err != nil {
 		return "", err
 	}
+
 	return matrixUser.MatrixUserID, nil
 }
 
-// IsMatrixUser 检查 Matrix 用户 ID 是否属于本系统的映射
+// IsMatrixUser 检查 Matrix 用户 ID 是否属于本系统的映射.
 func (m *UserMapper) IsMatrixUser(matrixUserID string) bool {
 	LoadConfig()
+
 	localpart, _, ok := ParseMatrixUserID(matrixUserID)
 	if !ok {
 		return false
 	}
+
 	return strings.HasPrefix(localpart, GlobalConfig.UserNamespacePrefix)
 }
 
-// GetLocalAccountFromMatrixUser 从 Matrix 用户 ID 获取本地账号
+// GetLocalAccountFromMatrixUser 从 Matrix 用户 ID 获取本地账号.
 func (m *UserMapper) GetLocalAccountFromMatrixUser(matrixUserID string) (*models.Account, error) {
 	matrixUser, err := m.GetOrCreateLocalUserByMatrix(matrixUserID)
 	if err != nil {
@@ -253,15 +274,14 @@ func (m *UserMapper) GetLocalAccountFromMatrixUser(matrixUserID string) (*models
 	return &account, nil
 }
 
-// UpdateUserProfile 更新 Matrix 用户的档案信息
+// UpdateUserProfile 更新 Matrix 用户的档案信息.
 func (m *UserMapper) UpdateUserProfile(matrixUserID string, displayName, avatarURL string) error {
 	err := db.GetDB().Model(&models.MatrixUser{}).
 		Where("matrix_user_id = ?", matrixUserID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"display_name": displayName,
-			"avatar_url":   avatarURL,
+			"avatar_url":   avatarURL, //nolint:goconst
 		}).Error
-
 	if err != nil {
 		return errors.Wrap(err, "failed to update matrix user profile")
 	}
@@ -277,7 +297,7 @@ func (m *UserMapper) UpdateUserProfile(matrixUserID string, displayName, avatarU
 	return nil
 }
 
-// cacheUser 缓存用户映射
+// cacheUser 缓存用户映射.
 func (m *UserMapper) cacheUser(user *models.MatrixUser) {
 	m.cache.Lock()
 	defer m.cache.Unlock()
@@ -285,10 +305,11 @@ func (m *UserMapper) cacheUser(user *models.MatrixUser) {
 	if user.IsLocalUser() {
 		m.cache.localToMatrix[user.LocalAccountId] = user
 	}
+
 	m.cache.matrixToLocal[user.MatrixUserID] = user
 }
 
-// ClearCache 清除缓存
+// ClearCache 清除缓存.
 func (m *UserMapper) ClearCache() {
 	m.cache.Lock()
 	defer m.cache.Unlock()

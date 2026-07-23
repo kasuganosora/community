@@ -7,8 +7,8 @@ import (
 )
 
 // MatrixUser Matrix 用户映射模型
-// 存储本地用户与 Matrix 虚拟用户的映射关系
-type MatrixUser struct {
+// 存储本地用户与 Matrix 虚拟用户的映射关系.
+type MatrixUser struct { //nolint:recvcheck
 	Id uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 
 	// 本地用户 ID（如果是本地用户映射到 Matrix）
@@ -35,7 +35,7 @@ type MatrixUser struct {
 	// 时间戳
 	CreatedAt *time.Time     `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index"          json:"deleted_at"`
 
 	// 关联
 	LocalAccount *Account `gorm:"foreignKey:LocalAccountId;references:Id" json:"local_account,omitempty"`
@@ -45,19 +45,19 @@ func (MatrixUser) TableName() string {
 	return "matrix_users"
 }
 
-// IsLocalUser 判断是否为本地用户映射到 Matrix
+// IsLocalUser 判断是否为本地用户映射到 Matrix.
 func (m *MatrixUser) IsLocalUser() bool {
 	return m.Direction == "local"
 }
 
-// IsRemoteUser 判断是否为 Matrix 用户映射到本地
+// IsRemoteUser 判断是否为 Matrix 用户映射到本地.
 func (m *MatrixUser) IsRemoteUser() bool {
 	return m.Direction == "remote"
 }
 
 // MatrixRoom Matrix 房间映射模型
-// 存储 Matrix 房间与本地 Conversation 的映射关系
-type MatrixRoom struct {
+// 存储 Matrix 房间与本地 Conversation 的映射关系.
+type MatrixRoom struct { //nolint:recvcheck
 	Id uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 
 	// 本地会话 ID
@@ -87,7 +87,7 @@ type MatrixRoom struct {
 	// 时间戳
 	CreatedAt *time.Time     `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index"          json:"deleted_at"`
 
 	// 关联
 	Conversation *Conversation `gorm:"foreignKey:ConversationId;references:Id" json:"conversation,omitempty"`
@@ -97,7 +97,7 @@ func (MatrixRoom) TableName() string {
 	return "matrix_rooms"
 }
 
-// UpdateLastSync 更新最后同步时间和事件 ID
+// UpdateLastSync 更新最后同步时间和事件 ID.
 func (m *MatrixRoom) UpdateLastSync(eventID string) {
 	now := time.Now()
 	m.LastEventID = eventID
@@ -105,7 +105,7 @@ func (m *MatrixRoom) UpdateLastSync(eventID string) {
 }
 
 // MatrixMessage Matrix 消息映射模型
-// 存储 Matrix 事件与本地 Status 的映射关系（用于避免重复同步）
+// 存储 Matrix 事件与本地 Status 的映射关系（用于避免重复同步）.
 type MatrixMessage struct {
 	Id uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 

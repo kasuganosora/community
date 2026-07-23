@@ -19,7 +19,7 @@ func TestAccount_IsLocal(t *testing.T) {
 		},
 		{
 			name:     "remote account",
-			account:  Account{Username: "remoteuser", Domain: strPtr("example.com")},
+			account:  Account{Username: "remoteuser", Domain: new("example.com")},
 			expected: false,
 		},
 	}
@@ -80,7 +80,7 @@ func TestMatchAccountTags(t *testing.T) {
 		{
 			name:     "single mention",
 			text:     "Hello @user1",
-			expected: []string{"@user1"},
+			expected: []string{"@user1"}, //nolint:goconst
 		},
 		{
 			name:     "multiple mentions",
@@ -94,8 +94,8 @@ func TestMatchAccountTags(t *testing.T) {
 		},
 		{
 			name:     "no mentions",
-			text:     "Hello world",
-			expected: []string{}, // Empty slice, not nil
+			text:     "Hello world", //nolint:goconst
+			expected: []string{},    // Empty slice, not nil
 		},
 		{
 			name:     "mention at end",
@@ -110,9 +110,4 @@ func TestMatchAccountTags(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-// Helper function
-func strPtr(s string) *string {
-	return &s
 }

@@ -9,12 +9,13 @@ import (
 )
 
 type CreateRequest struct {
-	Text     string `json:"text" binding:"required"`
+	Text     string `binding:"required" json:"text"`
 	Priority uint   `json:"priority"`
 }
 
 func Create(c *gin.Context) {
 	var req CreateRequest
+
 	err := c.ShouldBindJSON(&req)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"message": err})
 

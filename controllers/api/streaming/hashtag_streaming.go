@@ -8,15 +8,18 @@ import (
 
 type HashtagStreamingRequest struct {
 	OnlyMedia bool   `form:"only_media"`
-	Tag       string `form:"tag" binding:"required"`
+	Tag       string `binding:"required" form:"tag"`
 }
 
 func HashtagStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
-	var req HashtagStreamingRequest
-	var err error
+	var (
+		req HashtagStreamingRequest
+		err error
+	)
 
 	if err = c.ShouldBindQuery(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
@@ -30,7 +33,7 @@ func HashtagStreamingBase(c *gin.Context, onlyLocal bool, onlyRemote bool) {
 	}
 
 	procHandle := func(data any) (event, payload string, err error) {
-		return serializerStatusEvent(account, data.(string))
+		return serializerStatusEvent(account, data.(string)) //nolint:forcetypeassert
 	}
 
 	startSseService(c, procHandle, timeline)

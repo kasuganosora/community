@@ -6,7 +6,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisClient 定义 feed 模块需要的 Redis 操作接口
+// RedisClient 定义 feed 模块需要的 Redis 操作接口.
 type RedisClient interface {
 	ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd
 	ZRem(ctx context.Context, key string, members ...any) *redis.IntCmd
@@ -33,7 +33,7 @@ type RedisClient interface {
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 }
 
-// redisClientWrapper 包装 redis.Client 以实现 RedisClient 接口
+// redisClientWrapper 包装 redis.Client 以实现 RedisClient 接口.
 type redisClientWrapper struct {
 	*redis.Client
 }
@@ -42,5 +42,5 @@ func NewRedisClient(client *redis.Client) RedisClient {
 	return &redisClientWrapper{Client: client}
 }
 
-// 确保 redisClientWrapper 实现了 RedisClient 接口
+// 确保 redisClientWrapper 实现了 RedisClient 接口.
 var _ RedisClient = (*redisClientWrapper)(nil)

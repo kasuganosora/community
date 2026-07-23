@@ -8,14 +8,14 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// GetDimensions handles GET /api/v1/admin/dimensions
+// GetDimensions handles GET /api/v1/admin/dimensions.
 func GetDimensions(c *gin.Context) {
 	keys := c.QueryArray("keys[]")
 	if len(keys) == 0 {
 		keys = c.QueryArray("keys")
 	}
 
-	result := make([]gin.H, 0)
+	result := make([]gin.H, 0, 12)
 
 	for _, key := range keys {
 		switch key {
@@ -31,8 +31,8 @@ func GetDimensions(c *gin.Context) {
 			result = append(result, getSoftwareVersionsDimension())
 		default:
 			result = append(result, gin.H{
-				"key":  key,
-				"data": []interface{}{},
+				"key":  key,     //nolint:goconst
+				"data": []any{}, //nolint:goconst
 			})
 		}
 	}
@@ -40,7 +40,7 @@ func GetDimensions(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// GetMeasures handles GET /api/v1/admin/measures
+// GetMeasures handles GET /api/v1/admin/measures.
 func GetMeasures(c *gin.Context) {
 	keys := c.QueryArray("keys[]")
 	if len(keys) == 0 {
@@ -55,7 +55,7 @@ func GetMeasures(c *gin.Context) {
 			result = append(result, getActiveUsersMeasure())
 		case "new_users":
 			result = append(result, getNewUsersMeasure())
-		case "interactions":
+		case "interactions": //nolint:goconst
 			result = append(result, getInteractionsMeasure())
 		case "opened_reports":
 			result = append(result, getOpenedReportsMeasure())
@@ -68,9 +68,9 @@ func GetMeasures(c *gin.Context) {
 		default:
 			result = append(result, gin.H{
 				"key":   key,
-				"unit":  nil,
-				"total": "0",
-				"data":  []interface{}{},
+				"unit":  nil, //nolint:goconst
+				"total": "0", //nolint:goconst
+				"data":  []any{},
 			})
 		}
 	}
@@ -78,7 +78,7 @@ func GetMeasures(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// GetRetention handles GET /api/v1/admin/retention
+// GetRetention handles GET /api/v1/admin/retention.
 func GetRetention(c *gin.Context) {
 	frequency := c.Query("frequency")
 	if frequency == "" {
@@ -87,13 +87,16 @@ func GetRetention(c *gin.Context) {
 
 	startAt := time.Now().AddDate(0, 0, -12*7)
 
-	data := make([]gin.H, 0)
-	for i := 0; i < 12; i++ {
+	data := make([]gin.H, 0, 12)
+
+	for i := range 12 {
 		weekStart := startAt.AddDate(0, 0, i*7)
 		weekEnd := weekStart.AddDate(0, 0, 7)
 
-		var cohortSize int64
-		var retained int64
+		var (
+			cohortSize int64
+			retained   int64
+		)
 
 		db.GetDB().Model(&models.Account{}).
 			Where("created_at >= ? AND created_at < ?", weekStart, weekEnd).
@@ -138,9 +141,9 @@ func getLanguageDimension() gin.H {
 	for _, s := range stats {
 		data = append(data, gin.H{
 			"key":         s.Language,
-			"human_key":   s.Language,
-			"value":       s.Count,
-			"human_value": formatNumber(s.Count),
+			"human_key":   s.Language,            //nolint:goconst
+			"value":       s.Count,               //nolint:goconst
+			"human_value": formatNumber(s.Count), //nolint:goconst
 		})
 	}
 
@@ -213,9 +216,11 @@ func getServerDimension() gin.H {
 }
 
 func getSpaceUsageDimension() gin.H {
-	var totalStatuses int64
-	var totalAccounts int64
-	var totalMedia int64
+	var (
+		totalStatuses int64
+		totalAccounts int64
+		totalMedia    int64
+	)
 
 	db.GetDB().Model(&models.Status{}).Count(&totalStatuses)
 	db.GetDB().Model(&models.Account{}).Count(&totalAccounts)
@@ -255,7 +260,7 @@ func getActiveUsersMeasure() gin.H {
 
 	return gin.H{
 		"key":   "active_users",
-		"unit":  "users",
+		"unit":  "users", //nolint:goconst
 		"total": formatNumber(count),
 		"data":  []gin.H{},
 	}
@@ -346,12 +351,14 @@ func calculatePercentage(part, total int64) string {
 	if total == 0 {
 		return "0"
 	}
+
 	percentage := float64(part) / float64(total) * 100
 	if percentage >= 100 {
 		return "100"
 	} else if percentage >= 10 {
 		return formatFloat(percentage, 0)
 	}
+
 	return formatFloat(percentage, 1)
 }
 
@@ -359,9 +366,11 @@ func formatNumber(n int64) string {
 	if n >= 1000000 {
 		return formatFloat(float64(n)/1000000, 1) + "M"
 	}
+
 	if n >= 1000 {
 		return formatFloat(float64(n)/1000, 1) + "K"
 	}
+
 	return formatInt(n)
 }
 
@@ -378,18 +387,22 @@ func formatInt(n int64) string {
 	if n == 0 {
 		return "0"
 	}
+
 	var neg bool
 	if n < 0 {
 		neg = true
 		n = -n
 	}
+
 	var digits []byte
 	for n > 0 {
 		digits = append([]byte{byte('0' + n%10)}, digits...)
 		n /= 10
 	}
+
 	if neg {
 		digits = append([]byte{'-'}, digits...)
 	}
+
 	return string(digits)
 }

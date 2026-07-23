@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// RegisterRoutes 注册 Matrix Client-Server API 路由
+// RegisterRoutes 注册 Matrix Client-Server API 路由.
 func RegisterRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -313,17 +314,17 @@ func RegisterRoutes(r gin.IRouter) {
 // matrixErrorStatus maps a MatrixError code to the appropriate HTTP status code.
 func matrixErrorStatus(err *MatrixError) int {
 	switch err.ErrCode {
-	case "M_FORBIDDEN", "M_USER_DEACTIVATED":
+	case "M_FORBIDDEN", "M_USER_DEACTIVATED": //nolint:goconst
 		return http.StatusForbidden
-	case "M_NOT_FOUND":
+	case "M_NOT_FOUND": //nolint:goconst
 		return http.StatusNotFound
-	case "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_MISSING_TOKEN":
+	case "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_MISSING_TOKEN": //nolint:goconst
 		return http.StatusUnauthorized
 	case "M_LIMIT_EXCEEDED":
 		return http.StatusTooManyRequests
-	case "M_TOO_LARGE":
+	case "M_TOO_LARGE": //nolint:goconst
 		return http.StatusRequestEntityTooLarge
-	case "M_USER_IN_USE", "M_INVALID_USERNAME", "M_EXCLUSIVE":
+	case "M_USER_IN_USE", "M_INVALID_USERNAME", "M_EXCLUSIVE": //nolint:goconst
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadRequest
@@ -342,18 +343,21 @@ func matrixAuthMiddleware() gin.HandlerFunc {
 
 		if auth == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"errcode": "M_MISSING_TOKEN",
-				"error":   "Missing access token",
+				"errcode": "M_MISSING_TOKEN",      //nolint:goconst
+				"error":   "Missing access token", //nolint:goconst
 			})
 			c.Abort()
+
 			return
 		}
 
 		hs := GetHomeServer()
+
 		session, err := hs.Auth.GetDeviceByToken(auth)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, err)
 			c.Abort()
+
 			return
 		}
 
@@ -367,58 +371,71 @@ func matrixAuthMiddleware() gin.HandlerFunc {
 
 func getUserID(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
-		return userID.(string)
+		return userID.(string) //nolint:forcetypeassert
 	}
+
 	return ""
 }
 
-// getUserLeaveTS returns the timestamp when the user left the room, or 0 if not left
+// getUserLeaveTS returns the timestamp when the user left the room, or 0 if not left.
 func getUserLeaveTS(roomID, userID string) int64 {
 	var member MatrixRoomMember
-	if err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error; err != nil {
+	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+	if err != nil {
 		return 0
 	}
+
 	if member.Membership != MembershipLeave && member.Membership != MembershipBan {
 		return 0
 	}
+
 	if member.EventID == "" {
 		return 0
 	}
+
 	var event MatrixEvent
-	if err := db.GetDB().Where("event_id = ?", member.EventID).First(&event).Error; err != nil {
+	err = db.GetDB().Where("event_id = ?", member.EventID).First(&event).Error
+	if err != nil {
 		return 0
 	}
+
 	return event.OriginServerTS
 }
 
-// getStateAtTime returns a state event as it was at or before the given timestamp
+// getStateAtTime returns a state event as it was at or before the given timestamp.
 func getStateAtTime(roomID, eventType, stateKey string, ts int64) (*ClientEvent, *MatrixError) {
 	// Find the most recent state event of this type that was set at or before ts
 	var event MatrixEvent
+
 	err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND origin_server_ts <= ?",
 		roomID, eventType, stateKey, ts).
 		Order("origin_server_ts DESC").First(&event).Error
 	if err != nil {
 		return nil, ErrNotFound
 	}
+
 	return event.ToClientEvent(), nil
 }
 
-// getFullStateAtTime returns all state events for a room as they were at or before the given timestamp
+// getFullStateAtTime returns all state events for a room as they were at or before the given timestamp.
 func getFullStateAtTime(roomID string, ts int64) []*ClientEvent {
 	var stateEntries []MatrixRoomState
+
 	db.GetDB().Where("room_id = ?", roomID).Find(&stateEntries)
 
 	var result []*ClientEvent
+
 	for _, entry := range stateEntries {
 		// Find the version of this state event that was valid at `ts`
 		var event MatrixEvent
-		if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND origin_server_ts <= ?",
+		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND origin_server_ts <= ?",
 			roomID, entry.EventType, entry.StateKey, ts).
-			Order("origin_server_ts DESC").First(&event).Error; err == nil {
+			Order("origin_server_ts DESC").First(&event).Error
+		if err == nil {
 			result = append(result, event.ToClientEvent())
 		}
 	}
+
 	return result
 }
 
@@ -457,32 +474,38 @@ func handleVersions(c *gin.Context) {
 
 func handleGetLoginFlows(c *gin.Context) {
 	hs := GetHomeServer()
-	flowBytes, _ := json.Marshal(hs.Auth.GetLoginFlows())
+	flowBytes, _ := json.Marshal(hs.Auth.GetLoginFlows()) //nolint:errchkjson // deterministic serialization
 	c.Data(http.StatusOK, "application/json", flowBytes)
 }
 
 func handleLogin(c *gin.Context) {
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Bad JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
+			"error":   "Bad JSON",   //nolint:goconst
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
+
 	resp, matErr := hs.Auth.Login(&req)
 	if matErr != nil {
 		status := http.StatusUnauthorized
+
 		switch matErr.ErrCode {
 		case "M_FORBIDDEN", "M_USER_DEACTIVATED":
 			status = http.StatusForbidden
-		case "M_BAD_JSON", "M_INVALID_PARAM":
+		case "M_BAD_JSON", "M_INVALID_PARAM": //nolint:goconst
 			status = http.StatusBadRequest
 		}
+
 		c.Header("Content-Type", "application/json")
 		c.JSON(status, matErr)
+
 		return
 	}
 
@@ -511,13 +534,16 @@ func handleRefresh(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
+
 	resp, err := hs.Auth.Refresh(&req)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, err)
+
 		return
 	}
 
@@ -529,8 +555,10 @@ func handleRegister(c *gin.Context) {
 	body, readErr := io.ReadAll(c.Request.Body)
 	if readErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Failed to read request body"})
+
 		return
 	}
+
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	if len(body) > 0 && !utf8.Valid(body) {
 		c.Header("Content-Type", "application/json")
@@ -538,6 +566,7 @@ func handleRegister(c *gin.Context) {
 			"errcode": "M_NOT_JSON",
 			"error":   "Request body contains invalid UTF-8",
 		})
+
 		return
 	}
 
@@ -547,6 +576,7 @@ func handleRegister(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
@@ -556,14 +586,20 @@ func handleRegister(c *gin.Context) {
 	if uia := hs.Auth.NeedsUIAuth(&req); uia != nil {
 		// Must return exactly "application/json" (no charset) per Matrix spec.
 		// c.JSON() writes "application/json; charset=utf-8", so write manually.
-		uiaBytes, _ := json.Marshal(uia)
+		uiaBytes, err := json.Marshal(uia)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			return
+		}
 		c.Data(http.StatusUnauthorized, "application/json", uiaBytes)
+
 		return
 	}
 
 	resp, err := hs.Auth.Register(&req, false)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -584,6 +620,7 @@ func handleUsernameAvailable(c *gin.Context) {
 			"errcode": "M_INVALID_USERNAME",
 			"error":   "Invalid username",
 		})
+
 		return
 	}
 
@@ -594,6 +631,7 @@ func handleUsernameAvailable(c *gin.Context) {
 			"errcode": "M_USER_IN_USE",
 			"error":   "Username already in use",
 		})
+
 		return
 	}
 
@@ -620,14 +658,17 @@ func handleCreateRoom(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	userID := getUserID(c)
 	hs := GetHomeServer()
+
 	resp, err := hs.Room.CreateRoom(userID, &req)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -637,7 +678,7 @@ func handleCreateRoom(c *gin.Context) {
 func handleGetRoom(c *gin.Context) {
 	roomID := c.Param("roomId")
 	c.JSON(http.StatusOK, gin.H{
-		"room_id": roomID,
+		"room_id": roomID, //nolint:goconst
 	})
 }
 
@@ -646,19 +687,23 @@ func handleJoinRoom(c *gin.Context) {
 	if roomID == "" {
 		roomID = c.Param("roomIdOrAlias")
 	}
+
 	userID := getUserID(c)
 
 	// Parse optional request body — any extra keys are merged into the join event
-	var body map[string]interface{}
+	var body map[string]any
+
 	_ = c.ShouldBindJSON(&body)
 
 	// Collect server_name hints for federation join (can appear multiple times)
 	servers := c.QueryArray("server_name")
 
 	hs := GetHomeServer()
+
 	roomID, err := hs.Room.JoinRoom(userID, roomID, &JoinRoomRequest{AdditionalContent: body, Servers: servers})
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -678,14 +723,17 @@ func handleLeaveRoom(c *gin.Context) {
 	var member MatrixRoomMember
 	if db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error == nil {
 		if member.Membership == MembershipInvite {
-			botUserID := fmt.Sprintf("@_server:%s", hs.Config.ServerName)
+			botUserID := "@_server:" + hs.Config.ServerName
+
 			var createEvent MatrixEvent
+
 			if db.GetDB().Where("room_id = ? AND event_type = ?", roomID, "m.room.create").First(&createEvent).Error == nil {
 				if creator, ok := createEvent.Content["creator"].(string); ok && creator == botUserID {
 					c.JSON(http.StatusForbidden, gin.H{
 						"errcode": "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
 						"error":   "You cannot reject this invite",
 					})
+
 					return
 				}
 			}
@@ -694,6 +742,7 @@ func handleLeaveRoom(c *gin.Context) {
 
 	if err := hs.Room.LeaveRoom(userID, roomID, &LeaveRoomRequest{}); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -706,17 +755,20 @@ func handleForgetRoom(c *gin.Context) {
 
 	// 检查用户必须已经离开房间
 	var member MatrixRoomMember
-	if err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error; err != nil {
+	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+	if err != nil {
 		// 如果找不到成员记录，已经遗忘了
 		c.JSON(http.StatusOK, gin.H{})
+
 		return
 	}
 
 	if member.Membership != MembershipLeave && member.Membership != MembershipBan {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_UNKNOWN",
+			"errcode": "M_UNKNOWN", //nolint:goconst
 			"error":   "You must leave the room before you can forget it",
 		})
+
 		return
 	}
 
@@ -731,17 +783,20 @@ func handleInviteUser(c *gin.Context) {
 	userID := getUserID(c)
 
 	var req InviteUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	if err := hs.Room.InviteUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -753,17 +808,20 @@ func handleKickUser(c *gin.Context) {
 	userID := getUserID(c)
 
 	var req KickUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	if err := hs.Room.KickUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -775,24 +833,27 @@ func handleBanUser(c *gin.Context) {
 	userID := getUserID(c)
 
 	var req BanUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	if err := hs.Room.BanUser(roomID, userID, &req); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleUnbanUser 解封用户
+// handleUnbanUser 解封用户.
 func handleUnbanUser(c *gin.Context) {
 	roomID := c.Param("roomId")
 	userID := getUserID(c)
@@ -800,16 +861,19 @@ func handleUnbanUser(c *gin.Context) {
 	var req struct {
 		UserID string `json:"user_id"`
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	// 检查权限
 	var member MatrixRoomMember
+
 	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
 		roomID, userID, "join").First(&member).Error
 	if err != nil || member.PowerLevel < 50 {
@@ -817,6 +881,7 @@ func handleUnbanUser(c *gin.Context) {
 			"errcode": "M_FORBIDDEN",
 			"error":   "Not authorized",
 		})
+
 		return
 	}
 
@@ -830,6 +895,7 @@ func handleUnbanUser(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "User is not banned",
 		})
+
 		return
 	}
 
@@ -846,15 +912,19 @@ func handleGetRoomMembers(c *gin.Context) {
 	if callerMembership != MembershipJoin {
 		// Allow if they were previously a member (leave/ban)
 		var count int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Count(&count)
+
 		if count == 0 {
 			c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "You are not in this room"})
+
 			return
 		}
 	}
 
 	membership := c.QueryArray("membership")
 	notMembership := c.QueryArray("not_membership")
+
 	var membershipStates []MembershipState
 	for _, m := range membership {
 		membershipStates = append(membershipStates, MembershipState(m))
@@ -863,6 +933,7 @@ func handleGetRoomMembers(c *gin.Context) {
 	members, matErr := hs.Room.GetRoomMembers(roomID, membershipStates)
 	if matErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": matErr.ErrCode, "error": matErr.Error})
+
 		return
 	}
 
@@ -872,17 +943,21 @@ func handleGetRoomMembers(c *gin.Context) {
 		for _, nm := range notMembership {
 			notSet[nm] = true
 		}
+
 		filtered := members[:0]
+
 		for _, m := range members {
 			if !notSet[string(m.Membership)] {
 				filtered = append(filtered, m)
 			}
 		}
+
 		members = filtered
 	}
 
 	// Determine the point-in-time cutoff timestamp
 	var cutoffTS int64
+
 	if atToken := c.Query("at"); atToken != "" {
 		// Support both s<ts> (sync token) and t<ts>_<idx> (pagination token) formats
 		if len(atToken) > 1 && (atToken[0] == 's' || atToken[0] == 't') {
@@ -891,6 +966,7 @@ func handleGetRoomMembers(c *gin.Context) {
 			if idx := strings.Index(tsStr, "_"); idx > 0 {
 				tsStr = tsStr[:idx]
 			}
+
 			if ts, err := strconv.ParseInt(tsStr, 10, 64); err == nil {
 				cutoffTS = ts
 			}
@@ -903,12 +979,14 @@ func handleGetRoomMembers(c *gin.Context) {
 	// Apply point-in-time filter
 	if cutoffTS > 0 {
 		filtered := members[:0]
+
 		for _, m := range members {
 			if m.EventID != "" {
 				var evt MatrixEvent
 				if db.GetDB().Where("event_id = ?", m.EventID).First(&evt).Error == nil {
 					if evt.OriginServerTS <= cutoffTS {
 						filtered = append(filtered, m)
+
 						continue
 					}
 					// Skip members whose event is after the cutoff
@@ -918,27 +996,31 @@ func handleGetRoomMembers(c *gin.Context) {
 			// If no event or timestamp, include by default (created before sync)
 			filtered = append(filtered, m)
 		}
+
 		members = filtered
 	}
 
 	chunk := make([]gin.H, 0, len(members))
+
 	for _, m := range members {
-		content := gin.H{"membership": string(m.Membership)}
+		content := gin.H{"membership": string(m.Membership)} //nolint:goconst
 		if m.DisplayName != nil {
 			content["displayname"] = *m.DisplayName
 		}
+
 		if m.AvatarURL != nil {
 			content["avatar_url"] = *m.AvatarURL
 		}
+
 		stateKey := m.UserID
 		evt := gin.H{
-			"type":             "m.room.member",
-			"event_id":         m.EventID,
+			"type":             "m.room.member", //nolint:goconst
+			"event_id":         m.EventID,       //nolint:goconst
 			"room_id":          m.RoomID,
-			"sender":           m.UserID,
-			"state_key":        stateKey,
-			"content":          content,
-			"origin_server_ts": int64(0),
+			"sender":           m.UserID, //nolint:goconst
+			"state_key":        stateKey, //nolint:goconst
+			"content":          content,  //nolint:goconst
+			"origin_server_ts": int64(0), //nolint:goconst
 		}
 		// Enrich origin_server_ts from the event record if available
 		if m.EventID != "" {
@@ -948,6 +1030,7 @@ func handleGetRoomMembers(c *gin.Context) {
 				evt["sender"] = evt2.Sender
 			}
 		}
+
 		chunk = append(chunk, evt)
 	}
 
@@ -963,15 +1046,19 @@ func handleGetJoinedMembers(c *gin.Context) {
 
 	// 检查请求者是否是房间成员
 	var requesterMember MatrixRoomMember
-	if err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipJoin).First(&requesterMember).Error; err != nil {
+	err := db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipJoin).First(&requesterMember).Error
+	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Not a member of this room"})
+
 		return
 	}
 
 	var members []MatrixRoomMember
+
 	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
 
 	joined := make(map[string]gin.H, len(members))
+
 	for _, m := range members {
 		info := gin.H{
 			"display_name": nil,
@@ -980,6 +1067,7 @@ func handleGetJoinedMembers(c *gin.Context) {
 		if m.DisplayName != nil {
 			info["display_name"] = *m.DisplayName
 		}
+
 		if m.AvatarURL != nil {
 			info["avatar_url"] = *m.AvatarURL
 		}
@@ -991,11 +1079,13 @@ func handleGetJoinedMembers(c *gin.Context) {
 				if account.DisplayName != "" {
 					info["display_name"] = account.DisplayName
 				}
+
 				if account.Avatar != "" {
 					info["avatar_url"] = fmt.Sprintf("mxc://%s/%s", hs.Config.ServerName, account.Avatar)
 				}
 			}
 		}
+
 		joined[m.UserID] = info
 	}
 
@@ -1011,9 +1101,12 @@ func handleGetRoomState(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		var count int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Count(&count)
+
 		if count == 0 {
 			c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "You are not in this room"})
+
 			return
 		}
 	}
@@ -1024,6 +1117,7 @@ func handleGetRoomState(c *gin.Context) {
 		if leaveTS > 0 {
 			events := getFullStateAtTime(roomID, leaveTS)
 			c.JSON(http.StatusOK, events)
+
 			return
 		}
 	}
@@ -1031,6 +1125,7 @@ func handleGetRoomState(c *gin.Context) {
 	events, err := hs.Room.GetRoomStateAll(roomID)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1049,9 +1144,12 @@ func handleGetRoomStateEvent(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		var count int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Count(&count)
+
 		if count == 0 {
 			c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "You are not in this room"})
+
 			return
 		}
 	}
@@ -1063,13 +1161,18 @@ func handleGetRoomStateEvent(c *gin.Context) {
 			event, err := getStateAtTime(roomID, eventType, stateKey, leaveTS)
 			if err != nil {
 				c.JSON(http.StatusNotFound, err)
+
 				return
 			}
+
 			if c.Query("format") == "event" {
 				c.JSON(http.StatusOK, event)
+
 				return
 			}
+
 			c.JSON(http.StatusOK, event.Content)
+
 			return
 		}
 	}
@@ -1077,6 +1180,7 @@ func handleGetRoomStateEvent(c *gin.Context) {
 	event, err := hs.Event.GetRoomStateEvent(roomID, eventType, stateKey)
 	if err != nil {
 		c.JSON(http.StatusNotFound, err)
+
 		return
 	}
 
@@ -1086,10 +1190,13 @@ func handleGetRoomStateEvent(c *gin.Context) {
 			var fullEvent MatrixEvent
 			if db.GetDB().Where("event_id = ?", event.EventID).First(&fullEvent).Error == nil {
 				c.JSON(http.StatusOK, fullEvent.ToClientEvent())
+
 				return
 			}
 		}
+
 		c.JSON(http.StatusOK, event)
+
 		return
 	}
 
@@ -1106,18 +1213,22 @@ func handleSendStateEvent(c *gin.Context) {
 	// Matrix spec: events must be at most 65536 bytes
 	// Read body to check actual size (ContentLength may be -1 for chunked encoding)
 	body, _ := io.ReadAll(c.Request.Body)
+
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
 	if len(body) > 65536 {
 		c.JSON(http.StatusRequestEntityTooLarge, MatrixError{ErrCode: "M_TOO_LARGE", Error: "Event too large"})
+
 		return
 	}
 
-	var content map[string]interface{}
+	var content map[string]any
 	if err := c.ShouldBindJSON(&content); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
@@ -1133,32 +1244,43 @@ func handleSendStateEvent(c *gin.Context) {
 		if alias, ok := content["alias"].(string); ok && alias != "" {
 			if !isValidAliasFormat(alias) {
 				c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_INVALID_PARAM", "error": "Invalid alias format"})
+
 				return
 			}
+
 			resolvedRoomID, err := aliasService.GetRoomIDByAlias(alias)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_ALIAS", "error": "Unknown alias"})
+				c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_ALIAS", "error": "Unknown alias"}) //nolint:goconst
+
 				return
 			}
+
 			if resolvedRoomID != roomID {
 				c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_ALIAS", "error": "Alias points to a different room"})
+
 				return
 			}
 		}
-		if altAliases, ok := content["alt_aliases"].([]interface{}); ok {
+
+		if altAliases, ok := content["alt_aliases"].([]any); ok {
 			for _, a := range altAliases {
 				altAlias, ok := a.(string)
 				if !ok || !isValidAliasFormat(altAlias) {
 					c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_INVALID_PARAM", "error": "Invalid alt_alias"})
+
 					return
 				}
+
 				resolvedRoomID, err := aliasService.GetRoomIDByAlias(altAlias)
 				if err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_ALIAS", "error": "Unknown alt_alias: " + altAlias})
+
 					return
 				}
+
 				if resolvedRoomID != roomID {
 					c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_ALIAS", "error": "Alt alias points to a different room"})
+
 					return
 				}
 			}
@@ -1168,6 +1290,7 @@ func handleSendStateEvent(c *gin.Context) {
 	resp, err := hs.Event.SendRoomEvent(roomID, userID, eventType, nil, content, &stateKey)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1186,22 +1309,27 @@ func handleSendEvent(c *gin.Context) {
 	// Matrix spec: events must be at most 65536 bytes
 	// Read body to check actual size (ContentLength may be -1 for chunked encoding)
 	body, _ := io.ReadAll(c.Request.Body)
+
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
 	if len(body) > 65536 {
 		c.JSON(http.StatusRequestEntityTooLarge, MatrixError{ErrCode: "M_TOO_LARGE", Error: "Event too large"})
+
 		return
 	}
 
-	var content map[string]interface{}
+	var content map[string]any
 	if err := c.ShouldBindJSON(&content); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
+
 	var txnIDPtr *string
 	if txnID != "" {
 		txnIDPtr = &txnID
@@ -1210,6 +1338,7 @@ func handleSendEvent(c *gin.Context) {
 	resp, err := hs.Event.SendRoomEventFromDevice(roomID, userID, deviceID, eventType, txnIDPtr, content, nil)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1226,6 +1355,7 @@ func handleGetMessages(c *gin.Context) {
 		To:     c.Query("to"),
 		Filter: c.Query("filter"),
 	}
+
 	if limit := c.Query("limit"); limit != "" {
 		if l, err := strconv.Atoi(limit); err == nil {
 			req.Limit = l
@@ -1233,9 +1363,11 @@ func handleGetMessages(c *gin.Context) {
 	}
 
 	hs := GetHomeServer()
+
 	resp, err := hs.Event.GetRoomMessages(roomID, userID, req)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1248,6 +1380,7 @@ func handleGetEventContext(c *gin.Context) {
 	userID := getUserID(c)
 
 	limit := 10
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
 			limit = parsed
@@ -1255,9 +1388,11 @@ func handleGetEventContext(c *gin.Context) {
 	}
 
 	hs := GetHomeServer()
+
 	resp, err := hs.Event.GetRoomContext(roomID, eventID, userID, limit)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1271,25 +1406,29 @@ func handleGetEvent(c *gin.Context) {
 	deviceID := c.GetString("device_id")
 
 	hs := GetHomeServer()
+
 	event, err := hs.Event.GetRoomEventForDevice(roomID, eventID, deviceID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Event not found"})
+		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Event not found"}) //nolint:goconst
+
 		return
 	}
 
 	// Check history visibility access control
 	if !canAccessEvent(hs, roomID, userID, event) {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Event not found"})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, event)
 }
 
-// canAccessEvent checks if a user can access a specific event based on history visibility
-func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) bool {
+// canAccessEvent checks if a user can access a specific event based on history visibility.
+func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) bool { //nolint:unparam // param reserved for future use
 	// Get history visibility
 	histVis := "shared" // default
+
 	var room MatrixRoom
 	if db.GetDB().Where("room_id = ?", roomID).First(&room).Error == nil {
 		if room.HistoryVisibility != "" {
@@ -1298,12 +1437,13 @@ func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) b
 	}
 
 	// world_readable: everyone can access
-	if histVis == "world_readable" {
+	if histVis == "world_readable" { //nolint:goconst
 		return true
 	}
 
 	// Get member record
 	var member MatrixRoomMember
+
 	isMember := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error == nil
 
 	if !isMember || member.Membership == MembershipLeave || member.Membership == MembershipBan {
@@ -1327,32 +1467,38 @@ func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) b
 		// Can only see events that happened while they were joined
 		// Check when they joined (find their join event timestamp)
 		var joinEvent MatrixEvent
+
 		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
 			roomID, "m.room.member", userID, "%\"join\"%").
 			Order("origin_server_ts ASC").First(&joinEvent).Error
 		if err != nil {
 			return false
 		}
+
 		return eventTS >= joinEvent.OriginServerTS
 	}
 
 	if histVis == "invited" {
 		// Can see events from when they were invited
 		var inviteEvent MatrixEvent
+
 		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
 			roomID, "m.room.member", userID, "%\"invite\"%").
 			Order("origin_server_ts ASC").First(&inviteEvent).Error
 		if err != nil {
 			// Fall back to join event
 			var joinEvent MatrixEvent
+
 			err2 := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
 				roomID, "m.room.member", userID, "%\"join\"%").
 				Order("origin_server_ts ASC").First(&joinEvent).Error
 			if err2 != nil {
 				return false
 			}
+
 			return eventTS >= joinEvent.OriginServerTS
 		}
+
 		return eventTS >= inviteEvent.OriginServerTS
 	}
 
@@ -1372,6 +1518,7 @@ func handleRedactEvent(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	hs := GetHomeServer()
+
 	var txnIDPtr *string
 	if txnID != "" {
 		txnIDPtr = &txnID
@@ -1380,6 +1527,7 @@ func handleRedactEvent(c *gin.Context) {
 	resp, err := hs.Event.RedactEvent(roomID, eventID, userID, req.Reason, txnIDPtr)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1399,6 +1547,7 @@ func handleSync(c *gin.Context) {
 		FullState:   c.Query("full_state") == "true",
 		SetPresence: c.Query("set_presence"),
 	}
+
 	if timeout := c.Query("timeout"); timeout != "" {
 		if t, err := strconv.Atoi(timeout); err == nil {
 			req.Timeout = t
@@ -1419,6 +1568,7 @@ func handleSync(c *gin.Context) {
 	resp, err := hs.Sync.Sync(userID, deviceIDStr, req)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1431,6 +1581,7 @@ func handleSync(c *gin.Context) {
 			resp, err = hs.Sync.Sync(userID, deviceIDStr, req)
 			if err != nil {
 				c.JSON(matrixErrorStatus(err), err)
+
 				return
 			}
 		case <-timer:
@@ -1452,15 +1603,19 @@ func syncResponseHasData(resp *SyncResponse) bool {
 			return true
 		}
 	}
+
 	if resp.ToDevice != nil && len(resp.ToDevice.Events) > 0 {
 		return true
 	}
+
 	if resp.AccountData != nil && len(resp.AccountData.Events) > 0 {
 		return true
 	}
+
 	if len(resp.DeviceLists.Changed) > 0 || len(resp.DeviceLists.Left) > 0 {
 		return true
 	}
+
 	return false
 }
 
@@ -1476,11 +1631,13 @@ func handleSetReceipt(c *gin.Context) {
 	var body struct {
 		ThreadID string `json:"thread_id"`
 	}
-	c.ShouldBindJSON(&body) //nolint:errcheck // body may be empty
+
+	c.ShouldBindJSON(&body) //nolint:errcheck,gosec // G104: body may be empty
 
 	hs := GetHomeServer()
 	if err := hs.Sync.SetReceiptWithThread(roomID, eventID, userID, receiptType, body.ThreadID); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1496,11 +1653,14 @@ func handleSetReadMarkers(c *gin.Context) {
 		ReadPrivate string `json:"m.read.private"`
 		FullyRead   string `json:"m.fully_read"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
@@ -1508,13 +1668,15 @@ func handleSetReadMarkers(c *gin.Context) {
 	if req.Read != "" {
 		hs.Sync.SetReceipt(roomID, req.Read, userID, "m.read")
 	}
+
 	if req.ReadPrivate != "" {
 		hs.Sync.SetReceipt(roomID, req.ReadPrivate, userID, "m.read.private")
 	}
+
 	if req.FullyRead != "" {
 		// Store m.fully_read as room account data
 		roomIDCopy := roomID
-		_ = hs.Account.SetAccountData(userID, "m.fully_read", &roomIDCopy, map[string]interface{}{
+		_ = hs.Account.SetAccountData(userID, "m.fully_read", &roomIDCopy, map[string]any{
 			"event_id": req.FullyRead,
 		})
 	}
@@ -1532,17 +1694,21 @@ func handleSetTyping(c *gin.Context) {
 		Typing  bool  `json:"typing"`
 		Timeout int64 `json:"timeout"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Bad JSON",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	if err := hs.Sync.SetTyping(roomID, userID, req.Typing, req.Timeout); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
+
 		return
 	}
 
@@ -1560,8 +1726,9 @@ func handleGetProfile(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "User not found",
+			"error":   "User not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -1572,11 +1739,13 @@ func handleGetProfile(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "User not found",
 		})
+
 		return
 	}
 
 	// 构建头像 MXC URL
 	avatarURL := ""
+
 	if account.Avatar != "" {
 		// 将社区头像 URL 转换为 MXC 格式
 		// 如果是本地文件，生成 MXC URI
@@ -1601,14 +1770,18 @@ func handleGetProfile(c *gin.Context) {
 
 func handleGetDisplayName(c *gin.Context) {
 	targetUserID := c.Param("userId")
+
 	localpart, _, ok := ParseMatrixUserID(targetUserID)
+
 	if !ok {
 		localpart = targetUserID
 	}
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil {
+	err := db.GetDB().Where("username = ?", localpart).First(&account).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "User not found"})
+
 		return
 	}
 
@@ -1617,17 +1790,23 @@ func handleGetDisplayName(c *gin.Context) {
 
 func handleSetDisplayName(c *gin.Context) {
 	userID := c.Param("userId")
+
 	callerID := getUserID(c)
+
 	if callerID == "" || userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot set another user's displayname"})
+
 		return
 	}
 
 	var req struct {
 		DisplayName string `json:"displayname"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+
 		return
 	}
 
@@ -1635,6 +1814,7 @@ func handleSetDisplayName(c *gin.Context) {
 	if !ok {
 		localpart = userID
 	}
+
 	db.GetDB().Model(&models.Account{}).Where("username = ?", localpart).Update("display_name", req.DisplayName)
 
 	// Propagate displayname change to m.room.member events in all joined rooms
@@ -1646,19 +1826,24 @@ func handleSetDisplayName(c *gin.Context) {
 
 func handleGetAvatarURL(c *gin.Context) {
 	targetUserID := c.Param("userId")
+
 	localpart, _, ok := ParseMatrixUserID(targetUserID)
+
 	if !ok {
 		localpart = targetUserID
 	}
 
 	var account models.Account
-	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil {
+	err := db.GetDB().Where("username = ?", localpart).First(&account).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "User not found"})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	avatarURL := ""
+
 	if account.Avatar != "" {
 		if strings.HasPrefix(account.Avatar, "/uploads/") {
 			parts := strings.Split(account.Avatar, "/")
@@ -1676,17 +1861,23 @@ func handleGetAvatarURL(c *gin.Context) {
 
 func handleSetAvatarURL(c *gin.Context) {
 	userID := c.Param("userId")
+
 	callerID := getUserID(c)
+
 	if callerID == "" || userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot set another user's avatar_url"})
+
 		return
 	}
 
 	var req struct {
 		AvatarURL string `json:"avatar_url"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+
 		return
 	}
 
@@ -1694,6 +1885,7 @@ func handleSetAvatarURL(c *gin.Context) {
 	if !ok {
 		localpart = userID
 	}
+
 	db.GetDB().Model(&models.Account{}).Where("username = ?", localpart).Update("avatar", req.AvatarURL)
 
 	// Propagate avatar change to m.room.member events in all joined rooms
@@ -1709,24 +1901,26 @@ func propagateProfileChange(hs *HomeServer, userID, field, value string) {
 	if err != nil {
 		return
 	}
+
 	for _, roomID := range joinedRooms {
 		// Get existing member state content
 		var existing MatrixRoomState
-		if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
-			roomID, string(EventTypeRoomMember), userID).First(&existing).Error; err != nil {
+		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+			roomID, string(EventTypeRoomMember), userID).First(&existing).Error
+		if err != nil {
 			continue
 		}
 		// Build updated content from existing
-		content := make(map[string]interface{})
+		content := make(map[string]any)
+
 		if existing.Content != nil {
-			for k, v := range existing.Content {
-				content[k] = v
-			}
+			maps.Copy(content, existing.Content)
 		}
+
 		content[field] = value
 		// Ensure membership stays join
 		if _, ok := content["membership"]; !ok {
-			content["membership"] = "join"
+			content["membership"] = "join" //nolint:goconst
 		}
 		// Create new member event
 		event := &MatrixEvent{
@@ -1740,9 +1934,11 @@ func propagateProfileChange(hs *HomeServer, userID, field, value string) {
 			OriginServerTS: time.Now().UnixMilli(),
 			SenderDomain:   hs.Config.ServerName,
 		}
-		if err := db.GetDB().Create(event).Error; err != nil {
+		err = db.GetDB().Create(event).Error
+		if err != nil {
 			continue
 		}
+
 		hs.Room.updateRoomState(db.GetDB(), roomID, event)
 	}
 }
@@ -1756,9 +1952,10 @@ func handleGetJoinedRooms(c *gin.Context) {
 	rooms, err := hs.Room.GetJoinedRooms(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL",
-			"error":   "Internal server error",
+			"errcode": "M_INTERNAL",            //nolint:goconst
+			"error":   "Internal server error", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -1781,9 +1978,11 @@ func handleGetDevices(c *gin.Context) {
 
 	// 获取用户的所有会话（设备）
 	var sessions []MatrixUserSession
+
 	db.GetDB().Where("user_id = ?", userID).Find(&sessions)
 
 	devices := []gin.H{}
+
 	for _, session := range sessions {
 		displayName := ""
 		if session.DisplayName != nil {
@@ -1821,13 +2020,15 @@ func handleGetDevice(c *gin.Context) {
 	deviceID := c.Param("deviceId")
 
 	var session MatrixUserSession
+
 	result := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&session)
 
 	if result.Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "Device not found",
+			"error":   "Device not found", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -1852,11 +2053,13 @@ func handleUpdateDevice(c *gin.Context) {
 		DisplayName string `json:"display_name"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
+			"error":   "Invalid JSON", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -1867,6 +2070,7 @@ func handleUpdateDevice(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "Device not found",
 		})
+
 		return
 	}
 
@@ -1879,6 +2083,7 @@ func handleUpdateDevice(c *gin.Context) {
 			"errcode": "M_UNKNOWN",
 			"error":   result.Error.Error(),
 		})
+
 		return
 	}
 
@@ -1901,12 +2106,13 @@ func handleDeleteDevice(c *gin.Context) {
 		} `json:"auth,omitempty"`
 	}
 	// Body is optional (some clients may not send a body on first request)
-	c.ShouldBindJSON(&req) //nolint:errcheck // body may be empty
+	c.ShouldBindJSON(&req) //nolint:errcheck,gosec // G104: body may be empty
 
 	// Check if device exists
 	var existing MatrixUserSession
 	if db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&existing).Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Device not found"})
+
 		return
 	}
 
@@ -1915,10 +2121,11 @@ func handleDeleteDevice(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"session": generateSessionID(),
 			"flows": []gin.H{
-				{"stages": []string{"m.login.password"}},
+				{"stages": []string{"m.login.password"}}, //nolint:goconst
 			},
 			"params": gin.H{},
 		})
+
 		return
 	}
 
@@ -1932,11 +2139,13 @@ func handleDeleteDevice(c *gin.Context) {
 				hs := GetHomeServer()
 				authUser = fmt.Sprintf("@%s:%s", authUser, hs.Config.ServerName)
 			}
+
 			if authUser != userID {
 				c.JSON(http.StatusForbidden, gin.H{
 					"errcode": "M_FORBIDDEN",
 					"error":   "Cannot delete another user's device",
 				})
+
 				return
 			}
 		}
@@ -1953,6 +2162,7 @@ func handleDeleteDevice(c *gin.Context) {
 				"errcode": "M_FORBIDDEN",
 				"error":   "Incorrect password",
 			})
+
 			return
 		}
 	}
@@ -1965,31 +2175,43 @@ func handleDeleteDevice(c *gin.Context) {
 
 func handleCreateFilter(c *gin.Context) {
 	userID := c.Param("userId")
+
 	callerID := getUserID(c)
+
 	if userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot create filter for another user"})
+
 		return
 	}
 
 	var filterJSON json.RawMessage
-	if err := c.ShouldBindJSON(&filterJSON); err != nil {
+	err := c.ShouldBindJSON(&filterJSON)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+
 		return
 	}
 	// Filter must be a JSON object
 	if len(filterJSON) == 0 || filterJSON[0] != '{' {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Filter must be a JSON object"})
+
 		return
 	}
 
 	// Validate filter schema: certain fields must be objects or arrays
-	var filterMap map[string]interface{}
-	if err := json.Unmarshal(filterJSON, &filterMap); err != nil {
+	var filterMap map[string]any
+	err = json.Unmarshal(filterJSON, &filterMap)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Invalid filter JSON"})
+
 		return
 	}
-	if err := validateFilterSchema(filterMap); err != nil {
+
+	err = validateFilterSchema(filterMap)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": err.Error()})
+
 		return
 	}
 
@@ -2000,8 +2222,10 @@ func handleCreateFilter(c *gin.Context) {
 		Filter:   string(filterJSON),
 	}
 
-	if err := db.GetDB().Create(filter).Error; err != nil {
+	err = db.GetDB().Create(filter).Error
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to create filter"})
+
 		return
 	}
 
@@ -2013,27 +2237,32 @@ func handleGetFilter(c *gin.Context) {
 	filterID := c.Param("filterId")
 
 	var filter MatrixFilter
-	if err := db.GetDB().Where("user_id = ? AND filter_id = ?", userID, filterID).First(&filter).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND filter_id = ?", userID, filterID).First(&filter).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Filter not found"})
+
 		return
 	}
 
-	var filterContent interface{}
-	if err := json.Unmarshal([]byte(filter.Filter), &filterContent); err != nil {
+	var filterContent any
+	err = json.Unmarshal([]byte(filter.Filter), &filterContent)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_UNKNOWN", "error": "Invalid stored filter"})
+
 		return
 	}
+
 	c.JSON(http.StatusOK, filterContent)
 }
 
 // validateFilterSchema validates that a filter map conforms to the Matrix filter schema.
 // Fields that expect objects must be objects; fields that expect arrays must be arrays.
-func validateFilterSchema(filter map[string]interface{}) error {
+func validateFilterSchema(filter map[string]any) error {
 	// Top-level object fields that must be objects if present
 	objectFields := []string{"presence", "account_data", "room"}
 	for _, field := range objectFields {
 		if v, ok := filter[field]; ok {
-			if _, isMap := v.(map[string]interface{}); !isMap {
+			if _, isMap := v.(map[string]any); !isMap {
 				return fmt.Errorf("'%s' must be an object", field)
 			}
 		}
@@ -2042,18 +2271,20 @@ func validateFilterSchema(filter map[string]interface{}) error {
 	arrayFields := []string{"event_fields"}
 	for _, field := range arrayFields {
 		if v, ok := filter[field]; ok {
-			if _, isSlice := v.([]interface{}); !isSlice {
+			if _, isSlice := v.([]any); !isSlice {
 				return fmt.Errorf("'%s' must be an array", field)
 			}
 		}
 	}
 	// Validate room filter sub-fields
 	if roomVal, ok := filter["room"]; ok {
-		roomFilter, _ := roomVal.(map[string]interface{})
+		roomFilter, _ := roomVal.(map[string]any)
+
 		roomObjectFields := []string{"state", "timeline", "ephemeral", "account_data"}
+
 		for _, field := range roomObjectFields {
 			if v, ok := roomFilter[field]; ok {
-				if _, isMap := v.(map[string]interface{}); !isMap {
+				if _, isMap := v.(map[string]any); !isMap {
 					return fmt.Errorf("'room.%s' must be an object", field)
 				}
 			}
@@ -2062,7 +2293,7 @@ func validateFilterSchema(filter map[string]interface{}) error {
 		roomArrayFields := []string{"rooms", "not_rooms"}
 		for _, field := range roomArrayFields {
 			if v, ok := roomFilter[field]; ok {
-				if _, isSlice := v.([]interface{}); !isSlice {
+				if _, isSlice := v.([]any); !isSlice {
 					return fmt.Errorf("'room.%s' must be an array", field)
 				}
 			}
@@ -2070,10 +2301,10 @@ func validateFilterSchema(filter map[string]interface{}) error {
 		// Validate sub-filter array fields
 		for _, subField := range roomObjectFields {
 			if subVal, ok := roomFilter[subField]; ok {
-				subFilter, _ := subVal.(map[string]interface{})
+				subFilter, _ := subVal.(map[string]any)
 				for _, arrField := range []string{"rooms", "not_rooms", "types", "not_types", "senders", "not_senders"} {
 					if v, ok := subFilter[arrField]; ok {
-						arr, isSlice := v.([]interface{})
+						arr, isSlice := v.([]any)
 						if !isSlice {
 							return fmt.Errorf("'room.%s.%s' must be an array", subField, arrField)
 						}
@@ -2097,6 +2328,7 @@ func validateFilterSchema(filter map[string]interface{}) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -2109,13 +2341,16 @@ func handleSendToDevice(c *gin.Context) {
 	_ = txnID
 
 	var body struct {
-		Messages map[string]map[string]map[string]interface{} `json:"messages"`
+		Messages map[string]map[string]map[string]any `json:"messages"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	err := c.ShouldBindJSON(&body)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Invalid JSON",
 		})
+
 		return
 	}
 
@@ -2127,7 +2362,9 @@ func handleSendToDevice(c *gin.Context) {
 			if deviceID == "*" {
 				// Send to ALL devices of the user
 				var sessions []MatrixUserSession
+
 				db.GetDB().Where("user_id = ?", targetUserID).Find(&sessions)
+
 				for _, s := range sessions {
 					msg := &MatrixToDeviceMessage{
 						Sender:       senderID,
@@ -2136,7 +2373,8 @@ func handleSendToDevice(c *gin.Context) {
 						EventType:    eventType,
 						Content:      contentMap,
 					}
-					if err := db.GetDB().Create(msg).Error; err != nil {
+					err := db.GetDB().Create(msg).Error
+					if err != nil {
 						log.Error("Failed to create to-device message: %v", err)
 					} else {
 						hs.NotifyToDeviceUpdate(targetUserID, s.DeviceID)
@@ -2152,7 +2390,8 @@ func handleSendToDevice(c *gin.Context) {
 					Content:      contentMap,
 				}
 
-				if err := db.GetDB().Create(msg).Error; err != nil {
+				err := db.GetDB().Create(msg).Error
+				if err != nil {
 					log.Error("Failed to create to-device message: %v", err)
 				} else {
 					hs.NotifyToDeviceUpdate(targetUserID, deviceID)
@@ -2166,6 +2405,7 @@ func handleSendToDevice(c *gin.Context) {
 
 func handleGetOneTimeKeysCount(c *gin.Context) {
 	userID := getUserID(c)
+
 	deviceID := c.GetString("device_id")
 	if deviceID == "" {
 		deviceID = "DEVICE"
@@ -2188,11 +2428,13 @@ func handleGetKeyChanges(c *gin.Context) {
 
 	// Parse sync tokens to timestamps
 	var fromTS, toTS int64
-	_, _ = fmt.Sscanf(fromToken, "s%d", &fromTS) //nolint:errcheck // best-effort parse
-	_, _ = fmt.Sscanf(toToken, "s%d", &toTS)     //nolint:errcheck // best-effort parse
+
+	_, _ = fmt.Sscanf(fromToken, "s%d", &fromTS)
+	_, _ = fmt.Sscanf(toToken, "s%d", &toTS)
 
 	if fromTS == 0 || toTS == 0 {
 		c.JSON(http.StatusOK, gin.H{"changed": []string{}, "left": []string{}})
+
 		return
 	}
 
@@ -2203,6 +2445,7 @@ func handleGetKeyChanges(c *gin.Context) {
 	// Also check for new device key uploads in the time range
 	if len(joinedRooms) > 0 {
 		var members []MatrixRoomMember
+
 		db.GetDB().Where("room_id IN ? AND membership = ? AND user_id != ?",
 			joinedRooms, MembershipJoin, userID).Find(&members)
 
@@ -2215,20 +2458,25 @@ func handleGetKeyChanges(c *gin.Context) {
 			if changedSet[m.UserID] {
 				continue
 			}
+
 			fromTime := time.Unix(0, fromTS*int64(time.Millisecond))
 			toTime := time.Unix(0, toTS*int64(time.Millisecond))
 
 			// Check if user uploaded keys or created new sessions in the time range
 			var keyCount int64
+
 			db.GetDB().Model(&MatrixDeviceKey{}).
 				Where("user_id = ? AND updated_at > ? AND updated_at <= ?",
 					m.UserID, fromTime, toTime).
 				Count(&keyCount)
+
 			var sessionCount int64
+
 			db.GetDB().Model(&MatrixUserSession{}).
 				Where("user_id = ? AND created_at > ? AND created_at <= ?",
 					m.UserID, fromTime, toTime).
 				Count(&sessionCount)
+
 			if keyCount > 0 || sessionCount > 0 {
 				changed = append(changed, m.UserID)
 			}
@@ -2240,9 +2488,11 @@ func handleGetKeyChanges(c *gin.Context) {
 
 func handleKeysUpload(c *gin.Context) {
 	userID := getUserID(c)
+
 	deviceID := c.GetString("device_id")
 	if deviceID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_MISSING_PARAM", "error": "Missing device_id"})
+
 		return
 	}
 
@@ -2250,11 +2500,13 @@ func handleKeysUpload(c *gin.Context) {
 	// Read body manually — handles empty body gracefully (body may be absent or {})
 	bodyBytes, _ := io.ReadAll(c.Request.Body)
 	if len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		err := json.Unmarshal(bodyBytes, &req)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"errcode": "M_BAD_JSON",
 				"error":   "Invalid JSON: " + err.Error(),
 			})
+
 			return
 		}
 	}
@@ -2266,13 +2518,16 @@ func handleKeysUpload(c *gin.Context) {
 				"errcode": "M_INVALID_PARAM",
 				"error":   "user_id in device_keys does not match authenticated user",
 			})
+
 			return
 		}
+
 		if req.DeviceKeys.DeviceID != "" && req.DeviceKeys.DeviceID != deviceID {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"errcode": "M_INVALID_PARAM",
 				"error":   "device_id in device_keys does not match authenticated device",
 			})
+
 			return
 		}
 		// Validate required fields per Matrix spec — algorithms and keys are required,
@@ -2282,6 +2537,7 @@ func handleKeysUpload(c *gin.Context) {
 				"errcode": "M_BAD_JSON",
 				"error":   "device_keys must contain algorithms and keys",
 			})
+
 			return
 		}
 		// Ensure user_id and device_id are set correctly before storing
@@ -2299,6 +2555,7 @@ func handleKeysUpload(c *gin.Context) {
 			"errcode": "M_UNKNOWN",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -2312,6 +2569,7 @@ func handleKeysQuery(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Invalid JSON",
 		})
+
 		return
 	}
 
@@ -2323,6 +2581,7 @@ func handleKeysQuery(c *gin.Context) {
 			"self_signing_keys": gin.H{},
 			"user_signing_keys": gin.H{},
 		})
+
 		return
 	}
 
@@ -2332,6 +2591,7 @@ func handleKeysQuery(c *gin.Context) {
 	// Split request into local and remote users
 	localReq := &QueryKeysRequest{DeviceKeys: make(map[string][]string)}
 	remoteByServer := make(map[string]map[string][]string) // server → userID → deviceIDs
+
 	for userID, deviceIDs := range req.DeviceKeys {
 		_, domain, ok := ParseMatrixUserID(userID)
 		if !ok || domain == hs.Config.ServerName {
@@ -2340,6 +2600,7 @@ func handleKeysQuery(c *gin.Context) {
 			if remoteByServer[domain] == nil {
 				remoteByServer[domain] = make(map[string][]string)
 			}
+
 			remoteByServer[domain][userID] = deviceIDs
 		}
 	}
@@ -2352,6 +2613,7 @@ func handleKeysQuery(c *gin.Context) {
 			"errcode": "M_UNKNOWN",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -2359,8 +2621,9 @@ func handleKeysQuery(c *gin.Context) {
 	if resp.DeviceKeys == nil {
 		resp.DeviceKeys = make(map[string]map[string]*DeviceKeys)
 	}
+
 	if resp.Failures == nil {
-		resp.Failures = make(map[string]interface{})
+		resp.Failures = make(map[string]any)
 	}
 
 	// Forward remote queries via federation
@@ -2369,12 +2632,12 @@ func handleKeysQuery(c *gin.Context) {
 		for server, userDevices := range remoteByServer {
 			remoteKeys, err := fedClient.QueryRemoteKeys(server, userDevices)
 			if err != nil {
-				resp.Failures[server] = map[string]interface{}{"error": err.Error()}
+				resp.Failures[server] = map[string]any{"error": err.Error()}
+
 				continue
 			}
-			for userID, devices := range remoteKeys {
-				resp.DeviceKeys[userID] = devices
-			}
+
+			maps.Copy(resp.DeviceKeys, remoteKeys)
 		}
 	}
 
@@ -2388,6 +2651,7 @@ func handleKeysClaim(c *gin.Context) {
 			"errcode": "M_BAD_JSON",
 			"error":   "Invalid JSON",
 		})
+
 		return
 	}
 
@@ -2401,14 +2665,16 @@ func handleKeysClaim(c *gin.Context) {
 			"errcode": "M_UNKNOWN",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	if resp.OneTimeKeys == nil {
 		resp.OneTimeKeys = make(map[string]map[string]map[string]json.RawMessage)
 	}
+
 	if resp.Failures == nil {
-		resp.Failures = make(map[string]interface{})
+		resp.Failures = make(map[string]any)
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -2416,12 +2682,14 @@ func handleKeysClaim(c *gin.Context) {
 
 func handleKeysSignaturesUpload(c *gin.Context) {
 	// 简化实现：接收签名并存储
-	var req map[string]interface{}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var req map[string]any
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   "Invalid JSON",
 		})
+
 		return
 	}
 
@@ -2437,9 +2705,12 @@ func handleKeysSignaturesUpload(c *gin.Context) {
 
 func handleSetPresence(c *gin.Context) {
 	userID := c.Param("userId")
+
 	callerID := getUserID(c)
+
 	if userID != callerID {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "Cannot set another user's presence"})
+
 		return
 	}
 
@@ -2447,8 +2718,11 @@ func handleSetPresence(c *gin.Context) {
 		Presence  string `json:"presence"`
 		StatusMsg string `json:"status_msg"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+
 		return
 	}
 
@@ -2466,15 +2740,18 @@ func handleGetPresence(c *gin.Context) {
 	userID := c.Param("userId")
 
 	var presence MatrixPresence
-	if err := db.GetDB().Where("user_id = ?", userID).First(&presence).Error; err != nil {
+	err := db.GetDB().Where("user_id = ?", userID).First(&presence).Error
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"presence":        "offline",
 			"last_active_ago": 0,
 		})
+
 		return
 	}
 
 	lastActiveAgo := time.Now().UnixMilli() - presence.LastActiveTS
+
 	resp := gin.H{
 		"presence":        presence.Presence,
 		"last_active_ago": lastActiveAgo,
@@ -2482,6 +2759,7 @@ func handleGetPresence(c *gin.Context) {
 	if presence.StatusMsg != nil {
 		resp["status_msg"] = *presence.StatusMsg
 	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -2494,20 +2772,24 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil {
 			limit = 100
 		}
+
 		if limit < 0 {
 			limit = 0
 		}
 	}
+
 	if limit > 250 {
 		limit = 250
 	}
+
 	since := c.Query("since")
 
 	// POST 请求可能带 filter
 	var filter struct {
 		GenericSearchTerm string `json:"generic_search_term"`
 	}
-	if c.Request.Method == "POST" {
+
+	if c.Request.Method == http.MethodPost {
 		var body struct {
 			Limit  int    `json:"limit"`
 			Since  string `json:"since"`
@@ -2515,31 +2797,38 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 				GenericSearchTerm string `json:"generic_search_term"`
 			} `json:"filter"`
 		}
+
 		if c.ShouldBindJSON(&body) == nil {
 			if body.Limit > 0 {
 				limit = body.Limit
 			}
+
 			if body.Since != "" {
 				since = body.Since
 			}
+
 			filter = body.Filter
 		}
 	}
 
 	// 查询公共房间
 	query := db.GetDB().Where("visibility = ?", "public")
+
 	if filter.GenericSearchTerm != "" {
 		term := "%" + filter.GenericSearchTerm + "%"
 		query = query.Where("name LIKE ? OR topic LIKE ?", term, term)
 	}
 
 	var rooms []MatrixRoom
+
 	query.Order("created_at DESC").Limit(limit).Find(&rooms)
 
 	// 构建响应
 	chunk := make([]gin.H, len(rooms))
+
 	for i, room := range rooms {
 		var joinedCount int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).
 			Where("room_id = ? AND membership = ?", room.RoomID, MembershipJoin).
 			Count(&joinedCount)
@@ -2554,29 +2843,36 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 		if room.Name != nil && *room.Name != "" {
 			entry["name"] = *room.Name
 		}
+
 		if room.Topic != nil && *room.Topic != "" {
 			entry["topic"] = *room.Topic
 		}
+
 		if room.AvatarURL != nil && *room.AvatarURL != "" {
 			entry["avatar_url"] = *room.AvatarURL
 		}
+
 		if room.JoinRule != "" {
 			entry["join_rule"] = room.JoinRule
 		}
+
 		if room.RoomType != nil && *room.RoomType != "" {
 			entry["room_type"] = *room.RoomType
 		}
 		// Fetch canonical alias from room state
 		var canonicalAliasState MatrixRoomState
-		if err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
-			room.RoomID, EventTypeRoomCanonicalAlias, "").First(&canonicalAliasState).Error; err == nil {
+		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+			room.RoomID, EventTypeRoomCanonicalAlias, "").First(&canonicalAliasState).Error
+		if err == nil {
 			var aliasEvent MatrixEvent
-			if err := db.GetDB().Where("event_id = ?", canonicalAliasState.EventID).First(&aliasEvent).Error; err == nil {
+			err := db.GetDB().Where("event_id = ?", canonicalAliasState.EventID).First(&aliasEvent).Error
+			if err == nil {
 				if alias, ok := aliasEvent.Content["alias"].(string); ok && alias != "" {
 					entry["canonical_alias"] = alias
 				}
 			}
 		}
+
 		chunk[i] = entry
 	}
 
@@ -2587,6 +2883,7 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 	if len(rooms) == limit {
 		resp["next_batch"] = fmt.Sprintf("s%d", time.Now().UnixMilli())
 	}
+
 	if since != "" {
 		resp["prev_batch"] = since
 	}
@@ -2594,22 +2891,28 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleGetRoomVisibility returns the visibility of a room in the public room directory
+// handleGetRoomVisibility returns the visibility of a room in the public room directory.
 func handleGetRoomVisibility(c *gin.Context) {
 	roomID := c.Param("roomId")
+
 	var room MatrixRoom
-	if err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error; err != nil {
-		c.JSON(http.StatusNotFound, MatrixError{ErrCode: "M_NOT_FOUND", Error: "Room not found"})
+	err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, MatrixError{ErrCode: "M_NOT_FOUND", Error: "Room not found"}) //nolint:goconst
+
 		return
 	}
+
 	visibility := room.Visibility
 	if visibility == "" {
 		visibility = "private"
 	}
+
 	c.JSON(http.StatusOK, gin.H{"visibility": visibility})
 }
 
-// handleSetRoomVisibility sets the visibility of a room in the public room directory
+// handleSetRoomVisibility sets the visibility of a room in the public room directory.
 func handleSetRoomVisibility(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
@@ -2618,19 +2921,26 @@ func handleSetRoomVisibility(c *gin.Context) {
 	var req struct {
 		Visibility string `json:"visibility"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Visibility == "" {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil || req.Visibility == "" {
 		c.JSON(http.StatusBadRequest, MatrixError{ErrCode: "M_BAD_JSON", Error: "Missing visibility"})
+
 		return
 	}
+
 	if req.Visibility != "public" && req.Visibility != "private" {
 		c.JSON(http.StatusBadRequest, MatrixError{ErrCode: "M_BAD_JSON", Error: "visibility must be 'public' or 'private'"})
+
 		return
 	}
 
 	// Check room exists
 	var room MatrixRoom
-	if err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error; err != nil {
+	err = db.GetDB().Where("room_id = ?", roomID).First(&room).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{ErrCode: "M_NOT_FOUND", Error: "Room not found"})
+
 		return
 	}
 
@@ -2638,6 +2948,7 @@ func handleSetRoomVisibility(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "You are not joined to this room"})
+
 		return
 	}
 
@@ -2657,7 +2968,7 @@ func handleGetCapabilities(c *gin.Context) {
 			"m.room_versions": gin.H{
 				"default": hs.Config.RoomVersion,
 				"available": gin.H{
-					"1":  "stable",
+					"1":  "stable", //nolint:goconst
 					"2":  "stable",
 					"3":  "stable",
 					"4":  "stable",
@@ -2678,7 +2989,7 @@ func handleGetCapabilities(c *gin.Context) {
 
 // ===== 推送通知 API =====
 
-// GetPushers 获取推送器列表
+// GetPushers 获取推送器列表.
 func handleGetPushers(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2686,44 +2997,49 @@ func handleGetPushers(c *gin.Context) {
 	pushers, err := hs.Push.GetPushers(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"pushers": pushers})
 }
 
-// SetPusher 设置推送器
+// SetPusher 设置推送器.
 func handleSetPusher(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
 
 	var pusher Pusher
-	if err := c.ShouldBindJSON(&pusher); err != nil {
+	err := c.ShouldBindJSON(&pusher)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// Associate the pusher with the current device
 	pusher.DeviceID = c.GetString("device_id")
 
-	if err := hs.Push.SetPusher(userID, &pusher); err != nil {
+	err = hs.Push.SetPusher(userID, &pusher)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GetPushRules 获取推送规则
+// GetPushRules 获取推送规则.
 func handleGetPushRules(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2734,13 +3050,14 @@ func handleGetPushRules(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, rules)
 }
 
-// GetPushRulesGlobal 获取全局推送规则（按 scope）
+// GetPushRulesGlobal 获取全局推送规则（按 scope）.
 func handleGetPushRulesGlobal(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2751,13 +3068,14 @@ func handleGetPushRulesGlobal(c *gin.Context) {
 			ErrCode: "M_INTERNAL_ERROR",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, rules.Global)
 }
 
-// GetPushRulesScope 获取特定范围推送规则
+// GetPushRulesScope 获取特定范围推送规则.
 func handleGetPushRulesScope(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2769,6 +3087,7 @@ func handleGetPushRulesScope(c *gin.Context) {
 			ErrCode: "M_INTERNAL_ERROR",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
@@ -2791,7 +3110,7 @@ func handleGetPushRulesScope(c *gin.Context) {
 	}
 }
 
-// GetPushRule 获取单个推送规则
+// GetPushRule 获取单个推送规则.
 func handleGetPushRule(c *gin.Context) {
 	userID := c.GetString("user_id")
 	scope := c.Param("scope")
@@ -2799,12 +3118,14 @@ func handleGetPushRule(c *gin.Context) {
 	ruleID := c.Param("ruleId")
 
 	var rule PushRule
-	if err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
-		userID, scope, kind, ruleID).First(&rule).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
+		userID, scope, kind, ruleID).First(&rule).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{
 			ErrCode: "M_NOT_FOUND",
 			Error:   "Push rule not found",
 		})
+
 		return
 	}
 
@@ -2813,7 +3134,7 @@ func handleGetPushRule(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// SetPushRule 设置推送规则
+// SetPushRule 设置推送规则.
 func handleSetPushRule(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2822,20 +3143,23 @@ func handleSetPushRule(c *gin.Context) {
 	ruleID := c.Param("ruleId")
 
 	var body struct {
-		Actions    []interface{}   `json:"actions"`
+		Actions    []any           `json:"actions"`
 		Conditions []PushCondition `json:"conditions"`
 		Pattern    string          `json:"pattern"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	err := c.ShouldBindJSON(&body)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
 			ErrCode: "M_BAD_JSON",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
-	actionsJSON, _ := json.Marshal(body.Actions)
-	conditionsJSON, _ := json.Marshal(body.Conditions)
+	actionsJSON, _ := json.Marshal(body.Actions)       //nolint:errchkjson // body.Actions is []string, always safe
+	conditionsJSON, _ := json.Marshal(body.Conditions) //nolint:errchkjson // body.Conditions is []string, always safe
 
 	rule := &PushRule{
 		Enabled:    true,
@@ -2844,19 +3168,22 @@ func handleSetPushRule(c *gin.Context) {
 		Pattern:    body.Pattern,
 	}
 
-	if err := hs.Push.SetPushRule(userID, scope, kind, ruleID, rule); err != nil {
+	err = hs.Push.SetPushRule(userID, scope, kind, ruleID, rule)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
 			ErrCode: "M_INTERNAL_ERROR",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	go hs.NotifyUser(userID)
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// DeletePushRule 删除推送规则
+// DeletePushRule 删除推送规则.
 func handleDeletePushRule(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -2864,19 +3191,22 @@ func handleDeletePushRule(c *gin.Context) {
 	kind := c.Param("kind")
 	ruleID := c.Param("ruleId")
 
-	if err := hs.Push.DeletePushRule(userID, scope, kind, ruleID); err != nil {
+	err := hs.Push.DeletePushRule(userID, scope, kind, ruleID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
 			ErrCode: "M_INTERNAL_ERROR",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	go hs.NotifyUser(userID)
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GetPushRuleActions 获取推送规则动作
+// GetPushRuleActions 获取推送规则动作.
 func handleGetPushRuleActions(c *gin.Context) {
 	userID := c.GetString("user_id")
 	scope := c.Param("scope")
@@ -2884,23 +3214,26 @@ func handleGetPushRuleActions(c *gin.Context) {
 	ruleID := c.Param("ruleId")
 
 	var rule PushRule
-	if err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
-		userID, scope, kind, ruleID).First(&rule).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
+		userID, scope, kind, ruleID).First(&rule).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{
 			ErrCode: "M_NOT_FOUND",
 			Error:   "Push rule not found",
 		})
+
 		return
 	}
 
-	var actions []interface{}
+	var actions []any
 	if rule.Actions != "" {
-		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck
+		json.Unmarshal([]byte(rule.Actions), &actions) //nolint:errcheck,gosec // G104: best effort parsing
 	}
+
 	c.JSON(http.StatusOK, gin.H{"actions": actions})
 }
 
-// SetPushRuleActions 设置推送规则动作
+// SetPushRuleActions 设置推送规则动作.
 func handleSetPushRuleActions(c *gin.Context) {
 	userID := c.GetString("user_id")
 	scope := c.Param("scope")
@@ -2908,33 +3241,39 @@ func handleSetPushRuleActions(c *gin.Context) {
 	ruleID := c.Param("ruleId")
 
 	var body struct {
-		Actions []interface{} `json:"actions"`
+		Actions []any `json:"actions"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	err := c.ShouldBindJSON(&body)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
 			ErrCode: "M_BAD_JSON",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
-	actionsJSON, _ := json.Marshal(body.Actions)
-	if err := db.GetDB().Model(&PushRule{}).
+	actionsJSON, _ := json.Marshal(body.Actions) //nolint:errchkjson // []string, always safe
+	err = db.GetDB().Model(&PushRule{}).
 		Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?", userID, scope, kind, ruleID).
-		Update("actions", string(actionsJSON)).Error; err != nil {
+		Update("actions", string(actionsJSON)).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{
 			ErrCode: "M_NOT_FOUND",
 			Error:   "Push rule not found",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	go hs.NotifyUser(userID)
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GetPushRuleEnabled 获取推送规则启用状态
+// GetPushRuleEnabled 获取推送规则启用状态.
 func handleGetPushRuleEnabled(c *gin.Context) {
 	userID := c.GetString("user_id")
 	scope := c.Param("scope")
@@ -2942,19 +3281,21 @@ func handleGetPushRuleEnabled(c *gin.Context) {
 	ruleID := c.Param("ruleId")
 
 	var rule PushRule
-	if err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
-		userID, scope, kind, ruleID).First(&rule).Error; err != nil {
+	err := db.GetDB().Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?",
+		userID, scope, kind, ruleID).First(&rule).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{
 			ErrCode: "M_NOT_FOUND",
 			Error:   "Push rule not found",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"enabled": rule.Enabled})
 }
 
-// SetPushRuleEnabled 设置推送规则启用状态
+// SetPushRuleEnabled 设置推送规则启用状态.
 func handleSetPushRuleEnabled(c *gin.Context) {
 	userID := c.GetString("user_id")
 	scope := c.Param("scope")
@@ -2964,32 +3305,38 @@ func handleSetPushRuleEnabled(c *gin.Context) {
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	err := c.ShouldBindJSON(&body)
+
+	if err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
 			ErrCode: "M_BAD_JSON",
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
-	if err := db.GetDB().Model(&PushRule{}).
+	err = db.GetDB().Model(&PushRule{}).
 		Where("user_id = ? AND scope = ? AND kind = ? AND rule_id = ?", userID, scope, kind, ruleID).
-		Update("enabled", body.Enabled).Error; err != nil {
+		Update("enabled", body.Enabled).Error
+	if err != nil {
 		c.JSON(http.StatusNotFound, MatrixError{
 			ErrCode: "M_NOT_FOUND",
 			Error:   "Push rule not found",
 		})
+
 		return
 	}
 
 	hs := GetHomeServer()
 	go hs.NotifyUser(userID)
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
 // ===== VoIP / TURN =====
 
-// GetTurnServer 获取 TURN 服务器配置
+// GetTurnServer 获取 TURN 服务器配置.
 func handleGetTurnServer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"username": "",
@@ -3002,7 +3349,7 @@ func handleGetTurnServer(c *gin.Context) {
 // ===== 搜索 API =====
 // 搜索相关函数已移至 search.go
 
-// SearchRequest 搜索请求
+// SearchRequest 搜索请求.
 type SearchRequest struct {
 	SearchCategories struct {
 		RoomEvents    *RoomEventsSearch    `json:"room_events,omitempty"`
@@ -3011,7 +3358,7 @@ type SearchRequest struct {
 	NextBatch string `json:"next_batch,omitempty"`
 }
 
-// RoomEventsSearch 房间事件搜索
+// RoomEventsSearch 房间事件搜索.
 type RoomEventsSearch struct {
 	SearchTerm   string              `json:"search_term"`
 	Filter       string              `json:"filter,omitempty"`
@@ -3022,13 +3369,13 @@ type RoomEventsSearch struct {
 	GroupBy      []string            `json:"group_by,omitempty"`
 }
 
-// UserDirectorySearch 用户目录搜索
+// UserDirectorySearch 用户目录搜索.
 type UserDirectorySearch struct {
 	SearchTerm string `json:"search_term"`
 	Limit      int    `json:"limit,omitempty"`
 }
 
-// EventContextSearch 事件上下文搜索
+// EventContextSearch 事件上下文搜索.
 type EventContextSearch struct {
 	BeforeLimit    int  `json:"before_limit,omitempty"`
 	AfterLimit     int  `json:"after_limit,omitempty"`
@@ -3043,7 +3390,7 @@ type EventContextSearch struct {
 
 // ===== 第三方网络 API =====
 
-// GetThirdPartyProtocol 获取第三方协议
+// GetThirdPartyProtocol 获取第三方协议.
 func handleGetThirdPartyProtocol(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
@@ -3054,20 +3401,20 @@ func handleGetThirdPartyProtocol(c *gin.Context) {
 	})
 }
 
-// GetThirdPartyUser 获取第三方用户
+// GetThirdPartyUser 获取第三方用户.
 func handleGetThirdPartyUser(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
 
-	c.JSON(http.StatusOK, []interface{}{})
+	c.JSON(http.StatusOK, []any{})
 }
 
-// GetThirdPartyLocation 获取第三方位置
+// GetThirdPartyLocation 获取第三方位置.
 func handleGetThirdPartyLocation(c *gin.Context) {
 	protocol := c.Param("protocol")
 	_ = protocol
 
-	c.JSON(http.StatusOK, []interface{}{})
+	c.JSON(http.StatusOK, []any{})
 }
 
 // ===== OpenID API =====
@@ -3075,23 +3422,27 @@ func handleGetThirdPartyLocation(c *gin.Context) {
 
 // ===== 房间标签 API =====
 
-// GetRoomTags 获取房间标签
+// GetRoomTags 获取房间标签.
 func handleGetRoomTags(c *gin.Context) {
 	userID := c.Param("userId")
 	roomID := c.Param("roomId")
 
 	var tags []MatrixRoomTag
+
 	db.GetDB().Where("user_id = ? AND room_id = ?", userID, roomID).Find(&tags)
 
-	tagsMap := make(map[string]interface{})
+	tagsMap := make(map[string]any)
+
 	for _, tag := range tags {
-		var content map[string]interface{}
+		var content map[string]any
 		if tag.Content != "" {
-			json.Unmarshal([]byte(tag.Content), &content) //nolint:errcheck
+			json.Unmarshal([]byte(tag.Content), &content) //nolint:errcheck,gosec // G104: best effort parsing
 		}
+
 		if content == nil {
-			content = map[string]interface{}{}
+			content = map[string]any{}
 		}
+
 		tagsMap[tag.Tag] = content
 	}
 
@@ -3100,21 +3451,23 @@ func handleGetRoomTags(c *gin.Context) {
 	})
 }
 
-// SetRoomTag 设置房间标签
+// SetRoomTag 设置房间标签.
 func handleSetRoomTag(c *gin.Context) {
 	userID := c.Param("userId")
 	roomID := c.Param("roomId")
 	tag := c.Param("tag")
 
-	var body map[string]interface{}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		body = map[string]interface{}{}
+	var body map[string]any
+	err := c.ShouldBindJSON(&body)
+	if err != nil {
+		body = map[string]any{}
 	}
 
-	contentBytes, _ := json.Marshal(body)
+	contentBytes, _ := json.Marshal(body) //nolint:errchkjson // body is map[string]any
 
 	// Upsert
 	var existing MatrixRoomTag
+
 	result := db.GetDB().Where("user_id = ? AND room_id = ? AND tag = ?", userID, roomID, tag).First(&existing)
 	if result.Error == nil {
 		existing.Content = string(contentBytes)
@@ -3131,7 +3484,7 @@ func handleSetRoomTag(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// DeleteRoomTag 删除房间标签
+// DeleteRoomTag 删除房间标签.
 func handleDeleteRoomTag(c *gin.Context) {
 	userID := c.Param("userId")
 	roomID := c.Param("roomId")
@@ -3149,7 +3502,7 @@ func handleDeleteRoomTag(c *gin.Context) {
 
 // ===== 房间摘要 API =====
 
-// GetRoomSummary 获取房间摘要
+// GetRoomSummary 获取房间摘要.
 func handleGetRoomSummary(c *gin.Context) {
 	roomIDOrAlias := c.Param("roomIdOrAlias")
 
@@ -3158,17 +3511,21 @@ func handleGetRoomSummary(c *gin.Context) {
 
 	// 转换为房间ID
 	roomID := roomIDOrAlias
+
 	if strings.HasPrefix(roomIDOrAlias, "#") {
 		// 解析别名
 		aliasService := NewAliasService(hs)
+
 		resolvedRoomID, err := aliasService.GetRoomIDByAlias(roomIDOrAlias)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"errcode": "M_NOT_FOUND",
 				"error":   "Room alias not found",
 			})
+
 			return
 		}
+
 		roomID = resolvedRoomID
 	}
 
@@ -3179,6 +3536,7 @@ func handleGetRoomSummary(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   "Room not found",
 		})
+
 		return
 	}
 
@@ -3188,11 +3546,11 @@ func handleGetRoomSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"room_id":            roomID,
 		"room_type":          room.RoomType,
-		"name":               room.Name,
+		"name":               room.Name, //nolint:goconst
 		"topic":              room.Topic,
 		"avatar_url":         room.AvatarURL,
 		"num_joined_members": len(members),
-		"join_rule":          room.JoinRule,
+		"join_rule":          room.JoinRule, //nolint:goconst
 		"world_readable":     room.HistoryVisibility == "world_readable",
 		"guest_can_join":     room.GuestAccess == "can_join",
 	})
@@ -3200,7 +3558,7 @@ func handleGetRoomSummary(c *gin.Context) {
 
 // ===== Knocks API =====
 
-// KnockRoom 敲门
+// KnockRoom 敲门.
 func handleKnockRoom(c *gin.Context) {
 	roomIDOrAlias := c.Param("roomIdOrAlias")
 	userID := getUserID(c)
@@ -3208,18 +3566,21 @@ func handleKnockRoom(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	c.ShouldBindJSON(&req) //nolint:errcheck // body is optional
+
+	c.ShouldBindJSON(&req) //nolint:errcheck,gosec // G104: body is optional
 
 	roomID := roomIDOrAlias
 
 	// 检查房间是否存在
 	hs := GetHomeServer()
+
 	room, err := hs.Room.GetRoom(roomID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
 			"error":   "Room not found",
 		})
+
 		return
 	}
 
@@ -3229,6 +3590,7 @@ func handleKnockRoom(c *gin.Context) {
 			"errcode": "M_FORBIDDEN",
 			"error":   "Room does not allow knocking",
 		})
+
 		return
 	}
 
@@ -3238,7 +3600,7 @@ func handleKnockRoom(c *gin.Context) {
 		EventType: EventTypeRoomMember,
 		Sender:    userID,
 		StateKey:  &userID,
-		Content: map[string]interface{}{
+		Content: map[string]any{
 			"membership": "knock",
 			"reason":     req.Reason,
 		},
@@ -3252,6 +3614,7 @@ func handleKnockRoom(c *gin.Context) {
 			"errcode": "M_INTERNAL",
 			"error":   "Internal server error",
 		})
+
 		return
 	}
 
@@ -3265,35 +3628,41 @@ func handleKnockRoom(c *gin.Context) {
 
 // ===== 空间 API =====
 
-// GetSpaceHierarchy 获取空间层级
+// GetSpaceHierarchy 获取空间层级.
 func handleGetSpaceHierarchy(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := getUserID(c)
 	roomID := c.Param("roomId")
 
 	limit := 20
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
 			limit = parsed
 		}
 	}
+
 	maxDepth := 3
+
 	if d := c.Query("max_depth"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil {
 			maxDepth = parsed
 		}
 	}
+
 	from := c.Query("from")
 
 	result, err := hs.Spaces.GetSpaceHierarchy(userID, roomID, limit, maxDepth, from)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": err.Error()})
+
 		return
 	}
+
 	c.JSON(http.StatusOK, result)
 }
 
-// GetSpaceSummary 获取空间摘要
+// GetSpaceSummary 获取空间摘要.
 func handleGetSpaceSummary(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := getUserID(c)
@@ -3302,12 +3671,14 @@ func handleGetSpaceSummary(c *gin.Context) {
 	result, err := hs.Spaces.GetSpaceSummary(userID, roomID)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": err.Error()})
+
 		return
 	}
+
 	c.JSON(http.StatusOK, result)
 }
 
-// GetSpaceSummaryClient 客户端空间摘要
+// GetSpaceSummaryClient 客户端空间摘要.
 func handleGetSpaceSummaryClient(c *gin.Context) {
 	handleGetSpaceHierarchy(c)
 }

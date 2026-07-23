@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,10 +16,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// DomainsCommand implements tootctl domains subcommands
+// DomainsCommand implements tootctl domains subcommands.
 func DomainsCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "domains",
+		Name:  "domains", //nolint:goconst
 		Usage: "Manage domains",
 		Subcommands: []*cli.Command{
 			DomainsPurgeCommand(),
@@ -28,7 +30,7 @@ func DomainsCommand() *cli.Command {
 
 // DomainsPurgeCommand implements tootctl domains purge
 // Remove all accounts from given domains without leaving behind any records.
-// Version history: 2.6.0 - added
+// Version history: 2.6.0 - added.
 func DomainsPurgeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "purge",
@@ -36,7 +38,7 @@ func DomainsPurgeCommand() *cli.Command {
 		Description: `Remove all accounts from a given DOMAIN without leaving behind any records. 
 Unlike a suspension, if the DOMAIN still exists in the wild, it means the 
 accounts could return if they are resolved again.`,
-		ArgsUsage: "DOMAIN[...]",
+		ArgsUsage: "DOMAIN[...]", //nolint:goconst
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "by-uri",
@@ -47,18 +49,18 @@ accounts could return if they are resolved again.`,
 				Usage: "Purge all accounts from domains not in allow-list",
 			},
 			&cli.IntFlag{
-				Name:    "concurrency",
+				Name:    "concurrency", //nolint:goconst
 				Aliases: []string{"c"},
 				Value:   5,
-				Usage:   "The number of workers to use",
+				Usage:   "The number of workers to use", //nolint:goconst
 			},
 			&cli.BoolFlag{
-				Name:    "verbose",
+				Name:    "verbose", //nolint:goconst
 				Aliases: []string{"v"},
-				Usage:   "Print additional information while processing",
+				Usage:   "Print additional information while processing", //nolint:goconst
 			},
 			&cli.BoolFlag{
-				Name:  "dry-run",
+				Name:  "dry-run", //nolint:goconst
 				Usage: "Print expected results only, without performing any actions",
 			},
 		},
@@ -68,23 +70,27 @@ accounts could return if they are resolved again.`,
 
 func purgeDomains(c *cli.Context) error {
 	var domains []string
+
 	limitedFederationMode := c.Bool("limited-federation-mode")
 
 	if limitedFederationMode {
 		// Get all domains not in allow-list
 		// For now, we'll get all remote domains
 		var remoteDomains []string
-		if err := db.GetDB().Model(&models.Account{}).
+		err := db.GetDB().Model(&models.Account{}).
 			Where("domain IS NOT NULL AND domain != ''").
 			Distinct("domain").
-			Pluck("domain", &remoteDomains).Error; err != nil {
+			Pluck("domain", &remoteDomains).Error
+		if err != nil {
 			return fmt.Errorf("failed to get remote domains: %w", err)
 		}
+
 		domains = remoteDomains
 	} else {
 		if c.NArg() < 1 {
-			return fmt.Errorf("DOMAIN is required (or use --limited-federation-mode)")
+			return errors.New("DOMAIN is required (or use --limited-federation-mode)")
 		}
+
 		domains = c.Args().Slice()
 	}
 
@@ -109,14 +115,15 @@ func purgeDomains(c *cli.Context) error {
 	return nil
 }
 
-func purgeDomain(domain string, concurrency int, verbose bool, dryRun bool, byURI bool) error {
+func purgeDomain(domain string, concurrency int, verbose bool, dryRun bool, byURI bool) error { //nolint:unparam // param reserved for future use
 	fmt.Printf("\nPurging domain: %s\n", domain)
 
 	// Get accounts from this domain
 	query := db.GetDB().Model(&models.Account{}).Where("domain = ?", domain)
 
 	var accountCount int64
-	if err := query.Count(&accountCount).Error; err != nil {
+	err := query.Count(&accountCount).Error
+	if err != nil {
 		return err
 	}
 
@@ -128,41 +135,46 @@ func purgeDomain(domain string, concurrency int, verbose bool, dryRun bool, byUR
 
 	// Delete in batches with concurrency
 	batchSize := 100
+
 	type accountBatch struct {
 		IDs []uint64
 	}
 
 	jobs := make(chan accountBatch, concurrency)
+
 	var wg sync.WaitGroup
+
 	processed := 0
+
 	var mu sync.Mutex
 
 	// Start workers
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for batch := range jobs {
 				err := deleteAccountsWithDependencies(batch.IDs, verbose)
+
 				mu.Lock()
 				processed += len(batch.IDs)
+
 				if err != nil && verbose {
 					fmt.Printf("Error deleting batch: %v\n", err)
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
 	var lastID uint64 = 0
+
 	for {
 		var accounts []models.Account
+
 		err := db.GetDB().Where("domain = ? AND id > ?", domain, lastID).
 			Order("id ASC").
 			Limit(batchSize).
 			Find(&accounts).Error
-
 		if err != nil {
 			return err
 		}
@@ -175,15 +187,18 @@ func purgeDomain(domain string, concurrency int, verbose bool, dryRun bool, byUR
 		for i, acc := range accounts {
 			ids[i] = acc.Id
 		}
+
 		lastID = accounts[len(accounts)-1].Id
 
 		jobs <- accountBatch{IDs: ids}
 	}
+
 	close(jobs)
 
 	wg.Wait()
 
 	fmt.Printf("Purged %d accounts from %s\n", processed, domain)
+
 	return nil
 }
 
@@ -192,7 +207,8 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 		// Delete related records in correct order
 		// Statuses and related data
 		var statusIDs []uint64
-		if err := tx.Model(&models.Status{}).Where("account_id IN ?", ids).Pluck("id", &statusIDs).Error; err != nil {
+		err := tx.Model(&models.Status{}).Where("account_id IN ?", ids).Pluck("id", &statusIDs).Error
+		if err != nil {
 			return err
 		}
 
@@ -208,7 +224,8 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 			tx.Where("in_reply_to_id IN ?", statusIDs).Delete(&models.Status{})
 
 			// Delete statuses
-			if err := tx.Where("account_id IN ?", ids).Delete(&models.Status{}).Error; err != nil {
+			err := tx.Where("account_id IN ?", ids).Delete(&models.Status{}).Error
+			if err != nil {
 				return err
 			}
 		}
@@ -236,7 +253,8 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 		// (handled by extra)
 
 		// Finally delete accounts
-		if err := tx.Where("id IN ?", ids).Delete(&models.Account{}).Error; err != nil {
+		err = tx.Where("id IN ?", ids).Delete(&models.Account{}).Error
+		if err != nil {
 			return err
 		}
 
@@ -250,7 +268,7 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 
 // DomainsCrawlCommand implements tootctl domains crawl
 // Crawl the known fediverse and collect statistics.
-// Version history: 2.7.0 - added
+// Version history: 2.7.0 - added.
 func DomainsCrawlCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "crawl",
@@ -272,7 +290,7 @@ expose all known peers, and collect statistics from those peers.`,
 			&cli.StringFlag{
 				Name:    "format",
 				Aliases: []string{"f"},
-				Value:   "summary",
+				Value:   "summary", //nolint:goconst
 				Usage:   "Output format: summary, domains, or json",
 			},
 		},
@@ -300,7 +318,7 @@ func crawlDomains(c *cli.Context) error {
 	format := c.String("format")
 
 	if format != "summary" && format != "domains" && format != "json" {
-		return fmt.Errorf("format must be 'summary', 'domains', or 'json'")
+		return errors.New("format must be 'summary', 'domains', or 'json'")
 	}
 
 	fmt.Println("Starting fediverse crawl...")
@@ -311,10 +329,11 @@ func crawlDomains(c *cli.Context) error {
 		domains = []string{startDomain}
 	} else {
 		// Get from known peers
-		if err := db.GetDB().Model(&models.Account{}).
+		err := db.GetDB().Model(&models.Account{}).
 			Where("domain IS NOT NULL AND domain != ''").
 			Distinct("domain").
-			Pluck("domain", &domains).Error; err != nil {
+			Pluck("domain", &domains).Error
+		if err != nil {
 			return fmt.Errorf("failed to get known domains: %w", err)
 		}
 	}
@@ -332,6 +351,7 @@ func crawlDomains(c *cli.Context) error {
 				filteredDomains = append(filteredDomains, domain)
 			}
 		}
+
 		domains = filteredDomains
 		fmt.Printf("Filtered out %d blocked domains, %d remaining\n", len(domains)-len(filteredDomains), len(domains))
 	}
@@ -340,9 +360,13 @@ func crawlDomains(c *cli.Context) error {
 
 	// Crawl
 	visited := make(map[string]bool)
-	var mu sync.Mutex
-	var stats []InstanceStats
-	var wg sync.WaitGroup
+
+	var (
+		mu    sync.Mutex
+		stats []InstanceStats
+		wg    sync.WaitGroup
+	)
+
 	semaphore := make(chan struct{}, concurrency)
 
 	results := make(chan InstanceStats, 100)
@@ -351,6 +375,7 @@ func crawlDomains(c *cli.Context) error {
 	go func() {
 		for s := range results {
 			mu.Lock()
+
 			stats = append(stats, s)
 			mu.Unlock()
 		}
@@ -363,12 +388,15 @@ func crawlDomains(c *cli.Context) error {
 	}
 
 	processed := 0
+
 	for domain := range queue {
 		mu.Lock()
 		if visited[domain] {
 			mu.Unlock()
+
 			continue
 		}
+
 		visited[domain] = true
 		processed++
 		mu.Unlock()
@@ -378,6 +406,7 @@ func crawlDomains(c *cli.Context) error {
 		}
 
 		wg.Add(1)
+
 		semaphore <- struct{}{}
 
 		go func(d string) {
@@ -423,7 +452,10 @@ func crawlDomains(c *cli.Context) error {
 			}
 		}
 	case "json":
-		data, _ := json.MarshalIndent(stats, "", "  ")
+		data, err := json.MarshalIndent(stats, "", "  ")
+		if err != nil {
+			return err
+		}
 		fmt.Println(string(data))
 	}
 
@@ -436,15 +468,23 @@ func crawlInstance(domain string) InstanceStats {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// Get instance info
-	resp, err := client.Get(fmt.Sprintf("https://%s/api/v1/instance", domain))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("https://%s/api/v1/instance", domain), nil)
 	if err != nil {
 		stat.Error = err.Error()
+
 		return stat
 	}
-	defer resp.Body.Close()
+	resp, err := client.Do(req)
+	if err != nil {
+		stat.Error = err.Error()
 
-	if resp.StatusCode != 200 {
+		return stat
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
 		stat.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+
 		return stat
 	}
 
@@ -461,6 +501,7 @@ func crawlInstance(domain string) InstanceStats {
 
 	if err := json.NewDecoder(resp.Body).Decode(&instanceData); err != nil {
 		stat.Error = "failed to decode response"
+
 		return stat
 	}
 
@@ -477,13 +518,17 @@ func crawlInstance(domain string) InstanceStats {
 func getPeers(domain string) []string {
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Get(fmt.Sprintf("https://%s/api/v1/instance/peers", domain))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("https://%s/api/v1/instance/peers", domain), nil)
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
 
@@ -496,14 +541,18 @@ func getPeers(domain string) []string {
 }
 
 func printCrawlSummary(stats []InstanceStats) {
-	var totalServers, totalUsers, totalStatuses int64
-	var errors int
+	var (
+		totalServers, totalUsers, totalStatuses int64
+		errors                                  int
+	)
 
 	for _, s := range stats {
 		if s.Error != "" {
 			errors++
+
 			continue
 		}
+
 		totalServers++
 		totalUsers += s.TotalUsers
 		totalStatuses += s.TotalStatuses
@@ -517,10 +566,11 @@ func printCrawlSummary(stats []InstanceStats) {
 	fmt.Printf("Total statuses:         %d\n", totalStatuses)
 }
 
-// getBlockedDomains returns all blocked domains from the database
+// getBlockedDomains returns all blocked domains from the database.
 func getBlockedDomains() (map[string]bool, error) {
 	var blocks []models.DomainBlock
-	if err := db.GetDB().Find(&blocks).Error; err != nil {
+	err := db.GetDB().Find(&blocks).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -532,7 +582,7 @@ func getBlockedDomains() (map[string]bool, error) {
 	return blocked, nil
 }
 
-// isDomainBlocked checks if a domain is in the blocked list
+// isDomainBlocked checks if a domain is in the blocked list.
 func isDomainBlocked(domain string, blocked map[string]bool) bool {
 	if blocked[domain] {
 		return true

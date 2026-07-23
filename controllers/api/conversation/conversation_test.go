@@ -14,15 +14,17 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError
+// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r == "abort" {
 			_ = r // expected - handler aborted early
 		}
 	}()
+
 	fn(c)
 }
 
@@ -36,11 +38,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
+
 	var err error
+
 	testDB, err = testutil.NewIsolatedTestDB(t)
 	if err != nil {
 		t.Fatalf("Failed to create test DB: %v", err)
 	}
+
 	database.SetTestDB(testDB.GormDB)
 
 	if err := testDB.AutoMigrate(
@@ -56,10 +61,12 @@ func setupTestDB(t *testing.T) {
 	}
 }
 
-// createTestAccount creates a test account in the DB
+// createTestAccount creates a test account in the DB.
 func createTestAccount(t *testing.T, username string) *models.Account {
 	t.Helper()
+
 	now := time.Now()
+
 	account := &models.Account{
 		Username:    username,
 		DisplayName: "Test " + username,
@@ -68,49 +75,60 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(account).Error; err != nil {
+	err := testDB.GormDB.Create(account).Error
+	if err != nil {
 		t.Fatalf("Failed to create account: %v", err)
 	}
+
 	return account
 }
 
-// createTestConversation creates a conversation with the given accounts
+// createTestConversation creates a conversation with the given accounts.
 func createTestConversation(t *testing.T, accountIds []uint64, statusIds []uint64) *models.Conversation {
 	t.Helper()
+
 	now := time.Now()
+
 	conversation := &models.Conversation{
 		AccountsIds: accountIds,
 		StatusesIds: statusIds,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
-	if err := testDB.GormDB.Create(conversation).Error; err != nil {
+	err := testDB.GormDB.Create(conversation).Error
+	if err != nil {
 		t.Fatalf("Failed to create conversation: %v", err)
 	}
+
 	return conversation
 }
 
-// newContextWithAccount creates a gin context with account set
-func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, path string) (*gin.Context, *models.Account) {
+// newContextWithAccount creates a gin context with account set.
+func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, path string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
 	t.Helper()
 	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
 	c.Set("account", account)
+
 	return c, account
 }
 
-// newContextWithAccountAndParams creates a gin context with account and path params
-func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) {
+// newContextWithAccountAndParams creates a gin context with account and path params.
+func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
 	t.Helper()
 	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(method, path, nil)
+	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
+
 	c.Params = gin.Params{}
+
 	for k, v := range params {
 		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
 	}
+
 	c.Set("account", account)
+
 	return c, account
 }
 
@@ -126,12 +144,13 @@ func TestList_Success(t *testing.T) {
 
 	// Verify the AccountConversation was created by AfterSave hook
 	var ac models.AccountConversation
+
 	err := testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&ac).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
@@ -145,16 +164,18 @@ func TestList_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []interface{}
+
+	var resp []any
+
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
-	assert.Len(t, resp, 0)
+	require.NoError(t, err)
+	assert.Empty(t, resp)
 }
 
 func TestList_WithLimit(t *testing.T) {
@@ -166,7 +187,7 @@ func TestList_WithLimit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?limit=1", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?limit=1", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
@@ -183,7 +204,7 @@ func TestList_WithSinceId(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?since_id="+strconv.FormatUint(conv.Id, 10), nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?since_id="+strconv.FormatUint(conv.Id, 10), nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
@@ -197,15 +218,14 @@ func TestList_InvalidMinId(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?min_id=abc", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?min_id=abc", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
 
 	// Error is set via c.Error(), not JSON response, so no abort
-	// The handler just calls c.Error and returns, leaving status 200 but with errors
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 func TestList_InvalidMaxId(t *testing.T) {
@@ -214,13 +234,13 @@ func TestList_InvalidMaxId(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?max_id=abc", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/conversations?max_id=abc", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(List, c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 // ========== MarkRead Tests ==========
@@ -236,8 +256,9 @@ func TestMarkRead_Success(t *testing.T) {
 
 	// Verify the AccountConversation was created by AfterSave hook
 	var ac models.AccountConversation
+
 	err := testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&ac).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/conversations/"+strconv.FormatUint(conv.Id, 10)+"/read", map[string]string{
@@ -250,6 +271,7 @@ func TestMarkRead_Success(t *testing.T) {
 
 	// Verify last_status_id was updated
 	var updated models.AccountConversation
+
 	testDB.GormDB.First(&updated, ac.Id)
 	assert.Equal(t, statusId, updated.LastStatusId)
 }
@@ -260,12 +282,12 @@ func TestMarkRead_EmptyID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/conversations//read", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/conversations//read", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(MarkRead, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 func TestMarkRead_InvalidID(t *testing.T) {
@@ -279,7 +301,7 @@ func TestMarkRead_InvalidID(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 func TestMarkRead_NotFound(t *testing.T) {
@@ -293,7 +315,7 @@ func TestMarkRead_NotFound(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 // ========== Remove Tests ==========
@@ -307,8 +329,9 @@ func TestRemove_Success(t *testing.T) {
 
 	// Verify the AccountConversation was created
 	var ac models.AccountConversation
+
 	err := testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&ac).Error
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/conversations/"+strconv.FormatUint(conv.Id, 10), map[string]string{
@@ -321,8 +344,9 @@ func TestRemove_Success(t *testing.T) {
 
 	// Verify the AccountConversation was deleted
 	var deleted models.AccountConversation
+
 	err = testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&deleted).Error
-	assert.Error(t, err) // not found
+	require.Error(t, err) // not found
 }
 
 func TestRemove_OnlyAccountLeft(t *testing.T) {
@@ -343,8 +367,9 @@ func TestRemove_OnlyAccountLeft(t *testing.T) {
 
 	// The conversation should be deleted because AccountsIds is now empty (BeforeSave hook)
 	var deleted models.Conversation
+
 	err := testDB.GormDB.First(&deleted, conv.Id).Error
-	assert.Error(t, err) // not found - conversation was auto-deleted
+	require.Error(t, err) // not found - conversation was auto-deleted
 }
 
 func TestRemove_EmptyID(t *testing.T) {
@@ -353,12 +378,12 @@ func TestRemove_EmptyID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/conversations//remove", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/conversations//remove", nil) //nolint:noctx
 	c.Set("account", account)
 
 	callHandler(Remove, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 func TestRemove_InvalidID(t *testing.T) {
@@ -372,7 +397,7 @@ func TestRemove_InvalidID(t *testing.T) {
 
 	callHandler(Remove, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }
 
 func TestRemove_NotFound(t *testing.T) {
@@ -386,5 +411,5 @@ func TestRemove_NotFound(t *testing.T) {
 
 	callHandler(Remove, c)
 
-	assert.True(t, len(c.Errors) > 0)
+	assert.NotEmpty(t, c.Errors)
 }

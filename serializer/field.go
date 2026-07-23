@@ -12,7 +12,7 @@ type Field struct {
 }
 
 func ToFields(fields []models.AccountField) []Field {
-	ret := make([]Field, 0)
+	ret := make([]Field, 0, len(fields))
 	for _, v := range fields {
 		ret = append(ret, Field{
 			Name:       v.Name,

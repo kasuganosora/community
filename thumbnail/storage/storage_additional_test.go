@@ -1,10 +1,10 @@
 package storage
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -127,13 +127,13 @@ func TestMinIOBackend_GetURL_WithPublicURLAndEmptyPrefix(t *testing.T) {
 
 func TestNewBackend_UnsupportedType(t *testing.T) {
 	_, err := NewBackend(Config{Type: "ftp"})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported storage type: ftp")
 }
 
 func TestNewBackend_UnsupportedType_Empty(t *testing.T) {
 	_, err := NewBackend(Config{Type: ""})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported storage type:")
 }
 
@@ -160,10 +160,10 @@ func TestS3Backend_GetURL_ContainsBucketAndRegion(t *testing.T) {
 	}
 
 	url := s.GetURL("object.key")
-	assert.True(t, strings.Contains(url, "test-bucket"), "URL should contain bucket name")
-	assert.True(t, strings.Contains(url, "sa-east-1"), "URL should contain region")
-	assert.True(t, strings.Contains(url, "s3"), "URL should contain s3")
-	assert.True(t, strings.Contains(url, "amazonaws.com"), "URL should contain amazonaws.com")
+	assert.Contains(t, url, "test-bucket", "URL should contain bucket name")
+	assert.Contains(t, url, "sa-east-1", "URL should contain region")
+	assert.Contains(t, url, "s3", "URL should contain s3")
+	assert.Contains(t, url, "amazonaws.com", "URL should contain amazonaws.com")
 }
 
 func TestMinIOBackend_GetURL_ContainsEndpointAndBucket(t *testing.T) {
@@ -175,6 +175,6 @@ func TestMinIOBackend_GetURL_ContainsEndpointAndBucket(t *testing.T) {
 	}
 
 	url := m.GetURL("obj")
-	assert.True(t, strings.Contains(url, "minio.example.com:9000"), "URL should contain endpoint")
-	assert.True(t, strings.Contains(url, "data"), "URL should contain bucket name")
+	assert.Contains(t, url, "minio.example.com:9000", "URL should contain endpoint")
+	assert.Contains(t, url, "data", "URL should contain bucket name")
 }

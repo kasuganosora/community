@@ -7,13 +7,14 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/testutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestFollowMeDebug2 tries direct GORM query patterns
+// TestFollowMeDebug2 tries direct GORM query patterns.
 func TestFollowMeDebug2(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 	database.DB = db.GormDB
+
 	systemsettings.Set(systemsettings.KeyRegistrationApprovalRequired, false)
 	systemsettings.Set(systemsettings.KeyRegistrationCheckEmail, false)
 
@@ -29,11 +30,12 @@ func TestFollowMeDebug2(t *testing.T) {
 		"INSERT INTO accounts (user_id, username, display_name, acct, bot, locked, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		ownerUser.Id, "rawowner", "Raw Owner", "rawowner@__LOCAL__", 0, false, now, now,
 	)
-	assert.NoError(t, result.Error)
+	require.NoError(t, result.Error)
 	t.Logf("Raw insert result: affected=%d", result.RowsAffected)
 
 	// Now query with bot = false
 	var found models.Account
+
 	err := db.GormDB.Where("user_id = ?", ownerUser.Id).Where("bot = ?", false).First(&found).Error
 	t.Logf("Query with bot=false: err=%v", err)
 
@@ -47,7 +49,9 @@ func TestFollowMeDebug2(t *testing.T) {
 
 	// Check what type bot actually is
 	row := db.GormDB.Raw("SELECT bot FROM accounts WHERE user_id = ?", ownerUser.Id).Row()
-	var botVal interface{}
+
+	var botVal any
+
 	if err := row.Scan(&botVal); err != nil {
 		t.Logf("Scan error: %v", err)
 	} else {

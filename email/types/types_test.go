@@ -66,10 +66,11 @@ func TestDriveInterface(t *testing.T) {
 	mockDrive := &MockDrive{}
 
 	var _ Drive = mockDrive // Verify interface implementation
+
 	assert.NotNil(t, mockDrive)
 }
 
-// MockDrive implements Drive interface for testing
+// MockDrive implements Drive interface for testing.
 type MockDrive struct{}
 
 func (m *MockDrive) SendMail(to string, cc string, mailObject *Mail) error {

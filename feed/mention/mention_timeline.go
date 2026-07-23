@@ -16,7 +16,8 @@ func init() {
 		if event.Data == nil {
 			return false
 		}
-		status := event.Data.(*models.Status)
+
+		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
 		}
@@ -26,29 +27,33 @@ func init() {
 			return true
 		}
 
-		//如果是新增的事件
+		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
 			go func() {
-				if err := Push(status, false, true); err != nil {
+				err := Push(status, false, true)
+				if err != nil {
 					log.Printf("mention_timeline: Push failed: %v", err)
 				}
 			}()
 		case "before_update":
 			go func() { // 更新之前，先删除
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("mention_timeline: Unpush failed: %v", err)
 				}
 			}()
 		case "after_update":
 			go func() {
-				if err := Push(status, true, true); err != nil {
+				err := Push(status, true, true)
+				if err != nil {
 					log.Printf("mention_timeline: Push failed: %v", err)
 				}
 			}()
 		case "after_delete":
 			go func() {
-				if err := Unpush(status, true); err != nil {
+				err := Unpush(status, true)
+				if err != nil {
 					log.Printf("mention_timeline: Unpush failed: %v", err)
 				}
 			}()
@@ -79,25 +84,28 @@ func (timeline *MentionTimeline) Rebuild() (err error) {
 		Where("account_id = ?", timeline.Account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)).
 		Order("id desc").Find(
 		&statuses).Error
-
 	if err != nil {
-		return
+		return err
 	}
 
 	if err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()}); err != nil {
-		return
+		return err
 	}
 
 	for _, status := range statuses {
-		if err = feed.AddToTimelineItem(timeline, status, true); err != nil {
-			return
+		err = feed.AddToTimelineItem(timeline, status, true)
+		if err != nil {
+			return err
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+
+		err = feed.TrimTimeline(timeline)
+
+		if err != nil {
+			return err
 		}
 	}
 
-	return
+	return nil
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
@@ -113,7 +121,7 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 			&accounts).Error
 
 	if len(accounts) == 0 {
-		return
+		return err
 	}
 
 	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
@@ -130,27 +138,39 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		for _, account := range accounts {
 			timelines = append(timelines, &MentionTimeline{Account: account})
 		}
-		if err = feed.BatchAddToTimelineItems(timelines, status, false); err != nil {
-			return
+
+		err = feed.BatchAddToTimelineItems(timelines, status, false)
+
+		if err != nil {
+			return err
 		}
+
 		for _, timeline := range timelines {
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+			err = feed.TrimTimeline(timeline)
+			if err != nil {
+				return err
 			}
 		}
 	} else {
 		// 转发：保留单条调用，因为每个用户可能有不同的 aggregatesReblogs 设置
 		for _, account := range accounts {
 			timeline := &MentionTimeline{Account: account}
+
 			aggregatesReblogs := false
 			if account.User != nil && account.User.Settings != nil {
 				aggregatesReblogs = account.User.Settings.GetAggregatesReblogs()
 			}
-			if err = feed.AddToTimelineItem(timeline, status, aggregatesReblogs); err != nil {
-				return
+
+			err = feed.AddToTimelineItem(timeline, status, aggregatesReblogs)
+
+			if err != nil {
+				return err
 			}
-			if err = feed.TrimTimeline(timeline); err != nil {
-				return
+
+			err = feed.TrimTimeline(timeline)
+
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -159,19 +179,20 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		for _, account := range accounts {
 			timeline := &MentionTimeline{Account: account}
 			if feed.PushUpdateRequired(timeline) {
-				if err = feed.PushToClient(timeline, method, status); err != nil {
-					return
+				err = feed.PushToClient(timeline, method, status)
+				if err != nil {
+					return err
 				}
 			}
 		}
 	}
 
-	return
+	return err
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
 	if len(status.ToAccounts) == 0 {
-		return
+		return err
 	}
 
 	// 读取出旧的 to_accounts
@@ -186,23 +207,26 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}
-		if err = feed.RemoveTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs()); err != nil {
-			return
+		err = feed.RemoveTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs())
+		if err != nil {
+			return err
 		}
-		if err = feed.TrimTimeline(timeline); err != nil {
-			return
+
+		err = feed.TrimTimeline(timeline)
+
+		if err != nil {
+			return err
 		}
 
 		if feed.PushUpdateRequired(timeline) && pushToClient {
 			err = feed.PushToClient(timeline, "delete", status)
-
 			if err != nil {
-				return
+				return err
 			}
 		}
 	}
 
-	return
+	return err
 }
 
 func GetTimelineContent(account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
@@ -213,5 +237,6 @@ func GetTimelineContent(account *models.Account, params *feed.ListParam) (status
 			&models.StatusToAccount{}).
 			Where("account_id = ?", account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)), nil
 	}
+
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
 }

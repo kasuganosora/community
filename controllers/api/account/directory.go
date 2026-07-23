@@ -9,9 +9,10 @@ import (
 	"strconv"
 )
 
-// GetDirectory handles GET /api/v1/directory
+// GetDirectory handles GET /api/v1/directory.
 func GetDirectory(c *gin.Context) {
 	limit := 40
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
 			limit = parsed
@@ -19,6 +20,7 @@ func GetDirectory(c *gin.Context) {
 	}
 
 	offset := 0
+
 	if o := c.Query("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
@@ -48,9 +50,11 @@ func GetDirectory(c *gin.Context) {
 	}
 
 	accounts := make([]*models.Account, 0)
-	if err := query.Limit(limit).Offset(offset).Find(&accounts).Error; err != nil {
+	err := query.Limit(limit).Offset(offset).Find(&accounts).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get directory error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 

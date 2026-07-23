@@ -13,7 +13,7 @@ const (
 	ReportCategoryViolation
 )
 
-type Report struct {
+type Report struct { //nolint:recvcheck
 	Id                     uint64         `gorm:"primaryKey;autoIncrement"`
 	StatusIds              []uint64       `gorm:"type:json;serializer:json"`
 	Comment                string         `gorm:"type:text"`
@@ -52,7 +52,7 @@ func (r *Report) BeforeCreate(tx *gorm.DB) (err error) {
 
 func (r *Report) AfterCreate(tx *gorm.DB) (err error) {
 	event.Trigger("report", event.Event{
-		Name: `after_create`,
+		Name: `after_create`, //nolint:goconst
 		Data: r,
 	})
 
@@ -70,7 +70,7 @@ func (r *Report) BeforeUpdate(tx *gorm.DB) (err error) {
 
 func (r *Report) AfterUpdate(tx *gorm.DB) (err error) {
 	event.Trigger("report", event.Event{
-		Name: `after_update`,
+		Name: `after_update`, //nolint:goconst
 		Data: r,
 	})
 
@@ -97,7 +97,7 @@ func (r *Report) AfterDelete(tx *gorm.DB) (err error) {
 
 func (r *Report) BeforeSave(tx *gorm.DB) (err error) {
 	event.Trigger("report", event.Event{
-		Name: `before_save`,
+		Name: `before_save`, //nolint:goconst
 		Data: r,
 	})
 
@@ -115,13 +115,13 @@ func (r *Report) GetStatusString() string {
 func (r *Report) ToCategoryString() string {
 	switch r.Category {
 	case ReportCategoryOther:
-		return "Other"
+		return "Other" //nolint:goconst
 	case ReportCategorySpam:
-		return "Spam"
+		return "Spam" //nolint:goconst
 	case ReportCategoryLegal:
-		return "Legal"
+		return "Legal" //nolint:goconst
 	case ReportCategoryViolation:
-		return "Violation"
+		return "Violation" //nolint:goconst
 	default:
 		return "Unknown"
 	}

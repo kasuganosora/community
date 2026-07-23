@@ -9,7 +9,7 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// Mention represents a parsed mention from ActivityPub content
+// Mention represents a parsed mention from ActivityPub content.
 type Mention struct {
 	Username string
 	Domain   string
@@ -17,15 +17,15 @@ type Mention struct {
 	Acct     string // username@domain format
 }
 
-// mentionRegex matches @username@domain or @username formats
+// mentionRegex matches @username@domain or @username formats.
 var mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9_]+)(?:@([a-zA-Z0-9.\-]+))?`)
 
-// htmlLinkRegex matches HTML anchor tags to extract mentions
+// htmlLinkRegex matches HTML anchor tags to extract mentions.
 var htmlLinkRegex = regexp.MustCompile(`<a[^>]+href="([^"]+)"[^>]*>@([^<]+)</a>`)
 
 // ParseMentions extracts mentions from ActivityPub content
-// It handles both plain text mentions (@user@domain) and HTML links
-func ParseMentions(content string, tags []interface{}) []Mention {
+// It handles both plain text mentions (@user@domain) and HTML links.
+func ParseMentions(content string, tags []any) []Mention {
 	mentions := make(map[string]Mention)
 
 	// First, check for HTML links (canonical way in ActivityPub)
@@ -60,7 +60,7 @@ func ParseMentions(content string, tags []interface{}) []Mention {
 	return result
 }
 
-// parseHTMLMentions extracts mentions from HTML anchor tags
+// parseHTMLMentions extracts mentions from HTML anchor tags.
 func parseHTMLMentions(content string) []Mention {
 	var mentions []Mention
 
@@ -83,18 +83,18 @@ func parseHTMLMentions(content string) []Mention {
 	return mentions
 }
 
-// parseTagMentions extracts mentions from ActivityPub tag array
-func parseTagMentions(tags []interface{}) []Mention {
+// parseTagMentions extracts mentions from ActivityPub tag array.
+func parseTagMentions(tags []any) []Mention {
 	var mentions []Mention
 
 	for _, tag := range tags {
-		tagMap, ok := tag.(map[string]interface{})
+		tagMap, ok := tag.(map[string]any)
 		if !ok {
 			continue
 		}
 
 		tagType, _ := tagMap["type"].(string)
-		if tagType != "Mention" {
+		if tagType != "Mention" { //nolint:goconst
 			continue
 		}
 
@@ -126,15 +126,17 @@ func parseTagMentions(tags []interface{}) []Mention {
 	return mentions
 }
 
-// parseTextMentions extracts plain text mentions from content
+// parseTextMentions extracts plain text mentions from content.
 func parseTextMentions(content string) []Mention {
 	var mentions []Mention
+
 	seen := make(map[string]bool)
 
 	matches := mentionRegex.FindAllStringSubmatch(content, -1)
 	for _, match := range matches {
 		if len(match) >= 2 {
 			username := match[1]
+
 			domain := ""
 			if len(match) >= 3 && match[2] != "" {
 				domain = match[2]
@@ -144,6 +146,7 @@ func parseTextMentions(content string) []Mention {
 			if seen[acct] {
 				continue
 			}
+
 			seen[acct] = true
 
 			// Build URI
@@ -164,7 +167,7 @@ func parseTextMentions(content string) []Mention {
 	return mentions
 }
 
-// parseMentionFromURI extracts mention info from a URI
+// parseMentionFromURI extracts mention info from a URI.
 func parseMentionFromURI(uri string) Mention {
 	mention := Mention{URI: uri}
 
@@ -183,12 +186,12 @@ func parseMentionFromURI(uri string) Mention {
 	// https://domain.com/@username
 	// https://domain.com/profiles/username
 
-	if strings.HasPrefix(path, "/users/") {
-		mention.Username = strings.TrimPrefix(path, "/users/")
-	} else if strings.HasPrefix(path, "/@") {
-		mention.Username = strings.TrimPrefix(path, "/@")
-	} else if strings.HasPrefix(path, "/profiles/") {
-		mention.Username = strings.TrimPrefix(path, "/profiles/")
+	if after, ok := strings.CutPrefix(path, "/users/"); ok {
+		mention.Username = after
+	} else if after, ok := strings.CutPrefix(path, "/@"); ok {
+		mention.Username = after
+	} else if after, ok := strings.CutPrefix(path, "/profiles/"); ok {
+		mention.Username = after
 	}
 
 	mention.Acct = formatAcct(mention.Username, mention.Domain)
@@ -196,7 +199,7 @@ func parseMentionFromURI(uri string) Mention {
 	return mention
 }
 
-// parseMentionName extracts username and domain from a mention name
+// parseMentionName extracts username and domain from a mention name.
 func parseMentionName(name string) (string, string) {
 	name = strings.TrimSpace(name)
 	name = strings.TrimPrefix(name, "@")
@@ -205,18 +208,20 @@ func parseMentionName(name string) (string, string) {
 	if len(parts) == 2 {
 		return parts[0], parts[1]
 	}
+
 	return parts[0], ""
 }
 
-// formatAcct formats username and domain as acct string
+// formatAcct formats username and domain as acct string.
 func formatAcct(username, domain string) string {
 	if domain != "" {
 		return username + "@" + domain
 	}
+
 	return username
 }
 
-// ResolveMentions resolves mentions to account IDs
+// ResolveMentions resolves mentions to account IDs.
 func ResolveMentions(mentions []Mention) map[string]uint64 {
 	result := make(map[string]uint64)
 
@@ -225,23 +230,28 @@ func ResolveMentions(mentions []Mention) map[string]uint64 {
 
 		// Try to find by origin ID first
 		if mention.URI != "" {
-			if err := db.GetDB().Where("origin_id = ?", mention.URI).First(&account).Error; err == nil {
+			err := db.GetDB().Where("origin_id = ?", mention.URI).First(&account).Error
+			if err == nil {
 				result[mention.Acct] = account.Id
+
 				continue
 			}
 		}
 
 		// Try to find by username and domain
 		if mention.Domain != "" {
-			if err := db.GetDB().Where("username = ? AND domain = ?", mention.Username, mention.Domain).First(&account).Error; err == nil {
+			err := db.GetDB().Where("username = ? AND domain = ?", mention.Username, mention.Domain).First(&account).Error
+			if err == nil {
 				result[mention.Acct] = account.Id
+
 				continue
 			}
 		}
 
 		// Try to find local user
 		if mention.Domain == "" {
-			if err := db.GetDB().Where("username = ? AND domain IS NULL", mention.Username).First(&account).Error; err == nil {
+			err := db.GetDB().Where("username = ? AND domain IS NULL", mention.Username).First(&account).Error
+			if err == nil {
 				result[mention.Acct] = account.Id
 			}
 		}
@@ -250,8 +260,8 @@ func ResolveMentions(mentions []Mention) map[string]uint64 {
 	return result
 }
 
-// GetMentionAccountIDs returns account IDs for all mentions
-func GetMentionAccountIDs(content string, tags []interface{}) []uint64 {
+// GetMentionAccountIDs returns account IDs for all mentions.
+func GetMentionAccountIDs(content string, tags []any) []uint64 {
 	mentions := ParseMentions(content, tags)
 	resolved := ResolveMentions(mentions)
 

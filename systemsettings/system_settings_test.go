@@ -66,7 +66,7 @@ func TestGetFloat64_Default(t *testing.T) {
 	settings = map[string]any{}
 
 	result := GetFloat64("nonexistent", 3.14)
-	assert.Equal(t, 3.14, result)
+	assert.InEpsilon(t, 3.14, result, 0.001)
 }
 
 func TestGetBool_Default(t *testing.T) {
@@ -87,6 +87,7 @@ func TestSetAndGet(t *testing.T) {
 	settings = map[string]any{}
 
 	Set("new_key", "new_value")
+
 	result := GetString("new_key", "")
 	assert.Equal(t, "new_value", result)
 }

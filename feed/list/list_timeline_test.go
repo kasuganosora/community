@@ -69,6 +69,7 @@ func TestListTimeline_GetTimelineId(t *testing.T) {
 
 func TestListTimeline_TimelineInterface(t *testing.T) {
 	list := &models.List{Id: 1, Title: "test"}
+
 	var timeline feed.Timeline = &ListTimeline{List: list}
 
 	assert.Equal(t, "feed:list:%s", timeline.GetKeyFormat())
@@ -137,17 +138,18 @@ func TestListTimeline_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = timeline.GetKeyFormat()
 				_ = timeline.GetTimelineId()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

@@ -20,7 +20,7 @@ func ToList(list *models.List) *List {
 }
 
 func ToLists(lists []*models.List) []*List {
-	result := make([]*List, 0)
+	result := make([]*List, 0, len(lists))
 
 	for _, list := range lists {
 		result = append(result, ToList(list))

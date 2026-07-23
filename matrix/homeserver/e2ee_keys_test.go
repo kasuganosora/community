@@ -7,8 +7,8 @@ import (
 
 func TestDeviceKeysSerialization(t *testing.T) {
 	dk := &DeviceKeys{
-		UserID:     "@test:example.com",
-		DeviceID:   "DEVICE123",
+		UserID:     "@test:example.com", //nolint:goconst
+		DeviceID:   "DEVICE123",         //nolint:goconst
 		Algorithms: []string{"ed25519", "curve25519"},
 		Keys: map[string]string{
 			"ed25519:DEVICE123": "public_key_here",

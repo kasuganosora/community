@@ -27,7 +27,7 @@ func init() {
 	}
 }
 
-// isTestMode detects if we're running in test mode
+// isTestMode detects if we're running in test mode.
 func isTestMode() bool {
 	// Check command line arguments
 	for _, arg := range os.Args {
@@ -39,11 +39,13 @@ func isTestMode() bool {
 	if os.Getenv("GO_TEST_MODE") == "1" {
 		return true
 	}
+
 	return false
 }
 
 func GetLocalizer(lang string, accept string) *Localizer {
 	langs := make([]string, 0)
+
 	if accept != "" {
 		tag, _ := language.MatchStrings(language.NewMatcher(Bundle.LanguageTags()), accept)
 		langs = append(langs, tag.String())
@@ -72,8 +74,7 @@ func (l *Localizer) T(id string, data map[string]any, options ...O) string {
 	}
 
 	for _, option := range options {
-		switch option.Key {
-		case "PluralCount":
+		if option.Key == "PluralCount" {
 			config.PluralCount = option.Value
 		}
 	}
@@ -85,6 +86,7 @@ func GetMailTemplateName(lang string, templateName string) string {
 	if lang == "" {
 		lang = "en"
 	}
+
 	langTag := language.Make(lang)
 
 	fs := internalfs.Get()

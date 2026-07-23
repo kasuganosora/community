@@ -23,13 +23,16 @@ func ToAttachment(attachment *models.Attachment) (att *Attachment) {
 	if attachment == nil {
 		return nil
 	}
+
 	url := systemsettings.GetString(systemsettings.KeyMediaAttachmentsBaseURL, "") + attachment.SavePath
 
 	var previewUrl *string
+
 	if attachment.PreviewSavePath != "" {
 		_previewUrl := systemsettings.GetString(systemsettings.KeyMediaAttachmentsCacheBaseURL, "") + attachment.PreviewSavePath
 		previewUrl = &_previewUrl
 	}
+
 	att = &Attachment{
 		Type:             attachment.GetTypeString(),
 		Url:              url,
@@ -52,5 +55,6 @@ func ToAttachments(attachments []*models.Attachment) (atts []*Attachment) {
 	for _, attachment := range attachments {
 		atts = append(atts, ToAttachment(attachment))
 	}
+
 	return
 }

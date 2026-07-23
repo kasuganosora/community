@@ -12,7 +12,7 @@ func TestFilter_GetFilterActionString(t *testing.T) {
 		action   uint8
 		expected string
 	}{
-		{FilterActionNone, "none"},
+		{FilterActionNone, "none"}, //nolint:goconst
 		{FilterActionWarn, "warn"},
 		{FilterActionHide, "hide"},
 		{99, "none"}, // default
@@ -32,7 +32,7 @@ func TestFilter_GetStatusFilterAction(t *testing.T) {
 		filter := &Filter{
 			FilterAction: FilterActionNone,
 			Keywords: []*FilterKeyword{
-				{Keyword: "test", WholeWord: false},
+				{Keyword: "test", WholeWord: false}, //nolint:goconst
 			},
 		}
 		status := &Status{Content: StatusContent{Content: "test content"}}
@@ -44,7 +44,7 @@ func TestFilter_GetStatusFilterAction(t *testing.T) {
 		filter := &Filter{
 			FilterAction: FilterActionWarn,
 			Keywords: []*FilterKeyword{
-				{Keyword: "spam", WholeWord: true},
+				{Keyword: "spam", WholeWord: true}, //nolint:goconst
 			},
 		}
 		status := &Status{Content: StatusContent{Content: "spam"}}
@@ -114,7 +114,7 @@ func TestFilters_GetStatusFilters(t *testing.T) {
 	}
 
 	t.Run("Filter other users' statuses", func(t *testing.T) {
-		status := &Status{AccountId: 2, Content: StatusContent{Content: "bad content"}}
+		status := &Status{AccountId: 2, Content: StatusContent{Content: "bad content"}} //nolint:goconst
 		result := filters.GetStatusFilters(status, account)
 		assert.Len(t, result, 1)
 		assert.Equal(t, uint64(1), result[0].Id)
@@ -123,7 +123,7 @@ func TestFilters_GetStatusFilters(t *testing.T) {
 	t.Run("Skip own statuses", func(t *testing.T) {
 		status := &Status{AccountId: 1, Content: StatusContent{Content: "bad content"}}
 		result := filters.GetStatusFilters(status, account)
-		assert.Len(t, result, 0)
+		assert.Empty(t, result)
 	})
 
 	t.Run("No account - still filter", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestFilters_GetStatusFilters(t *testing.T) {
 	t.Run("No matching filters", func(t *testing.T) {
 		status := &Status{AccountId: 2, Content: StatusContent{Content: "good content"}}
 		result := filters.GetStatusFilters(status, otherAccount)
-		assert.Len(t, result, 0)
+		assert.Empty(t, result)
 	})
 
 	_ = now

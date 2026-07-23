@@ -10,7 +10,7 @@ import (
 func TestStatusCodeDirect(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("DELETE", "/test", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/test", nil) //nolint:noctx
 	c.Status(http.StatusNoContent)
 	t.Logf("w.Code = %d (expected 204)", w.Code)
 	t.Logf("w.Body = %s", w.Body.String())

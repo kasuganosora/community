@@ -3,6 +3,7 @@ package homeserver
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,7 +15,7 @@ import (
 // ===== MSC1960: OpenID Connect 集成 =====
 // 允许用户使用 Matrix 身份登录第三方服务
 
-// OpenIDToken OpenID 令牌
+// OpenIDToken OpenID 令牌.
 type OpenIDToken struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement"`
 	Token     string    `gorm:"uniqueIndex;type:varchar(128);not null"`
@@ -28,13 +29,13 @@ func (OpenIDToken) TableName() string {
 	return "matrix_openid_tokens"
 }
 
-// OpenIDTokenRequest OpenID 令牌请求
+// OpenIDTokenRequest OpenID 令牌请求.
 type OpenIDTokenRequest struct {
 	// 可选的过期时间（毫秒）
 	ExpiresIn int64 `json:"expires_in,omitempty"`
 }
 
-// OpenIDTokenResponse OpenID 令牌响应
+// OpenIDTokenResponse OpenID 令牌响应.
 type OpenIDTokenResponse struct {
 	AccessToken      string `json:"access_token"`
 	TokenType        string `json:"token_type"`
@@ -42,33 +43,35 @@ type OpenIDTokenResponse struct {
 	ExpiresIn        int64  `json:"expires_in,omitempty"`
 }
 
-// OpenIDUserInfo OpenID 用户信息
+// OpenIDUserInfo OpenID 用户信息.
 type OpenIDUserInfo struct {
 	Sub string `json:"sub"` // Matrix 用户 ID
 }
 
-// OpenIDService OpenID 服务
+// OpenIDService OpenID 服务.
 type OpenIDService struct {
 	hs *HomeServer
 }
 
-// NewOpenIDService 创建 OpenID 服务
+// NewOpenIDService 创建 OpenID 服务.
 func NewOpenIDService(hs *HomeServer) *OpenIDService {
 	s := &OpenIDService{hs: hs}
 	go s.cleanupLoop()
+
 	return s
 }
 
-// cleanupLoop 定期清理过期的令牌
+// cleanupLoop 定期清理过期的令牌.
 func (os *OpenIDService) cleanupLoop() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
+
 	for range ticker.C {
 		os.CleanupExpiredTokens()
 	}
 }
 
-// RequestToken 请求 OpenID 令牌
+// RequestToken 请求 OpenID 令牌.
 func (os *OpenIDService) RequestToken(userID string, req *OpenIDTokenRequest) (*OpenIDTokenResponse, error) {
 	// 生成令牌
 	token := generateOpenIDToken()
@@ -88,7 +91,8 @@ func (os *OpenIDService) RequestToken(userID string, req *OpenIDTokenRequest) (*
 		ExpiresAt: expiresAt,
 	}
 
-	if err := db.GetDB().Create(openIDToken).Error; err != nil {
+	err := db.GetDB().Create(openIDToken).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -100,16 +104,19 @@ func (os *OpenIDService) RequestToken(userID string, req *OpenIDTokenRequest) (*
 	}, nil
 }
 
-// GetUserInfo 获取 OpenID 用户信息
+// GetUserInfo 获取 OpenID 用户信息.
 func (os *OpenIDService) GetUserInfo(token string) (*OpenIDUserInfo, error) {
 	// 查找令牌
 	var openIDToken OpenIDToken
+
 	if token == "" {
-		return nil, fmt.Errorf("empty token")
+		return nil, errors.New("empty token")
 	}
-	if err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?",
-		token, false, time.Now()).First(&openIDToken).Error; err != nil {
-		return nil, fmt.Errorf("invalid or expired token")
+
+	err := db.GetDB().Where("token = ? AND used = ? AND expires_at > ?",
+		token, false, time.Now()).First(&openIDToken).Error
+	if err != nil {
+		return nil, errors.New("invalid or expired token")
 	}
 
 	// 可选：标记令牌为已使用（一次性令牌）
@@ -121,14 +128,14 @@ func (os *OpenIDService) GetUserInfo(token string) (*OpenIDUserInfo, error) {
 	}, nil
 }
 
-// CleanupExpiredTokens 清理过期的令牌
+// CleanupExpiredTokens 清理过期的令牌.
 func (os *OpenIDService) CleanupExpiredTokens() {
 	db.GetDB().Where("expires_at < ? OR used = ?", time.Now(), true).Delete(&OpenIDToken{})
 }
 
 // ===== HTTP Handlers =====
 
-// RegisterOpenIDRoutes 注册 OpenID 路由
+// RegisterOpenIDRoutes 注册 OpenID 路由.
 func RegisterOpenIDRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -147,7 +154,7 @@ func RegisterOpenIDRoutes(r gin.IRouter) {
 	r.GET("/_matrix/client/v3/openid/userinfo", handleGetOpenIDUserInfo)
 }
 
-// handleRequestOpenIDToken 处理 OpenID 令牌请求
+// handleRequestOpenIDToken 处理 OpenID 令牌请求.
 func handleRequestOpenIDToken(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.GetString("user_id")
@@ -156,9 +163,10 @@ func handleRequestOpenIDToken(c *gin.Context) {
 	// 验证只能请求自己的令牌
 	if paramUserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
-			"error":   "Cannot request token for another user",
+			"errcode": "M_FORBIDDEN",                           //nolint:goconst
+			"error":   "Cannot request token for another user", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -171,16 +179,17 @@ func handleRequestOpenIDToken(c *gin.Context) {
 	resp, err := hs.OpenID.RequestToken(userID, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleGetOpenIDUserInfo 处理 OpenID 用户信息请求
+// handleGetOpenIDUserInfo 处理 OpenID 用户信息请求.
 func handleGetOpenIDUserInfo(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -191,6 +200,7 @@ func handleGetOpenIDUserInfo(c *gin.Context) {
 			"errcode": "M_MISSING_TOKEN",
 			"error":   "Missing access token",
 		})
+
 		return
 	}
 
@@ -202,18 +212,20 @@ func handleGetOpenIDUserInfo(c *gin.Context) {
 			"errcode": "M_UNKNOWN_TOKEN",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, userInfo)
 }
 
-// generateOpenIDToken 生成 OpenID 令牌
+// generateOpenIDToken 生成 OpenID 令牌.
 func generateOpenIDToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		// 回退到基于时间的令牌
 		return fmt.Sprintf("openid_%x", time.Now().UnixNano())
 	}
+
 	return "openid_" + hex.EncodeToString(b)
 }

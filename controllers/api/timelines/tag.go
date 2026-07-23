@@ -13,6 +13,7 @@ import (
 
 type TagTimelineRequest struct {
 	TimelineRequest
+
 	OnlyMedia bool   `form:"only_media"`
 	Local     string `form:"local"`
 	Remote    string `form:"remote"`
@@ -23,13 +24,15 @@ func (req *TagTimelineRequest) ToFeedListParams() *feed.ListParam {
 	ret.Other["only_media"] = utils.ToBool(req.OnlyMedia)
 	ret.Other["local"] = utils.ToBool(req.Local)
 	ret.Other["remote"] = utils.ToBool(req.Remote)
+
 	return ret
 }
 
 func Tag(c *gin.Context) {
 	var req TagTimelineRequest
 	if err := c.BindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 

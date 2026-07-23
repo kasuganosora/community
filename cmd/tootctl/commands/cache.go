@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// CacheCommand implements tootctl cache subcommands
+// CacheCommand implements tootctl cache subcommands.
 func CacheCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "cache",
@@ -26,7 +27,7 @@ func CacheCommand() *cli.Command {
 
 // CacheClearCommand implements tootctl cache clear
 // Clear out the cache storage.
-// Version history: 2.8.1 - added
+// Version history: 2.8.1 - added.
 func CacheClearCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "clear",
@@ -44,15 +45,17 @@ func CacheClearCommand() *cli.Command {
 func clearCache(c *cli.Context) error {
 	redis := db.GetRedis()
 	if redis == nil {
-		return fmt.Errorf("redis is not available")
+		return errors.New("redis is not available")
 	}
 
 	ctx := context.Background()
 
 	// Get all keys
-	var cursor uint64
-	var keys []string
-	var err error
+	var (
+		cursor uint64
+		keys   []string
+		err    error
+	)
 
 	patterns := []string{
 		"feed:*",
@@ -64,6 +67,7 @@ func clearCache(c *cli.Context) error {
 	}
 
 	totalCleared := 0
+
 	for _, pattern := range patterns {
 		cursor = 0
 		for {
@@ -77,6 +81,7 @@ func clearCache(c *cli.Context) error {
 				if err != nil {
 					return fmt.Errorf("failed to delete keys: %w", err)
 				}
+
 				totalCleared += int(deleted)
 			}
 
@@ -87,12 +92,13 @@ func clearCache(c *cli.Context) error {
 	}
 
 	fmt.Printf("Cache cleared. %d keys removed.\n", totalCleared)
+
 	return nil
 }
 
 // CacheRecountCommand implements tootctl cache recount
 // Update hard-cached counters by counting referenced records from scratch.
-// Version history: 3.0.0 - added
+// Version history: 3.0.0 - added.
 func CacheRecountCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "recount",
@@ -106,15 +112,15 @@ Statuses will have their reply, boost, and favourite counts refreshed.`,
 		ArgsUsage: "TYPE (accounts|statuses)",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
-				Name:    "concurrency",
+				Name:    "concurrency", //nolint:goconst
 				Aliases: []string{"c"},
 				Value:   5,
-				Usage:   "The number of workers to use",
+				Usage:   "The number of workers to use", //nolint:goconst
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
 				Aliases: []string{"v"},
-				Usage:   "Print additional information while processing",
+				Usage:   "Print additional information while processing", //nolint:goconst
 			},
 		},
 		Action: recountCache,
@@ -123,12 +129,12 @@ Statuses will have their reply, boost, and favourite counts refreshed.`,
 
 func recountCache(c *cli.Context) error {
 	if c.NArg() < 1 {
-		return fmt.Errorf("TYPE is required (accounts or statuses)")
+		return errors.New("TYPE is required (accounts or statuses)")
 	}
 
 	targetType := c.Args().Get(0)
-	if targetType != "accounts" && targetType != "statuses" {
-		return fmt.Errorf("TYPE must be 'accounts' or 'statuses'")
+	if targetType != "accounts" && targetType != "statuses" { //nolint:goconst
+		return errors.New("TYPE must be 'accounts' or 'statuses'")
 	}
 
 	concurrency := c.Int("concurrency")
@@ -146,6 +152,7 @@ func recountCache(c *cli.Context) error {
 
 func recountAccounts(concurrency int, verbose bool) error {
 	fmt.Println("Recounting account statistics...")
+
 	startTime := time.Now()
 
 	// Get all accounts
@@ -160,22 +167,27 @@ func recountAccounts(concurrency int, verbose bool) error {
 	}
 
 	jobs := make(chan accountJob, 100)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+
 	processed := 0
 	errors := 0
 
 	// Start workers
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for job := range jobs {
 				err := recountAccountStats(job.accountID)
+
 				mu.Lock()
+
 				processed++
 				if err != nil {
 					errors++
+
 					if verbose {
 						fmt.Printf("Error processing account %s: %v\n", job.username, err)
 					}
@@ -184,7 +196,7 @@ func recountAccounts(concurrency int, verbose bool) error {
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
@@ -192,16 +204,21 @@ func recountAccounts(concurrency int, verbose bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to query accounts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
-		var id uint64
-		var username string
-		if err := rows.Scan(&id, &username); err != nil {
+		var (
+			id       uint64
+			username string
+		)
+		err := rows.Scan(&id, &username)
+		if err != nil {
 			continue
 		}
+
 		jobs <- accountJob{accountID: id, username: username}
 	}
+
 	close(jobs)
 
 	wg.Wait()
@@ -217,26 +234,29 @@ func recountAccountStats(accountID uint64) error {
 	return db.GetDB().Transaction(func(tx *gorm.DB) error {
 		// Count followers
 		var followersCount int64
-		if err := tx.Model(&models.Follow{}).Where("follow_id = ?", accountID).Count(&followersCount).Error; err != nil {
+		err := tx.Model(&models.Follow{}).Where("follow_id = ?", accountID).Count(&followersCount).Error
+		if err != nil {
 			return err
 		}
 
 		// Count following
 		var followingCount int64
-		if err := tx.Model(&models.Follow{}).Where("account_id = ?", accountID).Count(&followingCount).Error; err != nil {
+		err = tx.Model(&models.Follow{}).Where("account_id = ?", accountID).Count(&followingCount).Error
+		if err != nil {
 			return err
 		}
 
 		// Count statuses
 		var statusesCount int64
-		if err := tx.Model(&models.Status{}).Where("account_id = ?", accountID).Count(&statusesCount).Error; err != nil {
+		err = tx.Model(&models.Status{}).Where("account_id = ?", accountID).Count(&statusesCount).Error
+		if err != nil {
 			return err
 		}
 
 		// Update account_extra
 		return tx.Model(&models.AccountExtra{}).
 			Where("account_id = ?", accountID).
-			Updates(map[string]interface{}{
+			Updates(map[string]any{
 				"followers_count": followersCount,
 				"following_count": followingCount,
 				"statuses_count":  statusesCount,
@@ -246,6 +266,7 @@ func recountAccountStats(accountID uint64) error {
 
 func recountStatuses(concurrency int, verbose bool) error {
 	fmt.Println("Recounting status statistics...")
+
 	startTime := time.Now()
 
 	// Get all statuses
@@ -259,19 +280,23 @@ func recountStatuses(concurrency int, verbose bool) error {
 	}
 
 	jobs := make(chan statusJob, 100)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+
 	processed := 0
 	errors := 0
 
 	// Start workers
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for job := range jobs {
 				err := recountStatusStats(job.statusID)
+
 				mu.Lock()
+
 				processed++
 				if err != nil {
 					errors++
@@ -280,7 +305,7 @@ func recountStatuses(concurrency int, verbose bool) error {
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
@@ -288,15 +313,18 @@ func recountStatuses(concurrency int, verbose bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to query statuses: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var id uint64
-		if err := rows.Scan(&id); err != nil {
+		err := rows.Scan(&id)
+		if err != nil {
 			continue
 		}
+
 		jobs <- statusJob{statusID: id}
 	}
+
 	close(jobs)
 
 	wg.Wait()
@@ -312,19 +340,22 @@ func recountStatusStats(statusID uint64) error {
 	return db.GetDB().Transaction(func(tx *gorm.DB) error {
 		// Count replies
 		var repliesCount int64
-		if err := tx.Model(&models.Status{}).Where("in_reply_to_id = ?", statusID).Count(&repliesCount).Error; err != nil {
+		err := tx.Model(&models.Status{}).Where("in_reply_to_id = ?", statusID).Count(&repliesCount).Error
+		if err != nil {
 			return err
 		}
 
 		// Count reblogs (boosts)
 		var reblogsCount int64
-		if err := tx.Model(&models.Status{}).Where("reblog_id = ?", statusID).Count(&reblogsCount).Error; err != nil {
+		err = tx.Model(&models.Status{}).Where("reblog_id = ?", statusID).Count(&reblogsCount).Error
+		if err != nil {
 			return err
 		}
 
 		// Count favourites
 		var favouritesCount int64
-		if err := tx.Model(&models.FavoriteStatus{}).Where("status_id = ?", statusID).Count(&favouritesCount).Error; err != nil {
+		err = tx.Model(&models.FavoriteStatus{}).Where("status_id = ?", statusID).Count(&favouritesCount).Error
+		if err != nil {
 			return err
 		}
 

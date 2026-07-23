@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -11,13 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// setTestDB 设置测试数据库
+// setTestDB 设置测试数据库.
 func setTestDB(gormDB *gorm.DB) {
 	database.SetTestDB(gormDB)
 }
 
 // TestFederationTimestampProblem 使用 sqlexec 验证联邦事件时间戳问题
-// 这是 TestSyncTimelineGap 失败的根本原因
+// 这是 TestSyncTimelineGap 失败的根本原因.
 func TestFederationTimestampProblem(t *testing.T) {
 	// 创建隔离的测试数据库
 	testDB, err := testutil.NewIsolatedTestDB(t)
@@ -34,9 +35,9 @@ func TestFederationTimestampProblem(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	roomID := "!test:local.server"
-	localUser := "@alice:local.server"
-	remoteUser := "@bob:remote.server"
+	roomID := "!test:local.server"     //nolint:goconst
+	localUser := "@alice:local.server" //nolint:goconst
+	remoteUser := "@bob:remote.server" //nolint:goconst
 
 	// 记录时间线
 	startTime := time.Now().UnixMilli()
@@ -46,12 +47,13 @@ func TestFederationTimestampProblem(t *testing.T) {
 
 	// ========== 步骤 1: 本地用户创建事件 A ==========
 	t.Logf("[T+0ms] Creating local event A...")
+
 	eventA := &MatrixEvent{
-		EventID:        "$A:local.server",
+		EventID:        "$A:local.server", //nolint:goconst
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         localUser,
-		Content:        map[string]interface{}{"body": "A"},
+		Content:        map[string]any{"body": "A"}, //nolint:goconst
 		OriginServerTS: startTime,
 		SenderDomain:   "local.server",
 	}
@@ -63,10 +65,12 @@ func TestFederationTimestampProblem(t *testing.T) {
 	sinceToken := int64(0)
 
 	var initialEvents []MatrixEvent
+
 	testDB.GormDB.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
 		Order("origin_server_ts ASC").Find(&initialEvents)
 
 	t.Logf("[T+100ms] Bob first sync (since=%d): found %d events", sinceToken, len(initialEvents))
+
 	for _, e := range initialEvents {
 		t.Logf("  - %s: origin_ts=%d", e.EventID, e.OriginServerTS)
 	}
@@ -83,11 +87,11 @@ func TestFederationTimestampProblem(t *testing.T) {
 	// ========== 步骤 4: 事件 B 延迟到达 ==========
 	// 关键：origin_server_ts 是远程时间，但事件现在才到达
 	eventB := &MatrixEvent{
-		EventID:        "$B:remote.server",
+		EventID:        "$B:remote.server", //nolint:goconst
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         remoteUser,
-		Content:        map[string]interface{}{"body": "B"},
+		Content:        map[string]any{"body": "B"},
 		OriginServerTS: remoteEventTime, // 远程创建时间: T+50ms
 		SenderDomain:   "remote.server",
 	}
@@ -96,6 +100,7 @@ func TestFederationTimestampProblem(t *testing.T) {
 
 	// 重新查询获取完整数据
 	var eventBFromDB MatrixEvent
+
 	testDB.GormDB.First(&eventBFromDB, "event_id = ?", "$B:remote.server")
 
 	t.Logf("[T+300ms] Event B arrived: origin_ts=%d (remote T+50ms)",
@@ -112,19 +117,23 @@ func TestFederationTimestampProblem(t *testing.T) {
 
 	// 方法 1: 使用 origin_server_ts 过滤（当前实现）
 	var eventsByOrigin []MatrixEvent
+
 	testDB.GormDB.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
 		Order("origin_server_ts ASC").Find(&eventsByOrigin)
 
 	t.Logf("  Result: found %d events", len(eventsByOrigin))
+
 	for _, e := range eventsByOrigin {
 		t.Logf("    - %s: origin_ts=%d", e.EventID, e.OriginServerTS)
 	}
 
 	// ========== 关键验证 ==========
 	foundByOrigin := false
+
 	for _, e := range eventsByOrigin {
 		if e.EventID == "$B:remote.server" {
 			foundByOrigin = true
+
 			break
 		}
 	}
@@ -172,7 +181,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@alice:local.server",
-		Content:        map[string]interface{}{"body": "A"},
+		Content:        map[string]any{"body": "A"},
 		OriginServerTS: startTime,
 		SenderDomain:   "local.server",
 	}
@@ -185,7 +194,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
-		Content:        map[string]interface{}{"body": "B"},
+		Content:        map[string]any{"body": "B"},
 		OriginServerTS: startTime + 100,
 		SenderDomain:   "remote.server",
 	}
@@ -198,7 +207,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
-		Content:        map[string]interface{}{"body": "D"},
+		Content:        map[string]any{"body": "D"},
 		OriginServerTS: startTime + 150,
 		SenderDomain:   "remote.server",
 	}
@@ -208,11 +217,11 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	eventC := &MatrixEvent{
-		EventID:        "$C:remote.server",
+		EventID:        "$C:remote.server", //nolint:goconst
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
-		Content:        map[string]interface{}{"body": "C"},
+		Content:        map[string]any{"body": "C"},
 		OriginServerTS: startTime + 50, // earliest origin_ts, but last to arrive
 		SenderDomain:   "remote.server",
 	}
@@ -220,6 +229,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 
 	// Fetch all events and re-read to get actual created_at values
 	var allEvents []MatrixEvent
+
 	testDB.GormDB.Where("room_id = ?", roomID).Find(&allEvents)
 
 	eventMap := make(map[string]*MatrixEvent)
@@ -229,6 +239,7 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 
 	evtD := eventMap["$D:remote.server"]
 	evtC := eventMap["$C:remote.server"]
+
 	require.NotNil(t, evtD)
 	require.NotNil(t, evtC)
 
@@ -249,27 +260,23 @@ func TestFederatedEventsOutOfOrder(t *testing.T) {
 	// because C.created_at > D.created_at (C arrived later).
 	// Verify in Go code (sqlexec memory DB doesn't support time.Time > comparisons in SQL):
 	sinceCreatedAt := evtD.CreatedAt
+
 	var foundAfterD []string
+
 	for _, e := range allEvents {
 		if e.CreatedAt.After(*sinceCreatedAt) {
 			foundAfterD = append(foundAfterD, e.EventID)
 		}
 	}
 
-	hasC := false
-	for _, id := range foundAfterD {
-		if id == "$C:remote.server" {
-			hasC = true
-			break
-		}
-	}
+	hasC := slices.Contains(foundAfterD, "$C:remote.server")
 
 	assert.True(t, hasC,
 		"Event C should be found using created_at filter (arrived after D)")
 	t.Log("Verified: created_at-based filtering correctly preserves out-of-order federated events")
 }
 
-// TestSyncTokenGeneration 验证 sync token 生成
+// TestSyncTokenGeneration 验证 sync token 生成.
 func TestSyncTokenGeneration(t *testing.T) {
 	eventService := &EventService{}
 	now := time.Now().UnixMilli()
@@ -303,7 +310,7 @@ func TestSyncTokenGeneration(t *testing.T) {
 	t.Log("    - The event is filtered out forever")
 }
 
-// TestSolutionCreatedAt 演示使用 created_at 的解决方案
+// TestSolutionCreatedAt 演示使用 created_at 的解决方案.
 func TestSolutionCreatedAt(t *testing.T) {
 	testDB, err := testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err)
@@ -324,7 +331,7 @@ func TestSolutionCreatedAt(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@alice:local.server",
-		Content:        map[string]interface{}{"body": "A"},
+		Content:        map[string]any{"body": "A"},
 		OriginServerTS: startTime,
 		SenderDomain:   "local.server",
 	}
@@ -332,6 +339,7 @@ func TestSolutionCreatedAt(t *testing.T) {
 
 	// 获取 A 的创建时间
 	var eventAFromDB MatrixEvent
+
 	testDB.GormDB.First(&eventAFromDB, "event_id = ?", "$A:local.server")
 	createdAtA := eventAFromDB.CreatedAt.UnixMilli()
 
@@ -345,7 +353,7 @@ func TestSolutionCreatedAt(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@bob:remote.server",
-		Content:        map[string]interface{}{"body": "B"},
+		Content:        map[string]any{"body": "B"},
 		OriginServerTS: startTime + 30, // 远程时间（早于当前）
 		SenderDomain:   "remote.server",
 	}
@@ -353,6 +361,7 @@ func TestSolutionCreatedAt(t *testing.T) {
 
 	// 获取 B 的创建时间
 	var eventBFromDB MatrixEvent
+
 	testDB.GormDB.First(&eventBFromDB, "event_id = ?", "$B:remote.server")
 	createdAtB := eventBFromDB.CreatedAt.UnixMilli()
 

@@ -13,10 +13,12 @@ type MigrateMatrixHSScript struct{}
 
 func (MigrateMatrixHSScript) Up(db *gorm.DB) (err error) {
 	for _, sql := range GetMatrixHSSQL() {
-		if err = db.Exec(sql).Error; err != nil {
+		err = db.Exec(sql).Error
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -29,14 +31,16 @@ func (MigrateMatrixHSScript) Down(db *gorm.DB) (err error) {
 		"matrix_room_state", "matrix_rooms_hs", "matrix_events",
 	}
 	for _, table := range tables {
-		if err = db.Exec("DROP TABLE IF EXISTS " + table).Error; err != nil {
+		err = db.Exec("DROP TABLE IF EXISTS " + table).Error
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// MigrateMatrixHS Matrix Homeserver 数据库迁移
+// MigrateMatrixHS Matrix Homeserver 数据库迁移.
 func MigrateMatrixHS() error {
 	// 使用 GORM 的 AutoMigrate
 	return db.GetDB().AutoMigrate(
@@ -46,7 +50,7 @@ func MigrateMatrixHS() error {
 	)
 }
 
-// GetMatrixHSSQL 获取 Matrix Homeserver 建表 SQL
+// GetMatrixHSSQL 获取 Matrix Homeserver 建表 SQL.
 func GetMatrixHSSQL() []string {
 	return []string{
 		// matrix_events - 事件表

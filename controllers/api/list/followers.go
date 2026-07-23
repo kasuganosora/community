@@ -20,14 +20,15 @@ func GetListFollowers(c *gin.Context) {
 
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(),
+			"error": err.Error(), //nolint:goconst
 		})
+
 		return
 	}
 
 	var currentAccount *models.Account
 	if _currentAccount, ok := c.Get("account"); ok {
-		currentAccount = _currentAccount.(*models.Account)
+		currentAccount = _currentAccount.(*models.Account) //nolint:forcetypeassert
 	}
 
 	list, abort := GetListByParam(c)
@@ -39,13 +40,15 @@ func GetListFollowers(c *gin.Context) {
 	canView, err := models.ListCanView(list, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
+
 		return
 	}
 
 	if !canView {
 		c.AbortWithStatusJSON(403, gin.H{
-			"error": "forbidden",
+			"error": "forbidden", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -69,16 +72,16 @@ func GetListFollowers(c *gin.Context) {
 	}
 
 	if req.Limit != nil {
-		query = query.Limit(int(*req.Limit))
+		query = query.Limit(int(*req.Limit)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	query = query.Preload("Emojis").Preload("Extra")
 
 	err = query.Find(&accounts).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "GetListFollowers error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -86,7 +89,7 @@ func GetListFollowers(c *gin.Context) {
 }
 
 func FollowList(c *gin.Context) {
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	list, abort := GetListByParam(c)
 
 	if abort {
@@ -96,16 +99,18 @@ func FollowList(c *gin.Context) {
 	// 如果列表是私有的，判断是否有权限，则不能关注
 	if list.Visibility == models.ListVisibilityPrivate {
 		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+
 		return
 	}
 
 	// 判断是否已经关注
 	var count int64
-	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).Count(&count).Error
 
+	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).Count(&count).Error
 	if err != nil {
 		err = errors.Wrap(err, "FollowList error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -113,6 +118,7 @@ func FollowList(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"error": "already followed",
 		})
+
 		return
 	}
 
@@ -123,10 +129,10 @@ func FollowList(c *gin.Context) {
 	}
 
 	err = db.GetDB().Create(record).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "FollowList error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -134,7 +140,7 @@ func FollowList(c *gin.Context) {
 }
 
 func UnfollowList(c *gin.Context) {
-	accountId := c.MustGet("accountId").(uint64)
+	accountId := c.MustGet("accountId").(uint64) //nolint:forcetypeassert
 	list, abort := GetListByParam(c)
 
 	if abort {
@@ -143,11 +149,12 @@ func UnfollowList(c *gin.Context) {
 
 	// 判断是否已经关注
 	var count int64
-	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, accountId).Count(&count).Error
 
+	err := db.GetDB().Model(&models.ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, accountId).Count(&count).Error
 	if err != nil {
 		err = errors.Wrap(err, "UnfollowList error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -155,15 +162,16 @@ func UnfollowList(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"error": "not followed",
 		})
+
 		return
 	}
 
 	// 取消关注
 	err = db.GetDB().Where("list_id = ? AND account_id = ?", list.Id, accountId).Delete(&models.ListFollowAccount{}).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "UnfollowList error")
 		_ = c.Error(err)
+
 		return
 	}
 

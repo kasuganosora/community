@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-// Client is an ActivityPub HTTP client
+// Client is an ActivityPub HTTP client.
 type Client struct {
 	httpClient *http.Client
 	privateKey *rsa.PrivateKey
 	actorID    string
 }
 
-// NewClient creates a new ActivityPub client
+// NewClient creates a new ActivityPub client.
 func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 	return &Client{
 		httpClient: &http.Client{
@@ -32,9 +32,9 @@ func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 	}
 }
 
-// Get fetches a remote ActivityPub resource
+// Get fetches a remote ActivityPub resource.
 func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -47,7 +47,8 @@ func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching resource: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -56,14 +57,14 @@ func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// Post sends an activity to a remote inbox with HTTP signature
-func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]interface{}) error {
+// Post sends an activity to a remote inbox with HTTP signature.
+func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]any) error {
 	body, err := json.Marshal(activity)
 	if err != nil {
 		return fmt.Errorf("marshaling activity: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", inboxURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, inboxURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -73,7 +74,8 @@ func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]
 
 	// Sign the request
 	if c.privateKey != nil {
-		if err := c.signRequest(req, body); err != nil {
+		err := c.signRequest(req, body)
+		if err != nil {
 			return fmt.Errorf("signing request: %w", err)
 		}
 	}
@@ -82,17 +84,19 @@ func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]
 	if err != nil {
 		return fmt.Errorf("posting activity: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
+
 		return fmt.Errorf("remote returned error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
 }
 
-// signRequest signs an HTTP request with HTTP Signatures
+// signRequest signs an HTTP request with HTTP Signatures.
 func (c *Client) signRequest(req *http.Request, body []byte) error {
 	// Parse inbox URL to get host
 	u, err := url.Parse(req.URL.String())
@@ -132,10 +136,11 @@ func (c *Client) signRequest(req *http.Request, body []byte) error {
 	)
 
 	req.Header.Set("Signature", sigHeader)
+
 	return nil
 }
 
-// FetchActor fetches a remote actor by URI
+// FetchActor fetches a remote actor by URI.
 func (c *Client) FetchActor(ctx context.Context, actorURI string) (*Actor, error) {
 	data, err := c.Get(ctx, actorURI)
 	if err != nil {
@@ -150,14 +155,14 @@ func (c *Client) FetchActor(ctx context.Context, actorURI string) (*Actor, error
 	return &actor, nil
 }
 
-// FetchObject fetches a remote object by URI
-func (c *Client) FetchObject(ctx context.Context, objectURI string) (map[string]interface{}, error) {
+// FetchObject fetches a remote object by URI.
+func (c *Client) FetchObject(ctx context.Context, objectURI string) (map[string]any, error) {
 	data, err := c.Get(ctx, objectURI)
 	if err != nil {
 		return nil, err
 	}
 
-	var obj map[string]interface{}
+	var obj map[string]any
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, fmt.Errorf("parsing object: %w", err)
 	}
@@ -165,7 +170,7 @@ func (c *Client) FetchObject(ctx context.Context, objectURI string) (map[string]
 	return obj, nil
 }
 
-// FetchStatus fetches a remote status by URI and creates a local copy
+// FetchStatus fetches a remote status by URI and creates a local copy.
 func (c *Client) FetchStatus(ctx context.Context, statusURI string) (*Note, error) {
 	data, err := c.Get(ctx, statusURI)
 	if err != nil {

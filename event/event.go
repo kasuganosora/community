@@ -24,7 +24,9 @@ type EventManager struct {
 
 func GetEventManager(pool string) *EventManager {
 	mu.RLock()
+
 	em, ok := eventManagers[pool]
+
 	mu.RUnlock()
 
 	if !ok {
@@ -38,23 +40,28 @@ func GetEventManager(pool string) *EventManager {
 		}
 		mu.Unlock()
 	}
+
 	return em
 }
 
 func (em *EventManager) Register(eventName string, handler *Handler) (handleId int) {
 	em.mu.Lock()
 	defer em.mu.Unlock()
+
 	handler.Id = len(em.handlers[eventName]) + 1
 	em.handlers[eventName] = append(em.handlers[eventName], handler)
+
 	return handler.Id
 }
 
 func (em *EventManager) Remove(name string, id int) {
 	em.mu.Lock()
 	defer em.mu.Unlock()
+
 	for i, handler := range em.handlers[name] {
 		if handler.Id == id {
 			em.handlers[name] = append(em.handlers[name][:i], em.handlers[name][i+1:]...)
+
 			break
 		}
 	}

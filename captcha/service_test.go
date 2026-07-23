@@ -7,7 +7,7 @@ import (
 	"github.com/kasuganosora/community/captcha/types"
 )
 
-// mockProvider 是一个用于测试的模拟供应商
+// mockProvider 是一个用于测试的模拟供应商.
 type mockProvider struct {
 	name       string
 	siteKey    string
@@ -23,6 +23,7 @@ func (m *mockProvider) Verify(ctx context.Context, response string, remoteIP str
 	if m.verifyFunc != nil {
 		return m.verifyFunc(ctx, response, remoteIP)
 	}
+
 	return &types.VerificationResult{
 		Success:  true,
 		Provider: m.name,
@@ -66,8 +67,10 @@ func TestNewService(t *testing.T) {
 			service, err := NewService(tt.cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewService() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if service == nil {
 				t.Error("NewService() returned nil service")
 			}
@@ -89,14 +92,14 @@ func TestService_Verify(t *testing.T) {
 			enabled:      false,
 			response:     "",
 			wantSuccess:  true,
-			wantProvider: "none",
+			wantProvider: "none", //nolint:goconst
 		},
 		{
 			name:         "enabled with empty response",
 			enabled:      true,
 			response:     "",
 			wantSuccess:  false,
-			wantProvider: "mock",
+			wantProvider: "mock", //nolint:goconst
 			wantErr:      true,
 		},
 		{
@@ -122,6 +125,7 @@ func TestService_Verify(t *testing.T) {
 			result, err := service.Verify(context.Background(), tt.response, "127.0.0.1")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
@@ -147,11 +151,11 @@ func TestParseProviderType(t *testing.T) {
 		want    ProviderType
 		wantErr bool
 	}{
-		{"recaptcha", "recaptcha", ProviderRecaptcha, false},
+		{"recaptcha", "recaptcha", ProviderRecaptcha, false}, //nolint:goconst
 		{"google alias", "google", ProviderRecaptcha, false},
-		{"cloudflare", "cloudflare", ProviderCloudflare, false},
+		{"cloudflare", "cloudflare", ProviderCloudflare, false}, //nolint:goconst
 		{"turnstile alias", "turnstile", ProviderCloudflare, false},
-		{"hcaptcha", "hcaptcha", ProviderHCaptcha, false},
+		{"hcaptcha", "hcaptcha", ProviderHCaptcha, false}, //nolint:goconst
 		{"none", "none", ProviderNone, false},
 		{"empty", "", ProviderNone, false},
 		{"unknown", "unknown", "", true},
@@ -162,8 +166,10 @@ func TestParseProviderType(t *testing.T) {
 			got, err := ParseProviderType(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseProviderType() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("ParseProviderType() = %v, want %v", got, tt.want)
 			}

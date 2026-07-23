@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAttachment_TableName(t *testing.T) {
@@ -17,11 +18,11 @@ func TestAttachment_GetTypeString(t *testing.T) {
 		aType    uint
 		expected string
 	}{
-		{"image", AttachmentTypeImage, "image"},
-		{"video", AttachmentTypeVideo, "video"},
-		{"audio", AttachmentTypeAudio, "audio"},
-		{"file", AttachmentTypeFile, "file"},
-		{"gifv", AttachmentTypeGifv, "gifv"},
+		{"image", AttachmentTypeImage, "image"}, //nolint:goconst
+		{"video", AttachmentTypeVideo, "video"}, //nolint:goconst
+		{"audio", AttachmentTypeAudio, "audio"}, //nolint:goconst
+		{"file", AttachmentTypeFile, "file"},    //nolint:goconst
+		{"gifv", AttachmentTypeGifv, "gifv"},    //nolint:goconst
 		{"unknown defaults to file", AttachmentTypeUnknown, "file"},
 		{"invalid defaults to file", 99, "file"},
 	}
@@ -40,14 +41,14 @@ func TestAttachment_BeforeSave(t *testing.T) {
 		PreviewFileSize: 256,
 	}
 	err := a.BeforeSave(nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(1280), a.TotalSize)
 }
 
 func TestAttachment_BeforeSave_ZeroSizes(t *testing.T) {
 	a := &Attachment{}
 	err := a.BeforeSave(nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint64(0), a.TotalSize)
 }
 
@@ -64,7 +65,7 @@ func TestAttachments_GetIds(t *testing.T) {
 func TestAttachments_GetIds_Empty(t *testing.T) {
 	attachments := Attachments{}
 	ids := attachments.GetIds()
-	assert.Len(t, ids, 0)
+	assert.Empty(t, ids)
 }
 
 func TestAttachmentTypeConstants(t *testing.T) {

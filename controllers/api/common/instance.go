@@ -92,8 +92,8 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
 	resp.Thumbnail.Url = systemsettings.GetString(systemsettings.KeyThumbnail, "")
 	resp.Languages = systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"})
-	//resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
-	//resp.Configuration.Urls.Status = systemsettings.GetString("config.urls.status", nil)
+	// resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
+	// resp.Configuration.Urls.Status = systemsettings.GetString("config.urls.status", nil)
 	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
 	resp.Configuration.Statuses.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
 	resp.Configuration.Statuses.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
@@ -118,10 +118,11 @@ func GetInstanceDetail(c *gin.Context) {
 	c.JSON(200, resp)
 }
 
-// getActiveUsersCount returns the number of active users in the last 30 days
+// getActiveUsersCount returns the number of active users in the last 30 days.
 func getActiveUsersCount() int {
 	// Count users who have logged in or posted in the last 30 days
 	var count int64
+
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
 
 	// Count local accounts with recent activity

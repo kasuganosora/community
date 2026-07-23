@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ==================== ratelimit.go ====================
@@ -23,7 +23,7 @@ import (
 func TestDefaultRateLimiterConfig(t *testing.T) {
 	cfg := DefaultRateLimiterConfig()
 
-	assert.Equal(t, 1000.0, cfg.GlobalRPS)
+	assert.InDelta(t, 1000.0, cfg.GlobalRPS, 0)
 	assert.Equal(t, 1500, cfg.GlobalBurst)
 	assert.Equal(t, 300, cfg.PerUserRPM)
 	assert.Equal(t, 600, cfg.PerIPRPM)
@@ -33,17 +33,17 @@ func TestDefaultRateLimiterConfig(t *testing.T) {
 	assert.Contains(t, cfg.APILimits, "/_matrix/federation")
 
 	mediaLimit := cfg.APILimits["/api/v1/media"]
-	assert.Equal(t, 10.0, mediaLimit.RPS)
+	assert.InDelta(t, 10.0, mediaLimit.RPS, 0)
 	assert.Equal(t, 20, mediaLimit.Burst)
 
 	fedLimit := cfg.APILimits["/_matrix/federation"]
-	assert.Equal(t, 100.0, fedLimit.RPS)
+	assert.InDelta(t, 100.0, fedLimit.RPS, 0)
 	assert.Equal(t, 200, fedLimit.Burst)
 }
 
 func TestAPILimitStruct(t *testing.T) {
 	limit := APILimit{RPS: 50, Burst: 100}
-	assert.Equal(t, 50.0, limit.RPS)
+	assert.InDelta(t, 50.0, limit.RPS, 0)
 	assert.Equal(t, 100, limit.Burst)
 }
 
@@ -60,7 +60,7 @@ func TestMemoryRateLimiter_Allow(t *testing.T) {
 	limiter := NewMemoryRateLimiter(cfg)
 
 	// Should allow up to burst (5) requests
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		assert.True(t, limiter.Allow("key-a"), "request %d should be allowed", i+1)
 	}
 }
@@ -86,6 +86,7 @@ func TestMemoryRateLimiter_AllowN(t *testing.T) {
 
 func TestMemoryRateLimiter_ImplementsRateLimiterInterface(t *testing.T) {
 	var limiter RateLimiter = NewMemoryRateLimiter(DefaultRateLimiterConfig())
+
 	assert.NotNil(t, limiter)
 }
 
@@ -125,7 +126,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -137,17 +138,17 @@ func TestRateLimitMiddleware(t *testing.T) {
 		handler := RateLimitMiddleware(limiter)
 
 		// Exhaust burst
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest("GET", "/test", nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 			handler(c)
 		}
 
 		// Next request should be blocked
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 		assert.True(t, c.IsAborted())
 		assert.Equal(t, http.StatusTooManyRequests, w.Code)
@@ -161,13 +162,13 @@ func TestRateLimitMiddleware(t *testing.T) {
 		// Exhaust burst
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 
 		// Next should be rate limited
 		w = httptest.NewRecorder()
 		c, _ = gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 
 		assert.Contains(t, w.Body.String(), "rate limit exceeded")
@@ -186,7 +187,7 @@ func TestAPIRateLimitMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/api/v1/status", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/status", nil) //nolint:noctx
 		// FullPath() returns "" in CreateTestContext, so hasPrefix("", prefix) is false
 
 		handler(c)
@@ -202,10 +203,10 @@ func TestAPIRateLimitMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/v1/media/upload", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/media/upload", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
-		assert.False(t, w.Code == http.StatusTooManyRequests)
+		assert.NotEqual(t, http.StatusTooManyRequests, w.Code)
 	})
 
 	t.Run("creates correct rate limit config from RPM", func(t *testing.T) {
@@ -226,7 +227,7 @@ func TestMultiLevelRateLimitMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -238,7 +239,7 @@ func TestMultiLevelRateLimitMiddleware(t *testing.T) {
 		// First request from an IP should succeed
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 		assert.False(t, c.IsAborted())
 	})
@@ -248,7 +249,7 @@ func TestMultiLevelRateLimitMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Set("account", "user123")
 
 		handler(c)
@@ -260,7 +261,7 @@ func TestGetRateLimitKey(t *testing.T) {
 	t.Run("returns user key when account is set", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Set("account", "user123")
 
 		key := getRateLimitKey(c)
@@ -270,7 +271,7 @@ func TestGetRateLimitKey(t *testing.T) {
 	t.Run("returns user key with numeric account value", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Set("account", 42)
 
 		key := getRateLimitKey(c)
@@ -280,7 +281,7 @@ func TestGetRateLimitKey(t *testing.T) {
 	t.Run("returns ip key when no account is set", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		key := getRateLimitKey(c)
 		assert.True(t, strings.HasPrefix(key, "ip:"))
@@ -294,7 +295,7 @@ func TestHasPrefix(t *testing.T) {
 		prefix   string
 		expected bool
 	}{
-		{"matching prefix", "/api/v1/media/upload", "/api/v1/media", true},
+		{"matching prefix", "/api/v1/media/upload", "/api/v1/media", true}, //nolint:goconst
 		{"exact match", "/api/v1/media", "/api/v1/media", true},
 		{"no match", "/api/v1/status", "/api/v1/media", false},
 		{"empty string", "", "/api/v1/media", false},
@@ -323,7 +324,9 @@ func TestParseInt(t *testing.T) {
 func TestGetRedisClient(t *testing.T) {
 	// When Redis0Host is empty, should return nil
 	origHost := config.C.Redis0Host
+
 	config.C.Redis0Host = ""
+
 	defer func() { config.C.Redis0Host = origHost }()
 
 	client := GetRedisClient()
@@ -343,7 +346,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -355,7 +358,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Request.Header.Set("X-Request-ID", "custom-id-abc123")
 
 		handler(c)
@@ -368,7 +371,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		val, exists := c.Get("request_id")
@@ -381,7 +384,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Request.Header.Set("X-Request-ID", "my-request-999")
 
 		handler(c)
@@ -394,7 +397,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("POST", "/api/v1/statuses", strings.NewReader("body=test"))
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/statuses", strings.NewReader("body=test")) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -409,7 +412,7 @@ func TestRequestLogMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/ping", nil)
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -429,7 +432,7 @@ func TestPerformanceLogMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -445,7 +448,7 @@ func TestPerformanceLogMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/fast", nil)
+		req := httptest.NewRequest(http.MethodGet, "/fast", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -466,11 +469,11 @@ func TestTimeoutMiddleware(t *testing.T) {
 		router := gin.New()
 		router.Use(handler)
 		router.GET("/test", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+			c.JSON(http.StatusOK, gin.H{"status": "ok"}) //nolint:goconst
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -488,7 +491,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/slow", nil)
+		req := httptest.NewRequest(http.MethodGet, "/slow", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusGatewayTimeout, w.Code)
@@ -528,7 +531,7 @@ func TestDatabaseTimeoutMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -540,7 +543,7 @@ func TestDatabaseTimeoutMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 
@@ -555,9 +558,11 @@ func TestDatabaseTimeoutMiddleware(t *testing.T) {
 // setupSelfDestructMode configures the global selfDestructMode state for testing
 // without accessing the database.
 func setupSelfDestructMode(enabled bool) {
-	selfDestructMode.enabledOnce = sync.Once{}
+	selfDestructMode.mu.Lock()
+	defer selfDestructMode.mu.Unlock()
+
 	selfDestructMode.enabled = enabled
-	selfDestructMode.enabledOnce.Do(func() {}) // mark as done to skip DB access
+	selfDestructMode.loaded = true // mark as loaded to skip DB access
 }
 
 func TestSelfDestructMiddleware(t *testing.T) {
@@ -573,7 +578,7 @@ func TestSelfDestructMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("POST", "/api/v1/statuses", nil)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/statuses", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -586,7 +591,7 @@ func TestSelfDestructMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("POST", "/api/v1/statuses", nil)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/statuses", nil) //nolint:noctx
 
 		handler(c)
 		assert.True(t, c.IsAborted())
@@ -598,10 +603,10 @@ func TestSelfDestructMiddleware(t *testing.T) {
 
 		handler := SelfDestructMiddleware()
 
-		for _, method := range []string{"GET", "HEAD", "OPTIONS"} {
+		for _, method := range []string{"GET", "HEAD", "OPTIONS"} { //nolint:goconst
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(method, "/api/v1/timelines/home", nil)
+			c.Request = httptest.NewRequest(method, "/api/v1/timelines/home", nil) //nolint:noctx
 
 			handler(c)
 			assert.False(t, c.IsAborted(), "%s request should be allowed", method)
@@ -617,19 +622,19 @@ func TestSelfDestructMiddleware(t *testing.T) {
 			method string
 			path   string
 		}{
-			{"POST", "/api/v1/accounts/verify_credentials"},
-			{"PATCH", "/api/v1/accounts/update_credentials"},
+			{"POST", "/api/v1/accounts/verify_credentials"},  //nolint:goconst
+			{"PATCH", "/api/v1/accounts/update_credentials"}, //nolint:goconst
 			{"GET", "/api/v1/instance"},
 			{"POST", "/oauth/authorize"},
 			{"POST", "/auth/login"},
-			{"GET", "/api/v1/exports"},
-			{"GET", "/api/v1/backups"},
+			{"GET", "/api/v1/exports"}, //nolint:goconst
+			{"GET", "/api/v1/backups"}, //nolint:goconst
 		}
 
 		for _, tc := range allowedPaths {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(tc.method, tc.path, nil)
+			c.Request = httptest.NewRequest(tc.method, tc.path, nil) //nolint:noctx
 
 			handler(c)
 			assert.False(t, c.IsAborted(), "path %s should be allowed", tc.path)
@@ -645,7 +650,7 @@ func TestSelfDestructMiddleware(t *testing.T) {
 		for _, path := range exportPaths {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest("POST", path, nil)
+			c.Request = httptest.NewRequest(http.MethodPost, path, nil) //nolint:noctx
 
 			handler(c)
 			assert.False(t, c.IsAborted(), "POST %s should be allowed", path)
@@ -659,7 +664,7 @@ func TestSelfDestructMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("DELETE", "/api/v1/statuses/123", nil)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/statuses/123", nil) //nolint:noctx
 
 		handler(c)
 		assert.True(t, c.IsAborted())
@@ -680,7 +685,7 @@ func TestSelfDestructInfoMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -694,11 +699,11 @@ func TestSelfDestructInfoMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
-		assert.Equal(t, "", w.Header().Get("X-Self-Destruct-Mode"))
+		assert.Empty(t, w.Header().Get("X-Self-Destruct-Mode"))
 	})
 }
 
@@ -730,7 +735,7 @@ func TestGzipMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -742,7 +747,7 @@ func TestGzipMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Request.Header.Set("Accept-Encoding", "gzip")
 
 		handler(c)
@@ -756,7 +761,7 @@ func TestGzipMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/stream", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/stream", nil) //nolint:noctx
 		c.Request.Header.Set("Accept-Encoding", "gzip")
 		c.Request.Header.Set("Accept", "text/event-stream")
 
@@ -770,7 +775,7 @@ func TestGzipMiddleware(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Request.Header.Set("Accept-Encoding", "gzip")
 		c.Request.Header.Set("Content-Encoding", "gzip")
 
@@ -788,7 +793,7 @@ func TestGzipMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		req.Header.Set("Accept-Encoding", "gzip")
 		router.ServeHTTP(w, req)
 
@@ -797,10 +802,12 @@ func TestGzipMiddleware(t *testing.T) {
 
 		// Decompress and verify content
 		reader, err := gzip.NewReader(bytes.NewReader(w.Body.Bytes()))
-		assert.NoError(t, err)
-		defer reader.Close()
+		require.NoError(t, err)
+
+		defer func() { _ = reader.Close() }()
+
 		body, err := io.ReadAll(reader)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, string(body), "Hello, World!")
 		assert.Contains(t, string(body), "gzip compression")
 	})
@@ -813,7 +820,7 @@ func TestGzipMiddleware(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -834,7 +841,7 @@ func TestResponseCache(t *testing.T) {
 		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(method, "/test", nil)
+			c.Request = httptest.NewRequest(method, "/test", nil) //nolint:noctx
 
 			handler(c)
 			assert.False(t, c.IsAborted())
@@ -847,7 +854,7 @@ func TestResponseCache(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		c.Set("account", "user123")
 
 		handler(c)
@@ -860,7 +867,7 @@ func TestResponseCache(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -874,7 +881,7 @@ func TestResponseCache(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.Contains(t, w.Header().Get("Cache-Control"), "max-age=7200")
@@ -890,10 +897,10 @@ func TestCompressionRateLimit(t *testing.T) {
 	t.Run("allows requests within limit", func(t *testing.T) {
 		handler := RateLimit(5, time.Minute)
 
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest("GET", "/test", nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 			handler(c)
 			assert.False(t, c.IsAborted(), "request %d should be allowed", i+1)
 		}
@@ -903,10 +910,10 @@ func TestCompressionRateLimit(t *testing.T) {
 		handler := RateLimit(2, time.Minute)
 
 		// Allow 2 requests
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest("GET", "/test", nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 			handler(c)
 			assert.False(t, c.IsAborted(), "request %d should be allowed", i+1)
 		}
@@ -914,7 +921,7 @@ func TestCompressionRateLimit(t *testing.T) {
 		// Third should be blocked
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 		assert.True(t, c.IsAborted())
 		assert.Equal(t, 429, w.Code)
@@ -926,13 +933,13 @@ func TestCompressionRateLimit(t *testing.T) {
 		// Allow 1
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 
 		// Block
 		w = httptest.NewRecorder()
 		c, _ = gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c)
 
 		assert.Contains(t, w.Body.String(), "rate limit exceeded")
@@ -944,14 +951,14 @@ func TestCompressionRateLimit(t *testing.T) {
 		// First IP - should be allowed
 		w1 := httptest.NewRecorder()
 		c1, _ := gin.CreateTestContext(w1)
-		c1.Request = httptest.NewRequest("GET", "/test", nil)
+		c1.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c1)
 		assert.False(t, c1.IsAborted())
 
 		// Second request from same IP (same test context = same IP) - should be blocked
 		w2 := httptest.NewRecorder()
 		c2, _ := gin.CreateTestContext(w2)
-		c2.Request = httptest.NewRequest("GET", "/test", nil)
+		c2.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 		handler(c2)
 		assert.True(t, c2.IsAborted())
 	})
@@ -991,7 +998,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.True(t, c.IsAborted())
@@ -1003,8 +1010,8 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
-		c.Set("token_data", "not-a-pointer") // string instead of *models.AuthTokenData
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
+		c.Set("token_data", "not-a-pointer")                                   // string instead of *models.AuthTokenData
 
 		handler(c)
 		assert.True(t, c.IsAborted())
@@ -1016,7 +1023,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 		c.Set("token_data", (*models.AuthTokenData)(nil))
 
 		// The middleware does not guard against nil *AuthTokenData pointers;
@@ -1025,6 +1032,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 			r := recover()
 			assert.NotNil(t, r, "expected panic on nil *AuthTokenData pointer")
 		}()
+
 		handler(c)
 	})
 
@@ -1033,7 +1041,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 		c.Set("token_data", &models.AuthTokenData{
 			AuthType: models.AuthTokenTypeOauth,
 			UserId:   1,
@@ -1049,7 +1057,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 		c.Set("token_data", &models.AuthTokenData{
 			AuthType: models.AuthTokenTypeWeb,
 			UserId:   1,
@@ -1064,7 +1072,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 
 		handler(c)
 
@@ -1077,7 +1085,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/internal/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 		c.Set("token_data", &models.AuthTokenData{
 			AuthType: models.AuthTokenTypeOauth,
 		})
@@ -1100,13 +1108,14 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("passes through when no errors exist", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
-		config.C.DevMode = "false"
+
+		config.C.DevMode = "false" //nolint:goconst
 
 		handler := HandleErrorsMiddleware()
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		handler(c)
 		assert.False(t, c.IsAborted())
@@ -1115,13 +1124,14 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("returns 500 with generic error message in production mode", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
+
 		config.C.DevMode = "false"
 
 		handler := HandleErrorsMiddleware()
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		// Add an error to the context
 		_ = c.Error(errors.New("internal database connection failed"))
@@ -1137,13 +1147,14 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("returns 500 with detailed error in dev mode", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
-		config.C.DevMode = "true"
+
+		config.C.DevMode = "true" //nolint:goconst
 
 		handler := HandleErrorsMiddleware()
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		_ = c.Error(errors.New("detailed debug error info"))
 
@@ -1157,13 +1168,14 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("handles the last error when multiple errors exist", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
+
 		config.C.DevMode = "true"
 
 		handler := HandleErrorsMiddleware()
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("GET", "/test", nil)
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
 
 		_ = c.Error(errors.New("first error"))
 		_ = c.Error(errors.New("second error"))
@@ -1178,6 +1190,7 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("works end-to-end with router in dev mode", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
+
 		config.C.DevMode = "true"
 
 		router := gin.New()
@@ -1187,7 +1200,7 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/error", nil)
+		req := httptest.NewRequest(http.MethodGet, "/error", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, 500, w.Code)
@@ -1197,6 +1210,7 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 	t.Run("works end-to-end with router without errors", func(t *testing.T) {
 		origDevMode := config.C.DevMode
 		defer func() { config.C.DevMode = origDevMode }()
+
 		config.C.DevMode = "false"
 
 		router := gin.New()
@@ -1206,7 +1220,7 @@ func TestHandleErrorsMiddleware_Full(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/ok", nil)
+		req := httptest.NewRequest(http.MethodGet, "/ok", nil) //nolint:noctx
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)

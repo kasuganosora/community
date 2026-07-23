@@ -14,23 +14,27 @@ import (
 
 // ===== Test 1: Device List EDU 发送测试 =====
 
-// TestDeviceListEDUSending 验证设备列表 EDU 是否正确发送
+// TestDeviceListEDUSending 验证设备列表 EDU 是否正确发送.
 func TestDeviceListEDUSending(t *testing.T) {
 	// 模拟远程服务器接收 EDU
-	var receivedEDU *map[string]interface{}
+	var receivedEDU *map[string]any
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 读取请求体
-		var body map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var body map[string]any
+		err := json.NewDecoder(r.Body).Decode(&body)
+		if err != nil {
 			t.Logf("Failed to decode EDU: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
+
 			return
 		}
+
 		receivedEDU = &body
 		t.Logf("Received EDU: %+v", body)
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"pdus": []interface{}{},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"pdus": []any{}, //nolint:goconst
 		})
 	}))
 	defer server.Close()
@@ -45,8 +49,8 @@ func TestDeviceListEDUSending(t *testing.T) {
 
 	// 手动构造 EDU 并发送
 	edu := &DeviceListUpdateEDU{
-		UserID:   "@alice:test.server",
-		DeviceID: "DEVICE123",
+		UserID:   "@alice:test.server", //nolint:goconst
+		DeviceID: "DEVICE123",          //nolint:goconst
 		StreamID: 1,
 		Changed:  []string{"DEVICE123"},
 	}
@@ -57,11 +61,11 @@ func TestDeviceListEDUSending(t *testing.T) {
 
 	// 验证：EDU 应该包含 edus 数组
 	if receivedEDU != nil {
-		edus, ok := (*receivedEDU)["edus"].([]interface{})
+		edus, ok := (*receivedEDU)["edus"].([]any)
 		require.True(t, ok, "EDU should contain 'edus' array")
-		require.Greater(t, len(edus), 0, "edus array should not be empty")
+		require.NotEmpty(t, edus, "edus array should not be empty")
 
-		eduMap := edus[0].(map[string]interface{})
+		eduMap := edus[0].(map[string]any) //nolint:forcetypeassert
 		assert.Equal(t, "m.device_list_update", eduMap["edu_type"])
 	} else {
 		t.Log("Warning: No EDU received - check if federateDeviceListUpdate is actually sending requests")
@@ -70,7 +74,7 @@ func TestDeviceListEDUSending(t *testing.T) {
 
 // ===== Test 2: Backfill 响应格式测试 =====
 
-// TestBackfillResponseFormat 验证 Backfill 响应是否包含 auth_chain
+// TestBackfillResponseFormat 验证 Backfill 响应是否包含 auth_chain.
 func TestBackfillResponseFormat(t *testing.T) {
 	// 注意：Backfill 路由需要已初始化的 HomeServer
 	// 这里我们只是验证响应格式
@@ -85,10 +89,10 @@ func TestBackfillResponseFormat(t *testing.T) {
 	t.Log("This means auth_chain is always empty, violating Matrix spec!")
 
 	// 创建一个模拟响应
-	response := map[string]interface{}{
-		"origin":           "test.server",
-		"origin_server_ts": time.Now().UnixMilli(),
-		"pdus":             []interface{}{},
+	response := map[string]any{
+		"origin":           "test.server",          //nolint:goconst
+		"origin_server_ts": time.Now().UnixMilli(), //nolint:goconst
+		"pdus":             []any{},
 		// Missing: "auth_chain"
 	}
 
@@ -100,7 +104,7 @@ func TestBackfillResponseFormat(t *testing.T) {
 
 // ===== Test 3: 推送规则迁移测试 =====
 
-// TestPushRuleMigration 验证房间升级时推送规则是否正确迁移
+// TestPushRuleMigration 验证房间升级时推送规则是否正确迁移.
 func TestPushRuleMigration(t *testing.T) {
 	t.Log("Testing push rule migration...")
 
@@ -146,13 +150,14 @@ func TestRedactionOfUnknownEvent(t *testing.T) {
 
 	// Should return error (not panic) — permission denied
 	assert.NotNil(t, err, "Redacting without permission should return error")
+
 	if err != nil {
 		assert.Equal(t, "M_FORBIDDEN", err.ErrCode,
 			"Should be M_FORBIDDEN: user lacks power to redact (default Redact=50, user=0)")
 	}
 }
 
-// TestRedactionInSync 验证 sync 中处理 redaction 目标不存在的情况
+// TestRedactionInSync 验证 sync 中处理 redaction 目标不存在的情况.
 func TestRedactionInSync(t *testing.T) {
 	t.Log("Testing redaction handling in sync...")
 
@@ -162,7 +167,7 @@ func TestRedactionInSync(t *testing.T) {
 		RoomID:    "!test:localhost",
 		EventType: EventTypeRoomRedaction,
 		Sender:    "@alice:localhost",
-		Content: map[string]interface{}{
+		Content: map[string]any{
 			"reason": "testing",
 		},
 		OriginServerTS: time.Now().UnixMilli(),
@@ -181,7 +186,7 @@ func TestRedactionInSync(t *testing.T) {
 
 // ===== Test 5: 联邦时间戳问题测试 =====
 
-// TestFederatedEventTimestampOrdering 验证联邦事件的时间戳处理问题
+// TestFederatedEventTimestampOrdering 验证联邦事件的时间戳处理问题.
 func TestFederatedEventTimestampOrdering(t *testing.T) {
 	t.Log("Testing federated event timestamp ordering...")
 
@@ -213,7 +218,7 @@ func TestFederatedEventTimestampOrdering(t *testing.T) {
 	t.Log("Use created_at (local arrival time) for sync ordering")
 }
 
-// TestFederationSyncTokenTimestamp 验证 sync token 基于什么时间生成
+// TestFederationSyncTokenTimestamp 验证 sync token 基于什么时间生成.
 func TestFederationSyncTokenTimestamp(t *testing.T) {
 	eventService := &EventService{}
 	now := time.Now().UnixMilli()

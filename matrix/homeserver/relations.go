@@ -13,7 +13,7 @@ import (
 // ===== Relations API 实现 =====
 // 支持回复、反应、编辑、线程等消息关系
 
-// RelationType 关系类型
+// RelationType 关系类型.
 type RelationType string
 
 const (
@@ -24,61 +24,61 @@ const (
 	RelationTypeReference RelationType = "m.reference"   // 引用
 )
 
-// EventRelation 事件关系（存储在数据库中）
+// EventRelation 事件关系（存储在数据库中）.
 type EventRelation struct {
-	ID             uint64       `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID             uint64       `gorm:"primaryKey;autoIncrement"         json:"id"`
 	EventID        string       `gorm:"index;type:varchar(255);not null" json:"event_id"`
 	RoomID         string       `gorm:"index;type:varchar(255);not null" json:"room_id"`
-	RelatesTo      string       `gorm:"index;type:varchar(255)" json:"relates_to"` // 关联的目标事件ID
-	RelationType   RelationType `gorm:"index;type:varchar(32);not null" json:"relation_type"`
-	Sender         string       `gorm:"type:varchar(255);not null" json:"sender"`
-	Content        string       `gorm:"type:text" json:"content"`                           // JSON
-	AggregationKey string       `gorm:"type:varchar(255)" json:"aggregation_key,omitempty"` // 用于反应（emoji）
-	OriginServerTS int64        `gorm:"index" json:"origin_server_ts"`
-	CreatedAt      time.Time    `gorm:"autoCreateTime" json:"created_at"`
+	RelatesTo      string       `gorm:"index;type:varchar(255)"          json:"relates_to"` // 关联的目标事件ID
+	RelationType   RelationType `gorm:"index;type:varchar(32);not null"  json:"relation_type"`
+	Sender         string       `gorm:"type:varchar(255);not null"       json:"sender"`
+	Content        string       `gorm:"type:text"                        json:"content"`                   // JSON
+	AggregationKey string       `gorm:"type:varchar(255)"                json:"aggregation_key,omitempty"` // 用于反应（emoji）
+	OriginServerTS int64        `gorm:"index"                            json:"origin_server_ts"`
+	CreatedAt      time.Time    `gorm:"autoCreateTime"                   json:"created_at"`
 }
 
 func (EventRelation) TableName() string {
 	return "matrix_event_relations"
 }
 
-// Aggregations 聚合数据（用于 /relations API 响应）
+// Aggregations 聚合数据（用于 /relations API 响应）.
 type Aggregations struct {
 	Annotations *AnnotationAggregations `json:"m.annotation,omitempty"`
 	Replies     *ReplyAggregations      `json:"m.in_reply_to,omitempty"`
 	Thread      *ThreadAggregations     `json:"m.thread,omitempty"`
 }
 
-// AnnotationAggregations 反应聚合
+// AnnotationAggregations 反应聚合.
 type AnnotationAggregations struct {
 	Chunk []EventRelationResponse `json:"chunk"`
 	Count int                     `json:"count"`
 }
 
-// ReplyAggregations 回复聚合
+// ReplyAggregations 回复聚合.
 type ReplyAggregations struct {
 	Count int `json:"count"`
 }
 
-// ThreadAggregations 线程聚合
+// ThreadAggregations 线程聚合.
 type ThreadAggregations struct {
 	LatestEvent             *ClientEvent `json:"latest_event,omitempty"`
 	Count                   int          `json:"count"`
 	CurrentUserParticipated bool         `json:"current_user_participated"`
 }
 
-// EventRelationResponse 关系事件响应格式
+// EventRelationResponse 关系事件响应格式.
 type EventRelationResponse struct {
-	EventID        string                 `json:"event_id"`
-	Sender         string                 `json:"sender"`
-	Type           string                 `json:"type"`
-	Content        map[string]interface{} `json:"content"`
-	OriginServerTS int64                  `json:"origin_server_ts"`
-	AggregationKey string                 `json:"key,omitempty"`
-	Count          int                    `json:"count,omitempty"`
+	EventID        string         `json:"event_id"`
+	Sender         string         `json:"sender"`
+	Type           string         `json:"type"`
+	Content        map[string]any `json:"content"`
+	OriginServerTS int64          `json:"origin_server_ts"`
+	AggregationKey string         `json:"key,omitempty"`
+	Count          int            `json:"count,omitempty"`
 }
 
-// RelationsRequest 获取关系请求
+// RelationsRequest 获取关系请求.
 type RelationsRequest struct {
 	RelType   string `form:"rel_type"`   // m.annotation, m.in_reply_to, m.thread
 	EventType string `form:"event_type"` // m.room.message, m.reaction
@@ -87,33 +87,33 @@ type RelationsRequest struct {
 	From      string `form:"from"` // 分页令牌
 }
 
-// RelationsResponse 获取关系响应
+// RelationsResponse 获取关系响应.
 type RelationsResponse struct {
 	Chunk     []ClientEvent `json:"chunk"`
 	NextBatch string        `json:"next_batch,omitempty"`
 	PrevBatch string        `json:"prev_batch,omitempty"`
 }
 
-// RelationsService 关系服务
+// RelationsService 关系服务.
 type RelationsService struct {
 	HS *HomeServer
 }
 
-// NewRelationsService 创建关系服务
+// NewRelationsService 创建关系服务.
 func NewRelationsService(hs *HomeServer) *RelationsService {
 	return &RelationsService{HS: hs}
 }
 
-// StoreRelation 存储事件关系
+// StoreRelation 存储事件关系.
 func (rs *RelationsService) StoreRelation(event *MatrixEvent) error {
 	// 解析 m.relates_to
 	relatesTo, relationType, aggKey, err := rs.parseRelation(event.Content)
 	if err != nil || relatesTo == "" {
-		return nil // 没有关系
+		return nil //nolint:nilerr // no relationship
 	}
 
 	// 序列化内容
-	contentJSON, _ := json.Marshal(event.Content)
+	contentJSON, _ := json.Marshal(event.Content) //nolint:errchkjson // event.Content is map[string]any
 
 	relation := &EventRelation{
 		EventID:        event.EventID,
@@ -129,15 +129,15 @@ func (rs *RelationsService) StoreRelation(event *MatrixEvent) error {
 	return db.GetDB().Create(relation).Error
 }
 
-// parseRelation 解析事件中的关系
-func (rs *RelationsService) parseRelation(content map[string]interface{}) (relatesTo, relationType, aggKey string, err error) {
+// parseRelation 解析事件中的关系.
+func (rs *RelationsService) parseRelation(content map[string]any) (relatesTo, relationType, aggKey string, err error) { //nolint:unparam // param reserved for future use
 	// 检查 m.relates_to
 	relatesToInterface, ok := content["m.relates_to"]
 	if !ok {
 		return "", "", "", nil
 	}
 
-	relatesToMap, ok := relatesToInterface.(map[string]interface{})
+	relatesToMap, ok := relatesToInterface.(map[string]any)
 	if !ok {
 		return "", "", "", nil
 	}
@@ -165,10 +165,10 @@ func (rs *RelationsService) parseRelation(content map[string]interface{}) (relat
 		aggKey = key
 	}
 
-	return
+	return relatesTo, relationType, aggKey, err
 }
 
-// GetRelations 获取事件的关联事件
+// GetRelations 获取事件的关联事件.
 func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsRequest) (*RelationsResponse, error) {
 	query := db.GetDB().Model(&EventRelation{}).
 		Where("room_id = ? AND relates_to = ?", roomID, eventID)
@@ -203,6 +203,7 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 			// Try rel_ format (our own pagination token)
 			_, _ = fmt.Sscanf(req.From, "rel_%d", &fromTS)
 		}
+
 		if fromTS > 0 {
 			if dir == "f" {
 				query = query.Where("origin_server_ts > ?", fromTS)
@@ -221,7 +222,8 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 
 	// Fetch limit+1 to determine if there are more results
 	var relations []EventRelation
-	if err := query.Limit(limit + 1).Find(&relations).Error; err != nil {
+	err := query.Limit(limit + 1).Find(&relations).Error
+	if err != nil {
 		return nil, err
 	}
 
@@ -235,13 +237,14 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 	for _, rel := range relations {
 		// 加载原始事件
 		var event MatrixEvent
-		if err := db.GetDB().Where("event_id = ?", rel.EventID).First(&event).Error; err != nil {
+		err := db.GetDB().Where("event_id = ?", rel.EventID).First(&event).Error
+		if err != nil {
 			continue
 		}
 
 		clientEvent := event.ToClientEvent()
 		if clientEvent.Unsigned == nil {
-			clientEvent.Unsigned = make(map[string]interface{})
+			clientEvent.Unsigned = make(map[string]any)
 		}
 
 		chunk = append(chunk, *clientEvent)
@@ -260,7 +263,7 @@ func (rs *RelationsService) GetRelations(roomID, eventID string, req *RelationsR
 	return resp, nil
 }
 
-// GetAggregations 获取事件的聚合数据
+// GetAggregations 获取事件的聚合数据.
 func (rs *RelationsService) GetAggregations(roomID, eventID string, userID string) (*Aggregations, error) {
 	aggregations := &Aggregations{}
 
@@ -285,16 +288,17 @@ func (rs *RelationsService) GetAggregations(roomID, eventID string, userID strin
 	return aggregations, nil
 }
 
-// getAnnotationAggregations 获取反应聚合
+// getAnnotationAggregations 获取反应聚合.
 func (rs *RelationsService) getAnnotationAggregations(roomID, eventID string) (*AnnotationAggregations, error) {
 	var relations []EventRelation
-	if err := db.GetDB().Where("room_id = ? AND relates_to = ? AND relation_type = ?",
-		roomID, eventID, RelationTypeReaction).Find(&relations).Error; err != nil {
+	err := db.GetDB().Where("room_id = ? AND relates_to = ? AND relation_type = ?",
+		roomID, eventID, RelationTypeReaction).Find(&relations).Error
+	if err != nil {
 		return nil, err
 	}
 
 	if len(relations) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no reactions found is not an error
 	}
 
 	// 按 emoji 分组计数
@@ -312,18 +316,21 @@ func (rs *RelationsService) getAnnotationAggregations(roomID, eventID string) (*
 
 		// 只添加一次每个用户的反应（最新的一次）
 		found := false
+
 		for _, existing := range chunk {
 			if existing.Sender == rel.Sender {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			chunk = append(chunk, EventRelationResponse{
 				EventID:        rel.EventID,
 				Sender:         rel.Sender,
 				Type:           "m.reaction",
-				Content:        map[string]interface{}{},
+				Content:        map[string]any{},
 				AggregationKey: emoji,
 			})
 		}
@@ -340,19 +347,22 @@ func (rs *RelationsService) getAnnotationAggregations(roomID, eventID string) (*
 	}, nil
 }
 
-// getReplyCount 获取回复数量
+// getReplyCount 获取回复数量.
 func (rs *RelationsService) getReplyCount(roomID, eventID string) (int, error) {
 	var count int64
+
 	err := db.GetDB().Model(&EventRelation{}).
 		Where("room_id = ? AND relates_to = ? AND relation_type = ?",
 			roomID, eventID, RelationTypeReply).
 		Count(&count).Error
+
 	return int(count), err
 }
 
-// getThreadAggregations 获取线程聚合
+// getThreadAggregations 获取线程聚合.
 func (rs *RelationsService) getThreadAggregations(roomID, eventID, userID string) (*ThreadAggregations, error) {
 	var count int64
+
 	err := db.GetDB().Model(&EventRelation{}).
 		Where("room_id = ? AND relates_to = ? AND relation_type = ?",
 			roomID, eventID, RelationTypeThread).
@@ -362,7 +372,7 @@ func (rs *RelationsService) getThreadAggregations(roomID, eventID, userID string
 	}
 
 	if count == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// 获取最新事件
@@ -371,9 +381,9 @@ func (rs *RelationsService) getThreadAggregations(roomID, eventID, userID string
 		roomID, eventID, RelationTypeThread).
 		Order("created_at DESC").
 		First(&latestRel).Error; err == nil {
-
 		var latestEvent MatrixEvent
-		if err := db.GetDB().Where("event_id = ?", latestRel.EventID).First(&latestEvent).Error; err == nil {
+		err := db.GetDB().Where("event_id = ?", latestRel.EventID).First(&latestEvent).Error
+		if err == nil {
 			clientEvent := latestEvent.ToClientEvent()
 
 			// 检查当前用户是否参与
@@ -396,15 +406,16 @@ func (rs *RelationsService) getThreadAggregations(roomID, eventID, userID string
 	}, nil
 }
 
-// extractEmojiFromReaction 从反应内容中提取 emoji
+// extractEmojiFromReaction 从反应内容中提取 emoji.
 func (rs *RelationsService) extractEmojiFromReaction(contentJSON string) string {
-	var content map[string]interface{}
-	if err := json.Unmarshal([]byte(contentJSON), &content); err != nil {
+	var content map[string]any
+	err := json.Unmarshal([]byte(contentJSON), &content)
+	if err != nil {
 		return ""
 	}
 
 	// 检查 m.relates_to.key
-	if relatesTo, ok := content["m.relates_to"].(map[string]interface{}); ok {
+	if relatesTo, ok := content["m.relates_to"].(map[string]any); ok {
 		if key, ok := relatesTo["key"].(string); ok {
 			return key
 		}
@@ -413,12 +424,12 @@ func (rs *RelationsService) extractEmojiFromReaction(contentJSON string) string 
 	return ""
 }
 
-// SendReaction 发送反应（emoji）
+// SendReaction 发送反应（emoji）.
 func (rs *RelationsService) SendReaction(roomID, sender, eventID, key string) (*SendMessageResponse, *MatrixError) {
-	content := map[string]interface{}{
-		"m.relates_to": map[string]interface{}{
+	content := map[string]any{
+		"m.relates_to": map[string]any{
 			"rel_type": "m.annotation",
-			"event_id": eventID,
+			"event_id": eventID, //nolint:goconst
 			"key":      key,
 		},
 	}
@@ -426,12 +437,12 @@ func (rs *RelationsService) SendReaction(roomID, sender, eventID, key string) (*
 	return rs.HS.Event.SendRoomEvent(roomID, sender, "m.reaction", nil, content, nil)
 }
 
-// SendReply 发送回复
+// SendReply 发送回复.
 func (rs *RelationsService) SendReply(roomID, sender, eventID, body, formattedBody string) (*SendMessageResponse, *MatrixError) {
-	content := map[string]interface{}{
-		"msgtype": "m.text",
-		"body":    body,
-		"m.relates_to": map[string]interface{}{
+	content := map[string]any{
+		"msgtype": "m.text", //nolint:goconst
+		"body":    body,     //nolint:goconst
+		"m.relates_to": map[string]any{
 			"rel_type": "m.in_reply_to",
 			"event_id": eventID,
 		},
@@ -445,16 +456,16 @@ func (rs *RelationsService) SendReply(roomID, sender, eventID, body, formattedBo
 	return rs.HS.Event.SendRoomEvent(roomID, sender, "m.room.message", nil, content, nil)
 }
 
-// SendEdit 发送编辑
+// SendEdit 发送编辑.
 func (rs *RelationsService) SendEdit(roomID, sender, eventID string, newBody, newFormattedBody string) (*SendMessageResponse, *MatrixError) {
-	content := map[string]interface{}{
+	content := map[string]any{
 		"msgtype": "m.text",
-		"body":    fmt.Sprintf("* %s", newBody),
-		"m.new_content": map[string]interface{}{
+		"body":    "* " + newBody,
+		"m.new_content": map[string]any{
 			"msgtype": "m.text",
 			"body":    newBody,
 		},
-		"m.relates_to": map[string]interface{}{
+		"m.relates_to": map[string]any{
 			"rel_type": "m.replace",
 			"event_id": eventID,
 		},
@@ -462,20 +473,20 @@ func (rs *RelationsService) SendEdit(roomID, sender, eventID string, newBody, ne
 
 	if newFormattedBody != "" {
 		content["format"] = "org.matrix.custom.html"
-		content["formatted_body"] = fmt.Sprintf("* %s", newFormattedBody)
-		content["m.new_content"].(map[string]interface{})["format"] = "org.matrix.custom.html"
-		content["m.new_content"].(map[string]interface{})["formatted_body"] = newFormattedBody
+		content["formatted_body"] = "* " + newFormattedBody
+		content["m.new_content"].(map[string]any)["format"] = "org.matrix.custom.html" //nolint:forcetypeassert
+		content["m.new_content"].(map[string]any)["formatted_body"] = newFormattedBody //nolint:forcetypeassert
 	}
 
 	return rs.HS.Event.SendRoomEvent(roomID, sender, "m.room.message", nil, content, nil)
 }
 
-// SendThreadReply 发送线程回复
+// SendThreadReply 发送线程回复.
 func (rs *RelationsService) SendThreadReply(roomID, sender, rootEventID, body string, isReplyInThread bool) (*SendMessageResponse, *MatrixError) {
-	content := map[string]interface{}{
+	content := map[string]any{
 		"msgtype": "m.text",
 		"body":    body,
-		"m.relates_to": map[string]interface{}{
+		"m.relates_to": map[string]any{
 			"rel_type":        "m.thread",
 			"event_id":        rootEventID,
 			"is_falling_back": !isReplyInThread,
@@ -485,9 +496,9 @@ func (rs *RelationsService) SendThreadReply(roomID, sender, rootEventID, body st
 	return rs.HS.Event.SendRoomEvent(roomID, sender, "m.room.message", nil, content, nil)
 }
 
-// RedactEvent 删除事件（并实现关系删除）
+// RedactEvent 删除事件（并实现关系删除）.
 func (rs *RelationsService) RedactEvent(roomID, sender, eventID, reason string) (*SendMessageResponse, *MatrixError) {
-	content := map[string]interface{}{}
+	content := map[string]any{}
 	if reason != "" {
 		content["reason"] = reason
 	}
@@ -497,7 +508,7 @@ func (rs *RelationsService) RedactEvent(roomID, sender, eventID, reason string) 
 
 // ===== HTTP Handlers =====
 
-// RegisterRelationsRoutes 注册关系 API 路由
+// RegisterRelationsRoutes 注册关系 API 路由.
 func RegisterRelationsRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -521,7 +532,7 @@ func RegisterRelationsRoutes(r gin.IRouter) {
 	r.POST("/_matrix/client/v3/rooms/:roomId/reaction/:eventId", MatrixAuthMiddleware(), handleSendReaction)
 }
 
-// handleGetRelations 获取事件的所有关系
+// handleGetRelations 获取事件的所有关系.
 func handleGetRelations(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
@@ -532,9 +543,10 @@ func handleGetRelations(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		c.JSON(http.StatusForbidden, MatrixError{
-			ErrCode: "M_FORBIDDEN",
+			ErrCode: "M_FORBIDDEN", //nolint:goconst
 			Error:   "User is not in the room",
 		})
+
 		return
 	}
 
@@ -542,46 +554,49 @@ func handleGetRelations(c *gin.Context) {
 	var req RelationsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
-			ErrCode: "M_INVALID_PARAM",
+			ErrCode: "M_INVALID_PARAM", //nolint:goconst
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	// Override with path params if set by handleGetRelationsByType/handleGetRelationsByTypeAndEventType
 	if rt, exists := c.Get("path_rel_type"); exists {
-		req.RelType = rt.(string)
+		req.RelType = rt.(string) //nolint:forcetypeassert
 	}
+
 	if et, exists := c.Get("path_event_type"); exists {
-		req.EventType = et.(string)
+		req.EventType = et.(string) //nolint:forcetypeassert
 	}
 
 	resp, err := hs.Relations.GetRelations(roomID, eventID, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, MatrixError{
-			ErrCode: "M_INTERNAL_ERROR",
+			ErrCode: "M_INTERNAL_ERROR", //nolint:goconst
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleGetRelationsByType 按关系类型获取关系
+// handleGetRelationsByType 按关系类型获取关系.
 func handleGetRelationsByType(c *gin.Context) {
 	c.Set("path_rel_type", c.Param("relType"))
 	handleGetRelations(c)
 }
 
-// handleGetRelationsByTypeAndEventType 按关系类型和事件类型获取关系
+// handleGetRelationsByTypeAndEventType 按关系类型和事件类型获取关系.
 func handleGetRelationsByTypeAndEventType(c *gin.Context) {
 	c.Set("path_rel_type", c.Param("relType"))
 	c.Set("path_event_type", c.Param("eventType"))
 	handleGetRelations(c)
 }
 
-// handleGetThreads returns thread roots in the room, ordered by latest reply
+// handleGetThreads returns thread roots in the room, ordered by latest reply.
 func handleGetThreads(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
@@ -590,6 +605,7 @@ func handleGetThreads(c *gin.Context) {
 	membership, _ := hs.Room.GetUserMembership(roomID, userID)
 	if membership != MembershipJoin {
 		c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "User is not in the room"})
+
 		return
 	}
 
@@ -634,10 +650,11 @@ func handleGetThreads(c *gin.Context) {
 
 		// Add thread aggregation to unsigned
 		if ce.Unsigned == nil {
-			ce.Unsigned = make(map[string]interface{})
+			ce.Unsigned = make(map[string]any)
 		}
-		ce.Unsigned["m.relations"] = map[string]interface{}{
-			"m.thread": map[string]interface{}{
+
+		ce.Unsigned["m.relations"] = map[string]any{
+			"m.thread": map[string]any{
 				"latest_event":              latestCE,
 				"count":                     count,
 				"current_user_participated": latestEvent.Sender == userID || rootEvent.Sender == userID,
@@ -661,7 +678,7 @@ func handleGetThreads(c *gin.Context) {
 		}
 	}
 
-	chunk := make([]interface{}, len(entries))
+	chunk := make([]any, len(entries))
 	for i, e := range entries {
 		chunk[i] = e.RootEvent
 	}
@@ -672,7 +689,7 @@ func handleGetThreads(c *gin.Context) {
 	})
 }
 
-// handleSendReaction 发送反应
+// handleSendReaction 发送反应.
 func handleSendReaction(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
@@ -680,26 +697,29 @@ func handleSendReaction(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var req struct {
-		Key string `json:"key" binding:"required"` // emoji
+		Key string `binding:"required" json:"key"` // emoji
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, MatrixError{
-			ErrCode: "M_BAD_JSON",
+			ErrCode: "M_BAD_JSON", //nolint:goconst
 			Error:   err.Error(),
 		})
+
 		return
 	}
 
 	resp, matrixErr := hs.Relations.SendReaction(roomID, userID, eventID, req.Key)
 	if matrixErr != nil {
 		c.JSON(http.StatusBadRequest, matrixErr)
+
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// MatrixAuthMiddleware Matrix 认证中间件（简化版）
+// MatrixAuthMiddleware Matrix 认证中间件（简化版）.
 func MatrixAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 从 Authorization 头获取 Token
@@ -715,6 +735,7 @@ func MatrixAuthMiddleware() gin.HandlerFunc {
 				Error:   "Missing access token",
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -725,10 +746,11 @@ func MatrixAuthMiddleware() gin.HandlerFunc {
 		hs := GetHomeServer()
 		if hs == nil {
 			c.JSON(http.StatusServiceUnavailable, MatrixError{
-				ErrCode: "M_UNKNOWN",
-				Error:   "Homeserver not available",
+				ErrCode: "M_UNKNOWN",                //nolint:goconst
+				Error:   "Homeserver not available", //nolint:goconst
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -739,6 +761,7 @@ func MatrixAuthMiddleware() gin.HandlerFunc {
 				Error:   "Invalid access token",
 			})
 			c.Abort()
+
 			return
 		}
 
@@ -748,7 +771,7 @@ func MatrixAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// AddAggregationsToEvent 为事件添加聚合数据
+// AddAggregationsToEvent 为事件添加聚合数据.
 func AddAggregationsToEvent(event *ClientEvent, userID string) {
 	hs := GetHomeServer()
 	if hs == nil || hs.Relations == nil {
@@ -762,13 +785,14 @@ func AddAggregationsToEvent(event *ClientEvent, userID string) {
 
 	if aggregations.Annotations != nil || aggregations.Replies != nil || aggregations.Thread != nil {
 		if event.Unsigned == nil {
-			event.Unsigned = make(map[string]interface{})
+			event.Unsigned = make(map[string]any)
 		}
+
 		event.Unsigned["m.relations"] = aggregations
 	}
 }
 
-// init 初始化时注册数据库迁移
+// init 初始化时注册数据库迁移.
 func init() {
 	// 数据库迁移将在 homeserver 初始化时执行
 }

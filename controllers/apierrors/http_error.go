@@ -15,8 +15,8 @@ func (e *HttpError) GetHttpCode() int {
 	return e.HttpCode
 }
 
-func (e *HttpError) Json() map[string]interface{} {
-	return map[string]interface{}{
+func (e *HttpError) Json() map[string]any {
+	return map[string]any{
 		"error": e.Error(),
 	}
 }
@@ -32,6 +32,7 @@ func NewHttpError(err error) error {
 	}
 
 	err = errors.WithStack(err)
+
 	return err
 }
 
@@ -69,6 +70,7 @@ func WarpToHttpError(err error, httpCode ...int) error {
 		ht = httpCode[0]
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = NewHttpErrorWithCodeAndMessage(err, 404, "record not found")
+
 		return err
 	}
 

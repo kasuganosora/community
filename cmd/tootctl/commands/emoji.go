@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,7 +19,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-// EmojiCommand implements tootctl emoji subcommands
+// EmojiCommand implements tootctl emoji subcommands.
 func EmojiCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "emoji",
@@ -33,7 +34,7 @@ func EmojiCommand() *cli.Command {
 
 // EmojiExportCommand implements tootctl emoji export
 // Exports custom emoji to export.tar.gz at PATH.
-// Version history: 3.1.4 - added
+// Version history: 3.1.4 - added.
 func EmojiExportCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "export",
@@ -55,7 +56,7 @@ func EmojiExportCommand() *cli.Command {
 
 func exportEmoji(c *cli.Context) error {
 	if c.NArg() < 1 {
-		return fmt.Errorf("PATH is required")
+		return errors.New("PATH is required")
 	}
 
 	outputPath := c.Args().First()
@@ -80,27 +81,29 @@ func exportEmoji(c *cli.Context) error {
 
 	if len(emojis) == 0 {
 		fmt.Println("No emojis found to export")
+
 		return nil
 	}
 
 	fmt.Printf("Exporting %d emojis to %s...\n", len(emojis), outputPath)
 
 	// Create output file
-	file, err := os.Create(outputPath)
+	file, err := os.Create(outputPath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Create gzip writer
 	gzWriter := gzip.NewWriter(file)
-	defer gzWriter.Close()
+	defer func() { _ = gzWriter.Close() }()
 
 	// Create tar writer
 	tarWriter := tar.NewWriter(gzWriter)
-	defer tarWriter.Close()
+	defer func() { _ = tarWriter.Close() }()
 
 	exported := 0
+
 	for _, emoji := range emojis {
 		// Get the image file
 		if emoji.Url == "" {
@@ -111,6 +114,7 @@ func exportEmoji(c *cli.Context) error {
 		reader, err := storage.GetStorage().Download(emoji.Url)
 		if err != nil {
 			fmt.Printf("Warning: failed to read emoji %s: %v\n", emoji.Shortcode, err)
+
 			continue
 		}
 
@@ -122,9 +126,11 @@ func exportEmoji(c *cli.Context) error {
 
 		// Read all data
 		data, err := io.ReadAll(reader)
-		reader.Close()
+		_ = reader.Close()
+
 		if err != nil {
 			fmt.Printf("Warning: failed to read emoji data %s: %v\n", emoji.Shortcode, err)
+
 			continue
 		}
 
@@ -139,11 +145,13 @@ func exportEmoji(c *cli.Context) error {
 
 		if err := tarWriter.WriteHeader(header); err != nil {
 			fmt.Printf("Warning: failed to write header for %s: %v\n", emoji.Shortcode, err)
+
 			continue
 		}
 
 		if _, err := tarWriter.Write(data); err != nil {
 			fmt.Printf("Warning: failed to write data for %s: %v\n", emoji.Shortcode, err)
+
 			continue
 		}
 
@@ -151,12 +159,13 @@ func exportEmoji(c *cli.Context) error {
 	}
 
 	fmt.Printf("Exported %d emojis to %s\n", exported, outputPath)
+
 	return nil
 }
 
 // EmojiImportCommand implements tootctl emoji import
 // Imports custom emoji from a .tar.gz archive.
-// Version history: 2.5.0 - added
+// Version history: 2.5.0 - added.
 func EmojiImportCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "import",
@@ -180,7 +189,7 @@ func EmojiImportCommand() *cli.Command {
 				Usage: "Group processed emoji under CATEGORY",
 			},
 			&cli.BoolFlag{
-				Name:  "unlisted",
+				Name:  "unlisted", //nolint:goconst
 				Usage: "Processed emoji will not be shown in the picker",
 			},
 		},
@@ -190,7 +199,7 @@ func EmojiImportCommand() *cli.Command {
 
 func importEmoji(c *cli.Context) error {
 	if c.NArg() < 1 {
-		return fmt.Errorf("PATH is required")
+		return errors.New("PATH is required")
 	}
 
 	inputPath := c.Args().First()
@@ -201,18 +210,18 @@ func importEmoji(c *cli.Context) error {
 	unlisted := c.Bool("unlisted")
 
 	// Open input file
-	file, err := os.Open(inputPath)
+	file, err := os.Open(inputPath) //nolint:gosec // G304: path validated
 	if err != nil {
 		return fmt.Errorf("failed to open input file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Create gzip reader
 	gzReader, err := gzip.NewReader(file)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	// Create tar reader
 	tarReader := tar.NewReader(gzReader)
@@ -225,6 +234,7 @@ func importEmoji(c *cli.Context) error {
 		if err == io.EOF {
 			break
 		}
+
 		if err != nil {
 			return fmt.Errorf("failed to read tar entry: %w", err)
 		}
@@ -242,8 +252,9 @@ func importEmoji(c *cli.Context) error {
 		if prefix != "" {
 			shortcode = prefix + shortcode
 		}
+
 		if suffix != "" {
-			shortcode = shortcode + suffix
+			shortcode += suffix
 		}
 
 		// Validate extension
@@ -254,6 +265,7 @@ func importEmoji(c *cli.Context) error {
 		// Check file size (max 50KB)
 		if header.Size > 50*1024 {
 			fmt.Printf("Skipping %s: file too large (%d bytes)\n", shortcode, header.Size)
+
 			continue
 		}
 
@@ -261,24 +273,31 @@ func importEmoji(c *cli.Context) error {
 		data := make([]byte, header.Size)
 		if _, err := io.ReadFull(tarReader, data); err != nil {
 			fmt.Printf("Warning: failed to read %s: %v\n", shortcode, err)
+
 			continue
 		}
 
 		// Check if emoji exists
 		var existing models.Emoji
+
 		err = db.GetDB().Where("shortcode = ?", shortcode).First(&existing).Error
 		if err == nil {
 			if !overwrite {
 				fmt.Printf("Skipping %s: already exists\n", shortcode)
+
 				skipped++
+
 				continue
 			}
 			// Update existing
 			existing.Url = "imported/" + shortcode + ext
 			existing.Category = category
+
 			existing.VisibleInPicker = !unlisted
-			if err := db.GetDB().Save(&existing).Error; err != nil {
+			err := db.GetDB().Save(&existing).Error
+			if err != nil {
 				fmt.Printf("Warning: failed to update %s: %v\n", shortcode, err)
+
 				continue
 			}
 		} else {
@@ -289,8 +308,10 @@ func importEmoji(c *cli.Context) error {
 				Category:        category,
 				VisibleInPicker: !unlisted,
 			}
-			if err := db.GetDB().Create(emoji).Error; err != nil {
+			err := db.GetDB().Create(emoji).Error
+			if err != nil {
 				fmt.Printf("Warning: failed to create %s: %v\n", shortcode, err)
+
 				continue
 			}
 		}
@@ -300,26 +321,30 @@ func importEmoji(c *cli.Context) error {
 		if cloudStorage := storage.GetStorage(); cloudStorage.IsEnabled() {
 			if _, err := cloudStorage.UploadReader(bytes.NewReader(data), objectKey, int64(len(data))); err != nil {
 				fmt.Printf("Warning: failed to save %s to cloud: %v\n", shortcode, err)
+
 				continue
 			}
 		} else {
 			if _, err := storage.Save(objectKey, data); err != nil {
 				fmt.Printf("Warning: failed to save %s: %v\n", shortcode, err)
+
 				continue
 			}
 		}
 
 		imported++
+
 		fmt.Printf("Imported: %s\n", shortcode)
 	}
 
 	fmt.Printf("\nImported %d emojis, skipped %d\n", imported, skipped)
+
 	return nil
 }
 
 // EmojiPurgeCommand implements tootctl emoji purge
 // Remove all custom emojis.
-// Version history: 2.8.0 - added
+// Version history: 2.8.0 - added.
 func EmojiPurgeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "purge",
@@ -347,6 +372,7 @@ func purgeEmoji(c *cli.Context) error {
 
 	if count == 0 {
 		fmt.Println("No emojis to purge")
+
 		return nil
 	}
 
@@ -354,23 +380,25 @@ func purgeEmoji(c *cli.Context) error {
 
 	// Get all emojis to delete
 	var emojis []*models.Emoji
-	if err := query.Find(&emojis).Error; err != nil {
+	err := query.Find(&emojis).Error
+	if err != nil {
 		return fmt.Errorf("failed to query emojis: %w", err)
 	}
 
 	// Delete in batches with concurrency
 	batchSize := 100
 	jobs := make(chan []*models.Emoji, 10)
+
 	var wg sync.WaitGroup
+
 	deleted := 0
+
 	var mu sync.Mutex
 
 	// Start workers
 	workers := 5
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			for batch := range jobs {
 				for _, emoji := range batch {
 					// Delete from storage
@@ -384,36 +412,38 @@ func purgeEmoji(c *cli.Context) error {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	// Feed jobs
 	for i := 0; i < len(emojis); i += batchSize {
-		end := i + batchSize
-		if end > len(emojis) {
-			end = len(emojis)
-		}
+		end := min(i+batchSize, len(emojis))
+
 		jobs <- emojis[i:end]
 	}
+
 	close(jobs)
 
 	wg.Wait()
 
 	fmt.Printf("Purged %d emojis\n", deleted)
+
 	return nil
 }
 
-// GetEmojiStats returns emoji statistics
-func GetEmojiStats() (map[string]interface{}, error) {
-	var total int64
-	var local int64
-	var remote int64
+// GetEmojiStats returns emoji statistics.
+func GetEmojiStats() (map[string]any, error) {
+	var (
+		total  int64
+		local  int64
+		remote int64
+	)
 
 	db.GetDB().Model(&models.Emoji{}).Count(&total)
 	db.GetDB().Model(&models.Emoji{}).Where("domain IS NULL OR domain = ''").Count(&local)
 	db.GetDB().Model(&models.Emoji{}).Where("domain IS NOT NULL AND domain != ''").Count(&remote)
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total":  total,
 		"local":  local,
 		"remote": remote,

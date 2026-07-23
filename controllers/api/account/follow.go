@@ -19,9 +19,10 @@ func Follow(c *gin.Context) {
 	var req FollowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
-			"code": 400,
-			"msg":  "invalid request body",
+			"code": 400,                    //nolint:goconst
+			"msg":  "invalid request body", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -29,36 +30,39 @@ func Follow(c *gin.Context) {
 	if err != nil || accid == 0 {
 		c.AbortWithStatusJSON(400, gin.H{
 			"code": 400,
-			"msg":  "invalid account id",
+			"msg":  "invalid account id", //nolint:goconst
 		})
+
 		return
 	}
 
 	req.AccountId = accid
 
 	// 获取当前登录用户
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// 检查被关注的账户ID是否存在
 	targetAccount := &models.Account{}
-	err = db.GetDB().Model(&models.Account{}).Preload("User").Preload("User.Settings").Where("id = ?", req.AccountId).First(targetAccount).Error
 
+	err = db.GetDB().Model(&models.Account{}).Preload("User").Preload("User.Settings").Where("id = ?", req.AccountId).First(targetAccount).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(400, gin.H{
 				"code": 400,
-				"msg":  "account not found",
+				"msg":  "account not found", //nolint:goconst
 			})
+
 			return
 		}
 
 		c.AbortWithStatusJSON(500, gin.H{
 			"code": 500,
-			"msg":  "internal error",
+			"msg":  "internal error", //nolint:goconst
 		})
 
 		err = errors.Wrap(err, "GetAccountBase error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -73,6 +77,7 @@ func Follow(c *gin.Context) {
 
 		err = errors.Wrap(err, "GetAccountBase error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -82,6 +87,7 @@ func Follow(c *gin.Context) {
 	if follow.Properties == nil {
 		follow.Properties = make(map[string]any)
 	}
+
 	follow.Properties["reblogs"] = req.Reblogs
 
 	if follow.Id > 0 {
@@ -91,6 +97,7 @@ func Follow(c *gin.Context) {
 		if targetAccount.User.Settings.IsFollowProtect() {
 			follow.Status = models.FollowStatusRequested
 		}
+
 		err = db.GetDB().Create(follow).Error
 	}
 
@@ -102,6 +109,7 @@ func Follow(c *gin.Context) {
 
 		err = errors.Wrap(err, "GetAccountBase error")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -121,22 +129,24 @@ func UnFollow(c *gin.Context) {
 			"code": 400,
 			"msg":  "invalid account id",
 		})
+
 		return
 	}
 
 	req.AccountId = accid
 
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	targetAccount := &models.Account{}
-	err = db.GetDB().Model(&models.Account{}).Where("id = ?", req.AccountId).First(targetAccount).Error
 
+	err = db.GetDB().Model(&models.Account{}).Where("id = ?", req.AccountId).First(targetAccount).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(400, gin.H{
 				"code": 400,
 				"msg":  "account not found",
 			})
+
 			return
 		}
 
@@ -147,18 +157,20 @@ func UnFollow(c *gin.Context) {
 			"code": 500,
 			"msg":  "internal error",
 		})
+
 		return
 	}
 
 	follow := &models.Follow{}
-	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?", account.Id, targetAccount.Id).First(follow).Error
 
+	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ?", account.Id, targetAccount.Id).First(follow).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(400, gin.H{
 				"code": 400,
 				"msg":  "not followed",
 			})
+
 			return
 		}
 
@@ -169,11 +181,11 @@ func UnFollow(c *gin.Context) {
 			"code": 500,
 			"msg":  "internal error",
 		})
+
 		return
 	}
 
 	err = db.GetDB().Delete(follow).Error
-
 	if err != nil {
 		err = errors.Wrap(err, "delete follow relation error")
 		_ = c.Error(err)
@@ -182,6 +194,7 @@ func UnFollow(c *gin.Context) {
 			"code": 500,
 			"msg":  "internal error",
 		})
+
 		return
 	}
 

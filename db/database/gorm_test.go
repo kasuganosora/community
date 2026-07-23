@@ -115,9 +115,9 @@ func TestLoadDBConfig_InvalidValuesIgnored(t *testing.T) {
 	}{
 		{name: "non-numeric string", env: "DB_MAX_OPEN_CONNS", val: "abc"},
 		{name: "negative number", env: "DB_MAX_IDLE_CONNS", val: "-1"},
-		{name: "zero", env: "DB_CONN_MAX_LIFETIME_MINUTES", val: "0"},
+		{name: "zero", env: "DB_CONN_MAX_LIFETIME_MINUTES", val: "0"}, //nolint:goconst
 		{name: "non-numeric lifetime", env: "DB_CONN_MAX_LIFETIME_MINUTES", val: "abc"},
-		{name: "negative idle time", env: "DB_CONN_MAX_IDLE_TIME_MINUTES", val: "-5"},
+		{name: "negative idle time", env: "DB_CONN_MAX_IDLE_TIME_MINUTES", val: "-5"}, //nolint:goconst
 		{name: "zero idle time", env: "DB_CONN_MAX_IDLE_TIME_MINUTES", val: "0"},
 	}
 
@@ -230,7 +230,7 @@ func TestCloseDB_NilDB(t *testing.T) {
 	database.ResetTestDB()
 
 	err := database.CloseDB()
-	assert.Nil(t, err, "CloseDB with nil DB should return nil")
+	assert.NoError(t, err, "CloseDB with nil DB should return nil")
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +253,7 @@ func TestIsXmlMode_True(t *testing.T) {
 	defer func() { config.C.DbConnection = original }()
 
 	config.C.DbConnection = "xml"
+
 	assert.True(t, database.IsXmlMode())
 }
 
@@ -261,6 +262,7 @@ func TestIsXmlMode_False_MySQL(t *testing.T) {
 	defer func() { config.C.DbConnection = original }()
 
 	config.C.DbConnection = "mysql"
+
 	assert.False(t, database.IsXmlMode())
 }
 
@@ -269,6 +271,7 @@ func TestIsXmlMode_False_SQLite(t *testing.T) {
 	defer func() { config.C.DbConnection = original }()
 
 	config.C.DbConnection = "sqlite"
+
 	assert.False(t, database.IsXmlMode())
 }
 
@@ -277,6 +280,7 @@ func TestIsXmlMode_False_Empty(t *testing.T) {
 	defer func() { config.C.DbConnection = original }()
 
 	config.C.DbConnection = ""
+
 	assert.False(t, database.IsXmlMode())
 }
 
@@ -288,13 +292,8 @@ func TestIsXmlMode_False_Empty(t *testing.T) {
 // restore their original values.
 func unsetEnv(t *testing.T, keys ...string) {
 	t.Helper()
+
 	for _, k := range keys {
-		orig, ok := os.LookupEnv(k)
-		t.Setenv(k, "") // Setenv("") effectively unsets for LoadDBConfig checks
-		if ok {
-			t.Cleanup(func() { os.Setenv(k, orig) })
-		} else {
-			t.Cleanup(func() { os.Unsetenv(k) })
-		}
+		t.Setenv(k, "")
 	}
 }

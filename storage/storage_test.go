@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// MockStorageProvider implements StorageProvider for testing
+// MockStorageProvider implements StorageProvider for testing.
 type MockStorageProvider struct{}
 
 func (m *MockStorageProvider) Upload(filePath string, objectKey string) (string, error) {
@@ -19,7 +20,7 @@ func (m *MockStorageProvider) UploadReader(reader io.Reader, objectKey string, s
 }
 
 func (m *MockStorageProvider) Download(objectKey string) (io.ReadCloser, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock implementation
 }
 
 func (m *MockStorageProvider) Delete(objectKey string) error {
@@ -39,6 +40,7 @@ func TestStorageProviderInterface(t *testing.T) {
 	mockProvider := &MockStorageProvider{}
 
 	var _ StorageProvider = mockProvider
+
 	assert.NotNil(t, mockProvider)
 }
 
@@ -64,7 +66,7 @@ func TestCloudStorage_Upload_Disabled(t *testing.T) {
 	storage := GetStorage()
 	// When cloud storage is disabled, it returns the original path
 	result, err := storage.Upload("/local/path", "remote/key")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "/local/path", result)
 }
 
@@ -85,9 +87,9 @@ func TestS3Provider_GetURL(t *testing.T) {
 			name: "with public base URL",
 			provider: &S3Provider{
 				publicBaseURL: "https://cdn.example.com",
-				bucket:        "test-bucket",
+				bucket:        "test-bucket", //nolint:goconst
 			},
-			objectKey:   "file.txt",
+			objectKey:   "file.txt", //nolint:goconst
 			expectedURL: "https://cdn.example.com/test-bucket/file.txt",
 		},
 		{
@@ -125,7 +127,7 @@ func TestGetContentType(t *testing.T) {
 		filename string
 		expected string
 	}{
-		{"image.jpg", "image/jpeg"},
+		{"image.jpg", "image/jpeg"}, //nolint:goconst
 		{"image.jpeg", "image/jpeg"},
 		{"image.png", "image/png"},
 		{"image.gif", "image/gif"},
@@ -135,7 +137,7 @@ func TestGetContentType(t *testing.T) {
 		{"audio.mp3", "audio/mpeg"},
 		{"audio.ogg", "audio/ogg"},
 		{"audio.wav", "audio/wav"},
-		{"file.txt", "application/octet-stream"},
+		{"file.txt", "application/octet-stream"}, //nolint:goconst
 		{"file.unknown", "application/octet-stream"},
 		{"IMAGE.JPG", "image/jpeg"}, // case insensitive
 	}

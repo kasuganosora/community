@@ -5,10 +5,10 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
-// GetPreferences handles GET /api/v1/preferences
+// GetPreferences handles GET /api/v1/preferences.
 func GetPreferences(c *gin.Context) {
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Default preferences
 	defaultPostingVisibility := "public"

@@ -20,9 +20,10 @@ func ToConversation(conversation *models.Conversation, account *models.Account) 
 	}
 
 	accountConversation := make([]*models.AccountConversation, 0)
+
 	err = db.GetDB().Model(conversation).Where("account_id = ?", account.Id).Association("AccountConversations").Find(&accountConversation)
 	if err != nil {
-		return
+		return conv, err
 	}
 
 	if len(accountConversation) > 0 {
@@ -33,7 +34,7 @@ func ToConversation(conversation *models.Conversation, account *models.Account) 
 
 	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", conversation.AccountsIds).Find(&accounts).Error
 	if err != nil {
-		return
+		return conv, err
 	}
 
 	ret.Accounts = ToAccounts(accounts)
@@ -42,24 +43,25 @@ func ToConversation(conversation *models.Conversation, account *models.Account) 
 
 	query := db.GetDB().Model(&models.Status{}).Where("id = ?", utils.Max(conversation.StatusesIds)).Order("created_at desc")
 	query = models.StatusLoadAllQuery(query)
+
 	err = query.First(lastStatus).Error
 	if err != nil {
-		return
+		return conv, err
 	}
 
 	ret.LastStatus, err = ToStatus(lastStatus, account)
 	if err != nil {
-		return
+		return conv, err
 	}
 
-	return
+	return conv, err
 }
 
 func ToConversations(conversations []*models.Conversation, account *models.Account) (ret []Conversation, err error) {
 	ret = make([]Conversation, 0)
 
 	accountsIds := make([]uint64, 0)
-	statusesId := make([]uint64, 0)
+	statusesId := make([]uint64, 0, len(conversations))
 
 	for _, conversation := range conversations {
 		accountsIds = append(accountsIds, conversation.AccountsIds...)
@@ -67,17 +69,19 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 	}
 
 	accounts := make(models.Accounts, 0)
+
 	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountsIds).Find(&accounts).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	statuses := make([]*models.Status, 0)
 	query := db.GetDB().Model(&models.Status{}).Where("id in ?", statusesId).Order("created_at desc")
 	query = models.StatusLoadAllQuery(query)
+
 	err = query.Find(&statuses).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	accs := ToAccounts(accounts)
@@ -87,7 +91,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 
 	sts, err := ToStatuses(statuses, account)
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	statusesMap := utils.MapByAnyFiled(sts, func(status *Status) uint64 {
@@ -95,6 +99,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 	})
 
 	accountConversations := make([]*models.AccountConversation, 0)
+
 	conversationId := make([]uint64, 0)
 	for _, conversation := range conversations {
 		conversationId = append(conversationId, conversation.Id)
@@ -102,7 +107,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 
 	err = db.GetDB().Model(&models.AccountConversation{}).Where("conversation_id in ? and account = ?", conversationId, account.Id).Find(&accountConversations).Error
 	if err != nil {
-		return
+		return ret, err
 	}
 
 	accountConversationsMap := utils.MapByAnyFiled(accountConversations, func(accountConversation *models.AccountConversation) uint64 {
@@ -114,6 +119,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 	for i, conversation := range conversations {
 		ret[i].Id = strconv.FormatUint(conversation.Id, 10)
 		ret[i].Accounts = make([]*Account, 0)
+
 		for _, accountId := range conversation.AccountsIds {
 			if acc, ok := accountsMap[accountId]; ok {
 				ret[i].Accounts = append(ret[i].Accounts, acc)
@@ -127,5 +133,5 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 		}
 	}
 
-	return
+	return ret, err
 }

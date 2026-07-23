@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// MinIOBackend MinIO存储后端
+// MinIOBackend MinIO存储后端.
 type MinIOBackend struct {
 	client     *s3.Client
 	bucket     string
@@ -21,7 +21,7 @@ type MinIOBackend struct {
 	endpoint   string
 }
 
-// NewMinIOBackend 创建MinIO存储后端
+// NewMinIOBackend 创建MinIO存储后端.
 func NewMinIOBackend(cfg Config) (*MinIOBackend, error) {
 	// 加载配置
 	awsCfg, err := config.LoadDefaultConfig(context.Background(),
@@ -49,12 +49,12 @@ func NewMinIOBackend(cfg Config) (*MinIOBackend, error) {
 	}, nil
 }
 
-// Type 存储类型
+// Type 存储类型.
 func (m *MinIOBackend) Type() string {
 	return "minio"
 }
 
-// Put 上传文件
+// Put 上传文件.
 func (m *MinIOBackend) Put(ctx context.Context, key string, data io.Reader, size int64, contentType string) error {
 	fullKey := m.pathPrefix + key
 
@@ -73,7 +73,7 @@ func (m *MinIOBackend) Put(ctx context.Context, key string, data io.Reader, size
 	return nil
 }
 
-// GetURL 获取访问URL
+// GetURL 获取访问URL.
 func (m *MinIOBackend) GetURL(key string) string {
 	fullKey := m.pathPrefix + key
 
@@ -85,16 +85,16 @@ func (m *MinIOBackend) GetURL(key string) string {
 	return fmt.Sprintf("%s/%s/%s", m.endpoint, m.bucket, fullKey)
 }
 
-// GetPresignedURL 获取预签名URL
+// GetPresignedURL 获取预签名URL.
 func (m *MinIOBackend) GetPresignedURL(ctx context.Context, key string, expire time.Duration) (string, error) {
 	fullKey := m.pathPrefix + key
 
 	presignClient := s3.NewPresignClient(m.client)
+
 	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(m.bucket),
 		Key:    aws.String(fullKey),
 	}, s3.WithPresignExpires(expire))
-
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned url: %w", err)
 	}
@@ -102,7 +102,7 @@ func (m *MinIOBackend) GetPresignedURL(ctx context.Context, key string, expire t
 	return req.URL, nil
 }
 
-// Exists 检查是否存在
+// Exists 检查是否存在.
 func (m *MinIOBackend) Exists(ctx context.Context, key string) (bool, error) {
 	fullKey := m.pathPrefix + key
 
@@ -113,12 +113,13 @@ func (m *MinIOBackend) Exists(ctx context.Context, key string) (bool, error) {
 
 	_, err := m.client.HeadObject(ctx, input)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr
 	}
+
 	return true, nil
 }
 
-// Delete 删除
+// Delete 删除.
 func (m *MinIOBackend) Delete(ctx context.Context, key string) error {
 	fullKey := m.pathPrefix + key
 
@@ -135,7 +136,7 @@ func (m *MinIOBackend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// ListObjects 列出对象
+// ListObjects 列出对象.
 func (m *MinIOBackend) ListObjects(ctx context.Context, prefix string, maxKeys int32) ([]string, error) {
 	fullPrefix := m.pathPrefix + prefix
 
@@ -151,6 +152,7 @@ func (m *MinIOBackend) ListObjects(ctx context.Context, prefix string, maxKeys i
 	}
 
 	var keys []string
+
 	for _, obj := range result.Contents {
 		if obj.Key != nil {
 			keys = append(keys, *obj.Key)

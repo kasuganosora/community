@@ -13,10 +13,10 @@ func TestExtractBearerToken(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"bearer token", "Bearer my-token-123", "my-token-123"},
+		{"bearer token", "Bearer my-token-123", "my-token-123"}, //nolint:goconst
 		{"raw token", "my-token-123", "my-token-123"},
 		{"empty string", "", ""},
-		{"only Bearer prefix", "Bearer ", "Bearer "},
+		{"only Bearer prefix", "Bearer ", "Bearer "}, //nolint:goconst
 		{"short string", "Bear", "Bear"},
 		{"exact 7 chars", "Bearer1", "Bearer1"},
 		{"bearer lowercase", "bearer my-token", "bearer my-token"},
@@ -87,6 +87,7 @@ func TestParseMatrixUserID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			localpart, domain, ok := ParseMatrixUserID(tt.userID)
 			assert.Equal(t, tt.ok, ok)
+
 			if ok {
 				assert.Equal(t, tt.localpart, localpart)
 				assert.Equal(t, tt.domain, domain)

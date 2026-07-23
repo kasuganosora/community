@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间
+// SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间.
 func (b *Bridge) SendGroupMessageToMatrix(roomID string, senderAccountID uint64, content string) (string, error) {
 	if !b.started.Load() {
 		return "", nil
@@ -23,7 +23,7 @@ func (b *Bridge) SendGroupMessageToMatrix(roomID string, senderAccountID uint64,
 	return eventID, nil
 }
 
-// SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间
+// SendGroupMessageToMatrix 将群组消息发送到 Matrix 房间.
 func (m *MessageBridge) SendGroupMessageToMatrix(matrixRoomID string, senderAccountID uint64, content string) (string, error) {
 	// 获取发送者对应的 Matrix 用户
 	matrixUserID, err := m.userMapper.GetMatrixUserID(senderAccountID)
@@ -55,7 +55,7 @@ func (m *MessageBridge) SendGroupMessageToMatrix(matrixRoomID string, senderAcco
 	return resp.EventID, nil
 }
 
-// createGroupMessageMapping 创建群组消息映射记录
+// createGroupMessageMapping 创建群组消息映射记录.
 func (m *MessageBridge) createGroupMessageMapping(roomID, eventID, senderID string) error {
 	mapping := &models.MatrixMessage{
 		StatusId:       0, // 群组消息不关联到特定 Status
@@ -68,7 +68,7 @@ func (m *MessageBridge) createGroupMessageMapping(roomID, eventID, senderID stri
 	return db.GetDB().Create(mapping).Error
 }
 
-// SyncGroupToMatrix 同步群组到 Matrix（创建或获取对应的 Matrix 房间）
+// SyncGroupToMatrix 同步群组到 Matrix（创建或获取对应的 Matrix 房间）.
 func (b *Bridge) SyncGroupToMatrix(groupID uint64) (string, error) {
 	if !b.started.Load() {
 		return "", nil
@@ -93,15 +93,19 @@ func (b *Bridge) SyncGroupToMatrix(groupID uint64) (string, error) {
 
 	// 获取成员对应的 Matrix 用户 ID
 	var inviteUserIDs []string
+
 	for _, member := range members {
 		if member.AccountId == nil {
 			continue
 		}
+
 		matrixUserID, err := b.userMapper.GetMatrixUserID(*member.AccountId)
 		if err != nil {
 			log.Warn("Failed to get matrix user for account %d: %v", *member.AccountId, err)
+
 			continue
 		}
+
 		inviteUserIDs = append(inviteUserIDs, matrixUserID)
 	}
 

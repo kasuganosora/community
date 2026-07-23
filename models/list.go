@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	ListRepliesPolicyList     = iota //仅显示列表成员之间的回复
+	ListRepliesPolicyList     = iota // 仅显示列表成员之间的回复
 	ListRepliesPolicyFollowed        // 显示与列表成员相关的所有回复，包括列表成员回复给其他非列表成员的回复
 	ListRepliesPolicyNone            // 不显示任何回复
 )
@@ -20,19 +20,19 @@ const (
 	ListVisibilityFollowers // 关注了的人才可以看列表里的status,和这个列表包含的人
 )
 
-type List struct {
-	Id            uint64         `gorm:"primary_key;auto_increment" json:"id"`
-	Title         string         `gorm:"type:varchar(255);not null" json:"title"`
-	AccountId     uint64         `gorm:"not null" json:"account_id"`
-	RepliesPolicy uint8          `gorm:"not null;default:0" json:"replies_policy"`
-	LastViewedAt  *time.Time     `gorm:"index" json:"last_viewed_at"` // 最后被查看的时间
-	Visibility    int            `gorm:"not null;default:0" json:"visibility"`
-	CreatedAt     *time.Time     `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     *time.Time     `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
-	Accounts      []*Account     `gorm:"many2many:list_accounts;" json:"accounts"`
+type List struct { //nolint:recvcheck
+	Id            uint64         `gorm:"primary_key;auto_increment"      json:"id"`
+	Title         string         `gorm:"type:varchar(255);not null"      json:"title"`
+	AccountId     uint64         `gorm:"not null"                        json:"account_id"`
+	RepliesPolicy uint8          `gorm:"not null;default:0"              json:"replies_policy"`
+	LastViewedAt  *time.Time     `gorm:"index"                           json:"last_viewed_at"` // 最后被查看的时间
+	Visibility    int            `gorm:"not null;default:0"              json:"visibility"`
+	CreatedAt     *time.Time     `gorm:"autoCreateTime"                  json:"created_at"`
+	UpdatedAt     *time.Time     `gorm:"autoUpdateTime"                  json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"                           json:"-"`
+	Accounts      []*Account     `gorm:"many2many:list_accounts;"        json:"accounts"`
 	Followers     []*Account     `gorm:"many2many:list_follow_accounts;" json:"followers"`
-	Creator       *Account       `gorm:"foreignKey:AccountId" json:"creator"`
+	Creator       *Account       `gorm:"foreignKey:AccountId"            json:"creator"`
 }
 
 func (List) TableName() string {
@@ -44,16 +44,17 @@ func (l *List) AfterCreate(tx *gorm.DB) (err error) {
 		ListId:    l.Id,
 		AccountId: l.AccountId,
 	}
+
 	return tx.Create(listFollowAccount).Error
 }
 
 func (l *List) SetRepliesPolicy(policy string) {
 	switch policy {
-	case "list":
+	case "list": //nolint:goconst
 		l.RepliesPolicy = ListRepliesPolicyList
 	case "followed":
 		l.RepliesPolicy = ListRepliesPolicyFollowed
-	case "none":
+	case "none": //nolint:goconst
 		l.RepliesPolicy = ListRepliesPolicyNone
 	default:
 		l.RepliesPolicy = ListRepliesPolicyList
@@ -75,9 +76,9 @@ func (l *List) GetRepliesPolicy() string {
 
 type ListAccount struct {
 	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	ListId    uint64     `gorm:"not null;index" json:"list_id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	ListId    uint64     `gorm:"not null;index"             json:"list_id"`
+	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime"             json:"created_at"`
 }
 
 func (la *ListAccount) TableName() string {
@@ -104,9 +105,9 @@ func (la *ListAccount) AfterDelete(tx *gorm.DB) (err error) {
 
 type ListFollowAccount struct {
 	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
-	ListId    uint64     `gorm:"not null;index" json:"list_id"`
-	AccountId uint64     `gorm:"not null;index" json:"account_id"`
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	ListId    uint64     `gorm:"not null;index"             json:"list_id"`
+	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime"             json:"created_at"`
 }
 
 func (lfa *ListFollowAccount) TableName() string {
@@ -134,12 +135,14 @@ func (lfa *ListFollowAccount) AfterDelete(tx *gorm.DB) (err error) {
 func ListCanView(list *List, account *Account) (pass bool, err error) {
 	if list.Visibility == ListVisibilityPublic {
 		pass = true
-		return
+
+		return pass, err
 	}
 
 	if list.AccountId == account.Id {
 		pass = true
-		return
+
+		return pass, err
 	}
 
 	// 其他的必须是关注了列表的人才能看
@@ -147,10 +150,12 @@ func ListCanView(list *List, account *Account) (pass bool, err error) {
 		for _, follower := range list.Followers {
 			if follower.Id == account.Id {
 				pass = true
-				return
+
+				return pass, err
 			}
 		}
-		return
+
+		return pass, err
 	}
 
 	err = db.GetDB().Model(&ListFollowAccount{}).Where("list_id = ? AND account_id = ?", list.Id, account.Id).First(&ListFollowAccount{}).Error
@@ -159,7 +164,9 @@ func ListCanView(list *List, account *Account) (pass bool, err error) {
 			err = nil
 			pass = false
 		}
-		return
+
+		return pass, err
 	}
-	return
+
+	return pass, err
 }

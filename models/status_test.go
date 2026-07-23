@@ -38,10 +38,10 @@ func TestStatus_GetVisibilityString(t *testing.T) {
 		vis      uint8
 		expected string
 	}{
-		{StatusVisibilityPublic, "public"},
-		{StatusVisibilityUnlisted, "unlisted"},
-		{StatusVisibilityPrivate, "private"},
-		{StatusVisibilityDirect, "direct"},
+		{StatusVisibilityPublic, "public"},     //nolint:goconst
+		{StatusVisibilityUnlisted, "unlisted"}, //nolint:goconst
+		{StatusVisibilityPrivate, "private"},   //nolint:goconst
+		{StatusVisibilityDirect, "direct"},     //nolint:goconst
 	}
 
 	for _, tt := range tests {

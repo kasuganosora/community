@@ -1,13 +1,13 @@
 package models
 
-// UserSetting 用户设置
-type UserSetting struct {
-	ID     string         `json:"id" gorm:"primary_key"`
-	UserID int64          `json:"user_id" gorm:"unique;not null"`
-	Data   map[string]any `json:"data" gorm:"type:json;serializer:json"`
+// UserSetting 用户设置.
+type UserSetting struct { //nolint:recvcheck
+	ID     string         `gorm:"primary_key"               json:"id"`
+	UserID int64          `gorm:"unique;not null"           json:"user_id"`
+	Data   map[string]any `gorm:"type:json;serializer:json" json:"data"`
 }
 
-// TableName 设置表名
+// TableName 设置表名.
 func (UserSetting) TableName() string {
 	return "user_setting"
 }
@@ -18,6 +18,7 @@ func (us *UserSetting) GetAggregatesReblogs() bool {
 			return v
 		}
 	}
+
 	return true
 }
 
@@ -27,5 +28,6 @@ func (us *UserSetting) IsFollowProtect() bool {
 			return v
 		}
 	}
+
 	return false
 }

@@ -9,7 +9,7 @@ type AddRoles struct {
 }
 
 func (AddRoles) Up(db *gorm.DB) (err error) {
-	roles := make([]*models.Role, 0)
+	roles := make([]*models.Role, 0, 3)
 
 	ownerRole := &models.Role{
 		Name: "owner",
@@ -55,7 +55,6 @@ func (AddRoles) Up(db *gorm.DB) (err error) {
 	roles = append(roles, moderatorRole)
 
 	return db.Create(roles).Error
-
 }
 
 func (AddRoles) Down(db *gorm.DB) (err error) {

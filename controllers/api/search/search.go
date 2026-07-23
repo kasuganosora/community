@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// SearchRequest represents the search query parameters for Mastodon API v2
+// SearchRequest represents the search query parameters for Mastodon API v2.
 type SearchRequest struct {
-	Q         string `form:"q" binding:"required,min=1,max=500"`
+	Q         string `binding:"required,min=1,max=500" form:"q"`
 	Type      string `form:"type"`       // accounts, statuses, hashtags
 	Limit     int    `form:"limit"`      // max 40, default 20
 	Offset    int    `form:"offset"`     // pagination offset
@@ -23,20 +23,22 @@ type SearchRequest struct {
 	Resolve   bool   `form:"resolve"`    // WebFinger resolve (non-local accounts)
 }
 
-// SearchResult represents the response for search API
+// SearchResult represents the response for search API.
 type SearchResult struct {
 	Accounts []*serializer.Account `json:"accounts"`
 	Statuses []*serializer.Status  `json:"statuses"`
 	Hashtags []*serializer.Tag     `json:"hashtags"`
 }
 
-// Search handles GET /api/v2/search
+// Search handles GET /api/v2/search.
 func Search(c *gin.Context) {
 	var req SearchRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
+	err := c.ShouldBindQuery(&req)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": "Invalid query parameters: " + err.Error(),
 		})
+
 		return
 	}
 
@@ -53,6 +55,7 @@ func Search(c *gin.Context) {
 		c.AbortWithStatusJSON(422, gin.H{
 			"error": "Query cannot be empty",
 		})
+
 		return
 	}
 
@@ -65,7 +68,7 @@ func Search(c *gin.Context) {
 	// Get current account if authenticated
 	var currentAccount *models.Account
 	if c.GetBool("authenticated") {
-		currentAccount = c.MustGet("account").(*models.Account)
+		currentAccount = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
 	// Search based on type
@@ -91,7 +94,7 @@ func Search(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// searchAccounts searches for accounts by username or display name
+// searchAccounts searches for accounts by username or display name.
 func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serializer.Account {
 	accounts := make([]*models.Account, 0)
 
@@ -114,22 +117,26 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 		ids, err := meiliClient.SearchAccounts(keyword, int64(req.Limit), int64(req.Offset), followingIDs)
 		if err == nil && len(ids) > 0 {
 			// Fetch full account data from database
-			if err := db.GetDB().Model(&models.Account{}).
+			err := db.GetDB().Model(&models.Account{}).
 				Preload("Emojis").Preload("Extra").
 				Where("id IN (?)", ids).
-				Find(&accounts).Error; err == nil {
+				Find(&accounts).Error
+			if err == nil {
 				// Sort by Meilisearch result order
 				accountMap := make(map[uint64]*models.Account)
 				for _, acc := range accounts {
 					accountMap[acc.Id] = acc
 				}
+
 				sortedAccounts := make([]*models.Account, 0, len(ids))
+
 				for _, idStr := range ids {
 					id := search.StringToUint64(idStr)
 					if acc, ok := accountMap[id]; ok {
 						sortedAccounts = append(sortedAccounts, acc)
 					}
 				}
+
 				return serializer.ToAccounts(sortedAccounts)
 			}
 		}
@@ -142,6 +149,7 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 
 	// Parse username@domain format
 	var usernameKeyword, domain string
+
 	parts := strings.Split(keyword, "@")
 	if len(parts) == 1 {
 		usernameKeyword = parts[0]
@@ -183,19 +191,21 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 		usernameKeyword, usernameKeyword+"%",
 	))
 
-	if err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error; err != nil {
+	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error
+	if err != nil {
 		return []*serializer.Account{}
 	}
 
 	return serializer.ToAccounts(accounts)
 }
 
-// getFollowingIDs 获取关注用户ID列表
+// getFollowingIDs 获取关注用户ID列表.
 func getFollowingIDs(accountId uint64) []string {
 	var followIDs []uint64
-	if err := db.GetDB().Model(&models.Follow{}).
+	err := db.GetDB().Model(&models.Follow{}).
 		Where("account_id = ?", accountId).
-		Pluck("follow_id", &followIDs).Error; err != nil {
+		Pluck("follow_id", &followIDs).Error
+	if err != nil {
 		return nil
 	}
 
@@ -203,10 +213,11 @@ func getFollowingIDs(accountId uint64) []string {
 	for i, id := range followIDs {
 		ids[i] = strconv.FormatUint(id, 10)
 	}
+
 	return ids
 }
 
-// searchStatuses searches for statuses by content
+// searchStatuses searches for statuses by content.
 func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serializer.Status {
 	statuses := make([]*models.Status, 0)
 
@@ -234,12 +245,14 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 
 		// Handle from: filter
 		accountID := req.AccountId
+
 		if fromUser, ok := filters["from"]; ok && fromUser != "" {
 			// Find account by username
 			var acc models.Account
-			if err := db.GetDB().Model(&models.Account{}).
+			err := db.GetDB().Model(&models.Account{}).
 				Where("username = ?", fromUser).
-				First(&acc).Error; err == nil {
+				First(&acc).Error
+			if err == nil {
 				accountID = strconv.FormatUint(acc.Id, 10)
 			}
 		}
@@ -252,33 +265,40 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 				Where("id IN (?)", ids)
 			query = models.StatusLoadAllQuery(query)
 
-			if err := query.Find(&statuses).Error; err == nil {
+			err := query.Find(&statuses).Error
+			if err == nil {
 				// Sort by Meilisearch result order
 				statusMap := make(map[uint64]*models.Status)
 				for _, s := range statuses {
 					statusMap[s.Id] = s
 				}
+
 				sortedStatuses := make([]*models.Status, 0, len(ids))
+
 				for _, idStr := range ids {
 					id := search.StringToUint64(idStr)
 					if s, ok := statusMap[id]; ok {
 						sortedStatuses = append(sortedStatuses, s)
 					}
 				}
+
 				statuses = sortedStatuses
 			}
 
 			// Filter by view permission
 			filteredStatuses := make(models.Statuses, 0)
+
 			for _, status := range statuses {
 				canView, err := status.CanViewEx(db.GetDB(), currentAccount)
 				if err != nil || !canView {
 					continue
 				}
+
 				filteredStatuses = append(filteredStatuses, status)
 			}
 
 			serializedStatuses, _ := serializer.ToStatuses(filteredStatuses, currentAccount)
+
 			return serializedStatuses
 		}
 	}
@@ -307,26 +327,30 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 	// Order by created_at desc
 	query = query.Order("statuses.created_at DESC")
 
-	if err := query.Limit(req.Limit).Offset(req.Offset).Find(&statuses).Error; err != nil {
+	err := query.Limit(req.Limit).Offset(req.Offset).Find(&statuses).Error
+	if err != nil {
 		return []*serializer.Status{}
 	}
 
 	// Filter by view permission
 	filteredStatuses := make(models.Statuses, 0)
+
 	for _, status := range statuses {
 		canView, err := status.CanViewEx(db.GetDB(), currentAccount)
 		if err != nil || !canView {
 			continue
 		}
+
 		filteredStatuses = append(filteredStatuses, status)
 	}
 
 	// Convert to serializer
 	serializedStatuses, _ := serializer.ToStatuses(filteredStatuses, currentAccount)
+
 	return serializedStatuses
 }
 
-// searchHashtags searches for hashtags by name
+// searchHashtags searches for hashtags by name.
 func searchHashtags(req SearchRequest) []*serializer.Tag {
 	tags := make([]*models.Tag, 0)
 
@@ -339,20 +363,24 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		names, err := meiliClient.SearchHashtags(keyword, int64(req.Limit), int64(req.Offset))
 		if err == nil && len(names) > 0 {
 			// Fetch full tag data from database
-			if err := db.GetDB().Model(&models.Tag{}).
+			err := db.GetDB().Model(&models.Tag{}).
 				Where("name IN (?)", names).
-				Find(&tags).Error; err == nil {
+				Find(&tags).Error
+			if err == nil {
 				// Sort by Meilisearch result order
 				tagMap := make(map[string]*models.Tag)
 				for _, t := range tags {
 					tagMap[t.Name] = t
 				}
+
 				sortedTags := make([]*models.Tag, 0, len(names))
+
 				for _, name := range names {
 					if t, ok := tagMap[name]; ok {
 						sortedTags = append(sortedTags, t)
 					}
 				}
+
 				return serializer.ToTags(sortedTags)
 			}
 		}
@@ -363,7 +391,8 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		Where("name LIKE ?", "#"+keyword+"%").
 		Order("status_count DESC, name ASC")
 
-	if err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error; err != nil {
+	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error
+	if err != nil {
 		return []*serializer.Tag{}
 	}
 

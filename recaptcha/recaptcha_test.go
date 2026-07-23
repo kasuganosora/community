@@ -9,7 +9,6 @@ import (
 func TestSiteVerify_BasicTests(t *testing.T) {
 	// These tests verify the function signature and basic behavior
 	// without actually calling the external API
-
 	t.Run("function exists", func(t *testing.T) {
 		// Just verify the function is callable
 		assert.NotNil(t, SiteVerify)

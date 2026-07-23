@@ -12,11 +12,11 @@ import (
 )
 
 type CreateRequest struct {
-	AccountId string   `json:"account_id" binding:"required"`
+	AccountId string   `binding:"required"                      json:"account_id"`
 	StatusIds []string `json:"status_ids"`
 	Comment   string   `json:"comment"`
 	Forward   bool     `json:"forward"`
-	Category  string   `json:"category" binding:"in:spam,other,legal,violation"`
+	Category  string   `binding:"in:spam,other,legal,violation" json:"category"`
 	RuleIds   []string `json:"rule_ids"`
 }
 
@@ -31,7 +31,7 @@ func Create(c *gin.Context) {
 
 	targetAccount := &models.Account{}
 	err = db.GetDB().Where("id = ?", targetAccountId).First(targetAccount).Error
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "target account not found"})
+	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "target account not found"}) //nolint:goconst
 
 	statusIds, err := utils.StringArrayToUint64Array(utils.FilterDuplicateAndEmptyString(req.StatusIds))
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "invalid status ids"})

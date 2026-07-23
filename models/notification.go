@@ -56,7 +56,7 @@ func (n *Notification) BeforeCreate(tx *gorm.DB) (err error) {
 
 func (n *Notification) AfterCreate(tx *gorm.DB) (err error) {
 	event.Trigger("notification", event.Event{
-		Name: `after_create`,
+		Name: `after_create`, //nolint:goconst
 		Data: n,
 	})
 
@@ -74,7 +74,7 @@ func (n *Notification) BeforeUpdate(tx *gorm.DB) (err error) {
 
 func (n *Notification) AfterUpdate(tx *gorm.DB) (err error) {
 	event.Trigger("notification", event.Event{
-		Name: `after_update`,
+		Name: `after_update`, //nolint:goconst
 		Data: n,
 	})
 
@@ -101,7 +101,7 @@ func (n *Notification) AfterDelete(tx *gorm.DB) (err error) {
 
 func (n *Notification) BeforeSave(tx *gorm.DB) (err error) {
 	event.Trigger("notification", event.Event{
-		Name: `before_save`,
+		Name: `before_save`, //nolint:goconst
 		Data: n,
 	})
 
@@ -120,25 +120,25 @@ func (n *Notification) AfterSave(tx *gorm.DB) (err error) {
 func (n *Notification) GetTypeString() string {
 	switch n.Type {
 	case NotificationTypeMention:
-		return "mention"
+		return "mention" //nolint:goconst
 	case NotificationTypeReblog:
-		return "reblog"
+		return "reblog" //nolint:goconst
 	case NotificationTypeFavourite:
-		return "favourite"
+		return "favourite" //nolint:goconst
 	case NotificationTypeFollow:
-		return "follow"
+		return "follow" //nolint:goconst
 	case NotificationTypePoll:
-		return "poll"
+		return "poll" //nolint:goconst
 	case NotificationTypeFollowRequest:
-		return "follow_request"
+		return "follow_request" //nolint:goconst
 	case NotificationTypeStatusUpdate:
-		return "status_update"
+		return "status_update" //nolint:goconst
 	case NotificationTypeAdminReport:
-		return "admin_report"
+		return "admin_report" //nolint:goconst
 	case NotificationTypeAddList:
-		return "add_list"
+		return "add_list" //nolint:goconst
 	case NotificationTypeRemoveList:
-		return "remove_list"
+		return "remove_list" //nolint:goconst
 	default:
 		return ""
 	}
@@ -147,13 +147,15 @@ func (n *Notification) GetTypeString() string {
 func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 	if n.StatusId > 0 && n.Status == nil {
 		n.Status = &Status{}
-		if err = db.Model(n).Association("Status").Find(n.Status); err != nil {
-			return
+		err = db.Model(n).Association("Status").Find(n.Status)
+		if err != nil {
+			return err
 		}
 	}
 
 	willBeLoadAccountsId := make([]uint64, 0)
 	loadedAccounts := make(Accounts, 0)
+
 	if n.AccountId > 0 && n.Account == nil {
 		willBeLoadAccountsId = append(willBeLoadAccountsId, n.AccountId)
 	}
@@ -163,8 +165,9 @@ func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 	}
 
 	if len(willBeLoadAccountsId) > 0 {
-		if err = db.Model(&Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", willBeLoadAccountsId).Find(&loadedAccounts).Error; err != nil {
-			return
+		err = db.Model(&Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", willBeLoadAccountsId).Find(&loadedAccounts).Error
+		if err != nil {
+			return err
 		}
 	}
 
@@ -172,6 +175,7 @@ func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 		for _, account := range loadedAccounts {
 			if account.Id == n.AccountId {
 				n.Account = account
+
 				break
 			}
 		}
@@ -181,6 +185,7 @@ func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 		for _, account := range loadedAccounts {
 			if account.Id == n.FromAccountId {
 				n.FromAccount = account
+
 				break
 			}
 		}
@@ -188,24 +193,27 @@ func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 
 	if n.ReportId > 0 && n.Report == nil {
 		n.Report = &Report{}
-		if err = db.Model(n).Association("Report").Find(n.Report); err != nil {
-			return
+		err = db.Model(n).Association("Report").Find(n.Report)
+		if err != nil {
+			return err
 		}
 	}
 
 	if n.ListId > 0 && n.List == nil {
 		n.List = &List{}
-		if err = db.Model(n).Association("List").Find(n.List); err != nil {
-			return
+		err = db.Model(n).Association("List").Find(n.List)
+		if err != nil {
+			return err
 		}
 
 		n.List.Creator = &Account{}
-		if err = db.Model(n.List).Association("Creator").Find(n.List.Creator); err != nil {
-			return
+		err = db.Model(n.List).Association("Creator").Find(n.List.Creator)
+		if err != nil {
+			return err
 		}
 	}
 
-	return
+	return err
 }
 
 type Notifications []*Notification

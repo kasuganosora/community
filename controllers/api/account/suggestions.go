@@ -9,9 +9,10 @@ import (
 	"strconv"
 )
 
-// ListSuggestions handles GET /api/v2/suggestions
+// ListSuggestions handles GET /api/v2/suggestions.
 func ListSuggestions(c *gin.Context) {
 	limit := 20
+
 	if l := c.Query("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 40 {
 			limit = parsed
@@ -19,7 +20,7 @@ func ListSuggestions(c *gin.Context) {
 	}
 
 	// Get current account
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Get accounts that are followed by accounts the user follows
 	// (friends of friends) but not followed by the user
@@ -40,9 +41,11 @@ func ListSuggestions(c *gin.Context) {
 		Limit(limit)
 
 	accounts := make([]*models.Account, 0)
-	if err := query.Find(&accounts).Error; err != nil {
+	err := query.Find(&accounts).Error
+	if err != nil {
 		_ = c.Error(errors.Wrap(err, "get suggestions error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 		return
 	}
 
@@ -51,7 +54,7 @@ func ListSuggestions(c *gin.Context) {
 	for _, acc := range accounts {
 		result = append(result, gin.H{
 			"source":  "past_interactions",
-			"account": serializer.ToAccount(acc),
+			"account": serializer.ToAccount(acc), //nolint:goconst
 		})
 	}
 
@@ -67,8 +70,10 @@ func ListSuggestions(c *gin.Context) {
 			Limit(limit)
 
 		popularAccounts := make([]*models.Account, 0)
-		if err := popularQuery.Find(&popularAccounts).Error; err != nil {
-			c.JSON(200, []interface{}{})
+		err := popularQuery.Find(&popularAccounts).Error
+		if err != nil {
+			c.JSON(200, []any{})
+
 			return
 		}
 
@@ -83,11 +88,12 @@ func ListSuggestions(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-// RemoveSuggestion handles DELETE /api/v1/suggestions/:account_id
+// RemoveSuggestion handles DELETE /api/v1/suggestions/:account_id.
 func RemoveSuggestion(c *gin.Context) {
 	accid := c.Param("account_id")
 	if accid == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "account id required"})
+
 		return
 	}
 

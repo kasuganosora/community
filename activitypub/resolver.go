@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,18 +18,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// CacheEntry wraps a cached value with expiration time
+// CacheEntry wraps a cached value with expiration time.
 type CacheEntry struct {
-	value     interface{}
+	value     any
 	expiresAt time.Time
 }
 
-// IsExpired checks if the cache entry has expired
+// IsExpired checks if the cache entry has expired.
 func (e *CacheEntry) IsExpired() bool {
 	return time.Now().After(e.expiresAt)
 }
 
-// Resolver handles resolution of remote ActivityPub resources
+// Resolver handles resolution of remote ActivityPub resources.
 type Resolver struct {
 	client       *Client
 	accountCache sync.Map // Cache for remote accounts with expiration
@@ -36,13 +37,13 @@ type Resolver struct {
 	cacheTTL     time.Duration
 }
 
-// Default cache TTL (30 minutes)
+// Default cache TTL (30 minutes).
 const defaultCacheTTL = 30 * time.Minute
 
-// Max cache entries to prevent memory leak
+// Max cache entries to prevent memory leak.
 const maxCacheEntries = 10000
 
-// NewResolver creates a new Resolver
+// NewResolver creates a new Resolver.
 func NewResolver(privateKey *rsa.PrivateKey, actorID string) *Resolver {
 	return &Resolver{
 		client:   NewClient(privateKey, actorID),
@@ -50,7 +51,7 @@ func NewResolver(privateKey *rsa.PrivateKey, actorID string) *Resolver {
 	}
 }
 
-// storeAccountCache stores an account in cache with expiration
+// storeAccountCache stores an account in cache with expiration.
 func (r *Resolver) storeAccountCache(key string, account *models.Account) {
 	entry := &CacheEntry{
 		value:     account,
@@ -60,7 +61,7 @@ func (r *Resolver) storeAccountCache(key string, account *models.Account) {
 	r.cleanupCacheIfNeeded()
 }
 
-// loadAccountCache loads an account from cache if not expired
+// loadAccountCache loads an account from cache if not expired.
 func (r *Resolver) loadAccountCache(key string) (*models.Account, bool) {
 	if cached, ok := r.accountCache.Load(key); ok {
 		if entry, ok := cached.(*CacheEntry); ok {
@@ -73,10 +74,11 @@ func (r *Resolver) loadAccountCache(key string) (*models.Account, bool) {
 			r.accountCache.Delete(key)
 		}
 	}
+
 	return nil, false
 }
 
-// storeStatusCache stores a status in cache with expiration
+// storeStatusCache stores a status in cache with expiration.
 func (r *Resolver) storeStatusCache(key string, status *models.Status) {
 	entry := &CacheEntry{
 		value:     status,
@@ -86,7 +88,7 @@ func (r *Resolver) storeStatusCache(key string, status *models.Status) {
 	r.cleanupCacheIfNeeded()
 }
 
-// loadStatusCache loads a status from cache if not expired
+// loadStatusCache loads a status from cache if not expired.
 func (r *Resolver) loadStatusCache(key string) (*models.Status, bool) {
 	if cached, ok := r.statusCache.Load(key); ok {
 		if entry, ok := cached.(*CacheEntry); ok {
@@ -99,14 +101,16 @@ func (r *Resolver) loadStatusCache(key string) (*models.Status, bool) {
 			r.statusCache.Delete(key)
 		}
 	}
+
 	return nil, false
 }
 
-// cleanupCacheIfNeeded removes expired entries if cache is too large
+// cleanupCacheIfNeeded removes expired entries if cache is too large.
 func (r *Resolver) cleanupCacheIfNeeded() {
 	// Count entries (approximate)
 	count := 0
-	r.accountCache.Range(func(key, value interface{}) bool {
+
+	r.accountCache.Range(func(key, value any) bool {
 		count++
 		if count > maxCacheEntries {
 			// Remove expired entries
@@ -114,11 +118,12 @@ func (r *Resolver) cleanupCacheIfNeeded() {
 				r.accountCache.Delete(key)
 			}
 		}
+
 		return true
 	})
 }
 
-// ResolveAccount resolves a remote account by URI or username@domain
+// ResolveAccount resolves a remote account by URI or username@domain.
 func (r *Resolver) ResolveAccount(ctx context.Context, identifier string) (*models.Account, error) {
 	// Check if it's a URI
 	if strings.HasPrefix(identifier, "http://") || strings.HasPrefix(identifier, "https://") {
@@ -136,7 +141,7 @@ func (r *Resolver) ResolveAccount(ctx context.Context, identifier string) (*mode
 	return nil, fmt.Errorf("invalid account identifier: %s", identifier)
 }
 
-// resolveAccountByURI resolves an account by its ActivityPub URI
+// resolveAccountByURI resolves an account by its ActivityPub URI.
 func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models.Account, error) {
 	// Check local cache first
 	if account, ok := r.loadAccountCache(uri); ok {
@@ -145,13 +150,16 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 
 	// Check database first
 	var account models.Account
+
 	err := db.GetDB().Where("origin_id = ?", uri).First(&account).Error
 	if err == nil {
 		// Check if we need to refresh
 		if shouldRefreshAccount(&account) {
-			go r.safeRefreshAccount(uri)
+			go r.safeRefreshAccount(uri) //nolint:contextcheck
 		}
+
 		r.storeAccountCache(uri, &account)
+
 		return &account, nil
 	}
 
@@ -168,24 +176,28 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 	}
 
 	r.storeAccountCache(uri, &account)
+
 	return &account, nil
 }
 
-// resolveAccountByWebFinger resolves an account using WebFinger
+// resolveAccountByWebFinger resolves an account using WebFinger.
 func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, domain string) (*models.Account, error) {
 	// Check database first
 	var account models.Account
+
 	err := db.GetDB().Where("username = ? AND domain = ?", username, domain).First(&account).Error
 	if err == nil {
 		if shouldRefreshAccount(&account) {
-			go r.safeRefreshAccount(account.OriginId)
+			go r.safeRefreshAccount(account.OriginId) //nolint:contextcheck
 		}
+
 		return &account, nil
 	}
 
 	// Use WebFinger to discover the actor URI
 	acct := fmt.Sprintf("%s@%s", username, domain)
-	actor, err := DiscoverActor(acct)
+
+	actor, err := DiscoverActor(acct) //nolint:contextcheck
 	if err != nil {
 		return nil, fmt.Errorf("webfinger discovery: %w", err)
 	}
@@ -193,7 +205,7 @@ func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, doma
 	return r.resolveAccountByURI(ctx, actor.ID)
 }
 
-// ResolveStatus resolves a remote status by URI
+// ResolveStatus resolves a remote status by URI.
 func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Status, error) {
 	// Check local cache first
 	if status, ok := r.loadStatusCache(uri); ok {
@@ -202,9 +214,11 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 
 	// Check database first
 	var status models.Status
+
 	err := db.GetDB().Preload("Content").Preload("Account").Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error
 	if err == nil {
 		r.storeStatusCache(uri, &status)
+
 		return &status, nil
 	}
 
@@ -215,26 +229,28 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 	}
 
 	// Create status from object
-	status, err = r.createStatusFromObject(obj, uri)
+	status, err = r.createStatusFromObject(obj, uri) //nolint:contextcheck // internal call chain
 	if err != nil {
 		return nil, fmt.Errorf("creating status: %w", err)
 	}
 
 	r.storeStatusCache(uri, &status)
+
 	return &status, nil
 }
 
-// safeRefreshAccount wraps refreshAccount with panic recovery
+// safeRefreshAccount wraps refreshAccount with panic recovery.
 func (r *Resolver) safeRefreshAccount(uri string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("Panic in refreshAccount for %s: %v", uri, r)
 		}
 	}()
+
 	r.refreshAccount(uri)
 }
 
-// refreshAccount refreshes a remote account's information
+// refreshAccount refreshes a remote account's information.
 func (r *Resolver) refreshAccount(uri string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -242,6 +258,7 @@ func (r *Resolver) refreshAccount(uri string) {
 	actor, err := r.client.FetchActor(ctx, uri)
 	if err != nil {
 		log.Warn("Failed to refresh account %s: %v", uri, err)
+
 		return
 	}
 
@@ -251,10 +268,10 @@ func (r *Resolver) refreshAccount(uri string) {
 	}
 
 	// Update account fields
-	updates := map[string]interface{}{
+	updates := map[string]any{
 		"display_name":     actor.Name,
 		"note":             actor.Summary,
-		"updated_at":       time.Now(),
+		"updated_at":       time.Now(), //nolint:goconst
 		"last_activity_at": time.Now(),
 	}
 
@@ -271,14 +288,16 @@ func (r *Resolver) refreshAccount(uri string) {
 	if err := db.GetDB().Model(&account).Updates(updates).Error; err != nil {
 		log.Error("Failed to update account %s: %v", uri, err)
 	}
+
 	log.Info("Refreshed remote account %s", uri)
 }
 
-// createAccountFromActor creates a local account record from an ActivityPub Actor
+// createAccountFromActor creates a local account record from an ActivityPub Actor.
 func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) {
 	now := time.Now()
 	uri := actor.ID
 	domain := utils.ExtractDomainFromURI(uri)
+
 	username := actor.PreferredUsername
 	if username == "" {
 		username = utils.ExtractUsernameFromURI(uri)
@@ -291,7 +310,7 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 		DisplayName: actor.Name,
 		Note:        actor.Summary,
 		Locked:      false,
-		Bot:         actor.Type == "Service",
+		Bot:         actor.Type == "Service", //nolint:goconst
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
@@ -309,7 +328,8 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 	}
 
 	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&account).Error; err != nil {
+		err := tx.Create(&account).Error
+		if err != nil {
 			return err
 		}
 
@@ -317,9 +337,9 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 		accountExtra := models.AccountExtra{
 			AccountId: account.Id,
 		}
+
 		return tx.Create(&accountExtra).Error
 	})
-
 	if err != nil {
 		return models.Account{}, fmt.Errorf("creating account in database: %w", err)
 	}
@@ -327,17 +347,17 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 	return account, nil
 }
 
-// createStatusFromObject creates a local status record from an ActivityPub object
-func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string) (models.Status, error) {
+// createStatusFromObject creates a local status record from an ActivityPub object.
+func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (models.Status, error) {
 	objectType, _ := obj["type"].(string)
-	if objectType != "Note" {
+	if objectType != "Note" { //nolint:goconst
 		return models.Status{}, fmt.Errorf("object is not a Note: %s", objectType)
 	}
 
 	// Get author account
 	attributedTo, _ := obj["attributedTo"].(string)
 	if attributedTo == "" {
-		return models.Status{}, fmt.Errorf("no attributedTo in object")
+		return models.Status{}, errors.New("no attributedTo in object")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -359,8 +379,11 @@ func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string
 	publishedAt := utils.ParseRFC3339(publishedStr)
 
 	// Find in_reply_to status if specified
-	var inReplyToID *uint64
-	var inReplyToAccountID *uint64
+	var (
+		inReplyToID        *uint64
+		inReplyToAccountID *uint64
+	)
+
 	if inReplyTo != "" {
 		replyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -395,15 +418,16 @@ func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&status).Error; err != nil {
+		err := tx.Create(&status).Error
+		if err != nil {
 			return err
 		}
 
 		// Create status content
 		status.Content.StatusId = status.Id
+
 		return tx.Create(&status.Content).Error
 	})
-
 	if err != nil {
 		return models.Status{}, fmt.Errorf("creating status in database: %w", err)
 	}
@@ -411,7 +435,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]interface{}, uri string
 	return status, nil
 }
 
-// shouldRefreshAccount checks if a remote account should be refreshed
+// shouldRefreshAccount checks if a remote account should be refreshed.
 func shouldRefreshAccount(account *models.Account) bool {
 	if account.LastActivityAt == nil {
 		return true
@@ -421,7 +445,7 @@ func shouldRefreshAccount(account *models.Account) bool {
 	return time.Since(*account.LastActivityAt) > 24*time.Hour
 }
 
-// ResolveStatusWithContext resolves a remote status with reply context
+// ResolveStatusWithContext resolves a remote status with reply context.
 func (r *Resolver) ResolveStatusWithContext(ctx context.Context, uri string, depth int) (*models.Status, []*models.Status, error) {
 	status, err := r.ResolveStatus(ctx, uri)
 	if err != nil {
@@ -434,9 +458,11 @@ func (r *Resolver) ResolveStatusWithContext(ctx context.Context, uri string, dep
 
 	// Fetch ancestors
 	ancestors := make([]*models.Status, 0)
+
 	if status.InReplyToId != nil {
 		var parentStatus models.Status
-		if err := db.GetDB().Preload("Content").Preload("Account").First(&parentStatus, *status.InReplyToId).Error; err == nil {
+		err := db.GetDB().Preload("Content").Preload("Account").First(&parentStatus, *status.InReplyToId).Error
+		if err == nil {
 			ancestors = append(ancestors, &parentStatus)
 		} else if status.OriginUri != nil {
 			// Try to resolve remote parent
@@ -452,10 +478,10 @@ func (r *Resolver) ResolveStatusWithContext(ctx context.Context, uri string, dep
 	return status, ancestors, nil
 }
 
-// FetchRemoteFollowers fetches the followers collection of a remote account
+// FetchRemoteFollowers fetches the followers collection of a remote account.
 func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Account, limit int) ([]string, error) {
 	if account.OriginId == "" {
-		return nil, fmt.Errorf("not a remote account")
+		return nil, errors.New("not a remote account")
 	}
 
 	// Get the actor to find followers URL
@@ -465,7 +491,7 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 	}
 
 	if actor.Followers == "" {
-		return nil, fmt.Errorf("no followers URL")
+		return nil, errors.New("no followers URL")
 	}
 
 	// Fetch the followers collection
@@ -475,11 +501,11 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 	}
 
 	var collection struct {
-		Type         string        `json:"type"`
-		First        string        `json:"first"`
-		TotalItems   int           `json:"totalItems"`
-		OrderedItems []string      `json:"orderedItems"`
-		Items        []interface{} `json:"items"`
+		Type         string   `json:"type"`
+		First        string   `json:"first"`
+		TotalItems   int      `json:"totalItems"`
+		OrderedItems []string `json:"orderedItems"`
+		Items        []any    `json:"items"`
 	}
 
 	if err := json.Unmarshal(data, &collection); err != nil {
@@ -493,7 +519,8 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 			return nil, fmt.Errorf("fetching followers page: %w", err)
 		}
 
-		if err := json.Unmarshal(data, &collection); err != nil {
+		err := json.Unmarshal(data, &collection)
+		if err != nil {
 			return nil, fmt.Errorf("parsing followers page: %w", err)
 		}
 	}
@@ -509,7 +536,7 @@ func (r *Resolver) FetchRemoteFollowers(ctx context.Context, account *models.Acc
 	return followers, nil
 }
 
-// GetOrCreateRemoteAccount is a convenience function to get or create a remote account
+// GetOrCreateRemoteAccount is a convenience function to get or create a remote account.
 var defaultResolver *Resolver
 var resolverOnce sync.Once
 
@@ -519,10 +546,11 @@ func getDefaultResolver() *Resolver {
 		actorID := fmt.Sprintf("https://%s/actor", domain)
 		defaultResolver = NewResolver(nil, actorID)
 	})
+
 	return defaultResolver
 }
 
-// GetOrCreateRemoteAccount gets or creates a remote account by URI
+// GetOrCreateRemoteAccount gets or creates a remote account by URI.
 func GetOrCreateRemoteAccount(uri string) (*models.Account, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -530,7 +558,7 @@ func GetOrCreateRemoteAccount(uri string) (*models.Account, error) {
 	return getDefaultResolver().ResolveAccount(ctx, uri)
 }
 
-// ResolveRemoteStatus resolves a remote status by URI
+// ResolveRemoteStatus resolves a remote status by URI.
 func ResolveRemoteStatus(uri string) (*models.Status, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

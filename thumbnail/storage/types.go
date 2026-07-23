@@ -1,6 +1,6 @@
 package storage
 
-// Config 存储配置
+// Config 存储配置.
 type Config struct {
 	Type       string `json:"type"` // local, s3, minio
 	Bucket     string `json:"bucket"`

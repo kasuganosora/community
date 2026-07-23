@@ -6,9 +6,10 @@ import (
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestStreamingRequest_Hash tests the Hash method of StreamingRequest
+// TestStreamingRequest_Hash tests the Hash method of StreamingRequest.
 func TestStreamingRequest_Hash(t *testing.T) {
 	tests := []struct {
 		name string
@@ -17,37 +18,37 @@ func TestStreamingRequest_Hash(t *testing.T) {
 		{
 			name: "subscribe user",
 			req: &StreamingRequest{
-				Type:   "subscribe",
-				Stream: "user",
+				Type:   "subscribe", //nolint:goconst
+				Stream: "user",      //nolint:goconst
 			},
 		},
 		{
 			name: "subscribe public",
 			req: &StreamingRequest{
 				Type:   "subscribe",
-				Stream: "public",
+				Stream: "public", //nolint:goconst
 			},
 		},
 		{
 			name: "subscribe hashtag with tag",
 			req: &StreamingRequest{
 				Type:   "subscribe",
-				Stream: "hashtag",
-				Tag:    "golang",
+				Stream: "hashtag", //nolint:goconst
+				Tag:    "golang",  //nolint:goconst
 			},
 		},
 		{
 			name: "subscribe list",
 			req: &StreamingRequest{
 				Type:   "subscribe",
-				Stream: "list",
-				List:   "mylist",
+				Stream: "list",   //nolint:goconst
+				List:   "mylist", //nolint:goconst
 			},
 		},
 		{
 			name: "unsubscribe user",
 			req: &StreamingRequest{
-				Type:   "unsubscribe",
+				Type:   "unsubscribe", //nolint:goconst
 				Stream: "user",
 			},
 		},
@@ -86,18 +87,18 @@ func TestStreamingRequest_Hash(t *testing.T) {
 	})
 }
 
-// TestStreamingErrResponse_Error tests the Error method
-func TestStreamingErrResponse_Error(t *testing.T) {
+// TestStreamingErrorResponse_Error tests the Error method.
+func TestStreamingErrorResponse_Error(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      *StreamingErrResponse
+		err      *StreamingErrorResponse
 		expected string
 	}{
-		{"need login", &StreamingErrResponse{Err: "need login"}, "need login"},
-		{"stream not found", &StreamingErrResponse{Err: "stream not found"}, "stream not found"},
-		{"empty error", &StreamingErrResponse{Err: ""}, ""},
-		{"list not found", &StreamingErrResponse{Err: "list not found"}, "list not found"},
-		{"tag name is empty", &StreamingErrResponse{Err: "tag name is empty"}, "tag name is empty"},
+		{"need login", &StreamingErrorResponse{Err: "need login"}, "need login"},                   //nolint:goconst
+		{"stream not found", &StreamingErrorResponse{Err: "stream not found"}, "stream not found"}, //nolint:goconst
+		{"empty error", &StreamingErrorResponse{Err: ""}, ""},
+		{"list not found", &StreamingErrorResponse{Err: "list not found"}, "list not found"},          //nolint:goconst
+		{"tag name is empty", &StreamingErrorResponse{Err: "tag name is empty"}, "tag name is empty"}, //nolint:goconst
 	}
 
 	for _, tt := range tests {
@@ -107,24 +108,24 @@ func TestStreamingErrResponse_Error(t *testing.T) {
 	}
 }
 
-// TestStreamingResponse tests the StreamingResponse struct
+// TestStreamingResponse tests the StreamingResponse struct.
 func TestStreamingResponse(t *testing.T) {
 	t.Run("basic response", func(t *testing.T) {
 		resp := &StreamingResponse{
 			Stream:  []string{"user"},
-			Event:   "update",
+			Event:   "update", //nolint:goconst
 			Payload: `{"id":"123"}`,
 		}
 
 		assert.Equal(t, []string{"user"}, resp.Stream)
 		assert.Equal(t, "update", resp.Event)
-		assert.Equal(t, `{"id":"123"}`, resp.Payload)
+		assert.JSONEq(t, `{"id":"123"}`, resp.Payload)
 	})
 
 	t.Run("multiple streams", func(t *testing.T) {
 		resp := &StreamingResponse{
 			Stream:  []string{"hashtag", "golang"},
-			Event:   "delete",
+			Event:   "delete", //nolint:goconst
 			Payload: "456",
 		}
 
@@ -135,7 +136,7 @@ func TestStreamingResponse(t *testing.T) {
 	})
 
 	t.Run("event types", func(t *testing.T) {
-		eventTypes := []string{"update", "delete", "notification", "filters_changed", "conversation", "status.update"}
+		eventTypes := []string{"update", "delete", "notification", "filters_changed", "conversation", "status.update"} //nolint:goconst
 		for _, eventType := range eventTypes {
 			resp := &StreamingResponse{Event: eventType}
 			assert.Equal(t, eventType, resp.Event)
@@ -150,7 +151,7 @@ func TestStreamingResponse(t *testing.T) {
 	})
 }
 
-// TestStreamingRequest_Json tests JSON marshaling/unmarshaling
+// TestStreamingRequest_Json tests JSON marshaling/unmarshaling.
 func TestStreamingRequest_Json(t *testing.T) {
 	tests := []struct {
 		name string
@@ -200,11 +201,12 @@ func TestStreamingRequest_Json(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			jsonBytes, err := json.Marshal(tt.req)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			var unmarshaled StreamingRequest
+
 			err = json.Unmarshal(jsonBytes, &unmarshaled)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			assert.Equal(t, tt.req.Type, unmarshaled.Type)
 			assert.Equal(t, tt.req.Stream, unmarshaled.Stream)
@@ -214,7 +216,7 @@ func TestStreamingRequest_Json(t *testing.T) {
 	}
 }
 
-// TestGetChannelName_User tests getChannelName for user timeline
+// TestGetChannelName_User tests getChannelName for user timeline.
 func TestGetChannelName_User(t *testing.T) {
 	account := &models.Account{Id: 123}
 
@@ -224,12 +226,12 @@ func TestGetChannelName_User(t *testing.T) {
 	}
 
 	channelName, err := getChannelName(account, req)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, channelName, "subscribed:feed:home:")
 	assert.Contains(t, channelName, "123")
 }
 
-// TestGetChannelName_UserWithoutAccount tests getChannelName for user timeline without account
+// TestGetChannelName_UserWithoutAccount tests getChannelName for user timeline without account.
 func TestGetChannelName_UserWithoutAccount(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -237,11 +239,11 @@ func TestGetChannelName_UserWithoutAccount(t *testing.T) {
 	}
 
 	_, err := getChannelName(nil, req)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "need login", err.Error())
 }
 
-// TestGetChannelName_Public tests getChannelName for public timeline
+// TestGetChannelName_Public tests getChannelName for public timeline.
 func TestGetChannelName_Public(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -254,7 +256,7 @@ func TestGetChannelName_Public(t *testing.T) {
 				Type:   "subscribe",
 				Stream: "public",
 			},
-			expectedContains: "subscribed:feed:public",
+			expectedContains: "subscribed:feed:public", //nolint:goconst
 		},
 		{
 			name: "public:local timeline",
@@ -285,13 +287,13 @@ func TestGetChannelName_Public(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			channelName, err := getChannelName(nil, tt.req)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Contains(t, channelName, tt.expectedContains)
 		})
 	}
 }
 
-// TestGetChannelName_Hashtag tests getChannelName for hashtag timeline
+// TestGetChannelName_Hashtag tests getChannelName for hashtag timeline.
 func TestGetChannelName_Hashtag(t *testing.T) {
 	tests := []struct {
 		name string
@@ -306,14 +308,14 @@ func TestGetChannelName_Hashtag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			channelName, err := getChannelName(nil, tt.req)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Contains(t, channelName, "subscribed:feed:hashtag:")
 			assert.Contains(t, channelName, tt.tag)
 		})
 	}
 }
 
-// TestGetChannelName_HashtagWithoutTag tests getChannelName for hashtag without tag name
+// TestGetChannelName_HashtagWithoutTag tests getChannelName for hashtag without tag name.
 func TestGetChannelName_HashtagWithoutTag(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -322,26 +324,26 @@ func TestGetChannelName_HashtagWithoutTag(t *testing.T) {
 	}
 
 	_, err := getChannelName(nil, req)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "tag name is empty", err.Error())
 }
 
-// TestGetChannelName_Notification tests getChannelName for notification timeline
+// TestGetChannelName_Notification tests getChannelName for notification timeline.
 func TestGetChannelName_Notification(t *testing.T) {
 	account := &models.Account{Id: 456}
 
 	req := &StreamingRequest{
 		Type:   "subscribe",
-		Stream: "user:notification",
+		Stream: "user:notification", //nolint:goconst
 	}
 
 	channelName, err := getChannelName(account, req)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, channelName, "subscribed:feed:notification:")
 	assert.Contains(t, channelName, "456")
 }
 
-// TestGetChannelName_NotificationWithoutAccount tests notification without account
+// TestGetChannelName_NotificationWithoutAccount tests notification without account.
 func TestGetChannelName_NotificationWithoutAccount(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -349,26 +351,26 @@ func TestGetChannelName_NotificationWithoutAccount(t *testing.T) {
 	}
 
 	_, err := getChannelName(nil, req)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "need login", err.Error())
 }
 
-// TestGetChannelName_Direct tests getChannelName for direct timeline
+// TestGetChannelName_Direct tests getChannelName for direct timeline.
 func TestGetChannelName_Direct(t *testing.T) {
 	account := &models.Account{Id: 789}
 
 	req := &StreamingRequest{
 		Type:   "subscribe",
-		Stream: "direct",
+		Stream: "direct", //nolint:goconst
 	}
 
 	channelName, err := getChannelName(account, req)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, channelName, "subscribed:direct:")
 	assert.Contains(t, channelName, "789")
 }
 
-// TestGetChannelName_DirectWithoutAccount tests direct without account
+// TestGetChannelName_DirectWithoutAccount tests direct without account.
 func TestGetChannelName_DirectWithoutAccount(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -376,11 +378,11 @@ func TestGetChannelName_DirectWithoutAccount(t *testing.T) {
 	}
 
 	_, err := getChannelName(nil, req)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "need login", err.Error())
 }
 
-// TestGetChannelName_UnknownStream tests unknown stream type
+// TestGetChannelName_UnknownStream tests unknown stream type.
 func TestGetChannelName_UnknownStream(t *testing.T) {
 	unknownStreams := []string{"unknown", "invalid", "random", ""}
 	for _, stream := range unknownStreams {
@@ -391,13 +393,13 @@ func TestGetChannelName_UnknownStream(t *testing.T) {
 			}
 
 			_, err := getChannelName(nil, req)
-			assert.Error(t, err)
+			require.Error(t, err)
 			assert.Equal(t, "stream not found", err.Error())
 		})
 	}
 }
 
-// TestStreamingRequest_AllFields tests all fields of StreamingRequest
+// TestStreamingRequest_AllFields tests all fields of StreamingRequest.
 func TestStreamingRequest_AllFields(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -412,7 +414,7 @@ func TestStreamingRequest_AllFields(t *testing.T) {
 	assert.Equal(t, "golang", req.Tag)
 }
 
-// TestStreamingResponse_AllFields tests all fields of StreamingResponse
+// TestStreamingResponse_AllFields tests all fields of StreamingResponse.
 func TestStreamingResponse_AllFields(t *testing.T) {
 	resp := &StreamingResponse{
 		Stream:  []string{"user", "notification"},
@@ -425,7 +427,7 @@ func TestStreamingResponse_AllFields(t *testing.T) {
 	assert.Contains(t, resp.Payload, "mention")
 }
 
-// TestGetChannelName_List tests getChannelName for list timeline
+// TestGetChannelName_List tests getChannelName for list timeline.
 func TestGetChannelName_List(t *testing.T) {
 	// Note: list requires database lookup, so we test the error case
 	req := &StreamingRequest{
@@ -435,11 +437,11 @@ func TestGetChannelName_List(t *testing.T) {
 	}
 
 	_, err := getChannelName(nil, req)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, "list name is empty", err.Error())
 }
 
-// TestStreamingRequest_ConcurrentAccess tests concurrent access to request
+// TestStreamingRequest_ConcurrentAccess tests concurrent access to request.
 func TestStreamingRequest_ConcurrentAccess(t *testing.T) {
 	req := &StreamingRequest{
 		Type:   "subscribe",
@@ -448,21 +450,22 @@ func TestStreamingRequest_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = req.Hash()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
 
-// TestGetChannelName_DifferentAccountIds tests with different account IDs
+// TestGetChannelName_DifferentAccountIds tests with different account IDs.
 func TestGetChannelName_DifferentAccountIds(t *testing.T) {
 	accountIds := []uint64{1, 100, 999999, 18446744073709551615}
 
@@ -475,13 +478,13 @@ func TestGetChannelName_DifferentAccountIds(t *testing.T) {
 			}
 
 			channelName, err := getChannelName(account, req)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Contains(t, channelName, "subscribed:feed:home:")
 		})
 	}
 }
 
-// TestStreamingResponse_JsonSerialization tests JSON serialization
+// TestStreamingResponse_JsonSerialization tests JSON serialization.
 func TestStreamingResponse_JsonSerialization(t *testing.T) {
 	resp := &StreamingResponse{
 		Stream:  []string{"user"},
@@ -490,19 +493,21 @@ func TestStreamingResponse_JsonSerialization(t *testing.T) {
 	}
 
 	jsonBytes, err := json.Marshal(resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var unmarshaled StreamingResponse
+
 	err = json.Unmarshal(jsonBytes, &unmarshaled)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, resp.Stream, unmarshaled.Stream)
 	assert.Equal(t, resp.Event, unmarshaled.Event)
 	assert.Equal(t, resp.Payload, unmarshaled.Payload)
 }
 
-// TestStreamingErrResponse_ImplementsError tests that StreamingErrResponse implements error interface
-func TestStreamingErrResponse_ImplementsError(t *testing.T) {
-	var err error = &StreamingErrResponse{Err: "test error"}
+// TestStreamingErrorResponse_ImplementsError tests that StreamingErrorResponse implements error interface.
+func TestStreamingErrorResponse_ImplementsError(t *testing.T) {
+	var err error = &StreamingErrorResponse{Err: "test error"}
+
 	assert.Equal(t, "test error", err.Error())
 }

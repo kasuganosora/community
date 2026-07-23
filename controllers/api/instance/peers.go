@@ -7,15 +7,17 @@ import (
 )
 
 // Peers handles GET /api/v1/instance/peers
-// Returns all known domains this instance is aware of
+// Returns all known domains this instance is aware of.
 func Peers(c *gin.Context) {
 	// Get distinct domains from accounts
 	var domains []string
-	if err := db.GetDB().Model(&models.Account{}).
+	err := db.GetDB().Model(&models.Account{}).
 		Where("domain IS NOT NULL AND domain != ''").
 		Distinct("domain").
-		Pluck("domain", &domains).Error; err != nil {
+		Pluck("domain", &domains).Error
+	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
 		return
 	}
 

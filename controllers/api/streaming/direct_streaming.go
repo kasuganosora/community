@@ -16,15 +16,20 @@ func DirectStreaming(c *gin.Context) {
 	}
 
 	procHandle := func(data any) (event, payload string, err error) {
-		conversation := data.(*models.Conversation)
+		conversation := data.(*models.Conversation) //nolint:forcetypeassert
+
 		convs, err := serializer.ToConversation(conversation, account)
 		if err != nil {
 			return
 		}
 
-		payloadBytes, _ := json.Marshal(convs)
+		payloadBytes, err := json.Marshal(convs)
+		if err != nil {
+			return
+		}
 		payload = string(payloadBytes)
 		event = "conversation"
+
 		return
 	}
 

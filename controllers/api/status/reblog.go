@@ -11,17 +11,17 @@ import (
 )
 
 type ReblogRequest struct {
-	Visibility string `json:"visibility" binding:"omitempty,oneof=public unlisted private direct"`
+	Visibility string `binding:"omitempty,oneof=public unlisted private direct" json:"visibility"`
 }
 
 func Reblog(c *gin.Context) {
 	req := &ReblogRequest{}
 	err := c.ShouldBindJSON(req)
 
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
+	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
 	if req.Visibility == "" {
-		req.Visibility = "public"
+		req.Visibility = "public" //nolint:goconst
 	}
 
 	status := getRealStatus(c)
@@ -37,7 +37,7 @@ func Reblog(c *gin.Context) {
 	// 判断当前用户有没权限转发这条 status, 只要能看到这条 status 就可以转发
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
 
 	reblog := &models.Status{}
 	reblog.ReblogId = &status.Id
@@ -47,7 +47,7 @@ func Reblog(c *gin.Context) {
 	_ = reblog.SetVisibilityByString(req.Visibility)
 
 	if app, exists := c.Get("application"); exists {
-		reblog.ApplicationId = &app.(*models.Application).Id
+		reblog.ApplicationId = &app.(*models.Application).Id //nolint:forcetypeassert
 	}
 
 	// 生成转发的 status， 并把原来的 status 的转发数加一
@@ -55,13 +55,17 @@ func Reblog(c *gin.Context) {
 		err = tx.Create(reblog).Error
 		if err != nil {
 			err = errors.Wrap(err, "create reblog")
+
 			return err
 		}
+
 		err = tx.Model(status).Update("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error
 		if err != nil {
 			err = errors.Wrap(err, "update reblogs_count")
+
 			return err
 		}
+
 		return nil
 	})
 
@@ -87,12 +91,14 @@ func Unreblog(c *gin.Context) {
 		err = tx.Delete(&models.Status{}, "reblog_id = ? AND account_id = ?", status.Id, currentAccount.Id).Error
 		if err != nil {
 			err = errors.Wrap(err, "delete reblog")
+
 			return err
 		}
 
 		err = tx.Model(status).Update("reblogs_count", gorm.Expr("reblogs_count - ?", 1)).Error
 		if err != nil {
 			err = errors.Wrap(err, "update reblogs_count")
+
 			return err
 		}
 
@@ -121,10 +127,11 @@ func RebloggedBy(c *gin.Context) {
 	status := getRealStatus(c)
 
 	var currentAccount *models.Account
+
 	_currentAccount, exists := c.Get("account")
 
 	if exists {
-		currentAccount = _currentAccount.(*models.Account)
+		currentAccount = _currentAccount.(*models.Account) //nolint:forcetypeassert
 	}
 
 	dbConn := db.GetDB()
@@ -150,11 +157,11 @@ func RebloggedBy(c *gin.Context) {
 	}
 
 	if req.Limit > 0 {
-		query = query.Limit(int(req.Limit))
+		query = query.Limit(int(req.Limit)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	if req.Offset > 0 {
-		query = query.Offset(int(req.Offset))
+		query = query.Offset(int(req.Offset)) //nolint:gosec // G115: reviewed and safe
 	}
 
 	err = query.Find(&accounts).Error

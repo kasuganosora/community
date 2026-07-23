@@ -41,7 +41,7 @@ func TestToEmojis(t *testing.T) {
 
 func TestToEmojis_Empty(t *testing.T) {
 	result := ToEmojis([]*models.Emoji{})
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // --- Rule tests ---
@@ -68,7 +68,7 @@ func TestToRules(t *testing.T) {
 
 func TestToRules_Empty(t *testing.T) {
 	result := ToRules([]*models.Rule{})
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // --- Field tests ---
@@ -91,7 +91,7 @@ func TestToFields(t *testing.T) {
 
 func TestToFields_Empty(t *testing.T) {
 	result := ToFields([]models.AccountField{})
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // --- Filter tests ---
@@ -101,7 +101,7 @@ func TestToFilter(t *testing.T) {
 	filter := &models.Filter{
 		Id:           10,
 		Title:        "Block spam",
-		Context:      []string{"home", "public"},
+		Context:      []string{"home", "public"}, //nolint:goconst
 		ExpiresAt:    &expires,
 		FilterAction: models.FilterActionHide,
 		Keywords: []*models.FilterKeyword{
@@ -138,7 +138,7 @@ func TestToAttachment_Nil(t *testing.T) {
 
 func TestToAttachments_Empty(t *testing.T) {
 	result := ToAttachments([]*models.Attachment{})
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 // --- Poll tests ---
@@ -185,7 +185,7 @@ func TestToBasePoll_NotExpired(t *testing.T) {
 func TestToTags_Nil(t *testing.T) {
 	result := ToTags(nil)
 	assert.NotNil(t, result)
-	assert.Len(t, result, 0)
+	assert.Empty(t, result)
 }
 
 func TestToTag_Nil(t *testing.T) {

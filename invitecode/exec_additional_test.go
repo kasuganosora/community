@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -16,37 +17,42 @@ import (
 // If db is nil, a fresh test DB is created.
 func initSystemsettingsForTest(t *testing.T, db *gorm.DB, keyvals map[string]any) {
 	t.Helper()
+
 	if db == nil {
 		testDB := testutil.QuickDBSetup(t)
 		db = testDB.GormDB
+
 		t.Cleanup(func() {
 			database.DB = nil
 		})
 	}
+
 	database.DB = db
+
 	for k, v := range keyvals {
 		systemsettings.Set(k, v)
 	}
 }
 
-// TestExecAfterRegisterAction_NilInviteCode tests that nil invite code returns immediately
+// TestExecAfterRegisterAction_NilInviteCode tests that nil invite code returns immediately.
 func TestExecAfterRegisterAction_NilInviteCode(t *testing.T) {
 	assert.NotPanics(t, func() {
 		ExecAfterRegisterAction(nil, nil, nil, nil)
 	})
 }
 
-// TestExecAfterRegisterAction_EmptyAction tests that empty action returns immediately
+// TestExecAfterRegisterAction_EmptyAction tests that empty action returns immediately.
 func TestExecAfterRegisterAction_EmptyAction(t *testing.T) {
 	inv := &models.InviteCode{
 		AfterRegisterAction: "",
 	}
+
 	assert.NotPanics(t, func() {
 		ExecAfterRegisterAction(nil, inv, nil, nil)
 	})
 }
 
-// TestExecAfterRegisterAction_UnknownAction tests that unknown action is handled gracefully
+// TestExecAfterRegisterAction_UnknownAction tests that unknown action is handled gracefully.
 func TestExecAfterRegisterAction_UnknownAction(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -70,7 +76,7 @@ func TestExecAfterRegisterAction_UnknownAction(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_UserUnapproved tests that unapproved user skips execution
+// TestExecAfterRegisterAction_UserUnapproved tests that unapproved user skips execution.
 func TestExecAfterRegisterAction_UserUnapproved(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -94,7 +100,7 @@ func TestExecAfterRegisterAction_UserUnapproved(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_UserUnverifiedMail tests that unverified email user skips execution
+// TestExecAfterRegisterAction_UserUnverifiedMail tests that unverified email user skips execution.
 func TestExecAfterRegisterAction_UserUnverifiedMail(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -119,7 +125,7 @@ func TestExecAfterRegisterAction_UserUnverifiedMail(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_UserUnapproved_ApprovalDisabled tests that unapproved user
-// passes through when approval is not required, reaching followMe where owner is not found
+// passes through when approval is not required, reaching followMe where owner is not found.
 func TestExecAfterRegisterAction_UserUnapproved_ApprovalDisabled(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -147,7 +153,7 @@ func TestExecAfterRegisterAction_UserUnapproved_ApprovalDisabled(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_FollowMe_OwnerNotFound tests followMe when owner account not found
+// TestExecAfterRegisterAction_FollowMe_OwnerNotFound tests followMe when owner account not found.
 func TestExecAfterRegisterAction_FollowMe_OwnerNotFound(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -175,7 +181,7 @@ func TestExecAfterRegisterAction_FollowMe_OwnerNotFound(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_FollowMe_OwnerIsBot tests followMe when owner is a bot account
+// TestExecAfterRegisterAction_FollowMe_OwnerIsBot tests followMe when owner is a bot account.
 func TestExecAfterRegisterAction_FollowMe_OwnerIsBot(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -214,7 +220,7 @@ func TestExecAfterRegisterAction_FollowMe_OwnerIsBot(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_FollowMe_Success tests successful follow creation
+// TestExecAfterRegisterAction_FollowMe_Success tests successful follow creation.
 func TestExecAfterRegisterAction_FollowMe_Success(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -230,12 +236,12 @@ func TestExecAfterRegisterAction_FollowMe_Success(t *testing.T) {
 	})
 	ownerAccount := fixtures.CreateAccount(ownerUser, func(a *models.Account) {
 		a.Username = "owneruser"
-		a.DisplayName = "Owner User"
+		a.DisplayName = "Owner User" //nolint:goconst
 		a.Bot = false
 	})
 
 	newUser := fixtures.CreateUser(func(u *models.User) {
-		u.UserName = "newuser"
+		u.UserName = "newuser" //nolint:goconst
 		u.EmailHash = "newuser_hash"
 	})
 	newAccount := fixtures.CreateAccount(newUser, func(a *models.Account) {
@@ -254,14 +260,15 @@ func TestExecAfterRegisterAction_FollowMe_Success(t *testing.T) {
 
 	// Verify follow relationship was created
 	var follow models.Follow
+
 	err := db.GormDB.Where("account_id = ? AND follow_id = ?", newAccount.Id, ownerAccount.Id).First(&follow).Error
-	assert.NoError(t, err, "follow relationship should have been created")
+	require.NoError(t, err, "follow relationship should have been created")
 	assert.Equal(t, newAccount.Id, follow.AccountId)
 	assert.Equal(t, ownerAccount.Id, follow.FollowId)
 }
 
 // TestExecAfterRegisterAction_FollowMe_NilDB tests followMe with nil database
-// This confirms that a nil DB panics when followMe is reached
+// This confirms that a nil DB panics when followMe is reached.
 func TestExecAfterRegisterAction_FollowMe_NilDB(t *testing.T) {
 	initSystemsettingsForTest(t, nil, map[string]any{
 		systemsettings.KeyRegistrationApprovalRequired: false,
@@ -288,7 +295,7 @@ func TestExecAfterRegisterAction_FollowMe_NilDB(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_ApprovalEnabled_UserNormal tests that normal user passes
-// the approval check when approval is required
+// the approval check when approval is required.
 func TestExecAfterRegisterAction_ApprovalEnabled_UserNormal(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -317,7 +324,7 @@ func TestExecAfterRegisterAction_ApprovalEnabled_UserNormal(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_EmailCheckEnabled_UserNormal tests that normal user passes
-// the email check when email verification is required
+// the email check when email verification is required.
 func TestExecAfterRegisterAction_EmailCheckEnabled_UserNormal(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -346,7 +353,7 @@ func TestExecAfterRegisterAction_EmailCheckEnabled_UserNormal(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_UserRejected tests that rejected user is still processed
-// when approval is not required
+// when approval is not required.
 func TestExecAfterRegisterAction_UserRejected(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -374,7 +381,7 @@ func TestExecAfterRegisterAction_UserRejected(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_BothChecksEnabled tests with both approval and email checks enabled
+// TestExecAfterRegisterAction_BothChecksEnabled tests with both approval and email checks enabled.
 func TestExecAfterRegisterAction_BothChecksEnabled(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -400,7 +407,7 @@ func TestExecAfterRegisterAction_BothChecksEnabled(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_FollowMe_CreateFollowError tests when creating follow fails
-// by using a DB without the Follow table migrated
+// by using a DB without the Follow table migrated.
 func TestExecAfterRegisterAction_FollowMe_CreateFollowError(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}) // No Follow table
 
@@ -440,7 +447,7 @@ func TestExecAfterRegisterAction_FollowMe_CreateFollowError(t *testing.T) {
 }
 
 // TestFollowMe_DBError tests the followMe function when DB query fails
-// by passing a DB with no tables
+// by passing a DB with no tables.
 func TestFollowMe_DBError(t *testing.T) {
 	db := testutil.QuickDBSetup(t) // No tables migrated
 
@@ -468,7 +475,7 @@ func TestFollowMe_DBError(t *testing.T) {
 	})
 }
 
-// TestExecAfterRegisterAction_UserNormal tests various user status combinations
+// TestExecAfterRegisterAction_UserNormal tests various user status combinations.
 func TestExecAfterRegisterAction_UserNormal(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -547,7 +554,7 @@ func TestExecAfterRegisterAction_UserNormal(t *testing.T) {
 	}
 }
 
-// TestExecAfterRegisterAction_UnknownAction_WithDB tests unknown action with real DB
+// TestExecAfterRegisterAction_UnknownAction_WithDB tests unknown action with real DB.
 func TestExecAfterRegisterAction_UnknownAction_WithDB(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Follow{})
 
@@ -572,7 +579,7 @@ func TestExecAfterRegisterAction_UnknownAction_WithDB(t *testing.T) {
 }
 
 // TestExecAfterRegisterAction_FollowMe_MultipleAccounts tests followMe when owner
-// has multiple accounts (bot and non-bot) — should find the non-bot one
+// has multiple accounts (bot and non-bot) — should find the non-bot one.
 func TestExecAfterRegisterAction_FollowMe_MultipleAccounts(t *testing.T) {
 	db := testutil.QuickDBSetup(t, &models.Account{}, &models.AccountExtra{}, &models.User{}, &models.Follow{})
 
@@ -618,8 +625,9 @@ func TestExecAfterRegisterAction_FollowMe_MultipleAccounts(t *testing.T) {
 
 	// Verify follow was created with the non-bot owner account
 	var follow models.Follow
+
 	err := db.GormDB.Where("account_id = ? AND follow_id = ?", newAccount.Id, ownerAccount.Id).First(&follow).Error
-	assert.NoError(t, err, "follow relationship should have been created with non-bot owner")
+	require.NoError(t, err, "follow relationship should have been created with non-bot owner")
 	assert.Equal(t, newAccount.Id, follow.AccountId)
 	assert.Equal(t, ownerAccount.Id, follow.FollowId)
 }

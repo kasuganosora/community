@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -23,7 +24,7 @@ func TestAdditional_DomainBlock_Fields(t *testing.T) {
 		Severity:       "suspend",
 		RejectMedia:    true,
 		RejectReports:  true,
-		PrivateComment: "spam",
+		PrivateComment: "spam", //nolint:goconst
 		PublicComment:  "spam domain",
 		Obfuscate:      false,
 	}
@@ -41,7 +42,8 @@ func TestAdditional_DomainBlock_Fields(t *testing.T) {
 
 func TestAdditional_DomainBlocks_Type(t *testing.T) {
 	// DomainBlocks is a []*DomainBlock
-	var dbs DomainBlocks
+	dbs := make(DomainBlocks, 0, 1)
+
 	assert.Nil(t, dbs)
 	dbs = append(dbs, &DomainBlock{Domain: "bad.com"})
 	assert.Len(t, dbs, 1)
@@ -208,7 +210,7 @@ func TestAdditional_Follow_Fields(t *testing.T) {
 	assert.Equal(t, uint64(10), f.AccountId)
 	assert.Equal(t, uint64(20), f.FollowId)
 	assert.Equal(t, FollowStatusFollowed, f.Status)
-	assert.True(t, f.Properties["reblogs"].(bool))
+	assert.True(t, f.Properties["reblogs"].(bool)) //nolint:forcetypeassert
 	assert.Equal(t, int64(1700000000), f.CreatedAt)
 }
 
@@ -337,17 +339,17 @@ func TestAdditional_Notification_GetTypeString(t *testing.T) {
 		typ      uint8
 		expected string
 	}{
-		{"mention", NotificationTypeMention, "mention"},
-		{"reblog", NotificationTypeReblog, "reblog"},
-		{"favourite", NotificationTypeFavourite, "favourite"},
-		{"follow", NotificationTypeFollow, "follow"},
-		{"poll", NotificationTypePoll, "poll"},
-		{"follow_request", NotificationTypeFollowRequest, "follow_request"},
-		{"status_update", NotificationTypeStatusUpdate, "status_update"},
-		{"admin_report", NotificationTypeAdminReport, "admin_report"},
-		{"add_list", NotificationTypeAddList, "add_list"},
-		{"remove_list", NotificationTypeRemoveList, "remove_list"},
-		{"unknown", 99, ""},
+		{"mention", NotificationTypeMention, "mention"},                     //nolint:goconst
+		{"reblog", NotificationTypeReblog, "reblog"},                        //nolint:goconst
+		{"favourite", NotificationTypeFavourite, "favourite"},               //nolint:goconst
+		{"follow", NotificationTypeFollow, "follow"},                        //nolint:goconst
+		{"poll", NotificationTypePoll, "poll"},                              //nolint:goconst
+		{"follow_request", NotificationTypeFollowRequest, "follow_request"}, //nolint:goconst
+		{"status_update", NotificationTypeStatusUpdate, "status_update"},    //nolint:goconst
+		{"admin_report", NotificationTypeAdminReport, "admin_report"},       //nolint:goconst
+		{"add_list", NotificationTypeAddList, "add_list"},                   //nolint:goconst
+		{"remove_list", NotificationTypeRemoveList, "remove_list"},          //nolint:goconst
+		{"unknown", 99, ""}, //nolint:goconst
 	}
 
 	for _, tt := range tests {
@@ -381,7 +383,8 @@ func TestAdditional_Notification_Fields(t *testing.T) {
 }
 
 func TestAdditional_Notifications_Type(t *testing.T) {
-	var ns Notifications
+	ns := make(Notifications, 0, 1)
+
 	assert.Nil(t, ns)
 	ns = append(ns, &Notification{Id: 1})
 	assert.Len(t, ns, 1)
@@ -421,10 +424,10 @@ func TestAdditional_Report_ToCategoryString(t *testing.T) {
 		cat      uint16
 		expected string
 	}{
-		{"other", ReportCategoryOther, "Other"},
-		{"spam", ReportCategorySpam, "Spam"},
-		{"legal", ReportCategoryLegal, "Legal"},
-		{"violation", ReportCategoryViolation, "Violation"},
+		{"other", ReportCategoryOther, "Other"},             //nolint:goconst
+		{"spam", ReportCategorySpam, "Spam"},                //nolint:goconst
+		{"legal", ReportCategoryLegal, "Legal"},             //nolint:goconst
+		{"violation", ReportCategoryViolation, "Violation"}, //nolint:goconst
 		{"unknown", 99, "Unknown"},
 	}
 
@@ -462,7 +465,7 @@ func TestAdditional_Report_Fields(t *testing.T) {
 	r := &Report{
 		Id:                     1,
 		StatusIds:              []uint64{10, 20},
-		Comment:                "bad content",
+		Comment:                "bad content", //nolint:goconst
 		AccountId:              30,
 		ActionTakenByAccountId: 0,
 		TargetAccountId:        40,
@@ -493,10 +496,10 @@ func TestAdditional_Relay_TableName(t *testing.T) {
 }
 
 func TestAdditional_Relay_Constants(t *testing.T) {
-	assert.Equal(t, RelayState(0), RelayStateIdle)
-	assert.Equal(t, RelayState(1), RelayStatePending)
-	assert.Equal(t, RelayState(2), RelayStateAccepted)
-	assert.Equal(t, RelayState(3), RelayStateRejected)
+	assert.Equal(t, RelayStateIdle, RelayState(0))
+	assert.Equal(t, RelayStatePending, RelayState(1))
+	assert.Equal(t, RelayStateAccepted, RelayState(2))
+	assert.Equal(t, RelayStateRejected, RelayState(3))
 }
 
 func TestAdditional_Relay_IsEnabled(t *testing.T) {
@@ -769,14 +772,14 @@ func TestAdditional_Status_SetVisibilityByString(t *testing.T) {
 		expected uint8
 		hasErr   bool
 	}{
-		{"public", StatusVisibilityPublic, false},
+		{"public", StatusVisibilityPublic, false}, //nolint:goconst
 		{"Public", StatusVisibilityPublic, false},
 		{"PUBLIC", StatusVisibilityPublic, false},
-		{"unlisted", StatusVisibilityUnlisted, false},
+		{"unlisted", StatusVisibilityUnlisted, false}, //nolint:goconst
 		{"Unlisted", StatusVisibilityUnlisted, false},
-		{"private", StatusVisibilityPrivate, false},
+		{"private", StatusVisibilityPrivate, false}, //nolint:goconst
 		{"Private", StatusVisibilityPrivate, false},
-		{"direct", StatusVisibilityDirect, false},
+		{"direct", StatusVisibilityDirect, false}, //nolint:goconst
 		{"Direct", StatusVisibilityDirect, false},
 		{"invalid", 0, true},
 		{"", 0, true},
@@ -785,11 +788,12 @@ func TestAdditional_Status_SetVisibilityByString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			s := &Status{}
+
 			err := s.SetVisibilityByString(tt.input)
 			if tt.hasErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expected, s.Visibility)
 			}
 		})
@@ -963,14 +967,17 @@ func TestAdditional_Statuses_GetAccountIds(t *testing.T) {
 	// Order depends on UniqueSlice implementation, just check both values present
 	found10 := false
 	found20 := false
+
 	for _, id := range ids {
 		if id == 10 {
 			found10 = true
 		}
+
 		if id == 20 {
 			found20 = true
 		}
 	}
+
 	assert.True(t, found10, "should contain account id 10")
 	assert.True(t, found20, "should contain account id 20")
 }
@@ -1016,7 +1023,7 @@ func TestAdditional_Statuses_Filter_None(t *testing.T) {
 func TestAdditional_Status_Fields(t *testing.T) {
 	content := StatusContent{
 		StatusId:    1,
-		Content:     "Hello world",
+		Content:     "Hello world", //nolint:goconst
 		SpoilerText: "spoiler",
 		Card:        map[string]any{"type": "link"},
 	}

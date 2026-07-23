@@ -9,7 +9,7 @@ import (
 	"github.com/kasuganosora/community/migrate/scripts"
 )
 
-// MatrixBridgeStatus Matrix Bridge 状态响应
+// MatrixBridgeStatus Matrix Bridge 状态响应.
 type MatrixBridgeStatus struct {
 	Enabled    bool   `json:"enabled"`
 	Running    bool   `json:"running"`
@@ -19,9 +19,10 @@ type MatrixBridgeStatus struct {
 	Message    string `json:"message"`
 }
 
-// GetMatrixStatus 获取 Matrix Bridge 状态
+// GetMatrixStatus 获取 Matrix Bridge 状态.
 func GetMatrixStatus(c *gin.Context) {
 	matrix.LoadConfig()
+
 	cfg := &matrix.GlobalConfig
 
 	status := MatrixBridgeStatus{
@@ -33,13 +34,16 @@ func GetMatrixStatus(c *gin.Context) {
 	if !cfg.IsEnabled() {
 		status.Message = "Matrix Bridge is not configured or disabled"
 		c.JSON(http.StatusOK, status)
+
 		return
 	}
 
 	// 检查连接状态
 	client := matrix.NewASClient()
-	if err := client.PingHS(); err != nil {
+	err := client.PingHS()
+	if err != nil {
 		log.Error("failed to connect to Homeserver: %v", err)
+
 		status.Connected = false
 		status.Message = "Failed to connect to Homeserver"
 	} else {
@@ -50,15 +54,17 @@ func GetMatrixStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
-// StartMatrixBridge 启动 Matrix Bridge
+// StartMatrixBridge 启动 Matrix Bridge.
 func StartMatrixBridge(c *gin.Context) {
 	matrix.LoadConfig()
+
 	cfg := &matrix.GlobalConfig
 
 	if !cfg.IsEnabled() {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Matrix Bridge is not configured or disabled",
+			"error": "Matrix Bridge is not configured or disabled", //nolint:goconst
 		})
+
 		return
 	}
 
@@ -66,11 +72,11 @@ func StartMatrixBridge(c *gin.Context) {
 	// 实际实现中，Bridge 应该在应用启动时初始化
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Matrix Bridge start request received",
+		"message": "Matrix Bridge start request received", //nolint:goconst
 	})
 }
 
-// StopMatrixBridge 停止 Matrix Bridge
+// StopMatrixBridge 停止 Matrix Bridge.
 func StopMatrixBridge(c *gin.Context) {
 	// 停止 Bridge 的逻辑
 	c.JSON(http.StatusOK, gin.H{
@@ -78,13 +84,15 @@ func StopMatrixBridge(c *gin.Context) {
 	})
 }
 
-// RunMatrixMigration 运行 Matrix 数据库迁移
+// RunMatrixMigration 运行 Matrix 数据库迁移.
 func RunMatrixMigration(c *gin.Context) {
-	if err := scripts.MigrateMatrixTables(); err != nil {
+	err := scripts.MigrateMatrixTables()
+	if err != nil {
 		log.Error("failed to run Matrix migration: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "operation failed",
 		})
+
 		return
 	}
 
@@ -93,9 +101,10 @@ func RunMatrixMigration(c *gin.Context) {
 	})
 }
 
-// GetMatrixConfig 获取 Matrix 配置（不含敏感信息）
+// GetMatrixConfig 获取 Matrix 配置（不含敏感信息）.
 func GetMatrixConfig(c *gin.Context) {
 	matrix.LoadConfig()
+
 	cfg := &matrix.GlobalConfig
 
 	c.JSON(http.StatusOK, gin.H{
@@ -109,46 +118,51 @@ func GetMatrixConfig(c *gin.Context) {
 	})
 }
 
-// MatrixTestRequest 测试请求
+// MatrixTestRequest 测试请求.
 type MatrixTestRequest struct {
-	MatrixUserID string `json:"matrix_user_id" binding:"required"`
+	MatrixUserID string `binding:"required" json:"matrix_user_id"`
 }
 
-// TestMatrixConnection 测试与 Matrix 用户的连接
+// TestMatrixConnection 测试与 Matrix 用户的连接.
 func TestMatrixConnection(c *gin.Context) {
 	var req MatrixTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid request",
+			"error": "invalid request", //nolint:goconst
 		})
+
 		return
 	}
 
 	matrix.LoadConfig()
+
 	cfg := &matrix.GlobalConfig
 
 	if !cfg.IsEnabled() {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Matrix Bridge is not enabled",
 		})
+
 		return
 	}
 
 	// 测试获取用户信息
 	client := matrix.NewClient()
+
 	profile, err := client.GetUserID(req.MatrixUserID)
 	if err != nil {
 		log.Error("failed to get user profile: %v", err)
 		c.JSON(http.StatusOK, gin.H{
-			"success": false,
+			"success": false, //nolint:goconst
 			"error":   "operation failed",
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":      true,
-		"display_name": profile.DisplayName,
+		"display_name": profile.DisplayName, //nolint:goconst
 		"avatar_url":   profile.AvatarURL,
 	})
 }

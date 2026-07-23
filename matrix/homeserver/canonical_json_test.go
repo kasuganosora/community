@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"testing"
 )
 
@@ -72,7 +73,7 @@ func TestCanonicalJSON_SpecVectors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Parse input JSON into interface{}
-			var parsed interface{}
+			var parsed any
 			if err := json.Unmarshal([]byte(tt.input), &parsed); err != nil {
 				t.Fatalf("failed to parse input JSON: %v", err)
 			}
@@ -94,15 +95,18 @@ func TestCanonicalJSON_SpecVectors(t *testing.T) {
 
 // getSpecTestSigningKey returns the ed25519 key pair from the spec test vectors.
 // Seed: YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA1
-// Server: "domain", Key ID: "ed25519:1"
+// Server: "domain", Key ID: "ed25519:1".
 func getSpecTestSigningKey(t *testing.T) (ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
+
 	seedBytes, err := base64.RawStdEncoding.DecodeString("YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA1")
 	if err != nil {
 		t.Fatalf("failed to decode signing key seed: %v", err)
 	}
+
 	privateKey := ed25519.NewKeyFromSeed(seedBytes)
-	publicKey := privateKey.Public().(ed25519.PublicKey)
+	publicKey := privateKey.Public().(ed25519.PublicKey) //nolint:forcetypeassert
+
 	return privateKey, publicKey
 }
 
@@ -120,7 +124,7 @@ func TestSignJSON_SpecVector_EmptyObject(t *testing.T) {
 	fed := NewFederationService(hs)
 
 	// Sign empty object
-	input := map[string]interface{}{}
+	input := map[string]any{}
 	sig := fed.signJSON(input)
 
 	expectedSig := "K8280/U9SSy9IVtjBuVeLr+HpOB4BQFWbg+UZaADMtTdGYI7Geitb76LTrr5QV/7Xg4ahLwYGYZzuHGZKM5ZAQ"
@@ -142,7 +146,7 @@ func TestSignJSON_SpecVector_SimpleObject(t *testing.T) {
 	fed := NewFederationService(hs)
 
 	// Sign object with data
-	input := map[string]interface{}{
+	input := map[string]any{
 		"one": float64(1),
 		"two": "Two",
 	}
@@ -167,7 +171,7 @@ func TestSignJSON_SpecVector_Verify(t *testing.T) {
 	fed := NewFederationService(hs)
 
 	// Sign and verify round-trip
-	input := map[string]interface{}{
+	input := map[string]any{
 		"one": float64(1),
 		"two": "Two",
 	}
@@ -196,13 +200,12 @@ func TestSignJSON_SpecVector_Verify(t *testing.T) {
 // 1. Remove unsigned, signatures, hashes
 // 2. Canonical JSON encode
 // 3. SHA-256 hash
-// 4. Unpadded base64
-func computeContentHash(event map[string]interface{}) (string, error) {
+// 4. Unpadded base64.
+func computeContentHash(event map[string]any) (string, error) {
 	// Make a copy
-	hashInput := make(map[string]interface{})
-	for k, v := range event {
-		hashInput[k] = v
-	}
+	hashInput := make(map[string]any)
+	maps.Copy(hashInput, event)
+
 	delete(hashInput, "unsigned")
 	delete(hashInput, "signatures")
 	delete(hashInput, "hashes")
@@ -213,31 +216,33 @@ func computeContentHash(event map[string]interface{}) (string, error) {
 	}
 
 	hash := sha256.Sum256(canonical)
+
 	return base64.RawStdEncoding.EncodeToString(hash[:]), nil
 }
 
 // redactEvent applies the redaction algorithm (simplified for test vectors).
 // For the test vectors, the redaction keeps all top-level keys needed for signing.
-func redactEvent(event map[string]interface{}) map[string]interface{} {
+func redactEvent(event map[string]any) map[string]any {
 	// Keys always kept after redaction (per spec)
 	alwaysKept := map[string]bool{
-		"event_id":         true,
-		"type":             true,
-		"room_id":          true,
-		"sender":           true,
-		"state_key":        true,
-		"content":          true,
+		"event_id":         true, //nolint:goconst
+		"type":             true, //nolint:goconst
+		"room_id":          true, //nolint:goconst
+		"sender":           true, //nolint:goconst
+		"state_key":        true, //nolint:goconst
+		"content":          true, //nolint:goconst
 		"hashes":           true,
 		"signatures":       true,
-		"depth":            true,
-		"prev_events":      true,
-		"auth_events":      true,
-		"origin":           true,
-		"origin_server_ts": true,
-		"membership":       true,
+		"depth":            true, //nolint:goconst
+		"prev_events":      true, //nolint:goconst
+		"auth_events":      true, //nolint:goconst
+		"origin":           true, //nolint:goconst
+		"origin_server_ts": true, //nolint:goconst
+		"membership":       true, //nolint:goconst
 	}
 
-	redacted := make(map[string]interface{})
+	redacted := make(map[string]any)
+
 	for k, v := range event {
 		if alwaysKept[k] {
 			redacted[k] = v
@@ -247,57 +252,63 @@ func redactEvent(event map[string]interface{}) map[string]interface{} {
 	// Redact content based on event type
 	eventType, _ := redacted["type"].(string)
 	switch eventType {
-	case "m.room.member":
-		if content, ok := redacted["content"].(map[string]interface{}); ok {
-			newContent := make(map[string]interface{})
+	case "m.room.member": //nolint:goconst
+		if content, ok := redacted["content"].(map[string]any); ok {
+			newContent := make(map[string]any)
 			if m, ok := content["membership"]; ok {
 				newContent["membership"] = m
 			}
+
 			redacted["content"] = newContent
 		}
-	case "m.room.create":
-		if content, ok := redacted["content"].(map[string]interface{}); ok {
-			newContent := make(map[string]interface{})
+	case "m.room.create": //nolint:goconst
+		if content, ok := redacted["content"].(map[string]any); ok {
+			newContent := make(map[string]any)
 			if c, ok := content["creator"]; ok {
 				newContent["creator"] = c
 			}
+
 			redacted["content"] = newContent
 		}
-	case "m.room.join_rules":
-		if content, ok := redacted["content"].(map[string]interface{}); ok {
-			newContent := make(map[string]interface{})
+	case "m.room.join_rules": //nolint:goconst
+		if content, ok := redacted["content"].(map[string]any); ok {
+			newContent := make(map[string]any)
 			if j, ok := content["join_rule"]; ok {
 				newContent["join_rule"] = j
 			}
+
 			redacted["content"] = newContent
 		}
-	case "m.room.power_levels":
+	case "m.room.power_levels": //nolint:goconst
 		// Keep specific keys
-		if content, ok := redacted["content"].(map[string]interface{}); ok {
+		if content, ok := redacted["content"].(map[string]any); ok {
 			kept := map[string]bool{
-				"ban": true, "events": true, "events_default": true,
-				"kick": true, "redact": true, "state_default": true,
-				"users": true, "users_default": true,
+				"ban": true, "events": true, "events_default": true, //nolint:goconst
+				"kick": true, "redact": true, "state_default": true, //nolint:goconst
+				"users": true, "users_default": true, //nolint:goconst
 			}
-			newContent := make(map[string]interface{})
+			newContent := make(map[string]any)
+
 			for k, v := range content {
 				if kept[k] {
 					newContent[k] = v
 				}
 			}
+
 			redacted["content"] = newContent
 		}
 	case "m.room.history_visibility":
-		if content, ok := redacted["content"].(map[string]interface{}); ok {
-			newContent := make(map[string]interface{})
+		if content, ok := redacted["content"].(map[string]any); ok {
+			newContent := make(map[string]any)
 			if h, ok := content["history_visibility"]; ok {
 				newContent["history_visibility"] = h
 			}
+
 			redacted["content"] = newContent
 		}
 	default:
 		// For unknown types, redact content to empty
-		redacted["content"] = map[string]interface{}{}
+		redacted["content"] = map[string]any{}
 	}
 
 	return redacted
@@ -316,19 +327,19 @@ func TestEventSigning_SpecVector_MinimalEvent(t *testing.T) {
 	fed := NewFederationService(hs)
 
 	// Spec test vector 1: minimal event
-	event := map[string]interface{}{
+	event := map[string]any{
 		"room_id":          "!x:domain",
 		"sender":           "@a:domain",
 		"origin":           "domain",
 		"origin_server_ts": float64(1000000),
-		"signatures":       map[string]interface{}{},
-		"hashes":           map[string]interface{}{},
+		"signatures":       map[string]any{},
+		"hashes":           map[string]any{},
 		"type":             "X",
-		"content":          map[string]interface{}{},
-		"prev_events":      []interface{}{},
-		"auth_events":      []interface{}{},
+		"content":          map[string]any{},
+		"prev_events":      []any{},
+		"auth_events":      []any{},
 		"depth":            float64(3),
-		"unsigned": map[string]interface{}{
+		"unsigned": map[string]any{
 			"age_ts": float64(1000000),
 		},
 	}
@@ -345,7 +356,7 @@ func TestEventSigning_SpecVector_MinimalEvent(t *testing.T) {
 	}
 
 	// Step 2: Add hashes to event
-	event["hashes"] = map[string]interface{}{
+	event["hashes"] = map[string]any{
 		"sha256": contentHash,
 	}
 
@@ -374,9 +385,9 @@ func TestEventSigning_SpecVector_MessageEvent(t *testing.T) {
 	fed := NewFederationService(hs)
 
 	// Spec test vector 2: message event (older format with event_id, no prev_events/auth_events/depth)
-	event := map[string]interface{}{
-		"content": map[string]interface{}{
-			"body": "Here is the message content",
+	event := map[string]any{
+		"content": map[string]any{
+			"body": "Here is the message content", //nolint:goconst
 		},
 		"event_id":         "$0:domain",
 		"origin":           "domain",
@@ -384,8 +395,8 @@ func TestEventSigning_SpecVector_MessageEvent(t *testing.T) {
 		"type":             "m.room.message",
 		"room_id":          "!r:domain",
 		"sender":           "@u:domain",
-		"signatures":       map[string]interface{}{},
-		"unsigned": map[string]interface{}{
+		"signatures":       map[string]any{},
+		"unsigned": map[string]any{
 			"age_ts": float64(1000000),
 		},
 	}
@@ -402,7 +413,7 @@ func TestEventSigning_SpecVector_MessageEvent(t *testing.T) {
 	}
 
 	// Step 2: Add hashes
-	event["hashes"] = map[string]interface{}{
+	event["hashes"] = map[string]any{
 		"sha256": contentHash,
 	}
 
@@ -424,27 +435,27 @@ func TestCanonicalJSON_IntegerValues(t *testing.T) {
 	// Ensure float64 values that are integers are rendered without decimal point
 	tests := []struct {
 		name     string
-		input    map[string]interface{}
+		input    map[string]any
 		expected string
 	}{
 		{
 			name:     "integer 0",
-			input:    map[string]interface{}{"v": float64(0)},
+			input:    map[string]any{"v": float64(0)},
 			expected: `{"v":0}`,
 		},
 		{
 			name:     "integer 1",
-			input:    map[string]interface{}{"v": float64(1)},
+			input:    map[string]any{"v": float64(1)},
 			expected: `{"v":1}`,
 		},
 		{
 			name:     "large integer",
-			input:    map[string]interface{}{"v": float64(9007199254740991)}, // 2^53 - 1
+			input:    map[string]any{"v": float64(9007199254740991)}, // 2^53 - 1
 			expected: `{"v":9007199254740991}`,
 		},
 		{
 			name:     "negative integer",
-			input:    map[string]interface{}{"v": float64(-42)},
+			input:    map[string]any{"v": float64(-42)},
 			expected: `{"v":-42}`,
 		},
 	}
@@ -455,6 +466,7 @@ func TestCanonicalJSON_IntegerValues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CanonicalJSON returned error: %v", err)
 			}
+
 			if string(result) != tt.expected {
 				t.Errorf("got %s, expected %s", string(result), tt.expected)
 			}
@@ -463,15 +475,17 @@ func TestCanonicalJSON_IntegerValues(t *testing.T) {
 }
 
 func TestCanonicalJSON_BoolAndNull(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"z": true,
 		"a": false,
 		"m": nil,
 	}
+
 	result, err := CanonicalJSON(input)
 	if err != nil {
 		t.Fatalf("CanonicalJSON returned error: %v", err)
 	}
+
 	expected := `{"a":false,"m":null,"z":true}`
 	if string(result) != expected {
 		t.Errorf("got %s, expected %s", string(result), expected)
@@ -479,9 +493,10 @@ func TestCanonicalJSON_BoolAndNull(t *testing.T) {
 }
 
 func TestCanonicalJSON_NestedArrays(t *testing.T) {
-	input := map[string]interface{}{
-		"a": []interface{}{float64(3), float64(1), float64(2)},
+	input := map[string]any{
+		"a": []any{float64(3), float64(1), float64(2)},
 	}
+
 	result, err := CanonicalJSON(input)
 	if err != nil {
 		t.Fatalf("CanonicalJSON returned error: %v", err)

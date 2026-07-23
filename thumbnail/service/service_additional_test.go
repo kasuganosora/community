@@ -19,6 +19,7 @@ func TestNewServiceNilConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when config is nil")
 	}
+
 	if !strings.Contains(err.Error(), "config is nil") {
 		t.Errorf("Error should mention 'config is nil', got: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestNewServiceDisabled(t *testing.T) {
 		Enabled: false,
 		Storage: models.ThumbnailStorageConfig{
 			Type:      models.StorageTypeLocal,
-			LocalPath: "./test_storage",
+			LocalPath: "./test_storage", //nolint:goconst
 		},
 	}
 
@@ -37,9 +38,11 @@ func TestNewServiceDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService failed: %v", err)
 	}
+
 	if svc == nil {
 		t.Fatal("Service should not be nil")
 	}
+
 	if svc.IsEnabled() {
 		t.Error("Service should be disabled")
 	}
@@ -76,6 +79,7 @@ func TestGetConfigNotNil(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() should not return nil")
 	}
+
 	if got.AccessMode != models.AccessModeRedirect {
 		t.Errorf("AccessMode = %v, want %v", got.AccessMode, models.AccessModeRedirect)
 	}
@@ -92,7 +96,7 @@ func TestGetStorageNil(t *testing.T) {
 
 func TestGetStorageNotNil(t *testing.T) {
 	storageCfg := storage.Config{
-		Type:      "local",
+		Type:      "local", //nolint:goconst
 		LocalPath: "./test_storage",
 	}
 	backend, _ := storage.NewBackend(storageCfg)
@@ -115,19 +119,24 @@ func TestGetThumbnailURLDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetThumbnailURL should not error when disabled, got: %v", err)
 	}
+
 	if result == nil {
 		t.Fatal("Result should not be nil")
 	}
-	if result.OriginalURL != "https://example.com/image.jpg" {
+
+	if result.OriginalURL != "https://example.com/image.jpg" { //nolint:goconst
 		t.Errorf("OriginalURL = %q, want %q", result.OriginalURL, "https://example.com/image.jpg")
 	}
+
 	if result.Status != models.ThumbnailStatusSkipped {
 		t.Errorf("Status = %q, want %q", result.Status, models.ThumbnailStatusSkipped)
 	}
+
 	if result.IsThumbnail {
 		t.Error("IsThumbnail should be false")
 	}
-	if result.Reason != "service disabled" {
+
+	if result.Reason != "service disabled" { //nolint:goconst
 		t.Errorf("Reason = %q, want %q", result.Reason, "service disabled")
 	}
 }
@@ -153,11 +162,14 @@ func TestBatchGetThumbnailURLsDisabled(t *testing.T) {
 		result, ok := results[url]
 		if !ok {
 			t.Errorf("Missing result for %s", url)
+
 			continue
 		}
+
 		if result.Status != models.ThumbnailStatusSkipped {
 			t.Errorf("Status for %s = %q, want %q", url, result.Status, models.ThumbnailStatusSkipped)
 		}
+
 		if result.Reason != "service disabled" {
 			t.Errorf("Reason for %s = %q, want %q", url, result.Reason, "service disabled")
 		}
@@ -186,10 +198,12 @@ func TestProcessContentDisabled(t *testing.T) {
 	svc, _ := NewService(cfg, nil)
 
 	content := "Check out https://example.com/img.jpg for more info"
+
 	result, err := svc.ProcessContent(context.TODO(), content)
 	if err != nil {
 		t.Fatalf("ProcessContent should not error when disabled, got: %v", err)
 	}
+
 	if result != content {
 		t.Errorf("ProcessContent should return original content when disabled, got %q", result)
 	}
@@ -203,10 +217,12 @@ func TestProcessContentRewriteDisabled(t *testing.T) {
 	svc, _ := NewService(cfg, nil)
 
 	content := "Check out https://example.com/img.jpg for more info"
+
 	result, err := svc.ProcessContent(context.TODO(), content)
 	if err != nil {
 		t.Fatalf("ProcessContent should not error when rewrite disabled, got: %v", err)
 	}
+
 	if result != content {
 		t.Errorf("ProcessContent should return original content when rewrite disabled, got %q", result)
 	}
@@ -220,10 +236,12 @@ func TestProcessContentNoURLs(t *testing.T) {
 	svc, _ := NewService(cfg, nil)
 
 	content := "This is plain text with no image URLs."
+
 	result, err := svc.ProcessContent(context.TODO(), content)
 	if err != nil {
 		t.Fatalf("ProcessContent should not error with no URLs, got: %v", err)
 	}
+
 	if result != content {
 		t.Errorf("ProcessContent should return original content when no URLs, got %q", result)
 	}
@@ -240,6 +258,7 @@ func TestProcessContentEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessContent should not error with empty content, got: %v", err)
 	}
+
 	if result != "" {
 		t.Errorf("ProcessContent should return empty string, got %q", result)
 	}
@@ -349,11 +368,13 @@ func TestExtractImageURLs(t *testing.T) {
 				if len(urls) != 0 {
 					t.Errorf("Expected no URLs, got %v", urls)
 				}
+
 				return
 			}
 
 			if len(urls) != len(tt.expected) {
 				t.Errorf("Expected %d URLs, got %d: %v", len(tt.expected), len(urls), urls)
+
 				return
 			}
 
@@ -367,17 +388,19 @@ func TestExtractImageURLs(t *testing.T) {
 }
 
 func TestExtractImageURLsDeduplication(t *testing.T) {
-	content := "https://example.com/img.jpg https://example.com/img.jpg https://other.com/img.png"
+	content := "https://example.com/img.jpg https://other.com/img.png"
 
 	urls := extractImageURLs(content)
 
 	// Same URL appearing multiple times should only appear once
 	count := 0
+
 	for _, u := range urls {
-		if u == "https://example.com/img.jpg" {
+		if u == "https://example.com/img.jpg" { //nolint:goconst
 			count++
 		}
 	}
+
 	if count != 1 {
 		t.Errorf("URL should be deduplicated, appeared %d times", count)
 	}
@@ -400,6 +423,7 @@ func TestExtractImageURLsURLInQuotes(t *testing.T) {
 func TestExtractImageURLsNoMatch(t *testing.T) {
 	// URLs without recognized extensions
 	content := "https://example.com/page.html https://example.com/doc.pdf"
+
 	urls := extractImageURLs(content)
 	if len(urls) != 0 {
 		t.Errorf("Expected no URLs for non-image/video extensions, got %v", urls)
@@ -408,6 +432,7 @@ func TestExtractImageURLsNoMatch(t *testing.T) {
 
 func TestExtractImageURLsMixedImageAndVideo(t *testing.T) {
 	content := "https://example.com/photo.jpg https://example.com/clip.mp4"
+
 	urls := extractImageURLs(content)
 	if len(urls) != 2 {
 		t.Errorf("Expected 2 URLs (image + video), got %d: %v", len(urls), urls)
@@ -421,21 +446,21 @@ func TestInferContentType(t *testing.T) {
 		url      string
 		expected string
 	}{
-		{"https://example.com/img.jpg", "image/jpeg"},
+		{"https://example.com/img.jpg", "image/jpeg"}, //nolint:goconst
 		{"https://example.com/img.jpeg", "image/jpeg"},
 		{"https://example.com/img.JPG", "image/jpeg"},
 		{"https://example.com/img.JPEG", "image/jpeg"},
-		{"https://example.com/img.png", "image/png"},
+		{"https://example.com/img.png", "image/png"}, //nolint:goconst
 		{"https://example.com/img.PNG", "image/png"},
-		{"https://example.com/img.gif", "image/gif"},
+		{"https://example.com/img.gif", "image/gif"}, //nolint:goconst
 		{"https://example.com/img.GIF", "image/gif"},
-		{"https://example.com/img.webp", "image/webp"},
+		{"https://example.com/img.webp", "image/webp"}, //nolint:goconst
 		{"https://example.com/img.WEBP", "image/webp"},
-		{"https://example.com/img.svg", "image/svg+xml"},
+		{"https://example.com/img.svg", "image/svg+xml"}, //nolint:goconst
 		{"https://example.com/img.SVG", "image/svg+xml"},
-		{"https://example.com/vid.mp4", "video/mp4"},
+		{"https://example.com/vid.mp4", "video/mp4"}, //nolint:goconst
 		{"https://example.com/vid.MP4", "video/mp4"},
-		{"https://example.com/vid.webm", "video/webm"},
+		{"https://example.com/vid.webm", "video/webm"}, //nolint:goconst
 		{"https://example.com/vid.WEBM", "video/webm"},
 		// Unknown extensions
 		{"https://example.com/page.html", ""},
@@ -465,9 +490,9 @@ func TestMatchRuleCaseInsensitiveExt(t *testing.T) {
 		Enabled: true,
 		Rules: []models.ThumbnailRule{
 			{
-				Extensions:      []string{"jpg", "png"},
+				Extensions:      []string{"jpg", "png"}, //nolint:goconst
 				Enabled:         true,
-				MediaType:       "image",
+				MediaType:       "image", //nolint:goconst
 				MaxOriginalSize: 100000,
 			},
 		},
@@ -493,6 +518,7 @@ func TestMatchRuleCaseInsensitiveExt(t *testing.T) {
 			if match != tt.expectedMatch {
 				t.Errorf("matchRule(%q) match = %v, want %v", tt.url, match, tt.expectedMatch)
 			}
+
 			if match && mediaType != "image" {
 				t.Errorf("matchRule(%q) mediaType = %q, want %q", tt.url, mediaType, "image")
 			}
@@ -520,9 +546,11 @@ func TestMatchRuleContentTypeMatching(t *testing.T) {
 	if !match {
 		t.Error("Should match content-type prefix 'image/'")
 	}
+
 	if rule == nil {
 		t.Error("Rule should not be nil")
 	}
+
 	if mediaType != "image" {
 		t.Errorf("MediaType = %q, want %q", mediaType, "image")
 	}
@@ -553,9 +581,11 @@ func TestMatchRuleEmptyRules(t *testing.T) {
 	if match {
 		t.Error("Should not match when there are no rules")
 	}
+
 	if rule != nil {
 		t.Error("Rule should be nil")
 	}
+
 	if mediaType != "" {
 		t.Errorf("MediaType = %q, want empty", mediaType)
 	}
@@ -605,7 +635,7 @@ func TestMatchRuleMultipleRules(t *testing.T) {
 			{
 				Extensions:      []string{"mp4"},
 				Enabled:         true,
-				MediaType:       "video",
+				MediaType:       "video", //nolint:goconst
 				MaxOriginalSize: 10000000,
 			},
 		},
@@ -617,9 +647,11 @@ func TestMatchRuleMultipleRules(t *testing.T) {
 	if !match {
 		t.Error("Should match jpg rule")
 	}
+
 	if rule == nil {
 		t.Fatal("Rule should not be nil")
 	}
+
 	if mt != "image" {
 		t.Errorf("MediaType = %q, want %q", mt, "image")
 	}
@@ -629,9 +661,11 @@ func TestMatchRuleMultipleRules(t *testing.T) {
 	if !match {
 		t.Error("Should match mp4 rule")
 	}
+
 	if rule == nil {
 		t.Fatal("Rule should not be nil")
 	}
+
 	if mt != "video" {
 		t.Errorf("MediaType = %q, want %q", mt, "video")
 	}
@@ -684,9 +718,11 @@ func TestMatchRuleOnlyContentTypeRules(t *testing.T) {
 	if !match {
 		t.Error("Should match video/mp4 content type")
 	}
+
 	if rule == nil {
 		t.Fatal("Rule should not be nil")
 	}
+
 	if mt != "video" {
 		t.Errorf("MediaType = %q, want %q", mt, "video")
 	}
@@ -716,9 +752,11 @@ func TestCheckOriginalSizeWithServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkOriginalSize failed: %v", err)
 	}
+
 	if !need {
 		t.Error("Should need thumbnail: 50000 > 10000")
 	}
+
 	if size != 50000 {
 		t.Errorf("Size = %d, want 50000", size)
 	}
@@ -740,9 +778,11 @@ func TestCheckOriginalSizeBelowThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkOriginalSize failed: %v", err)
 	}
+
 	if need {
 		t.Error("Should NOT need thumbnail: 5000 <= 10000")
 	}
+
 	if size != 5000 {
 		t.Errorf("Size = %d, want 5000", size)
 	}
@@ -765,9 +805,11 @@ func TestCheckOriginalSizeZeroMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkOriginalSize failed: %v", err)
 	}
+
 	if !need {
 		t.Error("Should always need thumbnail when MaxOriginalSize is 0")
 	}
+
 	if size != 500 {
 		t.Errorf("Size = %d, want 500", size)
 	}
@@ -793,6 +835,7 @@ func TestCheckOriginalSizeExactThreshold(t *testing.T) {
 	if need {
 		t.Error("Should NOT need thumbnail: 10000 is not > 10000")
 	}
+
 	if size != 10000 {
 		t.Errorf("Size = %d, want 10000", size)
 	}
@@ -809,9 +852,11 @@ func TestCheckOriginalSizeFailedRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for failed HTTP request")
 	}
+
 	if need {
 		t.Error("Should NOT need thumbnail on error")
 	}
+
 	if size != 0 {
 		t.Errorf("Size = %d, want 0 on error", size)
 	}
@@ -823,6 +868,7 @@ func TestCheckOriginalSizeContentTypeCheck(t *testing.T) {
 		if r.Method != http.MethodHead {
 			t.Errorf("Expected HEAD request, got %s", r.Method)
 		}
+
 		w.Header().Set("Content-Length", "999999")
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -837,9 +883,11 @@ func TestCheckOriginalSizeContentTypeCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkOriginalSize failed: %v", err)
 	}
+
 	if !need {
 		t.Error("Should need thumbnail: 999999 > 100000")
 	}
+
 	if size != 999999 {
 		t.Errorf("Size = %d, want 999999", size)
 	}
@@ -863,7 +911,7 @@ func TestGenerateCacheKeyFormat(t *testing.T) {
 		t.Errorf("Hash part should be 16 characters, got %d: %q", len(parts[0]), parts[0])
 	}
 
-	if parts[1] != "webp" {
+	if parts[1] != "webp" { //nolint:goconst
 		t.Errorf("Format part = %q, want %q", parts[1], "webp")
 	}
 }
@@ -879,9 +927,11 @@ func TestGenerateCacheKeyDifferentFormats(t *testing.T) {
 	if keyJpeg == keyPng {
 		t.Error("Different formats should produce different keys")
 	}
+
 	if keyJpeg == keyWebp {
 		t.Error("Different formats should produce different keys")
 	}
+
 	if keyPng == keyWebp {
 		t.Error("Different formats should produce different keys")
 	}
@@ -890,9 +940,11 @@ func TestGenerateCacheKeyDifferentFormats(t *testing.T) {
 	if !strings.HasSuffix(keyJpeg, ".jpeg") {
 		t.Errorf("Key should end with .jpeg, got %q", keyJpeg)
 	}
+
 	if !strings.HasSuffix(keyPng, ".png") {
 		t.Errorf("Key should end with .png, got %q", keyPng)
 	}
+
 	if !strings.HasSuffix(keyWebp, ".webp") {
 		t.Errorf("Key should end with .webp, got %q", keyWebp)
 	}
@@ -920,8 +972,8 @@ func TestGenerateCacheKeyConsistency(t *testing.T) {
 	url := "https://example.com/test/image.png"
 	format := "webp"
 
-	var keys []string
-	for i := 0; i < 100; i++ {
+	keys := make([]string, 0, 100)
+	for range 100 {
 		keys = append(keys, GenerateCacheKey(url, format))
 	}
 
@@ -948,21 +1000,27 @@ func TestThumbnailResultFields(t *testing.T) {
 	if result.OriginalURL != "https://example.com/img.jpg" {
 		t.Errorf("OriginalURL = %q", result.OriginalURL)
 	}
+
 	if result.ThumbnailURL != "https://cdn.example.com/thumb.webp" {
 		t.Errorf("ThumbnailURL = %q", result.ThumbnailURL)
 	}
+
 	if result.Status != models.ThumbnailStatusCompleted {
 		t.Errorf("Status = %q", result.Status)
 	}
+
 	if !result.IsThumbnail {
 		t.Error("IsThumbnail should be true")
 	}
+
 	if result.Reason != "" {
 		t.Errorf("Reason = %q", result.Reason)
 	}
+
 	if result.Width != 320 {
 		t.Errorf("Width = %d", result.Width)
 	}
+
 	if result.Height != 240 {
 		t.Errorf("Height = %d", result.Height)
 	}
@@ -979,6 +1037,7 @@ func TestThumbnailResultSkipped(t *testing.T) {
 	if result.IsThumbnail {
 		t.Error("Skipped result should not be a thumbnail")
 	}
+
 	if result.ThumbnailURL != "" {
 		t.Error("Skipped result should not have thumbnail URL")
 	}
@@ -991,21 +1050,27 @@ func TestThumbnailStatsZeroValues(t *testing.T) {
 	if stats.Total != 0 {
 		t.Errorf("Zero-value Total should be 0, got %d", stats.Total)
 	}
+
 	if stats.Completed != 0 {
 		t.Errorf("Zero-value Completed should be 0, got %d", stats.Completed)
 	}
+
 	if stats.Failed != 0 {
 		t.Errorf("Zero-value Failed should be 0, got %d", stats.Failed)
 	}
+
 	if stats.Pending != 0 {
 		t.Errorf("Zero-value Pending should be 0, got %d", stats.Pending)
 	}
+
 	if stats.Processing != 0 {
 		t.Errorf("Zero-value Processing should be 0, got %d", stats.Processing)
 	}
+
 	if stats.Skipped != 0 {
 		t.Errorf("Zero-value Skipped should be 0, got %d", stats.Skipped)
 	}
+
 	if stats.StorageUsed != 0 {
 		t.Errorf("Zero-value StorageUsed should be 0, got %d", stats.StorageUsed)
 	}
@@ -1025,12 +1090,15 @@ func TestThumbnailStatsFields(t *testing.T) {
 	if stats.Total != 100 {
 		t.Errorf("Total = %d, want 100", stats.Total)
 	}
+
 	if stats.Completed != 80 {
 		t.Errorf("Completed = %d, want 80", stats.Completed)
 	}
+
 	if stats.Failed+stats.Completed+stats.Pending+stats.Processing+stats.Skipped != 100 {
 		t.Error("Status counts should add up to total")
 	}
+
 	if stats.StorageUsed != 5000000 {
 		t.Errorf("StorageUsed = %d, want 5000000", stats.StorageUsed)
 	}
@@ -1043,6 +1111,7 @@ func TestNewServiceWithStorageBackend(t *testing.T) {
 		Type:      "local",
 		LocalPath: "./test_storage",
 	}
+
 	backend, err := storage.NewBackend(storageCfg)
 	if err != nil {
 		t.Fatalf("Failed to create storage backend: %v", err)
@@ -1065,6 +1134,7 @@ func TestNewServiceWithStorageBackend(t *testing.T) {
 	if svc.GetStorage() == nil {
 		t.Error("Storage should not be nil")
 	}
+
 	if svc.GetStorage().Type() != "local" {
 		t.Errorf("Storage type = %q, want %q", svc.GetStorage().Type(), "local")
 	}
@@ -1076,8 +1146,8 @@ func TestBatchGetThumbnailURLsMixed(t *testing.T) {
 	cfg := &models.ThumbnailServiceConfig{Enabled: false}
 	svc, _ := NewService(cfg, nil)
 
-	urls := []string{}
-	for i := 0; i < 10; i++ {
+	urls := make([]string, 0, 10)
+	for i := range 10 {
 		urls = append(urls, fmt.Sprintf("https://example.com/img%d.jpg", i))
 	}
 
@@ -1090,11 +1160,14 @@ func TestBatchGetThumbnailURLsMixed(t *testing.T) {
 		result, ok := results[url]
 		if !ok {
 			t.Errorf("Missing result for %s", url)
+
 			continue
 		}
+
 		if result.Status != models.ThumbnailStatusSkipped {
 			t.Errorf("Status = %q, want %q", result.Status, models.ThumbnailStatusSkipped)
 		}
+
 		if result.OriginalURL != url {
 			t.Errorf("OriginalURL = %q, want %q", result.OriginalURL, url)
 		}
@@ -1182,6 +1255,7 @@ func TestCheckOriginalSizeNoContentLength(t *testing.T) {
 	if need {
 		t.Error("Should NOT need thumbnail when content length is unknown (-1)")
 	}
+
 	if size != -1 {
 		t.Errorf("Size = %d, want -1 (unknown)", size)
 	}
@@ -1194,10 +1268,12 @@ func TestProcessContentWithImageURLsButDisabled(t *testing.T) {
 	svc, _ := NewService(cfg, nil)
 
 	content := `Here is an image <img src="https://example.com/photo.jpg"> and a link https://example.com/other.png`
+
 	result, err := svc.ProcessContent(context.TODO(), content)
 	if err != nil {
 		t.Fatalf("ProcessContent should not error when disabled, got: %v", err)
 	}
+
 	if result != content {
 		t.Error("ProcessContent should return original content when disabled")
 	}

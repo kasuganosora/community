@@ -8,28 +8,31 @@ import (
 	"github.com/pkg/errors"
 )
 
-// VerifyCredentials handles GET /api/v1/accounts/verify_credentials
+// VerifyCredentials handles GET /api/v1/accounts/verify_credentials.
 func VerifyCredentials(c *gin.Context) {
-	account := c.MustGet("account").(*models.Account)
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Load extra data
 	err := db.GetDB().Model(account).Association("Emojis").Find(&account.Emojis)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "load emojis error"))
+
 		return
 	}
 
 	account.Extra = &models.AccountExtra{}
+
 	err = db.GetDB().Model(account).Association("Extra").Find(account.Extra)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "load extra error"))
+
 		return
 	}
 
 	c.JSON(200, serializer.ToAccount(account))
 }
 
-// AccountSource represents the source field in account credentials
+// AccountSource represents the source field in account credentials.
 type AccountSource struct {
 	Privacy   string                `json:"privacy"`
 	Sensitive bool                  `json:"sensitive"`
@@ -38,8 +41,9 @@ type AccountSource struct {
 	Fields    []models.AccountField `json:"fields"`
 }
 
-// AccountWithSource extends Account with source field
+// AccountWithSource extends Account with source field.
 type AccountWithSource struct {
 	*serializer.Account
+
 	Source AccountSource `json:"source"`
 }

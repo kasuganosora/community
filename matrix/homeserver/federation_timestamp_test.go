@@ -17,9 +17,10 @@ type FederationTimestampTest struct {
 	db *gorm.DB
 }
 
-// Setup 设置测试数据库
+// Setup 设置测试数据库.
 func (ft *FederationTimestampTest) Setup(t *testing.T) {
 	var err error
+
 	ft.db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 
@@ -27,21 +28,22 @@ func (ft *FederationTimestampTest) Setup(t *testing.T) {
 	require.NoError(t, ft.db.AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomMember{}))
 }
 
-// Teardown 清理
+// Teardown 清理.
 func (ft *FederationTimestampTest) Teardown() {
 	sqlDB, _ := ft.db.DB()
-		_ = sqlDB.Close()
+	_ = sqlDB.Close()
 }
 
-// TestScenario_FederatedEventArrivesLate 模拟联邦事件延迟到达的场景
+// TestScenario_FederatedEventArrivesLate 模拟联邦事件延迟到达的场景.
 func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 	ft := &FederationTimestampTest{}
+
 	ft.Setup(t)
 	defer ft.Teardown()
 
-	roomID := "!test:local.server"
-	localUser := "@alice:local.server"
-	remoteUser := "@bob:remote.server"
+	roomID := "!test:local.server"     //nolint:goconst
+	localUser := "@alice:local.server" //nolint:goconst
+	remoteUser := "@bob:remote.server" //nolint:goconst
 
 	// 记录时间线
 	startTime := time.Now().UnixMilli()
@@ -49,11 +51,11 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 	// ========== 步骤 1: 本地用户创建事件 A ==========
 	// T+0: 本地事件 A (origin_ts = 现在)
 	eventA := &MatrixEvent{
-		EventID:        "$A:local.server",
+		EventID:        "$A:local.server", //nolint:goconst
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         localUser,
-		Content:        map[string]interface{}{"body": "A"},
+		Content:        map[string]any{"body": "A"}, //nolint:goconst
 		OriginServerTS: startTime,
 	}
 	require.NoError(t, ft.db.Create(eventA).Error)
@@ -64,10 +66,12 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 	sinceToken := int64(0)
 
 	var initialEvents []MatrixEvent
+
 	ft.db.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
 		Order("origin_server_ts ASC").Find(&initialEvents)
 
 	t.Logf("[T+100ms] Bob first sync (since=%d): found %d events", sinceToken, len(initialEvents))
+
 	for _, e := range initialEvents {
 		t.Logf("  - %s: origin_ts=%d", e.EventID, e.OriginServerTS)
 	}
@@ -89,11 +93,11 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 	// 此时 origin_server_ts = startTime + 50 (远程时间)
 	// 但本地数据库使用 created_at (自动设置)
 	eventB := &MatrixEvent{
-		EventID:        "$B:remote.server",
+		EventID:        "$B:remote.server", //nolint:goconst
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         remoteUser,
-		Content:        map[string]interface{}{"body": "B"},
+		Content:        map[string]any{"body": "B"},
 		OriginServerTS: remoteEventTime, // 远程创建时间: T+50ms
 		SenderDomain:   "remote.server",
 	}
@@ -101,6 +105,7 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 
 	// 重新查询获取 created_at
 	var eventBFromDB MatrixEvent
+
 	ft.db.First(&eventBFromDB, "event_id = ?", "$B:remote.server")
 
 	t.Logf("[T+300ms] Event B arrived: origin_ts=%d (remote T+50ms)",
@@ -116,10 +121,12 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 
 	// 方法 1: 使用 origin_server_ts 过滤（当前实现）
 	var eventsByOrigin []MatrixEvent
+
 	ft.db.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
 		Order("origin_server_ts ASC").Find(&eventsByOrigin)
 
 	t.Logf("  Query by origin_server_ts > %d: found %d events", sinceToken, len(eventsByOrigin))
+
 	for _, e := range eventsByOrigin {
 		t.Logf("    - %s: origin_ts=%d", e.EventID, e.OriginServerTS)
 	}
@@ -128,9 +135,11 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 
 	// 验证 1: 使用 origin_server_ts 过滤会遗漏联邦事件 B
 	foundByOrigin := false
+
 	for _, e := range eventsByOrigin {
 		if e.EventID == "$B:remote.server" {
 			foundByOrigin = true
+
 			break
 		}
 	}
@@ -147,14 +156,14 @@ func TestScenario_FederatedEventArrivesLate(t *testing.T) {
 		t.Log("- Event B has origin_ts=1050 but since=1150")
 		t.Log("- Solution: Use created_at or a hybrid approach")
 	}
-
 	// 这个测试预期会失败以演示问题
 	// 实际修复后应该改为 assert.True(t, foundByOrigin)
 }
 
-// TestScenario_MultipleFederatedEvents 测试多个联邦事件乱序到达
+// TestScenario_MultipleFederatedEvents 测试多个联邦事件乱序到达.
 func TestScenario_MultipleFederatedEvents(t *testing.T) {
 	ft := &FederationTimestampTest{}
+
 	ft.Setup(t)
 	defer ft.Teardown()
 
@@ -167,7 +176,7 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 		RoomID:         roomID,
 		EventType:      EventTypeRoomMessage,
 		Sender:         "@alice:local.server",
-		Content:        map[string]interface{}{"body": "A"},
+		Content:        map[string]any{"body": "A"},
 		OriginServerTS: startTime,
 	}
 	ft.db.Create(eventA)
@@ -179,7 +188,7 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 		OriginTS int64
 	}{
 		{"$B:remote.server", startTime + 100},
-		{"$C:remote.server", startTime + 50},
+		{"$C:remote.server", startTime + 50}, //nolint:goconst
 		{"$D:remote.server", startTime + 150},
 	}
 
@@ -189,7 +198,7 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 			RoomID:         roomID,
 			EventType:      EventTypeRoomMessage,
 			Sender:         "@bob:remote.server",
-			Content:        map[string]interface{}{"body": e.ID},
+			Content:        map[string]any{"body": e.ID},
 			OriginServerTS: e.OriginTS,
 			SenderDomain:   "remote.server",
 		}
@@ -202,22 +211,24 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 
 	// 查询: origin_server_ts
 	var byOrigin []MatrixEvent
+
 	ft.db.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
 		Order("origin_server_ts ASC").Find(&byOrigin)
 
 	t.Log("")
 	t.Logf("Sync since=%d", sinceToken)
 	t.Logf("By origin_server_ts: %d events", len(byOrigin))
+
 	for _, e := range byOrigin {
 		t.Logf("  %s: origin=%d", e.EventID, e.OriginServerTS)
 	}
 
 	// 事件 C (origin_ts=startTime+50) 会被 origin_server_ts 过滤漏掉
 	// 因为它的 origin_ts <= sinceToken
-	assert.Equal(t, 2, len(byOrigin), "Should find 2 events by origin_ts (B and D)")
+	assert.Len(t, byOrigin, 2, "Should find 2 events by origin_ts (B and D)")
 }
 
-// TestSyncTokenTimestampBasis 验证 sync token 基于什么时间生成
+// TestSyncTokenTimestampBasis 验证 sync token 基于什么时间生成.
 func TestSyncTokenTimestampBasis(t *testing.T) {
 	eventService := &EventService{}
 	now := time.Now().UnixMilli()
@@ -228,7 +239,7 @@ func TestSyncTokenTimestampBasis(t *testing.T) {
 	t.Logf("Token generated from ts=%d: %s", now, token)
 
 	// 验证 token 格式
-	assert.True(t, len(token) > 0, "Token should not be empty")
+	assert.NotEmpty(t, token, "Token should not be empty")
 
 	// 关键问题：token 基于 origin_server_ts 还是 created_at？
 	t.Log("")
@@ -239,7 +250,7 @@ func TestSyncTokenTimestampBasis(t *testing.T) {
 	t.Log("This causes federated events with old origin_ts to be filtered out.")
 }
 
-// TestTimestampMismatchExplanation 解释时间戳不匹配问题
+// TestTimestampMismatchExplanation 解释时间戳不匹配问题.
 func TestTimestampMismatchExplanation(t *testing.T) {
 	t.Log("========== FEDERATION TIMESTAMP PROBLEM ANALYSIS ==========")
 	t.Log("")

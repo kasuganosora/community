@@ -10,11 +10,10 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// OAuthIntegrationTest OAuth 集成测试
+// OAuthIntegrationTest OAuth 集成测试.
 func TestOAuthIntegration(t *testing.T) {
 	// 这个测试需要完整的数据库环境
 	// 在 CI/CD 中运行时需要配置测试数据库
-
 	t.Run("CreateApp", func(t *testing.T) {
 		// 测试创建 OAuth 应用
 		// POST /api/v1/apps
@@ -40,7 +39,7 @@ func TestOAuthIntegration(t *testing.T) {
 	})
 }
 
-// MediaIntegrationTest Media API 集成测试
+// MediaIntegrationTest Media API 集成测试.
 func TestMediaIntegration(t *testing.T) {
 	t.Run("UploadImage", func(t *testing.T) {
 		// 测试图片上传
@@ -67,7 +66,7 @@ func TestMediaIntegration(t *testing.T) {
 	})
 }
 
-// SearchIntegrationTest Search API 集成测试
+// SearchIntegrationTest Search API 集成测试.
 func TestSearchIntegration(t *testing.T) {
 	t.Run("SearchAccounts", func(t *testing.T) {
 		// 测试账户搜索

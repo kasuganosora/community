@@ -21,6 +21,7 @@ func TestDirectTimeline_GetTimelineId(t *testing.T) {
 
 func TestDirectTimeline_TimelineInterface(t *testing.T) {
 	account := &models.Account{Id: 999}
+
 	var timeline feed.Timeline = &DirectTimeline{Account: account}
 
 	assert.Equal(t, "direct:%s", timeline.GetKeyFormat())
@@ -33,7 +34,7 @@ func TestDirectTimeline_Rebuild(t *testing.T) {
 
 	// Rebuild 应该返回 nil（不执行任何操作）
 	err := timeline.Rebuild()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 }
 
 func TestDirectTimeline_MultipleAccounts(t *testing.T) {
@@ -57,17 +58,18 @@ func TestDirectTimeline_ConcurrentAccess(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = timeline.GetKeyFormat()
 				_ = timeline.GetTimelineId()
 			}
+
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -113,7 +115,7 @@ func TestPush_WithToAccounts(t *testing.T) {
 	status := &models.Status{
 		Id:             1,
 		Visibility:     models.StatusVisibilityDirect,
-		ConversationId: utilsGetPtr(uint64(1)),
+		ConversationId: new(uint64(1)),
 		ToAccounts: []*models.Account{
 			{Id: 100},
 			{Id: 200},
@@ -195,9 +197,4 @@ func TestDirect_StatusWithConversation(t *testing.T) {
 	assert.NotNil(t, status.ConversationId)
 	assert.Equal(t, conversationId, *status.ConversationId)
 	assert.Len(t, status.ToAccounts, 2)
-}
-
-// 辅助函数
-func utilsGetPtr[T any](v T) *T {
-	return &v
 }

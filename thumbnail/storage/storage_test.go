@@ -11,15 +11,16 @@ import (
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	os.RemoveAll("./test_storage")
+	_ = os.RemoveAll("./test_storage")
+
 	os.Exit(code)
 }
 
 func TestNewLocalBackend(t *testing.T) {
 	cfg := Config{
-		Type:       "local",
+		Type:       "local", //nolint:goconst
 		PathPrefix: "thumbnails/",
-		LocalPath:  "./test_storage",
+		LocalPath:  "./test_storage", //nolint:goconst
 		PublicURL:  "",
 	}
 
@@ -72,6 +73,7 @@ func TestLocalBackendPutAndGet(t *testing.T) {
 	if url == "" {
 		t.Error("URL should not be empty")
 	}
+
 	if !strings.Contains(url, key) {
 		t.Error("URL should contain the key")
 	}
@@ -92,13 +94,16 @@ func TestLocalBackendExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exists failed: %v", err)
 	}
+
 	if exists {
 		t.Error("Non-existent file should return false")
 	}
 
 	// Create a file
 	key := "exists_test.txt"
+
 	content := []byte("test content")
+
 	if err := backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "text/plain"); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -108,6 +113,7 @@ func TestLocalBackendExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exists failed: %v", err)
 	}
+
 	if !exists {
 		t.Error("Existing file should return true")
 	}
@@ -227,6 +233,7 @@ func TestLocalBackendLargeFile(t *testing.T) {
 	}
 
 	key := "large_file.bin"
+
 	err := backend.Put(ctx, key, bytes.NewReader(content), int64(len(content)), "application/octet-stream")
 	if err != nil {
 		t.Fatalf("Failed to put large file: %v", err)
@@ -234,10 +241,12 @@ func TestLocalBackendLargeFile(t *testing.T) {
 
 	// Verify file exists and has correct size
 	fullPath := filepath.Join("./test_storage", "large", key)
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		t.Fatalf("Failed to stat large file: %v", err)
 	}
+
 	if info.Size() != int64(len(content)) {
 		t.Errorf("File size = %d, want %d", info.Size(), len(content))
 	}
@@ -287,6 +296,7 @@ func TestLocalBackendMultipleOperations(t *testing.T) {
 
 	for key, content := range files {
 		data := []byte(content)
+
 		err := backend.Put(ctx, key, bytes.NewReader(data), int64(len(data)), "text/plain")
 		if err != nil {
 			t.Fatalf("Failed to put %s: %v", key, err)
@@ -299,6 +309,7 @@ func TestLocalBackendMultipleOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Exists failed for %s: %v", key, err)
 		}
+
 		if !exists {
 			t.Errorf("File %s should exist", key)
 		}
@@ -321,14 +332,14 @@ func TestLocalBackendMultipleOperations(t *testing.T) {
 	}
 }
 
-// Test S3Backend creation (without actual S3 connection)
+// Test S3Backend creation (without actual S3 connection).
 func TestS3BackendType(t *testing.T) {
 	// This test just verifies the S3Backend type exists
 	// We can't test actual S3 operations without credentials
 	cfg := Config{
 		Type:     "s3",
-		Bucket:   "test-bucket",
-		Region:   "us-east-1",
+		Bucket:   "test-bucket", //nolint:goconst
+		Region:   "us-east-1",   //nolint:goconst
 		Endpoint: "",
 	}
 
@@ -340,14 +351,14 @@ func TestS3BackendType(t *testing.T) {
 	}
 }
 
-// Test MinIOBackend creation (without actual MinIO connection)
+// Test MinIOBackend creation (without actual MinIO connection).
 func TestMinIOBackendType(t *testing.T) {
 	// This test just verifies the MinIOBackend type exists
 	cfg := Config{
 		Type:     "minio",
 		Bucket:   "test-bucket",
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:9000",
+		Endpoint: "http://localhost:9000", //nolint:goconst
 	}
 
 	// This will fail because no server, but verifies the code compiles

@@ -2,9 +2,9 @@ package homeserver
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: reviewed and safe
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"net/http"
 	"strconv"
 	"sync"
@@ -18,17 +18,17 @@ import (
 // ===== 管理员 API =====
 // 服务器统计、用户管理等功能
 
-// AdminService 管理员服务
+// AdminService 管理员服务.
 type AdminService struct {
 	hs *HomeServer
 }
 
-// NewAdminService 创建管理员服务
+// NewAdminService 创建管理员服务.
 func NewAdminService(hs *HomeServer) *AdminService {
 	return &AdminService{hs: hs}
 }
 
-// ServerStats 服务器统计
+// ServerStats 服务器统计.
 type ServerStats struct {
 	TotalUsers         int64 `json:"total_users"`
 	TotalRooms         int64 `json:"total_rooms"`
@@ -38,7 +38,7 @@ type ServerStats struct {
 	OnlineUsers        int64 `json:"online_users"`
 }
 
-// GetServerStats 获取服务器统计
+// GetServerStats 获取服务器统计.
 func (as *AdminService) GetServerStats() (*ServerStats, error) {
 	stats := &ServerStats{}
 
@@ -65,7 +65,7 @@ func (as *AdminService) GetServerStats() (*ServerStats, error) {
 	return stats, nil
 }
 
-// UserInfo 用户信息
+// UserInfo 用户信息.
 type UserInfo struct {
 	UserID        string    `json:"user_id"`
 	DisplayName   string    `json:"display_name,omitempty"`
@@ -76,21 +76,24 @@ type UserInfo struct {
 	IsDeactivated bool      `json:"is_deactivated"`
 }
 
-// ListUsers 列出用户
+// ListUsers 列出用户.
 func (as *AdminService) ListUsers(offset, limit int) ([]UserInfo, int64, error) {
 	var total int64
+
 	db.GetDB().Model(&MatrixUserSession{}).Distinct("user_id").Count(&total)
 
 	var users []MatrixUserSession
-	if err := db.GetDB().Distinct("user_id, created_at, last_active_ts").
+	err := db.GetDB().Distinct("user_id, created_at, last_active_ts").
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(limit).
-		Find(&users).Error; err != nil {
+		Find(&users).Error
+	if err != nil {
 		return nil, 0, err
 	}
 
 	userInfos := make([]UserInfo, len(users))
+
 	for i, u := range users {
 		userInfo := UserInfo{
 			UserID: u.UserID,
@@ -98,25 +101,29 @@ func (as *AdminService) ListUsers(offset, limit int) ([]UserInfo, int64, error) 
 		if u.CreatedAt != nil {
 			userInfo.CreatedAt = *u.CreatedAt
 		}
+
 		if u.LastActiveTS != nil {
 			userInfo.LastActiveAt = *u.LastActiveTS
 		}
+
 		userInfos[i] = userInfo
 	}
 
 	return userInfos, total, nil
 }
 
-// GetUserInfo 获取用户信息
+// GetUserInfo 获取用户信息.
 func (as *AdminService) GetUserInfo(userID string) (*UserInfo, error) {
 	// 查找用户会话
 	var session MatrixUserSession
-	if err := db.GetDB().Where("user_id = ?", userID).Order("created_at DESC").First(&session).Error; err != nil {
-		return nil, fmt.Errorf("user not found")
+	err := db.GetDB().Where("user_id = ?", userID).Order("created_at DESC").First(&session).Error
+	if err != nil {
+		return nil, errors.New("user not found")
 	}
 
 	// 查找用户资料
 	var profile MatrixAccountData
+
 	db.GetDB().Where("user_id = ? AND data_type = ? AND room_id IS NULL", userID, "m.profile").First(&profile)
 
 	info := &UserInfo{
@@ -125,6 +132,7 @@ func (as *AdminService) GetUserInfo(userID string) (*UserInfo, error) {
 	if session.CreatedAt != nil {
 		info.CreatedAt = *session.CreatedAt
 	}
+
 	if session.LastActiveTS != nil {
 		info.LastActiveAt = *session.LastActiveTS
 	}
@@ -134,6 +142,7 @@ func (as *AdminService) GetUserInfo(userID string) (*UserInfo, error) {
 		if name, ok := profile.Content["displayname"].(string); ok {
 			info.DisplayName = name
 		}
+
 		if avatar, ok := profile.Content["avatar_url"].(string); ok {
 			info.AvatarURL = avatar
 		}
@@ -142,13 +151,14 @@ func (as *AdminService) GetUserInfo(userID string) (*UserInfo, error) {
 	return info, nil
 }
 
-// DeactivateUser 停用用户账户
+// DeactivateUser 停用用户账户.
 func (as *AdminService) DeactivateUser(userID string, erase bool) error {
 	// 撤销所有会话
 	as.hs.Account.revokeAllSessions(userID)
 
 	// 离开所有房间
 	var memberships []MatrixRoomMember
+
 	db.GetDB().Where("user_id = ? AND membership = ?", userID, MembershipJoin).Find(&memberships)
 
 	for _, m := range memberships {
@@ -167,18 +177,19 @@ func (as *AdminService) DeactivateUser(userID string, erase bool) error {
 	return nil
 }
 
-// ResetUserPassword 重置用户密码
+// ResetUserPassword 重置用户密码.
 func (as *AdminService) ResetUserPassword(userID, newPassword string) error {
 	return as.hs.Account.updatePassword(userID, newPassword)
 }
 
-// MakeUserAdmin 设置用户为管理员
+// MakeUserAdmin 设置用户为管理员.
 func (as *AdminService) MakeUserAdmin(userID string, admin bool) error {
 	// 更新账户数据中的管理员标志
 	var accountData MatrixAccountData
+
 	err := db.GetDB().Where("user_id = ? AND data_type = ? AND room_id IS NULL", userID, "m.account_data").First(&accountData).Error
 
-	content := map[string]interface{}{
+	content := map[string]any{
 		"admin": admin,
 	}
 
@@ -189,15 +200,17 @@ func (as *AdminService) MakeUserAdmin(userID string, admin bool) error {
 			DataType: "m.account_data",
 			Content:  content,
 		}
+
 		return db.GetDB().Create(&accountData).Error
 	}
 
 	// 更新现有的
 	accountData.Content["admin"] = admin
+
 	return db.GetDB().Save(&accountData).Error
 }
 
-// RoomInfo 房间信息
+// RoomInfo 房间信息.
 type RoomInfo struct {
 	RoomID        string    `json:"room_id"`
 	Name          string    `json:"name,omitempty"`
@@ -208,20 +221,24 @@ type RoomInfo struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// ListRooms 列出房间
+// ListRooms 列出房间.
 func (as *AdminService) ListRooms(offset, limit int) ([]RoomInfo, int64, error) {
 	var total int64
+
 	db.GetDB().Model(&MatrixRoom{}).Count(&total)
 
 	var rooms []MatrixRoom
-	if err := db.GetDB().Order("created_at DESC").Offset(offset).Limit(limit).Find(&rooms).Error; err != nil {
+	err := db.GetDB().Order("created_at DESC").Offset(offset).Limit(limit).Find(&rooms).Error
+	if err != nil {
 		return nil, 0, err
 	}
 
 	roomInfos := make([]RoomInfo, len(rooms))
+
 	for i, r := range rooms {
 		// 获取成员数
 		var memberCount int64
+
 		db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", r.RoomID, MembershipJoin).Count(&memberCount)
 
 		roomInfos[i] = RoomInfo{
@@ -235,6 +252,7 @@ func (as *AdminService) ListRooms(offset, limit int) ([]RoomInfo, int64, error) 
 		if r.Name != nil {
 			roomInfos[i].Name = *r.Name
 		}
+
 		if r.Topic != nil {
 			roomInfos[i].Topic = *r.Topic
 		}
@@ -243,19 +261,20 @@ func (as *AdminService) ListRooms(offset, limit int) ([]RoomInfo, int64, error) 
 	return roomInfos, total, nil
 }
 
-// DeleteRoom 删除房间
+// DeleteRoom 删除房间.
 func (as *AdminService) DeleteRoom(roomID string) error {
 	// 删除房间及其所有数据
 	db.GetDB().Where("room_id = ?", roomID).Delete(&MatrixEvent{})
 	db.GetDB().Where("room_id = ?", roomID).Delete(&MatrixRoomState{})
 	db.GetDB().Where("room_id = ?", roomID).Delete(&MatrixRoomMember{})
 	db.GetDB().Where("room_id = ?", roomID).Delete(&MatrixRoom{})
+
 	return nil
 }
 
 // ===== HTTP Handlers =====
 
-// RegisterAdminRoutes 注册管理员路由
+// RegisterAdminRoutes 注册管理员路由.
 func RegisterAdminRoutes(r gin.IRouter) {
 	hs := GetHomeServer()
 	if hs == nil || !hs.Config.Enabled {
@@ -308,14 +327,17 @@ func isUserAdmin(userID string) bool {
 	if !ok {
 		return false
 	}
+
 	var user models.User
-	if err := db.GetDB().Where("username = ?", localpart).First(&user).Error; err != nil {
+	err := db.GetDB().Where("username = ?", localpart).First(&user).Error
+	if err != nil {
 		return false
 	}
+
 	return user.IsAdmin
 }
 
-// AdminAuthMiddleware 管理员认证中间件
+// AdminAuthMiddleware 管理员认证中间件.
 func AdminAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Inline auth logic (do NOT call MatrixAuthMiddleware()(c) because
@@ -324,30 +346,35 @@ func AdminAuthMiddleware() gin.HandlerFunc {
 		if authHeader == "" {
 			authHeader = "Bearer " + c.Query("access_token")
 		}
+
 		if authHeader == "" || len(authHeader) < 8 {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"errcode": "M_MISSING_TOKEN",
-				"error":   "Missing access token",
+				"errcode": "M_MISSING_TOKEN",      //nolint:goconst
+				"error":   "Missing access token", //nolint:goconst
 			})
+
 			return
 		}
+
 		token := authHeader[7:]
 
 		hs := GetHomeServer()
 		if hs == nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"errcode": "M_UNKNOWN",
-				"error":   "Homeserver not available",
+				"errcode": "M_UNKNOWN",                //nolint:goconst
+				"error":   "Homeserver not available", //nolint:goconst
 			})
+
 			return
 		}
 
 		session, matrixErr := hs.Auth.GetDeviceByToken(token)
 		if matrixErr != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"errcode": "M_UNKNOWN_TOKEN",
+				"errcode": "M_UNKNOWN_TOKEN", //nolint:goconst
 				"error":   "Invalid access token",
 			})
+
 			return
 		}
 
@@ -356,32 +383,35 @@ func AdminAuthMiddleware() gin.HandlerFunc {
 
 		if !isUserAdmin(session.UserID) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"errcode": "M_FORBIDDEN",
+				"errcode": "M_FORBIDDEN", //nolint:goconst
 				"error":   "You are not a server administrator",
 			})
+
 			return
 		}
+
 		c.Next()
 	}
 }
 
-// handleGetServerStats 获取服务器统计
+// handleGetServerStats 获取服务器统计.
 func handleGetServerStats(c *gin.Context) {
 	hs := GetHomeServer()
 
 	stats, err := hs.Admin.GetServerStats()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL_ERROR",
+			"errcode": "M_INTERNAL_ERROR", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, stats)
 }
 
-// handleGetUserStats 获取用户统计
+// handleGetUserStats 获取用户统计.
 func handleGetUserStats(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -391,6 +421,7 @@ func handleGetUserStats(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -401,7 +432,7 @@ func handleGetUserStats(c *gin.Context) {
 	})
 }
 
-// handleGetRoomStats 获取房间统计
+// handleGetRoomStats 获取房间统计.
 func handleGetRoomStats(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -411,6 +442,7 @@ func handleGetRoomStats(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -419,7 +451,7 @@ func handleGetRoomStats(c *gin.Context) {
 	})
 }
 
-// handleListUsers 列出用户
+// handleListUsers 列出用户.
 func handleListUsers(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -432,16 +464,17 @@ func handleListUsers(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"users": users,
+		"users": users, //nolint:goconst
 		"total": total,
 	})
 }
 
-// handleGetUserDetails 获取用户详情
+// handleGetUserDetails 获取用户详情.
 func handleGetUserDetails(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
@@ -449,16 +482,17 @@ func handleGetUserDetails(c *gin.Context) {
 	info, err := hs.Admin.GetUserInfo(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
+			"errcode": "M_NOT_FOUND", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, info)
 }
 
-// handleUpdateUser 更新用户
+// handleUpdateUser 更新用户.
 func handleUpdateUser(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
@@ -468,60 +502,68 @@ func handleUpdateUser(c *gin.Context) {
 		AvatarURL   string `json:"avatar_url,omitempty"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
+			"errcode": "M_BAD_JSON", //nolint:goconst
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// 更新用户资料
-	content := map[string]interface{}{
+	content := map[string]any{
 		"displayname": req.DisplayName,
 		"avatar_url":  req.AvatarURL,
 	}
 
-	if err := hs.Account.SetAccountData(userID, "m.profile", nil, content); err != nil {
+	err = hs.Account.SetAccountData(userID, "m.profile", nil, content)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleResetUserPassword 重置用户密码
+// handleResetUserPassword 重置用户密码.
 func handleResetUserPassword(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
 
 	var req struct {
-		NewPassword string `json:"new_password" binding:"required"`
+		NewPassword string `binding:"required" json:"new_password"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
-	if err := hs.Admin.ResetUserPassword(userID, req.NewPassword); err != nil {
+	err = hs.Admin.ResetUserPassword(userID, req.NewPassword)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleMakeUserAdmin 设置用户为管理员
+// handleMakeUserAdmin 设置用户为管理员.
 func handleMakeUserAdmin(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
@@ -530,26 +572,30 @@ func handleMakeUserAdmin(c *gin.Context) {
 		Admin bool `json:"admin"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_BAD_JSON",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
-	if err := hs.Admin.MakeUserAdmin(userID, req.Admin); err != nil {
+	err = hs.Admin.MakeUserAdmin(userID, req.Admin)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleDeleteUser 删除用户
+// handleDeleteUser 删除用户.
 func handleDeleteUser(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
@@ -557,13 +603,16 @@ func handleDeleteUser(c *gin.Context) {
 	var req struct {
 		Erase bool `json:"erase"`
 	}
+
 	_ = c.ShouldBindJSON(&req)
 
-	if err := hs.Admin.DeactivateUser(userID, req.Erase); err != nil {
+	err := hs.Admin.DeactivateUser(userID, req.Erase)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
-			"error":   err.Error(),
+			"error":   "internal server error",
 		})
+
 		return
 	}
 
@@ -572,7 +621,7 @@ func handleDeleteUser(c *gin.Context) {
 	})
 }
 
-// handleWhoisUser 获取用户详细信息
+// handleWhoisUser 获取用户详细信息.
 func handleWhoisUser(c *gin.Context) {
 	hs := GetHomeServer()
 	userID := c.Param("userId")
@@ -583,11 +632,13 @@ func handleWhoisUser(c *gin.Context) {
 			"errcode": "M_NOT_FOUND",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
 	// 获取设备信息
 	var devices []MatrixDeviceKey
+
 	db.GetDB().Where("user_id = ?", userID).Find(&devices)
 
 	deviceList := make([]gin.H, len(devices))
@@ -603,7 +654,7 @@ func handleWhoisUser(c *gin.Context) {
 	})
 }
 
-// handleListRooms 列出房间
+// handleListRooms 列出房间.
 func handleListRooms(c *gin.Context) {
 	hs := GetHomeServer()
 
@@ -616,6 +667,7 @@ func handleListRooms(c *gin.Context) {
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -625,7 +677,7 @@ func handleListRooms(c *gin.Context) {
 	})
 }
 
-// handleGetRoomDetails 获取房间详情
+// handleGetRoomDetails 获取房间详情.
 func handleGetRoomDetails(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
@@ -634,18 +686,20 @@ func handleGetRoomDetails(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
+			"error":   "Room not found", //nolint:goconst
 		})
+
 		return
 	}
 
 	// 获取成员数
 	var memberCount int64
+
 	db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Count(&memberCount)
 
 	c.JSON(http.StatusOK, gin.H{
-		"room_id":        room.RoomID,
-		"name":           room.Name,
+		"room_id":        room.RoomID, //nolint:goconst
+		"name":           room.Name,   //nolint:goconst
 		"topic":          room.Topic,
 		"creator":        room.Creator,
 		"version":        room.RoomVersion,
@@ -654,16 +708,18 @@ func handleGetRoomDetails(c *gin.Context) {
 	})
 }
 
-// handleDeleteRoom 删除房间
+// handleDeleteRoom 删除房间.
 func handleDeleteRoom(c *gin.Context) {
 	hs := GetHomeServer()
 	roomID := c.Param("roomId")
 
-	if err := hs.Admin.DeleteRoom(roomID); err != nil {
+	err := hs.Admin.DeleteRoom(roomID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL_ERROR",
 			"error":   err.Error(),
 		})
+
 		return
 	}
 
@@ -674,9 +730,10 @@ func handleDeleteRoom(c *gin.Context) {
 
 // ===== Server Notices (Synapse-compatible admin API) =====
 
-// serverNoticeTxnCache stores txnId → event_id for idempotency
+// serverNoticeTxnCache stores txnId → event_id for idempotency.
 var serverNoticeTxnCache = struct {
 	sync.Mutex
+
 	m map[string]string
 }{m: make(map[string]string)}
 
@@ -689,7 +746,8 @@ func handleSendServerNotice(c *gin.Context) {
 		serverNoticeTxnCache.Lock()
 		if eventID, ok := serverNoticeTxnCache.m[txnID]; ok {
 			serverNoticeTxnCache.Unlock()
-			c.JSON(http.StatusOK, gin.H{"event_id": eventID})
+			c.JSON(http.StatusOK, gin.H{"event_id": eventID}) //nolint:goconst
+
 			return
 		}
 		serverNoticeTxnCache.Unlock()
@@ -698,20 +756,25 @@ func handleSendServerNotice(c *gin.Context) {
 	hs := GetHomeServer()
 
 	var req struct {
-		UserID  string                 `json:"user_id"`
-		Content map[string]interface{} `json:"content"`
+		UserID  string         `json:"user_id"`
+		Content map[string]any `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.UserID == "" {
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil || req.UserID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON or missing user_id"})
+
 		return
 	}
 
 	// Server notice bot user ID (Synapse uses @_server:<domain>)
-	botUserID := fmt.Sprintf("@_server:%s", hs.Config.ServerName)
+	botUserID := "@_server:" + hs.Config.ServerName
 
 	// Ensure bot user exists (create silently if not)
 	botLocalpart := "_server"
+
 	var botSession MatrixUserSession
+
 	if db.GetDB().Where("user_id = ?", botUserID).First(&botSession).Error != nil {
 		// Create the bot account via the internal Register method
 		_, _ = hs.Auth.Register(&RegisterRequest{
@@ -723,16 +786,21 @@ func handleSendServerNotice(c *gin.Context) {
 	// Find or create a DM room between bot and target user
 	roomID := ""
 	needsReinvite := false
+
 	var existingMembers []MatrixRoomMember
+
 	db.GetDB().Where("user_id = ? AND membership = ?", botUserID, MembershipJoin).Find(&existingMembers)
+
 	for _, m := range existingMembers {
 		var targetMember MatrixRoomMember
 		// Check if target has any membership in this room (join, invite, or leave)
 		if db.GetDB().Where("room_id = ? AND user_id = ?", m.RoomID, req.UserID).First(&targetMember).Error == nil {
 			roomID = m.RoomID
+
 			if targetMember.Membership == MembershipLeave || targetMember.Membership == MembershipBan {
 				needsReinvite = true
 			}
+
 			break
 		}
 	}
@@ -741,18 +809,21 @@ func handleSendServerNotice(c *gin.Context) {
 		// Create a new DM room
 		inviteList := []string{req.UserID}
 		isDirect := true
+
 		createResp, err := hs.Room.CreateRoom(botUserID, &CreateRoomRequest{
 			Preset:   "private_chat",
 			Invite:   inviteList,
 			IsDirect: isDirect,
-			CreationContent: map[string]interface{}{
+			CreationContent: map[string]any{
 				"m.federate": false,
 			},
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to create notice room"})
+			c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to create notice room"}) //nolint:goconst
+
 			return
 		}
+
 		roomID = createResp.RoomID
 	}
 
@@ -764,11 +835,13 @@ func handleSendServerNotice(c *gin.Context) {
 	// Send the notice message
 	content := req.Content
 	if content == nil {
-		content = map[string]interface{}{"msgtype": "m.text", "body": "Server notice"}
+		content = map[string]any{"msgtype": "m.text", "body": "Server notice"} //nolint:goconst
 	}
+
 	resp, matErr := hs.Event.SendRoomEvent(roomID, botUserID, "m.room.message", nil, content, nil)
 	if matErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_INTERNAL", "error": "Failed to send notice"})
+
 		return
 	}
 
@@ -791,9 +864,10 @@ var (
 	nonceMu    sync.Mutex
 )
 
-// handleSharedSecretRegisterNonce returns a nonce for shared-secret registration
+// handleSharedSecretRegisterNonce returns a nonce for shared-secret registration.
 func handleSharedSecretRegisterNonce(c *gin.Context) {
 	nonce := generateSID() + generateSID()
+
 	nonceMu.Lock()
 	nonceStore[nonce] = time.Now()
 	// Clean up old nonces (> 5 minutes)
@@ -809,7 +883,7 @@ func handleSharedSecretRegisterNonce(c *gin.Context) {
 	})
 }
 
-// handleSharedSecretRegister handles shared-secret admin registration
+// handleSharedSecretRegister handles shared-secret admin registration.
 func handleSharedSecretRegister(c *gin.Context) {
 	var req struct {
 		Nonce    string `json:"nonce"`
@@ -818,13 +892,17 @@ func handleSharedSecretRegister(c *gin.Context) {
 		Admin    bool   `json:"admin"`
 		Mac      string `json:"mac"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"})
+	err := c.ShouldBindJSON(&req)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"}) //nolint:goconst
+
 		return
 	}
 
 	// Validate nonce
 	nonceMu.Lock()
+
 	ts, ok := nonceStore[req.Nonce]
 	if ok {
 		delete(nonceStore, req.Nonce)
@@ -833,6 +911,7 @@ func handleSharedSecretRegister(c *gin.Context) {
 
 	if !ok || time.Since(ts) > 5*time.Minute {
 		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_UNKNOWN", "error": "Invalid or expired nonce"})
+
 		return
 	}
 
@@ -841,6 +920,7 @@ func handleSharedSecretRegister(c *gin.Context) {
 	if req.Admin {
 		adminStr = "admin"
 	}
+
 	mac := hmac.New(sha1.New, []byte(sharedRegistrationSecret))
 	mac.Write([]byte(req.Nonce))
 	mac.Write([]byte{0})
@@ -853,10 +933,12 @@ func handleSharedSecretRegister(c *gin.Context) {
 
 	if !hmac.Equal([]byte(req.Mac), []byte(expectedMAC)) {
 		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "HMAC mismatch"})
+
 		return
 	}
 
 	hs := GetHomeServer()
+
 	resp, regErr := hs.Auth.Register(&RegisterRequest{
 		Username: req.Username,
 		Password: req.Password,
@@ -864,6 +946,7 @@ func handleSharedSecretRegister(c *gin.Context) {
 	}, true)
 	if regErr != nil {
 		c.JSON(http.StatusBadRequest, regErr)
+
 		return
 	}
 

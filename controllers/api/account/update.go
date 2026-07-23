@@ -27,13 +27,14 @@ type UpdateAccountRequest struct {
 func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {
 	form, err := c.MultipartForm()
 	if err != nil {
-		return
+		return err
 	}
-	dec := formam.NewDecoder(&formam.DecoderOptions{TagName: "json"})
-	err = dec.Decode(form.Value, req)
 
+	dec := formam.NewDecoder(&formam.DecoderOptions{TagName: "json"})
+
+	err = dec.Decode(form.Value, req)
 	if err != nil {
-		return
+		return err
 	}
 
 	// 处理头像和头图
@@ -41,8 +42,10 @@ func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {
 		// 不能超过1M
 		if avatar[0].Size > 1024*1024 {
 			err = errors.New("avatar size too large")
-			return
+
+			return err
 		}
+
 		req.Avatar = avatar[0]
 	}
 
@@ -50,23 +53,26 @@ func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {
 		// 不能超过3M
 		if header[0].Size > 1024*1024*3 {
 			err = errors.New("header size too large")
-			return
+
+			return err
 		}
+
 		req.Header = header[0]
 	}
 
-	return
+	return err
 }
 
 func UpdateAccount(c *gin.Context) {
 	req := &UpdateAccountRequest{}
 	if err := req.Bind(c); err != nil {
-		c.JSON(422, gin.H{"error": err.Error()})
+		c.JSON(422, gin.H{"error": err.Error()}) //nolint:goconst
+
 		return
 	}
 
 	// 获取当前用户
-	user := c.MustGet("user").(*models.User)
+	user := c.MustGet("user").(*models.User) //nolint:forcetypeassert
 
 	account := &models.Account{}
 
@@ -74,11 +80,12 @@ func UpdateAccount(c *gin.Context) {
 		Preload("Extra").
 		Preload("Emojis").
 		Where("user_id = ?", user.Id).First(account).Error
-
 	if err != nil {
-		c.JSON(500, gin.H{"error": "internal error"})
+		c.JSON(500, gin.H{"error": "internal error"}) //nolint:goconst
+
 		err = errors.Wrap(err, "UpdateAccount")
 		_ = c.Error(err)
+
 		return
 	}
 
@@ -87,59 +94,75 @@ func UpdateAccount(c *gin.Context) {
 	// 如果有头像，就更新头像
 	if req.Avatar != nil {
 		saveFilePath := "public/avatars/" + user.UUID
+
 		saveFilePath, err = storage.SaveByMultipart(saveFilePath, req.Avatar)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "upload avatar failed"})
+
 			err = errors.Wrap(err, "UpdateAccount")
 			_ = c.Error(err)
+
 			return
 		}
+
 		account.Avatar = saveFilePath
+
 		updateFields = append(updateFields, "avatar")
 	}
 
 	// 如果有头图，就更新头图
 	if req.Header != nil {
 		saveFilePath := "public/headers/" + user.UUID
+
 		saveFilePath, err = storage.SaveByMultipart(saveFilePath, req.Header)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "upload header failed"})
+
 			err = errors.Wrap(err, "UpdateAccount")
 			_ = c.Error(err)
+
 			return
 		}
+
 		account.Header = saveFilePath
+
 		updateFields = append(updateFields, "header")
 	}
 
 	// 更新其他信息
 	if req.DisplayName != nil {
 		account.DisplayName = *req.DisplayName
+
 		updateFields = append(updateFields, "display_name")
 	}
 
 	if req.Note != nil {
 		account.Note = *req.Note
+
 		updateFields = append(updateFields, "note")
 	}
 
 	if req.Locked != nil {
 		account.Locked = *req.Locked
+
 		updateFields = append(updateFields, "locked")
 	}
 
 	if req.Bot != nil {
 		account.Bot = *req.Bot
+
 		updateFields = append(updateFields, "bot")
 	}
 
 	if req.Discoverable != nil {
 		account.Discoverable = *req.Discoverable
+
 		updateFields = append(updateFields, "discoverable")
 	}
 
 	if req.HideCollections != nil {
 		account.HideCollections = *req.HideCollections
+
 		updateFields = append(updateFields, "hide_collections")
 	}
 
@@ -151,6 +174,7 @@ func UpdateAccount(c *gin.Context) {
 
 		if req.Fields != nil {
 			account.Extra.Fields = req.Fields
+
 			err = tx.Save(account.Extra).Error
 			if err != nil {
 				return
@@ -158,18 +182,19 @@ func UpdateAccount(c *gin.Context) {
 		}
 
 		err = tx.Select(updateFields).Save(account).Error
+
 		return
 	})
-
 	if err != nil {
 		c.JSON(500, gin.H{"error": "internal error"})
+
 		err = errors.Wrap(err, "UpdateAccount")
 		_ = c.Error(err)
+
 		return
 	}
 
 	acc := serializer.ToAccount(account)
 
-	c.JSON(200, gin.H{"account": acc})
-
+	c.JSON(200, gin.H{"account": acc}) //nolint:goconst
 }

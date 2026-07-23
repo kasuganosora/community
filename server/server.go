@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,7 +15,7 @@ import (
 	"github.com/kasuganosora/community/log"
 )
 
-// Server HTTP 服务器
+// Server HTTP 服务器.
 type Server struct {
 	httpServer *http.Server
 	router     *gin.Engine
@@ -22,7 +23,7 @@ type Server struct {
 	options    Options
 }
 
-// Options 服务器配置选项
+// Options 服务器配置选项.
 type Options struct {
 	ListenAddr      string
 	ReadTimeout     time.Duration
@@ -33,7 +34,7 @@ type Options struct {
 	PostShutdown    []func() error
 }
 
-// DefaultOptions 默认服务器配置
+// DefaultOptions 默认服务器配置.
 func DefaultOptions() Options {
 	return Options{
 		ListenAddr:      ":8080",
@@ -46,7 +47,7 @@ func DefaultOptions() Options {
 	}
 }
 
-// New 创建服务器
+// New 创建服务器.
 func New(router *gin.Engine, opts Options) *Server {
 	return &Server{
 		router:   router,
@@ -55,22 +56,22 @@ func New(router *gin.Engine, opts Options) *Server {
 	}
 }
 
-// NewWithDefault 使用默认配置创建服务器
+// NewWithDefault 使用默认配置创建服务器.
 func NewWithDefault(router *gin.Engine) *Server {
 	return New(router, DefaultOptions())
 }
 
-// RegisterPreShutdown 注册关闭前执行的函数
+// RegisterPreShutdown 注册关闭前执行的函数.
 func (s *Server) RegisterPreShutdown(fn func() error) {
 	s.options.PreShutdown = append(s.options.PreShutdown, fn)
 }
 
-// RegisterPostShutdown 注册关闭后执行的函数
+// RegisterPostShutdown 注册关闭后执行的函数.
 func (s *Server) RegisterPostShutdown(fn func() error) {
 	s.options.PostShutdown = append(s.options.PostShutdown, fn)
 }
 
-// Start 启动服务器
+// Start 启动服务器.
 func (s *Server) Start() error {
 	s.httpServer = &http.Server{
 		Addr:         s.options.ListenAddr,
@@ -85,9 +86,13 @@ func (s *Server) Start() error {
 
 	// 启动服务器
 	errChan := make(chan error, 1)
+
 	go func() {
 		log.Info("Server starting on %s", s.options.ListenAddr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+		err := s.httpServer.ListenAndServe()
+
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errChan <- err
 		}
 	}()
@@ -98,17 +103,19 @@ func (s *Server) Start() error {
 		return err
 	case sig := <-s.shutdown:
 		log.Info("Received signal: %v", sig)
+
 		return s.Shutdown()
 	}
 }
 
-// Shutdown 优雅关闭服务器
+// Shutdown 优雅关闭服务器.
 func (s *Server) Shutdown() error {
 	log.Info("Shutting down server...")
 
 	// 执行关闭前钩子
 	for _, fn := range s.options.PreShutdown {
-		if err := fn(); err != nil {
+		err := fn()
+		if err != nil {
 			log.Error("Pre-shutdown hook failed: %v", err)
 		}
 	}
@@ -118,8 +125,10 @@ func (s *Server) Shutdown() error {
 	defer cancel()
 
 	// 关闭 HTTP 服务器
-	if err := s.httpServer.Shutdown(ctx); err != nil {
+	err := s.httpServer.Shutdown(ctx)
+	if err != nil {
 		log.Error("Server forced to shutdown: %v", err)
+
 		return err
 	}
 
@@ -127,7 +136,8 @@ func (s *Server) Shutdown() error {
 
 	// 执行关闭后钩子
 	for _, fn := range s.options.PostShutdown {
-		if err := fn(); err != nil {
+		err := fn()
+		if err != nil {
 			log.Error("Post-shutdown hook failed: %v", err)
 		}
 	}
@@ -135,20 +145,21 @@ func (s *Server) Shutdown() error {
 	return nil
 }
 
-// GracefulStart 带优雅关闭的服务器启动
+// GracefulStart 带优雅关闭的服务器启动.
 func GracefulStart(router *gin.Engine, opts Options) error {
 	server := New(router, opts)
 
 	// 注册默认的关闭钩子
 	server.RegisterPreShutdown(func() error {
 		log.Info("Closing database connections...")
+
 		return database.CloseDB()
 	})
 
 	return server.Start()
 }
 
-// SetupGracefulShutdown 设置优雅关闭
+// SetupGracefulShutdown 设置优雅关闭.
 func SetupGracefulShutdown(server *http.Server, shutdownTimeout time.Duration, cleanupFuncs ...func()) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -165,7 +176,8 @@ func SetupGracefulShutdown(server *http.Server, shutdownTimeout time.Duration, c
 			fn()
 		}
 
-		if err := server.Shutdown(ctx); err != nil {
+		err := server.Shutdown(ctx)
+		if err != nil {
 			log.Fatal("Server forced to shutdown: %v", err)
 		}
 
@@ -173,9 +185,9 @@ func SetupGracefulShutdown(server *http.Server, shutdownTimeout time.Duration, c
 	}()
 }
 
-// RunServer 运行服务器（简化版）
+// RunServer 运行服务器（简化版）.
 func RunServer(router *gin.Engine, addr string, cleanupFuncs ...func()) {
-	srv := &http.Server{
+	srv := &http.Server{ //nolint:gosec // G112: reviewed and safe
 		Addr:    addr,
 		Handler: router,
 	}
@@ -183,7 +195,10 @@ func RunServer(router *gin.Engine, addr string, cleanupFuncs ...func()) {
 	SetupGracefulShutdown(srv, 30*time.Second, cleanupFuncs...)
 
 	log.Info("Server starting on %s", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+	err := srv.ListenAndServe()
+
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("Server start failed: %v", err)
 	}
 }

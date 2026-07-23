@@ -15,7 +15,7 @@ import (
 
 var DB *gorm.DB
 
-// isTestMode 用于测试时跳过真实数据库连接
+// isTestMode 用于测试时跳过真实数据库连接.
 var isTestMode = false
 
 func init() {
@@ -23,7 +23,7 @@ func init() {
 	isTestMode = detectTestMode()
 }
 
-// detectTestMode 检测是否在运行 go test
+// detectTestMode 检测是否在运行 go test.
 func detectTestMode() bool {
 	// 检查命令行参数
 	for _, arg := range os.Args {
@@ -36,33 +36,34 @@ func detectTestMode() bool {
 	if os.Getenv("GO_TEST_MODE") == "1" {
 		return true
 	}
+
 	return false
 }
 
 // SetTestMode 设置测试模式（必须在包导入之前调用）
-// 这个函数只能在 init() 之前调用才有效
+// 这个函数只能在 init() 之前调用才有效.
 func SetTestMode() {
 	isTestMode = true
 }
 
-// SetTestDB 设置测试数据库（仅用于测试）
+// SetTestDB 设置测试数据库（仅用于测试）.
 func SetTestDB(db *gorm.DB) {
 	DB = db
 	isTestMode = true
 }
 
-// ResetTestDB 重置测试数据库
+// ResetTestDB 重置测试数据库.
 func ResetTestDB() {
 	DB = nil
 	isTestMode = false
 }
 
-// IsTestMode 检查是否在测试模式
+// IsTestMode 检查是否在测试模式.
 func IsTestMode() bool {
 	return isTestMode
 }
 
-// InitGorm 初始化 Gorm
+// InitGorm 初始化 Gorm.
 func InitGorm() {
 	// 如果是测试模式，跳过初始化
 	if isTestMode {
@@ -75,12 +76,13 @@ func InitGorm() {
 	}
 
 	var err error
+
 	switch dsnType {
-	case "mysql":
+	case "mysql": //nolint:goconst
 		err = initMysqlConnection()
-	case "sqlite":
+	case "sqlite": //nolint:goconst
 		err = initSqliteConnection()
-	case "xml":
+	case "xml": //nolint:goconst
 		err = initSqlexecXmlConnection()
 	default:
 		log.Fatal("Unsupported DSN type: %s", dsnType)
@@ -89,10 +91,9 @@ func InitGorm() {
 	if err != nil {
 		log.Fatal("Init database connection failed: %+v", err)
 	}
-
 }
 
-// DBConfig 数据库连接池配置
+// DBConfig 数据库连接池配置.
 type DBConfig struct {
 	MaxOpenConns    int           // 最大连接数
 	MaxIdleConns    int           // 最大空闲连接数
@@ -100,7 +101,7 @@ type DBConfig struct {
 	ConnMaxIdleTime time.Duration // 空闲连接最大生命周期
 }
 
-// DefaultDBConfig 默认数据库配置
+// DefaultDBConfig 默认数据库配置.
 func DefaultDBConfig() DBConfig {
 	return DBConfig{
 		MaxOpenConns:    100,
@@ -110,7 +111,7 @@ func DefaultDBConfig() DBConfig {
 	}
 }
 
-// LoadDBConfig 从环境变量加载配置
+// LoadDBConfig 从环境变量加载配置.
 func LoadDBConfig() DBConfig {
 	cfg := DefaultDBConfig()
 
@@ -119,16 +120,19 @@ func LoadDBConfig() DBConfig {
 			cfg.MaxOpenConns = i
 		}
 	}
+
 	if v := os.Getenv("DB_MAX_IDLE_CONNS"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			cfg.MaxIdleConns = i
 		}
 	}
+
 	if v := os.Getenv("DB_CONN_MAX_LIFETIME_MINUTES"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			cfg.ConnMaxLifetime = time.Duration(i) * time.Minute
 		}
 	}
+
 	if v := os.Getenv("DB_CONN_MAX_IDLE_TIME_MINUTES"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			cfg.ConnMaxIdleTime = time.Duration(i) * time.Minute
@@ -141,6 +145,7 @@ func LoadDBConfig() DBConfig {
 func initMysqlConnection() (err error) {
 	dsn := config.C.DbUsername + ":" + config.C.DbPassword + "@tcp(" + config.C.DbHost + ":" + config.C.DbPort + ")/" + config.C.DbDatabase
 	dsn += "?charset=utf8mb4&parseTime=True&loc=Local"
+
 	DB, err = gorm.Open(mysql.Open(dsn))
 	if err != nil {
 		return
@@ -161,7 +166,7 @@ func initMysqlConnection() (err error) {
 	log.Info("MySQL connection pool configured: max_open=%d, max_idle=%d, max_lifetime=%v, max_idle_time=%v",
 		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
 
-	if config.C.DevMode == "true" {
+	if config.C.DevMode == "true" { //nolint:goconst
 		DB = DB.Debug()
 	}
 
@@ -173,6 +178,7 @@ func initSqliteConnection() (err error) {
 	if dbPath == "" {
 		dbPath = "community.db"
 	}
+
 	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
 		return
@@ -190,9 +196,11 @@ func initSqliteConnection() (err error) {
 		sqlDB.SetMaxIdleConns(1)
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
+
 	if config.C.DevMode == "true" {
 		DB = DB.Debug()
 	}
+
 	return
 }
 
@@ -205,11 +213,12 @@ func getDsnType() string {
 	case "xml":
 		return "xml"
 	}
+
 	return ""
 }
 
-// GetDBStats 获取数据库连接池统计信息
-func GetDBStats() (map[string]interface{}, error) {
+// GetDBStats 获取数据库连接池统计信息.
+func GetDBStats() (map[string]any, error) {
 	if DB == nil {
 		return nil, os.ErrInvalid
 	}
@@ -220,7 +229,8 @@ func GetDBStats() (map[string]interface{}, error) {
 	}
 
 	stats := sqlDB.Stats()
-	return map[string]interface{}{
+
+	return map[string]any{
 		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
 		"idle":                stats.Idle,
@@ -231,7 +241,7 @@ func GetDBStats() (map[string]interface{}, error) {
 	}, nil
 }
 
-// CloseDB 关闭数据库连接
+// CloseDB 关闭数据库连接.
 func CloseDB() error {
 	if DB == nil {
 		return nil
@@ -245,7 +255,7 @@ func CloseDB() error {
 	return sqlDB.Close()
 }
 
-// PingDB 检查数据库连接
+// PingDB 检查数据库连接.
 func PingDB() error {
 	if DB == nil {
 		return os.ErrInvalid
