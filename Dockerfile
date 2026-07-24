@@ -32,7 +32,7 @@ RUN npm run build
 # ============================================
 # Stage 3: Runtime
 # ============================================
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata ffmpeg
 
