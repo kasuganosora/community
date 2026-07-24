@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Group updates by ecosystem to reduce PR noise
+    groups:
+      golang-org:
+        patterns:
+          - "golang.org/*"
+      aws-sdk:
+        patterns:
+          - "github.com/aws/*"
+      redis:
+        patterns:
+          - "github.com/redis/*"
+          - "github.com/go-redis/*"
+      gin:
+        patterns:
+          - "github.com/gin-gonic/*"
+          - "github.com/gin-contrib/*"
+      gorm:
+        patterns:
+          - "gorm.io/*"
+      testing:
+        patterns:
+          - "github.com/stretchr/*"
+          - "github.com/alicebob/*"
+          - "github.com/go-redis/redismock/*"
+    # Ignore patch updates for indirect deps (they generate too much noise)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+        # Only ignore patch updates for indirect deps
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
