@@ -44,6 +44,11 @@ func GetCache() *Cache {
 	return defaultCache
 }
 
+// Close 释放缓存资源（复用全局 Redis 连接，无需实际关闭）.
+func Close() {
+	// cache 复用 db/redis 的全局连接，由 redis 包统一管理生命周期
+}
+
 // Set 设置缓存.
 func (c *Cache) Set(ctx context.Context, key string, value any, expiration time.Duration) error {
 	data, err := json.Marshal(value)

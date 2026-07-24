@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/errors"
@@ -49,6 +50,9 @@ func main() {
 	log.FatalIf(err)
 
 	event.GetEventManager("status")
+
+	// 初始化缓存
+	cache.Init()
 
 	// 初始化 Matrix Bridge（如果已配置启用）
 	if err := matrix.Init(); err != nil {
