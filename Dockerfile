@@ -20,7 +20,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/community ./cmd
 # ============================================
 # Stage 2: Build frontend
 # ============================================
-FROM node:22-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
