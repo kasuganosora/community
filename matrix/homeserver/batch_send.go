@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/utils"
 )
 
 // ===== MSC2716: 批量发送端点实现 =====
@@ -193,32 +194,12 @@ func (bss *BatchSendService) getNextDepth(roomID string) int64 {
 
 // extractDomain 从用户 ID 提取域名.
 func (bss *BatchSendService) extractDomain(userID string) string {
-	parts := splitUserID(userID)
-	if len(parts) == 2 {
-		return parts[1]
+	_, domain, ok := utils.ParseMatrixUserID(userID)
+	if ok {
+		return domain
 	}
 
 	return bss.hs.Config.ServerName
-}
-
-// splitUserID 分割用户 ID.
-func splitUserID(userID string) []string {
-	// @user:server -> [@user, server]
-	atIndex := -1
-
-	for i, c := range userID {
-		if c == ':' {
-			atIndex = i
-
-			break
-		}
-	}
-
-	if atIndex == -1 {
-		return []string{userID}
-	}
-
-	return []string{userID[:atIndex], userID[atIndex+1:]}
 }
 
 // ImportHistoricalMessages 导入历史消息（桥接器专用）.

@@ -80,27 +80,31 @@ func TestIsAudio(t *testing.T) {
 	}
 }
 
-// ---------- GetMediaType ----------
+// ---------- Media type helpers ----------
 
-func TestGetMediaType(t *testing.T) {
+func TestMediaTypeHelpers(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
-		want        string
+		isImage     bool
+		isVideo     bool
+		isAudio     bool
 	}{
-		{"JPEG", "image/jpeg", "image"}, //nolint:goconst
-		{"PNG", "image/png", "image"},
-		{"MP4", "video/mp4", "video"}, //nolint:goconst
-		{"WebM", "video/webm", "video"},
-		{"MP3", "audio/mpeg", "audio"}, //nolint:goconst
-		{"OGG", "audio/ogg", "audio"},
-		{"Text", "text/plain", "unknown"}, //nolint:goconst
-		{"PDF", "application/pdf", "unknown"},
-		{"Empty", "", "unknown"},
+		{"JPEG", "image/jpeg", true, false, false},
+		{"PNG", "image/png", true, false, false},
+		{"MP4", "video/mp4", false, true, false},
+		{"WebM", "video/webm", false, true, false},
+		{"MP3", "audio/mpeg", false, false, true},
+		{"OGG", "audio/ogg", false, false, true},
+		{"Text", "text/plain", false, false, false},
+		{"PDF", "application/pdf", false, false, false},
+		{"Empty", "", false, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, GetMediaType(tt.contentType))
+			assert.Equal(t, tt.isImage, IsImage(tt.contentType))
+			assert.Equal(t, tt.isVideo, IsVideo(tt.contentType))
+			assert.Equal(t, tt.isAudio, IsAudio(tt.contentType))
 		})
 	}
 }

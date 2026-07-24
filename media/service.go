@@ -325,20 +325,3 @@ func IsVideo(contentType string) bool {
 func IsAudio(contentType string) bool {
 	return strings.HasPrefix(contentType, "audio/")
 }
-
-// GetMediaType 获取媒体类型.
-func GetMediaType(contentType string) string {
-	if IsImage(contentType) {
-		return "image" //nolint:goconst
-	}
-
-	if IsVideo(contentType) {
-		return "video" //nolint:goconst
-	}
-
-	if IsAudio(contentType) {
-		return "audio" //nolint:goconst
-	}
-
-	return "unknown" //nolint:goconst
-}

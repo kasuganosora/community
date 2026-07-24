@@ -720,21 +720,12 @@ func (a *AuthService) GetWellKnown() *ServerWellKnown {
 
 // ParseMatrixUserID 解析 Matrix 用户 ID.
 func ParseMatrixUserID(userID string) (localpart, domain string, ok bool) {
-	if !strings.HasPrefix(userID, "@") {
-		return "", "", false
-	}
-
-	parts := strings.SplitN(userID[1:], ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-
-	return parts[0], parts[1], true
+	return utils.ParseMatrixUserID(userID)
 }
 
 // FormatMatrixUserID 格式化 Matrix 用户 ID.
 func FormatMatrixUserID(localpart, domain string) string {
-	return fmt.Sprintf("@%s:%s", localpart, domain)
+	return utils.FormatMatrixUserID(localpart, domain)
 }
 
 // ===== 错误定义 =====

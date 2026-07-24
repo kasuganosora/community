@@ -29,7 +29,7 @@ func NewRelayService() *RelayService {
 
 // getDomain 获取当前域名.
 func (s *RelayService) getDomain() string {
-	return systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	return systemsettings.GetDomain()
 }
 
 // GetInstanceActorURI 获取实例 Actor URI.

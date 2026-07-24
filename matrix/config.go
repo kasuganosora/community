@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils"
 )
 
 // Config Matrix Bridge 配置
@@ -85,35 +86,17 @@ func (c *Config) GetBridgeUserID() string {
 
 // FormatMatrixUserID 格式化 Matrix 用户 ID.
 func (c *Config) FormatMatrixUserID(localpart string) string {
-	return "@" + localpart + ":" + c.ServerName
+	return utils.FormatMatrixUserID(localpart, c.ServerName)
 }
 
 // ParseMatrixUserID 解析 Matrix 用户 ID，返回 localpart 和 server.
 func ParseMatrixUserID(userID string) (localpart, server string, ok bool) {
-	if !strings.HasPrefix(userID, "@") {
-		return "", "", false
-	}
-
-	parts := strings.SplitN(userID[1:], ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-
-	return parts[0], parts[1], true
+	return utils.ParseMatrixUserID(userID)
 }
 
 // ParseMatrixRoomID 解析 Matrix 房间 ID.
 func ParseMatrixRoomID(roomID string) (localpart, server string, ok bool) {
-	if !strings.HasPrefix(roomID, "!") {
-		return "", "", false
-	}
-
-	parts := strings.SplitN(roomID[1:], ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-
-	return parts[0], parts[1], true
+	return utils.ParseMatrixRoomID(roomID)
 }
 
 // Helper functions
