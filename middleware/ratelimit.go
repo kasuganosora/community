@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,9 +9,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/log"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
 
@@ -165,7 +166,7 @@ func (r *RedisRateLimiter) Allow(key string) bool {
 
 // AllowN 检查是否允许 N 个请求.
 func (r *RedisRateLimiter) AllowN(key string, n int) bool {
-	ctx := r.client.Context()
+	ctx := context.Background()
 
 	// Redis Lua 脚本实现令牌桶
 	script := `
@@ -394,7 +395,7 @@ func (s *SlidingWindowRateLimiter) Allow(key string) bool {
 		return true // 降级
 	}
 
-	ctx := s.client.Context()
+	ctx := context.Background()
 	now := time.Now().Unix()
 	windowStart := now - int64(s.windowSize.Seconds())
 
@@ -408,7 +409,7 @@ func (s *SlidingWindowRateLimiter) Allow(key string) bool {
 	countCmd := pipe.ZCard(ctx, key)
 
 	// 添加当前请求，使用纳秒时间戳+随机数避免碰撞
-	pipe.ZAdd(ctx, key, &redis.Z{
+	pipe.ZAdd(ctx, key, redis.Z{
 		Score:  float64(now),
 		Member: fmt.Sprintf("%d:%d", now, time.Now().UnixNano()),
 	})

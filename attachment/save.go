@@ -11,7 +11,6 @@ import (
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
-	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
@@ -207,13 +206,13 @@ func processAudioFile(fileBytes []byte, extension string, ops map[string]any) (b
 	// 生成音频的波形图作为预览图
 	previewFileName := filepath.Join(os.TempDir(), utils.GetRandomString(32)+".png")
 
-	// ffmpeg -i PRC.mp3 -filter_complex "compand,showwavespic=s=640x120" -frames:v 1 output4.png
+	// ffmpeg -i input.mp3 -filter_complex "compand,showwavespic=s=640x120" -frames:v 1 output.png
 	filterStr := fmt.Sprintf("compand,showwavespic=s=%dx%d", MaxPreviewWidth, MaxPreviewHeight)
 
-	err = ffmpeg_go.Input(tmpFileFileName).Output(previewFileName).
-		Filter("complex", ffmpeg_go.Args{filterStr}).
-		Filter("frames:v", ffmpeg_go.Args{"1"}).
-		OverWriteOutput().Run()
+	err = runFFmpeg(tmpFileFileName, previewFileName,
+		"-filter_complex", filterStr,
+		"-frames:v", "1",
+	)
 	if err != nil {
 		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
@@ -297,10 +296,10 @@ func processVideoFile(fileBytes []byte, extension string, ops map[string]any) (b
 		}
 	}()
 
-	err = ffmpeg_go.Input(tmpFileFileName).Output(previewFileName).OverWriteOutput().
-		Filter("select", ffmpeg_go.Args{fmt.Sprintf("eq(n,%d)", previewFrame)}).
-		Output("pipe:", ffmpeg_go.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
-		Run()
+	err = runFFmpeg(tmpFileFileName, previewFileName,
+		"-vf", fmt.Sprintf("select=eq(n\\,%d)", previewFrame),
+		"-vframes", "1", "-q:v", "2",
+	)
 	if err != nil {
 		return blurHash, previewExtension, previewBytes, fileMeta, err
 	}
@@ -410,6 +409,26 @@ func getImage(extName string, fileBytes []byte) (ret image.Image, err error) {
 }
 
 var ffmpegPath string
+
+// runFFmpeg executes ffmpeg with the given input/output and extra args.
+func runFFmpeg(inputPath, outputPath string, extraArgs ...string) error {
+	ffmpeg, err := FindFfmpeg()
+	if err != nil {
+		return err
+	}
+
+	args := []string{"-i", inputPath}
+	args = append(args, extraArgs...)
+	args = append(args, "-y", outputPath)
+
+	cmd := exec.Command(ffmpeg, args...) //nolint:gosec // G204: ffmpeg path is validated
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg exec failed: %w, output: %s", err, string(output))
+	}
+
+	return nil
+}
 
 func FindFfmpeg() (path string, err error) {
 	if ffmpegPath != "" {

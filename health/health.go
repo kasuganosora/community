@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 

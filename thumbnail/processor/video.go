@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"time"
 
-	ffmpeg "github.com/u2takey/ffmpeg-go"
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
 
@@ -97,34 +96,10 @@ func (v *VideoProcessor) GenerateThumbnail(input io.Reader, opts ThumbnailOption
 
 // extractFrame 使用 FFmpeg 提取视频帧.
 func (v *VideoProcessor) extractFrame(inputPath, outputPath string, maxWidth, maxHeight int) error {
-	// 构建 FFmpeg 参数
-	args := ffmpeg.KwArgs{
-		"ss":      strconv.FormatFloat(v.seekTime.Seconds(), 'f', 3, 64),
-		"vframes": 1,
-		"q:v":     2, // 高质量
-	}
+	seekStr := strconv.FormatFloat(v.seekTime.Seconds(), 'f', 3, 64)
 
-	// 添加缩放参数
-	if maxWidth > 0 && maxHeight > 0 {
-		args["vf"] = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease", maxWidth, maxHeight)
-	}
-
-	err := ffmpeg.Input(inputPath, ffmpeg.KwArgs{"ss": strconv.FormatFloat(v.seekTime.Seconds(), 'f', 3, 64)}).
-		Output(outputPath, args).
-		OverWriteOutput().
-		Run()
-	if err != nil {
-		// 尝试使用 exec 直接调用作为 fallback
-		return v.extractFrameExec(inputPath, outputPath, maxWidth, maxHeight)
-	}
-
-	return nil
-}
-
-// extractFrameExec 使用 exec 直接调用 FFmpeg.
-func (v *VideoProcessor) extractFrameExec(inputPath, outputPath string, maxWidth, maxHeight int) error {
 	args := []string{
-		"-ss", strconv.FormatFloat(v.seekTime.Seconds(), 'f', 3, 64),
+		"-ss", seekStr,
 		"-i", inputPath,
 		"-vframes", "1",
 		"-q:v", "2",
@@ -144,6 +119,11 @@ func (v *VideoProcessor) extractFrameExec(inputPath, outputPath string, maxWidth
 	}
 
 	return nil
+}
+
+// extractFrameExec 使用 exec 直接调用 FFmpeg（保留兼容性）.
+func (v *VideoProcessor) extractFrameExec(inputPath, outputPath string, maxWidth, maxHeight int) error {
+	return v.extractFrame(inputPath, outputPath, maxWidth, maxHeight)
 }
 
 // GetVideoInfo 获取视频信息（时长、分辨率等）.
