@@ -34,11 +34,20 @@ func NewClient() *Client {
 		proxyURL, err := url.Parse(config.C.HttpProxy)
 		if err == nil {
 			client.Transport = &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
+				Proxy:               http.ProxyURL(proxyURL),
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
 			}
 		} else {
 			err = errors.WithMessage(err, "parse proxy url error")
 			panic(err)
+		}
+	} else {
+		client.Transport = &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 20,
+			IdleConnTimeout:     90 * time.Second,
 		}
 	}
 
@@ -245,9 +254,11 @@ func (r *Request) Do() (resp *Response, err error) {
 
 		if r.timeout > 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
-			defer cancel()
 
 			req = req.WithContext(ctx)
+
+			// Cancel after this iteration's request completes
+			defer cancel()
 		}
 
 		var resp1 *http.Response

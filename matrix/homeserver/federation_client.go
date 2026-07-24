@@ -25,10 +25,11 @@ import (
 
 // FederationClient 联邦客户端.
 type FederationClient struct {
-	hs         *HomeServer
-	privateKey ed25519.PrivateKey
-	httpClient *httpclient.Client
-	keyCache   *KeyCache
+	hs            *HomeServer
+	privateKey    ed25519.PrivateKey
+	httpClient    *httpclient.Client
+	keyCache      *KeyCache
+	fedHTTPClient *http.Client // cached federation HTTP client
 }
 
 // NewFederationClient 创建联邦客户端.
@@ -254,6 +255,11 @@ func (c *FederationClient) signRequest(req *httpclient.Request, destServer strin
 // In Complement test environments, each homeserver generates its own self-signed cert,
 // so we skip TLS verification. In production, certs should be properly signed.
 func (c *FederationClient) federationHTTPClient() *http.Client {
+	// Return cached client if already initialized
+	if c.fedHTTPClient != nil {
+		return c.fedHTTPClient
+	}
+
 	tlsConfig := &tls.Config{}
 	// Load Complement CA if present, and skip TLS verification for self-signed certs
 	if _, err := os.Stat("/complement/ca/ca.crt"); err == nil {
@@ -266,10 +272,17 @@ func (c *FederationClient) federationHTTPClient() *http.Client {
 		tlsConfig.RootCAs = pool
 	}
 
-	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsConfig},
+	c.fedHTTPClient = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:     tlsConfig,
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 20,
+			IdleConnTimeout:     90 * time.Second,
+		},
 	}
+
+	return c.fedHTTPClient
 }
 
 // doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码.

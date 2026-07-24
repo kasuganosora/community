@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 )
@@ -154,6 +155,18 @@ func GracefulStart(router *gin.Engine, opts Options) error {
 		log.Info("Closing database connections...")
 
 		return database.CloseDB()
+	})
+
+	// 关闭 Redis 连接
+	server.RegisterPreShutdown(func() error {
+		log.Info("Closing Redis connections...")
+
+		cRedis := db.GetRedis()
+		if cRedis != nil {
+			return cRedis.Close()
+		}
+
+		return nil
 	})
 
 	return server.Start()

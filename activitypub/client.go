@@ -14,6 +14,17 @@ import (
 	"time"
 )
 
+// sharedHTTPClient is a package-level shared HTTP client with proper connection pooling.
+// All Client instances reuse this to avoid creating short-lived connections.
+var sharedHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 // Client is an ActivityPub HTTP client.
 type Client struct {
 	httpClient *http.Client
@@ -24,9 +35,7 @@ type Client struct {
 // NewClient creates a new ActivityPub client.
 func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 	return &Client{
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		httpClient: sharedHTTPClient,
 		privateKey: privateKey,
 		actorID:    actorID,
 	}

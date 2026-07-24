@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
@@ -346,18 +346,11 @@ var (
 	globalRedisClientOnce sync.Once
 )
 
-// GetRedisClient 获取 Redis 客户端（单例模式）.
+// GetRedisClient 获取 Redis 客户端（复用全局 db/redis 连接，单例模式）.
 func GetRedisClient() *redis.Client {
 	globalRedisClientOnce.Do(func() {
-		if config.C.Redis0Host == "" {
-			return
-		}
-
-		globalRedisClient = redis.NewClient(&redis.Options{
-			Addr:     fmt.Sprintf("%s:%s", config.C.Redis0Host, config.C.Redis0Port),
-			Password: config.C.Redis0Password,
-			DB:       parseInt(config.C.Redis0Db, 0),
-		})
+		// 复用 db/redis 包中已创建的连接，避免创建多余的连接
+		globalRedisClient = db.GetRedis()
 	})
 
 	return globalRedisClient
