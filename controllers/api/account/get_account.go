@@ -1,7 +1,10 @@
 package account
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -28,7 +31,16 @@ func GetAccount(c *gin.Context) {
 		account = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
+	// 尝试从缓存读取（仅对非 "me" 的数字 ID）
 	if account == nil {
+		var cached models.Account
+		cacheKey := fmt.Sprintf(cache.KeyAccountByAcct, accountId)
+		if err := cache.GetCache().Get(c.Request.Context(), cacheKey, &cached); err == nil {
+			c.JSON(200, serializer.ToAccount(&cached))
+
+			return
+		}
+
 		err = db.GetDB().Where("id = ?", accountId).First(&account).Error
 	}
 
@@ -62,6 +74,10 @@ func GetAccount(c *gin.Context) {
 
 		return
 	}
+
+	// 写入缓存（TTL 5 分钟）
+	cacheKey := fmt.Sprintf(cache.KeyAccountByAcct, accountId)
+	_ = cache.GetCache().Set(c.Request.Context(), cacheKey, account, cache.DefaultExpiration)
 
 	acc := serializer.ToAccount(account)
 

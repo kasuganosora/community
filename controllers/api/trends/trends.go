@@ -1,14 +1,16 @@
 package trends
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
-	"strconv"
 )
 
 // ListTags handles GET /api/v1/trends/tags.
@@ -27,6 +29,15 @@ func ListTags(c *gin.Context) {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
 		}
+	}
+
+	// 尝试从缓存读取热门标签（TTL 2 分钟）
+	tagsCacheKey := fmt.Sprintf("%s:tags:%d:%d", cache.KeyTrendingTags, limit, offset)
+	var cachedResult []gin.H
+	if err := cache.GetCache().Get(c.Request.Context(), tagsCacheKey, &cachedResult); err == nil {
+		c.JSON(200, cachedResult)
+
+		return
 	}
 
 	// Query trending tags (based on recent usage)
@@ -64,10 +75,11 @@ func ListTags(c *gin.Context) {
 		})
 	}
 
+	// 写入缓存
+	_ = cache.GetCache().Set(c.Request.Context(), tagsCacheKey, result, cache.ShortExpiration)
+
 	c.JSON(200, result)
 }
-
-// ListStatuses handles GET /api/v1/trends/statuses.
 func ListStatuses(c *gin.Context) {
 	limit := 10
 

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -116,6 +117,9 @@ func UpdateCredentials(c *gin.Context) {
 
 		return
 	}
+
+	// 使账户缓存失效
+	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
 
 	c.JSON(200, serializer.ToAccount(account))
 }
