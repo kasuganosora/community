@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,7 @@ function navigateTo(item: typeof navItems.value[0]) {
 }
 
 async function handleLogout() {
-  await authStore.logout()
+  authStore.logout()
   router.push({ name: 'landing' })
 }
 </script>
@@ -68,9 +69,7 @@ async function handleLogout() {
     <div class="sidebar-user" v-if="authStore.currentUser">
       <t-dropdown :min-column-width="220">
         <div class="user-info">
-          <t-avatar :size="42" :image="authStore.currentUser.avatar || undefined">
-            {{ authStore.currentUser.display_name?.charAt(0) || 'U' }}
-          </t-avatar>
+          <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
             <div class="user-info__name">{{ authStore.currentUser.display_name }}</div>
             <div class="user-info__username">@{{ authStore.currentUser.username }}</div>

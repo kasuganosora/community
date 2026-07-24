@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted } from 'vue'
 import type { MastodonTag } from '@/shared/types/mastodon'
 import { formatCount } from '@/shared/utils/format'
 import { useCachedRequest } from '@/shared/composables/useCachedRequest'
@@ -10,7 +10,7 @@ const { data: trends, execute } = useCachedRequest<MastodonTag[]>('/api/v1/trend
 })
 
 // Execute on mount
-watch(() => true, () => execute(), { immediate: true })
+onMounted(() => execute())
 
 // Use computed to cache results instead of calling function in template
 const trendStats = computed(() => {

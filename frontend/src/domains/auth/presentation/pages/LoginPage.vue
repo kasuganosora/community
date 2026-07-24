@@ -25,14 +25,14 @@ async function handleLogin() {
   if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
     return
   }
-  
-  loginAttempts.value++
-  
+
   try {
     await authStore.login(form)
+    // Reset attempts on successful login
+    loginAttempts.value = 0
     router.push({ name: 'home' })
   } catch {
-    // error is stored in authStore.error
+    loginAttempts.value++
   }
 }
 </script>

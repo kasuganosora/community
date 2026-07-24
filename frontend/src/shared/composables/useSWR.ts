@@ -1,11 +1,12 @@
-import { ref, shallowRef, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch, onUnmounted } from 'vue'
 import type { AxiosRequestConfig } from 'axios'
 import client from '@/shared/api/client'
 
-// Cache storage
+// Unified cache storage — shared across all useSWR and useCachedRequest callers
 interface CacheEntry<T> {
   data: T
   timestamp: number
+  expiresAt: number
   key: string
 }
 
@@ -26,8 +27,6 @@ interface UseSWROptions<T> {
   initialData?: T
   cacheTime?: number
 }
-
-// SWR hook types
 
 export function useSWR<T>(options: UseSWROptions<T>) {
   const {
@@ -62,7 +61,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const cached = cache.get(key)
     const now = Date.now()
 
-    if (cached && now - cached.timestamp < cacheTime) {
+    if (cached && now < cached.expiresAt) {
       return cached.data as T
     }
 
@@ -76,10 +75,10 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const request = client.get<T>(key, config)
       .then((res) => res.data)
       .then((data) => {
-        // Update cache
         cache.set(key, {
           data,
           timestamp: Date.now(),
+          expiresAt: Date.now() + cacheTime,
           key,
         })
         pendingRequests.delete(key)
@@ -113,7 +112,6 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err))
       if (!silent) {
-        // Only throw on initial load, not on background refresh
         throw err
       }
     } finally {
@@ -129,6 +127,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       cache.set(cacheKey.value, {
         data: newData,
         timestamp: Date.now(),
+        expiresAt: Date.now() + cacheTime,
         key: cacheKey.value,
       })
     }
@@ -138,17 +137,19 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     }
   }
 
+  // Cleanup function to remove event listeners
+  let onFocus: (() => void) | null = null
+  let onOnline: (() => void) | null = null
+
   // Watch for key changes
-  watch(
+  const stopKeyWatch = watch(
     cacheKey,
     (newKey, oldKey) => {
       if (newKey && newKey !== oldKey) {
-        // Check cache immediately
         const cached = cache.get(newKey)
-        if (cached && Date.now() - cached.timestamp < cacheTime) {
+        if (cached && Date.now() < cached.expiresAt) {
           data.value = cached.data as T
           isLoading.value = false
-          // Background refresh
           executeRequest(true)
         } else {
           executeRequest()
@@ -160,7 +161,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
   // Refresh interval
   if (refreshInterval && refreshInterval > 0) {
-    watch(
+    const stopRefreshWatch = watch(
       () => cacheKey.value,
       (key) => {
         if (refreshTimer) {
@@ -174,50 +175,75 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       },
       { immediate: true }
     )
+    // Store original stop for cleanup
+    const originalStop = stopRefreshWatch
+    onUnmounted(() => {
+      originalStop()
+      if (refreshTimer) {
+        clearInterval(refreshTimer)
+      }
+    })
   }
 
   // Revalidate on window focus
   if (revalidateOnFocus) {
-    const onFocus = () => {
+    onFocus = () => {
       const cached = cache.get(cacheKey.value)
-      if (!cached || Date.now() - cached.timestamp > cacheTime / 2) {
+      if (!cached || Date.now() > cached.timestamp + cacheTime / 2) {
         executeRequest(true)
       }
     }
 
-    watch(
+    const stopFocusWatch = watch(
       () => cacheKey.value,
       (key, oldKey) => {
-        if (oldKey) {
+        if (oldKey && onFocus) {
           window.removeEventListener('focus', onFocus)
         }
-        if (key) {
+        if (key && onFocus) {
           window.addEventListener('focus', onFocus)
         }
       },
       { immediate: true }
     )
+    onUnmounted(() => {
+      stopFocusWatch()
+      if (onFocus) {
+        window.removeEventListener('focus', onFocus)
+      }
+    })
   }
 
   // Revalidate on reconnect
   if (revalidateOnReconnect) {
-    const onOnline = () => {
+    onOnline = () => {
       executeRequest(true)
     }
 
-    watch(
+    const stopOnlineWatch = watch(
       () => cacheKey.value,
       (key, oldKey) => {
-        if (oldKey) {
+        if (oldKey && onOnline) {
           window.removeEventListener('online', onOnline)
         }
-        if (key) {
+        if (key && onOnline) {
           window.addEventListener('online', onOnline)
         }
       },
       { immediate: true }
     )
+    onUnmounted(() => {
+      stopOnlineWatch()
+      if (onOnline) {
+        window.removeEventListener('online', onOnline)
+      }
+    })
   }
+
+  // Cleanup key watch on unmount
+  onUnmounted(() => {
+    stopKeyWatch()
+  })
 
   return {
     data: computed(() => data.value),
@@ -231,7 +257,12 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
 // Helper to prefetch data
 export function prefetchSWR<T>(key: string, fetcher?: (key: string) => Promise<T>) {
-  if (cache.has(key)) return Promise.resolve(cache.get(key)!.data as T)
+  if (cache.has(key)) {
+    const entry = cache.get(key)!
+    if (Date.now() < entry.expiresAt) {
+      return Promise.resolve(entry.data as T)
+    }
+  }
 
   const defaultFetcher = async (k: string) => {
     const { data } = await client.get<T>(k)
@@ -244,6 +275,7 @@ export function prefetchSWR<T>(key: string, fetcher?: (key: string) => Promise<T
     cache.set(key, {
       data,
       timestamp: Date.now(),
+      expiresAt: Date.now() + DEFAULT_CACHE_TIME,
       key,
     })
     return data

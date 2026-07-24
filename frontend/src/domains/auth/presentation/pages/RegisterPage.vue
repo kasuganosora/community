@@ -282,7 +282,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--bg-header-blur);
   padding: var(--space-5);
 }
 

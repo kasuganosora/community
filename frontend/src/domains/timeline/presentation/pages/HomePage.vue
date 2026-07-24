@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useTimelineStore } from '../stores/timelineStore'
+import { postApi } from '@/domains/post/infrastructure/postApi'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
@@ -35,9 +36,13 @@ async function handleLoadMore() {
   }
 }
 
-function handlePosted(content: string) {
-  // TODO: Call real API to create status
-  console.warn('New post (not yet persisted):', content)
+async function handlePosted(content: string) {
+  try {
+    const status = await postApi.create({ status: content, visibility: 'public' })
+    timelineStore.prependStatus(status)
+  } catch (e) {
+    console.error('Failed to create post:', e)
+  }
 }
 
 onMounted(() => {
@@ -91,7 +96,7 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--bg-header-blur);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-color);
 }

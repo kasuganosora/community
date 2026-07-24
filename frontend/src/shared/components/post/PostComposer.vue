@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const emit = defineEmits<{
   posted: [content: string]
@@ -30,14 +31,12 @@ async function handlePost() {
 <template>
   <div class="composer">
     <div class="composer__body">
-      <t-avatar
-        :size="'40px'"
-        :image="authStore.currentUser?.avatar || undefined"
-        shape="circle"
+      <UserAvatar
+        v-if="authStore.currentUser"
+        :account="authStore.currentUser"
+        :size="40"
         class="composer__avatar"
-      >
-        {{ authStore.currentUser?.display_name?.charAt(0) || 'U' }}
-      </t-avatar>
+      />
       <div class="composer__input-area">
         <t-textarea
           v-model="content"

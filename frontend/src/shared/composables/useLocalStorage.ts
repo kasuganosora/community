@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { ref, watch, onUnmounted, type Ref } from 'vue'
 
 interface UseLocalStorageOptions<T> {
   serializer?: {
@@ -68,6 +68,11 @@ export function useLocalStorage<T>(
     }
 
     window.addEventListener('storage', handleStorage)
+
+    // Clean up event listener on component unmount
+    onUnmounted(() => {
+      window.removeEventListener('storage', handleStorage)
+    })
   }
 
   return storedValue

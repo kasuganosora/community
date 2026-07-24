@@ -7,6 +7,7 @@
   --bg-hover: #1d1f23;
   --bg-elevated: #202327;
   --bg-card: rgba(22, 24, 28, 0.85);
+  --bg-header-blur: rgba(0, 0, 0, 0.65);
 
   --text-primary: #e7e9ea;
   --text-secondary: #71767b;
@@ -152,6 +153,7 @@
   --bg-hover: #eff3f4;
   --bg-elevated: #ffffff;
   --bg-card: rgba(255, 255, 255, 0.85);
+  --bg-header-blur: rgba(255, 255, 255, 0.65);
 
   --text-primary: #0f1419;
   --text-secondary: #536471;

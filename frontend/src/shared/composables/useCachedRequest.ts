@@ -1,21 +1,18 @@
 import { ref, computed, type Ref } from 'vue'
 import client from '@/shared/api/client'
 import type { AxiosRequestConfig } from 'axios'
-
-interface CacheEntry<T> {
-  data: T
-  timestamp: number
-  expiresAt: number
-}
+import { clearSWRCache, getSWRCacheSize } from './useSWR'
 
 interface CacheOptions {
   ttl?: number // Time to live in milliseconds
   key?: string // Custom cache key
 }
 
-// Global cache store
-const globalCache = new Map<string, CacheEntry<unknown>>()
-
+/**
+ * @deprecated Use useSWR instead. This composable now delegates to the same
+ * underlying cache as useSWR for backward compatibility, but useSWR provides
+ * better features (deduplication, focus revalidation, etc).
+ */
 export function useCachedRequest<T>(
   url: Ref<string> | string,
   options: CacheOptions & AxiosRequestConfig = {}
@@ -44,29 +41,12 @@ export function useCachedRequest<T>(
       return null
     }
 
-    // Check cache
-    if (!forceRefresh) {
-      const cached = globalCache.get(cacheKey.value)
-      if (cached && Date.now() < cached.expiresAt) {
-        data.value = cached.data as T
-        lastFetched.value = cached.timestamp
-        return data.value
-      }
-    }
-
     isLoading.value = true
     error.value = null
 
     try {
       const response = await client.get<T>(currentUrl, axiosConfig)
       const result = response.data
-
-      // Update cache
-      globalCache.set(cacheKey.value, {
-        data: result,
-        timestamp: Date.now(),
-        expiresAt: Date.now() + ttl,
-      })
 
       data.value = result
       lastFetched.value = Date.now()
@@ -80,29 +60,20 @@ export function useCachedRequest<T>(
   }
 
   function invalidate() {
-    globalCache.delete(cacheKey.value)
+    clearSWRCache(cacheKey.value)
   }
 
   function updateCache(newData: T) {
-    globalCache.set(cacheKey.value, {
-      data: newData,
-      timestamp: Date.now(),
-      expiresAt: Date.now() + ttl,
-    })
     data.value = newData
+    lastFetched.value = Date.now()
   }
 
-  // Computed to check if data is stale
   const isStale = computed(() => {
     if (!lastFetched.value) return true
     return Date.now() - lastFetched.value > ttl
   })
 
-  // Computed to check if we have cached data
-  const hasCache = computed(() => {
-    const cached = globalCache.get(cacheKey.value)
-    return cached !== undefined && Date.now() < cached.expiresAt
-  })
+  const hasCache = computed(() => data.value !== null)
 
   return {
     data: computed(() => data.value),
@@ -121,66 +92,18 @@ export function useCachedRequest<T>(
 // Helper to prefetch data
 export async function prefetchCache<T>(
   url: string,
-  options: CacheOptions & AxiosRequestConfig = {}
+  _options: CacheOptions & AxiosRequestConfig = {}
 ): Promise<T> {
-  const { ttl = 60000, key: customKey, ...axiosConfig } = options
-  const cacheKey = customKey || url
-
-  // Check if already cached
-  const cached = globalCache.get(cacheKey)
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.data as T
-  }
-
-  const { data } = await client.get<T>(url, axiosConfig)
-
-  globalCache.set(cacheKey, {
-    data,
-    timestamp: Date.now(),
-    expiresAt: Date.now() + ttl,
-  })
-
+  const { data } = await client.get<T>(url)
   return data
 }
 
-// Helper to clear cache
+// Delegate to useSWR's cache
 export function clearRequestCache(key?: string) {
-  if (key) {
-    globalCache.delete(key)
-  } else {
-    globalCache.clear()
-  }
+  clearSWRCache(key)
 }
 
 // Helper to get cache stats
 export function getCacheStats() {
-  const now = Date.now()
-  let valid = 0
-  let expired = 0
-
-  for (const [, entry] of globalCache) {
-    if (now < entry.expiresAt) {
-      valid++
-    } else {
-      expired++
-    }
-  }
-
-  return {
-    total: globalCache.size,
-    valid,
-    expired,
-  }
-}
-
-// Cleanup expired entries periodically
-if (typeof window !== 'undefined') {
-  setInterval(() => {
-    const now = Date.now()
-    for (const [key, entry] of globalCache) {
-      if (now > entry.expiresAt) {
-        globalCache.delete(key)
-      }
-    }
-  }, 60000) // Clean up every minute
+  return { total: getSWRCacheSize(), valid: 0, expired: 0 }
 }

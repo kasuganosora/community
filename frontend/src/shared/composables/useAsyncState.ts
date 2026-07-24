@@ -1,4 +1,4 @@
-import { ref, computed, type Ref } from 'vue'
+import { ref, computed, watch, type Ref } from 'vue'
 
 interface UseAsyncStateOptions<T> {
   immediate?: boolean
@@ -17,14 +17,12 @@ export function useAsyncState<T>(
   options: UseAsyncStateOptions<T> = {}
 ) {
   const {
+    immediate = false,
     initialData,
     onError,
     onSuccess,
     resetOnExecute = true,
   } = options
-
-  // Use immediate from options (destructured separately to handle both versions)
-  const immediate = options.immediate ?? false
 
   const data = ref<T | undefined>(initialData) as Ref<T | undefined>
   const error = ref<Error | null>(null)
@@ -81,11 +79,8 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
   promiseFn: (...args: Args) => Promise<T>,
   options: UseAsyncStateOptions<T> = {}
 ) {
-  // Use immediate from options when needed
-  const _immediateValue = options.immediate ?? false
-  void _immediateValue // Mark as intentionally used
-
   const {
+    immediate = false,
     initialData,
     onError,
     onSuccess,
@@ -96,16 +91,16 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
   const error = ref<Error | null>(null)
   const isLoading = ref(false)
   const isReady = ref(false)
+  const isFinished = ref(false)
   const lastExecuted = ref<number | null>(null)
 
-  async function execute(
-    ...args: Args
-  ): Promise<T | null> {
+  async function execute(...args: Args): Promise<T | null> {
     if (resetOnExecute) {
       error.value = null
       isReady.value = false
     }
     isLoading.value = true
+    isFinished.value = false
 
     try {
       const result = await promiseFn(...args)
@@ -121,7 +116,12 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
       return null
     } finally {
       isLoading.value = false
+      isFinished.value = true
     }
+  }
+
+  if (immediate) {
+    execute(...([] as unknown as Args))
   }
 
   return {
@@ -129,6 +129,7 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
     error: computed(() => error.value),
     isLoading: computed(() => isLoading.value),
     isReady: computed(() => isReady.value),
+    isFinished: computed(() => isFinished.value),
     lastExecuted: computed(() => lastExecuted.value),
     execute,
   }

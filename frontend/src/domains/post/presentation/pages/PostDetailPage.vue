@@ -5,6 +5,7 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import RichText from '@/shared/components/common/RichText.vue'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,9 +62,7 @@ function goBack() {
       <!-- Main post (highlighted) -->
       <article class="detail-main">
         <div class="detail-main__header">
-          <t-avatar :size="'48px'" :image="status.account.avatar || undefined" shape="circle">
-            {{ status.account.display_name?.charAt(0) || 'U' }}
-          </t-avatar>
+          <UserAvatar :account="status.account" :size="48" />
           <div class="detail-main__user">
             <div class="detail-main__name">{{ status.account.display_name }}</div>
             <div class="detail-main__username">@{{ status.account.acct }}</div>

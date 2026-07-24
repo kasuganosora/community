@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
+import { userApi } from '@/domains/user/infrastructure/userApi'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 interface SuggestionItem {
@@ -24,8 +25,7 @@ onMounted(async () => {
 
 async function handleFollow(user: MastodonAccount) {
   try {
-    // TODO: Implement actual follow API call
-    // await client.post(`/api/v1/accounts/${user.id}/follow`)
+    await userApi.follow(user.id)
     following.value.add(user.id)
   } catch (e) {
     console.error('Failed to follow user:', e)

@@ -5,6 +5,7 @@ import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import PostCard from '@/shared/components/post/PostCard.vue'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
 
@@ -32,6 +33,7 @@ async function loadProfile() {
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
+watch(activeTab, loadProfile)
 </script>
 
 <template>
@@ -60,9 +62,7 @@ watch(() => route.params.username, loadProfile)
     <!-- Avatar + Info -->
     <div class="profile-info">
       <div class="profile-info__top">
-        <t-avatar :size="'128px'" :image="account.avatar || undefined" shape="circle" class="profile-avatar">
-          {{ account.display_name?.charAt(0) || 'U' }}
-        </t-avatar>
+        <UserAvatar :account="account" :size="128" class="profile-avatar" />
         <t-button theme="default" shape="round" class="edit-btn">
           Follow
         </t-button>

@@ -15,11 +15,6 @@ export const RouteNames = {
   POST_DETAIL: 'post-detail',
 } as const
 
-// Placeholder for future prefetch implementation
-void function _lazyLoad() {
-  // Reserved for future use
-}()
-
 // Route groups for better code splitting
 const AuthRoutes: RouteRecordRaw[] = [
   {

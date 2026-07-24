@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 interface PerformanceMetrics {
   // Navigation timing
@@ -8,7 +8,7 @@ interface PerformanceMetrics {
   domProcessing: number
   resourceLoading: number
   totalLoadTime: number
-  
+
   // Core Web Vitals (if available)
   lcp?: number // Largest Contentful Paint
   fid?: number // First Input Delay
@@ -21,6 +21,9 @@ export function usePerformance() {
   const metrics = ref<PerformanceMetrics | null>(null)
   const isSupported = ref(false)
 
+  let calculateMetrics: (() => void) | null = null
+  const observers: PerformanceObserver[] = []
+
   onMounted(() => {
     if (typeof window === 'undefined' || !('performance' in window)) {
       return
@@ -29,9 +32,9 @@ export function usePerformance() {
     isSupported.value = true
 
     // Calculate basic metrics from navigation timing
-    const calculateMetrics = () => {
+    calculateMetrics = () => {
       const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-      
+
       if (!navEntry) return
 
       metrics.value = {
@@ -51,76 +54,92 @@ export function usePerformance() {
       window.addEventListener('load', calculateMetrics)
     }
 
-    // Observe Core Web Vitals if supported
     observeCoreWebVitals()
   })
 
+  onUnmounted(() => {
+    // Clean up event listener
+    if (calculateMetrics) {
+      window.removeEventListener('load', calculateMetrics)
+    }
+
+    // Disconnect all PerformanceObservers
+    for (const observer of observers) {
+      observer.disconnect()
+    }
+    observers.length = 0
+  })
+
   function observeCoreWebVitals() {
+    if (!('PerformanceObserver' in window)) return
+
     // Largest Contentful Paint
-    if ('PerformanceObserver' in window) {
-      try {
-        const lcpObserver = new PerformanceObserver((list) => {
-          const entries = list.getEntries()
-          if (entries.length > 0) {
-            const lastEntry = entries[entries.length - 1]
-            if (metrics.value && lastEntry) {
-              metrics.value.lcp = lastEntry.startTime
-            }
+    try {
+      const lcpObserver = new PerformanceObserver((list) => {
+        const entries = list.getEntries()
+        if (entries.length > 0) {
+          const lastEntry = entries[entries.length - 1]
+          if (metrics.value && lastEntry) {
+            metrics.value.lcp = lastEntry.startTime
           }
-        })
-        lcpObserver.observe({ entryTypes: ['largest-contentful-paint'] })
-      } catch {
-        // Not supported
-      }
+        }
+      })
+      lcpObserver.observe({ entryTypes: ['largest-contentful-paint'] })
+      observers.push(lcpObserver)
+    } catch {
+      // Not supported
+    }
 
-      // First Input Delay
-      try {
-        const fidObserver = new PerformanceObserver((list) => {
-          const firstEntry = list.getEntries()[0] as PerformanceEventTiming
-          if (firstEntry && metrics.value) {
-            metrics.value.fid = firstEntry.processingStart - firstEntry.startTime
-          }
-        })
-        fidObserver.observe({ entryTypes: ['first-input'] })
-      } catch {
-        // Not supported
-      }
+    // First Input Delay
+    try {
+      const fidObserver = new PerformanceObserver((list) => {
+        const firstEntry = list.getEntries()[0] as PerformanceEventTiming
+        if (firstEntry && metrics.value) {
+          metrics.value.fid = firstEntry.processingStart - firstEntry.startTime
+        }
+      })
+      fidObserver.observe({ entryTypes: ['first-input'] })
+      observers.push(fidObserver)
+    } catch {
+      // Not supported
+    }
 
-      // Cumulative Layout Shift
-      try {
-        let clsValue = 0
-        const clsObserver = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const layoutShift = entry as any
-            if (!layoutShift.hadRecentInput) {
-              clsValue += layoutShift.value
-            }
+    // Cumulative Layout Shift
+    try {
+      let clsValue = 0
+      const clsObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const layoutShift = entry as any
+          if (!layoutShift.hadRecentInput) {
+            clsValue += layoutShift.value
           }
-          if (metrics.value) {
-            metrics.value.cls = clsValue
-          }
-        })
-        clsObserver.observe({ entryTypes: ['layout-shift'] })
-      } catch {
-        // Not supported
-      }
+        }
+        if (metrics.value) {
+          metrics.value.cls = clsValue
+        }
+      })
+      clsObserver.observe({ entryTypes: ['layout-shift'] })
+      observers.push(clsObserver)
+    } catch {
+      // Not supported
+    }
 
-      // First Contentful Paint
-      try {
-        const paintObserver = new PerformanceObserver((list) => {
-          const entries = list.getEntries()
-          const fcpEntry = entries.find(
-            (entry) => entry.name === 'first-contentful-paint'
-          )
-          if (fcpEntry && metrics.value) {
-            metrics.value.fcp = fcpEntry.startTime
-          }
-        })
-        paintObserver.observe({ entryTypes: ['paint'] })
-      } catch {
-        // Not supported
-      }
+    // First Contentful Paint
+    try {
+      const paintObserver = new PerformanceObserver((list) => {
+        const entries = list.getEntries()
+        const fcpEntry = entries.find(
+          (entry) => entry.name === 'first-contentful-paint'
+        )
+        if (fcpEntry && metrics.value) {
+          metrics.value.fcp = fcpEntry.startTime
+        }
+      })
+      paintObserver.observe({ entryTypes: ['paint'] })
+      observers.push(paintObserver)
+    } catch {
+      // Not supported
     }
   }
 
