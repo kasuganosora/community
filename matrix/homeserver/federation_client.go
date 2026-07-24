@@ -21,6 +21,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/utils"
 )
 
 // FederationClient 联邦客户端.
@@ -391,7 +392,7 @@ func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[stri
 func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]any) (map[string]any, error) {
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
-		eventID = "$" + generateRandomString(32)
+		eventID = "$" + utils.GetRandomString(32)
 		event["event_id"] = eventID
 	}
 

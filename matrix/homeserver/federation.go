@@ -377,7 +377,7 @@ func handleSendJoin(c *gin.Context) {
 	// 存储加入事件到事件表（如果不存在）
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
-		eventID = "$" + generateRandomString(32)
+		eventID = "$" + utils.GetRandomString(32)
 	}
 
 	originServerTS, _ := event["origin_server_ts"].(float64)
@@ -481,7 +481,7 @@ func handleSendJoinV1(c *gin.Context) {
 
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
-		eventID = "$" + generateRandomString(32)
+		eventID = "$" + utils.GetRandomString(32)
 	}
 
 	originServerTS, _ := event["origin_server_ts"].(float64)

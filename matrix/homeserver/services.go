@@ -1,7 +1,6 @@
 package homeserver
 
 import (
-	"crypto/rand"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils"
 )
 
 // ===== 房间别名 =====
@@ -392,22 +392,5 @@ func handleReportRoom(c *gin.Context) {
 
 // generateEventID 生成事件 ID.
 func generateEventID() string {
-	return fmt.Sprintf("$%s:%d", generateRandomString(16), time.Now().UnixNano())
-}
-
-// generateRandomString 生成随机字符串.
-func generateRandomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		// 回退到基于时间的ID
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
-	}
-
-	return string(b)
+	return fmt.Sprintf("$%s:%d", utils.GetRandomString(16), time.Now().UnixNano())
 }

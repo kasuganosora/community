@@ -1,12 +1,12 @@
 package testutil
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
 
@@ -318,15 +318,9 @@ func (f *FixtureBuilder) FullTestSetup() (user *models.User, account *models.Acc
 }
 
 // RandomString generates a random string of the specified length.
+// Uses utils.GetRandomString (crypto/rand) to avoid duplicating logic.
 func RandomString(length int) string {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	result := make([]byte, length)
-	for i := range length {
-		result[i] = chars[rand.Intn(len(chars))] //nolint:gosec // G404: reviewed and safe
-	}
-
-	return string(result)
+	return utils.GetRandomString(length)
 }
 
 // PtrString returns a pointer to the string.

@@ -16,7 +16,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
-	"golang.org/x/crypto/bcrypt"
+
 	"gorm.io/gorm"
 )
 
@@ -596,14 +596,9 @@ func generateDeviceID() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// HashPassword 哈希密码（兼容社区密码格式）.
+// HashPassword 哈希密码（委托给 models.EncryptPassword，避免重复实现）.
 func HashPassword(password, salt string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(salt+password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-
-	return base64.StdEncoding.EncodeToString(hash), nil
+	return models.EncryptPassword(password, salt)
 }
 
 // ===== 登录流程响应 =====

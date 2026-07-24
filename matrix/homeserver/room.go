@@ -644,7 +644,7 @@ func (r *RoomService) federationJoin(userID, roomID string, servers []string) (s
 		eventMap["origin"] = r.HS.Config.ServerName
 		eventMap["origin_server_ts"] = time.Now().UnixMilli()
 		eventMap["content"] = map[string]any{"membership": "join"}
-		eventMap["event_id"] = "$" + generateRandomString(32)
+		eventMap["event_id"] = "$" + utils.GetRandomString(32)
 
 		// Step 4: 签名事件
 		eventMap = fed.signEvent(eventMap)
