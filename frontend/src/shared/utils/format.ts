@@ -4,11 +4,11 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
   delay: number
 ): (...args: Parameters<T>) => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
-  return function (...args: Parameters<T>) {
+  return function (this: unknown, ...args: Parameters<T>) {
     if (timeoutId) {
       clearTimeout(timeoutId)
     }
-    timeoutId = setTimeout(() => fn(...args), delay)
+    timeoutId = setTimeout(() => fn.apply(this, args), delay)
   }
 }
 
@@ -18,9 +18,9 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle = false
-  return function (...args: Parameters<T>) {
+  return function (this: unknown, ...args: Parameters<T>) {
     if (!inThrottle) {
-      fn(...args)
+      fn.apply(this, args)
       inThrottle = true
       setTimeout(() => (inThrottle = false), limit)
     }
@@ -37,10 +37,11 @@ export function formatCount(count: number): string {
   return count.toString()
 }
 
-export function formatRelativeTime(dateStr: string): string {
-  const now = Date.now()
+export function formatRelativeTime(dateStr: string, now: number = Date.now()): string {
   const date = new Date(dateStr).getTime()
+  if (isNaN(date)) return ''
   const diff = now - date
+  if (diff < 0) return 'now'
 
   const seconds = Math.floor(diff / 1000)
   const minutes = Math.floor(seconds / 60)

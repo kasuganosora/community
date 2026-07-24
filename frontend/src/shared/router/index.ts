@@ -23,9 +23,9 @@ router.beforeEach((to) => {
     return { name: 'home' }
   }
 
-  // Redirect unauthenticated users to landing page
+  // Redirect unauthenticated users to landing page, preserving redirect target
   if (to.meta.requiresAuth && !token) {
-    return { name: 'landing' }
+    return { name: 'landing', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
   }
 })
 

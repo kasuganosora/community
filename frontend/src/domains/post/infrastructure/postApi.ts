@@ -2,6 +2,14 @@ import client from '@/shared/api/client'
 import type { MastodonStatus, MastodonContext } from '@/shared/types/mastodon'
 import type { CreateStatusParams } from '../domain/entities'
 
+/** Factory for status action endpoints that return a single MastodonStatus */
+function createStatusAction(action: string) {
+  return async (id: string): Promise<MastodonStatus> => {
+    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/${action}`)
+    return data
+  }
+}
+
 export const postApi = {
   async create(params: CreateStatusParams): Promise<MastodonStatus> {
     const { data } = await client.post<MastodonStatus>('/api/v1/statuses', params)
@@ -18,35 +26,12 @@ export const postApi = {
     return data
   },
 
-  async reblog(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/reblog`)
-    return data
-  },
-
-  async unreblog(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/unreblog`)
-    return data
-  },
-
-  async favourite(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/favourite`)
-    return data
-  },
-
-  async unfavourite(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/unfavourite`)
-    return data
-  },
-
-  async bookmark(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/bookmark`)
-    return data
-  },
-
-  async unbookmark(id: string): Promise<MastodonStatus> {
-    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${id}/unbookmark`)
-    return data
-  },
+  reblog: createStatusAction('reblog'),
+  unreblog: createStatusAction('unreblog'),
+  favourite: createStatusAction('favourite'),
+  unfavourite: createStatusAction('unfavourite'),
+  bookmark: createStatusAction('bookmark'),
+  unbookmark: createStatusAction('unbookmark'),
 
   async deleteStatus(id: string): Promise<void> {
     await client.delete(`/api/v1/statuses/${id}`)

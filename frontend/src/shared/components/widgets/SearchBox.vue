@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { debounce } from '@/shared/utils/format'
 
 const router = useRouter()
 const query = ref('')
@@ -12,10 +11,6 @@ function handleSearch() {
     router.push({ name: 'search', query: { q: trimmedQuery } })
   }
 }
-
-// Debounced search for when we implement real-time search
-// Using underscore prefix to indicate intentionally unused
-void debounce(handleSearch, 300)
 </script>
 
 <template>

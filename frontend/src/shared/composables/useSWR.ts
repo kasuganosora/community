@@ -13,6 +13,18 @@ interface CacheEntry<T> {
 const cache = new Map<string, CacheEntry<unknown>>()
 const pendingRequests = new Map<string, Promise<unknown>>()
 
+// Periodic cache cleanup — removes expired entries every 2 minutes
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now()
+    for (const [k, v] of cache) {
+      if (now >= v.expiresAt) {
+        cache.delete(k)
+      }
+    }
+  }, 2 * 60 * 1000)
+}
+
 // Default cache time: 5 minutes
 const DEFAULT_CACHE_TIME = 5 * 60 * 1000
 
@@ -95,8 +107,12 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
   const fetcher = customFetcher || defaultFetcher
 
+  // Race condition prevention — only the latest request may write data
+  let requestVersion = 0
+
   // Execute request
   async function executeRequest(silent = false) {
+    const currentVersion = ++requestVersion
     if (!silent) {
       isLoading.value = true
     }
@@ -108,15 +124,20 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       if (!key) return
 
       const result = await fetcher(key)
+      // Discard stale response — a newer request has been initiated
+      if (currentVersion !== requestVersion) return
       data.value = result
     } catch (err) {
+      if (currentVersion !== requestVersion) return
       error.value = err instanceof Error ? err : new Error(String(err))
       if (!silent) {
         throw err
       }
     } finally {
-      isLoading.value = false
-      isValidating.value = false
+      if (currentVersion === requestVersion) {
+        isLoading.value = false
+        isValidating.value = false
+      }
     }
   }
 

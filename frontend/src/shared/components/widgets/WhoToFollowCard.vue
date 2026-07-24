@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
 import { userApi } from '@/domains/user/infrastructure/userApi'
@@ -12,15 +12,24 @@ interface SuggestionItem {
 const suggestions = ref<MastodonAccount[]>([])
 const error = ref<string | null>(null)
 const following = ref<Set<string>>(new Set())
+let cancelled = false
 
 onMounted(async () => {
   try {
     const { data } = await client.get<SuggestionItem[]>('/api/v1/suggestions', { params: { limit: 3 } })
-    suggestions.value = data.map((item) => item.account)
+    if (!cancelled) {
+      suggestions.value = data.map((item) => item.account)
+    }
   } catch (e) {
-    console.error('Failed to load suggestions:', e)
-    error.value = 'Failed to load suggestions'
+    if (!cancelled) {
+      console.error('Failed to load suggestions:', e)
+      error.value = 'Failed to load suggestions'
+    }
   }
+})
+
+onUnmounted(() => {
+  cancelled = true
 })
 
 async function handleFollow(user: MastodonAccount) {
@@ -29,6 +38,7 @@ async function handleFollow(user: MastodonAccount) {
     following.value.add(user.id)
   } catch (e) {
     console.error('Failed to follow user:', e)
+    error.value = 'Failed to follow user'
   }
 }
 </script>

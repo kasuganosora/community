@@ -3,13 +3,13 @@ import { defineStore } from 'pinia'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
-import { mockCurrentUser } from '@/shared/api/mockData'
-import { AUTH_TOKEN_KEY } from '@/shared/api/client'
+import { tokenService } from '@/shared/api/client'
 
-const USE_MOCK = !import.meta.env.VITE_API_URL
+// Centralized feature flag — only use mock in dev when explicitly enabled
+const USE_MOCK = import.meta.env.DEV && !import.meta.env.VITE_API_URL
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem(AUTH_TOKEN_KEY))
+  const token = ref<string | null>(tokenService.get())
   const currentUser = ref<MastodonAccount | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -22,14 +22,21 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       if (USE_MOCK) {
         token.value = 'mock-token'
-        localStorage.setItem(AUTH_TOKEN_KEY, 'mock-token')
+        tokenService.set('mock-token')
+        const { mockCurrentUser } = await import('@/shared/api/mockData')
         currentUser.value = mockCurrentUser
         return
       }
       const res = await authApi.login(credentials)
       token.value = res.token
-      localStorage.setItem(AUTH_TOKEN_KEY, res.token)
-      await fetchCurrentUser()
+      tokenService.set(res.token)
+
+      // Verify that we can actually fetch the user — if not, roll back
+      const success = await fetchCurrentUser()
+      if (!success) {
+        logout()
+        throw new Error('登录后获取用户信息失败')
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Login failed'
       error.value = msg
@@ -41,13 +48,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchCurrentUser(): Promise<boolean> {
     if (USE_MOCK) {
+      const { mockCurrentUser } = await import('@/shared/api/mockData')
       currentUser.value = mockCurrentUser
       return true
     }
     try {
       currentUser.value = await authApi.verifyCredentials()
       return true
-    } catch {
+    } catch (e) {
+      console.error('Failed to verify credentials:', e)
       currentUser.value = null
       return false
     }
@@ -56,7 +65,7 @@ export const useAuthStore = defineStore('auth', () => {
   function logout(redirectToLogin = false) {
     token.value = null
     currentUser.value = null
-    localStorage.removeItem(AUTH_TOKEN_KEY)
+    tokenService.clear()
     if (redirectToLogin) {
       window.location.href = '/login'
     }
@@ -69,10 +78,21 @@ export const useAuthStore = defineStore('auth', () => {
     const success = await fetchCurrentUser()
     if (!success) {
       token.value = null
-      localStorage.removeItem(AUTH_TOKEN_KEY)
+      tokenService.clear()
     }
     return success
   }
 
-  return { token, currentUser, loading, error, isAuthenticated, login, logout, fetchCurrentUser, initialize }
+  // Only expose token as readonly — components shouldn't mutate it directly
+  return {
+    token: computed(() => token.value),
+    currentUser,
+    loading,
+    error,
+    isAuthenticated,
+    login,
+    logout,
+    fetchCurrentUser,
+    initialize,
+  }
 })

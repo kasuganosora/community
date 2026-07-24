@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { AxiosError } from 'axios'
 
 // Constants
 export const AUTH_TOKEN_KEY = 'auth_token'
@@ -12,43 +13,100 @@ const client = axios.create({
   },
 })
 
-// Request interceptor with error handling
-client.interceptors.request.use(
-  (config) => {
+// --- Token management: centralized to avoid scattered localStorage access ---
+export const tokenService = {
+  get(): string | null {
     try {
-      const token = localStorage.getItem(AUTH_TOKEN_KEY)
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-      }
-      return config
-    } catch (e) {
-      return Promise.reject(e)
+      return localStorage.getItem(AUTH_TOKEN_KEY)
+    } catch {
+      return null
     }
   },
-  (error) => {
-    return Promise.reject(error)
-  }
+  set(token: string): void {
+    try {
+      localStorage.setItem(AUTH_TOKEN_KEY, token)
+    } catch {
+      // storage might be full or disabled
+    }
+  },
+  clear(): void {
+    try {
+      localStorage.removeItem(AUTH_TOKEN_KEY)
+    } catch {
+      // ignore
+    }
+  },
+}
+
+// --- Auth expiry callback — set by router/app, avoids hard window.location redirect ---
+let authExpiredCallback: (() => void) | null = null
+
+export function setAuthExpiredCallback(cb: () => void) {
+  authExpiredCallback = cb
+}
+
+// Request interceptor
+client.interceptors.request.use(
+  (config) => {
+    const token = tokenService.get()
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
 )
+
+// Enhanced error transform
+function transformError(error: AxiosError<{ error?: string; message?: string }>): Error {
+  const status = error.response?.status
+  const apiMessage = error.response?.data?.error || error.response?.data?.message
+
+  if (!error.response) {
+    // Network error
+    return new Error('网络连接失败，请检查网络设置')
+  }
+
+  switch (status) {
+    case 401:
+      return new Error(apiMessage || '登录已过期，请重新登录')
+    case 403:
+      return new Error(apiMessage || '没有权限执行此操作')
+    case 404:
+      return new Error(apiMessage || '请求的资源不存在')
+    case 429:
+      return new Error(apiMessage || '操作过于频繁，请稍后再试')
+    case 500:
+    case 502:
+    case 503:
+      return new Error(apiMessage || '服务器暂时不可用，请稍后重试')
+    default:
+      return new Error(apiMessage || error.message || '请求失败')
+  }
+}
 
 // Response interceptor with improved error handling
 client.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // Handle specific error statuses
+  (error: AxiosError<{ error?: string; message?: string }>) => {
+    // Handle 401 — use callback instead of hard redirect
     if (error.response?.status === 401) {
-      // Only redirect if not already on login page to avoid loops
       const currentPath = window.location.pathname
       if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-        localStorage.removeItem(AUTH_TOKEN_KEY)
-        window.location.href = '/login'
+        tokenService.clear()
+        if (authExpiredCallback) {
+          authExpiredCallback()
+        } else {
+          // Fallback: hard redirect only if no callback set
+          window.location.href = '/login'
+        }
       }
     }
-    
-    // Enhance error message for better debugging
-    if (error.response?.data?.error) {
-      error.message = error.response.data.error
-    }
-    
+
+    // Transform error to user-friendly message
+    const transformed = transformError(error)
+    error.message = transformed.message
+
     return Promise.reject(error)
   },
 )

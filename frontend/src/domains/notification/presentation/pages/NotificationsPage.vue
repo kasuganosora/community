@@ -2,12 +2,14 @@
 import { ref, onMounted } from 'vue'
 import type { MastodonNotification } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
+import { stripHtml } from '@/shared/utils/sanitize'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
+type NotificationType = 'favourite' | 'reblog' | 'follow' | 'mention'
+
 const notifications = ref<MastodonNotification[]>([])
 const loading = ref(true)
-
 const error = ref<string | null>(null)
 
 onMounted(async () => {
@@ -32,8 +34,6 @@ function getNotificationIcon(type: NotificationType) {
   }
 }
 
-type NotificationType = 'favourite' | 'reblog' | 'follow' | 'mention'
-
 function getNotificationColor(type: NotificationType) {
   switch (type) {
     case 'favourite': return 'var(--accent-pink)'
@@ -52,6 +52,10 @@ function getNotificationText(type: NotificationType) {
     case 'mention': return 'mentioned you'
     default: return 'interacted'
   }
+}
+
+function getPreview(content: string): string {
+  return stripHtml(content).slice(0, 100)
 }
 </script>
 
@@ -73,22 +77,17 @@ function getNotificationText(type: NotificationType) {
       <p class="empty-state__text">{{ error }}</p>
     </div>
 
-    <template v-else>
-      <div 
-        v-if="notifications.length > 0" 
-        class="notifications-list" 
-        role="list" 
-        aria-label="Notifications"
-      >
-        <div class="empty-state__icon">
-          <t-icon name="notification" :size="48" />
-        </div>
-        <h2 class="empty-state__title">Nothing to see here — yet</h2>
-        <p class="empty-state__text">
-          Likes, reposts, and new followers will show up here.
-        </p>
+    <div v-else-if="notifications.length === 0" class="empty-state">
+      <div class="empty-state__icon">
+        <t-icon name="notification" :size="48" />
       </div>
+      <h2 class="empty-state__title">Nothing to see here — yet</h2>
+      <p class="empty-state__text">
+        Likes, reposts, and new followers will show up here.
+      </p>
+    </div>
 
+    <div v-else class="notifications-list" role="list" aria-label="Notifications">
       <div
         v-for="notification in notifications"
         :key="notification.id"
@@ -111,13 +110,13 @@ function getNotificationText(type: NotificationType) {
                 {{ getNotificationText(notification.type as NotificationType) }}
               </div>
               <div v-if="notification.status" class="notification-preview">
-                {{ notification.status.content.replace(/<[^>]*>/g, '').slice(0, 100) }}
+                {{ getPreview(notification.status.content) }}
               </div>
             </div>
           </div>
         </template>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 

@@ -9,7 +9,7 @@ export const authApi = {
   },
 
   async register(credentials: RegisterCredentials): Promise<{ message: string }> {
-    const { data } = await client.post('/api/v1/accounts/register', credentials)
+    const { data } = await client.post<{ message: string }>('/api/v1/accounts/register', credentials)
     return data
   },
 

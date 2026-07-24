@@ -81,10 +81,15 @@ export function useVirtualList<T>(
     transform: `translateY(${visibleRange.value.start * itemHeight}px)`,
   }))
 
-  // Scroll handler
+  // Scroll handler — throttled with rAF for performance
+  let rafId: number | null = null
   function handleScroll(e: Event) {
-    const target = e.target as HTMLElement
-    scrollTop.value = target.scrollTop
+    if (rafId !== null) return
+    rafId = requestAnimationFrame(() => {
+      const target = e.target as HTMLElement
+      scrollTop.value = target.scrollTop
+      rafId = null
+    })
   }
 
   // Scroll to specific index

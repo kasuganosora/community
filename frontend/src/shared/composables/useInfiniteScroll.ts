@@ -22,6 +22,8 @@ export function useInfiniteScroll(
     return typeof disabled === 'boolean' ? disabled : disabled.value
   })
 
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+
   async function checkAndLoad() {
     if (isLoading.value || isDisabled.value || isTriggered) return
 
@@ -45,7 +47,7 @@ export function useInfiniteScroll(
       } finally {
         isLoading.value = false
         // Reset trigger after a delay to allow scroll position to update
-        setTimeout(() => {
+        retryTimer = setTimeout(() => {
           isTriggered = false
           // Check again in case we're still near bottom
           checkAndLoad()
@@ -75,6 +77,10 @@ export function useInfiniteScroll(
   onUnmounted(() => {
     if (scrollEl) {
       scrollEl.removeEventListener('scroll', handleScroll)
+    }
+    if (retryTimer) {
+      clearTimeout(retryTimer)
+      retryTimer = null
     }
   })
 

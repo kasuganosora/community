@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
 import { formatCount, formatRelativeTime } from '@/shared/utils/format'
-import { sanitizeHtml } from '@/shared/utils/sanitize'
+import { stripHtml as stripHtmlUtil } from '@/shared/utils/sanitize'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
 const router = useRouter()
@@ -61,9 +61,8 @@ onMounted(async () => {
     if (timelineRes.status === 'fulfilled') {
       publicTimeline.value = timelineRes.value.data
     }
-  } catch (e) {
-    console.error('Failed to load instance info:', e)
-    error.value = 'Failed to load some content'
+  } catch {
+    // Promise.allSettled never rejects — this catch is for safety only
   }
 })
 
@@ -77,7 +76,7 @@ function goRegister() {
 
 function stripHtml(html: string | null | undefined): string {
   if (!html) return ''
-  return sanitizeHtml(html).replace(/<[^>]*>/g, '')
+  return stripHtmlUtil(html)
 }
 </script>
 

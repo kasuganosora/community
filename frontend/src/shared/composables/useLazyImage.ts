@@ -20,21 +20,22 @@ export function useLazyImage(
 
   let observer: IntersectionObserver | null = null
   let hasTriggered = false
+  let preloadImg: HTMLImageElement | null = null
 
   function loadImage() {
     if (!src || hasTriggered) return
     hasTriggered = true
 
-    const img = new Image()
-    img.src = src
+    preloadImg = new Image()
+    preloadImg.src = src
 
-    img.onload = () => {
+    preloadImg.onload = () => {
       currentSrc.value = src
       isLoaded.value = true
       error.value = null
     }
 
-    img.onerror = (e) => {
+    preloadImg.onerror = (e) => {
       error.value = new Error(`Failed to load image: ${src}`)
       console.error('Image load error:', e)
     }
@@ -75,9 +76,13 @@ export function useLazyImage(
   onUnmounted(() => {
     observer?.disconnect()
     observer = null
+    if (preloadImg) {
+      preloadImg.onload = null
+      preloadImg.onerror = null
+      preloadImg.src = ''
+      preloadImg = null
+    }
   })
-
-  // Force reload
   function reload() {
     hasTriggered = false
     isLoaded.value = false
@@ -103,22 +108,25 @@ export function useLazyBackground(
   const isLoaded = ref(false)
   let observer: IntersectionObserver | null = null
   let hasTriggered = false
+  let preloadImg: HTMLImageElement | null = null
 
   function loadBackground() {
     if (!src || hasTriggered) return
     hasTriggered = true
 
-    const img = new Image()
-    img.src = src
+    preloadImg = new Image()
+    preloadImg.src = src
 
-    img.onload = () => {
+    preloadImg.onload = () => {
       if (elementRef.value) {
-        elementRef.value.style.backgroundImage = `url(${src})`
+        // Sanitize URL to prevent CSS injection
+        const sanitized = src.replace(/["'\\]/g, '')
+        elementRef.value.style.backgroundImage = `url("${sanitized}")`
       }
       isLoaded.value = true
     }
 
-    img.onerror = () => {
+    preloadImg.onerror = () => {
       console.error('Background image load error:', src)
     }
   }
@@ -147,6 +155,12 @@ export function useLazyBackground(
 
   onUnmounted(() => {
     observer?.disconnect()
+    if (preloadImg) {
+      preloadImg.onload = null
+      preloadImg.onerror = null
+      preloadImg.src = ''
+      preloadImg = null
+    }
   })
 
   return { isLoaded }

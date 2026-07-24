@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import client from '@/shared/api/client'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
 const bookmarks = ref<MastodonStatus[]>([])
-const loading = ref(false)
+const loading = ref(true)
+const error = ref<string | null>(null)
 
-// TODO: Fetch from GET /api/v1/bookmarks
+onMounted(async () => {
+  try {
+    const { data } = await client.get<MastodonStatus[]>('/api/v1/bookmarks', { params: { limit: 40 } })
+    bookmarks.value = data
+  } catch (e) {
+    console.error('Failed to load bookmarks:', e)
+    error.value = 'Failed to load bookmarks'
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
@@ -17,6 +29,14 @@ const loading = ref(false)
 
     <div v-if="loading" class="page-loading">
       <t-loading />
+    </div>
+
+    <div v-else-if="error" class="empty-state" role="alert">
+      <div class="empty-state__icon">
+        <t-icon name="error-circle" :size="48" />
+      </div>
+      <h2 class="empty-state__title">Something went wrong</h2>
+      <p class="empty-state__text">{{ error }}</p>
     </div>
 
     <template v-else-if="bookmarks.length">

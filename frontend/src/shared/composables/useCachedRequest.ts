@@ -105,5 +105,5 @@ export function clearRequestCache(key?: string) {
 
 // Helper to get cache stats
 export function getCacheStats() {
-  return { total: getSWRCacheSize(), valid: 0, expired: 0 }
+  return { total: getSWRCacheSize() }
 }

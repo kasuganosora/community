@@ -106,10 +106,12 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
     ;(store as StoreWithPersist).$persist = persistFn
     ;(store as StoreWithPersist).$restore = restoreFn
 
-    // Subscribe to store changes
+    // Subscribe to store changes — debounced to avoid excessive writes
+    let persistTimer: ReturnType<typeof setTimeout> | null = null
     store.$subscribe(
       () => {
-        persistFn()
+        if (persistTimer) clearTimeout(persistTimer)
+        persistTimer = setTimeout(() => persistFn(), 300)
       },
       { detached: true }
     )

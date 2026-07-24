@@ -25,6 +25,7 @@ export function useLocalStorage<T>(
 
   // Read from localStorage or use initial value
   function read(): T {
+    if (typeof window === 'undefined') return initialValue
     try {
       const item = localStorage.getItem(key)
       if (item === null) return initialValue
@@ -87,12 +88,20 @@ export function useLocalStorageExtended<T>(
   const storage = useLocalStorage(key, initialValue, options)
 
   function remove() {
-    localStorage.removeItem(key)
+    try {
+      localStorage.removeItem(key)
+    } catch (e) {
+      console.error(`Error removing localStorage key "${key}":`, e)
+    }
     storage.value = initialValue
   }
 
   function exists() {
-    return localStorage.getItem(key) !== null
+    try {
+      return localStorage.getItem(key) !== null
+    } catch {
+      return false
+    }
   }
 
   return {

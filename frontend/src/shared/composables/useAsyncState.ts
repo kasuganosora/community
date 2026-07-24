@@ -29,8 +29,10 @@ export function useAsyncState<T>(
   const isLoading = ref(false)
   const isReady = ref(false)
   const isFinished = ref(false)
+  let executionId = 0
 
   async function execute(executeOptions: ExecuteOptions = {}): Promise<T | null> {
+    const currentId = ++executionId
     const { throwOnError = false } = executeOptions
 
     if (resetOnExecute) {
@@ -42,11 +44,14 @@ export function useAsyncState<T>(
 
     try {
       const result = await promiseFn()
+      // Discard stale response
+      if (currentId !== executionId) return null
       data.value = result
       isReady.value = true
       onSuccess?.(result)
       return result
     } catch (err) {
+      if (currentId !== executionId) return null
       const e = err instanceof Error ? err : new Error(String(err))
       error.value = e
       onError?.(e)
@@ -55,8 +60,10 @@ export function useAsyncState<T>(
       }
       return null
     } finally {
-      isLoading.value = false
-      isFinished.value = true
+      if (currentId === executionId) {
+        isLoading.value = false
+        isFinished.value = true
+      }
     }
   }
 
@@ -93,8 +100,10 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
   const isReady = ref(false)
   const isFinished = ref(false)
   const lastExecuted = ref<number | null>(null)
+  let executionId = 0
 
   async function execute(...args: Args): Promise<T | null> {
+    const currentId = ++executionId
     if (resetOnExecute) {
       error.value = null
       isReady.value = false
@@ -104,19 +113,23 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
 
     try {
       const result = await promiseFn(...args)
+      if (currentId !== executionId) return null
       data.value = result
       isReady.value = true
       lastExecuted.value = Date.now()
       onSuccess?.(result)
       return result
     } catch (err) {
+      if (currentId !== executionId) return null
       const e = err instanceof Error ? err : new Error(String(err))
       error.value = e
       onError?.(e)
       return null
     } finally {
-      isLoading.value = false
-      isFinished.value = true
+      if (currentId === executionId) {
+        isLoading.value = false
+        isFinished.value = true
+      }
     }
   }
 

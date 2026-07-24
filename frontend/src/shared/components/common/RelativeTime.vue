@@ -1,37 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { formatRelativeTime } from '@/shared/utils/format'
+import { useSharedClock } from '@/shared/composables/useSharedClock'
 
 const props = defineProps<{
   datetime: string
 }>()
 
-const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
+const now = useSharedClock()
 
-onMounted(() => {
-  // Update relative time every 30 seconds
-  timer = setInterval(() => {
-    now.value = Date.now()
-  }, 30000)
+const timeStr = computed(() => {
+  // Reference now.value to create reactive dependency
+  now.value
+  return formatRelativeTime(props.datetime, now.value)
 })
-
-onUnmounted(() => {
-  if (timer) {
-    clearInterval(timer)
-  }
+const fullDate = computed(() => {
+  const d = new Date(props.datetime)
+  return isNaN(d.getTime()) ? '' : d.toLocaleString()
 })
-
-const timeStr = computed(() => formatRelativeTime(props.datetime))
-const fullDate = computed(() => new Date(props.datetime).toLocaleString())
-
 </script>
-
 
 <template>
   <time :datetime="datetime" :title="fullDate" class="relative-time">{{ timeStr }}</time>
 </template>
-
 
 <style scoped>
 .relative-time {
@@ -39,5 +30,4 @@ const fullDate = computed(() => new Date(props.datetime).toLocaleString())
   font-size: var(--font-md);
   white-space: nowrap;
 }
-
 </style>

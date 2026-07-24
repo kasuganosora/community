@@ -90,6 +90,11 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     children: MainRoutes,
   },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/shared/components/common/NotFoundPage.vue'),
+  },
 ]
 
 // Export route metadata for programmatic navigation

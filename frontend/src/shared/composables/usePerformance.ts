@@ -109,8 +109,7 @@ export function usePerformance() {
       let clsValue = 0
       const clsObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const layoutShift = entry as any
+          const layoutShift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number }
           if (!layoutShift.hadRecentInput) {
             clsValue += layoutShift.value
           }
@@ -148,7 +147,7 @@ export function usePerformance() {
     const start = performance.now()
     const result = fn()
     const end = performance.now()
-    console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+    console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
     return result
   }
 
@@ -157,7 +156,7 @@ export function usePerformance() {
     const start = performance.now()
     const result = await fn()
     const end = performance.now()
-    console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+    console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
     return result
   }
 
@@ -174,7 +173,9 @@ export function usePerformance() {
       const entries = performance.getEntriesByName(measureName)
       for (const entry of entries) {
         if (entry) {
-          return entry.duration
+          const duration = entry.duration
+          performance.clearMeasures(measureName)
+          return duration
         }
       }
     }
@@ -195,12 +196,12 @@ export function usePerformance() {
 export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
   // Send to analytics service
   if (typeof window !== 'undefined' && 'analytics' in window) {
-    // @ts-expect-error - analytics might be defined globally
-    window.analytics?.track('Performance Metrics', metrics)
+    const analytics = (window as Window & { analytics?: { track: (event: string, data: unknown) => void } }).analytics
+    analytics?.track('Performance Metrics', metrics)
   }
 
   // Log to console in development
   if (import.meta.env.DEV) {
-    console.warn('[Performance Metrics]', metrics)
+    console.debug('[Performance Metrics]', metrics)
   }
 }

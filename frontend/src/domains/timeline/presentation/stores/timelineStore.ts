@@ -2,10 +2,9 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { timelineApi } from '../../infrastructure/timelineApi'
-import { mockStatuses } from '@/shared/api/mockData'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
-const USE_MOCK = !import.meta.env.VITE_API_URL
+const USE_MOCK = import.meta.env.DEV && !import.meta.env.VITE_API_URL
 
 export type TimelineType = 'home' | 'public'
 
@@ -52,6 +51,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     
     try {
       if (USE_MOCK) {
+        const { mockStatuses } = await import('@/shared/api/mockData')
         timeline.statuses = mockStatuses
         timeline.hasMore = false
         return
@@ -115,6 +115,10 @@ export const useTimelineStore = defineStore('timeline', () => {
 
   function prependStatus(status: MastodonStatus) {
     homeTimeline.value.statuses.unshift(status)
+    // Also prepend to public timeline if it has been loaded
+    if (publicTimeline.value.statuses.length > 0) {
+      publicTimeline.value.statuses.unshift(status)
+    }
   }
 
   function updateStatus(statusId: string, updates: Partial<MastodonStatus>) {

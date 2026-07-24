@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
@@ -14,9 +14,12 @@ const status = ref<MastodonStatus | null>(null)
 const ancestors = ref<MastodonStatus[]>([])
 const descendants = ref<MastodonStatus[]>([])
 const loading = ref(true)
+const error = ref<string | null>(null)
 
-onMounted(async () => {
+async function loadPost() {
   const statusId = route.params.statusId as string
+  loading.value = true
+  error.value = null
   try {
     const [statusData, contextData] = await Promise.all([
       postApi.getStatus(statusId),
@@ -25,12 +28,17 @@ onMounted(async () => {
     status.value = statusData
     ancestors.value = contextData.ancestors
     descendants.value = contextData.descendants
-  } catch {
-    // Status not found or error
+  } catch (e) {
+    console.error('Failed to load post:', e)
+    error.value = 'Failed to load this post'
+    status.value = null
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadPost)
+watch(() => route.params.statusId, loadPost)
 
 function goBack() {
   // Check if there's history to go back to, otherwise go to home
@@ -53,6 +61,14 @@ function goBack() {
 
     <div v-if="loading" class="page-loading">
       <t-loading />
+    </div>
+
+    <div v-else-if="error" class="empty-state" role="alert">
+      <div class="empty-state__icon">
+        <t-icon name="error-circle" :size="48" />
+      </div>
+      <h2 class="empty-state__title">Something went wrong</h2>
+      <p class="empty-state__text">{{ error }}</p>
     </div>
 
     <template v-else-if="status">
