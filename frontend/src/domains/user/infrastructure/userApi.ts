@@ -12,7 +12,7 @@ export const userApi = {
     const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
       params: { q: acct, limit: 1 },
     })
-    return data[0]
+    return data[0] as MastodonAccount
   },
 
   async getStatuses(id: string, params?: {

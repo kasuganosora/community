@@ -217,7 +217,7 @@ function close() {
           <t-form-item label="Email">
             <t-input
               v-model="form.email"
-              type="email"
+              type="text"
               size="large"
               placeholder="email@example.com"
             >

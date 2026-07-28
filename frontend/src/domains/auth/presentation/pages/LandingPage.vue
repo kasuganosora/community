@@ -26,8 +26,6 @@ const instanceInfo = ref<InstanceInfo>({
   domain: window.location.host,
 })
 
-const error = ref<string | null>(null)
-
 // Computed to limit the timeline preview to 5 items
 const previewStatuses = computed(() => publicTimeline.value.slice(0, 5))
 
@@ -154,7 +152,7 @@ function stripHtml(html: string | null | undefined): string {
               class="preview-post"
             >
               <t-avatar
-                :size="36"
+                size="36"
                 :image="status.account.avatar || undefined"
                 shape="circle"
                 class="preview-post__avatar"

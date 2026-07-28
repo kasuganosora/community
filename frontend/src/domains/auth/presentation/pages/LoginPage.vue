@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
@@ -18,6 +18,7 @@ const form = reactive<LoginForm>({
 })
 
 const showPassword = ref(false)
+const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse') as any)
 const loginAttempts = ref(0)
 const MAX_LOGIN_ATTEMPTS = 5
 
@@ -74,7 +75,7 @@ async function handleLogin() {
                 shape="square" 
                 size="small"
                 @click="showPassword = !showPassword"
-                :icon="showPassword ? 'browse-off' : 'browse'"
+                :icon="passwordIcon"
               />
             </template>
           </t-input>
