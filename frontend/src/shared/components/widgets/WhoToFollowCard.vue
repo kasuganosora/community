@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
-import client from '@/shared/api/client'
+import { suggestionApi } from '@/domains/user/infrastructure/suggestionApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
-
-interface SuggestionItem {
-  account: MastodonAccount
-}
 
 const suggestions = ref<MastodonAccount[]>([])
 const error = ref<string | null>(null)
@@ -16,7 +12,7 @@ let cancelled = false
 
 onMounted(async () => {
   try {
-    const { data } = await client.get<SuggestionItem[]>('/api/v1/suggestions', { params: { limit: 3 } })
+    const data = await suggestionApi.list({ limit: 3 })
     if (!cancelled) {
       suggestions.value = data.map((item) => item.account)
     }

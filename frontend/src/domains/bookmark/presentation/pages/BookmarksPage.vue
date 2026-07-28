@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
-import client from '@/shared/api/client'
+import { bookmarkApi } from '../../infrastructure/bookmarkApi'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
 const bookmarks = ref<MastodonStatus[]>([])
@@ -10,8 +10,7 @@ const error = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    const { data } = await client.get<MastodonStatus[]>('/api/v1/bookmarks', { params: { limit: 40 } })
-    bookmarks.value = data
+    bookmarks.value = await bookmarkApi.list({ limit: 40 })
   } catch (e) {
     console.error('Failed to load bookmarks:', e)
     error.value = 'Failed to load bookmarks'
@@ -20,6 +19,7 @@ onMounted(async () => {
   }
 })
 </script>
+
 
 <template>
   <div class="bookmarks-page">

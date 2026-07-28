@@ -8,8 +8,11 @@ export const userApi = {
   },
 
   async lookupAccount(acct: string): Promise<MastodonAccount> {
-    const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct } })
-    return data
+    // Backend uses /api/v1/accounts/search?q=acct rather than Mastodon's /accounts/lookup
+    const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
+      params: { q: acct, limit: 1 },
+    })
+    return data[0]
   },
 
   async getStatuses(id: string, params?: {
@@ -36,7 +39,7 @@ export const userApi = {
   },
 
   async unfollow(id: string): Promise<MastodonRelationship> {
-    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${id}/unfollow`)
+    const { data } = await client.delete<MastodonRelationship>(`/api/v1/accounts/${id}/follow`)
     return data
   },
 

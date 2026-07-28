@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { MastodonNotification } from '@/shared/types/mastodon'
-import client from '@/shared/api/client'
+import { notificationApi } from '../../infrastructure/notificationApi'
 import { stripHtml } from '@/shared/utils/sanitize'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
@@ -14,8 +14,7 @@ const error = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    const { data } = await client.get<MastodonNotification[]>('/api/v1/notifications', { params: { limit: 30 } })
-    notifications.value = data
+    notifications.value = await notificationApi.list({ limit: 30 })
   } catch (e) {
     console.error('Failed to load notifications:', e)
     error.value = 'Failed to load notifications'
@@ -57,7 +56,18 @@ function getNotificationText(type: NotificationType) {
 function getPreview(content: string): string {
   return stripHtml(content).slice(0, 100)
 }
+
+async function dismissNotification(id: string) {
+  try {
+    await notificationApi.dismiss(id)
+    notifications.value = notifications.value.filter(n => n.id !== id)
+  } catch (e) {
+    console.error('Failed to dismiss notification:', e)
+  }
+}
+
 </script>
+
 
 <template>
   <div class="notifications-page">
@@ -113,6 +123,13 @@ function getPreview(content: string): string {
                 {{ getPreview(notification.status.content) }}
               </div>
             </div>
+            <button
+              class="notification-dismiss"
+              @click.stop="dismissNotification(notification.id)"
+              aria-label="Dismiss notification"
+            >
+              <t-icon name="close" :size="16" />
+            </button>
           </div>
         </template>
       </div>
@@ -166,5 +183,21 @@ function getPreview(content: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.notification-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.notification-dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 </style>

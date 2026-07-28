@@ -31,7 +31,7 @@ function navigateTo(item: typeof navItems.value[0]) {
 }
 
 async function handleLogout() {
-  authStore.logout()
+  await authStore.logout()
   router.push({ name: 'landing' })
 }
 </script>

@@ -14,6 +14,7 @@ const account = ref<MastodonAccount | null>(null)
 const statuses = ref<MastodonStatus[]>([])
 const activeTab = ref('posts')
 const loading = ref(true)
+const following = ref(false)
 
 async function loadProfile() {
   loading.value = true
@@ -23,11 +24,31 @@ async function loadProfile() {
     account.value = acctData
     const statusData = await userApi.getStatuses(acctData.id, { limit: 20, exclude_replies: activeTab.value === 'posts' })
     statuses.value = statusData
+    // Check relationship status
+    if (acctData.id) {
+      try {
+        const rels = await userApi.getRelationships([acctData.id])
+        following.value = rels[0]?.following ?? false
+      } catch {
+        // Non-critical — default to not following
+      }
+    }
   } catch (e) {
     console.error('Failed to load profile:', e)
-    // Profile not found
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleFollow() {
+  if (!account.value) return
+  try {
+    const rel = following.value
+      ? await userApi.unfollow(account.value.id)
+      : await userApi.follow(account.value.id)
+    following.value = rel.following
+  } catch (e) {
+    console.error('Failed to toggle follow:', e)
   }
 }
 
@@ -63,8 +84,10 @@ watch(activeTab, loadProfile)
     <div class="profile-info">
       <div class="profile-info__top">
         <UserAvatar :account="account" :size="128" class="profile-avatar" />
-        <t-button theme="default" shape="round" class="edit-btn">
-          Follow
+        <t-button theme="default" shape="round" class="edit-btn"
+          @click="toggleFollow"
+        >
+          {{ following ? 'Following' : 'Follow' }}
         </t-button>
       </div>
 

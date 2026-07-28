@@ -17,4 +17,12 @@ export const authApi = {
     const { data } = await client.get<MastodonAccount>('/api/v1/accounts/verify_credentials')
     return data
   },
+
+  async logout(): Promise<void> {
+    try {
+      await client.get('/api/v1/accounts/logout')
+    } catch {
+      // Ignore error — we clear the token locally regardless
+    }
+  },
 }

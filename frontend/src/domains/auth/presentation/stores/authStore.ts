@@ -62,7 +62,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout(redirectToLogin = false) {
+  async function logout(redirectToLogin = false) {
+    // Notify backend to invalidate the token
+    if (!USE_MOCK) {
+      await authApi.logout()
+    }
     token.value = null
     currentUser.value = null
     tokenService.clear()
