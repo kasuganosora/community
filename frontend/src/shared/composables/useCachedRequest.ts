@@ -1,7 +1,7 @@
 import { ref, computed, type Ref } from 'vue'
 import client from '@/shared/api/client'
 import type { AxiosRequestConfig } from 'axios'
-import { clearSWRCache, getSWRCacheSize } from './useSWR'
+import { clearSWRCache, getSWRCacheSize, getSWRCacheEntry, setSWRCache } from './useSWR'
 
 interface CacheOptions {
   ttl?: number // Time to live in milliseconds
@@ -41,6 +41,16 @@ export function useCachedRequest<T>(
       return null
     }
 
+    // Check cache unless force refresh
+    if (!forceRefresh) {
+      const cached = getSWRCacheEntry<T>(cacheKey.value)
+      if (cached && Date.now() < cached.expiresAt) {
+        data.value = cached.data
+        lastFetched.value = cached.timestamp
+        return cached.data
+      }
+    }
+
     isLoading.value = true
     error.value = null
 
@@ -50,6 +60,8 @@ export function useCachedRequest<T>(
 
       data.value = result
       lastFetched.value = Date.now()
+      // Write to shared SWR cache
+      setSWRCache(cacheKey.value, result, ttl)
       return result
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err))
@@ -61,11 +73,15 @@ export function useCachedRequest<T>(
 
   function invalidate() {
     clearSWRCache(cacheKey.value)
+    // Mark local data as stale
+    lastFetched.value = null
   }
 
   function updateCache(newData: T) {
     data.value = newData
     lastFetched.value = Date.now()
+    // Sync to shared SWR cache so other components see the update
+    setSWRCache(cacheKey.value, newData, ttl)
   }
 
   const isStale = computed(() => {
@@ -89,12 +105,15 @@ export function useCachedRequest<T>(
   }
 }
 
-// Helper to prefetch data
+// Helper to prefetch data — writes result to cache
 export async function prefetchCache<T>(
   url: string,
-  _options: CacheOptions & AxiosRequestConfig = {}
+  options: CacheOptions & AxiosRequestConfig = {}
 ): Promise<T> {
-  const { data } = await client.get<T>(url)
+  const { ttl = 60000, ...axiosConfig } = options
+  const { data } = await client.get<T>(url, axiosConfig)
+  const cacheKey = `${url}:${JSON.stringify(axiosConfig.params || {})}`
+  setSWRCache(cacheKey, data, ttl)
   return data
 }
 

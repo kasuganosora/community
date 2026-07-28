@@ -1,4 +1,4 @@
-import { ref, watch, onUnmounted, type Ref } from 'vue'
+import { ref, watch, onUnmounted, nextTick, type Ref } from 'vue'
 
 interface UseLocalStorageOptions<T> {
   serializer?: {
@@ -9,11 +9,18 @@ interface UseLocalStorageOptions<T> {
   defaultValue?: T
 }
 
-export function useLocalStorage<T>(
+interface LocalStorageResult<T> {
+  ref: Ref<T>
+  suppressWrite: { value: boolean }
+  write: (value: T) => void
+}
+
+// Internal version that exposes suppress flag
+function createLocalStorage<T>(
   key: string,
   initialValue: T,
   options: UseLocalStorageOptions<T> = {}
-): Ref<T> {
+): LocalStorageResult<T> {
   const {
     serializer = {
       read: (value: string) => JSON.parse(value) as T,
@@ -23,7 +30,8 @@ export function useLocalStorage<T>(
     defaultValue = initialValue,
   } = options
 
-  // Read from localStorage or use initial value
+  const suppressWrite = { value: false }
+
   function read(): T {
     if (typeof window === 'undefined') return initialValue
     try {
@@ -36,7 +44,6 @@ export function useLocalStorage<T>(
     }
   }
 
-  // Write to localStorage
   function write(value: T) {
     try {
       localStorage.setItem(key, serializer.write(value))
@@ -47,16 +54,17 @@ export function useLocalStorage<T>(
 
   const storedValue = ref<T>(read()) as Ref<T>
 
-  // Watch for changes and update localStorage
+  let writeTimer: ReturnType<typeof setTimeout> | null = null
   watch(
     storedValue,
     (newValue) => {
-      write(newValue)
+      if (suppressWrite.value) return
+      if (writeTimer) clearTimeout(writeTimer)
+      writeTimer = setTimeout(() => write(newValue), 300)
     },
     { deep: true }
   )
 
-  // Sync across tabs
   if (syncAcrossTabs && typeof window !== 'undefined') {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === key && e.newValue !== null) {
@@ -69,14 +77,20 @@ export function useLocalStorage<T>(
     }
 
     window.addEventListener('storage', handleStorage)
-
-    // Clean up event listener on component unmount
     onUnmounted(() => {
       window.removeEventListener('storage', handleStorage)
     })
   }
 
-  return storedValue
+  return { ref: storedValue, suppressWrite, write }
+}
+
+export function useLocalStorage<T>(
+  key: string,
+  initialValue: T,
+  options: UseLocalStorageOptions<T> = {}
+): Ref<T> {
+  return createLocalStorage(key, initialValue, options).ref
 }
 
 // Version that returns object with additional utilities
@@ -85,15 +99,18 @@ export function useLocalStorageExtended<T>(
   initialValue: T,
   options: UseLocalStorageOptions<T> = {}
 ) {
-  const storage = useLocalStorage(key, initialValue, options)
+  const { ref: storage, suppressWrite } = createLocalStorage(key, initialValue, options)
 
   function remove() {
     try {
+      suppressWrite.value = true
       localStorage.removeItem(key)
+      storage.value = initialValue
+      nextTick(() => { suppressWrite.value = false })
     } catch (e) {
       console.error(`Error removing localStorage key "${key}":`, e)
+      suppressWrite.value = false
     }
-    storage.value = initialValue
   }
 
   function exists() {

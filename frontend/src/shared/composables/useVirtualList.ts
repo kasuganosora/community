@@ -1,9 +1,9 @@
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, watch, onUnmounted, type Ref, type MaybeRefOrGetter, toRef } from 'vue'
 
 interface UseVirtualListOptions {
   itemHeight: number
   overscan?: number
-  containerHeight: number
+  containerHeight: MaybeRefOrGetter<number>
 }
 
 interface VirtualItem<T> {
@@ -21,7 +21,8 @@ export function useVirtualList<T>(
   list: Ref<T[]>,
   options: UseVirtualListOptions
 ) {
-  const { itemHeight, overscan = 5, containerHeight } = options
+  const { itemHeight, overscan = 5 } = options
+  const containerHeightRef = toRef(options.containerHeight)
 
   const scrollTop = ref(0)
   const containerRef = ref<HTMLElement | null>(null)
@@ -29,7 +30,7 @@ export function useVirtualList<T>(
   // Calculate visible range
   const visibleRange = computed(() => {
     const start = Math.floor(scrollTop.value / itemHeight)
-    const visibleCount = Math.ceil(containerHeight / itemHeight)
+    const visibleCount = Math.ceil(containerHeightRef.value / itemHeight)
     const end = start + visibleCount
 
     // Add overscan for smoother scrolling
@@ -44,6 +45,7 @@ export function useVirtualList<T>(
   })
 
   // Generate virtual items with positioning styles
+  // Items use top relative to container (not wrapper), avoiding double offset
   const virtualItems = computed<VirtualItem<T>[]>(() => {
     const { start, end } = visibleRange.value
     const items: VirtualItem<T>[] = []
@@ -70,24 +72,29 @@ export function useVirtualList<T>(
   // Total height of the list
   const totalHeight = computed(() => list.value.length * itemHeight)
 
-  // Offset style for the container
+  // Container style
   const containerStyle = computed(() => ({
     height: `${totalHeight.value}px`,
     position: 'relative' as const,
   }))
 
-  // Wrapper style to offset visible items
-  const wrapperStyle = computed(() => ({
-    transform: `translateY(${visibleRange.value.start * itemHeight}px)`,
-  }))
+  // Wrapper style is intentionally empty — items use absolute positioning
+  // relative to containerStyle. Using transform would create a new containing
+  // block and cause double offset.
+  const wrapperStyle = computed(() => ({}))
 
   // Scroll handler — throttled with rAF for performance
   let rafId: number | null = null
+  let wasAtBottom = false
+
   function handleScroll(e: Event) {
     if (rafId !== null) return
+    const target = e.target as HTMLElement
     rafId = requestAnimationFrame(() => {
-      const target = e.target as HTMLElement
       scrollTop.value = target.scrollTop
+      // Auto-update wasAtBottom so consumers don't need to call checkIsAtBottom manually
+      const { scrollHeight, clientHeight } = target
+      wasAtBottom = scrollHeight - target.scrollTop - clientHeight < itemHeight
       rafId = null
     })
   }
@@ -105,7 +112,6 @@ export function useVirtualList<T>(
   }
 
   // Watch for list changes and scroll to bottom if already at bottom
-  let wasAtBottom = false
   watch(
     () => list.value.length,
     (newLen, oldLen) => {
@@ -118,10 +124,17 @@ export function useVirtualList<T>(
   // Check if currently at bottom (for auto-scroll new items)
   function checkIsAtBottom() {
     if (!containerRef.value) return false
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.value
-    wasAtBottom = scrollHeight - scrollTop - clientHeight < itemHeight
+    const { scrollTop: domScrollTop, scrollHeight, clientHeight } = containerRef.value
+    wasAtBottom = scrollHeight - domScrollTop - clientHeight < itemHeight
     return wasAtBottom
   }
+
+  onUnmounted(() => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+  })
 
   return {
     containerRef,

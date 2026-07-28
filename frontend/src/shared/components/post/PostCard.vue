@@ -27,7 +27,7 @@ function navigateToDetail() {
   const s = displayStatus.value
   router.push({
     name: 'post-detail',
-    params: { username: s.account.username, statusId: s.id },
+    params: { username: s.account.acct || s.account.username, statusId: s.id },
   })
 }
 

@@ -11,6 +11,7 @@ let timer: ReturnType<typeof setInterval> | null = null
 
 function startTimer() {
   if (timer) return
+  sharedNow.value = Date.now()
   timer = setInterval(() => {
     sharedNow.value = Date.now()
   }, 30_000)
@@ -21,6 +22,17 @@ function stopTimer() {
     clearInterval(timer)
     timer = null
   }
+}
+
+// HMR support — clean up timer when module is hot-replaced
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+    }
+    consumerCount = 0
+  })
 }
 
 export function useSharedClock() {

@@ -10,12 +10,36 @@ interface CacheEntry<T> {
   key: string
 }
 
+const MAX_CACHE_SIZE = 500
+
 const cache = new Map<string, CacheEntry<unknown>>()
 const pendingRequests = new Map<string, Promise<unknown>>()
 
+function setCacheEntry(key: string, data: unknown, cacheTime: number) {
+  // LRU eviction: evict oldest entries if cache is full
+  if (cache.size >= MAX_CACHE_SIZE) {
+    let oldestKey: string | null = null
+    let oldestTime = Infinity
+    for (const [k, v] of cache) {
+      if (v.timestamp < oldestTime) {
+        oldestTime = v.timestamp
+        oldestKey = k
+      }
+    }
+    if (oldestKey) cache.delete(oldestKey)
+  }
+  cache.set(key, {
+    data,
+    timestamp: Date.now(),
+    expiresAt: Date.now() + cacheTime,
+    key,
+  })
+}
+
 // Periodic cache cleanup — removes expired entries every 2 minutes
+let cleanupTimer: ReturnType<typeof setInterval> | null = null
 if (typeof window !== 'undefined') {
-  setInterval(() => {
+  cleanupTimer = setInterval(() => {
     const now = Date.now()
     for (const [k, v] of cache) {
       if (now >= v.expiresAt) {
@@ -23,6 +47,16 @@ if (typeof window !== 'undefined') {
       }
     }
   }, 2 * 60 * 1000)
+}
+
+/** Destroy SWR cache and timers (for tests / micro-frontend cleanup) */
+export function destroySWR() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+  }
+  cache.clear()
+  pendingRequests.clear()
 }
 
 // Default cache time: 5 minutes
@@ -87,12 +121,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const request = client.get<T>(key, config)
       .then((res) => res.data)
       .then((data) => {
-        cache.set(key, {
-          data,
-          timestamp: Date.now(),
-          expiresAt: Date.now() + cacheTime,
-          key,
-        })
+        setCacheEntry(key, data, cacheTime)
         pendingRequests.delete(key)
         return data
       })
@@ -102,6 +131,14 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       })
 
     pendingRequests.set(key, request)
+
+    // Timeout fallback: if request is stuck for 30s, clear the pending entry
+    setTimeout(() => {
+      if (pendingRequests.get(key) === request) {
+        pendingRequests.delete(key)
+      }
+    }, 30_000)
+
     return request
   }
 
@@ -115,9 +152,9 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const currentVersion = ++requestVersion
     if (!silent) {
       isLoading.value = true
+      error.value = null
     }
     isValidating.value = true
-    error.value = null
 
     try {
       const key = cacheKey.value
@@ -127,6 +164,8 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       // Discard stale response — a newer request has been initiated
       if (currentVersion !== requestVersion) return
       data.value = result
+      // Clear error only on success
+      error.value = null
     } catch (err) {
       if (currentVersion !== requestVersion) return
       error.value = err instanceof Error ? err : new Error(String(err))
@@ -143,14 +182,12 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
   // Manual revalidation
   async function mutate(newData?: T, shouldRevalidate = true) {
+    const key = cacheKey.value
+    if (!key) return
+
     if (newData !== undefined) {
       data.value = newData
-      cache.set(cacheKey.value, {
-        data: newData,
-        timestamp: Date.now(),
-        expiresAt: Date.now() + cacheTime,
-        key: cacheKey.value,
-      })
+      setCacheEntry(key, newData, cacheTime)
     }
 
     if (shouldRevalidate) {
@@ -196,10 +233,8 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       },
       { immediate: true }
     )
-    // Store original stop for cleanup
-    const originalStop = stopRefreshWatch
     onUnmounted(() => {
-      originalStop()
+      stopRefreshWatch()
       if (refreshTimer) {
         clearInterval(refreshTimer)
       }
@@ -238,7 +273,11 @@ export function useSWR<T>(options: UseSWROptions<T>) {
   // Revalidate on reconnect
   if (revalidateOnReconnect) {
     onOnline = () => {
-      executeRequest(true)
+      // Check cache freshness before revalidating (consistent with onFocus behavior)
+      const cached = cache.get(cacheKey.value)
+      if (!cached || Date.now() > cached.timestamp + cacheTime / 2) {
+        executeRequest(true)
+      }
     }
 
     const stopOnlineWatch = watch(
@@ -293,14 +332,19 @@ export function prefetchSWR<T>(key: string, fetcher?: (key: string) => Promise<T
   const f = fetcher || defaultFetcher
 
   return f(key).then((data) => {
-    cache.set(key, {
-      data,
-      timestamp: Date.now(),
-      expiresAt: Date.now() + DEFAULT_CACHE_TIME,
-      key,
-    })
+    setCacheEntry(key, data, DEFAULT_CACHE_TIME)
     return data
   })
+}
+
+// Helper to get a cache entry (for useCachedRequest delegation)
+export function getSWRCacheEntry<T>(key: string): CacheEntry<T> | undefined {
+  return cache.get(key) as CacheEntry<T> | undefined
+}
+
+// Helper to write to SWR cache (for useCachedRequest delegation)
+export function setSWRCache<T>(key: string, data: T, ttl: number) {
+  setCacheEntry(key, data, ttl)
 }
 
 // Helper to clear cache

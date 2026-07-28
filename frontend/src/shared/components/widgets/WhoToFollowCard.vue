@@ -6,12 +6,14 @@ import { userApi } from '@/domains/user/infrastructure/userApi'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const suggestions = ref<MastodonAccount[]>([])
+const loading = ref(true)
 const error = ref<string | null>(null)
 const following = ref<Set<string>>(new Set())
 let cancelled = false
 
 onMounted(async () => {
   try {
+    loading.value = true
     const data = await suggestionApi.list({ limit: 3 })
     if (!cancelled) {
       suggestions.value = data.map((item) => item.account)
@@ -20,6 +22,10 @@ onMounted(async () => {
     if (!cancelled) {
       console.error('Failed to load suggestions:', e)
       error.value = 'Failed to load suggestions'
+    }
+  } finally {
+    if (!cancelled) {
+      loading.value = false
     }
   }
 })
@@ -40,7 +46,20 @@ async function handleFollow(user: MastodonAccount) {
 </script>
 
 <template>
-  <div class="follow-card" v-if="suggestions.length">
+  <div class="follow-card" v-if="loading">
+    <h2 class="follow-card__title">Who to follow</h2>
+    <div class="follow-card__loading">
+      <t-loading size="small" />
+    </div>
+  </div>
+  <div class="follow-card" v-else-if="error && !suggestions.length">
+    <h2 class="follow-card__title">Who to follow</h2>
+    <div class="follow-card__error">
+      <p>{{ error }}</p>
+      <t-button size="small" @click="() => { error = null; loading = true; }">Retry</t-button>
+    </div>
+  </div>
+  <div class="follow-card" v-else-if="suggestions.length">
     <h2 class="follow-card__title">Who to follow</h2>
     <div
       v-for="user in suggestions"
@@ -143,5 +162,20 @@ async function handleFollow(user: MastodonAccount) {
 .follow-card__more a {
   color: var(--accent-blue);
   font-size: var(--font-md);
+}
+
+.follow-card__loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6) 0;
+}
+
+.follow-card__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--text-secondary);
 }
 </style>

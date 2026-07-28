@@ -11,6 +11,7 @@ const emit = defineEmits<{
 const authStore = useAuthStore()
 const content = ref('')
 const posting = ref(false)
+const error = ref<string | null>(null)
 
 const charCount = computed(() => content.value.length)
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
@@ -19,13 +20,25 @@ const canPost = computed(() => content.value.trim().length > 0 && !isOverLimit.v
 async function handlePost() {
   if (!canPost.value) return
   posting.value = true
-  try {
-    emit('posted', content.value)
-    content.value = ''
-  } finally {
-    posting.value = false
-  }
+  error.value = null
+  // Emit and keep posting=true until parent confirms via @posted event handler
+  // Parent is responsible for calling onPostSuccess/onPostError
+  emit('posted', content.value)
 }
+
+/** Called by parent on successful post to reset the composer */
+function onPostSuccess() {
+  content.value = ''
+  posting.value = false
+}
+
+/** Called by parent on post failure to show error and keep content */
+function onPostError(msg?: string) {
+  posting.value = false
+  error.value = msg || '发布失败，请重试'
+}
+
+defineExpose({ onPostSuccess, onPostError })
 </script>
 
 <template>
@@ -44,6 +57,7 @@ async function handlePost() {
           :autosize="{ minRows: 1, maxRows: 12 }"
           class="composer__textarea"
         />
+        <div v-if="error" class="composer__error">{{ error }}</div>
         <div class="composer__toolbar">
           <div class="composer__tools">
             <button class="tool-btn"><t-icon name="image" :size="18" /></button>
@@ -151,5 +165,11 @@ async function handlePost() {
 
 .composer__count--over {
   color: var(--danger);
+}
+
+.composer__error {
+  color: var(--danger, #e53e3e);
+  font-size: var(--font-sm, 0.875rem);
+  padding: var(--space-1, 0.25rem) 0;
 }
 </style>

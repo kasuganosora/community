@@ -23,6 +23,8 @@ export function useInfiniteScroll(
   })
 
   let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let retryCount = 0
+  const MAX_RETRIES = 3
 
   async function checkAndLoad() {
     if (isLoading.value || isDisabled.value || isTriggered) return
@@ -41,17 +43,26 @@ export function useInfiniteScroll(
 
       try {
         await callback()
+        // Reset retry count on successful load
+        retryCount = 0
       } catch (err) {
         hasError.value = true
         error.value = err instanceof Error ? err : new Error(String(err))
       } finally {
         isLoading.value = false
         // Reset trigger after a delay to allow scroll position to update
-        retryTimer = setTimeout(() => {
+        // Limit retries to prevent infinite loops when content doesn't grow
+        if (retryCount < MAX_RETRIES) {
+          retryCount++
+          retryTimer = setTimeout(() => {
+            isTriggered = false
+            // Check again in case we're still near bottom
+            checkAndLoad()
+          }, 100)
+        } else {
           isTriggered = false
-          // Check again in case we're still near bottom
-          checkAndLoad()
-        }, 100)
+          retryCount = 0
+        }
       }
     }
   }
@@ -127,6 +138,10 @@ export function useInfiniteScrollObserver(
     const entry = entries[0]
     if (!entry?.isIntersecting || isLoading.value || isDisabled.value) return
 
+    // Temporarily unobserve to prevent duplicate triggers during DOM update
+    if (sentinelRef.value) {
+      observer?.unobserve(sentinelRef.value)
+    }
     isLoading.value = true
     hasError.value = false
     error.value = null
@@ -138,6 +153,10 @@ export function useInfiniteScrollObserver(
       error.value = err instanceof Error ? err : new Error(String(err))
     } finally {
       isLoading.value = false
+      // Re-observe after DOM settles to catch further scrolls
+      if (sentinelRef.value) {
+        observer?.observe(sentinelRef.value)
+      }
     }
   }
 

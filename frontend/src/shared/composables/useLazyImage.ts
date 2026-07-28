@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, type Ref } from 'vue'
+import { ref, onMounted, onUnmounted, watch, type Ref } from 'vue'
 
 interface UseLazyImageOptions {
   rootMargin?: string
@@ -11,7 +11,9 @@ export function useLazyImage(
   imageRef: Ref<HTMLImageElement | null>,
   options: UseLazyImageOptions
 ) {
-  const { src, placeholder, rootMargin = '50px', threshold = 0.01 } = options
+  const { placeholder, rootMargin = '50px', threshold = 0.01 } = options
+  // Use a getter to maintain reactivity — options.src may change dynamically
+  const getSrc = () => options.src
 
   const isLoaded = ref(false)
   const isInView = ref(false)
@@ -22,9 +24,22 @@ export function useLazyImage(
   let hasTriggered = false
   let preloadImg: HTMLImageElement | null = null
 
+  function cleanupPreloadImg() {
+    if (preloadImg) {
+      preloadImg.onload = null
+      preloadImg.onerror = null
+      preloadImg.src = ''
+      preloadImg = null
+    }
+  }
+
   function loadImage() {
+    const src = getSrc()
     if (!src || hasTriggered) return
     hasTriggered = true
+
+    // Clean up any previous preload image to prevent callback cross-talk
+    cleanupPreloadImg()
 
     preloadImg = new Image()
     preloadImg.src = src
@@ -40,6 +55,13 @@ export function useLazyImage(
       console.error('Image load error:', e)
     }
   }
+
+  // Watch for src changes and reload
+  watch(() => options.src, (newSrc, oldSrc) => {
+    if (newSrc && newSrc !== oldSrc) {
+      reload()
+    }
+  })
 
   onMounted(() => {
     if (!imageRef.value) return
@@ -76,16 +98,13 @@ export function useLazyImage(
   onUnmounted(() => {
     observer?.disconnect()
     observer = null
-    if (preloadImg) {
-      preloadImg.onload = null
-      preloadImg.onerror = null
-      preloadImg.src = ''
-      preloadImg = null
-    }
+    cleanupPreloadImg()
   })
+
   function reload() {
     hasTriggered = false
     isLoaded.value = false
+    cleanupPreloadImg()
     loadImage()
   }
 
@@ -103,7 +122,8 @@ export function useLazyBackground(
   elementRef: Ref<HTMLElement | null>,
   options: UseLazyImageOptions
 ) {
-  const { src, rootMargin = '50px', threshold = 0.01 } = options
+  const { rootMargin = '50px', threshold = 0.01 } = options
+  const getSrc = () => options.src
 
   const isLoaded = ref(false)
   let observer: IntersectionObserver | null = null
@@ -111,17 +131,24 @@ export function useLazyBackground(
   let preloadImg: HTMLImageElement | null = null
 
   function loadBackground() {
+    const src = getSrc()
     if (!src || hasTriggered) return
     hasTriggered = true
+
+    if (preloadImg) {
+      preloadImg.onload = null
+      preloadImg.onerror = null
+      preloadImg.src = ''
+    }
 
     preloadImg = new Image()
     preloadImg.src = src
 
     preloadImg.onload = () => {
       if (elementRef.value) {
-        // Sanitize URL to prevent CSS injection
-        const sanitized = src.replace(/["'\\]/g, '')
-        elementRef.value.style.backgroundImage = `url("${sanitized}")`
+        // Sanitize URL to prevent CSS injection — use encodeURI for safety
+        const safeUrl = encodeURI(src)
+        elementRef.value.style.backgroundImage = `url("${safeUrl}")`
       }
       isLoaded.value = true
     }
@@ -130,6 +157,14 @@ export function useLazyBackground(
       console.error('Background image load error:', src)
     }
   }
+
+  // Watch for src changes
+  watch(() => options.src, (newSrc, oldSrc) => {
+    if (newSrc && newSrc !== oldSrc) {
+      hasTriggered = false
+      loadBackground()
+    }
+  })
 
   onMounted(() => {
     if (!elementRef.value) return

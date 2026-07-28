@@ -30,6 +30,18 @@ function navigateTo(item: typeof navItems.value[0]) {
   router.push(item.route)
 }
 
+function handleCompose() {
+  if (authStore.currentUser) {
+    // Scroll to top and focus the composer on the home page
+    router.push({ name: 'home' }).then(() => {
+      // Emit a custom event to open the composer
+      window.dispatchEvent(new CustomEvent('open-composer'))
+    })
+  } else {
+    router.push({ name: 'login' })
+  }
+}
+
 async function handleLogout() {
   await authStore.logout()
   router.push({ name: 'landing' })
@@ -60,7 +72,11 @@ async function handleLogout() {
 
     <!-- Post Button -->
     <div class="sidebar-post">
-      <button class="btn btn--primary btn--lg post-btn" disabled>
+      <button 
+        class="btn btn--primary btn--lg post-btn" 
+        @click="handleCompose"
+        :aria-label="authStore.currentUser ? '发布新帖子' : '请先登录'"
+      >
         发布
       </button>
     </div>

@@ -9,8 +9,10 @@ const { data: trends, execute } = useCachedRequest<MastodonTag[]>('/api/v1/trend
   ttl: 5 * 60 * 1000, // Cache for 5 minutes
 })
 
-// Execute on mount
-onMounted(() => execute())
+// Execute on mount — catch to prevent unhandled promise rejection
+onMounted(() => {
+  execute().catch(() => {})
+})
 
 // Use computed to cache results instead of calling function in template
 const trendStats = computed(() => {

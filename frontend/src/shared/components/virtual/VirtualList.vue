@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 interface Props {
   items: T[]
@@ -38,6 +38,11 @@ const visibleRange = computed(() => {
   }
 })
 
+// Pre-slice visible items once — avoids O(n²) indexOf in template
+const visibleItems = computed(() =>
+  props.items.slice(visibleRange.value.start, visibleRange.value.end)
+)
+
 // Total height of the list
 const totalHeight = computed(() => props.items.length * props.itemHeight)
 
@@ -47,7 +52,7 @@ const containerStyle = computed(() => ({
   position: 'relative' as const,
 }))
 
-// Calculate offset for the visible items wrapper
+// Wrapper style — translate by start offset
 const wrapperStyle = computed(() => ({
   transform: `translateY(${visibleRange.value.start * props.itemHeight}px)`,
   willChange: 'transform',
@@ -55,29 +60,54 @@ const wrapperStyle = computed(() => ({
 
 // Check if we should trigger scrollBottom event
 let lastScrollTop = 0
+let rafId: number | null = null
+
 function handleScroll(e: Event) {
   const target = e.target as HTMLElement
-  scrollTop.value = target.scrollTop
-  containerHeight.value = target.clientHeight
+  if (rafId !== null) return
+  rafId = requestAnimationFrame(() => {
+    scrollTop.value = target.scrollTop
+    containerHeight.value = target.clientHeight
+    rafId = null
 
-  emit('scroll', e)
+    emit('scroll', e)
 
-  // Check if scrolled to bottom
-  const { scrollHeight, scrollTop: currentScrollTop, clientHeight } = target
-  const isAtBottom = scrollHeight - currentScrollTop - clientHeight < props.itemHeight * 2
+    // Check if scrolled to bottom
+    const { scrollHeight, scrollTop: currentScrollTop, clientHeight } = target
+    const isAtBottom = scrollHeight - currentScrollTop - clientHeight < props.itemHeight * 2
 
-  if (isAtBottom && lastScrollTop < currentScrollTop) {
-    emit('scrollBottom')
-  }
-  lastScrollTop = currentScrollTop
+    if (isAtBottom && lastScrollTop < currentScrollTop) {
+      emit('scrollBottom')
+    }
+    lastScrollTop = currentScrollTop
+  })
 }
 
-// Update container height on mount
-watch(containerRef, (el) => {
-  if (el) {
-    containerHeight.value = el.clientHeight
+// Set container height on mount (avoids null ref in immediate watch)
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  if (containerRef.value) {
+    containerHeight.value = containerRef.value.clientHeight
+    // Observe size changes for responsive behavior
+    if ('ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(() => {
+        if (containerRef.value) {
+          containerHeight.value = containerRef.value.clientHeight
+        }
+      })
+      resizeObserver.observe(containerRef.value)
+    }
   }
-}, { immediate: true })
+})
+
+onUnmounted(() => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+  resizeObserver?.disconnect()
+})
 
 // Expose methods
 function scrollToIndex(index: number) {
@@ -97,6 +127,7 @@ defineExpose({
 })
 </script>
 
+
 <template>
   <div
     ref="containerRef"
@@ -106,12 +137,12 @@ defineExpose({
     <div :style="containerStyle">
       <div :style="wrapperStyle" class="virtual-list-wrapper">
         <div
-          v-for="item in items.slice(visibleRange.start, visibleRange.end)"
+          v-for="(item, idx) in visibleItems"
           :key="String((item as Record<string, unknown>)[keyField as string])"
           class="virtual-list-item"
           :style="{ height: `${itemHeight}px` }"
         >
-          <slot :item="item" :index="visibleRange.start + items.slice(visibleRange.start, visibleRange.end).indexOf(item)">
+          <slot :item="item" :index="visibleRange.start + idx">
             {{ item }}
           </slot>
         </div>
@@ -119,6 +150,7 @@ defineExpose({
     </div>
   </div>
 </template>
+
 
 <style scoped>
 .virtual-list-container {

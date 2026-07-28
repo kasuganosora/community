@@ -37,13 +37,15 @@ export function usePerformance() {
 
       if (!navEntry) return
 
+      const loadEnd = navEntry.loadEventEnd || performance.now()
+
       metrics.value = {
         dnsLookup: navEntry.domainLookupEnd - navEntry.domainLookupStart,
         tcpConnection: navEntry.connectEnd - navEntry.connectStart,
         serverResponse: navEntry.responseEnd - navEntry.responseStart,
         domProcessing: navEntry.domComplete - navEntry.domInteractive,
-        resourceLoading: navEntry.loadEventEnd - navEntry.responseEnd,
-        totalLoadTime: navEntry.loadEventEnd - navEntry.startTime,
+        resourceLoading: loadEnd - navEntry.responseEnd,
+        totalLoadTime: loadEnd - navEntry.startTime,
       }
     }
 
@@ -145,19 +147,31 @@ export function usePerformance() {
   // Measure function execution time
   function measure<T>(name: string, fn: () => T): T {
     const start = performance.now()
-    const result = fn()
-    const end = performance.now()
-    console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
-    return result
+    try {
+      const result = fn()
+      const end = performance.now()
+      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+      return result
+    } catch (err) {
+      const end = performance.now()
+      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
+      throw err
+    }
   }
 
   // Measure async function execution time
   async function measureAsync<T>(name: string, fn: () => Promise<T>): Promise<T> {
     const start = performance.now()
-    const result = await fn()
-    const end = performance.now()
-    console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
-    return result
+    try {
+      const result = await fn()
+      const end = performance.now()
+      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+      return result
+    } catch (err) {
+      const end = performance.now()
+      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
+      throw err
+    }
   }
 
   // Mark and measure

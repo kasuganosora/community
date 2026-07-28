@@ -133,6 +133,12 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
     }
   }
 
+  async function executeWithThrow(...args: Args): Promise<T | null> {
+    const result = await execute(...args)
+    if (result === null && error.value) throw error.value
+    return result
+  }
+
   if (immediate) {
     execute(...([] as unknown as Args))
   }
@@ -145,5 +151,6 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
     isFinished: computed(() => isFinished.value),
     lastExecuted: computed(() => lastExecuted.value),
     execute,
+    executeWithThrow,
   }
 }

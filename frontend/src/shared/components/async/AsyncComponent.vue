@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, onMounted } from 'vue'
+import { shallowRef, ref, onMounted } from 'vue'
 import FadeTransition from '@/shared/components/transitions/FadeTransition.vue'
 
 interface Props {
@@ -16,12 +16,12 @@ const props = withDefaults(defineProps<Props>(), {
 const isLoading = defineModel<boolean>('loading', { default: true })
 const hasError = defineModel<boolean>('error', { default: false })
 const LoadedComponent = shallowRef<unknown>(null)
-let errorValue: Error | null = null
+const errorValue = ref<Error | null>(null)
 
 async function load() {
   isLoading.value = true
   hasError.value = false
-  errorValue = null
+  errorValue.value = null
 
   // Minimum loading time for better UX
   const minDelay = new Promise((resolve) => setTimeout(resolve, props.delay))
@@ -41,7 +41,7 @@ async function load() {
 
     LoadedComponent.value = loaded
   } catch (err) {
-    errorValue = err instanceof Error ? err : new Error(String(err))
+    errorValue.value = err instanceof Error ? err : new Error(String(err))
     hasError.value = true
   } finally {
     isLoading.value = false
