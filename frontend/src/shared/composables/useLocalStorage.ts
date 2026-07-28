@@ -60,10 +60,20 @@ function createLocalStorage<T>(
     (newValue) => {
       if (suppressWrite.value) return
       if (writeTimer) clearTimeout(writeTimer)
-      writeTimer = setTimeout(() => write(newValue), 300)
+      writeTimer = setTimeout(() => {
+        write(newValue)
+        writeTimer = null
+      }, 300)
     },
     { deep: true }
   )
+
+  onUnmounted(() => {
+    if (writeTimer) {
+      clearTimeout(writeTimer)
+      writeTimer = null
+    }
+  })
 
   if (syncAcrossTabs && typeof window !== 'undefined') {
     const handleStorage = (e: StorageEvent) => {

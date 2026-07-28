@@ -36,9 +36,12 @@ function setCacheEntry(key: string, data: unknown, cacheTime: number) {
   })
 }
 
-// Periodic cache cleanup — removes expired entries every 2 minutes
+// Periodic cache cleanup — lazy-started when first useSWR instance mounts
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
-if (typeof window !== 'undefined') {
+let activeInstanceCount = 0
+
+function startCleanupTimer() {
+  if (cleanupTimer) return
   cleanupTimer = setInterval(() => {
     const now = Date.now()
     for (const [k, v] of cache) {
@@ -49,12 +52,20 @@ if (typeof window !== 'undefined') {
   }, 2 * 60 * 1000)
 }
 
+function stopCleanupTimer() {
+  if (cleanupTimer && activeInstanceCount === 0) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+  }
+}
+
 /** Destroy SWR cache and timers (for tests / micro-frontend cleanup) */
 export function destroySWR() {
   if (cleanupTimer) {
     clearInterval(cleanupTimer)
     cleanupTimer = null
   }
+  activeInstanceCount = 0
   cache.clear()
   pendingRequests.clear()
 }
@@ -133,11 +144,15 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     pendingRequests.set(key, request)
 
     // Timeout fallback: if request is stuck for 30s, clear the pending entry
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (pendingRequests.get(key) === request) {
         pendingRequests.delete(key)
       }
     }, 30_000)
+
+    request
+      .then(() => clearTimeout(timeoutId))
+      .catch(() => clearTimeout(timeoutId))
 
     return request
   }
@@ -208,9 +223,9 @@ export function useSWR<T>(options: UseSWROptions<T>) {
         if (cached && Date.now() < cached.expiresAt) {
           data.value = cached.data as T
           isLoading.value = false
-          executeRequest(true)
+          executeRequest(true).catch(() => {})
         } else {
-          executeRequest()
+          executeRequest().catch(() => {})
         }
       }
     },
@@ -227,7 +242,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
         }
         if (key) {
           refreshTimer = setInterval(() => {
-            executeRequest(true)
+            executeRequest(true).catch(() => {})
           }, refreshInterval)
         }
       },
@@ -246,7 +261,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     onFocus = () => {
       const cached = cache.get(cacheKey.value)
       if (!cached || Date.now() > cached.timestamp + cacheTime / 2) {
-        executeRequest(true)
+        executeRequest(true).catch(() => {})
       }
     }
 
@@ -276,7 +291,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
       // Check cache freshness before revalidating (consistent with onFocus behavior)
       const cached = cache.get(cacheKey.value)
       if (!cached || Date.now() > cached.timestamp + cacheTime / 2) {
-        executeRequest(true)
+        executeRequest(true).catch(() => {})
       }
     }
 
@@ -303,7 +318,13 @@ export function useSWR<T>(options: UseSWROptions<T>) {
   // Cleanup key watch on unmount
   onUnmounted(() => {
     stopKeyWatch()
+    activeInstanceCount = Math.max(0, activeInstanceCount - 1)
+    stopCleanupTimer()
   })
+
+  // Start cleanup timer when first instance is created
+  activeInstanceCount++
+  startCleanupTimer()
 
   return {
     data: computed(() => data.value),

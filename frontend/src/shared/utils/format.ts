@@ -57,7 +57,7 @@ export function formatRelativeTime(dateStr: string, now: number = Date.now()): s
   const month = d.toLocaleString('en-US', { month: 'short' })
   const day = d.getDate()
   const year = d.getFullYear()
-  const currentYear = new Date().getFullYear()
+  const currentYear = new Date(now).getFullYear()
 
   if (year === currentYear) return `${month} ${day}`
   return `${month} ${day}, ${year}`

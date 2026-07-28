@@ -11,9 +11,10 @@ const error = ref<string | null>(null)
 const following = ref<Set<string>>(new Set())
 let cancelled = false
 
-onMounted(async () => {
+async function loadSuggestions() {
   try {
     loading.value = true
+    error.value = null
     const data = await suggestionApi.list({ limit: 3 })
     if (!cancelled) {
       suggestions.value = data.map((item) => item.account)
@@ -28,6 +29,10 @@ onMounted(async () => {
       loading.value = false
     }
   }
+}
+
+onMounted(() => {
+  loadSuggestions()
 })
 
 onUnmounted(() => {
@@ -56,7 +61,7 @@ async function handleFollow(user: MastodonAccount) {
     <h2 class="follow-card__title">Who to follow</h2>
     <div class="follow-card__error">
       <p>{{ error }}</p>
-      <t-button size="small" @click="() => { error = null; loading = true; }">Retry</t-button>
+      <t-button size="small" @click="loadSuggestions">Retry</t-button>
     </div>
   </div>
   <div class="follow-card" v-else-if="suggestions.length">

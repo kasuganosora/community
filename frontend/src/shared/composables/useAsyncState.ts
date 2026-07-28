@@ -1,4 +1,4 @@
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, onUnmounted, type Ref } from 'vue'
 
 interface UseAsyncStateOptions<T> {
   immediate?: boolean
@@ -30,6 +30,11 @@ export function useAsyncState<T>(
   const isReady = ref(false)
   const isFinished = ref(false)
   let executionId = 0
+  let disposed = false
+
+  onUnmounted(() => {
+    disposed = true
+  })
 
   async function execute(executeOptions: ExecuteOptions = {}): Promise<T | null> {
     const currentId = ++executionId
@@ -44,23 +49,23 @@ export function useAsyncState<T>(
 
     try {
       const result = await promiseFn()
-      // Discard stale response
-      if (currentId !== executionId) return null
+      // Discard stale response or response after unmount
+      if (currentId !== executionId || disposed) return null
       data.value = result
       isReady.value = true
-      onSuccess?.(result)
+      if (!disposed) onSuccess?.(result)
       return result
     } catch (err) {
-      if (currentId !== executionId) return null
+      if (currentId !== executionId || disposed) return null
       const e = err instanceof Error ? err : new Error(String(err))
       error.value = e
-      onError?.(e)
+      if (!disposed) onError?.(e)
       if (throwOnError) {
         throw e
       }
       return null
     } finally {
-      if (currentId === executionId) {
+      if (currentId === executionId && !disposed) {
         isLoading.value = false
         isFinished.value = true
       }
@@ -101,6 +106,11 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
   const isFinished = ref(false)
   const lastExecuted = ref<number | null>(null)
   let executionId = 0
+  let disposed = false
+
+  onUnmounted(() => {
+    disposed = true
+  })
 
   async function execute(...args: Args): Promise<T | null> {
     const currentId = ++executionId
@@ -113,20 +123,20 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
 
     try {
       const result = await promiseFn(...args)
-      if (currentId !== executionId) return null
+      if (currentId !== executionId || disposed) return null
       data.value = result
       isReady.value = true
       lastExecuted.value = Date.now()
-      onSuccess?.(result)
+      if (!disposed) onSuccess?.(result)
       return result
     } catch (err) {
-      if (currentId !== executionId) return null
+      if (currentId !== executionId || disposed) return null
       const e = err instanceof Error ? err : new Error(String(err))
       error.value = e
-      onError?.(e)
+      if (!disposed) onError?.(e)
       return null
     } finally {
-      if (currentId === executionId) {
+      if (currentId === executionId && !disposed) {
         isLoading.value = false
         isFinished.value = true
       }

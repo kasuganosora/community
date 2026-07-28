@@ -146,6 +146,7 @@ export function usePerformance() {
 
   // Measure function execution time
   function measure<T>(name: string, fn: () => T): T {
+    if (typeof performance === 'undefined') return fn()
     const start = performance.now()
     try {
       const result = fn()
@@ -161,6 +162,7 @@ export function usePerformance() {
 
   // Measure async function execution time
   async function measureAsync<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    if (typeof performance === 'undefined') return fn()
     const start = performance.now()
     try {
       const result = await fn()
@@ -176,13 +178,13 @@ export function usePerformance() {
 
   // Mark and measure
   function mark(name: string) {
-    if (performance && performance.mark) {
+    if (typeof performance !== 'undefined' && performance.mark) {
       performance.mark(name)
     }
   }
 
   function measureBetween(startMark: string, endMark: string, measureName: string) {
-    if (performance && performance.measure) {
+    if (typeof performance !== 'undefined' && performance.measure) {
       performance.measure(measureName, startMark, endMark)
       const entries = performance.getEntriesByName(measureName)
       for (const entry of entries) {

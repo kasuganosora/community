@@ -23,6 +23,7 @@ export function useLazyImage(
   let observer: IntersectionObserver | null = null
   let hasTriggered = false
   let preloadImg: HTMLImageElement | null = null
+  let isMounted = false
 
   function cleanupPreloadImg() {
     if (preloadImg) {
@@ -58,12 +59,13 @@ export function useLazyImage(
 
   // Watch for src changes and reload
   watch(() => options.src, (newSrc, oldSrc) => {
-    if (newSrc && newSrc !== oldSrc) {
+    if (isMounted && newSrc && newSrc !== oldSrc) {
       reload()
     }
   })
 
   onMounted(() => {
+    isMounted = true
     if (!imageRef.value) return
 
     // Check if IntersectionObserver is supported
@@ -129,6 +131,7 @@ export function useLazyBackground(
   let observer: IntersectionObserver | null = null
   let hasTriggered = false
   let preloadImg: HTMLImageElement | null = null
+  let isMounted = false
 
   function loadBackground() {
     const src = getSrc()
@@ -146,8 +149,8 @@ export function useLazyBackground(
 
     preloadImg.onload = () => {
       if (elementRef.value) {
-        // Sanitize URL to prevent CSS injection — use encodeURI for safety
-        const safeUrl = encodeURI(src)
+        // Sanitize URL to prevent CSS injection — escape quotes and parens
+        const safeUrl = src.replace(/["'()\\]/g, '\\$&')
         elementRef.value.style.backgroundImage = `url("${safeUrl}")`
       }
       isLoaded.value = true
@@ -160,13 +163,14 @@ export function useLazyBackground(
 
   // Watch for src changes
   watch(() => options.src, (newSrc, oldSrc) => {
-    if (newSrc && newSrc !== oldSrc) {
+    if (isMounted && newSrc && newSrc !== oldSrc) {
       hasTriggered = false
       loadBackground()
     }
   })
 
   onMounted(() => {
+    isMounted = true
     if (!elementRef.value) return
 
     if (!('IntersectionObserver' in window)) {

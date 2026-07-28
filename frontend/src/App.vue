@@ -6,6 +6,10 @@ const authStore = useAuthStore()
 const initializing = ref(true)
 const initError = ref<string | null>(null)
 
+function retryInit() {
+  window.location.reload()
+}
+
 onMounted(async () => {
   try {
     await authStore.initialize()
@@ -25,7 +29,7 @@ onMounted(async () => {
   </div>
   <div v-else-if="initError" class="app-init-error">
     <p>{{ initError }}</p>
-    <t-button theme="primary" @click="() => window.location.reload()">Retry</t-button>
+    <t-button theme="primary" @click="retryInit">Retry</t-button>
   </div>
   <router-view v-else />
 </template>
