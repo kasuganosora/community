@@ -211,7 +211,7 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 		}
 
 		// 找出这些状态那些是我转发过的
-		err = dbConn.Model(&models.Status{}).Where("account_id = ? AND reblog_id IN (?)", currentAccount.Id, statusIds).Pluck("reblog_id", &rebloggedIds).Error
+		err = dbConn.Model(&models.Status{}).Where("account_id = ? AND reblog_id IN (?) AND reblog_id IS NOT NULL", currentAccount.Id, statusIds).Pluck("reblog_id", &rebloggedIds).Error
 		if err != nil {
 			return ret, err
 		}
