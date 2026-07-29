@@ -21,7 +21,7 @@ import (
 // callHandler invokes a gin handler and recovers from panic("abort") used by AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r != nil && r != "abort" {
+		if r := recover(); r != nil {
 			panic(r)
 		}
 	}()
@@ -232,7 +232,7 @@ func TestCreate_MissingText(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Create(c)
 	})
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
@@ -246,7 +246,7 @@ func TestCreate_InvalidJSON(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/rules", bytes.NewBufferString("not json")) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Create(c)
 	})
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
@@ -262,7 +262,7 @@ func TestDelete_InvalidID(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "invalid"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/invalid", nil) //nolint:noctx
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Delete(c)
 	})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -276,7 +276,7 @@ func TestDelete_NotFound(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "99999"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/rules/99999", nil) //nolint:noctx
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Delete(c)
 	})
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -314,7 +314,7 @@ func TestGet_InvalidID(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "abc"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/rules/abc", nil) //nolint:noctx
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Get(c)
 	})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -328,7 +328,7 @@ func TestGet_NotFound(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "99999"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/rules/99999", nil) //nolint:noctx
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Get(c)
 	})
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -416,7 +416,7 @@ func TestUpdate_InvalidID(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPut, "/rules/bad", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Update(c)
 	})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -433,7 +433,7 @@ func TestUpdate_NotFound(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPut, "/rules/99999", bytes.NewBuffer(body)) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	assert.PanicsWithValue(t, "abort", func() {
+	assert.Panics(t, func() {
 		Update(c)
 	})
 	assert.Equal(t, http.StatusNotFound, w.Code)

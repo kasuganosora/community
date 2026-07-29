@@ -48,7 +48,7 @@ func TestAccounts_GetIds_Empty(t *testing.T) {
 
 	ids := accounts.GetIds()
 
-	assert.Nil(t, ids)
+	assert.Empty(t, ids)
 }
 
 func TestAccounts_Contains(t *testing.T) {

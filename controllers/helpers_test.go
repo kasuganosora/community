@@ -51,7 +51,7 @@ func TestMustGetAccount(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		assert.PanicsWithValue(t, "abort", func() {
+		assert.PanicsWithValue(t, abortSentinel, func() {
 			MustGetAccount(c)
 		})
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -72,7 +72,7 @@ func TestAbortIf(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		assert.PanicsWithValue(t, "abort", func() {
+		assert.PanicsWithValue(t, abortSentinel, func() {
 			AbortIf(c, true, 400, gin.H{"error": "bad request"})
 		})
 		assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -82,7 +82,7 @@ func TestAbortIf(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		assert.PanicsWithValue(t, "abort", func() {
+		assert.PanicsWithValue(t, abortSentinel, func() {
 			AbortIf(c, true, 403, nil)
 		})
 		assert.Equal(t, http.StatusForbidden, w.Code)

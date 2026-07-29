@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/glebarez/sqlite"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -612,14 +612,10 @@ func TestCheckLocalStorage_SomeDirsMissing(t *testing.T) {
 
 func TestCheckLocalStorage_DirIsFile(t *testing.T) {
 	// Create a file named "uploads" so os.Stat succeeds but IsDir returns false
-	tmpFile, err := os.CreateTemp(t.TempDir(), "uploads")
+	_ = os.Remove("uploads")
+	err := os.WriteFile("uploads", []byte("not a dir"), 0644) //nolint:gosec // G306: test file
 	require.NoError(t, err)
 
-	_ = tmpFile.Close()
-	// Move the temp file to "uploads" in cwd
-	_ = os.Remove("uploads")
-	err = os.Rename(tmpFile.Name(), "uploads")
-	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.Remove("uploads") })
 
 	health := checkLocalStorage(time.Now())

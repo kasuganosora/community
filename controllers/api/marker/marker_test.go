@@ -21,7 +21,7 @@ import (
 // Non-abort panics are re-raised.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r != nil && r != "abort" {
+		if r := recover(); r != nil {
 			panic(r)
 		}
 	}()

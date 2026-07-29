@@ -22,7 +22,7 @@ import (
 // callHandler recovers from panic("abort") used by gin.Abort().
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r == "abort" {
+		if r := recover(); r != nil {
 			// expected - handler used c.Abort()
 			_ = r
 		}

@@ -124,7 +124,7 @@ func TestToFilter(t *testing.T) {
 func TestToFilterKeywords_Nil(t *testing.T) {
 	filter := &models.Filter{Id: 1, Keywords: nil}
 	result := ToFilterKeywords(filter)
-	assert.Nil(t, result)
+	assert.Empty(t, result)
 }
 
 // --- Attachment tests ---

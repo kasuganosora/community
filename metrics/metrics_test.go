@@ -156,7 +156,12 @@ func TestMetricsMiddleware_TracksActiveConnections(t *testing.T) {
 
 	// After request, should be back to baseline
 	afterVal := getGaugeValue(t, ActiveConnections)
-	assert.InEpsilon(t, beforeVal, afterVal, 0.001)
+	if beforeVal == 0 {
+		// InEpsilon fails when expected is 0, use exact match instead
+		assert.InDelta(t, beforeVal, afterVal, 0)
+	} else {
+		assert.InEpsilon(t, beforeVal, afterVal, 0.001)
+	}
 }
 
 func TestMetricsMiddleware_RecordsDuration(t *testing.T) {

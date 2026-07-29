@@ -21,7 +21,7 @@ import (
 // callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r != nil && r != "abort" {
+		if r := recover(); r != nil {
 			_ = r // expected - handler aborted early
 		}
 	}()
@@ -308,9 +308,10 @@ func TestRemoveContact_Success(t *testing.T) {
 	testDB.GormDB.Create(contact)
 
 	w := httptest.NewRecorder()
-	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/api/v1/contacts/"+strconv.FormatUint(contact.Id, 10), map[string]string{
-		"id": strconv.FormatUint(contact.Id, 10),
-	})
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/contacts/"+strconv.FormatUint(contact.Id, 10), nil) //nolint:noctx
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.FormatUint(contact.Id, 10)}}
+	c.Set("account", account)
 
 	callHandler(RemoveContact, c)
 
@@ -478,9 +479,10 @@ func TestBlockContact_Success(t *testing.T) {
 	testDB.GormDB.Create(contact)
 
 	w := httptest.NewRecorder()
-	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/api/v1/contacts/"+strconv.FormatUint(contact.Id, 10)+"/block", map[string]string{
-		"id": strconv.FormatUint(contact.Id, 10),
-	})
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/contacts/"+strconv.FormatUint(contact.Id, 10)+"/block", nil) //nolint:noctx
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.FormatUint(contact.Id, 10)}}
+	c.Set("account", account)
 
 	callHandler(BlockContact, c)
 

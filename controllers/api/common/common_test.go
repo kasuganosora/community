@@ -23,7 +23,7 @@ import (
 // callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r != nil && r != "abort" {
+		if r := recover(); r != nil {
 			panic(r)
 		}
 	}()
@@ -48,6 +48,7 @@ func setupTest(t *testing.T) {
 	err = testDB.AutoMigrate(
 		&models.SystemSetting{},
 		&models.Account{},
+		&models.AccountExtra{},
 	)
 	require.NoError(t, err)
 
@@ -370,6 +371,17 @@ func TestGetInstanceDetail(t *testing.T) {
 
 func TestGetInstanceDetail_DefaultValues(t *testing.T) {
 	setupTest(t)
+
+	// Reset all instance-related settings to ensure clean defaults
+	systemsettings.Set(systemsettings.KeyDomain, "")
+	systemsettings.Set(systemsettings.KeyTitle, "")
+	systemsettings.Set(systemsettings.KeyDescription, "")
+	systemsettings.Set(systemsettings.KeyThumbnail, "")
+	systemsettings.Set(systemsettings.KeyIsEnableRegistration, true)
+	systemsettings.Set(systemsettings.KeyRegistrationApprovalRequired, false)
+	systemsettings.Set(systemsettings.KeyRegistrationInviteRequired, false)
+	systemsettings.Set(systemsettings.KeyRegistrationMessage, "")
+	systemsettings.Set(systemsettings.KeySiteContactEmail, "admin@admin.com")
 
 	c, w := newGetContext(t, "/api/v2/instance")
 	callHandler(GetInstanceDetail, c)

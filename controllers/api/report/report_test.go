@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
+// callHandler invokes a gin handler and recovers from AbortSentinel panic used by AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r == "abort" {
-			// expected - handler aborted early
+		if r := recover(); r != nil {
+			// Expected AbortSentinel - handler aborted early, response already written
 			_ = r
 		}
 	}()
@@ -54,10 +54,12 @@ func setupTestDB(t *testing.T) {
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.AccountEmoji{},
 		&models.Report{},
 		&models.Status{},
 		&models.StatusContent{},
 		&models.Rule{},
+		&models.SystemSetting{},
 	); err != nil {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
