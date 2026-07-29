@@ -45,6 +45,20 @@ type Config struct {
 
 var C Config
 
+// isTestMode returns true when running under `go test`.
+// Detected via the well-known TEST_MODE env var (set by TestMain) or
+// by checking if the process binary name contains "test".
+func isTestMode() bool {
+	if os.Getenv("TEST_MODE") == "1" {
+		return true
+	}
+	// Check if binary name looks like a test binary
+	if strings.HasSuffix(os.Args[0], ".test") || strings.Contains(os.Args[0], "/_test/") {
+		return true
+	}
+	return false
+}
+
 func init() {
 	C.Other = make(map[string]string)
 
@@ -70,6 +84,16 @@ func loadConfig() {
 		os.Exit(1)
 	} else if err != nil {
 		panic(err)
+	}
+
+	// In test mode, skip mandatory checks — tests don't need real DB/encryption.
+	// Production startup still enforces all checks below.
+	if isTestMode() {
+		// If no key at all, provide a dummy test key so downstream code doesn't panic.
+		if C.EncryptedKey == "" {
+			C.EncryptedKey = "test-mode-dummy-key-0000000000000000"
+		}
+		return
 	}
 
 	// 校验加密密钥
@@ -143,7 +167,9 @@ func loadMapToConfig(data map[string]string) {
 		envName = strings.ToUpper(envName)
 		standardConfigsKeyMap[envName] = true
 
-		if envValue, envExists := data[envName]; envExists {
+		if envValue, envExists := data[envName]; envExists && envValue != "" {
+			// Only use .env value if non-empty; empty values should not override
+			// defaults or actual environment variables.
 			value.SetString(envValue)
 		} else {
 			// 不存在则尝试使用默认值

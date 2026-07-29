@@ -156,13 +156,23 @@ func GetStrings(key string, defaultValue any) []string {
 		return nil
 	}
 
-	ret := make([]string, 0, len(settings))
-	for _, item := range v.([]any) { //nolint:forcetypeassert
-		s, ok := item.(string)
-		if !ok {
-			continue
+	// Handle various slice types safely
+	ret := make([]string, 0)
+	switch s := v.(type) {
+	case []string:
+		ret = append(ret, s...)
+	case []any:
+		for _, item := range s {
+			str, ok := item.(string)
+			if !ok {
+				continue
+			}
+			ret = append(ret, str)
 		}
-		ret = append(ret, s)
+	case string:
+		if s != "" {
+			ret = append(ret, s)
+		}
 	}
 
 	return ret
@@ -174,7 +184,10 @@ func GetMap(key string, defaultValue any) map[string]any {
 		return nil
 	}
 
-	return v.(map[string]any) //nolint:forcetypeassert
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return nil
 }
 
 func GetInts(key string, defaultValue any) []int {
@@ -184,8 +197,17 @@ func GetInts(key string, defaultValue any) []int {
 	}
 
 	ret := make([]int, 0)
-	for _, item := range v.([]any) { //nolint:forcetypeassert
-		ret = append(ret, item.(int)) //nolint:forcetypeassert
+	switch s := v.(type) {
+	case []int:
+		ret = append(ret, s...)
+	case []any:
+		for _, item := range s {
+			if i, ok := item.(int); ok {
+				ret = append(ret, i)
+			}
+		}
+	case int:
+		ret = append(ret, s)
 	}
 
 	return ret
@@ -198,8 +220,17 @@ func GetInt64s(key string, defaultValue any) []int64 {
 	}
 
 	ret := make([]int64, 0)
-	for _, item := range v.([]any) { //nolint:forcetypeassert
-		ret = append(ret, item.(int64)) //nolint:forcetypeassert
+	switch s := v.(type) {
+	case []int64:
+		ret = append(ret, s...)
+	case []any:
+		for _, item := range s {
+			if i, ok := item.(int64); ok {
+				ret = append(ret, i)
+			}
+		}
+	case int64:
+		ret = append(ret, s)
 	}
 
 	return ret
@@ -212,7 +243,7 @@ func Set(key string, val any) {
 func SaveToDB(keys ...string) (err error) {
 	rows := make([]models.SystemSetting, 0)
 
-	err = db.GetDB().Model(&models.SystemSetting{}).Where("key in (?)", keys).Find(&rows).Error
+	err = db.GetDB().Model(&models.SystemSetting{}).Where("`key` in (?)", keys).Find(&rows).Error
 	if err != nil {
 		err = errors.Wrapf(err, "failed to get system settings from db, keys: %v", keys)
 
@@ -227,7 +258,7 @@ func SaveToDB(keys ...string) (err error) {
 	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {
 		for _, key := range keys {
 			if _, ok := existsKeyMap[key]; ok {
-				err = tx.Model(&models.SystemSetting{}).Where("key = ?", key).Update("val", settings[key]).Error
+				err = tx.Model(&models.SystemSetting{}).Where("`key` = ?", key).Update("val", settings[key]).Error
 			} else {
 				err = tx.Model(&models.SystemSetting{}).Create(&models.SystemSetting{
 					Key: key,
