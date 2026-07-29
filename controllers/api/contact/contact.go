@@ -60,8 +60,10 @@ func AddContact(c *gin.Context) {
 
 	// 确定联系人类型
 	contactType := models.ContactTypeLocal
+	contactTypeStr := "local"
 	if req.MatrixUserId != nil {
 		contactType = models.ContactTypeMatrix
+		contactTypeStr = "matrix"
 	}
 
 	contact := &models.Contact{
@@ -82,7 +84,7 @@ func AddContact(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"id":           contact.Id,
-		"type":         contactType,
+		"type":         contactTypeStr,
 		"display_name": contact.DisplayName,
 	})
 }

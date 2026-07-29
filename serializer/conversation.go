@@ -60,6 +60,10 @@ func ToConversation(conversation *models.Conversation, account *models.Account) 
 func ToConversations(conversations []*models.Conversation, account *models.Account) (ret []Conversation, err error) {
 	ret = make([]Conversation, 0)
 
+	if len(conversations) == 0 {
+		return ret, nil
+	}
+
 	accountsIds := make([]uint64, 0)
 	statusesId := make([]uint64, 0, len(conversations))
 

@@ -70,9 +70,9 @@ type InstanceResponse struct {
 	} `json:"registrations"`
 
 	Contact struct {
-		Email   string `json:"email"`
-		Account *serializer.Account
-	}
+		Email   string                 `json:"email"`
+		Account *serializer.Account    `json:"account,omitempty"`
+	} `json:"contact"`
 
 	Rules []ServerRuleResponseItem `json:"rule"`
 }

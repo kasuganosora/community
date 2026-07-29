@@ -71,8 +71,18 @@ func (a *Account) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 func (a *Account) AfterCreate(tx *gorm.DB) (err error) {
+	// Use FirstOrCreate to avoid duplicate key errors when AfterCreate is triggered
+	// by upserts (ON DUPLICATE KEY UPDATE) on existing accounts.
 	a.Extra = &AccountExtra{
 		AccountId: a.Id,
+	}
+
+	// Check if extra already exists before creating
+	existing := &AccountExtra{}
+	result := tx.Where("account_id = ?", a.Id).First(existing)
+	if result.Error == nil {
+		// Already exists, don't create again
+		return
 	}
 
 	err = tx.Create(a.Extra).Error

@@ -350,6 +350,12 @@ var (
 func GetRedisClient() *redis.Client {
 	globalRedisClientOnce.Do(func() {
 		// 复用 db/redis 包中已创建的连接，避免创建多余的连接
+		// 如果没有配置 Redis，返回 nil 而不是 panic
+		defer func() {
+			if r := recover(); r != nil {
+				globalRedisClient = nil
+			}
+		}()
 		globalRedisClient = db.GetRedis()
 	})
 

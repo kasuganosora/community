@@ -10,7 +10,7 @@ import (
 )
 
 type UpdateRequest struct {
-	Category *string   `binding:"in:spam,other,legal,violation" json:"category"`
+	Category *string   `binding:"omitempty,oneof=spam other legal violation" json:"category"`
 	RuleIds  *[]string `json:"rule_ids"`
 }
 

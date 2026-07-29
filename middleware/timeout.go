@@ -53,6 +53,9 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			wrapper.timedOut.Store(1)
 
 			if wrapper.written.Load() == 0 {
+				// Restore the original writer so the timeout response isn't blocked
+				// by the wrapper's timedOut check
+				c.Writer = wrapper.ResponseWriter
 				c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
 					"error":   "request timeout", //nolint:goconst
 					"message": "The request took too long to process",

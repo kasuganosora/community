@@ -16,7 +16,7 @@ type CreateRequest struct {
 	StatusIds []string `json:"status_ids"`
 	Comment   string   `json:"comment"`
 	Forward   bool     `json:"forward"`
-	Category  string   `binding:"in:spam,other,legal,violation" json:"category"`
+	Category  string   `binding:"omitempty,oneof=spam other legal violation" json:"category"`
 	RuleIds   []string `json:"rule_ids"`
 }
 

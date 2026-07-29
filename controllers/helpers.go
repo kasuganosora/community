@@ -70,8 +70,14 @@ func AbortIfError(c *gin.Context, err error) {
 			AbortPanic()
 		}
 
+		var httpError *apierrors.HttpError
+		if errors.As(err, &httpError) {
+			c.AbortWithStatusJSON(httpError.HttpCode, httpError.Json())
+			AbortPanic()
+		}
+
 		_ = c.Error(err)
-		c.Abort()
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 		AbortPanic()
 	}
 }
