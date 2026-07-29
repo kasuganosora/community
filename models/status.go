@@ -39,7 +39,7 @@ type Status struct { //nolint:recvcheck
 	Content       StatusContent `json:"content"`
 	AccountId     uint64        `gorm:"not null;index"            json:"account_id"`
 	ApplicationId *uint64       `json:"application_id"`
-	Visibility    uint8         `gorm:"not null;default:0"        json:"visibility"`
+	Visibility    uint8         `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
 	ReblogId      *uint64       `json:"reblog_id"`
 	ReblogsCount  uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
 	RepliesCount  uint64        `gorm:"not null;default:0"        json:"replies_count"`
@@ -241,7 +241,7 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 	}
 
 	if s.conversationIdChanged {
-		err = tx.Table(s.TableName()).Select("conversation_id").Update("conversation_id", s.ConversationId).Error
+		err = tx.Table(s.TableName()).Where("id = ?", s.Id).Select("conversation_id").Update("conversation_id", s.ConversationId).Error
 		if err != nil {
 			return
 		}
@@ -368,6 +368,22 @@ func (s *Status) IsReblogged(db *gorm.DB, account *Account) (ret bool, err error
 }
 
 func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
+	// 屏蔽单条动态
+	muteStatus := &MuteStatus{}
+	if err = db.Model(&MuteStatus{}).Where("account_id = ? AND status_id = ?", account.Id, s.Id).First(muteStatus).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+	} else {
+		// 找到了 MuteStatus 记录
+		ret = true
+		return
+	}
+
+	if ret {
+		return
+	}
+
 	// 屏蔽某个账号
 	record := &MuteAccount{}
 	if err = db.Model(&MuteAccount{}).Where("account_id = ? AND target_id = ?", account.Id, s.AccountId).First(record).Error; err != nil {
@@ -380,16 +396,6 @@ func (s *Status) IsMuted(db *gorm.DB, account *Account) (ret bool, err error) {
 
 	if record.ExpiredAt != nil && record.ExpiredAt.Before(time.Now()) {
 		ret = false
-
-		return
-	}
-
-	// 屏蔽单条动态
-	muteStatus := &MuteStatus{}
-	if err = db.Model(&MuteStatus{}).Where("account_id = ? AND status_id = ?", account.Id, s.Id).First(muteStatus).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			err = nil
-		}
 
 		return
 	}

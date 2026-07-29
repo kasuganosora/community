@@ -24,8 +24,8 @@ func (c *Conversation) TableName() string {
 
 // BeforeSave 如果 AccountsIds 一个都没有，就删除.
 func (c *Conversation) BeforeSave(tx *gorm.DB) (err error) {
-	if len(c.AccountsIds) == 0 {
-		err = tx.Delete(c).Error
+	if len(c.AccountsIds) == 0 && c.Id > 0 {
+		err = tx.Where("id = ?", c.Id).Delete(c).Error
 		if err != nil {
 			return
 		}

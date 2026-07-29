@@ -21,7 +21,7 @@ const (
 
 type Notification struct {
 	Id            uint64 `gorm:"primaryKey;autoIncrement"`
-	Type          uint8  `gorm:"not null"`
+	Type          uint8  `gorm:"type:tinyint;not null"`
 	ActivityType  string `gorm:"index"`
 	AccountId     uint64 `gorm:"index;not null"`
 	FromAccountId uint64

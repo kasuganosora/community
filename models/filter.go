@@ -21,7 +21,7 @@ type Filter struct {
 	Title        string           `gorm:"not null"                           json:"title"`
 	ExpiresAt    *time.Time       `gorm:"not null"                           json:"expires_at"`
 	Context      []string         `gorm:"not null;type:json;serializer:json" json:"context"`
-	FilterAction uint8            `gorm:"not null;"                          json:"filter_action"`
+	FilterAction uint8            `gorm:"type:tinyint;not null;"                          json:"filter_action"`
 	Keywords     []*FilterKeyword `gorm:"not null;type:json;serializer:json" json:"keywords"`
 	CreatedAt    *time.Time       `gorm:"not null;autoCreateTime"            json:"created_at"`
 	UpdatedAt    *time.Time       `gorm:"not null;autoUpdateTime"            json:"updated_at"`

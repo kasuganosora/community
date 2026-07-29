@@ -43,7 +43,7 @@ func (p *Poll) Delete(db *gorm.DB) (err error) {
 type PollOption struct {
 	Id      uint64 `gorm:"primary_key;auto_increment" json:"id"`
 	PollId  uint64 `gorm:"not null;index"             json:"poll_id"`
-	Index   uint8  `gorm:"not null"                   json:"index"`
+	Index   uint8  `gorm:"type:tinyint;not null"                   json:"index"`
 	Content string `gorm:"not null"                   json:"content"`
 	Votes   uint64 `gorm:"not null;default:0"         json:"votes"`
 }

@@ -135,7 +135,7 @@ func (s *ApplicationScope) RemoveScope(scopeType uint8, scope uint64) {
 // MarshalJSON JSON序列化
 // 把3个uint64 转换成byte数组,然后按照顺序拼接起来再转换成hex字符串.
 func (s *ApplicationScope) MarshalJSON() ([]byte, error) {
-	rValue := reflect.ValueOf(s)
+	rValue := reflect.ValueOf(s).Elem()
 	vBytes := make([]byte, 0, rValue.NumField()*8)
 
 	for _, field := range rValue.Fields() {
