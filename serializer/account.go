@@ -41,6 +41,10 @@ type Account struct {
 }
 
 func ToAccount(account *models.Account) (acc *Account) {
+	if account == nil {
+		return nil
+	}
+
 	var domain string
 	if domain == "" {
 		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")

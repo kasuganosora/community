@@ -35,6 +35,7 @@ func GetHistory(c *gin.Context) {
 	historyStatus = append(historyStatus, &models.StatusHistory{
 		StatusId:            status.Id,
 		AccountId:           status.AccountId,
+		Account:             status.Account,
 		Content:             status.Content.Content,
 		SpoilerText:         status.Content.SpoilerText,
 		Sensitive:           status.Sensitive,

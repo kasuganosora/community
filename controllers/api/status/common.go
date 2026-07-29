@@ -15,7 +15,7 @@ func getRealStatus(c *gin.Context) (status *models.Status) {
 	if status.ReblogId != nil && *status.ReblogId > 0 {
 		if status.Reblog == nil {
 			c.AbortWithStatusJSON(404, gin.H{"error": "status not found"}) //nolint:goconst
-			panic("abort")
+			controllers.AbortPanic()
 		}
 
 		status = status.Reblog
@@ -31,14 +31,14 @@ func returnFullSingleStatus(c *gin.Context, status *models.Status, currentAccoun
 	if err != nil {
 		_ = c.Error(err)
 
-		panic("abort")
+		controllers.AbortPanic()
 	}
 
 	ret, err := serializer.ToStatus(status, currentAccount)
 	if err != nil {
 		_ = c.Error(err)
 
-		panic("abort")
+		controllers.AbortPanic()
 	}
 
 	c.JSON(200, ret)

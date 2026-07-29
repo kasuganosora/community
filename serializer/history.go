@@ -31,7 +31,7 @@ func ToHistoryStatus(dbConn *gorm.DB, history *models.StatusHistory) (ret *Histo
 	ret = ToHistoryStatusBase(history)
 	emojis := models.Emojis{}
 
-	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojis.GetIds()).Find(emojis).Error
+	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojis.GetIds()).Find(&emojis).Error
 	if err != nil {
 		return
 	}
@@ -40,7 +40,7 @@ func ToHistoryStatus(dbConn *gorm.DB, history *models.StatusHistory) (ret *Histo
 
 	attachments := models.Attachments{}
 
-	err = dbConn.Model(&models.Attachment{}).Where("id in ?", history.MediaAttachmentsIds).Find(attachments).Error
+	err = dbConn.Model(&models.Attachment{}).Where("id in ?", history.MediaAttachmentsIds).Find(&attachments).Error
 	if err != nil {
 		return
 	}
@@ -63,16 +63,20 @@ func ToHistoryStatuses(dbConn *gorm.DB, histories []*models.StatusHistory) (ret 
 
 	emojis := models.Emojis{}
 
-	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojiIds).Find(emojis).Error
-	if err != nil {
-		return ret, err
+	if len(emojiIds) > 0 {
+		err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojiIds).Find(&emojis).Error
+		if err != nil {
+			return ret, err
+		}
 	}
 
 	attachments := models.Attachments{}
 
-	err = dbConn.Model(&models.Attachment{}).Where("id in ?", AttachmentIds).Find(attachments).Error
-	if err != nil {
-		return ret, err
+	if len(AttachmentIds) > 0 {
+		err = dbConn.Model(&models.Attachment{}).Where("id in ?", AttachmentIds).Find(&attachments).Error
+		if err != nil {
+			return ret, err
+		}
 	}
 
 	attachmentsMap := utils.GetStructsMap[uint64](attachments, "Id")

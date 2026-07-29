@@ -60,7 +60,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 		*ret.InReplyToId = strconv.FormatUint(*status.InReplyToId, 10)
 	}
 
-	if status.InReplyToId != nil && *status.InReplyToId > 0 {
+	if status.InReplyToAccountId != nil && *status.InReplyToAccountId > 0 {
 		ret.InReplyToAccountId = new(string)
 		*ret.InReplyToAccountId = strconv.FormatUint(*status.InReplyToAccountId, 10)
 	}
