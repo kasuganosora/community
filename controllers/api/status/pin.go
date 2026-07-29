@@ -42,11 +42,7 @@ func UnPin(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 	controllers.AbortIf(c, !isPinned, 400, gin.H{"error": "not pinned"})
 
-	pin := &models.PinStatus{}
-	pin.AccountId = currentAccount.Id
-	pin.StatusId = status.Id
-
-	err = dbConn.Delete(pin).Error
+	err = dbConn.Where("account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Delete(&models.PinStatus{}).Error
 	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)

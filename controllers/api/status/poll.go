@@ -62,12 +62,19 @@ func VotePoll(c *gin.Context) {
 		}
 	}
 
+	// 判断是否有选择
+	if len(req.Choices) == 0 {
+		c.JSON(400, gin.H{"error": "no choices provided"})
+
+		return
+	}
+
 	currentAccount := controllers.MustGetAccount(c)
 
 	// 判断是否已经投过票
 	var voteCount int64
 
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? and account_id = ?", poll.Id, currentAccount).Count(&voteCount).Error
+	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? and account_id = ?", poll.Id, currentAccount.Id).Count(&voteCount).Error
 
 	controllers.AbortIfError(c, err)
 	controllers.AbortIf(c, voteCount > 0, 400, gin.H{"error": "already voted"})
@@ -91,7 +98,7 @@ func VotePoll(c *gin.Context) {
 
 		// 更新投票数
 		for _, voteOption := range voteOptions {
-			err = tx.Model(&models.PollOption{}).Where("id = ?", voteOption.OptionId).Update("vote_count", gorm.Expr("vote_count + 1")).Error
+			err = tx.Model(&models.PollOption{}).Where("id = ?", voteOption.OptionId).UpdateColumn("votes", gorm.Expr("votes + 1")).Error
 			if err != nil {
 				return err
 			}
@@ -120,13 +127,23 @@ func getPoll(c *gin.Context) (poll *models.Poll, abort bool) {
 	})
 
 	status := &models.Status{}
-	err := db.GetDB().Model(&models.Status{}).First(status, poll.StatusId).Error
+	query := models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{}))
+	err := query.First(status, poll.StatusId).Error
 	controllers.AbortIfError(c, err)
 
 	currentAccount := controllers.GetAccount(c)
-	canView, err := status.CanViewEx(db.GetDB(), currentAccount)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+	if currentAccount == nil {
+		// Public status can be viewed without account
+		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
+			c.JSON(403, gin.H{"error": "forbidden"}) //nolint:goconst
+			abort = true
+			return
+		}
+	} else {
+		canView, err := status.CanViewEx(db.GetDB(), currentAccount)
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	}
 
 	return
 }

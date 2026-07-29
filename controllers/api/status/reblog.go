@@ -18,7 +18,10 @@ func Reblog(c *gin.Context) {
 	req := &ReblogRequest{}
 	err := c.ShouldBindJSON(req)
 
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
+	// Allow empty body (use default visibility)
+	if err != nil && err.Error() != "EOF" {
+		controllers.AbortIf(c, true, 400, gin.H{"error": err}) //nolint:goconst
+	}
 
 	if req.Visibility == "" {
 		req.Visibility = "public" //nolint:goconst
