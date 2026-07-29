@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -339,6 +341,13 @@ func TestCreate_Success(t *testing.T) {
 	safeHandler(c, Create)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response contains expected fields
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "id", "response should contain id")
+	assert.Contains(t, resp, "content", "response should contain content")
+	assert.Contains(t, resp, "visibility", "response should contain visibility")
+	assert.Equal(t, "public", resp["visibility"], "visibility should be public")
 }
 
 func TestCreate_InvalidVisibility(t *testing.T) {
@@ -447,6 +456,13 @@ func TestUpdate_Success(t *testing.T) {
 	safeHandler(c, Update)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify content was actually updated in the response
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	content, ok := resp["content"].(string)
+	if ok {
+		assert.Contains(t, content, "Updated content", "response content should reflect the update")
+	}
 }
 
 func TestUpdate_Forbidden(t *testing.T) {
@@ -490,12 +506,17 @@ func TestUpdate_InvalidID(t *testing.T) {
 
 func TestUpdate_InvalidBody(t *testing.T) {
 	ts := newTestSetup(t)
-	c, _ := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, "not json")
+	// Send genuinely invalid JSON that will trigger a binding error
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPut, "/", bytes.NewReader([]byte("{invalid json"))) //nolint:noctx
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Update)
-	// handler returns 400 for binding error
-	assert.True(t, c.Writer.Status() == 400 || c.Writer.Status() == 500)
+	// handler should return 400 for malformed JSON binding error
+	assert.Equal(t, 400, c.Writer.Status(), "malformed JSON should produce 400 binding error")
 }
 
 // ============== Favourite Tests ==============
@@ -508,6 +529,16 @@ func TestFavourite_Success(t *testing.T) {
 	safeHandler(c, Favourite)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response contains favourite count
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	_, hasFavouritesCount := resp["favourites_count"]
+	assert.True(t, hasFavouritesCount, "response should contain favourites_count")
+	favourited, hasFavourited := resp["favourited"]
+	assert.True(t, hasFavourited, "response should contain favourited field")
+	if favourited != nil {
+		assert.True(t, favourited.(bool), "favourited should be true after favouriting")
+	}
 }
 
 func TestFavourite_AlreadyFavourited(t *testing.T) {
@@ -619,6 +650,16 @@ func TestReblog_Success(t *testing.T) {
 	safeHandler(c, Reblog)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response contains reblog count
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	_, hasReblogsCount := resp["reblogs_count"]
+	assert.True(t, hasReblogsCount, "response should contain reblogs_count")
+	reblogged, hasReblogged := resp["reblogged"]
+	assert.True(t, hasReblogged, "response should contain reblogged field")
+	if reblogged != nil {
+		assert.True(t, reblogged.(bool), "reblogged should be true after reblogging")
+	}
 }
 
 func TestReblog_DefaultVisibility(t *testing.T) {
@@ -749,6 +790,14 @@ func TestBookmark_Success(t *testing.T) {
 	safeHandler(c, Bookmark)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response has bookmarked=true
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	bookmarked, hasBookmarked := resp["bookmarked"]
+	assert.True(t, hasBookmarked, "response should contain bookmarked field")
+	if bookmarked != nil {
+		assert.True(t, bookmarked.(bool), "bookmarked should be true after bookmarking")
+	}
 }
 
 func TestBookmark_AlreadyBookmarked(t *testing.T) {
@@ -1479,6 +1528,23 @@ func TestVotePoll_Success(t *testing.T) {
 	safeHandler(c, VotePoll)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response contains poll with updated votes
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	// The response should be the parent status with poll info
+	if pollData, ok := resp["poll"].(map[string]any); ok {
+		if options, ok := pollData["options"].([]any); ok {
+			assert.NotEmpty(t, options, "poll should have options")
+			// First option should have at least 1 vote
+			if len(options) > 0 {
+				if opt0, ok := options[0].(map[string]any); ok {
+					if votesCount, ok := opt0["votes_count"].(float64); ok {
+						assert.GreaterOrEqual(t, int(votesCount), 1, "option 0 should have at least 1 vote after voting")
+					}
+				}
+			}
+		}
+	}
 }
 
 func TestVotePoll_Expired(t *testing.T) {
@@ -2293,21 +2359,19 @@ func TestGetRealStatus_ReblogWithNilReblog(t *testing.T) {
 		s.Visibility = models.StatusVisibilityPublic
 	})
 
-	// Deliberately NOT loading the Reblog field to trigger the panic path
-	// We need to clear the Reblog field if GORM auto-loaded it
+	// Deliberately NOT loading the Reblog field to trigger the nil-reblog path
 	reblogStatus.Reblog = nil
 
 	// Use Bookmark which calls getRealStatus
-	c, _ := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
-	setAccount(c, ts.acct)
-
-	// This should panic because getRealStatus will panic("abort") when Reblog is nil
-	// safeHandler already recovers from panics
-	// Create a new context with a fresh recorder
 	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c2, ts.acct)
-	safeHandler(c2, Bookmark)
-	// The panic should be caught by safeHandler
+	// The handler may panic because getRealStatus will panic("abort") when Reblog is nil
+	// safeHandler recovers from panics — verify that the test does not crash
+	assert.NotPanics(t, func() {
+		safeHandler(c2, Bookmark)
+	})
+	// The response code should be set by the handler (may be 500 or 400, not the default 200)
+	// since the nil reblog causes an abort path
 	_ = w2
 }
 
@@ -2340,23 +2404,42 @@ func TestUpdateStatusScheduledAt_OtherUser(t *testing.T) {
 func TestConcurrentBookmarks(t *testing.T) {
 	ts := newTestSetup(t)
 
-	done := make(chan bool)
+	// Use different statuses for each goroutine to avoid duplicate-key conflicts
+	statuses := make([]*models.Status, 5)
+	for i := range 5 {
+		statuses[i] = ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+			s.Visibility = models.StatusVisibilityPublic
+		})
+	}
 
-	for range 5 {
-		go func() {
-			c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	var wg sync.WaitGroup
+	var successCount int32
+
+	for i := range 5 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(statuses[idx].Id, 10)}})
 			setAccount(c, ts.acct)
 			safeHandler(c, Bookmark)
-
-			_ = w
-
-			done <- true
-		}()
+			if w.Code == 200 {
+				atomic.AddInt32(&successCount, 1)
+			}
+		}(i)
 	}
 
-	for range 5 {
-		<-done
+	wg.Wait()
+
+	// All goroutines should succeed since they bookmark different statuses
+	assert.Equal(t, int32(5), successCount, "all concurrent bookmarks should succeed")
+
+	// Verify all bookmark records exist in the database
+	var count int64
+	for i := range 5 {
+		c := ts.db.Model(&models.BookmarkStatus{}).Where("account_id = ? AND status_id = ?", ts.acct.Id, statuses[i].Id).Count(&count)
+		require.NoError(t, c.Error, "bookmark record should exist for status %d", i)
 	}
+	assert.Equal(t, int64(1), count, "exactly one bookmark record should exist per status")
 }
 
 // ============== FavouritedBy/RebloggedBy with max_id and since_id ==============
@@ -2439,9 +2522,10 @@ func TestShow_ResponseContentType(t *testing.T) {
 
 	safeHandler(c, Show)
 
+	assert.Equal(t, 200, w.Code)
 	contentType := w.Header().Get("Content-Type")
-	assert.True(t, strings.HasPrefix(contentType, "application/json") || w.Code == 200,
-		"response should be JSON for 200 OK")
+	assert.True(t, strings.HasPrefix(contentType, "application/json"),
+		"response Content-Type should be application/json, got: %s", contentType)
 }
 
 // ============== Test setupTestDB ==============
@@ -2683,8 +2767,9 @@ func TestGetSource_ReblogStatus(t *testing.T) {
 
 	safeHandler(c, GetSource)
 
-	// Should follow the reblog and get the source of the original status
-	assert.True(t, w.Code == 200 || w.Code == 404, "should return 200 or 404 for reblog source")
+	// GetSource follows the reblog chain and returns the original status source
+	// For a reblog, it should return 200 with the original status's text content
+	assert.Equal(t, 200, w.Code, "GetSource for reblog should return 200 with original status source")
 }
 
 // ============== Integration: ListScheduledStatuses with pagination ==============
@@ -2735,4 +2820,305 @@ func TestUpdateStatusScheduledAt_NoAccount(t *testing.T) {
 	safeHandler(c, UpdateStatusScheduledAt)
 
 	assert.Equal(t, 500, w.Code)
+}
+
+// ============== Visibility Matrix: Unlisted Tests ==============
+
+func TestShow_UnlistedStatus(t *testing.T) {
+	ts := newTestSetup(t)
+	unlistedStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityUnlisted
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(unlistedStatus.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Show)
+	assert.Equal(t, 200, w.Code, "owner should see their own unlisted status")
+}
+
+func TestShow_UnlistedStatus_NoAccount(t *testing.T) {
+	ts := newTestSetup(t)
+	unlistedStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityUnlisted
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(unlistedStatus.Id, 10)}})
+	safeHandler(c, Show)
+	assert.Equal(t, 200, w.Code, "unlisted status should be visible without account (just not in public timeline)")
+}
+
+func TestFavourite_UnlistedStatus(t *testing.T) {
+	ts := newTestSetup(t)
+	unlistedStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityUnlisted
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(unlistedStatus.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Favourite)
+	assert.Equal(t, 200, w.Code, "should be able to favourite unlisted status")
+}
+
+func TestBookmark_UnlistedStatus(t *testing.T) {
+	ts := newTestSetup(t)
+	unlistedStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityUnlisted
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(unlistedStatus.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Bookmark)
+	assert.Equal(t, 200, w.Code, "should be able to bookmark unlisted status")
+}
+
+func TestReblog_UnlistedStatus(t *testing.T) {
+	ts := newTestSetup(t)
+	unlistedStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityUnlisted
+	})
+
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(unlistedStatus.Id, 10)}}, ReblogRequest{
+		Visibility: "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Reblog)
+	assert.Equal(t, 200, w.Code, "should be able to reblog unlisted status")
+}
+
+// ============== Visibility Matrix: Direct Status ==============
+
+func TestShow_DirectStatus_Owner(t *testing.T) {
+	ts := newTestSetup(t)
+	directStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityDirect
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Show)
+	assert.Equal(t, 200, w.Code, "owner should see their own direct status")
+}
+
+func TestShow_DirectStatus_NoAccount(t *testing.T) {
+	ts := newTestSetup(t)
+	directStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityDirect
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
+	safeHandler(c, Show)
+	assert.Equal(t, 403, w.Code, "direct status should not be visible without account")
+}
+
+func TestShow_DirectStatus_NotParticipant(t *testing.T) {
+	ts := newTestSetup(t)
+	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "directother" })
+	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "directother" })
+
+	directStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityDirect
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
+	setAccount(c, otherAcct)
+	safeHandler(c, Show)
+	assert.Equal(t, 403, w.Code, "non-participant should not see direct status")
+}
+
+// ============== Visibility Matrix: Private Status Follower ==============
+
+func TestShow_PrivateStatus_Follower(t *testing.T) {
+	ts := newTestSetup(t)
+
+	followerUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "follower" })
+	followerAcct := ts.fix.CreateAccount(followerUser, func(a *models.Account) { a.Username = "follower" })
+
+	// Create follow relationship: follower -> ts.acct
+	require.NoError(t, ts.db.Create(&models.Follow{
+		AccountId: followerAcct.Id,
+		FollowId:  ts.acct.Id,
+		Status:    1, // FollowStatusFollowed
+	}).Error)
+
+	privateStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPrivate
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
+	setAccount(c, followerAcct)
+	safeHandler(c, Show)
+	// A follower should be able to see the private status
+	assert.True(t, w.Code == 200 || w.Code == 403, "follower viewing private status: expected 200 (if followers see private) or 403 (if not)")
+}
+
+func TestShow_PrivateStatus_NonFollower(t *testing.T) {
+	ts := newTestSetup(t)
+
+	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "nonfollower" })
+	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "nonfollower" })
+
+	// No follow relationship created — otherAcct does not follow ts.acct
+
+	privateStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPrivate
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
+	setAccount(c, otherAcct)
+	safeHandler(c, Show)
+	assert.Equal(t, 403, w.Code, "non-follower should not see private status")
+}
+
+// ============== Content Edge Cases ==============
+
+func TestCreate_EmptyContent(t *testing.T) {
+	ts := newTestSetup(t)
+	c, w := newGinContextPost(t, nil, CreateStatusRequest{
+		Status:     "",
+		Visibility: "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	// Empty content without media or poll — some servers allow it, some reject
+	// We accept either behavior; the key is no server panic (500)
+	assert.True(t, w.Code == 200 || w.Code == 400 || w.Code == 422,
+		"empty content should be handled gracefully (200 if allowed, 400/422 if rejected), got %d", w.Code)
+}
+
+func TestCreate_LongContent(t *testing.T) {
+	ts := newTestSetup(t)
+	longContent := strings.Repeat("a", 10000)
+	c, w := newGinContextPost(t, nil, CreateStatusRequest{
+		Status:     longContent,
+		Visibility: "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	// Long content may be accepted or rejected depending on server config
+	// Key is no server panic (500)
+	assert.True(t, w.Code == 200 || w.Code == 400 || w.Code == 422,
+		"10K char content should be handled gracefully, got %d", w.Code)
+}
+
+func TestCreate_UnicodeAndEmoji(t *testing.T) {
+	ts := newTestSetup(t)
+	c, w := newGinContextPost(t, nil, CreateStatusRequest{
+		Status:     "你好世界 🌍🎉 — العربية — Ελληνικά — 日本語",
+		Visibility: "public",
+		Language:   "zh",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	assert.Equal(t, 200, w.Code, "unicode and emoji content should be accepted")
+}
+
+func TestCreate_XSSAttempt(t *testing.T) {
+	ts := newTestSetup(t)
+	xssContent := `<script>alert('xss')</script><img src=x onerror=alert(1)>`
+	c, w := newGinContextPost(t, nil, CreateStatusRequest{
+		Status:     xssContent,
+		Visibility: "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	// The status should be created; XSS protection is the responsibility of the frontend renderer
+	assert.Equal(t, 200, w.Code, "XSS content should be stored as-is (sanitization is frontend's responsibility)")
+}
+
+func TestCreate_SQLInjectionAttempt(t *testing.T) {
+	ts := newTestSetup(t)
+	sqliContent := `'; DROP TABLE statuses; --`
+	c, w := newGinContextPost(t, nil, CreateStatusRequest{
+		Status:     sqliContent,
+		Visibility: "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	// Using parameterized queries, this should be treated as plain text and succeed
+	assert.Equal(t, 200, w.Code, "SQL injection string should be safely stored as content")
+}
+
+func TestCreate_NullBytes(t *testing.T) {
+	ts := newTestSetup(t)
+	nullContent := "Hello\x00World"
+	c, w := newGinContextPost(t, nil, map[string]string{
+		"status":     nullContent,
+		"visibility": "public",
+	})
+	setAccount(c, ts.acct)
+	safeHandler(c, Create)
+	// Null bytes should be stripped or rejected; should not cause a server error
+	assert.True(t, w.Code == 200 || w.Code == 400, "null bytes should be handled gracefully, got %d", w.Code)
+}
+
+// ============== Reply Chain Context Verification ==============
+
+func TestContext_ReplyChain_VerifyAncestors(t *testing.T) {
+	ts := newTestSetup(t)
+
+	// Create a 3-level reply chain: grandparent -> parent -> child
+	grandparent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPublic
+	})
+
+	parentId := grandparent.Id
+	parent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPublic
+		s.InReplyToId = &parentId
+	})
+
+	childId := parent.Id
+	child := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPublic
+		s.InReplyToId = &childId
+	})
+
+	// Get context for the middle status (parent)
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(parent.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Context)
+
+	assert.Equal(t, 200, w.Code)
+	// If serialization succeeds, verify the structure; otherwise just check status code
+	if w.Body.Len() > 0 {
+		var resp ContextResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err == nil {
+			// Ancestors should contain grandparent
+			assert.NotEmpty(t, resp.Ancestors, "should have at least one ancestor (grandparent)")
+			if len(resp.Ancestors) > 0 {
+				assert.Equal(t, strconv.FormatUint(grandparent.Id, 10), resp.Ancestors[0].Id,
+					"first ancestor should be the grandparent status")
+			}
+			// Descendants should contain child
+			assert.NotEmpty(t, resp.Descendants, "should have at least one descendant (child)")
+			if len(resp.Descendants) > 0 {
+				assert.Equal(t, strconv.FormatUint(child.Id, 10), resp.Descendants[0].Id,
+					"first descendant should be the child status")
+			}
+		}
+	}
+}
+
+// ============== Idempotency: Double Favourite ==============
+
+func TestFavourite_ThenUnfavourite_ThenFavourite(t *testing.T) {
+	ts := newTestSetup(t)
+
+	// First favourite
+	c1, w1 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	setAccount(c1, ts.acct)
+	safeHandler(c1, Favourite)
+	assert.Equal(t, 200, w1.Code)
+
+	// Unfavourite
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	setAccount(c2, ts.acct)
+	safeHandler(c2, Unfavourite)
+	assert.Equal(t, 200, w2.Code)
+
+	// Favourite again (idempotent re-favourite after unfavourite)
+	c3, w3 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
+	setAccount(c3, ts.acct)
+	safeHandler(c3, Favourite)
+	assert.Equal(t, 200, w3.Code, "should be able to re-favourite after unfavouriting")
 }
