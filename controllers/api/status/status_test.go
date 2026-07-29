@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -194,10 +195,16 @@ func setAccount(c *gin.Context, acct *models.Account) {
 	}
 }
 
-// safeHandler calls a handler and recovers from panic("abort").
+// safeHandler calls a handler and recovers from AbortSentinel panics.
+// Non-AbortSentinel panics (real bugs like nil dereference) are re-panicked
+// to match production behavior of AbortRecoveryMiddleware.
 func safeHandler(c *gin.Context, f func(*gin.Context)) {
 	defer func() {
-		_ = recover()
+		if r := recover(); r != nil {
+			if !controllers.IsAbortSentinel(r) {
+				panic(r) // Re-panic real bugs so tests fail
+			}
+		}
 	}()
 
 	f(c)
@@ -460,9 +467,11 @@ func TestUpdate_Success(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	content, ok := resp["content"].(string)
-	if ok {
-		assert.Contains(t, content, "Updated content", "response content should reflect the update")
-	}
+	require.True(t, ok, "response content should be a string")
+	assert.Contains(t, content, "Updated content", "response content should reflect the update")
+
+
+
 }
 
 func TestUpdate_Forbidden(t *testing.T) {
@@ -536,9 +545,11 @@ func TestFavourite_Success(t *testing.T) {
 	assert.True(t, hasFavouritesCount, "response should contain favourites_count")
 	favourited, hasFavourited := resp["favourited"]
 	assert.True(t, hasFavourited, "response should contain favourited field")
-	if favourited != nil {
-		assert.True(t, favourited.(bool), "favourited should be true after favouriting")
-	}
+	require.NotNil(t, favourited, "favourited field must not be nil")
+	assert.True(t, favourited.(bool), "favourited should be true after favouriting")
+
+
+
 }
 
 func TestFavourite_AlreadyFavourited(t *testing.T) {
@@ -615,6 +626,13 @@ func TestFavouritedBy_Success(t *testing.T) {
 	safeHandler(c, FavouritedBy)
 
 	assert.Equal(t, 200, w.Code)
+	// Verify response body contains the favouriter's account
+	var accounts []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &accounts))
+	assert.NotEmpty(t, accounts, "should contain at least one account that favourited")
+	if len(accounts) > 0 {
+		assert.Equal(t, "favuser", accounts[0]["username"], "should contain the favouriting user")
+	}
 }
 
 func TestFavouritedBy_EmptyList(t *testing.T) {
@@ -657,9 +675,11 @@ func TestReblog_Success(t *testing.T) {
 	assert.True(t, hasReblogsCount, "response should contain reblogs_count")
 	reblogged, hasReblogged := resp["reblogged"]
 	assert.True(t, hasReblogged, "response should contain reblogged field")
-	if reblogged != nil {
-		assert.True(t, reblogged.(bool), "reblogged should be true after reblogging")
-	}
+	require.NotNil(t, reblogged, "reblogged field must not be nil")
+	assert.True(t, reblogged.(bool), "reblogged should be true after reblogging")
+
+
+
 }
 
 func TestReblog_DefaultVisibility(t *testing.T) {
@@ -795,9 +815,11 @@ func TestBookmark_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	bookmarked, hasBookmarked := resp["bookmarked"]
 	assert.True(t, hasBookmarked, "response should contain bookmarked field")
-	if bookmarked != nil {
-		assert.True(t, bookmarked.(bool), "bookmarked should be true after bookmarking")
-	}
+	require.NotNil(t, bookmarked, "bookmarked field must not be nil")
+	assert.True(t, bookmarked.(bool), "bookmarked should be true after bookmarking")
+
+
+
 }
 
 func TestBookmark_AlreadyBookmarked(t *testing.T) {
@@ -1528,23 +1550,19 @@ func TestVotePoll_Success(t *testing.T) {
 	safeHandler(c, VotePoll)
 
 	assert.Equal(t, 200, w.Code)
-	// Verify response contains poll with updated votes
+	// Verify response is a poll object with updated votes
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	// The response should be the parent status with poll info
-	if pollData, ok := resp["poll"].(map[string]any); ok {
-		if options, ok := pollData["options"].([]any); ok {
-			assert.NotEmpty(t, options, "poll should have options")
-			// First option should have at least 1 vote
-			if len(options) > 0 {
-				if opt0, ok := options[0].(map[string]any); ok {
-					if votesCount, ok := opt0["votes_count"].(float64); ok {
-						assert.GreaterOrEqual(t, int(votesCount), 1, "option 0 should have at least 1 vote after voting")
-					}
-				}
-			}
-		}
-	}
+	// VotePoll returns a Poll object directly (not wrapped in a status)
+	options, ok := resp["options"].([]any)
+	require.True(t, ok, "response should be a poll with options array")
+	require.NotEmpty(t, options, "poll should have at least 1 option")
+	opt0, ok := options[0].(map[string]any)
+	require.True(t, ok, "option 0 should be an object")
+	votesCount, ok := opt0["votes_count"].(float64)
+	require.True(t, ok, "option 0 should have votes_count field")
+	assert.GreaterOrEqual(t, int(votesCount), 1, "option 0 should have at least 1 vote after voting")
+
 }
 
 func TestVotePoll_Expired(t *testing.T) {
@@ -2352,27 +2370,20 @@ func TestCreatePollContent_Fields(t *testing.T) {
 func TestGetRealStatus_ReblogWithNilReblog(t *testing.T) {
 	ts := newTestSetup(t)
 
-	reblogId := ts.status.Id
+	// Create a reblog that points to a non-existent status (ID 99999)
+	// This will cause Preload("Reblog") to not load anything, leaving Reblog nil
+	nonExistentId := uint64(99999)
 	reblogStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
-		reblogIDCopy := reblogId
-		s.ReblogId = &reblogIDCopy
+		s.ReblogId = &nonExistentId
 		s.Visibility = models.StatusVisibilityPublic
 	})
-
-	// Deliberately NOT loading the Reblog field to trigger the nil-reblog path
-	reblogStatus.Reblog = nil
 
 	// Use Bookmark which calls getRealStatus
 	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reblogStatus.Id, 10)}})
 	setAccount(c2, ts.acct)
-	// The handler may panic because getRealStatus will panic("abort") when Reblog is nil
-	// safeHandler recovers from panics — verify that the test does not crash
-	assert.NotPanics(t, func() {
-		safeHandler(c2, Bookmark)
-	})
-	// The response code should be set by the handler (may be 500 or 400, not the default 200)
-	// since the nil reblog causes an abort path
-	_ = w2
+	// getRealStatus will AbortPanic because Reblog is nil (pointing to non-existent original)
+	safeHandler(c2, Bookmark)
+	assert.Equal(t, 404, w2.Code, "reblog with non-existent original should produce 404")
 }
 
 // ============== Scheduled Status Update with Forbidden ==============
@@ -2475,7 +2486,7 @@ func TestSafeHandler_RecoversFromPanic(t *testing.T) {
 	safeHandler(c, func(c *gin.Context) {
 		called = true
 
-		panic("abort")
+		controllers.AbortPanic()
 	})
 
 	assert.True(t, called, "handler should have been called")
@@ -2937,7 +2948,7 @@ func TestShow_PrivateStatus_Follower(t *testing.T) {
 	require.NoError(t, ts.db.Create(&models.Follow{
 		AccountId: followerAcct.Id,
 		FollowId:  ts.acct.Id,
-		Status:    1, // FollowStatusFollowed
+		Status:    models.FollowStatusFollowed,
 	}).Error)
 
 	privateStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
@@ -2947,8 +2958,8 @@ func TestShow_PrivateStatus_Follower(t *testing.T) {
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, followerAcct)
 	safeHandler(c, Show)
-	// A follower should be able to see the private status
-	assert.True(t, w.Code == 200 || w.Code == 403, "follower viewing private status: expected 200 (if followers see private) or 403 (if not)")
+	// A follower should be able to see the private status (CanView checks follow relationship)
+	assert.Equal(t, 200, w.Code, "follower should be able to see private status from account they follow")
 }
 
 func TestShow_PrivateStatus_NonFollower(t *testing.T) {
@@ -2979,10 +2990,8 @@ func TestCreate_EmptyContent(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 	safeHandler(c, Create)
-	// Empty content without media or poll — some servers allow it, some reject
-	// We accept either behavior; the key is no server panic (500)
-	assert.True(t, w.Code == 200 || w.Code == 400 || w.Code == 422,
-		"empty content should be handled gracefully (200 if allowed, 400/422 if rejected), got %d", w.Code)
+	// Empty content without media is accepted by this server (no validation rejects it)
+	assert.Equal(t, 200, w.Code, "empty content should be accepted (server has no validation against it)")
 }
 
 func TestCreate_LongContent(t *testing.T) {
@@ -2994,10 +3003,8 @@ func TestCreate_LongContent(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 	safeHandler(c, Create)
-	// Long content may be accepted or rejected depending on server config
-	// Key is no server panic (500)
-	assert.True(t, w.Code == 200 || w.Code == 400 || w.Code == 422,
-		"10K char content should be handled gracefully, got %d", w.Code)
+	// Long content is accepted (server has no length limit in Create handler)
+	assert.Equal(t, 200, w.Code, "10K char content should be accepted")
 }
 
 func TestCreate_UnicodeAndEmoji(t *testing.T) {
@@ -3047,8 +3054,8 @@ func TestCreate_NullBytes(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 	safeHandler(c, Create)
-	// Null bytes should be stripped or rejected; should not cause a server error
-	assert.True(t, w.Code == 200 || w.Code == 400, "null bytes should be handled gracefully, got %d", w.Code)
+	// Null bytes in content should be handled — server stores as-is
+	assert.Equal(t, 200, w.Code, "null bytes should be handled without server error")
 }
 
 // ============== Reply Chain Context Verification ==============
@@ -3079,24 +3086,19 @@ func TestContext_ReplyChain_VerifyAncestors(t *testing.T) {
 	safeHandler(c, Context)
 
 	assert.Equal(t, 200, w.Code)
-	// If serialization succeeds, verify the structure; otherwise just check status code
-	if w.Body.Len() > 0 {
-		var resp ContextResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err == nil {
-			// Ancestors should contain grandparent
-			assert.NotEmpty(t, resp.Ancestors, "should have at least one ancestor (grandparent)")
-			if len(resp.Ancestors) > 0 {
-				assert.Equal(t, strconv.FormatUint(grandparent.Id, 10), resp.Ancestors[0].Id,
-					"first ancestor should be the grandparent status")
-			}
-			// Descendants should contain child
-			assert.NotEmpty(t, resp.Descendants, "should have at least one descendant (child)")
-			if len(resp.Descendants) > 0 {
-				assert.Equal(t, strconv.FormatUint(child.Id, 10), resp.Descendants[0].Id,
-					"first descendant should be the child status")
-			}
-		}
-	}
+
+	require.NotZero(t, w.Body.Len(), "response body should not be empty")
+	var resp ContextResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), "response should be valid JSON")
+	// Ancestors should contain grandparent
+	require.NotEmpty(t, resp.Ancestors, "should have at least one ancestor (grandparent)")
+	assert.Equal(t, strconv.FormatUint(grandparent.Id, 10), resp.Ancestors[0].Id,
+		"first ancestor should be the grandparent status")
+	// Descendants should contain child
+	require.NotEmpty(t, resp.Descendants, "should have at least one descendant (child)")
+	assert.Equal(t, strconv.FormatUint(child.Id, 10), resp.Descendants[0].Id,
+		"first descendant should be the child status")
+
 }
 
 // ============== Idempotency: Double Favourite ==============

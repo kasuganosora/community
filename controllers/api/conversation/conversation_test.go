@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -17,11 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
+// callHandler recovers from AbortSentinel panics used by controllers.AbortIf/AbortIfError.
+// Non-AbortSentinel panics (real bugs) are re-panicked.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			_ = r // expected - handler aborted early
+			if !controllers.IsAbortSentinel(r) {
+				panic(r)
+			}
 		}
 	}()
 
