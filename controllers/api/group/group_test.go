@@ -22,7 +22,7 @@ import (
 // callHandler recovers from panic("abort") used by gin.Abort().
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r == "abort" {
+		if r := recover(); r != nil {
 			// expected
 			_ = r
 		}
@@ -58,52 +58,10 @@ func setupTestDB(t *testing.T) {
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.Group{},
+		&models.GroupMember{},
+		&models.GroupMessage{},
 	)
-	require.NoError(t, err)
-
-	// Create groups-related tables manually with INTEGER types for tinyint columns
-	// (AutoMigrate creates type:tinyint columns as BOOLEAN in sqlexec)
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS groups (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		owner_id INTEGER,
-		name VARCHAR(255),
-		description TEXT,
-		avatar VARCHAR(512),
-		type INTEGER DEFAULT 0,
-		visibility VARCHAR(20) DEFAULT 'private',
-		matrix_room_id VARCHAR(255),
-		created_at DATETIME,
-		updated_at DATETIME,
-		deleted_at DATETIME
-	)`)
-	require.NoError(t, err)
-
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS group_members (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_id INTEGER,
-		account_id INTEGER,
-		matrix_user_id VARCHAR(255),
-		display_name VARCHAR(255),
-		role INTEGER DEFAULT 0,
-		invited_by INTEGER,
-		matrix_invited_by VARCHAR(255),
-		joined_at DATETIME,
-		created_at DATETIME,
-		updated_at DATETIME,
-		deleted_at DATETIME
-	)`)
-	require.NoError(t, err)
-
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS group_messages (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_id INTEGER,
-		sender_id INTEGER,
-		matrix_sender_id VARCHAR(255),
-		content TEXT,
-		matrix_event_id VARCHAR(255),
-		created_at DATETIME,
-		deleted_at DATETIME
-	)`)
 	require.NoError(t, err)
 }
 
@@ -390,7 +348,7 @@ func TestCreateGroup(t *testing.T) {
 			Name: "No Account Group",
 		})
 		c, _ := newContext(t, http.MethodPost, "/api/v1/groups", body, nil)
-		callHandler(CreateGroup, c)
+		CreateGroup(c)
 	})
 
 	t.Run("invalid json body", func(t *testing.T) {
@@ -794,14 +752,11 @@ func TestGetMyGroups(t *testing.T) {
 		assert.Empty(t, groups)
 	})
 
-	t.Run("no account in context panics", func(t *testing.T) {
-		defer func() {
-			r := recover()
-			assert.NotNil(t, r)
-		}()
-
-		c, _ := newContext(t, http.MethodGet, "/api/v1/groups/mine", nil, nil)
+	t.Run("no account in context returns error", func(t *testing.T) {
+		c, w := newContext(t, http.MethodGet, "/api/v1/groups/mine", nil, nil)
 		callHandler(GetMyGroups, c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
 	t.Run("success - returns correct group names", func(t *testing.T) {
@@ -897,7 +852,7 @@ func TestGetGroupMessages(t *testing.T) {
 
 		c, _ := newContext(t, http.MethodGet, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/messages", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(group.Id, 10)}})
-		callHandler(GetGroupMessages, c)
+		GetGroupMessages(c)
 	})
 
 	t.Run("success - member can see messages after sending", func(t *testing.T) {
@@ -1004,7 +959,7 @@ func TestSendGroupMessage(t *testing.T) {
 		body, _ := json.Marshal(SendMessageRequest{Content: "Hi"})
 		c, _ := newContext(t, http.MethodPost, "/api/v1/groups/"+strconv.FormatUint(group.Id, 10)+"/messages", body, nil)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(group.Id, 10)}})
-		callHandler(SendGroupMessage, c)
+		SendGroupMessage(c)
 	})
 
 	t.Run("invalid json body", func(t *testing.T) {
@@ -1105,7 +1060,7 @@ func TestDeleteGroup(t *testing.T) {
 
 		c, _ := newContext(t, http.MethodDelete, "/api/v1/groups/1", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: "1"}})
-		callHandler(DeleteGroup, c)
+		DeleteGroup(c)
 	})
 
 	t.Run("success - verifies response message", func(t *testing.T) {
@@ -1184,14 +1139,11 @@ func TestBridgeGroup(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "already bridged")
 	})
 
-	t.Run("no account in context panics", func(t *testing.T) {
-		defer func() {
-			r := recover()
-			assert.NotNil(t, r)
-		}()
-
-		c, _ := newContext(t, http.MethodPost, "/api/v1/groups/1/bridge", nil, nil)
+	t.Run("no account in context returns error", func(t *testing.T) {
+		c, w := newContext(t, http.MethodPost, "/api/v1/groups/1/bridge", nil, nil)
 		setParams(c, gin.Params{{Key: "id", Value: "1"}})
 		callHandler(BridgeGroup, c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }

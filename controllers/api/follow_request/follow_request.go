@@ -12,7 +12,7 @@ import (
 
 // ListRequest represents the request for listing follow requests.
 type ListRequest struct {
-	Limit   int    `binding:"min=1,max=80" form:"limit"`
+	Limit   int    `binding:"omitempty,min=1,max=80" form:"limit"`
 	MaxId   string `form:"max_id"`
 	SinceId string `form:"since_id"`
 }

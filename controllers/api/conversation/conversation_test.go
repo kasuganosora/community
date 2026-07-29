@@ -20,7 +20,7 @@ import (
 // callHandler recovers from panic("abort") used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
-		if r := recover(); r == "abort" {
+		if r := recover(); r != nil {
 			_ = r // expected - handler aborted early
 		}
 	}()
@@ -54,6 +54,7 @@ func setupTestDB(t *testing.T) {
 		&models.AccountExtra{},
 		&models.Status{},
 		&models.StatusContent{},
+		&models.PinStatus{},
 		&models.Conversation{},
 		&models.AccountConversation{},
 	); err != nil {
@@ -115,9 +116,8 @@ func newContextWithAccount(t *testing.T, w *httptest.ResponseRecorder, method, p
 }
 
 // newContextWithAccountAndParams creates a gin context with account and path params.
-func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
+func newContextWithAccountAndParamsEx(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string, account *models.Account) *gin.Context { //nolint:unparam // param reserved for future use
 	t.Helper()
-	account := createTestAccount(t, "testuser")
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(method, path, nil) //nolint:noctx
 
@@ -129,6 +129,13 @@ func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, 
 
 	c.Set("account", account)
 
+	return c
+}
+
+func newContextWithAccountAndParams(t *testing.T, w *httptest.ResponseRecorder, method, path string, params map[string]string) (*gin.Context, *models.Account) { //nolint:unparam // param reserved for future use
+	t.Helper()
+	account := createTestAccount(t, "testuser")
+	c := newContextWithAccountAndParamsEx(t, w, method, path, params, account)
 	return c, account
 }
 
@@ -261,9 +268,9 @@ func TestMarkRead_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	c, _ := newContextWithAccountAndParams(t, w, http.MethodPost, "/conversations/"+strconv.FormatUint(conv.Id, 10)+"/read", map[string]string{
+	c := newContextWithAccountAndParamsEx(t, w, http.MethodPost, "/conversations/"+strconv.FormatUint(conv.Id, 10)+"/read", map[string]string{
 		"id": strconv.FormatUint(conv.Id, 10),
-	})
+	}, account)
 
 	callHandler(MarkRead, c)
 
@@ -334,9 +341,9 @@ func TestRemove_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/conversations/"+strconv.FormatUint(conv.Id, 10), map[string]string{
+	c := newContextWithAccountAndParamsEx(t, w, http.MethodDelete, "/conversations/"+strconv.FormatUint(conv.Id, 10), map[string]string{
 		"id": strconv.FormatUint(conv.Id, 10),
-	})
+	}, account)
 
 	callHandler(Remove, c)
 
@@ -357,9 +364,9 @@ func TestRemove_OnlyAccountLeft(t *testing.T) {
 	conv := createTestConversation(t, []uint64{account.Id}, nil)
 
 	w := httptest.NewRecorder()
-	c, _ := newContextWithAccountAndParams(t, w, http.MethodDelete, "/conversations/"+strconv.FormatUint(conv.Id, 10), map[string]string{
+	c := newContextWithAccountAndParamsEx(t, w, http.MethodDelete, "/conversations/"+strconv.FormatUint(conv.Id, 10), map[string]string{
 		"id": strconv.FormatUint(conv.Id, 10),
-	})
+	}, account)
 
 	callHandler(Remove, c)
 

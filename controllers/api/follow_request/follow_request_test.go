@@ -310,9 +310,7 @@ func TestAuthorize_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, currentAccount := newContextWithAccount(t, w, http.MethodPost, "/api/v1/follow_requests/1/authorize")
 
-	createTestAccountExtra(t, currentAccount.Id)
 	otherAccount := createTestAccount(t, "requester")
-	createTestAccountExtra(t, otherAccount.Id)
 	createTestFollowRequest(t, otherAccount.Id, currentAccount.Id)
 
 	w = httptest.NewRecorder()
@@ -382,9 +380,7 @@ func TestAuthorize_FollowersCountIncremented(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, currentAccount := newContextWithAccount(t, w, http.MethodPost, "/api/v1/follow_requests/1/authorize")
 
-	extra := createTestAccountExtra(t, currentAccount.Id)
 	otherAccount := createTestAccount(t, "requester")
-	createTestAccountExtra(t, otherAccount.Id)
 	createTestFollowRequest(t, otherAccount.Id, currentAccount.Id)
 
 	w = httptest.NewRecorder()
@@ -401,7 +397,7 @@ func TestAuthorize_FollowersCountIncremented(t *testing.T) {
 	var updatedExtra models.AccountExtra
 
 	testDB.GormDB.Where("account_id = ?", currentAccount.Id).First(&updatedExtra)
-	assert.Equal(t, extra.FollowersCount+1, updatedExtra.FollowersCount)
+	assert.Equal(t, 1, updatedExtra.FollowersCount)
 }
 
 func TestAuthorize_FollowingCountIncremented(t *testing.T) {
@@ -410,9 +406,7 @@ func TestAuthorize_FollowingCountIncremented(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, currentAccount := newContextWithAccount(t, w, http.MethodPost, "/api/v1/follow_requests/1/authorize")
 
-	createTestAccountExtra(t, currentAccount.Id)
 	otherAccount := createTestAccount(t, "requester")
-	otherExtra := createTestAccountExtra(t, otherAccount.Id)
 	createTestFollowRequest(t, otherAccount.Id, currentAccount.Id)
 
 	w = httptest.NewRecorder()
@@ -429,7 +423,7 @@ func TestAuthorize_FollowingCountIncremented(t *testing.T) {
 	var updatedExtra models.AccountExtra
 
 	testDB.GormDB.Where("account_id = ?", otherAccount.Id).First(&updatedExtra)
-	assert.Equal(t, otherExtra.FollowingCount+1, updatedExtra.FollowingCount)
+	assert.Equal(t, 1, updatedExtra.FollowingCount)
 }
 
 // ========== Reject Tests ==========

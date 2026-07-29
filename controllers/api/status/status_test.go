@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,14 +22,23 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestMain(m *testing.M) {
+	database.SetTestMode()
+	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
+}
+
 // allTestModels lists all models needed for auto-migration in tests.
 var allTestModels = []any{
 	&models.User{},
 	&models.Account{},
 	&models.AccountExtra{},
+	&models.AccountEmoji{},
 	&models.Status{},
 	&models.StatusContent{},
 	&models.StatusHistory{},
+	&models.StatusTag{},
+	&models.StatusToAccount{},
 	&models.BookmarkStatus{},
 	&models.FavoriteStatus{},
 	&models.PinStatus{},
@@ -45,6 +55,7 @@ var allTestModels = []any{
 	&models.StatusEmoji{},
 	&models.StatusMediaAttachment{},
 	&models.Conversation{},
+	&models.AccountConversation{},
 	&models.Notification{},
 	&models.Filter{},
 	&models.Role{},
