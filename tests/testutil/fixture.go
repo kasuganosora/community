@@ -226,12 +226,14 @@ func (f *FixtureBuilder) CreateFilter(accountId uint64, overrides ...func(*model
 }
 
 // CreatePoll creates a test poll.
-func (f *FixtureBuilder) CreatePoll(overrides ...func(*models.Poll)) *models.Poll {
+func (f *FixtureBuilder) CreatePoll(statusId uint64, accountId uint64, overrides ...func(*models.Poll)) *models.Poll {
 	f.t.Helper()
 
 	now := time.Now()
 	expiresAt := now.Add(24 * time.Hour)
 	poll := &models.Poll{
+		StatusId:  statusId,
+		AccountId: accountId,
 		Multiple:  false,
 		ExpiresAt: &expiresAt,
 		CreatedAt: &now,

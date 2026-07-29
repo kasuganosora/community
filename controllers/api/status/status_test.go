@@ -60,6 +60,7 @@ var allTestModels = []any{
 	&models.Filter{},
 	&models.Role{},
 	&models.AuthToken{},
+	&models.Tag{},
 }
 
 // testSetup holds common test setup data.
@@ -1407,8 +1408,7 @@ func TestViewPoll_Success(t *testing.T) {
 
 	// Create a poll with options
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
@@ -1442,8 +1442,7 @@ func TestViewPoll_NoAccount(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
@@ -1461,8 +1460,7 @@ func TestVotePoll_Success(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1487,8 +1485,7 @@ func TestVotePoll_Expired(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(-1 * time.Hour) // expired
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1510,8 +1507,7 @@ func TestVotePoll_SingleChoiceMultipleVotes(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1536,8 +1532,7 @@ func TestVotePoll_InvalidChoice(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1559,8 +1554,7 @@ func TestVotePoll_AlreadyVoted(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1589,8 +1583,7 @@ func TestVotePoll_EmptyChoices(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1613,8 +1606,7 @@ func TestVotePoll_NegativeChoice(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
 	})
@@ -1636,8 +1628,7 @@ func TestVotePoll_MultipleChoice(t *testing.T) {
 	ts := newTestSetup(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	poll := ts.fix.CreatePoll(func(p *models.Poll) {
-		p.AccountId = ts.acct.Id
+	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = true // allow multiple
 	})
@@ -1873,11 +1864,12 @@ func TestCreateThenDelete(t *testing.T) {
 	err := json.Unmarshal(w1.Body.Bytes(), &created)
 	require.NoError(t, err)
 
-	newId, ok := created["id"].(float64)
+	// Serializer returns id as string
+	newIdStr, ok := created["id"].(string)
 	require.True(t, ok, "response should contain id")
 
 	// Delete
-	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%.0f", newId)}})
+	c2, w2 := newGinContext(t, gin.Params{{Key: "id", Value: newIdStr}})
 	setAccount(c2, ts.acct)
 	safeHandler(c2, Delete)
 	assert.Equal(t, 204, w2.Code)
@@ -1903,11 +1895,11 @@ func TestCreateThenUpdate(t *testing.T) {
 	err := json.Unmarshal(w1.Body.Bytes(), &created)
 	require.NoError(t, err)
 
-	newId, ok := created["id"].(float64)
+	newIdStr, ok := created["id"].(string)
 	require.True(t, ok, "response should contain id")
 
 	// Update
-	c2, w2 := newGinContextPut(t, gin.Params{{Key: "id", Value: fmt.Sprintf("%.0f", newId)}}, UpdateStatusRequest{
+	c2, w2 := newGinContextPut(t, gin.Params{{Key: "id", Value: newIdStr}}, UpdateStatusRequest{
 		Status: new("Updated content"),
 	})
 	setAccount(c2, ts.acct)
