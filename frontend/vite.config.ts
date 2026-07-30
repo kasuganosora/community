@@ -42,12 +42,19 @@ export default defineConfig({
     // Code splitting configuration
     rollupOptions: {
       output: {
-        // Manual chunk splitting - simplified for compatibility
-        manualChunks: {
-          // Vendor chunks
-          'vendor-vue': ['vue', 'vue-router', 'pinia'],
-          'vendor-tdesign': ['tdesign-vue-next'],
-          'vendor-utils': ['axios', 'dompurify'],
+        // Manual chunk splitting
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) {
+              return 'vendor-vue'
+            }
+            if (id.includes('tdesign-vue-next')) {
+              return 'vendor-tdesign'
+            }
+            if (id.includes('axios') || id.includes('dompurify')) {
+              return 'vendor-utils'
+            }
+          }
         },
         // Chunk naming
         chunkFileNames: 'assets/js/[name]-[hash].js',
@@ -66,7 +73,7 @@ export default defineConfig({
     },
 
     // Minification options
-    minify: 'esbuild',
+    minify: true,
 
     // Source maps for production (can be disabled for smaller builds)
     sourcemap: false,
