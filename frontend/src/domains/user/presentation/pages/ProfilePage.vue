@@ -14,6 +14,7 @@ const account = ref<MastodonAccount | null>(null)
 const statuses = ref<MastodonStatus[]>([])
 const activeTab = ref('posts')
 const loading = ref(true)
+const error = ref<string | null>(null)
 const following = ref(false)
 
 async function loadProfile() {
@@ -129,6 +130,14 @@ watch(activeTab, loadProfile)
     <template v-else>
       <PostCard v-for="s in statuses" :key="s.id" :status="s" />
     </template>
+  </div>
+
+  <div v-else-if="!loading && error" class="empty-state" role="alert">
+    <div class="empty-state__icon">
+      <t-icon name="error-circle" :size="48" />
+    </div>
+    <h2 class="empty-state__title">Something went wrong</h2>
+    <p class="empty-state__text">{{ error }}</p>
   </div>
 </template>
 

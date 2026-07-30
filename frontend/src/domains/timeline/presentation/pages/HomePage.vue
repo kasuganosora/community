@@ -7,6 +7,7 @@ import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
 const timelineStore = useTimelineStore()
+const composerRef = ref<InstanceType<typeof PostComposer>>()
 type TabType = 'for-you' | 'following'
 const activeTab = ref<TabType>('for-you')
 
@@ -41,8 +42,10 @@ async function handlePosted(content: string) {
   try {
     const status = await postApi.create({ status: content, visibility: 'public' })
     timelineStore.prependStatus(status)
+    composerRef.value?.onPostSuccess()
   } catch (e) {
     console.error('Failed to create post:', e)
+    composerRef.value?.onPostError('发布失败，请重试')
   }
 }
 

@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import type { MastodonStatus, MastodonAccount, MastodonTag, SearchResult } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
+import { userApi } from '@/domains/user/infrastructure/userApi'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RichText from '@/shared/components/common/RichText.vue'
@@ -30,6 +31,7 @@ const loading = ref(false)
 const statuses = ref<MastodonStatus[]>([])
 const accounts = ref<MastodonAccount[]>([])
 const hashtags = ref<MastodonTag[]>([])
+const followingMap = ref(new Map<string, boolean>())
 
 const SEARCH_LIMIT = 20
 
@@ -62,6 +64,17 @@ watch(() => route.query.q, (q) => {
   const query = getQueryParam(q)
   if (query) search(query)
 })
+
+async function toggleFollow(account: MastodonAccount) {
+  try {
+    const rel = followingMap.value.get(account.id)
+      ? await userApi.unfollow(account.id)
+      : await userApi.follow(account.id)
+    followingMap.value.set(account.id, rel.following)
+  } catch (e) {
+    console.error('Failed to toggle follow:', e)
+  }
+}
 </script>
 
 <template>
@@ -103,7 +116,11 @@ watch(() => route.query.q, (q) => {
             <div class="user-item__username">@{{ user.acct }}</div>
             <RichText class="user-item__bio" :html="user.note" />
           </div>
-          <t-button theme="default" shape="round" size="small" class="follow-btn">Follow</t-button>
+          <t-button theme="default" shape="round" size="small" class="follow-btn"
+            @click.stop="toggleFollow(user)"
+          >
+            {{ followingMap.get(user.id) ? 'Following' : 'Follow' }}
+          </t-button>
         </div>
         <div v-if="accounts.length === 0" class="search-empty">No people found</div>
       </template>

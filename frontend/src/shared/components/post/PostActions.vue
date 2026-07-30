@@ -17,6 +17,19 @@ const emit = defineEmits<{
 const replyCount = computed(() => props.status.replies_count > 0 ? formatCount(props.status.replies_count) : '')
 const reblogCount = computed(() => props.status.reblogs_count > 0 ? formatCount(props.status.reblogs_count) : '')
 const favCount = computed(() => props.status.favourites_count > 0 ? formatCount(props.status.favourites_count) : '')
+
+async function handleShare() {
+  const url = window.location.href
+  if (navigator.share) {
+    try {
+      await navigator.share({ url })
+    } catch { /* user cancelled */ }
+  } else {
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch { /* clipboard not available */ }
+  }
+}
 </script>
 
 <template>
@@ -64,9 +77,8 @@ const favCount = computed(() => props.status.favourites_count > 0 ? formatCount(
 
     <button 
       class="action-btn action-btn--share" 
-      @click.stop
+      @click.stop="handleShare"
       aria-label="分享"
-      disabled
     >
       <t-icon name="share" :size="18" />
     </button>

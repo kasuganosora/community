@@ -34,7 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Verify that we can actually fetch the user — if not, roll back
       const success = await fetchCurrentUser()
       if (!success) {
-        logout()
+        await logout()
         throw new Error('登录后获取用户信息失败')
       }
     } catch (e: unknown) {

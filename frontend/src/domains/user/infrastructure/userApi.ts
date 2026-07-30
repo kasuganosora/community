@@ -12,7 +12,8 @@ export const userApi = {
     const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
       params: { q: acct, limit: 1 },
     })
-    return data[0] as MastodonAccount
+    if (!data[0]) throw new Error('Account not found')
+    return data[0]
   },
 
   async getStatuses(id: string, params?: {
