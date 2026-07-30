@@ -146,8 +146,8 @@ func (s *ApplicationScope) MarshalJSON() ([]byte, error) {
 		vBytes = append(vBytes, bytes...)
 	}
 
-	// 拼接成hex字符串
-	ret := hex.EncodeToString(vBytes)
+	// 拼接成hex字符串，用双引号包裹使其成为合法 JSON 字符串
+	ret := `"` + hex.EncodeToString(vBytes) + `"`
 
 	return []byte(ret), nil
 }
@@ -155,7 +155,12 @@ func (s *ApplicationScope) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON JSON反序列化
 // 把hex字符串转换成byte数组,然后按照8个byte分割成3个uint64.
 func (s *ApplicationScope) UnmarshalJSON(data []byte) (err error) {
-	vBytes, err := hex.DecodeString(string(data))
+	// 去除可能的 JSON 字符串引号
+	str := string(data)
+	if len(str) >= 2 && str[0] == '"' && str[len(str)-1] == '"' {
+		str = str[1 : len(str)-1]
+	}
+	vBytes, err := hex.DecodeString(str)
 	if err != nil {
 		return err
 	}

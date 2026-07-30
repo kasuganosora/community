@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -22,7 +23,9 @@ import (
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			panic(r)
+			if _, ok := r.(controllers.AbortSentinel); !ok {
+				panic(r)
+			}
 		}
 	}()
 

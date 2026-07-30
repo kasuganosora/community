@@ -42,9 +42,10 @@ func TestAdditional_DomainBlock_Fields(t *testing.T) {
 
 func TestAdditional_DomainBlocks_Type(t *testing.T) {
 	// DomainBlocks is a []*DomainBlock
-	dbs := make(DomainBlocks, 0, 1)
+	var dbs DomainBlocks
 
 	assert.Nil(t, dbs)
+	assert.Empty(t, dbs)
 	dbs = append(dbs, &DomainBlock{Domain: "bad.com"})
 	assert.Len(t, dbs, 1)
 	assert.Equal(t, "bad.com", dbs[0].Domain)
@@ -383,9 +384,10 @@ func TestAdditional_Notification_Fields(t *testing.T) {
 }
 
 func TestAdditional_Notifications_Type(t *testing.T) {
-	ns := make(Notifications, 0, 1)
+	var ns Notifications
 
 	assert.Nil(t, ns)
+	assert.Empty(t, ns)
 	ns = append(ns, &Notification{Id: 1})
 	assert.Len(t, ns, 1)
 }

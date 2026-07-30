@@ -53,43 +53,16 @@ func setupTestDB(t *testing.T) {
 	testDB = tdb.GormDB
 	database.SetTestDB(testDB)
 
-	// AutoMigrate models without tinyint/uint8 type issues
+	// AutoMigrate all required models — GORM handles dialect correctly
 	err = testDB.AutoMigrate(
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.List{},
+		&models.ListAccount{},
+		&models.ListFollowAccount{},
+		&models.Follow{},
 	)
-	require.NoError(t, err)
-
-	// Create lists table manually with INTEGER type for replies_policy
-	// (AutoMigrate creates uint8 columns as BOOLEAN in sqlexec)
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS lists (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		title VARCHAR(255) NOT NULL DEFAULT '',
-		account_id INTEGER NOT NULL DEFAULT 0,
-		replies_policy INTEGER NOT NULL DEFAULT 0,
-		last_viewed_at DATETIME,
-		visibility INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME,
-		updated_at DATETIME,
-		deleted_at DATETIME
-	)`)
-	require.NoError(t, err)
-
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS list_accounts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		list_id INTEGER NOT NULL,
-		account_id INTEGER NOT NULL,
-		created_at DATETIME
-	)`)
-	require.NoError(t, err)
-
-	err = tdb.CreateTable(`CREATE TABLE IF NOT EXISTS list_follow_accounts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		list_id INTEGER NOT NULL,
-		account_id INTEGER NOT NULL,
-		created_at DATETIME
-	)`)
 	require.NoError(t, err)
 }
 
