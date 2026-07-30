@@ -25,7 +25,8 @@ func (Announcement) TableName() string {
 
 func (a *Announcement) Publish() {
 	a.Published = true
-	a.PublishedAt = &time.Time{}
+	now := time.Now()
+	a.PublishedAt = &now
 }
 
 func (a *Announcement) UnPublish() {

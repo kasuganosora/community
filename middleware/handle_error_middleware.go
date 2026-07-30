@@ -26,6 +26,10 @@ func HandleErrorsMiddleware() gin.HandlerFunc {
 
 		fmt.Printf("%+v", lastError.Err)
 
+		if c.Writer.Written() {
+			return
+		}
+
 		c.AbortWithStatusJSON(500, ret)
 	}
 }

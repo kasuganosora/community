@@ -45,9 +45,13 @@ func ToAccount(account *models.Account) (acc *Account) {
 		return nil
 	}
 
+	localDomain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
 	var domain string
-	if domain == "" {
-		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	if account.Domain != nil && *account.Domain != "" {
+		domain = *account.Domain
+	} else {
+		domain = localDomain
 	}
 
 	acc = &Account{
@@ -61,7 +65,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		Group:           account.Group,
 		CreatedAt:       account.CreatedAt,
 		Note:            account.Note,
-		Url:             account.Website,
+		Url:             fmt.Sprintf("https://%s/@%s", domain, account.Username),
 		Uri:             fmt.Sprintf("https://%s/users/%s", domain, account.Username),
 		Avatar:          account.Avatar,
 		AvatarStatic:    account.AvatarStatic,
@@ -104,9 +108,13 @@ type Mention struct {
 }
 
 func ToMention(account *models.Account) (mention *Mention) {
+	localDomain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+
 	var domain string
-	if domain == "" {
-		domain = systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	if account.Domain != nil && *account.Domain != "" {
+		domain = *account.Domain
+	} else {
+		domain = localDomain
 	}
 
 	mention = &Mention{

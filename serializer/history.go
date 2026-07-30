@@ -58,7 +58,6 @@ func ToHistoryStatuses(dbConn *gorm.DB, histories []*models.StatusHistory) (ret 
 	AttachmentIds := make([]uint64, 0)
 
 	for _, history := range histories {
-		ret = append(ret, ToHistoryStatusBase(history))
 		emojiIds = append(emojiIds, history.EmojisIds...)
 		AttachmentIds = append(AttachmentIds, history.MediaAttachmentsIds...)
 	}

@@ -343,14 +343,30 @@ func (p *S3Provider) Download(objectKey string) (io.ReadCloser, error) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
 	object, err := p.client.GetObject(ctx, p.bucket, objectKey, minio.GetObjectOptions{})
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
-	return object, nil
+	// Return a wrapper that cancels the context when the reader is closed
+	return &s3ReadCloser{object: object, cancel: cancel}, nil
+}
+
+type s3ReadCloser struct {
+	object *minio.Object
+	cancel context.CancelFunc
+}
+
+func (s *s3ReadCloser) Read(p []byte) (int, error) {
+	return s.object.Read(p)
+}
+
+func (s *s3ReadCloser) Close() error {
+	err := s.object.Close()
+	s.cancel()
+	return err
 }
 
 // Delete 删除文件.

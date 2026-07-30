@@ -242,7 +242,8 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	}
 
 	// 标记最后查看时间
-	list.LastViewedAt = new(time.Now())
+	now := time.Now()
+	list.LastViewedAt = &now
 
 	err = db.GetDB().Model(
 		&models.List{}).Where("id = ?", list.Id).Select("last_viewed_at").Updates(list).Error

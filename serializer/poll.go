@@ -31,7 +31,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 	ret := &Poll{
 		Id:          id,
 		ExpiresAt:   poll.ExpiresAt,
-		Expired:     poll.ExpiresAt.Before(time.Now()),
+		Expired:     poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()),
 		Multiple:    poll.Multiple,
 		VotesCount:  votesCount,
 		VotersCount: votersCount,

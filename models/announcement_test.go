@@ -22,8 +22,8 @@ func TestAnnouncement_Publish(t *testing.T) {
 
 	assert.True(t, a.Published)
 	assert.NotNil(t, a.PublishedAt)
-	// PublishedAt should be a zero-valued time pointer
-	assert.True(t, a.PublishedAt.IsZero())
+	// PublishedAt should be set to current time
+	assert.False(t, a.PublishedAt.IsZero())
 }
 
 func TestAnnouncement_UnPublish(t *testing.T) {

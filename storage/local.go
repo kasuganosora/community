@@ -72,6 +72,7 @@ func (l *LocalStorage) Save(path string, data []byte) (savePath string, err erro
 			return savePath, err
 		}
 	}
+	defer file.Close()
 
 	_, err = file.Write(data)
 

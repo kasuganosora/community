@@ -69,11 +69,13 @@ func AssignRole(db *gorm.DB, userID uint64, roleID uint64) (err error) {
 
 	// check if role exists
 	if err = db.First(&Role{}, "id = ?", roleID).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = errors.New("role not found")
+		} else {
 			err = errors.Wrap(err, "failed to check if role exists")
-
-			return
 		}
+
+		return
 	}
 
 	err = db.Create(r).Error

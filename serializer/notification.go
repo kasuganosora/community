@@ -66,7 +66,12 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 		}
 	}
 
-	ret.Report, err = ToReport(n.Report, currentAccount)
+	if n.ReportId > 0 {
+		ret.Report, err = ToReport(n.Report, currentAccount)
+		if err != nil {
+			return ret, err
+		}
+	}
 
 	if n.ListId > 0 && n.List == nil {
 		n.List = &models.List{}
