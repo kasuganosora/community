@@ -3,6 +3,8 @@ package testutil
 import (
 	"testing"
 
+	cRedis "github.com/kasuganosora/community/db/redis"
+	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -28,7 +30,7 @@ type SetupOptions struct {
 func DefaultSetupOptions() *SetupOptions {
 	return &SetupOptions{
 		DBMode:    ModeIsolated,
-		RedisMode: RedisModeAuto,
+		RedisMode: RedisModeMock,
 		Models:    nil,
 	}
 }
@@ -123,6 +125,14 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 
 	// Setup Redis (without individual t.Cleanup to avoid double-release)
 	setup.Redis = NewRedisWithMode(t, options.RedisMode)
+
+	// Inject the Redis client into the global redis client pool so that
+	// db.GetRedis() returns our mock/real client instead of panicking.
+	// This prevents feed/cache/middleware code from timing out on connection
+	// attempts when no real Redis is available.
+	if setup.Redis != nil && setup.Redis.Client != nil {
+		cRedis.SetRedisesForTest([]*goredis.Client{setup.Redis.Client})
+	}
 
 	// Create fixture builder
 	setup.Fixtures = NewFixtureBuilder(t, setup.DB.GormDB)
