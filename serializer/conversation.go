@@ -109,7 +109,7 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 		conversationId = append(conversationId, conversation.Id)
 	}
 
-	err = db.GetDB().Model(&models.AccountConversation{}).Where("conversation_id in ? and account = ?", conversationId, account.Id).Find(&accountConversations).Error
+	err = db.GetDB().Model(&models.AccountConversation{}).Where("conversation_id in ? and account_id = ?", conversationId, account.Id).Find(&accountConversations).Error
 	if err != nil {
 		return ret, err
 	}

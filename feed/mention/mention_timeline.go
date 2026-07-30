@@ -207,7 +207,11 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}
-		err = feed.RemoveTimelineItem(timeline, status, account.User.Settings.GetAggregatesReblogs())
+		var aggregatesReblogs bool
+		if account.User != nil && account.User.Settings != nil {
+			aggregatesReblogs = account.User.Settings.GetAggregatesReblogs()
+		}
+		err = feed.RemoveTimelineItem(timeline, status, aggregatesReblogs)
 		if err != nil {
 			return err
 		}

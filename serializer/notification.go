@@ -46,13 +46,15 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 		}
 	}
 
-	if err = n.Status.CheckAndLoadAllExtendFields(db.GetDB()); err != nil {
-		return ret, err
-	}
+	if n.Status != nil {
+		if err = n.Status.CheckAndLoadAllExtendFields(db.GetDB()); err != nil {
+			return ret, err
+		}
 
-	ret.Status, err = ToStatus(n.Status, currentAccount)
-	if err != nil {
-		return ret, err
+		ret.Status, err = ToStatus(n.Status, currentAccount)
+		if err != nil {
+			return ret, err
+		}
 	}
 
 	if n.ReportId > 0 && n.Report == nil {

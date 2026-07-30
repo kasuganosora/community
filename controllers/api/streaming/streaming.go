@@ -260,6 +260,19 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 			}
 		}
 
+		// Check ownership or follow relationship
+		if ls.AccountId != account.Id {
+			var followCount int64
+			db.GetDB().Model(&models.ListFollowAccount{}).
+				Where("list_id = ? AND account_id = ?", ls.Id, account.Id).
+				Count(&followCount)
+			if followCount == 0 {
+				err = &StreamingErrorResponse{Err: "forbidden"}
+
+				return channelName, err
+			}
+		}
+
 		channelName = feed.GetRedisChannelName(&list.ListTimeline{List: ls})
 
 	case s.Stream == "direct": //nolint:goconst

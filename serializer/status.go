@@ -86,7 +86,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	ret.ReblogsCount = status.ReblogsCount
 	ret.FavouritesCount = status.FavouritesCount
 
-	if status.UpdatedAt != nil || status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
+	if status.UpdatedAt != nil && status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
 		ret.EditedAt = status.UpdatedAt
 	}
 

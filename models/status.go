@@ -450,13 +450,17 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 }
 
 func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
+	if account == nil {
+		return s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted
+	}
+
 	if s.AccountId == account.Id {
 		canView = true
 
 		return canView
 	}
 
-	if s.IsScheduled() && (account == nil || s.AccountId != account.Id) {
+	if s.IsScheduled() && s.AccountId != account.Id {
 		canView = false
 
 		return canView
@@ -1019,7 +1023,7 @@ func (fs *FavoriteStatus) TableName() string {
 }
 
 func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
-	if err = tx.Model(&Status{}).Where("id", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
+	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
 		return
 	}
 

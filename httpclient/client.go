@@ -256,8 +256,6 @@ func (r *Request) Do() (resp *Response, err error) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 
 			req = req.WithContext(ctx)
-
-			// Cancel after this iteration's request completes
 			defer cancel()
 		}
 

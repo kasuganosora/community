@@ -31,9 +31,11 @@ func ToHistoryStatus(dbConn *gorm.DB, history *models.StatusHistory) (ret *Histo
 	ret = ToHistoryStatusBase(history)
 	emojis := models.Emojis{}
 
-	err = dbConn.Model(&models.Emoji{}).Where("id in ?", emojis.GetIds()).Find(&emojis).Error
-	if err != nil {
-		return
+	if len(history.EmojisIds) > 0 {
+		err = dbConn.Model(&models.Emoji{}).Where("id in ?", history.EmojisIds).Find(&emojis).Error
+		if err != nil {
+			return
+		}
 	}
 
 	ret.Emojis = ToEmojis(emojis)

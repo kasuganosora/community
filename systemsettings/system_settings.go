@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const (
@@ -55,10 +56,16 @@ const (
 
 )
 
-var settings = map[string]any{}
-var loaded = false
+var (
+	settings = map[string]any{}
+	loaded   = false
+	mu       sync.RWMutex
+)
 
 func Load() {
+	mu.Lock()
+	defer mu.Unlock()
+
 	if loaded {
 		return
 	}
@@ -91,6 +98,9 @@ func Load() {
 
 func Get(key string, defaultValue any) any {
 	Load()
+
+	mu.RLock()
+	defer mu.RUnlock()
 
 	// 优先取.env中的配置
 	if v, ok := config.C.Other[key]; ok {
@@ -237,6 +247,8 @@ func GetInt64s(key string, defaultValue any) []int64 {
 }
 
 func Set(key string, val any) {
+	mu.Lock()
+	defer mu.Unlock()
 	settings[key] = val
 }
 
@@ -286,13 +298,18 @@ func SaveToDB(keys ...string) (err error) {
 // 例如： key a.b.c, val 1
 // 返回： map[a.b.c]1.
 func GetAllFlatStyle() (settings map[string]any) {
+	mu.RLock()
+	defer mu.RUnlock()
 	return settings
 }
 
 // GetAllTreeStyle 获取所有树形样式
 // 例如： key a.b.c, val 1
 // 返回： map[a][b][c]1.
-func GetAllTreeStyle() (settings map[string]any) {
+func GetAllTreeStyle() map[string]any {
+	mu.RLock()
+	defer mu.RUnlock()
+
 	ret := make(map[string]any)
 	keys := make([]string, 0, len(settings))
 
@@ -323,7 +340,7 @@ func GetAllTreeStyle() (settings map[string]any) {
 		}
 	}
 
-	return settings
+	return ret
 }
 
 func GetDefaultPageSize() int {

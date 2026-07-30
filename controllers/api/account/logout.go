@@ -31,7 +31,7 @@ func Logout(c *gin.Context) {
 	}
 
 	// 如果前缀是 Bearer ，去掉前缀
-	if tokenStr[0:6] == "Bearer" {
+	if len(tokenStr) >= 7 && tokenStr[0:7] == "Bearer " {
 		tokenStr = tokenStr[7:]
 	}
 

@@ -80,8 +80,10 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 
 	// 发送邮件
 
-	acceptLanguage := user.Properties["language"]
-	if acceptLanguage == "" {
+	var acceptLanguage string
+	if langStr, ok := user.Properties["language"].(string); ok && langStr != "" {
+		acceptLanguage = langStr
+	} else {
 		acceptLanguage = c.Request.Header.Get("Accept-Language")
 	}
 
@@ -93,8 +95,8 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 		"URL":      toUrl,
 	}
 
-	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage.(string), "recover_password_verify_email")                   //nolint:forcetypeassert // type checked by caller
-	subject := i18nz.GetLocalizer("", acceptLanguage.(string)).T("recover_password_verify_email_subject", map[string]any{ //nolint:forcetypeassert
+	mailTemplate := i18nz.GetMailTemplateName(acceptLanguage, "recover_password_verify_email")
+	subject := i18nz.GetLocalizer("", acceptLanguage).T("recover_password_verify_email_subject", map[string]any{
 		"UserName": user.UserName,
 		"SiteName": systemsettings.GetString(systemsettings.KeyTitle, "Community"),
 	})

@@ -14,7 +14,7 @@ type ScheduledStatus struct {
 }
 
 type ScheduledStatusParams struct {
-	Poll          *Poll    `json:"poll"`
+	Poll          *ScheduledStatusPollParams `json:"poll"`
 	Text          string   `json:"text"`
 	MediaIds      []string `json:"media_ids"`
 	Sensitive     bool     `json:"sensitive"`
@@ -48,12 +48,22 @@ func ToScheduledStatus(status *models.Status) (ret *ScheduledStatus) {
 	if status.Poll != nil {
 		poll := &ScheduledStatusPollParams{}
 		if status.Poll.ExpiresAt != nil {
-			poll.ExpiresIn = new(status.Poll.Properties["expires_in"].(uint64)) //nolint:forcetypeassert
+			if v, ok := status.Poll.Properties["expires_in"].(float64); ok {
+				expiresIn := uint64(v)
+				poll.ExpiresIn = &expiresIn
+			} else if v, ok := status.Poll.Properties["expires_in"].(uint64); ok {
+				poll.ExpiresIn = &v
+			}
 		}
 
-		poll.Multiple = status.Poll.Properties["multiple"].(bool) //nolint:forcetypeassert
+		if v, ok := status.Poll.Properties["multiple"].(bool); ok {
+			poll.Multiple = v
+		}
 		poll.Options = status.Poll.Options.GetNames()
-		poll.HideTotals = new(status.Poll.Properties["hide_totals"].(bool)) //nolint:forcetypeassert
+		if v, ok := status.Poll.Properties["hide_totals"].(bool); ok {
+			poll.HideTotals = &v
+		}
+		ret.Params.Poll = poll
 	}
 
 	ret.Params.Text = status.Content.Content

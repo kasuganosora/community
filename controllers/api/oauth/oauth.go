@@ -270,6 +270,13 @@ func Authorize(c *gin.Context) {
 		return
 	}
 
+	// Validate redirect_uri matches registered application
+	if req.RedirectUri != app.RedirectUri {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid redirect_uri"})
+
+		return
+	}
+
 	// If user denied authorization
 	if req.Deny != "" {
 		redirectUrl := req.RedirectUri + "?error=access_denied&error_description=User%20denied%20access"
@@ -413,9 +420,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 	}
 
 	// Generate refresh token
-	refreshTokenStr := utils.GetRandomHex(64)
-
-	refreshToken, _ := models.NewAuthToken(
+	refreshToken, refreshTokenStr := models.NewAuthToken(
 		account.UserId,
 		models.AuthTokenTypeOauth,
 		app.Id,
@@ -446,10 +451,11 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 		return
 	}
 
-	// Find user by username (email or username)
+	// Find user by username (try username or email hash)
 	user := &models.User{}
 
-	err := db.GetDB().Where("email = ?", req.Username).First(user).Error
+	emailHash := models.GetEmailHash(req.Username)
+	err := db.GetDB().Where("email_hash = ? OR username = ?", emailHash, req.Username).First(user).Error
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
 
@@ -491,9 +497,7 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	}
 
 	// Generate refresh token
-	refreshTokenStr := utils.GetRandomHex(64)
-
-	refreshToken, _ := models.NewAuthToken(
+	refreshToken, refreshTokenStr := models.NewAuthToken(
 		user.Id,
 		models.AuthTokenTypeOauth,
 		app.Id,
@@ -599,8 +603,7 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, req *TokenRe
 	}
 
 	// Generate new refresh token
-	refreshTokenStr := utils.GetRandomHex(64)
-	refreshToken, _ := models.NewAuthToken(
+	refreshToken, refreshTokenStr := models.NewAuthToken(
 		userId,
 		models.AuthTokenTypeOauth,
 		app.Id,

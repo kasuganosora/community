@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/kasuganosora/community/log"
 )
@@ -374,9 +375,13 @@ func VerifyActivitySignature(c interface{ GetHeader(string) string }, body []byt
 	// Type assert to get the underlying request
 	var req *http.Request
 
-	// Gin context has a Request method
-	if ginCtx, ok := c.(interface{ Request() *http.Request }); ok {
-		req = ginCtx.Request()
+	// Gin context has a Request field (not a method)
+	if ginCtx, ok := c.(*gin.Context); ok {
+		req = ginCtx.Request
+	} else if r, ok := c.(interface{ GetHeader(string) string }); ok {
+		// Try to extract request from common HTTP test contexts
+		_ = r
+		return "", errors.New("unsupported context type")
 	} else {
 		return "", errors.New("unsupported context type")
 	}
