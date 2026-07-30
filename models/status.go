@@ -700,7 +700,7 @@ func (ss *Statuses) Filter(filter func(s *Status) bool) (ret Statuses) {
 }
 
 type StatusContent struct {
-	StatusId    uint64         `gorm:"primary_key;auto_increment" json:"status_id"`
+	StatusId    uint64         `gorm:"primary_key;autoIncrement" json:"status_id"`
 	Content     string         `gorm:"type:text;not null"         json:"content"`
 	SpoilerText string         `gorm:"type:text;"                 json:"spoiler_text"`
 	Card        map[string]any `gorm:"type:json;serializer:json"  json:"card"`
@@ -965,7 +965,7 @@ func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool
 }
 
 type StatusMediaAttachment struct {
-	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	Id       uint64 `gorm:"primary_key;autoIncrement" json:"id"`
 	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
 	MediaId  uint64 `gorm:"not null;index"             json:"media_id"`
 }
@@ -975,7 +975,7 @@ func (sma *StatusMediaAttachment) TableName() string {
 }
 
 type StatusTag struct {
-	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	Id       uint64 `gorm:"primary_key;autoIncrement" json:"id"`
 	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
 	TagId    uint64 `gorm:"not null;index"             json:"tag_id"`
 }
@@ -985,7 +985,7 @@ func (st *StatusTag) TableName() string {
 }
 
 type StatusEmoji struct {
-	Id       uint64 `gorm:"primary_key;auto_increment" json:"id"`
+	Id       uint64 `gorm:"primary_key;autoIncrement" json:"id"`
 	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
 	EmojiId  uint64 `gorm:"not null;index"             json:"emoji_id"`
 }
@@ -995,7 +995,7 @@ func (se *StatusEmoji) TableName() string {
 }
 
 type StatusToAccount struct {
-	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
@@ -1007,7 +1007,7 @@ func (StatusToAccount) TableName() string {
 }
 
 type FavoriteStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
@@ -1045,7 +1045,7 @@ func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
 }
 
 type BookmarkStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
@@ -1056,7 +1056,7 @@ func (bs *BookmarkStatus) TableName() string {
 }
 
 type PinStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	AccountId uint64     `gorm:"not null;index"                json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index"                json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
@@ -1067,7 +1067,7 @@ func (ps *PinStatus) TableName() string {
 }
 
 type StatusHistory struct {
-	Id                  uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id                  uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	StatusId            uint64     `gorm:"not null;index"                json:"status_id"`
 	AccountId           uint64     `gorm:"not null;index"                json:"account_id"`
 	Content             string     `gorm:"type:text;not null"            json:"content"`

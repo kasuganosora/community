@@ -11,9 +11,9 @@ import (
 )
 
 type UpdateListRequest struct {
-	Title         *string `binding:"min:1;max:64"                json:"title"`
-	RepliesPolicy *string `binding:"in:followed,list,none"       json:"replies_policy"`
-	Visibility    *string `binding:"in:public,private,followers" json:"visibility"`
+	Title         *string `binding:"omitempty,min=1,max=64"                json:"title"`
+	RepliesPolicy *string `binding:"omitempty,oneof=followed list none"       json:"replies_policy"`
+	Visibility    *string `binding:"omitempty,oneof=public private followers" json:"visibility"`
 }
 
 func UpdateList(c *gin.Context) {

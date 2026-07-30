@@ -16,7 +16,7 @@ const (
 )
 
 type Filter struct {
-	Id           uint64           `gorm:"primary_key;auto_increment"         json:"id"`
+	Id           uint64           `gorm:"primary_key;autoIncrement"         json:"id"`
 	AccountId    uint64           `gorm:"not null;index"                     json:"account_id"` // 账户ID, 0为全局过滤器
 	Title        string           `gorm:"not null"                           json:"title"`
 	ExpiresAt    *time.Time       `gorm:"not null"                           json:"expires_at"`

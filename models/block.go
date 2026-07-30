@@ -8,7 +8,7 @@ const (
 )
 
 type Block struct {
-	Id              uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id              uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId       uint64     `gorm:"not null;index"             json:"account_id"`
 	Type            uint8      `gorm:"not null;index"             json:"type"`
 	TargetAccountId uint64     `json:"target_account_id"`

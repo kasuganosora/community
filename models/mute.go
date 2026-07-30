@@ -5,7 +5,7 @@ import (
 )
 
 type MuteAccount struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	TargetId  uint64     `gorm:"not null;index"             json:"target_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime"    json:"created_at"`
@@ -41,7 +41,7 @@ func (mm MuteAccounts) IsMuted(accountId uint64) bool {
 }
 
 type MuteStatus struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	StatusId  uint64     `gorm:"not null;index"             json:"status_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime"    json:"created_at"`

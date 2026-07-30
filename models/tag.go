@@ -8,7 +8,7 @@ import (
 )
 
 type Tag struct {
-	Id               uint64     `gorm:"primary_key;auto_increment"      json:"id"`
+	Id               uint64     `gorm:"primary_key;autoIncrement"      json:"id"`
 	Name             string     `gorm:"type:varchar(64);not null;index" json:"name"`
 	StatusCount      uint64     `gorm:"not null;default:0"              json:"status_count"`
 	AccountCount     uint64     `gorm:"not null;default:0"              json:"account_count"`

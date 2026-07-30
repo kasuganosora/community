@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -19,12 +20,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// callHandler recovers from panic("abort") used by gin.Abort().
+// callHandler recovers from AbortSentinel panic used by controllers.AbortIf/AbortIfError.
 func callHandler(fn func(*gin.Context), c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			// expected - handler used c.Abort()
-			_ = r
+			if _, ok := r.(controllers.AbortSentinel); !ok {
+				panic(r)
+			}
 		}
 	}()
 

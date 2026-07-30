@@ -6,7 +6,7 @@ import (
 
 // DomainBlock represents an instance-level domain block (admin setting).
 type DomainBlock struct {
-	Id             uint64     `gorm:"primary_key;auto_increment"    json:"id"`
+	Id             uint64     `gorm:"primary_key;autoIncrement"    json:"id"`
 	Domain         string     `gorm:"not null;uniqueIndex;size:255" json:"domain"`
 	Severity       string     `gorm:"default:'suspend';size:32"     json:"severity"` // suspend, silence, noop
 	RejectMedia    bool       `gorm:"default:true"                  json:"reject_media"`

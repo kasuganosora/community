@@ -21,7 +21,7 @@ const (
 )
 
 type List struct { //nolint:recvcheck
-	Id            uint64         `gorm:"primary_key;auto_increment"      json:"id"`
+	Id            uint64         `gorm:"primary_key;autoIncrement"      json:"id"`
 	Title         string         `gorm:"type:varchar(255);not null"      json:"title"`
 	AccountId     uint64         `gorm:"not null"                        json:"account_id"`
 	RepliesPolicy uint8          `gorm:"not null;default:0"              json:"replies_policy"`
@@ -75,7 +75,7 @@ func (l *List) GetRepliesPolicy() string {
 }
 
 type ListAccount struct {
-	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	ID        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	ListId    uint64     `gorm:"not null;index"             json:"list_id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	CreatedAt *time.Time `gorm:"autoCreateTime"             json:"created_at"`
@@ -104,7 +104,7 @@ func (la *ListAccount) AfterDelete(tx *gorm.DB) (err error) {
 }
 
 type ListFollowAccount struct {
-	ID        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	ID        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	ListId    uint64     `gorm:"not null;index"             json:"list_id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	CreatedAt *time.Time `gorm:"autoCreateTime"             json:"created_at"`

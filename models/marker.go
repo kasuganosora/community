@@ -3,7 +3,7 @@ package models
 import "time"
 
 type Marker struct {
-	AccountId uint64                         `gorm:"primary_key;auto_increment:false"`
+	AccountId uint64                         `gorm:"primary_key;autoIncrement:false"`
 	Timelines map[string]*MarkerTimelineItem `gorm:"type:json;serializer:json"`
 }
 
