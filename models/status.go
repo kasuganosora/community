@@ -1036,7 +1036,7 @@ func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
 }
 
 func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
-	if err = tx.Model(&Status{}).Where("id", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error; err != nil {
+	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error; err != nil {
 		return
 	}
 

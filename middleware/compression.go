@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -109,14 +110,18 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 		expires time.Time
 	}
 
+	var mu sync.Mutex
 	limiters := make(map[string]*limiter)
 
 	return func(c *gin.Context) {
 		key := c.ClientIP()
 
+		mu.Lock()
+
 		if l, ok := limiters[key]; ok {
 			if time.Now().Before(l.expires) {
 				if l.count >= limit {
+					mu.Unlock()
 					c.AbortWithStatusJSON(429, gin.H{"error": "rate limit exceeded"}) //nolint:goconst
 
 					return
@@ -133,6 +138,8 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 				expires: time.Now().Add(window),
 			}
 		}
+
+		mu.Unlock()
 
 		c.Next()
 	}

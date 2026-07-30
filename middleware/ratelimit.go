@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
@@ -271,7 +272,12 @@ func MultiLevelRateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 
 		// 3. 用户限流（已认证用户）
 		if account, exists := c.Get("account"); exists {
-			userID := fmt.Sprintf("%v", account)
+			var userID string
+			if acct, ok := account.(*models.Account); ok {
+				userID = strconv.FormatUint(acct.Id, 10)
+			} else {
+				userID = fmt.Sprintf("%v", account)
+			}
 
 			userKey := "user:" + userID
 			if !limiter.Allow(userKey) {

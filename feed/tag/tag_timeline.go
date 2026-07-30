@@ -277,7 +277,12 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 	timeline := &TagTimeline{Tag: tag}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		query = tx.Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tag).Select("status_id"))
+		// Look up tag ID by name
+		tagModel := &models.Tag{}
+		if findErr := db.GetDB().Where("name = ?", tag).First(tagModel).Error; findErr != nil {
+			return nil, findErr
+		}
+		query = tx.Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tagModel.Id).Select("status_id"))
 		if isLocal := params.Other["local"]; isLocal != nil && isLocal.(bool) { //nolint:forcetypeassert
 			query = query.Where("domain is null")
 		} else if isRemote := params.Other["remote"]; isRemote != nil && isRemote.(bool) { //nolint:forcetypeassert
