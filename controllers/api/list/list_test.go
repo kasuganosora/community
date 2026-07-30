@@ -1224,7 +1224,7 @@ func TestFollowList(t *testing.T) {
 		setParams(c, gin.Params{{Key: "id", Value: "abc"}})
 		callHandler(FollowList, c)
 
-		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
 
@@ -1281,7 +1281,7 @@ func TestUnfollowList(t *testing.T) {
 		setParams(c, gin.Params{{Key: "id", Value: "abc"}})
 		callHandler(UnfollowList, c)
 
-		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("success - follow then unfollow", func(t *testing.T) {

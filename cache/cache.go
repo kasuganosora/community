@@ -36,8 +36,9 @@ func Init() {
 // GetCache 获取默认缓存实例.
 func GetCache() *Cache {
 	once.Do(func() {
-		if defaultCache == nil {
-			Init()
+		defaultCache = &Cache{
+			client: redis.GetRedis(),
+			prefix: "community:",
 		}
 	})
 

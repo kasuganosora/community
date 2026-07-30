@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redismock/v9"
 	"github.com/kasuganosora/community/db/database"
+	redisTest "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +24,8 @@ var testDB *testutil.TestDB
 func TestMain(m *testing.M) {
 	database.SetTestMode()
 	gin.SetMode(gin.TestMode)
+	client, _ := redismock.NewClientMock()
+	redisTest.SetRedisesForTest([]*redis.Client{client})
 	os.Exit(m.Run())
 }
 

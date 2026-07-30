@@ -28,6 +28,7 @@ type Notification struct {
 	StatusId      uint64
 	ReportId      uint64
 	ListId        uint64
+	IsRead        bool   `gorm:"default:false"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime"`
@@ -141,6 +142,35 @@ func (n *Notification) GetTypeString() string {
 		return "remove_list" //nolint:goconst
 	default:
 		return ""
+	}
+}
+
+// NotificationTypeFromString converts a string type name (e.g. "favourite")
+// to its numeric notification type. Returns -1 if unknown.
+func NotificationTypeFromString(s string) int {
+	switch s {
+	case "mention":
+		return NotificationTypeMention
+	case "reblog":
+		return NotificationTypeReblog
+	case "favourite":
+		return NotificationTypeFavourite
+	case "follow":
+		return NotificationTypeFollow
+	case "poll":
+		return NotificationTypePoll
+	case "follow_request":
+		return NotificationTypeFollowRequest
+	case "status_update":
+		return NotificationTypeStatusUpdate
+	case "admin_report":
+		return NotificationTypeAdminReport
+	case "add_list":
+		return NotificationTypeAddList
+	case "remove_list":
+		return NotificationTypeRemoveList
+	default:
+		return -1
 	}
 }
 

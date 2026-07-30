@@ -168,5 +168,8 @@ func ListCanView(list *List, account *Account) (pass bool, err error) {
 		return pass, err
 	}
 
+	// Follower record found — grant access
+	pass = true
+
 	return pass, err
 }

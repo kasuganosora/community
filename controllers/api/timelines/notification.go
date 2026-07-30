@@ -30,11 +30,27 @@ func NotificationTimeline(c *gin.Context) {
 	query := db.GetDB().Model(&models.Notification{}).Where("account_id = ?", account.Id)
 
 	if len(req.ExcludeTypes) > 0 {
-		query = query.Where("type not in ?", req.ExcludeTypes)
+		typeIds := make([]int, 0, len(req.ExcludeTypes))
+		for _, t := range req.ExcludeTypes {
+			if id := models.NotificationTypeFromString(t); id >= 0 {
+				typeIds = append(typeIds, id)
+			}
+		}
+		if len(typeIds) > 0 {
+			query = query.Where("type not in ?", typeIds)
+		}
 	}
 
 	if len(req.Types) > 0 {
-		query = query.Where("type in ?", req.Types)
+		typeIds := make([]int, 0, len(req.Types))
+		for _, t := range req.Types {
+			if id := models.NotificationTypeFromString(t); id >= 0 {
+				typeIds = append(typeIds, id)
+			}
+		}
+		if len(typeIds) > 0 {
+			query = query.Where("type in ?", typeIds)
+		}
 	}
 
 	if req.AccountId != "" {
