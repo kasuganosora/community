@@ -19,7 +19,7 @@ import (
 
 // MatrixFederationKey 联邦密钥数据库模型.
 type MatrixFederationKey struct {
-	ID         uint64    `gorm:"primary_key;auto_increment"`
+	ID         uint64    `gorm:"primary_key;autoIncrement"`
 	KeyID      string    `gorm:"not null;uniqueIndex;size:64"`
 	KeyType    string    `gorm:"type:varchar(32);index"` // "federation", "master", etc.
 	PrivateKey string    `gorm:"not null;type:text"`

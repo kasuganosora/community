@@ -12,7 +12,7 @@ import (
 
 // FeaturedTag represents a featured tag on a profile.
 type FeaturedTag struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	TagId     uint64     `gorm:"not null;index"             json:"tag_id"`
 	Name      string     `gorm:"type:varchar(64);not null"  json:"name"`

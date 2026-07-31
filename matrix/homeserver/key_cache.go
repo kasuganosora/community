@@ -155,7 +155,7 @@ func (kc *KeyCache) Cleanup() {
 
 // MatrixServerKey 服务器密钥数据库模型.
 type MatrixServerKey struct {
-	ID         uint64    `gorm:"primary_key;auto_increment"`
+	ID         uint64    `gorm:"primary_key;autoIncrement"`
 	ServerName string    `gorm:"not null;index;size:255"`
 	KeyID      string    `gorm:"not null;index;size:64"`
 	PublicKey  string    `gorm:"not null;type:text"`

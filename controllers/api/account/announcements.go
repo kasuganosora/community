@@ -10,7 +10,7 @@ import (
 
 // Announcement represents an announcement.
 type Announcement struct {
-	Id          uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id          uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	Text        string     `gorm:"type:text;not null"         json:"text"`
 	Published   bool       `gorm:"not null;default:false"     json:"published"`
 	AllDay      bool       `gorm:"not null;default:false"     json:"all_day"`

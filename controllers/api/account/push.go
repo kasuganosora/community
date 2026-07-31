@@ -12,7 +12,7 @@ import (
 
 // PushSubscription represents a push notification subscription.
 type PushSubscription struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	Endpoint  string     `gorm:"type:text;not null"         json:"endpoint"`
 	AuthKey   string     `gorm:"type:varchar(64)"           json:"auth_key"`

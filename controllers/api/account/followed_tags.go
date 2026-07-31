@@ -12,7 +12,7 @@ import (
 
 // FollowedTag represents a tag follow relationship.
 type FollowedTag struct {
-	Id        uint64     `gorm:"primary_key;auto_increment" json:"id"`
+	Id        uint64     `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId uint64     `gorm:"not null;index"             json:"account_id"`
 	TagId     uint64     `gorm:"not null;index"             json:"tag_id"`
 	CreatedAt *time.Time `gorm:"not null;autoCreateTime"    json:"created_at"`
