@@ -20,7 +20,7 @@ export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ['a', 'br', 'p', 'span', 'strong', 'em', 'del', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li'],
     ALLOWED_ATTR: ['href', 'rel', 'target', 'class'],
-    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
   })
 }
 

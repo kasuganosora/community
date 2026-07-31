@@ -185,11 +185,11 @@ export function usePerformance() {
     try {
       const result = fn()
       const end = performance.now()
-      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+      if (import.meta.env.DEV) console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
       return result
     } catch (err) {
       const end = performance.now()
-      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
+      if (import.meta.env.DEV) console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
       throw err
     }
   }
@@ -201,11 +201,11 @@ export function usePerformance() {
     try {
       const result = await fn()
       const end = performance.now()
-      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
+      if (import.meta.env.DEV) console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms`)
       return result
     } catch (err) {
       const end = performance.now()
-      console.debug(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
+      if (import.meta.env.DEV) console.warn(`[Performance] ${name}: ${(end - start).toFixed(2)}ms (FAILED)`)
       throw err
     }
   }
@@ -251,6 +251,6 @@ export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
 
   // Log to console in development
   if (import.meta.env.DEV) {
-    console.debug('[Performance Metrics]', metrics)
+    if (import.meta.env.DEV) console.warn('[Performance Metrics]', metrics)
   }
 }

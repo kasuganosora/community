@@ -19,7 +19,7 @@ const form = reactive<LoginForm>({
 })
 
 const showPassword = ref(false)
-const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse') as any)
+const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse'))
 const loginAttempts = ref(0)
 const MAX_LOGIN_ATTEMPTS = 5
 

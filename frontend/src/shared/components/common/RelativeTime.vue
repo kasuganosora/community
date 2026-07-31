@@ -10,8 +10,7 @@ const props = defineProps<{
 const now = useSharedClock()
 
 const timeStr = computed(() => {
-  // Reference now.value to create reactive dependency
-  now.value
+  // now.value is used as parameter, creating reactive dependency
   return formatRelativeTime(props.datetime, now.value)
 })
 const fullDate = computed(() => {
