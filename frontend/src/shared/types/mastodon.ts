@@ -1,5 +1,23 @@
 // Mastodon API type definitions (compatible with backend serializers)
 
+/** Visibility levels for statuses, shared across API types */
+export type Visibility = 'public' | 'unlisted' | 'private' | 'direct'
+
+/** Notification types that always include a `status` field */
+export type NotificationTypeWithStatus = 'mention' | 'reblog' | 'favourite' | 'poll' | 'update' | 'status'
+
+/** Notification types that never include a `status` field */
+export type NotificationTypeWithoutStatus = 'follow' | 'follow_request'
+
+/** All valid Mastodon notification types */
+export type NotificationType = NotificationTypeWithStatus | NotificationTypeWithoutStatus
+
+/** API error response shape */
+export interface ApiErrorData {
+  error?: string
+  message?: string
+}
+
 export interface MastodonApplication {
   name: string
   website: string | null
@@ -52,20 +70,48 @@ export interface MastodonMention {
   url: string
 }
 
+/** Daily usage history entry for a hashtag */
+export interface MastodonTagHistory {
+  day: string
+  uses: string
+  accounts: string
+}
+
 export interface MastodonTag {
   name: string
   url: string
-  history?: { day: string; uses: string; accounts: string }[]
+  history?: MastodonTagHistory[]
+}
+
+/** Allowed media attachment MIME categories */
+export type AttachmentType = 'image' | 'video' | 'gifv' | 'audio' | 'unknown'
+
+/** Metadata sub-types for attachment dimensions */
+export interface AttachmentDimensions {
+  width?: number
+  height?: number
+  size?: string
+  aspect?: number
+  frame_rate?: string
+  duration?: number
+  bitrate?: number
+}
+
+/** Structured metadata for a media attachment */
+export interface AttachmentMeta {
+  original?: AttachmentDimensions
+  small?: AttachmentDimensions
+  focus?: { x: number; y: number }
 }
 
 export interface MastodonAttachment {
   id: string
-  type: 'image' | 'video' | 'gifv' | 'audio' | 'unknown'
+  type: AttachmentType
   url: string
   preview_url: string | null
   remote_url: string | null
   text_url: string | null
-  meta: Record<string, unknown> | null
+  meta: AttachmentMeta | null
   description: string | null
   blurhash: string | null
 }
@@ -88,11 +134,14 @@ export interface MastodonPoll {
   emojis: MastodonEmoji[]
 }
 
+/** Preview card type */
+export type CardType = 'link' | 'photo' | 'video' | 'rich'
+
 export interface MastodonCard {
   url: string
   title: string
   description: string
-  type: 'link' | 'photo' | 'video' | 'rich'
+  type: CardType
   image: string | null
   provider_name: string
   provider_url: string
@@ -105,7 +154,7 @@ export interface MastodonStatus {
   in_reply_to_account_id: string | null
   sensitive: boolean
   spoiler_text: string
-  visibility: 'public' | 'unlisted' | 'private' | 'direct'
+  visibility: Visibility
   language: string | null
   uri: string
   url: string
@@ -130,12 +179,32 @@ export interface MastodonStatus {
   poll: MastodonPoll | null
 }
 
-export interface MastodonNotification {
+/** Notification that always carries a status (mention, reblog, favourite, poll, update, status) */
+export interface MastodonNotificationWithStatus {
   id: string
-  type: 'mention' | 'reblog' | 'favourite' | 'follow' | 'poll' | 'follow_request' | 'update' | 'status'
+  type: NotificationTypeWithStatus
   created_at: string
   account: MastodonAccount
-  status?: MastodonStatus
+  status: MastodonStatus
+}
+
+/** Notification that never carries a status (follow, follow_request) */
+export interface MastodonNotificationWithoutStatus {
+  id: string
+  type: NotificationTypeWithoutStatus
+  created_at: string
+  account: MastodonAccount
+  status?: never
+}
+
+/** Discriminated union — `type` discriminates whether `status` is present */
+export type MastodonNotification = MastodonNotificationWithStatus | MastodonNotificationWithoutStatus
+
+/** Type guard: narrows a notification to one that carries a status */
+export function notificationHasStatus(
+  n: MastodonNotification,
+): n is MastodonNotificationWithStatus {
+  return n.status !== undefined
 }
 
 export interface MastodonRelationship {
@@ -159,6 +228,10 @@ export interface MastodonConversation {
   unread: boolean
   accounts: MastodonAccount[]
   last_status: MastodonStatus | null
+}
+
+export interface MastodonSuggestion {
+  account: MastodonAccount
 }
 
 export interface MastodonContext {

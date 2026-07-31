@@ -1,12 +1,11 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import type { ManagedTimelineType } from '../../domain/entities'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
 const USE_MOCK = import.meta.env.DEV && !import.meta.env.VITE_API_URL
-
-export type TimelineType = 'home' | 'public'
 
 interface TimelineState {
   statuses: MastodonStatus[]
@@ -39,12 +38,12 @@ export const useTimelineStore = defineStore('timeline', () => {
   )
   
   // Helper to get the correct timeline ref
-  function getTimeline(type: TimelineType) {
+  function getTimeline(type: ManagedTimelineType) {
     return type === 'home' ? homeTimeline.value : publicTimeline.value
   }
 
   // Generic fetch function to avoid code duplication
-  async function fetchTimeline(type: TimelineType) {
+  async function fetchTimeline(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     timeline.isLoading = true
     timeline.error = null
@@ -80,7 +79,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   // Generic load more function
-  async function loadMore(type: TimelineType) {
+  async function loadMore(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     if (!timeline.hasMore || timeline.isLoading) return
     

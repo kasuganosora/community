@@ -1,4 +1,4 @@
-import { ref, computed, type Ref } from 'vue'
+import { ref, computed, onUnmounted, type Ref } from 'vue'
 import client from '@/shared/api/client'
 import type { AxiosRequestConfig } from 'axios'
 import { clearSWRCache, getSWRCacheSize, getSWRCacheEntry, setSWRCache } from './useSWR'
@@ -28,6 +28,14 @@ export function useCachedRequest<T>(
   const isLoading = ref(false)
   const lastFetched = ref<number | null>(null)
 
+  // Race condition guard: only the latest request's response is applied
+  let requestVersion = 0
+  let disposed = false
+
+  onUnmounted(() => {
+    disposed = true
+  })
+
   const cacheKey = computed(() => {
     if (customKey) return customKey
     const urlValue = typeof url === 'string' ? url : url.value
@@ -54,8 +62,13 @@ export function useCachedRequest<T>(
     isLoading.value = true
     error.value = null
 
+    const version = ++requestVersion
+
     try {
       const response = await client.get<T>(currentUrl, axiosConfig)
+      // Ignore stale responses or responses after unmount
+      if (disposed || version !== requestVersion) return null
+
       const result = response.data
 
       data.value = result
@@ -64,10 +77,13 @@ export function useCachedRequest<T>(
       setSWRCache(cacheKey.value, result, ttl)
       return result
     } catch (err) {
+      if (disposed || version !== requestVersion) return null
       error.value = err instanceof Error ? err : new Error(String(err))
       throw err
     } finally {
-      isLoading.value = false
+      if (version === requestVersion) {
+        isLoading.value = false
+      }
     }
   }
 

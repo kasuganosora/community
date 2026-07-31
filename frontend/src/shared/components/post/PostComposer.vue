@@ -17,6 +17,8 @@ const charCount = computed(() => content.value.length)
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const canPost = computed(() => content.value.trim().length > 0 && !isOverLimit.value && !posting.value)
 
+const POST_TIMEOUT = 30000 // 30s safety timeout
+
 async function handlePost() {
   if (!canPost.value) return
   posting.value = true
@@ -24,12 +26,21 @@ async function handlePost() {
   // Emit and keep posting=true until parent confirms via @posted event handler
   // Parent is responsible for calling onPostSuccess/onPostError
   emit('posted', content.value)
+  // Safety: if parent doesn't call onPostSuccess/onPostError within timeout,
+  // reset posting state to avoid permanently stuck button
+  setTimeout(() => {
+    if (posting.value) {
+      posting.value = false
+      error.value = '请求超时，请重试'
+    }
+  }, POST_TIMEOUT)
 }
 
 /** Called by parent on successful post to reset the composer */
 function onPostSuccess() {
   content.value = ''
   posting.value = false
+  error.value = null
 }
 
 /** Called by parent on post failure to show error and keep content */

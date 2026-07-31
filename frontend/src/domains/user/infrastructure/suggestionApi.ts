@@ -1,9 +1,10 @@
 import client from '@/shared/api/client'
-import type { MastodonAccount } from '@/shared/types/mastodon'
+import type { MastodonSuggestion } from '@/shared/types/mastodon'
+import type { PaginationParams } from '@/shared/types/pagination'
 
 export const suggestionApi = {
-  async list(params?: { limit?: number }): Promise<{ account: MastodonAccount }[]> {
-    const { data } = await client.get<{ account: MastodonAccount }[]>('/api/v1/suggestions', { params })
+  async list(params?: Pick<PaginationParams, 'limit'>): Promise<MastodonSuggestion[]> {
+    const { data } = await client.get<MastodonSuggestion[]>('/api/v1/suggestions', { params })
     return data
   },
 

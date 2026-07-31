@@ -53,6 +53,8 @@ const mockUsers: MastodonAccount[] = [
     followers_count: 500,
     following_count: 200,
     statuses_count: 1024,
+    emojis: [],
+    fields: [],
   },
   {
     ...mockCurrentUser,
@@ -64,6 +66,8 @@ const mockUsers: MastodonAccount[] = [
     followers_count: 300,
     following_count: 150,
     statuses_count: 512,
+    emojis: [],
+    fields: [],
   },
   {
     ...mockCurrentUser,
@@ -75,6 +79,8 @@ const mockUsers: MastodonAccount[] = [
     followers_count: 1200,
     following_count: 80,
     statuses_count: 2048,
+    emojis: [],
+    fields: [],
   },
 ]
 

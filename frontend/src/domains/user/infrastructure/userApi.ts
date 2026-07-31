@@ -1,5 +1,6 @@
 import client from '@/shared/api/client'
 import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/shared/types/mastodon'
+import type { PaginationParams } from '@/shared/types/pagination'
 
 export const userApi = {
   async getAccount(id: string): Promise<MastodonAccount> {
@@ -20,9 +21,7 @@ export const userApi = {
     exclude_replies?: boolean
     only_media?: boolean
     pinned?: boolean
-    max_id?: string
-    limit?: number
-  }): Promise<MastodonStatus[]> {
+  } & PaginationParams): Promise<MastodonStatus[]> {
     const { data } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${id}/statuses`, { params })
     return data
   },
@@ -44,12 +43,12 @@ export const userApi = {
     return data
   },
 
-  async getFollowers(id: string, params?: { max_id?: string; limit?: number }): Promise<MastodonAccount[]> {
+  async getFollowers(id: string, params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonAccount[]> {
     const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${id}/followers`, { params })
     return data
   },
 
-  async getFollowing(id: string, params?: { max_id?: string; limit?: number }): Promise<MastodonAccount[]> {
+  async getFollowing(id: string, params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonAccount[]> {
     const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${id}/following`, { params })
     return data
   },

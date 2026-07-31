@@ -1,12 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './routes'
-import { AUTH_TOKEN_KEY } from '@/shared/api/client'
+import { tokenService } from '@/shared/api/client'
 
 // Extend RouteMeta interface
 declare module 'vue-router' {
   interface RouteMeta {
     guestOnly?: boolean
     requiresAuth?: boolean
+    title?: string
   }
 }
 
@@ -15,8 +16,16 @@ const router = createRouter({
   routes,
 })
 
+/**
+ * Validate redirect URL to prevent open redirect attacks.
+ * Only allow relative paths starting with a single '/'.
+ */
+function isSafeRedirect(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//')
+}
+
 router.beforeEach((to) => {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  const token = tokenService.get()
 
   // Redirect authenticated users away from guest-only pages to home
   if (to.meta.guestOnly && token) {
@@ -25,7 +34,8 @@ router.beforeEach((to) => {
 
   // Redirect unauthenticated users to landing page, preserving redirect target
   if (to.meta.requiresAuth && !token) {
-    return { name: 'landing', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
+    const redirectPath = to.fullPath !== '/' && isSafeRedirect(to.fullPath) ? { redirect: to.fullPath } : undefined
+    return { name: 'landing', query: redirectPath }
   }
 })
 

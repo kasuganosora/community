@@ -72,6 +72,8 @@ function createLocalStorage<T>(
     if (writeTimer) {
       clearTimeout(writeTimer)
       writeTimer = null
+      // Flush pending write to avoid data loss when component unmounts
+      write(storedValue.value)
     }
   })
 

@@ -15,6 +15,9 @@ export const RouteNames = {
   POST_DETAIL: 'post-detail',
 } as const
 
+/** Union of all route name string literals */
+export type RouteName = (typeof RouteNames)[keyof typeof RouteNames]
+
 // Route groups for better code splitting
 const AuthRoutes: RouteRecordRaw[] = [
   {
@@ -97,8 +100,8 @@ export const routes: RouteRecordRaw[] = [
   },
 ]
 
-// Export route metadata for programmatic navigation
-export const RouteMeta = {
+// Export route titles for programmatic use (e.g., document.title updates)
+export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.LANDING]: { title: 'Welcome' },
   [RouteNames.LOGIN]: { title: 'Sign In' },
   [RouteNames.REGISTER]: { title: 'Create Account' },

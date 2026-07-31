@@ -1,8 +1,9 @@
 import client from '@/shared/api/client'
 import type { MastodonNotification } from '@/shared/types/mastodon'
+import type { PaginationParams } from '@/shared/types/pagination'
 
 export const notificationApi = {
-  async list(params?: { max_id?: string; limit?: number }): Promise<MastodonNotification[]> {
+  async list(params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonNotification[]> {
     const { data } = await client.get<MastodonNotification[]>('/api/v1/notifications', { params })
     return data
   },

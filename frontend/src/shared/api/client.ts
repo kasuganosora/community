@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosError } from 'axios'
+import type { ApiErrorData } from '@/shared/types/mastodon'
 
 // Constants
 export const AUTH_TOKEN_KEY = 'auth_token'
@@ -58,7 +59,7 @@ client.interceptors.request.use(
 )
 
 // Enhanced error transform
-function transformError(error: AxiosError<{ error?: string; message?: string }>): Error {
+function transformError(error: AxiosError<ApiErrorData>): Error {
   const status = error.response?.status
   const apiMessage = error.response?.data?.error || error.response?.data?.message
 
@@ -88,16 +89,19 @@ function transformError(error: AxiosError<{ error?: string; message?: string }>)
 // Response interceptor with improved error handling
 client.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ error?: string; message?: string }>) => {
+  (error: AxiosError<ApiErrorData>) => {
     // Handle 401 — use callback instead of hard redirect
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname
       if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-        tokenService.clear()
+        // Call callback first — it may want to use the token for refresh
         if (authExpiredCallback) {
           authExpiredCallback()
-        } else {
-          // Fallback: hard redirect only if no callback set
+        }
+        // Clear token after callback so it can still access old token if needed
+        tokenService.clear()
+        // Fallback: hard redirect only if no callback set
+        if (!authExpiredCallback) {
           window.location.href = '/login'
         }
       }

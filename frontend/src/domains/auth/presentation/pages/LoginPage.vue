@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 interface LoginForm {
@@ -31,7 +32,12 @@ async function handleLogin() {
     await authStore.login(form)
     // Reset attempts on successful login
     loginAttempts.value = 0
-    router.push({ name: 'home' })
+    // Redirect to the originally requested page if available
+    const redirectPath = route.query.redirect as string | undefined
+    const safePath = redirectPath && redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+      ? redirectPath
+      : { name: 'home' as const }
+    router.push(safePath)
   } catch {
     loginAttempts.value++
   }

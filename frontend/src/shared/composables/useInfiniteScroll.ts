@@ -43,26 +43,27 @@ export function useInfiniteScroll(
 
       try {
         await callback()
-        // Reset retry count on successful load
         retryCount = 0
+        // Reset trigger after a short delay to allow scroll position to update
+        retryTimer = setTimeout(() => {
+          isTriggered = false
+        }, 100)
       } catch (err) {
         hasError.value = true
         error.value = err instanceof Error ? err : new Error(String(err))
-      } finally {
-        isLoading.value = false
-        // Reset trigger after a delay to allow scroll position to update
-        // Limit retries to prevent infinite loops when content doesn't grow
+        // Only retry on error, not on success
         if (retryCount < MAX_RETRIES) {
           retryCount++
           retryTimer = setTimeout(() => {
             isTriggered = false
-            // Check again in case we're still near bottom
             checkAndLoad()
           }, 100)
         } else {
           isTriggered = false
           retryCount = 0
         }
+      } finally {
+        isLoading.value = false
       }
     }
   }

@@ -1,5 +1,16 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 
+/** Analytics service shape on the global window object */
+interface AnalyticsService {
+  track: (event: string, data: unknown) => void
+}
+
+declare global {
+  interface Window {
+    analytics?: AnalyticsService
+  }
+}
+
 interface PerformanceMetrics {
   // Navigation timing
   dnsLookup: number
@@ -75,14 +86,35 @@ export function usePerformance() {
   function observeCoreWebVitals() {
     if (!('PerformanceObserver' in window)) return
 
+    // Store web vitals independently — they may fire before metrics.value is set
+    const webVitals: Partial<Pick<PerformanceMetrics, 'lcp' | 'fid' | 'cls' | 'fcp'>> = {}
+
+    function syncWebVitals() {
+      if (!metrics.value) return
+      if (webVitals.lcp !== undefined) metrics.value.lcp = webVitals.lcp
+      if (webVitals.fid !== undefined) metrics.value.fid = webVitals.fid
+      if (webVitals.cls !== undefined) metrics.value.cls = webVitals.cls
+      if (webVitals.fcp !== undefined) metrics.value.fcp = webVitals.fcp
+    }
+
+    // Patch: also sync when calculateMetrics sets metrics.value
+    const origCalculateMetrics = calculateMetrics
+    if (origCalculateMetrics) {
+      calculateMetrics = () => {
+        origCalculateMetrics()
+        syncWebVitals()
+      }
+    }
+
     // Largest Contentful Paint
     try {
       const lcpObserver = new PerformanceObserver((list) => {
         const entries = list.getEntries()
         if (entries.length > 0) {
           const lastEntry = entries[entries.length - 1]
-          if (metrics.value && lastEntry) {
-            metrics.value.lcp = lastEntry.startTime
+          if (lastEntry) {
+            webVitals.lcp = lastEntry.startTime
+            if (metrics.value) metrics.value.lcp = lastEntry.startTime
           }
         }
       })
@@ -96,8 +128,10 @@ export function usePerformance() {
     try {
       const fidObserver = new PerformanceObserver((list) => {
         const firstEntry = list.getEntries()[0] as PerformanceEventTiming
-        if (firstEntry && metrics.value) {
-          metrics.value.fid = firstEntry.processingStart - firstEntry.startTime
+        if (firstEntry) {
+          const fid = firstEntry.processingStart - firstEntry.startTime
+          webVitals.fid = fid
+          if (metrics.value) metrics.value.fid = fid
         }
       })
       fidObserver.observe({ entryTypes: ['first-input'] })
@@ -111,14 +145,13 @@ export function usePerformance() {
       let clsValue = 0
       const clsObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          const layoutShift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number }
+          const layoutShift = entry as LayoutShift
           if (!layoutShift.hadRecentInput) {
             clsValue += layoutShift.value
           }
         }
-        if (metrics.value) {
-          metrics.value.cls = clsValue
-        }
+        webVitals.cls = clsValue
+        if (metrics.value) metrics.value.cls = clsValue
       })
       clsObserver.observe({ entryTypes: ['layout-shift'] })
       observers.push(clsObserver)
@@ -133,8 +166,9 @@ export function usePerformance() {
         const fcpEntry = entries.find(
           (entry) => entry.name === 'first-contentful-paint'
         )
-        if (fcpEntry && metrics.value) {
-          metrics.value.fcp = fcpEntry.startTime
+        if (fcpEntry) {
+          webVitals.fcp = fcpEntry.startTime
+          if (metrics.value) metrics.value.fcp = fcpEntry.startTime
         }
       })
       paintObserver.observe({ entryTypes: ['paint'] })
@@ -211,9 +245,8 @@ export function usePerformance() {
 // Report performance metrics to analytics
 export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
   // Send to analytics service
-  if (typeof window !== 'undefined' && 'analytics' in window) {
-    const analytics = (window as Window & { analytics?: { track: (event: string, data: unknown) => void } }).analytics
-    analytics?.track('Performance Metrics', metrics)
+  if (typeof window !== 'undefined' && window.analytics) {
+    window.analytics.track('Performance Metrics', metrics)
   }
 
   // Log to console in development

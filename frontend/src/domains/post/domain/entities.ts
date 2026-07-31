@@ -1,3 +1,5 @@
+import type { Visibility } from '@/shared/types/mastodon'
+
 export interface CreateStatusParams {
   status: string
   in_reply_to_id?: string
@@ -9,5 +11,5 @@ export interface CreateStatusParams {
   }
   sensitive?: boolean
   spoiler_text?: string
-  visibility?: 'public' | 'unlisted' | 'private' | 'direct'
+  visibility?: Visibility
 }
