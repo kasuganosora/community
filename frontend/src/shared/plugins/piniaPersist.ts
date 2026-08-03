@@ -96,7 +96,18 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
         const stored = effectiveStorage.getItem(storageKey)
         if (stored) {
           const parsed = serializer.deserialize(stored) as StateTree
-          store.$patch(parsed)
+
+          if (paths) {
+            const partialState: StateTree = {}
+            for (const path of paths) {
+              if (path in parsed) {
+                partialState[path] = parsed[path]
+              }
+            }
+            store.$patch(partialState)
+          } else {
+            store.$patch(parsed)
+          }
         }
       } catch (e) {
         console.error(`Failed to restore store "${store.$id}":`, e)
