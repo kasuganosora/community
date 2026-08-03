@@ -63,9 +63,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout(redirectToLogin = false) {
-    // Notify backend to invalidate the token
+    // Notify backend to invalidate the token — ignore failures to ensure local cleanup always runs
     if (!USE_MOCK) {
-      await authApi.logout()
+      try {
+        await authApi.logout()
+      } catch (e) {
+        console.error('Logout API call failed, proceeding with local cleanup:', e)
+      }
     }
     token.value = null
     currentUser.value = null

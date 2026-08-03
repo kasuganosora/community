@@ -53,7 +53,6 @@ export function useAsyncState<T>(
       if (currentId !== executionId || disposed) return null
       data.value = result
       isReady.value = true
-      if (!disposed) onSuccess?.(result)
       return result
     } catch (err) {
       if (currentId !== executionId || disposed) return null
@@ -68,12 +67,16 @@ export function useAsyncState<T>(
       if (currentId === executionId && !disposed) {
         isLoading.value = false
         isFinished.value = true
+        // Call onSuccess outside try/catch to prevent state inconsistency
+        if (!error.value && data.value !== undefined) {
+          try { onSuccess?.(data.value as T) } catch (e) { console.error('onSuccess callback error:', e) }
+        }
       }
     }
   }
 
   if (immediate) {
-    execute()
+    execute().catch(() => {})
   }
 
   return {
@@ -127,7 +130,6 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
       data.value = result
       isReady.value = true
       lastExecuted.value = Date.now()
-      if (!disposed) onSuccess?.(result)
       return result
     } catch (err) {
       if (currentId !== executionId || disposed) return null
@@ -139,6 +141,9 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
       if (currentId === executionId && !disposed) {
         isLoading.value = false
         isFinished.value = true
+        if (!error.value && data.value !== undefined) {
+          try { onSuccess?.(data.value as T) } catch (e) { console.error('onSuccess callback error:', e) }
+        }
       }
     }
   }
@@ -150,7 +155,7 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
   }
 
   if (immediate) {
-    execute(...([] as unknown as Args))
+    execute(...([] as unknown as Args)).catch(() => {})
   }
 
   return {

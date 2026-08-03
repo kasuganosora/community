@@ -322,7 +322,9 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     stopCleanupTimer()
   })
 
-  // Start cleanup timer when first instance is created
+  // Start cleanup timer when first instance is created.
+  // Increment count at the beginning (before watch immediate fires) so that
+  // the onUnmounted decrement is always balanced even if watch throws.
   activeInstanceCount++
   startCleanupTimer()
 

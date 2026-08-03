@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { formatCount } from '@/shared/utils/format'
 
@@ -19,15 +20,22 @@ const reblogCount = computed(() => props.status.reblogs_count > 0 ? formatCount(
 const favCount = computed(() => props.status.favourites_count > 0 ? formatCount(props.status.favourites_count) : '')
 
 async function handleShare() {
-  const url = window.location.href
+  const url = props.status.url || props.status.uri || window.location.href
   if (navigator.share) {
     try {
       await navigator.share({ url })
-    } catch { /* user cancelled */ }
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        MessagePlugin.error('分享失败')
+      }
+    }
   } else {
     try {
       await navigator.clipboard.writeText(url)
-    } catch { /* clipboard not available */ }
+      MessagePlugin.success('已复制链接')
+    } catch {
+      MessagePlugin.error('复制失败，请手动复制')
+    }
   }
 }
 </script>

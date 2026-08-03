@@ -6,7 +6,7 @@ interface UseVirtualListOptions {
   containerHeight: MaybeRefOrGetter<number>
 }
 
-interface VirtualItem<T> {
+export interface VirtualItem<T> {
   data: T
   index: number
   style: {

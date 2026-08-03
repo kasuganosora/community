@@ -1,5 +1,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 
+/** Minimal interface for LayoutShift performance entries.
+ *  Not yet in TypeScript's built-in DOM lib but available in all modern browsers. */
+interface LayoutShift extends PerformanceEntry {
+  readonly value: number
+  readonly hadRecentInput: boolean
+}
+
 /** Analytics service shape on the global window object */
 interface AnalyticsService {
   track: (event: string, data: unknown) => void
@@ -11,7 +18,7 @@ declare global {
   }
 }
 
-interface PerformanceMetrics {
+export interface PerformanceMetrics {
   // Navigation timing
   dnsLookup: number
   tcpConnection: number
@@ -32,8 +39,46 @@ export function usePerformance() {
   const metrics = ref<PerformanceMetrics | null>(null)
   const isSupported = ref(false)
 
-  let calculateMetrics: (() => void) | null = null
+  // ── Store web vitals at composable scope so both navigation-metrics and
+  //    observer callbacks can access the same store. ──
+  const webVitals: Partial<Pick<PerformanceMetrics, 'lcp' | 'fid' | 'cls' | 'fcp' | 'ttfb'>> = {}
   const observers: PerformanceObserver[] = []
+
+  // ── Navigation timing calculation (pure, no side-effects on registration) ──
+  function calculateNavigationMetrics(): void {
+    const navEntries = performance.getEntriesByType('navigation')
+    const navEntry = navEntries[0] as PerformanceNavigationTiming | undefined
+    if (!navEntry) return
+
+    const loadEnd = navEntry.loadEventEnd || performance.now()
+
+    metrics.value = {
+      dnsLookup: navEntry.domainLookupEnd - navEntry.domainLookupStart,
+      tcpConnection: navEntry.connectEnd - navEntry.connectStart,
+      serverResponse: navEntry.responseEnd - navEntry.responseStart,
+      domProcessing: navEntry.domComplete - navEntry.domInteractive,
+      resourceLoading: loadEnd - navEntry.responseEnd,
+      totalLoadTime: loadEnd - navEntry.startTime,
+      ttfb: navEntry.responseStart - navEntry.requestStart,
+    }
+  }
+
+  // ── Merge any web-vitals that arrived before metrics.value was set ──
+  function syncWebVitals(): void {
+    if (!metrics.value) return
+    if (webVitals.lcp !== undefined) metrics.value.lcp = webVitals.lcp
+    if (webVitals.fid !== undefined) metrics.value.fid = webVitals.fid
+    if (webVitals.cls !== undefined) metrics.value.cls = webVitals.cls
+    if (webVitals.fcp !== undefined) metrics.value.fcp = webVitals.fcp
+    if (webVitals.ttfb !== undefined) metrics.value.ttfb = webVitals.ttfb
+  }
+
+  // ── Single stable load-handler reference — registered and removed with the
+  //    SAME function object, guaranteeing correct cleanup. ──
+  function onLoadHandler(): void {
+    calculateNavigationMetrics()
+    syncWebVitals()
+  }
 
   onMounted(() => {
     if (typeof window === 'undefined' || !('performance' in window)) {
@@ -42,39 +87,18 @@ export function usePerformance() {
 
     isSupported.value = true
 
-    // Calculate basic metrics from navigation timing
-    calculateMetrics = () => {
-      const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-
-      if (!navEntry) return
-
-      const loadEnd = navEntry.loadEventEnd || performance.now()
-
-      metrics.value = {
-        dnsLookup: navEntry.domainLookupEnd - navEntry.domainLookupStart,
-        tcpConnection: navEntry.connectEnd - navEntry.connectStart,
-        serverResponse: navEntry.responseEnd - navEntry.responseStart,
-        domProcessing: navEntry.domComplete - navEntry.domInteractive,
-        resourceLoading: loadEnd - navEntry.responseEnd,
-        totalLoadTime: loadEnd - navEntry.startTime,
-      }
-    }
-
-    // Wait for load event
     if (document.readyState === 'complete') {
-      calculateMetrics()
+      onLoadHandler()
     } else {
-      window.addEventListener('load', calculateMetrics)
+      window.addEventListener('load', onLoadHandler)
     }
 
     observeCoreWebVitals()
   })
 
   onUnmounted(() => {
-    // Clean up event listener
-    if (calculateMetrics) {
-      window.removeEventListener('load', calculateMetrics)
-    }
+    // Clean up event listener — uses the SAME reference registered above
+    window.removeEventListener('load', onLoadHandler)
 
     // Disconnect all PerformanceObservers
     for (const observer of observers) {
@@ -83,28 +107,8 @@ export function usePerformance() {
     observers.length = 0
   })
 
-  function observeCoreWebVitals() {
+  function observeCoreWebVitals(): void {
     if (!('PerformanceObserver' in window)) return
-
-    // Store web vitals independently — they may fire before metrics.value is set
-    const webVitals: Partial<Pick<PerformanceMetrics, 'lcp' | 'fid' | 'cls' | 'fcp'>> = {}
-
-    function syncWebVitals() {
-      if (!metrics.value) return
-      if (webVitals.lcp !== undefined) metrics.value.lcp = webVitals.lcp
-      if (webVitals.fid !== undefined) metrics.value.fid = webVitals.fid
-      if (webVitals.cls !== undefined) metrics.value.cls = webVitals.cls
-      if (webVitals.fcp !== undefined) metrics.value.fcp = webVitals.fcp
-    }
-
-    // Patch: also sync when calculateMetrics sets metrics.value
-    const origCalculateMetrics = calculateMetrics
-    if (origCalculateMetrics) {
-      calculateMetrics = () => {
-        origCalculateMetrics()
-        syncWebVitals()
-      }
-    }
 
     // Largest Contentful Paint
     try {
@@ -127,7 +131,7 @@ export function usePerformance() {
     // First Input Delay
     try {
       const fidObserver = new PerformanceObserver((list) => {
-        const firstEntry = list.getEntries()[0] as PerformanceEventTiming
+        const firstEntry = list.getEntries()[0] as PerformanceEventTiming | undefined
         if (firstEntry) {
           const fid = firstEntry.processingStart - firstEntry.startTime
           webVitals.fid = fid
@@ -211,13 +215,13 @@ export function usePerformance() {
   }
 
   // Mark and measure
-  function mark(name: string) {
+  function mark(name: string): void {
     if (typeof performance !== 'undefined' && performance.mark) {
       performance.mark(name)
     }
   }
 
-  function measureBetween(startMark: string, endMark: string, measureName: string) {
+  function measureBetween(startMark: string, endMark: string, measureName: string): number | null {
     if (typeof performance !== 'undefined' && performance.measure) {
       performance.measure(measureName, startMark, endMark)
       const entries = performance.getEntriesByName(measureName)
@@ -243,7 +247,7 @@ export function usePerformance() {
 }
 
 // Report performance metrics to analytics
-export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
+export function reportPerformanceMetrics(metrics: PerformanceMetrics): void {
   // Send to analytics service
   if (typeof window !== 'undefined' && window.analytics) {
     window.analytics.track('Performance Metrics', metrics)
@@ -251,6 +255,6 @@ export function reportPerformanceMetrics(metrics: PerformanceMetrics) {
 
   // Log to console in development
   if (import.meta.env.DEV) {
-    if (import.meta.env.DEV) console.warn('[Performance Metrics]', metrics)
+    console.warn('[Performance Metrics]', metrics)
   }
 }

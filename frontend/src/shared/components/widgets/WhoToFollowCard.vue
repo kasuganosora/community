@@ -42,7 +42,10 @@ onUnmounted(() => {
 async function handleFollow(user: MastodonAccount) {
   try {
     await userApi.follow(user.id)
-    following.value.add(user.id)
+    // Trigger reactivity by creating a new Set
+    const newFollowing = new Set(following.value)
+    newFollowing.add(user.id)
+    following.value = newFollowing
   } catch (e) {
     console.error('Failed to follow user:', e)
     error.value = 'Failed to follow user'

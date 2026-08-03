@@ -25,7 +25,7 @@ export function useLazyImage(
   let preloadImg: HTMLImageElement | null = null
   let isMounted = false
 
-  function cleanupPreloadImg() {
+  function cleanupPreloadImg(): void {
     if (preloadImg) {
       preloadImg.onload = null
       preloadImg.onerror = null
@@ -34,7 +34,7 @@ export function useLazyImage(
     }
   }
 
-  function loadImage() {
+  function loadImage(): void {
     const src = getSrc()
     if (!src || hasTriggered) return
     hasTriggered = true
@@ -51,9 +51,8 @@ export function useLazyImage(
       error.value = null
     }
 
-    preloadImg.onerror = (e) => {
+    preloadImg.onerror = () => {
       error.value = new Error(`Failed to load image: ${src}`)
-      console.error('Image load error:', e)
     }
   }
 
@@ -101,9 +100,10 @@ export function useLazyImage(
     observer?.disconnect()
     observer = null
     cleanupPreloadImg()
+    isMounted = false
   })
 
-  function reload() {
+  function reload(): void {
     hasTriggered = false
     isLoaded.value = false
     cleanupPreloadImg()
@@ -128,21 +128,27 @@ export function useLazyBackground(
   const getSrc = () => options.src
 
   const isLoaded = ref(false)
+  const error = ref<Error | null>(null)
   let observer: IntersectionObserver | null = null
   let hasTriggered = false
   let preloadImg: HTMLImageElement | null = null
   let isMounted = false
 
-  function loadBackground() {
-    const src = getSrc()
-    if (!src || hasTriggered) return
-    hasTriggered = true
-
+  function cleanupPreloadImg(): void {
     if (preloadImg) {
       preloadImg.onload = null
       preloadImg.onerror = null
       preloadImg.src = ''
+      preloadImg = null
     }
+  }
+
+  function loadBackground(): void {
+    const src = getSrc()
+    if (!src || hasTriggered) return
+    hasTriggered = true
+
+    cleanupPreloadImg()
 
     preloadImg = new Image()
     preloadImg.src = src
@@ -150,14 +156,15 @@ export function useLazyBackground(
     preloadImg.onload = () => {
       if (elementRef.value) {
         // Sanitize URL to prevent CSS injection — escape quotes and parens
-        const safeUrl = src.replace(/["'()\\]/g, '\\$&')
+        const safeUrl = src.replace(/["'()\\\n\r]/g, '\\$&')
         elementRef.value.style.backgroundImage = `url("${safeUrl}")`
       }
       isLoaded.value = true
+      error.value = null
     }
 
     preloadImg.onerror = () => {
-      console.error('Background image load error:', src)
+      error.value = new Error(`Failed to load background image: ${src}`)
     }
   }
 
@@ -165,6 +172,8 @@ export function useLazyBackground(
   watch(() => options.src, (newSrc, oldSrc) => {
     if (isMounted && newSrc && newSrc !== oldSrc) {
       hasTriggered = false
+      isLoaded.value = false
+      cleanupPreloadImg()
       loadBackground()
     }
   })
@@ -194,13 +203,10 @@ export function useLazyBackground(
 
   onUnmounted(() => {
     observer?.disconnect()
-    if (preloadImg) {
-      preloadImg.onload = null
-      preloadImg.onerror = null
-      preloadImg.src = ''
-      preloadImg = null
-    }
+    observer = null
+    cleanupPreloadImg()
+    isMounted = false
   })
 
-  return { isLoaded }
+  return { isLoaded, error }
 }

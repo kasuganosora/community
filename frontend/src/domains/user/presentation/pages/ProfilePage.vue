@@ -36,6 +36,7 @@ async function loadProfile() {
     }
   } catch (e) {
     console.error('Failed to load profile:', e)
+    error.value = e instanceof Error ? e.message : 'Failed to load profile'
   } finally {
     loading.value = false
   }

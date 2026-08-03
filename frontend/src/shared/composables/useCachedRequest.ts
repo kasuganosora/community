@@ -117,7 +117,7 @@ export function useCachedRequest<T>(
     execute,
     invalidate,
     updateCache,
-    refresh: () => execute(true),
+    refresh: () => execute(true).catch(() => null),
   }
 }
 

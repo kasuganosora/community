@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -18,9 +18,17 @@ const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const canPost = computed(() => content.value.trim().length > 0 && !isOverLimit.value && !posting.value)
 
 const POST_TIMEOUT = 30000 // 30s safety timeout
+let postTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearPostTimer() {
+  if (postTimer) {
+    clearTimeout(postTimer)
+    postTimer = null
+  }
+}
 
 async function handlePost() {
-  if (!canPost.value) return
+  if (!canPost.value || posting.value) return
   posting.value = true
   error.value = null
   // Emit and keep posting=true until parent confirms via @posted event handler
@@ -28,16 +36,19 @@ async function handlePost() {
   emit('posted', content.value)
   // Safety: if parent doesn't call onPostSuccess/onPostError within timeout,
   // reset posting state to avoid permanently stuck button
-  setTimeout(() => {
+  clearPostTimer()
+  postTimer = setTimeout(() => {
     if (posting.value) {
       posting.value = false
       error.value = '请求超时，请重试'
     }
+    postTimer = null
   }, POST_TIMEOUT)
 }
 
 /** Called by parent on successful post to reset the composer */
 function onPostSuccess() {
+  clearPostTimer()
   content.value = ''
   posting.value = false
   error.value = null
@@ -45,9 +56,12 @@ function onPostSuccess() {
 
 /** Called by parent on post failure to show error and keep content */
 function onPostError(msg?: string) {
+  clearPostTimer()
   posting.value = false
   error.value = msg || '发布失败，请重试'
 }
+
+onUnmounted(clearPostTimer)
 
 defineExpose({ onPostSuccess, onPostError })
 </script>

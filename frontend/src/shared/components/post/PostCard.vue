@@ -20,7 +20,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 
-const displayStatus = computed(() => props.status.reblog || props.status)
+const displayStatus = computed(() => props.status.reblog?.id ? props.status.reblog : props.status)
 const isReblog = computed(() => !!props.status.reblog)
 
 function navigateToDetail() {
@@ -85,7 +85,7 @@ function navigateToProfile(e: Event) {
         </div>
 
         <!-- Text -->
-        <RichText :html="displayStatus.content" class="post-card__text" />
+        <RichText :html="displayStatus.content" class="post-card__text" @click.stop />
 
         <!-- Media -->
         <PostMedia

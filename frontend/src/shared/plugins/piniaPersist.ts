@@ -1,6 +1,6 @@
 import type { PiniaPluginContext, StateTree } from 'pinia'
 
-interface PersistOptions {
+export interface PersistOptions {
   key?: string
   storage?: Storage
   paths?: string[]

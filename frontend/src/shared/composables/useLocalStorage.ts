@@ -81,8 +81,12 @@ function createLocalStorage<T>(
     const handleStorage = (e: StorageEvent) => {
       if (e.key === key && e.newValue !== null) {
         try {
+          // Suppress the watch write to prevent infinite cross-tab write loop
+          suppressWrite.value = true
           storedValue.value = serializer.read(e.newValue)
+          nextTick(() => { suppressWrite.value = false })
         } catch (err) {
+          suppressWrite.value = false
           console.error(`Error syncing localStorage key "${key}":`, err)
         }
       }
