@@ -29,6 +29,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     hasMore: true,
     error: null,
   })
+
+  // Per-timeline request version guard — prevents stale responses from
+  // overwriting newer data when fetchTimeline / loadMore race with each other
+  const requestVersionMap: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
   
   // Computed accessors for backward compatibility
   const homeStatuses = computed(() => homeTimeline.value.statuses)
@@ -45,12 +49,15 @@ export const useTimelineStore = defineStore('timeline', () => {
   // Generic fetch function to avoid code duplication
   async function fetchTimeline(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
+    const myVersion = ++requestVersionMap[type]
     timeline.isLoading = true
     timeline.error = null
     
     try {
       if (USE_MOCK) {
         const { mockStatuses } = await import('@/shared/api/mockData')
+        // Discard stale response — a newer request superseded this one
+        if (myVersion !== requestVersionMap[type]) return
         timeline.statuses = mockStatuses
         timeline.hasMore = false
         return
@@ -60,13 +67,20 @@ export const useTimelineStore = defineStore('timeline', () => {
         ? await timelineApi.getHomeTimeline({ limit: TIMELINE_PAGE_SIZE })
         : await timelineApi.getPublicTimeline({ limit: TIMELINE_PAGE_SIZE })
         
+      // Discard stale response — a newer request superseded this one
+      if (myVersion !== requestVersionMap[type]) return
       timeline.statuses = data
       timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     } catch (e) {
+      // Only set error if this is still the latest request
+      if (myVersion !== requestVersionMap[type]) return
       timeline.error = e instanceof Error ? e.message : 'Failed to load timeline'
       console.error(`Failed to fetch ${type} timeline:`, e)
     } finally {
-      timeline.isLoading = false
+      // Only clear loading state if this is still the latest request
+      if (myVersion === requestVersionMap[type]) {
+        timeline.isLoading = false
+      }
     }
   }
 
@@ -83,6 +97,9 @@ export const useTimelineStore = defineStore('timeline', () => {
     const timeline = getTimeline(type)
     if (!timeline.hasMore || timeline.isLoading) return
     
+    // Bump version so a concurrent fetchTimeline won't have its result
+    // clobbered by this loadMore appending to stale state
+    const myVersion = ++requestVersionMap[type]
     const lastId = timeline.statuses[timeline.statuses.length - 1]?.id
     if (!lastId) return
     
@@ -94,13 +111,18 @@ export const useTimelineStore = defineStore('timeline', () => {
         ? await timelineApi.getHomeTimeline({ max_id: lastId, limit: TIMELINE_PAGE_SIZE })
         : await timelineApi.getPublicTimeline({ max_id: lastId, limit: TIMELINE_PAGE_SIZE })
         
+      // Discard stale response — a newer fetch replaced the timeline
+      if (myVersion !== requestVersionMap[type]) return
       timeline.statuses.push(...data)
       timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     } catch (e) {
+      if (myVersion !== requestVersionMap[type]) return
       timeline.error = e instanceof Error ? e.message : 'Failed to load more'
       console.error(`Failed to load more ${type} timeline:`, e)
     } finally {
-      timeline.isLoading = false
+      if (myVersion === requestVersionMap[type]) {
+        timeline.isLoading = false
+      }
     }
   }
 

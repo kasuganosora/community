@@ -14,9 +14,21 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  // Version guard for fetchCurrentUser — prevents a stale verify_credentials
+  // response from overwriting newer user data
+  let fetchUserVersion = 0
+
   const isAuthenticated = computed(() => !!token.value)
 
+  // Guard against concurrent login attempts — if a second login() is called
+  // while the first is still in flight, the second one is rejected.
+  let isLoggingIn = false
+
   async function login(credentials: AuthCredentials) {
+    if (isLoggingIn) {
+      throw new Error('Login is already in progress')
+    }
+    isLoggingIn = true
     loading.value = true
     error.value = null
     try {
@@ -42,21 +54,27 @@ export const useAuthStore = defineStore('auth', () => {
       error.value = msg
       throw e
     } finally {
+      isLoggingIn = false
       loading.value = false
     }
   }
 
   async function fetchCurrentUser(): Promise<boolean> {
+    const myVersion = ++fetchUserVersion
     if (USE_MOCK) {
       const { mockCurrentUser } = await import('@/shared/api/mockData')
+      if (myVersion !== fetchUserVersion) return true
       currentUser.value = mockCurrentUser
       return true
     }
     try {
-      currentUser.value = await authApi.verifyCredentials()
+      const user = await authApi.verifyCredentials()
+      if (myVersion !== fetchUserVersion) return true
+      currentUser.value = user
       return true
     } catch (e) {
       console.error('Failed to verify credentials:', e)
+      if (myVersion !== fetchUserVersion) return false
       currentUser.value = null
       return false
     }

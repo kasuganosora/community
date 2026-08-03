@@ -21,7 +21,8 @@ const router = createRouter({
  * Only allow relative paths starting with a single '/'.
  */
 function isSafeRedirect(path: string): boolean {
-  return path.startsWith('/') && !path.startsWith('//')
+  // Reject protocol-relative URLs: "//evil.com" and backslash variants "/\evil.com"
+  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\')
 }
 
 router.beforeEach((to) => {
