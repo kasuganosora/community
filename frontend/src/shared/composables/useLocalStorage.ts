@@ -55,13 +55,15 @@ function createLocalStorage<T>(
   const storedValue = ref<T>(read()) as Ref<T>
 
   let writeTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingValue: T = storedValue.value
   watch(
     storedValue,
     (newValue) => {
       if (suppressWrite.value) return
+      pendingValue = newValue
       if (writeTimer) clearTimeout(writeTimer)
       writeTimer = setTimeout(() => {
-        write(newValue)
+        write(pendingValue)
         writeTimer = null
       }, 300)
     },
@@ -73,7 +75,7 @@ function createLocalStorage<T>(
       clearTimeout(writeTimer)
       writeTimer = null
       // Flush pending write to avoid data loss when component unmounts
-      write(storedValue.value)
+      write(pendingValue)
     }
   })
 

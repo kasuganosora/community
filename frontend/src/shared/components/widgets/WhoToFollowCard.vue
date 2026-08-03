@@ -4,11 +4,13 @@ import type { MastodonAccount } from '@/shared/types/mastodon'
 import { suggestionApi } from '@/domains/user/infrastructure/suggestionApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import { MessagePlugin } from 'tdesign-vue-next'
 
 const suggestions = ref<MastodonAccount[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const following = ref<Set<string>>(new Set())
+const followErrorId = ref<string | null>(null)
 let cancelled = false
 
 async function loadSuggestions() {
@@ -41,6 +43,7 @@ onUnmounted(() => {
 
 async function handleFollow(user: MastodonAccount) {
   try {
+    followErrorId.value = null
     await userApi.follow(user.id)
     // Trigger reactivity by creating a new Set
     const newFollowing = new Set(following.value)
@@ -48,7 +51,8 @@ async function handleFollow(user: MastodonAccount) {
     following.value = newFollowing
   } catch (e) {
     console.error('Failed to follow user:', e)
-    error.value = 'Failed to follow user'
+    followErrorId.value = user.id
+    MessagePlugin.error('关注失败，请稍后重试')
   }
 }
 </script>

@@ -7,6 +7,14 @@ interface LayoutShift extends PerformanceEntry {
   readonly hadRecentInput: boolean
 }
 
+/** Minimal interface for PerformanceEventTiming (First Input Delay).
+ *  Not yet in TypeScript's built-in DOM lib but available in all modern browsers. */
+interface PerformanceEventTiming extends PerformanceEntry {
+  readonly processingStart: number
+  readonly processingEnd: number
+  readonly cancelable: boolean
+}
+
 /** Analytics service shape on the global window object */
 interface AnalyticsService {
   track: (event: string, data: unknown) => void

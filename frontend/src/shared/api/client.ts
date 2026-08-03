@@ -46,6 +46,10 @@ export function setAuthExpiredCallback(cb: () => void) {
   authExpiredCallback = cb
 }
 
+// Reentrancy guard: when multiple requests fail with 401 simultaneously,
+// only the first one triggers the auth-expired flow.
+let isHandling401 = false
+
 // Request interceptor
 client.interceptors.request.use(
   (config) => {
@@ -90,19 +94,25 @@ function transformError(error: AxiosError<ApiErrorData>): Error {
 client.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorData>) => {
-    // Handle 401 — use callback instead of hard redirect
-    if (error.response?.status === 401) {
+    // Handle 401 — use callback instead of hard redirect (with reentrancy guard)
+    if (error.response?.status === 401 && !isHandling401) {
       const currentPath = window.location.pathname
       if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-        // Call callback first — it may want to use the token for refresh
-        if (authExpiredCallback) {
-          authExpiredCallback()
-        }
-        // Clear token after callback so it can still access old token if needed
-        tokenService.clear()
-        // Fallback: hard redirect only if no callback set
-        if (!authExpiredCallback) {
-          window.location.href = '/login'
+        isHandling401 = true
+        try {
+          // Call callback first — it may want to use the token for refresh
+          if (authExpiredCallback) {
+            authExpiredCallback()
+          }
+          // Clear token after callback so it can still access old token if needed
+          tokenService.clear()
+          // Fallback: hard redirect only if no callback set
+          if (!authExpiredCallback) {
+            window.location.href = '/login'
+          }
+        } finally {
+          // Reset guard after a short delay to allow navigation to complete
+          setTimeout(() => { isHandling401 = false }, 1000)
         }
       }
     }

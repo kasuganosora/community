@@ -81,7 +81,7 @@ export function useCachedRequest<T>(
       error.value = err instanceof Error ? err : new Error(String(err))
       throw err
     } finally {
-      if (version === requestVersion) {
+      if (!disposed && version === requestVersion) {
         isLoading.value = false
       }
     }

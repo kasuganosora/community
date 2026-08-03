@@ -68,7 +68,9 @@ export function useInfiniteScroll(
           isTriggered = false
         }
       } finally {
-        isLoading.value = false
+        if (!isExhausted) {
+          isLoading.value = false
+        }
       }
     }
   }
@@ -88,6 +90,7 @@ export function useInfiniteScroll(
   let scrollEl: HTMLElement | null = null
 
   // Watch for dynamic element changes (conditional rendering, async loaded elements)
+  // Use flush: 'post' so DOM refs are settled before we attach listeners
   watch(elementRef, (newEl, oldEl) => {
     if (oldEl) {
       oldEl.removeEventListener('scroll', handleScroll)

@@ -27,7 +27,7 @@ withDefaults(defineProps<Props>(), {
   </Transition>
 </template>
 
-<style scoped>
+<style>
 .slide-up-enter-active,
 .slide-up-leave-active,
 .slide-down-enter-active,

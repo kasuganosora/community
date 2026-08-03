@@ -9,7 +9,7 @@ export const notificationApi = {
   },
 
   async dismiss(id: string): Promise<void> {
-    await client.post(`/api/v1/notifications/${id}/dismiss`)
+    await client.post(`/api/v1/notifications/${encodeURIComponent(id)}/dismiss`)
   },
 
   async clear(): Promise<void> {

@@ -53,6 +53,10 @@ export function useAsyncState<T>(
       if (currentId !== executionId || disposed) return null
       data.value = result
       isReady.value = true
+      // Always clear error on success, even when resetOnExecute is false.
+      // Without this, a successful call after a previous error leaves
+      // stale error state, preventing onSuccess from firing.
+      error.value = null
       return result
     } catch (err) {
       if (currentId !== executionId || disposed) return null
@@ -67,7 +71,7 @@ export function useAsyncState<T>(
       if (currentId === executionId && !disposed) {
         isLoading.value = false
         isFinished.value = true
-        // Call onSuccess outside try/catch to prevent state inconsistency
+        // Call onSuccess only when there is no error for this execution
         if (!error.value && data.value !== undefined) {
           try { onSuccess?.(data.value as T) } catch (e) { console.error('onSuccess callback error:', e) }
         }
@@ -129,6 +133,7 @@ export function useAsyncStateWithArgs<T, Args extends unknown[]>(
       if (currentId !== executionId || disposed) return null
       data.value = result
       isReady.value = true
+      error.value = null
       lastExecuted.value = Date.now()
       return result
     } catch (err) {

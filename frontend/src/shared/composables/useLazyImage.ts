@@ -107,6 +107,10 @@ export function useLazyImage(
     hasTriggered = false
     isLoaded.value = false
     cleanupPreloadImg()
+    // Re-create observer if element still in view (src changed before intersection)
+    if (isMounted && imageRef.value && observer) {
+      observer.observe(imageRef.value)
+    }
     loadImage()
   }
 

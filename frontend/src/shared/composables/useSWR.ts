@@ -91,6 +91,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     fetcher: customFetcher,
     config,
     refreshInterval,
+    dedupingInterval = 2000,
     revalidateOnFocus = true,
     revalidateOnReconnect = true,
     initialData,
@@ -126,6 +127,12 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const pending = pendingRequests.get(key)
     if (pending) {
       return pending as Promise<T>
+    }
+
+    // Deduplication: if a request completed recently (within dedupingInterval),
+    // return cached data to prevent rapid duplicate calls
+    if (cached && now - cached.timestamp < dedupingInterval) {
+      return cached.data as T
     }
 
     // Make new request

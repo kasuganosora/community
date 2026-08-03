@@ -14,7 +14,7 @@ export const timelineApi = {
   },
 
   async getTagTimeline(tag: string, cursor?: TimelineCursor): Promise<MastodonStatus[]> {
-    const { data } = await client.get<MastodonStatus[]>(`/api/v1/timelines/tag/${tag}`, { params: cursor })
+    const { data } = await client.get<MastodonStatus[]>(`/api/v1/timelines/tag/${encodeURIComponent(tag)}`, { params: cursor })
     return data
   },
 }

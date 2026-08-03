@@ -9,6 +9,6 @@ export const suggestionApi = {
   },
 
   async remove(accountId: string): Promise<void> {
-    await client.delete(`/api/v1/suggestions/${accountId}`)
+    await client.delete(`/api/v1/suggestions/${encodeURIComponent(accountId)}`)
   },
 }

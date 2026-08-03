@@ -4,7 +4,7 @@ import type { PaginationParams } from '@/shared/types/pagination'
 
 export const userApi = {
   async getAccount(id: string): Promise<MastodonAccount> {
-    const { data } = await client.get<MastodonAccount>(`/api/v1/accounts/${id}`)
+    const { data } = await client.get<MastodonAccount>(`/api/v1/accounts/${encodeURIComponent(id)}`)
     return data
   },
 
@@ -22,7 +22,7 @@ export const userApi = {
     only_media?: boolean
     pinned?: boolean
   } & PaginationParams): Promise<MastodonStatus[]> {
-    const { data } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${id}/statuses`, { params })
+    const { data } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${encodeURIComponent(id)}/statuses`, { params })
     return data
   },
 
@@ -34,22 +34,22 @@ export const userApi = {
   },
 
   async follow(id: string): Promise<MastodonRelationship> {
-    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${id}/follow`)
+    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/follow`)
     return data
   },
 
   async unfollow(id: string): Promise<MastodonRelationship> {
-    const { data } = await client.delete<MastodonRelationship>(`/api/v1/accounts/${id}/follow`)
+    const { data } = await client.delete<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/follow`)
     return data
   },
 
   async getFollowers(id: string, params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonAccount[]> {
-    const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${id}/followers`, { params })
+    const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${encodeURIComponent(id)}/followers`, { params })
     return data
   },
 
   async getFollowing(id: string, params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonAccount[]> {
-    const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${id}/following`, { params })
+    const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${encodeURIComponent(id)}/following`, { params })
     return data
   },
 }

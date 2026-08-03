@@ -1,4 +1,4 @@
-import { ref, computed, watch, onUnmounted, type Ref, type MaybeRefOrGetter, toRef } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick, type Ref, type MaybeRefOrGetter, toRef } from 'vue'
 
 interface UseVirtualListOptions {
   itemHeight: number
@@ -108,6 +108,7 @@ export function useVirtualList<T>(
 
   // Scroll to bottom
   function scrollToBottom() {
+    if (list.value.length === 0) return
     scrollToIndex(list.value.length - 1)
   }
 
@@ -116,7 +117,8 @@ export function useVirtualList<T>(
     () => list.value.length,
     (newLen, oldLen) => {
       if (newLen > oldLen && wasAtBottom) {
-        scrollToBottom()
+        // Wait for DOM to update so scrollHeight reflects new items
+        nextTick(() => scrollToBottom())
       }
     }
   )

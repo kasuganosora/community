@@ -20,7 +20,7 @@ withDefaults(defineProps<Props>(), {
   </Transition>
 </template>
 
-<style scoped>
+<style>
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity var(--transition-duration, 300ms) ease;
