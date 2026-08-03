@@ -35,7 +35,7 @@ function navigateToProfile(e: Event) {
   e.stopPropagation()
   router.push({
     name: 'profile',
-    params: { username: displayStatus.value.account.acct },
+    params: { username: displayStatus.value.account.acct || displayStatus.value.account.username },
   })
 }
 </script>

@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const account = ref<MastodonAccount | null>(null)
 const statuses = ref<MastodonStatus[]>([])
 const activeTab = ref('posts')
@@ -17,13 +19,18 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const following = ref(false)
 
+const isOwnProfile = computed(() => account.value?.id === authStore.currentUser?.id)
+
 async function loadProfile() {
   loading.value = true
   const username = route.params.username as string
   try {
     const acctData = await userApi.lookupAccount(username)
     account.value = acctData
-    const statusData = await userApi.getStatuses(acctData.id, { limit: 20, exclude_replies: activeTab.value === 'posts' })
+    const params: Record<string, unknown> = { limit: 20 }
+    if (activeTab.value === 'posts') params.exclude_replies = true
+    else if (activeTab.value === 'media') params.only_media = true
+    const statusData = await userApi.getStatuses(acctData.id, params)
     statuses.value = statusData
     // Check relationship status
     if (acctData.id) {
@@ -56,7 +63,23 @@ async function toggleFollow() {
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
-watch(activeTab, loadProfile)
+
+// Only reload statuses on tab change — no need to refetch account/relationship
+async function reloadStatuses() {
+  if (!account.value) return
+  loading.value = true
+  try {
+    const params: Record<string, unknown> = { limit: 20 }
+    if (activeTab.value === 'posts') params.exclude_replies = true
+    else if (activeTab.value === 'media') params.only_media = true
+    statuses.value = await userApi.getStatuses(account.value.id, params)
+  } catch (e) {
+    console.error('Failed to reload statuses:', e)
+  } finally {
+    loading.value = false
+  }
+}
+watch(activeTab, reloadStatuses)
 </script>
 
 <template>
@@ -86,7 +109,7 @@ watch(activeTab, loadProfile)
     <div class="profile-info">
       <div class="profile-info__top">
         <UserAvatar :account="account" :size="128" class="profile-avatar" />
-        <t-button theme="default" shape="round" class="edit-btn"
+        <t-button v-if="!isOwnProfile" theme="default" shape="round" class="edit-btn"
           @click="toggleFollow"
         >
           {{ following ? 'Following' : 'Follow' }}
@@ -133,7 +156,11 @@ watch(activeTab, loadProfile)
     </template>
   </div>
 
-  <div v-else-if="!loading && error" class="empty-state" role="alert">
+  <div v-else-if="loading" class="page-loading">
+    <t-loading />
+  </div>
+
+  <div v-else-if="error" class="empty-state" role="alert">
     <div class="empty-state__icon">
       <t-icon name="error-circle" :size="48" />
     </div>

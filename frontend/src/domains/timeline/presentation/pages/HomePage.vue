@@ -113,12 +113,15 @@ onMounted(() => {
     </div>
 
     <!-- Compose box -->
-    <PostComposer @posted="handlePosted" />
+    <PostComposer ref="composerRef" @posted="handlePosted" />
 
     <!-- Timeline -->
     <TimelineFeed
       :statuses="statuses"
       :loading="timelineStore.isLoading"
+      :has-more="activeTab === 'for-you'
+        ? timelineStore.publicTimeline.hasMore
+        : timelineStore.homeTimeline.hasMore"
       @load-more="handleLoadMore"
       @reblog="handleReblog"
       @favourite="handleFavourite"
