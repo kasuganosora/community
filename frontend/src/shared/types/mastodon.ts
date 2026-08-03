@@ -32,7 +32,7 @@ export interface MastodonEmoji {
 
 export interface MastodonField {
   name: string
-  val: string
+  value: string
   verified_at: string | null
 }
 

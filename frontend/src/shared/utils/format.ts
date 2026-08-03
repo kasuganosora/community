@@ -2,14 +2,21 @@
 export function debounce<T extends (...args: unknown[]) => unknown>(
   fn: T,
   delay: number
-): (...args: Parameters<T>) => void {
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
-  return function (this: unknown, ...args: Parameters<T>) {
+  const debounced = function (this: unknown, ...args: Parameters<T>) {
     if (timeoutId) {
       clearTimeout(timeoutId)
     }
     timeoutId = setTimeout(() => fn.apply(this, args), delay)
+  } as ((...args: Parameters<T>) => void) & { cancel: () => void }
+  debounced.cancel = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+      timeoutId = null
+    }
   }
+  return debounced
 }
 
 // Throttle utility
@@ -18,11 +25,20 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle = false
+  let lastArgs: Parameters<T> | null = null
   return function (this: unknown, ...args: Parameters<T>) {
     if (!inThrottle) {
       fn.apply(this, args)
       inThrottle = true
-      setTimeout(() => (inThrottle = false), limit)
+      setTimeout(() => {
+        inThrottle = false
+        if (lastArgs) {
+          fn.apply(this, lastArgs)
+          lastArgs = null
+        }
+      }, limit)
+    } else {
+      lastArgs = args
     }
   }
 }

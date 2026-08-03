@@ -35,13 +35,14 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
     const persistConfig: PersistOptions = typeof persist === 'object' ? persist : {}
     const storageKey = persistConfig.key || store.$id
     const paths = persistConfig.paths
+    const effectiveStorage = persistConfig.storage || storage
 
     // Before restore hook
     persistConfig.beforeRestore?.(context)
 
     // Restore state from storage
     try {
-      const stored = storage.getItem(storageKey)
+      const stored = effectiveStorage.getItem(storageKey)
       if (stored) {
         const parsed = serializer.deserialize(stored) as StateTree
 
@@ -83,7 +84,7 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
           stateToPersist = { ...state }
         }
 
-        storage.setItem(storageKey, serializer.serialize(stateToPersist))
+        effectiveStorage.setItem(storageKey, serializer.serialize(stateToPersist))
       } catch (e) {
         console.error(`Failed to persist store "${store.$id}":`, e)
       }
@@ -92,7 +93,7 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
     // Restore function
     const restoreFn = () => {
       try {
-        const stored = storage.getItem(storageKey)
+        const stored = effectiveStorage.getItem(storageKey)
         if (stored) {
           const parsed = serializer.deserialize(stored) as StateTree
           store.$patch(parsed)

@@ -102,7 +102,11 @@ client.interceptors.response.use(
         try {
           // Call callback first — it may want to use the token for refresh
           if (authExpiredCallback) {
-            authExpiredCallback()
+            try {
+              authExpiredCallback()
+            } catch (cbErr) {
+              console.error('Auth expired callback failed:', cbErr)
+            }
           }
           // Clear token after callback so it can still access old token if needed
           tokenService.clear()
