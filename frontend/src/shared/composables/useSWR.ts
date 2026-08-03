@@ -112,6 +112,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
   const isLoading = ref(!initialData)
   const isValidating = ref(false)
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  let disposed = false
 
   // Default fetcher using axios
   async function defaultFetcher(key: string): Promise<T> {
@@ -184,18 +185,18 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
       const result = await fetcher(key)
       // Discard stale response — a newer request has been initiated
-      if (currentVersion !== requestVersion) return
+      if (currentVersion !== requestVersion || disposed) return
       data.value = result
       // Clear error only on success
       error.value = null
     } catch (err) {
-      if (currentVersion !== requestVersion) return
+      if (currentVersion !== requestVersion || disposed) return
       error.value = err instanceof Error ? err : new Error(String(err))
       if (!silent) {
         throw err
       }
     } finally {
-      if (currentVersion === requestVersion) {
+      if (currentVersion === requestVersion && !disposed) {
         isLoading.value = false
         isValidating.value = false
       }
@@ -249,6 +250,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
         }
         if (key) {
           refreshTimer = setInterval(() => {
+            if (disposed) return
             executeRequest(true).catch(() => {})
           }, refreshInterval)
         }
@@ -324,6 +326,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
 
   // Cleanup key watch on unmount
   onUnmounted(() => {
+    disposed = true
     stopKeyWatch()
     activeInstanceCount = Math.max(0, activeInstanceCount - 1)
     stopCleanupTimer()

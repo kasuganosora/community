@@ -46,12 +46,16 @@ export function useLazyImage(
     preloadImg.src = src
 
     preloadImg.onload = () => {
+      // Guard against unmount — callbacks may fire after component is gone
+      if (!isMounted) return
       currentSrc.value = src
       isLoaded.value = true
       error.value = null
     }
 
     preloadImg.onerror = () => {
+      // Guard against unmount
+      if (!isMounted) return
       error.value = new Error(`Failed to load image: ${src}`)
     }
   }
@@ -158,6 +162,7 @@ export function useLazyBackground(
     preloadImg.src = src
 
     preloadImg.onload = () => {
+      if (!isMounted) return
       if (elementRef.value) {
         // Sanitize URL to prevent CSS injection — escape quotes and parens
         const safeUrl = src.replace(/["'()\\\n\r]/g, '\\$&')
@@ -168,6 +173,7 @@ export function useLazyBackground(
     }
 
     preloadImg.onerror = () => {
+      if (!isMounted) return
       error.value = new Error(`Failed to load background image: ${src}`)
     }
   }

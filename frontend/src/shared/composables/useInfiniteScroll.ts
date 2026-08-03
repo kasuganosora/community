@@ -26,9 +26,10 @@ export function useInfiniteScroll(
   let retryCount = 0
   const MAX_RETRIES = 3
   let isExhausted = false
+  let disposed = false
 
   async function checkAndLoad(): Promise<void> {
-    if (isLoading.value || isDisabled.value || isTriggered || isExhausted) return
+    if (isLoading.value || isDisabled.value || isTriggered || isExhausted || disposed) return
 
     const el = elementRef.value
     if (!el) return
@@ -52,6 +53,7 @@ export function useInfiniteScroll(
           retryTimer = null
         }, 100)
       } catch (err) {
+        if (disposed) return
         hasError.value = true
         error.value = err instanceof Error ? err : new Error(String(err))
         // Retry up to MAX_RETRIES times; after that, stop to prevent infinite loop
@@ -68,7 +70,7 @@ export function useInfiniteScroll(
           isTriggered = false
         }
       } finally {
-        if (!isExhausted) {
+        if (!disposed) {
           isLoading.value = false
         }
       }
@@ -116,6 +118,7 @@ export function useInfiniteScroll(
   })
 
   onUnmounted(() => {
+    disposed = true
     if (scrollEl) {
       scrollEl.removeEventListener('scroll', handleScroll)
     }
@@ -162,6 +165,7 @@ export function useInfiniteScrollObserver(
   const hasError = ref(false)
   const error = ref<Error | null>(null)
   let observer: IntersectionObserver | null = null
+  let disposed = false
   let retryCount = 0
   const MAX_RETRIES = 3
 
@@ -171,7 +175,7 @@ export function useInfiniteScrollObserver(
 
   async function handleIntersection(entries: IntersectionObserverEntry[]): Promise<void> {
     const entry = entries[0]
-    if (!entry?.isIntersecting || isLoading.value || isDisabled.value) return
+    if (!entry?.isIntersecting || isLoading.value || isDisabled.value || disposed) return
 
     // Temporarily unobserve to prevent duplicate triggers during DOM update
     if (sentinelRef.value) {
@@ -189,6 +193,7 @@ export function useInfiniteScrollObserver(
       await callback()
       retryCount = 0
     } catch (err) {
+      if (disposed) return
       hasError.value = true
       error.value = err instanceof Error ? err : new Error(String(err))
 
@@ -199,9 +204,13 @@ export function useInfiniteScrollObserver(
         retryCount++
       }
     } finally {
-      isLoading.value = false
+      // Always reset loading; without this, the exhausted-retry path leaves
+      // isLoading stuck at true, freezing the UI indefinitely.
+      if (!disposed) {
+        isLoading.value = false
+      }
       // Re-observe only if we haven't exhausted retries
-      if (shouldReobserve && sentinelRef.value) {
+      if (shouldReobserve && sentinelRef.value && !disposed) {
         observer?.observe(sentinelRef.value)
       }
     }
@@ -233,6 +242,7 @@ export function useInfiniteScrollObserver(
   }
 
   onUnmounted(() => {
+    disposed = true
     observer?.disconnect()
     observer = null
   })
