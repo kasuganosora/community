@@ -92,6 +92,7 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
 
     // Restore function
     const restoreFn = () => {
+      persistConfig.beforeRestore?.(context)
       try {
         const stored = effectiveStorage.getItem(storageKey)
         if (stored) {
@@ -112,6 +113,7 @@ export function piniaPersistPlugin(options: PersistOptions = {}) {
       } catch (e) {
         console.error(`Failed to restore store "${store.$id}":`, e)
       }
+      persistConfig.afterRestore?.(context)
     }
 
     // Add methods to store
