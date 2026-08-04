@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
+import { useStatusActions, applyStatusUpdate } from '../../presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -16,7 +17,24 @@ const descendants = ref<MastodonStatus[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+// All status arrays (ancestors + descendants + main status) need updates;
+// the helper applies to whichever array contains the matching id.
+const allLists = () => [ancestors.value, descendants.value]
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, updates) => {
+  for (const list of allLists()) applyStatusUpdate(list, id, updates)
+  if (status.value?.id === id) {
+    Object.assign(status.value, updates)
+  } else if (status.value?.reblog?.id === id) {
+    Object.assign(status.value.reblog, updates)
+  }
+})
+
+// Version guard — prevents a stale response (from navigating between
+// posts quickly) from overwriting newer post data.
+let requestVersion = 0
+
 async function loadPost() {
+  const myVersion = ++requestVersion
   const statusId = route.params.statusId as string
   loading.value = true
   error.value = null
@@ -25,15 +43,19 @@ async function loadPost() {
       postApi.getStatus(statusId),
       postApi.getContext(statusId),
     ])
+    if (myVersion !== requestVersion) return
     status.value = statusData
     ancestors.value = contextData.ancestors
     descendants.value = contextData.descendants
   } catch (e) {
+    if (myVersion !== requestVersion) return
     console.error('Failed to load post:', e)
     error.value = 'Failed to load this post'
     status.value = null
   } finally {
-    loading.value = false
+    if (myVersion === requestVersion) {
+      loading.value = false
+    }
   }
 }
 
@@ -73,7 +95,14 @@ function goBack() {
 
     <template v-else-if="status">
       <!-- Ancestors (context above) -->
-      <PostCard v-for="s in ancestors" :key="s.id" :status="s" />
+      <PostCard
+        v-for="s in ancestors"
+        :key="s.id"
+        :status="s"
+        @reblog="toggleReblog"
+        @favourite="toggleFavourite"
+        @bookmark="toggleBookmark"
+      />
 
       <!-- Main post (highlighted) -->
       <article class="detail-main">
@@ -101,7 +130,14 @@ function goBack() {
       </article>
 
       <!-- Descendants (replies below) -->
-      <PostCard v-for="s in descendants" :key="s.id" :status="s" />
+      <PostCard
+        v-for="s in descendants"
+        :key="s.id"
+        :status="s"
+        @reblog="toggleReblog"
+        @favourite="toggleFavourite"
+        @bookmark="toggleBookmark"
+      />
     </template>
   </div>
 </template>

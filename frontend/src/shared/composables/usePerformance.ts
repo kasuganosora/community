@@ -106,7 +106,9 @@ export function usePerformance() {
 
   onUnmounted(() => {
     // Clean up event listener — uses the SAME reference registered above
-    window.removeEventListener('load', onLoadHandler)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('load', onLoadHandler)
+    }
 
     // Disconnect all PerformanceObservers
     for (const observer of observers) {

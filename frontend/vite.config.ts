@@ -15,7 +15,7 @@ export default defineConfig({
     AutoImport({
       resolvers: [TDesignResolver({ library: 'vue-next' })],
       imports: ['vue', 'vue-router', 'pinia'],
-      dts: 'src/components.d.ts',
+      dts: 'auto-imports.d.ts',
     }),
   ],
   resolve: {
@@ -60,11 +60,12 @@ export default defineConfig({
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
         assetFileNames: (assetInfo) => {
-          const info = assetInfo.name || ''
-          if (info.endsWith('.css')) {
+          const names = assetInfo.names ?? []
+          const name = names.length > 0 ? names[names.length - 1] : (assetInfo.name ?? '')
+          if (name.endsWith('.css')) {
             return 'assets/css/[name]-[hash][extname]'
           }
-          if (info.endsWith('.png') || info.endsWith('.jpg') || info.endsWith('.jpeg') || info.endsWith('.gif') || info.endsWith('.svg')) {
+          if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif') || name.endsWith('.svg')) {
             return 'assets/images/[name]-[hash][extname]'
           }
           return 'assets/[name]-[hash][extname]'

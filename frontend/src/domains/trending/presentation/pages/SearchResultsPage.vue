@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import type { MastodonStatus, MastodonAccount, MastodonTag, SearchResult } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
 import { userApi } from '@/domains/user/infrastructure/userApi'
+import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RichText from '@/shared/components/common/RichText.vue'
@@ -35,23 +36,61 @@ const followingMap = ref(new Map<string, boolean>())
 
 const SEARCH_LIMIT = 20
 
+// Version guard — prevents stale search results from a previous
+// query from overwriting newer results when the user types fast.
+let searchVersion = 0
+
+// Reuse the shared action handlers — optimistic update on the local array.
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
+  (id, updates) => applyStatusUpdate(statuses.value, id, updates),
+)
+
+// Track which follow actions are in-flight to prevent duplicate toggles.
+const pendingFollows = ref(new Set<string>())
+
+async function toggleFollow(account: MastodonAccount) {
+  if (pendingFollows.value.has(account.id)) return
+  pendingFollows.value.add(account.id)
+
+  const wasFollowing = followingMap.value.get(account.id) ?? false
+  // Optimistic update for immediate UI feedback
+  followingMap.value.set(account.id, !wasFollowing)
+  try {
+    const rel = wasFollowing
+      ? await userApi.unfollow(account.id)
+      : await userApi.follow(account.id)
+    followingMap.value.set(account.id, rel.following)
+  } catch (e) {
+    // Revert optimistic update on failure
+    followingMap.value.set(account.id, wasFollowing)
+    console.error('Failed to toggle follow:', e)
+  } finally {
+    pendingFollows.value.delete(account.id)
+  }
+}
+
 async function search(query: string) {
   const trimmedQuery = query.trim()
   if (!trimmedQuery) return
+  const myVersion = ++searchVersion
   loading.value = true
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
       params: { q: trimmedQuery, limit: SEARCH_LIMIT },
     })
+    if (myVersion !== searchVersion) return
     statuses.value = data.statuses || []
     accounts.value = data.accounts || []
     hashtags.value = data.hashtags || []
   } catch {
+    if (myVersion !== searchVersion) return
     statuses.value = []
     accounts.value = []
     hashtags.value = []
   } finally {
-    loading.value = false
+    if (myVersion === searchVersion) {
+      loading.value = false
+    }
   }
 }
 
@@ -65,16 +104,6 @@ watch(() => route.query.q, (q) => {
   if (query) search(query)
 })
 
-async function toggleFollow(account: MastodonAccount) {
-  try {
-    const rel = followingMap.value.get(account.id)
-      ? await userApi.unfollow(account.id)
-      : await userApi.follow(account.id)
-    followingMap.value.set(account.id, rel.following)
-  } catch (e) {
-    console.error('Failed to toggle follow:', e)
-  }
-}
 </script>
 
 <template>
@@ -103,7 +132,14 @@ async function toggleFollow(account: MastodonAccount) {
     <template v-else>
       <!-- Posts tab -->
       <template v-if="activeTab === 'posts'">
-        <PostCard v-for="s in statuses" :key="s.id" :status="s" />
+        <PostCard
+          v-for="s in statuses"
+          :key="s.id"
+          :status="s"
+          @reblog="toggleReblog"
+          @favourite="toggleFavourite"
+          @bookmark="toggleBookmark"
+        />
         <div v-if="statuses.length === 0" class="search-empty">No posts found</div>
       </template>
 

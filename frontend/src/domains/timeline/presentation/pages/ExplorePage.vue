@@ -1,48 +1,19 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useTimelineStore } from '../stores/timelineStore'
-import { postApi } from '@/domains/post/infrastructure/postApi'
+import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
 const timelineStore = useTimelineStore()
 
+// Reuse the shared action handlers — optimistic update via the store.
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
+  (id, updates) => timelineStore.updateStatus(id, updates),
+)
+
 onMounted(() => {
   timelineStore.fetchPublicTimeline()
 })
-
-async function handleReblog(status: MastodonStatus) {
-  try {
-    const updated = status.reblogged
-      ? await postApi.unreblog(status.id)
-      : await postApi.reblog(status.id)
-    timelineStore.updateStatus(status.id, { reblogged: updated.reblogged, reblogs_count: updated.reblogs_count })
-  } catch (e) {
-    console.error('Failed to toggle reblog:', e)
-  }
-}
-
-async function handleFavourite(status: MastodonStatus) {
-  try {
-    const updated = status.favourited
-      ? await postApi.unfavourite(status.id)
-      : await postApi.favourite(status.id)
-    timelineStore.updateStatus(status.id, { favourited: updated.favourited, favourites_count: updated.favourites_count })
-  } catch (e) {
-    console.error('Failed to toggle favourite:', e)
-  }
-}
-
-async function handleBookmark(status: MastodonStatus) {
-  try {
-    const updated = status.bookmarked
-      ? await postApi.unbookmark(status.id)
-      : await postApi.bookmark(status.id)
-    timelineStore.updateStatus(status.id, { bookmarked: updated.bookmarked })
-  } catch (e) {
-    console.error('Failed to toggle bookmark:', e)
-  }
-}
 </script>
 
 <template>
@@ -54,9 +25,9 @@ async function handleBookmark(status: MastodonStatus) {
       :statuses="timelineStore.publicStatuses"
       :loading="timelineStore.isLoading"
       @load-more="timelineStore.loadMorePublic"
-      @reblog="handleReblog"
-      @favourite="handleFavourite"
-      @bookmark="handleBookmark"
+      @reblog="toggleReblog"
+      @favourite="toggleFavourite"
+      @bookmark="toggleBookmark"
     />
   </div>
 </template>

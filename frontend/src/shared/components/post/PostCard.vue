@@ -28,7 +28,7 @@ function navigateToDetail() {
   router.push({
     name: 'post-detail',
     params: { username: s.account.acct || s.account.username, statusId: s.id },
-  })
+  }).catch(() => {})
 }
 
 function navigateToProfile(e: Event) {
@@ -36,7 +36,7 @@ function navigateToProfile(e: Event) {
   router.push({
     name: 'profile',
     params: { username: displayStatus.value.account.acct || displayStatus.value.account.username },
-  })
+  }).catch(() => {})
 }
 </script>
 

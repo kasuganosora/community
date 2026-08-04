@@ -45,6 +45,7 @@ function createLocalStorage<T>(
   }
 
   function write(value: T) {
+    if (typeof window === 'undefined') return
     try {
       localStorage.setItem(key, serializer.write(value))
     } catch (e) {

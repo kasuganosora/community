@@ -8,6 +8,19 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import '@/shared/styles/global.css'
 
 const app = createApp(App)
+
+// Global error handler — catches errors from component render, lifecycle hooks,
+// event handlers, and setup functions that would otherwise fail silently.
+app.config.errorHandler = (err, _instance, info) => {
+  console.error(`[Vue runtime error] ${info}:`, err)
+}
+
+// Catch unhandled promise rejections from fire-and-forget async calls
+// (e.g. event handlers that aren't awaited) that Vue's errorHandler misses.
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[Unhandled promise rejection]:', event.reason)
+})
+
 app.use(pinia)
 app.use(router)
 

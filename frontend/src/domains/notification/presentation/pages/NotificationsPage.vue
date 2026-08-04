@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { MastodonNotification } from '@/shared/types/mastodon'
+import type { MastodonNotification, NotificationType } from '@/shared/types/mastodon'
 import { notificationApi } from '../../infrastructure/notificationApi'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
-
-type NotificationType = 'favourite' | 'reblog' | 'follow' | 'mention'
 
 const notifications = ref<MastodonNotification[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+
+// Reuse the shared action handlers — optimistic update on the notification
+// statuses (mention notifications carry a status that renders a PostCard).
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, updates) => {
+  for (const n of notifications.value) {
+    if (n.status) applyStatusUpdate([n.status], id, updates)
+  }
+})
 
 onMounted(async () => {
   try {
@@ -28,6 +35,7 @@ function getNotificationIcon(type: NotificationType) {
     case 'favourite': return 'heart-filled'
     case 'reblog': return 'swap'
     case 'follow': return 'user-add'
+    case 'follow_request': return 'user-add'
     case 'mention': return 'chat'
     default: return 'notification'
   }
@@ -38,6 +46,7 @@ function getNotificationColor(type: NotificationType) {
     case 'favourite': return 'var(--accent-pink)'
     case 'reblog': return 'var(--accent-green)'
     case 'follow': return 'var(--accent-blue)'
+    case 'follow_request': return 'var(--accent-blue)'
     case 'mention': return 'var(--accent-blue)'
     default: return 'var(--text-secondary)'
   }
@@ -48,7 +57,11 @@ function getNotificationText(type: NotificationType) {
     case 'favourite': return 'liked your post'
     case 'reblog': return 'reposted your post'
     case 'follow': return 'followed you'
+    case 'follow_request': return 'requested to follow you'
     case 'mention': return 'mentioned you'
+    case 'poll': return 'a poll has ended'
+    case 'update': return 'edited a post'
+    case 'status': return 'posted a new status'
     default: return 'interacted'
   }
 }
@@ -105,19 +118,24 @@ async function dismissNotification(id: string) {
         role="listitem"
       >
         <template v-if="notification.type === 'mention' && notification.status">
-          <PostCard :status="notification.status" />
+          <PostCard
+            :status="notification.status"
+            @reblog="toggleReblog"
+            @favourite="toggleFavourite"
+            @bookmark="toggleBookmark"
+          />
         </template>
 
         <template v-else>
           <div class="notification-body">
-            <div class="notification-icon" :style="{ color: getNotificationColor(notification.type as NotificationType) }">
-              <t-icon :name="getNotificationIcon(notification.type as NotificationType)" :size="24" />
+            <div class="notification-icon" :style="{ color: getNotificationColor(notification.type) }">
+              <t-icon :name="getNotificationIcon(notification.type)" :size="24" />
             </div>
             <div class="notification-content">
               <UserAvatar :account="notification.account" :size="32" />
               <div class="notification-text">
                 <strong>{{ notification.account.display_name }}</strong>
-                {{ getNotificationText(notification.type as NotificationType) }}
+                {{ getNotificationText(notification.type) }}
               </div>
               <div v-if="notification.status" class="notification-preview">
                 {{ getPreview(notification.status.content) }}

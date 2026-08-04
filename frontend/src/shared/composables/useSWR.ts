@@ -41,6 +41,7 @@ let cleanupTimer: ReturnType<typeof setInterval> | null = null
 let activeInstanceCount = 0
 
 function startCleanupTimer() {
+  if (typeof window === 'undefined') return
   if (cleanupTimer) return
   cleanupTimer = setInterval(() => {
     const now = Date.now()
@@ -277,6 +278,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const stopFocusWatch = watch(
       () => cacheKey.value,
       (key, oldKey) => {
+        if (typeof window === 'undefined') return
         if (oldKey && onFocus) {
           window.removeEventListener('focus', onFocus)
         }
@@ -288,7 +290,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     )
     onUnmounted(() => {
       stopFocusWatch()
-      if (onFocus) {
+      if (onFocus && typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocus)
       }
     })
@@ -307,6 +309,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const stopOnlineWatch = watch(
       () => cacheKey.value,
       (key, oldKey) => {
+        if (typeof window === 'undefined') return
         if (oldKey && onOnline) {
           window.removeEventListener('online', onOnline)
         }
@@ -318,7 +321,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     )
     onUnmounted(() => {
       stopOnlineWatch()
-      if (onOnline) {
+      if (onOnline && typeof window !== 'undefined') {
         window.removeEventListener('online', onOnline)
       }
     })

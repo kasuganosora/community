@@ -5,6 +5,7 @@ import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
@@ -14,69 +15,113 @@ const route = useRoute()
 const authStore = useAuthStore()
 const account = ref<MastodonAccount | null>(null)
 const statuses = ref<MastodonStatus[]>([])
-const activeTab = ref('posts')
+const activeTab = ref<ProfileTabValue>('posts')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const following = ref(false)
 
+// Reuse the shared action handlers — optimistic update on the local array.
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
+  (id, updates) => applyStatusUpdate(statuses.value, id, updates),
+)
+
+// Prevent duplicate follow/unfollow requests from rapid clicks.
+const pendingFollow = ref(false)
+
+// Request version guard — prevents stale responses from a previous
+// profile or tab load from overwriting newer data when navigation
+// or tab changes happen while a request is still in flight.
+let requestVersion = 0
+
 const isOwnProfile = computed(() => account.value?.id === authStore.currentUser?.id)
 
 async function loadProfile() {
+  const myVersion = ++requestVersion
   loading.value = true
+  error.value = null
+  // Clear old data so the error state is reachable if the new
+  // profile fails to load, and so stale account info isn't shown.
+  account.value = null
+  statuses.value = []
+  following.value = false
   const username = route.params.username as string
   try {
     const acctData = await userApi.lookupAccount(username)
+    if (myVersion !== requestVersion) return
     account.value = acctData
     const params: Record<string, unknown> = { limit: 20 }
     if (activeTab.value === 'posts') params.exclude_replies = true
     else if (activeTab.value === 'media') params.only_media = true
     const statusData = await userApi.getStatuses(acctData.id, params)
+    if (myVersion !== requestVersion) return
     statuses.value = statusData
     // Check relationship status
     if (acctData.id) {
       try {
         const rels = await userApi.getRelationships([acctData.id])
+        if (myVersion !== requestVersion) return
         following.value = rels[0]?.following ?? false
       } catch {
         // Non-critical — default to not following
       }
     }
   } catch (e) {
+    if (myVersion !== requestVersion) return
     console.error('Failed to load profile:', e)
     error.value = e instanceof Error ? e.message : 'Failed to load profile'
   } finally {
-    loading.value = false
+    if (myVersion === requestVersion) {
+      loading.value = false
+    }
   }
 }
 
 async function toggleFollow() {
   if (!account.value) return
+  if (pendingFollow.value) return
+  pendingFollow.value = true
+
+  const wasFollowing = following.value
+  // Optimistic update for immediate UI feedback
+  following.value = !wasFollowing
   try {
-    const rel = following.value
+    const rel = wasFollowing
       ? await userApi.unfollow(account.value.id)
       : await userApi.follow(account.value.id)
     following.value = rel.following
   } catch (e) {
+    // Revert optimistic update on failure
+    following.value = wasFollowing
     console.error('Failed to toggle follow:', e)
+  } finally {
+    pendingFollow.value = false
   }
 }
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
 
-// Only reload statuses on tab change — no need to refetch account/relationship
+// Only reload statuses on tab change — no need to refetch account/relationship.
+// Shares the version guard with loadProfile so a stale response from either
+// function is discarded when the other has superseded it.
 async function reloadStatuses() {
   if (!account.value) return
+  const myVersion = ++requestVersion
   loading.value = true
   try {
     const params: Record<string, unknown> = { limit: 20 }
     if (activeTab.value === 'posts') params.exclude_replies = true
     else if (activeTab.value === 'media') params.only_media = true
-    statuses.value = await userApi.getStatuses(account.value.id, params)
+    const data = await userApi.getStatuses(account.value.id, params)
+    if (myVersion !== requestVersion) return
+    statuses.value = data
   } catch (e) {
+    if (myVersion !== requestVersion) return
     console.error('Failed to reload statuses:', e)
   } finally {
-    loading.value = false
+    if (myVersion === requestVersion) {
+      loading.value = false
+    }
   }
 }
 watch(activeTab, reloadStatuses)
@@ -122,14 +167,14 @@ watch(activeTab, reloadStatuses)
       <RichText v-if="account.note" class="profile-bio" :html="account.note" />
 
       <div class="profile-stats">
-        <router-link :to="`/${account.acct}/following`" class="stat-item">
+        <div class="stat-item">
           <strong>{{ formatCount(account.following_count) }}</strong>
           <span>Following</span>
-        </router-link>
-        <router-link :to="`/${account.acct}/followers`" class="stat-item">
+        </div>
+        <div class="stat-item">
           <strong>{{ formatCount(account.followers_count) }}</strong>
           <span>Followers</span>
-        </router-link>
+        </div>
       </div>
     </div>
 
@@ -152,7 +197,14 @@ watch(activeTab, reloadStatuses)
       <t-loading />
     </div>
     <template v-else>
-      <PostCard v-for="s in statuses" :key="s.id" :status="s" />
+      <PostCard
+        v-for="s in statuses"
+        :key="s.id"
+        :status="s"
+        @reblog="toggleReblog"
+        @favourite="toggleFavourite"
+        @bookmark="toggleBookmark"
+      />
     </template>
   </div>
 

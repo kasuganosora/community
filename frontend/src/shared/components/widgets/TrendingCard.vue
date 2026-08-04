@@ -22,7 +22,12 @@ const trendStats = computed(() => {
   for (const tag of trends.value) {
     const first = tag.history?.[0]
     if (first) {
-      stats[tag.name] = formatCount(parseInt(first.uses, 10)) + ' posts'
+      const uses = parseInt(first.uses, 10)
+      // Guard against NaN: invalid/empty history.uses would otherwise render
+      // "NaN posts" via formatCount(NaN) -> NaN.toString() === 'NaN'
+      if (!isNaN(uses)) {
+        stats[tag.name] = formatCount(uses) + ' posts'
+      }
     }
   }
   return stats
@@ -35,7 +40,7 @@ const trendStats = computed(() => {
     <router-link
       v-for="tag in trends"
       :key="tag.name"
-      :to="`/explore?q=${encodeURIComponent('#' + tag.name)}`"
+      :to="{ name: 'search', query: { q: '#' + tag.name } }"
       class="trending-item"
       role="button"
     >

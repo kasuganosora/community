@@ -81,8 +81,9 @@ async function handleLogin() {
                 shape="square" 
                 size="small"
                 @click="showPassword = !showPassword"
-                :icon="passwordIcon"
-              />
+              >
+                <t-icon :name="passwordIcon" />
+              </t-button>
             </template>
           </t-input>
         </t-form-item>

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { MessagePlugin } from 'tdesign-vue-next'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
@@ -9,9 +10,13 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
+function goHome() {
+  router.push({ name: 'home' }).catch(() => {})
+}
+
 // Use computed to make navItems reactive based on currentUser
 const navItems = computed(() => [
-  { value: 'home', label: '首页', icon: 'home', route: '/home' },
+  { value: 'home', label: '首页', icon: 'home', route: '/' },
   { value: 'explore', label: '探索', icon: 'search', route: '/explore' },
   { value: 'notifications', label: '通知', icon: 'notification', route: '/notifications' },
   { value: 'messages', label: '消息', icon: 'mail', route: '/messages' },
@@ -21,37 +26,39 @@ const navItems = computed(() => [
 
 const activeItem = computed(() => {
   const path = route.path
-  if (path === '/home') return 'home'
-  const match = navItems.value.find(item => item.route !== '/home' && path.startsWith(item.route))
+  if (path === '/') return 'home'
+  const match = navItems.value.find(item => item.route !== '/' && path.startsWith(item.route))
   return match?.value || 'home'
 })
 
 function navigateTo(item: typeof navItems.value[0]) {
-  router.push(item.route)
+  // Catch to avoid unhandled rejection if navigation is cancelled/redirected
+  router.push(item.route).catch(() => {})
 }
 
 function handleCompose() {
   if (authStore.currentUser) {
-    // Scroll to top and focus the composer on the home page
-    router.push({ name: 'home' }).then(() => {
-      // Emit a custom event to open the composer
-      window.dispatchEvent(new CustomEvent('open-composer'))
-    })
+    router.push({ name: 'home' }).catch(() => {})
   } else {
-    router.push({ name: 'login' })
+    router.push({ name: 'login' }).catch(() => {})
   }
 }
 
 async function handleLogout() {
-  await authStore.logout()
-  router.push({ name: 'landing' })
+  try {
+    await authStore.logout()
+    router.push({ name: 'landing' }).catch(() => {})
+  } catch (e) {
+    console.error('Logout failed:', e)
+    MessagePlugin.error('退出失败，请稍后重试')
+  }
 }
 </script>
 
 <template>
   <div class="left-sidebar">
     <!-- Logo -->
-    <button class="sidebar-logo" @click="router.push('/home')" aria-label="返回首页">
+    <button class="sidebar-logo" @click="goHome" aria-label="返回首页">
       <LogoIcon :size="32" />
     </button>
 

@@ -22,10 +22,14 @@ const containerRef = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 const containerHeight = ref(0)
 
+// Guard against zero/negative itemHeight to prevent division by zero
+// (Infinity/NaN in visibleRange) and invalid CSS height values
+const safeItemHeight = computed(() => Math.max(1, props.itemHeight))
+
 // Calculate visible range
 const visibleRange = computed(() => {
-  const start = Math.floor(scrollTop.value / props.itemHeight)
-  const visibleCount = Math.ceil(containerHeight.value / props.itemHeight)
+  const start = Math.floor(scrollTop.value / safeItemHeight.value)
+  const visibleCount = Math.ceil(containerHeight.value / safeItemHeight.value)
   const end = start + visibleCount
 
   // Add overscan for smoother scrolling
@@ -44,7 +48,15 @@ const visibleItems = computed(() =>
 )
 
 // Total height of the list
-const totalHeight = computed(() => props.items.length * props.itemHeight)
+const totalHeight = computed(() => props.items.length * safeItemHeight.value)
+
+// Resolve the key for a visible item. When the configured keyField is missing
+// on an item (undefined), fall back to the index to avoid all rows sharing the
+// duplicate key "undefined", which causes Vue render warnings and state errors.
+function getItemKey(item: T, index: number): string | number {
+  const value = (item as Record<string, unknown>)[props.keyField as string]
+  return value === undefined || value === null ? index : (value as string | number)
+}
 
 // Container style
 const containerStyle = computed(() => ({
@@ -54,7 +66,7 @@ const containerStyle = computed(() => ({
 
 // Wrapper style — translate by start offset
 const wrapperStyle = computed(() => ({
-  transform: `translateY(${visibleRange.value.start * props.itemHeight}px)`,
+  transform: `translateY(${visibleRange.value.start * safeItemHeight.value}px)`,
   willChange: 'transform',
 }))
 
@@ -74,7 +86,7 @@ function handleScroll(e: Event) {
 
     // Check if scrolled to bottom
     const { scrollHeight, scrollTop: currentScrollTop, clientHeight } = target
-    const isAtBottom = scrollHeight - currentScrollTop - clientHeight < props.itemHeight * 2
+    const isAtBottom = scrollHeight - currentScrollTop - clientHeight < safeItemHeight.value * 2
 
     if (isAtBottom && lastScrollTop < currentScrollTop) {
       emit('scrollBottom')
@@ -112,11 +124,12 @@ onUnmounted(() => {
 // Expose methods
 function scrollToIndex(index: number) {
   if (containerRef.value) {
-    containerRef.value.scrollTop = index * props.itemHeight
+    containerRef.value.scrollTop = index * safeItemHeight.value
   }
 }
 
 function scrollToBottom() {
+  if (props.items.length === 0) return
   scrollToIndex(props.items.length - 1)
 }
 
@@ -138,9 +151,9 @@ defineExpose({
       <div :style="wrapperStyle" class="virtual-list-wrapper">
         <div
           v-for="(item, idx) in visibleItems"
-          :key="String((item as Record<string, unknown>)[keyField as string])"
+          :key="getItemKey(item, visibleRange.start + idx)"
           class="virtual-list-item"
-          :style="{ height: `${itemHeight}px` }"
+          :style="{ height: `${safeItemHeight}px` }"
         >
           <slot :item="item" :index="visibleRange.start + idx">
             {{ item }}

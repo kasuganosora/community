@@ -8,7 +8,7 @@ const query = ref('')
 function handleSearch() {
   const trimmedQuery = query.value.trim()
   if (trimmedQuery) {
-    router.push({ name: 'search', query: { q: trimmedQuery } })
+    router.push({ name: 'search', query: { q: trimmedQuery } }).catch(() => {})
   }
 }
 </script>

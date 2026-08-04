@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 interface Props {
   tag?: string
   name?: string
@@ -7,19 +9,28 @@ interface Props {
   staggerDelay?: number
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   tag: 'div',
   name: 'list',
   duration: 300,
   stagger: false,
   staggerDelay: 50,
 })
+
+// When stagger is enabled, append '-stagger' to the name so the
+// list-stagger-* transition classes are applied; otherwise use the
+// plain name so the list-* classes apply.
+const transitionName = computed(() =>
+  props.stagger ? `${props.name}-stagger` : props.name,
+)
+
 </script>
+
 
 <template>
   <TransitionGroup
     :tag="tag"
-    :name="name"
+    :name="transitionName"
     :style="{
       '--transition-duration': `${duration}ms`,
       '--stagger-delay': `${staggerDelay}ms`,
@@ -28,6 +39,7 @@ withDefaults(defineProps<Props>(), {
     <slot />
   </TransitionGroup>
 </template>
+
 
 <style>
 /* List transitions */

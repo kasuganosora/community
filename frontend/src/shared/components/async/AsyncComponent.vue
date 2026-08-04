@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, ref, onMounted } from 'vue'
+import { shallowRef, ref, onMounted, onUnmounted } from 'vue'
 import FadeTransition from '@/shared/components/transitions/FadeTransition.vue'
 
 interface Props {
@@ -13,18 +13,50 @@ const props = withDefaults(defineProps<Props>(), {
   timeout: 10000,
 })
 
+// Disable automatic attribute inheritance: $attrs are explicitly forwarded
+// to the loaded component via v-bind="$attrs" in the template. Without this,
+// fallthrough attributes would also be applied to the root <FadeTransition>,
+// causing duplicate binding.
+defineOptions({ inheritAttrs: false })
+
 const isLoading = defineModel<boolean>('loading', { default: true })
 const hasError = defineModel<boolean>('error', { default: false })
 const LoadedComponent = shallowRef<unknown>(null)
 const errorValue = ref<Error | null>(null)
 
+// Track timers so they can be cleaned up on unmount / re-entry
+let minDelayTimer: ReturnType<typeof setTimeout> | null = null
+let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+
+// Guard against applying a stale result after retry() or unmount
+let loadVersion = 0
+let cancelled = false
+
+function clearTimers() {
+  if (minDelayTimer !== null) {
+    clearTimeout(minDelayTimer)
+    minDelayTimer = null
+  }
+  if (timeoutTimer !== null) {
+    clearTimeout(timeoutTimer)
+    timeoutTimer = null
+  }
+}
+
 async function load() {
+  // Cancel any in-flight load: a previous invocation still awaiting will
+  // see version !== loadVersion and bail out before mutating state.
+  clearTimers()
+  const version = ++loadVersion
+
   isLoading.value = true
   hasError.value = false
   errorValue.value = null
 
   // Minimum loading time for better UX
-  const minDelay = new Promise((resolve) => setTimeout(resolve, props.delay))
+  const minDelay = new Promise<void>((resolve) => {
+    minDelayTimer = setTimeout(resolve, props.delay)
+  })
 
   try {
     const componentPromise = props.loader()
@@ -32,28 +64,45 @@ async function load() {
     // Race between load and timeout
     const loaded = await Promise.race([
       componentPromise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Component load timeout')), props.timeout)
-      ),
+      new Promise((_, reject) => {
+        timeoutTimer = setTimeout(() => reject(new Error('Component load timeout')), props.timeout)
+      }),
     ])
 
     await minDelay // Ensure minimum loading time
 
+    // Ignore result if a newer load() started or component unmounted
+    if (cancelled || version !== loadVersion) return
+
     LoadedComponent.value = loaded
   } catch (err) {
+    if (cancelled || version !== loadVersion) return
     errorValue.value = err instanceof Error ? err : new Error(String(err))
     hasError.value = true
   } finally {
-    isLoading.value = false
+    if (!cancelled && version === loadVersion) {
+      isLoading.value = false
+    }
+    if (version === loadVersion) {
+      minDelayTimer = null
+      timeoutTimer = null
+    }
   }
 }
 
 onMounted(load)
 
+onUnmounted(() => {
+  cancelled = true
+  clearTimers()
+})
+
 function retry() {
   load()
 }
+
 </script>
+
 
 <template>
   <FadeTransition>
@@ -78,6 +127,7 @@ function retry() {
     <component v-else :is="LoadedComponent" key="content" v-bind="$attrs" />
   </FadeTransition>
 </template>
+
 
 <style scoped>
 .async-loading {

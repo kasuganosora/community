@@ -15,7 +15,8 @@ onMounted(async () => {
     await authStore.initialize()
   } catch (e) {
     console.error('Failed to initialize auth:', e)
-    initError.value = 'Failed to initialize application'
+    const msg = e instanceof Error ? e.message : String(e)
+    initError.value = `Failed to initialize application: ${msg}`
   } finally {
     initializing.value = false
   }

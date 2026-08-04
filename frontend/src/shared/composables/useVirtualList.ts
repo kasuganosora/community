@@ -21,8 +21,12 @@ export function useVirtualList<T>(
   list: Ref<T[]>,
   options: UseVirtualListOptions
 ) {
-  const { itemHeight, overscan = 5 } = options
+  const { itemHeight: rawItemHeight, overscan = 5 } = options
   const containerHeightRef = toRef(options.containerHeight)
+
+  // Guard against zero/negative itemHeight to prevent division by zero
+  // (Infinity/NaN in visibleRange) and zero-length render loops
+  const itemHeight = Math.max(1, rawItemHeight)
 
   const scrollTop = ref(0)
   const containerRef = ref<HTMLElement | null>(null)

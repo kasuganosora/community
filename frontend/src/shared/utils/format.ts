@@ -1,15 +1,15 @@
 // Debounce utility
-export function debounce<T extends (...args: unknown[]) => unknown>(
-  fn: T,
+export function debounce<Args extends unknown[]>(
+  fn: (...args: Args) => unknown,
   delay: number
-): ((...args: Parameters<T>) => void) & { cancel: () => void } {
+): ((...args: Args) => void) & { cancel: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
-  const debounced = function (this: unknown, ...args: Parameters<T>) {
+  const debounced = function (this: unknown, ...args: Args) {
     if (timeoutId) {
       clearTimeout(timeoutId)
     }
     timeoutId = setTimeout(() => fn.apply(this, args), delay)
-  } as ((...args: Parameters<T>) => void) & { cancel: () => void }
+  } as ((...args: Args) => void) & { cancel: () => void }
   debounced.cancel = () => {
     if (timeoutId) {
       clearTimeout(timeoutId)
@@ -20,13 +20,13 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 }
 
 // Throttle utility
-export function throttle<T extends (...args: unknown[]) => unknown>(
-  fn: T,
+export function throttle<Args extends unknown[]>(
+  fn: (...args: Args) => unknown,
   limit: number
-): (...args: Parameters<T>) => void {
+): (...args: Args) => void {
   let inThrottle = false
-  let lastArgs: Parameters<T> | null = null
-  return function (this: unknown, ...args: Parameters<T>) {
+  let lastArgs: Args | null = null
+  return function (this: unknown, ...args: Args) {
     if (!inThrottle) {
       fn.apply(this, args)
       inThrottle = true
@@ -44,6 +44,7 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
 }
 
 export function formatCount(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return '0'
   if (count >= 1_000_000) {
     return (count / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
   }
@@ -56,7 +57,10 @@ export function formatCount(count: number): string {
 export function formatRelativeTime(dateStr: string, now: number = Date.now()): string {
   const date = new Date(dateStr).getTime()
   if (isNaN(date)) return ''
-  const diff = now - date
+  // Guard against an invalid `now` (e.g. accidentally passed NaN); fall back to
+  // the current time so the function always produces a meaningful result.
+  const effectiveNow = Number.isFinite(now) ? now : Date.now()
+  const diff = effectiveNow - date
   if (diff < 0) return 'now'
 
   const seconds = Math.floor(diff / 1000)
@@ -73,7 +77,7 @@ export function formatRelativeTime(dateStr: string, now: number = Date.now()): s
   const month = d.toLocaleString('en-US', { month: 'short' })
   const day = d.getDate()
   const year = d.getFullYear()
-  const currentYear = new Date(now).getFullYear()
+  const currentYear = new Date(effectiveNow).getFullYear()
 
   if (year === currentYear) return `${month} ${day}`
   return `${month} ${day}, ${year}`

@@ -11,6 +11,10 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const following = ref<Set<string>>(new Set())
 const followErrorId = ref<string | null>(null)
+// Track in-flight follow requests to prevent duplicate API calls when the
+// user rapidly double-clicks before the following Set updates (button only
+// becomes disabled after the request succeeds).
+const processingFollow = ref<Set<string>>(new Set())
 let cancelled = false
 
 async function loadSuggestions() {
@@ -42,8 +46,13 @@ onUnmounted(() => {
 })
 
 async function handleFollow(user: MastodonAccount) {
+  // Prevent duplicate follow requests from rapid double-clicks
+  if (following.value.has(user.id) || processingFollow.value.has(user.id)) return
   try {
     followErrorId.value = null
+    const newProcessing = new Set(processingFollow.value)
+    newProcessing.add(user.id)
+    processingFollow.value = newProcessing
     await userApi.follow(user.id)
     // Trigger reactivity by creating a new Set
     const newFollowing = new Set(following.value)
@@ -53,6 +62,10 @@ async function handleFollow(user: MastodonAccount) {
     console.error('Failed to follow user:', e)
     followErrorId.value = user.id
     MessagePlugin.error('关注失败，请稍后重试')
+  } finally {
+    const cleared = new Set(processingFollow.value)
+    cleared.delete(user.id)
+    processingFollow.value = cleared
   }
 }
 </script>
@@ -90,7 +103,7 @@ async function handleFollow(user: MastodonAccount) {
         shape="round" 
         size="small" 
         class="follow-btn"
-        :disabled="following.has(user.id)"
+        :disabled="following.has(user.id) || processingFollow.has(user.id)"
         @click="handleFollow(user)"
       >
         {{ following.has(user.id) ? 'Following' : 'Follow' }}

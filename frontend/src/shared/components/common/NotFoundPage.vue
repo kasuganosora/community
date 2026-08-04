@@ -2,6 +2,11 @@
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
+
+function goHome() {
+  // Catch to avoid unhandled rejection if navigation is cancelled/redirected
+  router.push({ name: 'home' }).catch(() => {})
+}
 </script>
 
 <template>
@@ -9,7 +14,7 @@ const router = useRouter()
     <div class="not-found__content">
       <h1 class="not-found__code">404</h1>
       <p class="not-found__text">This page could not be found.</p>
-      <button class="btn btn--primary" @click="router.push({ name: 'home' })">
+      <button class="btn btn--primary" @click="goHome">
         Back to Home
       </button>
     </div>

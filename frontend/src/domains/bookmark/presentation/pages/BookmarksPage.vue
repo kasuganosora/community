@@ -2,11 +2,17 @@
 import { ref, onMounted } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { bookmarkApi } from '../../infrastructure/bookmarkApi'
+import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
 const bookmarks = ref<MastodonStatus[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+
+// Reuse the shared action handlers — optimistic update on the local array.
+const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
+  (id, updates) => applyStatusUpdate(bookmarks.value, id, updates),
+)
 
 onMounted(async () => {
   try {
@@ -40,7 +46,14 @@ onMounted(async () => {
     </div>
 
     <template v-else-if="bookmarks.length">
-      <PostCard v-for="s in bookmarks" :key="s.id" :status="s" />
+      <PostCard
+        v-for="s in bookmarks"
+        :key="s.id"
+        :status="s"
+        @reblog="toggleReblog"
+        @favourite="toggleFavourite"
+        @bookmark="toggleBookmark"
+      />
     </template>
 
     <div v-else class="empty-state">

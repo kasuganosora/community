@@ -144,11 +144,18 @@ export const useTimelineStore = defineStore('timeline', () => {
 
   function updateStatus(statusId: string, updates: Partial<MastodonStatus>) {
     const updateInList = (list: MastodonStatus[]) => {
-      const idx = list.findIndex(s => s.id === statusId)
-      if (idx !== -1) {
-        const item = list[idx]
-        if (item) {
+      for (const item of list) {
+        // Match the top-level status ...
+        if (item.id === statusId) {
           Object.assign(item, updates)
+          return
+        }
+        // ... or the reblog wrapper's inner status. PostCard emits the
+        // displayStatus (the reblog content) for actions, so the id being
+        // updated is the inner status id, not the wrapper's.
+        if (item.reblog?.id === statusId) {
+          Object.assign(item.reblog, updates)
+          return
         }
       }
     }
