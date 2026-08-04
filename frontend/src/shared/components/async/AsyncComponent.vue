@@ -27,6 +27,10 @@ const errorValue = ref<Error | null>(null)
 // Track timers so they can be cleaned up on unmount / re-entry
 let minDelayTimer: ReturnType<typeof setTimeout> | null = null
 let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+// Resolve handle for minDelay — allows cancellation to settle the
+// promise instead of leaving it pending forever (which would leak
+// the async frame and skip the finally block).
+let resolveMinDelay: (() => void) | null = null
 
 // Guard against applying a stale result after retry() or unmount
 let loadVersion = 0
@@ -36,6 +40,10 @@ function clearTimers() {
   if (minDelayTimer !== null) {
     clearTimeout(minDelayTimer)
     minDelayTimer = null
+  }
+  if (resolveMinDelay) {
+    resolveMinDelay()
+    resolveMinDelay = null
   }
   if (timeoutTimer !== null) {
     clearTimeout(timeoutTimer)
@@ -55,6 +63,7 @@ async function load() {
 
   // Minimum loading time for better UX
   const minDelay = new Promise<void>((resolve) => {
+    resolveMinDelay = resolve
     minDelayTimer = setTimeout(resolve, props.delay)
   })
 
@@ -84,8 +93,7 @@ async function load() {
       isLoading.value = false
     }
     if (version === loadVersion) {
-      minDelayTimer = null
-      timeoutTimer = null
+      clearTimers()
     }
   }
 }

@@ -246,6 +246,7 @@ export function useSWR<T>(options: UseSWROptions<T>) {
     const stopRefreshWatch = watch(
       () => cacheKey.value,
       (key) => {
+        if (typeof window === 'undefined') return
         if (refreshTimer) {
           clearInterval(refreshTimer)
         }

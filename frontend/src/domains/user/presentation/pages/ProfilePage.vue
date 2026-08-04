@@ -81,17 +81,23 @@ async function toggleFollow() {
   if (pendingFollow.value) return
   pendingFollow.value = true
 
+  const targetId = account.value.id
   const wasFollowing = following.value
   // Optimistic update for immediate UI feedback
   following.value = !wasFollowing
   try {
     const rel = wasFollowing
-      ? await userApi.unfollow(account.value.id)
-      : await userApi.follow(account.value.id)
+      ? await userApi.unfollow(targetId)
+      : await userApi.follow(targetId)
+    // Guard: if the user navigated to a different profile while the
+    // request was in flight, don't write the result back.
+    if (account.value?.id !== targetId) return
     following.value = rel.following
   } catch (e) {
-    // Revert optimistic update on failure
-    following.value = wasFollowing
+    // Revert optimistic update on failure (only if still on same profile)
+    if (account.value?.id === targetId) {
+      following.value = wasFollowing
+    }
     console.error('Failed to toggle follow:', e)
   } finally {
     pendingFollow.value = false
