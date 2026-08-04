@@ -120,6 +120,7 @@ export function useLocalStorageExtended<T>(
   const { ref: storage, suppressWrite } = createLocalStorage(key, initialValue, options)
 
   function remove() {
+    if (typeof window === 'undefined') return
     try {
       suppressWrite.value = true
       localStorage.removeItem(key)
@@ -132,6 +133,7 @@ export function useLocalStorageExtended<T>(
   }
 
   function exists() {
+    if (typeof window === 'undefined') return false
     try {
       return localStorage.getItem(key) !== null
     } catch {

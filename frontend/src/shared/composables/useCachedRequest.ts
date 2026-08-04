@@ -1,4 +1,4 @@
-import { ref, computed, onUnmounted, type Ref } from 'vue'
+import { ref, computed, onUnmounted, watch, type Ref } from 'vue'
 import client from '@/shared/api/client'
 import type { AxiosRequestConfig } from 'axios'
 import { clearSWRCache, getSWRCacheSize, getSWRCacheEntry, setSWRCache } from './useSWR'
@@ -106,6 +106,21 @@ export function useCachedRequest<T>(
   })
 
   const hasCache = computed(() => data.value !== null)
+
+  // Auto re-fetch when url changes (only when url is a Ref)
+  const stopUrlWatch = watch(
+    cacheKey,
+    (newKey, oldKey) => {
+      if (newKey && newKey !== oldKey) {
+        execute().catch(() => {})
+      }
+    }
+  )
+
+  onUnmounted(() => {
+    disposed = true
+    stopUrlWatch()
+  })
 
   return {
     data: computed(() => data.value),

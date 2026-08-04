@@ -197,11 +197,13 @@ export function useInfiniteScrollObserver(
       hasError.value = true
       error.value = err instanceof Error ? err : new Error(String(err))
 
-      // If we've exhausted retries, stop re-observing to prevent infinite loop
-      if (retryCount >= MAX_RETRIES) {
-        shouldReobserve = false
-      } else {
+      // Retry up to MAX_RETRIES times; after that, stop re-observing to
+      // prevent an infinite loop. Use the same "<" comparison as
+      // useInfiniteScroll so retry counts match across both implementations.
+      if (retryCount < MAX_RETRIES) {
         retryCount++
+      } else {
+        shouldReobserve = false
       }
     } finally {
       // Always reset loading; without this, the exhausted-retry path leaves
@@ -233,6 +235,7 @@ export function useInfiniteScrollObserver(
 
   function reset(): void {
     retryCount = 0
+    isLoading.value = false
     hasError.value = false
     error.value = null
     // Re-observe sentinel to resume triggering
