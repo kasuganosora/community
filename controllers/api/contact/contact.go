@@ -36,6 +36,15 @@ func AddContact(c *gin.Context) {
 		return
 	}
 
+	// Validate Matrix user ID format to prevent storing malformed data
+	if req.MatrixUserId != nil && *req.MatrixUserId != "" {
+		if _, _, ok := matrix.ParseMatrixUserID(*req.MatrixUserId); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid matrix_user_id format"})
+
+			return
+		}
+	}
+
 	currentAccount := controllers.MustGetAccount(c)
 
 	// 检查是否已存在

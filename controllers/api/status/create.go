@@ -106,6 +106,7 @@ func Create(c *gin.Context) {
 	err = db.GetDB().Create(status).Error
 	if err != nil {
 		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create status"})
 
 		return
 	}

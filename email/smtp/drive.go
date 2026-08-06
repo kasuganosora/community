@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"mime"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"path/filepath"
 	"strconv"
@@ -21,6 +22,14 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 )
+
+// isValidEmailAddress validates an email address using the standard library
+// net/mail parser, which performs basic RFC 5322 address validation.
+func isValidEmailAddress(addr string) bool {
+	_, err := mail.ParseAddress(addr)
+
+	return err == nil
+}
 
 // tlsPlainAuth implements smtp.Auth for PLAIN authentication without the
 // built-in TLS connection check. This is safe because we ensure the
@@ -216,6 +225,14 @@ func (d Drive) Send(to string, cc string, body []byte) (err error) {
 
 	if len(addrs) == 0 {
 		return
+	}
+
+	// Validate recipient email addresses to avoid sending malformed requests
+	// to the SMTP server (which could cause connection instability).
+	for _, addr := range addrs {
+		if !isValidEmailAddress(addr) {
+			return errors.Errorf("invalid recipient email address: %s", addr)
+		}
 	}
 
 	if d.useTLS {

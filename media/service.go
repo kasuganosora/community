@@ -109,6 +109,9 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, cont
 	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)
 	if err != nil {
+		// Clean up the partially-written file to avoid orphaned files.
+		_ = os.Remove(fullPath)
+
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
@@ -168,7 +171,11 @@ func (s *MediaService) UploadFromPath(srcPath, contentType, uploaderID, subdir s
 	}
 	defer func() { _ = file.Close() }()
 
-	fileInfo, _ := file.Stat()
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat source file: %w", err)
+	}
+
 	header := &multipart.FileHeader{
 		Filename: fileInfo.Name(),
 		Size:     fileInfo.Size(),

@@ -78,6 +78,7 @@ func (r *RecaptchaProvider) Verify(ctx context.Context, response string, remoteI
 	if err != nil {
 		return nil, fmt.Errorf("recaptcha verify request failed: %w", err)
 	}
+	defer resp.Close()
 
 	var result recaptchaResponse
 	if err := resp.Json(&result); err != nil {

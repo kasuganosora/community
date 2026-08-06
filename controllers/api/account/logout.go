@@ -1,6 +1,8 @@
 package account
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
@@ -59,6 +61,10 @@ func Logout(c *gin.Context) {
 	}
 
 	// 删除cookie
-	c.SetCookie("app-token", "", -1, "/", "", false, true)
+	// Secure 标志根据请求是否为 HTTPS 动态判断
+	// SameSite=Lax 与登录时设置 Cookie 保持一致，防止 CSRF
+	secure := c.Request.TLS != nil
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("app-token", "", -1, "/", "", secure, true)
 	c.JSON(200, gin.H{"message": "ok"}) //nolint:goconst
 }

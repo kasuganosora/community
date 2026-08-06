@@ -3,7 +3,6 @@ package middleware
 import (
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -18,9 +17,14 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// 防止点击劫持
 		c.Header("X-Frame-Options", "DENY")
 		// XSS 防护
-		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("X-XSS-Protection", "0")
 		// 引用策略
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		// 权限策略：禁用不需要的浏览器 API
+		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()")
+		// 跨域隔离，提供针对 Spectre 类侧信道攻击的深度防御
+		c.Header("Cross-Origin-Opener-Policy", "same-origin")
+		c.Header("Cross-Origin-Resource-Policy", "same-origin")
 		// 内容安全策略
 		// TODO: 前端迁移到 nonce-based CSP 后移除 'unsafe-inline'
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self' wss: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
@@ -42,8 +46,25 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 		config.AllowAllOrigins = true
 		config.AllowCredentials = false // AllowAllOrigins 时必须禁用 credentials
 	} else {
-		config.AllowOrigins = allowOrigins
-		config.AllowCredentials = true
+		// 检查是否包含通配符 "*"。同时使用 AllowOrigins=["*"] 和
+		// AllowCredentials=true 违反 CORS 规范，浏览器会拒绝该响应。
+		// 此处将其规范化为 AllowAllOrigins（同时禁用 credentials）。
+		allOrigins := false
+		for _, o := range allowOrigins {
+			if o == "*" {
+				allOrigins = true
+
+				break
+			}
+		}
+
+		if allOrigins {
+			config.AllowAllOrigins = true
+			config.AllowCredentials = false
+		} else {
+			config.AllowOrigins = allowOrigins
+			config.AllowCredentials = true
+		}
 	}
 
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} //nolint:goconst
@@ -55,10 +76,12 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 		"Accept",
 		"X-Requested-With",
 		"X-CSRF-Token",
+		"X-Request-ID",
 	}
 	config.ExposeHeaders = []string{
 		"Content-Length",
 		"Content-Type",
+		"X-Request-ID",
 	}
 	config.MaxAge = 12 * time.Hour
 
@@ -68,13 +91,18 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 // RequestSizeLimitMiddleware 请求大小限制.
 func RequestSizeLimitMiddleware(maxSize int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// ContentLength > maxSize 直接拒绝
 		if c.Request.ContentLength > maxSize {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
-				"error": "request body too large", //nolint:goconst
+				"error": "request body too large",
 			})
 
 			return
 		}
+
+		// 对于 chunked transfer encoding（ContentLength == -1），
+		// 使用 http.MaxBytesReader 限制实际读取大小
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
 
 		c.Next()
 	}
@@ -92,20 +120,12 @@ func IPWhitelistMiddleware(whitelist []string) gin.HandlerFunc {
 			return
 		}
 
-		// 检查 IP 是否在白名单中
-		for _, ip := range whitelist {
-			if ip == clientIP {
+		// 检查 IP 是否在白名单中（支持 CIDR 和单个 IP）
+		for _, allowed := range whitelist {
+			if isIPInCIDR(clientIP, allowed) {
 				c.Next()
 
 				return
-			}
-			// 支持 CIDR 格式
-			if strings.Contains(ip, "/") {
-				if isIPInCIDR(clientIP, ip) {
-					c.Next()
-
-					return
-				}
 			}
 		}
 

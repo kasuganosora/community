@@ -430,7 +430,10 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 		// 更新 expire_at
 		if s.Poll.Properties != nil {
 			if expireIn, ok := s.Poll.Properties["expires_in"].(uint64); ok {
-				s.Poll.ExpiresAt = new(time.Now().Add(time.Duration(expireIn) * time.Second)) //nolint:gosec // G115: reviewed and safe
+				// 注意：不能用 new(time.Time)，new 返回的是指向零值 time.Time 的指针（公元 1 年），
+				// 这里需要先计算出未来的时间，再取其地址。
+				expireAt := time.Now().Add(time.Duration(expireIn) * time.Second) //nolint:gosec // G115: reviewed and safe
+				s.Poll.ExpiresAt = &expireAt
 			}
 		}
 
@@ -573,12 +576,18 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 		originStatus := &Status{}
 		err = tx.Where("id = ?", *s.InReplyToId).Preload("Reblog").First(originStatus).Error
 		if err != nil {
-			err = errors.New("reply status not found")
+			// 被回复的 status 不存在时跳过会话关联逻辑，而不是直接返回错误，
+			// 这样可以容忍回复目标被删除的情况；其他数据库错误则向上抛出。
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				err = nil
+			} else {
+				err = errors.Wrap(err, "query reply status error")
+			}
 
 			return err
 		}
 
-		if originStatus.ReblogId != nil && *originStatus.ReblogId > 0 {
+		if originStatus.ReblogId != nil && *originStatus.ReblogId > 0 && originStatus.Reblog != nil {
 			originStatus = originStatus.Reblog
 		}
 
@@ -643,7 +652,6 @@ func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 		Preload("ToAccounts").
 		Preload("Poll").
 		Preload("Poll.Options").
-		Preload("Poll.Options").
 		Preload("Tags").
 		Preload("Reblog").
 		Preload("Reblog.Account").
@@ -654,7 +662,6 @@ func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 		Preload("Reblog.Emojis").
 		Preload("Reblog.ToAccounts").
 		Preload("Reblog.Poll").
-		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Tags")
 }
@@ -845,18 +852,22 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 		}
 	}
 
-	// 创建不存在的tag
+	// 创建不存在的tag（批量插入，GORM 会回填每个 tag 的自增 ID）
 	if len(notExistTagNames) > 0 {
+		newTags := make([]*Tag, 0, len(notExistTagNames))
 		for _, tagName := range notExistTagNames {
-			tag := &Tag{
+			newTags = append(newTags, &Tag{
 				Name: tagName,
-			}
-			err = tx.Create(tag).Error
-			if err != nil {
-				return err
-			}
+			})
+		}
 
-			tagMap[tagName] = tag
+		err = tx.Create(&newTags).Error
+		if err != nil {
+			return err
+		}
+
+		for _, tag := range newTags {
+			tagMap[tag.Name] = tag
 		}
 	}
 
@@ -870,9 +881,15 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 
 	err = tx.Create(&statusTags).Error
 
-	// 刷新tag的使用次数
-	for _, tag := range tagMap {
-		err = tx.Model(tag).UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error
+	// 批量刷新 tag 的使用次数，避免对每个 tag 单独 UPDATE 造成的 N+1 查询。
+	if len(tagMap) > 0 {
+		tagIds := make([]uint64, 0, len(tagMap))
+		for _, tag := range tagMap {
+			tagIds = append(tagIds, tag.Id)
+		}
+
+		err = tx.Model(&Tag{}).Where("id IN ?", tagIds).
+			UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error
 		if err != nil {
 			return err
 		}
@@ -935,20 +952,33 @@ func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool
 
 	accounts := make([]*Account, 0)
 
-	for domain, userNames := range domainAccountNames {
-		_accounts := make([]*Account, 0)
+	// 收集本地用户名和远程 (domain -> 用户名) 映射后，按最多两次查询批量获取，
+	// 避免在大量 @ 提及时出现 N+1 查询。
+	localNames := domainAccountNames[""]
 
-		if domain == "" {
-			err = tx.Where("username IN ?", userNames).Where("domain is null").Find(&_accounts).Error
-		} else {
-			err = tx.Where("username IN ?", userNames).Where("domain = ?", domain).Find(&_accounts).Error
-		}
-
+	if len(localNames) > 0 {
+		localAccounts := make([]*Account, 0)
+		err = tx.Where("username IN ?", localNames).Where("domain is null").Find(&localAccounts).Error
 		if err != nil {
 			return err
 		}
 
-		accounts = append(accounts, _accounts...)
+		accounts = append(accounts, localAccounts...)
+	}
+
+	// 远程账号：使用 (username, domain) 组合查询。
+	for domain, userNames := range domainAccountNames {
+		if domain == "" {
+			continue
+		}
+
+		remoteAccounts := make([]*Account, 0)
+		err = tx.Where("username IN ?", userNames).Where("domain = ?", domain).Find(&remoteAccounts).Error
+		if err != nil {
+			return err
+		}
+
+		accounts = append(accounts, remoteAccounts...)
 	}
 
 	if len(accounts) == 0 {
@@ -1036,7 +1066,8 @@ func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
 }
 
 func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
-	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error; err != nil {
+	// 使用 if(...) 防止 favorites_count 无符号下溢（uint64 减到负数会回绕成巨大值）。
+	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("if(favourites_count > 0, favourites_count - ?, 0)", 1)).Error; err != nil {
 		return
 	}
 

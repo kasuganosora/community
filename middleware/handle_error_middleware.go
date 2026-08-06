@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/log"
 )
 
 func HandleErrorsMiddleware() gin.HandlerFunc {
@@ -16,15 +17,16 @@ func HandleErrorsMiddleware() gin.HandlerFunc {
 		}
 
 		ret := gin.H{
-			"error": "internal server error", //nolint:goconst
+			"error": "internal server error",
 		}
 
-		if config.C.DevMode == "true" { //nolint:goconst
+		if config.C.DevMode == "true" {
 			ret["error"] = lastError.Error()
 			ret["stack"] = fmt.Sprintf("%+v", lastError.Err)
 		}
 
-		fmt.Printf("%+v", lastError.Err)
+		// 使用结构化日志记录错误，而非 fmt.Printf
+		log.Error("Request error: %+v", lastError.Err)
 
 		if c.Writer.Written() {
 			return

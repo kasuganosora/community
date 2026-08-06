@@ -18,8 +18,10 @@ type WebhookHandler struct {
 
 // 事务ID幂等性缓存.
 var (
-	processedTxns   = make(map[string]time.Time)
-	processedTxnsMu sync.Mutex
+	processedTxns      = make(map[string]time.Time)
+	processedTxnsMu    sync.Mutex
+	lastTxnCleanup     time.Time
+	txnCleanupInterval = 10 * time.Minute
 )
 
 // isProcessedTxn 检查事务是否已处理（并标记为已处理）.
@@ -27,12 +29,19 @@ func isProcessedTxn(txnID string) bool {
 	processedTxnsMu.Lock()
 	defer processedTxnsMu.Unlock()
 
-	// 清理超过1小时的旧条目
 	now := time.Now()
-	for k, v := range processedTxns {
-		if now.Sub(v) > time.Hour {
-			delete(processedTxns, k)
+
+	// Only run the full cleanup sweep periodically instead of on every call,
+	// to avoid O(n) overhead per request (mitigates performance degradation
+	// and potential DoS when the map grows large).
+	if now.Sub(lastTxnCleanup) > txnCleanupInterval {
+		for k, v := range processedTxns {
+			if now.Sub(v) > time.Hour {
+				delete(processedTxns, k)
+			}
 		}
+
+		lastTxnCleanup = now
 	}
 
 	if _, ok := processedTxns[txnID]; ok {

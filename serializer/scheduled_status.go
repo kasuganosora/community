@@ -96,6 +96,9 @@ func ToScheduledStatus(status *models.Status) (ret *ScheduledStatus) {
 }
 
 func ToScheduledStatuses(statuses []*models.Status) (ret []*ScheduledStatus) {
+	if len(statuses) == 0 {
+		return nil
+	}
 	ret = make([]*ScheduledStatus, 0, len(statuses))
 	for _, status := range statuses {
 		ret = append(ret, ToScheduledStatus(status))

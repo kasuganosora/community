@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -11,18 +12,88 @@ import (
 type MigrateMatrixTablesScript struct{}
 
 func (MigrateMatrixTablesScript) Up(db *gorm.DB) (err error) {
-	return MigrateMatrixTables()
+	// 注意：必须使用传入的 db（可能是事务），而非全局 db.GetDB()，
+	// 否则 migrate.Up() 中的事务包裹将无法回滚。
+	log.Info("Running Matrix tables migration...")
+
+	// XML (sqlexec) 模式不支持 MySQL 特有的 DDL 语法（ENGINE=InnoDB、COMMENT 等），
+	// 跳过此 MySQL 特定脚本。
+	if database.IsXmlMode() {
+		log.Debug("Skip Matrix tables migration in XML mode")
+		return nil
+	}
+
+	err = db.Exec(matrixTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to run Matrix tables migration: %v", err)
+
+		return err
+	}
+
+	log.Info("Matrix tables migration completed successfully")
+
+	return nil
 }
 
 func (MigrateMatrixTablesScript) Down(db *gorm.DB) (err error) {
-	return DropMatrixTables()
+	// 注意：必须使用传入的 db（可能是事务），而非全局 db.GetDB()。
+	// XML (sqlexec) 模式下 Up 被跳过，Down 也应跳过。
+	if database.IsXmlMode() {
+		return nil
+	}
+
+	return db.Exec(`
+		DROP TABLE IF EXISTS matrix_messages;
+		DROP TABLE IF EXISTS matrix_rooms;
+		DROP TABLE IF EXISTS matrix_users;
+	`).Error
 }
 
-// MigrateMatrixTables Matrix 表迁移.
+// MigrateMatrixTables Matrix 表迁移（使用全局 DB 句柄，供非迁移框架场景调用）.
 func MigrateMatrixTables() error {
 	log.Info("Running Matrix tables migration...")
 
-	sql := `
+	// XML (sqlexec) 模式不支持 MySQL 特有的 DDL 语法（ENGINE=InnoDB、COMMENT 等）。
+	if database.IsXmlMode() {
+		log.Debug("Skip Matrix tables migration in XML mode")
+		return nil
+	}
+
+	err := db.GetDB().Exec(matrixTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to run Matrix tables migration: %v", err)
+
+		return err
+	}
+
+	log.Info("Matrix tables migration completed successfully")
+
+	return nil
+}
+
+// DropMatrixTables 删除 Matrix 表（用于回滚，使用全局 DB 句柄）.
+func DropMatrixTables() error {
+	log.Info("Dropping Matrix tables...")
+
+	err := db.GetDB().Exec(`
+		DROP TABLE IF EXISTS matrix_messages;
+		DROP TABLE IF EXISTS matrix_rooms;
+		DROP TABLE IF EXISTS matrix_users;
+	`).Error
+	if err != nil {
+		log.Error("Failed to drop Matrix tables: %v", err)
+
+		return err
+	}
+
+	log.Info("Matrix tables dropped successfully")
+
+	return nil
+}
+
+// matrixTablesSQL is the shared SQL for Matrix mapping table migration.
+// All statements use CREATE TABLE IF NOT EXISTS for idempotency.
+const matrixTablesSQL = `
 	-- 创建 matrix_users 表
 	CREATE TABLE IF NOT EXISTS matrix_users (
 		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -83,37 +154,3 @@ func MigrateMatrixTables() error {
 		INDEX idx_created_at (created_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Matrix消息映射表';
 	`
-
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to run Matrix tables migration: %v", err)
-
-		return err
-	}
-
-	log.Info("Matrix tables migration completed successfully")
-
-	return nil
-}
-
-// DropMatrixTables 删除 Matrix 表（用于回滚）.
-func DropMatrixTables() error {
-	log.Info("Dropping Matrix tables...")
-
-	sql := `
-		DROP TABLE IF EXISTS matrix_messages;
-		DROP TABLE IF EXISTS matrix_rooms;
-		DROP TABLE IF EXISTS matrix_users;
-	`
-
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to drop Matrix tables: %v", err)
-
-		return err
-	}
-
-	log.Info("Matrix tables dropped successfully")
-
-	return nil
-}

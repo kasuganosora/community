@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -13,7 +14,27 @@ import (
 type MigrateMediaTablesScript struct{}
 
 func (MigrateMediaTablesScript) Up(db *gorm.DB) (err error) {
-	return MigrateMediaTables()
+	// 注意：必须使用传入的 db（可能是事务），而非全局 db.GetDB()，
+	// 否则 migrate.Up() 中的事务包裹将无法回滚。
+	log.Info("Running media tables migration...")
+
+	// XML (sqlexec) 模式不支持 ALTER TABLE（添加列）以及 MySQL 特有的
+	// FULLTEXT INDEX 语法，跳过此 MySQL 特定脚本。
+	if database.IsXmlMode() {
+		log.Debug("Skip media tables migration in XML mode")
+		return nil
+	}
+
+	err = db.Exec(mediaTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to run media tables migration: %v", err)
+
+		return err
+	}
+
+	log.Info("Media tables migration completed successfully")
+
+	return nil
 }
 
 func (MigrateMediaTablesScript) Down(db *gorm.DB) (err error) {
@@ -22,11 +43,31 @@ func (MigrateMediaTablesScript) Down(db *gorm.DB) (err error) {
 	return nil
 }
 
-// MigrateMediaTables 媒体表迁移.
+// MigrateMediaTables 媒体表迁移（使用全局 DB 句柄，供非迁移框架场景调用）.
 func MigrateMediaTables() error {
 	log.Info("Running media tables migration...")
 
-	sql := `
+	// XML (sqlexec) 模式不支持 ALTER TABLE 以及 MySQL 特有的 FULLTEXT INDEX 语法。
+	if database.IsXmlMode() {
+		log.Debug("Skip media tables migration in XML mode")
+		return nil
+	}
+
+	err := db.GetDB().Exec(mediaTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to run media tables migration: %v", err)
+
+		return err
+	}
+
+	log.Info("Media tables migration completed successfully")
+
+	return nil
+}
+
+// mediaTablesSQL is the shared SQL for media/index migration.
+// All statements use IF NOT EXISTS for idempotency.
+const mediaTablesSQL = `
 	-- 为 media_attachments 表添加索引
 	CREATE INDEX IF NOT EXISTS idx_media_attachments_account_id ON media_attachments(account_id);
 	CREATE INDEX IF NOT EXISTS idx_media_attachments_status_id ON media_attachments(status_id);
@@ -89,21 +130,15 @@ func MigrateMediaTables() error {
 	CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account_id ON push_subscriptions(account_id);
 	`
 
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to run media tables migration: %v", err)
-
-		return err
-	}
-
-	log.Info("Media tables migration completed successfully")
-
-	return nil
-}
-
 // CreateSearchIndexes 创建搜索相关索引.
 func CreateSearchIndexes() error {
 	log.Info("Creating search indexes...")
+
+	// XML (sqlexec) 模式不支持 CREATE INDEX ... DESC 等 MySQL/PG 特定语法。
+	if database.IsXmlMode() {
+		log.Debug("Skip CreateSearchIndexes in XML mode")
+		return nil
+	}
 
 	// 这些索引主要是为 Meilisearch 准备的数据查询优化
 	sql := `
@@ -131,7 +166,14 @@ func CreateSearchIndexes() error {
 }
 
 // OptimizeTables 优化数据库表.
+// 注意：OPTIMIZE TABLE 是 MySQL 特定命令，在 SQLite/XML 模式下跳过.
 func OptimizeTables() error {
+	if database.IsXmlMode() {
+		log.Debug("Skip OptimizeTables in XML mode")
+
+		return nil
+	}
+
 	log.Info("Optimizing database tables...")
 
 	tables := []string{
@@ -148,8 +190,9 @@ func OptimizeTables() error {
 		"notifications",
 	}
 
+	// 表名来自硬编码常量列表（非用户输入），不存在 SQL 注入风险。
 	for _, table := range tables {
-		sql := "OPTIMIZE TABLE " + table
+		sql := "OPTIMIZE TABLE `" + table + "`"
 		err := db.GetDB().Exec(sql).Error
 		if err != nil {
 			log.Warn("Failed to optimize table %s: %v", table, err)

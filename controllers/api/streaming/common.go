@@ -151,7 +151,13 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
-	flusher, _ := c.Writer.(http.Flusher)
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.AbortWithStatusJSON(500, gin.H{"error": "streaming not supported"})
+
+		return
+	}
+
 	flusher.Flush()
 
 	for {

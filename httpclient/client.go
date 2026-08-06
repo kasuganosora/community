@@ -252,11 +252,13 @@ func (r *Request) Do() (resp *Response, err error) {
 		req.Header = r.header.Clone()
 		req.URL.RawQuery = r.urlParams.Encode()
 
-		if r.timeout > 0 {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+		var cancel context.CancelFunc
 
+		if r.timeout > 0 {
+			var ctx context.Context
+
+			ctx, cancel = context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 			req = req.WithContext(ctx)
-			defer cancel()
 		}
 
 		var resp1 *http.Response
@@ -268,6 +270,10 @@ func (r *Request) Do() (resp *Response, err error) {
 			}
 
 			if resp.StatusOk() {
+				if cancel != nil {
+					cancel()
+				}
+
 				return resp, err
 			}
 
@@ -278,6 +284,12 @@ func (r *Request) Do() (resp *Response, err error) {
 
 		if resp1 != nil {
 			_ = resp1.Body.Close()
+		}
+
+		// Release the timeout context immediately so it does not
+		// leak a timer goroutine on every retry iteration.
+		if cancel != nil {
+			cancel()
 		}
 
 		err = errors.WithMessagef(err, "try fetch %s %s %d times, error %+v", r.method, req.URL.String(), i, err)
@@ -302,7 +314,14 @@ func (resp *Response) GetBodyData() (data []byte, err error) {
 		return resp.BodyData, nil
 	}
 
+	if resp.Response == nil || resp.Body == nil {
+		return nil, errors.New("response body is not available")
+	}
+
 	data, err = io.ReadAll(resp.Body)
+	// Always close the underlying body to release the connection back to the pool.
+	_ = resp.Body.Close()
+
 	if err != nil {
 		err = errors.WithStack(err)
 
@@ -359,4 +378,14 @@ func (resp *Response) String() (s string, err error) {
 
 func (resp *Response) StatusOk() bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// Close releases the underlying HTTP response body.
+// It is safe to call multiple times. After GetBodyData() has been called
+// the body is already closed and this is a no-op. Callers that only inspect
+// headers should call Close() to avoid leaking the connection.
+func (resp *Response) Close() {
+	if resp != nil && resp.Response != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 }

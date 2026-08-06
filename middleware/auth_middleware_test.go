@@ -51,18 +51,16 @@ func TestAuthMiddleware(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
-		c.Request.Header.Set("Authorization", "Short")                // Less than 6 characters
+		c.Request.Header.Set("Authorization", "Short")                // Not a Bearer token
 
 		handler := AuthMiddleware()
-		// This will panic in the actual middleware due to slice bounds
-		// We need to recover from it
-		defer func() {
-			_ = recover()
-		}()
 
-		handler(c)
-		// If we get here without panic, check if aborted
-		// Note: The actual middleware panics, this tests the expectation
+		// Should not panic and should reject with 401
+		assert.NotPanics(t, func() {
+			handler(c)
+		})
+		assert.True(t, c.IsAborted())
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
 

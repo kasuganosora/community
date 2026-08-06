@@ -79,7 +79,7 @@ func GetUserMeta(db *gorm.DB, userId uint64, key string, outValue any) (err erro
 			return
 		}
 
-		err = errors.Wrap(err, "SaveUserMeta")
+		err = errors.Wrap(err, "GetUserMeta")
 
 		return
 	}
@@ -90,7 +90,7 @@ func GetUserMeta(db *gorm.DB, userId uint64, key string, outValue any) (err erro
 
 	err = json.Unmarshal([]byte(meta.Value), outValue)
 	if err != nil {
-		err = errors.Wrap(err, "SaveUserMeta")
+		err = errors.Wrap(err, "GetUserMeta")
 
 		return
 	}

@@ -1,6 +1,12 @@
 package account
 
 import (
+	"crypto/subtle"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
@@ -12,10 +18,6 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type RecoverPasswordVerifyEmailRequest struct {
@@ -174,7 +176,8 @@ func RecoverPassword(c *gin.Context) {
 		return
 	}
 
-	if token.Token != req.Token {
+	// 使用常量时间比较，防止时序攻击
+	if subtle.ConstantTimeCompare([]byte(token.Token), []byte(req.Token)) != 1 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
 
 		return

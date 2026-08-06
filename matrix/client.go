@@ -261,6 +261,7 @@ func doMatrixRequest(httpClient *httpclient.Client, homeserverURL, asToken, meth
 	if err != nil {
 		return errors.Wrap(err, "Matrix API request failed")
 	}
+	defer resp.Close()
 
 	// 检查错误响应
 	if !resp.StatusOk() {

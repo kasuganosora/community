@@ -70,19 +70,30 @@ func Streaming(c *gin.Context) {
 	}
 	defer func() { _ = ws.Close() }()
 
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
 	closeChan := make(chan bool, 1)
 	readChan := make(chan []byte)
 
 	go func() {
+		defer close(readChan)
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
-				closeChan <- true
+				select {
+				case closeChan <- true:
+				case <-ctx.Done():
+				}
 
 				return
 			}
 
-			readChan <- msg
+			select {
+			case readChan <- msg:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -99,11 +110,13 @@ func Streaming(c *gin.Context) {
 	for {
 		select {
 		case <-closeChan:
-			_ = ws.Close()
-
 			return
 
-		case msg := <-readChan:
+		case msg, ok := <-readChan:
+			if !ok {
+				return
+			}
+
 			redisPubSub, err = processUserMsg(ws, msg, account, redisPubSub)
 			if err != nil {
 				continue
@@ -261,6 +274,12 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 		}
 
 		// Check ownership or follow relationship
+		if account == nil {
+			err = &StreamingErrorResponse{Err: "need login"}
+
+			return channelName, err
+		}
+
 		if ls.AccountId != account.Id {
 			var followCount int64
 			db.GetDB().Model(&models.ListFollowAccount{}).

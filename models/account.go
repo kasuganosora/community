@@ -85,6 +85,13 @@ func (a *Account) AfterCreate(tx *gorm.DB) (err error) {
 		return
 	}
 
+	// 记录不存在则继续创建；其他真实数据库错误直接返回，避免掩盖底层错误。
+	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		err = result.Error
+
+		return
+	}
+
 	err = tx.Create(a.Extra).Error
 
 	return
@@ -226,16 +233,28 @@ func FindAccountByAccountTag(db *gorm.DB, accountsStr []string, limit int) (ret 
 	remoteUsers := make([]string, 0)
 
 	// 分类那些是本地账号，那些是远程账号
+	// 注意：MatchAccountTags 返回的标签带有前导 "@"（例如 "@user" 或 "@user@domain"），
+	// 这里需要先去掉前导 "@" 再按 "@" 拆分。
 	for _, accountStr := range accountsStr {
+		accountStr = strings.TrimPrefix(accountStr, "@")
+		if accountStr == "" {
+			continue
+		}
+
 		parts := strings.Split(accountStr, "@")
-		if len(parts) > 2 {
+		// 去掉前导 "@" 后，合法的格式只能是 "user" 或 "user@domain"
+		if len(parts) == 0 || len(parts) > 2 {
 			continue
 		}
 
 		if len(parts) == 1 {
-			localUsers = append(localUsers, parts[0])
+			if parts[0] != "" {
+				localUsers = append(localUsers, parts[0])
+			}
 		} else {
-			remoteUsers = append(remoteUsers, parts[0]+"@"+parts[1])
+			if parts[0] != "" && parts[1] != "" {
+				remoteUsers = append(remoteUsers, parts[0]+"@"+parts[1])
+			}
 		}
 	}
 

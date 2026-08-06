@@ -1,7 +1,12 @@
 package middleware
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestIsIPInCIDR(t *testing.T) {
@@ -129,5 +134,110 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		if middleware == nil {
 			t.Error("expected middleware to be created")
 		}
+	})
+}
+
+func TestCORSMiddleware(t *testing.T) {
+	t.Run("returns gin handler for empty origins", func(t *testing.T) {
+		handler := CORSMiddleware(nil)
+		assert.NotNil(t, handler)
+	})
+
+	t.Run("returns gin handler for specific origins", func(t *testing.T) {
+		handler := CORSMiddleware([]string{"https://example.com"})
+		assert.NotNil(t, handler)
+	})
+
+	t.Run("accepts wildcard origin without panic", func(t *testing.T) {
+		// Passing ["*"] should be normalized internally and not panic.
+		assert.NotPanics(t, func() {
+			handler := CORSMiddleware([]string{"*"})
+			assert.NotNil(t, handler)
+		})
+	})
+
+	t.Run("sets CORS allow-origin header for allowed origin", func(t *testing.T) {
+		router := gin.New()
+		router.Use(CORSMiddleware([]string{"https://app.example.com"}))
+		router.GET("/ping", func(c *gin.Context) {
+			c.String(http.StatusOK, "pong")
+		})
+
+		// The request host differs from the Origin so it is treated as a CORS request.
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil) //nolint:noctx
+		req.Host = "api.server.local"
+		req.Header.Set("Origin", "https://app.example.com")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "https://app.example.com", w.Header().Get("Access-Control-Allow-Origin"))
+	})
+
+	t.Run("rejects disallowed origin with 403", func(t *testing.T) {
+		router := gin.New()
+		router.Use(CORSMiddleware([]string{"https://app.example.com"}))
+		router.GET("/ping", func(c *gin.Context) {
+			c.String(http.StatusOK, "pong")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil) //nolint:noctx
+		req.Host = "api.server.local"
+		req.Header.Set("Origin", "https://evil.example.com")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+	})
+}
+
+func TestSecurityHeadersMiddleware(t *testing.T) {
+	t.Run("sets standard security headers", func(t *testing.T) {
+		router := gin.New()
+		router.Use(SecurityHeadersMiddleware())
+		router.GET("/test", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+		assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
+		assert.Equal(t, "0", w.Header().Get("X-XSS-Protection"))
+		assert.NotEmpty(t, w.Header().Get("Content-Security-Policy"))
+		assert.NotEmpty(t, w.Header().Get("Referrer-Policy"))
+		assert.NotEmpty(t, w.Header().Get("Permissions-Policy"))
+	})
+
+	t.Run("sets cross-origin isolation headers", func(t *testing.T) {
+		router := gin.New()
+		router.Use(SecurityHeadersMiddleware())
+		router.GET("/test", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, "same-origin", w.Header().Get("Cross-Origin-Opener-Policy"))
+		assert.Equal(t, "same-origin", w.Header().Get("Cross-Origin-Resource-Policy"))
+	})
+
+	t.Run("does not set HSTS over plain HTTP", func(t *testing.T) {
+		router := gin.New()
+		router.Use(SecurityHeadersMiddleware())
+		router.GET("/test", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil) //nolint:noctx
+		router.ServeHTTP(w, req)
+
+		assert.Empty(t, w.Header().Get("Strict-Transport-Security"))
 	})
 }

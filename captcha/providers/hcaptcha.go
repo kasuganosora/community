@@ -82,6 +82,7 @@ func (h *HCaptchaProvider) Verify(ctx context.Context, response string, remoteIP
 	if err != nil {
 		return nil, fmt.Errorf("hcaptcha verify request failed: %w", err)
 	}
+	defer resp.Close()
 
 	var result hcaptchaResponse
 	if err := resp.Json(&result); err != nil {

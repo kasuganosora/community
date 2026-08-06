@@ -63,6 +63,20 @@ func SendText(to string, cc string, bcc string, subject string, textBody string,
 	}
 
 	err = useDrive.SendMail(to, cc, mail)
+	if err != nil {
+		return err
+	}
+
+	if bcc != "" {
+		bccMail := &types.Mail{
+			To:       bcc,
+			Subject:  subject,
+			Body:     body,
+			TextBody: textBody,
+		}
+
+		err = useDrive.SendMail(bcc, "", bccMail)
+	}
 
 	return
 }

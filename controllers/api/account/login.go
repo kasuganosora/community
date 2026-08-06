@@ -7,8 +7,6 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
-	"github.com/pkg/errors"
-	"gorm.io/gorm"
 	"net/http"
 	"strconv"
 )
@@ -43,14 +41,8 @@ func Login(c *gin.Context) {
 
 	err := db.GetDB().Where("username = ? or email_hash = ?", req.Username, emailHash).First(user).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user name or password error"})
-
-			return
-		}
-
-		log.ErrorV(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		// 不泄露用户是否存在：无论用户不存在还是密码错误，都返回相同的错误信息和状态码
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
 	}
@@ -59,15 +51,14 @@ func Login(c *gin.Context) {
 
 	err = db.GetDB().Where("user_id = ?", user.Id).First(usersd).Error
 	if err != nil {
-		err = errors.WithMessagef(err, "UserSecretData NotFound user_id: %d", user.Id)
-		log.ErrorV(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user record"})
+		// 不泄露用户敏感数据是否存在，返回与认证失败相同的错误
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
 	}
 
 	if models.CompareHashAndPassword(usersd.Password, req.Password, usersd.Salt) != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
 	}
@@ -110,10 +101,13 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	log.Debug("User id %d, token is %s", user.Id, rawTokenStr)
+	log.Debug("User id %d logged in successfully", user.Id)
 
 	// 设置 Cookie
+	// Secure 标志根据请求是否为 HTTPS 动态判断
+	// SameSite=Lax 防止跨站请求伪造（CSRF）
 	secure := c.Request.TLS != nil
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("app-token", rawTokenStr, sessionExpire, "/", "", secure, true)
 	// 返回首页
 	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr}) //nolint:goconst

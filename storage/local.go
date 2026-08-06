@@ -12,10 +12,20 @@ type LocalStorage struct {
 	Root string
 }
 
+// hasPrefixPath 验证 path 是否在 root 目录内.
+// 使用 root + 分隔符前缀检查，避免 "uploadsfoo" 被误判为 "uploads" 的子路径.
+func hasPrefixPath(path, root string) bool {
+	if path == root {
+		return true
+	}
+
+	return strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
 func (l *LocalStorage) Exists(path string) bool {
 	path = filepath.Clean(filepath.Join(l.Root, path))
 	// 判断路径是否合法
-	if !strings.HasPrefix(path, l.Root) {
+	if !hasPrefixPath(path, l.Root) {
 		return false
 	}
 
@@ -44,7 +54,7 @@ func (l *LocalStorage) Open(path string) (reader *bytes.Reader, err error) {
 func (l *LocalStorage) Save(path string, data []byte) (savePath string, err error) {
 	path = filepath.Clean(filepath.Join(l.Root, path))
 	// 判断路径是否合法
-	if !strings.HasPrefix(path, l.Root) {
+	if !hasPrefixPath(path, l.Root) {
 		err = os.ErrInvalid
 
 		return savePath, err
@@ -84,7 +94,7 @@ func (l *LocalStorage) Save(path string, data []byte) (savePath string, err erro
 func (l *LocalStorage) Delete(path string) (err error) {
 	path = filepath.Clean(filepath.Join(l.Root, path))
 	// 判断路径是否合法
-	if !strings.HasPrefix(path, l.Root) {
+	if !hasPrefixPath(path, l.Root) {
 		return os.ErrInvalid
 	}
 

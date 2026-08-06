@@ -101,16 +101,9 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 		return
 	}
 
-	if errors.As(err, &apierrors.HttpError{}) {
-		c.AbortWithStatusJSON(func() *apierrors.HttpError {
-			target := &apierrors.HttpError{}
-			_ = errors.As(err, &target)
-			return target
-		}().HttpCode, func() *apierrors.HttpError {
-			target := &apierrors.HttpError{}
-			_ = errors.As(err, &target)
-			return target
-		}().Json())
+	var httpError *apierrors.HttpError
+	if errors.As(err, &httpError) {
+		c.AbortWithStatusJSON(httpError.HttpCode, httpError.Json())
 		AbortPanic()
 	}
 

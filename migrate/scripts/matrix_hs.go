@@ -2,6 +2,8 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
 
@@ -12,6 +14,13 @@ import (
 type MigrateMatrixHSScript struct{}
 
 func (MigrateMatrixHSScript) Up(db *gorm.DB) (err error) {
+	// XML (sqlexec) 模式不支持 MySQL 特有的 DDL 语法（ENGINE=InnoDB、JSON 类型等），
+	// 跳过此 MySQL 特定脚本。
+	if database.IsXmlMode() {
+		log.Debug("Skip Matrix Homeserver tables migration in XML mode")
+		return nil
+	}
+
 	for _, sql := range GetMatrixHSSQL() {
 		err = db.Exec(sql).Error
 		if err != nil {
@@ -23,12 +32,19 @@ func (MigrateMatrixHSScript) Up(db *gorm.DB) (err error) {
 }
 
 func (MigrateMatrixHSScript) Down(db *gorm.DB) (err error) {
+	// 表名是硬编码常量（非用户输入），不存在 SQL 注入风险。
+	// 使用反引号引用标识符以避免与保留字冲突。
+	// XML (sqlexec) 模式下 Up 被跳过，Down 也应跳过。
+	if database.IsXmlMode() {
+		return nil
+	}
+
 	tables := []string{
-		"matrix_cross_signing_keys", "matrix_one_time_keys", "matrix_device_keys",
-		"matrix_room_aliases", "matrix_presence", "matrix_filters",
-		"matrix_typing", "matrix_account_data", "matrix_receipts",
-		"matrix_to_device_messages", "matrix_user_sessions", "matrix_room_members",
-		"matrix_room_state", "matrix_rooms_hs", "matrix_events",
+		"`matrix_cross_signing_keys`", "`matrix_one_time_keys`", "`matrix_device_keys`",
+		"`matrix_room_aliases`", "`matrix_presence`", "`matrix_filters`",
+		"`matrix_typing`", "`matrix_account_data`", "`matrix_receipts`",
+		"`matrix_to_device_messages`", "`matrix_user_sessions`", "`matrix_room_members`",
+		"`matrix_room_state`", "`matrix_rooms_hs`", "`matrix_events`",
 	}
 	for _, table := range tables {
 		err = db.Exec("DROP TABLE IF EXISTS " + table).Error

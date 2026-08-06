@@ -3,6 +3,7 @@ package models
 import (
 	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"github.com/kasuganosora/community/db"
@@ -51,7 +52,11 @@ func (a AuthTokenData) GetTokenStr(key string) string {
 
 	rawStr := randStr + string(rawData)
 	// 使用aes加密
-	encryptedStr, _ := utils.AesEncrypt([]byte(rawStr), key)
+	encryptedStr, err := utils.AesEncrypt([]byte(rawStr), key)
+	if err != nil {
+		// 加密失败时返回空字符串，避免生成结构错误、可被利用的 token。
+		return ""
+	}
 
 	rawResult := randStr + encryptedStr
 	// 把rawResult 进行 m5加密, 用于校验
@@ -77,11 +82,11 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 	// 取出加密后的字符串
 	encryptedStr := tokenStr[16:]
 
-	// 校验 token
+	// 校验 token（使用常量时间比较，防止时序攻击）
 	md5Bytes := md5.Sum([]byte(randStr + encryptedStr)) //nolint:gosec // G401: reviewed and safe
 
 	checkMd5Str := hex.EncodeToString(md5Bytes[:])[:8]
-	if md5Str != checkMd5Str[:8] {
+	if subtle.ConstantTimeCompare([]byte(md5Str), []byte(checkMd5Str[:8])) != 1 {
 		err = errors.New("invalid token check code")
 
 		return tokenData, err
@@ -98,8 +103,8 @@ func GetAuthTokenData(tokenStr string, encKey string) (tokenData *AuthTokenData,
 	// 取出随机字符串
 	innerRandStr := string(decryptedStr[:8])
 
-	// 判断随机字符串是否正确
-	if innerRandStr != randStr {
+	// 判断随机字符串是否正确（使用常量时间比较，防止时序攻击）
+	if subtle.ConstantTimeCompare([]byte(innerRandStr), []byte(randStr)) != 1 {
 		err = errors.New("invalid token rand str")
 
 		return tokenData, err

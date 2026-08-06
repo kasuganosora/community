@@ -234,3 +234,28 @@ func TestDefaultConstants(t *testing.T) {
 	assert.Equal(t, "Community/1.0", DefaultUA)
 	assert.Equal(t, 0, DefaultTryTimes)
 }
+
+func TestResponse_Close(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	client := NewNoProxyClient()
+	req := client.NewRequest("GET", server.URL)
+	req.SetTimeout(5)
+
+	resp, err := req.Do()
+	require.NoError(t, err)
+
+	// Calling Close should not panic and should be safe to call multiple times.
+	resp.Close()
+	resp.Close() // idempotent
+}
+
+func TestResponse_Close_NilSafe(t *testing.T) {
+	// Calling Close on a nil response should not panic.
+	var resp *Response
+	resp.Close()
+}

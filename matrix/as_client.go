@@ -1,6 +1,7 @@
 package matrix
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/url"
 	"strings"
@@ -42,7 +43,14 @@ func NewASClientWithConfig(cfg *Config) *ASClient {
 
 // ValidateHSToken 验证来自 HS 的 Token.
 func (c *ASClient) ValidateHSToken(token string) bool {
-	return token == c.hsToken
+	// If no HS token is configured, reject all requests to avoid accepting
+	// unauthenticated traffic when the bridge is not properly set up.
+	if c.hsToken == "" {
+		return false
+	}
+
+	// Use constant-time comparison to mitigate timing attacks.
+	return subtle.ConstantTimeCompare([]byte(token), []byte(c.hsToken)) == 1
 }
 
 // PingHS 测试与 Homeserver 的连接.
@@ -57,6 +65,7 @@ func (c *ASClient) PingHS() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to connect to Homeserver")
 	}
+	defer resp.Close()
 
 	if !resp.StatusOk() {
 		return fmt.Errorf("homeserver returned status %d", resp.StatusCode)
@@ -106,7 +115,7 @@ func (c *ASClient) CreateDirectRoom(creator, invitee string, isDirect bool) (*Ro
 			{
 				Type:     EventTypeRoomCreate,
 				Content:  map[string]any{"creator": creator, "is_direct": isDirect},
-				StateKey: new(""),
+				StateKey: ptrTo(""),
 			},
 		},
 		CreationContent: map[string]any{
@@ -331,4 +340,10 @@ func (c *ASClient) SyncRoomEvents(asUserID, since string, timeout int) (*SyncRes
 // doASRequest 执行 AS API 请求（复用共享的 HTTP 请求逻辑）.
 func (c *ASClient) doASRequest(method, path string, body any, result any) error {
 	return doMatrixRequest(c.httpClient, c.homeserverURL, c.asToken, method, path, body, result)
+}
+
+// ptrTo returns a pointer to the given string value.
+// This is a convenience helper for creating *string fields (e.g. StateKey).
+func ptrTo(s string) *string {
+	return &s
 }

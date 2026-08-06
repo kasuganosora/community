@@ -128,6 +128,10 @@ func setupServer() *gin.Engine {
 	// 设置路由
 	community.SetRouter(app)
 
+	// 限制 multipart 表单的内存缓冲区大小为 8MB，超出部分自动写入磁盘临时文件。
+	// 这防止攻击者通过大体积 multipart 请求耗尽服务器内存（内存 DoS）。
+	app.MaxMultipartMemory = 8 << 20 // 8 MB
+
 	// 健康检查端点
 	app.GET("/health", health.SimpleHealthHandler())
 	app.GET("/health/detailed", health.DetailedHealthHandler())

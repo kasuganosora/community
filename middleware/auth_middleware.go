@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,13 +24,14 @@ func AuthMiddleware() gin.HandlerFunc {
 			authToken, _ = c.Cookie("app-token")
 		} else {
 			// 去掉前缀 Bearer
-			if len(authToken) < 8 || authToken[0:7] != "Bearer " {
+			const bearerPrefix = "Bearer "
+			if !strings.HasPrefix(authToken, bearerPrefix) {
 				returnUnauthorizedAndRemoveCookie(c)
 
 				return
 			}
 
-			authToken = authToken[7:]
+			authToken = strings.TrimPrefix(authToken, bearerPrefix)
 		}
 
 		// 如果token为空，直接跳过 middleware, 交给后面的路由处理,如果需要检查登陆状态的路由，则需要多加一个 CheckAuthMiddleware 中间件
@@ -64,7 +66,8 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if token.Revoke != nil || token.ExpiredAt.Unix() < time.Now().Unix() {
+		// ExpiredAt 为 nil 表示永不过期（见 AuthToken 模型注释），需判空避免空指针 panic
+		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			returnUnauthorizedAndRemoveCookie(c)
 
 			return
@@ -77,6 +80,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
+
+				return
 			}
 
 			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get user error, user id: %d", tokenData.UserId))
@@ -89,6 +94,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
+
+				return
 			}
 
 			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get account error, user id: %d", tokenData.UserId))
@@ -104,6 +111,8 @@ func AuthMiddleware() gin.HandlerFunc {
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					returnUnauthorizedAndRemoveCookie(c)
+
+					return
 				}
 
 				err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get application error, application id: %d", tokenData.ApplicationId))
@@ -128,6 +137,8 @@ func returnUnauthorizedAndRemoveCookie(c *gin.Context) {
 	// Secure 标志根据请求是否为 HTTPS 动态判断
 	secure := c.Request.TLS != nil
 	if _, err := c.Cookie("app-token"); err == nil {
+		// SameSite=Lax 与登录时设置 Cookie 保持一致，防止 CSRF
+		c.SetSameSite(http.SameSiteLaxMode)
 		c.SetCookie("app-token", "", -1, "/", "", secure, true)
 	}
 
@@ -172,7 +183,7 @@ func getTokenWithCache(tokenStr string) (*models.AuthToken, error) {
 		defer cancel()
 
 		cacheKey := "token_cache:" + tokenStr
-		if token.Revoke != nil || (token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
+		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			// 已撤销/过期的 token 缓存为 "revoked"，使用较长 TTL 减少查库
 			_ = redisClient.Set(ctx, cacheKey, "revoked", 10*time.Minute).Err()
 		} else {

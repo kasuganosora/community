@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ func DefaultRateLimiterConfig() RateLimiterConfig {
 		PerUserRPM:  300,
 		PerIPRPM:    600,
 		APILimits: map[string]APILimit{
-			"/api/v1/media":       {RPS: 10, Burst: 20}, // 媒体上传限制 //nolint:goconst //nolint:goconst //nolint:goconst
+			"/api/v1/media":       {RPS: 10, Burst: 20}, // 媒体上传限制 //nolint:goconst
 			"/api/v2/media":       {RPS: 10, Burst: 20},
 			"/_matrix/federation": {RPS: 100, Burst: 200}, // 联邦接口限制
 		},
@@ -96,25 +97,11 @@ func (m *MemoryRateLimiter) AllowN(key string, n int) bool {
 
 // getLimiter 获取或创建限流器.
 func (m *MemoryRateLimiter) getLimiter(key string) *rate.Limiter {
-	m.mu.RLock()
-
-	if entry, ok := m.limiters[key]; ok {
-		entry.lastSeen = time.Now()
-
-		m.mu.RUnlock()
-
-		return entry.limiter
-	}
-
-	m.mu.RUnlock()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Double check
 	if entry, ok := m.limiters[key]; ok {
 		entry.lastSeen = time.Now()
-
 		return entry.limiter
 	}
 
@@ -165,12 +152,8 @@ func (r *RedisRateLimiter) Allow(key string) bool {
 	return r.AllowN(key, 1)
 }
 
-// AllowN 检查是否允许 N 个请求.
-func (r *RedisRateLimiter) AllowN(key string, n int) bool {
-	ctx := context.Background()
-
-	// Redis Lua 脚本实现令牌桶
-	script := `
+// rateLimitScript Redis Lua 脚本实现令牌桶算法（包级常量，避免每次请求重新分配）.
+const rateLimitScript = `
 		local key = KEYS[1]
 		local rate = tonumber(ARGV[1])
 		local capacity = tonumber(ARGV[2])
@@ -204,9 +187,18 @@ func (r *RedisRateLimiter) AllowN(key string, n int) bool {
 		return allowed and 1 or 0
 	`
 
+// AllowN 检查是否允许 N 个请求.
+func (r *RedisRateLimiter) AllowN(key string, n int) bool {
+	// 防御：未配置 Redis 时降级放行
+	if r.client == nil {
+		return true
+	}
+
+	ctx := context.Background()
+
 	now := time.Now().Unix()
 
-	result, err := r.client.Eval(ctx, script, []string{key},
+	result, err := r.client.Eval(ctx, rateLimitScript, []string{key},
 		r.config.GlobalRPS,
 		r.config.GlobalBurst,
 		n,
@@ -218,7 +210,14 @@ func (r *RedisRateLimiter) AllowN(key string, n int) bool {
 		return true // 降级：允许请求
 	}
 
-	return result.(int64) == 1 //nolint:forcetypeassert
+	val, ok := result.(int64)
+	if !ok {
+		log.Error("Redis rate limit unexpected result type: %T", result)
+
+		return true // 降级：允许请求
+	}
+
+	return val == 1
 }
 
 // RateLimitMiddleware 限流中间件.
@@ -273,7 +272,7 @@ func MultiLevelRateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 		// 3. 用户限流（已认证用户）
 		if account, exists := c.Get("account"); exists {
 			var userID string
-			if acct, ok := account.(*models.Account); ok {
+			if acct, ok := account.(*models.Account); ok && acct != nil {
 				userID = strconv.FormatUint(acct.Id, 10)
 			} else {
 				userID = fmt.Sprintf("%v", account)
@@ -334,6 +333,11 @@ func APIRateLimitMiddleware(redisClient *redis.Client, pathPrefix string, rpm in
 func getRateLimitKey(c *gin.Context) string {
 	// 优先使用用户 ID
 	if account, exists := c.Get("account"); exists {
+		if acct, ok := account.(*models.Account); ok && acct != nil {
+			return "user:" + strconv.FormatUint(acct.Id, 10)
+		}
+
+		// 非 *Account 类型（如测试中的 string/int），使用 %v 格式化
 		return fmt.Sprintf("user:%v", account)
 	}
 
@@ -343,7 +347,7 @@ func getRateLimitKey(c *gin.Context) string {
 
 // hasPrefix 检查字符串是否有前缀.
 func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+	return strings.HasPrefix(s, prefix)
 }
 
 // 全局 Redis 客户端单例.

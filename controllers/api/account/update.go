@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"mime/multipart"
+	"net/http"
+	"strings"
 )
 
 type UpdateAccountRequest struct {
@@ -46,6 +48,11 @@ func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {
 			return err
 		}
 
+		// 验证文件内容为图片（防止上传非图片文件作为头像）
+		if err = validateImageFileHeader(avatar[0]); err != nil {
+			return err
+		}
+
 		req.Avatar = avatar[0]
 	}
 
@@ -57,10 +64,39 @@ func (req *UpdateAccountRequest) Bind(c *gin.Context) (err error) {
 			return err
 		}
 
+		// 验证文件内容为图片
+		if err = validateImageFileHeader(header[0]); err != nil {
+			return err
+		}
+
 		req.Header = header[0]
 	}
 
 	return err
+}
+
+// validateImageFileHeader 验证上传的文件是否为图片（基于 magic bytes）.
+// 头像和头图只允许图片类型，防止上传 HTML/SVG/可执行文件等非图片内容.
+func validateImageFileHeader(fh *multipart.FileHeader) error {
+	f, err := fh.Open()
+	if err != nil {
+		return errors.Wrap(err, "failed to open uploaded file for validation")
+	}
+	defer func() { _ = f.Close() }()
+
+	// 读取前 512 字节用于类型检测
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		return errors.Wrap(err, "failed to read file for validation")
+	}
+
+	contentType := http.DetectContentType(buf[:n])
+	if !strings.HasPrefix(contentType, "image/") {
+		return errors.Errorf("invalid file type: avatar/header must be an image (got %s)", contentType)
+	}
+
+	return nil
 }
 
 func UpdateAccount(c *gin.Context) {

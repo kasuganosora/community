@@ -69,6 +69,7 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.Emoji{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.Role{},
 		&models.Rule{},
 		&models.InviteCode{},
 		&models.Follow{},
@@ -106,5 +107,7 @@ func (CreateInitTables) Down(db *gorm.DB) (err error) {
 		&models.Notification{},
 		&models.Report{},
 		&models.Marker{},
+		&models.ProxyFollow{},
+		&models.AccountKey{},
 	)
 }

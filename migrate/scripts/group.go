@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -11,10 +12,35 @@ import (
 type MigrateGroupTablesScript struct{}
 
 func (MigrateGroupTablesScript) Up(db *gorm.DB) (err error) {
-	return MigrateGroupTables()
+	// 注意：必须使用传入的 db（可能是事务），而非全局 db.GetDB()，
+	// 否则 migrate.Up() 中的事务包裹将无法回滚。
+	log.Info("Running Group tables migration...")
+
+	// XML (sqlexec) 模式不支持 MySQL 特有的 DDL 语法（ENGINE=InnoDB、
+	// FOREIGN KEY、COMMENT、ON UPDATE CURRENT_TIMESTAMP 等），跳过此脚本。
+	if database.IsXmlMode() {
+		log.Debug("Skip Group tables migration in XML mode")
+		return nil
+	}
+
+	err = db.Exec(groupTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to migrate Group tables: %v", err)
+
+		return err
+	}
+
+	log.Info("Group tables migration completed successfully")
+
+	return nil
 }
 
 func (MigrateGroupTablesScript) Down(db *gorm.DB) (err error) {
+	// XML (sqlexec) 模式下 Up 被跳过，Down 也应跳过。
+	if database.IsXmlMode() {
+		return nil
+	}
+
 	return db.Exec(`
 		DROP TABLE IF EXISTS contact_requests;
 		DROP TABLE IF EXISTS contacts;
@@ -24,11 +50,32 @@ func (MigrateGroupTablesScript) Down(db *gorm.DB) (err error) {
 	`).Error
 }
 
-// MigrateGroupTables 群组和联系人表迁移.
+// MigrateGroupTables 群组和联系人表迁移（使用全局 DB 句柄，供非迁移框架场景调用）.
 func MigrateGroupTables() error {
 	log.Info("Running Group tables migration...")
 
-	sql := `
+	// XML (sqlexec) 模式不支持 MySQL 特有的 DDL 语法（ENGINE=InnoDB、
+	// FOREIGN KEY、COMMENT、ON UPDATE CURRENT_TIMESTAMP 等）。
+	if database.IsXmlMode() {
+		log.Debug("Skip Group tables migration in XML mode")
+		return nil
+	}
+
+	err := db.GetDB().Exec(groupTablesSQL).Error
+	if err != nil {
+		log.Error("Failed to migrate Group tables: %v", err)
+
+		return err
+	}
+
+	log.Info("Group tables migration completed successfully")
+
+	return nil
+}
+
+// groupTablesSQL is the shared SQL for group/contacts table migration.
+// All statements use CREATE TABLE IF NOT EXISTS for idempotency.
+const groupTablesSQL = `
 -- 创建 groups 表
 CREATE TABLE IF NOT EXISTS groups (
 	id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -143,15 +190,3 @@ CREATE TABLE IF NOT EXISTS contact_requests (
 	FOREIGN KEY (to_account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='好友请求表';
 `
-
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to migrate Group tables: %v", err)
-
-		return err
-	}
-
-	log.Info("Group tables migration completed successfully")
-
-	return nil
-}

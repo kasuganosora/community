@@ -22,7 +22,12 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 			return
 		}
 
-		tokenData := td.(*models.AuthTokenData) //nolint:forcetypeassert
+		tokenData, ok := td.(*models.AuthTokenData)
+		if !ok {
+			returnUnauthorized(c)
+
+			return
+		}
 
 		// 如果是网站登陆的token 则不需要检查scope（除非是admin scope）
 		if tokenData.AuthType == models.AuthTokenTypeWeb {
@@ -37,8 +42,15 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 			}
 
 			if hasAdminScope {
-				user := c.MustGet("user").(*models.User) //nolint:forcetypeassert
-				if !user.IsAdmin {
+				userRaw, exists := c.Get("user")
+				if !exists {
+					returnUnauthorized(c)
+
+					return
+				}
+
+				user, ok := userRaw.(*models.User)
+				if !ok || user == nil || !user.IsAdmin {
 					returnUnauthorized(c)
 
 					return

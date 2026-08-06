@@ -80,6 +80,7 @@ func (c *CloudflareProvider) Verify(ctx context.Context, response string, remote
 	if err != nil {
 		return nil, fmt.Errorf("cloudflare turnstile verify request failed: %w", err)
 	}
+	defer resp.Close()
 
 	var result cloudflareResponse
 	if err := resp.Json(&result); err != nil {

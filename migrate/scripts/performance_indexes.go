@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -13,7 +14,26 @@ import (
 type CreatePerformanceIndexesScript struct{}
 
 func (CreatePerformanceIndexesScript) Up(db *gorm.DB) (err error) {
-	return CreatePerformanceIndexes()
+	// 注意：必须使用传入的 db（可能是事务），而非全局 db.GetDB()，
+	// 否则 migrate.Up() 中的事务包裹将无法回滚。
+	log.Info("Creating performance indexes...")
+
+	// XML (sqlexec) 模式不支持 CREATE INDEX 等原生 DDL，跳过此脚本。
+	if database.IsXmlMode() {
+		log.Debug("Skip performance indexes creation in XML mode")
+		return nil
+	}
+
+	err = db.Exec(performanceIndexesSQL).Error
+	if err != nil {
+		log.Error("Failed to create performance indexes: %v", err)
+
+		return err
+	}
+
+	log.Info("Performance indexes created successfully")
+
+	return nil
 }
 
 func (CreatePerformanceIndexesScript) Down(db *gorm.DB) (err error) {
@@ -22,11 +42,31 @@ func (CreatePerformanceIndexesScript) Down(db *gorm.DB) (err error) {
 	return nil
 }
 
-// CreatePerformanceIndexes 创建性能优化索引.
+// CreatePerformanceIndexes 创建性能优化索引（使用全局 DB 句柄，供非迁移框架场景调用）.
 func CreatePerformanceIndexes() error {
 	log.Info("Creating performance indexes...")
 
-	sql := `
+	// XML (sqlexec) 模式不支持 CREATE INDEX 等原生 DDL。
+	if database.IsXmlMode() {
+		log.Debug("Skip CreatePerformanceIndexes in XML mode")
+		return nil
+	}
+
+	err := db.GetDB().Exec(performanceIndexesSQL).Error
+	if err != nil {
+		log.Error("Failed to create performance indexes: %v", err)
+
+		return err
+	}
+
+	log.Info("Performance indexes created successfully")
+
+	return nil
+}
+
+// performanceIndexesSQL is the shared SQL for performance index creation.
+// All statements use CREATE INDEX IF NOT EXISTS for idempotency.
+const performanceIndexesSQL = `
 	-- 账户表索引
 	CREATE INDEX IF NOT EXISTS idx_accounts_created_at ON accounts(created_at);
 	CREATE INDEX IF NOT EXISTS idx_accounts_last_status_at ON accounts(last_status_at);
@@ -127,20 +167,15 @@ func CreatePerformanceIndexes() error {
 	CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account_id ON push_subscriptions(account_id);
 	`
 
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to create performance indexes: %v", err)
+// OptimizeDatabase 优化数据库.
+// 注意：ANALYZE TABLE 是 MySQL 特定命令，在 SQLite/XML 模式下跳过.
+func OptimizeDatabase() error {
+	if database.IsXmlMode() {
+		log.Debug("Skip OptimizeDatabase in XML mode")
 
-		return err
+		return nil
 	}
 
-	log.Info("Performance indexes created successfully")
-
-	return nil
-}
-
-// OptimizeDatabase 优化数据库.
-func OptimizeDatabase() error {
 	log.Info("Optimizing database...")
 
 	// 分析表以更新统计信息
@@ -159,9 +194,10 @@ func OptimizeDatabase() error {
 		"reports",
 	}
 
+	// 表名来自硬编码常量列表（非用户输入），不存在 SQL 注入风险。
 	for _, table := range tables {
 		// 分析表
-		err := db.GetDB().Exec("ANALYZE TABLE " + table).Error
+		err := db.GetDB().Exec("ANALYZE TABLE `" + table + "`").Error
 		if err != nil {
 			log.Warn("Failed to analyze table %s: %v", table, err)
 		}

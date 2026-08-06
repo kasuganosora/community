@@ -54,7 +54,15 @@ func (AddRoles) Up(db *gorm.DB) (err error) {
 
 	roles = append(roles, moderatorRole)
 
-	return db.Create(roles).Error
+	// 幂等：仅插入尚不存在的角色，避免重复执行时报唯一键冲突
+	for _, role := range roles {
+		err = db.Where("name = ?", role.Name).FirstOrCreate(role).Error
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (AddRoles) Down(db *gorm.DB) (err error) {

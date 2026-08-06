@@ -29,6 +29,25 @@ type StorageProvider interface {
 	IsEnabled() bool
 }
 
+// uploadsRoot returns the cleaned absolute root for uploads and its separator.
+// Used to validate that resolved paths remain inside the uploads directory.
+func uploadsRoot() (cleanRoot, sep string) {
+	cleanRoot = filepath.Clean("uploads")
+	sep = string(filepath.Separator)
+
+	return cleanRoot, sep
+}
+
+// isPathInsideRoot 验证 path 是否仍在 root 目录内（防止路径遍历）.
+// path 必须是经过 filepath.Join + filepath.Clean 处理后的路径.
+func isPathInsideRoot(path, root, sep string) bool {
+	if path == root {
+		return true
+	}
+
+	return strings.HasPrefix(path, root+sep)
+}
+
 // Save 保存文件到存储（兼容旧 API）.
 func Save(path string, data []byte) (string, error) {
 	localStorage := &LocalStorage{Root: "uploads"}
@@ -38,6 +57,14 @@ func Save(path string, data []byte) (string, error) {
 
 // SaveByMultipart 通过 multipart 表单保存文件（兼容旧 API）.
 func SaveByMultipart(path string, fileHeader *multipart.FileHeader) (string, error) {
+	// 验证路径合法性（防止路径遍历攻击）
+	root, sep := uploadsRoot()
+
+	fullPath := filepath.Clean(filepath.Join(root, path))
+	if !isPathInsideRoot(fullPath, root, sep) {
+		return "", fmt.Errorf("invalid file path: potential path traversal detected")
+	}
+
 	// 打开上传的文件
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -47,8 +74,6 @@ func SaveByMultipart(path string, fileHeader *multipart.FileHeader) (string, err
 	defer func() { _ = file.Close() }()
 
 	// 创建目标目录
-	fullPath := filepath.Join("uploads", path)
-
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
 		return "", err
@@ -78,8 +103,13 @@ func Delete(path string) error {
 		return storage.Delete(path)
 	}
 
-	// 本地存储删除
-	fullPath := filepath.Join("uploads", path)
+	// 本地存储删除（带路径遍历防护）
+	root, sep := uploadsRoot()
+
+	fullPath := filepath.Clean(filepath.Join(root, path))
+	if !isPathInsideRoot(fullPath, root, sep) {
+		return fmt.Errorf("invalid file path: potential path traversal detected")
+	}
 
 	return os.Remove(fullPath)
 }
@@ -160,8 +190,14 @@ func (s *CloudStorage) UploadReader(reader io.Reader, objectKey string, size int
 // Download 下载文件.
 func (s *CloudStorage) Download(objectKey string) (io.ReadCloser, error) {
 	if !s.IsEnabled() {
-		// 本地存储
-		return os.Open(objectKey) //nolint:gosec // G304: reviewed and safe
+		// 本地存储（路径遍历防护）
+		root, sep := uploadsRoot()
+		fullPath := filepath.Clean(filepath.Join(root, objectKey))
+		if !isPathInsideRoot(fullPath, root, sep) {
+			return nil, fmt.Errorf("invalid file path: potential path traversal detected")
+		}
+
+		return os.Open(fullPath) //nolint:gosec // G304: reviewed and safe
 	}
 
 	return s.provider.Download(objectKey)
@@ -170,7 +206,14 @@ func (s *CloudStorage) Download(objectKey string) (io.ReadCloser, error) {
 // Delete 删除文件.
 func (s *CloudStorage) Delete(objectKey string) error {
 	if !s.IsEnabled() {
-		return os.Remove(objectKey)
+		// 本地存储（路径遍历防护）
+		root, sep := uploadsRoot()
+		fullPath := filepath.Clean(filepath.Join(root, objectKey))
+		if !isPathInsideRoot(fullPath, root, sep) {
+			return fmt.Errorf("invalid file path: potential path traversal detected")
+		}
+
+		return os.Remove(fullPath)
 	}
 
 	return s.provider.Delete(objectKey)

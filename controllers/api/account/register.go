@@ -71,6 +71,13 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// 检查两次密码是否一致
+	if req.Password != req.PasswordConfirm {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "passwords do not match"})
+
+		return
+	}
+
 	// 邀请码
 	invCode, err := checkAndGetInviteCode(req.InviteCode)
 	if err != nil {

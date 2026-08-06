@@ -16,7 +16,7 @@ func List(c *gin.Context) {
 	var req ListRequest
 	err := c.ShouldBindQuery(&req)
 	if err != nil {
-		c.JSON(400, err)
+		c.JSON(400, gin.H{"error": err.Error()})
 
 		return
 	}

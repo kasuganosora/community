@@ -13,7 +13,7 @@ func init() {
 
 // GetDB 获取数据库连接.
 func GetDB() *gorm.DB {
-	return database.DB
+	return database.GetDB()
 }
 
 func GetRedis(connNum ...int) *redis.Client {

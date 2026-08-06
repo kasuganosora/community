@@ -470,8 +470,6 @@ func TestUpdate_Success(t *testing.T) {
 	require.True(t, ok, "response content should be a string")
 	assert.Contains(t, content, "Updated content", "response content should reflect the update")
 
-
-
 }
 
 func TestUpdate_Forbidden(t *testing.T) {
@@ -547,8 +545,6 @@ func TestFavourite_Success(t *testing.T) {
 	assert.True(t, hasFavourited, "response should contain favourited field")
 	require.NotNil(t, favourited, "favourited field must not be nil")
 	assert.True(t, favourited.(bool), "favourited should be true after favouriting")
-
-
 
 }
 
@@ -677,8 +673,6 @@ func TestReblog_Success(t *testing.T) {
 	assert.True(t, hasReblogged, "response should contain reblogged field")
 	require.NotNil(t, reblogged, "reblogged field must not be nil")
 	assert.True(t, reblogged.(bool), "reblogged should be true after reblogging")
-
-
 
 }
 
@@ -817,8 +811,6 @@ func TestBookmark_Success(t *testing.T) {
 	assert.True(t, hasBookmarked, "response should contain bookmarked field")
 	require.NotNil(t, bookmarked, "bookmarked field must not be nil")
 	assert.True(t, bookmarked.(bool), "bookmarked should be true after bookmarking")
-
-
 
 }
 

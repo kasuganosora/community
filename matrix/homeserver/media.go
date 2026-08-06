@@ -14,7 +14,9 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -115,6 +117,9 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)
 	if err != nil {
+		// Clean up the partially-written file to avoid orphaned files.
+		_ = os.Remove(fullPath)
+
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
@@ -606,8 +611,91 @@ type URLPreview struct {
 	OGSiteName      string `json:"og:site_name,omitempty"`
 }
 
+// isBlockedAddress reports whether an IP address is private, loopback,
+// link-local, or otherwise unsuitable for outbound requests (SSRF protection).
+func isBlockedAddress(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+
+	// Block loopback (127.0.0.0/8, ::1).
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Block private ranges (10.x, 172.16-31.x, 192.168.x, fc00::/7).
+	if ip.IsPrivate() {
+		return true
+	}
+
+	// Block link-local (169.254.x.x, fe80::/10) — includes cloud metadata endpoints.
+	if ip.IsLinkLocalUnicast() {
+		return true
+	}
+
+	// Block unspecified (0.0.0.0).
+	if ip.IsUnspecified() {
+		return true
+	}
+
+	// Block multicast addresses.
+	if ip.IsMulticast() {
+		return true
+	}
+
+	return false
+}
+
+// validateURLForFetch validates a URL before making an outbound request.
+// It enforces http/https schemes only and blocks private/internal IP
+// addresses and suspicious hostnames to prevent SSRF attacks.
+func validateURLForFetch(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow http and https schemes.
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errors.New("URL scheme must be http or https")
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return errors.New("URL host is empty")
+	}
+
+	// Resolve hostname and check all resolved IPs.
+	// This catches DNS-based SSRF where a domain resolves to a private IP.
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve host %s: %w", host, err)
+	}
+
+	for _, ip := range ips {
+		if isBlockedAddress(ip) {
+			return fmt.Errorf("host %s resolves to a blocked address %s", host, ip.String())
+		}
+	}
+
+	return nil
+}
+
 // GetURLPreview 获取 URL 预览.
 func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
+	// Validate URL to prevent SSRF attacks (e.g., accessing internal
+	// services or cloud metadata endpoints).
+	if err := validateURLForFetch(urlStr); err != nil {
+		log.Warn("URL preview blocked: %v", err)
+
+		return &URLPreview{
+			OGTitle: urlStr,
+			OGType:  "website",
+			OGURL:   urlStr,
+		}
+	}
+
 	// 使用 httpclient 获取页面
 	client := httpclient.NewClient()
 	req := client.NewRequest("GET", urlStr)
@@ -622,6 +710,7 @@ func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
 			OGURL:   urlStr,
 		}
 	}
+	defer resp.Close()
 
 	// 读取响应
 	htmlContent, err := resp.String()
@@ -676,13 +765,29 @@ func (hs *HomeServer) processPreviewImage(preview *URLPreview, baseURL string) {
 	imgReq := imgClient.NewRequest("GET", imageURL)
 	imgReq.SetTimeout(10)
 
+	// Validate image URL to prevent SSRF (og:image can point anywhere).
+	if err := validateURLForFetch(imageURL); err != nil {
+		log.Warn("preview image URL blocked: %v", err)
+
+		return
+	}
+
 	imgResp, err := imgReq.Do()
 	if err != nil {
 		return
 	}
+	defer imgResp.Close()
 
 	imgBytes, err := imgResp.GetBodyData()
 	if err != nil || len(imgBytes) == 0 {
+		return
+	}
+
+	// Limit preview image size to prevent excessive memory usage (10 MB).
+	const maxPreviewImageSize = 10 * 1024 * 1024
+	if len(imgBytes) > maxPreviewImageSize {
+		log.Warn("preview image too large: %d bytes", len(imgBytes))
+
 		return
 	}
 

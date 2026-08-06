@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -13,14 +14,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// dbMu protects concurrent access to DB, isTestMode and the sqlexec handles.
+// GetDB/SetTestDB/ResetTestDB/InitGorm/CloseDB/PingDB/GetDBStats all acquire it.
+var dbMu sync.RWMutex
+
+// DB is the global GORM DB handle. Access it via GetDB() to be concurrency-safe.
 var DB *gorm.DB
 
 // isTestMode 用于测试时跳过真实数据库连接.
 var isTestMode = false
 
 func init() {
-	// 自动检测是否在测试模式
-	isTestMode = detectTestMode()
+	// 自动检测是否在测试模式（仅在非测试模式下才检测，避免覆盖测试前显式设置的标记）
+	if !isTestMode {
+		isTestMode = detectTestMode()
+	}
 }
 
 // detectTestMode 检测是否在运行 go test.
@@ -43,30 +51,58 @@ func detectTestMode() bool {
 // SetTestMode 设置测试模式（必须在包导入之前调用）
 // 这个函数只能在 init() 之前调用才有效.
 func SetTestMode() {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	isTestMode = true
 }
 
 // SetTestDB 设置测试数据库（仅用于测试）.
 func SetTestDB(db *gorm.DB) {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	DB = db
 	isTestMode = true
 }
 
 // ResetTestDB 重置测试数据库.
 func ResetTestDB() {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	DB = nil
 	isTestMode = false
 }
 
 // IsTestMode 检查是否在测试模式.
 func IsTestMode() bool {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+
 	return isTestMode
+}
+
+// GetDB 返回全局 GORM DB 句柄（并发安全）.
+func GetDB() *gorm.DB {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+
+	return DB
 }
 
 // InitGorm 初始化 Gorm.
 func InitGorm() {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	// 如果是测试模式，跳过初始化
 	if isTestMode {
+		return
+	}
+
+	// 如果已经初始化过（DB != nil），避免重复初始化导致连接泄漏
+	if DB != nil {
 		return
 	}
 
@@ -144,7 +180,10 @@ func LoadDBConfig() DBConfig {
 
 func initMysqlConnection() (err error) {
 	dsn := config.C.DbUsername + ":" + config.C.DbPassword + "@tcp(" + config.C.DbHost + ":" + config.C.DbPort + ")/" + config.C.DbDatabase
-	dsn += "?charset=utf8mb4&parseTime=True&loc=Local"
+	// multiStatements=true enables executing multiple SQL statements in a single
+	// Exec call, which is required by the migration scripts that batch DDL.
+	// It is safe because we never interpolate user input into these statements.
+	dsn += "?charset=utf8mb4&parseTime=True&loc=Local&multiStatements=true"
 
 	DB, err = gorm.Open(mysql.Open(dsn))
 	if err != nil {
@@ -154,6 +193,10 @@ func initMysqlConnection() (err error) {
 	// 配置连接池
 	sqlDB, err := DB.DB()
 	if err != nil {
+		// gorm.Open succeeded but we can't get *sql.DB — close the DB to avoid leak
+		_ = closeGormSilently(DB)
+		DB = nil
+
 		return err
 	}
 
@@ -183,18 +226,36 @@ func initSqliteConnection() (err error) {
 	if err != nil {
 		return
 	}
+
 	// Enable WAL mode and busy timeout to prevent SQLITE_BUSY under concurrent writes
 	if sqlDB, dbErr := DB.DB(); dbErr == nil {
-		_, _ = sqlDB.Exec("PRAGMA journal_mode=WAL")
-		_, _ = sqlDB.Exec("PRAGMA busy_timeout=5000")
-		_, _ = sqlDB.Exec("PRAGMA synchronous=NORMAL")
-		_, _ = sqlDB.Exec("PRAGMA cache_size=-64000") // 64MB cache
-		_, _ = sqlDB.Exec("PRAGMA temp_store=MEMORY")
+		pragmas := []struct {
+			name string
+			sql  string
+		}{
+			{"journal_mode", "PRAGMA journal_mode=WAL"},
+			{"busy_timeout", "PRAGMA busy_timeout=5000"},
+			{"synchronous", "PRAGMA synchronous=NORMAL"},
+			{"cache_size", "PRAGMA cache_size=-64000"}, // 64MB cache
+			{"temp_store", "PRAGMA temp_store=MEMORY"},
+		}
+
+		for _, p := range pragmas {
+			if _, execErr := sqlDB.Exec(p.sql); execErr != nil {
+				log.Warn("SQLite PRAGMA %s failed (continuing): %v", p.name, execErr)
+			}
+		}
 
 		// 配置连接池（SQLite 只支持一个写入连接，但可以多个读取连接）
 		sqlDB.SetMaxOpenConns(1)
 		sqlDB.SetMaxIdleConns(1)
 		sqlDB.SetConnMaxLifetime(time.Hour)
+	} else {
+		// Can't obtain *sql.DB — clean up to avoid leaking the opened GORM handle
+		_ = closeGormSilently(DB)
+		DB = nil
+
+		return dbErr
 	}
 
 	if config.C.DevMode == "true" {
@@ -202,6 +263,21 @@ func initSqliteConnection() (err error) {
 	}
 
 	return
+}
+
+// closeGormSilently closes the underlying *sql.DB of a gorm.DB without
+// propagating errors. It is used for best-effort cleanup on error paths.
+func closeGormSilently(gdb *gorm.DB) error {
+	if gdb == nil {
+		return nil
+	}
+
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return err
+	}
+
+	return sqlDB.Close()
 }
 
 func getDsnType() string {
@@ -219,11 +295,15 @@ func getDsnType() string {
 
 // GetDBStats 获取数据库连接池统计信息.
 func GetDBStats() (map[string]any, error) {
-	if DB == nil {
+	dbMu.RLock()
+	db := DB
+	dbMu.RUnlock()
+
+	if db == nil {
 		return nil, os.ErrInvalid
 	}
 
-	sqlDB, err := DB.DB()
+	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
@@ -243,11 +323,16 @@ func GetDBStats() (map[string]any, error) {
 
 // CloseDB 关闭数据库连接.
 func CloseDB() error {
-	if DB == nil {
+	dbMu.Lock()
+	db := DB
+	DB = nil // clear the global handle so callers stop using a closed DB
+	dbMu.Unlock()
+
+	if db == nil {
 		return nil
 	}
 
-	sqlDB, err := DB.DB()
+	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
@@ -257,11 +342,15 @@ func CloseDB() error {
 
 // PingDB 检查数据库连接.
 func PingDB() error {
-	if DB == nil {
+	dbMu.RLock()
+	db := DB
+	dbMu.RUnlock()
+
+	if db == nil {
 		return os.ErrInvalid
 	}
 
-	sqlDB, err := DB.DB()
+	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}

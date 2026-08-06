@@ -29,6 +29,12 @@ func mockCache(t *testing.T) (*Cache, redismock.ClientMock) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
+	// Disable TTL jitter so redismock can match exact expirations.
+	// jitterTTL is restored to its production implementation on cleanup.
+	originalJitter := jitterTTL
+	jitterTTL = func(d time.Duration) time.Duration { return d }
+	t.Cleanup(func() { jitterTTL = originalJitter })
+
 	return c, mock
 }
 
@@ -99,7 +105,7 @@ func TestMockCache_Get(t *testing.T) {
 
 		err := c.Get(ctx, "missing", &result)
 		require.Error(t, err)
-		assert.Equal(t, redisv9.Nil, err)
+		assert.True(t, IsErrCacheMiss(err))
 	})
 
 	t.Run("unmarshal error (json into wrong type)", func(t *testing.T) {
@@ -839,6 +845,11 @@ func TestCache_HelperFunctions(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
+	// Disable TTL jitter so redismock can match exact expirations.
+	originalJitter := jitterTTL
+	jitterTTL = func(d time.Duration) time.Duration { return d }
+	t.Cleanup(func() { jitterTTL = originalJitter })
+
 	// Reset the once for testing by creating a new Cache with the mock client
 	testCache := &Cache{
 		client: client,
@@ -1127,14 +1138,10 @@ func TestMockCache_GetIntoVariousTypes(t *testing.T) {
 // ============================================================
 
 func TestMockCache_DeleteEmpty(t *testing.T) {
-	c, mock := mockCache(t)
+	c, _ := mockCache(t)
 	ctx := context.Background()
 
-	// Delete with no keys — should call Del with just the prefix-prefixed empty list
-	// Actually the code creates fullKeys from keys, so empty keys => empty fullKeys
-	// Del with no arguments should be fine
-	mock.ExpectDel().SetVal(0)
-
+	// Delete with no keys is a no-op and should NOT issue any Redis command.
 	err := c.Delete(ctx)
 	require.NoError(t, err)
 }

@@ -19,7 +19,7 @@ type SaveRequestMarkerItem struct {
 func Save(c *gin.Context) {
 	req := make(SaveRequest)
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, err)
+		c.JSON(400, gin.H{"error": err.Error()})
 
 		return
 	}

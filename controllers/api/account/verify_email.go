@@ -1,16 +1,18 @@
 package account
 
 import (
+	"crypto/subtle"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type VerifyEmailRequest struct {
@@ -58,7 +60,8 @@ func VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	if token.Token != req.Token {
+	// 使用常量时间比较，防止时序攻击
+	if subtle.ConstantTimeCompare([]byte(token.Token), []byte(req.Token)) != 1 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "invalid token"})
 
 		return

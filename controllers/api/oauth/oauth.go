@@ -3,6 +3,7 @@ package oauth
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -192,8 +193,9 @@ func AuthorizePage(c *gin.Context) {
 	// Check if user is authenticated
 	if !c.GetBool("authenticated") {
 		// Redirect to login page
+		// 对参数进行 URL 编码，防止参数注入
 		loginUrl := fmt.Sprintf("/login?redirect_uri=%s&client_id=%s&scope=%s&state=%s&response_type=code",
-			req.RedirectUri, req.ClientId, req.Scope, req.State)
+			url.QueryEscape(req.RedirectUri), url.QueryEscape(req.ClientId), url.QueryEscape(req.Scope), url.QueryEscape(req.State))
 		c.Redirect(http.StatusTemporaryRedirect, loginUrl)
 
 		return
@@ -271,7 +273,9 @@ func Authorize(c *gin.Context) {
 	}
 
 	// Validate redirect_uri matches registered application
-	if req.RedirectUri != app.RedirectUri {
+	// Use isValidRedirectUri for consistency with the GET authorize page,
+	// which correctly handles multiple registered redirect URIs (newline-separated).
+	if !isValidRedirectUri(app.RedirectUri, req.RedirectUri) {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid redirect_uri"})
 
 		return
@@ -279,11 +283,7 @@ func Authorize(c *gin.Context) {
 
 	// If user denied authorization
 	if req.Deny != "" {
-		redirectUrl := req.RedirectUri + "?error=access_denied&error_description=User%20denied%20access"
-		if req.State != "" {
-			redirectUrl += "&state=" + req.State
-		}
-
+		redirectUrl := buildDenyRedirectUrl(req.RedirectUri, req.State)
 		c.Redirect(http.StatusTemporaryRedirect, redirectUrl)
 
 		return
@@ -350,7 +350,8 @@ func Token(c *gin.Context) {
 
 // handleAuthorizationCodeGrant handles the authorization code grant type.
 func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *TokenRequest) {
-	// Use transaction to prevent race condition when exchanging code
+	// Use transaction with atomic conditional update to prevent race condition
+	// when two requests try to exchange the same code concurrently.
 	var (
 		code    *OAuthAuthorizationCode
 		account *models.Account
@@ -364,11 +365,6 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 			return errors.New("invalid_grant")
 		}
 
-		// Check if code is already used
-		if code.Used {
-			return errors.New("invalid_grant")
-		}
-
 		// Check if code is expired
 		if code.ExpiresAt != nil && code.ExpiresAt.Before(time.Now()) {
 			return errors.New("invalid_grant")
@@ -379,10 +375,17 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, req *To
 			return errors.New("invalid_grant")
 		}
 
-		// Mark code as used atomically within transaction
-		err = tx.Model(code).Update("used", true).Error
-		if err != nil {
-			return err
+		// Atomically mark code as used: only succeed if used is still false.
+		// This prevents race condition when two concurrent requests try to
+		// exchange the same code — only one UPDATE will affect a row.
+		result := tx.Model(code).Where("used = ?", false).Update("used", true)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			// Code was already used by a concurrent request
+			return errors.New("invalid_grant")
 		}
 
 		// Get account
@@ -473,6 +476,19 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	// Verify password
 	if err := models.CompareHashAndPassword(userSecret.Password, req.Password, userSecret.Salt); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
+
+		return
+	}
+
+	// Check user status (same checks as web login)
+	if systemsettings.GetBool(systemsettings.KeyRegistrationCheckEmail, false) && !user.IsMailVerified {
+		c.AbortWithStatusJSON(400, gin.H{"error": "email not verified"})
+
+		return
+	}
+
+	if user.Status != models.UserStatusNormal {
+		c.AbortWithStatusJSON(400, gin.H{"error": "user status abnormal"})
 
 		return
 	}
@@ -765,8 +781,9 @@ func isValidRedirectUri(registeredUris, requestedUri string) bool {
 		if uri == requestedUri {
 			return true
 		}
-		// Check for urn:ietf:wg:oauth:2.0:oob (native apps)
-		if uri == "urn:ietf:wg:oauth:2.0:oob" {
+		// 支持 urn:ietf:wg:oauth:2.0:oob（原生应用）
+		// 仅当注册了 OOB 且请求的 URI 也是 OOB 时才允许，否则会允许任意 redirect_uri
+		if uri == "urn:ietf:wg:oauth:2.0:oob" && requestedUri == "urn:ietf:wg:oauth:2.0:oob" {
 			return true
 		}
 	}
@@ -804,9 +821,28 @@ func buildRedirectUrl(baseUri, code, state string) string {
 		separator = "&"
 	}
 
-	redirectUrl := fmt.Sprintf("%s%scode=%s", baseUri, separator, code)
+	// 对 code 和 state 进行 URL 编码，防止参数注入
+	redirectUrl := fmt.Sprintf("%s%scode=%s", baseUri, separator, url.QueryEscape(code))
 	if state != "" {
-		redirectUrl += "&state=" + state
+		redirectUrl += "&state=" + url.QueryEscape(state)
+	}
+
+	return redirectUrl
+}
+
+// buildDenyRedirectUrl builds the redirect URL for an authorization denial.
+// It properly handles the query separator (to avoid malformed URLs when the
+// redirect URI already has query parameters) and URL-encodes the state
+// parameter to prevent parameter injection.
+func buildDenyRedirectUrl(baseUri, state string) string {
+	separator := "?"
+	if strings.Contains(baseUri, "?") {
+		separator = "&"
+	}
+
+	redirectUrl := baseUri + separator + "error=access_denied&error_description=" + url.QueryEscape("User denied access")
+	if state != "" {
+		redirectUrl += "&state=" + url.QueryEscape(state)
 	}
 
 	return redirectUrl

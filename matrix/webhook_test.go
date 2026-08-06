@@ -34,6 +34,7 @@ func TestIsProcessedTxn(t *testing.T) {
 	// Reset the global state
 	processedTxnsMu.Lock()
 	processedTxns = make(map[string]time.Time)
+	lastTxnCleanup = time.Time{} // force cleanup on next call
 	processedTxnsMu.Unlock()
 
 	t.Run("first time returns false", func(t *testing.T) {
@@ -51,6 +52,7 @@ func TestIsProcessedTxn(t *testing.T) {
 	t.Run("cleans up old entries", func(t *testing.T) {
 		processedTxnsMu.Lock()
 		processedTxns["old-txn"] = time.Now().Add(-2 * time.Hour)
+		lastTxnCleanup = time.Time{} // force cleanup sweep on next call
 		processedTxnsMu.Unlock()
 
 		// This call should trigger cleanup of old-txn
@@ -61,6 +63,22 @@ func TestIsProcessedTxn(t *testing.T) {
 		processedTxnsMu.Unlock()
 
 		assert.False(t, exists, "old entry should have been cleaned up")
+	})
+
+	t.Run("periodic cleanup skips when interval not elapsed", func(t *testing.T) {
+		processedTxnsMu.Lock()
+		processedTxns = make(map[string]time.Time)
+		processedTxns["old-txn"] = time.Now().Add(-2 * time.Hour)
+		lastTxnCleanup = time.Now() // cleanup just ran, so old entries persist
+		processedTxnsMu.Unlock()
+
+		isProcessedTxn("txn-004")
+
+		processedTxnsMu.Lock()
+		_, exists := processedTxns["old-txn"]
+		processedTxnsMu.Unlock()
+
+		assert.True(t, exists, "old entry should persist when cleanup interval has not elapsed")
 	})
 }
 

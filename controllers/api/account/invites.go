@@ -1,7 +1,8 @@
 package account
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"strconv"
 	"time"
 
@@ -168,7 +169,13 @@ func generateInviteCode() string {
 
 	b := make([]byte, 16)
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))] //nolint:gosec // G404: reviewed and safe
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			b[i] = charset[0]
+			continue
+		}
+
+		b[i] = charset[idx.Int64()]
 	}
 
 	return string(b)

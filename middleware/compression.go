@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ func Gzip() gin.HandlerFunc {
 
 		// 创建 gzip 写入器
 		gz := gzip.NewWriter(c.Writer)
+		// 在 c.Next() 之后、defer 链中关闭，确保所有数据被 flush 并写入底层 ResponseWriter
 		defer func() { _ = gz.Close() }()
 
 		// 包装响应写入器
@@ -51,6 +53,9 @@ func Gzip() gin.HandlerFunc {
 		c.Header("Vary", "Accept-Encoding")
 
 		c.Next()
+
+		// 确保 gzip 缓冲区在 defer Close 之前被 flush 到 ResponseWriter
+		_ = gz.Flush()
 	}
 }
 
@@ -112,6 +117,8 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 
 	var mu sync.Mutex
 	limiters := make(map[string]*limiter)
+	lastCleanup := time.Now()
+	cleanupInterval := 5 * time.Minute
 
 	return func(c *gin.Context) {
 		key := c.ClientIP()
@@ -122,7 +129,7 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 			if time.Now().Before(l.expires) {
 				if l.count >= limit {
 					mu.Unlock()
-					c.AbortWithStatusJSON(429, gin.H{"error": "rate limit exceeded"}) //nolint:goconst
+					c.AbortWithStatusJSON(429, gin.H{"error": "rate limit exceeded"})
 
 					return
 				}
@@ -139,6 +146,17 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 			}
 		}
 
+		// 定期清理过期的 limiter 条目，防止内存泄漏
+		if time.Since(lastCleanup) > cleanupInterval {
+			lastCleanup = time.Now()
+			now := time.Now()
+			for k, l := range limiters {
+				if !now.Before(l.expires) {
+					delete(limiters, k)
+				}
+			}
+		}
+
 		mu.Unlock()
 
 		c.Next()
@@ -147,25 +165,5 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 
 // intToString 简单的整数转字符串.
 func intToString(n int) string {
-	if n == 0 {
-		return "0"
-	}
-
-	var neg bool
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-
-	if neg {
-		digits = append([]byte{'-'}, digits...)
-	}
-
-	return string(digits)
+	return strconv.Itoa(n)
 }

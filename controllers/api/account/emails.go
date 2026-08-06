@@ -41,6 +41,11 @@ func SendEmailConfirmation(c *gin.Context) {
 
 	// Generate confirmation token
 	token := generateEmailConfirmationToken()
+	if token == "" {
+		c.JSON(500, gin.H{"error": "failed to generate confirmation token"})
+
+		return
+	}
 
 	// Store token in user_meta
 	userMeta := models.UserMeta{
@@ -115,7 +120,9 @@ func VerifyEmailConfirmation(c *gin.Context) {
 	}
 
 	// Delete the used token
-	db.GetDB().Delete(&userMeta)
+	if err := db.GetDB().Delete(&userMeta).Error; err != nil {
+		log.Error("Failed to delete used email verification token: %v", err)
+	}
 
 	c.JSON(200, gin.H{"success": true})
 }

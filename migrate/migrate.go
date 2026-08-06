@@ -26,59 +26,78 @@ func checkMigrationsTable(db *gorm.DB) (err error) {
 	return
 }
 
+// Up 执行所有未执行的迁移脚本.
+//
+// 每个迁移脚本的执行与其迁移记录的插入被包裹在一个数据库事务中：
+// 如果脚本执行成功但记录插入失败（或反之），事务会回滚，避免出现
+// "脚本已执行但未记录"或"记录已写入但脚本未执行"的不一致状态。
 func Up(db *gorm.DB) (err error) {
 	err = checkMigrationsTable(db)
 	if err != nil {
-		log.Fatal("Failed to check migrations table: %v", err)
+		log.Error("Failed to check migrations table: %v", err)
 
-		return err
+		return errors.Wrap(err, "failed to check/create migrations table")
 	}
 
 	unExecutedMigrationsScriptsName, err := getUnExecutedMigrationsScript(db)
 	if err != nil {
-		log.Fatal("Failed to get unexecuted migrations script: %v", err)
+		log.Error("Failed to get unexecuted migrations script: %v", err)
 
-		return err
+		return errors.Wrap(err, "failed to get unexecuted migrations")
 	}
 
 	if len(unExecutedMigrationsScriptsName) == 0 {
 		log.Info("No migrations to execute")
 
-		return err
+		return nil
 	}
 
 	// 获得当前最后一个批次数字
 	lastBatch, err := getLastBatchNum(db)
 	if err != nil {
-		log.Fatal("Failed to get last batch number: %v", err)
+		log.Error("Failed to get last batch number: %v", err)
 
-		return err
+		return errors.Wrap(err, "failed to get last batch number")
 	}
 
 	// 在当前最后一个批次数字上加一，执行之前没有执行过的迁移
 	batch := lastBatch + 1
 
+	allScripts := scripts.GetScripts()
+
 	for _, name := range unExecutedMigrationsScriptsName {
-		// 执行脚本
-		scriptType := scripts.GetScripts()[name]
+		scriptType, ok := allScripts[name]
+		if !ok {
+			// 脚本已注册名但实现不存在，跳过并告警
+			log.Warn("Migration script %s not found in registry, skipping", name)
+
+			continue
+		}
+
 		log.Info("Executing migration script %s", name)
 
-		err = scriptType.Up(db)
+		// 将脚本执行与迁移记录写入放在同一事务中，保证原子性。
+		// 注意：MySQL 的 DDL 语句会隐式提交，因此事务对纯 DDL 脚本可能
+		// 无法完全回滚，但迁移记录的插入仍然受事务保护。
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if txErr := scriptType.Up(tx); txErr != nil {
+				return errors.Wrapf(txErr, "failed to execute script %s", name)
+			}
+
+			migRecord := &Migration{
+				Name:  name,
+				Batch: batch,
+			}
+
+			if createErr := tx.Create(migRecord).Error; createErr != nil {
+				return errors.Wrapf(createErr, "failed to insert migration record %s", name)
+			}
+
+			return nil
+		})
+
 		if err != nil {
-			err = errors.Wrapf(err, "Failed to execute script %s", name)
-
-			return err
-		}
-
-		// 成功执行则把当前脚本加入到迁移表中
-		migRecord := &Migration{
-			Name:  name,
-			Batch: batch,
-		}
-
-		err = db.Create(migRecord).Error
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to insert migration record %s", name)
+			log.Error("Migration script %s failed: %v", name, err)
 
 			return err
 		}
@@ -86,7 +105,7 @@ func Up(db *gorm.DB) (err error) {
 		log.Info("Executing migration script %s done!", name)
 	}
 
-	return err
+	return nil
 }
 
 // Down 回滚
@@ -94,39 +113,36 @@ func Up(db *gorm.DB) (err error) {
 func Down(db *gorm.DB) (err error) {
 	lastBatch, err := getLastBatchNum(db)
 	if err != nil {
-		log.Fatal("Failed to get last batch number: %v", err)
+		log.Error("Failed to get last batch number: %v", err)
 
-		return err
+		return errors.Wrap(err, "failed to get last batch number")
 	}
 
 	if lastBatch == 0 {
 		log.Info("No migrations to rollback")
 
-		return err
+		return nil
 	}
 
 	// 获得最后一个批次的迁移记录
 	var migRecords []*Migration
 
-	err = db.Where("batch = ?", lastBatch).Find(&migRecords).Error
+	err = db.Where("batch = ?", lastBatch).Order("id DESC").Find(&migRecords).Error
 	if err != nil {
-		err = errors.Wrapf(err, "Failed to get migration records of batch %d", lastBatch)
-
-		return err
+		return errors.Wrapf(err, "failed to get migration records of batch %d", lastBatch)
 	}
 
-	// 进行回滚
+	allScripts := scripts.GetScripts()
+
+	// 进行回滚（按 id 倒序回滚，保证依赖顺序正确）
 	for _, migRecord := range migRecords {
-		scriptType, ok := scripts.GetScripts()[migRecord.Name]
+		scriptType, ok := allScripts[migRecord.Name]
 		if !ok {
-			// 找不到对应会滚结果,删除迁移记录, 并且跳过
+			// 找不到对应回滚脚本，删除迁移记录，并且跳过
 			log.Warn("Failed to find rollback script for migration %s", migRecord.Name)
 
-			err = db.Delete(migRecord).Error
-			if err != nil {
-				err = errors.Wrapf(err, "Failed to delete migration record %s", migRecord.Name)
-
-				return err
+			if delErr := db.Delete(migRecord).Error; delErr != nil {
+				return errors.Wrapf(delErr, "failed to delete migration record %s", migRecord.Name)
 			}
 
 			continue
@@ -134,17 +150,23 @@ func Down(db *gorm.DB) (err error) {
 
 		log.Info("Rollback migration script %s", migRecord.Name)
 
-		err = scriptType.Down(db)
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to rollback migration script %s", migRecord.Name)
+		// 将脚本回滚与迁移记录删除放在同一事务中，保证原子性。
+		// 注意：MySQL 的 DDL 语句会隐式提交，因此事务对纯 DDL 脚本可能
+		// 无法完全回滚，但迁移记录的删除仍然受事务保护。
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if downErr := scriptType.Down(tx); downErr != nil {
+				return errors.Wrapf(downErr, "failed to rollback migration script %s", migRecord.Name)
+			}
 
-			return err
-		}
+			if delErr := tx.Delete(migRecord).Error; delErr != nil {
+				return errors.Wrapf(delErr, "failed to delete migration record %s", migRecord.Name)
+			}
 
-		// 成功回滚则删除迁移记录
-		err = db.Delete(migRecord).Error
+			return nil
+		})
+
 		if err != nil {
-			err = errors.Wrapf(err, "Failed to delete migration record %s", migRecord.Name)
+			log.Error("Rollback migration script %s failed: %v", migRecord.Name, err)
 
 			return err
 		}
@@ -152,7 +174,7 @@ func Down(db *gorm.DB) (err error) {
 		log.Info("Rollback migration script %s done!", migRecord.Name)
 	}
 
-	return err
+	return nil
 }
 
 func getLastBatchNum(db *gorm.DB) (lastBatch int, err error) {

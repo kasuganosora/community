@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -662,15 +664,131 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 	return nil //nolint:nilerr
 }
 
-// downloadRemoteMedia downloads media from a remote URL.
-func downloadRemoteMedia(url string) ([]byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+// maxRemoteMediaSize limits how much data is buffered into memory when
+// re-fetching remote media. Remote attachments are expected to be media files
+// (images/videos), so 50MB is a generous upper bound that also bounds memory use.
+const maxRemoteMediaSize = 50 * 1024 * 1024
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+// remoteHTTPClient is a shared client for fetching remote media.
+// It uses a custom DialContext that blocks private/loopback/link-local
+// addresses to prevent SSRF (e.g. accessing cloud metadata endpoints).
+var remoteHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("stopped after 5 redirects")
+		}
+		// Re-validate every redirect target for SSRF.
+		return validateRemoteURL(req.URL.String())
+	},
+	Transport: &http.Transport{
+		DialContext: safeDialContext,
+	},
+}
+
+// isBlockedAddress reports whether an IP address is private, loopback,
+// link-local, or otherwise unsuitable for outbound requests (SSRF protection).
+// Mirrors the guard in matrix/homeserver/media.go so behavior is consistent.
+func isBlockedAddress(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+
+	return false
+}
+
+// validateRemoteURL validates a URL before making an outbound request.
+// It enforces http/https schemes and blocks private/internal hosts (SSRF).
+func validateRemoteURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errors.New("URL scheme must be http or https")
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return errors.New("URL host is empty")
+	}
+
+	// If the host is already an IP literal, validate it directly.
+	if ip := net.ParseIP(host); ip != nil {
+		if isBlockedAddress(ip) {
+			return fmt.Errorf("host %s is a blocked address", host)
+		}
+
+		return nil
+	}
+
+	// Resolve hostname and block if any resolved IP is private/internal.
+	// This catches DNS-based SSRF where a domain resolves to a private IP.
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve host %s: %w", host, err)
+	}
+
+	for _, ip := range ips {
+		if isBlockedAddress(ip) {
+			return fmt.Errorf("host %s resolves to a blocked address %s", host, ip.String())
+		}
+	}
+
+	return nil
+}
+
+// safeDialContext is a DialContext that blocks connections to private/loopback/
+// link-local addresses. This is defense-in-depth against DNS rebinding: even if
+// the resolved address changes between validateRemoteURL and the actual dial,
+// the connection is rejected if it lands on a blocked range.
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Do(req)
+
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ip := range ips {
+		if isBlockedAddress(ip.IP) {
+			return nil, fmt.Errorf("dial %s: blocked address %s", host, ip.IP)
+		}
+	}
+
+	dialer := &net.Dialer{}
+	// Dial the original addr; the resolver above already validated the IPs.
+	// Connect to the first resolved IP directly to avoid re-resolution races.
+	if len(ips) > 0 {
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	}
+
+	return dialer.DialContext(ctx, network, addr)
+}
+
+// downloadRemoteMedia downloads media from a remote URL with SSRF protection
+// and a bounded read to prevent memory exhaustion.
+func downloadRemoteMedia(mediaURL string) ([]byte, error) {
+	// Validate the URL before any network access (SSRF protection).
+	if err := validateRemoteURL(mediaURL); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, mediaURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := remoteHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -681,7 +799,8 @@ func downloadRemoteMedia(url string) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	return io.ReadAll(resp.Body)
+	// Bound the read to prevent a malicious server from exhausting memory.
+	return io.ReadAll(io.LimitReader(resp.Body, maxRemoteMediaSize))
 }
 
 // MediaUsageCommand implements tootctl media usage

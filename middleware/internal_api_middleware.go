@@ -15,7 +15,7 @@ func InternalApiMiddleware() gin.HandlerFunc {
 		}
 
 		token, ok := tokenRaw.(*models.AuthTokenData)
-		if !ok {
+		if !ok || token == nil {
 			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "unauthorized"})
 
 			return

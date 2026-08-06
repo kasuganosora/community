@@ -1018,7 +1018,7 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 		assert.Equal(t, 401, w.Code)
 	})
 
-	t.Run("panics when token_data is nil pointer (known middleware behavior)", func(t *testing.T) {
+	t.Run("rejects with 401 when token_data is nil pointer", func(t *testing.T) {
 		handler := InternalApiMiddleware()
 
 		w := httptest.NewRecorder()
@@ -1026,14 +1026,12 @@ func TestInternalApiMiddleware_Full(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodGet, "/internal/test", nil) //nolint:noctx
 		c.Set("token_data", (*models.AuthTokenData)(nil))
 
-		// The middleware does not guard against nil *AuthTokenData pointers;
-		// this documents the actual behavior.
-		defer func() {
-			r := recover()
-			assert.NotNil(t, r, "expected panic on nil *AuthTokenData pointer")
-		}()
-
-		handler(c)
+		// Previously this would panic; now it safely returns 401.
+		assert.NotPanics(t, func() {
+			handler(c)
+		})
+		assert.True(t, c.IsAborted())
+		assert.Equal(t, 401, w.Code)
 	})
 
 	t.Run("rejects with 403 when auth type is not web", func(t *testing.T) {

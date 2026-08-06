@@ -30,12 +30,19 @@ import (
 	"github.com/kasuganosora/community/models"
 )
 
+// SetRouter registers all HTTP routes on the given Gin engine/router group.
+//
+// 中间件架构说明（重要）:
+// Gin 的 RouterGroup.Use() 会就地追加中间件到同一个组对象上，因此连续在
+// 同一个变量上调用 .Use(...) 会导致中间件累积泄露到后续所有路由。
+// 为了避免该问题，本函数中每一个需要独立中间件链的子组都通过
+// RouterGroup.Group("", middlewares...) 创建新的、独立的组对象，
+// 而不是复用同一个变量再追加。这保证了每条路由只会执行它应当执行的中间件。
 func SetRouter(app gin.IRouter) {
-	// Add self-destruct mode middleware globally
+	// 全局：自毁模式信息头
 	app.Use(middleware.SelfDestructInfoMiddleware())
 
-	// Self-destruct mode restrictions on write operations
-	// This must be applied before the API routes
+	// 全局：自毁模式下的写操作限制（必须在业务路由之前应用）
 	app.Use(middleware.SelfDestructMiddleware())
 
 	apiGroup := app.Group("/api")
@@ -50,22 +57,15 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.GET("/instance/rules", rule.List)
 	v2ApiGroup.GET("/instance/rules/:id", rule.Get)
 
-	// Search API v2 (Mastodon standard search endpoint)
-	maybeAuthGroupV2Search := v2ApiGroup.Use(middleware.AuthMiddleware())
-	maybeAuthGroupV2Search.GET("/search", search.Search)
+	// ===== 公开接口（无需认证）=====
 
-	// Suggestions API v2
-	maybeAuthGroupV2Suggestions := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
-	maybeAuthGroupV2Suggestions.GET("/suggestions", account.ListSuggestions)
-
-	// ===== API v1 标准 Mastodon 接口 =====
-	// 公开接口（无需认证）
+	// Instance 信息（v1 与 v2 共用同一处理函数）
 	v1ApiGroup.GET("/instance", common.GetInstanceDetail) // v2 也支持
 
-	// OAuth 应用注册（公开接口）
+	// OAuth 应用注册
 	v1ApiGroup.POST("/apps", oauth.CreateApp)
 
-	// Captcha 配置接口（公开）
+	// Captcha 配置
 	v1ApiGroup.GET("/captcha/config", common.GetCaptchaConfig)
 	v1ApiGroup.GET("/captcha/providers", common.GetCaptchaProviders)
 
@@ -77,38 +77,40 @@ func SetRouter(app gin.IRouter) {
 	oauthGroup.POST("/revoke", oauth.Revoke)
 
 	// ===== ActivityPub 联邦端点 =====
-	// WebFinger
+	// WebFinger / NodeInfo
 	app.GET("/.well-known/webfinger", activitypub.WebFinger)
 	app.GET("/.well-known/host-meta", activitypub.HostMeta)
 	app.GET("/.well-known/nodeinfo", activitypub.NodeInfo)
 
-	// ActivityPub Actor endpoints
+	// ActivityPub Actor 端点
 	app.GET("/users/:username", activitypub.ActorProfile)
-	// Rate limit: 50 requests per minute per IP
+
+	// 用户 Inbox（限流：每 IP 每分钟 50 次请求）
 	userInboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/users/inbox", 50))
 	userInboxGroup.POST("/users/:username/inbox", activitypub.Inbox)
+
 	app.GET("/users/:username/outbox", activitypub.Outbox)
 	app.GET("/users/:username/followers", activitypub.Followers)
 	app.GET("/users/:username/following", activitypub.Following)
 	app.GET("/users/:username/collections/featured", activitypub.Featured)
 
-	// Shared inbox for efficient delivery
-	// Rate limit: 100 requests per minute per IP
+	// Shared Inbox（限流：每 IP 每分钟 100 次请求）
 	inboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/inbox", 100))
 	inboxGroup.POST("/inbox", activitypub.SharedInbox)
 
-	// 账户注册和登录（自定义扩展）
+	// ===== 账户注册与登录（自定义扩展，公开接口）=====
 	v1ApiGroup.POST("/accounts/register", account.Register)
 	v1ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v1ApiGroup.POST("/accounts/login", account.Login)
 	v1ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v1ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 
-	// Streaming 健康检查
+	// Streaming 健康检查（公开）
 	v1ApiGroup.GET("/streaming/health", streaming.Health)
 
-	// 可登录也可不登陆的路由（v1）
-	maybeAuthGroupV1 := v1ApiGroup.Use(middleware.AuthMiddleware())
+	// ===== 可登录也可不登录的路由（v1）=====
+	// AuthMiddleware 在无 token 时放行，由各 handler 决定是否需要登录。
+	maybeAuthGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware())
 	maybeAuthGroupV1.GET("/accounts/search", account.Search)
 	maybeAuthGroupV1.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroupV1.GET("/accounts/:id/statuses", account.AccountStatuses)
@@ -132,26 +134,316 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/accounts/:id/featured_tags", account.AccountFeaturedTags)
 	maybeAuthGroupV1.GET("/instance/peers", instance.Peers)
 
-	// Status translation (public/optional auth)
+	// 状态翻译（公开/可选认证）
 	maybeAuthGroupV1.POST("/statuses/:id/translate/:lang", status.Translate)
 
-	// Invites (public for lookup, auth for list/create)
+	// 邀请码查询（公开）
 	v1ApiGroup.GET("/invites/:code", account.GetInvite)
 
-	// Tags follow/unfollow (requires auth)
-	authTagGroup := v1ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	// 标签关注/取关（需要登录）
+	authTagGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
 	authTagGroup.POST("/tags/:id/follow", account.FollowTag)
 	authTagGroup.POST("/tags/:id/unfollow", account.UnfollowTag)
 
-	// Trends (public)
+	// 热门话题（公开）
 	v1ApiGroup.GET("/trends/tags", trends.ListTags)
 	v1ApiGroup.GET("/trends/statuses", trends.ListStatuses)
 	v1ApiGroup.GET("/trends/links", trends.ListLinks)
 
-	// Announcements (public)
+	// 公告（公开）
 	v1ApiGroup.GET("/announcements", account.ListAnnouncements)
 
-	// ===== 向后兼容：v2 接口（deprecated） =====
+	// ===== 需要登录的路由（v1）=====
+	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
+	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+
+	// OAuth 应用凭证验证
+	authGroupV1.GET("/apps/verify_credentials", oauth.VerifyCredentials)
+
+	// 账户凭证
+	authGroupV1.GET("/accounts/verify_credentials", account.VerifyCredentials)
+	authGroupV1.GET("/accounts/relationships", account.Relationships)
+	authGroupV1.PATCH("/accounts/update_credentials", account.UpdateCredentials)
+	authGroupV1.GET("/accounts/familiar_followers", account.FamiliarFollowers)
+
+	// 邀请码管理（已登录）
+	authGroupV1.GET("/invites", account.ListInvites)
+	authGroupV1.POST("/invites", account.CreateInvite)
+
+	// 邮箱确认
+	authGroupV1.POST("/emails/confirmations", account.SendEmailConfirmation)
+	authGroupV1.POST("/emails/confirmations/verify", account.VerifyEmailConfirmation)
+
+	// 账户操作 (block/unblock/mute/unmute/pin/unpin)
+	authGroupV1.POST("/accounts/:id/block", account.Block)
+	authGroupV1.POST("/accounts/:id/unblock", account.Unblock)
+	authGroupV1.POST("/accounts/:id/mute", account.Mute)
+	authGroupV1.POST("/accounts/:id/unmute", account.Unmute)
+	authGroupV1.POST("/accounts/:id/pin", account.PinAccount)
+	authGroupV1.POST("/accounts/:id/unpin", account.UnpinAccount)
+
+	// 内部接口（仅允许 Web 端登录的 token，拒绝 OAuth token）
+	authInternalGroupV1 := authGroupV1.Group("", middleware.InternalApiMiddleware())
+	authInternalGroupV1.GET("/accounts/logout", account.Logout)
+	authInternalGroupV1.PUT("/accounts/me", account.UpdateAccount)
+	authInternalGroupV1.PUT("/accounts/me/password", account.ChangePassword)
+
+	// 通知（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+		GET("/notifications", timelines.NotificationTimeline).
+		GET("/notifications/:id", timelines.GetNotification)
+
+	// 通知（写入）
+	authGroupV1.POST("/notifications/:id/dismiss", timelines.DismissNotification)
+	authGroupV1.POST("/notifications/clear", timelines.ClearNotifications)
+	authGroupV1.GET("/notifications/policy", timelines.GetNotificationPolicy)
+	authGroupV1.POST("/notifications/policy", timelines.UpdateNotificationPolicy)
+
+	// 关注操作（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+		POST("/accounts/:id/follow", account.Follow).
+		DELETE("/accounts/:id/follow", account.UnFollow).
+		POST("/follow_requests/:id/authorize", follow_request.Authorize).
+		POST("/follow_requests/:id/reject", follow_request.Reject)
+
+	// 关注请求 / 屏蔽 / 静音 / 认可 / 已关注标签（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
+		GET("/follow_requests", follow_request.List).
+		GET("/blocks", account.BlocksList).
+		GET("/mutes", account.MutesList).
+		GET("/endorsements", account.ListEndorsements).
+		GET("/followed_tags", account.ListFollowedTags)
+
+	// 域名屏蔽（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+		POST("/domain_blocks", account.BlockDomain).
+		DELETE("/domain_blocks", account.UnblockDomain)
+
+	// 域名屏蔽（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
+		GET("/domain_blocks", account.DomainBlocksList)
+
+	// 列表（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteLists})).
+		POST("/lists", list.CreateList).
+		PUT("/lists/:id", list.UpdateList).
+		DELETE("/lists/:id", list.DeleteList).
+		POST("/lists/:id/followers", list.FollowList).
+		DELETE("/lists/:id/followers", list.UnfollowList).
+		POST("/lists/:id/accounts", list.AddAccountToList).
+		DELETE("/lists/:id/accounts", list.RemoveAccountFromList)
+
+	// 列表（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
+		GET("/lists", list.GetMyLists).
+		GET("/lists/:id", list.GetList).
+		GET("/lists/:id/accounts", list.GetListAccounts).
+		GET("/lists/:id/followers", list.GetListFollowers)
+
+	// 状态（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
+		POST("/statuses", status.Create).
+		DELETE("/statuses/:id", status.Delete).
+		PUT("/statuses/:id", status.Update).
+		POST("/statuses/:id/pin", status.Pin).
+		POST("/statuses/:id/unpin", status.UnPin).
+		POST("/statuses/:id/reblog", status.Reblog).
+		POST("/statuses/:id/unreblog", status.Unreblog).
+		POST("/statuses/:id/favourite", status.Favourite).
+		POST("/statuses/:id/unfavourite", status.Unfavourite).
+		POST("/statuses/:id/mute", status.MuteStatus).
+		POST("/statuses/:id/unmute", status.UnmuteStatus).
+		POST("/statuses/:id/bookmark", status.Bookmark).
+		POST("/statuses/:id/unbookmark", status.Unbookmark).
+		POST("/polls/:id/votes", status.VotePoll).
+		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
+		POST("/markers", marker.Save)
+
+	// 媒体上传（写入，需登录 + 媒体写入 scope + 限流：每用户每分钟 30 次）
+	mediaGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),
+		middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/media", 30))
+	mediaGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
+		POST("/media", media.Upload).
+		POST("/media/v2", media.UploadAsync).
+		PUT("/media/:id", media.Update).
+		DELETE("/media/:id", media.Delete)
+
+	// 状态（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+		GET("/statuses/:id/source", status.GetSource).
+		GET("/statuses/:id/history", status.GetHistory).
+		GET("/statuses/:id/favourited_by", status.FavouritedBy).
+		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
+		GET("/polls/:id", status.ViewPoll).
+		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
+		GET("/scheduled_statuses", status.ListScheduledStatuses).
+		GET("/timelines/home", timelines.Home).
+		GET("/timelines/mention", timelines.Mention).
+		GET("/favourites", favourite.Favourites).
+		GET("/bookmarks", favourite.Bookmarks)
+
+	// 流式接口（需要读取状态 + 读取通知 scope）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses},
+		middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+		GET("/streaming/user", streaming.UserStreaming).
+		GET("/streaming/direct", streaming.DirectStreaming).
+		GET("/streaming/notifications", streaming.NotificationStreaming)
+
+	// 会话 / 标记 / 偏好设置（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+		GET("/conversations", conversation.List).
+		GET("/markers", marker.List).
+		GET("/preferences", account.GetPreferences)
+
+	// 建议与公告（已登录）
+	authGroupV1.GET("/suggestions", account.ListSuggestions)
+	authGroupV1.DELETE("/suggestions/:account_id", account.RemoveSuggestion)
+	authGroupV1.POST("/announcements/:id/dismiss", account.DismissAnnouncement)
+	authGroupV1.PUT("/announcements/:id/reactions/:name", account.AddAnnouncementReaction)
+	authGroupV1.DELETE("/announcements/:id/reactions/:name", account.RemoveAnnouncementReaction)
+
+	// 精选标签
+	authGroupV1.GET("/featured_tags", account.ListFeaturedTags)
+	authGroupV1.POST("/featured_tags", account.CreateFeaturedTag)
+	authGroupV1.DELETE("/featured_tags/:id", account.DeleteFeaturedTag)
+	authGroupV1.GET("/featured_tags/suggestions", account.SuggestFeaturedTags)
+
+	// 推送通知订阅
+	authGroupV1.POST("/push/subscription", account.CreatePushSubscription)
+	authGroupV1.GET("/push/subscription", account.GetPushSubscription)
+	authGroupV1.PUT("/push/subscription", account.UpdatePushSubscription)
+	authGroupV1.DELETE("/push/subscription", account.DeletePushSubscription)
+
+	// 会话（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
+		DELETE("/conversations/:id", conversation.Remove).
+		POST("/conversations/:id/read", conversation.MarkRead)
+
+	// 过滤器（读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
+		GET("/filters", filter.List).
+		GET("/filters/:id", filter.Show).
+		GET("/filters/:id/keywords", filter.KeywordsList).
+		GET("/filters/keywords/:id", filter.KeywordView)
+
+	// 过滤器（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
+		POST("/filters", filter.Create).
+		PUT("/filters/:id", filter.Update).
+		DELETE("/filters/:id", filter.Delete).
+		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
+		PUT("/filters/keywords/:id", filter.KeywordUpdate).
+		DELETE("/filters/keywords/:id", filter.KeywordDelete)
+
+	// 举报（写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
+		POST("/reports", report2.Create)
+
+	// ===== 管理员接口（v1）=====
+
+	// 举报管理（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
+		GET("/admin/reports/", report2.List).
+		GET("/admin/reports/:id", report2.GetReport)
+
+	// 举报管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
+		PUT("/admin/reports/:id", report2.Update).
+		DELETE("/admin/reports/:id", report2.Delete).
+		POST("/admin/reports/:id/assign_to_self", report2.AssignToSelf).
+		POST("/admin/reports/:id/unassign", report2.Unassign).
+		POST("/admin/reports/:id/resolve", report2.Resolve).
+		POST("/admin/reports/:id/reopen", report2.Reopen)
+
+	// 规则管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).
+		POST("/admin/rule", rule.Create).
+		PUT("/admin/rule/:id", rule.Update).
+		DELETE("/admin/rule/:id", rule.Delete)
+
+	// 账户管理（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadAccounts})).
+		GET("/admin/accounts", admin.ListAccounts).
+		GET("/admin/accounts/:id", admin.GetAccount)
+
+	// 账户管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteAccounts})).
+		POST("/admin/accounts/:id/action", admin.PerformAccountAction).
+		POST("/admin/accounts/:id/enable", admin.EnableAccount).
+		POST("/admin/accounts/:id/approve", admin.ApproveAccount).
+		POST("/admin/accounts/:id/reject", admin.RejectAccount).
+		POST("/admin/accounts/:id/unsilence", admin.UnsilenceAccount).
+		POST("/admin/accounts/:id/unsuspend", admin.UnsuspendAccount)
+
+	// 状态管理（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/statuses/:id", admin.GetStatus)
+
+	// 状态管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/statuses/:id/action", admin.PerformStatusAction).
+		DELETE("/admin/statuses/:id", admin.DeleteStatus)
+
+	// 统计（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/dimensions", admin.GetDimensions).
+		GET("/admin/measures", admin.GetMeasures).
+		GET("/admin/retention", admin.GetRetention)
+
+	// 自定义表情管理（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/custom_emojis", admin.ListCustomEmojis).
+		GET("/admin/custom_emojis/:id", admin.GetCustomEmoji)
+
+	// 自定义表情管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/custom_emojis", admin.CreateCustomEmoji).
+		PUT("/admin/custom_emojis/:id", admin.UpdateCustomEmoji).
+		DELETE("/admin/custom_emojis/:id", admin.DeleteCustomEmoji).
+		POST("/admin/custom_emojis/:id/copy", admin.CopyCustomEmoji).
+		POST("/admin/custom_emojis/:id/enable", admin.EnableCustomEmoji).
+		POST("/admin/custom_emojis/:id/disable", admin.DisableCustomEmoji)
+
+	// 中继管理（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+		GET("/admin/relays", admin.ListRelays).
+		GET("/admin/relays/inboxes", admin.GetRelayInboxes).
+		GET("/admin/relays/:id", admin.GetRelay)
+
+	// 中继管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/relays", admin.CreateRelay).
+		DELETE("/admin/relays/:id", admin.DeleteRelay).
+		POST("/admin/relays/:id/enable", admin.EnableRelay).
+		POST("/admin/relays/:id/disable", admin.DisableRelay)
+
+	// ===== 群组 API（需要登录）=====
+	groupsGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	groupsGroup.POST("/groups", group2.CreateGroup)
+	groupsGroup.GET("/groups", group2.GetMyGroups)
+	groupsGroup.GET("/groups/:id", group2.GetGroup)
+	groupsGroup.DELETE("/groups/:id", group2.DeleteGroup)
+	groupsGroup.POST("/groups/:id/invite", group2.InviteMember)
+	groupsGroup.DELETE("/groups/:id/members/:member_id", group2.RemoveMember)
+	groupsGroup.GET("/groups/:id/messages", group2.GetGroupMessages)
+	groupsGroup.POST("/groups/:id/messages", group2.SendGroupMessage)
+	groupsGroup.POST("/groups/:id/bridge", group2.BridgeGroup)
+
+	// ===== 联系人 API（需要登录）=====
+	contactsGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	contactsGroup.POST("/contacts", contact.AddContact)
+	contactsGroup.GET("/contacts", contact.GetContacts)
+	contactsGroup.DELETE("/contacts/:id", contact.RemoveContact)
+	contactsGroup.POST("/contacts/:id/block", contact.BlockContact)
+	// 注意：静态路径 /contacts/requests 与 /contacts/lookup 须避免与参数路由冲突；
+	// 此处仅有 DELETE /contacts/:id（HTTP 方法不同），故无冲突。
+	contactsGroup.GET("/contacts/requests", contact.GetPendingRequests)
+	contactsGroup.POST("/contacts/requests/:id/accept", contact.AcceptRequest)
+	contactsGroup.POST("/contacts/requests/:id/reject", contact.RejectRequest)
+	contactsGroup.GET("/contacts/lookup/matrix/:account_id", contact.LookupMatrixUser)
+	contactsGroup.GET("/contacts/lookup/local", contact.SearchLocalUser)
+
+	// ===== 向后兼容：v2 接口（deprecated）=====
 	v2ApiGroup.POST("/accounts/register", account.Register)
 	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v2ApiGroup.POST("/accounts/login", account.Login)
@@ -159,8 +451,14 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 	v2ApiGroup.GET("/streaming/health", streaming.Health)
 
-	// 可登陆也可不登陆的路由（v2 兼容）
-	maybeAuthGroup := v2ApiGroup.Use(middleware.AuthMiddleware())
+	// Search API v2（Mastodon 标准搜索端点，可选认证）
+	v2ApiGroup.Group("", middleware.AuthMiddleware()).GET("/search", search.Search)
+
+	// Suggestions API v2（需要登录）
+	v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware()).GET("/suggestions", account.ListSuggestions)
+
+	// 可登录也可不登录的路由（v2 兼容）
+	maybeAuthGroup := v2ApiGroup.Group("", middleware.AuthMiddleware())
 	maybeAuthGroup.GET("/accounts/search", account.Search)
 	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroup.GET("/accounts/:id/statuses", account.AccountStatuses)
@@ -179,261 +477,26 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroup.GET("/streaming/public/remote", streaming.PublicStreamingRemote)
 	maybeAuthGroup.GET("/streaming/public", streaming.PublicStreamingAll)
 
-	// ===== 需要登录的路由（v1） =====
-	authGroupV1 := v1ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	// 需要登录的路由（v2 兼容）
+	authGroup := v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
 
-	// OAuth 应用凭证验证
-	authGroupV1.GET("/apps/verify_credentials", oauth.VerifyCredentials)
-
-	// 账户凭证
-	authGroupV1.GET("/accounts/verify_credentials", account.VerifyCredentials)
-	authGroupV1.GET("/accounts/relationships", account.Relationships)
-	authGroupV1.PATCH("/accounts/update_credentials", account.UpdateCredentials)
-	authGroupV1.GET("/accounts/familiar_followers", account.FamiliarFollowers)
-
-	// Invites (authenticated)
-	authGroupV1.GET("/invites", account.ListInvites)
-	authGroupV1.POST("/invites", account.CreateInvite)
-
-	// Email confirmations
-	authGroupV1.POST("/emails/confirmations", account.SendEmailConfirmation)
-	authGroupV1.POST("/emails/confirmations/verify", account.VerifyEmailConfirmation)
-
-	// 账户操作 (block/unblock/mute/unmute/pin/unpin)
-	authGroupV1.POST("/accounts/:id/block", account.Block)
-	authGroupV1.POST("/accounts/:id/unblock", account.Unblock)
-	authGroupV1.POST("/accounts/:id/mute", account.Mute)
-	authGroupV1.POST("/accounts/:id/unmute", account.Unmute)
-	authGroupV1.POST("/accounts/:id/pin", account.PinAccount)
-	authGroupV1.POST("/accounts/:id/unpin", account.UnpinAccount)
-
-	authInternalGroupV1 := authGroupV1.Use(middleware.InternalApiMiddleware())
-	authInternalGroupV1.GET("/accounts/logout", account.Logout)
-	authInternalGroupV1.PUT("/accounts/me", account.UpdateAccount)
-	authInternalGroupV1.PUT("/accounts/me/password", account.ChangePassword)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
-		GET("/notifications", timelines.NotificationTimeline).
-		GET("/notifications/:id", timelines.GetNotification)
-
-	// Notifications write operations
-	authGroupV1.POST("/notifications/:id/dismiss", timelines.DismissNotification)
-	authGroupV1.POST("/notifications/clear", timelines.ClearNotifications)
-	authGroupV1.GET("/notifications/policy", timelines.GetNotificationPolicy)
-	authGroupV1.POST("/notifications/policy", timelines.UpdateNotificationPolicy)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
-		POST("/accounts/:id/follow", account.Follow).
-		DELETE("/accounts/:id/follow", account.UnFollow).
-		POST("/follow_requests/:id/authorize", follow_request.Authorize).
-		POST("/follow_requests/:id/reject", follow_request.Reject)
-
-	// Follow Requests (read scope)
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
-		GET("/follow_requests", follow_request.List).
-		GET("/blocks", account.BlocksList).
-		GET("/mutes", account.MutesList).
-		GET("/endorsements", account.ListEndorsements).
-		GET("/followed_tags", account.ListFollowedTags)
-
-	// Domain blocks
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
-		POST("/domain_blocks", account.BlockDomain).
-		DELETE("/domain_blocks", account.UnblockDomain)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
-		GET("/domain_blocks", account.DomainBlocksList)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteLists})).
-		POST("/lists", list.CreateList).
-		PUT("/lists/:id", list.UpdateList).
-		DELETE("/lists/:id", list.DeleteList).
-		POST("/lists/:id/followers", list.FollowList).
-		DELETE("/lists/:id/followers", list.UnfollowList).
-		POST("/lists/:id/accounts", list.AddAccountToList).
-		DELETE("/lists/:id/accounts", list.RemoveAccountFromList)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
-		GET("/lists", list.GetMyLists).
-		GET("/lists/:id", list.GetList).
-		GET("/lists/:id/accounts", list.GetListAccounts).
-		GET("/lists/:id/followers", list.GetListFollowers)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
-		POST("/statuses", status.Create).
-		DELETE("/statuses/:id", status.Delete).
-		PUT("/statuses/:id", status.Update).
-		POST("/statuses/:id/pin", status.Pin).
-		POST("/statuses/:id/unpin", status.UnPin).
-		POST("/statuses/:id/reblog", status.Reblog).
-		POST("/statuses/:id/unreblog", status.Unreblog).
-		POST("/statuses/:id/favourite", status.Favourite).
-		POST("/statuses/:id/unfavourite", status.Unfavourite).
-		POST("/statuses/:id/mute", status.MuteStatus).
-		POST("/statuses/:id/unmute", status.UnmuteStatus).
-		POST("/statuses/:id/bookmark", status.Bookmark).
-		POST("/statuses/:id/unbookmark", status.Unbookmark).
-		POST("/polls/:id/votes", status.VotePoll).
-		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
-		POST("/markers", marker.Save)
-
-	// Media API - 媒体上传
-	// Rate limit: 30 requests per minute per user
-	mediaGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/media", 30))
-	mediaGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
-		POST("/media", media.Upload).
-		POST("/media/v2", media.UploadAsync).
-		PUT("/media/:id", media.Update).
-		DELETE("/media/:id", media.Delete)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
-		GET("/statuses/:id/source", status.GetSource).
-		GET("/statuses/:id/history", status.GetHistory).
-		GET("/statuses/:id/favourited_by", status.FavouritedBy).
-		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
-		GET("/polls/:id", status.ViewPoll).
-		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
-		GET("/scheduled_statuses", status.ListScheduledStatuses).
-		GET("/timelines/home", timelines.Home).
-		GET("/timelines/mention", timelines.Mention).
-		GET("/favourites", favourite.Favourites).
-		GET("/bookmarks", favourite.Bookmarks)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}, middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
-		GET("/streaming/user", streaming.UserStreaming).
-		GET("/streaming/direct", streaming.DirectStreaming).
-		GET("/streaming/notifications", streaming.NotificationStreaming)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
-		GET("/conversations", conversation.List).
-		GET("/markers", marker.List).
-		GET("/preferences", account.GetPreferences)
-
-	// Suggestions and Announcements (authenticated)
-	authGroupV1.GET("/suggestions", account.ListSuggestions)
-	authGroupV1.DELETE("/suggestions/:account_id", account.RemoveSuggestion)
-	authGroupV1.POST("/announcements/:id/dismiss", account.DismissAnnouncement)
-	authGroupV1.PUT("/announcements/:id/reactions/:name", account.AddAnnouncementReaction)
-	authGroupV1.DELETE("/announcements/:id/reactions/:name", account.RemoveAnnouncementReaction)
-
-	// Featured Tags
-	authGroupV1.GET("/featured_tags", account.ListFeaturedTags)
-	authGroupV1.POST("/featured_tags", account.CreateFeaturedTag)
-	authGroupV1.DELETE("/featured_tags/:id", account.DeleteFeaturedTag)
-	authGroupV1.GET("/featured_tags/suggestions", account.SuggestFeaturedTags)
-
-	// Push Notifications
-	authGroupV1.POST("/push/subscription", account.CreatePushSubscription)
-	authGroupV1.GET("/push/subscription", account.GetPushSubscription)
-	authGroupV1.PUT("/push/subscription", account.UpdatePushSubscription)
-	authGroupV1.DELETE("/push/subscription", account.DeletePushSubscription)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
-		DELETE("/conversations/:id", conversation.Remove).
-		POST("/conversations/:id/read", conversation.MarkRead)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
-		GET("/filters", filter.List).
-		GET("/filters/:id", filter.Show).
-		GET("/filters/:id/keywords", filter.KeywordsList).
-		GET("/filters/keywords/:id", filter.KeywordView)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
-		POST("/filters", filter.Create).
-		PUT("/filters/:id", filter.Update).
-		DELETE("/filters/:id", filter.Delete).
-		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
-		PUT("/filters/keywords/:id", filter.KeywordUpdate).
-		DELETE("/filters/keywords/:id", filter.KeywordDelete)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
-		POST("/reports", report2.Create)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
-		GET("/admin/reports/", report2.List).
-		GET("/admin/reports/:id", report2.GetReport)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
-		PUT("/admin/reports/:id", report2.Update).
-		DELETE("/admin/reports/:id", report2.Delete).
-		POST("/admin/reports/:id/assign_to_self", report2.AssignToSelf).
-		POST("/admin/reports/:id/unassign", report2.Unassign).
-		POST("/admin/reports/:id/resolve", report2.Resolve).
-		POST("/admin/reports/:id/reopen", report2.Reopen)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).
-		POST("/admin/rule", rule.Create).
-		PUT("/admin/rule/:id", rule.Update).
-		DELETE("/admin/rule/:id", rule.Delete)
-
-	// Admin Accounts API
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadAccounts})).
-		GET("/admin/accounts", admin.ListAccounts).
-		GET("/admin/accounts/:id", admin.GetAccount)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteAccounts})).
-		POST("/admin/accounts/:id/action", admin.PerformAccountAction).
-		POST("/admin/accounts/:id/enable", admin.EnableAccount).
-		POST("/admin/accounts/:id/approve", admin.ApproveAccount).
-		POST("/admin/accounts/:id/reject", admin.RejectAccount).
-		POST("/admin/accounts/:id/unsilence", admin.UnsilenceAccount).
-		POST("/admin/accounts/:id/unsuspend", admin.UnsuspendAccount)
-
-	// Admin Statuses API
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
-		GET("/admin/statuses/:id", admin.GetStatus)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
-		POST("/admin/statuses/:id/action", admin.PerformStatusAction).
-		DELETE("/admin/statuses/:id", admin.DeleteStatus)
-
-	// Admin Stats API (requires admin:read)
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
-		GET("/admin/dimensions", admin.GetDimensions).
-		GET("/admin/measures", admin.GetMeasures).
-		GET("/admin/retention", admin.GetRetention)
-
-	// Admin Custom Emojis API
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
-		GET("/admin/custom_emojis", admin.ListCustomEmojis).
-		GET("/admin/custom_emojis/:id", admin.GetCustomEmoji)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
-		POST("/admin/custom_emojis", admin.CreateCustomEmoji).
-		PUT("/admin/custom_emojis/:id", admin.UpdateCustomEmoji).
-		DELETE("/admin/custom_emojis/:id", admin.DeleteCustomEmoji).
-		POST("/admin/custom_emojis/:id/copy", admin.CopyCustomEmoji).
-		POST("/admin/custom_emojis/:id/enable", admin.EnableCustomEmoji).
-		POST("/admin/custom_emojis/:id/disable", admin.DisableCustomEmoji)
-
-	// Admin Relays API (中继管理)
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
-		GET("/admin/relays", admin.ListRelays).
-		GET("/admin/relays/inboxes", admin.GetRelayInboxes).
-		GET("/admin/relays/:id", admin.GetRelay)
-
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
-		POST("/admin/relays", admin.CreateRelay).
-		DELETE("/admin/relays/:id", admin.DeleteRelay).
-		POST("/admin/relays/:id/enable", admin.EnableRelay).
-		POST("/admin/relays/:id/disable", admin.DisableRelay)
-
-	// ===== 向后兼容：v2 接口（deprecated） =====
-	// 下面这些路由都是需要登录才能访问的
-	authGroup := v2ApiGroup.Use(middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
-	authInternalGroup := authGroup.Use(middleware.InternalApiMiddleware())
+	// 内部接口（仅 Web 端 token）
+	authInternalGroup := authGroup.Group("", middleware.InternalApiMiddleware())
 	authInternalGroup.GET("/accounts/logout", account.Logout)
 	authInternalGroup.PUT("/accounts/me", account.UpdateAccount)
 	authInternalGroup.PUT("/accounts/me/password", account.ChangePassword)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+	// 通知（读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
 		GET("/notifications", timelines.NotificationTimeline)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+	// 关注操作（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
 		POST("/accounts/:id/follow", account.Follow).
 		DELETE("/accounts/:id/follow", account.UnFollow)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteLists})).
+	// 列表（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteLists})).
 		POST("/lists", list.CreateList).
 		PUT("/lists/:id", list.UpdateList).
 		DELETE("/lists/:id", list.DeleteList).
@@ -442,13 +505,15 @@ func SetRouter(app gin.IRouter) {
 		POST("/lists/:id/accounts", list.AddAccountToList).
 		DELETE("/lists/:id/accounts", list.RemoveAccountFromList)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
+	// 列表（读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
 		GET("/lists", list.GetMyLists).
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
 		GET("/lists/:id/followers", list.GetListFollowers)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
+	// 状态（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
 		POST("/statuses", status.Create).
 		DELETE("/statuses/:id", status.Delete).
 		PUT("/statuses/:id", status.Update).
@@ -466,7 +531,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
 		POST("/markers", marker.Save)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+	// 状态（读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/statuses/:id/source", status.GetSource).
 		GET("/statuses/:id/history", status.GetHistory).
 		GET("/statuses/:id/favourited_by", status.FavouritedBy).
@@ -477,26 +543,32 @@ func SetRouter(app gin.IRouter) {
 		GET("/timelines/home", timelines.Home).
 		GET("/timelines/mention", timelines.Mention)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}, middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+	// 流式接口（读取状态 + 读取通知）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses},
+		middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
 		GET("/streaming/user", streaming.UserStreaming).
 		GET("/streaming/direct", streaming.DirectStreaming).
 		GET("/streaming/notifications", streaming.NotificationStreaming)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
+	// 会话 / 标记（读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/conversations", conversation.List).
 		GET("/markers", marker.List)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
+	// 会话（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
 		DELETE("/conversations/:id", conversation.Remove).
 		POST("/conversations/:id/read", conversation.MarkRead)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
+	// 过滤器（读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
 		GET("/filters", filter.List).
 		GET("/filters/:id", filter.Show).
 		GET("/filters/:id/keywords", filter.KeywordsList).
 		GET("/filters/keywords/:id", filter.KeywordView)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
+	// 过滤器（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
 		POST("/filters", filter.Create).
 		PUT("/filters/:id", filter.Update).
 		DELETE("/filters/:id", filter.Delete).
@@ -504,14 +576,17 @@ func SetRouter(app gin.IRouter) {
 		PUT("/filters/keywords/:id", filter.KeywordUpdate).
 		DELETE("/filters/keywords/:id", filter.KeywordDelete)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
+	// 举报（写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
 		POST("/reports", report2.Create)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
+	// 举报管理（管理员读取）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
 		GET("/admin/reports/", report2.List).
 		GET("/admin/reports/:id", report2.GetReport)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
+	// 举报管理（管理员写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
 		PUT("/admin/reports/:id", report2.Update).
 		DELETE("/admin/reports/:id", report2.Delete).
 		POST("/admin/reports/:id/assign_to_self", report2.AssignToSelf).
@@ -519,40 +594,17 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/reports/:id/resolve", report2.Resolve).
 		POST("/admin/reports/:id/reopen", report2.Reopen)
 
-	authGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).
+	// 规则管理（管理员写入）
+	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteRules})).
 		POST("/admin/rule", rule.Create).
 		PUT("/admin/rule/:id", rule.Update).
 		DELETE("/admin/rule/:id", rule.Delete)
 
-	// ===== 群组 API =====
-	authGroupV1.Use(middleware.CheckAuthMiddleware()).
-		POST("/groups", group2.CreateGroup).
-		GET("/groups", group2.GetMyGroups).
-		GET("/groups/:id", group2.GetGroup).
-		DELETE("/groups/:id", group2.DeleteGroup).
-		POST("/groups/:id/invite", group2.InviteMember).
-		DELETE("/groups/:id/members/:member_id", group2.RemoveMember).
-		GET("/groups/:id/messages", group2.GetGroupMessages).
-		POST("/groups/:id/messages", group2.SendGroupMessage).
-		POST("/groups/:id/bridge", group2.BridgeGroup)
-
-	// ===== 联系人 API =====
-	authGroupV1.Use(middleware.CheckAuthMiddleware()).
-		POST("/contacts", contact.AddContact).
-		GET("/contacts", contact.GetContacts).
-		DELETE("/contacts/:id", contact.RemoveContact).
-		POST("/contacts/:id/block", contact.BlockContact).
-		GET("/contacts/requests", contact.GetPendingRequests).
-		POST("/contacts/requests/:id/accept", contact.AcceptRequest).
-		POST("/contacts/requests/:id/reject", contact.RejectRequest).
-		GET("/contacts/lookup/matrix/:account_id", contact.LookupMatrixUser).
-		GET("/contacts/lookup/local", contact.SearchLocalUser)
-
 	// ===== Matrix Bridge 端点 =====
-	// Matrix AS Webhook 端点（供 Homeserver 调用）
+	// Matrix AS Webhook 端点（供 Homeserver 调用，内部通过 HS Token 鉴权）
 	matrixWebhookHandler := matrix.NewWebhookHandler(nil)
 	app.PUT("/_matrix/app/v1/transactions/:txnId", matrixWebhookHandler.HandleTransaction)
-	// Note: GET /users/:userId and /rooms/:roomAlias registered by RegisterAppServiceRoutes
+	// Note: GET /users/:userId 和 /rooms/:roomAlias 由 RegisterAppServiceRoutes 注册
 	app.GET("/_matrix/health", matrixWebhookHandler.HandleHealthCheck)
 
 	// ===== Matrix Homeserver 端点（Client-Server & Server-Server API）=====
@@ -586,42 +638,48 @@ func SetRouter(app gin.IRouter) {
 	// 注册账户管理 API
 	safeRegisterRoutes(func() { homeserver.RegisterAccountRoutes(app) })
 
-	// Matrix 管理 API（需要管理员权限）
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+	// ===== 矩阵管理 API（需要管理员权限）=====
+
+	// 矩阵状态（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
 		GET("/admin/matrix/status", admin.GetMatrixStatus).
 		GET("/admin/matrix/config", admin.GetMatrixConfig)
 
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+	// 矩阵管理（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
 		POST("/admin/matrix/start", admin.StartMatrixBridge).
 		POST("/admin/matrix/stop", admin.StopMatrixBridge).
 		POST("/admin/matrix/migrate", admin.RunMatrixMigration).
 		POST("/admin/matrix/test", admin.TestMatrixConnection)
 
-	// Admin Thumbnails API
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadThumbnails})).
+	// ===== 缩略图管理 API（需要管理员权限）=====
+
+	// 缩略图（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadThumbnails})).
 		GET("/admin/thumbnails", admin.ListThumbnails).
 		GET("/admin/thumbnails/:id", admin.GetThumbnail).
 		GET("/admin/thumbnails/stats", admin.GetThumbnailStats).
 		GET("/admin/thumbnails/config", admin.GetThumbnailConfig)
 
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteThumbnails})).
+	// 缩略图（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteThumbnails})).
 		PUT("/admin/thumbnails/config", admin.UpdateThumbnailConfig).
 		DELETE("/admin/thumbnails/:id", admin.DeleteThumbnail).
 		POST("/admin/thumbnails/:id/regenerate", admin.RegenerateThumbnail).
 		POST("/admin/thumbnails/purge", admin.PurgeThumbnails)
 
-	// Captcha 管理 API（需要管理员权限）
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
+	// ===== Captcha 管理 API（需要管理员权限）=====
+
+	// Captcha 配置（管理员读取）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
 		GET("/admin/captcha/config", common.GetCaptchaConfig)
 
-	authGroupV1.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+	// Captcha 配置（管理员写入）
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
 		PUT("/admin/captcha/config", common.AdminUpdateCaptchaConfig)
-
-	// maybeAuthGroup.Use(middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
-	//	GET("/statuses/:id", status.Show)
 }
 
-// safeRegisterRoutes catches panics from duplicate route registrations.
+// safeRegisterRoutes 捕获重复路由注册时的 panic。
 func safeRegisterRoutes(fn func()) {
 	defer func() {
 		_ = recover()

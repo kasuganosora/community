@@ -39,15 +39,17 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			}()
 
 			c.Next()
+
+			// 仅在未发生 panic 时关闭 finished，确保 panic 能被 select 正确处理
 			close(finished)
 		}()
 
 		select {
 		case <-finished:
 			// 正常完成
-			if len(panicChan) > 0 {
-				panic(<-panicChan)
-			}
+		case p := <-panicChan:
+			// handler 中发生 panic，立即重新抛出
+			panic(p)
 		case <-ctx.Done():
 			// 超时：标记 writer 为已超时，阻止 goroutine 继续写入
 			wrapper.timedOut.Store(1)
@@ -57,7 +59,7 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 				// by the wrapper's timedOut check
 				c.Writer = wrapper.ResponseWriter
 				c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
-					"error":   "request timeout", //nolint:goconst
+					"error":   "request timeout",
 					"message": "The request took too long to process",
 				})
 			}
