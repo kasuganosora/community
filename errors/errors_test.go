@@ -930,15 +930,15 @@ func TestAppError_ChainedOperations(t *testing.T) {
 }
 
 func TestAppError_ChainedWithRequestIDThenDetail(t *testing.T) {
-	// WithRequestID preserves Detail, but WithDetail doesn't preserve RequestID
+	// WithRequestID preserves Detail, and WithDetail also preserves RequestID
+	// (both methods preserve all other fields — consistent builder semantics).
 	err := NewAppError(ErrCodeInternal, "error", http.StatusInternalServerError).
 		WithRequestID("req-1").
-		// Note: WithDetail creates a new struct without RequestID
 		WithDetail("detail")
 
 	assert.Equal(t, "detail", err.Detail)
-	// RequestID is lost because WithDetail creates a new AppError without copying RequestID
-	assert.Empty(t, err.RequestID)
+	// RequestID is preserved because WithDetail now copies all existing fields
+	assert.Equal(t, "req-1", err.RequestID)
 }
 
 // ============================================================================

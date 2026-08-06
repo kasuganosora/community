@@ -189,7 +189,14 @@ func StringArrayToUint64Array(arr []string) ([]uint64, error) {
 }
 
 func StrToAny(str string, obj any) (err error) {
-	rValue := reflect.ValueOf(obj).Elem()
+	// obj 必须是非 nil 指针，否则 reflect.ValueOf(obj).Elem() 会 panic
+	rv := reflect.ValueOf(obj)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		err = errors.New("obj must be a non-nil pointer")
+		return err
+	}
+
+	rValue := rv.Elem()
 	rType := rValue.Type()
 
 	switch rType.Kind() {
@@ -371,16 +378,16 @@ func DeepCopy(source any, target any) (err error) {
 		return err
 	}
 
-	// 判断 source 的类型是否与 target 的类型相同
-	if reflect.TypeOf(source) != reflect.TypeOf(target).Elem() {
-		err = errors.New("source and target must be the same type")
+	// 判断 source 不能为 nil（必须先于类型比较，否则 reflect.TypeOf(nil) 返回 nil）
+	if source == nil {
+		err = errors.New("source can not be nil")
 
 		return err
 	}
 
-	// 判断 source 不能为 nil
-	if source == nil {
-		err = errors.New("source can not be nil")
+	// 判断 source 的类型是否与 target 的类型相同
+	if reflect.TypeOf(source) != reflect.TypeOf(target).Elem() {
+		err = errors.New("source and target must be the same type")
 
 		return err
 	}
@@ -443,7 +450,8 @@ func deepCopyValue(v reflect.Value) (ret reflect.Value) {
 	case reflect.Pointer:
 		// 则创建一个新的对象
 		if v.IsNil() {
-			return reflect.New(nil)
+			// 返回与原类型一致的 nil 指针，避免 reflect.New(nil) panic
+			return reflect.New(v.Type().Elem())
 		}
 
 		ret = deepCopyValue(v.Elem())
@@ -511,12 +519,14 @@ func deepCopyStruct(source reflect.Value) (ret reflect.Value) {
 			}
 		} else {
 			if field.Type.Kind() == reflect.Pointer {
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(reflect.New(field.Type.Elem())) //nolint:gosec // G103: reviewed and safe
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue)           //nolint:gosec // G103: reviewed and safe
+				if newFieldValue.IsValid() {
+					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(reflect.New(field.Type.Elem())) //nolint:gosec // G103: deep copy needs unexported fields
+					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue)
+				}
 			} else {
-				reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())). //nolint:gosec // G103: reviewed and safe
-													Elem().
-													Set(newFieldValue)
+				if newFieldValue.IsValid() {
+					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(newFieldValue) //nolint:gosec // G103: deep copy needs unexported fields
+				}
 			}
 		}
 	}

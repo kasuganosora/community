@@ -63,12 +63,14 @@ func (e *AppError) Error() string {
 }
 
 // WithDetail 添加详细错误信息.
+// 注意：保留已有的 RequestID，避免链式调用 WithRequestID().WithDetail() 时丢失请求 ID.
 func (e *AppError) WithDetail(detail string) *AppError {
 	return &AppError{
-		Code:    e.Code,
-		Message: e.Message,
-		Detail:  detail,
-		Status:  e.Status,
+		Code:      e.Code,
+		Message:   e.Message,
+		Detail:    detail,
+		Status:    e.Status,
+		RequestID: e.RequestID,
 	}
 }
 

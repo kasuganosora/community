@@ -63,13 +63,10 @@ func FileWithLineNum(level ...int) string {
 	return ""
 }
 
-// IsFileExists 判断文件是否存在.
+// IsFileExists 判断路径是否存在（文件或目录）.
 func IsFileExists(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false
-	}
-
-	return true
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // GetFullPath 获取文件的绝对路径.
@@ -78,7 +75,7 @@ func GetFullPath(path string) string {
 		return path
 	} else if runtime.GOOS == "windows" {
 		// 判断开始有没有盘符
-		if len(path) > 1 && strings.Contains(path[0:3], ":") {
+		if len(path) >= 3 && strings.Contains(path[0:3], ":") {
 			return path
 		}
 	}

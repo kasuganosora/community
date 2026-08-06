@@ -79,7 +79,9 @@ func loadConfig() {
 	}
 
 	if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
-		_ = createDefaultEnvFile(envFilePath)
+		if createErr := createDefaultEnvFile(envFilePath); createErr != nil {
+			log.Error("Failed to create default .env file: %v", createErr)
+		}
 
 		os.Exit(1)
 	} else if err != nil {

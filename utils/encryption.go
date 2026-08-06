@@ -52,13 +52,21 @@ func AesDecrypt(data string, key string) (decrypted []byte, err error) {
 		return
 	}
 
-	iv := keySha1[:block.BlockSize()]
+	// 校验密文长度必须是 block size 的整数倍，否则 CryptBlocks 会 panic
+	blockSize := block.BlockSize()
+	if len(encryptedData) == 0 || len(encryptedData)%blockSize != 0 {
+		err = errors.New("ciphertext is not a multiple of the block size")
+
+		return
+	}
+
+	iv := keySha1[:blockSize]
 
 	mode := cipher.NewCBCDecrypter(block, iv)
 	decrypted = make([]byte, len(encryptedData))
 	mode.CryptBlocks(decrypted, encryptedData)
 
-	decrypted = Pkcs7unpadding(decrypted)
+	decrypted, err = Pkcs7unpadding(decrypted)
 
 	return
 }
@@ -70,18 +78,28 @@ func Pkcs7padding(data []byte, blockSize int) []byte {
 	return append(data, padtext...)
 }
 
-func Pkcs7unpadding(data []byte) []byte {
+// Pkcs7unpadding 去除 PKCS#7 填充并校验完整性。
+// 若填充无效返回 error，防止填充 oracle 攻击。
+func Pkcs7unpadding(data []byte) ([]byte, error) {
 	length := len(data)
 	if length == 0 {
-		return data
+		return data, nil
 	}
 
 	unpadding := int(data[length-1])
-	if unpadding > length || unpadding == 0 {
-		return data
+	if unpadding == 0 || unpadding > length {
+		return nil, errors.New("invalid pkcs7 padding length")
 	}
 
-	return data[:(length - unpadding)]
+	// 校验末尾 unpadding 个字节全部等于 unpadding，防止填充 oracle 攻击
+	padStart := length - unpadding
+	for i := padStart; i < length; i++ {
+		if data[i] != byte(unpadding) {
+			return nil, errors.New("invalid pkcs7 padding bytes")
+		}
+	}
+
+	return data[:padStart], nil
 }
 
 // AesEncryptStruct AES加密结构体

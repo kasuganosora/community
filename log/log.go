@@ -6,13 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-var logObj *logrus.Logger
+var (
+	logObj      *logrus.Logger
+	// fileWriter 追踪当前 lumberjack 写入器（实现 io.Closer），
+	// 以便 CloseLog() 能释放文件句柄，以及 InitLogger() 多次调用时关闭旧的写入器。
+	fileWriter   io.Closer
+	fileWriterMu sync.Mutex
+)
 
 // LogConfig 日志配置.
 type LogConfig struct {
@@ -101,16 +108,50 @@ func InitLogger(config LogConfig) {
 		})
 	}
 
-	// 设置输出
+	// 设置输出。
+	// 先关闭上一次 InitLogger 可能创建的 lumberjack 写入器，避免文件句柄泄漏。
+	closeFileWriter()
+
 	switch config.Output {
 	case "file":
-		logObj.SetOutput(getLogWriter(config))
+		w := getLogWriter(config)
+		trackFileWriter(w)
+		logObj.SetOutput(w)
 	case "both":
-		logWriter := getLogWriter(config)
-		logObj.SetOutput(io.MultiWriter(os.Stdout, logWriter))
+		w := getLogWriter(config)
+		trackFileWriter(w)
+		logObj.SetOutput(io.MultiWriter(os.Stdout, w))
 	default: // stdout
 		logObj.SetOutput(os.Stdout)
 	}
+}
+
+// trackFileWriter 记录当前的文件写入器（若它实现了 io.Closer），
+// 供 CloseLog() 或后续 InitLogger() 调用释放资源。
+func trackFileWriter(w io.Writer) {
+	fileWriterMu.Lock()
+	defer fileWriterMu.Unlock()
+	if closer, ok := w.(io.Closer); ok {
+		fileWriter = closer
+	} else {
+		fileWriter = nil
+	}
+}
+
+// closeFileWriter 关闭并清空当前追踪的文件写入器。
+func closeFileWriter() {
+	fileWriterMu.Lock()
+	defer fileWriterMu.Unlock()
+	if fileWriter != nil {
+		_ = fileWriter.Close()
+		fileWriter = nil
+	}
+}
+
+// CloseLog 释放日志资源（关闭文件写入器）。
+// 应在程序优雅关闭时调用（例如主函数的 defer）。
+func CloseLog() {
+	closeFileWriter()
 }
 
 // getLogWriter 获取日志写入器（支持轮转）.
@@ -275,21 +316,31 @@ func GetLogStats(config LogConfig) map[string]any {
 	return stats
 }
 
-// globalLogConfig 全局日志配置（用于统计）.
-var globalLogConfig LogConfig
+// globalLogConfig 全局日志配置（用于统计），通过 globalConfigMu 保护并发访问.
+var (
+	globalLogConfig LogConfig
+	globalConfigMu  sync.RWMutex
+)
 
 // SetGlobalLogConfig 设置全局日志配置.
 func SetGlobalLogConfig(config LogConfig) {
+	globalConfigMu.Lock()
 	globalLogConfig = config
+	globalConfigMu.Unlock()
 }
 
 // GetCurrentLogStats 获取当前日志统计（使用全局配置）.
 func GetCurrentLogStats() map[string]any {
-	if globalLogConfig.FilePath == "" {
-		globalLogConfig = DefaultLogConfig()
+	globalConfigMu.RLock()
+	cfg := globalLogConfig
+	globalConfigMu.RUnlock()
+
+	// 读取路径不应有写副作用；用局部变量做默认值填充
+	if cfg.FilePath == "" {
+		cfg = DefaultLogConfig()
 	}
 
-	return GetLogStats(globalLogConfig)
+	return GetLogStats(cfg)
 }
 
 func GetLogObject() *logrus.Logger {
@@ -298,7 +349,11 @@ func GetLogObject() *logrus.Logger {
 
 // WriteLog 写入日志.
 func WriteLog(level logrus.Level, msg string, args ...any) {
-	msg = fmt.Sprintf(msg, args...)
+	// 仅在有格式化参数时才调用 Sprintf，避免消息本身含 % 字符（如 URL、
+	// 百分比、用户输入）被误解析为格式化动词而输出 "%!x(MISSING)"。
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
 	logObj.Log(level, msg)
 }
 
