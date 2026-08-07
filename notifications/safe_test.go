@@ -25,7 +25,8 @@ func TestSafeGo_RecoversFromPanic(t *testing.T) {
 	case <-done:
 		// The close won't happen because panic occurs before it,
 		// but the test not crashing is the real assertion.
-	case <-done:
+	default:
+		// If the channel is still open (panic prevented close), that's expected.
 	}
 
 	// The key assertion is that we reach here without crashing.

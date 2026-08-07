@@ -164,7 +164,7 @@ func TestSafeOpen_PathTraversal(t *testing.T) {
 	// Build a real on-disk dev-mode FS, mirroring how Get() behaves, so we can
 	// also assert traversal protection for the os.DirFS backing implementation.
 	tmp := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "mails"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "mails"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "mails", "real.html"), []byte("ok"), 0o600))
 	openers["disk"] = os.DirFS(tmp)
 
@@ -202,7 +202,7 @@ func TestSafeOpen_ValidPath(t *testing.T) {
 
 	t.Run("disk", func(t *testing.T) {
 		tmp := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(tmp, "mails"), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmp, "mails"), 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(tmp, "mails", "x.html"), []byte("ok"), 0o600))
 
 		fsys := os.DirFS(tmp)

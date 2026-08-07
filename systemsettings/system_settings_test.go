@@ -147,11 +147,11 @@ func TestGetMapWithNil(t *testing.T) {
 func TestGetAllTreeStyle(t *testing.T) {
 	loaded = true
 	settings = map[string]any{
-		"config":              "scalar", // leaf at "config"
-		"config.enabled":      true,     // ... but also nested under config.enabled
-		"server.host":         "localhost",
-		"server.port":         8080,
-		"a.b.c.d":             "deep",
+		"config":         "scalar", // leaf at "config"
+		"config.enabled": true,     // ... but also nested under config.enabled
+		"server.host":    "localhost",
+		"server.port":    8080,
+		"a.b.c.d":        "deep",
 	}
 
 	// Must not panic even when a scalar value conflicts with a subtree path.

@@ -363,11 +363,11 @@ func TestCleanupExpired_DeletesExpiredAndExhausted(t *testing.T) {
 		disabled        bool
 		shouldBeDeleted bool
 	}{
-		{"VALID", 10, 0, &future, false, false},              // still valid -> kept
-		{"NOLIMIT", 0, 5, nil, false, false},                 // unlimited, not expired -> kept
-		{"EXPIRED", 0, 0, &past, false, true},                // expired -> deleted
-		{"EXHAUSTED", 3, 3, nil, false, true},                // use_count >= max -> deleted
-		{"DISABLED_BUT_VALID", 10, 0, &future, true, false},  // disabled but not expired/exhausted -> kept
+		{"VALID", 10, 0, &future, false, false},             // still valid -> kept
+		{"NOLIMIT", 0, 5, nil, false, false},                // unlimited, not expired -> kept
+		{"EXPIRED", 0, 0, &past, false, true},               // expired -> deleted
+		{"EXHAUSTED", 3, 3, nil, false, true},               // use_count >= max -> deleted
+		{"DISABLED_BUT_VALID", 10, 0, &future, true, false}, // disabled but not expired/exhausted -> kept
 	}
 
 	now := time.Now()
@@ -394,7 +394,7 @@ func TestCleanupExpired_DeletesExpiredAndExhausted(t *testing.T) {
 		require.NoError(t, err, "record %s should still exist in DB (soft-deleted or not)", c.code)
 
 		// Check the DeletedAt flag.
-		deleted := inv.DeletedAt.Valid
+		deleted := inv.DeletedAt.Valid //nolint:staticcheck // QF1008: intentionally using embedded field for clarity
 		if c.shouldBeDeleted {
 			assert.True(t, deleted, "%s should be soft-deleted", c.code)
 		} else {
@@ -478,10 +478,10 @@ func TestConsumeInviteCodeTx_NilTx(t *testing.T) {
 }
 
 func TestConsumeInviteCodeTx_EmptyCode(t *testing.T) {
-	// Empty code on a tx returns (nil, nil) — "no invite code provided" semantics.
+	// Empty code on a tx returns (nil, ErrNoInviteCode) — "no invite code provided" semantics.
 	db := inviteTestDB(t)
 	inv, err := ConsumeInviteCodeTx(db, "")
-	require.NoError(t, err)
+	assert.ErrorIs(t, err, ErrNoInviteCode)
 	assert.Nil(t, inv)
 }
 

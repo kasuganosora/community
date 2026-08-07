@@ -226,7 +226,7 @@ func TestCreateUserAndAccount_ConcurrentRegistrationsRespectMaxUse(t *testing.T)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 
-			suffix := string(rune('a' + idx))
+			suffix := string(rune('a' + idx)) //nolint:gosec // G115: idx is a small loop counter (0-9), no overflow possible
 			req := RegisterRequest{
 				DisplayName:     "Concurrent User",
 				UserName:        "concurrent" + suffix,

@@ -150,10 +150,10 @@ func TestUnpush_AlwaysQueriesDatabase(t *testing.T) {
 	// 否则 before_update 事件触发时，旧的 mention 无法从时间线移除，
 	// 导致数据陈旧。
 	status := &models.Status{
-		Id:          1,
-		Visibility:  models.StatusVisibilityPublic,
-		ToAccounts:  nil, // 模拟 before_update 时未加载
-		AccountId:   100,
+		Id:         1,
+		Visibility: models.StatusVisibilityPublic,
+		ToAccounts: nil, // 模拟 before_update 时未加载
+		AccountId:  100,
 	}
 
 	// 验证 status.ToAccounts 确实为 nil（模拟未加载场景）

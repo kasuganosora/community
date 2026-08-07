@@ -18,6 +18,10 @@ const (
 	invalidMaxUseSentinel = 0
 )
 
+// ErrNoInviteCode indicates that no invite code was provided (empty string).
+// Callers can distinguish "not provided" from "invalid" using errors.Is.
+var ErrNoInviteCode = errors.New("no invite code provided")
+
 // ExecAfterRegisterAction 执行注册后的动作.
 //
 // 创建完后如果有用到邀请码,则将邀请码设置为已使用,并且把当前用户的邀请人设置为邀请码的拥有者,
@@ -125,9 +129,9 @@ func ConsumeInviteCodeTx(tx *gorm.DB, code string) (*models.InviteCode, error) {
 		return nil, errors.New("tx is nil")
 	}
 
-	// 未提供邀请码: 视为无可消费的邀请码, 返回 (nil, nil), 由调用方决定如何处理.
+	// 未提供邀请码: 返回 (nil, ErrNoInviteCode), 由调用方决定如何处理.
 	if code == "" {
-		return nil, nil
+		return nil, ErrNoInviteCode
 	}
 
 	return consumeInviteCodeInTx(tx, code)

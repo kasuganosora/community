@@ -22,7 +22,7 @@ func init() {
 		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			safeGo("creatReblogNotification", func() { creatReblogNotification(status) })  // 创建boost notification
+			safeGo("creatReblogNotification", func() { creatReblogNotification(status) })   // 创建boost notification
 			safeGo("creatMentionNotification", func() { creatMentionNotification(status) }) // 创建mention notification
 		case "after_update":
 			safeGo("updateReblogNotification", func() { updateReblogNotification(status) })

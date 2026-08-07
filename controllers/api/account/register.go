@@ -244,7 +244,7 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 		// 注意: 仅有提供了邀请码时才消费; 未提供邀请码 (code==nil) 时跳过.
 		if code != nil {
 			consumed, consumeErr := invitecode.ConsumeInviteCodeTx(tx, code.Code)
-			if consumeErr != nil {
+			if consumeErr != nil && !errors.Is(consumeErr, invitecode.ErrNoInviteCode) {
 				return consumeErr
 			}
 

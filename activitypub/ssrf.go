@@ -35,14 +35,14 @@ var ssrfBannedNetworks = func() []*net.IPNet {
 		"240.0.0.0/4",        // Reserved
 		"255.255.255.255/32", // Broadcast
 		// IPv6 (note: IPv4-mapped IPv6 addresses are handled via To4())
-		"::1/128",   // Loopback
-		"::/128",    // Unspecified
+		"::1/128",      // Loopback
+		"::/128",       // Unspecified
 		"64:ff9b::/96", // NAT64
-		"100::/64",  // Discard prefix
-		"fc00::/7",  // Unique local
-		"fe80::/10", // Link-local
-		"fec0::/10", // Site-local (deprecated)
-		"ff00::/8",  // Multicast
+		"100::/64",     // Discard prefix
+		"fc00::/7",     // Unique local
+		"fe80::/10",    // Link-local
+		"fec0::/10",    // Site-local (deprecated)
+		"ff00::/8",     // Multicast
 	}
 
 	nets := make([]*net.IPNet, 0, len(cidrs))

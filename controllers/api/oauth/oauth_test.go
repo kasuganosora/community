@@ -6,60 +6,60 @@ import (
 
 func TestIsValidRedirectUri(t *testing.T) {
 	tests := []struct {
-		name          string
+		name           string
 		registeredUris string
-		requestedUri  string
-		expected      bool
+		requestedUri   string
+		expected       bool
 	}{
 		{
-			name:          "exact match single uri",
+			name:           "exact match single uri",
 			registeredUris: "https://app.example.com/callback",
-			requestedUri:  "https://app.example.com/callback",
-			expected:      true,
+			requestedUri:   "https://app.example.com/callback",
+			expected:       true,
 		},
 		{
-			name:          "exact match one of multiple uris",
+			name:           "exact match one of multiple uris",
 			registeredUris: "https://app.example.com/callback\nhttps://app2.example.com/cb",
-			requestedUri:  "https://app2.example.com/cb",
-			expected:      true,
+			requestedUri:   "https://app2.example.com/cb",
+			expected:       true,
 		},
 		{
-			name:          "no match",
+			name:           "no match",
 			registeredUris: "https://app.example.com/callback",
-			requestedUri:  "https://evil.example.com/callback",
-			expected:      false,
+			requestedUri:   "https://evil.example.com/callback",
+			expected:       false,
 		},
 		{
-			name:          "empty requested uri rejected",
+			name:           "empty requested uri rejected",
 			registeredUris: "https://app.example.com/callback",
-			requestedUri:  "",
-			expected:      false,
+			requestedUri:   "",
+			expected:       false,
 		},
 		{
-			name:          "whitespace requested uri rejected",
+			name:           "whitespace requested uri rejected",
 			registeredUris: "https://app.example.com/callback",
-			requestedUri:  "   ",
-			expected:      false,
+			requestedUri:   "   ",
+			expected:       false,
 		},
 		// Critical security test: OOB registered should NOT allow arbitrary redirect URIs.
 		// Previously, registering urn:ietf:wg:oauth:2.0:oob allowed ANY redirect_uri.
 		{
-			name:          "OOB registered does not allow arbitrary redirect (open redirect fix)",
+			name:           "OOB registered does not allow arbitrary redirect (open redirect fix)",
 			registeredUris: "urn:ietf:wg:oauth:2.0:oob",
-			requestedUri:  "https://evil.example.com/callback",
-			expected:      false,
+			requestedUri:   "https://evil.example.com/callback",
+			expected:       false,
 		},
 		{
-			name:          "OOB registered and OOB requested is allowed",
+			name:           "OOB registered and OOB requested is allowed",
 			registeredUris: "urn:ietf:wg:oauth:2.0:oob",
-			requestedUri:  "urn:ietf:wg:oauth:2.0:oob",
-			expected:      true,
+			requestedUri:   "urn:ietf:wg:oauth:2.0:oob",
+			expected:       true,
 		},
 		{
-			name:          "OOB among multiple registered, arbitrary redirect rejected",
+			name:           "OOB among multiple registered, arbitrary redirect rejected",
 			registeredUris: "https://app.example.com/callback\nurn:ietf:wg:oauth:2.0:oob",
-			requestedUri:  "https://attacker.example.com/callback",
-			expected:      false,
+			requestedUri:   "https://attacker.example.com/callback",
+			expected:       false,
 		},
 	}
 

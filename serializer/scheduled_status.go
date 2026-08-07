@@ -15,17 +15,17 @@ type ScheduledStatus struct {
 
 type ScheduledStatusParams struct {
 	Poll          *ScheduledStatusPollParams `json:"poll"`
-	Text          string   `json:"text"`
-	MediaIds      []string `json:"media_ids"`
-	Sensitive     bool     `json:"sensitive"`
-	Visibility    string   `json:"visibility"`
-	Idempotency   *string  `json:"idempotency"`
-	ScheduledAt   *string  `json:"scheduled_at"`
-	SpoilerText   string   `json:"spoiler_text"`
-	ApplicationId *uint64  `json:"application_id"`
-	InReplyToId   *string  `json:"in_reply_to_id"`
-	Language      *string  `json:"language"`
-	WithRateLimit *bool    `json:"with_rate_limit"`
+	Text          string                     `json:"text"`
+	MediaIds      []string                   `json:"media_ids"`
+	Sensitive     bool                       `json:"sensitive"`
+	Visibility    string                     `json:"visibility"`
+	Idempotency   *string                    `json:"idempotency"`
+	ScheduledAt   *string                    `json:"scheduled_at"`
+	SpoilerText   string                     `json:"spoiler_text"`
+	ApplicationId *uint64                    `json:"application_id"`
+	InReplyToId   *string                    `json:"in_reply_to_id"`
+	Language      *string                    `json:"language"`
+	WithRateLimit *bool                      `json:"with_rate_limit"`
 }
 
 type ScheduledStatusPollParams struct {

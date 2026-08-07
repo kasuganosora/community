@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	logObj      *logrus.Logger
+	logObj *logrus.Logger
 	// fileWriter 追踪当前 lumberjack 写入器（实现 io.Closer），
 	// 以便 CloseLog() 能释放文件句柄，以及 InitLogger() 多次调用时关闭旧的写入器。
 	fileWriter   io.Closer

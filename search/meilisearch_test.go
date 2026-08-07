@@ -586,4 +586,3 @@ func TestParseSearchQuery_AllFilters(t *testing.T) {
 	assert.Equal(t, "2023-01-01", filters["after"])
 	assert.Equal(t, "golang", filters["tag"])
 }
-

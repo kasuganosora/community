@@ -28,7 +28,7 @@ type Notification struct {
 	StatusId      uint64
 	ReportId      uint64
 	ListId        uint64
-	IsRead        bool   `gorm:"default:false"`
+	IsRead        bool `gorm:"default:false"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime"`
