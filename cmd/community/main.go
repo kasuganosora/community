@@ -22,6 +22,7 @@ import (
 	"github.com/kasuganosora/community/metrics"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
+	"github.com/kasuganosora/community/models"
 	_ "github.com/kasuganosora/community/notifications"
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/utils"
@@ -99,6 +100,12 @@ func setupServer() *gin.Engine {
 	// 创建 Gin 引擎
 	app := gin.New()
 
+	// 启用 405 Method Not Allowed 处理。
+	// Gin 默认对方法不匹配的路径返回 404，这会误导 API 客户端。
+	// 设置 HandleMethodNotAllowed 后，对已注册路径使用错误的 HTTP 方法时
+	// 会返回 405（由 NoMethod 处理器或默认行为响应）。
+	app.HandleMethodNotAllowed = true
+
 	// 添加 Recovery 中间件
 	app.Use(gin.Recovery())
 
@@ -132,6 +139,13 @@ func setupServer() *gin.Engine {
 	// 这防止攻击者通过大体积 multipart 请求耗尽服务器内存（内存 DoS）。
 	app.MaxMultipartMemory = 8 << 20 // 8 MB
 
+	// 统一的 405 Method Not Allowed 处理器。
+	// 当请求路径已注册但使用了不支持的 HTTP 方法时返回 JSON 错误，
+	// 并通过 Allow 头告知客户端该路径支持的方法。
+	app.NoMethod(func(c *gin.Context) {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
+	})
+
 	// 健康检查端点
 	app.GET("/health", health.SimpleHealthHandler())
 	app.GET("/health/detailed", health.DetailedHealthHandler())
@@ -141,9 +155,11 @@ func setupServer() *gin.Engine {
 	// Prometheus 指标端点
 	app.GET("/metrics", metrics.Handler())
 
-	// 日志统计端点
-	app.GET("/admin/logs/stats", log.StatsHandler())
-	app.GET("/admin/logs/health", log.HealthHandler())
+	// 日志统计端点（需要管理员权限）
+	logsAdminGroup := app.Group("/admin/logs", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),
+		middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead}))
+	logsAdminGroup.GET("/stats", log.StatsHandler())
+	logsAdminGroup.GET("/health", log.HealthHandler())
 
 	// 前端静态文件服务
 	setupFrontend(app)

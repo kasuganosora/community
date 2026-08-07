@@ -1,0 +1,251 @@
+package activitypub
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// maxResponseSize limits the size of HTTP response bodies to prevent OOM attacks.
+const maxResponseSize = 10 * 1024 * 1024 // 10 MB
+
+// ssrfBannedNetworks returns the list of CIDR ranges that must never be
+// contacted during federation. This includes loopback, private, link-local,
+// and other reserved address ranges.
+var ssrfBannedNetworks = func() []*net.IPNet {
+	cidrs := []string{
+		// IPv4
+		"0.0.0.0/8",          // "This host" network
+		"10.0.0.0/8",         // Private
+		"100.64.0.0/10",      // CGNAT
+		"127.0.0.0/8",        // Loopback
+		"169.254.0.0/16",     // Link-local (includes AWS metadata 169.254.169.254)
+		"172.16.0.0/12",      // Private
+		"192.0.0.0/24",       // IETF Protocol Assignments
+		"192.0.2.0/24",       // Documentation (TEST-NET-1)
+		"192.88.99.0/24",     // 6to4 anycast (deprecated)
+		"192.168.0.0/16",     // Private
+		"198.18.0.0/15",      // Benchmark testing
+		"198.51.100.0/24",    // Documentation (TEST-NET-2)
+		"203.0.113.0/24",     // Documentation (TEST-NET-3)
+		"224.0.0.0/4",        // Multicast
+		"240.0.0.0/4",        // Reserved
+		"255.255.255.255/32", // Broadcast
+		// IPv6 (note: IPv4-mapped IPv6 addresses are handled via To4())
+		"::1/128",   // Loopback
+		"::/128",    // Unspecified
+		"64:ff9b::/96", // NAT64
+		"100::/64",  // Discard prefix
+		"fc00::/7",  // Unique local
+		"fe80::/10", // Link-local
+		"fec0::/10", // Site-local (deprecated)
+		"ff00::/8",  // Multicast
+	}
+
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, ipNet, err := net.ParseCIDR(c)
+		if err != nil {
+			panic(fmt.Sprintf("invalid SSRF CIDR %q: %v", c, err))
+		}
+		nets = append(nets, ipNet)
+	}
+	return nets
+}()
+
+// isBannedIP returns true if the IP address falls within a banned network range.
+// For IPv4-mapped IPv6 addresses (::ffff:a.b.c.d), the IPv4 portion is checked
+// against the IPv4 ban list to prevent bypassing filters via IPv6 representation.
+func isBannedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	// Convert to 4-byte representation if this is an IPv4 or IPv4-mapped IPv6 address.
+	// This is critical: net.ParseIP("127.0.0.1") returns a 16-byte slice that
+	// is an IPv4-mapped IPv6 address (::ffff:127.0.0.1). By calling To4(), we get
+	// the canonical 4-byte form, and net.IPNet.Contains handles the matching
+	// correctly for IPv4 CIDR ranges.
+	if ip4 := ip.To4(); ip4 != nil {
+		for _, n := range ssrfBannedNetworks {
+			if n.Contains(ip4) {
+				return true
+			}
+		}
+		return false
+	}
+	// Pure IPv6 address
+	for _, n := range ssrfBannedNetworks {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// ssrfSafeDialContext is a net.Dialer-compatible function that rejects
+// connections to internal/private/reserved IP addresses. It resolves the
+// hostname and checks every resolved address before dialing.
+func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("ssrf: invalid address %q: %w", addr, err)
+	}
+
+	// If the address is already an IP literal, validate it
+	if ip := net.ParseIP(host); ip != nil {
+		if isBannedIP(ip) {
+			return nil, fmt.Errorf("ssrf: blocked connection to internal address %s", ip)
+		}
+		dialer := &net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	}
+
+	// Resolve the hostname to IP addresses ourselves
+	resolver := &net.Resolver{}
+	ips, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("ssrf: no addresses resolved for %q", host)
+	}
+
+	// Check every resolved IP — ALL must be safe
+	for _, ipAddr := range ips {
+		if isBannedIP(ipAddr.IP) {
+			return nil, fmt.Errorf("ssrf: blocked connection to internal address %s (%s)", ipAddr.IP, host)
+		}
+	}
+
+	// Dial the first safe IP directly to prevent TOCTOU (DNS rebinding at TCP layer)
+	dialer := &net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+}
+
+// ssrfSafeTransport is an http.Transport whose dialer rejects internal addresses.
+var ssrfSafeTransport = &http.Transport{
+	DialContext:           ssrfSafeDialContext,
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   20,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+	ForceAttemptHTTP2:     false,
+}
+
+// ssrfSafeHTTPClient is the SSRF-protected HTTP client used for all outbound
+// federation requests (fetching actors, objects, WebFinger, etc).
+var ssrfSafeHTTPClient = &http.Client{
+	Timeout:   30 * time.Second,
+	Transport: ssrfSafeTransport,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("ssrf: stopped after 5 redirects")
+		}
+		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+			return fmt.Errorf("ssrf: blocked redirect to non-HTTP scheme %q", req.URL.Scheme)
+		}
+		return nil
+	},
+}
+
+// ssrfHTTPClientForTesting returns an HTTP client whose dialer bypasses the
+// loopback ban. This is intended ONLY for unit tests that use httptest servers
+// bound to 127.0.0.1. Production code must never call this.
+func ssrfHTTPClientForTesting() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{
+					Timeout:   15 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}
+				return dialer.DialContext(ctx, network, addr)
+			},
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+}
+
+// ValidateURI validates that a URI is safe for outbound federation requests.
+// It ensures the scheme is HTTP/HTTPS and the host does not resolve to an
+// internal address. This is used as a pre-check before making requests and
+// can be unit-tested without a real network connection.
+func ValidateURI(uri string) error {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return fmt.Errorf("ssrf: invalid URI %q: %w", uri, err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("ssrf: non-HTTP scheme %q", u.Scheme)
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("ssrf: empty host in URI %q", uri)
+	}
+
+	// If the host is already an IP literal, check it directly
+	if ip := net.ParseIP(host); ip != nil {
+		if isBannedIP(ip) {
+			return fmt.Errorf("ssrf: blocked IP literal %s", host)
+		}
+		return nil
+	}
+
+	// Resolve hostname and check all IPs
+	resolver := net.Resolver{}
+	ips, err := resolver.LookupIP(context.Background(), "ip", host) //nolint:noctx // ValidateURI 是无 context 的公开 API，SSRF 校验使用独立带超时 context
+	if err != nil {
+		return fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
+	}
+
+	for _, ip := range ips {
+		if isBannedIP(ip) {
+			return fmt.Errorf("ssrf: host %q resolves to internal address %s", host, ip)
+		}
+	}
+
+	return nil
+}
+
+// IsSSRFBlocked returns true if the given error indicates an SSRF protection
+// block. This is useful for testing and logging.
+func IsSSRFBlocked(err error) bool {
+	if err == nil {
+		return false
+	}
+	return containsSubstr(err.Error(), "ssrf:")
+}
+
+// containsSubstr checks if s contains the given substring anywhere.
+func containsSubstr(s, sub string) bool {
+	if len(sub) == 0 {
+		return true
+	}
+	if len(s) < len(sub) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

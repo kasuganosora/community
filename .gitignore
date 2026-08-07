@@ -14,4 +14,5 @@ NUL
 
 # Backup files
 *.bak
-*.bak.*
+*.bak.*community
+/community

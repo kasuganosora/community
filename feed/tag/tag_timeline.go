@@ -276,6 +276,15 @@ func getTags(status *models.Status) (err error) {
 func GetTimelineContent(tag string, account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeline := &TagTimeline{Tag: tag}
 
+	// 安全处理 nil params 和 nil Other map
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+
+	if params.Other == nil {
+		params.Other = make(map[string]any)
+	}
+
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		// Look up tag ID by name
 		tagModel := &models.Tag{}
@@ -302,6 +311,12 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 
 	followingCheckMap := utils.GetExistsMap(followingIds)
 
+	var accountId uint64
+
+	if account != nil {
+		accountId = account.Id
+	}
+
 	afterFilter := func(statuses models.Statuses) models.Statuses {
 		ret := make(models.Statuses, 0, len(statuses))
 
@@ -310,29 +325,23 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 				continue
 			}
 
-			// 没有登录的情况下，只能看到公开的
-			if account == nil && status.Visibility != models.StatusVisibilityPublic {
-				continue
-			}
-
-			if status.Visibility == models.StatusVisibilityDirect && status.ToAccounts.Contains(account.Id) {
+			switch status.Visibility {
+			case models.StatusVisibilityPublic:
+				// 公开的，所有人都能看到
 				ret = append(ret, status)
-
-				continue
-			}
-
-			// 如果是私有的那么只有关注的人才能看到
-			if status.Visibility == models.StatusVisibilityPrivate && followingCheckMap[status.AccountId] {
+			case models.StatusVisibilityUnlisted:
+				// 对所有人可见，但不出现在公共时间线，tag 时间线可见
 				ret = append(ret, status)
-
-				continue
-			}
-
-			// 公开的，所有人都能看到
-			if status.Visibility == models.StatusVisibilityPublic {
-				ret = append(ret, status)
-
-				continue
+			case models.StatusVisibilityPrivate:
+				// 私有的，只有关注的人才能看到
+				if followingCheckMap[status.AccountId] || accountId == status.AccountId {
+					ret = append(ret, status)
+				}
+			case models.StatusVisibilityDirect:
+				// 私信，只有被提及的人才能看到
+				if status.ToAccounts.Contains(accountId) {
+					ret = append(ret, status)
+				}
 			}
 		}
 

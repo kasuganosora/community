@@ -98,3 +98,49 @@ func TestAbortIfError(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }
+
+// TestAbortRecoveryMiddleware_ProductionOrder verifies that the production
+// middleware ordering (gin.Recovery() outermost, AbortRecoveryMiddleware innermost)
+// correctly swallows the AbortSentinel control-flow panic while preserving the
+// already-written HTTP response. This is the cross-module contract between
+// controllers (which call AbortPanic) and the server bootstrap (which registers
+// AbortRecoveryMiddleware inside SetRouter).
+func TestAbortRecoveryMiddleware_ProductionOrder(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	app := gin.New()
+	// Simulate production: gin.Recovery is registered first (outermost).
+	app.Use(gin.Recovery())
+	// AbortRecoveryMiddleware is registered later (innermost), mirroring how
+	// SetRouter registers it after main.go's global middleware.
+	app.Use(AbortRecoveryMiddleware())
+	app.GET("/test", func(c *gin.Context) {
+		c.JSON(404, gin.H{"error": "not found"})
+		AbortPanic()
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	app.ServeHTTP(w, req)
+
+	assert.Equal(t, 404, w.Code, "response should be preserved (404), not replaced by gin.Recovery's 500")
+	assert.Equal(t, `{"error":"not found"}`, w.Body.String())
+}
+
+// TestAbortRecoveryMiddleware_NonSentinelRethrown verifies that real panics
+// are NOT swallowed — they must propagate to gin.Recovery for proper handling.
+func TestAbortRecoveryMiddleware_NonSentinelRethrown(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	app := gin.New()
+	app.Use(gin.Recovery())            // catches re-panicked real errors
+	app.Use(AbortRecoveryMiddleware()) // must re-panic non-sentinel values
+	app.GET("/boom", func(c *gin.Context) {
+		panic("a real error, not a control-flow sentinel")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/boom", nil)
+	assert.NotPanics(t, func() {
+		app.ServeHTTP(w, req) // gin.Recovery catches the re-panic, returns 500
+	})
+	assert.Equal(t, 500, w.Code)
+}

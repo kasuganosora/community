@@ -189,6 +189,18 @@ func (v *SignatureVerifier) VerifyRequestWithKeyID(req *http.Request, body []byt
 		return fmt.Errorf("parsing signature header: %w", err)
 	}
 
+	// Verify that the algorithm is a supported one (rsa-sha256 or hs2019).
+	// We reject unknown/empty algorithms to prevent downgrade attacks.
+	if err := verifyAlgorithm(sig.Algorithm); err != nil {
+		return fmt.Errorf("algorithm verification failed: %w", err)
+	}
+
+	// Enforce that (request-target) is part of the signed headers. Without this,
+	// a signature for one endpoint could be replayed against any other endpoint.
+	if !headerContains(sig.Headers, "(request-target)") {
+		return errors.New("(request-target) must be signed")
+	}
+
 	// C2: Verify request date is within acceptable time window (replay protection)
 	if err := verifyRequestDate(sig, req); err != nil {
 		return fmt.Errorf("request date verification failed: %w", err)
@@ -231,6 +243,21 @@ func (v *SignatureVerifier) VerifyRequestWithKeyID(req *http.Request, body []byt
 	return nil
 }
 
+// verifyAlgorithm ensures the signature algorithm is one we support.
+// We accept "rsa-sha256" and "hs2019" (the newer algorithm identifier).
+// An empty algorithm is rejected because the spec requires it, and accepting
+// arbitrary values could lead to confusion about the signing method.
+func verifyAlgorithm(algorithm string) error {
+	switch algorithm {
+	case "rsa-sha256", "hs2019":
+		return nil
+	case "":
+		return errors.New("missing algorithm in signature header")
+	default:
+		return fmt.Errorf("unsupported signature algorithm: %q", algorithm)
+	}
+}
+
 // getPublicKey retrieves a public key from cache or fetches it.
 func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
 	// Check cache first
@@ -238,15 +265,27 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return key, nil
 	}
 
-	// Fetch the actor to get the public key
-	client := NewClient(nil, "")
-
 	// KeyID is typically the actor URI with #main-key suffix
 	actorURI := strings.TrimSuffix(keyID, "#main-key")
 
+	// Validate that the actorURI is a safe federation target before fetching
+	if err := validateFederationURI(actorURI); err != nil {
+		return nil, fmt.Errorf("invalid keyId URI: %w", err)
+	}
+
+	// Fetch the actor to get the public key
+	client := NewClient(nil, "")
 	actor, err := client.FetchActor(ctx, actorURI)
 	if err != nil {
 		return nil, fmt.Errorf("fetching actor: %w", err)
+	}
+
+	// Critical: verify that the fetched actor's ID matches the URI we requested.
+	// Without this check, a malicious server could serve a different actor's
+	// document (with a victim's public key) under an attacker-controlled URL,
+	// enabling impersonation.
+	if actor.ID != "" && actor.ID != actorURI {
+		return nil, fmt.Errorf("actor ID %q does not match requested keyId URI %q", actor.ID, actorURI)
 	}
 
 	// Parse the public key
@@ -378,11 +417,9 @@ func VerifyActivitySignature(c interface{ GetHeader(string) string }, body []byt
 	// Gin context has a Request field (not a method)
 	if ginCtx, ok := c.(*gin.Context); ok {
 		req = ginCtx.Request
-	} else if r, ok := c.(interface{ GetHeader(string) string }); ok {
-		// Try to extract request from common HTTP test contexts
-		_ = r
-		return "", errors.New("unsupported context type")
 	} else {
+		// The parameter type already guarantees the GetHeader method, but only
+		// *gin.Context carries the underlying *http.Request we need.
 		return "", errors.New("unsupported context type")
 	}
 

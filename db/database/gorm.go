@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -94,21 +95,33 @@ func GetDB() *gorm.DB {
 // InitGorm 初始化 Gorm.
 func InitGorm() {
 	dbMu.Lock()
-	defer dbMu.Unlock()
+	// 初始化逻辑由 initGormLocked 执行，返回的 fatalMsg 非空时表示需要 Fatal。
+	// Fatal 会调用 os.Exit，因此必须在 defer Unlock 之后再执行，
+	// 避免 gocritic exitAfterDefer（defer 永不执行）。
+	fatalMsg := initGormLocked()
+	dbMu.Unlock()
 
+	if fatalMsg != "" {
+		log.Fatal(fatalMsg)
+	}
+}
+
+// initGormLocked 执行实际的数据库初始化，调用方必须已持有 dbMu.
+// 返回值非空时表示遇到致命配置错误，需要由调用方在解锁后 log.Fatal.
+func initGormLocked() string {
 	// 如果是测试模式，跳过初始化
 	if isTestMode {
-		return
+		return ""
 	}
 
 	// 如果已经初始化过（DB != nil），避免重复初始化导致连接泄漏
 	if DB != nil {
-		return
+		return ""
 	}
 
 	dsnType := getDsnType()
 	if dsnType == "" {
-		log.Fatal("Config DSN is invalid")
+		return "Config DSN is invalid"
 	}
 
 	var err error
@@ -121,12 +134,14 @@ func InitGorm() {
 	case "xml": //nolint:goconst
 		err = initSqlexecXmlConnection()
 	default:
-		log.Fatal("Unsupported DSN type: %s", dsnType)
+		return fmt.Sprintf("Unsupported DSN type: %s", dsnType)
 	}
 
 	if err != nil {
-		log.Fatal("Init database connection failed: %+v", err)
+		return fmt.Sprintf("Init database connection failed: %+v", err)
 	}
+
+	return ""
 }
 
 // DBConfig 数据库连接池配置.

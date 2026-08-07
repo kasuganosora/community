@@ -27,55 +27,42 @@ func (s *DBService) GetAccountFollowersId(accountId uint64) (followers []uint64,
 
 // GetAccountRecentActiveLocalFollowersId 获取账号最近活跃的本地粉丝 ID 列表.
 func (s *DBService) GetAccountRecentActiveLocalFollowersId(accountId uint64) (followers []uint64, err error) {
-	followers, err = s.GetAccountFollowersId(accountId)
-	if err != nil {
-		return
-	}
+	followers = make([]uint64, 0)
 
 	// 计算活跃时间阈值
 	activeThreshold := time.Now().Add(-10 * 24 * time.Hour)
 
+	// 使用 JOIN 优化，避免 N+1 查询
 	err = s.db.Model(&models.Account{}).
-		Where("id in (?) and last_activity_at > ? and domain is null", followers, activeThreshold).
-		Pluck("id", &followers).Error
+		Joins("JOIN follows ON follows.account_id = accounts.id").
+		Where("follows.follow_id = ? AND accounts.last_activity_at > ? AND accounts.domain IS NULL", accountId, activeThreshold).
+		Pluck("accounts.id", &followers).Error
 
 	return
 }
 
 // GetAccountFollowingAccounts 获取账号关注的所有账号.
 func (s *DBService) GetAccountFollowingAccounts(accountId uint64) (accounts models.Accounts, err error) {
-	followingIds := make([]uint64, 0)
-
-	err = s.db.Model(&models.Follow{}).Where("account_id = ?", accountId).Pluck("follow_id", &followingIds).Error
-	if err != nil {
-		return
-	}
-
 	accounts = make(models.Accounts, 0)
 
-	if len(followingIds) == 0 {
-		return
-	}
-
-	err = s.db.Where("id in (?)", followingIds).Find(&accounts).Error
+	// 使用 JOIN 优化，避免 2 次查询
+	err = s.db.Model(&models.Account{}).
+		Joins("JOIN follows ON follows.follow_id = accounts.id").
+		Where("follows.account_id = ?", accountId).
+		Find(&accounts).Error
 
 	return
 }
 
 // GetAccountRemoteFollowers 获取账号的远程粉丝.
 func (s *DBService) GetAccountRemoteFollowers(accountId uint64) (followers []*models.Account, err error) {
-	followersId, err := s.GetAccountFollowersId(accountId)
-	if err != nil {
-		return
-	}
-
 	followers = make([]*models.Account, 0)
 
-	if len(followersId) == 0 {
-		return
-	}
-
-	err = s.db.Model(&models.Account{}).Where("id in (?) and domain is not null", followersId).Find(&followers).Error
+	// 使用 JOIN 优化，避免 2 次查询
+	err = s.db.Model(&models.Account{}).
+		Joins("JOIN follows ON follows.account_id = accounts.id").
+		Where("follows.follow_id = ? AND accounts.domain IS NOT NULL", accountId).
+		Find(&followers).Error
 
 	return
 }

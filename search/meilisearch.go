@@ -1,12 +1,15 @@
 package search
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/log"
@@ -18,6 +21,22 @@ const (
 	IndexAccounts = "accounts"
 	IndexStatuses = "statuses"
 	IndexHashtags = "hashtags"
+)
+
+// 搜索和连接相关的安全限制常量.
+const (
+	// maxSearchLimit 限制单次搜索返回的最大结果数量，防止滥用.
+	maxSearchLimit = 40
+	// defaultSearchTimeout 是每次搜索请求的超时时间，防止搜索引擎无响应时阻塞调用方.
+	defaultSearchTimeout = 10 * time.Second
+	// defaultHTTPTimeout 是 Meilisearch HTTP 客户端的整体超时时间.
+	defaultHTTPTimeout = 30 * time.Second
+	// initCheckTimeout 是初始化时连接检查的超时时间.
+	initCheckTimeout = 5 * time.Second
+	// indexOpsTimeout 是索引写操作（增删改）的超时时间.
+	indexOpsTimeout = 15 * time.Second
+	// batchSize 是批量索引时的批次大小.
+	batchSize = 1000
 )
 
 // SearchDocument 搜索文档接口.
@@ -92,6 +111,7 @@ type MeilisearchClient struct {
 	host     string
 	apiKey   string
 	enabled  bool
+	mu       sync.RWMutex // 保护 enabled 字段的并发读写
 	initOnce sync.Once
 }
 
@@ -143,15 +163,21 @@ func isMeilisearchEnabled() bool {
 // init 初始化 Meilisearch 客户端.
 func (m *MeilisearchClient) init() {
 	m.initOnce.Do(func() {
-		m.client = meilisearch.New(m.host, meilisearch.WithAPIKey(m.apiKey))
+		m.client = meilisearch.New(m.host,
+			meilisearch.WithAPIKey(m.apiKey),
+			meilisearch.WithCustomClient(&http.Client{
+				Timeout: defaultHTTPTimeout,
+			}))
 
-		// 检查连接
-		_, err := m.client.Version()
+		// 检查连接（带超时，防止阻塞启动）
+		ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
+		_, err := m.client.VersionWithContext(ctx)
+		cancel()
 		if err != nil {
 			log.Error("Failed to connect to Meilisearch: %v", err)
-
-			m.enabled = false
-
+			m.setEnabled(false)
+			// 启动后台健康检查，在 Meilisearch 恢复后自动重连
+			go m.reconnectLoop()
 			return
 		}
 
@@ -162,12 +188,39 @@ func (m *MeilisearchClient) init() {
 	})
 }
 
+// reconnectLoop 在后台定期检查 Meilisearch 连接，恢复后重新启用客户端.
+func (m *MeilisearchClient) reconnectLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
+		_, err := m.client.VersionWithContext(ctx)
+		cancel()
+		if err != nil {
+			continue
+		}
+
+		log.Info("Meilisearch reconnected successfully")
+		m.setEnabled(true)
+		m.initIndexes()
+		return
+	}
+}
+
+// setEnabled 线程安全地设置 enabled 标志.
+func (m *MeilisearchClient) setEnabled(v bool) {
+	m.mu.Lock()
+	m.enabled = v
+	m.mu.Unlock()
+}
+
 // initIndexes 初始化索引设置.
 func (m *MeilisearchClient) initIndexes() {
 	// 账户索引
 	m.createIndexWithSettings(IndexAccounts, &meilisearch.Settings{
 		SearchableAttributes: []string{"username", "display_name", "bio", "domain"},
-		FilterableAttributes: []string{"created_at"}, //nolint:goconst
+		FilterableAttributes: []string{"id", "created_at"}, //nolint:goconst
 		SortableAttributes:   []string{"created_at"},
 		RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"}, //nolint:goconst
 	})
@@ -193,8 +246,10 @@ func (m *MeilisearchClient) initIndexes() {
 func (m *MeilisearchClient) createIndexWithSettings(indexUID string, settings *meilisearch.Settings) {
 	index := m.client.Index(indexUID)
 
-	// 更新设置
-	_, err := index.UpdateSettings(settings)
+	// 更新设置（带超时）
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.UpdateSettingsWithContext(ctx, settings)
 	if err != nil {
 		log.Error("Failed to update settings for index %s: %v", indexUID, err)
 	}
@@ -202,6 +257,8 @@ func (m *MeilisearchClient) createIndexWithSettings(indexUID string, settings *m
 
 // IsEnabled 检查是否启用.
 func (m *MeilisearchClient) IsEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.enabled && m.client != nil
 }
 
@@ -211,8 +268,15 @@ func (m *MeilisearchClient) IndexAccount(doc *AccountSearchDocument) error {
 		return nil
 	}
 
+	if doc == nil || doc.ID == "" {
+		return errors.New("invalid document: id is required")
+	}
+
 	index := m.client.Index(IndexAccounts)
-	_, err := index.AddDocuments(doc, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	// AddDocuments 需要传入数组，单个文档须包装为切片
+	_, err := index.AddDocumentsWithContext(ctx, []*AccountSearchDocument{doc}, nil)
 
 	return err
 }
@@ -223,8 +287,14 @@ func (m *MeilisearchClient) IndexStatus(doc *StatusSearchDocument) error {
 		return nil
 	}
 
+	if doc == nil || doc.ID == "" {
+		return errors.New("invalid document: id is required")
+	}
+
 	index := m.client.Index(IndexStatuses)
-	_, err := index.AddDocuments(doc, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.AddDocumentsWithContext(ctx, []*StatusSearchDocument{doc}, nil)
 
 	return err
 }
@@ -235,8 +305,14 @@ func (m *MeilisearchClient) IndexHashtag(doc *HashtagSearchDocument) error {
 		return nil
 	}
 
+	if doc == nil || doc.ID == "" {
+		return errors.New("invalid document: id is required")
+	}
+
 	index := m.client.Index(IndexHashtags)
-	_, err := index.AddDocuments(doc, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.AddDocumentsWithContext(ctx, []*HashtagSearchDocument{doc}, nil)
 
 	return err
 }
@@ -247,8 +323,14 @@ func (m *MeilisearchClient) DeleteAccount(id string) error {
 		return nil
 	}
 
+	if id == "" {
+		return errors.New("id is required")
+	}
+
 	index := m.client.Index(IndexAccounts)
-	_, err := index.DeleteDocument(id, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
 
 	return err
 }
@@ -259,8 +341,14 @@ func (m *MeilisearchClient) DeleteStatus(id string) error {
 		return nil
 	}
 
+	if id == "" {
+		return errors.New("id is required")
+	}
+
 	index := m.client.Index(IndexStatuses)
-	_, err := index.DeleteDocument(id, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
 
 	return err
 }
@@ -271,10 +359,57 @@ func (m *MeilisearchClient) DeleteHashtag(id string) error {
 		return nil
 	}
 
+	if id == "" {
+		return errors.New("id is required")
+	}
+
 	index := m.client.Index(IndexHashtags)
-	_, err := index.DeleteDocument(id, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
 
 	return err
+}
+
+// sanitizeID 验证 ID 是否为纯数字，防止过滤器注入.
+// Meilisearch 过滤器使用表达式 DSL（类似 SQL WHERE），
+// 如果将未经验证的用户输入直接拼接到过滤器字符串中，
+// 攻击者可以注入任意过滤表达式来绕过权限控制.
+func sanitizeID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// sanitizeIDs 验证并过滤 ID 列表，仅保留合法的数字 ID.
+func sanitizeIDs(ids []string) []string {
+	cleaned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if sanitizeID(id) {
+			cleaned = append(cleaned, id)
+		}
+	}
+	return cleaned
+}
+
+// clampLimitOffset 将 limit 和 offset 限制在安全范围内.
+func clampLimitOffset(limit, offset int64) (int64, int64) {
+	if limit < 0 {
+		limit = 0
+	}
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }
 
 // SearchAccounts 搜索账户.
@@ -283,12 +418,23 @@ func (m *MeilisearchClient) SearchAccounts(query string, limit, offset int64, fo
 		return nil, errors.New("meilisearch not enabled")
 	}
 
+	limit, offset = clampLimitOffset(limit, offset)
+
+	// 安全：验证 followingIDs 为纯数字，防止过滤器注入
 	var filter string
 	if len(followingIDs) > 0 {
-		filter = fmt.Sprintf("id IN [%s]", strings.Join(followingIDs, ", "))
+		safeIDs := sanitizeIDs(followingIDs)
+		if len(safeIDs) > 0 {
+			filter = fmt.Sprintf("id IN [%s]", strings.Join(safeIDs, ", "))
+		} else {
+			// 所有 ID 都不合法，返回空结果
+			return []string{}, nil
+		}
 	}
 
-	result, err := m.client.Index(IndexAccounts).Search(query, &meilisearch.SearchRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
+	defer cancel()
+	result, err := m.client.Index(IndexAccounts).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Filter: filter,
@@ -300,7 +446,6 @@ func (m *MeilisearchClient) SearchAccounts(query string, limit, offset int64, fo
 	ids := make([]string, 0, len(result.Hits))
 
 	for _, hit := range result.Hits {
-		// Hit is map[string]json.RawMessage, use Decode method
 		var doc struct {
 			ID string `json:"id"`
 		}
@@ -320,18 +465,31 @@ func (m *MeilisearchClient) SearchStatuses(query string, limit, offset int64, ac
 		return nil, errors.New("meilisearch not enabled")
 	}
 
+	limit, offset = clampLimitOffset(limit, offset)
+
 	var filters []string
+
+	// 安全：验证 accountID 为纯数字，防止过滤器注入
 	if accountID != "" {
+		if !sanitizeID(accountID) {
+			return nil, errors.New("invalid account_id")
+		}
 		filters = append(filters, "account_id = "+accountID)
 	}
 
+	// 安全：验证每个 visibility 值为纯数字，防止过滤器注入
 	if len(visibility) > 0 {
-		visFilter := make([]string, len(visibility))
-		for i, v := range visibility {
-			visFilter[i] = "visibility = " + v
+		visFilter := make([]string, 0, len(visibility))
+		for _, v := range visibility {
+			if !sanitizeID(v) {
+				continue // 跳过非法值
+			}
+			visFilter = append(visFilter, "visibility = "+v)
 		}
 
-		filters = append(filters, fmt.Sprintf("(%s)", strings.Join(visFilter, " OR ")))
+		if len(visFilter) > 0 {
+			filters = append(filters, fmt.Sprintf("(%s)", strings.Join(visFilter, " OR ")))
+		}
 	}
 
 	var filter string
@@ -339,7 +497,9 @@ func (m *MeilisearchClient) SearchStatuses(query string, limit, offset int64, ac
 		filter = strings.Join(filters, " AND ")
 	}
 
-	result, err := m.client.Index(IndexStatuses).Search(query, &meilisearch.SearchRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
+	defer cancel()
+	result, err := m.client.Index(IndexStatuses).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Filter: filter,
@@ -371,7 +531,11 @@ func (m *MeilisearchClient) SearchHashtags(query string, limit, offset int64) ([
 		return nil, errors.New("meilisearch not enabled")
 	}
 
-	result, err := m.client.Index(IndexHashtags).Search(query, &meilisearch.SearchRequest{
+	limit, offset = clampLimitOffset(limit, offset)
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
+	defer cancel()
+	result, err := m.client.Index(IndexHashtags).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Sort:   []string{"status_count:desc"},
@@ -403,7 +567,9 @@ func (m *MeilisearchClient) BatchIndexAccounts(docs []*AccountSearchDocument) er
 	}
 
 	index := m.client.Index(IndexAccounts)
-	_, err := index.AddDocumentsInBatches(docs, 1000, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
 
 	return err
 }
@@ -415,7 +581,9 @@ func (m *MeilisearchClient) BatchIndexStatuses(docs []*StatusSearchDocument) err
 	}
 
 	index := m.client.Index(IndexStatuses)
-	_, err := index.AddDocumentsInBatches(docs, 1000, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	_, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
 
 	return err
 }
@@ -463,7 +631,9 @@ func (m *MeilisearchClient) GetStats() (map[string]any, error) {
 		return nil, errors.New("meilisearch not enabled")
 	}
 
-	stats, err := m.client.GetStats(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
+	defer cancel()
+	stats, err := m.client.GetStatsWithContext(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +664,9 @@ func (m *MeilisearchClient) HealthCheck() bool {
 		return false
 	}
 
-	_, err := m.client.Health()
+	ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
+	defer cancel()
+	_, err := m.client.HealthWithContext(ctx)
 
 	return err == nil
 }

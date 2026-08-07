@@ -69,22 +69,6 @@ func createTestAccount(t *testing.T, username string) *models.Account {
 	return account
 }
 
-func createTestAccountExtra(t *testing.T, accountID uint64) *models.AccountExtra {
-	t.Helper()
-
-	extra := &models.AccountExtra{
-		AccountId:      accountID,
-		FollowersCount: 0,
-		FollowingCount: 0,
-	}
-	err := testDB.GormDB.Create(extra).Error
-	if err != nil {
-		t.Fatalf("Failed to create account extra: %v", err)
-	}
-
-	return extra
-}
-
 func createTestFollowRequest(t *testing.T, accountID, followID uint64) *models.Follow {
 	t.Helper()
 

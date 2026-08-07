@@ -1,6 +1,8 @@
 package systemsettings
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,8 +80,26 @@ func TestGetBool_Default(t *testing.T) {
 }
 
 func TestGetAllFlatStyle(t *testing.T) {
-	// Just verify the function doesn't panic
-	assert.NotNil(t, GetAllFlatStyle)
+	loaded = true
+	settings = map[string]any{
+		"key1":           "value1",
+		"config.enabled": true,
+		"nested.a.b.c":   123,
+	}
+
+	result := GetAllFlatStyle()
+	// Regression: old implementation had a named-return shadowing bug that
+	// always returned nil instead of the cached settings.
+	assert.NotNil(t, result)
+	assert.Len(t, result, 3)
+	assert.Equal(t, "value1", result["key1"])
+	assert.Equal(t, true, result["config.enabled"])
+	assert.Equal(t, 123, result["nested.a.b.c"])
+
+	// Returned map must be a defensive copy; mutating it must not affect
+	// the internal cache.
+	result["key1"] = "mutated"
+	assert.NotEqual(t, "mutated", settings["key1"])
 }
 
 func TestSetAndGet(t *testing.T) {
@@ -122,4 +142,133 @@ func TestGetMapWithNil(t *testing.T) {
 
 	result := GetMap("nonexistent", nil)
 	assert.Nil(t, result)
+}
+
+func TestGetAllTreeStyle(t *testing.T) {
+	loaded = true
+	settings = map[string]any{
+		"config":              "scalar", // leaf at "config"
+		"config.enabled":      true,     // ... but also nested under config.enabled
+		"server.host":         "localhost",
+		"server.port":         8080,
+		"a.b.c.d":             "deep",
+	}
+
+	// Must not panic even when a scalar value conflicts with a subtree path.
+	result := GetAllTreeStyle()
+	assert.NotNil(t, result)
+
+	// config should be a map (the later, deeper key wins the intermediate node)
+	configMap, ok := result["config"].(map[string]any)
+	assert.True(t, ok)
+	assert.Equal(t, true, configMap["enabled"])
+
+	serverMap, ok := result["server"].(map[string]any)
+	assert.True(t, ok)
+	assert.Equal(t, "localhost", serverMap["host"])
+	assert.Equal(t, 8080, serverMap["port"])
+
+	aMap, ok := result["a"].(map[string]any)
+	assert.True(t, ok)
+	bMap, ok := aMap["b"].(map[string]any)
+	assert.True(t, ok)
+	cMap, ok := bMap["c"].(map[string]any)
+	assert.True(t, ok)
+	assert.Equal(t, "deep", cMap["d"])
+}
+
+func TestGetAllTreeStyle_NoPanicOnConflict(t *testing.T) {
+	// Regression: old implementation did `ret = ret[keyParts[i]].(map[string]any)`
+	// which panics when a leaf value occupies an intermediate key path.
+	assert.NotPanics(t, func() {
+		loaded = true
+		settings = map[string]any{
+			"a":     1,
+			"a.b":   2,
+			"a.b.c": 3,
+		}
+		_ = GetAllTreeStyle()
+	})
+}
+
+func TestSaveToDB_NilDB(t *testing.T) {
+	// Regression: old implementation called db.GetDB().Model(...) directly and
+	// would panic with a nil pointer dereference when the DB is unavailable
+	// (standalone/test mode). It must now return a clean error instead.
+	assert.NotPanics(t, func() {
+		err := SaveToDB("some_key")
+		assert.Error(t, err)
+	})
+}
+
+func TestSaveToDB_EmptyKeys(t *testing.T) {
+	// No keys -> nothing to do, must be a no-op without hitting the DB.
+	err := SaveToDB()
+	assert.NoError(t, err)
+}
+
+// TestConcurrentReadWrite verifies that concurrent readers (Get) and a single
+// writer (Set) do not trigger a Go data race. Run with `go test -race`.
+func TestConcurrentReadWrite(t *testing.T) {
+	loaded = true
+	settings = map[string]any{}
+
+	var wg sync.WaitGroup
+
+	// Writer goroutine: continuously updates settings
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			Set("concurrent_key", "value")
+		}
+	}()
+
+	// Reader goroutines: continuously read settings
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 200 {
+				_ = Get("concurrent_key", "default")
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, "value", Get("concurrent_key", "default"))
+}
+
+// TestConcurrentSetAndSaveToDB verifies that concurrent Set() and SaveToDB()
+// don't trigger a data race. SaveToDB reads the settings map internally, so
+// it must be synchronized with writers. Run with `go test -race`.
+func TestConcurrentSetAndSaveToDB(t *testing.T) {
+	loaded = true
+	settings = map[string]any{}
+
+	var wg sync.WaitGroup
+
+	// Concurrent writers
+	for range 4 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := range 50 {
+				Set(fmt.Sprintf("key_%d_%d", id, i), i)
+			}
+		}(0)
+	}
+
+	// SaveToDB will fail because DB is nil (test mode), but the important
+	// part is that it must take the read lock before touching the map.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			_ = SaveToDB("key_0_0")
+		}
+	}()
+
+	wg.Wait()
 }

@@ -3,6 +3,7 @@ package community
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/admin"
 	"github.com/kasuganosora/community/controllers/api/common"
@@ -38,7 +39,15 @@ import (
 // 为了避免该问题，本函数中每一个需要独立中间件链的子组都通过
 // RouterGroup.Group("", middlewares...) 创建新的、独立的组对象，
 // 而不是复用同一个变量再追加。这保证了每条路由只会执行它应当执行的中间件。
+//
+// 控制器使用 AbortPanic()（panic(abortSentinel)）作为控制流，用来自动
+// 终止 handler 执行并返回已写入的 HTTP 响应。AbortRecoveryMiddleware
+// 捕获该哨兵 panic 并静默吞掉，防止 gin.Recovery() 记录虚假的堆栈日志。
+// 必须在 gin.Recovery() 之后注册（即成为更内层的中间件），使其 defer
+// 先于 gin.Recovery 的 recover 执行。
 func SetRouter(app gin.IRouter) {
+	app.Use(controllers.AbortRecoveryMiddleware())
+
 	// 全局：自毁模式信息头
 	app.Use(middleware.SelfDestructInfoMiddleware())
 
@@ -193,11 +202,15 @@ func SetRouter(app gin.IRouter) {
 		GET("/notifications", timelines.NotificationTimeline).
 		GET("/notifications/:id", timelines.GetNotification)
 
-	// 通知（写入）
-	authGroupV1.POST("/notifications/:id/dismiss", timelines.DismissNotification)
-	authGroupV1.POST("/notifications/clear", timelines.ClearNotifications)
-	authGroupV1.GET("/notifications/policy", timelines.GetNotificationPolicy)
-	authGroupV1.POST("/notifications/policy", timelines.UpdateNotificationPolicy)
+	// 通知策略（读取）——与通知读取相同的 scope
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
+		GET("/notifications/policy", timelines.GetNotificationPolicy)
+
+	// 通知（写入）——需要通知写入 scope
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteNotifications})).
+		POST("/notifications/:id/dismiss", timelines.DismissNotification).
+		POST("/notifications/clear", timelines.ClearNotifications).
+		POST("/notifications/policy", timelines.UpdateNotificationPolicy)
 
 	// 关注操作（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).

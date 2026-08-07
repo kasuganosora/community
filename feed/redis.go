@@ -15,6 +15,7 @@ type RedisClient interface {
 	ZRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	ZRangeByScore(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd
 	ZRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd
+	ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd
 	ZRevRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	ZRemRangeByRank(ctx context.Context, key string, start, stop int64) *redis.IntCmd
 	ZAddNX(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd

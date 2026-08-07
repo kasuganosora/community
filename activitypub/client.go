@@ -14,16 +14,11 @@ import (
 	"time"
 )
 
-// sharedHTTPClient is a package-level shared HTTP client with proper connection pooling.
-// All Client instances reuse this to avoid creating short-lived connections.
-var sharedHTTPClient = &http.Client{
-	Timeout: 30 * time.Second,
-	Transport: &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-	},
-}
+// sharedHTTPClient is a package-level shared HTTP client with proper connection
+// pooling and SSRF protection. All Client instances reuse this to avoid creating
+// short-lived connections and to ensure no outbound requests reach internal/private
+// addresses.
+var sharedHTTPClient = ssrfSafeHTTPClient
 
 // Client is an ActivityPub HTTP client.
 type Client struct {
@@ -43,6 +38,10 @@ func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 
 // Get fetches a remote ActivityPub resource.
 func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
+	if err := validateFederationURI(uri); err != nil {
+		return nil, err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -63,11 +62,16 @@ func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return io.ReadAll(resp.Body)
+	// Limit response body size to prevent OOM attacks
+	return io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 }
 
 // Post sends an activity to a remote inbox with HTTP signature.
 func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]any) error {
+	if err := validateFederationURI(inboxURL); err != nil {
+		return err
+	}
+
 	body, err := json.Marshal(activity)
 	if err != nil {
 		return fmt.Errorf("marshaling activity: %w", err)
@@ -97,7 +101,7 @@ func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 
 		return fmt.Errorf("remote returned error: %d - %s", resp.StatusCode, string(respBody))
 	}
@@ -126,7 +130,7 @@ func (c *Client) signRequest(req *http.Request, body []byte) error {
 	// Per HTTP Signatures spec: (request-target) value is lowercased method + path
 	// Host should use the actual host value, not lowercased
 	signingString := fmt.Sprintf("(request-target): post %s\nhost: %s\ndate: %s\ndigest: %s",
-		u.Path,
+		signRequestPath(u),
 		u.Host,
 		date,
 		digest,
@@ -192,4 +196,37 @@ func (c *Client) FetchStatus(ctx context.Context, statusURI string) (*Note, erro
 	}
 
 	return &note, nil
+}
+
+// validateFederationURI ensures the URI uses http/https scheme with a non-empty
+// host before any outbound federation request. The SSRF-safe transport handles
+// IP filtering, but we validate the scheme here as an additional defense layer.
+func validateFederationURI(uri string) error {
+	if uri == "" {
+		return fmt.Errorf("empty URI")
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return fmt.Errorf("invalid URI %q: %w", uri, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("non-HTTP scheme %q in federation URI %q", u.Scheme, uri)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("empty host in federation URI %q", uri)
+	}
+	return nil
+}
+
+// signRequestPath returns the request-target path including query string,
+// matching the HTTP Signatures draft spec.
+func signRequestPath(u *url.URL) string {
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	if u.RawQuery != "" {
+		path += "?" + u.RawQuery
+	}
+	return path
 }

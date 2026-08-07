@@ -2,6 +2,8 @@ package home
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
@@ -10,7 +12,6 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
-	"strconv"
 )
 
 func init() {
@@ -77,7 +78,6 @@ func (timeline *HomeTimeline) Rebuild() (err error) {
 	}
 
 	limit := feed.MAX_ITEMS / 2
-	offset := 0
 
 	accountsId := followingAccounts.GetIds()
 	// 加上我自己
@@ -86,7 +86,7 @@ func (timeline *HomeTimeline) Rebuild() (err error) {
 	err = db.GetDB().
 		Preload("ToAccounts").
 		Where("account_id in ? or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, timeline.Account.Id).
-		Order("created_at desc").Limit(limit).Offset(offset).Find(&statuses).Error
+		Order("id desc").Limit(limit).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
@@ -234,13 +234,15 @@ func Push(status *models.Status, update bool) (err error) {
 
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
+		var goroutineErr error // 使用局部变量避免与外部 err 的数据竞争
+
 		accounts := make([]*models.Account, 0)
 
-		err = db.GetDB().Model(
+		goroutineErr = db.GetDB().Model(
 			&models.Account{}).Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
-			log.ErrorV(err)
+		if goroutineErr != nil {
+			goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
+			log.ErrorV(goroutineErr)
 
 			return
 		}
@@ -255,20 +257,20 @@ func Push(status *models.Status, update bool) (err error) {
 				timelines = append(timelines, &HomeTimeline{Account: account})
 			}
 
-			err = feed.BatchAddToTimelineItems(timelines, status, false)
+			goroutineErr = feed.BatchAddToTimelineItems(timelines, status, false)
 
-			if err != nil {
-				err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
-				log.ErrorV(err)
+			if goroutineErr != nil {
+				goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+				log.ErrorV(goroutineErr)
 
 				return
 			}
 
 			for _, timeline := range timelines {
-				err = feed.TrimTimeline(timeline)
-				if err != nil {
-					err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
-					log.ErrorV(err)
+				goroutineErr = feed.TrimTimeline(timeline)
+				if goroutineErr != nil {
+					goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+					log.ErrorV(goroutineErr)
 
 					return
 				}
@@ -282,11 +284,11 @@ func Push(status *models.Status, update bool) (err error) {
 						method = "status.update"
 					}
 
-					err = feed.PushToClient(homeTimeline, method, status)
+					goroutineErr = feed.PushToClient(homeTimeline, method, status)
 
-					if err != nil {
-						err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
-						log.ErrorV(err)
+					if goroutineErr != nil {
+						goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
+						log.ErrorV(goroutineErr)
 
 						continue
 					}
@@ -295,10 +297,10 @@ func Push(status *models.Status, update bool) (err error) {
 		} else {
 			// 转发：保留单条调用，因为每个用户可能有不同的 aggregatesReblogs 设置
 			for _, account := range accounts {
-				err = PushToHome(account, status, update, true)
-				if err != nil {
-					err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
-					log.ErrorV(err)
+				goroutineErr = PushToHome(account, status, update, true)
+				if goroutineErr != nil {
+					goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
+					log.ErrorV(goroutineErr)
 
 					continue
 				}
@@ -316,7 +318,7 @@ func Unpush(status *models.Status) (err error) {
 		err = db.GetDB().Model(status).Association("ToAccounts").Find(&status.ToAccounts)
 
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			err = errors.Wrap(err, fmt.Sprintf("Unpush status to followers failed, status id %d", status.Id))
 
 			return err
 		}
@@ -329,7 +331,7 @@ func Unpush(status *models.Status) (err error) {
 	} else {
 		accountsId, err = feed.GetAccountRecentActiveLocalFollowersId(status.AccountId)
 		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+			err = errors.Wrap(err, fmt.Sprintf("Unpush status to followers failed, status id %d", status.Id))
 
 			return err
 		}
@@ -343,21 +345,23 @@ func Unpush(status *models.Status) (err error) {
 
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
+		var goroutineErr error // 使用局部变量避免与外部 err 的数据竞争
+
 		accounts := make([]*models.Account, 0)
 
-		err = db.GetDB().Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
-			log.ErrorV(err)
+		goroutineErr = db.GetDB().Preload("User").Preload("User.Settings").Where("id in (?)", accountsId).Find(&accounts).Error
+		if goroutineErr != nil {
+			goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Unpush status to followers failed, status id %d, to accounts %v", status.Id, accountsId))
+			log.ErrorV(goroutineErr)
 
 			return
 		}
 
 		for _, account := range accounts {
-			err = UnPushFromHome(account, status, true)
-			if err != nil {
-				err = errors.Wrap(err, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
-				log.ErrorV(err)
+			goroutineErr = UnPushFromHome(account, status, true)
+			if goroutineErr != nil {
+				goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Unpush status to followers failed, status id %d, to account %d", status.Id, account.Id))
+				log.ErrorV(goroutineErr)
 
 				continue
 			}
@@ -384,7 +388,7 @@ func GetTimeLineContent(account *models.Account, params *feed.ListParam) (status
 		accountIds = append(accountIds, account.Id)
 
 		query = tx.Where("account_id in (?) or id in (select status_id from status_to_accounts where account_id = ?)", accountIds, account.Id).
-			Order("created_at desc")
+			Order("id desc")
 
 		return
 	}

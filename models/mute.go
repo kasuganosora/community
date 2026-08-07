@@ -32,7 +32,9 @@ func (mm MuteAccounts) ExcludeExpired() MuteAccounts {
 
 func (mm MuteAccounts) IsMuted(accountId uint64) bool {
 	for _, m := range mm {
-		if m.AccountId == accountId {
+		// mute_accounts 中 account_id 是执行静音的用户，target_id 是被静音的目标。
+		// 这里要判断 accountId 是否是被静音的目标，因此比较 target_id。
+		if m.TargetId == accountId {
 			return true
 		}
 	}

@@ -119,9 +119,11 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		Where("domain is null").
 		Find(
 			&accounts).Error
-
-	if len(accounts) == 0 {
+	if err != nil {
 		return err
+	}
+	if len(accounts) == 0 {
+		return nil
 	}
 
 	method := "update" // https://docs.joinmastodon.org/methods/streaming/ 上说 创建是 update，更新是 status.update
@@ -191,11 +193,10 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
-	if len(status.ToAccounts) == 0 {
-		return err
-	}
-
-	// 读取出旧的 to_accounts
+	// 从数据库查询该 status 的所有被 mention 的本地用户账户。
+	// 不依赖 status.ToAccounts，因为 before_update 事件触发时
+	// status.ToAccounts 可能尚未加载（仍为旧值或为空），
+	// 直接从数据库读取确保能获取到正确的旧 mention 列表。
 	accounts := make(models.Accounts, 0)
 	err = db.GetDB().Model(
 		&models.Account{}).Preload("User").Preload("User.Settings").
@@ -204,6 +205,9 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 		Where("domain is null").
 		Find(
 			&accounts).Error
+	if err != nil {
+		return err
+	}
 
 	for _, account := range accounts {
 		timeline := &MentionTimeline{Account: account}

@@ -667,7 +667,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 // maxRemoteMediaSize limits how much data is buffered into memory when
 // re-fetching remote media. Remote attachments are expected to be media files
 // (images/videos), so 50MB is a generous upper bound that also bounds memory use.
-const maxRemoteMediaSize = 50 * 1024 * 1024
+const maxRemoteMediaSize int64 = 50 * 1024 * 1024
 
 // remoteHTTPClient is a shared client for fetching remote media.
 // It uses a custom DialContext that blocks private/loopback/link-local
@@ -730,7 +730,8 @@ func validateRemoteURL(rawURL string) error {
 
 	// Resolve hostname and block if any resolved IP is private/internal.
 	// This catches DNS-based SSRF where a domain resolves to a private IP.
-	ips, err := net.LookupIP(host)
+	resolver := net.Resolver{}
+	ips, err := resolver.LookupIP(context.Background(), "ip", host) //nolint:noctx // SSRF 校验函数，使用独立 context
 	if err != nil {
 		return fmt.Errorf("failed to resolve host %s: %w", host, err)
 	}

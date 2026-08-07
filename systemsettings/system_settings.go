@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -62,10 +63,22 @@ var (
 	mu       sync.RWMutex
 )
 
+// Load 从数据库加载系统设置到内存缓存。
+// 使用双重检查锁定模式：已加载时仅需要读锁（快速路径），
+// 避免在频繁调用的 Get() 中序列化所有读操作。
 func Load() {
+	// 快速路径：读锁检查是否已加载
+	mu.RLock()
+	if loaded {
+		mu.RUnlock()
+		return
+	}
+	mu.RUnlock()
+
 	mu.Lock()
 	defer mu.Unlock()
 
+	// 获取写锁后再次检查，防止并发重复加载
 	if loaded {
 		return
 	}
@@ -73,7 +86,6 @@ func Load() {
 	dbInstance := db.GetDB()
 	if dbInstance == nil {
 		loaded = true
-
 		return
 	}
 
@@ -252,10 +264,34 @@ func Set(key string, val any) {
 	settings[key] = val
 }
 
+// SaveToDB 将指定 keys 对应的内存缓存值持久化到数据库。
+//
+// 修复的问题：
+//   - db.GetDB() 可能为 nil（standalone/test 模式），旧代码直接调用会 nil pointer panic。
+//   - 旧代码在事务回调中直接读取全局 settings map 而未持有读锁，
+//     与并发的 Set() 会产生 data race（Go map 并发读写会 fatal crash）。
+//     现在在读锁保护下构建一份键值快照，事务内部使用快照进行写入。
 func SaveToDB(keys ...string) (err error) {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	dbInstance := db.GetDB()
+	if dbInstance == nil {
+		return errors.New("systemsettings.SaveToDB: database is not initialized")
+	}
+
+	// 在读锁保护下拷贝待保存的键值快照，避免事务执行期间发生 data race。
+	mu.RLock()
+	snapshot := make(map[string]any, len(keys))
+	for _, key := range keys {
+		snapshot[key] = settings[key]
+	}
+	mu.RUnlock()
+
 	rows := make([]models.SystemSetting, 0)
 
-	err = db.GetDB().Model(&models.SystemSetting{}).Where("`key` in (?)", keys).Find(&rows).Error
+	err = dbInstance.Model(&models.SystemSetting{}).Where("`key` in (?)", keys).Find(&rows).Error
 	if err != nil {
 		err = errors.Wrapf(err, "failed to get system settings from db, keys: %v", keys)
 
@@ -267,14 +303,14 @@ func SaveToDB(keys ...string) (err error) {
 		existsKeyMap[row.Key] = true
 	}
 
-	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {
+	err = dbInstance.Transaction(func(tx *gorm.DB) (err error) {
 		for _, key := range keys {
 			if _, ok := existsKeyMap[key]; ok {
-				err = tx.Model(&models.SystemSetting{}).Where("`key` = ?", key).Update("val", settings[key]).Error
+				err = tx.Model(&models.SystemSetting{}).Where("`key` = ?", key).Update("val", snapshot[key]).Error
 			} else {
 				err = tx.Model(&models.SystemSetting{}).Create(&models.SystemSetting{
 					Key: key,
-					Val: settings[key],
+					Val: snapshot[key],
 				}).Error
 			}
 
@@ -297,20 +333,35 @@ func SaveToDB(keys ...string) (err error) {
 // GetAllFlatStyle 获取所有扁平化样式
 // 例如： key a.b.c, val 1
 // 返回： map[a.b.c]1.
-func GetAllFlatStyle() (settings map[string]any) {
+//
+// 返回内部缓存 map 的一份拷贝，避免调用方意外修改内部状态，
+// 同时修复了旧实现中命名返回值遮蔽全局 settings 导致始终返回 nil 的 bug。
+func GetAllFlatStyle() map[string]any {
 	mu.RLock()
 	defer mu.RUnlock()
-	return settings
+
+	ret := make(map[string]any, len(settings))
+	maps.Copy(ret, settings)
+
+	return ret
 }
 
 // GetAllTreeStyle 获取所有树形样式
 // 例如： key a.b.c, val 1
 // 返回： map[a][b][c]1.
+//
+// 旧实现有两个 bug：
+//  1. 循环中把 ret 重新指向子 map，导致后续 key 被构建到错误的子树中，
+//     且最终返回的是某个深层子 map 而非根 map。
+//  2. 使用不带 ok 的类型断言，当出现 key 冲突（如 a=1 和 a.b=2）时会 panic。
+//
+// 新实现使用独立的 cursor 指针遍历，每轮从根开始构建，
+// 并使用安全的类型断言处理冲突。
 func GetAllTreeStyle() map[string]any {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	ret := make(map[string]any)
+	root := make(map[string]any)
 	keys := make([]string, 0, len(settings))
 
 	for key := range settings {
@@ -325,22 +376,36 @@ func GetAllTreeStyle() map[string]any {
 		keyParts := strings.Split(key, ".")
 		keyLen := len(keyParts)
 
+		// 每轮都从根开始遍历，避免 cursor 被错误地重定向到子树
+		cursor := root
 		for i := range keyLen {
 			if i == keyLen-1 {
-				ret[keyParts[i]] = val
-
+				// 叶子节点：直接写入值
+				cursor[keyParts[i]] = val
 				break
 			}
 
-			if _, ok := ret[keyParts[i]]; !ok {
-				ret[keyParts[i]] = make(map[string]any)
+			// 中间节点：确保存在一个子 map
+			existing, ok := cursor[keyParts[i]]
+			if !ok {
+				child := make(map[string]any)
+				cursor[keyParts[i]] = child
+				cursor = child
+				continue
 			}
 
-			ret = ret[keyParts[i]].(map[string]any) //nolint:forcetypeassert
+			child, isMap := existing.(map[string]any)
+			if !isMap {
+				// key 冲突：已有标量值占用了该中间节点，用新的 map 覆盖它
+				child = make(map[string]any)
+				cursor[keyParts[i]] = child
+			}
+
+			cursor = child
 		}
 	}
 
-	return ret
+	return root
 }
 
 func GetDefaultPageSize() int {

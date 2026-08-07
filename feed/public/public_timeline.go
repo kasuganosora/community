@@ -199,6 +199,15 @@ func pushAllChannel(status *models.Status, method string) (err error) {
 func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeline := &PublicTimeline{OnlyMedia: false}
 
+	// 安全处理 nil params
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+
+	if params.Other == nil {
+		params.Other = make(map[string]any)
+	}
+
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)
 
@@ -243,6 +252,15 @@ func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, er
 
 func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeline := &PublicTimeline{OnlyMedia: true}
+
+	// 安全处理 nil params
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+
+	if params.Other == nil {
+		params.Other = make(map[string]any)
+	}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
 		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)

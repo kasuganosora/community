@@ -184,9 +184,11 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	if pushToClient {
 		for i := range lists {
 			timeline := &ListTimeline{List: &lists[i]}
-			err = feed.PushToClient(timeline, method, status)
-			if err != nil {
-				return err
+			if feed.PushUpdateRequired(timeline) {
+				err = feed.PushToClient(timeline, method, status)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -213,8 +215,8 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 		return err
 	}
 
-	for _, list := range lists {
-		timeline := &ListTimeline{List: &list}
+	for i := range lists {
+		timeline := &ListTimeline{List: &lists[i]}
 		err = feed.RemoveTimelineItem(timeline, status, true)
 		if err != nil {
 			return err
@@ -246,7 +248,7 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	list.LastViewedAt = &now
 
 	err = db.GetDB().Model(
-		&models.List{}).Where("id = ?", list.Id).Select("last_viewed_at").Updates(list).Error
+		&models.List{}).Where("id = ?", list.Id).Update("last_viewed_at", now).Error
 	if err != nil {
 		return
 	}

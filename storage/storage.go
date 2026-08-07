@@ -146,11 +146,16 @@ func isCloudStorageEnabled() bool {
 }
 
 func getStorageType() string {
-	if t, ok := config.C.Other["STORAGE_TYPE"]; ok {
-		return strings.ToLower(t)
+	// STORAGE_TYPE 是 Config 结构体的标准配置项（带 env:"STORAGE_TYPE" tag），
+	// 因此其值会被加载到 config.C.StorageType，而不会出现在 config.C.Other 中
+	// （loadMapToConfig 只会把非标准键放入 Other）。此前这里错误地从 Other 读取，
+	// 导致 STORAGE_TYPE 配置永远不生效、始终回退为 "local"。
+	storageType := config.C.StorageType
+	if storageType == "" {
+		return "local"
 	}
 
-	return "local"
+	return strings.ToLower(storageType)
 }
 
 func createProvider() StorageProvider {

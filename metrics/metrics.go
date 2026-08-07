@@ -2,6 +2,7 @@
 package metrics
 
 import (
+	"net/http"
 	"strconv"
 	"time"
 
@@ -10,7 +11,64 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const namespace = "community"
+const (
+	namespace = "community"
+
+	// unknownLabel 是用于用户可控但无法识别的 label 取值的归一化占位符。
+	// 任何不属于已知有限集合的取值都会被映射为它，从而限制 label cardinality。
+	unknownLabel = "unknown"
+	// unmatchedLabel 是未匹配到任何已注册路由的请求使用的 path 占位符。
+	// gin 的 FullPath() 对 404 请求返回空字符串，直接用作 label 会让大量
+	// 不存在的 URL 产生不同的时间序列（cardinality 爆炸），这里统一归一化。
+	unmatchedLabel = "unmatched"
+)
+
+// validHTTPMethods 记录 RFC 9110 定义的标准 HTTP 方法集合。
+// 用作 label 的 HTTP 方法必须限定在这个有限集合内，否则攻击者可以构造
+// 任意自定义方法（如 "FOO"/"BAR"/"XYZZY"）来制造无限多个时间序列，
+// 最终耗尽 Prometheus 的内存。gin 不会拦截非法方法，因此必须在这里兜底。
+var validHTTPMethods = map[string]struct{}{
+	http.MethodGet:     {},
+	http.MethodPost:    {},
+	http.MethodPut:     {},
+	http.MethodPatch:   {},
+	http.MethodDelete:  {},
+	http.MethodHead:    {},
+	http.MethodOptions: {},
+	http.MethodConnect: {},
+	http.MethodTrace:   {},
+}
+
+// normalizeMethod 将 HTTP method label 限定在标准方法集合内，
+// 非标准方法统一归一化为 unknownLabel，避免 cardinality 爆炸。
+func normalizeMethod(method string) string {
+	if _, ok := validHTTPMethods[method]; ok {
+		return method
+	}
+	return unknownLabel
+}
+
+// normalizePath 将路由 path label 限定在已注册路由集合内。
+// 对未匹配到路由（FullPath 为空）的请求统一归一化为 unmatchedLabel，
+// 防止每个不存在的 URL 都产生独立的时间序列。
+func normalizePath(fullPath string) string {
+	if fullPath == "" {
+		return unmatchedLabel
+	}
+	return fullPath
+}
+
+// normalizeLabel 将任意用户/调用方传入的 label 取值归一化。
+// 空字符串会被映射为 unknownLabel，避免出现难以查询的空 label 取值。
+// 注意：这里只能防御空值这类显式异常取值；调用方仍需保证传入的 label
+// 取值来自有限、可控的枚举集合（例如缓存名、表名等），否则仍会造成
+// cardinality 爆炸。
+func normalizeLabel(value string) string {
+	if value == "" {
+		return unknownLabel
+	}
+	return value
+}
 
 var (
 	// HTTP 请求指标.
@@ -152,18 +210,23 @@ func MetricsMiddleware() gin.HandlerFunc {
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(c.Writer.Status())
 
+		// 归一化 label 取值，避免 cardinality 爆炸：
+		// - method: 非标准 HTTP 方法归一化为 "unknown"（防止伪造方法攻击）
+		// - path: 未匹配路由（FullPath 为空）归一化为 "unmatched"（防止不存在的 URL 产生无限序列）
+		method := normalizeMethod(c.Request.Method)
+		path := normalizePath(c.FullPath())
+
 		// 记录指标
-		labels := []string{c.Request.Method, c.FullPath(), status}
-		HttpRequestsTotal.WithLabelValues(labels...).Inc()
-		HttpRequestDuration.WithLabelValues(c.Request.Method, c.FullPath()).Observe(duration)
+		HttpRequestsTotal.WithLabelValues(method, path, status).Inc()
+		HttpRequestDuration.WithLabelValues(method, path).Observe(duration)
 
 		if requestSize > 0 {
-			HttpRequestSize.WithLabelValues(c.Request.Method, c.FullPath()).Observe(float64(requestSize))
+			HttpRequestSize.WithLabelValues(method, path).Observe(float64(requestSize))
 		}
 
 		responseSize := c.Writer.Size()
 		if responseSize > 0 {
-			HttpResponseSize.WithLabelValues(c.Request.Method, c.FullPath()).Observe(float64(responseSize))
+			HttpResponseSize.WithLabelValues(method, path).Observe(float64(responseSize))
 		}
 	}
 }
@@ -174,22 +237,28 @@ func Handler() gin.HandlerFunc {
 }
 
 // RecordDbQuery 记录数据库查询指标.
+// operation 和 table 作为 label 取值，空字符串会被归一化为 "unknown"
+// 以避免 cardinality 意外增长（空 label 取值在 Prometheus 中虽然合法但难以查询）。
 func RecordDbQuery(operation, table string, duration time.Duration) {
-	DbQueryTotal.WithLabelValues(operation, table).Inc()
-	DbQueryDuration.WithLabelValues(operation, table).Observe(duration.Seconds())
+	DbQueryTotal.WithLabelValues(normalizeLabel(operation), normalizeLabel(table)).Inc()
+	DbQueryDuration.WithLabelValues(normalizeLabel(operation), normalizeLabel(table)).Observe(duration.Seconds())
 }
 
 // RecordCacheHit 记录缓存命中.
 func RecordCacheHit(cacheName string) {
-	CacheHits.WithLabelValues(cacheName).Inc()
+	CacheHits.WithLabelValues(normalizeLabel(cacheName)).Inc()
 }
 
 // RecordCacheMiss 记录缓存未命中.
 func RecordCacheMiss(cacheName string) {
-	CacheMisses.WithLabelValues(cacheName).Inc()
+	CacheMisses.WithLabelValues(normalizeLabel(cacheName)).Inc()
 }
 
 // RecordFederatedEvent 记录联邦事件.
 func RecordFederatedEvent(direction, eventType, status string) {
-	FederatedEvents.WithLabelValues(direction, eventType, status).Inc()
+	FederatedEvents.WithLabelValues(
+		normalizeLabel(direction),
+		normalizeLabel(eventType),
+		normalizeLabel(status),
+	).Inc()
 }

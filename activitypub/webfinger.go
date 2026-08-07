@@ -3,6 +3,8 @@ package activitypub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -119,11 +121,6 @@ func NodeInfo(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// httpClient is a shared HTTP client with timeout.
-var httpClient = &http.Client{
-	Timeout: 30 * time.Second,
-}
-
 // DiscoverActor discovers an actor via WebFinger.
 func DiscoverActor(acct string) (*Actor, error) {
 	// Parse acct format (user@domain or acct:user@domain)
@@ -137,14 +134,21 @@ func DiscoverActor(acct string) (*Actor, error) {
 	// username := parts[0] // unused for now
 	domain := parts[1]
 
-	// Query WebFinger endpoint
+	// Validate the domain doesn't resolve to internal addresses
 	webfingerURL := "https://" + domain + "/.well-known/webfinger?resource=acct:" + acct
+	if err := validateFederationURI(webfingerURL); err != nil {
+		return nil, fmt.Errorf("invalid webfinger target: %w", err)
+	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, webfingerURL, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, webfingerURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpClient.Do(req)
+
+	resp, err := ssrfSafeHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +160,7 @@ func DiscoverActor(acct string) (*Actor, error) {
 	}
 
 	var webfinger WebFingerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&webfinger); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(&webfinger); err != nil {
 		return nil, err
 	}
 
@@ -175,11 +179,8 @@ func DiscoverActor(acct string) (*Actor, error) {
 		return nil, ErrActorNotFound
 	}
 
-	// Fetch the actor
+	// Fetch the actor using the SSRF-safe client
 	client := NewClient(nil, "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	return client.FetchActor(ctx, actorURL)
 }

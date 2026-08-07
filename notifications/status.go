@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"fmt"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/log"
@@ -13,33 +14,45 @@ import (
 
 func init() {
 	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
+		status, ok := event.Data.(*models.Status)
+		if !ok {
+			return true
+		}
+
 		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			go creatReblogNotification(status)  // 创建boost notification
-			go creatMentionNotification(status) // 创建mention notification
+			safeGo("creatReblogNotification", func() { creatReblogNotification(status) })  // 创建boost notification
+			safeGo("creatMentionNotification", func() { creatMentionNotification(status) }) // 创建mention notification
 		case "after_update":
-			go updateReblogNotification(status)
-			go updateMentionNotification(status)
+			safeGo("updateReblogNotification", func() { updateReblogNotification(status) })
+			safeGo("updateMentionNotification", func() { updateMentionNotification(status) })
 		case "after_delete":
-			go removeReblogNotification(status)
-			go removeMentionNotification(status)
+			safeGo("removeReblogNotification", func() { removeReblogNotification(status) })
+			safeGo("removeMentionNotification", func() { removeMentionNotification(status) })
 		}
 
 		return true
 	}})
 
 	event.Register("favourite", "favourite", &event.Handler{Exec: func(event event.Event) bool {
-		fs := event.Data.(*models.FavoriteStatus) //nolint:forcetypeassert
-		go favouriteNotification(fs)
+		fs, ok := event.Data.(*models.FavoriteStatus)
+		if !ok {
+			return true
+		}
+
+		safeGo("favouriteNotification", func() { favouriteNotification(fs) })
 
 		return true
 	}})
 
 	event.Register("unfavourite", "favourite", &event.Handler{Exec: func(event event.Event) bool {
-		fs := event.Data.(*models.FavoriteStatus) //nolint:forcetypeassert
-		go unfavouriteNotification(fs)
+		fs, ok := event.Data.(*models.FavoriteStatus)
+		if !ok {
+			return true
+		}
+
+		safeGo("unfavouriteNotification", func() { unfavouriteNotification(fs) })
 
 		return true
 	}})
@@ -48,98 +61,109 @@ func init() {
 // unfavouriteNotification 取消收藏通知
 // 从原推送的作者那里删除.
 func unfavouriteNotification(fs *models.FavoriteStatus) {
-	// 如果是取消收藏的事件
-	var err error
-
-	if fs.Status == nil {
-		fs.Status = &models.Status{}
-
-		err = db.GetDB().Model(&models.Status{}).Preload("Reblog").Preload("Account").Where("id = ?", fs.StatusId).First(fs.Status).Error
-		if err != nil {
-			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] get status faild, status id %d", fs.StatusId)))
-
-			return
-		}
+	originalStatus := getOriginalStatus(fs)
+	if originalStatus == nil {
+		return
 	}
 
-	originalStatus := fs.Status
-	if originalStatus.ReblogId != nil && *originalStatus.ReblogId > 0 {
-		if originalStatus.Reblog == nil {
-			err = errors.Wrap(errors.New("reblog status is nil"), fmt.Sprintf("[unfavouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
-			log.ErrorV(err)
-
-			return
-		}
-
-		originalStatus = originalStatus.Reblog
-	}
-
-	// 删除对应的通知
+	// 删除对应的通知，加上 from_account_id 和 account_id 条件，
+	// 确保只删除当前用户发出的收藏通知，避免误删其他用户的收藏通知。
 	ns := &models.Notification{}
 
-	err = db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeFavourite, originalStatus.Id).First(ns).Error
+	err := db.GetDB().Where(
+		"type = ? AND status_id = ? AND from_account_id = ?",
+		models.NotificationTypeFavourite, originalStatus.Id, fs.AccountId,
+	).First(ns).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return
 		}
 
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] find need remove favourite notification error, status id %d", originalStatus.Id)))
-
 		return
 	}
 
 	err = db.GetDB().Delete(ns).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[unfavouriteNotification] remove favourite notification error, status id %d", originalStatus.Id)))
-
 		return
 	}
 }
 
-// favouriteNotification 收藏通知
-// 是发给这个status的作者的.
-func favouriteNotification(fs *models.FavoriteStatus) {
-	ns := &models.Notification{}
-	ns.Type = models.NotificationTypeFavourite
-	ns.StatusId = fs.StatusId
-
-	var err error
+// getOriginalStatus 解析 fs.Status，如果 status 是 reblog 则返回原始 status，
+// 否则返回 status 本身。如果无法获取则返回 nil。
+// 使用局部副本查询，不修改传入的共享 model 指针，避免 data race。
+func getOriginalStatus(fs *models.FavoriteStatus) *models.Status {
+	var status *models.Status
 
 	if fs.Status == nil {
-		fs.Status = &models.Status{}
+		status = &models.Status{}
 
-		err = db.GetDB().Model(&models.Status{}).Preload("Reblog").Preload("Account").Where("id = ?", fs.StatusId).First(fs.Status).Error
+		err := db.GetDB().Model(&models.Status{}).Preload("Reblog").Where("id = ?", fs.StatusId).First(status).Error
 		if err != nil {
-			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[favouriteNotification] get status faild, status id %d", fs.StatusId)))
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				log.ErrorV(errors.Wrap(err, fmt.Sprintf("[getOriginalStatus] get status faild, status id %d", fs.StatusId)))
+			}
 
-			return
+			return nil
 		}
+	} else {
+		status = fs.Status
 	}
 
-	originalStatus := fs.Status
+	originalStatus := status
 	if originalStatus.ReblogId != nil && *originalStatus.ReblogId > 0 {
 		if originalStatus.Reblog == nil {
-			err = errors.Wrap(errors.New("reblog status is nil"), fmt.Sprintf("[favouriteNotification] reblog status id is %d", *originalStatus.ReblogId))
-			log.ErrorV(err)
-
-			return
+			log.ErrorV(errors.Wrap(errors.New("reblog status is nil"), fmt.Sprintf("[getOriginalStatus] reblog status id is %d", *originalStatus.ReblogId)))
+			return nil
 		}
 
 		originalStatus = originalStatus.Reblog
 	}
 
-	// 只给本地的账号发通知
-	if originalStatus.Account.Domain != nil {
+	return originalStatus
+}
+
+// favouriteNotification 收藏通知
+// 是发给这个status的作者的.
+func favouriteNotification(fs *models.FavoriteStatus) {
+	originalStatus := getOriginalStatus(fs)
+	if originalStatus == nil {
 		return
 	}
 
-	// 发给这个status的作者
-	ns.AccountId = originalStatus.AccountId
+	// 获取 status 作者的账号信息，使用局部变量避免修改共享 model 指针（data race）
+	account, err := getStatusAccount(originalStatus)
+	if err != nil {
+		return
+	}
+
+	if account == nil {
+		return
+	}
+
+	// 只给本地的账号发通知
+	if account.Domain != nil {
+		return
+	}
+
+	// 自己收藏自己的 status 不通知
+	if fs.AccountId == originalStatus.AccountId {
+		return
+	}
+
+	// 发给这个status的作者，使用 originalStatus.Id 而非 fs.StatusId
+	// （fs.StatusId 可能是 reblog 的 id，需要用原始 status 的 id 保持一致）
+	ns := &models.Notification{
+		Type:          models.NotificationTypeFavourite,
+		StatusId:      originalStatus.Id,
+		AccountId:     originalStatus.AccountId,
+		FromAccountId: fs.AccountId,
+	}
 
 	err = db.GetDB().Create(ns).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[favouriteNotification] create favourite notification error, status id %d", originalStatus.Id)))
-
 		return
 	}
 }
@@ -152,7 +176,6 @@ func removeMentionNotification(status *models.Status) {
 	err := db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&nsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] find need remove mention notification error, status id %d", status.Id)))
-
 		return
 	}
 
@@ -163,7 +186,6 @@ func removeMentionNotification(status *models.Status) {
 	err = db.GetDB().Delete(nsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeMentionNotification] remove mention notification error, status id %d", status.Id)))
-
 		return
 	}
 }
@@ -179,7 +201,6 @@ func updateMentionNotification(status *models.Status) {
 	err := db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&oldNsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find old mention notification error, status id %d", status.Id)))
-
 		return
 	}
 
@@ -189,7 +210,6 @@ func updateMentionNotification(status *models.Status) {
 	err = db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find new mention account list error, status id %d", status.Id)))
-
 		return
 	}
 
@@ -209,7 +229,6 @@ func updateMentionNotification(status *models.Status) {
 		err = db.GetDB().Delete(needRemoveNsList).Error
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] remove mention notification error, status id %d", status.Id)))
-
 			return
 		}
 	}
@@ -217,7 +236,6 @@ func updateMentionNotification(status *models.Status) {
 	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] get local accounts error, status id %d", status.Id)))
-
 		return
 	}
 
@@ -231,11 +249,17 @@ func updateMentionNotification(status *models.Status) {
 
 	for _, account := range accounts {
 		if _, ok := oldNotifiedAccountMap[account.Id]; !ok {
-			nf := &models.Notification{}
-			nf.Type = models.NotificationTypeMention
-			nf.StatusId = status.Id
-			nf.AccountId = account.Id
-			nf.FromAccountId = status.AccountId
+			// 自己 mention 自己不通知
+			if account.Id == status.AccountId {
+				continue
+			}
+
+			nf := &models.Notification{
+				Type:          models.NotificationTypeMention,
+				StatusId:      status.Id,
+				AccountId:     account.Id,
+				FromAccountId: status.AccountId,
+			}
 			needCreateNsList = append(needCreateNsList, nf)
 		}
 	}
@@ -244,7 +268,6 @@ func updateMentionNotification(status *models.Status) {
 		err = db.GetDB().Create(needCreateNsList).Error
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create mention notification error, status id %d", status.Id)))
-
 			return
 		}
 	}
@@ -257,11 +280,12 @@ func updateMentionNotification(status *models.Status) {
 			continue
 		}
 
-		nf := &models.Notification{}
-		nf.Type = models.NotificationTypeStatusUpdate
-		nf.StatusId = status.Id
-		nf.AccountId = oldNs.AccountId
-		nf.FromAccountId = status.AccountId
+		nf := &models.Notification{
+			Type:          models.NotificationTypeStatusUpdate,
+			StatusId:      status.Id,
+			AccountId:     oldNs.AccountId,
+			FromAccountId: status.AccountId,
+		}
 		updateNfs = append(updateNfs, nf)
 	}
 
@@ -269,7 +293,6 @@ func updateMentionNotification(status *models.Status) {
 		err = db.GetDB().Create(updateNfs).Error
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create update notification error, status id %d", status.Id)))
-
 			return
 		}
 	}
@@ -281,7 +304,6 @@ func creatMentionNotification(status *models.Status) {
 	err := db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] find new mention account list error, status id %d", status.Id)))
-
 		return
 	}
 
@@ -292,25 +314,34 @@ func creatMentionNotification(status *models.Status) {
 	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] get local accounts error, status id %d", status.Id)))
-
 		return
 	}
 
 	nsList := make([]*models.Notification, 0)
 
 	for _, account := range accounts {
-		nf := &models.Notification{}
-		nf.Type = models.NotificationTypeMention
-		nf.StatusId = status.Id
-		nf.FromAccountId = status.AccountId
-		nf.AccountId = account.Id
+		// 自己 mention 自己不通知
+		if account.Id == status.AccountId {
+			continue
+		}
+
+		nf := &models.Notification{
+			Type:          models.NotificationTypeMention,
+			StatusId:      status.Id,
+			FromAccountId: status.AccountId,
+			AccountId:     account.Id,
+		}
 		nsList = append(nsList, nf)
+	}
+
+	// 空切片时不调用 Create
+	if len(nsList) == 0 {
+		return
 	}
 
 	err = db.GetDB().Create(nsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] create mention notification error, status id %d", status.Id)))
-
 		return
 	}
 }
@@ -320,28 +351,19 @@ func removeReblogNotification(status *models.Status) {
 		return
 	}
 
-	if status.Reblog == nil {
-		status.Reblog = &models.Status{}
-
-		err := db.GetDB().Model(status).Association("Reblog").Find(status.Reblog)
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] find reblog status error, status id %d", status.Id))
-			log.ErrorV(err)
-
-			return
-		}
+	reblogStatus, err := getReblogStatus(status)
+	if err != nil {
+		return
 	}
 
 	// 删除对应的通知
 	nsList := make([]*models.Notification, 0)
 
-	err := db.GetDB().
-		Where("type In ? and status_id = ?", []int{models.NotificationTypeReblog, models.NotificationTypeStatusUpdate}, status.Reblog.Id).
+	err = db.GetDB().
+		Where("type In ? and status_id = ?", []int{models.NotificationTypeReblog, models.NotificationTypeStatusUpdate}, reblogStatus.Id).
 		Find(&nsList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] find reblog notification error, status id %d", status.Id))
-		log.ErrorV(err)
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] find reblog notification error, status id %d", status.Id)))
 		return
 	}
 
@@ -352,8 +374,7 @@ func removeReblogNotification(status *models.Status) {
 	// 删除对应的通知
 	err = db.GetDB().Delete(nsList).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] delete reblog notification error, status id %d", status.Id))
-		log.ErrorV(err)
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] delete reblog notification error, status id %d", status.Id)))
 	}
 }
 
@@ -364,33 +385,24 @@ func updateReblogNotification(status *models.Status) {
 		return
 	}
 
-	if status.Reblog == nil {
-		status.Reblog = &models.Status{}
-
-		err := db.GetDB().Model(status).Association("Reblog").Find(status.Reblog)
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog status error, status id %d", status.Id))
-			log.ErrorV(err)
-
-			return
-		}
+	reblogStatus, err := getReblogStatus(status)
+	if err != nil {
+		return
 	}
 
 	// 获取原来的转发通知
 	accountsId := make([]uint64, 0)
 
-	err := db.GetDB().Model(&models.Status{}).Where("reblog_id =?", *status.ReblogId).Pluck("account_id", &accountsId).Error
+	err = db.GetDB().Model(&models.Status{}).Where("reblog_id = ?", *status.ReblogId).Pluck("account_id", &accountsId).Error
 	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog accounts error, status id %d", status.Reblog.Id)))
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog accounts error, status id %d", reblogStatus.Id)))
 		return
 	}
 
 	// 通知只发给本站用户
 	accounts, err := models.GetLocalAccounts(db.GetDB(), accountsId)
 	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] get local accounts error, status id %d", status.Reblog.Id)))
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] get local accounts error, status id %d", reblogStatus.Id)))
 		return
 	}
 
@@ -398,18 +410,22 @@ func updateReblogNotification(status *models.Status) {
 	nfList := make([]*models.Notification, 0)
 
 	for _, account := range accounts {
-		nf := &models.Notification{}
-		nf.FromAccountId = status.AccountId
-		nf.AccountId = account.Id
-		nf.Type = models.NotificationTypeStatusUpdate
-		nf.StatusId = status.Reblog.Id
+		nf := &models.Notification{
+			FromAccountId: status.AccountId,
+			AccountId:     account.Id,
+			Type:          models.NotificationTypeStatusUpdate,
+			StatusId:      reblogStatus.Id,
+		}
 		nfList = append(nfList, nf)
+	}
+
+	if len(nfList) == 0 {
+		return
 	}
 
 	err = db.GetDB().Create(nfList).Error
 	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] create reblog notification error, status id %d", status.Reblog.Id)))
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] create reblog notification error, status id %d", reblogStatus.Id)))
 		return
 	}
 }
@@ -421,47 +437,82 @@ func creatReblogNotification(status *models.Status) {
 		return
 	}
 
-	if status.Reblog == nil {
-		status.Reblog = &models.Status{}
-
-		err := db.GetDB().Model(status).Association("Reblog").Find(status.Reblog)
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[creatReblogNotification] find reblog status error, status id %d", status.Id))
-			log.ErrorV(err)
-
-			return
-		}
+	reblogStatus, err := getReblogStatus(status)
+	if err != nil {
+		return
 	}
 
-	if status.Account == nil {
-		status.Account = &models.Account{}
+	reblogStatusAccount, err := getStatusAccount(status)
+	if err != nil {
+		return
+	}
 
-		err := db.GetDB().Model(status).Association("Account").Find(status.Account)
-		if err != nil {
-			err = errors.Wrap(err, fmt.Sprintf("[creatReblogNotification] find status account error, status id %d", status.ReblogId))
-			log.ErrorV(err)
-
-			return
-		}
+	if reblogStatusAccount == nil {
+		return
 	}
 
 	// 如果不是本站的用户，不需要创建通知
-	if status.Account.Domain != nil {
+	if reblogStatusAccount.Domain != nil {
 		return
 	}
 
-	nf := &models.Notification{}
-	nf.FromAccountId = status.AccountId
-	nf.AccountId = status.Reblog.AccountId
-	nf.Type = models.NotificationTypeReblog
-	nf.StatusId = *status.ReblogId
-	nf.Status = status.Reblog
+	// 自己转发自己不通知
+	if status.AccountId == reblogStatus.AccountId {
+		return
+	}
 
-	err := db.GetDB().Create(nf).Error
+	nf := &models.Notification{
+		FromAccountId: status.AccountId,
+		AccountId:     reblogStatus.AccountId,
+		Type:          models.NotificationTypeReblog,
+		StatusId:      *status.ReblogId,
+	}
+
+	err = db.GetDB().Create(nf).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[creatReblogNotification] create reblog notification error, status id %d", status.ReblogId))
-		log.ErrorV(err)
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatReblogNotification] create reblog notification error, status id %d", status.ReblogId)))
 		return
 	}
+}
+
+// getReblogStatus 获取 status 的 Reblog 对象。
+// 使用局部变量查询，不修改传入的共享 status 指针，避免 data race。
+func getReblogStatus(status *models.Status) (*models.Status, error) {
+	if status.Reblog != nil {
+		return status.Reblog, nil
+	}
+
+	reblogStatus := &models.Status{}
+
+	err := db.GetDB().Model(&models.Status{}).Where("id = ?", *status.ReblogId).First(reblogStatus).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[getReblogStatus] find reblog status error, status id %d", status.Id)))
+		}
+
+		return nil, err
+	}
+
+	return reblogStatus, nil
+}
+
+// getStatusAccount 获取 status 的 Account（转发者）。
+// 使用局部变量查询，不修改传入的共享 status 指针，避免 data race。
+func getStatusAccount(status *models.Status) (*models.Account, error) {
+	if status.Account != nil {
+		return status.Account, nil
+	}
+
+	account := &models.Account{}
+
+	err := db.GetDB().Model(&models.Account{}).Where("id = ?", status.AccountId).First(account).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[getStatusAccount] find status account error, status id %d", status.Id)))
+		}
+
+		return nil, err
+	}
+
+	return account, nil
 }

@@ -616,6 +616,71 @@ func (m *MockRedisClient) ZRevRangeByScoreWithScores(ctx context.Context, key st
 	return cmd
 }
 
+// ZRevRangeWithScores 反向按排名获取有序集合及分数.
+func (m *MockRedisClient) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cmd := redis.NewZSliceCmd(ctx)
+	if m.zSets[key] == nil {
+		cmd.SetVal([]redis.Z{})
+
+		return cmd
+	}
+
+	// 将成员按分数降序排序
+	type memberScore struct {
+		member string
+		score  float64
+	}
+
+	var sortedMembers []memberScore
+	for member, score := range m.zSets[key] {
+		sortedMembers = append(sortedMembers, memberScore{member: member, score: score})
+	}
+
+	// 按分数降序排序
+	for i := 0; i < len(sortedMembers); i++ {
+		for j := i + 1; j < len(sortedMembers); j++ {
+			if sortedMembers[i].score < sortedMembers[j].score {
+				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
+			}
+		}
+	}
+
+	// 处理负索引
+	n := len(sortedMembers)
+	if start < 0 {
+		start = int64(n) + start
+	}
+
+	if stop < 0 {
+		stop = int64(n) + stop
+	}
+
+	// 边界检查
+	if start < 0 {
+		start = 0
+	}
+
+	if stop >= int64(n) {
+		stop = int64(n) - 1
+	}
+
+	var result []redis.Z
+	for i := start; i <= stop && i < int64(n) && i >= 0; i++ {
+		result = append(result, redis.Z{Score: sortedMembers[i].score, Member: sortedMembers[i].member})
+	}
+
+	if result == nil {
+		result = []redis.Z{}
+	}
+
+	cmd.SetVal(result)
+
+	return cmd
+}
+
 // ZRemRangeByScore 按分数移除有序集合成员.
 func (m *MockRedisClient) ZRemRangeByScore(ctx context.Context, key string, min, max string) *redis.IntCmd {
 	m.mu.Lock()

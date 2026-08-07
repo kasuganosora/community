@@ -16,6 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// newTestClient creates a Client that bypasses SSRF loopback protection so it
+// can reach httptest servers bound to 127.0.0.1. Production code must never
+// use this; it exists solely for unit tests.
+func newTestClient(privateKey *rsa.PrivateKey, actorID string) *Client {
+	return &Client{
+		httpClient: ssrfHTTPClientForTesting(),
+		privateKey: privateKey,
+		actorID:    actorID,
+	}
+}
+
 func TestNewClient(t *testing.T) {
 	// Without private key
 	client := NewClient(nil, "https://example.com/users/test")
@@ -47,7 +58,7 @@ func TestClientGet(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	data, err := client.Get(context.Background(), server.URL+"/test")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
@@ -65,7 +76,7 @@ func TestClientGetNon200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	_, err := client.Get(context.Background(), server.URL+"/notfound")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected status code: 404")
@@ -79,7 +90,7 @@ func TestClientPost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "https://example.com/users/test")
+	client := newTestClient(nil, "https://example.com/users/test")
 	activity := map[string]any{
 		"type":  "Follow",                         //nolint:goconst
 		"actor": "https://example.com/users/test", //nolint:goconst
@@ -113,7 +124,7 @@ func TestClientPostWithSignature(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(privateKey, "https://example.com/users/test")
+	client := newTestClient(privateKey, "https://example.com/users/test")
 	activity := map[string]any{
 		"type": "Create", //nolint:goconst
 	}
@@ -128,7 +139,7 @@ func TestClientPostError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	err := client.Post(context.Background(), server.URL+"/inbox", map[string]any{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
@@ -138,7 +149,7 @@ func TestClientSignRequest(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
-	client := NewClient(privateKey, "https://example.com/users/test")
+	client := newTestClient(privateKey, "https://example.com/users/test")
 
 	body := []byte(`{"type":"Create"}`)
 	req, _ := http.NewRequest(http.MethodPost, "https://remote.com/inbox", nil) //nolint:noctx // test code
@@ -169,7 +180,7 @@ func TestClientSignRequestHostNotLowercased(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
-	client := NewClient(privateKey, "https://example.com/users/test")
+	client := newTestClient(privateKey, "https://example.com/users/test")
 
 	body := []byte(`{}`)
 	// Use a URL with mixed-case host to verify it's not lowercased
@@ -198,7 +209,7 @@ func TestClientFetchActor(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	result, err := client.FetchActor(context.Background(), server.URL+"/users/alice")
 	require.NoError(t, err)
 	assert.Equal(t, "Person", result.Type)
@@ -215,7 +226,7 @@ func TestClientFetchObject(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	result, err := client.FetchObject(context.Background(), server.URL+"/note/1")
 	require.NoError(t, err)
 	assert.Equal(t, "Note", result["type"])
@@ -237,7 +248,7 @@ func TestClientFetchStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(nil, "")
+	client := newTestClient(nil, "")
 	note, err := client.FetchStatus(context.Background(), server.URL+"/statuses/1")
 	require.NoError(t, err)
 	assert.Equal(t, "Note", note.Type)

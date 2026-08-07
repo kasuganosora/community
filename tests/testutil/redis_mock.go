@@ -65,8 +65,17 @@ func NewRealRedis(t *testing.T) *RedisTestClient {
 		return nil
 	}
 
-	// Flush test database before test
-	client.FlushDB(ctx)
+	// Flush test database before test so each test starts from a clean slate.
+	// Use a fresh context because the ping context above is about to be
+	// cancelled by the deferred cancel().
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer flushCancel()
+
+	if flushErr := client.FlushDB(flushCtx).Err(); flushErr != nil {
+		// Flush failure is not fatal, but it may cause cross-test data bleed;
+		// surface it in the test log so the cause is diagnosable.
+		t.Logf("Warning: failed to flush test Redis database before test: %v", flushErr)
+	}
 
 	return &RedisTestClient{
 		Client: client,

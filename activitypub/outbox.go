@@ -254,19 +254,26 @@ func Following(c *gin.Context) {
 		Limit(20).
 		Find(&results)
 
-	// Get the followed accounts
+	// Collect all follow IDs for a single batch query (avoid N+1)
+	followIDs := make([]uint64, 0, len(results))
+	for _, r := range results {
+		followIDs = append(followIDs, r.FollowId)
+	}
+
 	items := make([]any, 0)
 
-	for _, r := range results {
-		var targetAccount models.Account
-		err := db.GetDB().Where("id = ?", r.FollowId).First(&targetAccount).Error
+	if len(followIDs) > 0 {
+		var targetAccounts []models.Account
+		err = db.GetDB().Where("id IN ?", followIDs).Find(&targetAccounts).Error
 		if err == nil {
-			if targetAccount.Domain != nil && targetAccount.OriginId != "" {
-				// Remote account: use their ActivityPub actor URI
-				items = append(items, targetAccount.OriginId)
-			} else {
-				// Local account: use our local actor URL
-				items = append(items, baseURL+"/users/"+targetAccount.Username)
+			for _, targetAccount := range targetAccounts {
+				if targetAccount.Domain != nil && targetAccount.OriginId != "" {
+					// Remote account: use their ActivityPub actor URI
+					items = append(items, targetAccount.OriginId)
+				} else {
+					// Local account: use our local actor URL
+					items = append(items, baseURL+"/users/"+targetAccount.Username)
+				}
 			}
 		}
 	}

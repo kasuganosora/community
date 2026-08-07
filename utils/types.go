@@ -521,7 +521,7 @@ func deepCopyStruct(source reflect.Value) (ret reflect.Value) {
 			if field.Type.Kind() == reflect.Pointer {
 				if newFieldValue.IsValid() {
 					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Set(reflect.New(field.Type.Elem())) //nolint:gosec // G103: deep copy needs unexported fields
-					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue)
+					reflect.NewAt(field.Type, unsafe.Pointer(retField.UnsafeAddr())).Elem().Elem().Set(newFieldValue) //nolint:gosec // G103: deep copy needs unexported fields
 				}
 			} else {
 				if newFieldValue.IsValid() {

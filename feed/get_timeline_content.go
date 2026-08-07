@@ -43,10 +43,16 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 
 		if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
 			min, max := params.GetRedisRangeMinMax()
-			statusesIdStr = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: min, Stop: max, ByScore: true, Rev: true}).Val()
+			statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: min, Stop: max, ByScore: true, Rev: true}).Result()
+			if err != nil {
+				return statuses, err
+			}
 		} else {
 			start, end := params.GetRedisRangeOffsetCount()
-			statusesIdStr = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: start, Stop: end, Rev: true}).Val()
+			statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: start, Stop: end, Rev: true}).Result()
+			if err != nil {
+				return statuses, err
+			}
 		}
 
 		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
@@ -84,6 +90,9 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 			query = query.Where("id > ?", params.SinceId)
 		}
 
+		// 按 ID 倒序排列，与 Redis 缓存中的顺序一致
+		query = query.Order("id desc")
+
 		if params.Limit > 0 {
 			query = query.Limit(int(params.Limit)) //nolint:gosec // G115: reviewed and safe
 		}
@@ -113,7 +122,6 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		Preload("ToAccounts").
 		Preload("Poll").
 		Preload("Poll.Options").
-		Preload("Poll.Options").
 		Preload("Tags").
 		Preload("Reblog").
 		Preload("Reblog.Account").
@@ -124,7 +132,6 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		Preload("Reblog.Emojis").
 		Preload("Reblog.ToAccounts").
 		Preload("Reblog.Poll").
-		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Tags")
 

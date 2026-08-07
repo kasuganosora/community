@@ -14,6 +14,7 @@ type TestSetup struct {
 	Redis    *RedisTestClient
 	Fixtures *FixtureBuilder
 	t        *testing.T
+	closed   bool
 }
 
 // SetupOptions configures the test setup.
@@ -130,6 +131,12 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 	// db.GetRedis() returns our mock/real client instead of panicking.
 	// This prevents feed/cache/middleware code from timing out on connection
 	// attempts when no real Redis is available.
+	//
+	// We snapshot the previous value and restore it in t.Cleanup so that the
+	// mutation of package-level state does not leak out of this test (e.g.
+	// leaving GetRedis() pointing at a closed client, or racing with another
+	// parallel NewTestSetup). This makes the global mutation test-local.
+	prevRedises := cRedis.GetRedisesForTest()
 	if setup.Redis != nil && setup.Redis.Client != nil {
 		cRedis.SetRedisesForTest([]*goredis.Client{setup.Redis.Client})
 	}
@@ -137,9 +144,18 @@ func NewTestSetup(t *testing.T, opts ...SetupOption) *TestSetup {
 	// Create fixture builder
 	setup.Fixtures = NewFixtureBuilder(t, setup.DB.GormDB)
 
-	// Register single cleanup point for all resources
+	// Register single cleanup point for all resources. t.Cleanup runs in
+	// LIFO order, so this runs after any cleanups registered by the caller.
 	t.Cleanup(func() {
+		// Verify mock expectations while the test is still active so failures
+		// are properly attributed. AssertExpectations is a no-op for real Redis.
+		if setup.Redis != nil {
+			setup.Redis.AssertExpectations(t)
+		}
 		setup.Close()
+		// Restore the global redis client pool so the mutation does not leak
+		// to other tests (the client we injected is now closed).
+		cRedis.SetRedisesForTest(prevRedises)
 	})
 
 	return setup
@@ -155,10 +171,19 @@ func (s *TestSetup) RedisClient() *RedisTestClient {
 	return s.Redis
 }
 
-// Close cleans up all resources.
+// Close cleans up all resources. It is safe to call multiple times.
 func (s *TestSetup) Close() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+
 	if s.Redis != nil {
-		s.Redis.AssertExpectations(s.t)
+		// Note: AssertExpectations is intentionally NOT called here. It is the
+		// caller's responsibility (or t.Cleanup in NewTestSetup) to verify mock
+		// expectations while the test is still active, because calling t.Errorf
+		// after the test has already failed/returned is a no-op at best and a
+		// source of confusing output at worst.
 		_ = s.Redis.Close()
 	}
 

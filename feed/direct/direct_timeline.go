@@ -98,10 +98,6 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		}
 	}
 
-	if status.ToAccounts == nil {
-		return err
-	}
-
 	conversation := &models.Conversation{}
 
 	err = db.GetDB().Where("id = ?", *status.ConversationId).First(conversation).Error

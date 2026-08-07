@@ -51,20 +51,27 @@ func (timeline *NotificationTimeline) GetTimelineId() string {
 }
 
 func (timeline *NotificationTimeline) Rebuild() (err error) {
-	notifications := make(models.Notifications, 0)
+	notificationIds := make([]uint64, 0)
 
 	err = db.GetDB().Model(&models.Notification{}).Where("account_id = ?", timeline.Account.Id).
 		Order("id desc").
 		Limit(feed.MAX_ITEMS/2).
-		Pluck("id", &notifications).Error
+		Pluck("id", &notificationIds).Error
 	if err != nil {
 		return
 	}
 
 	ctx := context.Background()
-	db.GetRedis().Del(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()))
+	timelineKey := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
 
-	for _, n := range notifications {
+	// 清理旧的 timeline 数据
+	if delErr := db.GetRedis().Del(ctx, timelineKey).Err(); delErr != nil {
+		err = delErr
+		return
+	}
+
+	for _, nId := range notificationIds {
+		n := &models.Notification{Id: nId}
 		err = timeline.push(n, false, false)
 		if err != nil {
 			return
@@ -76,10 +83,13 @@ func (timeline *NotificationTimeline) Rebuild() (err error) {
 
 func (timeline *NotificationTimeline) push(notification *models.Notification, pushToClient bool, trim bool) (err error) {
 	ctx := context.Background()
-	db.GetRedis().ZAdd(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), redis.Z{
+	err = db.GetRedis().ZAdd(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), redis.Z{
 		Score:  float64(notification.Id),
 		Member: notification.Id,
-	})
+	}).Err()
+	if err != nil {
+		return
+	}
 
 	if pushToClient && feed.PushUpdateRequired(timeline) {
 		var payload any
@@ -104,7 +114,7 @@ func (timeline *NotificationTimeline) push(notification *models.Notification, pu
 
 func (timeline *NotificationTimeline) trim() {
 	ctx := context.Background()
-	db.GetRedis().ZRemRangeByRank(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), 0, -feed.MAX_ITEMS)
+	_ = db.GetRedis().ZRemRangeByRank(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), 0, -feed.MAX_ITEMS).Err()
 }
 
 func Push(notification *models.Notification, pushToClient bool, trim bool) (err error) {

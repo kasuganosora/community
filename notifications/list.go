@@ -2,23 +2,34 @@ package notifications
 
 import (
 	"fmt"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 func init() {
 	event.Register("list", "add-to-list", &event.Handler{Exec: func(event event.Event) bool {
-		la := event.Data.(*models.ListAccount) //nolint:forcetypeassert
-		go listAddToListNotification(la)
+		la, ok := event.Data.(*models.ListAccount)
+		if !ok {
+			return true
+		}
+
+		safeGo("listAddToListNotification", func() { listAddToListNotification(la) })
 
 		return true
 	}})
+
 	event.Register("list", "follow-list", &event.Handler{Exec: func(event event.Event) bool {
-		lfa := event.Data.(*models.ListFollowAccount) //nolint:forcetypeassert
-		go listFollowListNotification(lfa)
+		lfa, ok := event.Data.(*models.ListFollowAccount)
+		if !ok {
+			return true
+		}
+
+		safeGo("listFollowListNotification", func() { listFollowListNotification(lfa) })
 
 		return true
 	}})
@@ -31,8 +42,9 @@ func listAddToListNotification(la *models.ListAccount) {
 
 	err := db.GetDB().Model(list).Where("id = ?", la.ListId).First(list).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get list faild, list id %d", la.ListId))
-		log.ErrorV(err)
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get list faild, list id %d", la.ListId)))
+		}
 
 		return
 	}
@@ -41,8 +53,9 @@ func listAddToListNotification(la *models.ListAccount) {
 
 	err = db.GetDB().Model(account).Where("id = ?", la.AccountId).First(account).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get account faild, account id %d", la.AccountId))
-		log.ErrorV(err)
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] get account faild, account id %d", la.AccountId)))
+		}
 
 		return
 	}
@@ -60,9 +73,7 @@ func listAddToListNotification(la *models.ListAccount) {
 
 	err = db.GetDB().Create(nf).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] create notification faild, list id %d", la.ListId))
-		log.ErrorV(err)
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[listAddToListNotification] create notification faild, list id %d", la.ListId)))
 		return
 	}
 }
@@ -73,13 +84,25 @@ func listFollowListNotification(lfa *models.ListFollowAccount) {
 
 	err := db.GetDB().Model(list).Preload("Creator").Where("id = ?", lfa.ListId).First(list).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] get list faild, list id %d", lfa.ListId))
-		log.ErrorV(err)
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] get list faild, list id %d", lfa.ListId)))
+		}
 
 		return
 	}
 
+	// Preload("Creator") 未找到关联时 list.Creator 为 nil，需做 nil 检查
+	if list.Creator == nil {
+		return
+	}
+
+	// 如果列表创建者是远程用户，不发通知
 	if list.Creator.Domain != nil {
+		return
+	}
+
+	// 自己关注自己创建的列表不通知
+	if list.AccountId == lfa.AccountId {
 		return
 	}
 
@@ -92,9 +115,7 @@ func listFollowListNotification(lfa *models.ListFollowAccount) {
 
 	err = db.GetDB().Create(nf).Error
 	if err != nil {
-		err = errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] create notification faild, list id %d", lfa.ListId))
-		log.ErrorV(err)
-
+		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[listFollowListNotification] create notification faild, list id %d", lfa.ListId)))
 		return
 	}
 }

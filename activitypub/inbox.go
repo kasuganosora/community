@@ -3,6 +3,7 @@ package activitypub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -366,6 +367,15 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Handle Actor updates
 	if objectType == "Person" || objectType == "Service" || objectType == "Group" {
+		// Verify the object ID in the update matches the signing actor to
+		// prevent an attacker from updating a different actor's profile.
+		if objectID != "" && objectID != actor {
+			log.Warn("Actor update denied: object ID %q does not match signing actor %q", objectID, actor)
+			c.JSON(403, gin.H{"error": "actor mismatch in update"})
+
+			return
+		}
+
 		// Update remote account info
 		remoteAccount, err := getOrCreateRemoteAccount(actor) //nolint:contextcheck
 		if err != nil {
@@ -408,11 +418,27 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		content, _ := object["content"].(string)
 		summary, _ := object["summary"].(string)
 
+		// Find the status by origin_uri, then verify ownership by checking
+		// that the status author's origin_id matches the signing actor.
 		var status models.Status
-		err := db.GetDB().Where("origin_uri = ? AND account_id IN (SELECT id FROM accounts WHERE origin_id = ? OR id = (SELECT id FROM accounts WHERE username = ?))",
-			objectID, actor, utils.ExtractUsernameFromURI(actor)).First(&status).Error
+		err := db.GetDB().Where("origin_uri = ?", objectID).First(&status).Error
 		if err != nil {
 			c.JSON(404, gin.H{"error": "status not found"})
+
+			return
+		}
+
+		// Verify the actor owns this status
+		var statusAuthor models.Account
+		if err := db.GetDB().First(&statusAuthor, status.AccountId).Error; err != nil {
+			c.JSON(500, gin.H{"error": "failed to verify ownership"})
+
+			return
+		}
+
+		if statusAuthor.OriginId != actor {
+			log.Warn("Update denied: status %d author %q does not match actor %q", status.Id, statusAuthor.OriginId, actor)
+			c.JSON(403, gin.H{"error": "not authorized to update this status"})
 
 			return
 		}
@@ -466,12 +492,8 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 		err := db.GetDB().Where("origin_id = ? OR (username = ? AND domain = ?)",
 			actor, utils.ExtractUsernameFromURI(actor), utils.ExtractDomainFromURI(actor)).First(&account).Error
 		if err == nil {
-			// Soft delete the account
-			now := time.Now()
-			err := db.GetDB().Model(&account).Updates(map[string]any{
-				"deleted_at": now,
-			}).Error
-			if err != nil {
+			// Soft delete the account using GORM's built-in soft delete
+			if err := db.GetDB().Delete(&account).Error; err != nil {
 				log.Error("Failed to soft-delete remote account %s: %v", actor, err)
 			} else {
 				log.Info("Deleted remote account %s", actor)
@@ -487,22 +509,21 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 	var status models.Status
 	err := db.GetDB().Where("origin_uri = ?", object).First(&status).Error
 	if err == nil {
-		// Verify ownership
+		// Verify ownership — check the status author's origin_id matches actor
 		var account models.Account
 		err := db.GetDB().First(&account, status.AccountId).Error
 		if err == nil {
-			actorURI := ""
-			if account.Domain != nil {
-				actorURI = fmt.Sprintf("https://%s/users/%s", *account.Domain, account.Username)
-			}
-
-			if actorURI == actor || account.OriginId == actor {
+			// Ownership is verified via the account's OriginId, not by constructing
+			// a URL from username/domain (which could differ from the actual AP URI).
+			if account.OriginId == actor {
 				err := db.GetDB().Delete(&status).Error
 				if err != nil {
 					log.Error("Failed to delete status %d: %v", status.Id, err)
+				} else {
+					log.Info("Deleted remote status %d from %s", status.Id, actor)
 				}
-
-				log.Info("Deleted remote status %d from %s", status.Id, actor)
+			} else {
+				log.Warn("Delete denied: status %d author origin_id %q does not match actor %q", status.Id, account.OriginId, actor)
 			}
 		}
 	}
@@ -1186,6 +1207,15 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 		return &account, nil
 	}
 
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("querying account: %w", err)
+	}
+
+	// Validate the URI before fetching
+	if err := validateFederationURI(actorURI); err != nil {
+		return nil, fmt.Errorf("invalid actor URI: %w", err)
+	}
+
 	// Need to fetch the actor
 	client := NewClient(nil, "")
 
@@ -1212,7 +1242,7 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 		OriginId:    actorURI,
 		DisplayName: actor.Name,
 		Note:        actor.Summary,
-		Locked:      false, // Remote accounts default
+		Locked:      false,
 		Bot:         actor.Type == "Service",
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
@@ -1230,16 +1260,23 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 		account.HeaderStatic = actor.Image.URL
 	}
 
-	if err := db.GetDB().Create(&account).Error; err != nil {
-		return nil, fmt.Errorf("failed to create account: %w", err)
-	}
+	// Create account and account extra atomically
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&account).Error; err != nil {
+			return fmt.Errorf("failed to create account: %w", err)
+		}
 
-	// Create account extra
-	accountExtra := models.AccountExtra{
-		AccountId: account.Id,
-	}
-	if err := db.GetDB().Create(&accountExtra).Error; err != nil {
-		log.Error("Failed to create account extra: %v", err)
+		accountExtra := models.AccountExtra{
+			AccountId: account.Id,
+		}
+		if err := tx.Create(&accountExtra).Error; err != nil {
+			return fmt.Errorf("failed to create account extra: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &account, nil
@@ -1664,35 +1701,31 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 		}
 	}
 
-	// Create status in transaction
-	tx := db.GetDB().Begin()
+	// Create status in transaction (safe against panics — Transaction auto-rolls-back)
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&status).Error; err != nil {
+			return fmt.Errorf("failed to create status: %w", err)
+		}
 
-	if err := tx.Create(&status).Error; err != nil {
-		tx.Rollback()
+		// Create status content
+		statusContent := &models.StatusContent{
+			StatusId:    status.Id,
+			Content:     content,
+			SpoilerText: summary,
+		}
 
-		return nil, fmt.Errorf("failed to create status: %w", err)
+		if err := tx.Create(statusContent).Error; err != nil {
+			return fmt.Errorf("failed to create status content: %w", err)
+		}
+
+		// Load the complete status
+		status.Content = *statusContent
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	// Create status content
-	statusContent := &models.StatusContent{
-		StatusId:    status.Id,
-		Content:     content,
-		SpoilerText: summary,
-	}
-
-	if err := tx.Create(statusContent).Error; err != nil {
-		tx.Rollback()
-
-		return nil, fmt.Errorf("failed to create status content: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// Load the complete status
-	status.Content = *statusContent
 
 	log.Info("Created remote status %d from %s", status.Id, statusURI)
 

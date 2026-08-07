@@ -24,7 +24,10 @@ func IsAbortSentinel(r any) bool {
 }
 
 // AbortRecoveryMiddleware 专门捕获 AbortSentinel panic 的中间件
-// 应该在 gin.Recovery() 之前注册，确保只有真正的 panic 被 gin.Recovery() 处理.
+// 必须在 gin.Recovery() **之后**注册（即成为更内层的中间件），使其 defer
+// 先于 gin.Recovery 的 recover 执行，从而静默吞掉哨兵 panic。
+// 如果不注册此中间件，gin.Recovery() 会将每次 AbortPanic() 都当作真正的
+// panic 处理，在日志中打印冗余的堆栈跟踪。
 func AbortRecoveryMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {

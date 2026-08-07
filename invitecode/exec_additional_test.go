@@ -267,8 +267,11 @@ func TestExecAfterRegisterAction_FollowMe_Success(t *testing.T) {
 	assert.Equal(t, ownerAccount.Id, follow.FollowId)
 }
 
-// TestExecAfterRegisterAction_FollowMe_NilDB tests followMe with nil database
-// This confirms that a nil DB panics when followMe is reached.
+// TestExecAfterRegisterAction_FollowMe_NilDB tests followMe with nil database.
+//
+// Historically a nil DB caused a panic inside followMe (db.Where on nil receiver).
+// The fix makes followMe defensive: it logs an error and returns without panicking,
+// so a transient DB issue can never crash the registration request handler.
 func TestExecAfterRegisterAction_FollowMe_NilDB(t *testing.T) {
 	initSystemsettingsForTest(t, nil, map[string]any{
 		systemsettings.KeyRegistrationApprovalRequired: false,
@@ -288,8 +291,8 @@ func TestExecAfterRegisterAction_FollowMe_NilDB(t *testing.T) {
 		Id: 1,
 	}
 
-	// nil DB will panic when followMe tries to call db.Where()
-	assert.Panics(t, func() {
+	// After the fix, a nil DB must NOT panic — it should be handled gracefully.
+	assert.NotPanics(t, func() {
 		ExecAfterRegisterAction(nil, inv, user, account)
 	})
 }

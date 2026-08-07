@@ -510,6 +510,7 @@ func (c *Cache) GetOrFetch(ctx context.Context, key string, dest any, expiration
 	// 2. 缓存未命中，singleflight 合并并发回源.
 	// 在回调内只序列化一次得到 []byte：既用于回写缓存，又作为 singleflight 的共享结果，
 	// 各并发调用者对该共享 []byte 各做一次反序列化即可，避免重复序列化.
+	//nolint:contextcheck // singleflight 回写缓存必须用独立 context，解耦调用方生命周期（见上方注释）
 	val, ferr := c.getSF().do(key, func() (any, error) {
 		v, e := fetch()
 		if e != nil {

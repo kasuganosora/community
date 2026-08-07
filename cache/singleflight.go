@@ -38,7 +38,7 @@ func randInt63n(n int64) int64 {
 		return 0
 	}
 
-	return rand.Int64N(n)
+	return rand.Int64N(n) //nolint:gosec // G404: 仅用于缓存 TTL 抖动，非安全/密码学场景
 }
 
 // wrapRedisErr 将 go-redis 的错误统一包装为缓存层语义.

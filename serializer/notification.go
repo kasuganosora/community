@@ -103,6 +103,10 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		if n.ReportId != 0 {
 			reportsIds = append(reportsIds, n.ReportId)
 		}
+
+		if n.ListId != 0 {
+			listsIds = append(listsIds, n.ListId)
+		}
 	}
 
 	var accounts []*Account

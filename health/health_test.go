@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/glebarez/sqlite"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/redis/go-redis/v9"
@@ -523,9 +524,10 @@ func TestRedisChecker_Success(t *testing.T) {
 
 	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
-	// parseRedisInfo always returns empty map, so version/mode will be empty strings
-	assert.Empty(t, meta["version"])
-	assert.Empty(t, meta["mode"])
+	// 元数据中始终包含 version/mode 键；miniredis 的 INFO 不返回这两个字段，
+	// 因此值为空字符串，但键必须存在（说明 INFO 命令被执行且被解析）。
+	assert.Contains(t, meta, "version")
+	assert.Contains(t, meta, "mode")
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +591,7 @@ func TestCheckLocalStorage_AllDirsExist(t *testing.T) {
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 
-	health := checkLocalStorage(time.Now())
+	health := checkLocalStorage(context.Background(), time.Now())
 	assert.Equal(t, StatusHealthy, health.Status)
 	meta, ok := health.Metadata.(map[string]any)
 	require.True(t, ok)
@@ -605,7 +607,7 @@ func TestCheckLocalStorage_SomeDirsMissing(t *testing.T) {
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 
-	health := checkLocalStorage(time.Now())
+	health := checkLocalStorage(context.Background(), time.Now())
 	assert.Equal(t, StatusDegraded, health.Status)
 	assert.Contains(t, health.Message, "Failed to access directories")
 }
@@ -618,9 +620,28 @@ func TestCheckLocalStorage_DirIsFile(t *testing.T) {
 
 	t.Cleanup(func() { _ = os.Remove("uploads") })
 
-	health := checkLocalStorage(time.Now())
+	health := checkLocalStorage(context.Background(), time.Now())
 	// "uploads" is a file, not a dir, so should be degraded
 	assert.Equal(t, StatusDegraded, health.Status)
+}
+
+func TestCheckLocalStorage_CancelledContext(t *testing.T) {
+	// ensure these dirs don't exist
+	dirs := []string{"uploads", "media", "cache", "logs"}
+	for _, d := range dirs {
+		_ = os.RemoveAll(d)
+
+		t.Cleanup(func() { _ = os.RemoveAll(d) })
+	}
+
+	// A pre-cancelled context should short-circuit the loop; since no dirs are
+	// checked, failedDirs stays empty and the result is healthy (no failures
+	// observed). This verifies the ctx.Err() early-break path.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	health := checkLocalStorage(ctx, time.Now())
+	assert.Equal(t, StatusHealthy, health.Status)
 }
 
 // ---------------------------------------------------------------------------
@@ -694,12 +715,15 @@ func TestParseRedisInfo_Empty(t *testing.T) {
 }
 
 func TestParseRedisInfo_SomeContent(t *testing.T) {
-	// The current implementation returns an empty map regardless of input
-	input := "# Server\nredis_version:7.0.0\nredis_mode:standalone\n"
+	// 标准格式（CRLF 行尾，模拟真实 Redis 输出）
+	input := "# Server\r\nredis_version:7.0.0\r\nredis_mode:standalone\r\n"
 	result := parseRedisInfo(input)
 	assert.NotNil(t, result)
-	// Current implementation returns empty map (simplified parser)
-	assert.Empty(t, result)
+	assert.Equal(t, "7.0.0", result["redis_version"])
+	assert.Equal(t, "standalone", result["redis_mode"])
+	// 注释行不应进入结果
+	_, ok := result["# Server"]
+	assert.False(t, ok)
 }
 
 // ---------------------------------------------------------------------------
@@ -727,6 +751,97 @@ func TestCheckWithTimeout_ExceedsTimeout(t *testing.T) {
 	// Should return quickly due to timeout
 	assert.Equal(t, StatusUnhealthy, health.Status)
 	assert.Equal(t, "timeout", health.Message)
+}
+
+// ---------------------------------------------------------------------------
+// Check: panic recovery
+// ---------------------------------------------------------------------------
+
+func TestCheck_PanicRecovery(t *testing.T) {
+	c := NewChecker("1.0.0")
+	c.Register("good", func(ctx context.Context) ServiceHealth {
+		return ServiceHealth{Status: StatusHealthy}
+	})
+	c.Register("panicker", func(ctx context.Context) ServiceHealth {
+		panic("boom")
+	})
+
+	// Should not panic; the panicking checker is converted to unhealthy.
+	resp := c.Check(context.Background())
+	assert.Equal(t, StatusUnhealthy, resp.Status)
+	assert.Contains(t, resp.Services, "panicker")
+	assert.Equal(t, StatusUnhealthy, resp.Services["panicker"].Status)
+	assert.Contains(t, resp.Services["panicker"].Message, "panicked")
+	// The healthy checker should still report healthy.
+	assert.Equal(t, StatusHealthy, resp.Services["good"].Status)
+}
+
+func TestCheck_PanicRecovery_NilPointer(t *testing.T) {
+	c := NewChecker("1.0.0")
+	c.Register("nil", func(ctx context.Context) ServiceHealth {
+		var m map[string]any
+		m["x"] = 1 //nolint:staticcheck // SA5000: intentional nil map write to trigger panic for recovery test
+		return ServiceHealth{Status: StatusHealthy}
+	})
+
+	resp := c.Check(context.Background())
+	assert.Equal(t, StatusUnhealthy, resp.Status)
+	assert.Contains(t, resp.Services["nil"].Message, "panicked")
+}
+
+// ---------------------------------------------------------------------------
+// Check: concurrent execution
+// ---------------------------------------------------------------------------
+
+func TestCheck_RunsConcurrently(t *testing.T) {
+	// If checks ran sequentially, total time would be ~3*block.
+	// Running concurrently, it should be roughly one block duration.
+	block := 150 * time.Millisecond
+
+	c := NewChecker("1.0.0")
+	for i := 0; i < 3; i++ {
+		c.Register(fmt.Sprintf("svc%d", i), func(ctx context.Context) ServiceHealth {
+			select {
+			case <-ctx.Done():
+				return ServiceHealth{Status: StatusUnhealthy, Message: "ctx done"}
+			case <-time.After(block):
+				return ServiceHealth{Status: StatusHealthy}
+			}
+		})
+	}
+
+	start := time.Now()
+	resp := c.Check(context.Background())
+	elapsed := time.Since(start)
+
+	assert.Len(t, resp.Services, 3)
+	// Sequential would take >= 3*block. Allow generous slack for scheduler jitter.
+	assert.Less(t, elapsed, 2*block, "checkers should run concurrently, not sequentially")
+}
+
+// ---------------------------------------------------------------------------
+// Check: overall timeout ceiling
+// ---------------------------------------------------------------------------
+
+func TestCheck_OverallTimeoutCeiling(t *testing.T) {
+	// Many slow-but-cooperative checkers; each honors ctx.
+	// With sequential per-check 5s timeouts the total would be huge,
+	// but the overall timeout (10s) must bound the whole call well below that.
+	c := NewChecker("1.0.0")
+	for i := 0; i < 10; i++ {
+		c.Register(fmt.Sprintf("slow%d", i), func(ctx context.Context) ServiceHealth {
+			<-ctx.Done()
+			return ServiceHealth{Status: StatusUnhealthy, Message: ctx.Err().Error()}
+		})
+	}
+
+	start := time.Now()
+	resp := c.Check(context.Background())
+	elapsed := time.Since(start)
+
+	// Should complete well under the 10s overall ceiling.
+	assert.Less(t, elapsed, 6*time.Second, "overall timeout should bound the total time")
+	assert.Len(t, resp.Services, 10)
 }
 
 // ---------------------------------------------------------------------------

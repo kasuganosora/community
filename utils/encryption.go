@@ -94,7 +94,7 @@ func Pkcs7unpadding(data []byte) ([]byte, error) {
 	// 校验末尾 unpadding 个字节全部等于 unpadding，防止填充 oracle 攻击
 	padStart := length - unpadding
 	for i := padStart; i < length; i++ {
-		if data[i] != byte(unpadding) {
+		if data[i] != byte(unpadding) { //nolint:gosec // G115: unpadding 已被校验为 0<unpadding<=length，转换安全
 			return nil, errors.New("invalid pkcs7 padding bytes")
 		}
 	}

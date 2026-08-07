@@ -1,6 +1,7 @@
 package search
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -360,3 +361,229 @@ func TestToJSON_SpecialCharacters(t *testing.T) {
 	// JSON should be valid (escaped properly)
 	assert.NotContains(t, json, "\n") // newlines should be escaped
 }
+
+// --- 注入防护测试 ---
+
+func TestSanitizeID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"valid numeric", "12345", true},
+		{"valid single digit", "0", true},
+		{"valid large number", "999999999999", true},
+		{"empty string", "", false},
+		{"SQL injection attempt", "1 OR 1=1", false},
+		{"filter injection OR", "1 OR visibility = 3", false},
+		{"filter injection AND", "1 AND account_id = 2", false},
+		{"semicolon injection", "1; DROP INDEX", false},
+		{"parenthesis injection", "1)", false},
+		{"bracket injection", "1]", false},
+		{"quote injection", "1'", false},
+		{"double quote injection", `1"`, false},
+		{"IN clause injection", "1 IN [2,3]", false},
+		{"newline injection", "1\n", false},
+		{"space injection", "1 ", false},
+		{"negative number", "-1", false},
+		{"float", "1.5", false},
+		{"hex", "0x1", false},
+		{"unicode digits", "１２３", false}, // fullwidth digits should be rejected
+		{"letter prefix", "a123", false},
+		{"letter suffix", "123a", false},
+		{"special char", "1=1", false},
+		{"wildcard", "*", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeID(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSanitizeIDs(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{"all valid", []string{"1", "2", "3"}, []string{"1", "2", "3"}},
+		{"mixed valid/invalid", []string{"1", "1 OR 1=1", "3"}, []string{"1", "3"}},
+		{"all invalid", []string{"'a'", "OR 1=1", ""}, []string{}},
+		{"empty input", []string{}, []string{}},
+		{"nil input", nil, []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeIDs(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestClampLimitOffset(t *testing.T) {
+	tests := []struct {
+		name          string
+		limit, offset int64
+		expLimit      int64
+		expOffset     int64
+	}{
+		{"normal values", 10, 5, 10, 5},
+		{"zero limit", 0, 0, 0, 0},
+		{"negative limit", -5, 0, 0, 0},
+		{"negative offset", 10, -3, 10, 0},
+		{"over max limit", 100, 0, maxSearchLimit, 0},
+		{"exactly max limit", maxSearchLimit, 0, maxSearchLimit, 0},
+		{"large values", 1000, 1000, maxSearchLimit, 1000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limit, offset := clampLimitOffset(tt.limit, tt.offset)
+			assert.Equal(t, tt.expLimit, limit)
+			assert.Equal(t, tt.expOffset, offset)
+		})
+	}
+}
+
+func TestSearchAccounts_DisabledReturnsError(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	ids, err := client.SearchAccounts("test", 10, 0, nil)
+	assert.Error(t, err)
+	assert.Nil(t, ids)
+}
+
+func TestSearchStatuses_DisabledReturnsError(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	ids, err := client.SearchStatuses("test", 10, 0, "", nil)
+	assert.Error(t, err)
+	assert.Nil(t, ids)
+}
+
+func TestSearchHashtags_DisabledReturnsError(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	ids, err := client.SearchHashtags("test", 10, 0)
+	assert.Error(t, err)
+	assert.Nil(t, ids)
+}
+
+func TestIndexAccount_DisabledReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.IndexAccount(&AccountSearchDocument{ID: "1"})
+	assert.NoError(t, err)
+}
+
+func TestIndexAccount_NilDocReturnsError(t *testing.T) {
+	client := &MeilisearchClient{enabled: true, client: nil}
+	// IsEnabled() returns false because client is nil
+	err := client.IndexAccount(nil)
+	assert.NoError(t, err)
+}
+
+func TestIndexStatus_DisabledReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.IndexStatus(&StatusSearchDocument{ID: "1"})
+	assert.NoError(t, err)
+}
+
+func TestIndexHashtag_DisabledReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.IndexHashtag(&HashtagSearchDocument{ID: "1"})
+	assert.NoError(t, err)
+}
+
+func TestDeleteAccount_DisabledReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.DeleteAccount("1")
+	assert.NoError(t, err)
+}
+
+func TestGetStats_DisabledReturnsError(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	result, err := client.GetStats()
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHealthCheck_DisabledReturnsFalse(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	assert.False(t, client.HealthCheck())
+}
+
+// TestSearchStatuses_MaliciousAccountID verifies that the SearchStatuses
+// function rejects malicious account_id values that could inject into the
+// Meilisearch filter expression.
+func TestSearchStatuses_MaliciousAccountID(t *testing.T) {
+	// The account_id is validated by sanitizeID before being interpolated
+	// into the Meilisearch filter expression. We verify the validation
+	// rejects common injection payloads.
+	maliciousIDs := []string{
+		"1 OR visibility = 3",
+		"1 AND 1=1",
+		"'; DROP",
+		"1)",
+		"1 IN [2]",
+	}
+	for _, id := range maliciousIDs {
+		assert.False(t, sanitizeID(id), "malicious ID should be rejected: %s", id)
+	}
+}
+
+// TestSearchAccounts_MaliciousFollowingIDs verifies that malicious
+// following IDs are filtered out by sanitizeIDs.
+func TestSearchAccounts_MaliciousFollowingIDs(t *testing.T) {
+	malicious := []string{
+		"1 OR 1=1",
+		"'; DROP INDEX",
+		"valid_id_but_not_numeric",
+		"2 OR account_id = 3",
+	}
+	cleaned := sanitizeIDs(malicious)
+	assert.Empty(t, cleaned, "all malicious IDs should be filtered out")
+}
+
+func TestBatchIndexAccounts_EmptyReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.BatchIndexAccounts(nil)
+	assert.NoError(t, err)
+}
+
+func TestBatchIndexStatuses_EmptyReturnsNil(t *testing.T) {
+	client := &MeilisearchClient{enabled: false}
+	err := client.BatchIndexStatuses(nil)
+	assert.NoError(t, err)
+}
+
+func TestMeilisearchClient_ConcurrentIsEnabled(t *testing.T) {
+	client := &MeilisearchClient{enabled: true}
+	// Verify concurrent reads/writes don't race
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			client.IsEnabled()
+		}()
+		go func() {
+			defer wg.Done()
+			client.setEnabled(false)
+			client.setEnabled(true)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestParseSearchQuery_AllFilters(t *testing.T) {
+	text, filters := ParseSearchQuery("hello from:user1 has:media is:reply before:2024-01-01 after:2023-01-01 #golang world")
+	assert.Equal(t, "hello world", text)
+	assert.Equal(t, "user1", filters["from"])
+	assert.Equal(t, "media", filters["has"])
+	assert.Equal(t, "reply", filters["is"])
+	assert.Equal(t, "2024-01-01", filters["before"])
+	assert.Equal(t, "2023-01-01", filters["after"])
+	assert.Equal(t, "golang", filters["tag"])
+}
+

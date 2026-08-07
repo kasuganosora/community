@@ -96,15 +96,15 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 			return err
 		}
 
-		var isNewRebolog int64
+		var isNewReblog int64
 		// 如果原始状态或其转发不在时间线的前 REBLOG_FALLOFF 个状态中，则将新的转发添加到 reblog_key 有序集合中，同时将转发状态添加到 timeline_key 有序集合中，返回
-		isNewRebolog, err = s.redis.ZAddNX(sharedCtx, reblogKey, redis.Z{Score: float64(status.Id), Member: reblogIdStr}).Result()
+		isNewReblog, err = s.redis.ZAddNX(sharedCtx, reblogKey, redis.Z{Score: float64(status.Id), Member: reblogIdStr}).Result()
 		if err != nil {
 			return err
 		}
 
 		// 新的转发状态
-		if isNewRebolog > 0 {
+		if isNewReblog > 0 {
 			err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(status.Id), Member: statusIdStr}).Err()
 			if err != nil {
 				return err
@@ -124,8 +124,12 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 	}
 
 	// 判断是否转发的状态比原始状态早，如果是，则不再插入,或者转发的状态已经存在，则不再插入
-	isExists := s.redis.ZScore(sharedCtx, reblogKey, statusIdStr).Val()
-	if isExists > 0 {
+	score, scoreErr := s.redis.ZScore(sharedCtx, reblogKey, statusIdStr).Result()
+	if scoreErr != nil && !errors.Is(scoreErr, redis.Nil) {
+		return scoreErr
+	}
+
+	if score > 0 {
 		return err
 	}
 
@@ -169,7 +173,10 @@ func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Statu
 		}
 
 		// 获取剩余的转发
-		otherReblog := s.redis.SMembers(sharedCtx, reblogSetKey).Val()
+		otherReblog, err := s.redis.SMembers(sharedCtx, reblogSetKey).Result()
+		if err != nil {
+			return err
+		}
 
 		var reblogIds []uint64
 
@@ -217,16 +224,24 @@ func (s *FeedService) TrimTimeline(timeline Timeline) (err error) {
 		return err
 	}
 
-	falloffRange := s.redis.ZRangeWithScores(sharedCtx, timelineKey, REBLOG_FALLOFF, REBLOG_FALLOFF).Val()
+	// 获取第 REBLOG_FALLOFF 个（从新到旧）元素，作为 reblog falloff 阈值
+	// 使用 ZRevRangeWithScores 从新到旧排列，获取第 REBLOG_FALLOFF 个元素
+	falloffRange, err := s.redis.ZRevRangeWithScores(sharedCtx, timelineKey, int64(REBLOG_FALLOFF), int64(REBLOG_FALLOFF)).Result()
+	if err != nil {
+		return err
+	}
 
 	if len(falloffRange) == 0 {
 		return err
 	}
 
-	rebloggedIdsStr := s.redis.ZRangeByScore(sharedCtx, reblogKey, &redis.ZRangeBy{
+	rebloggedIdsStr, err := s.redis.ZRangeByScore(sharedCtx, reblogKey, &redis.ZRangeBy{
 		Min: "0",
 		Max: strconv.FormatFloat(falloffRange[0].Score, 'f', -1, 64),
-	}).Val()
+	}).Result()
+	if err != nil {
+		return err
+	}
 
 	if len(rebloggedIdsStr) == 0 {
 		return err
@@ -312,11 +327,12 @@ func (s *FeedService) PushUpdateRequired(timeline Timeline) (ret bool) {
 
 	channels, err := s.redis.PubSubChannels(sharedCtx, key).Result()
 	if err != nil {
+		// Redis 错误时不缓存结果，避免临时故障导致持续丢失推送
 		return false
 	}
 
 	result := len(channels) > 0
-	// 缓存结果
+	// 只在成功查询时缓存结果
 	subCache.Set(key, result)
 
 	return result
@@ -352,20 +368,13 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 
 	_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) error {
 		for _, timeline := range timelines {
-			timelineKeyFormat := timeline.GetKeyFormat()
-			timelineKey := fmt.Sprintf(timelineKeyFormat, timeline.GetTimelineId())
-			reblogKey := timelineKey + ":reblogs"
+			timelineKey := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
 
 			// 记录时间线更新
 			pipe.ZAdd(sharedCtx, "timelines", redis.Z{Score: now, Member: timelineKey})
 
 			// 如果不是转发的，或者不需要聚合，直接添加到时间线
 			if status.ReblogId == nil || *status.ReblogId == 0 || !aggregateReblogs {
-				// 检查原始状态是否在 reblog 集合中（避免重复）
-				if status.ReblogId != nil && *status.ReblogId > 0 {
-					pipe.ZScore(sharedCtx, reblogKey, statusIdStr)
-				}
-
 				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: nowScore, Member: statusIdStr})
 			}
 		}
@@ -380,7 +389,10 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 func (s *FeedService) GcTimelines() (err error) {
 	deleteRange := time.Now().Add(-1 * time.Hour * 24 * MAX_AGE_DAYS).Unix()
 	max := strconv.FormatInt(deleteRange, 10)
-	timelines := s.redis.ZRevRangeByScoreWithScores(sharedCtx, "timelines", &redis.ZRangeBy{Max: max, Min: "-inf"}).Val()
+	timelines, err := s.redis.ZRevRangeByScoreWithScores(sharedCtx, "timelines", &redis.ZRangeBy{Max: max, Min: "-inf"}).Result()
+	if err != nil {
+		return err
+	}
 
 	if len(timelines) == 0 {
 		return err

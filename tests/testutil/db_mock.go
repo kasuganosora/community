@@ -20,6 +20,12 @@ type TestDB struct {
 	DB      *api.DB
 	GormDB  *gorm.DB
 	Session *api.Session
+
+	// ownsDB controls whether Close() closes the underlying *api.DB. Borrowed
+	// views (e.g. those returned by SetupSharedTestDB, which share the global
+	// singleton) set this to false so they only close their own Session and
+	// never tear down the shared database out from under other tests.
+	ownsDB bool
 }
 
 // DBMode defines the test database mode.
@@ -89,6 +95,7 @@ func NewTestDB() (*TestDB, error) {
 		DB:      db,
 		GormDB:  gormDB,
 		Session: session,
+		ownsDB:  true,
 	}, nil
 }
 
@@ -149,6 +156,7 @@ func NewIsolatedTestDB(t interface {
 		DB:      db,
 		GormDB:  gormDB,
 		Session: session,
+		ownsDB:  true,
 	}
 
 	t.Cleanup(func() {
@@ -208,6 +216,7 @@ func newTestDBNoCleanup() (*TestDB, error) {
 		DB:      db,
 		GormDB:  gormDB,
 		Session: session,
+		ownsDB:  true,
 	}, nil
 }
 
@@ -254,17 +263,25 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 		DB:      db.DB,
 		GormDB:  db.GormDB,
 		Session: session,
+		// ownsDB stays false: this is a borrowed view over the shared
+		// singleton; Close() must not tear down the shared database.
 	}, nil
 }
 
 // Close closes the test database.
+//
+// For a borrowed (shared) view, only the session owned by this view is closed;
+// the underlying *api.DB is left open because it is shared with other tests.
+// Close is safe to call multiple times.
 func (t *TestDB) Close() {
 	if t.Session != nil {
 		_ = t.Session.Close()
+		t.Session = nil
 	}
 
-	if t.DB != nil {
+	if t.ownsDB && t.DB != nil {
 		_ = t.DB.Close()
+		t.DB = nil
 	}
 }
 

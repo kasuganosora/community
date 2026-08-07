@@ -21,5 +21,18 @@ linters:
   settings:
     goconst:
       min-occurrences: 15
-      min-length: 8
-      ignore-tests: true
+
+  # 测试代码中 noctx / forcetypeassert / prealloc / nilnil 属于最佳实践建议，
+  # 不影响功能正确性与安全性，予以排除以避免噪音。
+  # frontend/node_modules 为第三方 vendored 代码（如 flatted npm 包内嵌的
+  # 示例 Go 源码），不参与项目编译，不应纳入 lint 检查范围。
+  exclusions:
+    paths:
+      - frontend/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - noctx
+          - forcetypeassert
+          - prealloc
+          - nilnil

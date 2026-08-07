@@ -56,8 +56,16 @@ func TestMuteAccounts_IsMuted(t *testing.T) {
 	}
 
 	t.Run("muted account", func(t *testing.T) {
-		assert.True(t, mutes.IsMuted(100))
-		assert.True(t, mutes.IsMuted(101))
+		// IsMuted 判断的是 accountId 是否是被静音的目标（TargetId），
+		// 而不是执行静音的用户（AccountId）。
+		assert.True(t, mutes.IsMuted(200))
+		assert.True(t, mutes.IsMuted(201))
+	})
+
+	t.Run("muter account is not the muted target", func(t *testing.T) {
+		// AccountId 是执行静音的用户，不应被判定为被静音的目标。
+		assert.False(t, mutes.IsMuted(100))
+		assert.False(t, mutes.IsMuted(101))
 	})
 
 	t.Run("not muted account", func(t *testing.T) {

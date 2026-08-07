@@ -263,6 +263,28 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 		Data: s,
 	})
 
+	// 维护作者的 statuses_count（仅本地作者的计数有意义，远程账号同样更新以保持一致）。
+	// 转发（reblog）不增加原作者的 statuses_count，这里 s.ReblogId 为空表示原创 status。
+	// accounts_extra 表可能尚未迁移（测试 / 引导场景），此时跳过计数器维护，不阻断核心创建操作。
+	if s.AccountId > 0 && (s.ReblogId == nil || *s.ReblogId == 0) && tx.Migrator().HasTable(&AccountExtra{}) {
+		err = tx.Model(&AccountExtra{}).Where("account_id = ?", s.AccountId).
+			UpdateColumn("statuses_count", gorm.Expr("statuses_count + ?", 1)).Error
+	}
+
+	return
+}
+
+// BeforeUpdate 仅在更新（Save 且记录已存在）时触发，发布 "before_update" 事件。
+// 下游 feed（home/mention/tag/list/public/direct）和通知模块订阅该事件，
+// 用于在 status 被编辑前从各时间线移除旧条目（避免编辑后出现重复/陈旧内容）。
+// 注意：BeforeSave 会在 create+update 都触发，因此不能把 before_update 语义
+// 放进 BeforeSave，否则新建时也会误触发清理逻辑。
+func (s *Status) BeforeUpdate(tx *gorm.DB) (err error) {
+	event.GetEventManager("status").Trigger(event.Event{
+		Name: "before_update",
+		Data: s,
+	})
+
 	return
 }
 
@@ -277,7 +299,7 @@ func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 
 func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "before_delete_status",
+		Name: "before_delete",
 		Data: s,
 	})
 
@@ -286,9 +308,19 @@ func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
 
 func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
 	event.GetEventManager("status").Trigger(event.Event{
-		Name: "after_delete_status",
+		Name: "after_delete",
 		Data: s,
 	})
+
+	// 维护作者的 statuses_count：删除原创 status 时递减。
+	// statuses_count 为有符号 int 列，直接使用减法即可，无需 if() 守卫，
+	// 也避免对不支持 UPDATE ... SET col=func() 的数据库的依赖。
+	// 注意：删除转发（reblog）状态不影响原作者的 statuses_count。
+	// accounts_extra 表可能尚未迁移（测试 / 引导场景），此时跳过计数器维护，不阻断核心删除操作。
+	if s.AccountId > 0 && (s.ReblogId == nil || *s.ReblogId == 0) && tx.Migrator().HasTable(&AccountExtra{}) {
+		err = tx.Model(&AccountExtra{}).Where("account_id = ?", s.AccountId).
+			UpdateColumn("statuses_count", gorm.Expr("statuses_count - ?", 1)).Error
+	}
 
 	return
 }

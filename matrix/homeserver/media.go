@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -668,7 +669,8 @@ func validateURLForFetch(rawURL string) error {
 
 	// Resolve hostname and check all resolved IPs.
 	// This catches DNS-based SSRF where a domain resolves to a private IP.
-	ips, err := net.LookupIP(host)
+	resolver := net.Resolver{}
+	ips, err := resolver.LookupIP(context.Background(), "ip", host) //nolint:noctx // validateURLForFetch 是无 context 的内部 API，SSRF 校验使用独立 context
 	if err != nil {
 		return fmt.Errorf("failed to resolve host %s: %w", host, err)
 	}

@@ -228,6 +228,10 @@ func TestNewAutoRedis_WhenRedisUnavailable(t *testing.T) {
 		return // Test was skipped
 	}
 
+	// Verify mock expectations were met even if the test body returns early.
+	t.Cleanup(func() {
+		client.AssertExpectations(t)
+	})
 	defer func() { _ = client.Close() }()
 
 	// Either mock or real Redis should work

@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -238,6 +239,21 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		// 消费邀请码: 与用户创建处于同一事务, 保证 use_count 递增与用户创建一起成功/回滚.
+		// 这样即使后续创建用户/账号失败, use_count 也会随事务回滚, 不会白白消耗名额.
+		// 注意: 仅有提供了邀请码时才消费; 未提供邀请码 (code==nil) 时跳过.
+		if code != nil {
+			consumed, consumeErr := invitecode.ConsumeInviteCodeTx(tx, code.Code)
+			if consumeErr != nil {
+				return consumeErr
+			}
+
+			// 消费成功 (consumed != nil), 用最新状态覆盖入参, 供后续 ExecAfterRegisterAction 使用.
+			if consumed != nil {
+				*code = *consumed
+			}
+		}
+
 		err := tx.Create(user).Error
 		if err != nil {
 			return err
@@ -258,6 +274,14 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 		return nil
 	})
 	if err != nil {
+		// 邀请码相关错误 (不存在/不可用/已用尽) 使用 422 返回, 与原先 checkAndGetInviteCode 的语义一致.
+		if isInviteCodeConsumeError(err) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			log.ErrorV(err)
+
+			return user, account, err
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "create user error"})
 
 		err = errors.WithMessage(err, "create user error")
@@ -283,6 +307,29 @@ func checkCaptcha(c *gin.Context, response string) (err error) {
 	return
 }
 
+// isInviteCodeConsumeError 判断错误是否来自邀请码消费 (不存在/不可用/已用尽).
+// 这类错误应作为客户端错误 (422) 返回, 而非 500.
+func isInviteCodeConsumeError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+
+	for _, s := range []string{
+		"invite code not found",
+		"invite code is not available",
+		"query invite code failed",
+		"increment use_count failed",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func checkAndGetInviteCode(code string) (inviteCode *models.InviteCode, err error) {
 	if code == "" {
 		return
@@ -297,6 +344,13 @@ func checkAndGetInviteCode(code string) (inviteCode *models.InviteCode, err erro
 
 			return
 		}
+
+		// 其它数据库错误 (连接错误等) 必须返回, 不能继续往下走.
+		// 之前这里吞掉了错误, 导致 inv 为零值结构体, 而 IsAvailable() 对零值返回 true,
+		// 会让一个不存在的/出错的邀请码被当作有效邀请码放行 (安全漏洞).
+		err = errors.WithMessage(err, "query invite code failed")
+
+		return
 	}
 
 	if !inv.IsAvailable() {
