@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "axios": "^1.19.0",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.13",
     "pinia": "^4.0.2",
     "tdesign-vue-next": "^1.20.5",
     "vue": "^3.5.40",
