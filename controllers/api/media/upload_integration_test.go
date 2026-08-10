@@ -161,14 +161,16 @@ func TestUploadAsync_Accepted(t *testing.T) {
 
 	// Wait for the background goroutine to finish processing the file, so the
 	// record ends up updated and the semaphore is released (and so coverage of
-	// processUploadAsync is attributed deterministically).
+	// processUploadAsync is attributed deterministically). The timeout is
+	// generous to avoid scheduler-contention flakes under heavy load
+	// (e.g. running the whole package with -count=N).
 	require.Eventually(t, func() bool {
 		var updated models.MediaAttachment
 		if err := gdb.First(&updated, got.Id).Error; err != nil {
 			return false
 		}
 		return updated.FileName != "processing" && updated.FileSize > 0
-	}, 2*time.Second, 10*time.Millisecond, "async upload did not complete in time")
+	}, 30*time.Second, 10*time.Millisecond, "async upload did not complete in time")
 
 	// Confirm the final state of the record.
 	var final models.MediaAttachment
