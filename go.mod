@@ -28,7 +28,7 @@ require (
 	github.com/prometheus/client_golang v1.24.0
 	github.com/prometheus/client_model v0.6.2
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/sirupsen/logrus v1.9.4
+	github.com/sirupsen/logrus v1.10.0
 	github.com/stretchr/testify v1.12.0
 	github.com/urfave/cli/v2 v2.27.7
 	golang.org/x/crypto v0.55.0
