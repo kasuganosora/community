@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Build Go binary
 # ============================================
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.27-alpine AS go-builder
 
 RUN apk add --no-cache gcc musl-dev
 
