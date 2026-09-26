@@ -30,14 +30,18 @@ func ListSuggestions(c *gin.Context) {
 
 	// Find accounts that are followed by people the user follows
 	// but not by the user themselves
+	// followers_count lives in accounts_extra, not accounts; ordering by the
+	// bare column failed with "Unknown column 'followers_count'" (500 on
+	// every page of the web UI).
 	query := db.GetDB().Model(&models.Account{}).
-		Where("id IN (SELECT follow_id FROM follows WHERE account_id IN (?))", subquery).
-		Where("id NOT IN (SELECT follow_id FROM follows WHERE account_id = ?)", account.Id).
-		Where("id != ?", account.Id).
-		Where("locked = ?", false). // Only suggest public accounts
+		Joins("LEFT JOIN accounts_extra ON accounts_extra.account_id = accounts.id").
+		Where("accounts.id IN (SELECT follow_id FROM follows WHERE account_id IN (?))", subquery).
+		Where("accounts.id NOT IN (SELECT follow_id FROM follows WHERE account_id = ?)", account.Id).
+		Where("accounts.id != ?", account.Id).
+		Where("accounts.locked = ?", false). // Only suggest public accounts
 		Preload("Emojis").
 		Preload("Extra").
-		Order("followers_count DESC").
+		Order("COALESCE(accounts_extra.followers_count, 0) DESC").
 		Limit(limit)
 
 	accounts := make([]*models.Account, 0)
@@ -61,12 +65,13 @@ func ListSuggestions(c *gin.Context) {
 	// If no suggestions from social graph, return popular accounts
 	if len(result) == 0 {
 		popularQuery := db.GetDB().Model(&models.Account{}).
-			Where("id != ?", account.Id).
-			Where("locked = ?", false).
-			Where("followers_count > 0").
+			Joins("JOIN accounts_extra ON accounts_extra.account_id = accounts.id").
+			Where("accounts.id != ?", account.Id).
+			Where("accounts.locked = ?", false).
+			Where("accounts_extra.followers_count > 0").
 			Preload("Emojis").
 			Preload("Extra").
-			Order("followers_count DESC").
+			Order("accounts_extra.followers_count DESC").
 			Limit(limit)
 
 		popularAccounts := make([]*models.Account, 0)

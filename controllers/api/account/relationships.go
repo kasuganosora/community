@@ -11,7 +11,7 @@ import (
 
 // FollowersRequest represents the request for getting followers/following.
 type FollowersRequest struct {
-	Limit   int    `binding:"min=1,max=80" form:"limit"`
+	Limit   int    `binding:"omitempty,min=1,max=80" form:"limit"`
 	MaxId   string `form:"max_id"`
 	SinceId string `form:"since_id"`
 }
@@ -207,7 +207,8 @@ func Relationships(c *gin.Context) {
 	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Get target account IDs
-	ids := c.QueryArray("id")
+	// Mastodon clients send id[]=1&id[]=2; also accept plain id=1&id=2.
+	ids := append(c.QueryArray("id"), c.QueryArray("id[]")...)
 	if len(ids) == 0 {
 		c.AbortWithStatusJSON(400, gin.H{"error": "id parameter required"})
 

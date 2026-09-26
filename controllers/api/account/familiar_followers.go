@@ -18,7 +18,8 @@ type FamiliarFollowersRequest struct {
 // FamiliarFollowers handles GET /api/v1/accounts/familiar_followers.
 func FamiliarFollowers(c *gin.Context) {
 	// Get target account IDs
-	ids := c.QueryArray("id")
+	// Mastodon clients send id[]=1&id[]=2; also accept plain id=1&id=2.
+	ids := append(c.QueryArray("id"), c.QueryArray("id[]")...)
 	if len(ids) == 0 {
 		c.AbortWithStatusJSON(400, gin.H{"error": "id parameter required"}) //nolint:goconst
 
