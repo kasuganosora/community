@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, watch, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus, MastodonAccount, MastodonTag, SearchResult } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
-import { userApi } from '@/domains/user/infrastructure/userApi'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
+import { useRelationships } from '@/domains/user/presentation/composables/useRelationships'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { MessagePlugin } from 'tdesign-vue-next'
 import PostCard from '@/shared/components/post/PostCard.vue'
-import UserAvatar from '@/shared/components/common/UserAvatar.vue'
-import RichText from '@/shared/components/common/RichText.vue'
+import AccountRow from '@/shared/components/common/AccountRow.vue'
 
 // Type-safe route params helper
 function getQueryParam(q: unknown): string {
@@ -17,22 +18,34 @@ function getQueryParam(q: unknown): string {
 }
 
 function getTagPostCount(tag: MastodonTag): string {
-  const first = tag.history?.[0]
-  if (first) {
-    return first.uses + ' posts'
-  }
-  return ''
+  const uses = tag.history?.reduce((n, h) => n + Number(h.uses || 0), 0) ?? 0
+  return uses ? `${uses} 条帖子` : ''
 }
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 type TabType = 'posts' | 'people' | 'tags'
+const TABS: { value: TabType; label: string }[] = [
+  { value: 'posts', label: '帖子' },
+  { value: 'people', label: '用户' },
+  { value: 'tags', label: '话题' },
+]
 const activeTab = ref<TabType>('posts')
 const loading = ref(false)
+const error = ref<string | null>(null)
+const searched = ref(false)
+const query = ref(getQueryParam(route.query.q))
 
 const statuses = ref<MastodonStatus[]>([])
 const accounts = ref<MastodonAccount[]>([])
 const hashtags = ref<MastodonTag[]>([])
-const followingMap = ref(new Map<string, boolean>())
+
+const counts = computed<Record<TabType, number>>(() => ({
+  posts: statuses.value.length,
+  people: accounts.value.length,
+  tags: hashtags.value.length,
+}))
 
 const SEARCH_LIMIT = 20
 
@@ -45,34 +58,28 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
-// Track which follow actions are in-flight to prevent duplicate toggles.
-const pendingFollows = ref(new Set<string>())
+const relationships = useRelationships()
 
 async function toggleFollow(account: MastodonAccount) {
-  if (pendingFollows.value.has(account.id)) return
-  pendingFollows.value.add(account.id)
-
-  const wasFollowing = followingMap.value.get(account.id) ?? false
-  // Optimistic update for immediate UI feedback
-  followingMap.value.set(account.id, !wasFollowing)
   try {
-    const rel = wasFollowing
-      ? await userApi.unfollow(account.id)
-      : await userApi.follow(account.id)
-    followingMap.value.set(account.id, rel.following)
+    await relationships.toggleFollow(account.id)
   } catch (e) {
-    // Revert optimistic update on failure
-    followingMap.value.set(account.id, wasFollowing)
-    console.error('Failed to toggle follow:', e)
-  } finally {
-    pendingFollows.value.delete(account.id)
+    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
   }
 }
 
-async function search(query: string) {
-  const trimmedQuery = query.trim()
-  if (!trimmedQuery) return
+async function search(q: string) {
+  const trimmedQuery = q.trim()
   const myVersion = ++searchVersion
+  error.value = null
+  if (!trimmedQuery) {
+    statuses.value = []
+    accounts.value = []
+    hashtags.value = []
+    searched.value = false
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
@@ -82,11 +89,18 @@ async function search(query: string) {
     statuses.value = data.statuses || []
     accounts.value = data.accounts || []
     hashtags.value = data.hashtags || []
-  } catch {
+    searched.value = true
+    // Land on the first tab that has results.
+    if (counts.value[activeTab.value] === 0) {
+      activeTab.value = TABS.find(t => counts.value[t.value] > 0)?.value ?? activeTab.value
+    }
+    relationships.load(accounts.value.filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
+  } catch (e) {
     if (myVersion !== searchVersion) return
     statuses.value = []
     accounts.value = []
     hashtags.value = []
+    error.value = e instanceof Error ? e.message : '搜索失败'
   } finally {
     if (myVersion === searchVersion) {
       loading.value = false
@@ -94,14 +108,18 @@ async function search(query: string) {
   }
 }
 
-onMounted(() => {
-  const q = getQueryParam(route.query.q)
-  if (q) search(q)
-})
+function submit() {
+  const q = query.value.trim()
+  if (!q) return
+  if (q === getQueryParam(route.query.q)) search(q)
+  else router.push({ name: 'search', query: { q } }).catch(() => {})
+}
+
+onMounted(() => search(getQueryParam(route.query.q)))
 
 watch(() => route.query.q, (q) => {
-  const query = getQueryParam(q)
-  if (query) search(query)
+  query.value = getQueryParam(q)
+  search(query.value)
 })
 
 </script>
@@ -109,25 +127,53 @@ watch(() => route.query.q, (q) => {
 <template>
   <div class="search-page">
     <div class="page-header">
-      <h1 class="page-header__title">Search: {{ route.query.q }}</h1>
+      <h1 class="page-header__title">搜索</h1>
     </div>
 
-    <div class="tab-bar">
-      <button
-        v-for="tab in ['posts', 'people', 'tags']"
-        :key="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': activeTab === tab }"
-        @click="activeTab = tab as TabType"
+    <form class="search-form" role="search" @submit.prevent="submit">
+      <t-input
+        v-model="query"
+        placeholder="搜索帖子、用户或话题"
+        aria-label="搜索"
+        clearable
+        @enter="submit"
       >
-        <span class="tab-bar__text">{{ tab.charAt(0).toUpperCase() + tab.slice(1) }}</span>
-        <div v-if="activeTab === tab" class="tab-bar__indicator" />
+        <template #prefixIcon>
+          <t-icon name="search" />
+        </template>
+      </t-input>
+    </form>
+
+    <div class="tab-bar" role="tablist" aria-label="搜索结果">
+      <button
+        v-for="tab in TABS"
+        :key="tab.value"
+        type="button"
+        role="tab"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': activeTab === tab.value }"
+        :aria-selected="activeTab === tab.value"
+        @click="activeTab = tab.value"
+      >
+        <span class="tab-bar__text">{{ tab.label }}<template v-if="searched"> {{ counts[tab.value] }}</template></span>
+        <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
       </button>
     </div>
 
     <div v-if="loading" class="page-loading">
       <t-loading />
     </div>
+
+    <div v-else-if="error" class="empty-state" role="alert">
+      <div class="empty-state__icon">
+        <t-icon name="error-circle" :size="48" />
+      </div>
+      <h2 class="empty-state__title">搜索失败</h2>
+      <p class="empty-state__text">{{ error }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="search(query)">重试</button>
+    </div>
+
+    <div v-else-if="!searched" class="search-empty">输入关键词搜索帖子、用户或 #话题</div>
 
     <template v-else>
       <!-- Posts tab -->
@@ -140,36 +186,37 @@ watch(() => route.query.q, (q) => {
           @favourite="toggleFavourite"
           @bookmark="toggleBookmark"
         />
-        <div v-if="statuses.length === 0" class="search-empty">No posts found</div>
+        <div v-if="statuses.length === 0" class="search-empty">没有找到相关帖子</div>
       </template>
 
       <!-- People tab -->
       <template v-if="activeTab === 'people'">
-        <div v-for="user in accounts" :key="user.id" class="user-item">
-          <UserAvatar :account="user" :size="48" />
-          <div class="user-item__info">
-            <div class="user-item__name">{{ user.display_name }}</div>
-            <div class="user-item__username">@{{ user.acct }}</div>
-            <RichText class="user-item__bio" :html="user.note" />
-          </div>
-          <t-button theme="default" shape="round" size="small" class="follow-btn"
-            @click.stop="toggleFollow(user)"
-          >
-            {{ followingMap.get(user.id) ? 'Following' : 'Follow' }}
-          </t-button>
-        </div>
-        <div v-if="accounts.length === 0" class="search-empty">No people found</div>
+        <AccountRow
+          v-for="user in accounts"
+          :key="user.id"
+          :account="user"
+          :follow-state="user.id === authStore.currentUser?.id ? undefined : relationships.state(user.id)"
+          :followed-by="relationships.rels.get(user.id)?.followed_by"
+          :busy="relationships.pending.has(user.id)"
+          @toggle-follow="toggleFollow"
+        />
+        <div v-if="accounts.length === 0" class="search-empty">没有找到相关用户</div>
       </template>
 
       <!-- Tags tab -->
       <template v-if="activeTab === 'tags'">
-        <div v-for="tag in hashtags" :key="tag.name" class="tag-item">
-          <div class="tag-item__name">#{{ tag.name }}</div>
-          <div class="tag-item__count" v-if="getTagPostCount(tag)" :key="tag.name">
+        <router-link
+          v-for="tag in hashtags"
+          :key="tag.name"
+          class="tag-item"
+          :to="`/tags/${encodeURIComponent(tag.name.replace(/^#/, ''))}`"
+                  >
+          <div class="tag-item__name">#{{ tag.name.replace(/^#/, '') }}</div>
+          <div class="tag-item__count" v-if="getTagPostCount(tag)">
             {{ getTagPostCount(tag) }}
           </div>
-        </div>
-        <div v-if="hashtags.length === 0" class="search-empty">No tags found</div>
+        </router-link>
+        <div v-if="hashtags.length === 0" class="search-empty">没有找到相关话题</div>
       </template>
     </template>
   </div>
@@ -187,95 +234,40 @@ watch(() => route.query.q, (q) => {
   font-size: var(--text-subhead);
 }
 
-.user-item,
+.search-form {
+  padding: var(--space-2) var(--gutter);
+}
+
 .tag-item {
+  display: block;
   position: relative;
+  padding: var(--space-3) var(--gutter);
+  color: inherit;
+  text-decoration: none;
   -webkit-tap-highlight-color: transparent;
   transition: background-color var(--duration-release) var(--ease-out);
   cursor: pointer;
 }
 
-.user-item::after,
 .tag-item::after {
   content: '';
   position: absolute;
+  left: var(--gutter);
   right: 0;
   bottom: 0;
   height: var(--hairline);
   background: var(--color-separator);
 }
 
-.user-item::after {
-  left: calc(var(--gutter) + 3rem + var(--space-3));
-}
-
-.tag-item::after {
-  left: var(--gutter);
-}
-
 @media (hover: hover) and (pointer: fine) {
-  .user-item:hover,
   .tag-item:hover {
     background: var(--color-hover);
   }
 }
 
-.user-item:active,
 .tag-item:active {
   background: var(--color-pressed);
   transition-duration: 0s;
-}
-
-.user-item {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--gutter);
-}
-
-.user-item__info {
-  flex: 1;
-  min-width: 0;
-}
-
-.user-item__name {
-  font-size: var(--text-body);
-  font-weight: var(--weight-semibold);
-  color: var(--color-label);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-item__username {
-  color: var(--color-label-secondary);
-  font-size: var(--text-subhead);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-item__bio {
-  margin-top: var(--space-1);
-  font-size: var(--text-subhead);
-  line-height: var(--leading-subhead);
-  color: var(--color-label);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.follow-btn {
-  align-self: center;
-  flex-shrink: 0;
-  background: var(--color-label) !important;
-  color: var(--color-bg) !important;
-  font-weight: var(--weight-semibold) !important;
-  border: none !important;
-}
-
-.tag-item {
-  padding: var(--space-3) var(--gutter);
 }
 
 .tag-item__name {
