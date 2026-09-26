@@ -1,6 +1,7 @@
 package activitypub
 
 import (
+	"github.com/kasuganosora/community/htmlsafe"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -122,7 +123,7 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 		"id":           statusURL,
 		"type":         "Note", //nolint:goconst
 		"attributedTo": actorURL,
-		"content":      status.Content.Content, //nolint:goconst
+		"content":      status.ContentHTML(htmlsafe.OptionsForBaseURL(baseURL)), //nolint:goconst
 		"url":          statusURL,
 		"published":    published,
 		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
@@ -130,8 +131,8 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 		"sensitive":    status.Sensitive,
 	}
 
-	if status.Content.SpoilerText != "" {
-		note["summary"] = status.Content.SpoilerText
+	if spoiler := status.SpoilerTextPlain(); spoiler != "" {
+		note["summary"] = spoiler
 	}
 
 	return map[string]any{
@@ -318,7 +319,7 @@ func ActorProfile(c *gin.Context) {
 		Outbox:            actorURL + "/outbox",
 		PreferredUsername: account.Username,
 		Name:              account.DisplayName,
-		Summary:           account.Note,
+		Summary:           account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
 		URL:               baseURL + "/@" + username,
 		Endpoints: &Endpoints{
 			SharedInbox: baseURL + "/inbox",

@@ -11,7 +11,7 @@ import (
 func TestBuildCreateActivity(t *testing.T) {
 	now := time.Now()
 	status := &models.Status{
-		Content:   models.StatusContent{Content: "<p>Hello world</p>", SpoilerText: ""},
+		Content:   models.StatusContent{Content: "Hello world", SpoilerText: ""},
 		Sensitive: false,
 		CreatedAt: &now,
 	}
@@ -101,4 +101,22 @@ func TestBuildCreateActivityPublishedTime(t *testing.T) {
 
 	noteObj := result["object"].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, &past, noteObj["published"])
+}
+
+// Local plain text must be escaped before it is federated.
+func TestBuildCreateActivity_EscapesLocalContent(t *testing.T) {
+	now := time.Now()
+	status := &models.Status{
+		Content:   models.StatusContent{Content: `<script>alert(1)</script> <a href="javascript:alert(1)">x</a> @bob`},
+		CreatedAt: &now,
+	}
+	status.Id = 7
+
+	result := buildCreateActivity(status, &models.Account{Username: "alice"}, "https://example.com")
+	content := result["object"].(map[string]any)["content"].(string) //nolint:forcetypeassert
+
+	assert.NotContains(t, content, "<script")
+	assert.NotContains(t, content, `href="javascript`)
+	assert.Contains(t, content, "&lt;script&gt;")
+	assert.Contains(t, content, `href="https://example.com/@bob"`)
 }

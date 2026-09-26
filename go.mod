@@ -20,6 +20,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kasuganosora/sqlexec v0.6.5
 	github.com/meilisearch/meilisearch-go v0.36.3
+	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/monoculum/formam/v3 v3.6.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
@@ -45,6 +46,7 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/awnumar/memcall v0.5.0 // indirect
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
@@ -69,6 +71,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

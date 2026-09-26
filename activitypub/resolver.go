@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/htmlsafe"
 	"strings"
 	"sync"
 	"time"
@@ -270,7 +271,7 @@ func (r *Resolver) refreshAccount(uri string) {
 	// Update account fields
 	updates := map[string]any{
 		"display_name":     actor.Name,
-		"note":             actor.Summary,
+		"note":             htmlsafe.Sanitize(actor.Summary),
 		"updated_at":       time.Now(), //nolint:goconst
 		"last_activity_at": time.Now(),
 	}
@@ -308,7 +309,7 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 		Domain:      &domain,
 		OriginId:    uri,
 		DisplayName: actor.Name,
-		Note:        actor.Summary,
+		Note:        htmlsafe.Sanitize(actor.Summary),
 		Locked:      false,
 		Bot:         actor.Type == "Service", //nolint:goconst
 		CreatedAt:   &now,
@@ -371,6 +372,8 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	// Extract properties
 	content, _ := obj["content"].(string)
 	summary, _ := obj["summary"].(string)
+	content = htmlsafe.Sanitize(content)
+	summary = htmlsafe.StripTags(summary)
 	publishedStr, _ := obj["published"].(string)
 	inReplyTo, _ := obj["inReplyTo"].(string)
 	sensitive, _ := obj["sensitive"].(bool)

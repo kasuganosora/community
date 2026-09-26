@@ -91,7 +91,7 @@ func TestToAccount_LocalBasic(t *testing.T) {
 	assert.True(t, result.Group)
 	require.NotNil(t, result.CreatedAt)
 	assert.Equal(t, created, *result.CreatedAt)
-	assert.Equal(t, "Hello", result.Note)
+	assert.Equal(t, "<p>Hello</p>", result.Note)
 	assert.Equal(t, "https://example.com/avatar.png", result.Avatar)
 	assert.Equal(t, "https://example.com/header.png", result.Header)
 	// Local domain (nil) -> localhost
@@ -465,7 +465,7 @@ func TestToStatusBase_Basic(t *testing.T) {
 	assert.Equal(t, "spoiler", result.SpoilerText)
 	assert.Equal(t, "public", result.Visibility)
 	assert.Equal(t, "en", result.Language)
-	assert.Equal(t, "Hello world", result.Content)
+	assert.Equal(t, "<p>Hello world</p>", result.Content)
 	// nil InReplyToId -> stays nil
 	assert.Nil(t, result.InReplyToId)
 	assert.Nil(t, result.InReplyToAccountId)
@@ -624,7 +624,7 @@ func TestToStatusBase_WithReblog(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.Reblog)
 	assert.Equal(t, "2", result.Reblog.Id)
-	assert.Equal(t, "reblogged", result.Reblog.Content)
+	assert.Equal(t, "<p>reblogged</p>", result.Reblog.Content)
 }
 
 func TestToStatusBase_WithTagsAndEmojis(t *testing.T) {
@@ -857,7 +857,7 @@ func TestToHistoryStatusBase_WithAccount(t *testing.T) {
 
 	result := ToHistoryStatusBase(history)
 	require.NotNil(t, result)
-	assert.Equal(t, "old content", result.Content)
+	assert.Equal(t, "<p>old content</p>", result.Content)
 	assert.Equal(t, "old spoiler", result.SpoilerText)
 	assert.True(t, result.Sensitive)
 	require.NotNil(t, result.CreatedAt)
@@ -875,7 +875,7 @@ func TestToHistoryStatusBase_NilAccount(t *testing.T) {
 
 	result := ToHistoryStatusBase(history)
 	require.NotNil(t, result)
-	assert.Equal(t, "content", result.Content)
+	assert.Equal(t, "<p>content</p>", result.Content)
 	assert.Empty(t, result.SpoilerText)
 	assert.Nil(t, result.Account)
 }
@@ -1127,7 +1127,7 @@ func TestToStatus_NilCurrentAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "1", result.Id)
-	assert.Equal(t, "hello", result.Content)
+	assert.Equal(t, "<p>hello</p>", result.Content)
 	assert.Equal(t, "public", result.Visibility)
 	// No current account -> interaction flags stay false
 	assert.False(t, result.Favourited)
@@ -1160,7 +1160,7 @@ func TestToStatus_NilCurrentAccount_WithReblog(t *testing.T) {
 	assert.Equal(t, "1", result.Id)
 	require.NotNil(t, result.Reblog)
 	assert.Equal(t, "2", result.Reblog.Id)
-	assert.Equal(t, "reblogged content", result.Reblog.Content)
+	assert.Equal(t, "<p>reblogged content</p>", result.Reblog.Content)
 }
 
 func TestToStatuses_NilInput(t *testing.T) {
@@ -1354,3 +1354,41 @@ func TestToNotifications_WithZeroIds(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// Local plain text is escaped (no raw HTML reaches API clients) and remote
+// HTML is sanitized on output.
+func TestToStatusBase_ContentIsSafeHTML(t *testing.T) {
+	local := &models.Status{
+		Id:      1,
+		Account: &models.Account{Id: 1, Username: "alice"},
+		Content: models.StatusContent{
+			Content:     `<script>alert(1)</script><img src=x onerror=alert(1)> #tag`,
+			SpoilerText: "cw",
+		},
+	}
+	ret, err := ToStatusBase(local)
+	require.NoError(t, err)
+	assert.NotContains(t, ret.Content, "<script")
+	assert.NotContains(t, ret.Content, "<img")
+	assert.Contains(t, ret.Content, "&lt;script&gt;")
+	assert.Contains(t, ret.Content, `class="mention hashtag"`)
+
+	origin := "https://remote.example/notes/1"
+	domain := "remote.example"
+	remote := &models.Status{
+		Id:        2,
+		OriginUri: &origin,
+		Account:   &models.Account{Id: 2, Username: "bob", Domain: &domain},
+		Content: models.StatusContent{
+			Content:     `<p>hi <a href="javascript:alert(1)">x</a><script>alert(1)</script><img src=x onerror=alert(1)></p>`,
+			SpoilerText: `<b>cw</b>`,
+		},
+	}
+	ret, err = ToStatusBase(remote)
+	require.NoError(t, err)
+	assert.Contains(t, ret.Content, "<p>hi ")
+	assert.NotContains(t, ret.Content, "javascript:")
+	assert.NotContains(t, ret.Content, "<script")
+	assert.NotContains(t, ret.Content, "onerror")
+	assert.Equal(t, "cw", ret.SpoilerText)
+}

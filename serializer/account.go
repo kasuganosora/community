@@ -64,7 +64,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		Indexable:       !account.NoIndex,
 		Group:           account.Group,
 		CreatedAt:       account.CreatedAt,
-		Note:            account.Note,
+		Note:            account.NoteHTML(contentRenderOptions()),
 		Url:             fmt.Sprintf("https://%s/@%s", domain, account.Username),
 		Uri:             fmt.Sprintf("https://%s/users/%s", domain, account.Username),
 		Avatar:          account.Avatar,

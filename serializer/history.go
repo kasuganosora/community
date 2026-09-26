@@ -1,6 +1,7 @@
 package serializer
 
 import (
+	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
@@ -8,19 +9,26 @@ import (
 )
 
 type HistoryStatus struct {
-	Content          string     `json:"content"`
-	SpoilerText      string     `json:"spoiler_text"`
-	Sensitive        bool       `json:"sensitive"`
-	CreatedAt        *time.Time `json:"created_at"`
-	Account          *Account
-	Emojis           []*Emoji
-	MediaAttachments []*Attachment
+	Content          string        `json:"content"`
+	SpoilerText      string        `json:"spoiler_text"`
+	Sensitive        bool          `json:"sensitive"`
+	CreatedAt        *time.Time    `json:"created_at"`
+	Account          *Account      `json:"account"`
+	Emojis           []*Emoji      `json:"emojis"`
+	MediaAttachments []*Attachment `json:"media_attachments"`
 }
 
 func ToHistoryStatusBase(history *models.StatusHistory) *HistoryStatus {
+	local := history.Account == nil || history.Account.IsLocal()
+
+	spoiler := history.SpoilerText
+	if !local {
+		spoiler = htmlsafe.StripTags(spoiler)
+	}
+
 	return &HistoryStatus{
-		Content:     history.Content,
-		SpoilerText: history.SpoilerText,
+		Content:     htmlsafe.LocalOrRemote(history.Content, local, contentRenderOptions()),
+		SpoilerText: spoiler,
 		Sensitive:   history.Sensitive,
 		CreatedAt:   history.CreatedAt,
 		Account:     ToAccount(history.Account),

@@ -4,6 +4,7 @@ import (
 	"crypto/md5" //nolint:gosec // G501: reviewed and safe
 	"encoding/hex"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
@@ -121,6 +122,12 @@ func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
 	a.Avatar = avatarSavePath
 
 	return
+}
+
+// NoteHTML returns the profile note as safe HTML (local notes are plain
+// text, remote notes are sanitized HTML).
+func (a *Account) NoteHTML(opts htmlsafe.RenderOptions) string {
+	return htmlsafe.LocalOrRemote(a.Note, a.IsLocal(), opts)
 }
 
 func (a *Account) IsLocal() bool {

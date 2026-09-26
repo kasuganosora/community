@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/htmlsafe"
 	"io"
 	"net/http"
 	"slices"
@@ -207,13 +208,20 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	inReplyTo, _ := object["inReplyTo"].(string)
 	sensitive, _ := object["sensitive"].(bool)
 
-	// Use source property if available (contains original content format)
-	if source, ok := object["source"].(map[string]any); ok {
-		if sourceContent, ok := source["content"].(string); ok && sourceContent != "" {
-			// Prefer source content for storage as it preserves original formatting
-			content = sourceContent
+	// "content" is HTML; "source.content" is the author's raw source (plain
+	// text, Markdown, MFM...). Remote statuses are stored as HTML, so only
+	// fall back to the source (rendered as escaped text) when there is no
+	// HTML content.
+	if content == "" {
+		if source, ok := object["source"].(map[string]any); ok {
+			if sourceContent, ok := source["content"].(string); ok && sourceContent != "" {
+				content = htmlsafe.RenderPlainText(sourceContent, htmlsafe.RenderOptions{})
+			}
 		}
 	}
+
+	content = htmlsafe.Sanitize(content)
+	summary = htmlsafe.StripTags(summary)
 
 	// Verify actor matches attributedTo
 	if attributedTo != actor {
@@ -394,7 +402,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		if summary != "" {
-			updates["note"] = summary
+			updates["note"] = htmlsafe.Sanitize(summary)
 		}
 
 		if preferredUsername != "" {
@@ -417,6 +425,8 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if objectType == "Note" {
 		content, _ := object["content"].(string)
 		summary, _ := object["summary"].(string)
+		content = htmlsafe.Sanitize(content)
+		summary = htmlsafe.StripTags(summary)
 
 		// Find the status by origin_uri, then verify ownership by checking
 		// that the status author's origin_id matches the signing actor.
@@ -1241,7 +1251,7 @@ func getOrCreateRemoteAccount(actorURI string) (*models.Account, error) {
 		Domain:      &domain,
 		OriginId:    actorURI,
 		DisplayName: actor.Name,
-		Note:        actor.Summary,
+		Note:        htmlsafe.Sanitize(actor.Summary),
 		Locked:      false,
 		Bot:         actor.Type == "Service",
 		CreatedAt:   &now,
@@ -1624,6 +1634,8 @@ func fetchAndCreateRemoteStatus(statusURI string, attributedTo *models.Account) 
 
 	content, _ := statusData["content"].(string)
 	summary, _ := statusData["summary"].(string)
+	content = htmlsafe.Sanitize(content)
+	summary = htmlsafe.StripTags(summary)
 	publishedStr, _ := statusData["published"].(string)
 	attributedToURI, _ := statusData["attributedTo"].(string)
 	inReplyTo, _ := statusData["inReplyTo"].(string)

@@ -2,6 +2,7 @@ package activitypub
 
 import (
 	"fmt"
+	"github.com/kasuganosora/community/htmlsafe"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -83,7 +84,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 		"id":           statusURL,
 		"type":         "Note",
 		"attributedTo": actorURL,
-		"content":      status.Content.Content,
+		"content":      status.ContentHTML(htmlsafe.OptionsForBaseURL(baseURL)),
 		"url":          statusURL,
 		"published":    status.CreatedAt,
 		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"},
@@ -92,7 +93,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	}
 
 	if status.Content.SpoilerText != "" {
-		note["summary"] = status.Content.SpoilerText
+		note["summary"] = status.SpoilerTextPlain()
 	}
 
 	// Add inReplyTo if applicable

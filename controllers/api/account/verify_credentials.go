@@ -29,7 +29,17 @@ func VerifyCredentials(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, serializer.ToAccount(account))
+	// note is rendered HTML; source.note is the raw text the user typed and
+	// is what clients use to prefill the profile editor (Mastodon API).
+	c.JSON(200, AccountWithSource{
+		Account: serializer.ToAccount(account),
+		Source: AccountSource{
+			Privacy:   "public",
+			Sensitive: false,
+			Note:      account.Note,
+			Fields:    []models.AccountField{},
+		},
+	})
 }
 
 // AccountSource represents the source field in account credentials.

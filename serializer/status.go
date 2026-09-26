@@ -2,7 +2,9 @@ package serializer
 
 import (
 	"fmt"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
@@ -66,7 +68,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	}
 
 	ret.Sensitive = status.Sensitive
-	ret.SpoilerText = status.Content.SpoilerText
+	ret.SpoilerText = status.SpoilerTextPlain()
 	ret.Visibility = status.GetVisibilityString()
 
 	ret.Language = status.Language
@@ -90,7 +92,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 		ret.EditedAt = status.UpdatedAt
 	}
 
-	ret.Content = status.Content.Content
+	ret.Content = status.ContentHTML(contentRenderOptions())
 
 	ret.Reblog, err = ToStatusBase(status.Reblog)
 	if err != nil {
@@ -317,4 +319,10 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 	}
 
 	return ret, err
+}
+
+// contentRenderOptions returns the options used to render local plain text
+// (status content, profile notes) as HTML for this instance.
+func contentRenderOptions() htmlsafe.RenderOptions {
+	return htmlsafe.OptionsForBaseURL(config.C.AppBaseURL)
 }

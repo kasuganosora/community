@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/kasuganosora/community/htmlsafe"
 	"regexp"
 	"strings"
 	"time"
@@ -224,6 +225,27 @@ func BatchLoadAllExtendFields(tx *gorm.DB, statuses []*Status) (err error) {
 	}
 
 	return err
+}
+
+// IsLocal reports whether the status was authored on this instance (remote
+// statuses always carry their ActivityPub id in OriginUri).
+func (s *Status) IsLocal() bool {
+	return s.OriginUri == nil || *s.OriginUri == ""
+}
+
+// ContentHTML returns the status content as safe HTML: local plain text is
+// escaped and linkified, remote HTML is sanitized.
+func (s *Status) ContentHTML(opts htmlsafe.RenderOptions) string {
+	return htmlsafe.LocalOrRemote(s.Content.Content, s.IsLocal(), opts)
+}
+
+// SpoilerTextPlain returns the content warning as plain text.
+func (s *Status) SpoilerTextPlain() string {
+	if s.IsLocal() {
+		return s.Content.SpoilerText
+	}
+
+	return htmlsafe.StripTags(s.Content.SpoilerText)
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
