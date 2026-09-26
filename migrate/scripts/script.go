@@ -16,6 +16,7 @@ var ScripsType = []MigrationScript{
 	MigrateGroupTablesScript{},
 	MigrateMatrixTablesScript{},
 	MigrateMatrixHSScript{},
+	CreateMissingModelTablesScript{},
 	MigrateMediaTablesScript{},
 	CreatePerformanceIndexesScript{},
 	MigrateRelayTableScript{},

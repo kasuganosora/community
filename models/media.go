@@ -17,7 +17,7 @@ const (
 // MediaAttachment 媒体附件.
 type MediaAttachment struct {
 	Id            uint64    `gorm:"primaryKey;autoIncrement"           json:"id"`
-	AccountId     uint64    `gorm:"not null;index"                     json:"account_id"`
+	AccountId     uint64    `gorm:"not null;index;type:bigint(20)"     json:"account_id"` // must match accounts.id (signed) for the FK
 	StatusId      *uint64   `gorm:"index"                              json:"status_id"`
 	FileName      string    `gorm:"size:255;not null"                  json:"file_name"`
 	FilePath      string    `gorm:"size:500;not null"                  json:"file_path"`

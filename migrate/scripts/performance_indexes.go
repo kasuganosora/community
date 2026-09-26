@@ -24,7 +24,7 @@ func (CreatePerformanceIndexesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(performanceIndexesSQL).Error
+	err = applyPortableDDL(db, performanceIndexesSQL)
 	if err != nil {
 		log.Error("Failed to create performance indexes: %v", err)
 
@@ -52,7 +52,7 @@ func CreatePerformanceIndexes() error {
 		return nil
 	}
 
-	err := db.GetDB().Exec(performanceIndexesSQL).Error
+	err := applyPortableDDL(db.GetDB(), performanceIndexesSQL)
 	if err != nil {
 		log.Error("Failed to create performance indexes: %v", err)
 

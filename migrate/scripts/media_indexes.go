@@ -25,7 +25,7 @@ func (MigrateMediaTablesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(mediaTablesSQL).Error
+	err = applyPortableDDL(db, mediaTablesSQL)
 	if err != nil {
 		log.Error("Failed to run media tables migration: %v", err)
 
@@ -53,7 +53,7 @@ func MigrateMediaTables() error {
 		return nil
 	}
 
-	err := db.GetDB().Exec(mediaTablesSQL).Error
+	err := applyPortableDDL(db.GetDB(), mediaTablesSQL)
 	if err != nil {
 		log.Error("Failed to run media tables migration: %v", err)
 
@@ -153,7 +153,7 @@ func CreateSearchIndexes() error {
 	CREATE INDEX IF NOT EXISTS idx_statuses_scheduled_at ON statuses(scheduled_at);
 	`
 
-	err := db.GetDB().Exec(sql).Error
+	err := applyPortableDDL(db.GetDB(), sql)
 	if err != nil {
 		log.Error("Failed to create search indexes: %v", err)
 
