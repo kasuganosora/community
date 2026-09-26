@@ -7,6 +7,8 @@ export interface RegisterCredentials {
   username: string
   email: string
   password: string
+  passwordConfirm?: string
+  displayName?: string
 }
 
 export interface LoginResponse {

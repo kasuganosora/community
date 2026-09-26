@@ -78,10 +78,11 @@ async function handleRegister() {
   registering.value = true
   error.value = null
   try {
-    await authApi.register({ 
-      username: form.username, 
-      email: form.email, 
-      password: form.password 
+    await authApi.register({
+      username: form.username,
+      email: form.email,
+      password: form.password,
+      passwordConfirm: form.passwordConfirm,
     })
     router.push({ name: 'login' })
   } catch (e: unknown) {

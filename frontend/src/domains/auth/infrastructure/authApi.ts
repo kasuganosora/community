@@ -9,7 +9,19 @@ export const authApi = {
   },
 
   async register(credentials: RegisterCredentials): Promise<{ message: string }> {
-    const { data } = await client.post<{ message: string }>('/api/v1/accounts/register', credentials)
+    // The backend binds the Mastodon web-form field names (see
+    // RegisterRequest in controllers/api/account/register.go); a plain JSON
+    // {username,email,password} body always failed with 422 because
+    // display_name and password_confirmation are required.
+    const form = new URLSearchParams()
+    form.set('user[account_attributes][username]', credentials.username)
+    form.set('user[account_attributes][display_name]', credentials.displayName || credentials.username)
+    form.set('user[email]', credentials.email)
+    form.set('user[password]', credentials.password)
+    form.set('user[password_confirmation]', credentials.passwordConfirm ?? credentials.password)
+    const { data } = await client.post<{ message: string }>('/api/v1/accounts/register', form, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
     return data
   },
 
