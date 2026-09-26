@@ -246,7 +246,7 @@ func TestPushAllChannel_MediaFilterRequiresAttachments(t *testing.T) {
 		Id: 2, AccountId: 1, Visibility: models.StatusVisibilityPublic,
 		Account: &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 1, Type: models.AttachmentTypeImage, SavePath: "/p.png"},
+			{Id: 1, Type: models.MediaTypeImage, FileName: "p.png", FilePath: "/p.png"},
 		},
 	}
 	require.NoError(t, pushAllChannel(withAttach, "update", "pic2"))

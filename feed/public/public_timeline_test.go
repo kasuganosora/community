@@ -194,7 +194,7 @@ func TestPush_ClientPush_MediaStatus(t *testing.T) {
 		Visibility: models.StatusVisibilityPublic,
 		Account:    &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 1, Type: uint(models.AttachmentTypeImage)},
+			{Id: 1, Type: models.MediaTypeImage},
 		},
 	}
 
@@ -228,7 +228,7 @@ func TestPush_ClientPush_RemoteMediaStatus(t *testing.T) {
 		Domain:     strPtr("remote.example.com"),
 		Account:    &models.Account{Id: 3},
 		Attachments: models.Attachments{
-			{Id: 2, Type: uint(models.AttachmentTypeVideo)},
+			{Id: 2, Type: models.MediaTypeVideo},
 		},
 	}
 
@@ -249,7 +249,7 @@ func TestPush_ClientPush_WithSubscribers(t *testing.T) {
 		Visibility: models.StatusVisibilityPublic,
 		Account:    &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 3, Type: uint(models.AttachmentTypeImage)},
+			{Id: 3, Type: models.MediaTypeImage},
 		},
 	}
 

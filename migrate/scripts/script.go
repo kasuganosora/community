@@ -20,6 +20,7 @@ var ScripsType = []MigrationScript{
 	MigrateMediaTablesScript{},
 	CreatePerformanceIndexesScript{},
 	MigrateRelayTableScript{},
+	UnifyMediaAttachmentsScript{},
 }
 
 type MigrationScript interface {

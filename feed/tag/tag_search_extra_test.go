@@ -176,15 +176,13 @@ func TestGetTimelineContent_OnlyMediaKeepsAttachmentStatus(t *testing.T) {
 	require.NoError(t, gdb.Exec(
 		"INSERT INTO status_tags (status_id, tag_id) VALUES (?, ?)", s.Id, tag.Id,
 	).Error)
-	// Attach one attachment via the status_media_attachments join table.
+	// Attach one attachment via media_attachments.status_id.
 	blurHash := "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
 	require.NoError(t, gdb.Create(&models.Attachment{
-		Id: 1, Type: models.AttachmentTypeImage, SavePath: "/x.png",
-		Description: "a photo", BlurHash: &blurHash,
+		Id: 1, AccountId: s.AccountId, StatusId: &s.Id, Type: models.MediaTypeImage,
+		FileName: "x.png", FilePath: "/x.png", ContentType: "image/png",
+		Description: "a photo", Blurhash: blurHash,
 	}).Error)
-	require.NoError(t, gdb.Exec(
-		"INSERT INTO status_media_attachments (status_id, attachment_id) VALUES (?, ?)", s.Id, 1,
-	).Error)
 
 	timelineKey := "feed:hashtag:pics"
 	rm.ExpectExists(timelineKey).SetVal(1)

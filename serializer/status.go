@@ -97,6 +97,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 		return ret, err
 	}
 
+	ret.MediaAttachments = ToAttachments(status.Attachments)
 	ret.Application = ToApplication(status.Application)
 	ret.Mentions = ToMentions(status.ToAccounts)
 	ret.Tags = ToTags(status.Tags)

@@ -450,7 +450,7 @@ func TestPushAllChannel_OnlyMediaWithAttachments(t *testing.T) {
 		Visibility: models.StatusVisibilityPublic,
 		Account:    &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 1, Type: models.AttachmentTypeImage, SavePath: "/x.png"},
+			{Id: 1, Type: models.MediaTypeImage, FileName: "x.png", FilePath: "/x.png"},
 		},
 	}
 
@@ -587,7 +587,7 @@ func TestPushAllChannel_LocalAndMediaWithAttachments(t *testing.T) {
 		Domain:     nil,
 		Account:    &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 1, Type: models.AttachmentTypeImage, SavePath: "/a.png"},
+			{Id: 1, Type: models.MediaTypeImage, FileName: "a.png", FilePath: "/a.png"},
 		},
 	}
 
@@ -611,7 +611,7 @@ func TestPushAllChannel_RemoteAndMediaWithAttachments(t *testing.T) {
 		Domain:     &domain,
 		Account:    &models.Account{Id: 1},
 		Attachments: models.Attachments{
-			{Id: 1, Type: models.AttachmentTypeImage, SavePath: "/b.png"},
+			{Id: 1, Type: models.MediaTypeImage, FileName: "b.png", FilePath: "/b.png"},
 		},
 	}
 

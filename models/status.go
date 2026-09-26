@@ -60,7 +60,7 @@ type Status struct { //nolint:recvcheck
 	ConversationId     *uint64        `gorm:"index"                         json:"conversation_id"`
 
 	Application  *Application `gorm:"foreignKey:application_id"           json:"application"`
-	Attachments  Attachments  `gorm:"many2many:status_media_attachments;" json:"attachments"`
+	Attachments  Attachments  `gorm:"foreignKey:StatusId"                 json:"attachments"`
 	ReplyAccount *Account     `gorm:"foreignKey:InReplyToAccountId"       json:"reply_account"`
 	Emojis       Emojis       `gorm:"many2many:status_emojis;"            json:"emojis"`
 	ToAccounts   Accounts     `gorm:"many2many:status_to_accounts;"       json:"to_accounts"`
@@ -303,7 +303,75 @@ func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
 		Data: s,
 	})
 
+	if s.Id > 0 {
+		err = s.deleteDependents(tx)
+	}
+
 	return
+}
+
+// deleteDependents removes rows that reference this status before the status
+// row itself is (hard-)deleted. Several of them have foreign keys to
+// statuses.id (status_contents, polls, favorite_statuses, notifications,
+// reblogs, media_attachments), so without this deleting a status failed with
+// MySQL error 1451. Media is detached rather than deleted: it stays owned by
+// the author, which also allows "delete & redraft".
+func (s *Status) deleteDependents(tx *gorm.DB) error {
+	m := tx.Migrator()
+	has := func(model any) bool { return m.HasTable(model) }
+
+	if has(&MediaAttachment{}) {
+		if err := tx.Model(&MediaAttachment{}).Where("status_id = ?", s.Id).Update("status_id", nil).Error; err != nil {
+			return err
+		}
+	}
+
+	// Reblogs of this status are statuses themselves; delete them one by one
+	// so their own dependents and feed/notification hooks are handled.
+	var reblogs []*Status
+	if err := tx.Where("reblog_id = ?", s.Id).Find(&reblogs).Error; err != nil {
+		return err
+	}
+
+	for _, r := range reblogs {
+		if err := tx.Delete(r).Error; err != nil {
+			return err
+		}
+	}
+
+	if has(&Poll{}) {
+		var pollIds []uint64
+		if err := tx.Unscoped().Model(&Poll{}).Where("status_id = ?", s.Id).Pluck("id", &pollIds).Error; err != nil {
+			return err
+		}
+
+		if len(pollIds) > 0 {
+			for _, model := range []any{&PollOptionVote{}, &PollOption{}} {
+				if has(model) {
+					if err := tx.Where("poll_id IN ?", pollIds).Delete(model).Error; err != nil {
+						return err
+					}
+				}
+			}
+
+			if err := tx.Unscoped().Where("id IN ?", pollIds).Delete(&Poll{}).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, model := range []any{
+		&Notification{}, &FavoriteStatus{}, &BookmarkStatus{}, &PinStatus{}, &MuteStatus{},
+		&StatusTag{}, &StatusEmoji{}, &StatusToAccount{}, &StatusContent{},
+	} {
+		if has(model) {
+			if err := tx.Where("status_id = ?", s.Id).Delete(model).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
@@ -1030,6 +1098,11 @@ func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool
 	return err
 }
 
+// StatusMediaAttachment is the legacy status<->attachment join table.
+//
+// Deprecated: attachments are linked through media_attachments.status_id;
+// the table is only kept so old installations can be migrated
+// (see migrate/scripts UnifyMediaAttachmentsScript, which drops it).
 type StatusMediaAttachment struct {
 	Id       uint64 `gorm:"primary_key;autoIncrement" json:"id"`
 	StatusId uint64 `gorm:"not null;index"             json:"status_id"`

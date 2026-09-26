@@ -2016,8 +2016,8 @@ func TestCreate_WithInvalidMediaIds(t *testing.T) {
 
 	safeHandler(c, Create)
 
-	// Invalid media IDs are skipped; if all invalid, no attachments are set
-	assert.Equal(t, 200, w.Code)
+	// Mastodon rejects unknown / malformed media ids with 422
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestCreate_WithInReplyTo(t *testing.T) {
@@ -2635,7 +2635,7 @@ func TestUpdate_InvalidMediaIds(t *testing.T) {
 	safeHandler(c, Update)
 
 	// Attachment doesn't belong to this account, should fail
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
 }
 
 // ============== Context with thread ==============

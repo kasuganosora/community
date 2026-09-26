@@ -256,13 +256,13 @@ func (f *FixtureBuilder) CreatePoll(statusId uint64, accountId uint64, overrides
 func (f *FixtureBuilder) CreateAttachment(overrides ...func(*models.Attachment)) *models.Attachment {
 	f.t.Helper()
 
-	now := time.Now()
 	attachment := &models.Attachment{
-		Type:        uint(models.AttachmentTypeImage),
-		SavePath:    "/test/image.png",
+		AccountId:   1,
+		Type:        models.MediaTypeImage,
+		FileName:    "image.png",
+		FilePath:    "/test/image.png",
+		ContentType: "image/png",
 		Description: "Test attachment",
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
 	}
 
 	for _, override := range overrides {

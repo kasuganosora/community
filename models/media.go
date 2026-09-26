@@ -28,6 +28,7 @@ type MediaAttachment struct {
 	Height        *int      `json:"height"`
 	Duration      *float64  `json:"duration"`
 	ThumbnailPath *string   `gorm:"size:500"                           json:"thumbnail_path"`
+	RemoteUrl     string    `gorm:"size:500"                           json:"remote_url"` // original URL of federated media
 	Description   string    `gorm:"type:text"                          json:"description"`
 	Blurhash      string    `gorm:"size:50"                            json:"blurhash"`
 	FocusX        float64   `gorm:"default:0"                          json:"focus_x"`
@@ -70,4 +71,13 @@ func (m *MediaAttachment) IsVideo() bool {
 // IsAudio 是否为音频.
 func (m *MediaAttachment) IsAudio() bool {
 	return m.Type == MediaTypeAudio
+}
+
+// ThumbPath returns the thumbnail path or "" when there is none.
+func (m *MediaAttachment) ThumbPath() string {
+	if m.ThumbnailPath == nil {
+		return ""
+	}
+
+	return *m.ThumbnailPath
 }

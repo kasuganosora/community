@@ -214,7 +214,7 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 
 		if len(statusIDs) > 0 {
 			// Delete status-related records
-			tx.Where("status_id IN ?", statusIDs).Delete(&models.StatusMediaAttachment{})
+			tx.Where("status_id IN ?", statusIDs).Delete(&models.MediaAttachment{})
 			tx.Where("status_id IN ?", statusIDs).Delete(&models.StatusTag{})
 			tx.Where("status_id IN ?", statusIDs).Delete(&models.StatusEmoji{})
 			tx.Where("status_id IN ?", statusIDs).Delete(&models.FavoriteStatus{})

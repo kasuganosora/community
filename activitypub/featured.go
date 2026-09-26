@@ -1,6 +1,7 @@
 package activitypub
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -108,26 +109,29 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 
 	// Add attachments if any
 	if len(status.Attachments) > 0 {
-		mediaBaseURL := systemsettings.GetString(systemsettings.KeyMediaAttachmentsBaseURL, baseURL)
-
 		attachments := make([]map[string]any, 0, len(status.Attachments))
 
 		for _, att := range status.Attachments {
-			// Determine media type from file extension or meta
-			mediaType := "application/octet-stream"
+			mediaType := att.ContentType
+			if mediaType == "" {
+				mediaType = "application/octet-stream"
+			}
 
-			if att.Meta != nil {
-				if mt, ok := att.Meta["mime_type"].(string); ok {
-					mediaType = mt
-				}
+			url := att.RemoteUrl
+			if url == "" {
+				url = fmt.Sprintf("%s/media/%d/%s", baseURL, att.Id, att.FileName)
 			}
 
 			attachment := map[string]any{
 				"type":      "Document",
 				"mediaType": mediaType,
-				"url":       mediaBaseURL + att.SavePath,
+				"url":       url,
 				"name":      att.Description,
 			}
+			if att.Blurhash != "" {
+				attachment["blurhash"] = att.Blurhash
+			}
+
 			attachments = append(attachments, attachment)
 		}
 

@@ -585,9 +585,9 @@ func TestMuteAccounts_Hooks_ExcludeExpired(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 	future := time.Now().Add(1 * time.Hour)
 	mm := MuteAccounts{
-		{Id: 1, TargetId: 10, ExpiredAt: nil},      // not expired (nil = permanent)
-		{Id: 2, TargetId: 20, ExpiredAt: &future},  // not expired
-		{Id: 3, TargetId: 30, ExpiredAt: &past},    // expired
+		{Id: 1, TargetId: 10, ExpiredAt: nil},     // not expired (nil = permanent)
+		{Id: 2, TargetId: 20, ExpiredAt: &future}, // not expired
+		{Id: 3, TargetId: 30, ExpiredAt: &past},   // expired
 	}
 	result := mm.ExcludeExpired()
 	assert.Len(t, result, 2)
@@ -950,42 +950,6 @@ func TestFilter_GetHeightLevelFilter_Empty(t *testing.T) {
 }
 
 // ============================================================================
-// attachment.go - GetTypeString default and BeforeSave
-// ============================================================================
-
-func TestAttachment_GetTypeString_Unknown(t *testing.T) {
-	a := &Attachment{Type: 255} // unknown
-	assert.Equal(t, "file", a.GetTypeString())
-}
-
-func TestAttachment_GetTypeString_Gifv(t *testing.T) {
-	a := &Attachment{Type: uint(AttachmentTypeGifv)}
-	assert.Equal(t, "gifv", a.GetTypeString())
-}
-
-func TestAttachment_GetTypeString_Audio(t *testing.T) {
-	a := &Attachment{Type: uint(AttachmentTypeAudio)}
-	assert.Equal(t, "audio", a.GetTypeString())
-}
-
-func TestAttachment_GetTypeString_File(t *testing.T) {
-	a := &Attachment{Type: uint(AttachmentTypeFile)}
-	assert.Equal(t, "file", a.GetTypeString())
-}
-
-func TestAttachment_BeforeSave_ComputesTotalSize(t *testing.T) {
-	a := &Attachment{FileSize: 1000, PreviewFileSize: 500}
-	require.NoError(t, a.BeforeSave(&gorm.DB{}))
-	assert.Equal(t, uint64(1500), a.TotalSize)
-}
-
-func TestAttachment_Hooks_BeforeSave_ZeroSizes(t *testing.T) {
-	a := &Attachment{}
-	require.NoError(t, a.BeforeSave(&gorm.DB{}))
-	assert.Equal(t, uint64(0), a.TotalSize)
-}
-
-// ============================================================================
 // tag.go - GetTagsFromText (no db needed for empty result)
 // ============================================================================
 
@@ -1110,8 +1074,8 @@ func TestStatus_CanView_Owner(t *testing.T) {
 func TestStatus_CanView_ScheduledNotOwner(t *testing.T) {
 	future := time.Now().Add(1 * time.Hour)
 	s := &Status{
-		AccountId:  10,
-		Visibility: StatusVisibilityPublic,
+		AccountId:   10,
+		Visibility:  StatusVisibilityPublic,
 		ScheduledAt: &future,
 	}
 	account := &Account{Id: 99}

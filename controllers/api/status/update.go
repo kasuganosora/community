@@ -74,11 +74,8 @@ func Update(c *gin.Context) {
 		if len(attachmentsId) == 0 {
 			status.Attachments = make([]*models.Attachment, 0)
 		} else {
-			attachments := make([]*models.Attachment, 0)
-			err = db.GetDB().Model(&models.Attachment{}).Where("id IN ?", attachmentsId).
-				Where("account_id = ?", currentAccount.Id).Find(&attachments).Error
-			controllers.AbortIfError(c, err)
-			controllers.AbortIf(c, len(attachments) != len(attachmentsId), 400, gin.H{"error": "invalid media_ids"})
+			attachments, ok := loadAttachableMedia(attachmentsId, currentAccount.Id, status.Id)
+			controllers.AbortIf(c, !ok, http.StatusUnprocessableEntity, gin.H{"error": "invalid media_ids"})
 
 			status.Attachments = attachments
 		}

@@ -110,12 +110,17 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		meta.Original.Duration = *media.Duration
 	}
 
+	var remoteUrl *string
+	if media.RemoteUrl != "" {
+		remoteUrl = &media.RemoteUrl
+	}
+
 	return &MediaAttachmentResponse{
 		Id:               strconv.FormatUint(media.Id, 10),
 		Type:             string(media.Type),
 		Url:              url,
 		PreviewUrl:       previewUrl,
-		RemoteUrl:        nil,
+		RemoteUrl:        remoteUrl,
 		PreviewRemoteUrl: nil,
 		TextUrl:          nil,
 		Meta:             meta,

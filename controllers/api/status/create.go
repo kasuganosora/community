@@ -92,26 +92,16 @@ func Create(c *gin.Context) {
 	}
 
 	if len(req.MediaIds) > 0 {
-		attachmentIds := make([]uint64, 0, len(req.MediaIds))
+		attachments, ok := loadAttachableMedia(req.MediaIds, currentAccount.Id, 0)
+		if !ok {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid media_ids"})
 
-		for _, mediaId := range req.MediaIds {
-			var attachmentId uint64
-
-			attachmentId, err = strconv.ParseUint(mediaId, 10, 64)
-			if err != nil {
-				continue // ignore invalid media id
-			}
-
-			attachmentIds = append(attachmentIds, attachmentId)
+			return
 		}
 
-		if len(attachmentIds) > 0 {
-			attachments := make([]*models.Attachment, 0, len(attachmentIds))
-			err = db.GetDB().Where("id IN (?)", attachmentIds).Where("account_id = ?", currentAccount.Id).Find(&attachments).Error
-			controllers.AbortIfError(c, err)
-
-			status.Attachments = attachments
-		}
+		// Saved with the status: GORM upserts has-many associations and
+		// sets media_attachments.status_id before the after_create hooks run.
+		status.Attachments = attachments
 	}
 
 	err = db.GetDB().Create(status).Error

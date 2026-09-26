@@ -144,12 +144,12 @@ func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dry
 					}
 
 					// Delete from storage
-					if attachment.SavePath != "" {
-						_ = storage.Delete(attachment.SavePath)
+					if attachment.FilePath != "" {
+						_ = storage.Delete(attachment.FilePath)
 					}
 
-					if attachment.PreviewSavePath != "" && attachment.PreviewSavePath != attachment.SavePath {
-						_ = storage.Delete(attachment.PreviewSavePath)
+					if attachment.ThumbPath() != "" && attachment.ThumbPath() != attachment.FilePath {
+						_ = storage.Delete(attachment.ThumbPath())
 					}
 
 					// Delete from database
@@ -293,8 +293,8 @@ func removeOrphanedMedia(c *cli.Context) error {
 	// Get all media URLs from database
 	var attachmentURLs []string
 
-	db.GetDB().Model(&models.Attachment{}).Pluck("save_path", &attachmentURLs)
-	db.GetDB().Model(&models.Attachment{}).Pluck("preview_save_path", &attachmentURLs)
+	db.GetDB().Model(&models.Attachment{}).Pluck("file_path", &attachmentURLs)
+	db.GetDB().Model(&models.Attachment{}).Pluck("thumbnail_path", &attachmentURLs)
 
 	var avatarURLs []string
 
@@ -438,7 +438,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 
 			var mediaIDs []uint64
 
-			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+			db.GetDB().Model(&models.MediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("id", &mediaIDs)
 
 			if len(mediaIDs) == 0 {
 				fmt.Println("No media found for this account")
@@ -467,7 +467,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 
 			var mediaIDs []uint64
 
-			db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+			db.GetDB().Model(&models.MediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("id", &mediaIDs)
 
 			if len(mediaIDs) == 0 {
 				fmt.Println("No media found for this account")
@@ -504,7 +504,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 
 		var mediaIDs []uint64
 
-		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("media_id", &mediaIDs)
+		db.GetDB().Model(&models.MediaAttachment{}).Where("status_id IN ?", statusIDs).Pluck("id", &mediaIDs)
 
 		if len(mediaIDs) == 0 {
 			fmt.Printf("No media found from domain %s\n", domain)
@@ -524,7 +524,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 
 		var mediaIDs []uint64
 
-		db.GetDB().Model(&models.StatusMediaAttachment{}).Where("status_id = ?", statusID).Pluck("media_id", &mediaIDs)
+		db.GetDB().Model(&models.MediaAttachment{}).Where("status_id = ?", statusID).Pluck("id", &mediaIDs)
 
 		if len(mediaIDs) == 0 {
 			fmt.Println("No media found for this status")
@@ -571,7 +571,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 					}
 
 					// Skip if already has local copy and not forcing
-					if attachment.SavePath != "" && !force {
+					if attachment.FilePath != "" && !force {
 						continue
 					}
 
@@ -615,7 +615,7 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 
 					// Update attachment record
 					db.GetDB().Model(&attachment).Updates(map[string]any{
-						"save_path": objectKey,
+						"file_path": objectKey,
 					})
 
 					mu.Lock()
@@ -872,7 +872,7 @@ func mediaLookup(c *cli.Context) error {
 	// Search for the media in attachments
 	var attachment models.Attachment
 
-	err := db.GetDB().Where("save_path = ? OR preview_save_path = ? OR remote_url = ?", mediaURL, mediaURL, mediaURL).
+	err := db.GetDB().Where("file_path = ? OR thumbnail_path = ? OR remote_url = ?", mediaURL, mediaURL, mediaURL).
 		First(&attachment).Error
 	if err != nil {
 		fmt.Println("Media not found in any attachment")
@@ -881,19 +881,16 @@ func mediaLookup(c *cli.Context) error {
 	}
 
 	// Get the status that references this attachment
-	var statusMedia models.StatusMediaAttachment
-
-	err = db.GetDB().Where("media_id = ?", attachment.Id).First(&statusMedia).Error
-	if err != nil {
+	if attachment.StatusId == nil {
 		fmt.Printf("Found attachment ID %d but no status references it\n", attachment.Id)
 
-		return nil //nolint:nilerr
+		return nil
 	}
 
 	// Get the status
 	var status models.Status
-	if err := db.GetDB().First(&status, statusMedia.StatusId).Error; err != nil {
-		fmt.Printf("Found attachment ID %d but status %d not found\n", attachment.Id, statusMedia.StatusId)
+	if err := db.GetDB().First(&status, *attachment.StatusId).Error; err != nil {
+		fmt.Printf("Found attachment ID %d but status %d not found\n", attachment.Id, *attachment.StatusId)
 
 		return nil //nolint:nilerr
 	}

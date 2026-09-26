@@ -4,52 +4,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestAttachment_TableName(t *testing.T) {
-	a := Attachment{}
-	assert.Equal(t, "attachments", a.TableName())
+// Attachment is an alias of MediaAttachment, stored in media_attachments.
+func TestAttachment_IsMediaAttachment(t *testing.T) {
+	var a *Attachment = &MediaAttachment{Id: 7}
+	assert.Equal(t, uint64(7), a.Id)
 }
 
-func TestAttachment_GetTypeString(t *testing.T) {
-	tests := []struct {
-		name     string
-		aType    uint
-		expected string
-	}{
-		{"image", AttachmentTypeImage, "image"}, //nolint:goconst
-		{"video", AttachmentTypeVideo, "video"}, //nolint:goconst
-		{"audio", AttachmentTypeAudio, "audio"}, //nolint:goconst
-		{"file", AttachmentTypeFile, "file"},    //nolint:goconst
-		{"gifv", AttachmentTypeGifv, "gifv"},    //nolint:goconst
-		{"unknown defaults to file", AttachmentTypeUnknown, "file"},
-		{"invalid defaults to file", 99, "file"},
-	}
+func TestMediaAttachment_ThumbPath(t *testing.T) {
+	assert.Empty(t, (&MediaAttachment{}).ThumbPath())
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &Attachment{Type: tt.aType}
-			assert.Equal(t, tt.expected, a.GetTypeString())
-		})
-	}
-}
-
-func TestAttachment_BeforeSave(t *testing.T) {
-	a := &Attachment{
-		FileSize:        1024,
-		PreviewFileSize: 256,
-	}
-	err := a.BeforeSave(nil)
-	require.NoError(t, err)
-	assert.Equal(t, uint64(1280), a.TotalSize)
-}
-
-func TestAttachment_BeforeSave_ZeroSizes(t *testing.T) {
-	a := &Attachment{}
-	err := a.BeforeSave(nil)
-	require.NoError(t, err)
-	assert.Equal(t, uint64(0), a.TotalSize)
+	p := "thumb.jpg"
+	assert.Equal(t, "thumb.jpg", (&MediaAttachment{ThumbnailPath: &p}).ThumbPath())
 }
 
 func TestAttachments_GetIds(t *testing.T) {
@@ -66,13 +33,4 @@ func TestAttachments_GetIds_Empty(t *testing.T) {
 	attachments := Attachments{}
 	ids := attachments.GetIds()
 	assert.Empty(t, ids)
-}
-
-func TestAttachmentTypeConstants(t *testing.T) {
-	assert.Equal(t, uint(0), uint(AttachmentTypeUnknown))
-	assert.Equal(t, uint(1), uint(AttachmentTypeImage))
-	assert.Equal(t, uint(2), uint(AttachmentTypeVideo))
-	assert.Equal(t, uint(3), uint(AttachmentTypeAudio))
-	assert.Equal(t, uint(4), uint(AttachmentTypeFile))
-	assert.Equal(t, uint(5), uint(AttachmentTypeGifv))
 }

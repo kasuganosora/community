@@ -357,46 +357,42 @@ func TestToTagWithHistory_ZeroCounts(t *testing.T) {
 // =============================================================================
 
 func TestToAttachment_WithValues(t *testing.T) {
-	blur := "blurhash"
-	meta := map[string]any{"key": "value"}
+	thumb := "preview.jpg"
 	att := &models.Attachment{
-		Id:               10,
-		SavePath:         "/media/file.jpg",
-		PreviewSavePath:  "/media/preview.jpg",
-		RemoteUrl:        "https://remote/file.jpg",
-		PreviewRemoteUrl: "https://remote/preview.jpg",
-		TextUrl:          "https://short.url/abc",
-		Meta:             meta,
-		Description:      "An image",
-		BlurHash:         &blur,
+		Id:            10,
+		FileName:      "file.jpg",
+		FilePath:      "uploads/file.jpg",
+		ThumbnailPath: &thumb,
+		Type:          models.MediaTypeImage,
+		RemoteUrl:     "https://remote/file.jpg",
+		Description:   "An image",
+		Blurhash:      "blurhash",
 	}
 	result := ToAttachment(att)
 	require.NotNil(t, result)
 	assert.Equal(t, "10", result.Id)
-	assert.Contains(t, result.Url, "/media/file.jpg")
-	require.NotNil(t, result.PreviewUrl)
-	assert.Contains(t, *result.PreviewUrl, "/media/preview.jpg")
-	assert.Equal(t, "https://remote/file.jpg", result.RemoteUrl)
-	assert.Equal(t, "https://remote/preview.jpg", result.PreviewRemoteUrl)
-	assert.Equal(t, "https://short.url/abc", result.TextUrl)
+	assert.Equal(t, "image", result.Type)
+	assert.Contains(t, result.Url, "/media/10/file.jpg")
+	assert.Contains(t, result.PreviewUrl, "/media/10/thumbnail/preview.jpg")
+	require.NotNil(t, result.RemoteUrl)
+	assert.Equal(t, "https://remote/file.jpg", *result.RemoteUrl)
 	assert.Equal(t, "An image", result.Description)
-	require.NotNil(t, result.Blurhash)
-	assert.Equal(t, "blurhash", *result.Blurhash)
-	assert.Equal(t, meta, result.Meta)
+	assert.Equal(t, "blurhash", result.Blurhash)
 }
 
 func TestToAttachment_NoPreview(t *testing.T) {
-	att := &models.Attachment{Id: 11, SavePath: "/only.jpg"}
+	att := &models.Attachment{Id: 11, FileName: "only.jpg"}
 	result := ToAttachment(att)
 	require.NotNil(t, result)
-	assert.Nil(t, result.PreviewUrl)
+	assert.Equal(t, result.Url, result.PreviewUrl, "falls back to the original")
 }
 
 func TestToAttachment_EmptyPreviewPath(t *testing.T) {
-	att := &models.Attachment{Id: 12, SavePath: "/only2.jpg", PreviewSavePath: ""}
+	empty := ""
+	att := &models.Attachment{Id: 12, FileName: "only2.jpg", ThumbnailPath: &empty}
 	result := ToAttachment(att)
 	require.NotNil(t, result)
-	assert.Nil(t, result.PreviewUrl)
+	assert.Equal(t, result.Url, result.PreviewUrl)
 }
 
 func TestToAttachment_EmptyFields(t *testing.T) {
@@ -404,37 +400,35 @@ func TestToAttachment_EmptyFields(t *testing.T) {
 	result := ToAttachment(att)
 	require.NotNil(t, result)
 	assert.Equal(t, "13", result.Id)
-	assert.Empty(t, result.Url)
-	assert.Nil(t, result.PreviewUrl)
+	assert.Contains(t, result.Url, "/media/13/")
 	assert.Empty(t, result.Description)
-	assert.Nil(t, result.Blurhash)
+	assert.Empty(t, result.Blurhash)
 }
 
 func TestToAttachments_Multiple(t *testing.T) {
 	atts := []*models.Attachment{
-		{Id: 1, SavePath: "/a.jpg"},
-		{Id: 2, SavePath: "/b.jpg", PreviewSavePath: "/bp.jpg"},
-		{Id: 3, SavePath: "/c.jpg"},
+		{Id: 1, FileName: "a.jpg"},
+		{Id: 2, FileName: "b.jpg", ThumbnailPath: strPtr("bp.jpg")},
+		{Id: 3, FileName: "c.jpg"},
 	}
 	result := ToAttachments(atts)
 	require.Len(t, result, 3)
 	assert.Equal(t, "1", result[0].Id)
 	assert.Equal(t, "2", result[1].Id)
-	require.NotNil(t, result[1].PreviewUrl)
+	assert.Contains(t, result[1].PreviewUrl, "/thumbnail/bp.jpg")
 	assert.Equal(t, "3", result[2].Id)
 }
 
 func TestToAttachments_WithNil(t *testing.T) {
 	atts := []*models.Attachment{
-		{Id: 1, SavePath: "/a.jpg"},
+		{Id: 1, FileName: "a.jpg"},
 		nil,
-		{Id: 3, SavePath: "/c.jpg"},
+		{Id: 3, FileName: "c.jpg"},
 	}
 	result := ToAttachments(atts)
-	require.Len(t, result, 3)
+	require.Len(t, result, 2, "nil entries are skipped")
 	assert.Equal(t, "1", result[0].Id)
-	assert.Nil(t, result[1])
-	assert.Equal(t, "3", result[2].Id)
+	assert.Equal(t, "3", result[1].Id)
 }
 
 // =============================================================================
@@ -1206,8 +1200,8 @@ func TestToScheduledStatus_WithAttachments(t *testing.T) {
 		Id:      1,
 		Content: models.StatusContent{Content: "with media"},
 		Attachments: []*models.Attachment{
-			{Id: 100, SavePath: "/a.jpg", Description: "first", BlurHash: &blur},
-			{Id: 200, SavePath: "/b.jpg", Description: "second"},
+			{Id: 100, FileName: "a.jpg", Description: "first", Blurhash: blur},
+			{Id: 200, FileName: "b.jpg", Description: "second"},
 		},
 		Visibility: models.StatusVisibilityPublic,
 		Language:   "en",
@@ -1358,3 +1352,5 @@ func TestToNotifications_WithZeroIds(t *testing.T) {
 	assert.Equal(t, "2", result[1].Id)
 	assert.Equal(t, "mention", result[1].Type)
 }
+
+func strPtr(s string) *string { return &s }

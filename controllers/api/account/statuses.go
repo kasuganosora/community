@@ -74,7 +74,7 @@ func AccountStatuses(c *gin.Context) {
 
 	// Only media filter
 	if req.OnlyMedia {
-		query = query.Where("id IN (SELECT status_id FROM status_media_attachments)")
+		query = query.Where("id IN (SELECT status_id FROM media_attachments WHERE status_id IS NOT NULL)")
 	}
 
 	// Exclude replies
