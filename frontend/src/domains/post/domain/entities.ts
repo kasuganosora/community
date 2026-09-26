@@ -13,3 +13,10 @@ export interface CreateStatusParams {
   spoiler_text?: string
   visibility?: Visibility
 }
+
+export interface UpdateStatusParams {
+  status: string
+  spoiler_text?: string
+  sensitive?: boolean
+  media_ids?: string[]
+}

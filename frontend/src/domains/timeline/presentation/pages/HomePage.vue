@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useTimelineStore } from '../stores/timelineStore'
-import { postApi } from '@/domains/post/infrastructure/postApi'
+import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
 const timelineStore = useTimelineStore()
-const composerRef = ref<InstanceType<typeof PostComposer>>()
 type TabType = 'for-you' | 'following'
 const activeTab = ref<TabType>('for-you')
 
@@ -43,15 +42,8 @@ async function handleLoadMore() {
   }
 }
 
-async function handlePosted(content: string) {
-  try {
-    const status = await postApi.create({ status: content, visibility: 'public' })
-    timelineStore.prependStatus(status)
-    composerRef.value?.onPostSuccess()
-  } catch (e) {
-    console.error('Failed to create post:', e)
-    composerRef.value?.onPostError('发布失败，请重试')
-  }
+function handlePosted(status: MastodonStatus) {
+  timelineStore.prependStatus(status)
 }
 
 onMounted(() => {
@@ -85,7 +77,7 @@ onMounted(() => {
     </div>
 
     <!-- Compose box -->
-    <PostComposer ref="composerRef" @posted="handlePosted" />
+    <PostComposer @posted="handlePosted" />
 
     <!-- Timeline -->
     <TimelineFeed

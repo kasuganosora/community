@@ -207,6 +207,18 @@ export function notificationHasStatus(
   return n.status !== undefined
 }
 
+export interface MastodonStatusSource {
+  id: string
+  text: string
+  spoiler_text: string
+}
+
+export interface MastodonList {
+  id: string
+  title: string
+  replies_policy?: 'followed' | 'list' | 'none'
+}
+
 export interface MastodonRelationship {
   id: string
   following: boolean

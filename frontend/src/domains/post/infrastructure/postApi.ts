@@ -1,6 +1,6 @@
 import client from '@/shared/api/client'
-import type { MastodonStatus, MastodonContext } from '@/shared/types/mastodon'
-import type { CreateStatusParams } from '../domain/entities'
+import type { MastodonStatus, MastodonContext, MastodonPoll, MastodonAttachment, MastodonStatusSource } from '@/shared/types/mastodon'
+import type { CreateStatusParams, UpdateStatusParams } from '../domain/entities'
 
 /** Factory for status action endpoints that return a single MastodonStatus */
 function createStatusAction(action: string) {
@@ -35,5 +35,36 @@ export const postApi = {
 
   async deleteStatus(id: string): Promise<void> {
     await client.delete(`/api/v1/statuses/${encodeURIComponent(id)}`)
+  },
+
+  async updateStatus(id: string, params: UpdateStatusParams): Promise<MastodonStatus> {
+    const { data } = await client.put<MastodonStatus>(`/api/v1/statuses/${encodeURIComponent(id)}`, params)
+    return data
+  },
+
+  async getSource(id: string): Promise<MastodonStatusSource> {
+    const { data } = await client.get<MastodonStatusSource>(`/api/v1/statuses/${encodeURIComponent(id)}/source`)
+    return data
+  },
+
+  async votePoll(pollId: string, choices: number[]): Promise<MastodonPoll> {
+    const { data } = await client.post<MastodonPoll>(`/api/v1/polls/${encodeURIComponent(pollId)}/votes`, { choices })
+    return data
+  },
+
+  /**
+   * Upload a media file. Uses the synchronous v1 endpoint, which returns the
+   * processed attachment (url/preview_url) right away; /api/v2/media returns
+   * an empty url that would have to be polled.
+   */
+  async uploadMedia(file: File, description?: string): Promise<MastodonAttachment> {
+    const form = new FormData()
+    form.append('file', file)
+    if (description) form.append('description', description)
+    const { data } = await client.post<MastodonAttachment>('/api/v1/media', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    })
+    return data
   },
 }

@@ -135,10 +135,14 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function prependStatus(status: MastodonStatus) {
-    homeTimeline.value.statuses.unshift(status)
-    // Also prepend to public timeline if it has been loaded
-    if (publicTimeline.value.statuses.length > 0) {
-      publicTimeline.value.statuses.unshift(status)
+    const add = (list: MastodonStatus[]) => {
+      if (!list.some(s => s.id === status.id)) list.unshift(status)
+    }
+    add(homeTimeline.value.statuses)
+    // Only public posts belong on the public timeline (and only once loaded);
+    // unlisted/followers-only/direct posts used to show up there too.
+    if (status.visibility === 'public' && publicTimeline.value.statuses.length > 0) {
+      add(publicTimeline.value.statuses)
     }
   }
 
