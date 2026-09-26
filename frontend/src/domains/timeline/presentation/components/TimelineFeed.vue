@@ -7,10 +7,14 @@ const props = defineProps<{
   statuses: MastodonStatus[]
   loading?: boolean
   hasMore?: boolean
+  error?: string | null
+  emptyTitle?: string
+  emptyText?: string
 }>()
 
 const emit = defineEmits<{
   loadMore: []
+  retry: []
   reblog: [status: MastodonStatus]
   favourite: [status: MastodonStatus]
   bookmark: [status: MastodonStatus]
@@ -23,7 +27,7 @@ let observer: IntersectionObserver | null = null
 onMounted(() => {
   observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0]?.isIntersecting && !props.loading && props.hasMore !== false) {
+      if (entries[0]?.isIntersecting && !props.loading && !props.error && props.hasMore !== false && props.statuses.length > 0) {
         emit('loadMore')
       }
     },
@@ -56,12 +60,21 @@ onUnmounted(() => {
       <t-loading />
     </div>
 
-    <div v-if="!loading && statuses.length === 0" class="empty-state">
+    <div v-if="error && !loading" class="empty-state" role="alert">
+      <div class="empty-state__icon">
+        <t-icon name="error-circle" :size="48" />
+      </div>
+      <h2 class="empty-state__title">加载失败</h2>
+      <p class="empty-state__text">{{ error }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('retry')">重试</button>
+    </div>
+
+    <div v-else-if="!loading && statuses.length === 0" class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="chat" :size="48" />
       </div>
-      <h2 class="empty-state__title">Nothing to see here yet</h2>
-      <p class="empty-state__text">When you follow someone, their posts will show up here.</p>
+      <h2 class="empty-state__title">{{ emptyTitle ?? '这里还没有内容' }}</h2>
+      <p class="empty-state__text">{{ emptyText ?? '关注其他用户后，他们的帖子会出现在这里。' }}</p>
     </div>
   </div>
 </template>

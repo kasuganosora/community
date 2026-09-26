@@ -10,6 +10,10 @@ const timelineStore = useTimelineStore()
 type TabType = 'for-you' | 'following'
 const activeTab = ref<TabType>('for-you')
 
+const currentTimeline = computed(() => activeTab.value === 'for-you'
+  ? timelineStore.publicTimeline
+  : timelineStore.homeTimeline)
+
 const statuses = computed(() => {
   return activeTab.value === 'for-you'
     ? timelineStore.publicStatuses
@@ -55,22 +59,26 @@ onMounted(() => {
   <div class="home-page">
     <!-- Sticky header with tabs -->
     <div class="home-header">
-      <h1 class="page-header__title">Home</h1>
-      <div class="tab-bar">
+      <h1 class="page-header__title">首页</h1>
+      <div class="tab-bar" role="tablist">
         <button
+          role="tab"
+          :aria-selected="activeTab === 'for-you'"
           class="tab-bar__item"
           :class="{ 'tab-bar__item--active': activeTab === 'for-you' }"
           @click="onTabChange('for-you')"
         >
-          <span class="tab-bar__text">For you</span>
+          <span class="tab-bar__text">推荐</span>
           <div v-if="activeTab === 'for-you'" class="tab-bar__indicator" />
         </button>
         <button
+          role="tab"
+          :aria-selected="activeTab === 'following'"
           class="tab-bar__item"
           :class="{ 'tab-bar__item--active': activeTab === 'following' }"
           @click="onTabChange('following')"
         >
-          <span class="tab-bar__text">Following</span>
+          <span class="tab-bar__text">关注</span>
           <div v-if="activeTab === 'following'" class="tab-bar__indicator" />
         </button>
       </div>
@@ -82,11 +90,12 @@ onMounted(() => {
     <!-- Timeline -->
     <TimelineFeed
       :statuses="statuses"
-      :loading="timelineStore.isLoading"
-      :has-more="activeTab === 'for-you'
-        ? timelineStore.publicTimeline.hasMore
-        : timelineStore.homeTimeline.hasMore"
+      :loading="currentTimeline.isLoading"
+      :has-more="currentTimeline.hasMore"
+      :error="currentTimeline.error"
+      :empty-text="activeTab === 'for-you' ? '还没有人发布公开帖子。' : undefined"
       @load-more="handleLoadMore"
+      @retry="loadTimeline"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
