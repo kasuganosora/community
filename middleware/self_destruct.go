@@ -48,7 +48,7 @@ func IsSelfDestructEnabled() bool {
 	}
 
 	var setting models.SystemSetting
-	err := db.GetDB().Where("key = ?", "self_destruct_mode").First(&setting).Error
+	err := db.GetDB().Where("`key` = ?", "self_destruct_mode").First(&setting).Error
 	if err == nil {
 		selfDestructMode.enabled = isSelfDestructValue(setting.Val)
 	}
@@ -78,7 +78,7 @@ func RefreshSelfDestructMode() {
 	selfDestructMode.enabled = false
 
 	var setting models.SystemSetting
-	err := db.GetDB().Where("key = ?", "self_destruct_mode").First(&setting).Error
+	err := db.GetDB().Where("`key` = ?", "self_destruct_mode").First(&setting).Error
 	if err == nil {
 		selfDestructMode.enabled = isSelfDestructValue(setting.Val)
 	}

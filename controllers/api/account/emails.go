@@ -55,7 +55,7 @@ func SendEmailConfirmation(c *gin.Context) {
 	}
 
 	// Delete any existing token for this user
-	db.GetDB().Where("user_id = ? AND key = ?", user.Id, "email_verification_token").Delete(&models.UserMeta{})
+	db.GetDB().Where("user_id = ? AND `key` = ?", user.Id, "email_verification_token").Delete(&models.UserMeta{})
 
 	err = db.GetDB().Create(&userMeta).Error
 	if err != nil {
@@ -104,7 +104,7 @@ func VerifyEmailConfirmation(c *gin.Context) {
 
 	// Find user by token
 	var userMeta models.UserMeta
-	err = db.GetDB().Where("key = ? AND value = ?", "email_verification_token", req.Token).First(&userMeta).Error
+	err = db.GetDB().Where("`key` = ? AND value = ?", "email_verification_token", req.Token).First(&userMeta).Error
 	if err != nil {
 		c.JSON(400, gin.H{"error": "invalid or expired token"})
 
