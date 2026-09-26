@@ -415,6 +415,32 @@ func GetDefaultPageSize() int {
 	return GetInt(KeyDefaultPageSize, 20)
 }
 
+// Default media size limits, used when the corresponding settings are unset.
+const (
+	DefaultMediaImageSizeLimit int64 = 10 * 1024 * 1024 // 10 MB
+	DefaultMediaVideoSizeLimit int64 = 40 * 1024 * 1024 // 40 MB
+)
+
+// MediaImageSizeLimit is the maximum image upload size in bytes. The same
+// value is enforced by the upload handler, advertised by /api/v2/instance
+// and used to size the request body limit.
+func MediaImageSizeLimit() int64 {
+	if v := GetInt64(KeyMediaImageSizeLimit, nil); v > 0 {
+		return v
+	}
+
+	return DefaultMediaImageSizeLimit
+}
+
+// MediaVideoSizeLimit is the maximum video/audio upload size in bytes.
+func MediaVideoSizeLimit() int64 {
+	if v := GetInt64(KeyMediaVideoSizeLimit, nil); v > 0 {
+		return v
+	}
+
+	return DefaultMediaVideoSizeLimit
+}
+
 // PlaceholderDomain is the value older versions seeded into the "domain"
 // setting. It is never a real deployment domain.
 const PlaceholderDomain = "example.com"

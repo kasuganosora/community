@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/storage"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"io"
 	"mime"
@@ -23,10 +24,12 @@ import (
 )
 
 const (
-	// MaxImageSize 图片最大大小 10MB.
-	MaxImageSize = 10 * 1024 * 1024
-	// MaxVideoSize 视频/音频最大大小 40MB.
-	MaxVideoSize = 40 * 1024 * 1024
+	// MaxImageSize is the default image size limit (10 MB); the effective
+	// limit is systemsettings.MediaImageSizeLimit().
+	MaxImageSize = systemsettings.DefaultMediaImageSizeLimit
+	// MaxVideoSize is the default video/audio size limit (40 MB); the
+	// effective limit is systemsettings.MediaVideoSizeLimit().
+	MaxVideoSize = systemsettings.DefaultMediaVideoSizeLimit
 	// AllowedImageTypes 允许的图片类型.
 	AllowedImageTypes = "image/jpeg,image/png,image/gif,image/webp"
 	// AllowedVideoTypes 允许的视频类型.
@@ -250,9 +253,9 @@ func isValidFileSize(size int64, contentType string) bool {
 	mediaType := models.GetMediaType(contentType)
 	switch mediaType {
 	case models.MediaTypeImage:
-		return size <= MaxImageSize
+		return size <= systemsettings.MediaImageSizeLimit()
 	case models.MediaTypeVideo, models.MediaTypeAudio:
-		return size <= MaxVideoSize
+		return size <= systemsettings.MediaVideoSizeLimit()
 	default:
 		return false
 	}

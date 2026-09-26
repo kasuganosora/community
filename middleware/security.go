@@ -3,6 +3,7 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -106,6 +107,50 @@ func RequestSizeLimitMiddleware(maxSize int64) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// DefaultMaxRequestBodySize bounds ordinary (non-upload) request bodies:
+// JSON/form API calls, Matrix client requests, etc.
+const DefaultMaxRequestBodySize int64 = 10 << 20 // 10 MB
+
+// matrixMediaMinBodySize matches the largest Matrix media upload size the
+// homeserver advertises (m.upload.size in media_async.go).
+const matrixMediaMinBodySize int64 = 100 << 20
+
+// multipartOverhead leaves room for multipart boundaries and the other form
+// fields (description, focus, thumbnail) next to the file itself.
+const multipartOverhead int64 = 1 << 20
+
+// BodySizeLimitMiddleware caps request bodies. Media uploads (multipart
+// forms and Matrix media uploads) may be as large as the configured media
+// limits returned by mediaLimit (the same values the upload handler enforces
+// and /api/v2/instance advertises); every other request is limited to
+// defaultLimit.
+func BodySizeLimitMiddleware(defaultLimit int64, mediaLimit func() int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		RequestSizeLimitMiddleware(bodyLimitFor(c.Request, defaultLimit, mediaLimit))(c)
+	}
+}
+
+func bodyLimitFor(r *http.Request, defaultLimit int64, mediaLimit func() int64) int64 {
+	isMultipart := strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
+	isMatrixMedia := strings.HasPrefix(r.URL.Path, "/_matrix/media/") ||
+		(strings.HasPrefix(r.URL.Path, "/_matrix/client/") && strings.Contains(r.URL.Path, "/media/"))
+
+	if !isMultipart && !isMatrixMedia {
+		return defaultLimit
+	}
+
+	limit := mediaLimit() + multipartOverhead
+	if isMatrixMedia && limit < matrixMediaMinBodySize {
+		limit = matrixMediaMinBodySize
+	}
+
+	if limit < defaultLimit {
+		limit = defaultLimit
+	}
+
+	return limit
 }
 
 // IPWhitelistMiddleware IP 白名单中间件.

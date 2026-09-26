@@ -138,6 +138,12 @@ func setupServer() *gin.Engine {
 	// 请求日志中间件
 	app.Use(middleware.RequestLogMiddleware())
 
+	// Request body size limit: uploads may be as large as the configured
+	// media limits, everything else is capped at 10 MB.
+	app.Use(middleware.BodySizeLimitMiddleware(middleware.DefaultMaxRequestBodySize, func() int64 {
+		return max(systemsettings.MediaImageSizeLimit(), systemsettings.MediaVideoSizeLimit())
+	}))
+
 	// Prometheus 指标中间件
 	app.Use(metrics.MetricsMiddleware())
 
