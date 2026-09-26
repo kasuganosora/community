@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -490,4 +491,23 @@ func TestVerifyCredentials_NoApplication(t *testing.T) {
 	VerifyCredentials(c)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// Many Mastodon clients register apps with a form-encoded body.
+func TestCreateApp_FormEncoded(t *testing.T) {
+	newOAuthTestEnv(t)
+
+	form := "client_name=FormApp&redirect_uris=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob&scopes=read+write"
+	c, w := newJSONContext(t, http.MethodPost, nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form)) //nolint:noctx
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	CreateApp(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var resp CreateAppResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "FormApp", resp.Name)
+	assert.NotEmpty(t, resp.ClientId)
 }

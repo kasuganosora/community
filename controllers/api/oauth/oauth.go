@@ -22,10 +22,10 @@ import (
 
 // CreateAppRequest represents the request for creating an OAuth application.
 type CreateAppRequest struct {
-	ClientName   string `binding:"required,min=1,max=128" json:"client_name"`
-	RedirectUris string `binding:"required"               json:"redirect_uris"`
-	Scopes       string `json:"scopes"`
-	Website      string `json:"website"`
+	ClientName   string `binding:"required,min=1,max=128" form:"client_name"   json:"client_name"`
+	RedirectUris string `binding:"required"               form:"redirect_uris" json:"redirect_uris"`
+	Scopes       string `form:"scopes"                    json:"scopes"`
+	Website      string `form:"website"                   json:"website"`
 }
 
 // CreateAppResponse represents the response for creating an OAuth application.
@@ -114,7 +114,8 @@ func (OAuthAuthorizationCode) TableName() string {
 // CreateApp handles POST /api/v1/apps.
 func CreateApp(c *gin.Context) {
 	var req CreateAppRequest
-	err := c.ShouldBindJSON(&req)
+	// Mastodon clients send either JSON or form-encoded bodies.
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
 
