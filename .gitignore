@@ -16,3 +16,6 @@ NUL
 *.bak
 *.bak.*community
 /community
+
+# Local media uploads
+/uploads/
