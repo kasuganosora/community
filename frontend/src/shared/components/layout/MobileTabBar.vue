@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
+import { activeNavSection } from '@/shared/utils/nav'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const route = useRoute()
@@ -19,11 +20,8 @@ const tabs = [
 ]
 
 const active = computed(() => {
-  const p = route.path
-  if (p === '/') return 'home'
-  if (p.startsWith('/search')) return 'explore'
-  return tabs.find(t => t.to !== '/' && p.startsWith(t.to))?.value
-    ?? (authStore.currentUser && p === `/@${authStore.currentUser.username}` ? 'me' : '')
+  const section = activeNavSection(route.path, authStore.currentUser?.username)
+  return section === 'profile' ? 'me' : section
 })
 
 function go(to: string) {

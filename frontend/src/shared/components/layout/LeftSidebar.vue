@@ -6,6 +6,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
+import { activeNavSection } from '@/shared/utils/nav'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,13 +29,8 @@ const navItems = computed(() => [
   { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
 
-const activeItem = computed(() => {
-  const path = route.path
-  if (path === '/') return 'home'
-  if (path.startsWith('/search')) return 'explore'
-  const match = navItems.value.find(item => item.route !== '/' && path.startsWith(item.route))
-  return match?.value ?? ''
-})
+// Segment-aware: a status page under /@me/status/… used to light up 个人主页.
+const activeItem = computed(() => activeNavSection(route.path, authStore.currentUser?.username))
 
 function navigateTo(item: typeof navItems.value[0]) {
   // Catch to avoid unhandled rejection if navigation is cancelled/redirected
