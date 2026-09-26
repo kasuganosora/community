@@ -217,8 +217,14 @@ function openProfile() {
 }
 
 .detail-main__avatar {
-  border-radius: var(--radius-full);
   flex-shrink: 0;
+  border-radius: 50%;
+  transition: transform var(--duration-release) var(--ease-out);
+}
+
+.detail-main__avatar:active {
+  transform: scale(var(--press-scale));
+  transition-duration: var(--duration-press);
 }
 
 .detail-main__user {
@@ -245,7 +251,7 @@ function openProfile() {
   white-space: nowrap;
 }
 
-.detail-main__content {
+.detail-main :deep(.detail-main__content) {
   font-size: var(--text-title-3);
   line-height: 1.45;
   letter-spacing: -0.012em;
@@ -253,7 +259,7 @@ function openProfile() {
   margin-bottom: var(--space-4);
 }
 
-.detail-main__content:lang(zh) {
+.detail-main :deep(.detail-main__content:lang(zh)) {
   line-height: var(--leading-cjk);
 }
 
@@ -279,5 +285,17 @@ function openProfile() {
   color: var(--color-label);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
+}
+
+.detail-main :deep(.post-actions) {
+  max-width: none;
+  margin-top: 0;
+  padding: var(--space-0) 0;
+  box-shadow: inset 0 var(--hairline) 0 var(--color-separator);
+}
+
+.detail-main :deep(.post-actions .action-btn) {
+  flex: 1;
+  justify-content: center;
 }
 </style>

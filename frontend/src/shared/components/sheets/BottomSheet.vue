@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
   size?: 'auto' | 'large'
 }>(), { title: '', label: '', size: 'auto' })
 
-const emit = defineEmits<{ 'update:modelValue': [open: boolean] }>()
+const emit = defineEmits<{ 'update:modelValue': [open: boolean]; closed: [] }>()
 
 const mounted = ref(false)
 const panel = ref<HTMLElement | null>(null)
@@ -119,6 +119,7 @@ async function close() {
 
 function finishClose() {
   mounted.value = false
+  emit('closed')
   spring?.stop()
   spring = null
   document.documentElement.classList.remove('has-sheet')

@@ -494,38 +494,57 @@ defineExpose({ focus, reset })
 }
 
 .tool-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 .tool-btn--text {
-  font-size: var(--font-xs);
-  font-weight: var(--font-bold, 700);
-  min-width: 34px;
+  width: auto;
+  min-width: 2.5rem;
+  padding: 0 var(--space-2);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
 }
 
 .tool-btn--active {
-  background: var(--accent-blue-light, rgba(29, 155, 240, 0.1));
+  background: var(--color-accent-soft);
 }
 
+/* Secondary fields: filled, borderless, same radius family as inputs. */
 .composer__spoiler,
 .composer__poll-option input {
   width: 100%;
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md, 8px);
+  min-height: 2.5rem;
   padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  color: var(--color-label);
   font: inherit;
+  font-size: var(--text-body);
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.composer__spoiler::placeholder,
+.composer__poll-option input::placeholder {
+  color: var(--color-label-tertiary);
+}
+
+.composer__spoiler:focus-visible,
+.composer__poll-option input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .composer__spoiler {
-  margin-bottom: var(--space-2);
+  margin: var(--space-1) 0 var(--space-1);
+  color: var(--color-warning);
+  font-weight: var(--weight-medium);
 }
 
 .composer__media {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
   gap: var(--space-2);
   margin: var(--space-2) 0 0;
   padding: 0;
@@ -534,13 +553,14 @@ defineExpose({ focus, reset })
 
 .composer__media-item {
   position: relative;
-  aspect-ratio: 1;
-  border-radius: var(--radius-md, 8px);
-  overflow: hidden;
-  background: var(--bg-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-fill);
+  box-shadow: inset 0 0 0 var(--hairline) var(--color-separator);
 }
 
 .composer__media-item img {
@@ -550,24 +570,38 @@ defineExpose({ focus, reset })
 }
 
 .composer__media-name {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
   padding: var(--space-1);
+  font-size: var(--text-caption);
+  color: var(--color-label-secondary);
   word-break: break-all;
 }
 
+/* Small glyph on a dark translucent disc, 44pt hit area. */
 .composer__media-remove {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 24px;
-  height: 24px;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  transition: transform var(--duration-release) var(--ease-out);
+}
+
+.composer__media-remove::after {
+  content: '';
+  position: absolute;
+  inset: -0.625rem;
+}
+
+.composer__media-remove:active {
+  transform: scale(var(--press-scale-small));
+  transition-duration: var(--duration-press);
 }
 
 .composer__media-spinner {
@@ -575,36 +609,53 @@ defineExpose({ focus, reset })
 }
 
 .composer__poll {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md, 8px);
-  padding: var(--space-2) var(--space-3);
   margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-grouped);
 }
 
 .composer__poll-legend {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  padding: 0 var(--space-1);
+  float: left;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: 0;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-footnote);
+  color: var(--color-label-secondary);
 }
 
 .composer__poll-option {
+  clear: both;
   display: flex;
   align-items: center;
   gap: var(--space-1);
   margin-bottom: var(--space-2);
 }
 
+.composer__poll-option input {
+  background: var(--color-bg-row);
+}
+
 .composer__poll-settings {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-subhead);
+  color: var(--color-label-secondary);
 }
 
 .composer__link-btn {
-  color: var(--accent-blue);
+  min-height: 2rem;
+  color: var(--color-accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.composer__link-btn:active {
+  opacity: 0.6;
 }
 
 .composer__poll-check {
@@ -613,26 +664,50 @@ defineExpose({ focus, reset })
   gap: var(--space-1);
 }
 
+.composer__poll-check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--color-accent);
+}
+
 .composer__poll-duration select,
 .composer__visibility select {
-  background: transparent;
-  color: var(--accent-blue);
+  min-height: 2rem;
   border: none;
+  background: transparent;
+  color: var(--color-accent-text);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
 .composer__visibility {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  color: var(--accent-blue);
+  gap: var(--space-0);
   padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  color: var(--color-accent-text);
 }
 
 .composer__visibility select {
   max-width: 7.5em;
+  /* Size to the chosen option; the chevron glyph follows the label. */
+  field-sizing: content;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Small chevron drawn in currentColor after the label. */
+.composer__visibility::after {
+  content: '';
+  width: 0.625rem;
+  height: 0.625rem;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
 }
 
 .composer__visibility option,

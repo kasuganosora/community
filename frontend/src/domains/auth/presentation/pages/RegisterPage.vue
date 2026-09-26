@@ -525,8 +525,8 @@ function close() {
   margin-left: 0 !important;
 }
 
-.register-form :deep(.t-form__controls--content) {
-  display: block !important;
+.register-form :deep(.t-form__controls-content) {
+  flex-wrap: wrap;
 }
 
 .register-form :deep(.t-input__tips) {
@@ -544,6 +544,7 @@ function close() {
 }
 
 .form-error {
+  flex-basis: 100%;
   margin-top: var(--space-1);
   font-size: var(--text-footnote);
   color: var(--color-danger);

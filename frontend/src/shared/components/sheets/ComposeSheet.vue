@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import BottomSheet from './BottomSheet.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
@@ -8,6 +9,12 @@ import { useUiChrome } from '@/shared/composables/useUiChrome'
 
 const { composeOpen } = useUiChrome()
 const timelineStore = useTimelineStore()
+
+// Mount a fresh composer each time the sheet opens, but keep it rendered
+// until the exit animation has finished so the sheet doesn't collapse
+// while it slides away.
+const composerMounted = ref(composeOpen.value)
+watch(composeOpen, (open) => { if (open) composerMounted.value = true })
 
 // The composer posts by itself (text, CW, poll, media, visibility) and
 // emits the created status.
@@ -19,9 +26,9 @@ function handlePosted(status: MastodonStatus) {
 </script>
 
 <template>
-  <BottomSheet v-model="composeOpen" title="新帖子" size="large">
+  <BottomSheet v-model="composeOpen" title="新帖子" size="large" @closed="composerMounted = false">
     <div class="compose-sheet">
-      <PostComposer v-if="composeOpen" autofocus @posted="handlePosted" />
+      <PostComposer v-if="composerMounted" autofocus @posted="handlePosted" />
     </div>
   </BottomSheet>
 </template>
@@ -32,7 +39,7 @@ function handlePosted(status: MastodonStatus) {
 }
 
 .compose-sheet :deep(.composer) {
-  border-bottom: none;
+  box-shadow: none;
   padding-top: var(--space-2);
 }
 
