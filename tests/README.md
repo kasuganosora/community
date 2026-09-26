@@ -297,7 +297,7 @@ func TestOAuthIntegration(t *testing.T) {
 
 ## 测试配置
 
-测试配置从项目根目录的 `.env.test` 文件加载（不存在则回退到环境变量）：
+测试配置从项目根目录的 `.env.test` 文件加载（不存在则回退到环境变量和默认值）。`.env.test` 已被 git 忽略，请从 `.env.test.example` 复制，不要提交真实密码：
 
 ```bash
 # Redis 测试连接（默认使用 DB 15）

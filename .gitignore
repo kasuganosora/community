@@ -9,7 +9,6 @@ dendrite
 build/
 *.exe
 *.test
-!.env.test
 NUL
 
 # Backup files
@@ -19,3 +18,19 @@ NUL
 
 # Local media uploads
 /uploads/
+
+# Local test configuration (copy .env.test.example)
+.env.test
+
+# Coverage and test output artifacts
+*.out
+coverage*.html
+test_output*.txt
+test_result*.txt
+*_struct.txt
+structs_output.txt
+models_list_snippet.txt
+*_bak.txt
+
+# Redis snapshot written when redis-server runs from the repo
+dump.rdb
