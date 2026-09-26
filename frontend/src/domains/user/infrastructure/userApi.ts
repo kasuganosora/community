@@ -64,4 +64,44 @@ export const userApi = {
     const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${encodeURIComponent(id)}/following`, { params })
     return data
   },
+
+  /** Statuses the current user has liked (only available for yourself). */
+  async getFavourites(params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonStatus[]> {
+    const { data } = await client.get<MastodonStatus[]>('/api/v1/favourites', { params })
+    return data
+  },
+
+  /**
+   * PATCH /api/v1/accounts/update_credentials. The backend binds form fields
+   * (not JSON), so send application/x-www-form-urlencoded like Mastodon clients.
+   */
+  async updateCredentials(fields: UpdateCredentialsParams): Promise<MastodonAccount> {
+    const body = new URLSearchParams()
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === undefined || v === null) continue
+      body.append(k, typeof v === 'boolean' ? String(v) : v)
+    }
+    const { data } = await client.patch<MastodonAccount>('/api/v1/accounts/update_credentials', body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
+    return data
+  },
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const body = new URLSearchParams({ old_password: oldPassword, new_password: newPassword })
+    await client.put('/api/v1/accounts/me/password', body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
+  },
+}
+
+export interface UpdateCredentialsParams {
+  display_name?: string
+  note?: string
+  /** URL of an uploaded media attachment (the backend has no file upload here). */
+  avatar?: string
+  header?: string
+  locked?: boolean
+  bot?: boolean
+  discoverable?: boolean
 }

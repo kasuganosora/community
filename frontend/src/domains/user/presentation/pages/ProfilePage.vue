@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
+import { followButtonLabel } from '../../domain/relationship'
+import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
-import PostCard from '@/shared/components/post/PostCard.vue'
+import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
+import TimelineFeed from '@/domains/timeline/presentation/components/TimelineFeed.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
@@ -14,145 +19,106 @@ import RichText from '@/shared/components/common/RichText.vue'
 const route = useRoute()
 const authStore = useAuthStore()
 const account = ref<MastodonAccount | null>(null)
-const statuses = ref<MastodonStatus[]>([])
 const activeTab = ref<ProfileTabValue>('posts')
 const loading = ref(true)
 const error = ref<string | null>(null)
-const following = ref(false)
+const relationships = useRelationships()
 
-// Reuse the shared action handlers — optimistic update on the local array.
+// Request version guard — a slow lookup for a previous profile must not
+// overwrite the profile we navigated to.
+let requestVersion = 0
+
+const isOwnProfile = computed(() => !!account.value && account.value.id === authStore.currentUser?.id)
+const visibleTabs = computed(() => PROFILE_TABS.filter(t => !t.ownOnly || isOwnProfile.value))
+const relationship = computed(() => account.value ? relationships.rels.get(account.value.id) : undefined)
+const followState = computed(() => account.value ? relationships.state(account.value.id) : 'unknown')
+const profileBase = computed(() => `/@${route.params.username as string}`)
+
+function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[]> {
+  const acct = account.value
+  if (!acct) return Promise.resolve([])
+  // The likes tab lists the current user's favourites (favourite ids are the
+  // cursor there; the backend sends no Link header, so max_id is best effort).
+  if (activeTab.value === 'likes') return userApi.getFavourites({ max_id: maxId, limit })
+  return userApi.getStatuses(acct.id, {
+    max_id: maxId,
+    limit,
+    ...(activeTab.value === 'posts' ? { exclude_replies: true } : {}),
+    ...(activeTab.value === 'media' ? { only_media: true } : {}),
+  })
+}
+
+const feed = usePaginatedList(fetchStatuses, TIMELINE_PAGE_SIZE)
+const { items: statuses } = feed
+
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
-
-// Prevent duplicate follow/unfollow requests from rapid clicks.
-const pendingFollow = ref(false)
-
-// Request version guard — prevents stale responses from a previous
-// profile or tab load from overwriting newer data when navigation
-// or tab changes happen while a request is still in flight.
-let requestVersion = 0
-
-const isOwnProfile = computed(() => account.value?.id === authStore.currentUser?.id)
 
 async function loadProfile() {
   const myVersion = ++requestVersion
   loading.value = true
   error.value = null
-  // Clear old data so the error state is reachable if the new
-  // profile fails to load, and so stale account info isn't shown.
   account.value = null
   statuses.value = []
-  following.value = false
+  activeTab.value = 'posts'
   const username = route.params.username as string
   try {
     const acctData = await userApi.lookupAccount(username)
     if (myVersion !== requestVersion) return
     account.value = acctData
-    const params: Record<string, unknown> = { limit: 20 }
-    if (activeTab.value === 'posts') params.exclude_replies = true
-    else if (activeTab.value === 'media') params.only_media = true
-    const statusData = await userApi.getStatuses(acctData.id, params)
-    if (myVersion !== requestVersion) return
-    statuses.value = statusData
-    // Check relationship status
-    if (acctData.id) {
-      try {
-        const rels = await userApi.getRelationships([acctData.id])
-        if (myVersion !== requestVersion) return
-        following.value = rels[0]?.following ?? false
-      } catch {
-        // Non-critical — default to not following
-      }
-    }
+    feed.refresh()
+    if (acctData.id !== authStore.currentUser?.id) relationships.load([acctData.id])
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load profile:', e)
-    error.value = e instanceof Error ? e.message : 'Failed to load profile'
+    error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
-    if (myVersion === requestVersion) {
-      loading.value = false
-    }
+    if (myVersion === requestVersion) loading.value = false
   }
 }
 
 async function toggleFollow() {
   if (!account.value) return
-  if (pendingFollow.value) return
-  pendingFollow.value = true
-
   const targetId = account.value.id
-  const wasFollowing = following.value
-  // Optimistic update for immediate UI feedback
-  following.value = !wasFollowing
   try {
-    const rel = wasFollowing
-      ? await userApi.unfollow(targetId)
-      : await userApi.follow(targetId)
-    // Guard: if the user navigated to a different profile while the
-    // request was in flight, don't write the result back.
-    if (account.value?.id !== targetId) return
-    following.value = rel.following
-  } catch (e) {
-    // Revert optimistic update on failure (only if still on same profile)
+    await relationships.toggleFollow(targetId)
+    // Keep the follower count in step with the button.
     if (account.value?.id === targetId) {
-      following.value = wasFollowing
+      const following = relationships.state(targetId) === 'following'
+      account.value.followers_count = Math.max(0, account.value.followers_count + (following ? 1 : -1))
     }
-    console.error('Failed to toggle follow:', e)
-  } finally {
-    pendingFollow.value = false
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
   }
 }
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
-
-// Only reload statuses on tab change — no need to refetch account/relationship.
-// Shares the version guard with loadProfile so a stale response from either
-// function is discarded when the other has superseded it.
-async function reloadStatuses() {
-  if (!account.value) return
-  const myVersion = ++requestVersion
-  loading.value = true
-  try {
-    const params: Record<string, unknown> = { limit: 20 }
-    if (activeTab.value === 'posts') params.exclude_replies = true
-    else if (activeTab.value === 'media') params.only_media = true
-    const data = await userApi.getStatuses(account.value.id, params)
-    if (myVersion !== requestVersion) return
-    statuses.value = data
-  } catch (e) {
-    if (myVersion !== requestVersion) return
-    console.error('Failed to reload statuses:', e)
-  } finally {
-    if (myVersion === requestVersion) {
-      loading.value = false
-    }
-  }
-}
-watch(activeTab, reloadStatuses)
+watch(activeTab, () => { if (account.value) feed.refresh() })
 </script>
 
 <template>
   <div class="profile-page" v-if="account">
     <!-- Header -->
     <div class="page-header page-header--with-back">
-      <button 
-        class="page-header__back-btn" 
+      <button
+        class="page-header__back-btn"
+        type="button"
         @click="$router.back()"
-        aria-label="Go back"
+        aria-label="返回"
       >
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
-        <h1 class="page-header__title">{{ account.display_name }}</h1>
-        <span class="profile-header-bar__count">{{ formatCount(account.statuses_count) }} posts</span>
+        <h1 class="page-header__title">{{ account.display_name || account.username }}</h1>
+        <span class="profile-header-bar__count">{{ formatCount(account.statuses_count) }} 条帖子</span>
       </div>
     </div>
 
     <!-- Banner -->
     <div class="profile-banner">
-      <img v-if="account.header" :src="account.header" alt="Profile banner" class="profile-banner__img" loading="lazy" />
+      <img v-if="account.header" :src="account.header" alt="" class="profile-banner__img" loading="lazy" />
       <div v-else class="profile-banner__placeholder" />
     </div>
 
@@ -160,39 +126,53 @@ watch(activeTab, reloadStatuses)
     <div class="profile-info">
       <div class="profile-info__top">
         <UserAvatar :account="account" :size="128" class="profile-avatar" />
-        <t-button v-if="!isOwnProfile" theme="default" shape="round" class="edit-btn"
-          :class="{ 'edit-btn--following': following }"
+        <t-button v-if="isOwnProfile" theme="default" shape="round" class="edit-btn" @click="$router.push('/settings')">
+          编辑个人资料
+        </t-button>
+        <t-button
+          v-else-if="followState !== 'unknown'"
+          theme="default"
+          shape="round"
+          class="edit-btn"
+          :class="{ 'edit-btn--following': followState !== 'none' }"
+          :loading="relationships.pending.has(account.id)"
           @click="toggleFollow"
         >
-          {{ following ? 'Following' : 'Follow' }}
+          {{ followButtonLabel(followState, relationship?.followed_by) }}
         </t-button>
       </div>
 
-      <h2 class="profile-name">{{ account.display_name }}</h2>
-      <div class="profile-username">@{{ account.acct }}</div>
+      <h2 class="profile-name">{{ account.display_name || account.username }}</h2>
+      <div class="profile-username">
+        @{{ account.acct }}
+        <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
+      </div>
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" />
 
       <div class="profile-stats">
-        <div class="stat-item">
+        <router-link :to="`${profileBase}/following`" class="stat-item">
           <strong>{{ formatCount(account.following_count) }}</strong>
-          <span>Following</span>
-        </div>
-        <div class="stat-item">
+          <span> 正在关注</span>
+        </router-link>
+        <router-link :to="`${profileBase}/followers`" class="stat-item">
           <strong>{{ formatCount(account.followers_count) }}</strong>
-          <span>Followers</span>
-        </div>
+          <span> 关注者</span>
+        </router-link>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="tab-bar" style="margin-top: var(--space-4);">
+    <div class="tab-bar" role="tablist" style="margin-top: var(--space-4);">
       <button
-        v-for="tab in PROFILE_TABS"
+        v-for="tab in visibleTabs"
         :key="tab.value"
+        type="button"
+        role="tab"
         class="tab-bar__item"
         :class="{ 'tab-bar__item--active': activeTab === tab.value }"
-        @click="activeTab = tab.value as ProfileTabValue"
+        :aria-selected="activeTab === tab.value"
+        @click="activeTab = tab.value"
       >
         <span class="tab-bar__text">{{ tab.label }}</span>
         <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
@@ -200,19 +180,19 @@ watch(activeTab, reloadStatuses)
     </div>
 
     <!-- Posts -->
-    <div v-if="loading" class="page-loading">
-      <t-loading />
-    </div>
-    <template v-else>
-      <PostCard
-        v-for="s in statuses"
-        :key="s.id"
-        :status="s"
-        @reblog="toggleReblog"
-        @favourite="toggleFavourite"
-        @bookmark="toggleBookmark"
-      />
-    </template>
+    <TimelineFeed
+      :statuses="statuses"
+      :loading="feed.loading.value"
+      :has-more="feed.hasMore.value"
+      :error="feed.error.value"
+      empty-title="暂无内容"
+      :empty-text="activeTab === 'likes' ? '你喜欢的帖子会显示在这里。' : '这里还没有帖子。'"
+      @load-more="feed.loadMore"
+      @retry="feed.refresh"
+      @reblog="toggleReblog"
+      @favourite="toggleFavourite"
+      @bookmark="toggleBookmark"
+    />
   </div>
 
   <div v-else-if="loading" class="page-loading">
@@ -223,8 +203,9 @@ watch(activeTab, reloadStatuses)
     <div class="empty-state__icon">
       <t-icon name="error-circle" :size="48" />
     </div>
-    <h2 class="empty-state__title">Something went wrong</h2>
+    <h2 class="empty-state__title">无法加载此用户</h2>
     <p class="empty-state__text">{{ error }}</p>
+    <button type="button" class="btn btn--secondary btn--sm" @click="loadProfile">重试</button>
   </div>
 </template>
 
@@ -348,6 +329,14 @@ watch(activeTab, reloadStatuses)
   gap: var(--space-1);
   font-size: var(--text-subhead);
   color: var(--color-label-secondary);
+}
+
+.profile-follows-you {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-fill, var(--bg-secondary));
+  font-size: var(--font-xs);
 }
 
 .stat-item strong {

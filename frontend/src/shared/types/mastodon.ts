@@ -61,6 +61,16 @@ export interface MastodonAccount {
   hide_collections: boolean
   emojis: MastodonEmoji[]
   fields: MastodonField[]
+  /** Only present on verify_credentials / update_credentials (own account). */
+  source?: MastodonAccountSource
+}
+
+export interface MastodonAccountSource {
+  note: string
+  privacy?: Visibility
+  sensitive?: boolean
+  language?: string
+  fields?: { name: string; value: string }[]
 }
 
 export interface MastodonMention {
