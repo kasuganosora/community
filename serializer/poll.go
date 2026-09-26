@@ -50,11 +50,9 @@ func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
 
 	for _, option := range poll.Options {
 		optionsIndexMap[option.Id] = option.Index
-		ret.Options = append(ret.Options, PollOption{
-			Title:      option.Content,
-			VotesCount: option.Votes,
-		})
 	}
+
+	ret.Options = toPollOptions(poll)
 
 	votes := make(models.PollOptionVotes, 0)
 
@@ -130,6 +128,7 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 		// Keying by poll.Id dropped the poll from every timeline/list response
 		// whose status id differed from its poll id (i.e. almost all of them).
 		p := ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
+		p.Options = toPollOptions(poll)
 		if voted {
 			p.OwnVotes = ownVoteIndexes(mySelectOptions[poll.Id], optionsIndexMap)
 		}
@@ -146,6 +145,21 @@ func ownVoteIndexes(myVotes models.PollOptionVotes, optionsIndexMap map[uint64]u
 	ret := make([]int, 0, len(myVotes))
 	for _, v := range myVotes {
 		ret = append(ret, int(optionsIndexMap[v.OptionId]))
+	}
+
+	return ret
+}
+
+// toPollOptions serializes a poll's options in option-index order.
+func toPollOptions(poll *models.Poll) []PollOption {
+	options := append(models.PollOptions{}, poll.Options...).SortByIndex()
+
+	ret := make([]PollOption, 0, len(options))
+	for _, option := range options {
+		ret = append(ret, PollOption{
+			Title:      option.Content,
+			VotesCount: option.Votes,
+		})
 	}
 
 	return ret
