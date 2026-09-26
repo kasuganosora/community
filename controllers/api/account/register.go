@@ -16,9 +16,12 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
+	"net/mail"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type RegisterRequest struct {
@@ -36,6 +39,12 @@ func Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()}) //nolint:goconst
+
+		return
+	}
+
+	if msg := validateRegisterRequest(&req); msg != "" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 
 		return
 	}
@@ -397,4 +406,40 @@ func checkExists(username string, email string) (existsFieldName string, err err
 	}
 
 	return "", nil
+}
+
+// usernameRegexp allows letters (including CJK), digits and underscores.
+// Usernames end up in URLs (/users/<name>, /@<name>) and in
+// acct:<name>@<domain> WebFinger handles, so characters such as '/', '.',
+// '@', '?', '#' or whitespace must never be accepted. Before this check a
+// username like "../../etc" could be registered.
+var usernameRegexp = regexp.MustCompile(`^[\p{L}\p{N}_]+$`)
+
+const (
+	maxUsernameLength = 30
+	minPasswordLength = 8
+	maxDisplayNameLen = 64
+)
+
+// validateRegisterRequest validates the user supplied registration fields
+// and returns an error message, or "" when they are acceptable.
+func validateRegisterRequest(req *RegisterRequest) string {
+	if n := utf8.RuneCountInString(req.UserName); n == 0 || n > maxUsernameLength || !usernameRegexp.MatchString(req.UserName) {
+		return "username may only contain letters, numbers and underscores (max 30 characters)"
+	}
+
+	if utf8.RuneCountInString(req.DisplayName) > maxDisplayNameLen {
+		return "display name is too long (max 64 characters)"
+	}
+
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email || !strings.Contains(req.Email, "@") {
+		return "email is invalid"
+	}
+
+	if len(req.Password) < minPasswordLength {
+		return "password is too short (minimum is 8 characters)"
+	}
+
+	return ""
 }
