@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -59,6 +60,9 @@ func Logout(c *gin.Context) {
 			return
 		}
 	}
+
+	// Drop the cached "valid" entry so the token stops working right away.
+	middleware.InvalidateTokenCache(tokenStr)
 
 	// 删除cookie
 	// Secure 标志根据请求是否为 HTTPS 动态判断

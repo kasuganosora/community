@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
@@ -160,6 +162,41 @@ func returnUnauthorizedAndRemoveCookie(c *gin.Context) {
 // tokenCacheTTL token 缓存的 TTL（30 秒）.
 const tokenCacheTTL = 30 * time.Second
 
+// revokedTokenCacheTTL is how long a revoked/deleted token stays marked as
+// revoked in Redis. After that the database (row deleted or revoke set) keeps
+// rejecting it.
+const revokedTokenCacheTTL = 10 * time.Minute
+
+// tokenCacheKey returns the Redis key for a bearer token. The key uses the
+// token's SHA-256 (the same digest stored in auth_tokens.token) so raw bearer
+// tokens are never written to Redis.
+func tokenCacheKey(tokenStr string) string {
+	sum := sha256.Sum256([]byte(tokenStr))
+
+	return "token_cache:" + hex.EncodeToString(sum[:])
+}
+
+// InvalidateTokenCache marks a token as revoked in the auth cache so that
+// AuthMiddleware rejects it immediately after logout or OAuth revoke,
+// instead of trusting a cached "valid" entry for up to tokenCacheTTL.
+func InvalidateTokenCache(tokenStr string) {
+	if tokenStr == "" {
+		return
+	}
+
+	redisClient := GetRedisClient()
+	if redisClient == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := redisClient.Set(ctx, tokenCacheKey(tokenStr), "revoked", revokedTokenCacheTTL).Err(); err != nil {
+		log.Warn("failed to invalidate token cache: %v", err)
+	}
+}
+
 // getTokenWithCache 优先从 Redis 缓存获取 token，缓存未命中则查库并写入缓存
 // 这样在高并发场景下可以将数据库查询量降低 ~97%（30 秒内同一 token 只查一次库）.
 func getTokenWithCache(tokenStr string) (*models.AuthToken, error) {
@@ -169,7 +206,7 @@ func getTokenWithCache(tokenStr string) (*models.AuthToken, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		cacheKey := "token_cache:" + tokenStr
+		cacheKey := tokenCacheKey(tokenStr)
 
 		cached, err := redisClient.Get(ctx, cacheKey).Result()
 		if err == nil {
@@ -193,10 +230,10 @@ func getTokenWithCache(tokenStr string) (*models.AuthToken, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		cacheKey := "token_cache:" + tokenStr
+		cacheKey := tokenCacheKey(tokenStr)
 		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			// 已撤销/过期的 token 缓存为 "revoked"，使用较长 TTL 减少查库
-			_ = redisClient.Set(ctx, cacheKey, "revoked", 10*time.Minute).Err()
+			_ = redisClient.Set(ctx, cacheKey, "revoked", revokedTokenCacheTTL).Err()
 		} else {
 			// 有效 token 缓存为 "valid"，短 TTL 保证撤销后 30 秒内失效
 			_ = redisClient.Set(ctx, cacheKey, "valid", tokenCacheTTL).Err()

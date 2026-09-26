@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
@@ -720,6 +721,10 @@ func Revoke(c *gin.Context) {
 	if err := db.GetDB().Save(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "save revoked token error"))
 	}
+
+	// AuthMiddleware caches valid tokens for 30s; make the revoke effective
+	// immediately.
+	middleware.InvalidateTokenCache(req.Token)
 
 	c.JSON(200, gin.H{})
 }
