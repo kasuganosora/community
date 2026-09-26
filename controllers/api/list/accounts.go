@@ -238,7 +238,10 @@ func RemoveAccountFromList(c *gin.Context) {
 		return
 	}
 
-	accountId, err := strconv.ParseUint(c.Param("account_id"), 10, 64)
+	// The route is DELETE /lists/:id/accounts (Mastodon passes account_ids[]
+	// in the query or body); there is no :account_id path param, so reading
+	// only c.Param("account_id") made every removal fail with 400.
+	accountId, err := strconv.ParseUint(removeAccountIdParam(c), 10, 64)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"apierrors": "invalid account id",
@@ -293,4 +296,26 @@ func RemoveAccountFromList(c *gin.Context) {
 	}()
 
 	c.Data(200, "application/json", nil)
+}
+
+// removeAccountIdParam returns the first account id from account_ids[] /
+// account_ids (query string; net/http does not parse DELETE form bodies), a JSON body {"account_ids": [...]}, or the
+// legacy :account_id path param.
+func removeAccountIdParam(c *gin.Context) string {
+	if id := c.Param("account_id"); id != "" {
+		return id
+	}
+
+	for _, key := range []string{"account_ids[]", "account_ids"} {
+		if ids := c.QueryArray(key); len(ids) > 0 {
+			return ids[0]
+		}
+	}
+
+	var body AddAccountsToListRequest
+	if err := c.ShouldBindJSON(&body); err == nil && len(body.AccountIds) > 0 {
+		return body.AccountIds[0]
+	}
+
+	return ""
 }
