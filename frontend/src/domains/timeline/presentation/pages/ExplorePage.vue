@@ -1,30 +1,77 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useTimelineStore } from '../stores/timelineStore'
-import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
+import { ref, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { timelineApi } from '../../infrastructure/timelineApi'
+import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
+import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '../components/TimelineFeed.vue'
+import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 
-const timelineStore = useTimelineStore()
+type ExploreTab = 'local' | 'federated'
+const TABS: { value: ExploreTab; label: string }[] = [
+  { value: 'local', label: '本站' },
+  { value: 'federated', label: '跨站' },
+]
 
-// Reuse the shared action handlers — optimistic update via the store.
+const route = useRoute()
+const router = useRouter()
+const activeTab = ref<ExploreTab>(route.query.tab === 'federated' ? 'federated' : 'local')
+
+const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
+  max_id: maxId,
+  limit,
+  ...(activeTab.value === 'local' ? { local: true } : {}),
+}), TIMELINE_PAGE_SIZE)
+const { items: statuses, loading, error, hasMore } = feed
+
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
-  (id, updates) => timelineStore.updateStatus(id, updates),
+  (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
-onMounted(() => {
-  timelineStore.fetchPublicTimeline()
-})
+function selectTab(tab: ExploreTab) {
+  if (tab === activeTab.value) return
+  activeTab.value = tab
+  router.replace({ query: { ...route.query, tab } }).catch(() => {})
+}
+
+watch(activeTab, () => feed.refresh())
+onMounted(() => feed.refresh())
 </script>
 
 <template>
   <div class="explore-page">
     <div class="page-header">
-      <h1 class="page-header__title">Explore</h1>
+      <h1 class="page-header__title">探索</h1>
+    </div>
+    <!-- The right rail (with its search field) is hidden on narrow screens,
+         so Explore carries its own search entry there. -->
+    <div class="explore-search">
+      <SearchBox />
+    </div>
+    <div class="tab-bar" role="tablist" aria-label="时间线">
+      <button
+        v-for="tab in TABS"
+        :key="tab.value"
+        type="button"
+        role="tab"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': activeTab === tab.value }"
+        :aria-selected="activeTab === tab.value"
+        @click="selectTab(tab.value)"
+      >
+        <span class="tab-bar__text">{{ tab.label }}</span>
+        <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
+      </button>
     </div>
     <TimelineFeed
-      :statuses="timelineStore.publicStatuses"
-      :loading="timelineStore.isLoading"
-      @load-more="timelineStore.loadMorePublic"
+      :statuses="statuses"
+      :loading="loading"
+      :has-more="hasMore"
+      :error="error"
+      empty-text="还没有公开帖子。"
+      @load-more="feed.loadMore"
+      @retry="feed.refresh"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
@@ -35,5 +82,21 @@ onMounted(() => {
 <style scoped>
 .explore-page {
   min-height: 100dvh;
+}
+
+.explore-search {
+  padding: 0 var(--space-4);
+}
+
+/* The page header is already the sticky bar here. */
+.explore-search :deep(.search-box) {
+  position: static;
+}
+
+/* The right rail shows its own search field from 62.5rem up. */
+@media (min-width: 62.5rem) {
+  .explore-search {
+    display: none;
+  }
 }
 </style>
