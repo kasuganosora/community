@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigDefaults(t *testing.T) {
@@ -151,4 +152,16 @@ func TestLoadConfigFrom_MissingEnvFileInTestMode(t *testing.T) {
 	_, err := os.Stat(envPath)
 	assert.True(t, os.IsNotExist(err), "loadConfigFrom must not create %s in test mode", envPath)
 	assert.NotEmpty(t, C.EncryptedKey)
+}
+
+func TestLoadConfigFrom_IgnoresEnvFileInTestMode(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	require.NoError(t, os.WriteFile(envPath, []byte("DEV_MODE=true\nLISTEN=:9999\n"), 0o600))
+	t.Setenv("LISTEN", "")
+	t.Setenv("DEV_MODE", "")
+
+	loadConfigFrom(envPath)
+
+	assert.Equal(t, ":8080", C.Listen)
+	assert.Equal(t, "false", C.DevMode)
 }

@@ -73,7 +73,11 @@ func loadConfig() {
 func loadConfigFrom(envFilePath string) {
 	var err error
 
-	envFileExists := utils.IsFileExists(envFilePath)
+	// Under `go test` the developer's local .env (DEV_MODE, REDIS_0_HOST, ...)
+	// must not leak into unit tests, otherwise results depend on whoever runs
+	// them. Tests get their configuration from the process environment and
+	// .env.test (see tests/testutil) only.
+	envFileExists := !isTestMode() && utils.IsFileExists(envFilePath)
 	if envFileExists {
 		err = loadConfigFromEnvFile(envFilePath)
 	} else {
