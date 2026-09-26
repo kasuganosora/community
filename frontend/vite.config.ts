@@ -1,101 +1,111 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { TDesignResolver } from 'unplugin-vue-components/resolvers'
 
-export default defineConfig({
-  plugins: [
-    vue(),
-    Components({
-      resolvers: [TDesignResolver({ library: 'vue-next' })],
-      dts: 'src/components.d.ts', // Generate TypeScript declaration
-    }),
-    AutoImport({
-      resolvers: [TDesignResolver({ library: 'vue-next' })],
-      imports: ['vue', 'vue-router', 'pinia'],
-      dts: 'auto-imports.d.ts',
-    }),
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-    },
-  },
-  server: {
-    port: 3000,
-    proxy: {
-      '/api': 'http://localhost:9090',
-      '/oauth': 'http://localhost:9090',
-    },
-  },
-  css: {
-    preprocessorOptions: {
-      scss: {},
-    },
-  },
-  build: {
-    // Chunk size warnings
-    chunkSizeWarningLimit: 500,
+export default defineConfig(({ mode }) => {
+  // Dev-server proxy target for the Go backend. Defaults to the backend's
+  // default LISTEN (:8080); override with VITE_DEV_PROXY_TARGET in
+  // frontend/.env.local or the environment.
+  const env = loadEnv(mode, process.cwd(), '')
+  const proxyTarget = env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080'
 
-    // Code splitting configuration
-    rollupOptions: {
-      output: {
-        // Manual chunk splitting
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) {
-              return 'vendor-vue'
-            }
-            if (id.includes('tdesign-vue-next')) {
-              return 'vendor-tdesign'
-            }
-            if (id.includes('axios') || id.includes('dompurify')) {
-              return 'vendor-utils'
-            }
-          }
-        },
-        // Chunk naming
-        chunkFileNames: 'assets/js/[name]-[hash].js',
-        entryFileNames: 'assets/js/[name]-[hash].js',
-        assetFileNames: (assetInfo) => {
-          const names = assetInfo.names ?? []
-          const name = names.length > 0 ? names[names.length - 1] : (assetInfo.name ?? '')
-          if (name.endsWith('.css')) {
-            return 'assets/css/[name]-[hash][extname]'
-          }
-          if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif') || name.endsWith('.svg')) {
-            return 'assets/images/[name]-[hash][extname]'
-          }
-          return 'assets/[name]-[hash][extname]'
-        },
+  return {
+    plugins: [
+      vue(),
+      Components({
+        resolvers: [TDesignResolver({ library: 'vue-next' })],
+        dts: 'src/components.d.ts', // Generate TypeScript declaration
+      }),
+      AutoImport({
+        resolvers: [TDesignResolver({ library: 'vue-next' })],
+        imports: ['vue', 'vue-router', 'pinia'],
+        dts: 'auto-imports.d.ts',
+      }),
+    ],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
       },
     },
+    server: {
+      port: 3000,
+      proxy: {
+        '/api': { target: proxyTarget, ws: true },
+        '/oauth': proxyTarget,
+        '/media': proxyTarget,
+        '/.well-known': proxyTarget,
+      },
+    },
+    css: {
+      preprocessorOptions: {
+        scss: {},
+      },
+    },
+    build: {
+      // Chunk size warnings
+      chunkSizeWarningLimit: 500,
 
-    // Minification options
-    minify: true,
+      // Code splitting configuration
+      rollupOptions: {
+        output: {
+          // Manual chunk splitting
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) {
+                return 'vendor-vue'
+              }
+              if (id.includes('tdesign-vue-next')) {
+                return 'vendor-tdesign'
+              }
+              if (id.includes('axios') || id.includes('dompurify')) {
+                return 'vendor-utils'
+              }
+            }
+          },
+          // Chunk naming
+          chunkFileNames: 'assets/js/[name]-[hash].js',
+          entryFileNames: 'assets/js/[name]-[hash].js',
+          assetFileNames: (assetInfo) => {
+            const names = assetInfo.names ?? []
+            const name = names.length > 0 ? names[names.length - 1] : (assetInfo.name ?? '')
+            if (name.endsWith('.css')) {
+              return 'assets/css/[name]-[hash][extname]'
+            }
+            if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif') || name.endsWith('.svg')) {
+              return 'assets/images/[name]-[hash][extname]'
+            }
+            return 'assets/[name]-[hash][extname]'
+          },
+        },
+      },
 
-    // Source maps for production (can be disabled for smaller builds)
-    sourcemap: false,
+      // Minification options
+      minify: true,
 
-    // CSS optimization
-    cssCodeSplit: true,
+      // Source maps for production (can be disabled for smaller builds)
+      sourcemap: false,
 
-    // Assets
-    assetsInlineLimit: 4096, // Inline assets smaller than 4kb
-  },
+      // CSS optimization
+      cssCodeSplit: true,
 
-  // Optimize dependencies
-  optimizeDeps: {
-    include: [
-      'vue',
-      'vue-router',
-      'pinia',
-      'tdesign-vue-next',
-      'axios',
-      'dompurify',
-    ],
-    exclude: [],
-  },
+      // Assets
+      assetsInlineLimit: 4096, // Inline assets smaller than 4kb
+    },
+
+    // Optimize dependencies
+    optimizeDeps: {
+      include: [
+        'vue',
+        'vue-router',
+        'pinia',
+        'tdesign-vue-next',
+        'axios',
+        'dompurify',
+      ],
+      exclude: [],
+    },
+  }
 })

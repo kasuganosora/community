@@ -5,8 +5,8 @@ import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
 import { tokenService } from '@/shared/api/client'
 
-// Centralized feature flag — only use mock in dev when explicitly enabled
-const USE_MOCK = import.meta.env.DEV && !import.meta.env.VITE_API_URL
+
+import { USE_MOCK } from '@/shared/utils/env'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(tokenService.get())

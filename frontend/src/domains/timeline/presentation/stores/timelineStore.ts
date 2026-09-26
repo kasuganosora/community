@@ -5,7 +5,7 @@ import type { ManagedTimelineType } from '../../domain/entities'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
-const USE_MOCK = import.meta.env.DEV && !import.meta.env.VITE_API_URL
+import { USE_MOCK } from '@/shared/utils/env'
 
 interface TimelineState {
   statuses: MastodonStatus[]
