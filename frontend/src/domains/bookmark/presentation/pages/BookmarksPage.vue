@@ -14,23 +14,29 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(bookmarks.value, id, updates),
 )
 
-onMounted(async () => {
+// The backend pages bookmarks by bookmark-row id and sends no Link header,
+// so the last status id is not a usable cursor: load one large page.
+async function load() {
+  loading.value = true
+  error.value = null
   try {
     bookmarks.value = await bookmarkApi.list({ limit: 40 })
   } catch (e) {
     console.error('Failed to load bookmarks:', e)
-    error.value = 'Failed to load bookmarks'
+    error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 
 <template>
   <div class="bookmarks-page">
     <div class="page-header">
-      <h1 class="page-header__title">Bookmarks</h1>
+      <h1 class="page-header__title">收藏</h1>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -41,8 +47,9 @@ onMounted(async () => {
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">Something went wrong</h2>
+      <h2 class="empty-state__title">加载失败</h2>
       <p class="empty-state__text">{{ error }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="load">重试</button>
     </div>
 
     <template v-else-if="bookmarks.length">
@@ -60,9 +67,9 @@ onMounted(async () => {
       <div class="empty-state__icon">
         <t-icon name="bookmark" :size="48" />
       </div>
-      <h2 class="empty-state__title">Save posts for later</h2>
+      <h2 class="empty-state__title">还没有收藏</h2>
       <p class="empty-state__text">
-        Bookmark posts to easily find them again in the future.
+        点击帖子上的收藏按钮，之后可以在这里找到它们。
       </p>
     </div>
   </div>
