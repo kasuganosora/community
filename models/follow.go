@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"github.com/kasuganosora/community/event"
 	"gorm.io/gorm"
 )
@@ -20,7 +22,7 @@ type Follow struct { //nolint:recvcheck
 	FollowId   uint64         `gorm:"not null;type:bigint(20);index"            json:"follow_id"`
 	Status     int            `gorm:"not null;type:tinyint(4);default:0"        json:"status"`
 	Properties map[string]any `gorm:"type:json;serializer:json"                 json:"properties"`
-	CreatedAt  int64          `gorm:"type:timestamp;autoCreateTime"             json:"created_at"`
+	CreatedAt  *time.Time     `gorm:"type:timestamp;autoCreateTime"             json:"created_at"`
 	Account    *Account       `gorm:"foreignKey:AccountId"                      json:"account"`
 }
 

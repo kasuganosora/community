@@ -199,20 +199,21 @@ func TestAdditional_Follows_GetFollows_Empty(t *testing.T) {
 
 func TestAdditional_Follow_Fields(t *testing.T) {
 	props := map[string]any{"reblogs": true}
+	followCreatedAt := time.Unix(1700000000, 0)
 	f := Follow{
 		Id:         1,
 		AccountId:  10,
 		FollowId:   20,
 		Status:     FollowStatusFollowed,
 		Properties: props,
-		CreatedAt:  1700000000,
+		CreatedAt:  &followCreatedAt,
 	}
 	assert.Equal(t, uint64(1), f.Id)
 	assert.Equal(t, uint64(10), f.AccountId)
 	assert.Equal(t, uint64(20), f.FollowId)
 	assert.Equal(t, FollowStatusFollowed, f.Status)
 	assert.True(t, f.Properties["reblogs"].(bool)) //nolint:forcetypeassert
-	assert.Equal(t, int64(1700000000), f.CreatedAt)
+	assert.Equal(t, int64(1700000000), f.CreatedAt.Unix())
 }
 
 // ============================================================================

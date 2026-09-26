@@ -111,7 +111,7 @@ func (f *FixtureBuilder) CreateFollow(follower, following *models.Account, overr
 		AccountId: follower.Id,
 		FollowId:  following.Id,
 		Status:    models.FollowStatusFollowed,
-		CreatedAt: now.Unix(),
+		CreatedAt: &now,
 	}
 
 	for _, override := range overrides {

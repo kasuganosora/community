@@ -628,7 +628,7 @@ func TestConsumeInviteCodeTx_InsideTransactionWithOtherWrites(t *testing.T) {
 		}
 
 		// Do another write in the same tx.
-		if e := tx.Create(&models.Follow{AccountId: 1, FollowId: 2, Status: models.FollowStatusFollowed, CreatedAt: time.Now().Unix()}).Error; e != nil {
+		if e := tx.Create(&models.Follow{AccountId: 1, FollowId: 2, Status: models.FollowStatusFollowed, CreatedAt: ptrNow()}).Error; e != nil {
 			return e
 		}
 
@@ -673,7 +673,7 @@ func TestRegistrationFlow_InviteCodeConsumedAtomically(t *testing.T) {
 			return e
 		}
 
-		if e := tx.Create(&models.Follow{AccountId: 1, FollowId: 2, Status: models.FollowStatusFollowed, CreatedAt: time.Now().Unix()}).Error; e != nil {
+		if e := tx.Create(&models.Follow{AccountId: 1, FollowId: 2, Status: models.FollowStatusFollowed, CreatedAt: ptrNow()}).Error; e != nil {
 			return e
 		}
 
@@ -707,4 +707,10 @@ func TestRegistrationFlow_InviteCodeConsumedAtomically(t *testing.T) {
 	assert.Contains(t, []int{1, 2}, fresh.UseCount,
 		"after a failed registration, use_count is 1 on a real DB (rolled back) or 2 on the "+
 			"no-op-tx test engine (not rolled back) — both are acceptable")
+}
+
+func ptrNow() *time.Time {
+	now := time.Now()
+
+	return &now
 }
