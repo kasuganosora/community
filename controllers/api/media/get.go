@@ -17,8 +17,17 @@ import (
 func Get(c *gin.Context) {
 	mediaId := c.Param("id")
 
+	// Like Mastodon, only the uploader may query an attachment through the
+	// API (other users see it embedded in statuses).
+	query := db.GetDB().Where("id = ?", mediaId)
+	if account, ok := c.Get("account"); ok {
+		if acc, ok := account.(*models.Account); ok && acc != nil {
+			query = query.Where("account_id = ?", acc.Id)
+		}
+	}
+
 	var media models.MediaAttachment
-	if err := db.GetDB().Where("id = ?", mediaId).First(&media).Error; err != nil {
+	if err := query.First(&media).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"}) //nolint:goconst
 

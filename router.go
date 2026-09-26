@@ -54,6 +54,9 @@ func SetRouter(app gin.IRouter) {
 	// 全局：自毁模式下的写操作限制（必须在业务路由之前应用）
 	app.Use(middleware.SelfDestructMiddleware())
 
+	// Uploaded media files (URLs built by serializer.ToMediaAttachment).
+	app.GET("/media/:id/*file", media.Serve)
+
 	apiGroup := app.Group("/api")
 
 	// API v1 - Mastodon 标准 API
@@ -278,8 +281,15 @@ func SetRouter(app gin.IRouter) {
 	mediaGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
 		POST("/media", media.Upload).
 		POST("/media/v2", media.UploadAsync).
+		GET("/media/:id", media.Get).
 		PUT("/media/:id", media.Update).
 		DELETE("/media/:id", media.Delete)
+
+	// Mastodon clients upload via POST /api/v2/media (async upload).
+	v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),
+		middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/media", 30),
+		middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
+		POST("/media", media.UploadAsync)
 
 	// 状态（读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).

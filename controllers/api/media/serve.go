@@ -1,0 +1,72 @@
+package media
+
+import (
+	"net/http"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+)
+
+// mediaRootDir is where Upload/UploadAsync store files (relative to the
+// working directory, see upload.go).
+var mediaRootDir = filepath.Join("uploads", "media")
+
+// Serve handles GET /media/:id/*file, the URLs produced by
+// serializer.ToMediaAttachment:
+//
+//	/media/<id>/<file_name>
+//	/media/<id>/thumbnail/<thumbnail_path>
+//
+// Previously no route served these URLs, so every uploaded image/video URL
+// fell through to the SPA index.html.
+func Serve(c *gin.Context) {
+	requested := strings.TrimPrefix(c.Param("file"), "/")
+
+	var media models.MediaAttachment
+	if err := db.GetDB().Where("id = ?", c.Param("id")).First(&media).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
+		return
+	}
+
+	// media.FilePath is "<yyyy>/<mm>/<dd>/<file_name>"; the thumbnail lives
+	// next to it. Only these two exact names are served, so the request
+	// path can never be used to reach other files.
+	dir := path.Dir(filepath.ToSlash(media.FilePath))
+
+	var (
+		rel         string
+		contentType string
+	)
+
+	switch {
+	case media.FileName != "" && media.FileName != "processing" && requested == media.FileName:
+		rel = path.Join(dir, media.FileName)
+		contentType = media.ContentType
+	case media.ThumbnailPath != nil && *media.ThumbnailPath != "" && requested == "thumbnail/"+*media.ThumbnailPath:
+		rel = path.Join(dir, *media.ThumbnailPath)
+		contentType = "" // let http.ServeFile sniff from the extension
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
+		return
+	}
+
+	if strings.Contains(rel, "..") {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
+		return
+	}
+
+	if contentType != "" {
+		c.Header("Content-Type", contentType)
+	}
+
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.File(filepath.Join(mediaRootDir, filepath.FromSlash(rel)))
+}
