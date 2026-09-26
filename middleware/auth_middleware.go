@@ -128,6 +128,10 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("token_data", tokenData)
 		c.Set("user", user)
 		c.Set("account", account)
+		// Optional-auth routes (search, account statuses, relationships, ...)
+		// only run AuthMiddleware and check GetBool("authenticated"), which
+		// was previously set by CheckAuthMiddleware alone.
+		c.Set("authenticated", true)
 		c.Next()
 	}
 }
