@@ -388,7 +388,9 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 
 	// Fallback to database search
 	query := db.GetDB().Model(&models.Tag{}).
-		Where("name LIKE ?", "#"+keyword+"%").
+		// Tags parsed from statuses are stored without the leading '#'
+		// (featured tags are stored with it), so match both forms.
+		Where("name LIKE ? OR name LIKE ?", keyword+"%", "#"+keyword+"%").
 		Order("status_count DESC, name ASC")
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error
