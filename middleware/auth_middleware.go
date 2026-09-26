@@ -51,7 +51,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 判断token是否过期
-		if tokenData.ExpiredAt < time.Now().Unix() {
+		if tokenDataExpired(tokenData, time.Now()) {
 			returnUnauthorizedAndRemoveCookie(c)
 
 			return
@@ -130,6 +130,13 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("account", account)
 		c.Next()
 	}
+}
+
+// tokenDataExpired reports whether the token payload is past its expiry.
+// ExpiredAt == 0 means the token never expires (all OAuth tokens are issued
+// that way), so it must not be treated as expired.
+func tokenDataExpired(td *models.AuthTokenData, now time.Time) bool {
+	return td.ExpiredAt > 0 && td.ExpiredAt < now.Unix()
 }
 
 func returnUnauthorizedAndRemoveCookie(c *gin.Context) {
