@@ -17,6 +17,6 @@ import WhoToFollowCard from '@/shared/components/widgets/WhoToFollowCard.vue'
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding-top: var(--space-2);
+  padding-bottom: var(--space-8);
 }
 </style>

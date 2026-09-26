@@ -8,6 +8,11 @@ import {
   SettingIcon, ShareIcon, SmileIcon, SwapIcon, TimeIcon, UserIcon, UserAddIcon,
   UserCircleIcon, UserListIcon, ViewListIcon,
 } from 'tdesign-icons-vue-next'
+// Filled / state variants used by the navigation chrome and appearance settings.
+import {
+  ChevronRightIcon, DesktopIcon, HomeFilledIcon, MailFilledIcon, ModeDarkIcon, ModeLightIcon,
+  NotificationFilledIcon, SettingFilledIcon, UserCircleFilledIcon,
+} from 'tdesign-icons-vue-next'
 
 /** Icons bundled locally (no runtime download). Add names here as needed. */
 export const ICONS: Record<string, Component> = {
@@ -23,15 +28,18 @@ export const ICONS: Record<string, Component> = {
   'check-circle': CheckCircleIcon,
   'chevron-down': ChevronDownIcon,
   'chevron-left': ChevronLeftIcon,
+  'chevron-right': ChevronRightIcon,
   'chevron-up': ChevronUpIcon,
   'close': CloseIcon,
   'delete': DeleteIcon,
+  'desktop': DesktopIcon,
   'earth': EarthIcon,
   'edit': EditIcon,
   'error-circle': ErrorCircleIcon,
   'heart': HeartIcon,
   'heart-filled': HeartFilledIcon,
   'home': HomeIcon,
+  'home-filled': HomeFilledIcon,
   'image': ImageIcon,
   'image-add': ImageAddIcon,
   'link': LinkIcon,
@@ -40,11 +48,16 @@ export const ICONS: Record<string, Component> = {
   'lock-on': LockOnIcon,
   'logout': LogoutIcon,
   'mail': MailIcon,
+  'mail-filled': MailFilledIcon,
+  'mode-dark': ModeDarkIcon,
+  'mode-light': ModeLightIcon,
   'more': MoreIcon,
   'notification': NotificationIcon,
+  'notification-filled': NotificationFilledIcon,
   'refresh': RefreshIcon,
   'search': SearchIcon,
   'setting': SettingIcon,
+  'setting-filled': SettingFilledIcon,
   'share': ShareIcon,
   'smile': SmileIcon,
   'swap': SwapIcon,
@@ -52,6 +65,7 @@ export const ICONS: Record<string, Component> = {
   'user': UserIcon,
   'user-add': UserAddIcon,
   'user-circle': UserCircleIcon,
+  'user-circle-filled': UserCircleFilledIcon,
   'user-list': UserListIcon,
   'view-list': ViewListIcon,
 }

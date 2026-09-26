@@ -19,6 +19,7 @@
   --color-bg: #ffffff;                 /* page / primary content */
   --color-bg-grouped: #f5f5f7;         /* grouped lists, cards on the rail */
   --color-bg-elevated: #ffffff;        /* sheets, popovers (solid fallback) */
+  --color-bg-row: #ffffff;             /* rows of an inset grouped list */
   --color-fill: rgba(120, 120, 128, 0.12);        /* inputs, chips */
   --color-fill-strong: rgba(120, 120, 128, 0.2);  /* pressed fill */
   --color-hover: rgba(0, 0, 0, 0.035);
@@ -134,7 +135,7 @@
   --sidebar-left-width: 16rem;
   --sidebar-left-collapsed: 4.75rem;
   --content-max-width: 37.5rem;        /* 600px */
-  --sidebar-right-width: 21.25rem;
+  --sidebar-right-width: 22.5rem;
   --bar-height: 3.25rem;               /* page nav bar */
   --tabbar-height: 3.25rem;            /* mobile tab bar, excl. safe area */
   --safe-top: env(safe-area-inset-top, 0px);
