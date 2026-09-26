@@ -1039,8 +1039,11 @@ func base64RawStd(b []byte) string {
 func setupMinimalTestDB(t *testing.T) {
 	t.Helper()
 	// Use a unique in-memory DB to avoid cross-test interference with federation_timestamp_test.go
-	// which uses "file::memory:?cache=shared".
-	uniqueDSN := "file:hshandler_" + randomSuffix() + "?mode=memory&cache=private&_busy_timeout=5000"
+	// which uses "file::memory:?cache=shared". The cache must be shared: with
+	// cache=private every pooled connection opens its own empty database, so
+	// a handler that used a second connection (e.g. a query outside its
+	// transaction, or a background goroutine) failed with "no such table".
+	uniqueDSN := "file:hshandler_" + randomSuffix() + "?mode=memory&cache=shared&_busy_timeout=5000"
 	dbConn, err := gorm.Open(sqlite.Open(uniqueDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

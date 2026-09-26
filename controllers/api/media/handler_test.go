@@ -37,6 +37,16 @@ func setupMediaTestDB(t *testing.T) *gorm.DB {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
+
+	// Every new connection to ":memory:" opens a separate, empty database.
+	// UploadAsync's background goroutine and the test's polling query run
+	// concurrently, so with a pool the goroutine could get a fresh
+	// connection and fail with "no such table: media_attachments". Pin the
+	// pool to a single connection so everyone sees the same database.
+	sqlDB, err := gdb.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
 	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}))
 
 	prev := database.GetDB()

@@ -1560,7 +1560,10 @@ func TestVotePoll_Success(t *testing.T) {
 func TestVotePoll_Expired(t *testing.T) {
 	ts := newTestSetup(t)
 
-	expiresAt := time.Now().Add(-1 * time.Hour) // expired
+	// Expired well beyond any timezone offset: the in-memory test database
+	// stores naive datetimes, so a timestamp only one hour in the past read
+	// back as UTC is still in the future when TZ is ahead of UTC (e.g. UTC+8).
+	expiresAt := time.Now().Add(-48 * time.Hour)
 	poll := ts.fix.CreatePoll(ts.status.Id, ts.acct.Id, func(p *models.Poll) {
 		p.ExpiresAt = &expiresAt
 		p.Multiple = false
