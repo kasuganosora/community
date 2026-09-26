@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
-import { useStatusActions, applyStatusUpdate } from '../../presentation/composables/useStatusActions'
+import {
+  useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
+} from '../../presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
-import RichText from '@/shared/components/common/RichText.vue'
+import PostContent from '@/shared/components/post/PostContent.vue'
+import PostActions from '@/shared/components/post/PostActions.vue'
+import PostComposer from '@/shared/components/post/PostComposer.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const route = useRoute()
@@ -16,6 +20,16 @@ const ancestors = ref<MastodonStatus[]>([])
 const descendants = ref<MastodonStatus[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const replyComposer = ref<InstanceType<typeof PostComposer>>()
+
+// The status actually shown: the reblogged original if the id is a reblog,
+// with any edit made in this session applied.
+const mainStatus = computed(() => {
+  const base = status.value?.reblog ?? status.value
+  if (!base) return null
+  const edited = editedStatuses.get(base.id)
+  return edited ? { ...base, ...edited } : base
+})
 
 // All status arrays (ancestors + descendants + main status) need updates;
 // the helper applies to whichever array contains the matching id.
@@ -50,35 +64,63 @@ async function loadPost() {
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load post:', e)
-    error.value = 'Failed to load this post'
+    const code = (e as { response?: { status?: number } })?.response?.status
+    error.value = code === 404 ? '这条帖子不存在或已被删除' : code === 403 ? '你没有权限查看这条帖子' : '加载失败，请稍后重试'
     status.value = null
   } finally {
     if (myVersion === requestVersion) {
       loading.value = false
     }
   }
+  if (myVersion === requestVersion && status.value && route.query.reply) {
+    await nextTick()
+    replyComposer.value?.focus()
+  }
 }
 
 onMounted(loadPost)
-watch(() => route.params.statusId, loadPost)
+watch(() => route.params.statusId, (id) => { if (id) loadPost() })
+
+// Leave the page when the main post is deleted from its menu.
+watch(() => mainStatus.value && deletedStatusIds.has(mainStatus.value.id), (gone) => {
+  if (gone) goBack()
+})
+
+function onReplied(reply: MastodonStatus) {
+  descendants.value.push(reply)
+  if (status.value) {
+    const target = status.value.reblog ?? status.value
+    target.replies_count = (target.replies_count || 0) + 1
+  }
+}
+
+function focusReply() {
+  replyComposer.value?.focus()
+}
 
 function goBack() {
   // Check if there's history to go back to, otherwise go to home
-  if (window.history.length > 1) {
+  if (window.history.state?.back) {
     router.back()
   } else {
     router.push({ name: 'home' })
   }
+}
+
+function openProfile() {
+  if (!mainStatus.value) return
+  const a = mainStatus.value.account
+  router.push({ name: 'profile', params: { username: a.acct || a.username } }).catch(() => {})
 }
 </script>
 
 <template>
   <div class="detail-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" @click="goBack" aria-label="Go back">
+      <button class="page-header__back-btn" @click="goBack" aria-label="返回">
         <t-icon name="chevron-left" :size="20" />
       </button>
-      <h1 class="page-header__title">Post</h1>
+      <h1 class="page-header__title">帖子</h1>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -89,11 +131,11 @@ function goBack() {
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">Something went wrong</h2>
+      <h2 class="empty-state__title">无法显示这条帖子</h2>
       <p class="empty-state__text">{{ error }}</p>
     </div>
 
-    <template v-else-if="status">
+    <template v-else-if="status && mainStatus">
       <!-- Ancestors (context above) -->
       <PostCard
         v-for="s in ancestors"
@@ -105,29 +147,42 @@ function goBack() {
       />
 
       <!-- Main post (highlighted) -->
-      <article class="detail-main">
+      <article class="detail-main" aria-label="帖子正文">
         <div class="detail-main__header">
-          <UserAvatar :account="status.account" :size="48" />
+          <button type="button" class="detail-main__avatar" :aria-label="`查看 ${mainStatus.account.display_name || mainStatus.account.username} 的个人主页`" @click="openProfile">
+            <UserAvatar :account="mainStatus.account" :size="48" />
+          </button>
           <div class="detail-main__user">
-            <div class="detail-main__name">{{ status.account.display_name }}</div>
-            <div class="detail-main__username">@{{ status.account.acct }}</div>
+            <div class="detail-main__name">{{ mainStatus.account.display_name || mainStatus.account.username }}</div>
+            <div class="detail-main__username">@{{ mainStatus.account.acct }}</div>
           </div>
         </div>
 
-        <RichText class="detail-main__content rich-text" :html="status.content" />
+        <PostContent :status="mainStatus" text-class="detail-main__content rich-text" />
 
         <div class="detail-main__time">
-          <time :datetime="status.created_at">
-            {{ new Date(status.created_at).toLocaleString() }}
+          <time :datetime="mainStatus.created_at">
+            {{ new Date(mainStatus.created_at).toLocaleString() }}
           </time>
+          <span v-if="mainStatus.edited_at"> · 已编辑</span>
         </div>
 
         <div class="detail-main__stats">
-          <span><strong>{{ status.reblogs_count }}</strong> Reposts</span>
-          <span><strong>{{ status.favourites_count }}</strong> Likes</span>
-          <span><strong>{{ status.replies_count }}</strong> Replies</span>
+          <span><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
+          <span><strong>{{ mainStatus.favourites_count }}</strong> 个喜欢</span>
+          <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
         </div>
+
+        <PostActions
+          :status="mainStatus"
+          @reply="focusReply"
+          @reblog="toggleReblog(mainStatus)"
+          @favourite="toggleFavourite(mainStatus)"
+          @bookmark="toggleBookmark(mainStatus)"
+        />
       </article>
+
+      <PostComposer ref="replyComposer" :reply-to="mainStatus" @posted="onReplied" />
 
       <!-- Descendants (replies below) -->
       <PostCard
@@ -157,6 +212,11 @@ function goBack() {
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
+}
+
+.detail-main__avatar {
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
 }
 
 .detail-main__user {
