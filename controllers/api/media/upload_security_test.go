@@ -82,9 +82,12 @@ func TestExtensionForContentType(t *testing.T) {
 		expectedExt string // expected extension that must be one of valid options
 		validExts   []string
 	}{
-		{"jpeg", "image/jpeg", "", []string{".jpg", ".jpeg", ".jpe", ".jfif"}},
+		{"jpeg", "image/jpeg", ".jpg", []string{".jpg"}},
 		{"png", "image/png", ".png", []string{".png"}},
 		{"mp4", "video/mp4", ".mp4", []string{".mp4"}},
+		{"webm", "video/webm", ".webm", []string{".webm"}},
+		{"quicktime", "video/quicktime", ".mov", []string{".mov"}},
+		{"mp3", "audio/mpeg", ".mp3", []string{".mp3"}},
 	}
 
 	for _, tt := range tests {

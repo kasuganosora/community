@@ -312,7 +312,40 @@ func validateMagicBytes(header *multipart.FileHeader, declaredContentType string
 }
 
 // extensionForContentType 从 Content-Type 推导文件扩展名.
+// preferredExtensions pins the extension for the media types we accept.
+// mime.ExtensionsByType returns extensions sorted alphabetically and depends
+// on the host's /etc/mime.types, so e.g. on Debian video/mp4 became ".f4v",
+// image/jpeg ".jfif", video/quicktime ".moov" and video/webm ".bin" (no
+// entry), which then got served with the wrong Content-Type.
+var preferredExtensions = map[string]string{
+	"image/jpeg":      ".jpg",
+	"image/png":       ".png",
+	"image/gif":       ".gif",
+	"image/webp":      ".webp",
+	"image/avif":      ".avif",
+	"image/heic":      ".heic",
+	"image/heif":      ".heif",
+	"video/mp4":       ".mp4",
+	"video/webm":      ".webm",
+	"video/quicktime": ".mov",
+	"video/ogg":       ".ogv",
+	"audio/mpeg":      ".mp3",
+	"audio/mp3":       ".mp3",
+	"audio/ogg":       ".ogg",
+	"audio/wav":       ".wav",
+	"audio/x-wav":     ".wav",
+	"audio/webm":      ".weba",
+	"audio/flac":      ".flac",
+	"audio/aac":       ".aac",
+	"audio/mp4":       ".m4a",
+	"audio/x-m4a":     ".m4a",
+}
+
 func extensionForContentType(contentType string) string {
+	if ext, ok := preferredExtensions[strings.ToLower(contentType)]; ok {
+		return ext
+	}
+
 	exts, _ := mime.ExtensionsByType(contentType)
 	ext := ".bin"
 	if len(exts) > 0 {
