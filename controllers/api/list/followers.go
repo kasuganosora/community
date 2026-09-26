@@ -9,10 +9,10 @@ import (
 )
 
 type GetListFollowersRequest struct {
-	MaxId   *uint64 `query:"max_id"`
-	MinId   *uint64 `query:"min_id"`
-	Limit   *uint64 `query:"limit"`
-	SinceId *uint64 `query:"since_id"`
+	MaxId   *uint64 `form:"max_id"`
+	MinId   *uint64 `form:"min_id"`
+	Limit   *uint64 `form:"limit"`
+	SinceId *uint64 `form:"since_id"`
 }
 
 func GetListFollowers(c *gin.Context) {

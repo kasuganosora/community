@@ -10,11 +10,11 @@ import (
 )
 
 type SearchRequest struct {
-	Keyword   string `binding:"required,min=1,max=100" query:"q"`
-	Limit     int    `binding:"min=1,max=100"          query:"limit"`
-	Offset    int    `binding:"min=0"                  query:"offset"`
-	Resolve   bool   `query:"resolve"`   // 是否使用 WebFinger 协议 查找， q必须为精确的账号地址 TODO ...
-	Following bool   `query:"following"` // 是否只查找关注的账号
+	Keyword   string `binding:"required,min=1,max=100" form:"q"`
+	Limit     int    `binding:"omitempty,min=1,max=100" form:"limit"`
+	Offset    int    `binding:"min=0"                  form:"offset"`
+	Resolve   bool   `form:"resolve"`   // 是否使用 WebFinger 协议 查找， q必须为精确的账号地址 TODO ...
+	Following bool   `form:"following"` // 是否只查找关注的账号
 }
 
 func Search(c *gin.Context) {

@@ -83,10 +83,10 @@ func Unfavourite(c *gin.Context) {
 }
 
 type FavouritedByRequest struct {
-	MaxId   uint64 `query:"max_id"`
-	SinceId uint64 `query:"since_id"`
-	Limit   uint64 `query:"limit"`
-	Offset  uint64 `query:"offset"`
+	MaxId   uint64 `form:"max_id"`
+	SinceId uint64 `form:"since_id"`
+	Limit   uint64 `form:"limit"`
+	Offset  uint64 `form:"offset"`
 }
 
 func FavouritedBy(c *gin.Context) {
