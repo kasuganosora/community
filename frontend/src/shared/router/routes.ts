@@ -19,6 +19,7 @@ export const RouteNames = {
   LISTS: 'lists',
   LIST_TIMELINE: 'list-timeline',
   SETTINGS: 'settings',
+  ABOUT: 'about',
 } as const
 
 /** Union of all route name string literals */
@@ -43,6 +44,15 @@ const AuthRoutes: RouteRecordRaw[] = [
     name: RouteNames.REGISTER,
     component: () => import('@/domains/auth/presentation/pages/RegisterPage.vue'),
     meta: { guestOnly: true },
+  },
+]
+
+// Public (no auth, no guest-only redirect): instance info, rules and terms.
+const PublicRoutes: RouteRecordRaw[] = [
+  {
+    path: '/about',
+    name: RouteNames.ABOUT,
+    component: () => import('@/domains/instance/presentation/pages/AboutPage.vue'),
   },
 ]
 
@@ -125,6 +135,7 @@ const MainRoutes: RouteRecordRaw[] = [
 
 export const routes: RouteRecordRaw[] = [
   ...AuthRoutes,
+  ...PublicRoutes,
   {
     path: '/',
     component: () => import('@/shared/components/layout/AppLayout.vue'),
@@ -157,6 +168,7 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.LISTS]: { title: '列表' },
   [RouteNames.LIST_TIMELINE]: { title: '列表' },
   [RouteNames.SETTINGS]: { title: '设置' },
+  [RouteNames.ABOUT]: { title: '关于' },
 }
 
 /** Document title for a route: "<page> - Community", or just the app name. */

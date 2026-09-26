@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '../../infrastructure/authApi'
+import { instanceApi, DEFAULT_RULES, type InstanceRule } from '@/domains/instance/infrastructure/instanceApi'
 
 const router = useRouter()
 const route = useRoute()
 
 const step = ref<'rules' | 'form'>('rules')
 
-// Server rules
-const rules = [
-  { id: 1, text: 'Be friendly and respectful' },
-  { id: 2, text: 'No NSFW content, especially CSAM' },
-  { id: 3, text: 'No terrorism-related content' },
-  { id: 4, text: 'No hate speech' },
-]
+// Server rules come from /api/v1/instance/rules (they were hard-coded);
+// the defaults are only shown when the admin has not configured any.
+const rules = ref<InstanceRule[]>(DEFAULT_RULES)
+onMounted(async () => {
+  try {
+    const list = await instanceApi.getRules()
+    if (list.length) rules.value = list
+  } catch {
+    // keep the defaults
+  }
+})
 
 const rulesAgreed = ref(false)
 const tosAgreed = ref(false)
@@ -135,13 +140,13 @@ function close() {
 
         <!-- Server rules -->
         <div class="rules-section">
-          <div class="rules-section__header" @click="() => {}">
+          <div class="rules-section__header">
             <span>Server Rules</span>
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-list">
-            <div v-for="rule in rules" :key="rule.id" class="rule-item">
-              <span class="rule-number">{{ rule.id }}</span>
+            <div v-for="(rule, i) in rules" :key="rule.id" class="rule-item">
+              <span class="rule-number">{{ i + 1 }}</span>
               <span class="rule-text">{{ rule.text }}</span>
             </div>
           </div>
@@ -158,7 +163,8 @@ function close() {
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-tos">
-            <a href="#" class="tos-link">
+            <!-- New tab, so the registration progress isn't lost. -->
+            <a href="/about#terms" target="_blank" rel="noopener" class="tos-link">
               Terms of Service
               <t-icon name="link" :size="14" />
             </a>

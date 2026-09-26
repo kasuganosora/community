@@ -119,8 +119,9 @@ function stripHtml(html: string | null | undefined): string {
               shape="round"
               variant="outline"
               class="btn-explore"
-              disabled
-              title="Coming soon"
+              href="https://joinmastodon.org/servers"
+              target="_blank"
+              rel="noopener"
             >
               Explore other servers
             </t-button>
