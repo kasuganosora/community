@@ -5,6 +5,9 @@ import App from './App.vue'
 import { setAuthExpiredCallback } from '@/shared/api/client'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 
+// TDesign's base token sheet (radii, sizes, light/dark palettes) must load
+// before our theme bridge, which remaps those tokens onto the design system.
+import 'tdesign-vue-next/es/style/index.css'
 import '@/shared/styles/global.css'
 
 const app = createApp(App)

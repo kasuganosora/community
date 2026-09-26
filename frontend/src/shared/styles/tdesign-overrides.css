@@ -1,614 +1,446 @@
-/* ========================================
-   TDesign Dark Theme Token Overrides
-   ======================================== */
-:root {
-  /* Brand Colors */
-  --td-brand-color: var(--accent-blue);
-  --td-brand-color-hover: var(--accent-blue-hover);
-  --td-brand-color-active: #1577bb;
-  --td-brand-color-light: var(--accent-blue-light);
-  --td-brand-color-light-hover: rgba(29, 155, 240, 0.2);
+/* ==========================================================================
+   TDesign theme bridge
+   --------------------------------------------------------------------------
+   TDesign stays the component library; it is restyled through its own
+   --td-* tokens, mapped onto our design tokens. The selector list matches
+   the specificity of TDesign's `:root[theme-mode='dark']` block so this
+   file wins in both modes and the values follow light/dark automatically.
+   ========================================================================== */
+:root,
+:root[theme-mode='light'],
+:root[theme-mode='dark'] {
+  /* Brand */
+  --td-brand-color: var(--color-accent);
+  --td-brand-color-hover: var(--color-accent-hover);
+  --td-brand-color-active: var(--color-accent-pressed);
+  --td-brand-color-focus: var(--color-accent-soft);
+  --td-brand-color-disabled: var(--color-fill-strong);
+  --td-brand-color-light: var(--color-accent-soft);
+  --td-brand-color-light-hover: var(--color-accent-soft);
 
-  /* Background Colors */
-  --td-bg-color-page: var(--bg-primary);
-  --td-bg-color-container: var(--bg-secondary);
-  --td-bg-color-container-hover: var(--bg-hover);
-  --td-bg-color-container-active: var(--bg-elevated);
-  --td-bg-color-secondarycontainer: var(--bg-secondary);
-  --td-bg-color-secondarycontainer-hover: var(--bg-hover);
-  --td-bg-color-component: var(--bg-secondary);
-  --td-bg-color-component-hover: var(--bg-hover);
-  --td-bg-color-component-disabled: var(--bg-elevated);
+  /* Surfaces */
+  --td-bg-color-page: var(--color-bg);
+  --td-bg-color-container: var(--color-bg-elevated);
+  --td-bg-color-container-hover: var(--color-hover);
+  --td-bg-color-container-active: var(--color-pressed);
+  --td-bg-color-container-select: var(--color-accent-soft);
+  --td-bg-color-secondarycontainer: var(--color-bg-grouped);
+  --td-bg-color-secondarycontainer-hover: var(--color-hover);
+  --td-bg-color-secondarycontainer-active: var(--color-pressed);
+  --td-bg-color-component: var(--color-fill);
+  --td-bg-color-component-hover: var(--color-fill-strong);
+  --td-bg-color-component-active: var(--color-fill-strong);
+  --td-bg-color-component-disabled: var(--color-fill);
+  --td-bg-color-specialcomponent: var(--color-fill);
+  --td-mask-active: var(--scrim);
+  --td-mask-disabled: rgba(127, 127, 127, 0.12);
 
-  /* Text Colors */
-  --td-text-color-primary: var(--text-primary);
-  --td-text-color-secondary: var(--text-secondary);
-  --td-text-color-placeholder: var(--text-tertiary);
-  --td-text-color-disabled: var(--text-disabled);
-  --td-text-color-anti: #fff;
-  --td-text-color-brand: var(--accent-blue);
+  /* Text */
+  --td-text-color-primary: var(--color-label);
+  --td-text-color-secondary: var(--color-label-secondary);
+  --td-text-color-placeholder: var(--color-label-tertiary);
+  --td-text-color-disabled: var(--color-label-tertiary);
+  --td-text-color-anti: var(--color-on-accent);
+  --td-text-color-brand: var(--color-accent-text);
+  --td-text-color-link: var(--color-accent-text);
 
-  /* Border Colors */
-  --td-border-level-1-color: var(--border-color);
-  --td-border-level-2-color: var(--border-light);
-  --td-component-border: var(--border-color);
-  --td-component-border-hover: var(--border-light);
+  /* Lines */
+  --td-border-level-1-color: var(--color-separator);
+  --td-border-level-2-color: var(--color-separator-opaque);
+  --td-component-stroke: var(--color-separator);
+  --td-component-border: var(--color-separator-opaque);
 
-  /* Status Colors */
-  --td-error-color: var(--danger);
-  --td-error-color-hover: rgba(244, 33, 46, 0.9);
-  --td-error-color-light: var(--danger-light);
-  --td-success-color: var(--success);
-  --td-success-color-hover: rgba(0, 186, 124, 0.9);
-  --td-success-color-light: var(--success-light);
-  --td-warning-color: var(--warning);
-  --td-warning-color-hover: rgba(255, 173, 31, 0.9);
-  --td-warning-color-light: var(--warning-light);
+  /* Status */
+  --td-error-color: var(--color-danger);
+  --td-error-color-hover: var(--color-danger);
+  --td-error-color-active: var(--color-danger);
+  --td-error-color-focus: var(--color-danger-soft);
+  --td-error-color-light: var(--color-danger-soft);
+  --td-success-color: var(--color-success);
+  --td-success-color-focus: var(--color-success-soft);
+  --td-success-color-light: var(--color-success-soft);
+  --td-warning-color: var(--color-warning);
+  --td-warning-color-focus: var(--color-warning-soft);
+  --td-warning-color-light: var(--color-warning-soft);
 
-  /* Typography */
-  --td-font-family: var(--font-family-base);
-  --td-font-size-body-small: var(--font-xs);
-  --td-font-size-body-medium: var(--font-md);
-  --td-font-size-body-large: var(--font-lg);
-  --td-font-size-title-small: var(--font-lg);
-  --td-font-size-title-medium: var(--font-xl);
-  --td-font-size-title-large: var(--font-2xl);
+  /* Type */
+  --td-font-family: var(--font-sans);
+  --td-font-family-medium: var(--font-sans);
+  --td-font-size-body-small: var(--text-footnote);
+  --td-font-size-body-medium: var(--text-body);
+  --td-font-size-body-large: var(--text-callout);
+  --td-font-size-title-small: var(--text-body);
+  --td-font-size-title-medium: var(--text-headline);
+  --td-font-size-title-large: var(--text-title-3);
+  --td-font-body-small: var(--text-footnote) / 1.38 var(--font-sans);
+  --td-font-body-medium: var(--text-body) / 1.47 var(--font-sans);
+  --td-font-body-large: var(--text-callout) / 1.45 var(--font-sans);
+  --td-font-title-small: var(--weight-semibold) var(--text-body) / 1.4 var(--font-sans);
+  --td-font-title-medium: var(--weight-semibold) var(--text-headline) / 1.3 var(--font-sans);
+  --td-font-title-large: var(--weight-semibold) var(--text-title-3) / 1.28 var(--font-sans);
 
-  /* Spacing */
-  --td-comp-paddingLR-xs: var(--space-2);
-  --td-comp-paddingLR-s: var(--space-3);
-  --td-comp-paddingLR-m: var(--space-4);
-  --td-comp-paddingLR-l: var(--space-5);
-  --td-comp-paddingLR-xl: var(--space-6);
-
-  /* Border Radius */
-  --td-radius-small: var(--radius-sm);
-  --td-radius-default: var(--radius-md);
-  --td-radius-medium: var(--radius-lg);
-  --td-radius-large: var(--radius-xl);
-  --td-radius-extraLarge: var(--radius-2xl);
+  /* Shape & depth */
+  --td-radius-small: var(--radius-xs);
+  --td-radius-default: var(--radius-sm);
+  --td-radius-medium: var(--radius-md);
+  --td-radius-large: var(--radius-lg);
+  --td-radius-extraLarge: var(--radius-xl);
   --td-radius-round: var(--radius-full);
+  --td-radius-circle: 50%;
+  --td-shadow-1: var(--shadow-1);
+  --td-shadow-2: var(--shadow-2);
+  --td-shadow-3: var(--shadow-popover);
 
-  /* Shadows */
-  --td-shadow-1: var(--shadow-sm);
-  --td-shadow-2: var(--shadow-md);
-  --td-shadow-3: var(--shadow-lg);
+  /* Controls: 44pt-friendly heights */
+  --td-comp-size-s: 2rem;
+  --td-comp-size-m: 2.25rem;
+  --td-comp-size-l: 2.75rem;
+  --td-comp-size-xl: 3rem;
+
+  --td-scrollbar-color: var(--color-fill-strong);
+  --td-scrollbar-hover-color: var(--color-label-tertiary);
+  --td-scroll-track-color: transparent;
 }
 
-/* ========================================
-   TDesign Component Overrides
-   ======================================== */
+/* ==========================================================================
+   Component restyles (html prefix = +1 specificity over TDesign's chunks,
+   which may load after this file)
+   ========================================================================== */
 
-/* Menu - Navigation style */
-.t-menu {
-  background: transparent !important;
-  border: none !important;
-}
-
-.t-menu__item {
-  color: var(--text-primary) !important;
-  border-radius: var(--radius-full) !important;
-  padding: var(--space-3) !important;
-  margin: var(--space-1) 0 !important;
-  font-size: var(--font-xl) !important;
-  font-weight: var(--font-normal) !important;
-  transition: background-color var(--transition-fast) !important;
-}
-
-.t-menu__item:hover {
-  background-color: var(--bg-hover) !important;
-}
-
-.t-menu__item.t-is-active {
-  font-weight: var(--font-bold) !important;
-  color: var(--text-primary) !important;
-  background: transparent !important;
-}
-
-/* Tabs */
-.t-tabs__nav-item {
-  color: var(--text-secondary) !important;
-  font-weight: var(--font-medium);
-  font-size: var(--font-md);
-}
-
-.t-tabs__nav-item:hover {
-  color: var(--text-primary) !important;
-}
-
-.t-tabs__nav-item.t-is-active {
-  color: var(--text-primary) !important;
-  font-weight: var(--font-bold);
-}
-
-.t-tabs__bar {
-  background-color: var(--accent-blue) !important;
-  border-radius: var(--radius-full) !important;
-  height: 4px !important;
-}
-
-/* Input */
-.t-input {
-  background-color: var(--bg-secondary) !important;
-  border-color: transparent !important;
-  border-radius: var(--radius-full) !important;
-  color: var(--text-primary) !important;
-  font-size: var(--font-md);
-  padding: var(--space-3) var(--space-4);
-}
-
-.t-input:hover {
-  border-color: var(--border-light) !important;
-  background-color: var(--bg-hover) !important;
-}
-
-.t-input:focus-within,
-.t-input.t-is-focused {
-  border-color: var(--accent-blue) !important;
-  background-color: var(--bg-primary) !important;
-  box-shadow: 0 0 0 1px var(--accent-blue);
-}
-
-.t-input__inner {
-  font-size: var(--font-md);
-}
-
-.t-input__placeholder {
-  color: var(--text-tertiary) !important;
-}
-
-/* Button - Primary */
-.t-button--theme-primary {
-  background-color: var(--accent-blue) !important;
-  border-color: var(--accent-blue) !important;
-  color: white !important;
-  font-weight: var(--font-bold);
+/* ---- Button -------------------------------------------------------------- */
+html .t-button {
+  font-family: var(--font-sans);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
   border-radius: var(--radius-full);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-spring);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  /* TDesign's material ripple reads this; transparent = no ripple. Press
+     feedback is the scale below instead. */
+  --ripple-color: rgba(0, 0, 0, 0);
 }
 
-.t-button--theme-primary:hover:not(:disabled) {
-  background-color: var(--accent-blue-hover) !important;
-  border-color: var(--accent-blue-hover) !important;
+html .t-button:not(.t-is-disabled):not(:disabled):active {
+  transform: scale(var(--press-scale));
+  transition-duration: var(--duration-fast), var(--duration-fast), var(--duration-fast), var(--duration-press);
+  transition-timing-function: var(--ease-out);
 }
 
-.t-button--theme-primary:active:not(:disabled) {
-  transform: scale(0.98);
+html .t-button { height: 2.25rem; padding: 0 var(--space-5); font-size: var(--text-subhead); }
+html .t-button.t-size-s { height: 2rem; padding: 0 var(--space-4); font-size: var(--text-footnote); }
+html .t-button.t-size-l { height: 3rem; padding: 0 var(--space-6); font-size: var(--text-headline); font-weight: var(--weight-semibold); }
+html .t-button--shape-square.t-size-s,
+html .t-button--shape-circle { padding: 0; }
+
+html .t-button--variant-base.t-button--theme-primary {
+  background-color: var(--color-accent);
+  border-color: transparent;
+  color: var(--color-on-accent);
 }
 
-/* Button - Default */
-.t-button--theme-default {
-  background-color: transparent !important;
-  border-color: var(--border-color) !important;
-  color: var(--text-primary) !important;
-  font-weight: var(--font-bold);
-  border-radius: var(--radius-full);
+html .t-button--variant-base.t-button--theme-primary.t-is-disabled,
+html .t-button--variant-base.t-button--theme-primary:disabled {
+  background-color: var(--color-fill-strong);
+  color: var(--color-label-tertiary);
+  border-color: transparent;
 }
 
-.t-button--theme-default:hover:not(:disabled) {
-  background-color: var(--accent-blue-light) !important;
-  border-color: var(--accent-blue) !important;
-  color: var(--accent-blue) !important;
+html .t-button--variant-base.t-button--theme-default,
+html .t-button--variant-outline.t-button--theme-default {
+  background-color: var(--color-fill);
+  border-color: transparent;
+  color: var(--color-label);
 }
 
-/* Button - Danger */
-.t-button--theme-danger {
-  background-color: var(--danger) !important;
-  border-color: var(--danger) !important;
-  color: white !important;
+html .t-button--variant-text.t-button--theme-default {
+  color: var(--color-accent-text);
+  background: transparent;
+  border-color: transparent;
 }
 
-.t-button--theme-danger:hover:not(:disabled) {
-  background-color: rgba(244, 33, 46, 0.9) !important;
-  border-color: rgba(244, 33, 46, 0.9) !important;
+html .t-button--theme-danger.t-button--variant-base {
+  background-color: var(--color-danger);
+  border-color: transparent;
+  color: #fff;
 }
 
-/* Button Sizes */
-.t-button--size-small {
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-sm);
+@media (hover: hover) and (pointer: fine) {
+  html .t-button--variant-base.t-button--theme-primary:not(.t-is-disabled):hover {
+    background-color: var(--color-accent-hover);
+  }
+  html .t-button--variant-base.t-button--theme-default:not(.t-is-disabled):hover,
+  html .t-button--variant-outline.t-button--theme-default:not(.t-is-disabled):hover {
+    background-color: var(--color-fill-strong);
+    border-color: transparent;
+    color: var(--color-label);
+  }
+  html .t-button--variant-text.t-button--theme-default:not(.t-is-disabled):hover {
+    background-color: var(--color-accent-soft);
+  }
 }
 
-.t-button--size-medium {
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-md);
-}
-
-.t-button--size-large {
-  padding: var(--space-4) var(--space-5);
-  font-size: var(--font-lg);
-}
-
-/* Card */
-.t-card {
-  background-color: var(--bg-card) !important;
-  border: 1px solid var(--border-color) !important;
-  border-radius: var(--radius-xl) !important;
-  backdrop-filter: blur(10px);
-}
-
-.t-card__header {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.t-card__body {
-  padding: var(--space-4);
-}
-
-/* Dialog */
-.t-dialog {
-  background-color: var(--bg-primary) !important;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl) !important;
-  box-shadow: var(--shadow-lg);
-}
-
-.t-dialog__header {
-  color: var(--text-primary) !important;
-  font-weight: var(--font-bold);
-  font-size: var(--font-xl);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.t-dialog__body {
-  padding: var(--space-5);
-}
-
-.t-dialog__footer {
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--border-color);
-}
-
-/* Alert */
-.t-alert {
-  border-radius: var(--radius-lg);
-  font-size: var(--font-md);
-}
-
-.t-alert--theme-error {
-  background-color: var(--danger-light) !important;
-  border-color: var(--danger) !important;
-  color: var(--danger) !important;
-}
-
-.t-alert--theme-success {
-  background-color: var(--success-light) !important;
-  border-color: var(--success) !important;
-  color: var(--success) !important;
-}
-
-.t-alert--theme-warning {
-  background-color: var(--warning-light) !important;
-  border-color: var(--warning) !important;
-  color: var(--warning) !important;
-}
-
-/* Dropdown */
-.t-dropdown__menu {
-  background-color: var(--bg-primary) !important;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: var(--space-2);
-}
-
-.t-dropdown__item {
+/* ---- Inputs ---------------------------------------------------------------- */
+html .t-input {
+  background-color: var(--color-fill);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  color: var(--text-primary);
-  font-size: var(--font-md);
+  color: var(--color-label);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
-.t-dropdown__item:hover {
-  background-color: var(--bg-hover);
+html .t-input--focused,
+html .t-input:focus-within {
+  background-color: var(--color-bg);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
-/* Avatar */
-.t-avatar {
-  border: 2px solid var(--border-color);
-  background: var(--bg-secondary);
+html .t-input.t-is-error,
+html .t-input__wrap .t-is-error {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--color-danger-soft);
 }
 
-.t-avatar img {
-  object-fit: cover;
+html .t-input__inner {
+  color: var(--color-label);
+  font-size: var(--text-body);
 }
 
-/* Loading */
-.t-loading__gradient {
-  display: none;
+html .t-input__inner::placeholder,
+html .t-textarea__inner::placeholder {
+  color: var(--color-label-tertiary);
 }
 
-.t-loading__text {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
-  margin-top: var(--space-2);
+html .t-input--prefix > .t-input__prefix,
+html .t-input__suffix {
+  color: var(--color-label-secondary);
 }
 
-/* Form Item */
-.t-form__label {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
+html .t-input__tips,
+html .t-form__help {
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
 }
 
-.t-form__item {
+html .t-textarea__inner {
+  background-color: var(--color-fill);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-label);
+  line-height: var(--leading-body);
+}
+
+html .t-textarea__inner:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+/* iOS zooms into inputs under 16px and never zooms back — keep touch
+   inputs at 1rem (never disable zoom instead). */
+@media (pointer: coarse) {
+  html .t-input__inner,
+  html .t-textarea__inner,
+  input,
+  textarea,
+  select {
+    font-size: max(1rem, 16px);
+  }
+}
+
+/* ---- Form ------------------------------------------------------------------ */
+html .t-form__label {
+  color: var(--color-label);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+}
+
+html .t-form__item {
   margin-bottom: var(--space-4);
 }
 
-/* Tooltip */
-.t-tooltip {
-  font-size: var(--font-sm);
-}
-
-.t-tooltip--default {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
+/* ---- Alert (inline status) ------------------------------------------------- */
+html .t-alert {
+  border: none;
   border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-subhead);
 }
 
-/* Switch */
-.t-switch {
+html .t-alert--error { background-color: var(--color-danger-soft); }
+html .t-alert--error .t-alert__message,
+html .t-alert--error .t-alert__icon { color: var(--color-danger); }
+html .t-alert--success { background-color: var(--color-success-soft); }
+html .t-alert--success .t-alert__message,
+html .t-alert--success .t-alert__icon { color: var(--color-success); }
+html .t-alert--warning { background-color: var(--color-warning-soft); }
+html .t-alert--warning .t-alert__message,
+html .t-alert--warning .t-alert__icon { color: var(--color-warning); }
+html .t-alert--info { background-color: var(--color-accent-soft); }
+
+/* ---- Avatar ---------------------------------------------------------------- */
+html .t-avatar {
+  background: var(--color-fill);
+  color: var(--color-label-secondary);
+  font-weight: var(--weight-semibold);
+  border: none;
+  /* hairline ring keeps white-ish avatars from bleeding into the page */
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+}
+
+:root[theme-mode='dark'] .t-avatar {
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+}
+
+html .t-avatar img {
+  object-fit: cover;
+}
+
+/* ---- Loading --------------------------------------------------------------- */
+html .t-loading {
+  color: var(--color-label-tertiary);
+}
+
+html .t-loading__text {
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+}
+
+/* ---- Popups: dropdown, popover, select, tooltip ----------------------------
+   Thick translucent material, deeper shadow for bigger surfaces, and a
+   scale that grows from the trigger (TDesign stamps data-popper-placement
+   on the popup content). */
+html .t-popup__content,
+html .t-dropdown__menu {
+  background: var(--material-thick);
+  -webkit-backdrop-filter: var(--material-blur-thick);
+  backdrop-filter: var(--material-blur-thick);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-label);
+}
+
+html .t-popup__content {
+  padding: var(--space-1);
+}
+
+html .t-dropdown__menu {
+  padding: var(--space-1);
+}
+
+html .t-dropdown__item {
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-3);
+  min-height: var(--hit-target);
+  color: var(--color-label);
+  font-size: var(--text-body);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+html .t-dropdown__item:active {
+  background-color: var(--color-pressed);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html .t-dropdown__item:hover {
+    background-color: var(--color-hover);
+  }
+}
+
+html .t-popup[data-popper-placement^='top'] .t-popup__content { transform-origin: bottom center; }
+html .t-popup[data-popper-placement^='bottom'] .t-popup__content { transform-origin: top center; }
+html .t-popup[data-popper-placement^='top-start'] .t-popup__content { transform-origin: bottom left; }
+html .t-popup[data-popper-placement^='bottom-start'] .t-popup__content { transform-origin: top left; }
+html .t-popup[data-popper-placement$='end'] .t-popup__content { transform-origin: bottom right; }
+
+/* Popup enter/exit: materialise (scale + blur + opacity) from the trigger.
+   Exit is faster than enter — the system response snaps. */
+html .t-popup--animation-enter-from,
+html .t-popup--animation-leave-to {
+  opacity: 0;
+}
+html .t-popup--animation-enter-from .t-popup__content,
+html .t-popup--animation-leave-to .t-popup__content {
+  transform: scale(0.95);
+  filter: blur(2px);
+}
+html .t-popup--animation-enter-active,
+html .t-popup--animation-enter-active .t-popup__content {
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-spring),
+    filter var(--duration-base) var(--ease-out) !important;
+}
+html .t-popup--animation-leave-active,
+html .t-popup--animation-leave-active .t-popup__content {
+  transition:
+    opacity 120ms var(--ease-out),
+    transform 120ms var(--ease-out),
+    filter 120ms var(--ease-out) !important;
+}
+
+html .t-tooltip .t-popup__content {
+  background: var(--material-thick);
+  color: var(--color-label);
+  font-size: var(--text-footnote);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Message (toast) ---------------------------------------------------------
+   Capsule of thick material floating over content, like a system HUD. */
+html .t-message {
+  background: var(--material-thick);
+  -webkit-backdrop-filter: var(--material-blur-thick);
+  backdrop-filter: var(--material-blur-thick);
+  color: var(--color-label);
   border-radius: var(--radius-full);
+  box-shadow: var(--shadow-popover);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
 }
 
-.t-switch--checked {
-  background-color: var(--accent-green) !important;
-}
+html .t-message.t-is-success .t-icon { color: var(--color-success); }
+html .t-message.t-is-error .t-icon { color: var(--color-danger); }
+html .t-message.t-is-warning .t-icon { color: var(--color-warning); }
+html .t-message.t-is-info .t-icon { color: var(--color-accent-text); }
 
-/* Checkbox & Radio */
-.t-checkbox,
-.t-radio {
-  color: var(--text-primary);
-  font-size: var(--font-md);
-}
-
-.t-checkbox__input.t-is-checked,
-.t-radio__input.t-is-checked {
-  background-color: var(--accent-blue);
-  border-color: var(--accent-blue);
-}
-
-/* Textarea */
-.t-textarea {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  border-radius: var(--radius-lg);
-  color: var(--text-primary);
-}
-
-.t-textarea:hover {
-  border-color: var(--border-light);
-}
-
-.t-textarea:focus-within {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 1px var(--accent-blue);
-}
-
-.t-textarea__inner {
-  line-height: var(--leading-relaxed);
-}
-
-/* Select */
-.t-select {
-  background-color: var(--bg-secondary);
-}
-
-.t-select .t-input {
-  background-color: transparent;
-}
-
-.t-select__dropdown {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-}
-
-.t-select-option {
-  padding: var(--space-3) var(--space-4);
-  color: var(--text-primary);
-}
-
-.t-select-option:hover,
-.t-select-option.t-is-selected {
-  background-color: var(--bg-hover);
-}
-
-/* Badge */
-.t-badge__dot,
-.t-badge--circle {
-  background-color: var(--accent-blue);
-}
-
-/* List */
-.t-list {
-  background: transparent;
-}
-
-.t-list__item {
-  border-bottom: 1px solid var(--border-color);
-  padding: var(--space-4);
-}
-
-.t-list__item:hover {
-  background-color: var(--bg-hover);
-}
-
-/* Divider */
-.t-divider {
-  border-color: var(--border-color);
-}
-
-/* Skeleton */
-.t-skeleton__row {
-  margin-bottom: var(--space-2);
-}
-
-.t-skeleton__col {
-  background: linear-gradient(
-    90deg,
-    var(--bg-hover) 25%,
-    var(--bg-elevated) 50%,
-    var(--bg-hover) 75%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s ease-in-out infinite;
-}
-
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Message */
-.t-message {
-  border-radius: var(--radius-lg);
-  font-size: var(--font-md);
-  padding: var(--space-3) var(--space-4);
-}
-
-.t-message--theme-error {
-  background-color: var(--danger);
-  color: white;
-}
-
-.t-message--theme-success {
-  background-color: var(--success);
-  color: white;
-}
-
-.t-message--theme-warning {
-  background-color: var(--warning);
-  color: white;
-}
-
-/* Notification */
-.t-notification {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
+/* ---- Dialog ------------------------------------------------------------------ */
+html .t-dialog {
+  background: var(--material-thick);
+  -webkit-backdrop-filter: var(--material-blur-thick);
+  backdrop-filter: var(--material-blur-thick);
+  border: none;
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-label);
 }
 
-.t-notification__title {
-  color: var(--text-primary);
-  font-weight: var(--font-bold);
+html .t-dialog__mask {
+  background: var(--scrim);
 }
 
-.t-notification__content {
-  color: var(--text-secondary);
+html .t-dialog__header {
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-headline);
 }
 
-/* Popover */
-.t-popover {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-}
-
-/* Table */
-.t-table {
-  background: transparent;
-}
-
-.t-table__header {
-  background-color: var(--bg-secondary);
-}
-
-.t-table__th {
-  color: var(--text-secondary);
-  font-weight: var(--font-bold);
-  font-size: var(--font-sm);
-}
-
-.t-table__tr {
-  border-bottom: 1px solid var(--border-color);
-}
-
-.t-table__tr:hover {
-  background-color: var(--bg-hover);
-}
-
-.t-table__td {
-  color: var(--text-primary);
-}
-
-/* Pagination */
-.t-pagination__btn {
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-}
-
-.t-pagination__btn:hover:not(:disabled) {
-  background-color: var(--bg-hover);
-}
-
-.t-pagination__btn.t-is-current {
-  background-color: var(--accent-blue);
-  color: white;
-}
-
-/* Upload */
-.t-upload__card {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  border-radius: var(--radius-lg);
-}
-
-.t-upload__card:hover {
-  border-color: var(--accent-blue);
-}
-
-/* Progress */
-.t-progress__bar {
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-full);
-}
-
-.t-progress__inner {
-  background-color: var(--accent-blue);
-  border-radius: var(--radius-full);
-}
-
-/* Slider */
-.t-slider__rail {
-  background-color: var(--bg-secondary);
-}
-
-.t-slider__track {
-  background-color: var(--accent-blue);
-}
-
-.t-slider__button {
-  background-color: var(--accent-blue);
-  border-color: white;
-}
-
-/* TimePicker / DatePicker */
-.t-time-picker__panel,
-.t-date-picker__panel {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-}
-
-.t-calendar__cell:hover,
-.t-time-picker__item:hover {
-  background-color: var(--bg-hover);
-}
-
-.t-calendar__cell--selected,
-.t-time-picker__item--selected {
-  background-color: var(--accent-blue);
-  color: white;
-}
+/* ---- Misc ---------------------------------------------------------------------- */
+html .t-divider { border-color: var(--color-separator); }
+html .t-badge--dot,
+html .t-badge--circle { background-color: var(--color-like); }
+html .t-switch.t-is-checked { background-color: var(--color-repost); }
+html .t-checkbox__input,
+html .t-radio__input { border-color: var(--color-label-quaternary); }
+html .t-checkbox.t-is-checked .t-checkbox__input { background-color: var(--color-accent); border-color: var(--color-accent); }
+html .t-skeleton__col { background-color: var(--color-fill); }

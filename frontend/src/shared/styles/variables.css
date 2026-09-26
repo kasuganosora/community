@@ -1,170 +1,293 @@
+/* ==========================================================================
+   Design tokens
+   --------------------------------------------------------------------------
+   One source of truth for colour, type, space, radius, depth, materials and
+   motion. Light is the default; dark is applied through
+   :root[theme-mode='dark'] (the attribute TDesign also keys its own dark
+   palette on), set by useTheme() and by the pre-paint script in index.html.
+
+   Semantic tokens (--color-*, --material-*, --text-*, --motion-*) are what
+   new code should use. The older names further down (--bg-primary,
+   --accent-blue, --font-md, ...) are kept as aliases so every existing
+   component picks up the new system without a rewrite.
+   ========================================================================== */
+
 :root {
-  /* ========================================
-     Color System - X.com Dark Theme
-     ======================================== */
-  --bg-primary: #000000;
-  --bg-secondary: #16181c;
-  --bg-hover: #1d1f23;
-  --bg-elevated: #202327;
-  --bg-card: rgba(22, 24, 28, 0.85);
-  --bg-header-blur: rgba(0, 0, 0, 0.65);
+  color-scheme: light;
 
-  --text-primary: #e7e9ea;
-  --text-secondary: #71767b;
-  --text-tertiary: #536471;
-  --text-disabled: #3d4144;
+  /* ---- Colour: surfaces ------------------------------------------------ */
+  --color-bg: #ffffff;                 /* page / primary content */
+  --color-bg-grouped: #f5f5f7;         /* grouped lists, cards on the rail */
+  --color-bg-elevated: #ffffff;        /* sheets, popovers (solid fallback) */
+  --color-fill: rgba(120, 120, 128, 0.12);        /* inputs, chips */
+  --color-fill-strong: rgba(120, 120, 128, 0.2);  /* pressed fill */
+  --color-hover: rgba(0, 0, 0, 0.035);
+  --color-pressed: rgba(0, 0, 0, 0.07);
 
-  --accent-blue: #1d9bf0;
-  --accent-blue-hover: #1a8cd8;
-  --accent-blue-light: rgba(29, 155, 240, 0.1);
-  --accent-green: #00ba7c;
-  --accent-green-light: rgba(0, 186, 124, 0.1);
-  --accent-pink: #f91880;
-  --accent-pink-light: rgba(249, 24, 128, 0.1);
-  --accent-orange: #ff7a00;
-  --accent-purple: #7856ff;
+  /* ---- Colour: labels (all >= 4.5:1 on --color-bg except placeholder) - */
+  --color-label: #1d1d1f;              /* 16.8:1 */
+  --color-label-secondary: #6e6e73;    /* 5.1:1 */
+  --color-label-tertiary: #8e8e93;     /* 3.3:1 placeholders / disabled only */
+  --color-label-quaternary: #c7c7cc;
+  --color-on-accent: #ffffff;
 
-  --border-color: #2f3336;
-  --border-light: #38444d;
-  --border-hover: #4a5056;
+  /* ---- Colour: separators ------------------------------------------------ */
+  --color-separator: rgba(60, 60, 67, 0.14);
+  --color-separator-opaque: #e5e5ea;
+  --hairline: 0.5px;
 
-  --danger: #f4212e;
-  --danger-light: rgba(244, 33, 46, 0.1);
-  --success: #00ba7c;
-  --success-light: rgba(0, 186, 124, 0.1);
-  --warning: #ffad1f;
-  --warning-light: rgba(255, 173, 31, 0.1);
+  /* ---- Colour: tint (restrained — one accent, three semantic hues) ----- */
+  --color-accent: #0071e3;             /* fills; white text 4.6:1 */
+  --color-accent-hover: #0077ed;
+  --color-accent-pressed: #006edb;
+  --color-accent-text: #0066cc;        /* links on bg 5.6:1 */
+  --color-accent-soft: rgba(0, 113, 227, 0.1);
+  --color-like: #d30f45;               /* accessible systemPink */
+  --color-like-soft: rgba(255, 45, 85, 0.1);
+  --color-repost: #248a3d;             /* accessible systemGreen */
+  --color-repost-soft: rgba(52, 199, 89, 0.12);
+  --color-danger: #d70015;             /* accessible systemRed */
+  --color-danger-soft: rgba(255, 59, 48, 0.1);
+  --color-warning: #c93400;            /* accessible systemOrange */
+  --color-warning-soft: rgba(255, 149, 0, 0.12);
+  --color-success: #248a3d;
+  --color-success-soft: rgba(52, 199, 89, 0.12);
+  --color-focus-ring: rgba(0, 113, 227, 0.55);
 
-  /* ========================================
-     Typography System - Chinese Optimized
-     ======================================== */
-  /* 
-    Font stack priority:
-    1. System Chinese fonts (PingFang SC, Microsoft YaHei)
-    2. Modern system fonts (SF Pro, Segoe UI)
-    3. Fallback fonts
-  */
-  --font-family-base: 
-    -apple-system, BlinkMacSystemFont,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue",
-    "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
-    "Fira Sans", "Droid Sans",
-    sans-serif;
-  
-  --font-family-mono: 
-    "SF Mono", "Monaco", "Inconsolata", "Fira Code", 
-    "Droid Sans Mono", "Source Code Pro", 
-    monospace;
+  /* ---- Materials (translucent layers over scrolling content) ----------- */
+  --material-bar: rgba(255, 255, 255, 0.72);           /* nav / tab bars */
+  --material-bar-border: rgba(0, 0, 0, 0.08);
+  --material-thick: rgba(250, 250, 252, 0.84);          /* sheets, popovers */
+  --material-thin: rgba(255, 255, 255, 0.6);            /* chips over media */
+  --material-edge: rgba(255, 255, 255, 0.55);           /* light catching top edge */
+  --material-blur-bar: blur(20px) saturate(180%);
+  --material-blur-thick: blur(40px) saturate(180%);
+  --scrim: rgba(0, 0, 0, 0.28);
 
-  /* Font sizes - Optimized for Chinese readability */
-  --font-xs: 12px;      /* Small captions, metadata */
-  --font-sm: 13px;      /* Secondary text */
-  --font-md: 15px;      /* Body text */
-  --font-lg: 17px;      /* Emphasized body */
-  --font-xl: 20px;      /* Headings */
-  --font-2xl: 24px;     /* Large headings */
-  --font-3xl: 28px;     /* Hero text */
+  /* ---- Depth ------------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 4px 14px -4px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-popover: 0 12px 32px -8px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --shadow-fab: 0 8px 20px -6px rgba(0, 113, 227, 0.55), 0 2px 6px rgba(0, 0, 0, 0.12);
 
-  /* Line heights - Chinese needs more breathing room */
-  --leading-tight: 1.4;     /* Headings */
-  --leading-normal: 1.6;    /* Body text (increased for CJK) */
-  --leading-relaxed: 1.8;   /* Long form content */
+  /* ---- Typography --------------------------------------------------------
+     System stack first (SF on Apple platforms, Segoe on Windows). Inter is a
+     *local-only* near-SF fallback — nothing is downloaded. CJK families come
+     after the Latin ones so Latin glyphs keep the UI face and Han glyphs
+     fall through to PingFang / Noto Sans CJK per character. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, Roboto,
+    "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC",
+    "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-rounded: ui-rounded, "SF Pro Rounded", var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* Font weights */
-  --font-normal: 400;
-  --font-medium: 500;
-  --font-semibold: 600;
-  --font-bold: 700;
-  --font-extrabold: 800;
+  /* Type scale in rem so it follows the user's text-size setting.
+     size / leading / tracking move together: large = tight leading +
+     negative tracking, small = open leading + slight positive tracking. */
+  --text-large-title: 2.125rem;  --leading-large-title: 1.12; --tracking-large-title: -0.022em;
+  --text-title-1: 1.75rem;       --leading-title-1: 1.18;     --tracking-title-1: -0.019em;
+  --text-title-2: 1.375rem;      --leading-title-2: 1.24;     --tracking-title-2: -0.014em;
+  --text-title-3: 1.25rem;       --leading-title-3: 1.28;     --tracking-title-3: -0.011em;
+  --text-headline: 1.0625rem;    --leading-headline: 1.3;     --tracking-headline: -0.008em;
+  --text-body: 0.9375rem;        --leading-body: 1.5;         --tracking-body: -0.003em;
+  --text-callout: 1rem;          --leading-callout: 1.45;
+  --text-subhead: 0.875rem;      --leading-subhead: 1.4;      --tracking-subhead: 0;
+  --text-footnote: 0.8125rem;    --leading-footnote: 1.38;    --tracking-footnote: 0.003em;
+  --text-caption: 0.75rem;       --leading-caption: 1.33;     --tracking-caption: 0.01em;
+  --text-caption-2: 0.6875rem;   --tracking-caption-2: 0.02em;
+  --leading-cjk: 1.65;           /* Han text wants more air than Latin */
 
-  /* Letter spacing - Chinese characters need less tracking */
-  --tracking-tight: -0.01em;
-  --tracking-normal: 0;
-  --tracking-wide: 0.02em;
-  --tracking-wider: 0.04em;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-heavy: 800;
 
-  /* ========================================
-     Layout System
-     ======================================== */
-  --sidebar-left-width: 275px;
-  --sidebar-left-collapsed: 72px;
-  --content-max-width: 600px;
-  --content-wide-max-width: 990px;
-  --sidebar-right-width: 350px;
+  /* ---- Space (4pt grid, rem) --------------------------------------------- */
+  --space-0: 0.125rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --gutter: var(--space-4);            /* horizontal content inset */
 
-  /* Spacing scale */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-
-  /* ========================================
-     Border Radius System
-     ======================================== */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
+  /* ---- Radius (continuous-feeling, nested radii step down) --------------- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-sheet: 28px;
   --radius-full: 9999px;
 
-  /* ========================================
-     Shadow System
-     ======================================== */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 20px rgba(29, 155, 240, 0.3);
+  /* ---- Layout -------------------------------------------------------------- */
+  --sidebar-left-width: 16rem;
+  --sidebar-left-collapsed: 4.75rem;
+  --content-max-width: 37.5rem;        /* 600px */
+  --sidebar-right-width: 21.25rem;
+  --bar-height: 3.25rem;               /* page nav bar */
+  --tabbar-height: 3.25rem;            /* mobile tab bar, excl. safe area */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --hit-target: 2.75rem;               /* 44pt minimum */
 
-  /* ========================================
-     Transitions & Animations
-     ======================================== */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  
-  --ease-out: cubic-bezier(0, 0, 0.2, 1);
-  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  /* ---- Motion ---------------------------------------------------------------
+     Strong custom curves (never ease-in on UI). --ease-spring is a CSS
+     linear() sampling of a critically-damped spring (damping 1.0,
+     response ~0.35s) so plain CSS transitions get spring feel while staying
+     interruptible — transitions retarget from the current value. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-spring: linear(
+    0, 0.0555, 0.1748, 0.3123, 0.4448, 0.562, 0.6603, 0.74, 0.8032, 0.8524, 0.89,
+    0.9186, 0.9401, 0.9561, 0.968, 0.9767, 0.9831, 0.9878, 0.9912, 0.9955, 1
+  );
+  --duration-press: 90ms;              /* press in: instant-feeling */
+  --duration-release: 200ms;           /* release: settles softer */
+  --duration-fast: 150ms;              /* hover / colour */
+  --duration-base: 220ms;              /* popovers, small surfaces */
+  --duration-sheet: 420ms;             /* sheets (spring settle) */
+  --press-scale: 0.97;
+  --press-scale-small: 0.9;            /* icon buttons */
 
-  /* ========================================
-     Z-Index Scale
-     ======================================== */
+  /* ---- Z layers ------------------------------------------------------------ */
+  --z-sticky: 20;
+  --z-bar: 30;
+  --z-fab: 40;
   --z-dropdown: 1000;
-  --z-sticky: 1020;
-  --z-fixed: 1030;
-  --z-modal-backdrop: 1040;
-  --z-modal: 1050;
-  --z-popover: 1060;
-  --z-tooltip: 1070;
+  --z-sheet: 2000;
+  --z-toast: 3000;
+
+  /* ======================================================================
+     Legacy aliases — existing components read these names.
+     ====================================================================== */
+  --bg-primary: var(--color-bg);
+  --bg-secondary: var(--color-bg-grouped);
+  --bg-hover: var(--color-hover);
+  --bg-elevated: var(--color-bg-elevated);
+  --bg-card: var(--color-bg-grouped);
+  --bg-header-blur: var(--material-bar);
+
+  --text-primary: var(--color-label);
+  --text-secondary: var(--color-label-secondary);
+  --text-tertiary: var(--color-label-tertiary);
+  --text-disabled: var(--color-label-quaternary);
+
+  --accent-blue: var(--color-accent-text);
+  --accent-blue-hover: var(--color-accent-hover);
+  --accent-blue-light: var(--color-accent-soft);
+  --accent-green: var(--color-repost);
+  --accent-green-light: var(--color-repost-soft);
+  --accent-pink: var(--color-like);
+  --accent-pink-light: var(--color-like-soft);
+  --accent-orange: var(--color-warning);
+  --accent-purple: #8944ab;
+
+  --border-color: var(--color-separator);
+  --border-light: var(--color-separator-opaque);
+  --border-hover: var(--color-label-quaternary);
+
+  --danger: var(--color-danger);
+  --danger-light: var(--color-danger-soft);
+  --success: var(--color-success);
+  --success-light: var(--color-success-soft);
+  --warning: var(--color-warning);
+  --warning-light: var(--color-warning-soft);
+
+  --font-family-base: var(--font-sans);
+  --font-family-mono: var(--font-mono);
+  --font-xs: var(--text-caption);
+  --font-sm: var(--text-footnote);
+  --font-md: var(--text-body);
+  --font-lg: var(--text-headline);
+  --font-xl: var(--text-title-3);
+  --font-2xl: var(--text-title-2);
+  --font-3xl: var(--text-title-1);
+  --leading-tight: 1.25;
+  --leading-normal: var(--leading-body);
+  --leading-relaxed: var(--leading-cjk);
+  --font-normal: var(--weight-regular);
+  --font-medium: var(--weight-medium);
+  --font-semibold: var(--weight-semibold);
+  --font-bold: var(--weight-bold);
+  --font-extrabold: var(--weight-heavy);
+  --tracking-tight: -0.011em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.01em;
+  --tracking-wider: 0.02em;
+
+  --radius-2xl: var(--radius-xl);
+  --shadow-sm: var(--shadow-1);
+  --shadow-md: var(--shadow-2);
+  --shadow-lg: var(--shadow-popover);
+  --shadow-glow: 0 0 0 4px var(--color-focus-ring);
+
+  --transition-fast: var(--duration-fast) var(--ease-out);
+  --transition-normal: var(--duration-base) var(--ease-out);
+  --transition-slow: 300ms var(--ease-out);
+  --ease-bounce: var(--ease-spring);
+
+  --z-fixed: var(--z-bar);
+  --z-modal-backdrop: var(--z-sheet);
+  --z-modal: var(--z-sheet);
+  --z-popover: var(--z-dropdown);
+  --z-tooltip: var(--z-toast);
 }
 
-/* ========================================
-   Light Theme Support (Future)
-   ======================================== */
-[data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f7f9f9;
-  --bg-hover: #eff3f4;
-  --bg-elevated: #ffffff;
-  --bg-card: rgba(255, 255, 255, 0.85);
-  --bg-header-blur: rgba(255, 255, 255, 0.65);
+/* ---- Accessibility preferences ---------------------------------------- */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material-bar: rgba(255, 255, 255, 0.97);
+    --material-thick: #f9f9fb;
+    --material-thin: rgba(255, 255, 255, 0.95);
+    --material-blur-bar: none;
+    --material-blur-thick: none;
+  }
+  :root[theme-mode='dark'] {
+    --material-bar: rgba(12, 12, 14, 0.97);
+    --material-thick: #242426;
+    --material-thin: rgba(30, 30, 32, 0.95);
+  }
+}
 
-  --text-primary: #0f1419;
-  --text-secondary: #536471;
-  --text-tertiary: #8899a6;
-  --text-disabled: #b9cad3;
+@media (prefers-contrast: more) {
+  :root {
+    --color-label-secondary: #3a3a3c;
+    --color-label-tertiary: #6e6e73;
+    --color-separator: rgba(60, 60, 67, 0.45);
+    --material-bar: #ffffff;
+    --material-thick: #ffffff;
+    --material-bar-border: rgba(0, 0, 0, 0.4);
+    --color-accent-text: #0040dd;
+  }
+  :root[theme-mode='dark'] {
+    --color-label-secondary: #c7c7cc;
+    --color-label-tertiary: #98989f;
+    --color-separator: rgba(255, 255, 255, 0.4);
+    --material-bar: #000000;
+    --material-thick: #1c1c1e;
+    --material-bar-border: rgba(255, 255, 255, 0.5);
+    --color-accent-text: #6fb6ff;
+  }
+}
 
-  --border-color: #eff3f4;
-  --border-light: #cfd9de;
-  --border-hover: #b0b8c0;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --press-scale: 1;
+    --press-scale-small: 1;
+    --ease-spring: var(--ease-out);
+    --duration-sheet: 200ms;
+  }
 }
