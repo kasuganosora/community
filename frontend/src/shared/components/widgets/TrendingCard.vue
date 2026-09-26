@@ -26,7 +26,7 @@ const trendStats = computed(() => {
       // Guard against NaN: invalid/empty history.uses would otherwise render
       // "NaN posts" via formatCount(NaN) -> NaN.toString() === 'NaN'
       if (!isNaN(uses)) {
-        stats[tag.name] = formatCount(uses) + ' posts'
+        stats[tag.name] = formatCount(uses) + ' 条帖子'
       }
     }
   }
@@ -36,22 +36,21 @@ const trendStats = computed(() => {
 
 <template>
   <div class="trending-card" v-if="trends?.length">
-    <h2 class="trending-card__title">What's happening</h2>
+    <h2 class="trending-card__title">热门话题</h2>
     <router-link
       v-for="tag in trends"
       :key="tag.name"
-      :to="{ name: 'search', query: { q: '#' + tag.name } }"
+      :to="`/tags/${encodeURIComponent(tag.name.replace(/^#/, ''))}`"
       class="trending-item"
-      role="button"
     >
-      <div class="trending-item__category">Trending</div>
+      <div class="trending-item__category">趋势</div>
       <div class="trending-item__name">#{{ tag.name }}</div>
       <div class="trending-item__count" v-if="trendStats[tag.name]">
         {{ trendStats[tag.name] }}
       </div>
     </router-link>
     <div class="trending-card__more">
-      <router-link to="/explore">Show more</router-link>
+      <router-link to="/explore">发现更多</router-link>
     </div>
   </div>
 </template>

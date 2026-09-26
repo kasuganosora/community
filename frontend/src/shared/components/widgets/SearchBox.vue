@@ -17,8 +17,8 @@ function handleSearch() {
   <div class="search-box">
     <t-input
       v-model="query"
-      placeholder="Search"
-      aria-label="Search"
+      placeholder="搜索"
+      aria-label="搜索"
       clearable
       @enter="handleSearch"
     >

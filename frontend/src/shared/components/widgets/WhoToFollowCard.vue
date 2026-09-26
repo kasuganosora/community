@@ -2,33 +2,38 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import { suggestionApi } from '@/domains/user/infrastructure/suggestionApi'
-import { userApi } from '@/domains/user/infrastructure/userApi'
+import { useRelationships } from '@/domains/user/presentation/composables/useRelationships'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { followButtonLabel } from '@/domains/user/domain/relationship'
+import { SUGGESTIONS_LIMIT } from '@/shared/utils/constants'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
+const authStore = useAuthStore()
 const suggestions = ref<MastodonAccount[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
-const following = ref<Set<string>>(new Set())
-const followErrorId = ref<string | null>(null)
-// Track in-flight follow requests to prevent duplicate API calls when the
-// user rapidly double-clicks before the following Set updates (button only
-// becomes disabled after the request succeeds).
-const processingFollow = ref<Set<string>>(new Set())
+const relationships = useRelationships()
 let cancelled = false
 
 async function loadSuggestions() {
   try {
     loading.value = true
     error.value = null
-    const data = await suggestionApi.list({ limit: 3 })
+    // The backend also suggests accounts you already follow (and yourself),
+    // so over-fetch, check relationships and keep only new people.
+    const data = await suggestionApi.list({ limit: 20 })
+    const candidates = data.map(item => item.account).filter(a => a.id !== authStore.currentUser?.id)
+    await relationships.load(candidates.map(a => a.id))
     if (!cancelled) {
-      suggestions.value = data.map((item) => item.account)
+      suggestions.value = candidates
+        .filter(a => relationships.state(a.id) === 'none' || relationships.state(a.id) === 'unknown')
+        .slice(0, SUGGESTIONS_LIMIT)
     }
   } catch (e) {
     if (!cancelled) {
       console.error('Failed to load suggestions:', e)
-      error.value = 'Failed to load suggestions'
+      error.value = e instanceof Error ? e.message : '加载失败'
     }
   } finally {
     if (!cancelled) {
@@ -46,46 +51,31 @@ onUnmounted(() => {
 })
 
 async function handleFollow(user: MastodonAccount) {
-  // Prevent duplicate follow requests from rapid double-clicks
-  if (following.value.has(user.id) || processingFollow.value.has(user.id)) return
   try {
-    followErrorId.value = null
-    const newProcessing = new Set(processingFollow.value)
-    newProcessing.add(user.id)
-    processingFollow.value = newProcessing
-    await userApi.follow(user.id)
-    // Trigger reactivity by creating a new Set
-    const newFollowing = new Set(following.value)
-    newFollowing.add(user.id)
-    following.value = newFollowing
+    await relationships.toggleFollow(user.id)
   } catch (e) {
-    console.error('Failed to follow user:', e)
-    followErrorId.value = user.id
-    MessagePlugin.error('关注失败，请稍后重试')
-  } finally {
-    const cleared = new Set(processingFollow.value)
-    cleared.delete(user.id)
-    processingFollow.value = cleared
+    console.error('Failed to toggle follow:', e)
+    MessagePlugin.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
   }
 }
 </script>
 
 <template>
   <div class="follow-card" v-if="loading">
-    <h2 class="follow-card__title">Who to follow</h2>
+    <h2 class="follow-card__title">推荐关注</h2>
     <div class="follow-card__loading">
       <t-loading size="small" />
     </div>
   </div>
   <div class="follow-card" v-else-if="error && !suggestions.length">
-    <h2 class="follow-card__title">Who to follow</h2>
+    <h2 class="follow-card__title">推荐关注</h2>
     <div class="follow-card__error">
       <p>{{ error }}</p>
-      <t-button size="small" @click="loadSuggestions">Retry</t-button>
+      <t-button size="small" @click="loadSuggestions">重试</t-button>
     </div>
   </div>
   <div class="follow-card" v-else-if="suggestions.length">
-    <h2 class="follow-card__title">Who to follow</h2>
+    <h2 class="follow-card__title">推荐关注</h2>
     <div
       v-for="user in suggestions"
       :key="user.id"
@@ -94,23 +84,23 @@ async function handleFollow(user: MastodonAccount) {
       <router-link :to="`/@${user.acct}`" class="follow-item__link">
         <UserAvatar :account="user" :size="40" class="follow-item__avatar" />
         <div class="follow-item__info">
-          <div class="follow-item__name">{{ user.display_name }}</div>
+          <div class="follow-item__name">{{ user.display_name || user.username }}</div>
           <div class="follow-item__username">@{{ user.acct }}</div>
         </div>
       </router-link>
-      <t-button 
-        theme="default" 
-        shape="round" 
-        size="small" 
+      <t-button
+        theme="default"
+        shape="round"
+        size="small"
         class="follow-btn"
-        :disabled="following.has(user.id) || processingFollow.has(user.id)"
+        :loading="relationships.pending.has(user.id)"
         @click="handleFollow(user)"
       >
-        {{ following.has(user.id) ? 'Following' : 'Follow' }}
+        {{ followButtonLabel(relationships.state(user.id) === 'unknown' ? 'none' : relationships.state(user.id), relationships.rels.get(user.id)?.followed_by) }}
       </t-button>
     </div>
     <div class="follow-card__more">
-      <router-link to="/explore">Show more</router-link>
+      <router-link to="/explore">发现更多</router-link>
     </div>
   </div>
 </template>
