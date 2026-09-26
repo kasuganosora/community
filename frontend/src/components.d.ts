@@ -21,7 +21,7 @@ declare module 'vue' {
     TDropdownMenu: typeof import('tdesign-vue-next')['DropdownMenu']
     TForm: typeof import('tdesign-vue-next')['Form']
     TFormItem: typeof import('tdesign-vue-next')['FormItem']
-    TIcon: typeof import('tdesign-vue-next')['Icon']
+    TIcon: typeof import('@/shared/components/common/AppIcon.vue')['default']
     TInput: typeof import('tdesign-vue-next')['Input']
     TLoading: typeof import('tdesign-vue-next')['Loading']
     TTextarea: typeof import('tdesign-vue-next')['Textarea']

@@ -16,7 +16,14 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       Components({
-        resolvers: [TDesignResolver({ library: 'vue-next' })],
+        // <t-icon> resolves to our AppIcon (inline SVG, CSP-safe) before the
+        // TDesign resolver would map it to the CDN-backed sprite icon.
+        resolvers: [
+          (name: string) => (name === 'TIcon'
+            ? { name: 'default', from: '@/shared/components/common/AppIcon.vue' }
+            : undefined),
+          TDesignResolver({ library: 'vue-next' }),
+        ],
         dts: 'src/components.d.ts', // Generate TypeScript declaration
       }),
       AutoImport({
