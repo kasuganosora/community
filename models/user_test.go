@@ -1,10 +1,13 @@
 package models
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestEncryptPassword_And_CompareHashAndPassword(t *testing.T) {
@@ -99,4 +102,33 @@ func TestEncryptPassword_SameInputsSameHash(t *testing.T) {
 
 	err = CompareHashAndPassword(hash2, password, salt)
 	require.NoError(t, err)
+}
+
+// Production salts are 64 characters long (see register.go / tootctl), which
+// used to push salt+password over bcrypt's 72-byte limit.
+func TestEncryptPassword_ProductionSaltLength(t *testing.T) {
+	salt := strings.Repeat("s", 64)
+
+	for _, pw := range []string{"Passw0rd!123", "密码很长很长很长很长很长很长", strings.Repeat("x", 200)} {
+		hash, err := EncryptPassword(pw, salt)
+		require.NoError(t, err, "password %q", pw)
+		require.NoError(t, CompareHashAndPassword(hash, pw, salt))
+	}
+
+	// Passwords that only differ after the 8th byte must not collide.
+	hash, err := EncryptPassword("abcdefgh-first", salt)
+	require.NoError(t, err)
+	assert.Error(t, CompareHashAndPassword(hash, "abcdefgh-second", salt))
+}
+
+func TestCompareHashAndPassword_LegacyHash(t *testing.T) {
+	salt := "legacysalt"
+	pw := "oldpassword"
+
+	legacy, err := bcrypt.GenerateFromPassword([]byte(salt+pw), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	stored := base64.StdEncoding.EncodeToString(legacy)
+	require.NoError(t, CompareHashAndPassword(stored, pw, salt))
+	assert.Error(t, CompareHashAndPassword(stored, "wrong", salt))
 }

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
@@ -9,6 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -161,27 +164,62 @@ func (u *UserSecretData) AfterSave(tx *gorm.DB) (err error) {
 	return
 }
 
+// passwordHashV2Prefix marks hashes produced by the current scheme.
+// Hashes without it were produced by the legacy "bcrypt(salt+password)" scheme.
+const passwordHashV2Prefix = "v2$"
+
+// bcryptMaxInput is the maximum number of bytes bcrypt looks at.
+const bcryptMaxInput = 72
+
+// prehashPassword derives a fixed-length (44 byte) bcrypt input from the salt
+// and password using HMAC-SHA256.
+//
+// The legacy scheme fed salt+password straight into bcrypt. Salts are 64
+// characters long, so salt+password exceeded bcrypt's 72-byte limit for any
+// password longer than 8 bytes: current golang.org/x/crypto rejects that with
+// ErrPasswordTooLong (registration / password change / tootctl all failed
+// with "encrypt password failed"), and older versions silently truncated,
+// meaning only the first 8 bytes of the password were ever checked.
+func prehashPassword(password, salt string) []byte {
+	mac := hmac.New(sha256.New, []byte(salt))
+	mac.Write([]byte(password))
+
+	return []byte(base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+}
+
 func EncryptPassword(password string, salt string) (ret string, err error) {
-	password = salt + password
-	// 直接使用 bcrypt 加密，不经过 MD5 预处理
-	// MD5 会降低密码熵，bcrypt 本身已经足够安全
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword(prehashPassword(password, salt), bcrypt.DefaultCost)
 	if err != nil {
 		return
 	}
 
-	ret = base64.StdEncoding.EncodeToString(hash)
+	ret = passwordHashV2Prefix + base64.StdEncoding.EncodeToString(hash)
 
 	return
 }
 
 func CompareHashAndPassword(base64PwdHash, password string, salt string) (err error) {
-	password = salt + password
+	if strings.HasPrefix(base64PwdHash, passwordHashV2Prefix) {
+		hash, decErr := base64.StdEncoding.DecodeString(strings.TrimPrefix(base64PwdHash, passwordHashV2Prefix))
+		if decErr != nil {
+			return decErr
+		}
+
+		return bcrypt.CompareHashAndPassword(hash, prehashPassword(password, salt))
+	}
+
+	// Legacy hash: bcrypt(salt+password). Older bcrypt implementations
+	// silently truncated the input to 72 bytes, so do the same here to keep
+	// verifying hashes that were created that way.
+	legacy := []byte(salt + password)
+	if len(legacy) > bcryptMaxInput {
+		legacy = legacy[:bcryptMaxInput]
+	}
 
 	hash, err := base64.StdEncoding.DecodeString(base64PwdHash)
 	if err != nil {
 		return
 	}
 
-	return bcrypt.CompareHashAndPassword(hash, []byte(password))
+	return bcrypt.CompareHashAndPassword(hash, legacy)
 }
