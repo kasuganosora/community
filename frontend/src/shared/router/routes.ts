@@ -140,21 +140,27 @@ export const routes: RouteRecordRaw[] = [
 
 // Export route titles for programmatic use (e.g., document.title updates)
 export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
-  [RouteNames.LANDING]: { title: 'Welcome' },
-  [RouteNames.LOGIN]: { title: 'Sign In' },
-  [RouteNames.REGISTER]: { title: 'Create Account' },
-  [RouteNames.HOME]: { title: 'Home' },
-  [RouteNames.EXPLORE]: { title: 'Explore' },
-  [RouteNames.NOTIFICATIONS]: { title: 'Notifications' },
-  [RouteNames.MESSAGES]: { title: 'Messages' },
-  [RouteNames.BOOKMARKS]: { title: 'Bookmarks' },
-  [RouteNames.SEARCH]: { title: 'Search' },
-  [RouteNames.PROFILE]: { title: 'Profile' },
-  [RouteNames.POST_DETAIL]: { title: 'Post' },
-  [RouteNames.TAG]: { title: 'Tag' },
-  [RouteNames.FOLLOWERS]: { title: 'Followers' },
-  [RouteNames.FOLLOWING]: { title: 'Following' },
-  [RouteNames.LISTS]: { title: 'Lists' },
-  [RouteNames.LIST_TIMELINE]: { title: 'List' },
-  [RouteNames.SETTINGS]: { title: 'Settings' },
+  [RouteNames.LANDING]: { title: '欢迎' },
+  [RouteNames.LOGIN]: { title: '登录' },
+  [RouteNames.REGISTER]: { title: '注册' },
+  [RouteNames.HOME]: { title: '首页' },
+  [RouteNames.EXPLORE]: { title: '探索' },
+  [RouteNames.NOTIFICATIONS]: { title: '通知' },
+  [RouteNames.MESSAGES]: { title: '私信' },
+  [RouteNames.BOOKMARKS]: { title: '收藏' },
+  [RouteNames.SEARCH]: { title: '搜索' },
+  [RouteNames.PROFILE]: { title: '个人主页' },
+  [RouteNames.POST_DETAIL]: { title: '帖子' },
+  [RouteNames.TAG]: { title: '话题' },
+  [RouteNames.FOLLOWERS]: { title: '关注者' },
+  [RouteNames.FOLLOWING]: { title: '正在关注' },
+  [RouteNames.LISTS]: { title: '列表' },
+  [RouteNames.LIST_TIMELINE]: { title: '列表' },
+  [RouteNames.SETTINGS]: { title: '设置' },
+}
+
+/** Document title for a route: "<page> - Community", or just the app name. */
+export function pageTitle(name: unknown, appName = 'Community'): string {
+  const t = typeof name === 'string' ? RouteTitles[name as RouteName]?.title : undefined
+  return t ? `${t} - ${appName}` : appName
 }

@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { routes } from './routes'
+import { routes, pageTitle } from './routes'
 import { tokenService } from '@/shared/api/client'
 
 // Extend RouteMeta interface
@@ -38,6 +38,12 @@ router.beforeEach((to) => {
     const redirectPath = to.fullPath !== '/' && isSafeRedirect(to.fullPath) ? { redirect: to.fullPath } : undefined
     return { name: 'landing', query: redirectPath }
   }
+})
+
+// Keep the document title in step with the page (screen readers announce it,
+// and browser history/tabs were all just "Community").
+router.afterEach((to) => {
+  document.title = pageTitle(to.name)
 })
 
 export default router
