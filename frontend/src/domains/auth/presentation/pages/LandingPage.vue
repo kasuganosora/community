@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
 import { formatCount, formatRelativeTime } from '@/shared/utils/format'
@@ -8,6 +8,7 @@ import { stripHtml as stripHtmlUtil } from '@/shared/utils/sanitize'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
 const router = useRouter()
+const route = useRoute()
 
 const publicTimeline = ref<MastodonStatus[]>([])
 interface InstanceInfo {
@@ -64,12 +65,18 @@ onMounted(async () => {
   }
 })
 
+// Keep the page the auth guard bounced us from, so login returns there.
+function authQuery() {
+  const r = route.query.redirect
+  return typeof r === 'string' && r ? { redirect: r } : undefined
+}
+
 function goLogin() {
-  router.push({ name: 'login' })
+  router.push({ name: 'login', query: authQuery() }).catch(() => {})
 }
 
 function goRegister() {
-  router.push({ name: 'register' })
+  router.push({ name: 'register', query: authQuery() }).catch(() => {})
 }
 
 function stripHtml(html: string | null | undefined): string {

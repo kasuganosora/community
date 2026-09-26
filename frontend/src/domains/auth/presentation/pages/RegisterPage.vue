@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '../../infrastructure/authApi'
 
 const router = useRouter()
+const route = useRoute()
 
 const step = ref<'rules' | 'form'>('rules')
 
@@ -84,7 +85,10 @@ async function handleRegister() {
       password: form.password,
       passwordConfirm: form.passwordConfirm,
     })
-    router.push({ name: 'login' })
+    router.push({
+      name: 'login',
+      query: { registered: '1', username: form.username, ...(typeof route.query.redirect === 'string' ? { redirect: route.query.redirect } : {}) },
+    })
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Registration failed'
   } finally {
@@ -205,6 +209,7 @@ function close() {
               v-model="form.username"
               size="large"
               placeholder="username"
+              autocomplete="username"
             >
               <template #prefixIcon>
                 <span class="input-prefix">@</span>
@@ -221,6 +226,7 @@ function close() {
               type="text"
               size="large"
               placeholder="email@example.com"
+              autocomplete="email"
             >
               <template #prefixIcon>
                 <t-icon name="mail" />
@@ -234,6 +240,7 @@ function close() {
               type="password"
               size="large"
               placeholder="At least 8 characters"
+              autocomplete="new-password"
             >
               <template #prefixIcon>
                 <t-icon name="lock-on" />
@@ -247,6 +254,7 @@ function close() {
               type="password"
               size="large"
               placeholder="Enter password again"
+              autocomplete="new-password"
               :status="showPasswordMismatch ? 'error' : 'default'"
             >
               <template #prefixIcon>

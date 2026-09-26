@@ -14,14 +14,16 @@ interface LoginForm {
 }
 
 const form = reactive<LoginForm>({
-  username: '',
+  username: typeof route.query.username === 'string' ? route.query.username : '',
   password: '',
 })
+const justRegistered = route.query.registered === '1'
 
 const showPassword = ref(false)
 const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse'))
 const loginAttempts = ref(0)
 const MAX_LOGIN_ATTEMPTS = 5
+const LOCK_MS = 30_000
 
 async function handleLogin() {
   if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
@@ -40,6 +42,10 @@ async function handleLogin() {
     router.push(safePath)
   } catch {
     loginAttempts.value++
+    // The lock used to be permanent until a full page reload.
+    if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
+      setTimeout(() => { loginAttempts.value = 0 }, LOCK_MS)
+    }
   }
 }
 </script>
@@ -53,6 +59,7 @@ async function handleLogin() {
 
       <h1 class="login-title">Sign in to Community</h1>
 
+      <t-alert v-if="justRegistered && !authStore.error" theme="success" message="注册成功，请登录。" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
 
       <t-form @submit="handleLogin" class="login-form" label-width="0">
@@ -69,17 +76,23 @@ async function handleLogin() {
         <t-form-item>
           <t-input
             v-model="form.password"
+            class="password-input"
             :type="showPassword ? 'text' : 'password'"
             placeholder="Password"
             size="large"
             autocomplete="current-password"
             :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
           >
-            <template #suffixIcon>
-              <t-button 
-                variant="text" 
-                shape="square" 
+            <!-- TDesign's built-in password eye is a bare SVG (mouse only), so it
+                 is hidden and replaced by a real, labelled button. -->
+            <template #suffix>
+              <t-button
+                variant="text"
+                shape="square"
                 size="small"
+                class="password-toggle"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :aria-pressed="showPassword"
                 @click="showPassword = !showPassword"
               >
                 <t-icon :name="passwordIcon" />
@@ -88,7 +101,7 @@ async function handleLogin() {
           </t-input>
         </t-form-item>
         <p v-if="loginAttempts >= MAX_LOGIN_ATTEMPTS" class="login-locked">
-          Too many failed attempts. Please try again later.
+          Too many failed attempts. Please try again in 30 seconds.
         </p>
         <t-form-item>
           <t-button
@@ -114,6 +127,10 @@ async function handleLogin() {
 </template>
 
 <style scoped>
+.password-input :deep(.t-input__suffix-icon) {
+  display: none;
+}
+
 .login-page {
   min-height: 100dvh;
   display: flex;
