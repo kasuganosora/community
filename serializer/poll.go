@@ -126,8 +126,27 @@ func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret ma
 		voteCounts := len(pollVoteMap[poll.Id])
 		votersCount := len(pollVoteMap[poll.Id].GetVotersAccountId())
 
-		ret[poll.Id] = ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
+		// Keyed by status id: ToStatuses looks polls up with sPolls[status.Id].
+		// Keying by poll.Id dropped the poll from every timeline/list response
+		// whose status id differed from its poll id (i.e. almost all of them).
+		p := ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
+		if voted {
+			p.OwnVotes = ownVoteIndexes(mySelectOptions[poll.Id], optionsIndexMap)
+		}
+
+		ret[poll.StatusId] = p
 	}
 
 	return ret, err
+}
+
+// ownVoteIndexes maps the viewer's votes to option indexes (Mastodon's
+// own_votes), in the order they were cast.
+func ownVoteIndexes(myVotes models.PollOptionVotes, optionsIndexMap map[uint64]uint8) []int {
+	ret := make([]int, 0, len(myVotes))
+	for _, v := range myVotes {
+		ret = append(ret, int(optionsIndexMap[v.OptionId]))
+	}
+
+	return ret
 }
