@@ -20,10 +20,10 @@ const (
 )
 
 type Notification struct {
-	Id            uint64 `gorm:"primaryKey;autoIncrement"`
-	Type          uint8  `gorm:"type:tinyint;not null"`
-	ActivityType  string `gorm:"index"`
-	AccountId     uint64 `gorm:"index;not null"`
+	Id           uint64 `gorm:"primaryKey;autoIncrement"`
+	Type         uint8  `gorm:"type:tinyint;not null"`
+	ActivityType string `gorm:"index"`
+	AccountId    uint64 `gorm:"index;not null"`
 	// The optional references below have foreign keys; a zero value must be
 	// stored as NULL (default:null makes GORM omit zero values on insert),
 	// otherwise MySQL rejects the row with FK error 1452.
@@ -31,7 +31,7 @@ type Notification struct {
 	StatusId      uint64 `gorm:"default:null"`
 	ReportId      uint64 `gorm:"default:null"`
 	ListId        uint64 `gorm:"default:null"`
-	IsRead        bool `gorm:"default:false"`
+	IsRead        bool   `gorm:"default:false"`
 
 	CreatedAt *time.Time `gorm:"autoCreateTime"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime"`
