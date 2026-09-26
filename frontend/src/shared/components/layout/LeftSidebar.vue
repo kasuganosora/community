@@ -23,6 +23,7 @@ const navItems = computed(() => [
   { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
   { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
+  { value: 'lists', label: '列表', icon: 'view-list', iconActive: 'view-list', route: '/lists' },
   { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
   { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
@@ -96,14 +97,14 @@ async function handleLogout() {
     <!-- User Info -->
     <div class="sidebar-user" v-if="authStore.currentUser">
       <t-dropdown :min-column-width="220">
-        <div class="user-info">
+        <button type="button" class="user-info" aria-haspopup="menu" :aria-label="`账户菜单：@${authStore.currentUser.username}`">
           <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
             <div class="user-info__name">{{ authStore.currentUser.display_name }}</div>
             <div class="user-info__username">@{{ authStore.currentUser.username }}</div>
           </div>
           <t-icon name="more" :size="18" class="user-info__more" />
-        </div>
+        </button>
         <template #dropdown>
           <t-dropdown-menu>
             <t-dropdown-item @click="handleLogout">
@@ -211,6 +212,8 @@ async function handleLogout() {
 }
 
 .user-info {
+  width: 100%;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: var(--space-3);

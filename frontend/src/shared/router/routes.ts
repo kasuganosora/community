@@ -13,6 +13,11 @@ export const RouteNames = {
   SEARCH: 'search',
   PROFILE: 'profile',
   POST_DETAIL: 'post-detail',
+  TAG: 'tag',
+  FOLLOWERS: 'followers',
+  FOLLOWING: 'following',
+  LISTS: 'lists',
+  LIST_TIMELINE: 'list-timeline',
   SETTINGS: 'settings',
 } as const
 
@@ -84,6 +89,33 @@ const MainRoutes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    path: '@:username/followers',
+    name: RouteNames.FOLLOWERS,
+    component: () => import('@/domains/user/presentation/pages/FollowListPage.vue'),
+    props: { kind: 'followers' },
+  },
+  {
+    path: '@:username/following',
+    name: RouteNames.FOLLOWING,
+    component: () => import('@/domains/user/presentation/pages/FollowListPage.vue'),
+    props: { kind: 'following' },
+  },
+  {
+    path: 'tags/:tag',
+    name: RouteNames.TAG,
+    component: () => import('@/domains/timeline/presentation/pages/TagTimelinePage.vue'),
+  },
+  {
+    path: 'lists',
+    name: RouteNames.LISTS,
+    component: () => import('@/domains/list/presentation/pages/ListsPage.vue'),
+  },
+  {
+    path: 'lists/:id',
+    name: RouteNames.LIST_TIMELINE,
+    component: () => import('@/domains/list/presentation/pages/ListTimelinePage.vue'),
+  },
+  {
     path: '@:username/status/:statusId',
     name: RouteNames.POST_DETAIL,
     component: () => import('@/domains/post/presentation/pages/PostDetailPage.vue'),
@@ -119,5 +151,10 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.SEARCH]: { title: 'Search' },
   [RouteNames.PROFILE]: { title: 'Profile' },
   [RouteNames.POST_DETAIL]: { title: 'Post' },
+  [RouteNames.TAG]: { title: 'Tag' },
+  [RouteNames.FOLLOWERS]: { title: 'Followers' },
+  [RouteNames.FOLLOWING]: { title: 'Following' },
+  [RouteNames.LISTS]: { title: 'Lists' },
+  [RouteNames.LIST_TIMELINE]: { title: 'List' },
   [RouteNames.SETTINGS]: { title: 'Settings' },
 }
