@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"github.com/kasuganosora/community/systemsettings"
 	"testing"
 	"time"
 
@@ -214,10 +215,9 @@ func TestLoadHSConfig_SystemSettingsFallback(t *testing.T) {
 	t.Setenv("SERVER_NAME", "")
 
 	cfg := loadHSConfig()
-	// ServerName is either the configured domain or "localhost".
-	if cfg.ServerName != "" {
-		assert.Equal(t, "https://"+cfg.ServerName, cfg.BaseURL)
-	}
+	// ServerName and BaseURL follow the instance domain / base URL.
+	assert.Equal(t, systemsettings.GetDomain(), cfg.ServerName)
+	assert.Equal(t, systemsettings.GetBaseURL(), cfg.BaseURL)
 	assert.Equal(t, 8448, cfg.FederationPort)
 	assert.Equal(t, "10", cfg.RoomVersion)
 	assert.True(t, cfg.Enabled)

@@ -47,8 +47,8 @@ func TestRelayServiceGetInstanceActorURI(t *testing.T) {
 	setupRelayServiceDB(t)
 	svc := &RelayService{db: database.GetDB()}
 	uri := svc.GetInstanceActorURI()
-	assert.Contains(t, uri, "/actor")
-	assert.Contains(t, uri, "https://")
+	assert.Equal(t, systemsettings.GetBaseURL()+"/actor", uri)
+	assert.Regexp(t, `^https?://`, uri)
 }
 
 func TestRelayServiceGetPublicCollectionURI(t *testing.T) {

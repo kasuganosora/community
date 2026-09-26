@@ -141,10 +141,7 @@ func generateEmailConfirmationToken() string {
 func sendConfirmationEmail(userEmail, token, username string) error {
 	siteName := systemsettings.GetString(systemsettings.KeyTitle, "Community")
 
-	baseURL := systemsettings.GetString(systemsettings.KeyDomain, "")
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
+	baseURL := systemsettings.GetBaseURL()
 
 	confirmationURL := baseURL + "/api/v1/emails/confirmations/verify?token=" + token
 

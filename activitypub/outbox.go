@@ -1,8 +1,9 @@
 package activitypub
 
 import (
-	"github.com/kasuganosora/community/htmlsafe"
 	"strconv"
+
+	"github.com/kasuganosora/community/htmlsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -31,8 +32,7 @@ func Outbox(c *gin.Context) {
 	maxID := c.Query("max_id")
 	limit := 20
 
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	outboxURL := baseURL + "/users/" + username + "/outbox"
 
 	if !page {
@@ -159,8 +159,7 @@ func Followers(c *gin.Context) {
 	}
 
 	page := c.Query("page") == "true"
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	followersURL := baseURL + "/users/" + username + "/followers"
 
 	// Get followers count
@@ -224,8 +223,7 @@ func Following(c *gin.Context) {
 	}
 
 	page := c.Query("page") == "true"
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	followingURL := baseURL + "/users/" + username + "/following"
 
 	// Get following count
@@ -301,8 +299,7 @@ func ActorProfile(c *gin.Context) {
 		return
 	}
 
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	actorURL := baseURL + "/users/" + username
 
 	// Build actor profile

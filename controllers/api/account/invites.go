@@ -72,11 +72,9 @@ func GetInvite(c *gin.Context) {
 		return
 	}
 
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-
 	c.JSON(200, InviteResponse{
 		InviteCode:     code,
-		InstanceApiUrl: "https://" + domain + "/api/v2/instance",
+		InstanceApiUrl: systemsettings.GetBaseURL() + "/api/v2/instance",
 	})
 }
 

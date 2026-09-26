@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kasuganosora/community/htmlsafe"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kasuganosora/community/htmlsafe"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
@@ -545,8 +546,7 @@ var resolverOnce sync.Once
 
 func getDefaultResolver() *Resolver {
 	resolverOnce.Do(func() {
-		domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-		actorID := fmt.Sprintf("https://%s/actor", domain)
+		actorID := systemsettings.GetBaseURL() + "/actor"
 		defaultResolver = NewResolver(nil, actorID)
 	})
 

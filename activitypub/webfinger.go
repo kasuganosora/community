@@ -42,7 +42,7 @@ func WebFinger(c *gin.Context) {
 	}
 
 	username := parts[0]
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	domain := systemsettings.GetDomain()
 
 	// Verify the requested domain matches ours
 	if parts[1] != domain {
@@ -61,7 +61,7 @@ func WebFinger(c *gin.Context) {
 	}
 
 	// Build response
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	actorURL := baseURL + "/users/" + username
 
 	response := WebFingerResponse{
@@ -93,8 +93,7 @@ func WebFinger(c *gin.Context) {
 
 // HostMeta handles GET /.well-known/host-meta.
 func HostMeta(c *gin.Context) {
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
 <XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0">
@@ -106,8 +105,7 @@ func HostMeta(c *gin.Context) {
 
 // NodeInfo handles GET /.well-known/nodeinfo.
 func NodeInfo(c *gin.Context) {
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 
 	response := map[string]any{
 		"links": []map[string]string{

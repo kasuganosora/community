@@ -84,7 +84,7 @@ type ServerRuleResponseItem struct {
 
 func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
-	resp.Domain = systemsettings.GetString(systemsettings.KeyDomain, "")
+	resp.Domain = systemsettings.GetDomain()
 	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
 	resp.Version = config.GetVersion()
 	resp.SourceUrl = "https://github.com/kasuganosora/community"

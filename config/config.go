@@ -4,6 +4,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/utils"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -44,6 +45,32 @@ type Config struct {
 }
 
 var C Config
+
+// appBaseURLConfigured records whether APP_BASE_URL was set explicitly (in the
+// environment or the .env file) rather than taken from the default.
+var appBaseURLConfigured bool
+
+// AppBaseURLConfigured reports whether APP_BASE_URL was set explicitly.
+func AppBaseURLConfigured() bool {
+	return appBaseURLConfigured
+}
+
+// SetAppBaseURL overrides APP_BASE_URL at runtime (used by tests).
+func SetAppBaseURL(baseURL string, configured bool) {
+	C.AppBaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	appBaseURLConfigured = configured
+}
+
+// AppBaseHost returns the host (with port, if any) of APP_BASE_URL, e.g.
+// "social.example.org" or "localhost:8080".
+func AppBaseHost() string {
+	u, err := url.Parse(C.AppBaseURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+
+	return strings.ToLower(u.Host)
+}
 
 // isTestMode returns true when running under `go test`.
 // Detected via the well-known TEST_MODE env var (set by TestMain) or
@@ -192,6 +219,9 @@ func loadMapToConfig(data map[string]string) {
 			}
 		}
 	}
+
+	appBaseURLConfigured = strings.TrimSpace(data["APP_BASE_URL"]) != ""
+	C.AppBaseURL = strings.TrimRight(strings.TrimSpace(C.AppBaseURL), "/")
 
 	// 把不在 standardConfigsKeyMap 中的配置项放到 Other 中
 	for key, value := range data {

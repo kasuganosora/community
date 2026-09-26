@@ -34,17 +34,17 @@ func (s *RelayService) getDomain() string {
 
 // GetInstanceActorURI 获取实例 Actor URI.
 func (s *RelayService) GetInstanceActorURI() string {
-	return fmt.Sprintf("https://%s/actor", s.getDomain())
+	return systemsettings.GetBaseURL() + "/actor"
 }
 
 // GetPublicCollectionURI 获取公共集合 URI.
 func (s *RelayService) GetPublicCollectionURI() string {
-	return fmt.Sprintf("https://%s/public", s.getDomain())
+	return systemsettings.GetBaseURL() + "/public"
 }
 
 // GenerateActivityID 生成活动 ID.
 func (s *RelayService) GenerateActivityID(activityType string) string {
-	return fmt.Sprintf("https://%s/activities/%s/%d", s.getDomain(), activityType, time.Now().UnixNano())
+	return fmt.Sprintf("%s/activities/%s/%d", systemsettings.GetBaseURL(), activityType, time.Now().UnixNano())
 }
 
 // CreateRelay 创建中继.

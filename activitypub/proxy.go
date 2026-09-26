@@ -143,9 +143,8 @@ func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *mode
 
 // getProxyActorURI returns the ActivityPub actor URI for the proxy account.
 func (s *ProxyService) getProxyActorURI() string {
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 
-	return fmt.Sprintf("https://%s/users/%s", domain, proxyUsername)
+	return systemsettings.GetBaseURL() + "/users/" + proxyUsername
 }
 
 // parsePrivateKey parses a PEM-encoded RSA private key.

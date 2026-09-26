@@ -2,8 +2,9 @@ package activitypub
 
 import (
 	"fmt"
-	"github.com/kasuganosora/community/htmlsafe"
 	"strconv"
+
+	"github.com/kasuganosora/community/htmlsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -25,8 +26,7 @@ func Featured(c *gin.Context) {
 		return
 	}
 
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 	featuredURL := baseURL + "/users/" + username + "/collections/featured"
 
 	// Get pinned status IDs

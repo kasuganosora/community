@@ -25,6 +25,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	_ "github.com/kasuganosora/community/notifications"
 	"github.com/kasuganosora/community/server"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 )
 
@@ -49,6 +50,17 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+
+	// Federation identities (actor/status URIs, acct domain) are derived from
+	// APP_BASE_URL; refuse to start a production instance that would publish
+	// placeholder URLs.
+	if warning, err := systemsettings.CheckBaseURL(config.C.DevMode != "true"); err != nil {
+		log.Fatal("Invalid instance URL configuration: %v", err)
+	} else if warning != "" {
+		log.Warn("%s", warning)
+	}
+
+	log.Info("Instance base URL: %s (domain %s)", systemsettings.GetBaseURL(), systemsettings.GetDomain())
 
 	event.GetEventManager("status")
 

@@ -225,7 +225,7 @@ func AuthorizePage(c *gin.Context) {
 	}
 
 	// Show authorization page
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
+	domain := systemsettings.GetDomain()
 	c.HTML(http.StatusOK, "oauth_authorize.html", gin.H{
 		"app":          serializer.ToApplication(&app.Application),
 		"account":      serializer.ToAccount(account),

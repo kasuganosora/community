@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kasuganosora/community/htmlsafe"
 	"io"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kasuganosora/community/htmlsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -559,9 +560,8 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 
 	// Verify the object is our local user
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 
-	expectedActorURI := fmt.Sprintf("https://%s/users/%s", domain, targetAccount.Username)
+	expectedActorURI := systemsettings.GetBaseURL() + "/users/" + targetAccount.Username
 	if object != expectedActorURI {
 		c.JSON(403, gin.H{"error": "wrong target"})
 
@@ -1007,11 +1007,10 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 	}
 
 	// Find the target account
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 
 	var blockedAccount models.Account
 
-	expectedURI := fmt.Sprintf("https://%s/users/", domain)
+	expectedURI := systemsettings.GetBaseURL() + "/users/"
 	if username, ok := strings.CutPrefix(objectStr, expectedURI); ok {
 		err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&blockedAccount).Error
 		if err == nil {
@@ -1354,9 +1353,8 @@ func getVisibilityFromActivity(object map[string]any) uint8 {
 
 // sendAcceptActivity sends an Accept activity to a remote server.
 func sendAcceptActivity(localAccount *models.Account, remoteAccount *models.Account, followActivityID string) {
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	actorURL := fmt.Sprintf("https://%s/users/%s", domain, localAccount.Username)
-	targetURL := fmt.Sprintf("https://%s/users/%s", domain, localAccount.Username)
+	actorURL := systemsettings.GetBaseURL() + "/users/" + localAccount.Username
+	targetURL := systemsettings.GetBaseURL() + "/users/" + localAccount.Username
 
 	// Get remote inbox
 	var inboxURL string

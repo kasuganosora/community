@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"crypto/ed25519"
+	"github.com/kasuganosora/community/systemsettings"
 	"sync"
 	"testing"
 	"time"
@@ -239,11 +240,9 @@ func TestLoadHSConfig_EmptyServerNameFallsBack(t *testing.T) {
 	t.Setenv("SERVER_NAME", "")
 
 	cfg := loadHSConfig()
-	// Should fall back to "localhost" if domain is empty
-	if cfg.ServerName == "" {
-		cfg.ServerName = "localhost"
-	}
-	assert.Equal(t, "localhost", cfg.ServerName)
+	// Falls back to the instance domain (host of APP_BASE_URL by default)
+	assert.Equal(t, systemsettings.GetDomain(), cfg.ServerName)
+	assert.NotEmpty(t, cfg.ServerName)
 }
 
 // ===== HomeServer construction with keys =====

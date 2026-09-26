@@ -1,7 +1,6 @@
 package serializer
 
 import (
-	"fmt"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"strconv"
@@ -40,23 +39,34 @@ type Account struct {
 	intId uint64 `json:"-"`
 }
 
+// accountAddress returns the Mastodon acct, profile URL and ActivityPub actor
+// URI of an account. Like Mastodon, local accounts use the bare username as
+// acct and remote accounts use username@domain. Local URLs are built from the
+// instance base URL (scheme included).
+func accountAddress(account *models.Account) (acct, profileURL, actorURI string) {
+	if account.Domain != nil && *account.Domain != "" {
+		domain := *account.Domain
+
+		return account.Username + "@" + domain,
+			"https://" + domain + "/@" + account.Username,
+			"https://" + domain + "/users/" + account.Username
+	}
+
+	base := systemsettings.GetBaseURL()
+
+	return account.Username, base + "/@" + account.Username, base + "/users/" + account.Username
+}
+
 func ToAccount(account *models.Account) (acc *Account) {
 	if account == nil {
 		return nil
 	}
 
-	localDomain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-
-	var domain string
-	if account.Domain != nil && *account.Domain != "" {
-		domain = *account.Domain
-	} else {
-		domain = localDomain
-	}
+	acct, profileURL, actorURI := accountAddress(account)
 
 	acc = &Account{
 		Username:        account.Username,
-		Acct:            account.Username + "@" + domain,
+		Acct:            acct,
 		DisplayName:     account.DisplayName,
 		Locked:          account.Locked,
 		Bot:             account.Bot,
@@ -65,8 +75,8 @@ func ToAccount(account *models.Account) (acc *Account) {
 		Group:           account.Group,
 		CreatedAt:       account.CreatedAt,
 		Note:            account.NoteHTML(contentRenderOptions()),
-		Url:             fmt.Sprintf("https://%s/@%s", domain, account.Username),
-		Uri:             fmt.Sprintf("https://%s/users/%s", domain, account.Username),
+		Url:             profileURL,
+		Uri:             actorURI,
 		Avatar:          account.Avatar,
 		AvatarStatic:    account.AvatarStatic,
 		Header:          account.Header,
@@ -108,19 +118,12 @@ type Mention struct {
 }
 
 func ToMention(account *models.Account) (mention *Mention) {
-	localDomain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-
-	var domain string
-	if account.Domain != nil && *account.Domain != "" {
-		domain = *account.Domain
-	} else {
-		domain = localDomain
-	}
+	acct, profileURL, _ := accountAddress(account)
 
 	mention = &Mention{
 		Username: account.Username,
-		Acct:     account.Username + "@" + domain,
-		Url:      fmt.Sprintf("https://%s/users/%s", domain, account.Username),
+		Acct:     acct,
+		Url:      profileURL,
 	}
 
 	mention.Id = strconv.FormatUint(account.Id, 10)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -307,8 +308,9 @@ func TestProxyServiceGetProxyActorURI(t *testing.T) {
 	database.SetTestDB(testDB.GormDB)
 	service := &ProxyService{db: testDB.GormDB}
 	uri := service.getProxyActorURI()
-	// With no domain setting configured, defaults to "localhost"
-	assert.Equal(t, "https://localhost/users/system.proxy", uri)
+	// With no domain setting and no APP_BASE_URL, the default base URL is used
+	assert.Equal(t, systemsettings.GetBaseURL()+"/users/system.proxy", uri)
+	assert.Regexp(t, `^https?://`, uri)
 }
 
 func TestParsePrivateKey(t *testing.T) {

@@ -2,14 +2,14 @@ package serializer
 
 import (
 	"fmt"
-	"github.com/kasuganosora/community/config"
+	"strconv"
+	"time"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
-	"strconv"
-	"time"
 )
 
 type Status struct {
@@ -75,13 +75,13 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	if status.OriginUri != nil {
 		ret.Uri = *status.OriginUri
 	} else {
-		ret.Uri = fmt.Sprintf("%s/%s/statuses/%d", systemsettings.GetString(systemsettings.KeyDomain, ""), status.Account.Username, status.Id)
+		ret.Uri = fmt.Sprintf("%s/users/%s/statuses/%d", systemsettings.GetBaseURL(), status.Account.Username, status.Id)
 	}
 
 	if status.OriginUri != nil {
 		ret.Url = *status.OriginUri
 	} else {
-		ret.Url = fmt.Sprintf("%s/@%s/%d", systemsettings.GetString(systemsettings.KeyDomain, ""), status.Account.Username, status.Id)
+		ret.Url = fmt.Sprintf("%s/@%s/%d", systemsettings.GetBaseURL(), status.Account.Username, status.Id)
 	}
 
 	ret.RepliesCount = status.RepliesCount
@@ -324,5 +324,5 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 // contentRenderOptions returns the options used to render local plain text
 // (status content, profile notes) as HTML for this instance.
 func contentRenderOptions() htmlsafe.RenderOptions {
-	return htmlsafe.OptionsForBaseURL(config.C.AppBaseURL)
+	return htmlsafe.OptionsForBaseURL(systemsettings.GetBaseURL())
 }

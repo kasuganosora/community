@@ -1,9 +1,11 @@
 package serializer
 
 import (
+	"net/url"
+	"strconv"
+
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
-	"strconv"
 )
 
 // Tag represents a Mastodon-compatible hashtag.
@@ -29,7 +31,6 @@ func ToTag(tag *models.Tag) (ret *Tag) {
 		return nil
 	}
 
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
 	name := tag.Name
 	// Remove # prefix if present for URL
 	if len(name) > 0 && name[0] == '#' {
@@ -38,7 +39,7 @@ func ToTag(tag *models.Tag) (ret *Tag) {
 
 	ret = &Tag{
 		Name: name,
-		Url:  "https://" + domain + "/tags/" + name,
+		Url:  systemsettings.GetBaseURL() + "/tags/" + url.PathEscape(name),
 	}
 
 	// Include counts for search results

@@ -393,8 +393,9 @@ func TestGetInstanceDetail_DefaultValues(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp) //nolint:musttag // struct already has json tags
 	require.NoError(t, err)
 
-	// Default values
-	assert.Empty(t, resp.Domain)
+	// Default values: the domain falls back to the APP_BASE_URL host
+	assert.Equal(t, systemsettings.GetDomain(), resp.Domain)
+	assert.NotEmpty(t, resp.Domain)
 	assert.Empty(t, resp.Title)
 	assert.Equal(t, config.GetVersion(), resp.Version)
 	assert.Equal(t, "https://github.com/kasuganosora/community", resp.SourceUrl)

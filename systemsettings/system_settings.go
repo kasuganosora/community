@@ -1,6 +1,9 @@
 package systemsettings
 
 import (
+	"fmt"
+	"net/url"
+
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
@@ -412,6 +415,85 @@ func GetDefaultPageSize() int {
 	return GetInt(KeyDefaultPageSize, 20)
 }
 
+// PlaceholderDomain is the value older versions seeded into the "domain"
+// setting. It is never a real deployment domain.
+const PlaceholderDomain = "example.com"
+
+// configuredDomain returns the "domain" system setting, if set.
+func configuredDomain() string {
+	return strings.ToLower(strings.TrimSpace(GetString(KeyDomain, "")))
+}
+
+// GetDomain returns the local instance domain used for federation identities
+// (actor URIs, acct:user@domain, Matrix server name).
+//
+// Priority: host of APP_BASE_URL when it is set explicitly, then the
+// "domain" system setting, then the host of the default APP_BASE_URL
+// (localhost:8080, development only).
 func GetDomain() string {
-	return GetString(KeyDomain, "")
+	if config.AppBaseURLConfigured() {
+		if host := config.AppBaseHost(); host != "" {
+			return host
+		}
+	}
+
+	if d := configuredDomain(); d != "" {
+		return d
+	}
+
+	if host := config.AppBaseHost(); host != "" {
+		return host
+	}
+
+	return "localhost"
+}
+
+// GetBaseURL returns the public base URL of the instance, with scheme and
+// without a trailing slash, e.g. "https://social.example.org". Local status,
+// actor and tag URLs are built from it.
+func GetBaseURL() string {
+	if config.AppBaseURLConfigured() && config.AppBaseHost() != "" {
+		return config.C.AppBaseURL
+	}
+
+	if d := configuredDomain(); d != "" {
+		return "https://" + d
+	}
+
+	if config.AppBaseHost() != "" {
+		return config.C.AppBaseURL
+	}
+
+	return "http://localhost"
+}
+
+// CheckBaseURL validates the instance URL configuration at startup. It
+// returns an error when federation identities would be wrong (production
+// without APP_BASE_URL and without a real domain setting, or a malformed
+// APP_BASE_URL) and a non-empty warning for weaker problems.
+func CheckBaseURL(production bool) (warning string, err error) {
+	if config.AppBaseURLConfigured() {
+		u, perr := url.Parse(config.C.AppBaseURL)
+		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return "", errors.Errorf("APP_BASE_URL=%q must be an absolute http(s) URL such as https://social.example.org", config.C.AppBaseURL)
+		}
+
+		if d := configuredDomain(); d != "" && d != PlaceholderDomain && d != config.AppBaseHost() {
+			warning = fmt.Sprintf("system setting domain=%q differs from APP_BASE_URL host %q; APP_BASE_URL wins", d, config.AppBaseHost())
+		}
+
+		return warning, nil
+	}
+
+	d := configuredDomain()
+	if d == "" || d == PlaceholderDomain {
+		msg := fmt.Sprintf("APP_BASE_URL is not set; federation URLs will use %s. Set APP_BASE_URL to the public URL of this instance (e.g. https://social.example.org)", GetBaseURL())
+		if production {
+			return "", errors.New(msg)
+		}
+
+		return msg, nil
+	}
+
+	return fmt.Sprintf("APP_BASE_URL is not set; using the domain system setting (%s) as https://%s", d, d), nil
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
@@ -94,8 +95,8 @@ func TestToAccount_LocalBasic(t *testing.T) {
 	assert.Equal(t, "<p>Hello</p>", result.Note)
 	assert.Equal(t, "https://example.com/avatar.png", result.Avatar)
 	assert.Equal(t, "https://example.com/header.png", result.Header)
-	// Local domain (nil) -> localhost
-	assert.Equal(t, "alice@localhost", result.Acct)
+	// Local accounts use the bare username as acct (like Mastodon)
+	assert.Equal(t, "alice", result.Acct)
 	assert.Contains(t, result.Url, "localhost")
 	assert.Contains(t, result.Url, "@alice")
 	assert.Contains(t, result.Uri, "localhost")
@@ -125,8 +126,8 @@ func TestToAccount_EmptyDomain(t *testing.T) {
 	acc := &models.Account{Id: 9, Username: "carol", Domain: &empty}
 	result := ToAccount(acc)
 	require.NotNil(t, result)
-	// Empty domain string should fall back to local domain
-	assert.Equal(t, "carol@localhost", result.Acct)
+	// Empty domain string means a local account
+	assert.Equal(t, "carol", result.Acct)
 }
 
 func TestToAccount_WithExtra(t *testing.T) {
@@ -164,7 +165,7 @@ func TestToAccount_EmptyUsername(t *testing.T) {
 	acc := &models.Account{Id: 1, Username: ""}
 	result := ToAccount(acc)
 	require.NotNil(t, result)
-	assert.Equal(t, "@localhost", result.Acct)
+	assert.Equal(t, "", result.Acct)
 }
 
 func TestToAccounts_Multiple(t *testing.T) {
@@ -206,9 +207,9 @@ func TestToMention_Local(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "5", result.Id)
 	assert.Equal(t, "frank", result.Username)
-	assert.Equal(t, "frank@localhost", result.Acct)
+	assert.Equal(t, "frank", result.Acct)
 	assert.Contains(t, result.Url, "localhost")
-	assert.Contains(t, result.Url, "users/frank")
+	assert.Contains(t, result.Url, "/@frank")
 }
 
 func TestToMention_Remote(t *testing.T) {
@@ -227,8 +228,8 @@ func TestToMentions_Multiple(t *testing.T) {
 	}
 	result := ToMentions(accs)
 	require.Len(t, result, 2)
-	assert.Equal(t, "a@localhost", result[0].Acct)
-	assert.Equal(t, "b@localhost", result[1].Acct)
+	assert.Equal(t, "a", result[0].Acct)
+	assert.Equal(t, "b", result[1].Acct)
 }
 
 func TestToMentions_Empty(t *testing.T) {
@@ -1391,4 +1392,21 @@ func TestToStatusBase_ContentIsSafeHTML(t *testing.T) {
 	assert.NotContains(t, ret.Content, "<script")
 	assert.NotContains(t, ret.Content, "onerror")
 	assert.Equal(t, "cw", ret.SpoilerText)
+}
+
+func TestLocalURLs_IncludeScheme(t *testing.T) {
+	oldURL, oldConfigured := config.C.AppBaseURL, config.AppBaseURLConfigured()
+	t.Cleanup(func() { config.SetAppBaseURL(oldURL, oldConfigured) })
+	config.SetAppBaseURL("https://social.example.org", true)
+
+	acc := &models.Account{Id: 3, Username: "alice"}
+	a := ToAccount(acc)
+	assert.Equal(t, "alice", a.Acct)
+	assert.Equal(t, "https://social.example.org/@alice", a.Url)
+	assert.Equal(t, "https://social.example.org/users/alice", a.Uri)
+
+	st, err := ToStatusBase(&models.Status{Id: 42, AccountId: 3, Account: acc})
+	require.NoError(t, err)
+	assert.Equal(t, "https://social.example.org/users/alice/statuses/42", st.Uri)
+	assert.Equal(t, "https://social.example.org/@alice/42", st.Url)
 }

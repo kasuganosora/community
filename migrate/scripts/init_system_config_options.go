@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
@@ -12,7 +13,14 @@ type InitSystemConfigOptions struct {
 func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 	// 创建系统配置项内容
 	records := make(map[string]any)
-	records[systemsettings.KeyDomain] = "example.com"
+	// The domain follows APP_BASE_URL; leave it empty rather than seeding a
+	// fake "example.com" that would leak into federation identities.
+	domain := ""
+	if config.AppBaseURLConfigured() {
+		domain = config.AppBaseHost()
+	}
+
+	records[systemsettings.KeyDomain] = domain
 	records[systemsettings.KeyTitle] = "Community"
 	records[systemsettings.KeyDescription] = "Community"
 	records[systemsettings.KeyLanguages] = []string{"zh-CN", "en-US"}

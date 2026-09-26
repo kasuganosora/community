@@ -138,7 +138,11 @@ func loadHSConfig() *HSConfig {
 		cfg.ServerName = "localhost"
 	}
 
-	cfg.BaseURL = "https://" + cfg.ServerName
+	if os.Getenv("SERVER_NAME") != "" {
+		cfg.BaseURL = "https://" + cfg.ServerName
+	} else {
+		cfg.BaseURL = systemsettings.GetBaseURL()
+	}
 	cfg.FederationPort = 8448
 
 	return cfg

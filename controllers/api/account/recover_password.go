@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/email"
 	"github.com/kasuganosora/community/i18nz"
@@ -89,7 +88,7 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 		acceptLanguage = c.Request.Header.Get("Accept-Language")
 	}
 
-	toUrl := config.C.AppBaseURL + "api/v2/recover_password?token=" + token.Token
+	toUrl := systemsettings.GetBaseURL() + "/api/v2/recover_password?token=" + token.Token
 	mailData := map[string]any{
 		"UserName": user.UserName, //nolint:goconst
 		"Token":    token.Token,
@@ -114,7 +113,7 @@ func RecoverPasswordVerifyEmail(c *gin.Context) {
 	}
 
 	// 重定向到前端页面
-	pageUrl := config.C.AppBaseURL + "recover_password"
+	pageUrl := systemsettings.GetBaseURL() + "/recover_password"
 	c.Redirect(http.StatusFound, pageUrl)
 }
 

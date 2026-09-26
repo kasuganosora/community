@@ -268,8 +268,7 @@ func continueSelfDestruct(c *cli.Context, ctx context.Context, status SelfDestru
 }
 
 func broadcastDeleteActivities(ctx context.Context, accounts []*models.Account, inboxes []string, workers int) error {
-	domain := systemsettings.GetString(systemsettings.KeyDomain, "localhost")
-	baseURL := "https://" + domain
+	baseURL := systemsettings.GetBaseURL()
 
 	// Create delivery queue
 	queue := activitypub.NewDeliveryQueue(nil, baseURL, workers)
@@ -516,7 +515,7 @@ func VersionCommand(version string) *cli.Command {
 		Name:  "version",
 		Usage: "Show the version of the currently running Community instance",
 		Action: func(c *cli.Context) error {
-			domain := systemsettings.GetString(systemsettings.KeyDomain, "unknown")
+			domain := systemsettings.GetDomain()
 
 			fmt.Printf("Community (Mastodon-compatible) %s\n", version)
 			fmt.Printf("Domain: %s\n", domain)
