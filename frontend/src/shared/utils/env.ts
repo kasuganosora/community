@@ -9,3 +9,21 @@ export function isMockEnabled(env: { DEV?: boolean; VITE_USE_MOCK?: string } = i
 }
 
 export const USE_MOCK = isMockEnabled()
+
+/** Hosts that serve this instance (page host, API host, dev proxy target). */
+export function localHosts(
+  env: { VITE_API_URL?: string; VITE_DEV_PROXY_TARGET?: string } = import.meta.env,
+  pageHost: string = typeof window !== 'undefined' ? window.location.host : '',
+): string[] {
+  const hosts = new Set<string>()
+  if (pageHost) hosts.add(pageHost)
+  for (const u of [env.VITE_API_URL, env.VITE_DEV_PROXY_TARGET]) {
+    if (!u) continue
+    try {
+      hosts.add(new URL(u).host)
+    } catch {
+      // ignore malformed values
+    }
+  }
+  return [...hosts]
+}
