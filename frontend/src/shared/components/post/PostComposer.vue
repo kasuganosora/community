@@ -18,6 +18,8 @@ const props = defineProps<{
   editStatus?: MastodonStatus | null
   placeholder?: string
   autofocus?: boolean
+  /** Visibility for new (non-reply) posts, e.g. 'direct' on the messages page. */
+  initialVisibility?: Visibility
 }>()
 
 const emit = defineEmits<{
@@ -64,7 +66,7 @@ const currentVisibility = computed(() => VISIBILITY_OPTIONS.find(v => v.value ==
 
 function resetForReply() {
   content.value = props.replyTo ? replyMentions(props.replyTo, authStore.currentUser?.acct) : ''
-  visibility.value = replyVisibility(props.replyTo?.visibility)
+  visibility.value = replyVisibility(props.replyTo?.visibility, props.initialVisibility ?? 'public')
   if (props.replyTo?.spoiler_text) {
     spoilerEnabled.value = true
     spoilerText.value = props.replyTo.spoiler_text

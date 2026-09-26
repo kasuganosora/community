@@ -74,3 +74,13 @@ describe('replies', () => {
     expect(replyVisibility(undefined)).toBe('public')
   })
 })
+
+describe('validateDraft direct messages', () => {
+  const base = { text: '', spoilerEnabled: false, spoilerText: '', visibility: 'direct' as const, poll: null, mediaIds: [] }
+  it('requires a mention for direct posts', () => {
+    expect(validateDraft({ ...base, text: 'hi there' }, 500)).toMatch('私信')
+    expect(validateDraft({ ...base, text: 'mail me a@b.c' }, 500)).toMatch('私信')
+    expect(validateDraft({ ...base, text: '@bob 你好' }, 500)).toBeNull()
+    expect(validateDraft({ ...base, text: 'hi @bob@remote.social' }, 500)).toBeNull()
+  })
+})

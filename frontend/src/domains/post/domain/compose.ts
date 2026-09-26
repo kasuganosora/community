@@ -87,8 +87,12 @@ export function validateDraft(draft: ComposeDraft, maxChars: number): string | n
     if (options.some(o => Array.from(o).length > MAX_POLL_OPTION_LENGTH)) return `每个选项最多 ${MAX_POLL_OPTION_LENGTH} 个字`
   }
   if (draft.mediaIds.length > MAX_MEDIA_ATTACHMENTS) return `最多只能添加 ${MAX_MEDIA_ATTACHMENTS} 个媒体文件`
+  // A direct post is only delivered to the accounts it mentions.
+  if (draft.visibility === 'direct' && !MENTION_RE.test(draft.text)) return '私信需要 @提及 至少一位用户'
   return null
 }
+
+const MENTION_RE = /(^|[^\w@])@[\w.-]+/
 
 /** Build the POST /api/v1/statuses body from a validated draft. */
 export function buildCreateParams(draft: ComposeDraft): CreateStatusParams {
