@@ -31,11 +31,14 @@ func CreateList(c *gin.Context) {
 		AccountId: account.Id,
 	}
 
+	// Mastodon lists are private. Lists created by Mastodon clients carry no
+	// visibility, so default to private instead of the model's zero value
+	// (public), which exposed the list and its members to everyone.
 	switch req.Visibility {
+	case "", "private":
+		list.Visibility = models.ListVisibilityPrivate
 	case "public": //nolint:goconst
 		list.Visibility = models.ListVisibilityPublic
-	case "private": //nolint:goconst
-		list.Visibility = models.ListVisibilityPrivate
 	case "followers": //nolint:goconst
 		list.Visibility = models.ListVisibilityFollowers
 	}

@@ -21,16 +21,6 @@ func DeleteList(c *gin.Context) {
 		return
 	}
 
-	req := UpdateListRequest{}
-
-	if err = c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{
-			"error": err.Error(), //nolint:goconst
-		})
-
-		return
-	}
-
 	list := &models.List{}
 
 	err = db.GetDB().Where("id = ?", listId).First(list).Error
