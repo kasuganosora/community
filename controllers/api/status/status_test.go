@@ -2982,8 +2982,8 @@ func TestCreate_EmptyContent(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 	safeHandler(c, Create)
-	// Empty content without media is accepted by this server (no validation rejects it)
-	assert.Equal(t, 200, w.Code, "empty content should be accepted (server has no validation against it)")
+	// Empty content without media or poll must be rejected (Mastodon: 422)
+	assert.Equal(t, 422, w.Code, "empty content should be rejected")
 }
 
 func TestCreate_LongContent(t *testing.T) {
@@ -2995,8 +2995,8 @@ func TestCreate_LongContent(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 	safeHandler(c, Create)
-	// Long content is accepted (server has no length limit in Create handler)
-	assert.Equal(t, 200, w.Code, "10K char content should be accepted")
+	// Content above config.statuses.max_characters (default 500) is rejected
+	assert.Equal(t, 422, w.Code, "10K char content should be rejected")
 }
 
 func TestCreate_UnicodeAndEmoji(t *testing.T) {
@@ -3115,4 +3115,41 @@ func TestFavourite_ThenUnfavourite_ThenFavourite(t *testing.T) {
 	setAccount(c3, ts.acct)
 	safeHandler(c3, Favourite)
 	assert.Equal(t, 200, w3.Code, "should be able to re-favourite after unfavouriting")
+}
+
+func TestValidateCreateStatusRequest(t *testing.T) {
+	poll := func(opts []string, exp uint64) *CreatePollContent {
+		return &CreatePollContent{Options: opts, ExpiresIn: exp}
+	}
+
+	tests := []struct {
+		name  string
+		req   CreateStatusRequest
+		valid bool
+	}{
+		{"plain", CreateStatusRequest{Status: "hi"}, true},
+		{"500 CJK chars", CreateStatusRequest{Status: strings.Repeat("长", 500)}, true},
+		{"501 CJK chars", CreateStatusRequest{Status: strings.Repeat("长", 501)}, false},
+		{"blank", CreateStatusRequest{Status: "  \n "}, false},
+		{"blank with media", CreateStatusRequest{MediaIds: []string{"1"}}, true},
+		{"too many media", CreateStatusRequest{Status: "x", MediaIds: []string{"1", "2", "3", "4", "5"}}, false},
+		{"poll ok", CreateStatusRequest{Status: "q", Poll: poll([]string{"a", "b"}, 3600)}, true},
+		{"poll one option", CreateStatusRequest{Status: "q", Poll: poll([]string{"a"}, 3600)}, false},
+		{"poll too many options", CreateStatusRequest{Status: "q", Poll: poll([]string{"a", "b", "c", "d", "e"}, 3600)}, false},
+		{"poll blank option", CreateStatusRequest{Status: "q", Poll: poll([]string{"a", " "}, 3600)}, false},
+		{"poll long option", CreateStatusRequest{Status: "q", Poll: poll([]string{"a", strings.Repeat("b", 51)}, 3600)}, false},
+		{"poll expires too soon", CreateStatusRequest{Status: "q", Poll: poll([]string{"a", "b"}, 10)}, false},
+		{"poll and media", CreateStatusRequest{Status: "q", MediaIds: []string{"1"}, Poll: poll([]string{"a", "b"}, 3600)}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := validateCreateStatusRequest(&tt.req)
+			if tt.valid {
+				assert.Empty(t, msg)
+			} else {
+				assert.NotEmpty(t, msg)
+			}
+		})
+	}
 }

@@ -1,13 +1,18 @@
 package status
 
 import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"net/http"
-	"strconv"
-	"time"
+	"github.com/kasuganosora/community/systemsettings"
 )
 
 // {"status":"所谓的穷游不是旅游，而是修炼","in_reply_to_id":null,"media_ids":[],"sensitive":false,"spoiler_text":"","visibility":"public","poll":null,"language":"zh"}
@@ -36,6 +41,12 @@ func Create(c *gin.Context) {
 	var req CreateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
+
+		return
+	}
+
+	if msg := validateCreateStatusRequest(&req); msg != "" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 
 		return
 	}
@@ -119,4 +130,57 @@ func Create(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 
 	returnFullSingleStatus(c, status, currentAccount)
+}
+
+// validateCreateStatusRequest enforces the limits advertised by
+// /api/v1/instance (configuration.statuses / configuration.polls). They were
+// previously not checked at all: empty posts, posts far above
+// max_characters (large ones failing with a DB "Data too long" 500),
+// one-option polls and polls with more than max_options were accepted.
+// It returns an error message, or "" if the request is valid.
+func validateCreateStatusRequest(req *CreateStatusRequest) string {
+	if strings.TrimSpace(req.Status) == "" && len(req.MediaIds) == 0 && req.Poll == nil {
+		return "Validation failed: Text can't be blank"
+	}
+
+	maxChars := systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, 500)
+	if maxChars > 0 && utf8.RuneCountInString(req.Status)+utf8.RuneCountInString(req.SpoilerText) > maxChars {
+		return fmt.Sprintf("Validation failed: Text character limit of %d exceeded", maxChars)
+	}
+
+	maxMedia := systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, 4)
+	if maxMedia > 0 && len(req.MediaIds) > maxMedia {
+		return fmt.Sprintf("Validation failed: Too many media attachments (max %d)", maxMedia)
+	}
+
+	if req.Poll != nil {
+		if len(req.MediaIds) > 0 {
+			return "Validation failed: Cannot attach both media and a poll"
+		}
+
+		maxOptions := systemsettings.GetInt(systemsettings.KeyPollMaxOptions, 4)
+		if len(req.Poll.Options) < 2 || (maxOptions > 0 && len(req.Poll.Options) > maxOptions) {
+			return fmt.Sprintf("Validation failed: Poll must have between 2 and %d options", maxOptions)
+		}
+
+		maxOptionChars := systemsettings.GetInt(systemsettings.KeyPollMaxCharactersPerOption, 50)
+		for _, option := range req.Poll.Options {
+			if strings.TrimSpace(option) == "" {
+				return "Validation failed: Poll options can't be blank"
+			}
+
+			if maxOptionChars > 0 && utf8.RuneCountInString(option) > maxOptionChars {
+				return fmt.Sprintf("Validation failed: Poll option character limit of %d exceeded", maxOptionChars)
+			}
+		}
+
+		minExp := systemsettings.GetInt64(systemsettings.KeyPollMinExpiration, 300)
+		maxExp := systemsettings.GetInt64(systemsettings.KeyPollMaxExpiration, 2629746)
+
+		if expiresIn := int64(req.Poll.ExpiresIn); expiresIn < minExp || (maxExp > 0 && expiresIn > maxExp) { //nolint:gosec // G115: bounded by the check itself
+			return fmt.Sprintf("Validation failed: Poll expiration must be between %d and %d seconds", minExp, maxExp)
+		}
+	}
+
+	return ""
 }
