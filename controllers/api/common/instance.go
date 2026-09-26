@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,9 @@ type InstanceResponse struct {
 			ActiveMonth int `json:"active_month"`
 		} `json:"users"`
 	} `json:"usage"`
+	// Stats is the Mastodon v1 instance field (user/status/domain counts);
+	// the web landing page shows it. Extra on v2, which clients ignore.
+	Stats InstanceStats `json:"stats"`
 
 	Thumbnail struct {
 		Url string `json:"url"`
@@ -90,6 +94,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
 	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
 	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
+	resp.Stats = getInstanceStats()
 	resp.Thumbnail.Url = systemsettings.GetString(systemsettings.KeyThumbnail, "")
 	resp.Languages = systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"})
 	// resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
@@ -133,4 +138,43 @@ func getActiveUsersCount() int {
 		Count(&count)
 
 	return int(count)
+}
+
+// InstanceStats mirrors Mastodon's v1 Instance#stats.
+type InstanceStats struct {
+	UserCount   int64 `json:"user_count"`
+	StatusCount int64 `json:"status_count"`
+	DomainCount int64 `json:"domain_count"`
+}
+
+const instanceStatsTTL = 5 * time.Minute
+
+var instanceStatsCache struct {
+	sync.Mutex
+	value InstanceStats
+	at    time.Time
+}
+
+// getInstanceStats counts local accounts, local statuses and known remote
+// domains. The counts are cached briefly because the endpoint is public and
+// requested on every landing page view.
+func getInstanceStats() InstanceStats {
+	instanceStatsCache.Lock()
+	defer instanceStatsCache.Unlock()
+
+	if !instanceStatsCache.at.IsZero() && time.Since(instanceStatsCache.at) < instanceStatsTTL {
+		return instanceStatsCache.value
+	}
+
+	var stats InstanceStats
+
+	gdb := db.GetDB()
+	gdb.Model(&models.Account{}).Where("domain IS NULL").Count(&stats.UserCount)
+	gdb.Model(&models.Status{}).Where("domain IS NULL AND deleted_at IS NULL").Count(&stats.StatusCount)
+	gdb.Model(&models.Account{}).Where("domain IS NOT NULL").Distinct("domain").Count(&stats.DomainCount)
+
+	instanceStatsCache.value = stats
+	instanceStatsCache.at = time.Now()
+
+	return stats
 }

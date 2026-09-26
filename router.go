@@ -73,6 +73,8 @@ func SetRouter(app gin.IRouter) {
 
 	// Instance 信息（v1 与 v2 共用同一处理函数）
 	v1ApiGroup.GET("/instance", common.GetInstanceDetail) // v2 也支持
+	// Mastodon serves the rules under v1; they were only registered on v2.
+	v1ApiGroup.GET("/instance/rules", rule.List)
 
 	// OAuth 应用注册
 	v1ApiGroup.POST("/apps", oauth.CreateApp)
