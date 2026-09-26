@@ -109,7 +109,9 @@ func UpdateCredentials(c *gin.Context) {
 	}
 
 	// Reload account with associations
-	err := db.GetDB().Preload("Emojis").Preload("Extra").Preload("Fields").
+	// Fields is a JSON column, not an association: preloading it failed with
+	// "unsupported relations" and turned every successful update into a 500.
+	err := db.GetDB().Preload("Emojis").Preload("Extra").
 		First(account, account.Id).Error
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "reload account error"))
