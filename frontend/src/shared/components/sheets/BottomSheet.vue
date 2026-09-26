@@ -192,8 +192,10 @@ function onPointerUp(e: PointerEvent) {
   pointerId = -1
   if (!spring) return
   if (!wasDragging) {
-    // a tap on the header: if we had interrupted an animation, resume it
-    if (spring.value !== 0) spring.to(props.modelValue ? 0 : height + 24, SPRING_DEFAULT)
+    // A tap on the header. If it interrupted an animation, resume it —
+    // through close() when closing, so the sheet still unmounts.
+    if (!props.modelValue) void close()
+    else if (spring.value !== 0) spring.to(0, SPRING_DEFAULT)
     return
   }
   const v = velocityFrom(history)
@@ -202,7 +204,9 @@ function onPointerUp(e: PointerEvent) {
   if (projected > height * 0.5 || v > 900) {
     requestClose(v)
   } else {
-    spring.to(0, SPRING_SHEET_FLICK, v)
+    // Only a real flick earns the slightly underdamped spring; a slow
+    // release settles critically damped (no bounce).
+    spring.to(0, Math.abs(v) > 300 ? SPRING_SHEET_FLICK : SPRING_DEFAULT, v)
   }
 }
 

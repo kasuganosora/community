@@ -34,10 +34,11 @@ function onKeydown(e: KeyboardEvent) {
     class="segmented"
     role="radiogroup"
     :aria-label="label"
-    :style="{ '--count': options.length, '--index': index }"
+    :style="{ '--count': options.length }"
     @keydown="onKeydown"
   >
-    <span class="segmented__thumb" aria-hidden="true" />
+    <!-- transform set on the thumb itself (not via a parent variable) -->
+    <span class="segmented__thumb" aria-hidden="true" :style="{ transform: `translateX(${index * 100}%)` }" />
     <button
       v-for="opt in options"
       :key="opt.value"
@@ -75,7 +76,6 @@ function onKeydown(e: KeyboardEvent) {
   border-radius: 7px;
   background: var(--color-bg-row);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  transform: translateX(calc(var(--index) * 100%));
   transition: transform 300ms var(--ease-spring);
   z-index: -1;
 }

@@ -46,13 +46,13 @@
   --color-accent-soft: rgba(0, 113, 227, 0.1);
   --color-like: #d30f45;               /* accessible systemPink */
   --color-like-soft: rgba(255, 45, 85, 0.1);
-  --color-repost: #248a3d;             /* accessible systemGreen */
+  --color-repost: #1f7a35;             /* systemGreen darkened to 5.4:1 */
   --color-repost-soft: rgba(52, 199, 89, 0.12);
   --color-danger: #d70015;             /* accessible systemRed */
   --color-danger-soft: rgba(255, 59, 48, 0.1);
   --color-warning: #c93400;            /* accessible systemOrange */
   --color-warning-soft: rgba(255, 149, 0, 0.12);
-  --color-success: #248a3d;
+  --color-success: #1f7a35;
   --color-success-soft: rgba(52, 199, 89, 0.12);
   --color-focus-ring: rgba(0, 113, 227, 0.55);
 

@@ -31,8 +31,9 @@ const navItems = computed(() => [
 const activeItem = computed(() => {
   const path = route.path
   if (path === '/') return 'home'
+  if (path.startsWith('/search')) return 'explore'
   const match = navItems.value.find(item => item.route !== '/' && path.startsWith(item.route))
-  return match?.value || 'home'
+  return match?.value ?? ''
 })
 
 function navigateTo(item: typeof navItems.value[0]) {

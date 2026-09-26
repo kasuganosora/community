@@ -214,7 +214,7 @@ async function handleShare() {
 .action-btn--active-pink .glyph-enter-active,
 .action-btn--active-green .glyph-enter-active,
 .action-btn--active-blue .glyph-enter-active {
-  animation: glyph-in 380ms var(--ease-spring);
+  animation: glyph-in 300ms var(--ease-spring);
 }
 
 @keyframes glyph-in {

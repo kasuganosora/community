@@ -424,6 +424,7 @@ defineExpose({ focus, reset })
 
 .composer__toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -473,6 +474,7 @@ defineExpose({ focus, reset })
 }
 
 .composer__right {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: var(--space-3);
