@@ -1,6 +1,25 @@
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '@/domains/post/infrastructure/postApi'
+
+/**
+ * Statuses deleted in this session. Cards hide themselves when their status
+ * (or the status they reblog) is in here, so a deleted post disappears from
+ * every list (timelines, profile, bookmarks, search) without each page
+ * having to handle a delete event.
+ */
+export const deletedStatusIds = reactive(new Set<string>())
+
+/** Latest version of statuses edited in this session, keyed by id. */
+export const editedStatuses = reactive(new Map<string, MastodonStatus>())
+
+export function markStatusDeleted(id: string) {
+  deletedStatusIds.add(id)
+}
+
+export function markStatusEdited(status: MastodonStatus) {
+  editedStatuses.set(status.id, status)
+}
 
 type StatusUpdater = (id: string, updates: Partial<MastodonStatus>) => void
 
