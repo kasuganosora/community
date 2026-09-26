@@ -62,7 +62,9 @@ func Reblog(c *gin.Context) {
 			return err
 		}
 
-		err = tx.Model(status).Update("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error
+		// 只更新计数列，避免 tx.Model(status) 连带 upsert 已加载的关联记录。
+		err = tx.Model(&models.Status{}).Where("id = ?", status.Id).
+			UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error
 		if err != nil {
 			err = errors.Wrap(err, "update reblogs_count")
 
@@ -98,7 +100,8 @@ func Unreblog(c *gin.Context) {
 			return err
 		}
 
-		err = tx.Model(status).Update("reblogs_count", gorm.Expr("reblogs_count - ?", 1)).Error
+		err = tx.Model(&models.Status{}).Where("id = ?", status.Id).
+			UpdateColumn("reblogs_count", gorm.Expr("CASE WHEN reblogs_count > 0 THEN reblogs_count - 1 ELSE 0 END")).Error
 		if err != nil {
 			err = errors.Wrap(err, "update reblogs_count")
 

@@ -33,17 +33,9 @@ func Favourite(c *gin.Context) {
 	favourite.AccountId = currentAccount.Id
 	favourite.StatusId = status.Id
 
-	// 生成收藏记录， 并把原来的 status 的收藏数加一
-	err = dbConn.Transaction(func(tx *gorm.DB) error {
-		err = tx.Create(favourite).Error
-		controllers.AbortIfError(c, err)
-
-		err = tx.Model(status).Update("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error
-		controllers.AbortIfError(c, err)
-
-		return nil
-	})
-	if err != nil {
+	// 生成收藏记录。status 的收藏数由 FavoriteStatus.AfterCreate 钩子加一，
+	// 这里不能再次递增（否则一次收藏计数 +2）。
+	if err = dbConn.Create(favourite).Error; err != nil {
 		_ = c.Error(err)
 
 		return
@@ -68,7 +60,10 @@ func Unfavourite(c *gin.Context) {
 		err = tx.Where("account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error
 		controllers.AbortIfError(c, err)
 
-		err = tx.Model(status).Update("favourites_count", gorm.Expr("favourites_count - ?", 1)).Error
+		// 只更新计数列：tx.Model(status).Update 会连带 upsert 已加载的关联记录，
+		// 在 MySQL 严格模式下因 created_at 无默认值而失败。
+		err = tx.Model(&models.Status{}).Where("id = ?", status.Id).
+			UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - 1 ELSE 0 END")).Error
 		controllers.AbortIfError(c, err)
 
 		return nil
@@ -115,6 +110,7 @@ func FavouritedBy(c *gin.Context) {
 
 	query := dbConn.Model(&models.Account{}).
 		Joins("JOIN favorite_statuses ON favorite_statuses.account_id = accounts.id").
+		Where("favorite_statuses.status_id = ?", status.Id).
 		Select("accounts.*").
 		Order("favorite_statuses.created_at DESC")
 
