@@ -165,6 +165,18 @@ func ErrorHandler() gin.HandlerFunc {
 		// 获取最后一个错误
 		err := c.Errors.Last().Err
 
+		// Handlers commonly record the error with c.Error() *and* write
+		// their own response. Writing a second JSON body here produced
+		// invalid responses such as `{"error":"..."}{"error":{...}}`.
+		if c.Writer.Written() {
+			log.WithFields(map[string]any{
+				"path":   c.Request.URL.Path,
+				"method": c.Request.Method,
+			}).Error("Request error (response already written): " + err.Error())
+
+			return
+		}
+
 		// 如果是 AppError，使用它
 		var appErr *AppError
 		if AsAppError(err, &appErr) {

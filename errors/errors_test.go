@@ -1085,3 +1085,24 @@ func TestErrorWrapper_WrapWithLog_RegularErrorWithDefaultErr(t *testing.T) {
 	assert.Equal(t, "req-5", result.RequestID)
 	assert.Equal(t, http.StatusServiceUnavailable, result.Status)
 }
+
+func TestErrorHandler_ResponseAlreadyWritten(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(ErrorHandler())
+	r.GET("/test", func(c *gin.Context) {
+		_ = c.Error(ErrInternal)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create status"})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/test", nil)) //nolint:noctx
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	// The body must be exactly the handler's JSON, not two concatenated objects.
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response), "body: %s", w.Body.String())
+	assert.Equal(t, "failed to create status", response["error"])
+}
