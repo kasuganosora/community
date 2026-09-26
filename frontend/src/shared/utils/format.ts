@@ -82,3 +82,17 @@ export function formatRelativeTime(dateStr: string, now: number = Date.now()): s
   if (year === currentYear) return `${month} ${day}`
   return `${month} ${day}, ${year}`
 }
+
+/** Compact time remaining until `dateStr` ("45s", "12m", "5h", "3d"); "0s" once passed. */
+export function formatTimeLeft(dateStr: string, now: number = Date.now()): string {
+  const date = new Date(dateStr).getTime()
+  if (isNaN(date)) return ''
+  const effectiveNow = Number.isFinite(now) ? now : Date.now()
+  const seconds = Math.max(0, Math.floor((date - effectiveNow) / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}
