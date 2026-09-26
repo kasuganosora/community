@@ -6,7 +6,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   mode: 'default',
-  duration: 300,
+  duration: 200,
 })
 </script>
 
@@ -23,7 +23,7 @@ withDefaults(defineProps<Props>(), {
 <style>
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity var(--transition-duration, 300ms) ease;
+  transition: opacity var(--transition-duration, 200ms) var(--ease-out);
 }
 
 .fade-enter-from,

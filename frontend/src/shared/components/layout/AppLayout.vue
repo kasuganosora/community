@@ -17,7 +17,13 @@ useScrollEdge()
       <LeftSidebar />
     </aside>
     <main class="app-layout__center">
-      <router-view />
+      <!-- New page fades up a few px; the old one leaves instantly, so
+           navigation never waits on an exit animation. -->
+      <router-view v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </main>
     <aside class="app-layout__right">
       <RightSidebar />

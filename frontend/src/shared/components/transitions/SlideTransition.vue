@@ -9,8 +9,8 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   direction: 'up',
   mode: 'default',
-  duration: 300,
-  distance: '20px',
+  duration: 200,
+  distance: '8px',
 })
 </script>
 
@@ -36,7 +36,9 @@ withDefaults(defineProps<Props>(), {
 .slide-left-leave-active,
 .slide-right-enter-active,
 .slide-right-leave-active {
-  transition: all var(--transition-duration, 300ms) ease;
+  transition:
+    opacity var(--transition-duration, 200ms) var(--ease-out),
+    transform var(--transition-duration, 200ms) var(--ease-out);
 }
 
 /* Slide Up */

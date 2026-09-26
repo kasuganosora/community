@@ -12,9 +12,9 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   tag: 'div',
   name: 'list',
-  duration: 300,
+  duration: 220,
   stagger: false,
-  staggerDelay: 50,
+  staggerDelay: 30,
 })
 
 // When stagger is enabled, append '-stagger' to the name so the
@@ -46,17 +46,19 @@ const transitionName = computed(() =>
 .list-move,
 .list-enter-active,
 .list-leave-active {
-  transition: all var(--transition-duration, 300ms) ease;
+  transition:
+    opacity var(--transition-duration, 220ms) var(--ease-out),
+    transform var(--transition-duration, 220ms) var(--ease-out);
 }
 
 .list-enter-from {
   opacity: 0;
-  transform: translateX(-30px);
+  transform: translateY(6px);
 }
 
 .list-leave-to {
   opacity: 0;
-  transform: translateX(30px);
+  transform: scale(0.98);
 }
 
 .list-leave-active {
@@ -67,18 +69,20 @@ const transitionName = computed(() =>
 .list-stagger-move,
 .list-stagger-enter-active,
 .list-stagger-leave-active {
-  transition: all var(--transition-duration, 300ms) ease;
+  transition:
+    opacity var(--transition-duration, 220ms) var(--ease-out),
+    transform var(--transition-duration, 220ms) var(--ease-out);
   transition-delay: calc(var(--index, 0) * var(--stagger-delay, 50ms));
 }
 
 .list-stagger-enter-from {
   opacity: 0;
-  transform: translateY(20px);
+  transform: translateY(6px);
 }
 
 .list-stagger-leave-to {
   opacity: 0;
-  transform: translateY(-20px);
+  transform: scale(0.98);
 }
 
 .list-stagger-leave-active {

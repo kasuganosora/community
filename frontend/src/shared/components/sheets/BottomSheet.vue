@@ -130,7 +130,7 @@ function fade(to: number): Promise<boolean> {
   const el = panel.value
   const sc = scrim.value
   if (!el || !sc) return Promise.resolve(true)
-  el.style.transition = sc.style.transition = 'opacity 200ms ease'
+  el.style.transition = sc.style.transition = 'opacity 200ms cubic-bezier(0.23, 1, 0.32, 1)'
   requestAnimationFrame(() => render(to))
   return new Promise((res) => setTimeout(() => res(props.modelValue === (to === 1)), 210))
 }

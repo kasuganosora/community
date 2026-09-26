@@ -58,7 +58,9 @@ async function handleShare() {
       :aria-label="`${reblogCount || 0} 次转发. ${status.reblogged ? '取消转发' : '转发'}`"
       :aria-pressed="status.reblogged"
     >
-      <t-icon name="swap" :size="18" />
+      <Transition name="glyph">
+        <t-icon :key="status.reblogged ? 'on' : 'off'" name="swap" :size="18" />
+      </Transition>
       <span v-if="reblogCount" class="action-count" aria-hidden="true">{{ reblogCount }}</span>
     </button>
 
@@ -69,7 +71,9 @@ async function handleShare() {
       :aria-label="`${favCount || 0} 个喜欢. ${status.favourited ? '取消喜欢' : '喜欢'}`"
       :aria-pressed="status.favourited"
     >
-      <t-icon :name="status.favourited ? 'heart-filled' : 'heart'" :size="18" />
+      <Transition name="glyph">
+        <t-icon :key="status.favourited ? 'on' : 'off'" :name="status.favourited ? 'heart-filled' : 'heart'" :size="18" />
+      </Transition>
       <span v-if="favCount" class="action-count" aria-hidden="true">{{ favCount }}</span>
     </button>
 
@@ -80,7 +84,9 @@ async function handleShare() {
       :aria-label="status.bookmarked ? '移除收藏' : '收藏'"
       :aria-pressed="status.bookmarked"
     >
-      <t-icon :name="status.bookmarked ? 'bookmark-filled' : 'bookmark'" :size="18" />
+      <Transition name="glyph">
+        <t-icon :key="status.bookmarked ? 'on' : 'off'" :name="status.bookmarked ? 'bookmark-filled' : 'bookmark'" :size="18" />
+      </Transition>
     </button>
 
     <button 
@@ -195,6 +201,25 @@ async function handleShare() {
 .action-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* State change: the new glyph settles in with a critically damped spring
+   (no overshoot); only turning a state ON animates, and the old glyph
+   leaves instantly so the two never overlap. */
+.glyph-leave-active {
+  position: absolute;
+  opacity: 0;
+}
+
+.action-btn--active-pink .glyph-enter-active,
+.action-btn--active-green .glyph-enter-active,
+.action-btn--active-blue .glyph-enter-active {
+  animation: glyph-in 380ms var(--ease-spring);
+}
+
+@keyframes glyph-in {
+  from { transform: scale(0.6); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
 }
 
 .action-count {
