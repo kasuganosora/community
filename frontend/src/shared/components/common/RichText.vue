@@ -2,14 +2,14 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { sanitizeHtml } from '@/shared/utils/sanitize'
-import { internalRouteForLink } from '@/shared/utils/links'
+import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
 import { localHosts } from '@/shared/utils/env'
 
 const props = defineProps<{
   html: string
 }>()
 
-const safeHtml = computed(() => sanitizeHtml(props.html))
+const safeHtml = computed(() => shortenBareLinks(sanitizeHtml(props.html)))
 const router = useRouter()
 
 // Mentions and hashtags open the in-app profile / tag page instead of a new
@@ -63,6 +63,15 @@ function onClick(e: MouseEvent) {
     text-decoration-thickness: 1px;
     text-underline-offset: 2px;
   }
+}
+
+/* Mastodon marks the hidden parts of long remote URLs with these classes. */
+.rich-text :deep(.invisible) {
+  display: none;
+}
+
+.rich-text :deep(.ellipsis)::after {
+  content: '…';
 }
 
 /* Long bare URLs wrap instead of pushing the column wider. */

@@ -44,3 +44,46 @@ function safeDecode(s: string): string {
     return s
   }
 }
+
+const MAX_LINK_TEXT = 30
+
+/**
+ * Display text for a bare URL link (Mastodon style): drop the protocol and a
+ * leading "www.", then cut to `max` characters with an ellipsis. Returns null
+ * when the link text is not the URL itself (e.g. a labelled link).
+ */
+export function shortenUrlText(text: string, href: string, max = MAX_LINK_TEXT): string | null {
+  const t = text.trim()
+  if (!/^https?:\/\//i.test(t)) return null
+  if (t !== href && t !== safeDecode(href)) return null
+  const display = t.replace(/^https?:\/\//i, '').replace(/^www\./i, '')
+  return display.length > max ? `${display.slice(0, max)}…` : display
+}
+
+/**
+ * Shorten the visible text of bare URL links in already-sanitized HTML. The
+ * href is untouched and the full URL goes into the title tooltip. Mentions,
+ * hashtags and links using Mastodon's invisible/ellipsis spans are left alone.
+ */
+export function shortenBareLinks(html: string, max = MAX_LINK_TEXT): string {
+  if (!html.includes('<a') || typeof document === 'undefined') return html
+  const tpl = document.createElement('template')
+  tpl.innerHTML = html
+  let changed = false
+  tpl.content.querySelectorAll('a').forEach((a) => {
+    if (a.classList.contains('mention') || a.classList.contains('hashtag')) return
+    if (a.children.length > 0) return
+    const href = a.getAttribute('href') ?? ''
+    const short = shortenUrlText(a.textContent ?? '', href, max)
+    if (short === null) return
+    if (short !== a.textContent) {
+      a.textContent = short
+      changed = true
+    }
+    if (!a.hasAttribute('title')) {
+      a.setAttribute('title', href)
+      changed = true
+    }
+  })
+  return changed ? tpl.innerHTML : html
+}
