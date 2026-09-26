@@ -1,0 +1,222 @@
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { userApi } from '@/domains/user/infrastructure/userApi'
+import { postApi } from '@/domains/post/infrastructure/postApi'
+import { stripHtml } from '@/shared/utils/sanitize'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../domain/validation'
+
+const authStore = useAuthStore()
+
+const profile = reactive({ display_name: '', note: '', locked: false, avatar: '', header: '' })
+const profileError = ref<string | null>(null)
+const savingProfile = ref(false)
+const uploading = reactive({ avatar: false, header: false })
+
+const previewAccount = computed(() => authStore.currentUser
+  ? { ...authStore.currentUser, avatar: profile.avatar, avatar_static: profile.avatar }
+  : null)
+
+function resetProfile() {
+  const me = authStore.currentUser
+  if (!me) return
+  profile.display_name = me.display_name ?? ''
+  // Edit the plain-text source, not the rendered HTML note.
+  profile.note = me.source?.note ?? stripHtml(me.note ?? '')
+  profile.locked = !!me.locked
+  profile.avatar = me.avatar ?? ''
+  profile.header = me.header ?? ''
+}
+
+async function onPickImage(kind: 'avatar' | 'header', e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const err = validateImageFile(file)
+  if (err) {
+    profileError.value = err
+    return
+  }
+  profileError.value = null
+  uploading[kind] = true
+  try {
+    // update_credentials only accepts an image URL, so upload it as media first.
+    const media = await postApi.uploadMedia(file)
+    if (!media.url) throw new Error('图片上传后没有返回地址')
+    profile[kind] = media.url
+  } catch (e2) {
+    profileError.value = e2 instanceof Error ? e2.message : '图片上传失败'
+  } finally {
+    uploading[kind] = false
+  }
+}
+
+async function saveProfile() {
+  profileError.value = validateProfile(profile.display_name, profile.note)
+  if (profileError.value) return
+  const me = authStore.currentUser
+  savingProfile.value = true
+  try {
+    const updated = await userApi.updateCredentials({
+      display_name: profile.display_name,
+      note: profile.note,
+      locked: profile.locked,
+      ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
+      ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
+    })
+    authStore.currentUser = updated
+    // update_credentials may omit `source`; refetch so the form and sidebar agree.
+    await authStore.fetchCurrentUser()
+    resetProfile()
+    MessagePlugin.success('个人资料已保存')
+  } catch (e) {
+    profileError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+onMounted(async () => {
+  resetProfile()
+  // Make sure we have the latest `source` (plain-text bio) before editing.
+  await authStore.fetchCurrentUser()
+  resetProfile()
+})
+</script>
+
+<template>
+  <form class="settings-form" @submit.prevent="saveProfile">
+    <div class="settings-images">
+      <div class="settings-header-preview">
+        <img v-if="profile.header" :src="profile.header" alt="" />
+      </div>
+      <UserAvatar v-if="previewAccount" :account="previewAccount" :size="72" class="settings-avatar" />
+    </div>
+    <div class="settings-row">
+      <label class="btn btn--secondary btn--sm settings-file">
+        {{ uploading.avatar ? '上传中…' : '更换头像' }}
+        <input type="file" accept="image/*" class="sr-only" :disabled="uploading.avatar" @change="onPickImage('avatar', $event)" />
+      </label>
+      <label class="btn btn--secondary btn--sm settings-file">
+        {{ uploading.header ? '上传中…' : '更换封面' }}
+        <input type="file" accept="image/*" class="sr-only" :disabled="uploading.header" @change="onPickImage('header', $event)" />
+      </label>
+    </div>
+
+    <div class="settings-field">
+      <label for="set-display-name" class="settings-field__label">昵称</label>
+      <input id="set-display-name" v-model="profile.display_name" class="settings-input" type="text" :maxlength="MAX_DISPLAY_NAME_LENGTH * 2" autocomplete="nickname" />
+    </div>
+    <div class="settings-field">
+      <label for="set-note" class="settings-field__label">简介</label>
+      <textarea id="set-note" v-model="profile.note" class="settings-input" rows="4" aria-describedby="set-note-hint" />
+      <span id="set-note-hint" class="settings-field__hint">{{ Array.from(profile.note).length }} / {{ MAX_NOTE_LENGTH }}</span>
+    </div>
+    <label class="settings-check">
+      <input v-model="profile.locked" type="checkbox" />
+      <span>锁定账号（需要手动批准关注请求）</span>
+    </label>
+
+    <p v-if="profileError" class="settings-error" role="alert">{{ profileError }}</p>
+    <div class="settings-actions">
+      <button type="button" class="btn btn--ghost btn--sm" @click="resetProfile">还原</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header">
+        {{ savingProfile ? '保存中…' : '保存' }}
+      </button>
+    </div>
+  </form>
+</template>
+
+<style scoped>
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-field__label {
+  font-size: var(--text-footnote, var(--font-sm));
+  font-weight: 600;
+}
+
+.settings-field__hint {
+  font-size: var(--text-footnote, var(--font-xs));
+  color: var(--color-label-secondary, var(--text-secondary));
+}
+
+.settings-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-separator, var(--border-color));
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.settings-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.settings-error {
+  color: var(--color-danger, var(--accent-red, #e0245e));
+  font-size: var(--font-sm);
+}
+
+.settings-images {
+  position: relative;
+  margin-bottom: var(--space-6);
+}
+
+.settings-header-preview {
+  height: 120px;
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  background: var(--color-fill, var(--bg-secondary));
+}
+
+.settings-header-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-avatar {
+  position: absolute;
+  left: var(--space-4);
+  bottom: calc(-1 * var(--space-6));
+}
+
+.settings-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-file {
+  cursor: pointer;
+}
+
+.settings-file:focus-within {
+  outline: 2px solid var(--color-accent, var(--accent-blue));
+  outline-offset: 2px;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+}
+</style>

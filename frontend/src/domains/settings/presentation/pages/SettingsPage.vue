@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
+import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
+import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
 
@@ -66,6 +68,20 @@ async function logout() {
             </span>
             <t-icon name="chevron-right" :size="16" class="settings__chevron" />
           </button>
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-profile">
+        <h2 id="settings-profile" class="settings__heading">个人资料</h2>
+        <div class="settings__group settings__group--padded">
+          <ProfileSettingsForm />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-password">
+        <h2 id="settings-password" class="settings__heading">修改密码</h2>
+        <div class="settings__group settings__group--padded">
+          <PasswordSettingsForm />
         </div>
       </section>
 
