@@ -47,11 +47,13 @@ COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 # Copy resources (i18n, mail templates, oauth HTML)
 COPY resources ./resources
 
-# Create data directories
-RUN mkdir -p storage/uploads
+# Create data directories (uploads are stored relative to the working dir)
+RUN mkdir -p uploads
 
-# Env
-ENV GIN_MODE=release
+# Env: configuration comes from environment variables (see docker-compose.yml
+# env_file/environment); APP_ROOT anchors .env / frontend/dist / resources.
+ENV GIN_MODE=release \
+    APP_ROOT=/app
 
 EXPOSE 8080
 

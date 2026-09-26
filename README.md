@@ -67,8 +67,11 @@ go run cmd/community/main.go
 # 服务监听地址
 LISTEN=:8080
 
-# 应用基础 URL（联邦访问地址，必须修改）
+# 应用基础 URL（联邦访问地址，必须修改，需包含 http:// 或 https://）
 APP_BASE_URL=http://localhost:8080
+
+# 加密密钥（必填，至少 16 个字符，例如 openssl rand -base64 32 生成）
+ENCRYPTED_KEY=
 
 # 存储类型: local / s3
 STORAGE_TYPE=local
@@ -111,6 +114,25 @@ go build -o community cmd/community/main.go
 
 服务将在 `http://localhost:8080` 启动。
 
+### 配置文件的查找顺序
+
+- 如果设置了环境变量 `ENV_FILE`，读取该文件；
+- 否则依次查找 `$APP_ROOT/.env`、当前工作目录下的 `.env`、可执行文件所在目录下的 `.env`，最后是编译时的源码目录（方便 `go run`）。
+- **环境变量优先于 `.env` 文件中的同名配置**（值为空的环境变量会被忽略）。`frontend/dist`、`resources` 等运行时目录按同样的顺序查找。
+
+### 使用 Docker Compose 部署
+
+```bash
+cp .env.example .env
+# 编辑 .env：至少设置 APP_BASE_URL、ENCRYPTED_KEY、DB_PASSWORD
+docker compose up -d --build
+```
+
+- Compose 通过 `env_file: .env` 把 `.env` 中的全部配置传给容器，并用 `environment:` 覆盖容器内的连接参数（`DB_HOST=mysql`、`REDIS_0_HOST=redis` 等）。
+- `APP_BASE_URL`、`ENCRYPTED_KEY`、`DB_PASSWORD` 未设置时 `docker compose` 会直接报错退出。
+- 生产模式（`DEV_MODE` 不为 `true`）下，如果没有配置 `APP_BASE_URL`（且数据库中也没有真实的 `domain` 设置），服务会拒绝启动，以免对外发布 `example.com` 之类的错误联邦地址。
+- 上传的媒体保存在宿主机的 `./uploads` 目录（挂载到容器内的 `/app/uploads`）。
+
 ## ⚙️ 配置说明
 
 ### 基础配置
@@ -118,7 +140,10 @@ go build -o community cmd/community/main.go
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `LISTEN` | 服务监听地址 | `:8080` |
-| `APP_BASE_URL` | 应用基础 URL（联邦地址） | `http://localhost:8080` |
+| `APP_BASE_URL` | 应用基础 URL（联邦地址，含协议）。本地账号、嘟文、标签的 URL 和联邦域名都由它生成；生产环境必须设置 | `http://localhost:8080` |
+| `ENCRYPTED_KEY` | 加密密钥（必填，≥16 字符） | 无 |
+| `ENV_FILE` | 指定 `.env` 文件路径（可选） | 自动查找 |
+| `APP_ROOT` | 运行时文件（`.env`、`frontend/dist`、`resources`）的根目录（可选） | 工作目录 |
 | `DEV_MODE` | 开发模式（加载本地静态文件） | `false` |
 | `SESSION_EXPIRE` | Session 过期时间（秒） | `1382400` (16天) |
 

@@ -1,0 +1,13 @@
+# Never send local secrets or runtime data to the build context.
+.git
+.env
+.env.*
+!.env.example
+!.env.test.example
+dump.rdb
+uploads/
+storage/
+logs/
+*.out
+frontend/node_modules
+frontend/dist

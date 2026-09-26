@@ -181,7 +181,7 @@ func setupServer() *gin.Engine {
 
 // setupFrontend 配置前端静态文件服务.
 func setupFrontend(app *gin.Engine) {
-	frontendDir := utils.GetFullPath("frontend/dist")
+	frontendDir := utils.ResolveAppPath("frontend/dist")
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
 		app.Static("/assets", filepath.Join(frontendDir, "assets"))
 		app.StaticFile("/logo.svg", filepath.Join(frontendDir, "logo.svg"))

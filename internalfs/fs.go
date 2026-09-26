@@ -59,7 +59,7 @@ func init() {
 // immune to on-disk tampering.
 func Get() fs.FS {
 	if config.C.DevMode == "true" { //nolint:goconst
-		return os.DirFS(utils.GetFullPath("resources"))
+		return os.DirFS(utils.ResolveAppPath("resources"))
 	}
 
 	return embeddedFS

@@ -6,24 +6,31 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./storage/uploads:/app/storage/uploads
-      - ./.env:/app/.env:ro
+      # The app stores uploads under ./uploads relative to its working
+      # directory (/app).
+      - ./uploads:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Everything in .env is passed to the container; the app reads its
+    # configuration from environment variables (they override any .env file).
+    env_file:
+      - .env
+    # Container-specific settings override the values from .env.
     environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_DATABASE=${DB_DATABASE:-community}
-      - DB_USERNAME=${DB_USERNAME:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-community_secret}
-      - REDIS_0_HOST=redis
-      - REDIS_0_PORT=6379
-      - REDIS_0_PASSWORD=
-      - REDIS_0_DB=0
-      - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8080}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: ${DB_DATABASE:-community}
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      REDIS_0_HOST: redis
+      REDIS_0_PORT: "6379"
+      REDIS_0_PASSWORD: ""
+      REDIS_0_DB: "0"
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set in .env, e.g. https://social.example.org}
+      ENCRYPTED_KEY: ${ENCRYPTED_KEY:?ENCRYPTED_KEY must be set in .env (at least 16 characters)}
     networks:
       - community-net
 
@@ -36,7 +43,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-community_secret}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       MYSQL_DATABASE: ${DB_DATABASE:-community}
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:

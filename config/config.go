@@ -93,8 +93,22 @@ func init() {
 }
 
 func loadConfig() {
-	// 取得当前运行目录下有没有 .env 文件，如果有则通过他来设置配置
-	loadConfigFrom(utils.GetFullPath(".env"))
+	loadConfigFrom(envFilePath())
+}
+
+// envFilePath returns the .env file to read: $ENV_FILE when set, otherwise
+// ".env" resolved via utils.ResolveAppPath ($APP_ROOT, working directory,
+// executable directory, then the source tree).
+func envFilePath() string {
+	if p := os.Getenv("ENV_FILE"); p != "" {
+		if !utils.IsFileExists(p) {
+			log.Warn("ENV_FILE=%s does not exist; using environment variables only", p)
+		}
+
+		return p
+	}
+
+	return utils.ResolveAppPath(".env")
 }
 
 func loadConfigFrom(envFilePath string) {
@@ -181,6 +195,16 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 	envData, err := godotenv.Parse(fp)
 	if err != nil {
 		return
+	}
+
+	// Real environment variables override the file, so container
+	// orchestrators (docker compose "environment:", Kubernetes) can adjust a
+	// mounted .env. Empty variables are ignored, like empty .env values.
+	for _, env := range os.Environ() {
+		key, value, ok := strings.Cut(env, "=")
+		if ok && value != "" {
+			envData[key] = value
+		}
 	}
 
 	loadMapToConfig(envData)

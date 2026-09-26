@@ -165,3 +165,30 @@ func TestLoadConfigFrom_IgnoresEnvFileInTestMode(t *testing.T) {
 	assert.Equal(t, ":8080", C.Listen)
 	assert.Equal(t, "false", C.DevMode)
 }
+
+func TestLoadConfigFromEnvFile_EnvironmentOverridesFile(t *testing.T) {
+	saved, savedConfigured := C, appBaseURLConfigured
+	t.Cleanup(func() { C, appBaseURLConfigured = saved, savedConfigured })
+
+	dir := t.TempDir()
+	envPath := dir + "/.env"
+	require.NoError(t, os.WriteFile(envPath, []byte("DB_HOST=from-file\nDB_DATABASE=filedb\nAPP_BASE_URL=https://file.example.org/\n"), 0o600))
+
+	t.Setenv("DB_HOST", "from-env")
+	t.Setenv("DB_DATABASE", "") // empty variables do not override the file
+	t.Setenv("ENCRYPTED_KEY", "0123456789abcdef-env")
+
+	C.Other = map[string]string{}
+	require.NoError(t, loadConfigFromEnvFile(envPath))
+
+	assert.Equal(t, "from-env", C.DbHost)
+	assert.Equal(t, "filedb", C.DbDatabase)
+	assert.Equal(t, "0123456789abcdef-env", C.EncryptedKey)
+	assert.Equal(t, "https://file.example.org", C.AppBaseURL)
+	assert.True(t, AppBaseURLConfigured())
+}
+
+func TestEnvFilePath_UsesEnvFileVariable(t *testing.T) {
+	t.Setenv("ENV_FILE", "/run/secrets/community.env")
+	assert.Equal(t, "/run/secrets/community.env", envFilePath())
+}
