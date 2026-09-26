@@ -21,6 +21,7 @@ var ScripsType = []MigrationScript{
 	CreatePerformanceIndexesScript{},
 	MigrateRelayTableScript{},
 	UnifyMediaAttachmentsScript{},
+	RepairMatrixHSTablesScript{},
 }
 
 type MigrationScript interface {

@@ -65,6 +65,8 @@ var ScripsType = []MigrationScript{
     MigrateMediaTablesScript{},
     CreatePerformanceIndexesScript{},
     MigrateRelayTableScript{},
+    UnifyMediaAttachmentsScript{},
+    RepairMatrixHSTablesScript{},
 }
 ```
 
@@ -205,10 +207,12 @@ if err := scripts.RunPerformanceMigrations(); err != nil { ... }
 | `CreateActivityPubTablesScript` | `activitypub_tables.go` | 联邦相关表：`Delivery`、`ProcessedActivity`、`ProxyFollow`、`AccountKey` |
 | `MigrateGroupTablesScript` | `group.go` | 群组/联系人：`groups`、`group_members`、`group_messages`、`contacts`、`contact_requests` |
 | `MigrateMatrixTablesScript` | `matrix.go` | Matrix 映射表：`matrix_users`、`matrix_rooms`、`matrix_messages` |
-| `MigrateMatrixHSScript` | `matrix_hs.go` | Matrix Homeserver 表：事件/房间/成员/会话/回执/E2EE 密钥等 15 张表 |
+| `MigrateMatrixHSScript` | `matrix_hs.go` | 已废弃（Up 为空操作）。Homeserver 表由 `matrix/homeserver` 启动时根据 GORM 模型 AutoMigrate 创建 |
 | `MigrateMediaTablesScript` | `media_indexes.go` | 媒体索引、`blurhash`/`focus_x|y` 列、全文搜索索引 |
 | `CreatePerformanceIndexesScript` | `performance_indexes.go` | 为各核心表创建常用查询索引 |
 | `MigrateRelayTableScript` | `relay.go` | 联邦中继表 `relays` |
+| `UnifyMediaAttachmentsScript` | `unify_media_attachments.go` | 统一附件表为 `media_attachments`（迁移 `status_media_attachments` 关联并删除旧表） |
+| `RepairMatrixHSTablesScript` | `matrix_hs_repair.go` | 删除旧 `MigrateMatrixHSScript` 用手写 DDL 建的空表（与模型冲突），由 Homeserver 重新 AutoMigrate |
 
 ## 配置说明
 

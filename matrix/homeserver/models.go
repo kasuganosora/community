@@ -67,8 +67,10 @@ type MatrixEvent struct { //nolint:recvcheck
 	TxnID          *string `gorm:"type:varchar(255);index" json:"-"`
 	SenderDeviceID string  `gorm:"type:varchar(255)"       json:"-"`
 
-	// 关联
-	Room *MatrixRoom `gorm:"foreignKey:RoomID;references:RoomID" json:"-"`
+	// No GORM association to MatrixRoom on purpose: "foreignKey:RoomID;references:RoomID"
+	// was parsed as has-one (matrix_rooms_hs.room_id -> matrix_events.room_id), which made
+	// MySQL 8.4 reject the FK (error 6125). Federated events can also arrive before the
+	// room row exists, so events must not be constrained to matrix_rooms_hs.
 
 	CreatedAt *time.Time `gorm:"autoCreateTime;index" json:"created_at"`
 }
