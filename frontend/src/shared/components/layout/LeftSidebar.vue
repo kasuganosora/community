@@ -24,6 +24,7 @@ const navItems = computed(() => [
   { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
   { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
+  { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
 
 const activeItem = computed(() => {

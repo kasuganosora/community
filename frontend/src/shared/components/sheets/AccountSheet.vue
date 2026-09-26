@@ -51,6 +51,11 @@ async function logout() {
           <span class="group__label">收藏</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
+        <button type="button" class="group__row" @click="go('/settings')">
+          <span class="group__icon" style="--tint: #8e8e93"><t-icon name="setting-filled" :size="18" /></span>
+          <span class="group__label">设置</span>
+          <t-icon name="chevron-right" :size="16" class="group__chevron" />
+        </button>
       </div>
 
       <div class="group">

@@ -13,6 +13,7 @@ export const RouteNames = {
   SEARCH: 'search',
   PROFILE: 'profile',
   POST_DETAIL: 'post-detail',
+  SETTINGS: 'settings',
 } as const
 
 /** Union of all route name string literals */
@@ -72,6 +73,11 @@ const MainRoutes: RouteRecordRaw[] = [
     component: () => import('@/domains/trending/presentation/pages/SearchResultsPage.vue'),
   },
   {
+    path: 'settings',
+    name: RouteNames.SETTINGS,
+    component: () => import('@/domains/settings/presentation/pages/SettingsPage.vue'),
+  },
+  {
     path: '@:username',
     name: RouteNames.PROFILE,
     component: () => import('@/domains/user/presentation/pages/ProfilePage.vue'),
@@ -113,4 +119,5 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.SEARCH]: { title: 'Search' },
   [RouteNames.PROFILE]: { title: 'Profile' },
   [RouteNames.POST_DETAIL]: { title: 'Post' },
+  [RouteNames.SETTINGS]: { title: 'Settings' },
 }

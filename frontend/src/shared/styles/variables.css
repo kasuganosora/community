@@ -3,8 +3,9 @@
    --------------------------------------------------------------------------
    One source of truth for colour, type, space, radius, depth, materials and
    motion. Light is the default; dark is applied through
-   :root[theme-mode='dark'] (the attribute TDesign also keys its own dark
-   palette on), set by useTheme() and by the pre-paint script in index.html.
+   :root[theme-mode='dark'] in theme-dark.css (the attribute TDesign also
+   keys its own dark palette on), set by useTheme() and by the pre-paint
+   script in index.html.
 
    Semantic tokens (--color-*, --material-*, --text-*, --motion-*) are what
    new code should use. The older names further down (--bg-primary,
@@ -256,11 +257,6 @@
     --material-blur-bar: none;
     --material-blur-thick: none;
   }
-  :root[theme-mode='dark'] {
-    --material-bar: rgba(12, 12, 14, 0.97);
-    --material-thick: #242426;
-    --material-thin: rgba(30, 30, 32, 0.95);
-  }
 }
 
 @media (prefers-contrast: more) {
@@ -272,15 +268,6 @@
     --material-thick: #ffffff;
     --material-bar-border: rgba(0, 0, 0, 0.4);
     --color-accent-text: #0040dd;
-  }
-  :root[theme-mode='dark'] {
-    --color-label-secondary: #c7c7cc;
-    --color-label-tertiary: #98989f;
-    --color-separator: rgba(255, 255, 255, 0.4);
-    --material-bar: #000000;
-    --material-thick: #1c1c1e;
-    --material-bar-border: rgba(255, 255, 255, 0.5);
-    --color-accent-text: #6fb6ff;
   }
 }
 

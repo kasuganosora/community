@@ -405,6 +405,7 @@ defineExpose({ focus, reset })
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+  outline: none !important;
   color: var(--color-label) !important;
   font-size: var(--text-title-3) !important;
   line-height: var(--leading-title-3) !important;
@@ -508,6 +509,14 @@ defineExpose({ focus, reset })
 
 .tool-btn--active {
   background: var(--color-accent-soft);
+}
+
+/* Phones: the toolbar runs the full width under the avatar so the tools,
+   counter and button never crowd each other. */
+@media (max-width: 43.74rem) {
+  .composer__toolbar {
+    margin-left: calc(-40px - var(--space-3));
+  }
 }
 
 /* Secondary fields: filled, borderless, same radius family as inputs. */

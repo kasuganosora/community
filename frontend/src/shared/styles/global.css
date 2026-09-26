@@ -1,4 +1,5 @@
 @import './variables.css';
+@import './theme-dark.css';
 @import './tdesign-overrides.css';
 @import './chinese-typography.css';
 @import './motion.css';

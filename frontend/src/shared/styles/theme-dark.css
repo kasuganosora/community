@@ -1,0 +1,95 @@
+/* ==========================================================================
+   Dark appearance
+   Applied by useTheme() through the theme-mode attribute on <html>, which
+   is also TDesign's dark-mode hook, so both token sets switch together.
+   Only colour, material and shadow tokens change; type, space and motion
+   are shared with light.
+   ========================================================================== */
+/* Dark ------------------------------------------------------------------
+   True-black base (OLED friendly) with elevated greys for layers; labels are
+   off-white to avoid halation; tints use the brighter dark-mode variants. */
+:root[theme-mode='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #000000;
+  --color-bg-grouped: #111113;
+  --color-bg-elevated: #1c1c1e;
+  --color-bg-row: #1c1c1e;
+  --color-fill: rgba(118, 118, 128, 0.24);
+  --color-fill-strong: rgba(118, 118, 128, 0.36);
+  --color-hover: rgba(255, 255, 255, 0.045);
+  --color-pressed: rgba(255, 255, 255, 0.09);
+
+  --color-label: #f5f5f7;              /* 19.3:1 */
+  --color-label-secondary: #98989f;    /* 7.2:1 */
+  --color-label-tertiary: #7c7c83;    /* 4.6:1 */
+  --color-label-quaternary: #48484a;
+
+  --color-separator: rgba(84, 84, 88, 0.55);
+  --color-separator-opaque: #2c2c2e;
+
+  --color-accent: #0071e3;             /* white text still 4.6:1 */
+  --color-accent-hover: #0a7cf0;
+  --color-accent-pressed: #0068d1;
+  --color-accent-text: #2997ff;        /* 7.0:1 on black */
+  --color-accent-soft: rgba(41, 151, 255, 0.16);
+  --color-like: #ff375f;
+  --color-like-soft: rgba(255, 55, 95, 0.16);
+  --color-repost: #30d158;
+  --color-repost-soft: rgba(48, 209, 88, 0.16);
+  --color-danger: #ff453a;
+  --color-danger-soft: rgba(255, 69, 58, 0.16);
+  --color-warning: #ff9f0a;
+  --color-warning-soft: rgba(255, 159, 10, 0.16);
+  --color-success: #30d158;
+  --color-success-soft: rgba(48, 209, 88, 0.16);
+  --color-focus-ring: rgba(41, 151, 255, 0.6);
+
+  --material-bar: rgba(0, 0, 0, 0.72);
+  --material-bar-border: rgba(255, 255, 255, 0.08);
+  --material-thick: rgba(36, 36, 38, 0.82);
+  --material-thin: rgba(30, 30, 32, 0.55);
+  --material-edge: rgba(255, 255, 255, 0.1);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --shadow-1: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --shadow-2: 0 6px 18px -6px rgba(0, 0, 0, 0.7), 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --shadow-popover: 0 16px 40px -8px rgba(0, 0, 0, 0.8), 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+  --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  --shadow-fab: 0 8px 22px -6px rgba(0, 113, 227, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+
+  --accent-purple: #bf5af2;
+}
+
+
+/* Rows inside a sheet sit one step above the sheet's material. */
+:root[theme-mode='dark'] .sheet {
+  --color-bg-row: #2c2c2e;
+}
+
+/* Photos and avatars are slightly dimmed so they don't glare on black. */
+:root[theme-mode='dark'] .media-img,
+:root[theme-mode='dark'] .profile-banner__img {
+  filter: brightness(0.92);
+}
+
+/* Accessibility preferences, dark variants (must come after the base). */
+@media (prefers-reduced-transparency: reduce) {
+  :root[theme-mode='dark'] {
+    --material-bar: rgba(12, 12, 14, 0.97);
+    --material-thick: #242426;
+    --material-thin: rgba(30, 30, 32, 0.95);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[theme-mode='dark'] {
+    --color-label-secondary: #c7c7cc;
+    --color-label-tertiary: #98989f;
+    --color-separator: rgba(255, 255, 255, 0.4);
+    --material-bar: #000000;
+    --material-thick: #1c1c1e;
+    --material-bar-border: rgba(255, 255, 255, 0.5);
+    --color-accent-text: #6fb6ff;
+  }
+}
