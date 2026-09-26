@@ -23,6 +23,12 @@ func (us *UserSetting) GetAggregatesReblogs() bool {
 }
 
 func (us *UserSetting) IsFollowProtect() bool {
+	// Users created through registration have no user_setting row, so
+	// Settings is nil; treat that as "not protected".
+	if us == nil {
+		return false
+	}
+
 	if _followProtect, ok := us.Data["follow_protect"]; ok {
 		if v, ok := _followProtect.(bool); ok {
 			return v

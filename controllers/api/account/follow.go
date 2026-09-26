@@ -11,13 +11,26 @@ import (
 )
 
 type FollowRequest struct {
-	AccountId uint64 `json:"account_id"`
-	Reblogs   bool   `json:"reblogs"`
+	AccountId uint64 `form:"-"       json:"account_id"`
+	Reblogs   bool   `form:"reblogs" json:"reblogs"`
+}
+
+// bindOptionalBody binds a JSON or form body if the request has one and is a
+// no-op for empty bodies.
+func bindOptionalBody(c *gin.Context, obj any) error {
+	if c.Request.Body == nil || c.Request.ContentLength == 0 {
+		return nil
+	}
+
+	return c.ShouldBind(obj)
 }
 
 func Follow(c *gin.Context) {
-	var req FollowRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Mastodon defaults reblogs to true when the parameter is omitted.
+	req := FollowRequest{Reblogs: true}
+	// Mastodon clients (and the bundled web UI) usually POST without a body;
+	// parameters may also come as form data. Only bind when a body exists.
+	if err := bindOptionalBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"code": 400,                    //nolint:goconst
 			"msg":  "invalid request body", //nolint:goconst
@@ -40,6 +53,15 @@ func Follow(c *gin.Context) {
 
 	// 获取当前登录用户
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+
+	if req.AccountId == account.Id {
+		c.AbortWithStatusJSON(403, gin.H{
+			"code": 403,
+			"msg":  "cannot follow yourself",
+		})
+
+		return
+	}
 
 	// 检查被关注的账户ID是否存在
 	targetAccount := &models.Account{}
@@ -94,7 +116,8 @@ func Follow(c *gin.Context) {
 		err = db.GetDB().Save(follow).Error
 	} else {
 		// 如果目标账户设置了关注保护，那么直接设置为请求状态
-		if targetAccount.User.Settings.IsFollowProtect() {
+		// Remote accounts have no local User.
+		if targetAccount.User != nil && targetAccount.User.Settings.IsFollowProtect() {
 			follow.Status = models.FollowStatusRequested
 		}
 

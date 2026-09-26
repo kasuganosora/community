@@ -64,3 +64,8 @@ func TestUserSetting_IsFollowProtect(t *testing.T) {
 		assert.False(t, us.IsFollowProtect())
 	})
 }
+
+func TestUserSetting_IsFollowProtect_Nil(t *testing.T) {
+	var us *UserSetting
+	assert.False(t, us.IsFollowProtect())
+}

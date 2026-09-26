@@ -219,6 +219,7 @@ func SetRouter(app gin.IRouter) {
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
 		POST("/accounts/:id/follow", account.Follow).
 		DELETE("/accounts/:id/follow", account.UnFollow).
+		POST("/accounts/:id/unfollow", account.UnFollow). // Mastodon API
 		POST("/follow_requests/:id/authorize", follow_request.Authorize).
 		POST("/follow_requests/:id/reject", follow_request.Reject)
 
@@ -516,7 +517,8 @@ func SetRouter(app gin.IRouter) {
 	// 关注操作（写入）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
 		POST("/accounts/:id/follow", account.Follow).
-		DELETE("/accounts/:id/follow", account.UnFollow)
+		DELETE("/accounts/:id/follow", account.UnFollow).
+		POST("/accounts/:id/unfollow", account.UnFollow) // Mastodon API
 
 	// 列表（写入）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteLists})).
