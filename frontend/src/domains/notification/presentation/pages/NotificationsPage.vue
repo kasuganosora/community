@@ -1,32 +1,36 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonNotification, NotificationType } from '@/shared/types/mastodon'
 import { notificationApi } from '../../infrastructure/notificationApi'
+import { notificationTarget, notificationText, notificationQuery, type NotificationFilter } from '../../domain/notification'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { isInteractiveClick } from '@/shared/utils/dom'
+import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
-const notifications = ref<MastodonNotification[]>([])
-const loading = ref(true)
-const error = ref<string | null>(null)
+const PAGE_SIZE = 30
+const FILTERS: { value: NotificationFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'mention', label: '提及' },
+]
 
-// Reuse the shared action handlers — optimistic update on the notification
-// statuses (mention notifications carry a status that renders a PostCard).
+const router = useRouter()
+const filter = ref<NotificationFilter>('all')
+const feed = usePaginatedList<MastodonNotification>(
+  (maxId, limit) => notificationApi.list({ max_id: maxId, limit, ...notificationQuery(filter.value) }),
+  PAGE_SIZE,
+)
+const { items: notifications, loading, error, hasMore } = feed
+
+// Mention notifications render a PostCard; keep its actions optimistic.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, updates) => {
   for (const n of notifications.value) {
     if (n.status) applyStatusUpdate([n.status], id, updates)
-  }
-})
-
-onMounted(async () => {
-  try {
-    notifications.value = await notificationApi.list({ limit: 30 })
-  } catch (e) {
-    console.error('Failed to load notifications:', e)
-    error.value = 'Failed to load notifications'
-  } finally {
-    loading.value = false
   }
 })
 
@@ -52,22 +56,13 @@ function getNotificationColor(type: NotificationType) {
   }
 }
 
-function getNotificationText(type: NotificationType) {
-  switch (type) {
-    case 'favourite': return 'liked your post'
-    case 'reblog': return 'reposted your post'
-    case 'follow': return 'followed you'
-    case 'follow_request': return 'requested to follow you'
-    case 'mention': return 'mentioned you'
-    case 'poll': return 'a poll has ended'
-    case 'update': return 'edited a post'
-    case 'status': return 'posted a new status'
-    default: return 'interacted'
-  }
-}
-
 function getPreview(content: string): string {
   return stripHtml(content).slice(0, 100)
+}
+
+function open(n: MastodonNotification, e?: MouseEvent) {
+  if (e && isInteractiveClick(e)) return
+  router.push(notificationTarget(n)).catch(() => {})
 }
 
 async function dismissNotification(id: string) {
@@ -75,42 +70,91 @@ async function dismissNotification(id: string) {
     await notificationApi.dismiss(id)
     notifications.value = notifications.value.filter(n => n.id !== id)
   } catch (e) {
-    console.error('Failed to dismiss notification:', e)
+    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
   }
 }
 
-</script>
+const confirmClear = ref(false)
+async function clearAll() {
+  try {
+    await notificationApi.clear()
+    notifications.value = []
+    confirmClear.value = false
+    MessagePlugin.success('已清空通知')
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error ? e.message : '清空失败')
+  }
+}
 
+// Infinite scroll
+const sentinel = ref<HTMLElement>()
+let observer: IntersectionObserver | null = null
+onMounted(() => {
+  feed.refresh()
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting && !error.value) feed.loadMore()
+  }, { rootMargin: '200px' })
+  if (sentinel.value) observer.observe(sentinel.value)
+})
+onUnmounted(() => observer?.disconnect())
+watch(filter, () => feed.refresh())
+</script>
 
 <template>
   <div class="notifications-page">
-    <div class="page-header">
-      <h1 class="page-header__title">Notifications</h1>
+    <div class="page-header notifications-header">
+      <h1 class="page-header__title">通知</h1>
+      <button
+        v-if="notifications.length > 0 && !confirmClear"
+        type="button"
+        class="btn btn--ghost btn--sm"
+        @click="confirmClear = true"
+      >
+清空
+</button>
+      <span v-if="confirmClear" class="notifications-confirm">
+        <span>清空全部通知？</span>
+        <button type="button" class="btn btn--ghost btn--sm" @click="confirmClear = false">取消</button>
+        <button type="button" class="btn btn--danger btn--sm" @click="clearAll">清空</button>
+      </span>
     </div>
 
-    <div v-if="loading" class="page-loading">
-      <t-loading />
+    <div class="tab-bar" role="tablist" aria-label="通知类型">
+      <button
+        v-for="f in FILTERS"
+        :key="f.value"
+        type="button"
+        role="tab"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': filter === f.value }"
+        :aria-selected="filter === f.value"
+        @click="filter = f.value"
+      >
+        <span class="tab-bar__text">{{ f.label }}</span>
+        <div v-if="filter === f.value" class="tab-bar__indicator" />
+      </button>
     </div>
 
-    <div v-else-if="error" class="empty-state" role="alert">
+    <div v-if="error && notifications.length === 0" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">Something went wrong</h2>
+      <h2 class="empty-state__title">加载失败</h2>
       <p class="empty-state__text">{{ error }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="feed.refresh">重试</button>
     </div>
 
-    <div v-else-if="notifications.length === 0" class="empty-state">
+    <div v-else-if="!loading && notifications.length === 0" class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="notification" :size="48" />
       </div>
-      <h2 class="empty-state__title">Nothing to see here — yet</h2>
+      <h2 class="empty-state__title">暂时没有通知</h2>
       <p class="empty-state__text">
-        Likes, reposts, and new followers will show up here.
+        {{ filter === 'mention' ? '有人提到你时会显示在这里。' : '喜欢、转发、提及和新关注者会显示在这里。' }}
       </p>
     </div>
 
-    <div v-else class="notifications-list" role="list" aria-label="Notifications">
+    <div v-else class="notifications-list" role="list" aria-label="通知">
       <div
         v-for="notification in notifications"
         :key="notification.id"
@@ -127,24 +171,33 @@ async function dismissNotification(id: string) {
         </template>
 
         <template v-else>
-          <div class="notification-body">
+          <div
+            class="notification-body"
+            role="link"
+            tabindex="0"
+            :aria-label="`${notification.account.display_name || notification.account.username} ${notificationText(notification.type)}`"
+            @click="open(notification, $event)"
+            @keydown.enter.self="open(notification)"
+          >
             <div class="notification-icon" :style="{ color: getNotificationColor(notification.type) }">
               <t-icon :name="getNotificationIcon(notification.type)" :size="24" />
             </div>
             <div class="notification-content">
               <UserAvatar :account="notification.account" :size="32" />
               <div class="notification-text">
-                <strong>{{ notification.account.display_name }}</strong>
-                {{ getNotificationText(notification.type) }}
+                <strong>{{ notification.account.display_name || notification.account.username }}</strong>
+                {{ notificationText(notification.type) }}
+                <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
               <div v-if="notification.status" class="notification-preview">
                 {{ getPreview(notification.status.content) }}
               </div>
             </div>
             <button
+              type="button"
               class="notification-dismiss"
               @click.stop="dismissNotification(notification.id)"
-              aria-label="Dismiss notification"
+              aria-label="移除此通知"
             >
               <t-icon name="close" :size="16" />
             </button>
@@ -152,12 +205,51 @@ async function dismissNotification(id: string) {
         </template>
       </div>
     </div>
+
+    <div ref="sentinel" class="notifications-sentinel" />
+    <div v-if="loading" class="page-loading"><t-loading /></div>
+    <p v-else-if="error && notifications.length > 0" class="notifications-more-error" role="alert">
+      {{ error }} <button type="button" class="btn btn--ghost btn--sm" @click="feed.loadMore">重试</button>
+    </p>
+    <p v-else-if="!hasMore && notifications.length > 0" class="notifications-end">没有更多通知了</p>
   </div>
 </template>
 
 <style scoped>
 .notifications-page {
   min-height: 100dvh;
+}
+
+.notifications-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.notifications-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+}
+
+.notification-time {
+  margin-left: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.notifications-sentinel {
+  height: 1px;
+}
+
+.notifications-end,
+.notifications-more-error {
+  padding: var(--space-4);
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
 }
 
 .notification-item {
