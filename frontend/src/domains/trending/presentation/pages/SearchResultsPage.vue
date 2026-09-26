@@ -177,26 +177,59 @@ watch(() => route.query.q, (q) => {
 
 <style scoped>
 .search-page {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .search-empty {
   text-align: center;
-  padding: var(--space-12);
-  color: var(--text-secondary);
+  padding: var(--space-12) var(--space-8);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
+}
+
+.user-item,
+.tag-item {
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
+  cursor: pointer;
+}
+
+.user-item::after,
+.tag-item::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: var(--hairline);
+  background: var(--color-separator);
+}
+
+.user-item::after {
+  left: calc(var(--gutter) + 3rem + var(--space-3));
+}
+
+.tag-item::after {
+  left: var(--gutter);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .user-item:hover,
+  .tag-item:hover {
+    background: var(--color-hover);
+  }
+}
+
+.user-item:active,
+.tag-item:active {
+  background: var(--color-pressed);
+  transition-duration: 0s;
 }
 
 .user-item {
   display: flex;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.user-item:hover {
-  background: var(--bg-hover);
+  padding: var(--space-3) var(--gutter);
 }
 
 .user-item__info {
@@ -205,20 +238,28 @@ watch(() => route.query.q, (q) => {
 }
 
 .user-item__name {
-  font-weight: 700;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-item__username {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-item__bio {
   margin-top: var(--space-1);
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-subhead);
+  line-height: var(--leading-subhead);
+  color: var(--color-label);
   overflow: hidden;
-  text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -226,31 +267,26 @@ watch(() => route.query.q, (q) => {
 
 .follow-btn {
   align-self: center;
-  background: var(--text-primary) !important;
-  color: var(--bg-primary) !important;
-  font-weight: 700 !important;
+  flex-shrink: 0;
+  background: var(--color-label) !important;
+  color: var(--color-bg) !important;
+  font-weight: var(--weight-semibold) !important;
   border: none !important;
 }
 
 .tag-item {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.tag-item:hover {
-  background: var(--bg-hover);
+  padding: var(--space-3) var(--gutter);
 }
 
 .tag-item__name {
-  font-weight: 700;
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
 }
 
 .tag-item__count {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 </style>

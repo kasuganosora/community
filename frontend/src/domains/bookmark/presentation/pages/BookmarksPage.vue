@@ -70,6 +70,6 @@ onMounted(async () => {
 
 <style scoped>
 .bookmarks-page {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 </style>

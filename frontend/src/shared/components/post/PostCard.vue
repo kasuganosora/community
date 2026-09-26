@@ -185,27 +185,61 @@ function onMenuClick(data: { value?: unknown }) {
 </template>
 
 <style scoped>
+/* A timeline row: no card chrome, just content separated by an inset
+   hairline. Hierarchy comes from weight and tone, not boxes or colour. */
 .post-card {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-color);
+  position: relative;
+  padding: var(--space-3) var(--gutter) var(--space-1);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
 }
 
-.post-card:hover {
-  background: var(--bg-hover);
+/* Inset separator aligned with the text column (iOS list style). */
+.post-card::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--gutter) + 2.75rem + var(--space-3));
+  right: 0;
+  bottom: 0;
+  height: var(--hairline);
+  background: var(--color-separator);
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .post-card:hover {
+    background: var(--color-hover);
+  }
+}
+
+/* Response on pointer-down: instant highlight, eased release. */
+.post-card:active {
+  background: var(--color-pressed);
+  transition-duration: 0s;
+}
+
+.post-card:has(button:active, a:active, [role='button']:active) {
+  background: transparent;
 }
 
 .post-card__reblog {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
-  font-weight: var(--font-bold);
-  padding-left: 56px;
+  gap: var(--space-1);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  line-height: var(--leading-footnote);
+  letter-spacing: var(--tracking-footnote);
+  font-weight: var(--weight-medium);
+  padding-left: calc(2.75rem + var(--space-3) - 1.25rem);
   margin-bottom: var(--space-1);
-  letter-spacing: var(--tracking-wide);
+}
+
+.post-card__reblog :deep(svg) {
+  width: 1rem;
+  flex-shrink: 0;
+  color: var(--color-repost);
 }
 
 .post-card__body {
@@ -215,6 +249,14 @@ function onMenuClick(data: { value?: unknown }) {
 
 .post-card__avatar {
   flex-shrink: 0;
+  align-self: flex-start;
+  border-radius: 50%;
+  transition: transform var(--duration-release) var(--ease-out);
+}
+
+.post-card__avatar:active {
+  transform: scale(var(--press-scale));
+  transition-duration: var(--duration-press);
 }
 
 .post-card__content {
@@ -224,83 +266,111 @@ function onMenuClick(data: { value?: unknown }) {
 
 .post-card__header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-1);
-  flex-wrap: nowrap;
-  overflow: hidden;
-  margin-bottom: var(--space-1);
+  min-width: 0;
+  font-size: var(--text-subhead);
+  line-height: var(--leading-subhead);
 }
 
 .post-card__name {
-  font-weight: var(--font-bold);
-  font-size: var(--font-md);
+  flex: 0 1 auto;
+  max-width: 65%;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-body);
+  color: var(--color-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-primary);
-  letter-spacing: var(--tracking-tight);
 }
 
 .post-card__menu {
-  margin-left: auto;
-  padding: var(--space-1);
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: -0.25rem calc(-1 * var(--space-1)) -0.25rem auto;
   border-radius: var(--radius-full);
-  color: var(--text-secondary);
+  color: var(--color-label-secondary);
   flex-shrink: 0;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-out);
 }
 
-.post-card__menu:hover {
-  background: var(--accent-blue-light, rgba(29, 155, 240, 0.1));
-  color: var(--accent-blue);
+/* 44pt hit area around the small glyph. */
+.post-card__menu::after {
+  content: '';
+  position: absolute;
+  inset: -0.5rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .post-card__menu:hover {
+    background: var(--color-hover);
+    color: var(--color-label);
+  }
+}
+
+.post-card__menu:active {
+  background: var(--color-pressed);
+  transform: scale(var(--press-scale-small));
+  transition-duration: var(--duration-press);
 }
 
 .post-card__edited {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  flex-shrink: 0;
+  color: var(--color-label-secondary);
   white-space: nowrap;
 }
 
-.post-card__name:hover {
-  text-decoration: underline;
+@media (hover: hover) and (pointer: fine) {
+  .post-card__name:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
 }
 
 .post-card__username {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--color-label-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 1;
 }
 
 .post-card__dot {
-  color: var(--text-secondary);
   flex-shrink: 0;
-  font-weight: var(--font-bold);
+  color: var(--color-label-tertiary);
 }
 
-.post-card__text {
-  margin-top: var(--space-1);
-  font-size: var(--font-md);
-  color: var(--text-primary);
-  line-height: var(--leading-relaxed);
-  letter-spacing: var(--tracking-normal);
+.post-card__header :deep(time),
+.post-card__header :deep(.relative-time) {
+  flex-shrink: 0;
+  color: var(--color-label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Chinese text optimizations */
-.post-card__text :deep(p) {
-  line-height: var(--leading-relaxed);
-  margin-bottom: var(--space-3);
+.post-card__content :deep(.post-card__text) {
+  margin-top: var(--space-0);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  letter-spacing: var(--tracking-body);
+  color: var(--color-label);
+  overflow-wrap: anywhere;
 }
 
-.post-card__text :deep(a) {
-  color: var(--accent-blue);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color var(--transition-fast);
+.post-card__content :deep(.post-card__text:lang(zh)),
+.post-card__content :deep(.post-card__text p:lang(zh)) {
+  line-height: var(--leading-cjk);
 }
 
-.post-card__text :deep(a:hover) {
-  border-bottom-color: var(--accent-blue);
+.post-card__content :deep(.post-card__text p + p) {
+  margin-top: var(--space-2);
 }
 </style>

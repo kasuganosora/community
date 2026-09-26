@@ -378,8 +378,8 @@ defineExpose({ focus, reset })
 
 <style scoped>
 .composer {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-3) var(--gutter);
+  box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--color-separator);
 }
 
 .composer__body {
@@ -396,46 +396,79 @@ defineExpose({ focus, reset })
   min-width: 0;
 }
 
-.composer__textarea :deep(.t-textarea__inner) {
+/* The text field is the canvas: no box, no focus ring — the caret and the
+   enabled Post button are the feedback. */
+.composer__textarea :deep(.t-textarea__inner),
+.composer__textarea :deep(.t-textarea__inner:hover),
+.composer__textarea :deep(.t-textarea__inner:focus),
+.composer__textarea :deep(.t-textarea__inner.t-is-focused) {
   background: transparent !important;
   border: none !important;
-  color: var(--text-primary) !important;
-  font-size: var(--font-xl) !important;
+  box-shadow: none !important;
+  color: var(--color-label) !important;
+  font-size: var(--text-title-3) !important;
+  line-height: var(--leading-title-3) !important;
+  letter-spacing: var(--tracking-title-3);
   padding: var(--space-2) 0 !important;
   resize: none !important;
 }
 
-.composer__textarea :deep(.t-textarea__inner::placeholder) {
-  color: var(--text-tertiary) !important;
+.composer__textarea :deep(.t-textarea__inner:lang(zh)) {
+  line-height: 1.45 !important;
 }
 
-.composer__textarea :deep(.t-input__wrap) {
-  border: none !important;
+.composer__textarea :deep(.t-textarea__inner::placeholder) {
+  color: var(--color-label-tertiary) !important;
 }
 
 .composer__toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-color);
-  margin-top: var(--space-3);
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  margin-top: var(--space-2);
+  box-shadow: inset 0 var(--hairline) 0 var(--color-separator);
 }
 
 .composer__tools {
   display: flex;
-  gap: var(--space-1);
+  margin-left: calc(-1 * var(--space-2));
 }
 
 .tool-btn {
-  padding: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: var(--radius-full);
-  color: var(--accent-blue);
-  transition: background-color var(--transition-fast);
+  color: var(--color-accent-text);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-out);
 }
 
-.tool-btn:hover {
-  background: rgba(29, 155, 240, 0.1);
+.tool-btn :deep(svg) {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* Icons that aren't available render nothing; don't leave a hole. */
+.tool-btn:empty {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tool-btn:hover {
+    background: var(--color-accent-soft);
+  }
+}
+
+.tool-btn:active {
+  background: var(--color-accent-soft);
+  transform: scale(var(--press-scale));
+  transition-duration: var(--duration-press);
 }
 
 .composer__right {
@@ -444,13 +477,20 @@ defineExpose({ focus, reset })
   gap: var(--space-3);
 }
 
+.composer__right :deep(.t-button) {
+  min-width: 4.5rem;
+  font-weight: var(--weight-semibold);
+}
+
 .composer__count {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .composer__count--over {
-  color: var(--danger);
+  color: var(--color-danger);
+  font-weight: var(--weight-semibold);
 }
 
 .tool-btn:disabled {
@@ -601,8 +641,8 @@ defineExpose({ focus, reset })
 }
 
 .composer__error {
-  color: var(--danger, #e53e3e);
-  font-size: var(--font-sm, 0.875rem);
-  padding: var(--space-1, 0.25rem) 0;
+  color: var(--color-danger);
+  font-size: var(--text-footnote);
+  padding: var(--space-1) 0;
 }
 </style>

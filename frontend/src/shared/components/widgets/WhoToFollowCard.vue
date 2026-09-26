@@ -116,29 +116,48 @@ async function handleFollow(user: MastodonAccount) {
 </template>
 
 <style scoped>
+/* Inset grouped card: one soft fill, no border, no shadow. */
 .follow-card {
-  background: var(--bg-secondary);
+  background: var(--color-bg-grouped);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .follow-card__title {
-  font-size: var(--font-xl);
-  font-weight: 800;
-  padding: var(--space-3) var(--space-4);
-  color: var(--text-primary);
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--text-title-3);
+  line-height: var(--leading-title-3);
+  letter-spacing: var(--tracking-title-3);
+  font-weight: var(--weight-bold);
+  color: var(--color-label);
+}
+
+.follow-card__more {
+  padding: var(--space-1) var(--space-4) var(--space-3);
+}
+
+.follow-card__more a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  color: var(--color-accent-text);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
 }
 
 .follow-item {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  transition: background-color var(--transition-fast);
+  padding: var(--space-2) var(--space-4);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
 }
 
-.follow-item:hover {
-  background: var(--bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .follow-item:hover {
+    background: var(--color-hover);
+  }
 }
 
 .follow-item__link {
@@ -147,8 +166,8 @@ async function handleFollow(user: MastodonAccount) {
   gap: var(--space-3);
   flex: 1;
   min-width: 0;
-  text-decoration: none;
   color: inherit;
+  text-decoration: none !important;
 }
 
 .follow-item__info {
@@ -157,36 +176,35 @@ async function handleFollow(user: MastodonAccount) {
 }
 
 .follow-item__name {
-  font-weight: 700;
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .follow-item__username {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Label-coloured capsule: the only filled control in the rail. */
 .follow-btn {
-  background: var(--text-primary) !important;
-  color: var(--bg-primary) !important;
-  font-weight: 700 !important;
+  flex-shrink: 0;
+  background: var(--color-label) !important;
+  color: var(--color-bg) !important;
+  font-weight: var(--weight-semibold) !important;
   border: none !important;
 }
 
-.follow-card__more {
-  padding: var(--space-4);
-}
-
-.follow-card__more a {
-  color: var(--accent-blue);
-  font-size: var(--font-md);
+.follow-btn.t-is-disabled {
+  background: var(--color-fill) !important;
+  color: var(--color-label-secondary) !important;
+  opacity: 1;
 }
 
 .follow-card__loading {
@@ -201,6 +219,7 @@ async function handleFollow(user: MastodonAccount) {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-4);
-  color: var(--text-secondary);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
 }
 </style>

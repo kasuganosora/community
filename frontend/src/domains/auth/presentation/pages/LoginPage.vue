@@ -115,71 +115,89 @@ async function handleLogin() {
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-primary);
-  padding: var(--space-5);
+  padding: calc(var(--space-6) + var(--safe-top)) var(--gutter) calc(var(--space-6) + var(--safe-bottom));
+  background: var(--color-bg-grouped);
 }
 
+/* One elevated surface, generous padding, a single primary action. */
 .login-card {
   width: 100%;
-  max-width: 400px;
-  padding: var(--space-8);
+  max-width: 25rem;
+  padding: var(--space-8) var(--space-6) var(--space-6);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-row);
+  box-shadow: var(--shadow-2);
 }
 
 .login-logo {
-  text-align: center;
-  margin-bottom: var(--space-6);
-  color: var(--text-primary);
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+  color: var(--color-label);
 }
 
 .login-title {
-  font-size: var(--font-2xl);
-  font-weight: 700;
+  font-size: var(--text-title-2);
+  line-height: var(--leading-title-2);
+  letter-spacing: var(--tracking-title-2);
+  font-weight: var(--weight-bold);
   text-align: center;
-  margin-bottom: var(--space-8);
-  color: var(--text-primary);
+  margin-bottom: var(--space-6);
+  color: var(--color-label);
 }
 
 .login-form :deep(.t-form__item) {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.login-form :deep(.t-form__item:last-child) {
+  margin-top: var(--space-5);
+  margin-bottom: 0;
 }
 
 .login-form :deep(.t-form__controls) {
   margin-left: 0 !important;
 }
 
-.login-form :deep(.t-input) {
-  background: var(--bg-secondary) !important;
-  border-radius: var(--radius-md) !important;
-  padding: 0 var(--space-3) !important;
-}
-
 .login-form :deep(.t-button--theme-primary) {
-  background: linear-gradient(135deg, #86e01e, #67b90c) !important;
-  border: none !important;
-  color: #000 !important;
-  font-weight: 700 !important;
+  font-weight: var(--weight-semibold);
 }
 
 .login-footer {
   text-align: center;
   margin-top: var(--space-6);
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
 }
 
 .login-link {
-  color: var(--accent-blue);
+  color: var(--color-accent-text);
+  font-weight: var(--weight-medium);
   margin-left: var(--space-1);
 }
 
 .login-locked {
-  color: var(--danger);
-  font-size: var(--font-sm);
+  color: var(--color-danger);
+  font-size: var(--text-footnote);
   text-align: center;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+@media (max-width: 30rem) {
+  /* Phones: the page is the surface; no floating card. */
+  .login-page {
+    align-items: flex-start;
+    background: var(--color-bg);
+  }
+
+  .login-card {
+    padding: var(--space-8) 0 0;
+    background: transparent;
+    box-shadow: none;
+  }
 }
 </style>

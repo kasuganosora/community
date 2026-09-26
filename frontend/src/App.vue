@@ -41,7 +41,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-bg);
 }
 
 .app-init-error {
@@ -49,8 +50,11 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  gap: var(--space-4, 1rem);
-  color: var(--text-secondary, #666);
+  min-height: 100dvh;
+  padding: var(--space-8) var(--gutter);
+  gap: var(--space-4);
+  color: var(--color-label-secondary);
+  font-size: var(--text-body);
+  text-align: center;
 }
 </style>

@@ -96,19 +96,43 @@ onMounted(() => {
 
 <style scoped>
 .home-page {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
+/* Translucent navigation bar: title + segmented tabs on one material.
+   The hairline under it only appears once the feed scrolls beneath
+   (see html[data-scrolled] in global.css). */
 .home-header {
   position: sticky;
   top: 0;
-  z-index: 10;
-  background: var(--bg-header-blur);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-color);
+  z-index: var(--z-bar);
+  padding-top: var(--safe-top);
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--material-blur-bar);
+  backdrop-filter: var(--material-blur-bar);
+  box-shadow: 0 var(--hairline) 0 transparent;
+  transition: box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .home-header :deep(.page-header__title) {
-  padding: var(--space-3) var(--space-4) 0;
+  padding: var(--space-3) var(--gutter) var(--space-1);
+  font-size: var(--text-title-3);
+  line-height: var(--leading-title-3);
+  letter-spacing: var(--tracking-title-3);
+  font-weight: var(--weight-bold);
+}
+
+@media (max-width: 43.74rem) {
+  /* Phone: large title, and composing moves to the FAB + sheet. */
+  .home-header :deep(.page-header__title) {
+    padding-top: var(--space-2);
+    font-size: var(--text-large-title);
+    line-height: var(--leading-large-title);
+    letter-spacing: var(--tracking-large-title);
+  }
+
+  .home-page > .composer {
+    display: none;
+  }
 }
 </style>

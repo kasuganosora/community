@@ -68,7 +68,7 @@ onUnmounted(() => {
 
 <style scoped>
 .timeline-feed {
-  min-height: 200px;
+  min-height: 12.5rem;
 }
 
 .timeline-sentinel {
@@ -80,5 +80,4 @@ onUnmounted(() => {
   justify-content: center;
   padding: var(--space-8);
 }
-
 </style>

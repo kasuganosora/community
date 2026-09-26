@@ -29,8 +29,9 @@ const fullDate = computed(() => {
 
 <style scoped>
 .relative-time {
-  color: var(--text-secondary);
-  font-size: var(--font-md);
+  color: var(--color-label-secondary);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 </style>

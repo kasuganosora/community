@@ -30,7 +30,7 @@ const avatarSize = computed(() => props.size || 40)
 }
 
 .user-avatar:focus-visible {
-  outline: 2px solid var(--accent-blue);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 </style>

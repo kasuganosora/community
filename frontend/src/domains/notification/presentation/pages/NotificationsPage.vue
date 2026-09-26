@@ -157,30 +157,61 @@ async function dismissNotification(id: string) {
 
 <style scoped>
 .notifications-page {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .notification-item {
-  border-bottom: 1px solid var(--border-color);
+  position: relative;
+}
+
+/* Inset hairline aligned with the content column, like PostCard. */
+.notification-item + .notification-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(var(--gutter) + 2.75rem + var(--space-3));
+  right: 0;
+  height: var(--hairline);
+  background: var(--color-separator);
+  z-index: 1;
+}
+
+.notification-item :deep(.post-card::after) {
+  display: none;
 }
 
 .notification-body {
   display: flex;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--gutter);
   cursor: pointer;
-  transition: background-color var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
 }
 
-.notification-body:hover {
-  background: var(--bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .notification-body:hover {
+    background: var(--color-hover);
+  }
 }
 
+.notification-body:active {
+  background: var(--color-pressed);
+  transition-duration: 0s;
+}
+
+/* Type glyph in the avatar column: the only colour on the row. */
 .notification-icon {
   flex-shrink: 0;
-  width: 40px;
+  width: 2.75rem;
   display: flex;
   justify-content: flex-end;
+  padding-top: var(--space-0);
+}
+
+.notification-icon :deep(svg) {
+  width: 1.625rem;
+  height: 1.625rem;
 }
 
 .notification-content {
@@ -190,32 +221,64 @@ async function dismissNotification(id: string) {
 
 .notification-text {
   margin-top: var(--space-2);
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-label-secondary);
+}
+
+.notification-text strong {
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
 }
 
 .notification-preview {
   margin-top: var(--space-1);
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-subhead);
+  line-height: var(--leading-subhead);
+  color: var(--color-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .notification-dismiss {
   flex-shrink: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: var(--space-1);
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2)) 0 0;
   border-radius: var(--radius-full);
-  transition: all var(--transition-fast);
+  color: var(--color-label-tertiary);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-out);
 }
 
-.notification-dismiss:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+/* Enlarge the hit area to 44pt without growing the glyph. */
+.notification-dismiss::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.notification-dismiss {
+  position: relative;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notification-dismiss:hover {
+    background: var(--color-hover);
+    color: var(--color-label);
+  }
+}
+
+.notification-dismiss:active {
+  background: var(--color-pressed);
+  transform: scale(var(--press-scale-small));
+  transition-duration: var(--duration-press);
 }
 </style>

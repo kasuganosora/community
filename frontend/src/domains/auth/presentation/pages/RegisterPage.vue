@@ -279,79 +279,113 @@ function close() {
 
 <style scoped>
 .register-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-header-blur);
-  padding: var(--space-5);
+  padding: calc(var(--space-6) + var(--safe-top)) var(--gutter) calc(var(--space-6) + var(--safe-bottom));
+  background: var(--color-bg-grouped);
 }
 
+/* Presented like a form sheet: elevated surface, translucent sticky bar. */
 .register-modal {
   width: 100%;
-  max-width: 520px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  max-height: 90vh;
+  max-width: 32.5rem;
+  max-height: calc(100dvh - var(--space-12));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-row);
+  box-shadow: var(--shadow-2);
 }
 
 .register-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
-  background: var(--bg-secondary);
   z-index: 1;
+  display: grid;
+  grid-template-columns: var(--hit-target) 1fr var(--hit-target);
+  align-items: center;
+  min-height: var(--bar-height);
+  padding: 0 var(--space-2);
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--material-blur-bar);
+  backdrop-filter: var(--material-blur-bar);
+  box-shadow: 0 var(--hairline) 0 var(--color-separator);
 }
 
 .register-header__close {
-  padding: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: var(--hit-target);
+  height: var(--hit-target);
   border-radius: var(--radius-full);
-  color: var(--text-primary);
-  transition: background-color var(--transition-fast);
+  color: var(--color-label-secondary);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-out);
 }
 
-.register-header__close:hover {
-  background: var(--bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .register-header__close:hover {
+    background: var(--color-hover);
+  }
+}
+
+.register-header__close:active {
+  background: var(--color-pressed);
+  transform: scale(var(--press-scale-small));
+  transition-duration: var(--duration-press);
 }
 
 .register-header__title {
-  font-size: var(--font-lg);
-  font-weight: 700;
+  text-align: center;
+  font-size: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
 }
 
 .register-body {
-  padding: var(--space-6) var(--space-10);
+  padding: var(--space-6) var(--space-6) var(--space-8);
 }
 
 .rules-icon,
 .form-icon {
-  text-align: center;
+  display: flex;
+  justify-content: center;
   margin-bottom: var(--space-4);
+}
+
+/* Replace the old lime glyph fill with the single app accent. */
+.rules-icon svg,
+.form-icon svg {
+  fill: var(--color-accent);
+  width: 2.75rem;
+  height: 2.75rem;
 }
 
 .rules-intro {
   text-align: center;
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
+  line-height: var(--leading-subhead);
   margin-bottom: var(--space-6);
-  line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .rules-intro strong {
-  color: var(--accent-green);
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
 }
 
+/* Inset grouped sections, iOS Settings style. */
 .rules-section {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-grouped);
   overflow: hidden;
 }
 
@@ -359,11 +393,16 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  font-weight: 700;
-  font-size: var(--font-md);
-  color: var(--text-primary);
-  cursor: pointer;
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--text-footnote);
+  letter-spacing: var(--tracking-footnote);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  color: var(--color-label-secondary);
+}
+
+.rules-section__header :deep(svg) {
+  display: none;
 }
 
 .rules-list {
@@ -378,45 +417,53 @@ function close() {
 }
 
 .rule-number {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 1px;
   border-radius: 50%;
-  background: var(--accent-green);
-  color: #000;
-  font-size: var(--font-xs);
-  font-weight: 700;
+  background: var(--color-fill-strong);
+  color: var(--color-label);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
 .rule-text {
-  font-size: var(--font-md);
-  color: var(--text-primary);
-  padding-top: 3px;
-  font-weight: 700;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-label);
 }
 
 .agree-check {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--border-color);
+  gap: var(--space-3);
+  min-height: var(--hit-target);
+  padding: 0 var(--space-4);
+  box-shadow: inset 0 var(--hairline) 0 var(--color-separator);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
+}
+
+.agree-check:active {
+  background: var(--color-pressed);
+  transition-duration: 0s;
 }
 
 .agree-check__input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--accent-green);
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
 .agree-check__label {
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-size: var(--text-body);
+  color: var(--color-label);
 }
 
 .rules-tos {
@@ -427,14 +474,14 @@ function close() {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--accent-green);
-  font-size: var(--font-md);
+  color: var(--color-accent-text);
+  font-size: var(--text-body);
 }
 
 .rules-note {
   text-align: center;
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
   margin-bottom: var(--space-5);
 }
 
@@ -444,34 +491,34 @@ function close() {
   gap: var(--space-3);
 }
 
+.register-actions :deep(.t-button) {
+  flex: 1;
+  max-width: 11rem;
+  margin: 0;
+  font-weight: var(--weight-semibold);
+}
+
 .register-actions--center {
   justify-content: center;
   margin-top: var(--space-2);
 }
 
 .btn-continue {
-  background: linear-gradient(135deg, #86e01e, #67b90c) !important;
-  border: none !important;
-  color: #000 !important;
-  font-weight: 700 !important;
-  min-width: 120px;
-}
-
-.btn-continue:disabled {
-  opacity: 0.5 !important;
+  min-width: 7.5rem;
 }
 
 .register-form :deep(.t-form__label) {
-  color: var(--accent-green) !important;
-  font-weight: 700;
-  font-size: var(--font-sm);
-  margin-bottom: var(--space-1);
   padding: 0 !important;
   width: auto !important;
+  margin-bottom: var(--space-1);
+  color: var(--color-label-secondary) !important;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-footnote);
 }
 
 .register-form :deep(.t-form__item) {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
 }
 
 .register-form :deep(.t-form__controls) {
@@ -483,27 +530,46 @@ function close() {
 }
 
 .register-form :deep(.t-input__tips) {
-  color: var(--warning) !important;
-}
-
-.register-form :deep(.t-input) {
-  background: var(--bg-primary) !important;
-  border-radius: var(--radius-md) !important;
-  padding: 0 var(--space-3) !important;
+  color: var(--color-label-secondary) !important;
 }
 
 .input-prefix {
-  color: var(--text-secondary);
+  color: var(--color-label-secondary);
 }
 
 .input-suffix {
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  font-variant-numeric: tabular-nums;
 }
 
 .form-error {
   margin-top: var(--space-1);
-  font-size: var(--font-xs);
-  color: var(--danger);
+  font-size: var(--text-footnote);
+  color: var(--color-danger);
+}
+
+@media (max-width: 30rem) {
+  /* Phones: the form is the page. */
+  .register-page {
+    align-items: stretch;
+    padding: 0;
+    background: var(--color-bg-row);
+  }
+
+  .register-modal {
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .register-header {
+    padding-top: var(--safe-top);
+  }
+
+  .register-body {
+    padding: var(--space-5) var(--gutter) calc(var(--space-8) + var(--safe-bottom));
+  }
 }
 </style>

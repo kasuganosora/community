@@ -57,54 +57,67 @@ const trendStats = computed(() => {
 </template>
 
 <style scoped>
+/* Inset grouped card: one soft fill, no border, no shadow. */
 .trending-card {
-  background: var(--bg-secondary);
+  background: var(--color-bg-grouped);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .trending-card__title {
-  font-size: var(--font-xl);
-  font-weight: 800;
-  padding: var(--space-3) var(--space-4);
-  color: var(--text-primary);
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--text-title-3);
+  line-height: var(--leading-title-3);
+  letter-spacing: var(--tracking-title-3);
+  font-weight: var(--weight-bold);
+  color: var(--color-label);
+}
+
+.trending-card__more {
+  padding: var(--space-1) var(--space-4) var(--space-3);
+}
+
+.trending-card__more a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  color: var(--color-accent-text);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
 }
 
 .trending-item {
   display: block;
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
+  padding: var(--space-2) var(--space-4);
+  color: inherit;
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-release) var(--ease-out);
 }
 
-.trending-item:hover {
-  background: var(--bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .trending-item:hover {
+    background: var(--color-hover);
+    text-decoration: none;
+  }
 }
 
-.trending-item__category {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+.trending-item:active {
+  background: var(--color-pressed);
+  transition-duration: 0s;
+}
+
+.trending-item__category,
+.trending-item__count {
+  font-size: var(--text-footnote);
+  letter-spacing: var(--tracking-footnote);
+  color: var(--color-label-secondary);
 }
 
 .trending-item__name {
-  font-weight: 700;
-  font-size: var(--font-md);
-  color: var(--text-primary);
-  margin: var(--space-1) 0;
-}
-
-.trending-item__count {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-}
-
-.trending-card__more {
-  padding: var(--space-4);
-}
-
-.trending-card__more a {
-  color: var(--accent-blue);
-  font-size: var(--font-md);
+  margin: var(--space-0) 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
 }
 </style>

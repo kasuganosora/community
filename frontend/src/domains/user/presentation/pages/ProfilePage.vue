@@ -161,6 +161,7 @@ watch(activeTab, reloadStatuses)
       <div class="profile-info__top">
         <UserAvatar :account="account" :size="128" class="profile-avatar" />
         <t-button v-if="!isOwnProfile" theme="default" shape="round" class="edit-btn"
+          :class="{ 'edit-btn--following': following }"
           @click="toggleFollow"
         >
           {{ following ? 'Following' : 'Follow' }}
@@ -229,20 +230,37 @@ watch(activeTab, reloadStatuses)
 
 <style scoped>
 .profile-page {
-  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.page-header--with-back > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-header--with-back .page-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-header-bar__count {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .profile-banner {
-  height: 200px;
+  aspect-ratio: 3 / 1;
+  max-height: 12.5rem;
   overflow: hidden;
+  background: var(--color-fill);
 }
 
 .profile-banner__img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -251,50 +269,72 @@ watch(activeTab, reloadStatuses)
 .profile-banner__placeholder {
   width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
+  background: linear-gradient(135deg, var(--color-fill), var(--color-fill-strong));
 }
 
 .profile-info {
-  padding: var(--space-3) var(--space-4) 0;
+  padding: 0 var(--gutter);
 }
 
 .profile-info__top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-top: -68px;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-top: calc(-1 * var(--profile-avatar) / 2);
+  --profile-avatar: 6.5rem;
 }
 
+/* Avatar sits on the banner edge with a ring in the page colour. */
 .profile-avatar {
-  border: 4px solid var(--bg-primary);
+  width: var(--profile-avatar) !important;
+  height: var(--profile-avatar) !important;
+  font-size: calc(var(--profile-avatar) * 0.4) !important;
+  box-shadow: 0 0 0 4px var(--color-bg), var(--shadow-1);
 }
 
+/* Follow is the one prominent action: a label-coloured capsule.
+   Once following it recedes into a quiet outlined capsule. */
 .edit-btn {
-  margin-top: 72px;
-  font-weight: 700 !important;
-  border-color: var(--border-color) !important;
-  color: var(--text-primary) !important;
+  margin-bottom: var(--space-1);
+  min-width: 6rem;
+  font-weight: var(--weight-semibold) !important;
+  --td-bg-color-component: var(--color-label);
+  background: var(--color-label) !important;
+  border-color: var(--color-label) !important;
+  color: var(--color-bg) !important;
+}
+
+.edit-btn--following {
+  background: transparent !important;
+  border-color: var(--color-separator-opaque) !important;
+  color: var(--color-label) !important;
 }
 
 .profile-name {
-  font-size: var(--font-xl);
-  font-weight: 800;
-  margin-top: var(--space-1);
+  margin-top: var(--space-3);
+  font-size: var(--text-title-2);
+  line-height: var(--leading-title-2);
+  letter-spacing: var(--tracking-title-2);
+  font-weight: var(--weight-bold);
+  color: var(--color-label);
+  overflow-wrap: anywhere;
 }
 
 .profile-username {
-  color: var(--text-secondary);
-  font-size: var(--font-md);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
 }
 
 .profile-bio {
   margin-top: var(--space-3);
-  font-size: var(--font-md);
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-label);
 }
 
-.profile-bio :deep(a) {
-  color: var(--accent-blue);
+.profile-bio:lang(zh) {
+  line-height: var(--leading-cjk);
 }
 
 .profile-stats {
@@ -304,16 +344,21 @@ watch(activeTab, reloadStatuses)
 }
 
 .stat-item {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  text-decoration: none;
-}
-
-.stat-item:hover {
-  text-decoration: underline;
+  display: inline-flex;
+  gap: var(--space-1);
+  font-size: var(--text-subhead);
+  color: var(--color-label-secondary);
 }
 
 .stat-item strong {
-  color: var(--text-primary);
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 43.75rem) {
+  .profile-info__top {
+    --profile-avatar: 8rem;
+  }
 }
 </style>

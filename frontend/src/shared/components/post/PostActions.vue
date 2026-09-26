@@ -94,89 +94,116 @@ async function handleShare() {
 </template>
 
 <style scoped>
+/* Quiet by default: secondary-grey glyphs, colour only when a state is on.
+   Each control keeps a 44pt hit area while the glyph row stays compact;
+   the negative inline margin lines the first glyph up with the text. */
 .post-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: var(--space-3);
-  max-width: 425px;
+  max-width: 26rem;
+  margin: var(--space-1) calc(-1 * var(--space-3)) 0;
 }
 
 .action-btn {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: var(--space-1);
-  padding: var(--space-2);
-  margin: calc(-1 * var(--space-2));
+  min-width: var(--hit-target);
+  min-height: var(--hit-target);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-full);
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  min-width: 44px;
-  min-height: 44px;
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-footnote);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-release) var(--ease-out);
 }
 
-.action-btn:hover {
-  color: var(--accent-blue);
-  background: var(--accent-blue-light);
+/* Soft circular wash behind the glyph (not the whole pill). */
+.action-btn::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-3) - 0.5rem);
+  top: 50%;
+  width: 2.125rem;
+  height: 2.125rem;
+  margin-top: -1.0625rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  pointer-events: none;
 }
 
-.action-btn:active {
-  transform: scale(0.95);
+.action-btn :deep(svg) {
+  position: relative;
+  width: 1.125rem;
+  height: 1.125rem;
+  transition: transform var(--duration-release) var(--ease-out);
 }
 
-.action-btn--reblog:hover {
-  color: var(--accent-green);
-  background: var(--accent-green-light);
+/* Press: the glyph dips immediately, releases with an ease-out. */
+.action-btn:active :deep(svg) {
+  transform: scale(var(--press-scale-small));
+  transition-duration: var(--duration-press);
 }
 
-.action-btn--fav:hover {
-  color: var(--accent-pink);
-  background: var(--accent-pink-light);
+.action-btn:active::before {
+  opacity: 0.12;
+  transition-duration: 0s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .action-btn--reply:hover,
+  .action-btn--share:hover,
+  .action-btn--bookmark:hover {
+    color: var(--color-accent-text);
+  }
+
+  .action-btn--reblog:hover {
+    color: var(--color-repost);
+  }
+
+  .action-btn--fav:hover {
+    color: var(--color-like);
+  }
+
+  .action-btn:hover::before {
+    opacity: 0.1;
+  }
 }
 
 .action-btn--active-green {
-  color: var(--accent-green);
+  color: var(--color-repost);
 }
 
 .action-btn--active-pink {
-  color: var(--accent-pink);
+  color: var(--color-like);
 }
 
 .action-btn--active-blue {
-  color: var(--accent-blue);
+  color: var(--color-accent-text);
 }
 
 .action-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
-.action-btn:disabled:hover {
-  background: transparent;
-  color: var(--text-secondary);
-}
-
 .action-count {
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  min-width: 1em;
-  letter-spacing: var(--tracking-tight);
+  position: relative;
+  min-width: 1ch;
 }
 
-/* Focus styles */
 .action-btn:focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 2px;
-}
-
-.action-btn--active-green:focus-visible {
-  outline-color: var(--accent-green);
-}
-
-.action-btn--active-pink:focus-visible {
-  outline-color: var(--accent-pink);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
 }
 </style>

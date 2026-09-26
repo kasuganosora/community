@@ -26,8 +26,9 @@ function goHome() {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  background: var(--bg-primary);
+  min-height: 100dvh;
+  padding: var(--space-8) var(--gutter);
+  background: var(--color-bg);
 }
 
 .not-found__content {
@@ -35,14 +36,19 @@ function goHome() {
 }
 
 .not-found__code {
-  font-size: 6rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  margin-bottom: var(--space-2);
+  font-family: var(--font-rounded);
+  font-size: 5rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-weight: var(--weight-bold);
+  color: var(--color-label);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--space-3);
 }
 
 .not-found__text {
-  color: var(--text-secondary);
-  margin-bottom: var(--space-4);
+  color: var(--color-label-secondary);
+  font-size: var(--text-body);
+  margin-bottom: var(--space-6);
 }
 </style>

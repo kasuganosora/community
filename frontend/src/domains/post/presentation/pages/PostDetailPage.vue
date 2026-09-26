@@ -199,12 +199,14 @@ function openProfile() {
 
 <style scoped>
 .detail-page {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
+/* The focused post steps up one size and gets more air; the surrounding
+   thread stays at timeline scale so the hierarchy reads at a glance. */
 .detail-main {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-4) var(--gutter) 0;
+  box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--color-separator);
 }
 
 .detail-main__header {
@@ -221,41 +223,61 @@ function openProfile() {
 
 .detail-main__user {
   flex: 1;
+  min-width: 0;
 }
 
 .detail-main__name {
-  font-weight: 700;
-  font-size: var(--font-md);
+  font-size: var(--text-headline);
+  line-height: var(--leading-headline);
+  letter-spacing: var(--tracking-headline);
+  font-weight: var(--weight-semibold);
+  color: var(--color-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-main__username {
-  color: var(--text-secondary);
-  font-size: var(--font-md);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-main__content {
-  font-size: var(--font-lg);
-  line-height: 1.5;
+  font-size: var(--text-title-3);
+  line-height: 1.45;
+  letter-spacing: -0.012em;
+  color: var(--color-label);
   margin-bottom: var(--space-4);
 }
 
+.detail-main__content:lang(zh) {
+  line-height: var(--leading-cjk);
+}
+
 .detail-main__time {
-  color: var(--text-secondary);
-  font-size: var(--font-md);
-  padding: var(--space-4) 0;
-  border-bottom: 1px solid var(--border-color);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  letter-spacing: var(--tracking-footnote);
+  font-variant-numeric: tabular-nums;
+  padding-bottom: var(--space-3);
 }
 
 .detail-main__stats {
   display: flex;
-  gap: var(--space-5);
-  padding: var(--space-4) 0;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-3) 0;
+  box-shadow: inset 0 var(--hairline) 0 var(--color-separator);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
 }
 
 .detail-main__stats strong {
-  color: var(--text-primary);
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 </style>

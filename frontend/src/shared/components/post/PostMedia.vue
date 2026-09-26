@@ -111,34 +111,54 @@ const gridClass = computed(() => {
 
 <style scoped>
 .post-media {
+  margin-top: var(--space-2);
+}
+
+/* Image grid: continuous rounded frame, hairline gutters, and a hairline
+   inner stroke so light photos don't bleed into a light background. */
+[class^='media-grid--'] {
+  position: relative;
   display: grid;
   gap: 2px;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-top: var(--space-3);
-  max-height: 510px;
+  aspect-ratio: 16 / 9;
+  max-height: 32rem;
+  background: var(--color-fill);
+  isolation: isolate;
+}
+
+[class^='media-grid--']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--hairline) var(--color-separator);
+  pointer-events: none;
 }
 
 .media-grid--single {
   grid-template-columns: 1fr;
+  aspect-ratio: auto;
+}
+
+.media-grid--single .media-img {
+  max-height: 32rem;
+  height: auto;
 }
 
 .media-grid--double {
   grid-template-columns: 1fr 1fr;
 }
 
-.media-grid--triple {
+.media-grid--triple,
+.media-grid--quad {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
 .media-grid--triple .media-item:first-child {
   grid-row: span 2;
-}
-
-.media-grid--quad {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
 }
 
 .media-item {
@@ -149,9 +169,16 @@ const gridClass = computed(() => {
 }
 
 .media-img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: filter var(--duration-fast) var(--ease-out);
+}
+
+.media-item:active .media-img {
+  filter: brightness(0.9);
+  transition-duration: 0s;
 }
 
 .media-fallback {
@@ -160,20 +187,21 @@ const gridClass = computed(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  min-height: 120px;
-  background: var(--bg-tertiary, #f5f5f5);
-  color: var(--text-tertiary, #999);
+  min-height: 7.5rem;
+  background: var(--color-fill);
+  color: var(--color-label-tertiary);
+  font-size: var(--text-footnote);
 }
 
 .media-fallback--video {
-  min-height: 200px;
+  min-height: 12.5rem;
   background: #000;
-  color: #666;
+  color: #8e8e93;
 }
 
 .media-fallback--audio {
-  min-height: 48px;
-  font-size: var(--font-sm, 14px);
+  min-height: 3rem;
+  border-radius: var(--radius-md);
 }
 
 .media-video-wrap {
@@ -181,8 +209,9 @@ const gridClass = computed(() => {
 }
 
 .media-video {
+  display: block;
   width: 100%;
-  max-height: 510px;
+  max-height: 32rem;
   object-fit: contain;
   border-radius: var(--radius-lg);
   background: #000;
@@ -190,7 +219,6 @@ const gridClass = computed(() => {
 
 .media-audio-wrap {
   margin-top: var(--space-2);
-  padding: var(--space-2);
 }
 
 .media-audio {
@@ -200,13 +228,13 @@ const gridClass = computed(() => {
 .media-overflow {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-2xl);
-  font-weight: 700;
-  color: white;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: var(--text-title-2);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-title-2);
 }
-
 </style>
