@@ -67,8 +67,10 @@ func init() {
 
 func loadConfig() {
 	// 取得当前运行目录下有没有 .env 文件，如果有则通过他来设置配置
-	envFilePath := utils.GetFullPath(".env")
+	loadConfigFrom(utils.GetFullPath(".env"))
+}
 
+func loadConfigFrom(envFilePath string) {
 	var err error
 
 	envFileExists := utils.IsFileExists(envFilePath)
@@ -78,7 +80,13 @@ func loadConfig() {
 		err = loadConfigFromEnv()
 	}
 
-	if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
+	// Under `go test` never write a .env into the source tree or exit the
+	// test binary: on a fresh checkout the first test package that imported
+	// config used to create a template .env and os.Exit(1), failing that
+	// package and changing the configuration seen by every later package.
+	if isTestMode() && !envFileExists {
+		err = nil
+	} else if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
 		if createErr := createDefaultEnvFile(envFilePath); createErr != nil {
 			log.Error("Failed to create default .env file: %v", createErr)
 		}

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,4 +139,16 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 	// Check values were loaded
 	// Note: This affects global config C
+}
+
+func TestLoadConfigFrom_MissingEnvFileInTestMode(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	t.Setenv("DB_HOST", "")
+
+	// Must neither os.Exit nor write a template .env while running tests.
+	loadConfigFrom(envPath)
+
+	_, err := os.Stat(envPath)
+	assert.True(t, os.IsNotExist(err), "loadConfigFrom must not create %s in test mode", envPath)
+	assert.NotEmpty(t, C.EncryptedKey)
 }
