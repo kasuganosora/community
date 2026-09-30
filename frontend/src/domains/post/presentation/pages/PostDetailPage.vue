@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
+import { canBoost, visibilityOption } from '../../domain/compose'
 import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
 } from '../../presentation/composables/useStatusActions'
@@ -29,6 +30,11 @@ const mainStatus = computed(() => {
   if (!base) return null
   const edited = editedStatuses.get(base.id)
   return edited ? { ...base, ...edited } : base
+})
+const heading = computed(() => mainStatus.value?.visibility === 'direct' ? '私信' : '帖子')
+const visibility = computed(() => {
+  const v = mainStatus.value?.visibility
+  return v && v !== 'public' ? visibilityOption(v) : null
 })
 
 // All status arrays (ancestors + descendants + main status) need updates;
@@ -80,6 +86,7 @@ async function loadPost() {
 
 onMounted(loadPost)
 watch(() => route.params.statusId, (id) => { if (id) loadPost() })
+watch(heading, (title) => { document.title = `${title} - Community` })
 
 // Leave the page when the main post is deleted from its menu.
 watch(() => mainStatus.value && deletedStatusIds.has(mainStatus.value.id), (gone) => {
@@ -120,7 +127,7 @@ function openProfile() {
       <button class="page-header__back-btn" @click="goBack" aria-label="返回">
         <t-icon name="chevron-left" :size="20" />
       </button>
-      <h1 class="page-header__title">帖子</h1>
+      <h1 class="page-header__title">{{ heading }}</h1>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -161,6 +168,11 @@ function openProfile() {
         <PostContent :status="mainStatus" text-class="detail-main__content rich-text" />
 
         <div class="detail-main__time">
+          <span v-if="visibility" class="detail-main__visibility">
+            <t-icon :name="visibility.icon" :size="14" />
+            {{ visibility.short }}
+            <span aria-hidden="true"> · </span>
+          </span>
           <time :datetime="mainStatus.created_at">
             {{ new Date(mainStatus.created_at).toLocaleString() }}
           </time>
@@ -168,7 +180,7 @@ function openProfile() {
         </div>
 
         <div class="detail-main__stats">
-          <span><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
+          <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
           <span><strong>{{ mainStatus.favourites_count }}</strong> 个喜欢</span>
           <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
         </div>
@@ -264,11 +276,20 @@ function openProfile() {
 }
 
 .detail-main__time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   color: var(--color-label-secondary);
   font-size: var(--text-footnote);
   letter-spacing: var(--tracking-footnote);
   font-variant-numeric: tabular-nums;
   padding-bottom: var(--space-3);
+}
+
+.detail-main__visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .detail-main__stats {

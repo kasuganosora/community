@@ -71,7 +71,9 @@ func List(c *gin.Context) {
 		req.Limit = 20
 	}
 
-	err := db.GetDB().Where("id IN (?)", subQuery).Limit(req.Limit).Find(&conversations).Error
+	// Newest conversation id first, matching the client's max_id cursor
+	// (the id of the last row is the exclusive upper bound of the next page).
+	err := db.GetDB().Where("id IN (?)", subQuery).Order("id DESC").Limit(req.Limit).Find(&conversations).Error
 	if err != nil {
 		err = errors.Wrap(err, "get conversations error")
 		_ = c.Error(err)

@@ -5,8 +5,8 @@ import { postApi } from '@/domains/post/infrastructure/postApi'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
 import type { MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import {
-  MAX_MEDIA_ATTACHMENTS, MAX_POLL_OPTIONS, MIN_POLL_OPTIONS, POLL_DURATIONS, VISIBILITY_OPTIONS,
-  buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft,
+  MAX_MEDIA_ATTACHMENTS, MAX_POLL_OPTIONS, MIN_POLL_OPTIONS, POLL_DURATIONS,
+  buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
   type ComposeDraft, type PollDraft,
 } from '@/domains/post/domain/compose'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -47,11 +47,19 @@ const isEdit = computed(() => !!props.editStatus)
 const mediaIds = computed(() => media.filter(m => m.attachment).map(m => m.attachment!.id))
 const uploading = computed(() => media.some(m => m.uploading))
 
+const choices = computed(() => {
+  const ceiling = props.replyTo
+    ? replyVisibility(props.replyTo.visibility, props.initialVisibility ?? 'public')
+    : (props.initialVisibility ?? 'public')
+  return visibilityChoices(ceiling)
+})
 const draft = computed<ComposeDraft>(() => ({
   text: content.value,
   spoilerEnabled: spoilerEnabled.value,
   spoilerText: spoilerText.value,
-  visibility: visibility.value,
+  visibility: choices.value.some(v => v.value === visibility.value)
+    ? visibility.value
+    : (choices.value[0]?.value ?? visibility.value),
   poll: poll.value,
   mediaIds: mediaIds.value,
   inReplyToId: props.replyTo?.id,
@@ -62,7 +70,12 @@ const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGT
 const canPost = computed(() => !validationError.value && !posting.value && !uploading.value)
 const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? `回复 @${props.replyTo.account.acct}` : '有什么新鲜事？'))
-const currentVisibility = computed(() => VISIBILITY_OPTIONS.find(v => v.value === visibility.value) ?? VISIBILITY_OPTIONS[0]!)
+const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
+const submitLabel = computed(() => {
+  if (isEdit.value) return '保存'
+  if (props.replyTo) return '回复'
+  return draft.value.visibility === 'direct' ? '发送' : '发布'
+})
 
 function resetForReply() {
   content.value = props.replyTo ? replyMentions(props.replyTo, authStore.currentUser?.acct) : ''
@@ -336,12 +349,16 @@ defineExpose({ focus, reset })
             >
               CW
             </button>
-            <label v-if="!isEdit" class="composer__visibility" :title="currentVisibility.label">
+            <label v-if="!isEdit && choices.length > 1" class="composer__visibility" :title="currentVisibility.label">
               <t-icon :name="currentVisibility.icon" :size="16" />
               <select v-model="visibility" aria-label="可见范围">
-                <option v-for="v in VISIBILITY_OPTIONS" :key="v.value" :value="v.value">{{ v.label }}</option>
+                <option v-for="v in choices" :key="v.value" :value="v.value">{{ v.label }}</option>
               </select>
             </label>
+            <span v-else-if="!isEdit" class="composer__visibility composer__visibility--locked" :title="currentVisibility.label">
+              <t-icon :name="currentVisibility.icon" :size="16" />
+              <span>{{ currentVisibility.short }}</span>
+            </span>
           </div>
           <div class="composer__right">
             <span
@@ -369,7 +386,7 @@ defineExpose({ focus, reset })
               :loading="posting"
               @click="handlePost"
             >
-              {{ isEdit ? '保存' : (replyTo ? '回复' : '发布') }}
+              {{ submitLabel }}
             </t-button>
           </div>
         </div>
@@ -713,6 +730,18 @@ defineExpose({ focus, reset })
 }
 
 /* Small chevron drawn in currentColor after the label. */
+.composer__visibility--locked::after {
+  display: none;
+}
+
+.composer__visibility--locked {
+  min-height: 2.5rem;
+  padding: 0 var(--space-2);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  gap: var(--space-1);
+}
+
 .composer__visibility::after {
   content: '';
   width: 0.625rem;

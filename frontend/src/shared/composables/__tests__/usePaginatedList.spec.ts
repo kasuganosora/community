@@ -50,6 +50,33 @@ describe('usePaginatedList', () => {
     expect(list.items.value.map(i => i.id)).toEqual(['9'])
   })
 
+  it('keeps the current page until a refresh resolves', async () => {
+    let resolveNext: (v: { id: string }[]) => void = () => {}
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(1, 2))
+      .mockImplementationOnce(() => new Promise(r => { resolveNext = r }))
+    const list = usePaginatedList(fetcher, 20)
+    await list.refresh()
+    const pending = list.refresh()
+    expect(list.items.value.map(i => i.id)).toEqual(['1', '2'])
+    expect(list.loading.value).toBe(true)
+    resolveNext(page(9))
+    await pending
+    expect(list.items.value.map(i => i.id)).toEqual(['9'])
+  })
+
+  it('keeps items when a refresh fails', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(1))
+      .mockRejectedValueOnce(new Error('boom'))
+    const list = usePaginatedList(fetcher, 20)
+    await list.refresh()
+    await list.refresh()
+    expect(list.items.value.map(i => i.id)).toEqual(['1'])
+    expect(list.error.value).toBe('boom')
+    expect(list.loading.value).toBe(false)
+  })
+
   it('exposes errors', async () => {
     const list = usePaginatedList(() => Promise.reject(new Error('boom')), 20)
     await list.refresh()

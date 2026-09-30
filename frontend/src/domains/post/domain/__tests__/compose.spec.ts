@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import {
-  buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, type ComposeDraft,
+  buildCreateParams, canBoost, canShare, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
+  type ComposeDraft,
 } from '../compose'
 
 const draft = (over: Partial<ComposeDraft> = {}): ComposeDraft => ({
@@ -72,6 +73,26 @@ describe('replies', () => {
     expect(replyVisibility('direct')).toBe('direct')
     expect(replyVisibility('public')).toBe('public')
     expect(replyVisibility(undefined)).toBe('public')
+  })
+
+  it('offers only equally private or stricter choices', () => {
+    expect(visibilityChoices('public').map(v => v.value)).toEqual(['public', 'unlisted', 'private', 'direct'])
+    expect(visibilityChoices('unlisted').map(v => v.value)).toEqual(['unlisted', 'private', 'direct'])
+    expect(visibilityChoices('private').map(v => v.value)).toEqual(['private', 'direct'])
+    expect(visibilityChoices('direct').map(v => v.value)).toEqual(['direct'])
+  })
+})
+
+describe('audience actions', () => {
+  it('keeps boosts off followers-only and direct posts', () => {
+    expect(canBoost('public')).toBe(true)
+    expect(canBoost('unlisted')).toBe(true)
+    expect(canBoost('private')).toBe(false)
+    expect(canBoost('direct')).toBe(false)
+  })
+  it('does not offer a public share for a direct message', () => {
+    expect(canShare('direct')).toBe(false)
+    expect(canShare('private')).toBe(true)
   })
 })
 

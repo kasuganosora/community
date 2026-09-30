@@ -6,7 +6,7 @@ export interface PaginatedList<T> {
   loading: Ref<boolean>
   error: Ref<string | null>
   hasMore: Ref<boolean>
-  /** Reload the first page (replaces items). */
+  /** Reload the first page. Existing items stay until the new page arrives. */
   refresh: () => Promise<void>
   /** Fetch the next page using the id of the last item as max_id. */
   loadMore: () => Promise<void>
@@ -32,10 +32,6 @@ export function usePaginatedList<T extends { id: string }>(
     const maxId = append ? items.value[items.value.length - 1]?.id : undefined
     loading.value = true
     error.value = null
-    if (!append) {
-      items.value = []
-      hasMore.value = true
-    }
     try {
       const page = await fetchPage(maxId, pageSize)
       if (my !== version) return

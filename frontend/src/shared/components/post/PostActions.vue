@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import { canBoost, canShare } from '@/domains/post/domain/compose'
 import { formatCount } from '@/shared/utils/format'
 
 const props = defineProps<{
@@ -15,6 +16,8 @@ const emit = defineEmits<{
   bookmark: []
 }>()
 
+const showBoost = computed(() => canBoost(props.status.visibility))
+const showShare = computed(() => canShare(props.status.visibility))
 const replyCount = computed(() => props.status.replies_count > 0 ? formatCount(props.status.replies_count) : '')
 const reblogCount = computed(() => props.status.reblogs_count > 0 ? formatCount(props.status.reblogs_count) : '')
 const favCount = computed(() => props.status.favourites_count > 0 ? formatCount(props.status.favourites_count) : '')
@@ -52,6 +55,7 @@ async function handleShare() {
     </button>
 
     <button
+      v-if="showBoost"
       class="action-btn action-btn--reblog"
       :class="{ 'action-btn--active-green': status.reblogged }"
       @click.stop="emit('reblog')"
@@ -89,8 +93,9 @@ async function handleShare() {
       </Transition>
     </button>
 
-    <button 
-      class="action-btn action-btn--share" 
+    <button
+      v-if="showShare"
+      class="action-btn action-btn--share"
       @click.stop="handleShare"
       aria-label="分享"
     >

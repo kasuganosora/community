@@ -16,11 +16,11 @@ export const POLL_DURATIONS: { label: string; value: number }[] = [
   { label: '7 天', value: 604800 },
 ]
 
-export const VISIBILITY_OPTIONS: { label: string; value: Visibility; icon: string }[] = [
-  { label: '公开', value: 'public', icon: 'earth' },
-  { label: '不公开（不出现在公共时间线）', value: 'unlisted', icon: 'lock-off' },
-  { label: '仅关注者', value: 'private', icon: 'lock-on' },
-  { label: '私信（仅提及的用户）', value: 'direct', icon: 'mail' },
+export const VISIBILITY_OPTIONS: { label: string; short: string; value: Visibility; icon: string }[] = [
+  { label: '公开', short: '公开', value: 'public', icon: 'earth' },
+  { label: '不公开（不出现在公共时间线）', short: '不公开', value: 'unlisted', icon: 'lock-off' },
+  { label: '仅关注者', short: '仅关注者', value: 'private', icon: 'lock-on' },
+  { label: '私信（仅提及的用户）', short: '私信', value: 'direct', icon: 'mail' },
 ]
 
 export interface PollDraft {
@@ -45,6 +45,26 @@ const VISIBILITY_RANK: Record<Visibility, number> = { public: 0, unlisted: 1, pr
 export function replyVisibility(parent: Visibility | undefined, fallback: Visibility = 'public'): Visibility {
   if (!parent) return fallback
   return VISIBILITY_RANK[parent] > VISIBILITY_RANK[fallback] ? parent : fallback
+}
+
+/** Options the author may pick: equal to `ceiling` or stricter, never wider. */
+export function visibilityChoices(ceiling: Visibility = 'public') {
+  const min = VISIBILITY_RANK[ceiling]
+  return VISIBILITY_OPTIONS.filter(o => VISIBILITY_RANK[o.value] >= min)
+}
+
+export function visibilityOption(visibility: Visibility) {
+  return VISIBILITY_OPTIONS.find(o => o.value === visibility) ?? VISIBILITY_OPTIONS[0]!
+}
+
+/** A boost publishes into the booster's timeline, so followers-only and direct posts stay put. */
+export function canBoost(visibility: Visibility): boolean {
+  return visibility === 'public' || visibility === 'unlisted'
+}
+
+/** Direct messages are not a public link. */
+export function canShare(visibility: Visibility): boolean {
+  return visibility !== 'direct'
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conversationTitle, conversationTarget } from '../conversation'
+import { conversationPreview, conversationTitle, conversationTarget } from '../conversation'
 import type { MastodonAccount, MastodonConversation, MastodonStatus } from '@/shared/types/mastodon'
 
 const acc = (id: string, name: string) => ({ id, username: name.toLowerCase(), acct: name.toLowerCase(), display_name: name }) as MastodonAccount
@@ -14,6 +14,20 @@ describe('conversationTitle', () => {
   it('falls back to the last status author, then a placeholder', () => {
     expect(conversationTitle(conv({ last_status: { id: '9', account: bob } as MastodonStatus }), '1')).toBe('Bob')
     expect(conversationTitle(conv({}), '1')).toBe('未知会话')
+  })
+})
+
+describe('conversationPreview', () => {
+  it('flattens html to one line and prefers a content warning', () => {
+    const html = '<p>line1<br>line2</p>'
+    expect(conversationPreview(conv({ last_status: { id: '9', account: bob, content: html } as MastodonStatus }))).toBe('line1 line2')
+    expect(conversationPreview(conv({
+      last_status: { id: '9', account: bob, content: html, spoiler_text: '剧透' } as MastodonStatus,
+    }))).toBe('内容警告：剧透')
+  })
+  it('uses a placeholder when there is nothing to show', () => {
+    expect(conversationPreview(conv({}))).toBe('（没有可显示的消息）')
+    expect(conversationPreview(conv({ last_status: { id: '9', account: bob, content: '<p>  </p>' } as MastodonStatus }))).toBe('（没有可显示的消息）')
   })
 })
 

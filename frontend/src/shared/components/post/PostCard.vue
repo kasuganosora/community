@@ -5,6 +5,7 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
+import { visibilityOption } from '@/domains/post/domain/compose'
 import {
   deletedStatusIds, editedStatuses, markStatusDeleted, markStatusEdited,
 } from '@/domains/post/presentation/composables/useStatusActions'
@@ -38,6 +39,7 @@ const displayStatus = computed(() => {
 const isReblog = computed(() => !!props.status.reblog)
 const isDeleted = computed(() => deletedStatusIds.has(props.status.id) || deletedStatusIds.has(displayStatus.value.id))
 const isOwn = computed(() => !!authStore.currentUser && displayStatus.value.account.id === authStore.currentUser.id)
+const visibility = computed(() => displayStatus.value.visibility !== 'public' ? visibilityOption(displayStatus.value.visibility) : null)
 
 function navigateToDetail(query?: Record<string, string>) {
   const s = displayStatus.value
@@ -145,6 +147,10 @@ function onMenuClick(data: { value?: unknown }) {
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
           <span v-if="displayStatus.edited_at" class="post-card__edited" title="已编辑">· 已编辑</span>
+          <span v-if="visibility" class="post-card__visibility" :title="visibility.short">
+            <t-icon :name="visibility.icon" :size="14" />
+            <span class="sr-only">{{ visibility.short }}</span>
+          </span>
           <t-dropdown
             v-if="isOwn"
             trigger="click"
@@ -325,6 +331,13 @@ function onMenuClick(data: { value?: unknown }) {
   flex-shrink: 0;
   color: var(--color-label-secondary);
   white-space: nowrap;
+}
+
+.post-card__visibility {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-self: center;
+  color: var(--color-label-secondary);
 }
 
 @media (hover: hover) and (pointer: fine) {
