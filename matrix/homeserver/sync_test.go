@@ -431,3 +431,115 @@ func TestLeftRoomMessagesForward(t *testing.T) {
 	// The spec says departed users should not see events after their leave
 	t.Logf("Got %d events forward from leave point (spec says should be 0 for departed user)", len(resp.Chunk))
 }
+
+func TestIncrementalSyncReturnsNewestWhenLimited(t *testing.T) {
+	hs := createTestHomeServer(t)
+	alice := "@alice:test.local"
+	roomID := createRoomWithUser(t, hs, alice)
+	sendMessage(t, hs, roomID, alice, "before")
+
+	first, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{})
+	if err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	for i := 1; i <= 5; i++ {
+		time.Sleep(2 * time.Millisecond)
+		sendMessage(t, hs, roomID, alice, fmt.Sprintf("msg-%d", i))
+	}
+
+	second, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{
+		Since:  first.NextBatch,
+		Filter: `{"room":{"timeline":{"limit":2}}}`,
+	})
+	if err != nil {
+		t.Fatalf("incremental sync: %v", err)
+	}
+
+	room := second.Rooms.Join[roomID]
+	if room == nil || room.Timeline == nil {
+		t.Fatal("expected joined room timeline")
+	}
+
+	if !room.Timeline.Limited {
+		t.Fatal("timeline should be limited when more events arrived than the filter limit")
+	}
+
+	if len(room.Timeline.Events) != 2 {
+		t.Fatalf("got %d timeline events, want 2", len(room.Timeline.Events))
+	}
+
+	if room.Timeline.Events[0].Content["body"] != "msg-4" || room.Timeline.Events[1].Content["body"] != "msg-5" {
+		t.Fatalf("timeline = %v, %v; want msg-4 then msg-5",
+			room.Timeline.Events[0].Content["body"], room.Timeline.Events[1].Content["body"])
+	}
+
+	wantToken := fmt.Sprintf("t%d_%s", room.Timeline.Events[0].OriginServerTS, room.Timeline.Events[0].EventID)
+	if room.Timeline.PrevBatch != wantToken {
+		t.Fatalf("prev_batch = %s, want %s", room.Timeline.PrevBatch, wantToken)
+	}
+
+	page, matErr := hs.Event.GetRoomMessages(roomID, alice, &GetRoomMessagesRequest{
+		Dir:   "b",
+		From:  room.Timeline.PrevBatch,
+		Limit: 20,
+	})
+	if matErr != nil {
+		t.Fatalf("GetRoomMessages: %v", matErr)
+	}
+
+	foundOlder := false
+
+	for _, ev := range page.Chunk {
+		body, _ := ev.Content["body"].(string)
+		if body == "msg-5" || body == "msg-4" {
+			t.Fatalf("prev_batch page included %s", body)
+		}
+
+		if body == "msg-3" {
+			foundOlder = true
+		}
+	}
+
+	if !foundOlder {
+		t.Fatal("prev_batch did not reach the truncated message msg-3")
+	}
+}
+
+func TestPrevEventsMatchRoomVersion(t *testing.T) {
+	hs := createTestHomeServer(t)
+	alice := "@alice:test.local"
+
+	roomV10 := createRoomWithUser(t, hs, alice)
+	eventID := sendMessage(t, hs, roomV10, alice, "hi")
+
+	var ev MatrixEvent
+	if err := database.DB.Where("event_id = ?", eventID).First(&ev).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ev.PrevEvents) != 1 {
+		t.Fatalf("room v10 prev_events = %d, want 1", len(ev.PrevEvents))
+	}
+
+	created, matErr := hs.Room.CreateRoom(alice, &CreateRoomRequest{
+		Preset:      "public_chat",
+		RoomVersion: "1",
+	})
+	if matErr != nil {
+		t.Fatalf("create v1 room: %v", matErr)
+	}
+
+	eventID = sendMessage(t, hs, created.RoomID, alice, "legacy")
+
+	var legacy MatrixEvent
+	if err := database.DB.Where("event_id = ?", eventID).First(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if len(legacy.PrevEvents) < 2 || len(legacy.PrevEvents) > 10 {
+		t.Fatalf("room v1 prev_events = %d, want 2..10", len(legacy.PrevEvents))
+	}
+}

@@ -566,7 +566,7 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 	// On-demand backfill: if we got fewer events than requested while paginating backwards,
 	// try to fetch more from a remote server (skip when filter is active to avoid returning unfiltered results)
 	if len(events) < limit && req.Dir == "b" && req.Filter == "" {
-		e.tryBackfillFromRemote(roomID, events)
+		e.tryBackfillFromRemote(roomID, events, limit-len(events))
 		// Re-query after backfill to include newly fetched events
 		var backfilledEvents []MatrixEvent
 
@@ -653,7 +653,8 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 }
 
 // tryBackfillFromRemote attempts to backfill events from a remote server when local history is exhausted.
-func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []MatrixEvent) {
+// maxEvents is how many additional events this page still needs.
+func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []MatrixEvent, maxEvents int) {
 	// Find a remote server in the room
 	var members []MatrixRoomMember
 
@@ -690,7 +691,7 @@ func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []Matrix
 	}
 
 	fedClient := NewFederationClient(e.HS)
-	e.HS.Room.backfillFromRemote(fedClient, remoteServer, roomID)
+	e.HS.Room.backfillFromEvent(fedClient, remoteServer, roomID, maxEvents, startEventID)
 }
 
 // GetRoomContext 获取事件上下文.
@@ -865,11 +866,21 @@ func (e *EventService) canUserRedact(roomID, userID string) bool {
 // ===== 辅助函数 =====
 
 // getPrevEvents 获取前序事件.
+// Room v3+ 必须恰好有一个 prev_event。v1/v2 允许多个，最多保留 10 个。
 func (e *EventService) getPrevEvents(roomID string) []string {
+	limit := 1
+
+	var room MatrixRoom
+	if err := db.GetDB().Select("room_version").Where("room_id = ?", roomID).First(&room).Error; err == nil {
+		if room.RoomVersion == "1" || room.RoomVersion == "2" {
+			limit = 10
+		}
+	}
+
 	var events []MatrixEvent
 
 	db.GetDB().Where("room_id = ?", roomID).
-		Order("depth DESC").Limit(10).Find(&events)
+		Order("depth DESC, origin_server_ts DESC").Limit(limit).Find(&events)
 
 	prevEvents := make([]string, len(events))
 	for i, event := range events {

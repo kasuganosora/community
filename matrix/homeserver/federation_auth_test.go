@@ -207,9 +207,9 @@ func TestEventAuthVerifier_VerifyEventSignature_EmptySignatures(t *testing.T) {
 		"sender":     "@alice:test.local",
 		"signatures": map[string]any{},
 	}
-	// Empty signatures → no servers to verify → returns nil (no error)
 	err := v.VerifyEventSignature(event, []string{"test.local"})
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no valid signature")
 }
 
 func TestEventAuthVerifier_VerifyEventSignature_ServerNotAllowed(t *testing.T) {
@@ -223,9 +223,9 @@ func TestEventAuthVerifier_VerifyEventSignature_ServerNotAllowed(t *testing.T) {
 			},
 		},
 	}
-	// evil.server not in allowedServers → skipped → no error
 	err := v.VerifyEventSignature(event, []string{"test.local"})
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no valid signature")
 }
 
 func TestEventAuthVerifier_validateEventStructure(t *testing.T) {

@@ -39,11 +39,13 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]any, allowedSe
 		return errors.New("missing signatures")
 	}
 
-	// 验证每个服务器的签名
+	// 验证每个允许的服务器签名。一个都没验过则拒绝，
+	// 否则空签名或仅有未授权服务器的签名会被当成有效事件。
+	verified := 0
+
 	for serverName, serverSigs := range signatures {
-		// 检查是否允许该服务器
 		if !contains(allowedServers, serverName) {
-			continue // 跳过不允许的服务器签名
+			continue
 		}
 
 		serverSigMap, ok := serverSigs.(map[string]any)
@@ -51,13 +53,11 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]any, allowedSe
 			continue
 		}
 
-		// 获取服务器公钥
 		publicKey, err := v.getServerPublicKey(serverName)
 		if err != nil {
 			return fmt.Errorf("failed to get server key for %s: %w", serverName, err)
 		}
 
-		// 验证每个密钥的签名
 		for keyID, sig := range serverSigMap {
 			sigStr, ok := sig.(string)
 			if !ok {
@@ -68,7 +68,13 @@ func (v *EventAuthVerifier) VerifyEventSignature(event map[string]any, allowedSe
 			if err != nil {
 				return fmt.Errorf("signature verification failed for %s/%s: %w", serverName, keyID, err)
 			}
+
+			verified++
 		}
+	}
+
+	if verified == 0 {
+		return errors.New("no valid signature from an allowed server")
 	}
 
 	return nil

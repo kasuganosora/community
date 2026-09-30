@@ -814,33 +814,44 @@ func (r *RoomService) backfillFromRemote(fedClient *FederationClient, serverName
 // backfillFromRemoteWithLimit 从远程服务器 backfill 事件，支持指定最大事件数
 // maxEvents: 最大要获取的事件数，0 表示使用默认值（100）.
 func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, serverName, roomID string, maxEvents int) {
+	r.backfillFromEvent(fedClient, serverName, roomID, maxEvents, "")
+}
+
+// backfillFromEvent backfills up to maxEvents PDUs that precede startEventID.
+// An empty startEventID starts from the latest local event (the join event).
+func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName, roomID string, maxEvents int, startEventID string) {
 	if maxEvents <= 0 {
 		maxEvents = 100
 	}
 
-	// Use the LATEST local event as the backfill starting point.
-	// After a federation join, the latest event is the join event itself.
-	// Backfill returns events at or before this point, giving us the room history.
-	var latestEvent MatrixEvent
-	err := db.GetDB().Where("room_id = ?", roomID).
-		Order("origin_server_ts DESC").First(&latestEvent).Error
-	if err != nil {
-		return
+	if startEventID == "" {
+		// Use the LATEST local event as the backfill starting point.
+		// After a federation join, the latest event is the join event itself.
+		// Backfill returns events at or before this point, giving us the room history.
+		var latestEvent MatrixEvent
+		err := db.GetDB().Where("room_id = ?", roomID).
+			Order("origin_server_ts DESC").First(&latestEvent).Error
+		if err != nil {
+			return
+		}
+
+		startEventID = latestEvent.EventID
 	}
 
 	// 迭代 backfill，直到获取足够的事件或没有更多事件
 	fetchedCount := 0
-	batchLimit := 100
-	startEventIDs := []string{latestEvent.EventID}
+	const batchSize = 100
+	startEventIDs := []string{startEventID}
 	maxIterations := 10 // 防止无限循环
 
 	for i := 0; i < maxIterations && fetchedCount < maxEvents; i++ {
+		limit := batchSize
 		remaining := maxEvents - fetchedCount
-		if remaining < batchLimit {
-			batchLimit = remaining
+		if remaining < limit {
+			limit = remaining
 		}
 
-		pdus, err := fedClient.FetchBackfill(serverName, roomID, startEventIDs, batchLimit)
+		pdus, err := fedClient.FetchBackfill(serverName, roomID, startEventIDs, limit)
 		if err != nil {
 			log.Warn("backfillFromRemote: failed to fetch backfill from %s: %v", serverName, err)
 
@@ -852,18 +863,32 @@ func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, s
 			break
 		}
 
-		// 找到这批事件中最早的，用于下一次 backfill
+		// 整批里最早的事件（含已存储的）作为下一页起点。
+		// 只看新事件的话，本地已有最新一批时会直接停住，更早的历史取不回来。
 		var (
-			earliestTS      int64 = -1
-			earliestEventID string
+			oldestTS int64 = -1
+			oldestID string
 		)
+
+		progressAnchor := ""
+		if len(startEventIDs) > 0 {
+			progressAnchor = startEventIDs[0]
+		}
 
 		for _, pdu := range pdus {
 			eventID, _ := pdu["event_id"].(string)
 			if eventID == "" {
 				continue
 			}
-			// Skip events we already have
+
+			originTS, _ := pdu["origin_server_ts"].(float64)
+			ts := int64(originTS)
+			if oldestTS == -1 || ts < oldestTS {
+				oldestTS = ts
+				oldestID = eventID
+			}
+
+			// Skip events we already have, but still walk past them.
 			var existing MatrixEvent
 			if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
 				continue
@@ -871,7 +896,6 @@ func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, s
 
 			eventType, _ := pdu["type"].(string)
 			sender, _ := pdu["sender"].(string)
-			originTS, _ := pdu["origin_server_ts"].(float64)
 
 			content, _ := pdu["content"].(map[string]any)
 			if content == nil {
@@ -919,21 +943,14 @@ func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, s
 			}
 
 			fetchedCount++
-
-			// 跟踪最早的事件
-			if earliestTS == -1 || int64(originTS) < earliestTS {
-				earliestTS = int64(originTS)
-				earliestEventID = eventID
-			}
 		}
 
-		// 如果没有获取到新事件或者没有找到更早的事件，停止
-		if earliestEventID == "" {
+		// 没有更早的事件，或远端又把同一个起点返回来了。
+		if oldestID == "" || oldestID == progressAnchor {
 			break
 		}
 
-		// 使用最早的事件作为下一次 backfill 的起点
-		startEventIDs = []string{earliestEventID}
+		startEventIDs = []string{oldestID}
 	}
 
 	log.Info("Backfilled %d events for room %s from %s", fetchedCount, roomID, serverName)

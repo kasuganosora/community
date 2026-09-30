@@ -344,14 +344,15 @@ func TestEventAuthVerifier_VerifyEventSignature_ServerSigMapNotMap(t *testing.T)
 	hs := minimalHS("test.local")
 	v := NewEventAuthVerifier(hs)
 
-	// signatures[server] is not a map → skipped, no error
+	// signatures[server] is not a map → nothing was verified
 	event := map[string]any{
 		"signatures": map[string]any{
 			"test.local": "not-a-map",
 		},
 	}
 	err := v.VerifyEventSignature(event, []string{"test.local"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no valid signature")
 }
 
 func TestEventAuthVerifier_VerifyEventSignature_SigValueNotString(t *testing.T) {
@@ -368,14 +369,15 @@ func TestEventAuthVerifier_VerifyEventSignature_SigValueNotString(t *testing.T) 
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
-	// sig value is an int, not a string → skipped → no error
+	// sig value is an int, not a string → nothing was verified
 	event := map[string]any{
 		"signatures": map[string]any{
 			"nonstr.test": map[string]any{"ed25519:1": float64(123)},
 		},
 	}
 	err := v.VerifyEventSignature(event, []string{"nonstr.test"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no valid signature")
 }
 
 // ===== VerifyFederationEvent tests =====

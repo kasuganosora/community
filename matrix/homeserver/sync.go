@@ -455,8 +455,10 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 
 	if since > 0 {
 		// Check if user newly joined this room since the last sync
-		joinTS := s.getUserJoinTS(roomID, userID)
-		isNewlyJoined := joinTS > since
+		// 用成员事件的本地写入时间，不用 origin_server_ts。
+		// 建房时 origin_server_ts 会按事件加 1ms，可能晚于 sync token，
+		// 已经加入的房间会被当成新加入，增量时间线走错分支。
+		isNewlyJoined := s.userJoinedAfter(roomID, userID, since)
 
 		if isNewlyJoined {
 			// Newly-joined room: treat like initial sync for this room.
@@ -484,23 +486,34 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 				room.State.Events = stateEvents
 			}
 		} else {
-			// 增量同步：返回 since 之后的所有事件（按时间升序）
-			// Use created_at (local receive time) for both filtering and ordering to correctly
-			// handle federation events whose origin_server_ts may predate our sync token.
-			// This ensures consistent ordering between backfilled events (which have similar created_at
-			// but potentially very different origin_server_ts) and local events.
+			// 增量同步：用 created_at（本地到达时间）过滤，避免联邦事件的
+			// origin_server_ts 早于 sync token 时被丢掉。
+			// 超出 timeline limit 时保留最新的一批，再反转成时间升序。
+			// 按升序 Limit 会截掉最新消息，客户端看到的是旧窗口。
 			sinceTime := time.UnixMilli(since)
+			fetchLimit := timelineLimit + 1
+			if fetchLimit < 1 {
+				fetchLimit = 1
+			}
+
 			db.GetDB().Where("room_id = ? AND created_at > ?", roomID, sinceTime).
-				Order("created_at ASC, origin_server_ts ASC").Limit(timelineLimit + 1).Find(&events)
+				Order("created_at DESC, origin_server_ts DESC, depth DESC").
+				Limit(fetchLimit).Find(&events)
 
-			if len(events) > timelineLimit {
+			limited := len(events) > timelineLimit
+			if limited {
 				events = events[:timelineLimit]
-				room.Timeline.Limited = true
+			}
 
-				if events[0].CreatedAt != nil {
-					tokenTS := events[0].CreatedAt.UnixMilli()
-					room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
-				}
+			for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+				events[i], events[j] = events[j], events[i]
+			}
+
+			room.Timeline.Limited = limited
+			if len(events) > 0 {
+				// /messages 按 origin_server_ts 翻页，不能用 created_at。
+				oldest := events[0]
+				room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 			}
 		}
 	} else {
@@ -639,10 +652,26 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 			query = query.Where("created_at > ?", sinceTime)
 		}
 
-		query.Order("origin_server_ts DESC, depth DESC").Limit(timelineLimit).Find(&events)
+		fetchLimit := timelineLimit + 1
+		if fetchLimit < 1 {
+			fetchLimit = 1
+		}
+
+		query.Order("origin_server_ts DESC, depth DESC").Limit(fetchLimit).Find(&events)
+
+		limited := len(events) > timelineLimit
+		if limited {
+			events = events[:timelineLimit]
+		}
 		// Reverse to chronological order
 		for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 			events[i], events[j] = events[j], events[i]
+		}
+
+		room.Timeline.Limited = limited
+		if len(events) > 0 {
+			oldest := events[0]
+			room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 		}
 
 		for i := range events {
@@ -698,6 +727,31 @@ func (s *SyncService) getUserJoinTS(roomID, userID string) int64 {
 	}
 
 	return event.OriginServerTS
+}
+
+// userJoinedAfter reports whether the user's current membership event was stored
+// after the sync token. created_at matches the incremental sync filter; origin_server_ts
+// can sit ahead of the token when room creation spaces event timestamps.
+func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
+	var member MatrixRoomMember
+	if db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error != nil {
+		return false
+	}
+
+	if member.EventID == "" {
+		return false
+	}
+
+	var event MatrixEvent
+	if db.GetDB().Where("event_id = ?", member.EventID).First(&event).Error != nil {
+		return false
+	}
+
+	if event.CreatedAt != nil {
+		return event.CreatedAt.UnixMilli() > since
+	}
+
+	return event.OriginServerTS > since
 }
 
 // parseSyncToken 解析同步 token.
@@ -1468,8 +1522,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 	// Check if user newly joined any rooms since last sync — all existing members
 	// in those rooms should appear in device_lists.changed
 	for _, roomID := range joinedRooms {
-		joinTS := s.getUserJoinTS(roomID, userID)
-		if joinTS > since {
+		if s.userJoinedAfter(roomID, userID, since) {
 			// Newly joined room — add all existing members to changed
 			var existingMembers []MatrixRoomMember
 			db.GetDB().Where("room_id = ? AND membership = ? AND user_id != ?",
