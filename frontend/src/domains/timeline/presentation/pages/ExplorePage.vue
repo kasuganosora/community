@@ -7,6 +7,7 @@ import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '../components/TimelineFeed.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 type ExploreTab = 'local' | 'federated'
 const TABS: { value: ExploreTab; label: string }[] = [
@@ -49,21 +50,12 @@ onMounted(() => feed.refresh())
     <div class="explore-search">
       <SearchBox />
     </div>
-    <div class="tab-bar" role="tablist" aria-label="时间线">
-      <button
-        v-for="tab in TABS"
-        :key="tab.value"
-        type="button"
-        role="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': activeTab === tab.value }"
-        :aria-selected="activeTab === tab.value"
-        @click="selectTab(tab.value)"
-      >
-        <span class="tab-bar__text">{{ tab.label }}</span>
-        <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
-      </button>
-    </div>
+    <TabBar
+      :model-value="activeTab"
+      :options="TABS"
+      label="时间线"
+      @update:model-value="selectTab"
+    />
     <TimelineFeed
       :statuses="statuses"
       :loading="loading"

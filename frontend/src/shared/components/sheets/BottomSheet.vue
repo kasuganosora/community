@@ -15,8 +15,8 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
-  createSpring, project, rubberband, velocityFrom, prefersReducedMotion,
-  sheetDragIntent, SPRING_DEFAULT, SPRING_EXIT, SPRING_SHEET_FLICK, type Spring,
+  createSpring, rubberband, velocityFrom, prefersReducedMotion,
+  sheetDragIntent, shouldDismissSheet, SPRING_DEFAULT, SPRING_EXIT, SPRING_SHEET_FLICK, type Spring,
 } from '@/shared/motion/spring'
 
 const props = withDefaults(defineProps<{
@@ -102,6 +102,10 @@ async function open() {
 }
 
 let exitVelocity: number | undefined
+/* While a drag owns the sheet, parent open/close must not start a second
+   animation — the finger is the source of truth until release. */
+let gestureOwns = false
+let gestureGen = 0
 
 async function close() {
   const velocity = exitVelocity
@@ -137,20 +141,27 @@ function fade(to: number): Promise<boolean> {
   return new Promise((res) => setTimeout(() => res(props.modelValue === (to === 1)), 210))
 }
 
-watch(() => props.modelValue, (v) => { if (v) open(); else close() }, { immediate: true })
+watch(() => props.modelValue, (v) => {
+  if (gestureOwns) return
+  if (v) void open()
+  else void close()
+}, { immediate: true })
 
 function requestClose(velocity?: number) {
-  if (!props.modelValue) return
-  // Hand the flick's velocity to the exit spring: no seam between the drag
-  // and the animation.
+  // An explicit dismiss (scrim, Escape, close button) cancels a drag and
+  // still has to finish, including when the parent already thinks it's closed.
   exitVelocity = velocity
-  emit('update:modelValue', false)
+  gestureGen++
+  gestureOwns = false
+  if (props.modelValue) emit('update:modelValue', false)
+  else if (mounted.value) void close()
 }
 
 /* ---- drag (sheet mode only) ------------------------------------------ */
 let dragging = false
 let pending = false
 let pointerId = -1
+let startX = 0
 let startY = 0
 let startValue = 0
 let history: Array<[number, number]> = []
@@ -189,16 +200,24 @@ function onPointerDown(e: PointerEvent) {
   if (isTextControl(e.target)) return
   pending = true
   pointerId = e.pointerId
+  startX = e.clientX
   startY = e.clientY
   // Don't stop the spring yet: a tap must not freeze an in-flight animation.
 }
 
 function onPointerMove(e: PointerEvent) {
   if (e.pointerId !== pointerId || (!pending && !dragging) || !spring) return
+  const dx = e.clientX - startX
   const dy = e.clientY - startY
   if (pending) {
-    // ~10px hysteresis before committing to a drag, so taps stay taps.
-    if (Math.abs(dy) < 10) return
+    // ~10px hysteresis before committing, so taps stay taps. The first
+    // axis to win takes the gesture; a horizontal move is not a dismiss.
+    if (Math.hypot(dx, dy) < 10) return
+    if (Math.abs(dx) > Math.abs(dy)) {
+      pending = false
+      pointerId = -1
+      return
+    }
     const scroller = contentScroller(e.target)
     const inHeader = !!(e.target instanceof Element && (e.target as Element).closest('.sheet__header'))
     if (!inHeader && scroller) {
@@ -212,13 +231,14 @@ function onPointerMove(e: PointerEvent) {
     }
     pending = false
     dragging = true
+    gestureOwns = true
     suppressClick = true
     // Grab mid-flight from the presentation value, then track 1:1 from
     // *here* so the hysteresis distance doesn't jump the sheet.
     spring.stop()
     startValue = spring.value
     startY = e.clientY
-    history = [[e.timeStamp, startValue]]
+    history = [[e.timeStamp, e.clientY]]
     const cap = e.currentTarget as HTMLElement
     cap.setPointerCapture(e.pointerId)
     cap.addEventListener('touchmove', blockTouchScroll, { passive: false })
@@ -226,7 +246,9 @@ function onPointerMove(e: PointerEvent) {
   let y = startValue + (e.clientY - startY)
   if (y < 0) y = -rubberband(-y, height || 1)
   spring.set(y)
-  history.push([e.timeStamp, y])
+  // Finger velocity, not the rubber-banded sheet position — the spring
+  // must continue at the speed the finger actually had.
+  history.push([e.timeStamp, e.clientY])
   if (history.length > 20) history.shift()
 }
 
@@ -244,14 +266,33 @@ function onPointerUp(e: PointerEvent) {
   }
   if (!spring || !wasDragging) return
   const v = velocityFrom(history)
-  const projected = spring.value + project(v)
-  // Decide by where the gesture is going, not where it let go.
-  if (projected > height * 0.5 || v > 900) {
-    requestClose(v)
-  } else {
-    // Only a real flick earns the slightly underdamped spring; a slow
-    // release settles critically damped (no bounce).
-    spring.to(0, Math.abs(v) > 300 ? SPRING_SHEET_FLICK : SPRING_DEFAULT, v)
+  void settleFromGesture(shouldDismissSheet(spring.value, v, height), v)
+}
+
+async function settleFromGesture(dismiss: boolean, velocity: number) {
+  if (!spring) return
+  const gen = ++gestureGen
+  gestureOwns = true
+  try {
+    if (dismiss) {
+      if (props.modelValue) emit('update:modelValue', false)
+      // Critically damped on the way out: a bounce would bring the sheet
+      // back on screen. The release velocity is what makes a flick feel thrown.
+      const done = await spring.to(height + 24, SPRING_EXIT, velocity)
+      if (gen !== gestureGen) return
+      if (done && !props.modelValue) finishClose()
+    } else {
+      // Dragging a closing sheet back up re-opens it. The parent has to
+      // hear that, or the next dismiss is a no-op and the sheet freezes.
+      if (!props.modelValue) emit('update:modelValue', true)
+      // Bounce only when the flick is traveling toward open. A downward
+      // velocity still gets handed off, so there is no seam, but it must
+      // not overshoot.
+      const cfg = velocity < -300 ? SPRING_SHEET_FLICK : SPRING_DEFAULT
+      await spring.to(0, cfg, velocity)
+    }
+  } finally {
+    if (gen === gestureGen) gestureOwns = false
   }
 }
 

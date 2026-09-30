@@ -5,9 +5,14 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 const timelineStore = useTimelineStore()
 type TabType = 'for-you' | 'following'
+const HOME_TABS: { value: TabType; label: string }[] = [
+  { value: 'for-you', label: '推荐' },
+  { value: 'following', label: '关注' },
+]
 const activeTab = ref<TabType>('for-you')
 
 const currentTimeline = computed(() => activeTab.value === 'for-you'
@@ -60,28 +65,12 @@ onMounted(() => {
     <!-- Sticky header with tabs -->
     <div class="home-header">
       <h1 class="page-header__title">首页</h1>
-      <div class="tab-bar" role="tablist">
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'for-you'"
-          class="tab-bar__item"
-          :class="{ 'tab-bar__item--active': activeTab === 'for-you' }"
-          @click="onTabChange('for-you')"
-        >
-          <span class="tab-bar__text">推荐</span>
-          <div v-if="activeTab === 'for-you'" class="tab-bar__indicator" />
-        </button>
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'following'"
-          class="tab-bar__item"
-          :class="{ 'tab-bar__item--active': activeTab === 'following' }"
-          @click="onTabChange('following')"
-        >
-          <span class="tab-bar__text">关注</span>
-          <div v-if="activeTab === 'following'" class="tab-bar__indicator" />
-        </button>
-      </div>
+      <TabBar
+        :model-value="activeTab"
+        :options="HOME_TABS"
+        label="时间线"
+        @update:model-value="onTabChange"
+      />
     </div>
 
     <!-- Compose box -->

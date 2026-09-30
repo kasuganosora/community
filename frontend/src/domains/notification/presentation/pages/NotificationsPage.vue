@@ -12,6 +12,7 @@ import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 const PAGE_SIZE = 30
 const FILTERS: { value: NotificationFilter; label: string }[] = [
@@ -119,21 +120,7 @@ watch(filter, () => feed.refresh())
       </span>
     </div>
 
-    <div class="tab-bar" role="tablist" aria-label="通知类型">
-      <button
-        v-for="f in FILTERS"
-        :key="f.value"
-        type="button"
-        role="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': filter === f.value }"
-        :aria-selected="filter === f.value"
-        @click="filter = f.value"
-      >
-        <span class="tab-bar__text">{{ f.label }}</span>
-        <div v-if="filter === f.value" class="tab-bar__indicator" />
-      </button>
-    </div>
+    <TabBar v-model="filter" :options="FILTERS" label="通知类型" />
 
     <div v-if="error && notifications.length === 0" class="empty-state" role="alert">
       <div class="empty-state__icon">

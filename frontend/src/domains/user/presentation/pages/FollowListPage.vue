@@ -7,6 +7,7 @@ import { userApi } from '../../infrastructure/userApi'
 import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 const props = defineProps<{ kind: 'followers' | 'following' }>()
 
@@ -24,6 +25,13 @@ const relationships = useRelationships()
 let version = 0
 
 const title = computed(() => props.kind === 'followers' ? '关注者' : '正在关注')
+const followTabs = computed(() => {
+  const name = String(route.params.username ?? '')
+  return [
+    { value: 'followers' as const, label: '关注者', to: `/@${name}/followers` },
+    { value: 'following' as const, label: '正在关注', to: `/@${name}/following` },
+  ]
+})
 
 async function load() {
   const my = ++version
@@ -72,21 +80,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="tab-bar" role="tablist">
-      <router-link
-        v-for="k in (['followers', 'following'] as const)"
-        :key="k"
-        :to="`/@${route.params.username}/${k}`"
-        replace
-        role="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': kind === k }"
-        :aria-selected="kind === k"
-      >
-        <span class="tab-bar__text">{{ k === 'followers' ? '关注者' : '正在关注' }}</span>
-        <div v-if="kind === k" class="tab-bar__indicator" />
-      </router-link>
-    </div>
+    <TabBar :model-value="kind" :options="followTabs" label="关注关系" />
 
     <div v-if="loading" class="page-loading"><t-loading /></div>
 

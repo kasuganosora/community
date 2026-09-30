@@ -15,6 +15,7 @@ import TimelineFeed from '@/domains/timeline/presentation/components/TimelineFee
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -163,21 +164,12 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
     </div>
 
     <!-- Tabs -->
-    <div class="tab-bar" role="tablist" style="margin-top: var(--space-4);">
-      <button
-        v-for="tab in visibleTabs"
-        :key="tab.value"
-        type="button"
-        role="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': activeTab === tab.value }"
-        :aria-selected="activeTab === tab.value"
-        @click="activeTab = tab.value"
-      >
-        <span class="tab-bar__text">{{ tab.label }}</span>
-        <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
-      </button>
-    </div>
+    <TabBar
+      v-model="activeTab"
+      :options="visibleTabs"
+      label="个人主页"
+      style="margin-top: var(--space-4)"
+    />
 
     <!-- Posts -->
     <TimelineFeed

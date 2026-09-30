@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { project, rubberband, sheetDragIntent, velocityFrom } from '../spring'
+import { project, rubberband, sheetDragIntent, shouldDismissSheet, velocityFrom } from '../spring'
 
 describe('project', () => {
   it('projects a flick with exponential decay', () => {
@@ -21,6 +21,36 @@ describe('rubberband', () => {
 
   it('is an odd function', () => {
     expect(rubberband(-40, 300)).toBeCloseTo(-rubberband(40, 300))
+  })
+})
+
+describe('shouldDismissSheet', () => {
+  const height = 600
+
+  it('stays open when the finger rests above the midpoint', () => {
+    expect(shouldDismissSheet(100, 0, height)).toBe(false)
+  })
+
+  it('dismisses when the finger rests past the midpoint', () => {
+    expect(shouldDismissSheet(400, 0, height)).toBe(true)
+  })
+
+  it('dismisses a flick aimed down even from the top', () => {
+    // 1200px/s projects ~599px with deceleration 0.998, onto a 600px sheet.
+    expect(shouldDismissSheet(0, 1200, height)).toBe(true)
+  })
+
+  it('returns a flick aimed up even past the midpoint', () => {
+    expect(shouldDismissSheet(500, -2000, height)).toBe(false)
+  })
+
+  it('breaks a dead tie by the velocity sign and rests open', () => {
+    expect(shouldDismissSheet(height / 2, 0, height)).toBe(false)
+    // Shift the release point so the projection lands exactly on the midpoint.
+    const down = 40
+    expect(shouldDismissSheet(height / 2 - project(down, 0.998), down, height)).toBe(true)
+    const up = -40
+    expect(shouldDismissSheet(height / 2 - project(up, 0.998), up, height)).toBe(false)
   })
 })
 

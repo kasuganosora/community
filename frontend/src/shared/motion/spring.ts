@@ -141,6 +141,23 @@ export function sheetDragIntent(
   return 'content'
 }
 
+/**
+ * Where a released sheet is going. Project the finger's velocity (Apple's
+ * exponential decay, scroll-like 0.998), then pick the snap — open at 0 or
+ * closed at `height` — nearest that projected point. A flick aimed up
+ * returns even if the finger let go past the midpoint; a flick aimed down
+ * dismisses even if it hadn't crossed halfway. A dead tie follows the
+ * velocity's sign, and a resting finger stays open.
+ */
+export function shouldDismissSheet(position: number, velocity: number, height: number): boolean {
+  if (height <= 0) return velocity > 0
+  const projected = position + project(velocity, 0.998)
+  const openDist = Math.abs(projected)
+  const closedDist = Math.abs(projected - height)
+  if (Math.abs(openDist - closedDist) < 0.5) return velocity > 0
+  return closedDist < openDist
+}
+
 /** Velocity (px/s) from a short pointer history of [timeMs, position]. */
 export function velocityFrom(history: Array<[number, number]>, windowMs = 100): number {
   if (history.length < 2) return 0

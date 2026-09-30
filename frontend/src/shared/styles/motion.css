@@ -32,20 +32,11 @@
 }
 
 /* --------------------------------------------------------------------------
-   Segmented tab indicator: grows in from the centre of the new tab when it
-   mounts (CSS @starting-style: interruptible, no JS).
+   Tab indicator travels on transform. The transition retargets if the
+   selection changes mid-flight, so it never restarts from the old tab.
    -------------------------------------------------------------------------- */
-.tab-bar__indicator {
-  transition:
-    transform 260ms var(--ease-spring),
-    opacity var(--duration-fast) var(--ease-out);
-}
-
-@starting-style {
-  .tab-bar__indicator {
-    transform: scaleX(0.3);
-    opacity: 0;
-  }
+.tab-bar__indicator--ready {
+  transition: transform 260ms var(--ease-spring);
 }
 
 /* Reduced motion: keep opacity/colour feedback, drop movement. Per-component
@@ -53,12 +44,11 @@
 @media (prefers-reduced-motion: reduce) {
   html:focus-within { scroll-behavior: auto; }
 
-  /* Movement becomes a plain cross-fade. */
+  /* Movement becomes a plain cross-fade. The indicator still jumps to the
+     selected tab — it just doesn't travel. */
   .page-enter-from { transform: none; }
 
-  @starting-style {
-    .tab-bar__indicator { transform: none; }
-  }
+  .tab-bar__indicator--ready { transition: none; }
 
   *,
   *::before,

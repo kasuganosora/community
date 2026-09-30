@@ -9,6 +9,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MessagePlugin } from 'tdesign-vue-next'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 
 // Type-safe route params helper
 function getQueryParam(q: unknown): string {
@@ -46,6 +47,11 @@ const counts = computed<Record<TabType, number>>(() => ({
   people: accounts.value.length,
   tags: hashtags.value.length,
 }))
+
+const tabOptions = computed(() => TABS.map((tab) => ({
+  value: tab.value,
+  label: searched.value ? `${tab.label} ${counts.value[tab.value]}` : tab.label,
+})))
 
 const SEARCH_LIMIT = 20
 
@@ -144,21 +150,7 @@ watch(() => route.query.q, (q) => {
       </t-input>
     </form>
 
-    <div class="tab-bar" role="tablist" aria-label="搜索结果">
-      <button
-        v-for="tab in TABS"
-        :key="tab.value"
-        type="button"
-        role="tab"
-        class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': activeTab === tab.value }"
-        :aria-selected="activeTab === tab.value"
-        @click="activeTab = tab.value"
-      >
-        <span class="tab-bar__text">{{ tab.label }}<template v-if="searched"> {{ counts[tab.value] }}</template></span>
-        <div v-if="activeTab === tab.value" class="tab-bar__indicator" />
-      </button>
-    </div>
+    <TabBar v-model="activeTab" :options="tabOptions" label="搜索结果" />
 
     <div v-if="loading" class="page-loading">
       <t-loading />

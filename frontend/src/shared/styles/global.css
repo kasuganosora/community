@@ -306,6 +306,7 @@ html[data-scrolled] .home-header {
    Segmented tab bar (Home / Profile / Search tabs)
    ========================================================================== */
 .tab-bar {
+  position: relative;
   display: flex;
   gap: var(--space-1);
   padding: 0 var(--space-2);
@@ -325,6 +326,7 @@ html[data-scrolled] .home-header {
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
   border-radius: var(--radius-sm);
+  text-decoration: none;
   transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
 }
 
@@ -333,7 +335,10 @@ html[data-scrolled] .home-header {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .tab-bar__item:hover { color: var(--color-label); }
+  .tab-bar__item:hover {
+    color: var(--color-label);
+    text-decoration: none;
+  }
 }
 
 .tab-bar__item--active {
@@ -348,12 +353,17 @@ html[data-scrolled] .home-header {
 .tab-bar__indicator {
   position: absolute;
   bottom: 0;
-  left: 50%;
+  left: 0;
   width: 2rem;
   height: 3px;
-  margin-left: -1rem;
   border-radius: var(--radius-full);
   background: var(--color-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tab-bar__indicator--ready {
+  opacity: 1;
 }
 
 /* ==========================================================================
