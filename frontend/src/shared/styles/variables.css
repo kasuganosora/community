@@ -31,6 +31,9 @@
   --color-label-secondary: #6e6e73;    /* 5.1:1 */
   --color-label-tertiary: #8e8e93;     /* 3.3:1 placeholders / disabled only */
   --color-label-quaternary: #c7c7cc;
+  /* Text sitting on a blurred bar: heavier than flat gray so it stays
+     legible as the content underneath changes (vibrancy). */
+  --color-label-vibrant: #3a3a3c;
   --color-on-accent: #ffffff;
 
   /* ---- Colour: separators ------------------------------------------------ */
@@ -64,6 +67,9 @@
   --material-edge: rgba(255, 255, 255, 0.55);           /* light catching top edge */
   --material-blur-bar: blur(20px) saturate(180%);
   --material-blur-thick: blur(40px) saturate(180%);
+  /* Soft edge where scrolling content meets a floating bar. Matches the
+     bar's own material so the fade reads as the glass thickening, not a line. */
+  --scroll-edge-fade: rgba(255, 255, 255, 0.72);
   --scrim: rgba(0, 0, 0, 0.28);
 
   /* ---- Depth ------------------------------------------------------------- */
@@ -256,6 +262,7 @@
     --material-thin: rgba(255, 255, 255, 0.95);
     --material-blur-bar: none;
     --material-blur-thick: none;
+    --scroll-edge-fade: rgba(255, 255, 255, 0.97);
   }
 }
 
@@ -263,6 +270,7 @@
   :root {
     --color-label-secondary: #3a3a3c;
     --color-label-tertiary: #6e6e73;
+    --color-label-vibrant: #1d1d1f;
     --color-separator: rgba(60, 60, 67, 0.45);
     --material-bar: #ffffff;
     --material-thick: #ffffff;

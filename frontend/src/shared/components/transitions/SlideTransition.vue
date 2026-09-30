@@ -41,43 +41,42 @@ withDefaults(defineProps<Props>(), {
     transform var(--transition-duration, 200ms) var(--ease-out);
 }
 
-/* Slide Up */
-.slide-up-enter-from {
-  opacity: 0;
-  transform: translateY(var(--slide-distance, 20px));
-}
+/* Enter and leave along the same path. A surface that arrives from below
+   dismisses back down — it does not continue out the opposite side. */
+.slide-up-enter-from,
 .slide-up-leave-to {
   opacity: 0;
-  transform: translateY(calc(var(--slide-distance, 20px) * -1));
-}
-
-/* Slide Down */
-.slide-down-enter-from {
-  opacity: 0;
-  transform: translateY(calc(var(--slide-distance, 20px) * -1));
-}
-.slide-down-leave-to {
-  opacity: 0;
   transform: translateY(var(--slide-distance, 20px));
 }
 
-/* Slide Left */
-.slide-left-enter-from {
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(calc(var(--slide-distance, 20px) * -1));
+}
+
+.slide-left-enter-from,
+.slide-left-leave-to {
   opacity: 0;
   transform: translateX(var(--slide-distance, 20px));
 }
-.slide-left-leave-to {
+
+.slide-right-enter-from,
+.slide-right-leave-to {
   opacity: 0;
   transform: translateX(calc(var(--slide-distance, 20px) * -1));
 }
 
-/* Slide Right */
-.slide-right-enter-from {
-  opacity: 0;
-  transform: translateX(calc(var(--slide-distance, 20px) * -1));
-}
-.slide-right-leave-to {
-  opacity: 0;
-  transform: translateX(var(--slide-distance, 20px));
+@media (prefers-reduced-motion: reduce) {
+  .slide-up-enter-from,
+  .slide-up-leave-to,
+  .slide-down-enter-from,
+  .slide-down-leave-to,
+  .slide-left-enter-from,
+  .slide-left-leave-to,
+  .slide-right-enter-from,
+  .slide-right-leave-to {
+    transform: none;
+  }
 }
 </style>

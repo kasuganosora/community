@@ -146,7 +146,7 @@ useScrollEdge()
   }
 
   .app-fab:active {
-    transform: scale(var(--press-scale-small));
+    transform: scale(var(--press-scale));
     transition-duration: var(--duration-press);
     transition-timing-function: var(--ease-out);
   }

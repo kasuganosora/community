@@ -1,9 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const query = ref('')
+const root = ref<HTMLElement | null>(null)
+const edged = ref(false)
+
+let scroller: HTMLElement | Window | null = null
+
+function scrollParent(el: HTMLElement): HTMLElement | Window {
+  let parent = el.parentElement
+  while (parent && parent !== document.documentElement) {
+    const overflow = getComputedStyle(parent).overflowY
+    if (overflow === 'auto' || overflow === 'scroll') return parent
+    parent = parent.parentElement
+  }
+  return window
+}
+
+function updateEdge() {
+  if (!scroller) return
+  const top = scroller instanceof Window ? window.scrollY : scroller.scrollTop
+  edged.value = top > 2
+}
 
 function handleSearch() {
   const trimmedQuery = query.value.trim()
@@ -11,10 +31,21 @@ function handleSearch() {
     router.push({ name: 'search', query: { q: trimmedQuery } }).catch(() => {})
   }
 }
+
+onMounted(() => {
+  if (!root.value) return
+  scroller = scrollParent(root.value)
+  updateEdge()
+  scroller.addEventListener('scroll', updateEdge, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  scroller?.removeEventListener('scroll', updateEdge)
+})
 </script>
 
 <template>
-  <div class="search-box">
+  <div ref="root" class="search-box" :class="{ 'search-box--edge': edged }">
     <t-input
       v-model="query"
       placeholder="搜索"
@@ -44,6 +75,13 @@ function handleSearch() {
   background: var(--material-bar);
   -webkit-backdrop-filter: var(--material-blur-bar);
   backdrop-filter: var(--material-blur-bar);
+  box-shadow: 0 var(--hairline) 0 transparent;
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+/* Hairline only once the rail's content has scrolled under the field. */
+.search-box--edge {
+  box-shadow: 0 var(--hairline) 0 var(--material-bar-border);
 }
 
 .search-box :deep(.t-input__wrap) {
@@ -51,7 +89,7 @@ function handleSearch() {
 }
 
 .search-box :deep(.t-input) {
-  height: 2.375rem;
+  height: var(--hit-target);
   border-radius: var(--radius-full);
   padding: 0 var(--space-4);
 }

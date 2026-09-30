@@ -81,7 +81,25 @@ function go(to: string) {
   background: var(--material-bar);
   -webkit-backdrop-filter: var(--material-blur-bar);
   backdrop-filter: var(--material-blur-bar);
-  box-shadow: 0 calc(-1 * var(--hairline)) 0 var(--material-bar-border);
+}
+
+/* Scroll edge: a short fade above the bar, only while content still passes
+   underneath (html[data-scroll-more]). No hard divider. */
+.tabbar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 1.25rem;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--scroll-edge-fade), transparent);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+:global(html[data-scroll-more]) .tabbar::before {
+  opacity: 1;
 }
 
 .tabbar__item {
@@ -92,7 +110,9 @@ function go(to: string) {
   justify-content: center;
   gap: 1px;
   min-width: var(--hit-target);
-  color: var(--color-label-secondary);
+  min-height: var(--hit-target);
+  /* Vibrant label: full-weight ink on the blurred bar, not flat gray. */
+  color: var(--color-label-vibrant);
   transition: color var(--duration-fast) var(--ease-out);
   -webkit-touch-callout: none;
 }
@@ -114,8 +134,8 @@ function go(to: string) {
 
 .tabbar__label {
   font-size: var(--text-caption-2);
-  letter-spacing: var(--tracking-caption-2);
-  font-weight: var(--weight-medium);
+  letter-spacing: 0.012em;
+  font-weight: var(--weight-semibold);
   line-height: 1.2;
 }
 

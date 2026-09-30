@@ -76,7 +76,7 @@ function onKeydown(e: KeyboardEvent) {
   border-radius: 7px;
   background: var(--color-bg-row);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  transition: transform 300ms var(--ease-spring);
+  transition: transform var(--duration-base) var(--ease-spring);
   z-index: -1;
 }
 
@@ -90,7 +90,7 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  min-height: 2rem;
+  min-height: var(--hit-target);
   padding: 0 var(--space-2);
   border-radius: 7px;
   color: var(--color-label);
@@ -106,8 +106,8 @@ function onKeydown(e: KeyboardEvent) {
   font-weight: var(--weight-semibold);
 }
 
-/* Press: the pressed (inactive) segment dims; response on pointer-down. */
-.segmented__item:not(.segmented__item--active):active {
+/* Press: the pressed segment dims immediately, on pointer-down. */
+.segmented__item:active {
   opacity: 0.55;
   transition-duration: 0s;
 }
@@ -121,5 +121,11 @@ function onKeydown(e: KeyboardEvent) {
   width: 1rem;
   height: 1rem;
   flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented__thumb {
+    transition: none;
+  }
 }
 </style>

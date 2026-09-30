@@ -51,14 +51,10 @@ const transitionName = computed(() =>
     transform var(--transition-duration, 220ms) var(--ease-out);
 }
 
-.list-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
-
+.list-enter-from,
 .list-leave-to {
   opacity: 0;
-  transform: scale(0.98);
+  transform: translateY(6px);
 }
 
 .list-leave-active {
@@ -75,17 +71,33 @@ const transitionName = computed(() =>
   transition-delay: calc(var(--index, 0) * var(--stagger-delay, 50ms));
 }
 
-.list-stagger-enter-from {
+.list-stagger-enter-from,
+.list-stagger-leave-to {
   opacity: 0;
   transform: translateY(6px);
 }
 
-.list-stagger-leave-to {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
 .list-stagger-leave-active {
   position: absolute;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list-move,
+  .list-stagger-move {
+    transition: none;
+  }
+
+  .list-enter-from,
+  .list-leave-to,
+  .list-stagger-enter-from,
+  .list-stagger-leave-to {
+    transform: none;
+  }
+
+  .list-stagger-move,
+  .list-stagger-enter-active,
+  .list-stagger-leave-active {
+    transition-delay: 0s;
+  }
 }
 </style>

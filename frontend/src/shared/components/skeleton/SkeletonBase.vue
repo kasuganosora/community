@@ -60,4 +60,11 @@ function getStyle(value: string | number): string {
     background-position: -200% 0;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-animated {
+    animation: none;
+    background: var(--bg-hover);
+  }
+}
 </style>

@@ -359,7 +359,8 @@ html .t-popup[data-popper-placement^='top'] .t-popup__content { transform-origin
 html .t-popup[data-popper-placement^='bottom'] .t-popup__content { transform-origin: top center; }
 html .t-popup[data-popper-placement^='top-start'] .t-popup__content { transform-origin: bottom left; }
 html .t-popup[data-popper-placement^='bottom-start'] .t-popup__content { transform-origin: top left; }
-html .t-popup[data-popper-placement$='end'] .t-popup__content { transform-origin: bottom right; }
+html .t-popup[data-popper-placement^='top-end'] .t-popup__content { transform-origin: bottom right; }
+html .t-popup[data-popper-placement^='bottom-end'] .t-popup__content { transform-origin: top right; }
 
 /* Popup enter/exit: materialise (scale + blur + opacity) from the trigger.
    Exit is faster than enter — the system response snaps. */
@@ -385,6 +386,14 @@ html .t-popup--animation-leave-active .t-popup__content {
     opacity 120ms var(--ease-out),
     transform 120ms var(--ease-out),
     filter 120ms var(--ease-out) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .t-popup--animation-enter-from .t-popup__content,
+  html .t-popup--animation-leave-to .t-popup__content {
+    transform: none;
+    filter: none;
+  }
 }
 
 html .t-tooltip .t-popup__content {

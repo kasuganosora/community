@@ -2,19 +2,21 @@
 /**
  * Sheet / drawer.
  *
- * Phone (< 700px): a bottom sheet that tracks the finger 1:1 from its
- * header, rubber-bands when pulled up, and on release projects the flick's
- * momentum to decide dismiss vs. snap back, handing the release velocity to
- * a spring. It can be grabbed again mid-animation (the spring stops at its
- * presentation value). Wider screens: a centred modal panel that
- * materialises (scale + backdrop blur + opacity) instead of sliding.
+ * Phone (< 700px): a bottom sheet that tracks the finger 1:1. The header
+ * always drags; the body drags only when its content is already at the
+ * edge the finger is pulling toward, so scrolling and dismissing never
+ * fight. Pulling past the top rubber-bands. On release the flick's momentum
+ * is projected to decide dismiss vs. snap back, and that velocity is handed
+ * to a spring. Grabbing mid-flight continues from the presentation value.
+ * Wider screens: a centred modal panel that materialises (scale + backdrop
+ * blur + opacity) instead of sliding.
  *
  * Reduced motion: short cross-fade, no movement.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   createSpring, project, rubberband, velocityFrom, prefersReducedMotion,
-  SPRING_DEFAULT, SPRING_EXIT, SPRING_SHEET_FLICK, type Spring,
+  sheetDragIntent, SPRING_DEFAULT, SPRING_EXIT, SPRING_SHEET_FLICK, type Spring,
 } from '@/shared/motion/spring'
 
 const props = withDefaults(defineProps<{
@@ -152,16 +154,43 @@ let pointerId = -1
 let startY = 0
 let startValue = 0
 let history: Array<[number, number]> = []
+let suppressClick = false
+
+function isTextControl(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && !!target.closest('input, textarea, select, [contenteditable="true"]')
+}
+
+/** The scroller this gesture should defer to, if it isn't the sheet itself. */
+function contentScroller(target: EventTarget | null): HTMLElement | null {
+  const root = panel.value
+  if (!root) return null
+  let el = target instanceof Element ? target : null
+  while (el && el !== root) {
+    if (el instanceof HTMLElement) {
+      const oy = getComputedStyle(el).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+        return el
+      }
+    }
+    el = el.parentElement
+  }
+  return root.querySelector<HTMLElement>('.sheet__body')
+}
+
+function blockTouchScroll(e: TouchEvent) {
+  if (dragging) e.preventDefault()
+}
 
 function onPointerDown(e: PointerEvent) {
   if (mode !== 'sheet' || reduced || !spring || e.button !== 0) return
   if (pending || dragging) return // ignore extra fingers once engaged
+  // Text controls keep their own drag (caret, selection, inner scroll).
+  if (isTextControl(e.target)) return
   pending = true
   pointerId = e.pointerId
   startY = e.clientY
-  spring.stop() // grab it mid-flight: continue from the presentation value
-  startValue = spring.value
-  history = [[e.timeStamp, startValue]]
+  // Don't stop the spring yet: a tap must not freeze an in-flight animation.
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -170,15 +199,32 @@ function onPointerMove(e: PointerEvent) {
   if (pending) {
     // ~10px hysteresis before committing to a drag, so taps stay taps.
     if (Math.abs(dy) < 10) return
+    const scroller = contentScroller(e.target)
+    const inHeader = !!(e.target instanceof Element && (e.target as Element).closest('.sheet__header'))
+    if (!inHeader && scroller) {
+      const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      if (sheetDragIntent(dy, scroller.scrollTop, maxScroll) === 'content') {
+        // This gesture belongs to the scroller. Let it go.
+        pending = false
+        pointerId = -1
+        return
+      }
+    }
     pending = false
     dragging = true
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    // Start tracking from here so the sheet doesn't jump by the threshold;
-    // from now on it moves 1:1 with the finger, keeping the grab offset.
+    suppressClick = true
+    // Grab mid-flight from the presentation value, then track 1:1 from
+    // *here* so the hysteresis distance doesn't jump the sheet.
+    spring.stop()
+    startValue = spring.value
     startY = e.clientY
+    history = [[e.timeStamp, startValue]]
+    const cap = e.currentTarget as HTMLElement
+    cap.setPointerCapture(e.pointerId)
+    cap.addEventListener('touchmove', blockTouchScroll, { passive: false })
   }
   let y = startValue + (e.clientY - startY)
-  if (y < 0) y = -rubberband(-y, height)
+  if (y < 0) y = -rubberband(-y, height || 1)
   spring.set(y)
   history.push([e.timeStamp, y])
   if (history.length > 20) history.shift()
@@ -190,14 +236,13 @@ function onPointerUp(e: PointerEvent) {
   dragging = false
   pending = false
   pointerId = -1
-  if (!spring) return
-  if (!wasDragging) {
-    // A tap on the header. If it interrupted an animation, resume it —
-    // through close() when closing, so the sheet still unmounts.
-    if (!props.modelValue) void close()
-    else if (spring.value !== 0) spring.to(0, SPRING_DEFAULT)
-    return
+  panel.value?.removeEventListener('touchmove', blockTouchScroll)
+  if (wasDragging) {
+    // The click that follows pointerup must not activate a row. If no click
+    // comes (pointercancel), don't swallow the next tap.
+    requestAnimationFrame(() => { suppressClick = false })
   }
+  if (!spring || !wasDragging) return
   const v = velocityFrom(history)
   const projected = spring.value + project(v)
   // Decide by where the gesture is going, not where it let go.
@@ -208,6 +253,13 @@ function onPointerUp(e: PointerEvent) {
     // release settles critically damped (no bounce).
     spring.to(0, Math.abs(v) > 300 ? SPRING_SHEET_FLICK : SPRING_DEFAULT, v)
   }
+}
+
+function onClickCapture(e: MouseEvent) {
+  if (!suppressClick) return
+  suppressClick = false
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 /* ---- focus & keyboard -------------------------------------------------- */
@@ -237,6 +289,7 @@ function onKeydown(e: KeyboardEvent) {
 
 onBeforeUnmount(() => {
   spring?.stop()
+  panel.value?.removeEventListener('touchmove', blockTouchScroll)
   document.documentElement.classList.remove('has-sheet')
 })
 </script>
@@ -254,14 +307,13 @@ onBeforeUnmount(() => {
         :aria-labelledby="title ? titleId : undefined"
         :aria-label="ariaLabel"
         tabindex="-1"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @click.capture="onClickCapture"
       >
-        <header
-          class="sheet__header"
-          @pointerdown="onPointerDown"
-          @pointermove="onPointerMove"
-          @pointerup="onPointerUp"
-          @pointercancel="onPointerUp"
-        >
+        <header class="sheet__header">
           <span class="sheet__grabber" aria-hidden="true" />
           <div class="sheet__bar">
             <slot name="leading">
@@ -369,6 +421,7 @@ onBeforeUnmount(() => {
 }
 
 .sheet__close {
+  position: relative;
   grid-column: 1;
   justify-self: start;
   display: grid;
@@ -385,8 +438,11 @@ onBeforeUnmount(() => {
 .sheet__close::after {
   content: '';
   position: absolute;
+  left: 50%;
+  top: 50%;
   width: var(--hit-target);
   height: var(--hit-target);
+  transform: translate(-50%, -50%);
 }
 
 .sheet__close:active {

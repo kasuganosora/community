@@ -125,6 +125,22 @@ export function rubberband(overshoot: number, dimension: number, constant = 0.55
   return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot))
 }
 
+/**
+ * After ~10px of vertical movement, decide whether the gesture moves the
+ * sheet or the scrolling content. Pulling down at the top — or up when the
+ * content is already at the bottom — takes the sheet (dismiss / rubber-band).
+ * Any other direction belongs to the scroller, so the two gestures never fight.
+ */
+export function sheetDragIntent(
+  dy: number,
+  scrollTop: number,
+  maxScroll: number,
+): 'sheet' | 'content' {
+  if (dy > 0 && scrollTop <= 0) return 'sheet'
+  if (dy < 0 && scrollTop >= maxScroll - 0.5) return 'sheet'
+  return 'content'
+}
+
 /** Velocity (px/s) from a short pointer history of [timeMs, position]. */
 export function velocityFrom(history: Array<[number, number]>, windowMs = 100): number {
   if (history.length < 2) return 0
