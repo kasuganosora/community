@@ -755,7 +755,30 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 		conversation.AppendStatus(s.Id)
 		conversation.AppendAccount(s.AccountId)
 
-		err = tx.Select("statuses_ids,accounts_ids").Save(conversation).Error
+		// Mentions are stored before this hook. Pull them in so the other
+		// person gets an inbox row, not only the author.
+		var mentioned []StatusToAccount
+		err = tx.Where("status_id = ?", s.Id).Find(&mentioned).Error
+		if err != nil {
+			return err
+		}
+
+		for _, m := range mentioned {
+			conversation.AppendAccount(m.AccountId)
+		}
+
+		// Two field names: a single "a,b" string is not a column list, so the
+		// ids were never written and the conversation list had no participants
+		// or last message.
+		err = tx.Select("StatusesIds", "AccountsIds").Save(conversation).Error
+		if err != nil {
+			return err
+		}
+
+		// The author has just seen this message.
+		err = tx.Model(&AccountConversation{}).
+			Where("conversation_id = ? AND account_id = ?", conversation.Id, s.AccountId).
+			Update("last_status_id", s.Id).Error
 		if err != nil {
 			return err
 		}
