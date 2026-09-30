@@ -543,3 +543,143 @@ func TestPrevEventsMatchRoomVersion(t *testing.T) {
 		t.Fatalf("room v1 prev_events = %d, want 2..10", len(legacy.PrevEvents))
 	}
 }
+
+func TestLateLeaveUsesArrivalTime(t *testing.T) {
+	hs := createTestHomeServer(t)
+	alice := "@alice:test.local"
+	roomID := createRoomWithUser(t, hs, alice)
+
+	first, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{})
+	if err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	stateKey := alice
+	leave := &MatrixEvent{
+		EventID:        "$late-leave:test.local",
+		RoomID:         roomID,
+		EventType:      EventTypeRoomMember,
+		Sender:         alice,
+		StateKey:       &stateKey,
+		Content:        map[string]any{"membership": "leave"},
+		OriginServerTS: 1000,
+		Depth:          50,
+	}
+	if err := database.DB.Create(leave).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	database.DB.Model(&MatrixRoomMember{}).
+		Where("room_id = ? AND user_id = ?", roomID, alice).
+		Updates(map[string]any{"membership": MembershipLeave, "event_id": leave.EventID})
+
+	second, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{Since: first.NextBatch})
+	if err != nil {
+		t.Fatalf("incremental sync: %v", err)
+	}
+
+	if _, ok := second.Rooms.Leave[roomID]; !ok {
+		t.Fatal("a leave stored after the sync token should appear even when origin_server_ts is old")
+	}
+}
+
+func TestRedactionKeepsProtectedContent(t *testing.T) {
+	hs := createTestHomeServer(t)
+	alice := "@alice:test.local"
+	roomID := createRoomWithUser(t, hs, alice)
+	eventID := sendMessage(t, hs, roomID, alice, "secret")
+
+	resp, matErr := hs.Event.RedactEvent(roomID, eventID, alice, "spam", nil)
+	if matErr != nil {
+		t.Fatalf("redact: %v", matErr)
+	}
+
+	got, matErr := hs.Event.GetRoomEvent(roomID, eventID)
+	if matErr != nil {
+		t.Fatalf("get event: %v", matErr)
+	}
+
+	if len(got.Content) != 0 {
+		t.Fatalf("redacted message content = %#v", got.Content)
+	}
+
+	because, _ := got.Unsigned["redacted_because"].(map[string]any)
+	if because["event_id"] != resp.EventID {
+		t.Fatalf("redacted_because = %#v", got.Unsigned["redacted_because"])
+	}
+
+	memberKey := alice
+	_, matErr = hs.Event.SendRoomEvent(roomID, alice, string(EventTypeRoomMember), nil,
+		map[string]any{"membership": "join", "displayname": "Alice"}, &memberKey)
+	if matErr != nil {
+		t.Fatalf("member update: %v", matErr)
+	}
+
+	var member MatrixRoomState
+	if err := database.DB.Where("room_id = ? AND event_type = ? AND state_key = ?",
+		roomID, EventTypeRoomMember, alice).First(&member).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	_, matErr = hs.Event.RedactEvent(roomID, member.EventID, alice, "cleanup", nil)
+	if matErr != nil {
+		t.Fatalf("redact member: %v", matErr)
+	}
+
+	got, matErr = hs.Event.GetRoomEvent(roomID, member.EventID)
+	if matErr != nil {
+		t.Fatalf("get member: %v", matErr)
+	}
+
+	if got.Content["membership"] != "join" || got.Content["displayname"] != nil {
+		t.Fatalf("redacted member content = %#v", got.Content)
+	}
+}
+
+func TestDeviceListLeftAfterRemoteLeave(t *testing.T) {
+	hs := createTestHomeServer(t)
+	if err := database.DB.AutoMigrate(&DeviceListChange{}); err != nil {
+		t.Fatal(err)
+	}
+
+	alice := "@alice:test.local"
+	bob := "@bob:remote.test"
+	roomID := createRoomWithUser(t, hs, alice)
+	joinUser(t, hs, roomID, bob)
+
+	first, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{})
+	if err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	database.DB.Model(&MatrixRoomMember{}).
+		Where("room_id = ? AND user_id = ?", roomID, bob).
+		Update("membership", MembershipLeave)
+
+	if err := database.DB.Create(&DeviceListChange{
+		UserID:     bob,
+		DeviceID:   "BOBDEVICE",
+		StreamID:   1,
+		ChangeType: "left",
+		ChangedAt:  time.Now().UnixMilli(),
+		SyncedTo:   "[]",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{Since: first.NextBatch})
+	if err != nil {
+		t.Fatalf("incremental sync: %v", err)
+	}
+
+	found := false
+	for _, id := range second.DeviceLists.Left {
+		if id == bob {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("device_lists.left = %#v, want %s", second.DeviceLists.Left, bob)
+	}
+}

@@ -794,11 +794,21 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 		return nil, ErrInternal
 	}
 
-	// 标记原事件为已删除 — Matrix spec: redacted events have empty content {}
-	// Silently ignore if target event doesn't exist (federation may deliver redaction first)
-	db.GetDB().Exec("UPDATE matrix_events SET content = '{}' WHERE event_id = ? AND room_id = ?", eventID, roomID)
+	// 标记原事件为已删除。目标可以还不存在（联邦里删除事件可能先到）。
+	applyStoredRedaction(roomID, eventID)
 
 	return &SendMessageResponse{EventID: redactEventID}, nil
+}
+
+// applyStoredRedaction strips a stored event down to the keys redaction keeps.
+func applyStoredRedaction(roomID, targetID string) {
+	var target MatrixEvent
+	if db.GetDB().Where("event_id = ? AND room_id = ?", targetID, roomID).First(&target).Error != nil {
+		return
+	}
+
+	target.Content = redactContent(string(target.EventType), target.Content)
+	db.GetDB().Model(&target).Select("content").Updates(&MatrixEvent{Content: target.Content})
 }
 
 // contentEqual compares two map[string]any values for deep equality

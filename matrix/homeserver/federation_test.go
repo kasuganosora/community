@@ -287,6 +287,73 @@ func TestComputeReferenceHash_CreateEvent(t *testing.T) {
 	assert.True(t, hash[0] == '$')
 }
 
+func TestComputeReferenceHash_IgnoresMessageBodyAndEventID(t *testing.T) {
+	base := map[string]any{
+		"type":             "m.room.message",
+		"room_id":          "!room:test.local",
+		"sender":           "@alice:test.local",
+		"origin_server_ts": float64(1234567890),
+		"content":          map[string]any{"body": "hello", "msgtype": "m.text"},
+	}
+	other := map[string]any{
+		"type":             "m.room.message",
+		"room_id":          "!room:test.local",
+		"sender":           "@alice:test.local",
+		"origin_server_ts": float64(1234567890),
+		"event_id":         "$should-not-affect-hash",
+		"content":          map[string]any{"body": "completely different", "msgtype": "m.notice"},
+	}
+
+	assert.Equal(t, computeReferenceHash(base, "m.room.message"), computeReferenceHash(other, "m.room.message"))
+}
+
+func TestComputeReferenceHash_MemberKeepsMembershipOnly(t *testing.T) {
+	join := map[string]any{
+		"type":      "m.room.member",
+		"room_id":   "!room:test.local",
+		"sender":    "@alice:test.local",
+		"state_key": "@alice:test.local",
+		"content": map[string]any{
+			"membership":  "join",
+			"displayname": "Alice",
+		},
+		"origin_server_ts": float64(10),
+	}
+	renamed := map[string]any{
+		"type":      "m.room.member",
+		"room_id":   "!room:test.local",
+		"sender":    "@alice:test.local",
+		"state_key": "@alice:test.local",
+		"content": map[string]any{
+			"membership":  "join",
+			"displayname": "Alice2",
+		},
+		"origin_server_ts": float64(10),
+	}
+	left := map[string]any{
+		"type":      "m.room.member",
+		"room_id":   "!room:test.local",
+		"sender":    "@alice:test.local",
+		"state_key": "@alice:test.local",
+		"content": map[string]any{
+			"membership": "leave",
+		},
+		"origin_server_ts": float64(10),
+	}
+
+	assert.Equal(t, computeReferenceHash(join, "m.room.member"), computeReferenceHash(renamed, "m.room.member"))
+	assert.NotEqual(t, computeReferenceHash(join, "m.room.member"), computeReferenceHash(left, "m.room.member"))
+}
+
+func TestParseFedEventIDs_StringAndPairForms(t *testing.T) {
+	ids := parseFedEventIDs([]any{
+		"$new:test",
+		[]any{"$old:test", map[string]any{"sha256": "abc"}},
+		"",
+	})
+	assert.Equal(t, []string{"$new:test", "$old:test"}, ids)
+}
+
 func TestComputeReferenceHash_StripsUnderscorePrefix(t *testing.T) {
 	event := map[string]any{
 		"type":      "m.room.message",

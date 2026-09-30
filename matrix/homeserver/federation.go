@@ -613,8 +613,12 @@ func handleSendLeave(c *gin.Context) {
 		originServerTS = float64(time.Now().UnixMilli())
 	}
 
-	// 提取事件 ID
+	// Room v3+ often omits event_id in the body; the path carries the reference hash.
 	eventID, _ := event["event_id"].(string)
+	if eventID == "" {
+		eventID = c.Param("eventId")
+	}
+
 	if eventID == "" {
 		eventID = "$" + generateEventID()
 	}
@@ -635,25 +639,18 @@ func handleSendLeave(c *gin.Context) {
 		leaveEvent.Depth = int64(depth)
 	}
 
-	if prevEvents, ok := event["prev_events"].([]any); ok {
-		for _, v := range prevEvents {
-			if s, ok := v.(string); ok {
-				leaveEvent.PrevEvents = append(leaveEvent.PrevEvents, s)
-			}
-		}
-	}
-
-	if authEvents, ok := event["auth_events"].([]any); ok {
-		for _, v := range authEvents {
-			if s, ok := v.(string); ok {
-				leaveEvent.AuthEvents = append(leaveEvent.AuthEvents, s)
-			}
-		}
-	}
+	leaveEvent.PrevEvents = parseFedEventIDs(event["prev_events"])
+	leaveEvent.AuthEvents = parseFedEventIDs(event["auth_events"])
 
 	err = db.GetDB().Create(leaveEvent).Error
 	if err != nil {
 		log.Error("Failed to store leave event: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"errcode": "M_UNKNOWN",
+			"error":   "Failed to store leave event",
+		})
+
+		return
 	}
 
 	// 更新房间成员状态
@@ -905,26 +902,16 @@ type FederationTransaction struct {
 // 2. Remove signatures, unsigned, and _-prefixed keys
 // 3. Canonical JSON → SHA-256 → "$" + base64url(unpadded).
 func computeReferenceHash(event map[string]any, eventType string) string {
-	// Allowed top-level keys after redaction (room version 4+)
-	// Per Matrix spec: event_id, type, room_id, sender, state_key, content,
-	// hashes, signatures, depth, prev_events, auth_events, origin_server_ts
+	// Room v4+ reference hash. event_id is the hash itself, so it is not an input.
+	// m.room.message body/msgtype do not survive redaction.
 	allowedKeys := map[string]bool{
-		"event_id": true, "type": true, "room_id": true, "sender": true,
+		"type": true, "room_id": true, "sender": true,
 		"state_key": true, "content": true, "hashes": true, "signatures": true,
 		"depth": true, "prev_events": true, "auth_events": true,
 		"origin_server_ts": true,
 	}
 
-	// Content keys protected from redaction, by event type
-	protectedContent := map[string][]string{
-		"m.room.member":             {"membership", "join_authorised_via_users_server", "third_party_invite"},
-		"m.room.create":             {"creator"},                                                                                                //nolint:goconst
-		"m.room.join_rules":         {"join_rule", "allow"},                                                                                     //nolint:goconst
-		"m.room.power_levels":       {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"}, //nolint:goconst
-		"m.room.history_visibility": {"history_visibility"},
-		"m.room.redaction":          {},
-		"m.room.message":            {"msgtype", "body"}, //nolint:goconst
-	}
+	protectedContent := protectedContentKeys()
 
 	redacted := make(map[string]any)
 
@@ -961,12 +948,71 @@ func computeReferenceHash(event map[string]any, eventType string) string {
 
 	canonicalBytes, err := CanonicalJSON(redacted)
 	if err != nil {
-		return "$" + fmt.Sprintf("%x", time.Now().UnixNano())
+		return ""
 	}
 
 	hash := sha256.Sum256(canonicalBytes)
 
 	return "$" + base64.RawURLEncoding.EncodeToString(hash[:])
+}
+
+// protectedContentKeys are the content keys kept by the room v10 redaction algorithm.
+func protectedContentKeys() map[string][]string {
+	return map[string][]string{
+		"m.room.member":             {"membership", "join_authorised_via_users_server"},
+		"m.room.create":             {"creator"},
+		"m.room.join_rules":         {"join_rule", "allow"},
+		"m.room.power_levels":       {"ban", "events", "events_default", "invite", "kick", "redact", "state_default", "users", "users_default"},
+		"m.room.history_visibility": {"history_visibility"},
+		"m.room.redaction":          {"redacts"},
+	}
+}
+
+// redactContent keeps only the keys that survive redaction for this event type.
+func redactContent(eventType string, content map[string]any) map[string]any {
+	out := map[string]any{}
+
+	allowed := map[string]bool{}
+	for _, key := range protectedContentKeys()[eventType] {
+		allowed[key] = true
+	}
+
+	for key, val := range content {
+		if allowed[key] {
+			out[key] = val
+		}
+	}
+
+	return out
+}
+
+// parseFedEventIDs reads prev_events/auth_events. Room v3+ sends strings.
+// Room v1/v2 sends [event_id, hash] pairs.
+func parseFedEventIDs(raw any) []string {
+	switch list := raw.(type) {
+	case []string:
+		return list
+	case []any:
+		ids := make([]string, 0, len(list))
+		for _, item := range list {
+			switch v := item.(type) {
+			case string:
+				if v != "" {
+					ids = append(ids, v)
+				}
+			case []any:
+				if len(v) > 0 {
+					if s, ok := v[0].(string); ok && s != "" {
+						ids = append(ids, s)
+					}
+				}
+			}
+		}
+
+		return ids
+	default:
+		return nil
+	}
 }
 
 // parseFederationPDU extracts fields from a raw PDU map and computes event_id for room v4+.
@@ -1028,6 +1074,8 @@ func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 	var redactsPtr *string
 	if r, ok := event["redacts"].(string); ok && r != "" {
 		redactsPtr = &r
+	} else if r, ok := content["redacts"].(string); ok && r != "" {
+		redactsPtr = &r
 	}
 
 	var depth int64
@@ -1035,25 +1083,8 @@ func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 		depth = int64(d)
 	}
 
-	var prevEvents []string
-
-	if pe, ok := event["prev_events"].([]any); ok {
-		for _, v := range pe {
-			if s, ok := v.(string); ok {
-				prevEvents = append(prevEvents, s)
-			}
-		}
-	}
-
-	var authEvents []string
-
-	if ae, ok := event["auth_events"].([]any); ok {
-		for _, v := range ae {
-			if s, ok := v.(string); ok {
-				authEvents = append(authEvents, s)
-			}
-		}
-	}
+	prevEvents := parseFedEventIDs(event["prev_events"])
+	authEvents := parseFedEventIDs(event["auth_events"])
 
 	var stateKeyPtr *string
 	if hasStateKey {
@@ -1090,7 +1121,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 		}
 
 		if redactsID != "" {
-			db.GetDB().Exec("UPDATE matrix_events SET content = '{}' WHERE event_id = ? AND room_id = ?", redactsID, roomID)
+			applyStoredRedaction(roomID, redactsID)
 		}
 	}
 
@@ -1142,16 +1173,7 @@ func fetchMissingEvents(hs *HomeServer, event map[string]any, origin string) {
 		return
 	}
 
-	// Collect prev_events
-	var prevEventIDs []string
-
-	if pe, ok := event["prev_events"].([]any); ok {
-		for _, v := range pe {
-			if s, ok := v.(string); ok {
-				prevEventIDs = append(prevEventIDs, s)
-			}
-		}
-	}
+	prevEventIDs := parseFedEventIDs(event["prev_events"])
 
 	if len(prevEventIDs) == 0 {
 		return

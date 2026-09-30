@@ -812,7 +812,7 @@ func (r *RoomService) backfillFromRemote(fedClient *FederationClient, serverName
 }
 
 // backfillFromRemoteWithLimit 从远程服务器 backfill 事件，支持指定最大事件数
-// maxEvents: 最大要获取的事件数，0 表示使用默认值（100）.
+// maxEvents: 最大要获取的事件数，0 表示使用默认值（1000）.
 func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, serverName, roomID string, maxEvents int) {
 	r.backfillFromEvent(fedClient, serverName, roomID, maxEvents, "")
 }
@@ -821,7 +821,9 @@ func (r *RoomService) backfillFromRemoteWithLimit(fedClient *FederationClient, s
 // An empty startEventID starts from the latest local event (the join event).
 func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName, roomID string, maxEvents int, startEventID string) {
 	if maxEvents <= 0 {
-		maxEvents = 100
+		// A joined room can already have a few hundred messages. Stopping at 100
+		// leaves /messages unable to see the rest until something pages further.
+		maxEvents = 1000
 	}
 
 	if startEventID == "" {
@@ -919,21 +921,8 @@ func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName,
 				event.Depth = int64(depth)
 			}
 
-			if prevEvents, ok := pdu["prev_events"].([]any); ok {
-				for _, v := range prevEvents {
-					if s, ok := v.(string); ok {
-						event.PrevEvents = append(event.PrevEvents, s)
-					}
-				}
-			}
-
-			if authEvents, ok := pdu["auth_events"].([]any); ok {
-				for _, v := range authEvents {
-					if s, ok := v.(string); ok {
-						event.AuthEvents = append(event.AuthEvents, s)
-					}
-				}
-			}
+			event.PrevEvents = parseFedEventIDs(pdu["prev_events"])
+			event.AuthEvents = parseFedEventIDs(pdu["auth_events"])
 
 			err := db.GetDB().Create(event).Error
 			if err != nil {

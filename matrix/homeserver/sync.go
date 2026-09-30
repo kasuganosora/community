@@ -939,16 +939,18 @@ func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 			// Incremental sync: include forgotten room only if leave event is newer than since
 			var event MatrixEvent
 			if db.GetDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
-				if event.OriginServerTS > since {
+				if eventArrivedAfter(event, since) {
 					roomIDs = append(roomIDs, m.RoomID)
 				}
 			}
 		} else {
 			if since > 0 {
-				// Incremental sync: only include rooms left since the since token
+				// Incremental sync: only include rooms left since the since token.
+				// Use local arrival time. A delayed federation leave can have an
+				// origin_server_ts older than the sync token.
 				var event MatrixEvent
 				if db.GetDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
-					if event.OriginServerTS > since {
+					if eventArrivedAfter(event, since) {
 						roomIDs = append(roomIDs, m.RoomID)
 					}
 				}
@@ -959,6 +961,14 @@ func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 	}
 
 	return roomIDs
+}
+
+func eventArrivedAfter(event MatrixEvent, since int64) bool {
+	if event.CreatedAt != nil {
+		return event.CreatedAt.UnixMilli() > since
+	}
+
+	return event.OriginServerTS > since
 }
 
 // getChangedStateEvents 获取变更的状态事件.
@@ -1628,15 +1638,26 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 			continue
 		}
 
-		if !roomMemberSet[dlc.UserID] {
-			continue
-		}
+		switch dlc.ChangeType {
+		case "removed", "left":
+			if roomMemberSet[dlc.UserID] {
+				changedSet[dlc.UserID] = true
+				delete(leftSet, dlc.UserID)
 
-		if dlc.ChangeType == "removed" {
-			if !changedSet[dlc.UserID] {
-				leftSet[dlc.UserID] = true
+				continue
 			}
-		} else {
+
+			// They no longer share a joined room. Count them as left only if a
+			// membership row still ties them to one of our rooms.
+			if sharesAnyRoom(dlc.UserID, joinedRooms) {
+				leftSet[dlc.UserID] = true
+				delete(changedSet, dlc.UserID)
+			}
+		default:
+			if !roomMemberSet[dlc.UserID] {
+				continue
+			}
+
 			changedSet[dlc.UserID] = true
 			delete(leftSet, dlc.UserID)
 		}
@@ -1651,6 +1672,19 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 	}
 
 	return changed, left
+}
+
+func sharesAnyRoom(userID string, roomIDs []string) bool {
+	if userID == "" || len(roomIDs) == 0 {
+		return false
+	}
+
+	var n int64
+	db.GetDB().Model(&MatrixRoomMember{}).
+		Where("user_id = ? AND room_id IN ?", userID, roomIDs).
+		Count(&n)
+
+	return n > 0
 }
 
 // getRoomSummary 获取房间摘要.

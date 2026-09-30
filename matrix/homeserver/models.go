@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kasuganosora/community/db/database"
 	"gorm.io/gorm"
 )
 
@@ -120,7 +121,36 @@ func (e *MatrixEvent) ToClientEventForDevice(deviceID string) *ClientEvent {
 		}
 	}
 
+	e.attachRedactedBecause(ce)
+
 	return ce
+}
+
+func (e *MatrixEvent) attachRedactedBecause(ce *ClientEvent) {
+	if e.EventType == EventTypeRoomRedaction || e.EventID == "" || e.RoomID == "" || database.GetDB() == nil {
+		return
+	}
+
+	var redaction MatrixEvent
+	err := database.GetDB().Where("room_id = ? AND redacts = ?", e.RoomID, e.EventID).
+		Order("origin_server_ts DESC").First(&redaction).Error
+	if err != nil {
+		return
+	}
+
+	if ce.Unsigned == nil {
+		ce.Unsigned = map[string]any{}
+	}
+
+	ce.Unsigned["redacted_because"] = map[string]any{
+		"event_id":         redaction.EventID,
+		"type":             string(redaction.EventType),
+		"room_id":          redaction.RoomID,
+		"sender":           redaction.Sender,
+		"origin_server_ts": redaction.OriginServerTS,
+		"content":          redaction.Content,
+		"redacts":          e.EventID,
+	}
 }
 
 // ClientEvent 客户端事件格式.
