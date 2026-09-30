@@ -453,14 +453,16 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 
 	var events []MatrixEvent
 
+	newlyJoined := false
+
 	if since > 0 {
 		// Check if user newly joined this room since the last sync
 		// 用成员事件的本地写入时间，不用 origin_server_ts。
 		// 建房时 origin_server_ts 会按事件加 1ms，可能晚于 sync token，
 		// 已经加入的房间会被当成新加入，增量时间线走错分支。
-		isNewlyJoined := s.userJoinedAfter(roomID, userID, since)
+		newlyJoined = s.userJoinedAfter(roomID, userID, since)
 
-		if isNewlyJoined {
+		if newlyJoined {
 			// Newly-joined room: treat like initial sync for this room.
 			// Show recent events (up to timeline limit), mark as limited if room has more.
 			db.GetDB().Where("room_id = ?", roomID).
@@ -480,11 +482,9 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 				tokenTS := events[0].CreatedAt.UnixMilli()
 				room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
 			}
-			// Include full state for newly joined rooms
-			if len(room.State.Events) == 0 {
-				stateEvents, _ := s.HS.Room.GetRoomStateAll(roomID)
-				room.State.Events = stateEvents
-			}
+			// 刚加入的房间客户端还没有状态。前面按 since 取到的增量状态不完整。
+			stateEvents, _ := s.HS.Room.GetRoomStateAll(roomID)
+			room.State.Events = stateEvents
 		} else {
 			// 增量同步：用 created_at（本地到达时间）过滤，避免联邦事件的
 			// origin_server_ts 早于 sync token 时被丢掉。
@@ -561,6 +561,12 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 	// Apply timeline type filter
 	if timelineFilter != nil {
 		room.Timeline.Events = filterEvents(room.Timeline.Events, timelineFilter)
+	}
+
+	// 增量同步：时间线里已经有的状态事件不要再放进 state。
+	// 没截断时 state 为空；截断时 state 只保留落在缺口里的状态事件。
+	if since > 0 && !fullState && !newlyJoined {
+		room.State.Events = stateEventsOutsideTimeline(room.State.Events, room.Timeline)
 	}
 
 	// 获取临时事件（typing, receipts）
@@ -729,29 +735,52 @@ func (s *SyncService) getUserJoinTS(roomID, userID string) int64 {
 	return event.OriginServerTS
 }
 
-// userJoinedAfter reports whether the user's current membership event was stored
-// after the sync token. created_at matches the incremental sync filter; origin_server_ts
-// can sit ahead of the token when room creation spaces event timestamps.
+// userJoinedAfter reports whether this user gained a join membership after the
+// sync token. A later m.room.member with the same join (display name, avatar)
+// is not a new join. Compare Unix milliseconds: the sync token is truncated,
+// and a SQL comparison against that truncated time treats the rest of the
+// same millisecond as "after".
 func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
-	var member MatrixRoomMember
-	if db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error != nil {
+	if since <= 0 {
 		return false
 	}
 
-	if member.EventID == "" {
-		return false
+	var events []MatrixEvent
+	db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+		roomID, EventTypeRoomMember, userID).
+		Order("created_at ASC, origin_server_ts ASC").Find(&events)
+
+	joined := false
+	joinedAfter := false
+
+	for i := range events {
+		ev := &events[i]
+
+		ts := ev.OriginServerTS
+		if ev.CreatedAt != nil {
+			ts = ev.CreatedAt.UnixMilli()
+		}
+
+		membership, _ := ev.Content["membership"].(string)
+		if ts <= since {
+			joined = membership == string(MembershipJoin)
+
+			continue
+		}
+
+		if membership == string(MembershipJoin) && !joined {
+			joinedAfter = true
+		}
+
+		switch membership {
+		case string(MembershipJoin):
+			joined = true
+		case string(MembershipLeave), string(MembershipBan):
+			joined = false
+		}
 	}
 
-	var event MatrixEvent
-	if db.GetDB().Where("event_id = ?", member.EventID).First(&event).Error != nil {
-		return false
-	}
-
-	if event.CreatedAt != nil {
-		return event.CreatedAt.UnixMilli() > since
-	}
-
-	return event.OriginServerTS > since
+	return joinedAfter
 }
 
 // parseSyncToken 解析同步 token.
@@ -961,6 +990,30 @@ func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 	}
 
 	return roomIDs
+}
+
+func stateEventsOutsideTimeline(state []*ClientEvent, timeline *SyncTimeline) []*ClientEvent {
+	if timeline == nil || !timeline.Limited {
+		return []*ClientEvent{}
+	}
+
+	inTimeline := make(map[string]bool, len(timeline.Events))
+	for _, ev := range timeline.Events {
+		if ev != nil && ev.EventID != "" {
+			inTimeline[ev.EventID] = true
+		}
+	}
+
+	gap := make([]*ClientEvent, 0)
+	for _, ev := range state {
+		if ev == nil || ev.StateKey == nil || inTimeline[ev.EventID] {
+			continue
+		}
+
+		gap = append(gap, ev)
+	}
+
+	return gap
 }
 
 func eventArrivedAfter(event MatrixEvent, since int64) bool {

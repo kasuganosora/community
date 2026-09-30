@@ -143,7 +143,13 @@ func TestStripHTMLTags_Simple(t *testing.T) {
 func TestStripHTMLTags_Nested(t *testing.T) {
 	mb := &MessageBridge{}
 	result := mb.stripHTMLTags("<div><p>hello</p><span>world</span></div>")
-	assert.Equal(t, "helloworld", result)
+	assert.Equal(t, "hello\nworld", result)
+}
+
+func TestStripHTMLTags_LineBreak(t *testing.T) {
+	mb := &MessageBridge{}
+	result := mb.stripHTMLTags("line1<br>line2<br/>line3")
+	assert.Equal(t, "line1\nline2\nline3", result)
 }
 
 func TestStripHTMLTags_NoTags(t *testing.T) {

@@ -544,6 +544,69 @@ func TestPrevEventsMatchRoomVersion(t *testing.T) {
 	}
 }
 
+func TestIncrementalSyncOmitsStateAlreadyInTimeline(t *testing.T) {
+	hs := createTestHomeServer(t)
+	alice := "@alice:test.local"
+	roomID := createRoomWithUser(t, hs, alice)
+
+	first, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{})
+	if err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	memberKey := alice
+	if _, matErr := hs.Event.SendRoomEvent(roomID, alice, string(EventTypeRoomMember), nil,
+		map[string]any{"membership": "join", "displayname": "Alice"}, &memberKey); matErr != nil {
+		t.Fatalf("member update: %v", matErr)
+	}
+
+	second, err := hs.Sync.Sync(alice, "DEVICE1", &SyncRequest{Since: first.NextBatch})
+	if err != nil {
+		t.Fatalf("incremental sync: %v", err)
+	}
+
+	room := second.Rooms.Join[roomID]
+	if room == nil {
+		t.Fatal("expected joined room")
+	}
+
+	if len(room.State.Events) != 0 {
+		t.Fatalf("state has %d events; the member event is already in the timeline", len(room.State.Events))
+	}
+
+	found := false
+	for _, ev := range room.Timeline.Events {
+		if ev.Type == string(EventTypeRoomMember) && ev.Content["displayname"] == "Alice" {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatal("timeline should include the display name change")
+	}
+}
+
+func TestStateEventsOutsideTimeline(t *testing.T) {
+	nameKey := ""
+	topicKey := ""
+	state := []*ClientEvent{
+		{EventID: "$a", StateKey: &nameKey, Type: "m.room.name"},
+		{EventID: "$b", StateKey: &topicKey, Type: "m.room.topic"},
+	}
+
+	if got := stateEventsOutsideTimeline(state, &SyncTimeline{Limited: false}); len(got) != 0 {
+		t.Fatalf("unlimited timeline repeated %d state events", len(got))
+	}
+
+	gap := stateEventsOutsideTimeline(state, &SyncTimeline{
+		Limited: true,
+		Events:  []*ClientEvent{{EventID: "$b"}},
+	})
+	if len(gap) != 1 || gap[0].EventID != "$a" {
+		t.Fatalf("gap = %#v", gap)
+	}
+}
+
 func TestLateLeaveUsesArrivalTime(t *testing.T) {
 	hs := createTestHomeServer(t)
 	alice := "@alice:test.local"

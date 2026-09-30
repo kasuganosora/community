@@ -240,13 +240,30 @@ func (m *MessageBridge) stripHTMLTags(htmlContent string) string {
 			buf.WriteString(n.Data)
 		}
 
+		if n.Type == xhtml.ElementNode && n.Data == "br" {
+			buf.WriteByte('\n')
+		}
+
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			extractText(c)
+		}
+
+		if n.Type == xhtml.ElementNode && htmlBlockTag(n.Data) {
+			buf.WriteByte('\n')
 		}
 	}
 	extractText(doc)
 
 	return strings.TrimSpace(buf.String())
+}
+
+func htmlBlockTag(tag string) bool {
+	switch tag {
+	case "p", "div", "li", "tr", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6":
+		return true
+	default:
+		return false
+	}
 }
 
 // textToHTML 将纯文本转换为简单的 HTML.
