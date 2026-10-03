@@ -9,7 +9,7 @@
 - **用户/房间/群组映射**：`UserMapper`、`RoomMapper`、`GroupMapper` 三层映射服务维护跨系统身份对应关系。
 - **联系人服务**：`ContactService` 支持本地用户与 Matrix 用户之间添加好友、发起/接受/拒绝请求、屏蔽等。
 - **AS Webhook 接入**：接收 Homeserver 推送的事件 Transaction，支持事务幂等性。
-- **内置 Homeserver**：`homeserver` 子包提供完整的 Matrix Homeserver 实现（Client-Server API、Federation、E2EE、媒体、推送等）。
+- **内置 Homeserver**：`homeserver` 子包实现 Client-Server API、Federation、E2EE 密钥交换、媒体、推送等能力；兼容范围以已实现接口和实际测试为准。
 
 ## 架构 / 结构
 
@@ -49,7 +49,7 @@
 
 ### homeserver 子包
 
-`matrix/homeserver` 是一个功能完整的 Matrix Homeserver，由 `HomeServer` 结构体聚合多个服务：
+`matrix/homeserver` 由 `HomeServer` 结构体聚合多个服务：
 
 ```go
 type HomeServer struct {
@@ -78,6 +78,16 @@ type HomeServer struct {
 媒体下载使用 Matrix 1.11 的认证媒体协议：客户端通过 `/_matrix/client/v1/media/` 携带令牌下载，服务器通过带联邦签名的 `/_matrix/federation/v1/media/` 交换 multipart 媒体。旧的匿名媒体下载地址不提供现代上传文件，避免绕过认证。
 
 上传保留原始文件名，单文件上限为 50 MiB。加密附件作为原始密文字节传输，由客户端解密；服务器不应把密文当图片处理。远端 multipart 重定向目前不支持，避免未经验证的二次下载。
+
+异步上传的完成与状态查询要求登录，并验证上传所有者。每次上传最多持续 5 分钟；进程中断后的占用租约在 5 分 30 秒后允许所有者重试，旧请求不能覆盖新的成功结果。
+
+## 同步与性能验证
+
+客户端必须保存并原样提交完整的 `next_batch`。设备消息按账号和设备分批保留，下一次提交相应游标时才确认删除；断线重试会重新返回尚未确认的批次。同步 GET 会产生投递和确认等副作用，压测应使用专用账号与设备。
+
+历史事件的可见性依据事件发生时的状态，缺少可靠历史证据时拒绝读取。旧本地事件可以使用可信本地状态快照，但不会因此被伪造成已签名的联邦事件。`m.read.private` 仅用于自己的设备同步与未读位置，不发布给其他账号或服务器。
+
+性能测试覆盖首次/增量同步、历史分页、发送、长轮询、设备消息重试和媒体传输。数据规模、前后结果及适用限制见 [Matrix 性能报告](../docs/matrix-performance.md)，复测命令见 [压测脚本说明](../scripts/benchmark-matrix.md)。
 
 ## 配置说明
 

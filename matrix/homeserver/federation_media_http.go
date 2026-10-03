@@ -16,3 +16,9 @@ func (c *FederationClient) federationMediaHTTPClient() *http.Client {
 	}
 	return c.fedMediaHTTPClient
 }
+
+// mediaFederation shares connection pools only within one signing identity.
+func (hs *HomeServer) mediaFederation() *FederationClient {
+	hs.mediaFederationOnce.Do(func() { hs.mediaFederationClient = NewFederationClient(hs) })
+	return hs.mediaFederationClient
+}

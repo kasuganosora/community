@@ -1025,6 +1025,9 @@ func setupMinimalTestDB(t *testing.T) {
 	database.DB = dbConn
 
 	models := []any{
+		&MatrixUserSession{},
+		&MatrixToDeviceMessage{},
+		&MatrixSyncToDeviceBatch{},
 		&MatrixRoom{},
 		&MatrixEvent{},
 		&MatrixRoomState{},

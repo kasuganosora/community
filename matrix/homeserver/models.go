@@ -113,6 +113,12 @@ func (e *MatrixEvent) ToClientEvent() *ClientEvent {
 
 // ToClientEventForDevice 转换为客户端事件格式，并为指定设备包含 transaction_id.
 func (e *MatrixEvent) ToClientEventForDevice(deviceID string) *ClientEvent {
+	ce := e.clientEventWithoutRedaction(deviceID)
+	e.attachRedactedBecause(ce)
+	return ce
+}
+
+func (e *MatrixEvent) clientEventWithoutRedaction(deviceID string) *ClientEvent {
 	ce := &ClientEvent{
 		EventID:        e.EventID,
 		RoomID:         e.RoomID,
@@ -129,8 +135,6 @@ func (e *MatrixEvent) ToClientEventForDevice(deviceID string) *ClientEvent {
 			"transaction_id": *e.TxnID,
 		}
 	}
-
-	e.attachRedactedBecause(ce)
 
 	return ce
 }

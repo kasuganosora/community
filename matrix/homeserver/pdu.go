@@ -247,7 +247,7 @@ func preparePersistedLocalPDU(tx *gorm.DB, event *MatrixEvent) error {
 			return err
 		}
 		if create.FederationJSON == "" {
-			return nil
+			return captureLegacyLocalState(tx, event, &room)
 		}
 	}
 	return buildLocalPDU(tx, hs, event, room.RoomVersion)

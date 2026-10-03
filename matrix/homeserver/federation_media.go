@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,6 +79,9 @@ func writeFederationMedia(c *gin.Context, r io.Reader, contentType, filename str
 	_, _ = fmt.Fprintf(c.Writer, "\r\n--%s--\r\n", boundary)
 }
 func (c *FederationClient) fetchAuthenticatedMedia(serverName, mediaID, kind, query string) (*federationMedia, error) {
+	return c.fetchAuthenticatedMediaContext(context.Background(), serverName, mediaID, kind, query)
+}
+func (c *FederationClient) fetchAuthenticatedMediaContext(ctx context.Context, serverName, mediaID, kind, query string) (*federationMedia, error) {
 	base := c.federationBaseURL(serverName)
 	parsed, parseErr := url.Parse(base)
 	// MXC server names are authorities, never URLs. Reject URL components so
@@ -87,21 +91,32 @@ func (c *FederationClient) fetchAuthenticatedMedia(serverName, mediaID, kind, qu
 		return nil, fmt.Errorf("invalid media server name")
 	}
 	target := base + "/_matrix/federation/v1/media/" + kind + "/" + url.PathEscape(mediaID) + query
-	resp, raw, err := c.doFederationRequest("GET", target, serverName, nil)
+	req, err := c.prepareSignedFederationRequest(ctx, "GET", target, serverName, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.federationMediaHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch media: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("remote media HTTP %d", resp.StatusCode)
 	}
-	return parseFederationMedia(resp.Header.Get("Content-Type"), raw)
+	return parseFederationMediaReader(resp.Header.Get("Content-Type"), io.LimitReader(resp.Body, matrixMediaLimit+(1<<20)))
 }
 func parseFederationMedia(contentType string, raw []byte) (*federationMedia, error) {
+	return parseFederationMediaReader(contentType, bytes.NewReader(raw))
+}
+func parseFederationMediaReader(contentType string, raw io.Reader) (*federationMedia, error) {
+	return parseFederationMediaBounded(contentType, raw, matrixMediaLimit)
+}
+func parseFederationMediaBounded(contentType string, raw io.Reader, limit int64) (*federationMedia, error) {
 	typ, params, err := mime.ParseMediaType(contentType)
 	if err != nil || typ != "multipart/mixed" || params["boundary"] == "" {
 		return nil, fmt.Errorf("invalid federation media multipart response")
 	}
-	reader := multipart.NewReader(bytes.NewReader(raw), params["boundary"])
+	reader := multipart.NewReader(raw, params["boundary"])
 	metadata, err := reader.NextPart()
 	if err != nil {
 		return nil, err
@@ -119,12 +134,15 @@ func parseFederationMedia(contentType string, raw []byte) (*federationMedia, err
 	if body.Header.Get("Location") != "" {
 		return nil, fmt.Errorf("remote media redirect not supported")
 	}
-	data, err := io.ReadAll(io.LimitReader(body, matrixMediaLimit+1))
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > matrixMediaLimit {
+	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("remote media too large")
+	}
+	if _, err := reader.NextPart(); err != io.EOF {
+		return nil, fmt.Errorf("invalid trailing media multipart part")
 	}
 	mediaType := body.Header.Get("Content-Type")
 	if mediaType == "" {

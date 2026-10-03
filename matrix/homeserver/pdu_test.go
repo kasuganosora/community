@@ -104,6 +104,27 @@ func TestLegacyRoomKeepsLocalHistoryWithoutInventingPDU(t *testing.T) {
 	var stored MatrixEvent
 	require.NoError(t, db.GetDB().Where("event_id = ?", sent.EventID).First(&stored).Error)
 	assert.Equal(t, "legacy local works", stored.Content["body"])
+	require.True(t, stored.StateSnapshotKnown)
+	page, pageErr := hs.Event.GetRoomMessages(room.RoomID, "@alice:test.local", &GetRoomMessagesRequest{Dir: "b", Limit: 20, Filter: `{"lazy_load_members":false}`})
+	require.Nil(t, pageErr)
+	found := false
+	for _, event := range page.Chunk {
+		if event.EventID == stored.EventID {
+			found = true
+		}
+	}
+	require.True(t, found)
+	syncResponse, syncErr := hs.Sync.Sync("@alice:test.local", "LEGACYDEVICE", &SyncRequest{})
+	require.Nil(t, syncErr)
+	require.NotNil(t, syncResponse.Rooms.Join[room.RoomID])
+	found = false
+	for _, event := range syncResponse.Rooms.Join[room.RoomID].Timeline.Events {
+		if event.EventID == stored.EventID {
+			found = true
+		}
+	}
+	require.True(t, found)
+
 	_, err := matrixEventToPDU(&stored)
 	assert.ErrorContains(t, err, "no verifiable federation PDU")
 	require.NoError(t, db.GetDB().Where("event_id = ?", "$legacy-uuid").First(&MatrixEvent{}).Error)

@@ -1,12 +1,14 @@
 package homeserver
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"gorm.io/gorm"
 )
 
 // ===== MSC2246: 异步媒体上传实现 =====
@@ -34,6 +37,9 @@ type UploadConfigResponse struct {
 
 // AsyncMediaInfo 异步媒体信息（存储在数据库）.
 type AsyncMediaInfo struct {
+	ClaimToken     string `gorm:"type:varchar(64)"`
+	ClaimExpiresAt *time.Time
+
 	ID          uint64    `gorm:"primaryKey;autoIncrement"`
 	MediaID     string    `gorm:"uniqueIndex;type:varchar(64);not null"`
 	UploadURL   string    `gorm:"type:varchar(512)"`
@@ -65,6 +71,12 @@ func NewAsyncMediaService(hs *HomeServer) *AsyncMediaService {
 
 // CreateAsyncUpload 创建异步上传.
 func (ams *AsyncMediaService) CreateAsyncUpload(userID, filename, contentType string, size int64) (*AsyncMediaInfo, error) {
+	if userID == "" {
+		return nil, ErrMediaForbidden
+	}
+	if size < 0 || size > matrixMediaLimit {
+		return nil, ErrMediaTooLarge
+	}
 	mediaID := generateAsyncMediaID()
 
 	// 生成预签名上传 URL（简化实现，实际应该对接 S3/MinIO）
@@ -94,118 +106,138 @@ func (ams *AsyncMediaService) CreateAsyncUpload(userID, filename, contentType st
 // ErrCannotOverwriteMedia is returned when trying to upload to an already-completed media ID.
 var ErrCannotOverwriteMedia = errors.New("M_CANNOT_OVERWRITE_MEDIA")
 
-// CompleteAsyncUpload 完成异步上传.
-func (ams *AsyncMediaService) CompleteAsyncUpload(mediaID string, data []byte, uploadContentType string) (*AsyncUploadResponse, error) {
-	var media AsyncMediaInfo
-	if err := db.GetDB().Where("media_id = ?", mediaID).First(&media).Error; err != nil {
-		return nil, errors.New("media not found")
-	}
+var ErrMediaForbidden = errors.New("media belongs to another user")
+var ErrMediaTooLarge = errors.New("media exceeds upload limit")
 
-	// Check if already uploaded
-	if media.Status == "done" {
-		return nil, ErrCannotOverwriteMedia
-	}
+const asyncUploadTimeout = 5 * time.Minute
+const asyncUploadLease = asyncUploadTimeout + 30*time.Second
 
-	// 检查是否过期
-	if media.ExpiresAt != nil && time.Now().After(*media.ExpiresAt) {
-		return nil, errors.New("upload expired")
-	}
-
-	// 计算哈希
-	hash := sha256.Sum256(data)
-	media.Sha256Hash = hex.EncodeToString(hash[:])
-
-	// 验证大小
-	if media.Size > 0 && int64(len(data)) != media.Size {
-		return nil, errors.New("size mismatch")
-	}
-
-	// Always prefer Content-Type from the PUT request (the actual upload)
-	// over what was stored during create, since create may have a default like application/json
-	effectiveContentType := media.ContentType
-	if uploadContentType != "" {
-		effectiveContentType = uploadContentType
-		media.ContentType = effectiveContentType
-	}
-
-	// 保存文件（使用现有的媒体存储）
-	contentURI, err := ams.saveMediaFile(mediaID, data, effectiveContentType, media.Filename)
-	if err != nil {
-		media.Status = "failed"
-		db.GetDB().Save(&media)
-
-		return nil, err
-	}
-
-	// 更新状态
-	media.Status = "done"
-	media.ContentURI = contentURI
-	media.Size = int64(len(data))
-	media.UpdatedAt = time.Now()
-
-	if err := db.GetDB().Save(&media).Error; err != nil {
-		return nil, err
-	}
-
-	return &AsyncUploadResponse{
-		ContentURI: contentURI,
-	}, nil
+type asyncContextReader struct {
+	ctx    context.Context
+	source io.Reader
 }
 
-// saveMediaFile 保存媒体文件.
-func (ams *AsyncMediaService) saveMediaFile(mediaID string, data []byte, contentType, filename string) (string, error) {
-	// Determine file extension
-	ext := ""
-	if filename != "" {
-		ext = filepath.Ext(filename)
+func (r asyncContextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
 	}
+	return r.source.Read(p)
+}
 
+// CompleteAsyncUpload streams opaque bytes to a private file. The claim prevents
+// concurrent requests from overwriting the same MXC identity.
+func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, uploader string, source io.Reader, uploadContentType string) (*AsyncUploadResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, asyncUploadTimeout)
+	defer cancel()
+	// A request body must not keep its lease alive after the bounded upload ends.
+	if closer, ok := source.(io.Closer); ok {
+		stop := context.AfterFunc(ctx, func() { _ = closer.Close() })
+		defer stop()
+	}
+	source = asyncContextReader{ctx: ctx, source: source}
+
+	conn := db.GetDB().WithContext(ctx)
+	var pending AsyncMediaInfo
+	if err := conn.Where("media_id = ?", mediaID).First(&pending).Error; err != nil {
+		return nil, errors.New("media not found")
+	}
+	if uploader == "" || pending.Uploader != uploader {
+		return nil, ErrMediaForbidden
+	}
+	if pending.Status != "pending" && !(pending.Status == "processing" && pending.ClaimExpiresAt != nil && !pending.ClaimExpiresAt.After(time.Now())) {
+		return nil, ErrCannotOverwriteMedia
+	}
+	if pending.ExpiresAt != nil && time.Now().After(*pending.ExpiresAt) {
+		return nil, errors.New("upload expired")
+	}
+	if pending.Size > matrixMediaLimit {
+		return nil, ErrMediaTooLarge
+	}
+	token := uuid.NewString()
+	now := time.Now()
+	leaseEnd := now.Add(asyncUploadLease)
+	claim := conn.Model(&AsyncMediaInfo{}).Where("id = ? AND uploader = ? AND (status = ? OR (status = ? AND claim_expires_at <= ?))", pending.ID, uploader, "pending", "processing", now).Updates(map[string]any{"status": "processing", "claim_token": token, "claim_expires_at": leaseEnd})
+	if claim.Error != nil {
+		return nil, claim.Error
+	}
+	if claim.RowsAffected != 1 {
+		return nil, ErrCannotOverwriteMedia
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			db.GetDB().Model(&AsyncMediaInfo{}).Where("id = ? AND status = ? AND claim_token = ?", pending.ID, "processing", token).Updates(map[string]any{"status": "pending", "claim_token": "", "claim_expires_at": nil})
+		}
+	}()
+	contentType := pending.ContentType
+	if uploadContentType != "" {
+		contentType = uploadContentType
+	}
+	ext := filepath.Ext(originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, ""))
 	if ext == "" {
 		exts, _ := mime.ExtensionsByType(contentType)
 		if len(exts) > 0 {
 			ext = exts[0]
 		}
 	}
-
-	// Storage path
-	datePath := time.Now().Format("2006/01/02")
-	storedName := mediaID + ext
-	relativePath := filepath.Join("matrix", datePath, storedName)
-	fullPath := filepath.Join("uploads", relativePath)
-
-	// Create directory
-	err := os.MkdirAll(filepath.Dir(fullPath), 0755) //nolint:gosec // G301: reviewed and safe
+	dir := filepath.Join("uploads", "matrix", time.Now().Format("2006/01/02"))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	file, err := os.CreateTemp(dir, "async-*"+ext)
 	if err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
+		return nil, err
 	}
-
-	// Write file
-	err = os.WriteFile(fullPath, data, 0644) //nolint:gosec // G306: reviewed and safe
+	path := file.Name()
+	defer func() {
+		_ = file.Close()
+		if !committed {
+			_ = os.Remove(path)
+		}
+	}()
+	hash := sha256.New()
+	size, err := copyAsyncMedia(io.MultiWriter(file, hash), source, matrixMediaLimit)
 	if err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
+		return nil, err
 	}
-
-	// Create MatrixMedia DB record so downloads work
-	matrixMedia := &MatrixMedia{
-		MediaID:     mediaID,
-		ServerName:  ams.hs.Config.ServerName,
-		FileName:    storedName,
-		ContentType: contentType,
-		FileSize:    int64(len(data)),
-		FilePath:    fullPath,
-		UploaderID:  "",
-		CreatedAt:   time.Now(),
+	if size > matrixMediaLimit {
+		return nil, ErrMediaTooLarge
 	}
-	err = db.GetDB().Create(matrixMedia).Error
+	if pending.Size > 0 && pending.Size != size {
+		return nil, errors.New("size mismatch")
+	}
+	if err = file.Close(); err != nil {
+		return nil, err
+	}
+	uri := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
+	record := &MatrixMedia{MediaID: mediaID, ServerName: ams.hs.Config.ServerName, FileName: originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, mediaID+ext), ContentType: contentType, FileSize: size, FilePath: path, UploaderID: uploader, CreatedAt: time.Now()}
+	err = conn.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&AsyncMediaInfo{}).Where("id = ? AND status = ? AND claim_token = ? AND claim_expires_at > ?", pending.ID, "processing", token, time.Now()).Updates(map[string]any{"claim_token": "", "claim_expires_at": nil, "status": "done", "content_uri": uri, "size": size, "sha256_hash": hex.EncodeToString(hash.Sum(nil)), "content_type": contentType, "updated_at": time.Now()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrCannotOverwriteMedia
+		}
+		return nil
+	})
 	if err != nil {
-		_ = os.Remove(fullPath)
-
-		return "", fmt.Errorf("failed to save media record: %w", err)
+		return nil, err
 	}
+	committed = true
+	return &AsyncUploadResponse{ContentURI: uri}, nil
+}
 
-	contentURI := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
-
-	return contentURI, nil
+// copyAsyncMedia stops at the first excess byte without buffering the body.
+func copyAsyncMedia(dst io.Writer, source io.Reader, limit int64) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(source, limit+1))
+	if err == nil && n > limit {
+		err = ErrMediaTooLarge
+	}
+	return n, err
 }
 
 // GetUploadStatus 获取上传状态.
@@ -222,8 +254,8 @@ func (ams *AsyncMediaService) GetUploadStatus(mediaID string) (*AsyncMediaInfo, 
 // GetUploadConfig 获取上传配置.
 func (ams *AsyncMediaService) GetUploadConfig() *UploadConfigResponse {
 	return &UploadConfigResponse{
-		MaxUploadSize: 100 * 1024 * 1024, // 100MB
-		MaxFileSize:   50 * 1024 * 1024,  // 50MB
+		MaxUploadSize: matrixMediaLimit,
+		MaxFileSize:   50 * 1024 * 1024, // 50MB
 		SupportedFormats: []string{
 			"image/jpeg",
 			"image/png",
@@ -260,8 +292,8 @@ func RegisterAsyncMediaRoutes(r gin.IRouter) {
 			media.GET("/config", handleMediaConfig)
 			media.POST("/create", MatrixAuthMiddleware(), handleCreateAsyncUpload)
 			// Use wildcard to handle both PUT /upload/:mediaId and PUT /upload/:serverName/:mediaId
-			media.PUT("/upload/*path", handleCompleteAsyncUploadWildcard)
-			media.GET("/upload/:mediaId", handleGetUploadStatus)
+			media.PUT("/upload/*path", MatrixAuthMiddleware(), handleCompleteAsyncUploadWildcard)
+			media.GET("/upload/:mediaId", MatrixAuthMiddleware(), handleGetUploadStatus)
 		}
 	}
 }
@@ -335,22 +367,15 @@ func handleCompleteAsyncUpload(c *gin.Context) {
 	hs := GetHomeServer()
 	mediaID := c.Param("mediaId")
 
-	// 读取上传的数据
-	data, err := io.ReadAll(c.Request.Body)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, matrixMediaLimit)
+	resp, err := hs.AsyncMedia.CompleteAsyncUpload(c.Request.Context(), mediaID, getUserID(c), c.Request.Body, c.GetHeader("Content-Type"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_REQUEST",
-			"error":   "Failed to read upload data",
-		})
-
-		return
-	}
-
-	uploadContentType := c.GetHeader("Content-Type")
-
-	resp, err := hs.AsyncMedia.CompleteAsyncUpload(mediaID, data, uploadContentType)
-	if err != nil {
-		if errors.Is(err, ErrCannotOverwriteMedia) {
+		var tooLarge *http.MaxBytesError
+		if errors.Is(err, ErrMediaForbidden) {
+			c.JSON(403, gin.H{"errcode": "M_FORBIDDEN", "error": "Media belongs to another user"})
+		} else if errors.Is(err, ErrMediaTooLarge) || errors.As(err, &tooLarge) {
+			c.JSON(413, gin.H{"errcode": "M_TOO_LARGE", "error": "Media exceeds upload limit"})
+		} else if errors.Is(err, ErrCannotOverwriteMedia) {
 			c.JSON(http.StatusConflict, gin.H{
 				"errcode": "M_CANNOT_OVERWRITE_MEDIA",
 				"error":   "Media has already been uploaded",
@@ -380,6 +405,11 @@ func handleGetUploadStatus(c *gin.Context) {
 			"error":   "Upload not found",
 		})
 
+		return
+	}
+
+	if media.Uploader != getUserID(c) || getUserID(c) == "" {
+		c.JSON(403, gin.H{"errcode": "M_FORBIDDEN", "error": "Media belongs to another user"})
 		return
 	}
 

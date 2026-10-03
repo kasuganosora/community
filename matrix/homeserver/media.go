@@ -134,7 +134,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 	if strings.HasPrefix(contentType, "image/") {
 		processor := media.NewImageProcessor()
 
-		thumbPath, _, w, h, err := processor.ProcessImage(fullPath)
+		thumbPath, w, h, err := processor.ProcessImageThumbnail(fullPath)
 		if err == nil {
 			width = &w
 			height = &h
@@ -422,7 +422,7 @@ func handleDownloadMedia(c *gin.Context) {
 func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
 	hs := GetHomeServer()
 
-	media, err := NewFederationClient(hs).fetchAuthenticatedMedia(serverName, mediaID, "download", "")
+	media, err := hs.mediaFederation().fetchAuthenticatedMediaContext(c.Request.Context(), serverName, mediaID, "download", "")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Remote media not available"})
 		return
@@ -472,9 +472,10 @@ func handleThumbnailMedia(c *gin.Context) {
 	// 如果是远程服务器
 	if serverName != hs.Config.ServerName {
 		// 通过联邦获取远程缩略图
-		fedClient := NewFederationClient(hs)
+		fedClient := hs.mediaFederation()
 
-		data, contentType, err := fedClient.FetchThumbnail(serverName, mediaID, width, height, method)
+		params := url.Values{"width": {strconv.Itoa(width)}, "height": {strconv.Itoa(height)}, "method": {method}}
+		remote, err := fedClient.fetchAuthenticatedMediaContext(c.Request.Context(), serverName, mediaID, "thumbnail", "?"+params.Encode())
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"errcode": "M_NOT_FOUND",
@@ -484,6 +485,7 @@ func handleThumbnailMedia(c *gin.Context) {
 			return
 		}
 
+		data, contentType := remote.Data, remote.ContentType
 		// 返回缩略图
 		c.Header("Content-Type", contentType)
 		c.Header("Cache-Control", "private, max-age=31536000")

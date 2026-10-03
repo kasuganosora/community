@@ -225,6 +225,39 @@ func federationTLSConfig(extraCAPath string) *tls.Config {
 
 // doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码.
 func (c *FederationClient) doFederationRequest(method, targetURL, destServer string, body any) (*http.Response, []byte, error) {
+	httpReq, err := c.prepareSignedFederationRequest(context.Background(), method, targetURL, destServer, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsedURL := httpReq.URL
+
+	client := c.federationHTTPClient()
+	if strings.HasPrefix(parsedURL.Path, "/_matrix/federation/v1/media/") {
+		client = c.federationMediaHTTPClient()
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	var buf bytes.Buffer
+	var responseReader io.Reader = resp.Body
+	if strings.Contains(parsedURL.Path, "/federation/v1/media/") {
+		responseReader = io.LimitReader(resp.Body, matrixMediaLimit+(1<<20))
+	}
+	if _, err := buf.ReadFrom(responseReader); err != nil {
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return resp, buf.Bytes(), nil
+}
+
+// prepareSignedFederationRequest centralizes canonical signatures without binding
+// the long-lived HTTP connection pool to a particular request context.
+func (c *FederationClient) prepareSignedFederationRequest(ctx context.Context, method, targetURL, destServer string, body any) (*http.Request, error) {
 	var bodyBytes []byte
 
 	if body != nil {
@@ -232,7 +265,7 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 
 		bodyBytes, err = json.Marshal(body)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to marshal request body: %w", err)
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 	}
 
@@ -241,13 +274,13 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 		err     error
 	)
 	if bodyBytes != nil {
-		httpReq, err = http.NewRequestWithContext(context.Background(), method, targetURL, bytes.NewReader(bodyBytes))
+		httpReq, err = http.NewRequestWithContext(ctx, method, targetURL, bytes.NewReader(bodyBytes))
 	} else {
-		httpReq, err = http.NewRequestWithContext(context.Background(), method, targetURL, nil)
+		httpReq, err = http.NewRequestWithContext(ctx, method, targetURL, nil)
 	}
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
@@ -286,28 +319,7 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 		httpReq.Header.Set("Authorization", authHeader)
 	}
 
-	client := c.federationHTTPClient()
-	if strings.HasPrefix(parsedURL.Path, "/_matrix/federation/v1/media/") {
-		client = c.federationMediaHTTPClient()
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	var buf bytes.Buffer
-	var responseReader io.Reader = resp.Body
-	if strings.Contains(parsedURL.Path, "/federation/v1/media/") {
-		responseReader = io.LimitReader(resp.Body, matrixMediaLimit+(1<<20))
-	}
-	if _, err := buf.ReadFrom(responseReader); err != nil {
-		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	return resp, buf.Bytes(), nil
+	return httpReq, nil
 }
 
 // MakeJoin 向远程服务器请求加入事件模板.

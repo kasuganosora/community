@@ -245,6 +245,14 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 func TestSecurityHeadersMediaEmbedding(t *testing.T) {
 	for _, tc := range []struct{ path, policy string }{
 		{"/media/1/original/photo.png", "cross-origin"},
+		{"/_matrix/client/v1/media/download/remote.test/file", "cross-origin"},
+		{"/_matrix/client/v1/media/thumbnail/remote.test/file", "cross-origin"},
+		{"/_matrix/client/v1/media/upload", "same-origin"},
+		{"/_matrix/client/v1/media/download-private/file", "same-origin"},
+		{"/_matrix/media/v3/download/remote.test/file", "same-origin"},
+		{"/_matrix/federation/v1/media/download/file", "same-origin"},
+		{"/_matrix/client/v3/sync", "same-origin"},
+		{"/index.html", "same-origin"},
 		{"/api/v1/accounts/verify_credentials", "same-origin"},
 		{"/media-private", "same-origin"},
 	} {

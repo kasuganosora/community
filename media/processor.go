@@ -97,6 +97,15 @@ func fillImage(src image.Image, width, height int) image.Image {
 
 // ProcessImage 处理图片：生成缩略图和 BlurHash.
 func (p *ImageProcessor) ProcessImage(srcPath string) (thumbnailPath string, blurhash string, width int, height int, err error) {
+	return p.processImage(srcPath, true)
+}
+
+// ProcessImageThumbnail retains decoding limits but skips an unused BlurHash.
+func (p *ImageProcessor) ProcessImageThumbnail(srcPath string) (thumbnailPath string, width int, height int, err error) {
+	thumbnailPath, _, width, height, err = p.processImage(srcPath, false)
+	return
+}
+func (p *ImageProcessor) processImage(srcPath string, withBlurHash bool) (thumbnailPath string, blurhash string, width int, height int, err error) {
 	// 打开图片文件
 	file, err := os.Open(srcPath) //nolint:gosec // G304: reviewed and safe
 	if err != nil {
@@ -140,11 +149,14 @@ func (p *ImageProcessor) ProcessImage(srcPath string) (thumbnailPath string, blu
 	width = bounds.Dx()
 	height = bounds.Dy()
 
-	// 生成 BlurHash
-	blurhash, err = p.GenerateBlurHash(img)
-	if err != nil {
-		log.Warn("Failed to generate blurhash: %v", err)
-		// 不返回错误，继续处理
+	if withBlurHash {
+		// 生成 BlurHash
+		blurhash, err = p.GenerateBlurHash(img)
+		if err != nil {
+			log.Warn("Failed to generate blurhash: %v", err)
+			// 不返回错误，继续处理
+		}
+
 	}
 
 	// 生成缩略图

@@ -1170,8 +1170,30 @@ func (r *RoomService) GetRoomState(roomID string, eventType EventType, stateKey 
 
 // GetRoomStateAll 获取所有房间状态（返回完整事件枚举，包含 sender 和 origin_server_ts）.
 func (r *RoomService) GetRoomStateAll(roomID string) ([]*ClientEvent, *MatrixError) {
+	return r.GetRoomStateAllContext(context.Background(), roomID)
+}
+func (r *RoomService) GetRoomStateAllContext(ctx context.Context, roomID string) ([]*ClientEvent, *MatrixError) {
+	conn := db.GetDB().WithContext(ctx)
 	var states []MatrixRoomState
-	db.GetDB().Where("room_id = ?", roomID).Find(&states)
+	if err := conn.Where("room_id = ?", roomID).Find(&states).Error; err != nil {
+		return nil, ErrInternal
+	}
+	ids := make([]string, 0, len(states))
+	for _, state := range states {
+		if state.EventID != "" {
+			ids = append(ids, state.EventID)
+		}
+	}
+	metadata := map[string]MatrixEvent{}
+	if len(ids) > 0 {
+		var rows []MatrixEvent
+		if err := conn.Select("event_id", "sender", "origin_server_ts").Where("room_id = ? AND event_id IN ?", roomID, ids).Find(&rows).Error; err != nil {
+			return nil, ErrInternal
+		}
+		for _, row := range rows {
+			metadata[row.EventID] = row
+		}
+	}
 
 	events := make([]*ClientEvent, 0, len(states))
 	for _, state := range states {
@@ -1184,13 +1206,9 @@ func (r *RoomService) GetRoomStateAll(roomID string) ([]*ClientEvent, *MatrixErr
 			Content:  state.Content,
 		}
 		// Enrich with sender + origin_server_ts from the events table
-		if state.EventID != "" {
-			var evt MatrixEvent
-			err := db.GetDB().Where("event_id = ?", state.EventID).First(&evt).Error
-			if err == nil {
-				ce.Sender = evt.Sender
-				ce.OriginServerTS = evt.OriginServerTS
-			}
+		if evt, ok := metadata[state.EventID]; ok {
+			ce.Sender = evt.Sender
+			ce.OriginServerTS = evt.OriginServerTS
 		}
 
 		events = append(events, ce)

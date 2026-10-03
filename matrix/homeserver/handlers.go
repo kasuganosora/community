@@ -1354,10 +1354,11 @@ func handleGetMessages(c *gin.Context) {
 	userID := getUserID(c)
 
 	req := &GetRoomMessagesRequest{
-		Dir:    c.Query("dir"),
-		From:   c.Query("from"),
-		To:     c.Query("to"),
-		Filter: c.Query("filter"),
+		Context: c.Request.Context(),
+		Dir:     c.Query("dir"),
+		From:    c.Query("from"),
+		To:      c.Query("to"),
+		Filter:  c.Query("filter"),
 	}
 
 	if limit := c.Query("limit"); limit != "" {
@@ -1393,7 +1394,7 @@ func handleGetEventContext(c *gin.Context) {
 
 	hs := GetHomeServer()
 
-	resp, err := hs.Event.GetRoomContext(roomID, eventID, userID, limit)
+	resp, err := hs.Event.GetRoomContextContext(c.Request.Context(), roomID, eventID, userID, limit)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 
@@ -1429,84 +1430,11 @@ func handleGetEvent(c *gin.Context) {
 }
 
 // canAccessEvent checks if a user can access a specific event based on history visibility.
-func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) bool { //nolint:unparam // param reserved for future use
-	// Get history visibility
-	histVis := "shared" // default
-
-	var room MatrixRoom
-	if db.GetDB().Where("room_id = ?", roomID).First(&room).Error == nil {
-		if room.HistoryVisibility != "" {
-			histVis = room.HistoryVisibility
-		}
-	}
-
-	// world_readable: everyone can access
-	if histVis == "world_readable" { //nolint:goconst
-		return true
-	}
-
-	// Get member record
-	var member MatrixRoomMember
-
-	isMember := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error == nil
-
-	if !isMember || member.Membership == MembershipLeave || member.Membership == MembershipBan {
-		// Non-members can only access world_readable (handled above)
+func canAccessEvent(hs *HomeServer, roomID, userID string, event *ClientEvent) bool {
+	if event == nil || event.RoomID != roomID {
 		return false
 	}
-
-	// "shared": members can access all history
-	if histVis == "shared" {
-		return true
-	}
-
-	// For "joined" and "invited", we need to check when the user joined/was invited
-	// relative to the event's timestamp
-	eventTS := int64(0)
-	if event != nil {
-		eventTS = event.OriginServerTS
-	}
-
-	if histVis == "joined" {
-		// Can only see events that happened while they were joined
-		// Check when they joined (find their join event timestamp)
-		var joinEvent MatrixEvent
-
-		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
-			roomID, "m.room.member", userID, "%\"join\"%").
-			Order("origin_server_ts ASC").First(&joinEvent).Error
-		if err != nil {
-			return false
-		}
-
-		return eventTS >= joinEvent.OriginServerTS
-	}
-
-	if histVis == "invited" {
-		// Can see events from when they were invited
-		var inviteEvent MatrixEvent
-
-		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
-			roomID, "m.room.member", userID, "%\"invite\"%").
-			Order("origin_server_ts ASC").First(&inviteEvent).Error
-		if err != nil {
-			// Fall back to join event
-			var joinEvent MatrixEvent
-
-			err2 := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND content LIKE ?",
-				roomID, "m.room.member", userID, "%\"join\"%").
-				Order("origin_server_ts ASC").First(&joinEvent).Error
-			if err2 != nil {
-				return false
-			}
-
-			return eventTS >= joinEvent.OriginServerTS
-		}
-
-		return eventTS >= inviteEvent.OriginServerTS
-	}
-
-	return true
+	return canReadClientEvent(roomID, userID, event.EventID)
 }
 
 func handleRedactEvent(c *gin.Context) {
@@ -1566,10 +1494,12 @@ func handleSync(c *gin.Context) {
 	// created too late and the notification would be lost.
 	var notify <-chan struct{}
 	if req.Timeout > 0 {
-		notify = hs.SyncNotifier.Wait(userID, deviceIDStr)
+		var release func()
+		notify, release = hs.SyncNotifier.Subscribe(userID, deviceIDStr)
+		defer release()
 	}
 
-	resp, err := hs.Sync.Sync(userID, deviceIDStr, req)
+	resp, err := hs.Sync.SyncContext(c.Request.Context(), userID, deviceIDStr, req)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 
@@ -1583,7 +1513,7 @@ func handleSync(c *gin.Context) {
 		select {
 		case <-notify:
 			// Re-run sync with same since token to pick up new data
-			resp, err = hs.Sync.Sync(userID, deviceIDStr, req)
+			resp, err = hs.Sync.SyncContext(c.Request.Context(), userID, deviceIDStr, req)
 			if err != nil {
 				c.JSON(matrixErrorStatus(err), err)
 

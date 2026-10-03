@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"gorm.io/gorm"
 )
 
 // parsedFilter represents a parsed sync filter.
@@ -44,7 +45,7 @@ func (s *SyncService) loadFilter(userID, filterStr string) *parsedFilter {
 	}
 	// Otherwise it's a filter ID - load from DB
 	var mf MatrixFilter
-	err := db.GetDB().Where("user_id = ? AND filter_id = ?", userID, filterStr).First(&mf).Error
+	err := s.syncDB().Where("user_id = ? AND filter_id = ?", userID, filterStr).First(&mf).Error
 	if err != nil {
 		return nil
 	}
@@ -134,7 +135,10 @@ func getLastTypingChange(roomID string) int64 {
 
 // SyncService 同步服务.
 type SyncService struct {
-	HS *HomeServer
+	HS              *HomeServer
+	connection      *gorm.DB
+	joinTransitions map[syncJoinKey]bool
+	readError       error
 }
 
 // NewSyncService 创建同步服务.
@@ -276,7 +280,7 @@ type DeviceLists struct {
 }
 
 // Sync 执行同步.
-func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResponse, *MatrixError) {
+func (s *SyncService) sync(userID, deviceID string, req *SyncRequest) (*SyncResponse, *MatrixError) {
 	// Capture current time at the START of the sync for next_batch token.
 	// This ensures events created between query time and response time are
 	// captured in the following sync (not lost between syncs).
@@ -325,27 +329,31 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 
 	// 获取用户加入的房间
 	joinedRooms, _ := s.HS.Room.GetJoinedRooms(userID)
+	var changedRooms map[string]bool
+	if since > 0 && !req.FullState {
+		var err error
+		changedRooms, err = s.changedJoinedRooms(userID, joinedRooms, since)
+		if err != nil {
+			return nil, ErrInternal
+		}
+	}
 
 	// 处理每个房间
 	for _, roomID := range joinedRooms {
+		if err := s.syncDB().Statement.Context.Err(); err != nil {
+			return nil, &MatrixError{ErrCode: "M_UNKNOWN", Error: err.Error()}
+		}
+		if changedRooms != nil && !changedRooms[roomID] {
+			continue
+		}
 		joinedRoom := s.buildJoinedRoomForDevice(roomID, userID, deviceID, since, req.FullState, filter)
+		if s.readError != nil {
+			return nil, ErrInternal
+		}
 		if joinedRoom != nil {
 			// For incremental sync, skip rooms with no changes
 			if since > 0 && !req.FullState {
-				hasChanges := len(joinedRoom.Timeline.Events) > 0 ||
-					len(joinedRoom.State.Events) > 0
-				// Include room if typing status changed since last sync
-				if !hasChanges && getLastTypingChange(roomID) > since {
-					hasChanges = true
-				}
-				// Check ephemeral: non-typing events also count as changes
-				if !hasChanges && joinedRoom.Ephemeral != nil {
-					for _, ev := range joinedRoom.Ephemeral.Events {
-						if ev.Type != "m.typing" {
-							hasChanges = true
-						}
-					}
-				}
+				hasChanges := joinedRoomHasChanges(roomID, joinedRoom, since)
 
 				if !hasChanges {
 					continue
@@ -365,12 +373,12 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 		// Filter out invites from ignored users
 		if len(ignoredUsers) > 0 {
 			var inviter MatrixRoomMember
-			if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?",
+			if s.syncDB().Where("room_id = ? AND user_id = ? AND membership = ?",
 				roomID, userID, MembershipInvite).First(&inviter).Error == nil {
 				// Find who sent the invite by looking at the invite event sender
 				if inviter.EventID != "" {
 					var inviteEvent MatrixEvent
-					if db.GetDB().Where("event_id = ?", inviter.EventID).First(&inviteEvent).Error == nil {
+					if s.syncDB().Where("event_id = ?", inviter.EventID).First(&inviteEvent).Error == nil {
 						if ignoredUsers[inviteEvent.Sender] {
 							continue
 						}
@@ -402,7 +410,14 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 	resp.AccountData = s.getAccountData(userID, since)
 
 	// 获取 To-Device 消息
-	resp.ToDevice = s.getToDeviceMessages(userID, deviceID)
+	if s.readError != nil {
+		return nil, ErrInternal
+	}
+	deviceMessages, pendingBatch, deviceErr := s.getToDeviceMessages(userID, deviceID, req.Since)
+	if deviceErr != nil {
+		return nil, ErrInternal
+	}
+	resp.ToDevice = deviceMessages
 
 	// 获取在线状态（包含自己和房间成员）
 	resp.Presence = s.getPresenceEvents(userID, joinedRooms, since)
@@ -413,15 +428,22 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 		resp.DeviceLists.Changed = changed
 		resp.DeviceLists.Left = left
 	}
+	if s.readError != nil {
+		return nil, ErrInternal
+	}
 
 	// 生成下一个 token — use time captured at start of sync to avoid missing events
 	resp.NextBatch = fmt.Sprintf("s%d", syncStartTS)
+	if pendingBatch != "" {
+		resp.NextBatch += "_d" + pendingBatch
+	}
 
 	return resp, nil
 }
 
 // buildJoinedRoomForDevice 构建已加入房间（带设备 ID，用于 unsigned.transaction_id）.
 func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, since int64, fullState bool, filter *parsedFilter) *JoinedRoom { //nolint:gocyclo // Matrix sync protocol with filter/timeline/initial/incremental logic
+	var historyReader *clientHistoryReader
 	room := &JoinedRoom{
 		State:       &SyncState{Events: make([]*ClientEvent, 0)},
 		Timeline:    &SyncTimeline{Events: make([]*ClientEvent, 0)},
@@ -442,11 +464,11 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 
 	// 获取房间状态
 	if fullState || since == 0 {
-		stateEvents, _ := s.HS.Room.GetRoomStateAll(roomID)
+		stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
 		room.State.Events = stateEvents
 	} else {
 		// 只获取变更的状态
-		room.State.Events = s.getChangedStateEvents(roomID, since)
+		room.State.Events = s.getChangedStateEventsForReader(roomID, userID, since, &historyReader)
 	}
 	// Apply state filter
 	if stateFilter != nil {
@@ -473,8 +495,9 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 		if newlyJoined {
 			// Newly-joined room: treat like initial sync for this room.
 			// Show recent events (up to timeline limit), mark as limited if room has more.
-			db.GetDB().Where("room_id = ?", roomID).
-				Order("origin_server_ts DESC").Limit(timelineLimit + 1).Find(&events)
+			var readErr error
+			events, readErr = s.readSyncTimeline(s.syncDB().Where("room_id = ?", roomID), roomID, userID, timelineLimit+1, false, &historyReader, timelineFilter)
+			s.noteReadError(readErr)
 
 			if len(events) > timelineLimit {
 				events = events[:timelineLimit]
@@ -485,13 +508,12 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 				events[i], events[j] = events[j], events[i]
 			}
 
-			if len(events) > 0 && events[0].CreatedAt != nil {
-				// Use created_at for token generation to match the created_at-based query filter
-				tokenTS := events[0].CreatedAt.UnixMilli()
-				room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
+			if len(events) > 0 {
+				oldest := events[0]
+				room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 			}
 			// 刚加入的房间客户端还没有状态。前面按 since 取到的增量状态不完整。
-			stateEvents, _ := s.HS.Room.GetRoomStateAll(roomID)
+			stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
 			room.State.Events = stateEvents
 		} else {
 			// 增量同步：用 created_at（本地到达时间）过滤，避免联邦事件的
@@ -504,9 +526,9 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 				fetchLimit = 1
 			}
 
-			db.GetDB().Where("room_id = ? AND created_at > ?", roomID, sinceTime).
-				Order("created_at DESC, origin_server_ts DESC, depth DESC").
-				Limit(fetchLimit).Find(&events)
+			var readErr error
+			events, readErr = s.readSyncTimeline(s.syncDB().Where("room_id = ? AND created_at > ?", roomID, sinceTime), roomID, userID, fetchLimit, true, &historyReader, timelineFilter)
+			s.noteReadError(readErr)
 
 			limited := len(events) > timelineLimit
 			if limited {
@@ -526,8 +548,9 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 		}
 	} else {
 		// 初始同步：返回最近的 50 个事件，按时间升序排列
-		db.GetDB().Where("room_id = ?", roomID).
-			Order("origin_server_ts DESC").Limit(timelineLimit + 1).Find(&events)
+		var readErr error
+		events, readErr = s.readSyncTimeline(s.syncDB().Where("room_id = ?", roomID), roomID, userID, timelineLimit+1, false, &historyReader, timelineFilter)
+		s.noteReadError(readErr)
 
 		if len(events) > timelineLimit {
 			events = events[:timelineLimit]
@@ -538,34 +561,31 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 			events[i], events[j] = events[j], events[i]
 		}
 
-		if len(events) > 0 && events[len(events)-1].CreatedAt != nil {
-			// For initial sync, prev_batch represents the state after the whole batch
-			// so use the last event's timestamp to ensure /members?at= includes all state
-			tokenTS := events[len(events)-1].CreatedAt.UnixMilli()
-			room.Timeline.PrevBatch = s.generatePaginationToken(tokenTS)
+		if len(events) > 0 {
+			// /messages orders by origin timestamp and event ID, including ties.
+			oldest := events[0]
+			room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 		}
 	}
 
 	// Get user's membership history for unsigned.membership
-	userJoinTS := s.getUserJoinTS(roomID, userID)
-
-	room.Timeline.Events = make([]*ClientEvent, 0, len(events))
-	for _, event := range events {
-		ce := event.ToClientEventForDevice(deviceID)
-		// Add unsigned.membership per MSC4115
-		membership := "join" //nolint:goconst
-		if userJoinTS > 0 && event.OriginServerTS < userJoinTS {
-			membership = "leave" //nolint:goconst
-		}
-
-		if ce.Unsigned == nil {
-			ce.Unsigned = map[string]any{"membership": membership} //nolint:goconst
-		} else {
-			ce.Unsigned["membership"] = membership
-		}
-
-		room.Timeline.Events = append(room.Timeline.Events, ce)
+	var userJoinTS int64
+	if len(events) > 0 {
+		userJoinTS = s.getUserJoinTS(roomID, userID)
 	}
+
+	room.Timeline.Events = s.clientEvents(events, deviceID)
+	for i, ce := range room.Timeline.Events {
+		membership := "join"
+		if userJoinTS > 0 && events[i].OriginServerTS < userJoinTS {
+			membership = "leave"
+		}
+		if ce.Unsigned == nil {
+			ce.Unsigned = map[string]any{}
+		}
+		ce.Unsigned["membership"] = membership
+	}
+
 	// Apply timeline type filter
 	if timelineFilter != nil {
 		room.Timeline.Events = filterEvents(room.Timeline.Events, timelineFilter)
@@ -578,10 +598,19 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 	}
 
 	// 获取临时事件（typing, receipts）
-	room.Ephemeral.Events = s.getEphemeralEvents(roomID, since)
+	room.Ephemeral.Events = s.getEphemeralEventsForUser(roomID, userID, since)
 
 	// 获取房间账户数据
-	room.AccountData.Events = s.getRoomAccountData(userID, roomID)
+	roomAccountSince := since
+	if newlyJoined || fullState {
+		roomAccountSince = 0
+	}
+	room.AccountData.Events = s.getRoomAccountDataSince(userID, roomID, roomAccountSince)
+	// No response room will be emitted for this incremental request. Avoid
+	// recomputing unread history and member summaries that would be discarded.
+	if since > 0 && !fullState && !joinedRoomHasChanges(roomID, room, since) {
+		return room
+	}
 
 	// 获取未读通知数
 	// Check if the filter requests per-thread unread notifications
@@ -589,8 +618,13 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 		filter.Room.Timeline.UnreadThreadNotifications != nil && *filter.Room.Timeline.UnreadThreadNotifications
 	if wantThreadNotifs {
 		// When thread filter is active, unread_notifications counts only main-timeline events
-		room.UnreadNotifications = s.getUnreadNotificationsMainTimeline(roomID, userID)
-		room.UnreadThreadNotifications = s.getUnreadThreadNotifications(roomID, userID)
+		snapshot, err := readUnreadSnapshot(s.syncDB(), roomID, userID, true)
+		if err == nil {
+			room.UnreadNotifications = snapshot.main
+			room.UnreadThreadNotifications = snapshot.threads
+		} else {
+			room.UnreadNotifications = &UnreadNotifications{}
+		}
 	} else {
 		// Without thread filter, count all events and do NOT include unread_thread_notifications
 		room.UnreadNotifications = s.getUnreadNotifications(roomID, userID)
@@ -609,7 +643,7 @@ func (s *SyncService) buildInvitedRoom(roomID, userID string) *InvitedRoom { //n
 	}
 
 	// 获取邀请状态
-	state, _ := s.HS.Room.GetRoomStateAll(roomID)
+	state, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
 	room.InviteState.Events = state
 
 	return room
@@ -617,6 +651,7 @@ func (s *SyncService) buildInvitedRoom(roomID, userID string) *InvitedRoom { //n
 
 // buildLeftRoom 构建已离开房间.
 func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *parsedFilter) *LeftRoom {
+	var historyReader *clientHistoryReader
 	room := &LeftRoom{
 		State:    &SyncState{Events: make([]*ClientEvent, 0)},
 		Timeline: &SyncTimeline{Events: make([]*ClientEvent, 0)},
@@ -640,7 +675,7 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 
 	// Find the user's leave event to determine the cutoff point
 	var member MatrixRoomMember
-	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+	err := s.syncDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
 	if err != nil {
 		return room
 	}
@@ -649,7 +684,7 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 
 	if member.EventID != "" {
 		var leaveEvent MatrixEvent
-		if db.GetDB().Where("event_id = ?", member.EventID).First(&leaveEvent).Error == nil {
+		if s.syncDB().Where("event_id = ?", member.EventID).First(&leaveEvent).Error == nil {
 			leaveTS = leaveEvent.OriginServerTS
 		}
 	}
@@ -658,7 +693,7 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 	if leaveTS > 0 && timelineLimit > 0 {
 		var events []MatrixEvent
 
-		query := db.GetDB().Where("room_id = ? AND origin_server_ts <= ?", roomID, leaveTS)
+		query := s.syncDB().Where("room_id = ? AND origin_server_ts <= ?", roomID, leaveTS)
 
 		if since > 0 {
 			// Incremental sync: only events since the last sync token
@@ -671,7 +706,9 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 			fetchLimit = 1
 		}
 
-		query.Order("origin_server_ts DESC, depth DESC").Limit(fetchLimit).Find(&events)
+		var readErr error
+		events, readErr = s.readSyncTimeline(query, roomID, userID, fetchLimit, false, &historyReader, timelineFilter)
+		s.noteReadError(readErr)
 
 		limited := len(events) > timelineLimit
 		if limited {
@@ -688,9 +725,7 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 			room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 		}
 
-		for i := range events {
-			room.Timeline.Events = append(room.Timeline.Events, events[i].ToClientEvent())
-		}
+		room.Timeline.Events = s.clientEvents(events, "")
 		// Apply timeline type filter
 		if timelineFilter != nil {
 			room.Timeline.Events = filterEvents(room.Timeline.Events, timelineFilter)
@@ -701,16 +736,34 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 	// (state is inferred from timeline). State is only populated when timeline is empty.
 	if len(room.Timeline.Events) == 0 {
 		var stateEntries []MatrixRoomState
-		db.GetDB().Where("room_id = ?", roomID).Find(&stateEntries)
+		s.syncDB().Where("room_id = ?", roomID).Find(&stateEntries)
 
+		ids := make([]string, 0, len(stateEntries))
 		for _, entry := range stateEntries {
-			var evt MatrixEvent
-			if db.GetDB().Where("event_id = ?", entry.EventID).First(&evt).Error == nil {
-				if leaveTS == 0 || evt.OriginServerTS <= leaveTS {
-					room.State.Events = append(room.State.Events, evt.ToClientEvent())
-				}
+			ids = append(ids, entry.EventID)
+		}
+		var stateEvents []MatrixEvent
+		if len(ids) > 0 {
+			query := s.syncDB().Where("room_id = ? AND event_id IN ?", roomID, ids)
+			if leaveTS > 0 {
+				query = query.Where("origin_server_ts <= ?", leaveTS)
+			}
+			s.noteReadError(query.Find(&stateEvents).Error)
+		}
+		byID := make(map[string]MatrixEvent, len(stateEvents))
+		for _, event := range stateEvents {
+			byID[event.EventID] = event
+		}
+		ordered := make([]MatrixEvent, 0, len(stateEvents))
+		for _, entry := range stateEntries {
+			if event, ok := byID[entry.EventID]; ok {
+				ordered = append(ordered, event)
 			}
 		}
+		visible, readErr := s.visibleSyncEvents(roomID, userID, ordered, &historyReader)
+		s.noteReadError(readErr)
+		room.State.Events = s.clientEvents(visible, "")
+
 		// Apply state filter
 		if stateFilter != nil {
 			room.State.Events = filterEvents(room.State.Events, stateFilter)
@@ -725,7 +778,7 @@ func (s *SyncService) buildLeftRoom(roomID, userID string, since int64, filter *
 // getUserJoinTS returns the timestamp when the user joined the room (0 if not found).
 func (s *SyncService) getUserJoinTS(roomID, userID string) int64 {
 	var member MatrixRoomMember
-	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+	err := s.syncDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
 	if err != nil {
 		return 0
 	}
@@ -735,7 +788,7 @@ func (s *SyncService) getUserJoinTS(roomID, userID string) int64 {
 	}
 
 	var event MatrixEvent
-	err = db.GetDB().Where("event_id = ?", member.EventID).First(&event).Error
+	err = s.syncDB().Where("event_id = ?", member.EventID).First(&event).Error
 	if err != nil {
 		return 0
 	}
@@ -748,13 +801,20 @@ func (s *SyncService) getUserJoinTS(roomID, userID string) int64 {
 // is not a new join. Compare Unix milliseconds: the sync token is truncated,
 // and a SQL comparison against that truncated time treats the rest of the
 // same millisecond as "after".
-func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
+func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) (result bool) {
+	key := syncJoinKey{roomID: roomID, userID: userID, since: since}
+	if s.joinTransitions != nil {
+		if cached, ok := s.joinTransitions[key]; ok {
+			return cached
+		}
+		defer func() { s.joinTransitions[key] = result }()
+	}
 	if since <= 0 {
 		return false
 	}
 
 	var events []MatrixEvent
-	db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
+	s.syncDB().Select("event_id, content, origin_server_ts, created_at").Where("room_id = ? AND event_type = ? AND state_key = ?",
 		roomID, EventTypeRoomMember, userID).
 		Order("created_at ASC, origin_server_ts ASC").Find(&events)
 
@@ -763,7 +823,7 @@ func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
 	// says this room was already joined. Use the publication time for the
 	// current join transition, but not for later join->join profile updates.
 	var member MatrixRoomMember
-	db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member)
+	s.syncDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member)
 
 	joined := false
 	joinedAfter := false
@@ -831,11 +891,11 @@ func (s *SyncService) setPresence(userID, presence string) {
 	// 查找现有状态记录
 	var presenceRecord MatrixPresence
 
-	result := db.GetDB().Where("user_id = ?", userID).First(&presenceRecord)
+	result := s.syncDB().Where("user_id = ?", userID).First(&presenceRecord)
 
 	if result.Error == nil {
 		// 更新现有记录
-		db.GetDB().Model(&presenceRecord).Updates(map[string]any{
+		s.syncDB().Model(&presenceRecord).Updates(map[string]any{
 			"presence":       presence,
 			"last_active_ts": now,
 		})
@@ -848,7 +908,7 @@ func (s *SyncService) setPresence(userID, presence string) {
 			LastActiveTS: now,
 			CreatedAt:    &nowTime,
 		}
-		db.GetDB().Create(&presenceRecord)
+		s.syncDB().Create(&presenceRecord)
 	}
 }
 
@@ -859,7 +919,7 @@ func (s *SyncService) getPresenceEvents(userID string, joinedRooms []string, sin
 
 	if len(joinedRooms) > 0 {
 		var members []MatrixRoomMember
-		db.GetDB().Where("room_id IN ? AND membership = ?", joinedRooms, MembershipJoin).Find(&members)
+		s.syncDB().Where("room_id IN ? AND membership = ?", joinedRooms, MembershipJoin).Find(&members)
 
 		for _, m := range members {
 			userSet[m.UserID] = true
@@ -882,7 +942,7 @@ func (s *SyncService) getPresenceEvents(userID string, joinedRooms []string, sin
 			var memberEvents []MatrixEvent
 
 			sinceTimeForPresence := time.UnixMilli(since)
-			db.GetDB().Where("room_id IN ? AND event_type = ? AND created_at > ?",
+			s.syncDB().Where("room_id IN ? AND event_type = ? AND created_at > ?",
 				joinedRooms, string(EventTypeRoomMember), sinceTimeForPresence).Find(&memberEvents)
 
 			for _, evt := range memberEvents {
@@ -904,13 +964,13 @@ func (s *SyncService) getPresenceEvents(userID string, joinedRooms []string, sin
 				newJoinIDs = append(newJoinIDs, uid)
 			}
 
-			db.GetDB().Where("(user_id IN ? AND last_active_ts > ?) OR user_id IN ?",
+			s.syncDB().Where("(user_id IN ? AND last_active_ts > ?) OR user_id IN ?",
 				userIDs, since, newJoinIDs).Find(&presences)
 		} else {
-			db.GetDB().Where("user_id IN ? AND last_active_ts > ?", userIDs, since).Find(&presences)
+			s.syncDB().Where("user_id IN ? AND last_active_ts > ?", userIDs, since).Find(&presences)
 		}
 	} else {
-		db.GetDB().Where("user_id IN ?", userIDs).Find(&presences)
+		s.syncDB().Where("user_id IN ?", userIDs).Find(&presences)
 	}
 
 	events := make([]*ClientEvent, 0, len(presences))
@@ -938,7 +998,7 @@ func (s *SyncService) getPresenceEvents(userID string, joinedRooms []string, sin
 // getIgnoredUsers returns the set of ignored user IDs from account data.
 func (s *SyncService) getIgnoredUsers(userID string) map[string]bool {
 	var data MatrixAccountData
-	err := db.GetDB().Where("user_id = ? AND data_type = ? AND room_id IS NULL",
+	err := s.syncDB().Where("user_id = ? AND data_type = ? AND room_id IS NULL",
 		userID, "m.ignored_user_list").First(&data).Error
 	if err != nil {
 		return nil
@@ -958,7 +1018,7 @@ func (s *SyncService) getIgnoredUsers(userID string) map[string]bool {
 // getInvitedRooms 获取被邀请的房间.
 func (s *SyncService) getInvitedRooms(userID string) []string {
 	var members []MatrixRoomMember
-	db.GetDB().Where("user_id = ? AND membership = ?", userID, MembershipInvite).Find(&members)
+	s.syncDB().Where("user_id = ? AND membership = ?", userID, MembershipInvite).Find(&members)
 
 	roomIDs := make([]string, len(members))
 	for i, m := range members {
@@ -973,7 +1033,7 @@ func (s *SyncService) getInvitedRooms(userID string) []string {
 // For incremental sync (since>0): also includes forgotten rooms where the leave event happened after 'since'.
 func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 	var members []MatrixRoomMember
-	db.GetDB().Where("user_id = ? AND (membership = ? OR membership = ?)",
+	s.syncDB().Where("user_id = ? AND (membership = ? OR membership = ?)",
 		userID, MembershipLeave, MembershipBan).Find(&members)
 
 	var roomIDs []string
@@ -986,7 +1046,7 @@ func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 			}
 			// Incremental sync: include forgotten room only if leave event is newer than since
 			var event MatrixEvent
-			if db.GetDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
+			if s.syncDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
 				if eventArrivedAfter(event, since) {
 					roomIDs = append(roomIDs, m.RoomID)
 				}
@@ -997,7 +1057,7 @@ func (s *SyncService) getLeftRooms(userID string, since int64) []string {
 				// Use local arrival time. A delayed federation leave can have an
 				// origin_server_ts older than the sync token.
 				var event MatrixEvent
-				if db.GetDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
+				if s.syncDB().Where("event_id = ?", m.EventID).First(&event).Error == nil {
 					if eventArrivedAfter(event, since) {
 						roomIDs = append(roomIDs, m.RoomID)
 					}
@@ -1044,24 +1104,25 @@ func eventArrivedAfter(event MatrixEvent, since int64) bool {
 }
 
 // getChangedStateEvents 获取变更的状态事件.
-func (s *SyncService) getChangedStateEvents(roomID string, since int64) []*ClientEvent {
+func (s *SyncService) getChangedStateEventsForReader(roomID, userID string, since int64, reader **clientHistoryReader) []*ClientEvent {
 	var events []MatrixEvent
 
 	sinceTime := time.UnixMilli(since)
-	db.GetDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime).
+	s.syncDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime).
 		Order("origin_server_ts ASC").Find(&events)
 
-	result := make([]*ClientEvent, len(events))
-	for i, event := range events {
-		result[i] = event.ToClientEvent()
-	}
-
-	return result
+	visible, err := s.visibleSyncEvents(roomID, userID, events, reader)
+	s.noteReadError(err)
+	return s.clientEvents(visible, "")
 }
 
 // getEphemeralEvents 获取临时事件
 // since: only return receipts newer than this timestamp (0 = return all)
 func (s *SyncService) getEphemeralEvents(roomID string, since int64) []*ClientEvent {
+	return s.getEphemeralEventsForUser(roomID, "", since)
+}
+
+func (s *SyncService) getEphemeralEventsForUser(roomID, userID string, since int64) []*ClientEvent {
 	events := make([]*ClientEvent, 0)
 
 	// Always include m.typing event (even with empty user_ids) so clients
@@ -1080,7 +1141,7 @@ func (s *SyncService) getEphemeralEvents(roomID string, since int64) []*ClientEv
 	})
 
 	// 获取 receipts（only those newer than since for incremental sync）
-	receipts := s.getReceipts(roomID, since)
+	receipts := s.getReceiptsForUser(roomID, userID, since)
 	if len(receipts) > 0 {
 		events = append(events, &ClientEvent{
 			Type:    "m.receipt",
@@ -1094,7 +1155,7 @@ func (s *SyncService) getEphemeralEvents(roomID string, since int64) []*ClientEv
 // getTypingUsers 获取正在输入的用户.
 func (s *SyncService) getTypingUsers(roomID string) []string {
 	var typing []MatrixTyping
-	db.GetDB().Where("room_id = ? AND expires_at > ?", roomID, time.Now()).Find(&typing)
+	s.syncDB().Where("room_id = ? AND expires_at > ?", roomID, time.Now()).Find(&typing)
 
 	userIDs := make([]string, len(typing))
 	for i, t := range typing {
@@ -1107,9 +1168,13 @@ func (s *SyncService) getTypingUsers(roomID string) []string {
 // getReceipts 获取回执
 // since: only return receipts newer than this timestamp (0 = return all)
 func (s *SyncService) getReceipts(roomID string, since int64) map[string]any {
+	return s.getReceiptsForUser(roomID, "", since)
+}
+
+func (s *SyncService) getReceiptsForUser(roomID, userID string, since int64) map[string]any {
 	var receipts []MatrixReceipt
 
-	query := db.GetDB().Where("room_id = ?", roomID)
+	query := s.syncDB().Where("room_id = ?", roomID).Where("receipt_type <> ? OR user_id = ?", "m.read.private", userID)
 	if since > 0 {
 		query = query.Where("ts > ?", since)
 	}
@@ -1176,7 +1241,7 @@ func (s *SyncService) getReceipts(roomID string, since int64) map[string]any {
 func (s *SyncService) getAccountData(userID string, since int64) *SyncAccountData {
 	var accountData []MatrixAccountData
 
-	query := db.GetDB().Where("user_id = ?", userID).Where("room_id IS NULL")
+	query := s.syncDB().Where("user_id = ?", userID).Where("room_id IS NULL")
 
 	if since > 0 {
 		// Incremental sync: only return account data changed since last sync
@@ -1222,7 +1287,7 @@ func (s *SyncService) getAccountData(userID string, since int64) *SyncAccountDat
 		sinceTime := time.UnixMilli(since)
 
 		var pushRuleCount int64
-		db.GetDB().Model(&PushRule{}).Where("user_id = ? AND updated_at > ?", userID, sinceTime).Count(&pushRuleCount)
+		s.syncDB().Model(&PushRule{}).Where("user_id = ? AND updated_at > ?", userID, sinceTime).Count(&pushRuleCount)
 
 		if pushRuleCount > 0 {
 			if rules, err := s.HS.Push.GetPushRules(userID); err == nil {
@@ -1242,8 +1307,16 @@ func (s *SyncService) getAccountData(userID string, since int64) *SyncAccountDat
 
 // getRoomAccountData 获取房间账户数据.
 func (s *SyncService) getRoomAccountData(userID, roomID string) []*ClientEvent {
+	return s.getRoomAccountDataSince(userID, roomID, 0)
+}
+
+func (s *SyncService) getRoomAccountDataSince(userID, roomID string, since int64) []*ClientEvent {
 	var accountData []MatrixAccountData
-	db.GetDB().Where("user_id = ? AND room_id = ?", userID, roomID).Find(&accountData)
+	query := s.syncDB().Where("user_id = ? AND room_id = ?", userID, roomID)
+	if since > 0 {
+		query = query.Where("updated_at > ?", time.UnixMilli(since))
+	}
+	query.Find(&accountData)
 
 	events := make([]*ClientEvent, len(accountData))
 	for i, data := range accountData {
@@ -1256,40 +1329,13 @@ func (s *SyncService) getRoomAccountData(userID, roomID string) []*ClientEvent {
 	return events
 }
 
-// getToDeviceMessages 获取 To-Device 消息.
-func (s *SyncService) getToDeviceMessages(userID, deviceID string) *SyncToDevice {
-	var messages []MatrixToDeviceMessage
-	db.GetDB().Where("target_user = ? AND target_device = ?", userID, deviceID).Find(&messages)
-
-	events := make([]*ToDeviceEvent, len(messages))
-	for i, msg := range messages {
-		events[i] = &ToDeviceEvent{
-			Sender:  msg.Sender,
-			Type:    msg.EventType,
-			Content: msg.Content,
-		}
-	}
-
-	// Consume only the snapshot returned above. A new encrypted key can arrive
-	// between SELECT and DELETE; deleting the entire device inbox would lose it.
-	if len(messages) > 0 {
-		ids := make([]uint64, len(messages))
-		for i, message := range messages {
-			ids[i] = message.ID
-		}
-		db.GetDB().Where("id IN ?", ids).Delete(&MatrixToDeviceMessage{})
-	}
-
-	return &SyncToDevice{Events: events}
-}
-
 // getLastReadTS returns the timestamp of the latest m.read receipt event for the user.
 // If threadScope is non-empty, only considers receipts with that thread_id.
 // If threadScope is empty, considers all receipts (any thread).
 func (s *SyncService) getLastReadTS(roomID, userID, threadScope string) int64 {
 	var receipt MatrixReceipt
 
-	query := db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ?",
+	query := s.syncDB().Where("room_id = ? AND user_id = ? AND receipt_type = ?",
 		roomID, userID, "m.read")
 	if threadScope != "" {
 		query = query.Where("thread_id = ?", threadScope)
@@ -1300,7 +1346,7 @@ func (s *SyncService) getLastReadTS(roomID, userID, threadScope string) int64 {
 	err := query.Order("ts DESC").First(&receipt).Error
 	if err == nil {
 		var evt MatrixEvent
-		if db.GetDB().Where("event_id = ?", receipt.EventID).First(&evt).Error == nil {
+		if s.syncDB().Where("event_id = ?", receipt.EventID).First(&evt).Error == nil {
 			return evt.OriginServerTS
 		}
 	}
@@ -1394,197 +1440,6 @@ func shouldNotify(evt *MatrixEvent) bool {
 	return true
 }
 
-// getUnreadNotifications 获取未读通知 (counts ALL notifiable events — main + threads)
-// Per Matrix spec, each receipt only applies to its scope:
-// - Unthreaded receipt: marks ALL events (main + threads) as read up to that point
-// - Threaded receipt (thread_id="main"): only marks main-timeline events as read
-// - Threaded receipt (thread_id=<event>): only marks that thread's events as read.
-func (s *SyncService) getUnreadNotifications(roomID, userID string) *UnreadNotifications {
-	// Gather all receipts for this user in this room
-	var receipts []MatrixReceipt
-	db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ?",
-		roomID, userID, "m.read").Find(&receipts)
-
-	// Build a map of receipt scope -> event timestamp
-	// Scopes: "" (unthreaded), "main", or a thread root event ID
-	receiptTSByScope := make(map[string]int64)
-
-	for _, r := range receipts {
-		var evt MatrixEvent
-		if db.GetDB().Where("event_id = ?", r.EventID).First(&evt).Error == nil {
-			scope := r.ThreadID // "" for unthreaded, "main" for main, or thread root ID
-			if evt.OriginServerTS > receiptTSByScope[scope] {
-				receiptTSByScope[scope] = evt.OriginServerTS
-			}
-		}
-	}
-
-	unthreadedTS := receiptTSByScope[""] // applies to ALL events
-	mainTS := receiptTSByScope["main"]   // applies to main-timeline events only
-
-	// Fetch all events from other senders
-	var events []MatrixEvent
-	db.GetDB().Where("room_id = ? AND sender != ?", roomID, userID).Find(&events)
-
-	var (
-		notifCount     int64
-		highlightCount int64
-	)
-
-	for _, evt := range events {
-		if !shouldNotify(&evt) {
-			continue
-		}
-
-		// Determine which receipt applies to this event
-		isThread, threadID := isThreadEvent(&evt)
-
-		var effectiveReadTS int64
-
-		if isThread {
-			// Thread event: check thread-specific receipt and unthreaded receipt
-			threadTS := receiptTSByScope[threadID]
-
-			effectiveReadTS = max(unthreadedTS, threadTS)
-		} else {
-			// Main timeline event: check "main" receipt and unthreaded receipt
-			effectiveReadTS = max(unthreadedTS, mainTS)
-		}
-
-		if effectiveReadTS > 0 && evt.OriginServerTS <= effectiveReadTS {
-			continue // event is read
-		}
-
-		notifCount++
-
-		if body, ok := evt.Content["body"].(string); ok {
-			if strings.Contains(body, userID) {
-				highlightCount++
-			}
-		}
-	}
-
-	return &UnreadNotifications{
-		HighlightCount:    highlightCount,
-		NotificationCount: notifCount,
-	}
-}
-
-// getUnreadNotificationsMainTimeline counts only main-timeline events (not thread replies).
-// Uses the "main" thread receipt and unthreaded receipt to determine read position.
-func (s *SyncService) getUnreadNotificationsMainTimeline(roomID, userID string) *UnreadNotifications {
-	// Per spec, use the best of: unthreaded receipt, or thread_id="main" receipt
-	unthreadedTS := s.getLastReadTS(roomID, userID, "")
-	mainTS := s.getLastReadTS(roomID, userID, "main")
-
-	lastReadTS := max(unthreadedTS, mainTS)
-
-	// Get all events from other senders, filter by type in Go
-	var events []MatrixEvent
-
-	q := db.GetDB().Where("room_id = ? AND sender != ?", roomID, userID)
-	if lastReadTS > 0 {
-		q = q.Where("origin_server_ts > ?", lastReadTS)
-	}
-
-	q.Find(&events)
-
-	var (
-		notifCount     int64
-		highlightCount int64
-	)
-
-	for _, evt := range events {
-		// Skip thread replies — only count main-timeline events
-		if isThread, _ := isThreadEvent(&evt); isThread {
-			continue
-		}
-
-		if !shouldNotify(&evt) {
-			continue
-		}
-
-		notifCount++
-
-		if body, ok := evt.Content["body"].(string); ok {
-			if strings.Contains(body, userID) {
-				highlightCount++
-			}
-		}
-	}
-
-	return &UnreadNotifications{
-		HighlightCount:    highlightCount,
-		NotificationCount: notifCount,
-	}
-}
-
-// getUnreadThreadNotifications returns per-thread unread notification counts.
-func (s *SyncService) getUnreadThreadNotifications(roomID, userID string) map[string]*UnreadNotifications {
-	// Find all threaded receipts for this user in this room
-	var receipts []MatrixReceipt
-	db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND thread_id != '' AND thread_id != 'main' AND thread_id IS NOT NULL",
-		roomID, userID, "m.read").Find(&receipts)
-
-	// Build a map of thread_id -> receipt event's timestamp
-	threadReceiptTS := make(map[string]int64)
-
-	for _, r := range receipts {
-		var evt MatrixEvent
-		if db.GetDB().Where("event_id = ?", r.EventID).First(&evt).Error == nil {
-			threadReceiptTS[r.ThreadID] = evt.OriginServerTS
-		}
-	}
-
-	// Per spec, an unthreaded receipt also marks all threads as read up to that point
-	unthreadedTS := s.getLastReadTS(roomID, userID, "")
-
-	// Find all events in this room from other users, filter by type in Go
-	var allEvents []MatrixEvent
-	db.GetDB().Where("room_id = ? AND sender != ?",
-		roomID, userID).Find(&allEvents)
-
-	// Group events by thread (using m.relates_to.event_id where rel_type=m.thread)
-	threadCounts := make(map[string]*UnreadNotifications)
-
-	for _, evt := range allEvents {
-		if !shouldNotify(&evt) {
-			continue
-		}
-
-		isThread, threadID := isThreadEvent(&evt)
-		if !isThread {
-			continue
-		}
-
-		// Check against thread-specific receipt
-		receiptTS := max(threadReceiptTS[threadID], unthreadedTS)
-
-		if receiptTS > 0 && evt.OriginServerTS <= receiptTS {
-			continue
-		}
-
-		if threadCounts[threadID] == nil {
-			threadCounts[threadID] = &UnreadNotifications{}
-		}
-
-		threadCounts[threadID].NotificationCount++
-
-		// Check for highlights (mentions)
-		if body, ok := evt.Content["body"].(string); ok {
-			if strings.Contains(body, userID) {
-				threadCounts[threadID].HighlightCount++
-			}
-		}
-	}
-
-	if len(threadCounts) == 0 {
-		return nil
-	}
-
-	return threadCounts
-}
-
 // getDeviceListUpdates returns users whose device lists changed/left since the given timestamp.
 // "changed" = users who joined rooms shared with userID since `since`
 // "left" = users who left all shared rooms with userID since `since`.
@@ -1601,7 +1456,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 	sinceTimeForMembers := time.UnixMilli(since)
 
 	var memberEvents []MatrixEvent
-	db.GetDB().Where("room_id IN ? AND event_type = ? AND created_at > ? AND sender != ?",
+	s.syncDB().Where("room_id IN ? AND event_type = ? AND created_at > ? AND sender != ?",
 		joinedRooms, string(EventTypeRoomMember), sinceTimeForMembers, userID).
 		Find(&memberEvents)
 
@@ -1614,7 +1469,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 		if s.userJoinedAfter(roomID, userID, since) {
 			// Newly joined room — add all existing members to changed
 			var existingMembers []MatrixRoomMember
-			db.GetDB().Where("room_id = ? AND membership = ? AND user_id != ?",
+			s.syncDB().Where("room_id = ? AND membership = ? AND user_id != ?",
 				roomID, MembershipJoin, userID).Find(&existingMembers)
 
 			for _, m := range existingMembers {
@@ -1632,7 +1487,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 
 		for _, roomID := range joinedRooms {
 			var members []MatrixRoomMember
-			db.GetDB().Where("room_id = ? AND membership = ? AND user_id != ?",
+			s.syncDB().Where("room_id = ? AND membership = ? AND user_id != ?",
 				roomID, MembershipJoin, userID).Find(&members)
 
 			for _, m := range members {
@@ -1643,7 +1498,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 		// For each left room, find users who were members
 		for _, roomID := range leftRooms {
 			var members []MatrixRoomMember
-			db.GetDB().Where("room_id = ? AND user_id != ?", roomID, userID).Find(&members)
+			s.syncDB().Where("room_id = ? AND user_id != ?", roomID, userID).Find(&members)
 
 			for _, m := range members {
 				// If this user is not in any currently joined room, they go in device_lists.left
@@ -1672,7 +1527,7 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 		case "leave", "ban": //nolint:goconst
 			// Only mark as left if no longer sharing any room with the local user
 			var sharedCount int64
-			db.GetDB().Model(&MatrixRoomMember{}).
+			s.syncDB().Model(&MatrixRoomMember{}).
 				Where("user_id = ? AND membership = ? AND room_id IN ?",
 					targetUser, MembershipJoin, joinedRooms).
 				Count(&sharedCount)
@@ -1686,31 +1541,18 @@ func (s *SyncService) getDeviceListUpdates(userID string, joinedRooms []string, 
 
 	// Also check for new device sessions created by room members since last sync
 	var roomMembers []MatrixRoomMember
-	db.GetDB().Where("room_id IN ? AND membership = ? AND user_id != ?",
+	s.syncDB().Where("room_id IN ? AND membership = ? AND user_id != ?",
 		joinedRooms, MembershipJoin, userID).Find(&roomMembers)
-
-	sinceTime := time.UnixMilli(since)
 
 	roomMemberSet := make(map[string]bool)
 	for _, m := range roomMembers {
 		roomMemberSet[m.UserID] = true
-		if changedSet[m.UserID] || leftSet[m.UserID] {
-			continue
-		}
-
-		var count int64
-		db.GetDB().Model(&MatrixUserSession{}).
-			Where("user_id = ? AND created_at > ?", m.UserID, sinceTime).
-			Count(&count)
-
-		if count > 0 {
-			changedSet[m.UserID] = true
-		}
 	}
+	s.addNewSessionUsers(roomMemberSet, changedSet, leftSet, since)
 
 	// Check DeviceListChange records for incoming federation device list updates
 	var dlChanges []DeviceListChange
-	db.GetDB().Where("changed_at > ?", since).Find(&dlChanges)
+	s.syncDB().Where("changed_at > ?", since).Find(&dlChanges)
 
 	for _, dlc := range dlChanges {
 		if dlc.UserID == userID {
@@ -1806,10 +1648,10 @@ func (s *SyncService) SetTyping(roomID, userID string, typing bool, timeout int6
 			Timeout:   timeout,
 			ExpiresAt: time.Now().Add(time.Duration(timeout) * time.Millisecond),
 		}
-		db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).Delete(&MatrixTyping{})
-		db.GetDB().Create(typingEvent)
+		s.syncDB().Where("room_id = ? AND user_id = ?", roomID, userID).Delete(&MatrixTyping{})
+		s.syncDB().Create(typingEvent)
 	} else {
-		db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).Delete(&MatrixTyping{})
+		s.syncDB().Where("room_id = ? AND user_id = ?", roomID, userID).Delete(&MatrixTyping{})
 	}
 
 	markTypingChanged(roomID)
@@ -1836,10 +1678,10 @@ func (s *SyncService) SetReceiptWithThread(roomID, eventID, userID, receiptType,
 
 	// 删除旧回执 (scoped by thread_id)
 	if threadID != "" {
-		db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND thread_id = ?",
+		s.syncDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND thread_id = ?",
 			roomID, userID, receiptType, threadID).Delete(&MatrixReceipt{})
 	} else {
-		db.GetDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND (thread_id = '' OR thread_id IS NULL)",
+		s.syncDB().Where("room_id = ? AND user_id = ? AND receipt_type = ? AND (thread_id = '' OR thread_id IS NULL)",
 			roomID, userID, receiptType).Delete(&MatrixReceipt{})
 	}
 
@@ -1853,11 +1695,16 @@ func (s *SyncService) SetReceiptWithThread(roomID, eventID, userID, receiptType,
 		TS:          time.Now().UnixMilli(),
 	}
 
-	err := db.GetDB().Create(receipt).Error
+	err := s.syncDB().Create(receipt).Error
 	if err != nil {
 		return ErrInternal
 	}
 
+	// Private read positions belong only to this user and their devices.
+	if receiptType == "m.read.private" {
+		s.HS.NotifyUser(userID)
+		return nil
+	}
 	// Wake up waiting syncs for all room members
 	go s.HS.NotifyRoomEvent(roomID)
 
@@ -1869,6 +1716,9 @@ func (s *SyncService) SetReceiptWithThread(roomID, eventID, userID, receiptType,
 
 // federateReceipt sends an m.receipt EDU to remote servers participating in the room.
 func (s *SyncService) federateReceipt(roomID, eventID, userID, receiptType, threadID string, ts int64) {
+	if receiptType == "m.read.private" {
+		return
+	}
 	// Only federate for local users
 	_, domain, ok := ParseMatrixUserID(userID)
 	if !ok || domain != s.HS.Config.ServerName {
@@ -1877,7 +1727,7 @@ func (s *SyncService) federateReceipt(roomID, eventID, userID, receiptType, thre
 
 	// Find remote servers in the room
 	var members []MatrixRoomMember
-	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
+	s.syncDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
 
 	remoteServers := make(map[string]bool)
 

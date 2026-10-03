@@ -26,10 +26,14 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// 跨域隔离，提供针对 Spectre 类侧信道攻击的深度防御
 		c.Header("Cross-Origin-Opener-Policy", "same-origin")
 		c.Header("Cross-Origin-Resource-Policy", "same-origin")
-		// Uploaded media is intentionally embedded by separate web clients
-		// and federated instances. Keep documents private to their origin,
-		// but allow those clients to display the public media endpoint.
-		if strings.HasPrefix(c.Request.URL.Path, "/media/") {
+		// Separate web clients embed public media and authenticated Matrix media.
+		// Element's service worker forwards authenticated responses to image
+		// requests; same-origin CORP would block those successfully authorized
+		// bytes. The Matrix routes still require their normal bearer token.
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/media/") ||
+			strings.HasPrefix(path, "/_matrix/client/v1/media/download/") ||
+			strings.HasPrefix(path, "/_matrix/client/v1/media/thumbnail/") {
 			c.Header("Cross-Origin-Resource-Policy", "cross-origin")
 		}
 		// 内容安全策略

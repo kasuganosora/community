@@ -27,6 +27,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 	// Auto-migrate all required models
 	err = db.AutoMigrate(
+		&MatrixUserSession{},
+		&MatrixToDeviceMessage{},
+		&MatrixSyncToDeviceBatch{},
 		&MatrixRoom{},
 		&MatrixEvent{},
 		&MatrixRoomState{},

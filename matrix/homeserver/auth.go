@@ -505,27 +505,44 @@ func (a *AuthService) Refresh(req *RefreshRequest) (*RefreshResponse, *MatrixErr
 
 // Logout 登出.
 func (a *AuthService) Logout(accessToken string) *MatrixError {
-	result := db.GetDB().Where("access_token = ?", accessToken).Delete(&MatrixUserSession{})
-	if result.RowsAffected == 0 {
-		return nil // 已登出或不存在
+	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+		var session MatrixUserSession
+		err := tx.Where("access_token = ?", accessToken).First(&session).Error
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND device_id = ?", session.UserID, session.DeviceID).Delete(&MatrixSyncToDeviceBatch{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("access_token = ?", accessToken).Delete(&MatrixUserSession{}).Error
+	})
+	if err != nil {
+		return ErrInternal
 	}
-
 	return nil
 }
 
 // LogoutAll 登出所有设备.
 func (a *AuthService) LogoutAll(accessToken string) *MatrixError {
-	// 获取用户ID
-	var session MatrixUserSession
-
-	err := db.GetDB().Where("access_token = ?", accessToken).First(&session).Error
-	if err != nil {
+	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+		var session MatrixUserSession
+		if err := tx.Where("access_token = ?", accessToken).First(&session).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", session.UserID).Delete(&MatrixSyncToDeviceBatch{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", session.UserID).Delete(&MatrixUserSession{}).Error
+	})
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrUnknownToken
 	}
-
-	// 删除所有会话
-	db.GetDB().Where("user_id = ?", session.UserID).Delete(&MatrixUserSession{})
-
+	if err != nil {
+		return ErrInternal
+	}
 	return nil
 }
 
