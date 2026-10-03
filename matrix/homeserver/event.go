@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"gorm.io/gorm"
 )
 
@@ -137,9 +138,9 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 
 	// 检查是否已存在（幂等性）
 	var existing MatrixEvent
-	err := db.GetDB().Where("event_id = ?", eventID).First(&existing).Error
+	err := db.GetDB().Where("event_id = ? OR txn_key = ?", eventID, eventID).First(&existing).Error
 	if err == nil {
-		return &SendMessageResponse{EventID: eventID}, nil
+		return &SendMessageResponse{EventID: existing.EventID}, nil
 	}
 
 	// 获取深度
@@ -161,11 +162,14 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 		TxnID:          txnID,
 	}
 
-	// 签名事件
-	e.signLocalEvent(event)
+	if txnID != nil {
+		event.TxnKey = &eventID
+	}
+
+	// The persistence hook builds the room-version-specific signed PDU.
 
 	// 开始事务
-	tx := db.GetDB().Begin()
+	tx := db.GetDB().Set("matrix:signer", e.HS).Begin()
 	err = tx.Create(event).Error
 	if err != nil {
 		tx.Rollback()
@@ -180,7 +184,7 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 
 	// 更新房间最后事件
 	tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(map[string]any{
-		"last_event_id": eventID,
+		"last_event_id": event.EventID,
 		"last_event_ts": event.OriginServerTS,
 	})
 
@@ -227,7 +231,7 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 	// 联邦事件传播：将事件发送给房间内其他服务器（异步）
 	go e.federateEvent(event)
 
-	return &SendMessageResponse{EventID: eventID}, nil
+	return &SendMessageResponse{EventID: event.EventID}, nil
 }
 
 // federateEvent 将本地事件联邦传播到房间内的远程服务器.
@@ -277,27 +281,11 @@ func (e *EventService) federateEvent(event *MatrixEvent) {
 
 // buildEventPDU 将事件转换为联邦 PDU JSON.
 func buildEventPDU(event *MatrixEvent) (json.RawMessage, error) {
-	m := map[string]any{
-		"event_id":         event.EventID,           //nolint:goconst
-		"room_id":          event.RoomID,            //nolint:goconst
-		"type":             string(event.EventType), //nolint:goconst
-		"sender":           event.Sender,            //nolint:goconst
-		"content":          event.Content,           //nolint:goconst
-		"origin_server_ts": event.OriginServerTS,    //nolint:goconst
-		"origin":           event.SenderDomain,      //nolint:goconst
-		"depth":            event.Depth,             //nolint:goconst
-		"auth_events":      event.AuthEvents,        //nolint:goconst
-		"prev_events":      event.PrevEvents,        //nolint:goconst
+	wire, err := matrixEventToPDU(event)
+	if err != nil {
+		return nil, err
 	}
-	if event.StateKey != nil {
-		m["state_key"] = *event.StateKey
-	}
-
-	if len(event.Signatures) > 0 {
-		m["signatures"] = event.Signatures
-	}
-
-	return json.Marshal(m)
+	return json.Marshal(wire)
 }
 
 // ===== 发送消息 =====
@@ -789,26 +777,58 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 		OriginServerTS: time.Now().UnixMilli(),
 	}
 
-	err := db.GetDB().Create(redactEvent).Error
+	err := db.GetDB().Set("matrix:signer", e.HS).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(redactEvent).Error; err != nil {
+			return err
+		}
+		return applyStoredRedactionTx(tx, roomID, eventID)
+	})
 	if err != nil {
 		return nil, ErrInternal
 	}
 
-	// 标记原事件为已删除。目标可以还不存在（联邦里删除事件可能先到）。
-	applyStoredRedaction(roomID, eventID)
-
-	return &SendMessageResponse{EventID: redactEventID}, nil
+	go e.federateEvent(redactEvent)
+	return &SendMessageResponse{EventID: redactEvent.EventID}, nil
 }
 
 // applyStoredRedaction strips a stored event down to the keys redaction keeps.
 func applyStoredRedaction(roomID, targetID string) {
-	var target MatrixEvent
-	if db.GetDB().Where("event_id = ? AND room_id = ?", targetID, roomID).First(&target).Error != nil {
-		return
-	}
+	_ = applyStoredRedactionTx(db.GetDB(), roomID, targetID)
+}
 
+func applyStoredRedactionTx(tx *gorm.DB, roomID, targetID string) error {
+	var target MatrixEvent
+	if err := tx.Where("event_id = ? AND room_id = ?", targetID, roomID).First(&target).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	if target.FederationJSON != "" {
+		var room MatrixRoom
+		if err := tx.Where("room_id = ?", roomID).First(&room).Error; err != nil {
+			return err
+		}
+		version, err := gmsl.GetRoomVersion(gmsl.RoomVersion(room.RoomVersion))
+		if err != nil {
+			return err
+		}
+		raw, err := version.RedactEventJSON([]byte(target.FederationJSON))
+		if err != nil {
+			return err
+		}
+		var wire struct {
+			Content map[string]any `json:"content"`
+		}
+		if err = json.Unmarshal(raw, &wire); err != nil {
+			return err
+		}
+		target.Content = wire.Content
+		target.FederationJSON = string(raw)
+		return tx.Model(&target).Select("content", "federation_json").Updates(&target).Error
+	}
 	target.Content = redactContent(string(target.EventType), target.Content)
-	db.GetDB().Model(&target).Select("content").Updates(&MatrixEvent{Content: target.Content})
+	return tx.Model(&target).Select("content").Updates(&target).Error
 }
 
 // contentEqual compares two map[string]any values for deep equality

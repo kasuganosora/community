@@ -17,11 +17,11 @@ import (
 
 type Account struct { //nolint:recvcheck
 	Id              uint64     `gorm:"primary_key;type:bigint(20);autoIncrement" json:"id"`
-	UserId          uint64     `gorm:"not null;type:bigint(20);index"            json:"-"` // 创建这个账号的用户ID,如果是远程账号则为 null
+	UserId          uint64     `gorm:"type:bigint(20);index;serializer:nullable_user_id" json:"-"` // 创建这个账号的用户ID,如果是远程账号则为 null
 	Username        string     `gorm:"not null;type:varchar(64)"                 json:"username"`
-	Domain          *string    `gorm:"type:varchar(128);index"                   json:"domain"`    // 远程账号的域名,如果是本地账号则为 null
-	OriginId        string     `gorm:"type:varchar(64)"                          json:"origin_id"` // 远程账号的ID,如果是本地账号则为 null
-	Acct            string     `gorm:"not null;type:varchar(128);index"          json:"acct"`      // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
+	Domain          *string    `gorm:"type:varchar(128);index"                   json:"domain"`      // 远程账号的域名,如果是本地账号则为 null
+	OriginId        string     `gorm:"type:varchar(2048)"                          json:"origin_id"` // 远程账号的ID,如果是本地账号则为 null
+	Acct            string     `gorm:"not null;type:varchar(128);index"          json:"acct"`        // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
 	DisplayName     string     `gorm:"not null;type:varchar(128)"                json:"display_name"`
 	Avatar          string     `gorm:"type:varchar(1024)"                        json:"avatar"`
 	AvatarStatic    string     `gorm:"type:varchar(1024)"                        json:"avatar_static"`

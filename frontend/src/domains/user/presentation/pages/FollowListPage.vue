@@ -3,6 +3,7 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonAccount } from '@/shared/types/mastodon'
+import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { userApi } from '../../infrastructure/userApi'
 import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -11,14 +12,16 @@ import TabBar from '@/shared/components/common/TabBar.vue'
 
 const props = defineProps<{ kind: 'followers' | 'following' }>()
 
-// The backend paginates these by internal follow-row id and sends no Link
-// header, so the last account id can't be used as a cursor: fetch one large page.
-const PAGE_LIMIT = 80
-
 const route = useRoute()
 const authStore = useAuthStore()
 const owner = ref<MastodonAccount | null>(null)
-const accounts = ref<MastodonAccount[]>([])
+const feed = usePaginatedList(async (maxId, limit) => {
+  if (!owner.value) return { items: [] }
+  const page = await userApi.getFollowPage(owner.value.id, props.kind, { max_id: maxId, limit })
+  relationships.load(page.items.filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
+  return page
+}, 40)
+const { items: accounts, hasMore } = feed
 const loading = ref(true)
 const error = ref<string | null>(null)
 const relationships = useRelationships()
@@ -42,12 +45,9 @@ async function load() {
     const acct = await userApi.lookupAccount(String(route.params.username ?? ''))
     if (my !== version) return
     owner.value = acct
-    const list = props.kind === 'followers'
-      ? await userApi.getFollowers(acct.id, { limit: PAGE_LIMIT })
-      : await userApi.getFollowing(acct.id, { limit: PAGE_LIMIT })
+    await feed.refresh()
     if (my !== version) return
-    accounts.value = list
-    relationships.load(list.filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
+    error.value = feed.error.value
   } catch (e) {
     if (my !== version) return
     error.value = e instanceof Error ? e.message : '加载失败'
@@ -107,6 +107,8 @@ onMounted(load)
         :busy="relationships.pending.has(a.id)"
         @toggle-follow="toggleFollow"
       />
+      <p v-if="feed.error.value" role="alert">{{ feed.error.value }}</p>
+      <button v-if="hasMore" type="button" class="btn btn--secondary btn--sm" :disabled="feed.loading.value" @click="feed.loadMore">加载更多</button>
     </template>
   </div>
 </template>

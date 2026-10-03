@@ -10,27 +10,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/utils"
 )
 
 // FederationClient 联邦客户端.
 type FederationClient struct {
-	hs            *HomeServer
-	privateKey    ed25519.PrivateKey
-	httpClient    *httpclient.Client
-	keyCache      *KeyCache
-	fedHTTPClient *http.Client // cached federation HTTP client
+	hs              *HomeServer
+	privateKey      ed25519.PrivateKey
+	httpClient      *httpclient.Client
+	keyCache        *KeyCache
+	fedHTTPClient   *http.Client // cached federation HTTP client
+	fedHTTPClientMu sync.Mutex
 }
 
 // NewFederationClient 创建联邦客户端.
@@ -160,28 +162,11 @@ func (c *FederationClient) SendTransaction(destServer string, txnID string, pdus
 // QueryRemoteKeys queries device keys from a remote server via federation.
 // POST /_matrix/federation/v1/user/keys/query.
 func (c *FederationClient) QueryRemoteKeys(destServer string, deviceKeys map[string][]string) (map[string]map[string]*DeviceKeys, error) {
-	body := map[string]any{
-		"device_keys": deviceKeys,
-	}
-	reqURL := c.federationBaseURL(destServer) + "/_matrix/federation/v1/user/keys/query"
-
-	_, respBody, err := c.doFederationRequest("POST", reqURL, destServer, body) //nolint:bodyclose // body already closed inside doFederationRequest
+	bundle, err := c.QueryRemoteKeyBundle(destServer, deviceKeys)
 	if err != nil {
 		return nil, err
 	}
-
-	var result struct {
-		DeviceKeys map[string]map[string]*DeviceKeys `json:"device_keys"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if result.DeviceKeys == nil {
-		result.DeviceKeys = make(map[string]map[string]*DeviceKeys)
-	}
-
-	return result.DeviceKeys, nil
+	return bundle.DeviceKeys, nil
 }
 
 // QueryDirectory 查询远程目录.
@@ -253,25 +238,17 @@ func (c *FederationClient) signRequest(req *httpclient.Request, destServer strin
 }
 
 // federationHTTPClient returns an HTTP client configured for federation.
-// In Complement test environments, each homeserver generates its own self-signed cert,
-// so we skip TLS verification. In production, certs should be properly signed.
+// A laboratory CA extends the system trust store without disabling certificate
+// chain or hostname verification.
 func (c *FederationClient) federationHTTPClient() *http.Client {
+	c.fedHTTPClientMu.Lock()
+	defer c.fedHTTPClientMu.Unlock()
 	// Return cached client if already initialized
 	if c.fedHTTPClient != nil {
 		return c.fedHTTPClient
 	}
 
-	tlsConfig := &tls.Config{}
-	// Load Complement CA if present, and skip TLS verification for self-signed certs
-	if _, err := os.Stat("/complement/ca/ca.crt"); err == nil {
-		// Complement test environment: skip TLS verification since each HS
-		// uses a self-signed cert not signed by the shared CA
-		tlsConfig.InsecureSkipVerify = true
-	} else if caCert, err := os.ReadFile("/etc/ssl/certs/ca-certificates.crt"); err == nil {
-		pool := x509.NewCertPool()
-		pool.AppendCertsFromPEM(caCert)
-		tlsConfig.RootCAs = pool
-	}
+	tlsConfig := federationTLSConfig("/complement/ca/ca.crt")
 
 	c.fedHTTPClient = &http.Client{
 		Timeout: 30 * time.Second,
@@ -284,6 +261,17 @@ func (c *FederationClient) federationHTTPClient() *http.Client {
 	}
 
 	return c.fedHTTPClient
+}
+
+func federationTLSConfig(extraCAPath string) *tls.Config {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if caCert, err := os.ReadFile(extraCAPath); err == nil {
+		pool.AppendCertsFromPEM(caCert)
+	}
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 }
 
 // doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码.
@@ -377,7 +365,7 @@ func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[stri
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("make_join returned status %d: %s", resp.StatusCode, string(body))
+		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	var result map[string]any
@@ -392,10 +380,11 @@ func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[stri
 func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]any) (map[string]any, error) {
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
-		eventID = "$" + utils.GetRandomString(32)
-		event["event_id"] = eventID
+		return nil, errors.New("send_join requires a computed event reference ID")
 	}
 
+	event = maps.Clone(event)
+	delete(event, "event_id")
 	// Try v2 first (returns object), fall back to v1 (may return [200, {...}])
 	sendJoinURL := fmt.Sprintf("%s/_matrix/federation/v2/send_join/%s/%s",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
@@ -413,7 +402,7 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("send_join returned status %d: %s", resp.StatusCode, string(body))
+		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	// Handle v1 array format [200, {...}] and v2 object format {...}
@@ -573,12 +562,19 @@ func (c *FederationClient) FetchServerKey(serverName string) (*ServerKeyResponse
 		return nil, fmt.Errorf("failed to fetch server key: %w", err)
 	}
 
-	// 解析响应
+	if !resp.StatusOk() {
+		return nil, errors.New("server key endpoint returned error")
+	}
+	raw, err := resp.GetBodyData()
+	if err != nil {
+		return nil, err
+	}
 	var result ServerKeyResponse
-	if err := resp.Json(&result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	result.RawJSON = append([]byte(nil), raw...)
 	return &result, nil
 }
 
@@ -641,4 +637,13 @@ func (c *FederationClient) DownloadAndSaveMedia(serverName, mediaID string) (*Ma
 	db.GetDB().Save(mediaInfo)
 
 	return mediaInfo, nil
+}
+
+type federationHTTPError struct {
+	Status  int
+	Message string
+}
+
+func (e *federationHTTPError) Error() string {
+	return fmt.Sprintf("federation returned status %d: %s", e.Status, e.Message)
 }

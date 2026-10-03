@@ -19,6 +19,7 @@ func RegisterFederationE2EERoutes(r gin.IRouter) {
 	}
 
 	fed := r.Group("/_matrix/federation/v1")
+	fed.Use(requireFederationAuth())
 	{
 		// 设备密钥查询 - 联邦服务器查询本服务器用户的设备密钥
 		fed.POST("/user/keys/query", handleFederationQueryKeys)
@@ -65,7 +66,7 @@ func handleFederationQueryKeys(c *gin.Context) {
 
 	for userID, deviceIDs := range req.DeviceKeys {
 		// 解析用户 ID 获取服务器名
-		parts := strings.Split(userID, ":")
+		parts := strings.SplitN(userID, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
@@ -105,7 +106,7 @@ func handleFederationQueryKeys(c *gin.Context) {
 	for userID := range filteredReq {
 		var crossSigningKeys []MatrixCrossSigningKey
 
-		db.GetDB().Where("user_id = ?", userID).Find(&crossSigningKeys)
+		db.GetDB().Where("user_id = ? AND is_active = ? AND key_type IN ?", userID, true, []string{"master", "self_signing"}).Find(&crossSigningKeys)
 
 		for _, key := range crossSigningKeys {
 			csk := &CrossSigningKey{
@@ -189,7 +190,7 @@ func handleFederationClaimKeys(c *gin.Context) {
 
 	for userID, devices := range req.OneTimeKeys {
 		// 解析用户 ID 获取服务器名
-		parts := strings.Split(userID, ":")
+		parts := strings.SplitN(userID, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
@@ -259,12 +260,16 @@ func handleFederationSendToDevice(c *gin.Context) {
 		return
 	}
 
+	if _, domain, ok := ParseMatrixUserID(req.Sender); !ok || domain != c.GetString("origin") {
+		c.JSON(http.StatusForbidden, MatrixError{ErrCode: "M_FORBIDDEN", Error: "Sender does not belong to authenticated origin"})
+		return
+	}
 	// 处理消息
 	processedCount := 0
 
 	for userID, devices := range req.Messages {
 		// 验证用户是否属于本服务器
-		parts := strings.Split(userID, ":")
+		parts := strings.SplitN(userID, ":", 2)
 		if len(parts) != 2 || parts[1] != hs.Config.ServerName {
 			continue
 		}

@@ -43,11 +43,9 @@ func TestEscapeJSONString_UTF8(t *testing.T) {
 }
 
 func TestEscapeJSONString_AstralPlane(t *testing.T) {
-	// Supplementary plane character (emoji) should be encoded as surrogate pair
+	// Canonical JSON keeps supplementary plane characters as UTF-8.
 	result := EscapeJSONString("🎉") // U+1F389
-	// Should contain two \uXXXX sequences for the surrogate pair
-	assert.Contains(t, result, `\ud83c`)
-	assert.Contains(t, result, `\udf89`)
+	assert.Equal(t, "🎉", result)
 }
 
 // ===== SortJSONKeys tests =====

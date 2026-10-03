@@ -149,6 +149,7 @@ func RegisterRoutes(r gin.IRouter) {
 		api.POST("/keys/query", handleKeysQuery)
 		api.POST("/keys/claim", handleKeysClaim)
 		api.POST("/keys/signatures/upload", handleKeysSignaturesUpload)
+		api.POST("/keys/device_signing/upload", handleDeviceSigningUpload)
 		api.GET("/keys/changes", handleGetKeyChanges)
 
 		// Presence
@@ -181,6 +182,7 @@ func RegisterRoutes(r gin.IRouter) {
 		api.GET("/pushers", handleGetPushers)
 		api.POST("/pushers/set", handleSetPusher)
 		api.GET("/pushrules", handleGetPushRules)
+		api.GET("/pushrules/", handleGetPushRules)
 		api.GET("/pushrules/:scope", handleGetPushRulesGlobal)
 		api.GET("/pushrules/:scope/:kind", handleGetPushRulesScope)
 		api.GET("/pushrules/:scope/:kind/:ruleId", handleGetPushRule)
@@ -302,6 +304,8 @@ func RegisterRoutes(r gin.IRouter) {
 		r0.POST("/keys/upload", handleKeysUpload)
 		r0.POST("/keys/query", handleKeysQuery)
 		r0.POST("/keys/claim", handleKeysClaim)
+		r0.POST("/keys/device_signing/upload", handleDeviceSigningUpload)
+		r0.POST("/keys/signatures/upload", handleKeysSignaturesUpload)
 		r0.GET("/keys/changes", handleGetKeyChanges)
 		r0.PUT("/sendToDevice/:eventType/:txnId", handleSendToDevice)
 		r0.GET("/capabilities", handleGetCapabilities)
@@ -615,7 +619,7 @@ func handleRegisterAvailability(c *gin.Context) {
 func handleUsernameAvailable(c *gin.Context) {
 	username := strings.ToLower(strings.TrimSpace(c.Query("username")))
 
-	if username == "" || !validLocalpartRe.MatchString(username) {
+	if username == "" || len(username) > 20 || !validLocalpartRe.MatchString(username) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_INVALID_USERNAME",
 			"error":   "Invalid username",
@@ -1550,7 +1554,7 @@ func handleSync(c *gin.Context) {
 
 	if timeout := c.Query("timeout"); timeout != "" {
 		if t, err := strconv.Atoi(timeout); err == nil {
-			req.Timeout = t
+			req.Timeout = min(max(t, 0), 30000)
 		}
 	}
 
@@ -1574,7 +1578,8 @@ func handleSync(c *gin.Context) {
 
 	// Long-polling: if timeout > 0 and no meaningful data, wait for new events
 	if req.Timeout > 0 && !syncResponseHasData(resp) {
-		timer := time.After(time.Duration(req.Timeout) * time.Millisecond)
+		timer := time.NewTimer(time.Duration(req.Timeout) * time.Millisecond)
+		defer timer.Stop()
 		select {
 		case <-notify:
 			// Re-run sync with same since token to pick up new data
@@ -1584,8 +1589,10 @@ func handleSync(c *gin.Context) {
 
 				return
 			}
-		case <-timer:
+		case <-timer.C:
 			// Return current (empty) response after timeout
+		case <-c.Request.Context().Done():
+			return
 		}
 	}
 
@@ -2335,71 +2342,25 @@ func validateFilterSchema(filter map[string]any) error {
 // ===== To-Device =====
 
 func handleSendToDevice(c *gin.Context) {
-	senderID := getUserID(c)
-	eventType := c.Param("eventType")
-	txnID := c.Param("txnId")
-	_ = txnID
-
 	var body struct {
 		Messages map[string]map[string]map[string]any `json:"messages"`
 	}
-	err := c.ShouldBindJSON(&body)
-
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, MatrixError{ErrCode: "M_BAD_JSON", Error: "Invalid JSON"})
 		return
 	}
-
-	hs := GetHomeServer()
-
-	// 解析目标用户和设备
-	for targetUserID, deviceMap := range body.Messages {
-		for deviceID, contentMap := range deviceMap {
-			if deviceID == "*" {
-				// Send to ALL devices of the user
-				var sessions []MatrixUserSession
-
-				db.GetDB().Where("user_id = ?", targetUserID).Find(&sessions)
-
-				for _, s := range sessions {
-					msg := &MatrixToDeviceMessage{
-						Sender:       senderID,
-						TargetUser:   targetUserID,
-						TargetDevice: s.DeviceID,
-						EventType:    eventType,
-						Content:      contentMap,
-					}
-					err := db.GetDB().Create(msg).Error
-					if err != nil {
-						log.Error("Failed to create to-device message: %v", err)
-					} else {
-						hs.NotifyToDeviceUpdate(targetUserID, s.DeviceID)
-					}
-				}
-			} else {
-				// 存储 To-Device 消息
-				msg := &MatrixToDeviceMessage{
-					Sender:       senderID,
-					TargetUser:   targetUserID,
-					TargetDevice: deviceID,
-					EventType:    eventType,
-					Content:      contentMap,
-				}
-
-				err := db.GetDB().Create(msg).Error
-				if err != nil {
-					log.Error("Failed to create to-device message: %v", err)
-				} else {
-					hs.NotifyToDeviceUpdate(targetUserID, deviceID)
-				}
-			}
+	for target := range body.Messages {
+		if _, _, ok := ParseMatrixUserID(target); !ok {
+			c.JSON(http.StatusBadRequest, MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid target user ID"})
+			return
 		}
 	}
-
+	err := sendClientToDevice(GetHomeServer(), getUserID(c), c.GetString("device_id"), c.Param("eventType"), c.Param("txnId"), body.Messages)
+	if err != nil {
+		log.Error("To-device delivery failed: %v", err)
+		c.JSON(http.StatusBadGateway, MatrixError{ErrCode: "M_UNKNOWN", Error: "To-device delivery failed; retry the transaction"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -2626,18 +2587,25 @@ func handleKeysQuery(c *gin.Context) {
 		resp.Failures = make(map[string]any)
 	}
 
+	if err := appendClientSigningKeys(resp, localReq.DeviceKeys, getUserID(c)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_UNKNOWN", "error": "Cannot load cross-signing keys"})
+		return
+	}
+
 	// Forward remote queries via federation
 	if len(remoteByServer) > 0 {
 		fedClient := NewFederationClient(hs)
 		for server, userDevices := range remoteByServer {
-			remoteKeys, err := fedClient.QueryRemoteKeys(server, userDevices)
+			remoteKeys, err := fedClient.QueryRemoteKeyBundle(server, userDevices)
 			if err != nil {
 				resp.Failures[server] = map[string]any{"error": err.Error()}
 
 				continue
 			}
 
-			maps.Copy(resp.DeviceKeys, remoteKeys)
+			maps.Copy(resp.DeviceKeys, remoteKeys.DeviceKeys)
+			maps.Copy(resp.MasterKeys, remoteKeys.MasterKeys)
+			maps.Copy(resp.SelfSigningKeys, remoteKeys.SelfSigningKeys)
 		}
 	}
 
@@ -2658,7 +2626,24 @@ func handleKeysClaim(c *gin.Context) {
 	hs := GetHomeServer()
 	keyStore := NewKeyStore(hs)
 
-	resp, err := keyStore.ClaimOneTimeKeys(&req)
+	local := &ClaimKeysRequest{OneTimeKeys: map[string]map[string]string{}}
+	remote := map[string]map[string]map[string]string{}
+	for user, devices := range req.OneTimeKeys {
+		_, server, ok := ParseMatrixUserID(user)
+		if !ok {
+			c.JSON(400, MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid user ID"})
+			return
+		}
+		if server == hs.Config.ServerName {
+			local.OneTimeKeys[user] = devices
+		} else {
+			if remote[server] == nil {
+				remote[server] = map[string]map[string]string{}
+			}
+			remote[server][user] = devices
+		}
+	}
+	resp, err := keyStore.ClaimOneTimeKeys(local)
 	if err != nil {
 		log.Error("Failed to claim keys: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -2677,29 +2662,19 @@ func handleKeysClaim(c *gin.Context) {
 		resp.Failures = make(map[string]any)
 	}
 
+	client := NewFederationClient(hs)
+	for server, users := range remote {
+		claimed, err := client.ClaimRemoteKeys(server, users)
+		if err != nil {
+			resp.Failures[server] = map[string]any{"error": err.Error()}
+			continue
+		}
+		maps.Copy(resp.OneTimeKeys, claimed.OneTimeKeys)
+	}
 	c.JSON(http.StatusOK, resp)
 }
 
-func handleKeysSignaturesUpload(c *gin.Context) {
-	// 简化实现：接收签名并存储
-	var req map[string]any
-	err := c.ShouldBindJSON(&req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-
-		return
-	}
-
-	// TODO: 验证并存储签名
-	// 这是交叉签名验证的一部分
-
-	c.JSON(http.StatusOK, gin.H{
-		"failures": gin.H{},
-	})
-}
+func handleKeysSignaturesUpload(c *gin.Context) { handleClientSignaturesUpload(c) }
 
 // ===== Presence =====
 

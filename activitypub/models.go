@@ -4,26 +4,27 @@ import "time"
 
 // Actor represents an ActivityPub Actor.
 type Actor struct {
-	Context           any          `json:"@context,omitempty"`
-	ID                string       `json:"id"`
-	Type              string       `json:"type"`
-	Following         string       `json:"following"`
-	Followers         string       `json:"followers"`
-	Inbox             string       `json:"inbox"`
-	Outbox            string       `json:"outbox"`
-	SharedInbox       string       `json:"sharedInbox,omitempty"`
-	PreferredUsername string       `json:"preferredUsername"`
-	Name              string       `json:"name,omitempty"`
-	Summary           string       `json:"summary,omitempty"`
-	URL               string       `json:"url"`
-	Icon              *Image       `json:"icon,omitempty"`
-	Image             *Image       `json:"image,omitempty"`
-	Endpoints         *Endpoints   `json:"endpoints,omitempty"`
-	PublicKey         *PublicKey   `json:"publicKey,omitempty"`
-	Published         *time.Time   `json:"published,omitempty"`
-	Attachments       []Attachment `json:"attachment,omitempty"`
-	AlsoKnownAs       string       `json:"alsoKnownAs,omitempty"`
-	MovedTo           string       `json:"movedTo,omitempty"`
+	Context                   any          `json:"@context,omitempty"`
+	ID                        string       `json:"id"`
+	Type                      string       `json:"type"`
+	Following                 string       `json:"following"`
+	Followers                 string       `json:"followers"`
+	Inbox                     string       `json:"inbox"`
+	Outbox                    string       `json:"outbox"`
+	SharedInbox               string       `json:"sharedInbox,omitempty"`
+	ManuallyApprovesFollowers bool         `json:"manuallyApprovesFollowers"`
+	PreferredUsername         string       `json:"preferredUsername"`
+	Name                      string       `json:"name,omitempty"`
+	Summary                   string       `json:"summary,omitempty"`
+	URL                       string       `json:"url"`
+	Icon                      *Image       `json:"icon,omitempty"`
+	Image                     *Image       `json:"image,omitempty"`
+	Endpoints                 *Endpoints   `json:"endpoints,omitempty"`
+	PublicKey                 *PublicKey   `json:"publicKey,omitempty"`
+	Published                 *time.Time   `json:"published,omitempty"`
+	Attachments               []Attachment `json:"attachment,omitempty"`
+	AlsoKnownAs               string       `json:"alsoKnownAs,omitempty"`
+	MovedTo                   string       `json:"movedTo,omitempty"`
 }
 
 // Endpoints contains additional ActivityPub endpoints.

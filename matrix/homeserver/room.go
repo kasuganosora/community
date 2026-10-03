@@ -1,14 +1,17 @@
 package homeserver
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	gmsl "github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
 
@@ -97,7 +100,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	}
 
 	// 开始事务
-	tx := db.GetDB().Begin()
+	tx := db.GetDB().Set("matrix:signer", r.HS).Begin()
 
 	// 创建房间记录
 	visibility := req.Visibility
@@ -198,6 +201,35 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	// 更新状态表
 	r.updateRoomState(tx, roomID, createEvent)
 
+	// Join the creator before sending power levels or other state: those
+	// events require an already joined sender under Matrix event auth.
+	tsCounter++
+
+	memberEvent := &MatrixEvent{
+		EventID:   "$" + uuid.New().String(),
+		RoomID:    roomID,
+		EventType: EventTypeRoomMember,
+		Sender:    creatorID,
+		StateKey:  new(creatorID),
+		Content: map[string]any{
+			"membership": "join", //nolint:goconst
+		},
+		Depth:          r.getNextDepth(tx, roomID),
+		AuthEvents:     append([]string{}, authEvents...),
+		OriginServerTS: baseTS + tsCounter,
+		SenderDomain:   r.HS.Config.ServerName,
+	}
+	err = tx.Create(memberEvent).Error
+	if err != nil {
+		tx.Rollback()
+
+		return nil, ErrInternal
+	}
+
+	authEvents = append(authEvents, memberEvent.EventID)
+	r.updateRoomState(tx, roomID, memberEvent)
+	r.updateRoomMember(tx, roomID, creatorID, MembershipJoin, memberEvent.EventID)
+
 	// 2. 创建 m.room.power_levels 事件
 	plContent := r.getDefaultPowerLevels()
 	if req.PowerLevelContentOverride != nil {
@@ -227,7 +259,7 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			"redact":         plContent.Redact,        //nolint:goconst
 			"invite":         plContent.Invite,        //nolint:goconst
 		},
-		Depth:          2,
+		Depth:          r.getNextDepth(tx, roomID),
 		AuthEvents:     append([]string{}, authEvents...),
 		OriginServerTS: baseTS + tsCounter,
 		SenderDomain:   r.HS.Config.ServerName,
@@ -305,34 +337,6 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 
 		r.updateRoomState(tx, roomID, event)
 	}
-
-	// 5. 创建者加入房间
-	tsCounter++
-
-	memberEvent := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    creatorID,
-		StateKey:  new(creatorID),
-		Content: map[string]any{
-			"membership": "join", //nolint:goconst
-		},
-		Depth:          r.getNextDepth(tx, roomID),
-		AuthEvents:     append([]string{}, authEvents...),
-		OriginServerTS: baseTS + tsCounter,
-		SenderDomain:   r.HS.Config.ServerName,
-	}
-	err = tx.Create(memberEvent).Error
-	if err != nil {
-		tx.Rollback()
-
-		return nil, ErrInternal
-	}
-
-	authEvents = append(authEvents, memberEvent.EventID)
-	r.updateRoomState(tx, roomID, memberEvent)
-	r.updateRoomMember(tx, roomID, creatorID, MembershipJoin, memberEvent.EventID)
 
 	// 6. 设置房间名称和主题
 	if req.Name != nil {
@@ -492,7 +496,28 @@ type JoinRoomRequest struct {
 
 // JoinRoom 加入房间.
 func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomRequest) (string, *MatrixError) {
+	if req == nil {
+		req = &JoinRoomRequest{}
+	}
 	roomID := roomIDOrAlias
+	if len(req.Servers) == 0 {
+		servers := []string{}
+		var invitation MatrixRoomMember
+		if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
+			var event MatrixEvent
+			if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
+				if domain := extractServerName(event.Sender); domain != "" && domain != r.HS.Config.ServerName {
+					servers = append(servers, domain)
+				}
+			}
+		}
+		if domain := extractServerName(roomID); domain != "" && domain != r.HS.Config.ServerName && !contains(servers, domain) {
+			servers = append(servers, domain)
+		}
+		clone := *req
+		clone.Servers = servers
+		req = &clone
+	}
 
 	// 如果是别名，解析为房间ID
 	if strings.HasPrefix(roomIDOrAlias, "#") {
@@ -570,6 +595,9 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 			}
 
 			go r.HS.NotifyRoomEvent(roomID)
+			if r.HS.Event != nil {
+				go r.HS.Event.federateEvent(event)
+			}
 		}
 
 		return roomID, nil
@@ -610,6 +638,9 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 
 	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
+	if r.HS.Event != nil {
+		go r.HS.Event.federateEvent(event)
+	}
 
 	return roomID, nil
 }
@@ -618,192 +649,161 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 
 // federationJoin 通过联邦协议加入远程房间.
 func (r *RoomService) federationJoin(userID, roomID string, servers []string) (string, *MatrixError) {
-	fedClient := NewFederationClient(r.HS)
-	fed := NewFederationService(r.HS)
-
-	for _, serverName := range servers {
-		// Step 1: make_join — 获取加入事件模板
-		makeJoinResp, err := fedClient.MakeJoin(serverName, roomID, userID)
+	client := NewFederationClient(r.HS)
+	failure := ErrNotFound
+	for _, server := range servers {
+		response, err := client.MakeJoin(server, roomID, userID)
 		if err != nil {
-			log.Warn("federationJoin: make_join to %s failed: %v", serverName, err)
-
+			log.Warn("federation make_join: %v", err)
+			if status, ok := err.(*federationHTTPError); ok && status.Status == 403 {
+				failure = ErrForbidden
+			}
 			continue
 		}
-
-		// Step 2: 从响应中提取事件模板
-		eventMap, _ := makeJoinResp["event"].(map[string]any)
-		if eventMap == nil {
-			log.Warn("federationJoin: make_join response missing event field")
-
-			continue
+		version, _ := response["room_version"].(string)
+		if version == "" {
+			version = "1"
 		}
-
-		// Step 3: 完善事件字段
-		eventMap["sender"] = userID
-		eventMap["state_key"] = userID
-		eventMap["origin"] = r.HS.Config.ServerName
-		eventMap["origin_server_ts"] = time.Now().UnixMilli()
-		eventMap["content"] = map[string]any{"membership": "join"}
-		eventMap["event_id"] = "$" + utils.GetRandomString(32)
-
-		// Step 4: 签名事件
-		eventMap = fed.signEvent(eventMap)
-
-		// Step 5: send_join — 发送已签名的加入事件
-		sendJoinResp, err := fedClient.SendJoin(serverName, roomID, eventMap)
+		impl, err := gmsl.GetRoomVersion(gmsl.RoomVersion(version))
 		if err != nil {
-			log.Warn("federationJoin: send_join to %s failed: %v", serverName, err)
-
 			continue
 		}
-
-		// Step 6: 处理响应，在本地存储房间状态
-		if err := r.processFederationJoinResponse(roomID, userID, sendJoinResp); err != nil {
-			log.Warn("federationJoin: failed to process response from %s: %v", serverName, err)
-
+		raw, err := json.Marshal(response["event"])
+		if err != nil {
 			continue
 		}
-
-		// Step 7: Backfill message history from the remote server (synchronous to ensure
-		// events are available when the client starts querying /messages)
-		r.backfillFromRemote(fedClient, serverName, roomID)
-
+		builder := impl.NewEventBuilder()
+		if json.Unmarshal(raw, builder) != nil {
+			continue
+		}
+		builder.RoomID, builder.SenderID, builder.Type, builder.StateKey = roomID, userID, "m.room.member", &userID
+		_ = builder.SetContent(map[string]any{"membership": "join"})
+		p, err := builder.Build(time.Now(), spec.ServerName(r.HS.Config.ServerName), gmsl.KeyID(r.HS.keyID), r.HS.privateKey)
+		if err != nil {
+			log.Warn("build federation join: %v", err)
+			continue
+		}
+		wire, _ := wirePDU(p)
+		wire["event_id"] = p.EventID()
+		joined, err := client.SendJoin(server, roomID, wire)
+		if err != nil {
+			log.Warn("federation send_join: %v", err)
+			if status, ok := err.(*federationHTTPError); ok && status.Status == 403 {
+				failure = ErrForbidden
+			}
+			continue
+		}
+		joined["_verified_room_version"] = version
+		joined["_local_join"] = json.RawMessage(p.JSON())
+		if err = r.processFederationJoinResponse(roomID, userID, joined); err != nil {
+			log.Warn("validate federation join response: %v", err)
+			continue
+		}
+		go r.HS.NotifyRoomEvent(roomID)
 		return roomID, nil
 	}
-
-	return "", ErrNotFound
+	return "", failure
 }
 
-// processFederationJoinResponse 处理联邦加入响应，在本地存储房间状态.
-func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string, resp map[string]any) error { //nolint:unparam // param reserved for future use
-	// 确保房间记录存在
-	var room MatrixRoom
-	if db.GetDB().Where("room_id = ?", roomID).First(&room).Error != nil {
-		room = MatrixRoom{
-			RoomID:      roomID,
-			RoomVersion: "10",
-		}
+func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string, resp map[string]any) error {
+	version, _ := resp["_verified_room_version"].(string)
+	if version == "" {
+		return fmt.Errorf("missing negotiated room version")
 	}
-
-	// 从 m.room.create state 事件提取 room version 和 creator
-	if stateList, ok := resp["state"].([]any); ok {
-		for _, stateRaw := range stateList {
-			stateMap, ok := stateRaw.(map[string]any)
-			if !ok {
-				continue
+	events := map[string]gmsl.PDU{}
+	state := []gmsl.PDU{}
+	tuples := map[string]bool{}
+	for _, field := range []string{"auth_chain", "state"} {
+		list, ok := resp[field].([]any)
+		if !ok {
+			return fmt.Errorf("missing %s", field)
+		}
+		for _, raw := range list {
+			p, err := decodeWirePDU(version, raw)
+			if err != nil {
+				return err
 			}
-
-			if stateMap["type"] == "m.room.create" { //nolint:goconst
-				if content, ok := stateMap["content"].(map[string]any); ok {
-					if ver, ok := content["room_version"].(string); ok {
-						room.RoomVersion = ver
-					}
+			if p.RoomID().String() != roomID || p.StateKey() == nil {
+				return fmt.Errorf("invalid room state event")
+			}
+			if err = gmsl.VerifyEventSignatures(context.Background(), p, federationJSONVerifier{r.HS}, federationUserID); err != nil {
+				return err
+			}
+			events[p.EventID()] = p
+			if field == "state" {
+				tuple := p.Type() + "\x00" + *p.StateKey()
+				if tuples[tuple] {
+					return fmt.Errorf("duplicate state tuple")
 				}
-
-				room.Creator, _ = stateMap["sender"].(string)
-
-				break
+				tuples[tuple] = true
+				state = append(state, p)
 			}
 		}
 	}
-
-	if db.GetDB().Where("room_id = ?", roomID).First(&MatrixRoom{}).Error != nil {
-		db.GetDB().Create(&room)
-	}
-
-	// 处理 auth chain 事件（先存储，确保 auth event 先于 state event 存在）
-	if authChain, ok := resp["auth_chain"].([]any); ok {
-		for _, evtRaw := range authChain {
-			if evtMap, ok := evtRaw.(map[string]any); ok {
-				r.processRemoteStateEvent(evtMap)
-			}
+	for _, p := range events {
+		if err := checkPDUAuthorization(p, events); err != nil {
+			return fmt.Errorf("remote state authorization: %w", err)
 		}
 	}
-
-	// 处理 state 事件
-	if stateList, ok := resp["state"].([]any); ok {
-		for _, stateRaw := range stateList {
-			if stateMap, ok := stateRaw.(map[string]any); ok {
-				r.processRemoteStateEvent(stateMap)
-			}
+	join, err := decodeWirePDU(version, resp["_local_join"])
+	if err != nil {
+		return err
+	}
+	provider, err := gmsl.NewAuthEvents(state)
+	if err != nil {
+		return err
+	}
+	if err = gmsl.Allowed(join, provider, federationUserID); err != nil {
+		return err
+	}
+	if join.RoomID().String() != roomID || string(join.SenderID()) != joiningUserID {
+		return fmt.Errorf("join identity mismatch")
+	}
+	room := MatrixRoom{RoomID: roomID, RoomVersion: version}
+	for _, p := range state {
+		if p.Type() == "m.room.create" {
+			room.Creator = string(p.SenderID())
 		}
 	}
-
-	// 确保 joining user 被记录为 join 成员
-	displayName := ""
-	avatarURL := ""
-	member := &MatrixRoomMember{
-		RoomID:      roomID,
-		UserID:      joiningUserID,
-		Membership:  MembershipJoin,
-		DisplayName: &displayName,
-		AvatarURL:   &avatarURL,
+	if room.Creator == "" {
+		return fmt.Errorf("missing room create event")
 	}
-	db.GetDB().Where("room_id = ? AND user_id = ?", roomID, joiningUserID).Assign(member).FirstOrCreate(member)
-
-	return nil
+	return db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("room_id = ?", roomID).FirstOrCreate(&room).Error; err != nil {
+			return err
+		}
+		for _, p := range events {
+			if err := persistVerifiedPDU(tx, r.HS, p, false); err != nil {
+				return err
+			}
+		}
+		// Auth-chain events are historical, not current state. Apply only the snapshot.
+		for _, p := range state {
+			e := pduToMatrixEvent(p)
+			r.updateRoomState(tx, roomID, e)
+			if e.EventType == EventTypeRoomMember {
+				m, _ := e.Content["membership"].(string)
+				r.updateRoomMember(tx, roomID, *e.StateKey, MembershipState(m), e.EventID)
+			}
+		}
+		return persistVerifiedPDUAtState(tx, r.HS, join, true, state, true)
+	})
 }
 
-// processRemoteStateEvent 处理远程状态事件，存储到本地数据库.
 func (r *RoomService) processRemoteStateEvent(stateMap map[string]any) {
-	eventID, _ := stateMap["event_id"].(string)
-	eventType, _ := stateMap["type"].(string)
 	roomID, _ := stateMap["room_id"].(string)
-	sender, _ := stateMap["sender"].(string)
-	stateKey, _ := stateMap["state_key"].(string)
-	originServerTS, _ := stateMap["origin_server_ts"].(float64)
-	content, _ := stateMap["content"].(map[string]any)
-
-	if eventID == "" || eventType == "" || roomID == "" {
-		return
-	}
-
-	if content == nil {
-		content = map[string]any{}
-	}
-
-	// 跳过已存在的事件
-	var existing MatrixEvent
-	if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
-		return
-	}
-
-	senderDomain := extractServerName(sender)
-
-	event := &MatrixEvent{
-		EventID:        eventID,
-		RoomID:         roomID,
-		EventType:      EventType(eventType),
-		Sender:         sender,
-		StateKey:       utils.GetPtrIfNotEmpty(stateKey),
-		Content:        content,
-		OriginServerTS: int64(originServerTS),
-		SenderDomain:   senderDomain,
-	}
-	err := db.GetDB().Create(event).Error
+	version, err := federationRoomVersion(roomID)
 	if err != nil {
 		return
 	}
-
-	// 更新房间状态表
-	r.updateRoomState(db.GetDB(), roomID, event)
-
-	// 处理成员事件
-	if eventType == "m.room.member" { //nolint:goconst
-		membership, _ := content["membership"].(string)
-		displayName, _ := content["displayname"].(string)
-		avatarURL, _ := content["avatar_url"].(string)
-
-		m := &MatrixRoomMember{
-			RoomID:      roomID,
-			UserID:      stateKey,
-			Membership:  MembershipState(membership),
-			DisplayName: utils.GetPtrIfNotEmpty(displayName),
-			AvatarURL:   utils.GetPtrIfNotEmpty(avatarURL),
-			EventID:     eventID,
-		}
-		db.GetDB().Where("room_id = ? AND user_id = ?", roomID, stateKey).Assign(m).FirstOrCreate(m)
+	p, err := decodeWirePDU(version, stateMap)
+	if err != nil {
+		return
 	}
+	if validateIncomingPDU(context.Background(), r.HS, p, true) != nil {
+		return
+	}
+	_ = db.GetDB().Transaction(func(tx *gorm.DB) error { return persistVerifiedPDU(tx, r.HS, p, true) })
 }
 
 // backfillFromRemote fetches message history from a remote server after joining.
@@ -877,61 +877,30 @@ func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName,
 			progressAnchor = startEventIDs[0]
 		}
 
-		for _, pdu := range pdus {
-			eventID, _ := pdu["event_id"].(string)
-			if eventID == "" {
+		for _, wire := range pdus {
+			version, err := federationRoomVersion(roomID)
+			if err != nil {
+				return
+			}
+			p, err := decodeWirePDU(version, wire)
+			if err != nil || p.RoomID().String() != roomID {
 				continue
 			}
-
-			originTS, _ := pdu["origin_server_ts"].(float64)
-			ts := int64(originTS)
+			if err = validateIncomingPDU(context.Background(), r.HS, p, false); err != nil {
+				continue
+			}
+			ts := int64(p.OriginServerTS())
 			if oldestTS == -1 || ts < oldestTS {
 				oldestTS = ts
-				oldestID = eventID
+				oldestID = p.EventID()
 			}
-
-			// Skip events we already have, but still walk past them.
-			var existing MatrixEvent
-			if db.GetDB().Where("event_id = ?", eventID).First(&existing).Error == nil {
+			var count int64
+			if db.GetDB().Model(&MatrixEvent{}).Where("event_id = ?", p.EventID()).Count(&count).Error != nil || count > 0 {
 				continue
 			}
-
-			eventType, _ := pdu["type"].(string)
-			sender, _ := pdu["sender"].(string)
-
-			content, _ := pdu["content"].(map[string]any)
-			if content == nil {
-				content = map[string]any{}
+			if err = db.GetDB().Transaction(func(tx *gorm.DB) error { return persistVerifiedPDU(tx, r.HS, p, false) }); err == nil {
+				fetchedCount++
 			}
-
-			event := &MatrixEvent{
-				EventID:        eventID,
-				RoomID:         roomID,
-				EventType:      EventType(eventType),
-				Sender:         sender,
-				Content:        content,
-				OriginServerTS: int64(originTS),
-				SenderDomain:   extractServerName(sender),
-			}
-			if sk, ok := pdu["state_key"].(string); ok {
-				event.StateKey = &sk
-			}
-
-			if depth, ok := pdu["depth"].(float64); ok {
-				event.Depth = int64(depth)
-			}
-
-			event.PrevEvents = parseFedEventIDs(pdu["prev_events"])
-			event.AuthEvents = parseFedEventIDs(pdu["auth_events"])
-
-			err := db.GetDB().Create(event).Error
-			if err != nil {
-				log.Error("Failed to store backfilled event: %v", err)
-
-				continue
-			}
-
-			fetchedCount++
 		}
 
 		// 没有更早的事件，或远端又把同一个起点返回来了。
@@ -989,6 +958,9 @@ func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *M
 
 	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipLeave, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
+	if r.HS.Event != nil {
+		go r.HS.Event.federateEvent(event)
+	}
 
 	return nil
 }
@@ -1030,10 +1002,19 @@ func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserReques
 	}
 
 	// 创建邀请
-	if err := r.inviteUser(db.GetDB(), roomID, inviterID, req.UserID); err != nil {
+	if err := db.GetDB().Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error { return r.inviteUser(tx, roomID, inviterID, req.UserID) }); err != nil {
 		return ErrInternal
 	}
 
+	if r.HS.Event != nil {
+		var state MatrixRoomState
+		if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, req.UserID).First(&state).Error == nil {
+			var event MatrixEvent
+			if db.GetDB().Where("event_id = ?", state.EventID).First(&event).Error == nil {
+				go r.HS.Event.federateEvent(&event)
+			}
+		}
+	}
 	return nil
 }
 
@@ -1053,6 +1034,14 @@ func (r *RoomService) inviteUser(tx *gorm.DB, roomID, inviterID, inviteeID strin
 		SenderDomain:   r.HS.Config.ServerName,
 	}
 
+	if err := preparePersistedLocalPDU(tx, event); err != nil {
+		return err
+	}
+	if extractServerName(inviteeID) != r.HS.Config.ServerName {
+		if err := r.signRemoteInvite(tx, event); err != nil {
+			return err
+		}
+	}
 	err := tx.Create(event).Error
 	if err != nil {
 		return err
@@ -1113,6 +1102,9 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 
 	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipLeave, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
+	if r.HS.Event != nil {
+		go r.HS.Event.federateEvent(event)
+	}
 
 	return nil
 }
@@ -1155,6 +1147,9 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 
 	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipBan, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
+	if r.HS.Event != nil {
+		go r.HS.Event.federateEvent(event)
+	}
 
 	return nil
 }

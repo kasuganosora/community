@@ -114,6 +114,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 
 	statuses = make([]*models.Status, 0)
 	query := db.GetDB().Model(&models.Status{}).Preload("Account").
+		Preload("Account.Extra").
 		Preload("Content").
 		Preload("Application").
 		Preload("Attachments").
@@ -125,6 +126,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		Preload("Tags").
 		Preload("Reblog").
 		Preload("Reblog.Account").
+		Preload("Reblog.Account.Extra").
 		Preload("Reblog.Content").
 		Preload("Reblog.Application").
 		Preload("Reblog.Attachments").

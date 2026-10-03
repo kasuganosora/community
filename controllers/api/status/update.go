@@ -1,6 +1,9 @@
 package status
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,14 +12,16 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/pkg/errors"
+	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
+// UpdateStatusRequest is retained as the JSON shape for delete-and-repost.
+// PUT no longer edits a status; clients must explicitly choose POST /replace.
 type UpdateStatusRequest struct {
 	Status      *string            `json:"status"`
-	InReplyToId *string            `binding:"omitempty,numeric"                              json:"in_reply_to_id"`
+	InReplyToId *string            `json:"in_reply_to_id"`
 	MediaIds    *[]string          `json:"media_ids"`
 	Sensitive   *bool              `json:"sensitive"`
 	SpoilerText *string            `json:"spoiler_text"`
@@ -25,167 +30,195 @@ type UpdateStatusRequest struct {
 	Language    *string            `json:"language"`
 }
 
-func Update(c *gin.Context) {
-	var req UpdateStatusRequest
+type replaceRequest struct {
+	UpdateStatusRequest
+	pollSet  bool
+	replySet bool
+}
 
-	err := c.ShouldBindJSON(&req)
-	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
-
-	currentAccount := controllers.MustGetAccount(c)
-
-	statusIdStr := c.Param("id")
-	statusId, err := strconv.ParseUint(statusIdStr, 10, 64)
-	controllers.AbortIf(c, err != nil, 422, gin.H{"error": "id must be a number"}) //nolint:goconst
-
-	status := &models.Status{}
-	query := db.GetDB().Model(&models.Status{}).Where("id = ?", statusId)
-	query = models.StatusLoadAllQuery(query)
-
-	err = query.First(status).Error
-	controllers.AbortIfError(c, err)
-
-	historyStatus := &models.StatusHistory{}
-	historyStatus.StatusId = status.Id
-	historyStatus.AccountId = currentAccount.Id
-	historyStatus.SpoilerText = status.Content.SpoilerText
-	historyStatus.Content = status.Content.Content
-	historyStatus.Sensitive = status.Sensitive
-	historyStatus.MediaAttachmentsIds = status.Attachments.GetIds()
-	historyStatus.EmojisIds = status.Emojis.GetIds()
-
-	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 403, gin.H{"error": "forbidden"}) //nolint:goconst
-
-	var contentChanged bool
-
-	if req.Status != nil {
-		status.Content.Content = *req.Status
-		contentChanged = true
-	}
-
-	if req.SpoilerText != nil {
-		status.Content.SpoilerText = *req.SpoilerText
-		contentChanged = true
-	}
-
-	var mediaIdsChanged bool
-
-	if req.MediaIds != nil {
-		attachmentsId := *req.MediaIds
-		if len(attachmentsId) == 0 {
-			status.Attachments = make([]*models.Attachment, 0)
-		} else {
-			attachments, ok := loadAttachableMedia(attachmentsId, currentAccount.Id, status.Id)
-			controllers.AbortIf(c, !ok, http.StatusUnprocessableEntity, gin.H{"error": "invalid media_ids"})
-
-			status.Attachments = attachments
-		}
-
-		mediaIdsChanged = true
-	}
-
-	var (
-		pollChanged bool
-		oldPoll     *models.Poll
-	)
-
-	if req.Poll != nil {
-		if status.Poll != nil {
-			oldPoll = status.Poll
-		}
-
-		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
-		poll := &models.Poll{
-			AccountId: currentAccount.Id,
-			ExpiresAt: &expiresAt,
-			Multiple:  req.Poll.Multiple,
-			Properties: map[string]any{
-				"expires_in":  req.Poll.ExpiresIn,
-				"hide_totals": req.Poll.HideTotals,
-			},
-		}
-
-		for i, option := range req.Poll.Options {
-			poll.Options = append(poll.Options, &models.PollOption{Content: option, Index: uint8(i)})
-		}
-
-		status.Poll = poll
-		pollChanged = true
-	}
-
-	if req.Language != nil {
-		status.Language = *req.Language
-	}
-
-	if req.Visibility != nil {
-		err := status.SetVisibilityByString(*req.Visibility)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility value"})
-
-			return
-		}
-	}
-
-	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {
-		if contentChanged {
-			err = tx.Save(&status.Content).Error
-			if err != nil {
-				err = errors.Wrap(err, "save status content failed")
-
-				return err
-			}
-		}
-
-		if mediaIdsChanged {
-			if len(status.Attachments) > 0 {
-				err = tx.Model(status).Association("Attachments").Replace(status.Attachments)
-			} else {
-				err = tx.Model(status).Association("Attachments").Clear()
-			}
-
-			if err != nil {
-				err = errors.Wrap(err, "save status attachments failed")
-
-				return err
-			}
-		}
-
-		if pollChanged {
-			if oldPoll != nil {
-				err = oldPoll.Delete(tx)
-				if err != nil {
-					err = errors.Wrap(err, "delete old poll failed")
-
-					return err
-				}
-			}
-
-			err = tx.Model(status).Association("Poll").Append(status.Poll)
-			if err != nil {
-				err = errors.Wrap(err, "save status poll failed")
-
-				return err
-			}
-		}
-
-		err = tx.Omit(clause.Associations).Save(status).Error
-		if err != nil {
-			err = errors.Wrap(err, "save status failed")
-
-			return err
-		}
-
-		// 插入历史记录
-		err = tx.Create(historyStatus).Error
-		if err != nil {
-			err = errors.Wrap(err, "create status history failed")
-
-			return err
-		}
-
+func (r *replaceRequest) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &r.UpdateStatusRequest); err != nil {
 		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, r.pollSet = fields["poll"]
+	_, r.replySet = fields["in_reply_to_id"]
+	return nil
+}
+
+func Update(c *gin.Context) {
+	c.Header("Allow", "GET, DELETE")
+	c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Editing is not supported. Use POST /api/v1/statuses/:id/replace to delete and repost with a new ID."})
+}
+
+type replacementError struct {
+	code    int
+	message string
+}
+
+func (e replacementError) Error() string { return e.message }
+func invalidReplacement(message string) error {
+	return replacementError{http.StatusUnprocessableEntity, message}
+}
+
+// Replace publishes a new identity and deletes the original in one database
+// transaction. The old post and its media survive any validation/write failure.
+func Replace(c *gin.Context) {
+	var req replaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	owner := controllers.MustGetAccount(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(422, gin.H{"error": "id must be a number"})
+		return
+	}
+	// Warm the shared validation settings before acquiring a connection/row
+	// lock; first-use settings loading must not borrow a second connection
+	// from a pool already exhausted by replacement transactions.
+	_ = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, 500)
+	var replacement *models.Status
+	transactionContext, publishStatusEvents := models.BeginDeferredStatusEvents(c.Request.Context())
+	err = db.GetDB().WithContext(transactionContext).Transaction(func(tx *gorm.DB) error {
+		original := &models.Status{}
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)
+		if err := models.StatusLoadAllQuery(query).First(original).Error; err != nil {
+			return err
+		}
+		if original.AccountId != owner.Id || !original.IsLocal() {
+			return replacementError{403, "forbidden"}
+		}
+		if original.ReblogId != nil || original.ScheduledAt != nil {
+			return invalidReplacement("Only published original posts can be deleted and reposted")
+		}
+		next := &models.Status{AccountId: owner.Id, ApplicationId: original.ApplicationId, Content: models.StatusContent{Content: original.Content.Content, SpoilerText: original.Content.SpoilerText}, Sensitive: original.Sensitive, Language: original.Language, Visibility: original.Visibility, InReplyToId: original.InReplyToId, InReplyToAccountId: original.InReplyToAccountId}
+		if req.Status != nil {
+			next.Content.Content = *req.Status
+		}
+		if req.SpoilerText != nil {
+			next.Content.SpoilerText = *req.SpoilerText
+		}
+		if req.Sensitive != nil {
+			next.Sensitive = *req.Sensitive
+		}
+		if req.Language != nil {
+			next.Language = *req.Language
+		}
+		if req.Visibility != nil {
+			if err := next.SetVisibilityByString(*req.Visibility); err != nil {
+				return invalidReplacement("Invalid visibility value")
+			}
+		}
+		if req.replySet {
+			next.InReplyToId = nil
+			next.InReplyToAccountId = nil
+			if req.InReplyToId != nil && *req.InReplyToId != "" {
+				parent, err := strconv.ParseUint(*req.InReplyToId, 10, 64)
+				if err != nil || parent == 0 {
+					return invalidReplacement("invalid in_reply_to_id")
+				}
+				next.InReplyToId = &parent
+			}
+		}
+		if next.InReplyToId != nil {
+			if *next.InReplyToId == id {
+				return invalidReplacement("Replacement cannot reply to the post being deleted")
+			}
+			var parent models.Status
+			if err := tx.Preload("ToAccounts").First(&parent, *next.InReplyToId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return invalidReplacement("Reply target no longer exists")
+				}
+				return err
+			}
+			visible, err := parent.CanViewEx(tx, owner)
+			if err != nil {
+				return err
+			}
+			if !visible {
+				return replacementError{403, "Reply target is not visible"}
+			}
+			next.InReplyToAccountId = &parent.AccountId
+		}
+		mediaIDs := make([]string, 0, len(original.Attachments))
+		for _, media := range original.Attachments {
+			mediaIDs = append(mediaIDs, strconv.FormatUint(media.Id, 10))
+		}
+		if req.MediaIds != nil {
+			mediaIDs = *req.MediaIds
+		}
+		attachments, ok := loadAttachableMediaDB(tx.Clauses(clause.Locking{Strength: "UPDATE"}), mediaIDs, owner.Id, id)
+		if !ok {
+			return invalidReplacement("invalid media_ids")
+		}
+		next.Attachments = attachments
+		validation := CreateStatusRequest{Status: next.Content.Content, SpoilerText: next.Content.SpoilerText, MediaIds: mediaIDs, Visibility: next.GetVisibilityString(), Sensitive: next.Sensitive, Language: next.Language}
+		if req.pollSet {
+			validation.Poll = req.Poll
+			if req.Poll != nil {
+				next.Poll = pollFromReplacement(owner.Id, req.Poll)
+			}
+		} else if original.Poll != nil {
+			next.Poll = cloneReplacementPoll(original.Poll)
+			// Existing poll expiry is preserved, including an already-closed poll.
+			// Validate its choices/media combination without inventing a new expiry.
+			validation.Poll = &CreatePollContent{Options: next.Poll.Options.GetNames(), Multiple: next.Poll.Multiple, ExpiresIn: uint64(systemsettings.GetInt64(systemsettings.KeyPollMinExpiration, 300))}
+		}
+		if message := validateCreateStatusRequest(&validation); message != "" {
+			return invalidReplacement(message)
+		}
+		createTx := tx.WithContext(models.WithDeferredFederationCreate(tx.Statement.Context))
+		if err := createTx.Create(next).Error; err != nil {
+			return fmt.Errorf("create replacement: %w", err)
+		}
+		if err := tx.Delete(original).Error; err != nil {
+			return fmt.Errorf("delete original: %w", err)
+		}
+		// Delete is now queued before Create, while both become visible at commit.
+		if err := models.QueueFederationReplacement(tx, next); err != nil {
+			return err
+		}
+		now := time.Now()
+		if err := tx.Model(&models.Account{}).Where("id = ?", owner.Id).Updates(map[string]any{"last_status_at": now, "last_activity_at": now}).Error; err != nil {
+			return err
+		}
+		replacement = next
+		return nil
 	})
+	if err != nil {
+		var rejected replacementError
+		switch {
+		case errors.As(err, &rejected):
+			c.JSON(rejected.code, gin.H{"error": rejected.message})
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			c.JSON(404, gin.H{"error": "status not found"})
+		default:
+			_ = c.Error(err)
+			c.JSON(500, gin.H{"error": "Failed to delete and repost; the original post was retained"})
+		}
+		return
+	}
+	publishStatusEvents()
+	returnFullSingleStatus(c, replacement, owner)
+}
 
-	controllers.AbortIfError(c, err)
-
-	returnFullSingleStatus(c, status, currentAccount)
+func pollFromReplacement(accountID uint64, req *CreatePollContent) *models.Poll {
+	expiry := time.Now().Add(time.Duration(req.ExpiresIn) * time.Second)
+	poll := &models.Poll{AccountId: accountID, ExpiresAt: &expiry, Multiple: req.Multiple, Properties: map[string]any{"expires_in": req.ExpiresIn, "hide_totals": req.HideTotals}}
+	for i, text := range req.Options {
+		poll.Options = append(poll.Options, &models.PollOption{Content: text, Index: uint8(i)})
+	}
+	return poll
+}
+func cloneReplacementPoll(original *models.Poll) *models.Poll {
+	poll := &models.Poll{AccountId: original.AccountId, ExpiresAt: original.ExpiresAt, Multiple: original.Multiple, Properties: original.Properties}
+	for _, option := range original.Options {
+		poll.Options = append(poll.Options, &models.PollOption{Content: option.Content, Index: option.Index})
+	}
+	return poll
 }

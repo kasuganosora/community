@@ -1,33 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import type { MastodonStatus } from '@/shared/types/mastodon'
+import { onMounted } from 'vue'
+import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { bookmarkApi } from '../../infrastructure/bookmarkApi'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
-const bookmarks = ref<MastodonStatus[]>([])
-const loading = ref(true)
-const error = ref<string | null>(null)
+const feed = usePaginatedList((maxId, limit) => bookmarkApi.list({ max_id: maxId, limit }), 40)
+const { items: bookmarks, loading, error, hasMore } = feed
+const load = feed.refresh
 
 // Reuse the shared action handlers — optimistic update on the local array.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(bookmarks.value, id, updates),
 )
-
-// The backend pages bookmarks by bookmark-row id and sends no Link header,
-// so the last status id is not a usable cursor: load one large page.
-async function load() {
-  loading.value = true
-  error.value = null
-  try {
-    bookmarks.value = await bookmarkApi.list({ limit: 40 })
-  } catch (e) {
-    console.error('Failed to load bookmarks:', e)
-    error.value = e instanceof Error ? e.message : '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
 
 onMounted(load)
 </script>
@@ -39,11 +24,11 @@ onMounted(load)
       <h1 class="page-header__title">收藏</h1>
     </div>
 
-    <div v-if="loading" class="page-loading">
+    <div v-if="loading && !bookmarks.length" class="page-loading">
       <t-loading />
     </div>
 
-    <div v-else-if="error" class="empty-state" role="alert">
+    <div v-else-if="error && !bookmarks.length" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
@@ -61,6 +46,8 @@ onMounted(load)
         @favourite="toggleFavourite"
         @bookmark="toggleBookmark"
       />
+      <p v-if="error" role="alert">{{ error }}</p>
+      <button :disabled="loading" v-if="hasMore" type="button" class="btn btn--secondary btn--sm" @click="feed.loadMore">加载更多</button>
     </template>
 
     <div v-else class="empty-state">

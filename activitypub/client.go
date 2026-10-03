@@ -215,7 +215,7 @@ func validateFederationURI(uri string) error {
 	if u.Host == "" {
 		return fmt.Errorf("empty host in federation URI %q", uri)
 	}
-	return nil
+	return validateLabURL(u)
 }
 
 // signRequestPath returns the request-target path including query string,

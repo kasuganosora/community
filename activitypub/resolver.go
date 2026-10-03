@@ -3,9 +3,11 @@ package activitypub
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gorm.io/gorm/clause"
 	"strings"
 	"sync"
 	"time"
@@ -171,6 +173,10 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 		return nil, fmt.Errorf("fetching actor: %w", err)
 	}
 
+	if actor.ID != uri {
+		return nil, fmt.Errorf("actor ID does not match requested URI")
+	}
+
 	// Create account from actor
 	account, err = r.createAccountFromActor(actor)
 	if err != nil {
@@ -199,7 +205,7 @@ func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, doma
 	// Use WebFinger to discover the actor URI
 	acct := fmt.Sprintf("%s@%s", username, domain)
 
-	actor, err := DiscoverActor(acct) //nolint:contextcheck
+	actor, err := DiscoverActorContext(ctx, acct)
 	if err != nil {
 		return nil, fmt.Errorf("webfinger discovery: %w", err)
 	}
@@ -296,6 +302,9 @@ func (r *Resolver) refreshAccount(uri string) {
 
 // createAccountFromActor creates a local account record from an ActivityPub Actor.
 func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) {
+	return createRemoteAccount(db.GetDB(), actor)
+}
+func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 	now := time.Now()
 	uri := actor.ID
 	domain := utils.ExtractDomainFromURI(uri)
@@ -311,7 +320,7 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 		OriginId:    uri,
 		DisplayName: actor.Name,
 		Note:        htmlsafe.Sanitize(actor.Summary),
-		Locked:      false,
+		Locked:      actor.ManuallyApprovesFollowers,
 		Bot:         actor.Type == "Service", //nolint:goconst
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
@@ -329,18 +338,34 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 		account.HeaderStatic = actor.Image.URL
 	}
 
-	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
-		err := tx.Create(&account).Error
-		if err != nil {
+	err := conn.Transaction(func(tx *gorm.DB) error {
+		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(uri)))
+		identity := models.RemoteActorIdentity{URIHash: digest, URI: uri}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&identity).Error; err != nil {
 			return err
 		}
-
-		// Create account extra
-		accountExtra := models.AccountExtra{
-			AccountId: account.Id,
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&identity, "uri_hash = ?", digest).Error; err != nil {
+			return err
 		}
-
-		return tx.Create(&accountExtra).Error
+		if identity.URI != uri {
+			return errors.New("remote actor identity collision")
+		}
+		if identity.AccountID != nil {
+			return tx.First(&account, *identity.AccountID).Error
+		}
+		// Adopt a pre-migration account, never create a second identity for its URI.
+		var existing models.Account
+		err := tx.Where("origin_id = ? AND domain IS NOT NULL", uri).First(&existing).Error
+		if err == nil {
+			account = existing
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := tx.Create(&account).Error; err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return tx.Model(&identity).Update("account_id", account.Id).Error
 	})
 	if err != nil {
 		return models.Account{}, fmt.Errorf("creating account in database: %w", err)
@@ -368,6 +393,10 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	account, err := r.ResolveAccount(ctx, attributedTo)
 	if err != nil {
 		return models.Status{}, fmt.Errorf("resolving author account: %w", err)
+	}
+
+	if obj["id"] != uri || !sameURIOrigin(uri, attributedTo) {
+		return models.Status{}, errors.New("remote object identity mismatch")
 	}
 
 	// Extract properties
@@ -402,10 +431,15 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	// Set domain for remote status
 	domain := utils.ExtractDomainFromURI(uri)
 
+	recipients, err := recipientAccounts(ctx, obj, getVisibilityFromActivity(obj) <= models.StatusVisibilityUnlisted)
+	if err != nil {
+		return models.Status{}, err
+	}
 	// Create status
 	now := time.Now()
 	status := models.Status{
 		AccountId:          account.Id,
+		ToAccounts:         recipients,
 		Content:            models.StatusContent{Content: content, SpoilerText: summary},
 		Sensitive:          sensitive,
 		Visibility:         getVisibilityFromActivity(obj),
@@ -421,16 +455,13 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 		status.CreatedAt = &now
 	}
 
-	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
-		err := tx.Create(&status).Error
+	err = db.GetDB().WithContext(models.WithStructuredMentions(ctx)).Transaction(func(tx *gorm.DB) error {
+		err := persistIncomingStatus(ctx, tx, &status)
 		if err != nil {
 			return err
 		}
 
-		// Create status content
-		status.Content.StatusId = status.Id
-
-		return tx.Create(&status.Content).Error
+		return nil
 	})
 	if err != nil {
 		return models.Status{}, fmt.Errorf("creating status in database: %w", err)

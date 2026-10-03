@@ -303,7 +303,7 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 
 	followingIds := make([]uint64, 0)
 	if account != nil {
-		err = db.GetDB().Model(&models.Follows{}).Where("account_id = ?", account.Id).Select("follow_id").Find(&followingIds).Error
+		err = db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Where("account_id = ?", account.Id).Select("follow_id").Find(&followingIds).Error
 		if err != nil {
 			return statuses, err
 		}

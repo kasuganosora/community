@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { mergeById, hasMoreAfter } from '@/shared/utils/pagination'
+import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
 
 export interface PaginatedList<T> {
   items: Ref<T[]>
@@ -8,17 +8,18 @@ export interface PaginatedList<T> {
   hasMore: Ref<boolean>
   /** Reload the first page. Existing items stay until the new page arrives. */
   refresh: () => Promise<void>
-  /** Fetch the next page using the id of the last item as max_id. */
+  /** Fetch the next page using its server cursor (or last item id for array APIs). */
   loadMore: () => Promise<void>
 }
 
 /**
- * Cursor pagination for Mastodon-style lists (max_id = id of the last item).
+ * Cursor pagination for Mastodon-style lists. Relationship endpoints supply
+ * their own cursor; plain-array endpoints use the last item id.
  * Every request bumps a version counter so a slow response from an older
  * request (e.g. before a tab switch) can never overwrite newer data.
  */
 export function usePaginatedList<T extends { id: string }>(
-  fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
+  fetchPage: (maxId: string | undefined, limit: number) => Promise<T[] | CursorPage<T>>,
   pageSize = 20,
 ): PaginatedList<T> {
   const items = ref([]) as Ref<T[]>
@@ -26,17 +27,20 @@ export function usePaginatedList<T extends { id: string }>(
   const error = ref<string | null>(null)
   const hasMore = ref(true)
   let version = 0
+  let nextCursor: string | undefined
 
   async function run(append: boolean) {
     const my = ++version
-    const maxId = append ? items.value[items.value.length - 1]?.id : undefined
+    const maxId = append ? nextCursor : undefined
     loading.value = true
     error.value = null
     try {
-      const page = await fetchPage(maxId, pageSize)
+      const result = await fetchPage(maxId, pageSize)
       if (my !== version) return
+      const page = Array.isArray(result) ? result : result.items
+      nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
       items.value = append ? mergeById(items.value, page) : page
-      hasMore.value = hasMoreAfter(page.length, pageSize)
+      hasMore.value = Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor
     } catch (e) {
       if (my !== version) return
       error.value = e instanceof Error ? e.message : '加载失败'

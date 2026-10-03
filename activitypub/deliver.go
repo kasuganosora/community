@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 )
 
 // DeliveryStatus represents the status of a delivery.
@@ -24,16 +27,17 @@ const (
 
 // Delivery represents a pending ActivityPub delivery.
 type Delivery struct {
-	ID          uint64         `gorm:"primaryKey;autoIncrement"`
-	ActivityID  string         `gorm:"type:varchar(255);not null;index"`
-	TargetInbox string         `gorm:"type:varchar(255);not null;index"`
-	Payload     string         `gorm:"type:json;not null"`
-	Status      DeliveryStatus `gorm:"type:varchar(20);default:'pending';index"`
-	Retries     int            `gorm:"default:0"`
-	LastError   string         `gorm:"type:text"`
-	NextRetryAt *time.Time     `gorm:"index"`
-	CreatedAt   *time.Time     `gorm:"autoCreateTime"`
-	UpdatedAt   *time.Time     `gorm:"autoUpdateTime"`
+	ID            uint64         `gorm:"primaryKey;autoIncrement"`
+	ActivityID    string         `gorm:"type:varchar(255);not null;index"`
+	TargetInbox   string         `gorm:"type:varchar(255);not null;index"`
+	Payload       string         `gorm:"type:json;not null"`
+	Authorization string         `gorm:"type:json;default:null"`
+	Status        DeliveryStatus `gorm:"type:varchar(20);default:'pending';index"`
+	Retries       int            `gorm:"default:0"`
+	LastError     string         `gorm:"type:text"`
+	NextRetryAt   *time.Time     `gorm:"index"`
+	CreatedAt     *time.Time     `gorm:"autoCreateTime"`
+	UpdatedAt     *time.Time     `gorm:"autoUpdateTime"`
 }
 
 func (Delivery) TableName() string {
@@ -114,7 +118,7 @@ func (q *DeliveryQueue) processPending() {
 	// Find pending deliveries that are ready to be processed
 	err := db.GetDB().Where("status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)",
 		[]DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}, now).
-		Order("created_at ASC").
+		Order("id ASC").
 		Limit(10).
 		Find(&deliveries).Error
 
@@ -123,18 +127,26 @@ func (q *DeliveryQueue) processPending() {
 	}
 
 	for _, delivery := range deliveries {
+		// Do not overtake an earlier retried Create with an Update/Delete to
+		// the same inbox. At-least-once delivery retains stable activity IDs.
+		var older int64
+		if err := db.GetDB().Model(&Delivery{}).Where("target_inbox = ? AND id < ? AND status IN ?", delivery.TargetInbox, delivery.ID, []DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}).Count(&older).Error; err != nil || older > 0 {
+			continue
+		}
 		q.deliver(delivery)
 	}
 }
 
 // deliver attempts to deliver a single message.
 func (q *DeliveryQueue) deliver(delivery Delivery) {
-	// Mark as processing
+	// Lease atomically; other workers and restarted processes cannot take
+	// an in-flight row until its lease expires.
 	now := time.Now()
-	db.GetDB().Model(&delivery).Updates(map[string]any{
-		"status":     DeliveryStatusProcessing, //nolint:goconst
-		"updated_at": now,                      //nolint:goconst
-	})
+	lease := now.Add(2 * time.Minute)
+	claim := db.GetDB().Model(&Delivery{}).Where("id = ? AND status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", delivery.ID, []DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}, now).Updates(map[string]any{"status": DeliveryStatusProcessing, "next_retry_at": lease, "updated_at": now})
+	if claim.Error != nil || claim.RowsAffected != 1 {
+		return
+	}
 
 	// Parse the payload
 	var activity map[string]any
@@ -144,8 +156,26 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 		return
 	}
 
-	// Attempt delivery
-	err := q.client.Post(context.Background(), delivery.TargetInbox, activity)
+	activity, allowed, err := authorizeQueuedDelivery(&delivery, activity)
+	if err != nil {
+		q.handleDeliveryError(&delivery, err)
+		return
+	}
+	if !allowed {
+		db.GetDB().Model(&delivery).Updates(map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "recipient authorization revoked"})
+		return
+	}
+
+	// Resolve the signing identity for this activity. A global queue must
+	// not sign every user's activity as one server actor or send unsigned.
+	client, err := q.signingClient(activity)
+	if err != nil {
+		q.handleDeliveryError(&delivery, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	err = client.Post(ctx, delivery.TargetInbox, activity)
 	if err != nil {
 		q.handleDeliveryError(&delivery, err)
 
@@ -154,8 +184,10 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 
 	// Mark as delivered
 	db.GetDB().Model(&delivery).Updates(map[string]any{
-		"status":     DeliveryStatusDelivered,
-		"updated_at": time.Now(),
+		"status":        DeliveryStatusDelivered,
+		"next_retry_at": nil,
+		"last_error":    "",
+		"updated_at":    time.Now(),
 	})
 }
 
@@ -285,4 +317,24 @@ func GetNextRetryTime(retries int) time.Time {
 	}
 
 	return time.Now().Add(RetryPolicy[retries])
+}
+
+func (q *DeliveryQueue) signingClient(activity map[string]any) (*Client, error) {
+	actorURI, ok := activity["actor"].(string)
+	if !ok || actorURI == "" {
+		return nil, fmt.Errorf("activity has no signing actor")
+	}
+	if q.client != nil && q.client.privateKey != nil && q.client.actorID == actorURI {
+		return q.client, nil
+	}
+	prefix := systemsettings.GetBaseURL() + "/users/"
+	if !strings.HasPrefix(actorURI, prefix) {
+		return nil, fmt.Errorf("activity actor is not a local signing identity")
+	}
+	username := strings.TrimPrefix(actorURI, prefix)
+	var account models.Account
+	if err := db.GetDB().Where("domain IS NULL AND username = ?", username).First(&account).Error; err != nil {
+		return nil, err
+	}
+	return localAccountClient(&account, actorURI)
 }

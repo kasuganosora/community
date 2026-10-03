@@ -225,3 +225,14 @@ INSERT INTO system_settings (`key`, `val`) VALUES ('config.domain', 'social.exam
 
 - `activitypub_deliveries` —— 待投递的消息队列（`Delivery`）
 - `activitypub_processed_activities` —— 已处理活动 ID，用于 inbox 去重（`ProcessedActivity`）
+
+### 隔离联邦实验网
+
+默认继续拒绝所有内网地址。仅为隔离的互操作实验，可给独立进程显式设置
+`ACTIVITYPUB_LAB_PEERS=misskey.federation.test=172.30.50.10,synapse.federation.test=172.30.50.10`。
+配置仅接受精确 `.test` 主机名到单个 RFC1918 IPv4 的映射，不接受通配符、CIDR、
+回环或链路本地地址；格式错误时失败关闭。请求必须为 HTTPS，端口只能是 443 或 8448。
+每次新连接解析到的全部地址都必须与固定地址一致，之后直接拨号该 IP，防止 DNS 重绑定。
+重定向同样校验；其他主机与 IP 字面地址仍执行默认 SSRF 禁止规则。
+TLS 验证不会关闭：给实验进程用 `SSL_CERT_FILE` 挂载可信实验 CA，并为各主机签发匹配 SAN 的证书。
+此配置不应注入日常开发或生产进程；实验服务、数据库、Redis 与网络应独立运行。

@@ -604,5 +604,5 @@ func TestFederationAuthMiddleware_NoMatchingKey_Rejected(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to get server key")
+	assert.Contains(t, w.Body.String(), "Invalid request signature")
 }

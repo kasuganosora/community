@@ -7,13 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kasuganosora/community/db/database"
-	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,123 +95,44 @@ func TestDeviceListRequestBody(t *testing.T) {
 // TestBackfillResponseHasAuthChain verifies that the backfill response
 // includes the auth_chain field as required by the Matrix spec.
 func TestBackfillResponseHasAuthChain(t *testing.T) {
-	// Set up isolated test DB with all Matrix models
-	testDB, err := testutil.NewIsolatedTestDB(t)
-	require.NoError(t, err)
-
-	// Set global DB so db.GetDB() works throughout homeserver code
-	savedDB := database.DB
-
-	database.SetTestDB(testDB.GormDB)
-
-	// Set SERVER_NAME to skip systemsettings.GetDomain() (avoids system_settings table dep)
-	t.Setenv("SERVER_NAME", "test.server")
-
-	// Reset global homeserver state so InitHomeServer runs fresh
-	savedHS := GlobalHS
-	GlobalHS = nil
-	initOnce = sync.Once{}
-
-	defer func() {
-		GlobalHS = savedHS
-		initOnce = sync.Once{} // Reset so future calls can re-init if needed
-		database.DB = savedDB
-	}()
-
-	// AutoMigrate the Matrix models needed for backfill
-	require.NoError(t, testDB.GormDB.AutoMigrate(
-		&MatrixRoom{},
-		&MatrixEvent{},
-		&MatrixRoomState{},
-		&MatrixRoomMember{},
-		&MatrixFederationKey{},
-		&MatrixServerKey{},
-		&MatrixUserSession{},
-		&MatrixToDeviceMessage{},
-		&MatrixReceipt{},
-		&MatrixAccountData{},
-		&MatrixTyping{},
-		&MatrixFilter{},
-		&MatrixPresence{},
-		&MatrixDeviceKey{},
-		&MatrixOneTimeKey{},
-		&MatrixCrossSigningKey{},
-		&MatrixFederationTxn{},
-		&MatrixKeyBackup{},
-		&MatrixKeyBackupSession{},
-		&MatrixKeyBackupRecovery{},
-		&MatrixSSSSSecret{},
-		&MatrixSSSSDefaultKey{},
-		&EventRelation{},
-		&Pusher{},
-		&PushRule{},
-		&AppService{},
-		&MatrixRoomUpgrade{},
-		&RoomKeyRequest{},
-		&DeviceListChange{},
-		&DeviceListStream{},
-		&AsyncMediaInfo{},
-		&PasswordResetToken{},
-		&OpenIDToken{},
-		&ThreePID{},
-		&ThreePIDToken{},
-		&MatrixRoomTag{},
-		&MatrixRoomAlias{},
-		&MatrixMedia{},
-		&MatrixThumbnail{},
-	))
-
-	gin.SetMode(gin.TestMode)
-
+	hs := createTestHomeServer(t)
+	hs.Config.Enabled = true
+	restore := resetGlobalHS(hs)
+	defer restore()
+	room := createRoomWithUser(t, hs, "@alice:test.local")
+	eventID := sendMessage(t, hs, room, "@alice:test.local", "backfill")
 	router := gin.New()
-
-	// RegisterBackfillRoutes calls GetHomeServer() which triggers InitHomeServer()
 	RegisterBackfillRoutes(router)
-	require.NotNil(t, GlobalHS, "HomeServer should be initialized")
-
-	// Test backfill endpoint — room won't exist so we expect 404
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/_matrix/federation/v1/backfill/!test:test.server?v=$event1&limit=10", nil) //nolint:noctx
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusNotFound, w.Code, "Non-existent room should return 404")
-
-	// Create a test room and event to verify full response format
-	room := &MatrixRoom{
-		RoomID:      "!testroom:test.server",
-		RoomVersion: "10",
+	path := "/_matrix/federation/v1/backfill/" + room + "?v=" + url.QueryEscape(eventID) + "&limit=1"
+	unsigned := httptest.NewRecorder()
+	router.ServeHTTP(unsigned, httptest.NewRequest(http.MethodGet, path, nil))
+	require.Equal(t, http.StatusUnauthorized, unsigned.Code)
+	response := signedAuxRequest(t, hs, router, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var backfill map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &backfill))
+	for _, field := range []string{"origin", "origin_server_ts", "pdus"} {
+		require.Contains(t, backfill, field)
 	}
-	require.NoError(t, testDB.GormDB.Create(room).Error)
-
-	event := &MatrixEvent{
-		RoomID:         "!testroom:test.server",
-		EventType:      EventTypeRoomMessage,
-		Sender:         "@alice:test.server",
-		OriginServerTS: time.Now().UnixMilli(),
-		Content:        map[string]any{"body": "hello", "msgtype": "m.text"}, //nolint:goconst
+	require.Equal(t, "test.local", backfill["origin"])
+	pdus := backfill["pdus"].([]any)
+	require.Len(t, pdus, 1)
+	event := pdus[0].(map[string]any)
+	require.NotEmpty(t, event["auth_events"])
+	require.NotEmpty(t, event["hashes"])
+	require.NotEmpty(t, event["signatures"])
+	// Backfill is a transaction PDU list. Its transitive auth chain is served by event_auth.
+	response = signedAuxRequest(t, hs, router, http.MethodGet, "/_matrix/federation/v1/event_auth/"+room+"/"+eventID, "")
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var auth struct {
+		Chain []map[string]any `json:"auth_chain"`
 	}
-	require.NoError(t, testDB.GormDB.Create(event).Error)
-
-	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest(http.MethodGet, //nolint:noctx
-		fmt.Sprintf("/_matrix/federation/v1/backfill/%s?v=%s&limit=10", room.RoomID, event.EventID),
-		nil)
-	router.ServeHTTP(w2, req2)
-
-	assert.Equal(t, http.StatusOK, w2.Code)
-
-	var response map[string]any
-
-	err = json.Unmarshal(w2.Body.Bytes(), &response)
-	require.NoError(t, err)
-
-	// Verify all Matrix spec required fields are present
-	for _, field := range []string{"origin", "origin_server_ts", "pdus", "auth_chain"} { //nolint:goconst
-		_, exists := response[field]
-		assert.True(t, exists, "Response should contain %q field", field)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &auth))
+	require.NotEmpty(t, auth.Chain)
+	for _, event := range auth.Chain {
+		require.NotEmpty(t, event["hashes"])
+		require.NotEmpty(t, event["signatures"])
 	}
-
-	assert.Equal(t, "test.server", response["origin"])
 }
 
 // TestBackfillAuthChainContent documents what auth_chain should contain

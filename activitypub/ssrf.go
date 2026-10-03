@@ -94,42 +94,25 @@ func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, e
 		return nil, fmt.Errorf("ssrf: invalid address %q: %w", addr, err)
 	}
 
-	// If the address is already an IP literal, validate it
-	if ip := net.ParseIP(host); ip != nil {
-		if isBannedIP(ip) {
-			return nil, fmt.Errorf("ssrf: blocked connection to internal address %s", ip)
-		}
-		dialer := &net.Dialer{
-			Timeout:   15 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-	}
-
-	// Resolve the hostname to IP addresses ourselves
-	resolver := &net.Resolver{}
-	ips, err := resolver.LookupIPAddr(ctx, host)
+	peers, err := configuredLabPeers()
 	if err != nil {
-		return nil, fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
+		return nil, err
 	}
-
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("ssrf: no addresses resolved for %q", host)
-	}
-
-	// Check every resolved IP — ALL must be safe
-	for _, ipAddr := range ips {
-		if isBannedIP(ipAddr.IP) {
-			return nil, fmt.Errorf("ssrf: blocked connection to internal address %s (%s)", ipAddr.IP, host)
+	var ips []net.IPAddr
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IPAddr{{IP: ip}}
+	} else {
+		ips, err = (&net.Resolver{}).LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
 		}
 	}
-
-	// Dial the first safe IP directly to prevent TOCTOU (DNS rebinding at TCP layer)
-	dialer := &net.Dialer{
-		Timeout:   15 * time.Second,
-		KeepAlive: 30 * time.Second,
+	pinned, err := selectDialIP(host, port, ips, peers)
+	if err != nil {
+		return nil, err
 	}
-	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(pinned.String(), port))
 }
 
 // ssrfSafeTransport is an http.Transport whose dialer rejects internal addresses.
@@ -147,7 +130,7 @@ var ssrfSafeTransport = &http.Transport{
 // federation requests (fetching actors, objects, WebFinger, etc).
 var ssrfSafeHTTPClient = &http.Client{
 	Timeout:   30 * time.Second,
-	Transport: ssrfSafeTransport,
+	Transport: labCheckedTransport{next: ssrfSafeTransport},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return fmt.Errorf("ssrf: stopped after 5 redirects")
@@ -201,27 +184,35 @@ func ValidateURI(uri string) error {
 		return fmt.Errorf("ssrf: empty host in URI %q", uri)
 	}
 
-	// If the host is already an IP literal, check it directly
-	if ip := net.ParseIP(host); ip != nil {
-		if isBannedIP(ip) {
-			return fmt.Errorf("ssrf: blocked IP literal %s", host)
-		}
-		return nil
+	if err := validateLabURL(u); err != nil {
+		return err
 	}
-
-	// Resolve hostname and check all IPs
-	resolver := net.Resolver{}
-	ips, err := resolver.LookupIP(context.Background(), "ip", host) //nolint:noctx // ValidateURI 是无 context 的公开 API，SSRF 校验使用独立带超时 context
+	peers, err := configuredLabPeers()
 	if err != nil {
-		return fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
+		return err
 	}
-
-	for _, ip := range ips {
-		if isBannedIP(ip) {
-			return fmt.Errorf("ssrf: host %q resolves to internal address %s", host, ip)
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
 		}
 	}
-
+	var ips []net.IPAddr
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IPAddr{{IP: ip}}
+	} else {
+		resolver := net.Resolver{}
+		ips, err = resolver.LookupIPAddr(context.Background(), host)
+		if err != nil {
+			return fmt.Errorf("ssrf: failed to resolve %q: %w", host, err)
+		}
+	}
+	_, err = selectDialIP(host, port, ips, peers)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

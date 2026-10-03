@@ -97,164 +97,48 @@ func TestHandleQueryDirectory_RemoteAliasSkipped(t *testing.T) {
 // storeFederationPDU: member state events, tombstone, redaction
 // =============================================================================
 
-func TestStoreFederationPDU_MessageEvent(t *testing.T) {
-	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomState{}))
-	hs := minimalHS("store.test")
-
-	event := map[string]any{
-		"event_id":         "$msgevt:store.test",
-		"room_id":          "!msgroom:store.test",
-		"type":             "m.room.message",
-		"sender":           "@alice:store.test",
-		"content":          map[string]any{"body": "hello world"},
-		"origin_server_ts": float64(1234567890),
-	}
-
-	eventID, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-	assert.Equal(t, "$msgevt:store.test", eventID)
-
-	// Verify event was stored
-	var stored MatrixEvent
-	require.NoError(t, db.GetDB().Where("event_id = ?", "$msgevt:store.test").First(&stored).Error)
-	assert.Equal(t, "!msgroom:store.test", stored.RoomID)
-	assert.Equal(t, "@alice:store.test", stored.Sender)
-}
-
-func TestStoreFederationPDU_MemberStateEvent(t *testing.T) {
-	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomState{}, &MatrixRoomMember{}))
-	hs := minimalHS("store.test")
-
-	// First create the room
-	createEvent := map[string]any{
-		"event_id":         "$create2:store.test",
-		"room_id":          "!memberroom:store.test",
-		"type":             "m.room.create",
-		"sender":           "@creator:store.test",
-		"content":          map[string]any{"creator": "@creator:store.test"},
-		"origin_server_ts": float64(1234567890),
-	}
-	_, err := storeFederationPDU(hs, createEvent)
-	require.NoError(t, err)
-
-	// Now store a member join event
-	memberEvent := map[string]any{
-		"event_id":         "$memberevt:store.test",
-		"room_id":          "!memberroom:store.test",
-		"type":             "m.room.member",
-		"sender":           "@joiner:store.test",
-		"state_key":        "@joiner:store.test",
-		"content":          map[string]any{"membership": "join", "displayname": "Joiner"},
-		"origin_server_ts": float64(1234567891),
-	}
-
-	eventID, err := storeFederationPDU(hs, memberEvent)
-	require.NoError(t, err)
-	assert.Equal(t, "$memberevt:store.test", eventID)
-
-	// Verify room state was stored
-	var state MatrixRoomState
-	require.NoError(t, db.GetDB().Where("room_id = ? AND event_type = ?", "!memberroom:store.test", "m.room.member").First(&state).Error)
-	assert.Equal(t, "@joiner:store.test", state.StateKey)
-
-	// Verify room member was stored
-	var member MatrixRoomMember
-	require.NoError(t, db.GetDB().Where("room_id = ? AND user_id = ?", "!memberroom:store.test", "@joiner:store.test").First(&member).Error)
-	assert.Equal(t, MembershipJoin, member.Membership)
-}
-
-func TestStoreFederationPDU_RedactionEvent(t *testing.T) {
-	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomState{}))
-	hs := minimalHS("store.test")
-
-	// Store the original message
-	origEvent := map[string]any{
-		"event_id":         "$origmsg:store.test",
-		"room_id":          "!redactroom:store.test",
-		"type":             "m.room.message",
-		"sender":           "@alice:store.test",
-		"content":          map[string]any{"body": "to be redacted"},
-		"origin_server_ts": float64(1234567890),
-	}
-	_, err := storeFederationPDU(hs, origEvent)
-	require.NoError(t, err)
-
-	// Store a redaction event
-	redactEvent := map[string]any{
-		"event_id":         "$redactevt:store.test",
-		"room_id":          "!redactroom:store.test",
-		"type":             "m.room.redaction",
-		"sender":           "@alice:store.test",
-		"content":          map[string]any{"redacts": "$origmsg:store.test"},
-		"redacts":          "$origmsg:store.test",
-		"origin_server_ts": float64(1234567891),
-	}
-	eventID, err := storeFederationPDU(hs, redactEvent)
-	require.NoError(t, err)
-	assert.Equal(t, "$redactevt:store.test", eventID)
-
-	// Verify original event content was redacted
-	var redacted MatrixEvent
-	require.NoError(t, db.GetDB().Where("event_id = ?", "$origmsg:store.test").First(&redacted).Error)
-	if redacted.Content != nil {
-		assert.Empty(t, redacted.Content)
+func TestStoreFederationPDU_SignedEvents(t *testing.T) {
+	hs := createTestHomeServer(t)
+	room, e := hs.Room.CreateRoom("@alice:test.local", &CreateRoomRequest{Preset: "public_chat", RoomVersion: "10"})
+	require.Nil(t, e)
+	for _, kind := range []string{"m.room.message", "m.room.member", "m.room.tombstone"} {
+		t.Run(kind, func(t *testing.T) {
+			event := &MatrixEvent{RoomID: room.RoomID, Sender: "@alice:test.local", EventType: EventType(kind), Content: map[string]any{"body": "signed federation content"}}
+			switch kind {
+			case "m.room.member":
+				event.Sender = "@bob:test.local"
+				event.StateKey = new(event.Sender)
+				event.Content = map[string]any{"membership": "join", "displayname": "Bob"}
+			case "m.room.tombstone":
+				event.StateKey = new("")
+				event.Content["replacement_room"] = "!replacement:test.local"
+			}
+			require.NoError(t, buildLocalPDU(db.GetDB(), hs, event, "10"))
+			wire, err := matrixEventToPDU(event)
+			require.NoError(t, err)
+			id, err := storeFederationPDU(hs, wire)
+			require.NoError(t, err)
+			assert.Equal(t, event.EventID, id)
+			var stored MatrixEvent
+			require.NoError(t, db.GetDB().Where("event_id = ?", id).First(&stored).Error)
+			assert.NotEmpty(t, stored.FederationJSON)
+			if kind == "m.room.member" {
+				var member MatrixRoomMember
+				require.NoError(t, db.GetDB().Where("room_id = ? AND user_id = ?", room.RoomID, event.Sender).First(&member).Error)
+				assert.Equal(t, MembershipJoin, member.Membership)
+			}
+		})
 	}
 }
-
-func TestStoreFederationPDU_TombstoneEvent(t *testing.T) {
-	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomState{}))
-	hs := minimalHS("store.test")
-	// RoomUpgrade service is nil; the code checks for nil before calling
-	// migratePushRules, so this should not panic.
-
-	event := map[string]any{
-		"event_id":         "$tomb:store.test",
-		"room_id":          "!tombroom:store.test",
-		"type":             "m.room.tombstone",
-		"sender":           "@admin:store.test",
-		"state_key":        "",
-		"content":          map[string]any{"replacement_room": "!newroom:store.test", "body": "Room upgraded"},
-		"origin_server_ts": float64(1234567890),
+func TestStoreFederationPDU_RejectsUnsignedUnknownRoom(t *testing.T) {
+	hs := createTestHomeServer(t)
+	for _, kind := range []string{"m.room.message", "m.room.member", "m.room.redaction", "m.room.tombstone"} {
+		_, err := storeFederationPDU(hs, map[string]any{"event_id": "$fabricated", "room_id": "!unknown:test.local", "type": kind, "sender": "@mallory:test.local", "content": map[string]any{}})
+		require.Error(t, err)
 	}
-	eventID, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-	assert.Equal(t, "$tomb:store.test", eventID)
-}
-
-func TestStoreFederationPDU_RedactionNoContentField(t *testing.T) {
-	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&MatrixEvent{}, &MatrixRoom{}, &MatrixRoomState{}))
-	hs := minimalHS("store.test")
-
-	// Redaction event with redacts at top-level only (not in content)
-	event := map[string]any{
-		"event_id":         "$redact2:store.test",
-		"room_id":          "!room2:store.test",
-		"type":             "m.room.message",
-		"sender":           "@alice:store.test",
-		"content":          map[string]any{"body": "msg"},
-		"origin_server_ts": float64(1234567890),
-	}
-	_, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-
-	// Now store a redaction with redacts only at top level
-	redactEvent := map[string]any{
-		"event_id":         "$redact3:store.test",
-		"room_id":          "!room2:store.test",
-		"type":             "m.room.redaction",
-		"sender":           "@alice:store.test",
-		"redacts":          "$redact2:store.test",
-		"content":          map[string]any{},
-		"origin_server_ts": float64(1234567891),
-	}
-	eventID, err := storeFederationPDU(hs, redactEvent)
-	require.NoError(t, err)
-	assert.Equal(t, "$redact3:store.test", eventID)
+	var n int64
+	require.NoError(t, db.GetDB().Model(&MatrixRoom{}).Where("room_id = ?", "!unknown:test.local").Count(&n).Error)
+	assert.Zero(t, n)
 }
 
 // =============================================================================

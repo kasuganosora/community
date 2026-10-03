@@ -35,30 +35,7 @@ func NewKeyCache() *KeyCache {
 
 // Get 从缓存获取密钥.
 func (kc *KeyCache) Get(serverName, keyID string) (ed25519.PublicKey, bool) {
-	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
-
-	kc.mu.RLock()
-	entry, exists := kc.cache[cacheKey]
-	kc.mu.RUnlock()
-
-	if !exists {
-		// 尝试从数据库加载
-		entry = kc.loadFromDB(serverName, keyID)
-		if entry == nil {
-			return nil, false
-		}
-	}
-
-	// 检查是否过期
-	if time.Now().After(entry.ValidUntil) {
-		kc.mu.Lock()
-		delete(kc.cache, cacheKey)
-		kc.mu.Unlock()
-
-		return nil, false
-	}
-
-	return entry.PublicKey, true
+	return kc.GetAt(serverName, keyID, time.Now())
 }
 
 // Set 设置缓存密钥.
@@ -66,21 +43,28 @@ func (kc *KeyCache) Set(serverName, keyID string, publicKey ed25519.PublicKey, v
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 
 	entry := &KeyCacheEntry{
-		PublicKey:   publicKey,
+		PublicKey:   append(ed25519.PublicKey(nil), publicKey...),
 		ValidUntil:  validUntil,
 		LastUpdated: time.Now(),
 	}
 
 	kc.mu.Lock()
 	kc.cache[cacheKey] = entry
-	kc.mu.Unlock()
+	defer kc.mu.Unlock()
 
-	// 同时保存到数据库
+	// Serialize persistence with replacement/invalidation so a delayed write cannot revive an old key.
 	kc.saveToDB(serverName, keyID, entry)
 }
 
 // loadFromDB 从数据库加载密钥.
 func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
+	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
+	// A concurrent verified refresh wins over a stale cache miss.
+	if entry := kc.cache[cacheKey]; entry != nil {
+		return entry
+	}
 	var record MatrixServerKey
 	if err := db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).First(&record).Error; err != nil {
 		return nil
@@ -88,7 +72,7 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 
 	// 解码公钥
 	publicKeyBytes, err := base64.RawStdEncoding.DecodeString(record.PublicKey)
-	if err != nil {
+	if err != nil || len(publicKeyBytes) != ed25519.PublicKeySize {
 		log.Error("Failed to decode cached public key for %s:%s: %v", serverName, keyID, err)
 
 		return nil
@@ -101,12 +85,7 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 	}
 
 	// 添加到内存缓存
-	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
-
-	kc.mu.Lock()
 	kc.cache[cacheKey] = entry
-	kc.mu.Unlock()
-
 	return entry
 }
 
@@ -134,7 +113,7 @@ func (kc *KeyCache) Invalidate(serverName, keyID string) {
 
 	kc.mu.Lock()
 	delete(kc.cache, cacheKey)
-	kc.mu.Unlock()
+	defer kc.mu.Unlock()
 
 	// 从数据库删除
 	db.GetDB().Where("server_name = ? AND key_id = ?", serverName, keyID).Delete(&MatrixServerKey{})
@@ -189,4 +168,32 @@ func StartKeyCacheCleanup() {
 			GetKeyCache().Cleanup()
 		}
 	}()
+}
+
+// GetAt additionally checks the event timestamp against the advertised validity.
+func (kc *KeyCache) GetAt(serverName, keyID string, at time.Time) (ed25519.PublicKey, bool) {
+	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
+	kc.mu.RLock()
+	entry := kc.cache[cacheKey]
+	kc.mu.RUnlock()
+	if entry == nil {
+		entry = kc.loadFromDB(serverName, keyID)
+	}
+	if entry == nil {
+		return nil, false
+	}
+	// Key bytes and validity belong to the same immutable entry, even when another
+	// goroutine replaces the cache slot while verification is in progress.
+	if time.Now().After(entry.ValidUntil) {
+		kc.mu.Lock()
+		if kc.cache[cacheKey] == entry {
+			delete(kc.cache, cacheKey)
+		}
+		kc.mu.Unlock()
+		return nil, false
+	}
+	if at.After(entry.ValidUntil) {
+		return nil, false
+	}
+	return append(ed25519.PublicKey(nil), entry.PublicKey...), true
 }

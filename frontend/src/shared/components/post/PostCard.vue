@@ -7,7 +7,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { visibilityOption } from '@/domains/post/domain/compose'
 import {
-  deletedStatusIds, editedStatuses, markStatusDeleted, markStatusEdited,
+  deletedStatusIds, editedStatuses, markStatusDeleted,
 } from '@/domains/post/presentation/composables/useStatusActions'
 import { isInteractiveClick } from '@/shared/utils/dom'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -86,9 +86,11 @@ function confirmDelete() {
 }
 
 function onEdited(updated: MastodonStatus) {
-  markStatusEdited(updated)
+  const originalID = displayStatus.value.id
   editing.value = false
-  MessagePlugin.success('已保存')
+  markStatusDeleted(originalID)
+  MessagePlugin.success('原帖已删除，已重新发布')
+  router.push({ name: 'post-detail', params: { username: updated.account.acct || updated.account.username, statusId: updated.id } }).catch(() => {})
 }
 
 function onMenuClick(data: { value?: unknown }) {
@@ -154,7 +156,7 @@ function onMenuClick(data: { value?: unknown }) {
           <t-dropdown
             v-if="isOwn"
             trigger="click"
-            :options="[{ content: '编辑', value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }]"
+            :options="[{ content: '编辑（删除并重发）', value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }]"
             @click="onMenuClick"
           >
             <button type="button" class="post-card__menu" aria-label="更多操作" @click.stop>
@@ -179,7 +181,7 @@ function onMenuClick(data: { value?: unknown }) {
     <t-dialog
       v-if="editing"
       :visible="editing"
-      header="编辑帖子"
+      header="编辑帖子 · 删除并重发"
       :footer="false"
       width="600px"
       destroy-on-close

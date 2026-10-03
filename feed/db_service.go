@@ -20,7 +20,7 @@ func NewDBService(db *gorm.DB) *DBService {
 // GetAccountFollowersId 获取账号的粉丝 ID 列表.
 func (s *DBService) GetAccountFollowersId(accountId uint64) (followers []uint64, err error) {
 	followers = make([]uint64, 0)
-	err = s.db.Model(&models.Follow{}).Where("follow_id = ?", accountId).Pluck("account_id", &followers).Error
+	err = s.db.Model(&models.Follow{}).Scopes(models.Followed).Where("follow_id = ?", accountId).Pluck("account_id", &followers).Error
 
 	return
 }
@@ -35,6 +35,7 @@ func (s *DBService) GetAccountRecentActiveLocalFollowersId(accountId uint64) (fo
 	// 使用 JOIN 优化，避免 N+1 查询
 	err = s.db.Model(&models.Account{}).
 		Joins("JOIN follows ON follows.account_id = accounts.id").
+		Where("follows.status = ?", models.FollowStatusFollowed).
 		Where("follows.follow_id = ? AND accounts.last_activity_at > ? AND accounts.domain IS NULL", accountId, activeThreshold).
 		Pluck("accounts.id", &followers).Error
 
@@ -48,6 +49,7 @@ func (s *DBService) GetAccountFollowingAccounts(accountId uint64) (accounts mode
 	// 使用 JOIN 优化，避免 2 次查询
 	err = s.db.Model(&models.Account{}).
 		Joins("JOIN follows ON follows.follow_id = accounts.id").
+		Where("follows.status = ?", models.FollowStatusFollowed).
 		Where("follows.account_id = ?", accountId).
 		Find(&accounts).Error
 
@@ -61,6 +63,7 @@ func (s *DBService) GetAccountRemoteFollowers(accountId uint64) (followers []*mo
 	// 使用 JOIN 优化，避免 2 次查询
 	err = s.db.Model(&models.Account{}).
 		Joins("JOIN follows ON follows.account_id = accounts.id").
+		Where("follows.status = ?", models.FollowStatusFollowed).
 		Where("follows.follow_id = ? AND accounts.domain IS NOT NULL", accountId).
 		Find(&followers).Error
 

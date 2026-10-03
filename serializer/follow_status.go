@@ -60,7 +60,8 @@ func ToFollowStatus(account *models.Account, follow *models.Follow) (ret *Follow
 	}
 
 	if follow != nil {
-		ret.Following = true
+		ret.Following = follow.Status == models.FollowStatusFollowed
+		ret.Requested = follow.Status == models.FollowStatusRequested
 
 		var isReblog bool
 		if follow.Properties["reblogs"] != nil {

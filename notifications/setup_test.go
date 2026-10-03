@@ -8,6 +8,8 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
+	sqlexecapi "github.com/kasuganosora/sqlexec/pkg/api"
+	sqlexecgorm "github.com/kasuganosora/sqlexec/pkg/api/gorm"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -75,6 +77,15 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 	testDB, err := testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err, "failed to create isolated test DB")
+
+	// Routing tests poll while a notification goroutine writes. SQLExec's
+	// result cache can retain an empty SELECT if that read finishes after
+	// the concurrent INSERT invalidates the cache. Use uncached reads so
+	// these tests observe database state, like the production MySQL driver.
+	session := testDB.DB.SessionWithOptions(&sqlexecapi.SessionOptions{CacheEnabled: false})
+	t.Cleanup(func() { _ = session.Close() })
+	testDB.GormDB, err = gorm.Open(sqlexecgorm.NewDialector(session), &gorm.Config{SkipDefaultTransaction: true})
+	require.NoError(t, err)
 
 	require.NoError(t, testDB.AutoMigrate(allModels()...), "failed to auto-migrate models")
 

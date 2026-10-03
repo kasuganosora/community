@@ -31,6 +31,9 @@ func (Follow) TableName() string {
 }
 
 func (f *Follow) AfterCreate(tx *gorm.DB) (err error) {
+	if err = queueFederationFollow(tx, "Follow", f); err != nil {
+		return err
+	}
 	if f.Status == FollowStatusFollowed {
 		event.Trigger("account", event.Event{
 			Name: "follow", //nolint:goconst
@@ -65,6 +68,9 @@ func (f *Follow) AfterUpdate(tx *gorm.DB) (err error) {
 }
 
 func (f *Follow) AfterDelete(tx *gorm.DB) (err error) {
+	if err = queueFederationFollow(tx, "Undo", f); err != nil {
+		return err
+	}
 	event.Trigger("account", event.Event{
 		Name: "unfollow",
 		Data: f,

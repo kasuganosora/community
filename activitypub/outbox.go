@@ -3,10 +3,9 @@ package activitypub
 import (
 	"strconv"
 
-	"github.com/kasuganosora/community/htmlsafe"
-
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
@@ -19,7 +18,7 @@ func Outbox(c *gin.Context) {
 
 	// Verify the local user exists
 	var account models.Account
-	err := db.GetDB().Preload("Extra").Where("username = ?", username).First(&account).Error
+	err := db.GetDB().Preload("Extra").Where("username = ? AND domain IS NULL", username).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"}) //nolint:goconst
 
@@ -37,16 +36,14 @@ func Outbox(c *gin.Context) {
 
 	if !page {
 		// Return collection info
-		var totalItems int
-		if account.Extra != nil {
-			totalItems = account.Extra.StatusesCount
-		}
+		var totalItems int64
+		db.GetDB().Model(&models.Status{}).Where("account_id = ? AND visibility IN ? AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL", account.Id, []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).Count(&totalItems)
 
 		c.JSON(200, Collection{
 			Context:    []string{"https://www.w3.org/ns/activitystreams"}, //nolint:goconst
 			ID:         outboxURL,
 			Type:       "OrderedCollection", //nolint:goconst
-			TotalItems: totalItems,
+			TotalItems: int(totalItems),
 			First:      outboxURL + "?page=true",
 			Last:       outboxURL + "?page=true&min_id=0",
 		})
@@ -55,9 +52,10 @@ func Outbox(c *gin.Context) {
 	}
 
 	// Get statuses
-	query := db.GetDB().Model(&models.Status{}).
+	query := db.GetDB().Model(&models.Status{}).Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("ReplyAccount").
 		Where("account_id = ?", account.Id).
-		Where("visibility IN ?", []string{"public", "unlisted"}).
+		Where("visibility IN ?", []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).
+		Where("deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL").
 		Order("id DESC").
 		Limit(limit)
 
@@ -108,42 +106,14 @@ func Outbox(c *gin.Context) {
 		response.Next = outboxURL + "?page=true&max_id=" + strconv.FormatUint(lastStatus.Id, 10)
 	}
 
+	c.Header("Content-Type", "application/activity+json")
 	c.JSON(200, response)
 }
 
 // buildCreateActivity builds a Create activity for a status.
 func buildCreateActivity(status *models.Status, account *models.Account, baseURL string) map[string]any {
-	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
-	actorURL := baseURL + "/users/" + account.Username
-
-	// Use the status's original creation time, not current time
-	published := status.CreatedAt
-
-	note := map[string]any{
-		"id":           statusURL,
-		"type":         "Note", //nolint:goconst
-		"attributedTo": actorURL,
-		"content":      status.ContentHTML(htmlsafe.OptionsForBaseURL(baseURL)), //nolint:goconst
-		"url":          statusURL,
-		"published":    published,
-		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"}, //nolint:goconst
-		"cc":           []string{actorURL + "/followers"},
-		"sensitive":    status.Sensitive,
-	}
-
-	if spoiler := status.SpoilerTextPlain(); spoiler != "" {
-		note["summary"] = spoiler
-	}
-
-	return map[string]any{
-		"id":        statusURL + "#create",
-		"type":      "Create", //nolint:goconst
-		"actor":     actorURL, //nolint:goconst
-		"published": published,
-		"to":        []string{"https://www.w3.org/ns/activitystreams#Public"},
-		"cc":        []string{actorURL + "/followers"},
-		"object":    note, //nolint:goconst
-	}
+	note := buildNoteFromStatus(status, account, baseURL)
+	return map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": note["id"].(string) + "#create", "type": "Create", "actor": note["attributedTo"], "published": status.CreatedAt, "to": note["to"], "cc": note["cc"], "object": note}
 }
 
 // Followers handles GET /users/:username/followers.
@@ -292,7 +262,7 @@ func ActorProfile(c *gin.Context) {
 	username := c.Param("username")
 
 	var account models.Account
-	err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ?", username).First(&account).Error
+	err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ? AND domain IS NULL", username).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 
@@ -308,16 +278,17 @@ func ActorProfile(c *gin.Context) {
 			"https://www.w3.org/ns/activitystreams",
 			"https://w3id.org/security/v1",
 		},
-		ID:                actorURL,
-		Type:              "Person", //nolint:goconst
-		Following:         actorURL + "/following",
-		Followers:         actorURL + "/followers",
-		Inbox:             actorURL + "/inbox",
-		Outbox:            actorURL + "/outbox",
-		PreferredUsername: account.Username,
-		Name:              account.DisplayName,
-		Summary:           account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
-		URL:               baseURL + "/@" + username,
+		ID:                        actorURL,
+		Type:                      "Person", //nolint:goconst
+		Following:                 actorURL + "/following",
+		Followers:                 actorURL + "/followers",
+		Inbox:                     actorURL + "/inbox",
+		Outbox:                    actorURL + "/outbox",
+		PreferredUsername:         account.Username,
+		ManuallyApprovesFollowers: account.Locked,
+		Name:                      account.DisplayName,
+		Summary:                   account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
+		URL:                       baseURL + "/@" + username,
 		Endpoints: &Endpoints{
 			SharedInbox: baseURL + "/inbox",
 		},
@@ -337,15 +308,13 @@ func ActorProfile(c *gin.Context) {
 		}
 	}
 
-	// Add public key if the account has one stored
-	var accountKey models.AccountKey
-	err = db.GetDB().Where("account_id = ?", account.Id).First(&accountKey).Error
-	if err == nil {
-		actor.PublicKey = &PublicKey{
-			ID:           actorURL + "#main-key",
-			Owner:        actorURL,
-			PublicKeyPem: accountKey.PublicKey,
-		}
+	accountKey, err := localAccountKey(&account)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to load actor signing key"})
+		return
+	}
+	actor.PublicKey = &PublicKey{
+		ID: actorURL + "#main-key", Owner: actorURL, PublicKeyPem: accountKey.PublicKey,
 	}
 
 	// Bot/Service accounts use "Service" actor type
@@ -364,5 +333,6 @@ func ActorProfile(c *gin.Context) {
 		}
 	}
 
+	c.Header("Content-Type", "application/activity+json")
 	c.JSON(200, actor)
 }

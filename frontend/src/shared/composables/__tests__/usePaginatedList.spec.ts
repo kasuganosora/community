@@ -84,3 +84,48 @@ describe('usePaginatedList', () => {
     expect(list.loading.value).toBe(false)
   })
 })
+
+describe('relationship cursor pagination', () => {
+  it('uses the server cursor instead of a displayed status id, including short pages', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ items: page(999), nextCursor: '42' })
+      .mockResolvedValueOnce({ items: page(888, 777) })
+    const list = usePaginatedList(fetcher, 2)
+    await list.refresh()
+    expect(list.hasMore.value).toBe(true)
+    await list.loadMore()
+    expect(fetcher).toHaveBeenLastCalledWith('42', 2)
+    expect(list.items.value.map(i => i.id)).toEqual(['999', '888', '777'])
+    expect(list.hasMore.value).toBe(false)
+  })
+  it('does not overwrite the active cursor with a stale response', async () => {
+    let resolveOld!: (value: unknown) => void
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+      .mockResolvedValueOnce({ items: page(999), nextCursor: '42' })
+      .mockResolvedValueOnce({ items: page(888) })
+    const list = usePaginatedList(fetcher, 2)
+    const old = list.refresh()
+    await list.refresh()
+    resolveOld({ items: page(111), nextCursor: '7' })
+    await old
+    await list.loadMore()
+    expect(fetcher).toHaveBeenLastCalledWith('42', 2)
+  })
+})
+
+
+describe('pagination after removing an item', () => {
+  it('retains the relationship cursor when the last visible item is removed', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ items: page(900, 800), nextCursor: '42' })
+      .mockResolvedValueOnce({ items: page(700) })
+    const list = usePaginatedList(fetcher, 2)
+    await list.refresh()
+    list.items.value = list.items.value.filter(i => i.id !== '800')
+    await list.loadMore()
+    expect(fetcher).toHaveBeenLastCalledWith('42', 2)
+    expect(list.items.value.map(i => i.id)).toEqual(['900', '700'])
+    expect(list.hasMore.value).toBe(false)
+  })
+})

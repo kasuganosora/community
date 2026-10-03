@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
@@ -232,9 +233,15 @@ func setupFrontend(app *gin.Engine) {
 func startServer(app *gin.Engine) {
 	opts := server.DefaultOptions()
 	opts.ListenAddr = config.C.Listen
+	// The socket deadline must outlive the longest handler budget so an idle
+	// Matrix long poll (or its timeout response) can still be written.
+	opts.WriteTimeout = middleware.MatrixSyncHandlerTimeout + 5*time.Second
 
 	// 注册关闭前钩子
 	srv := server.New(app, opts)
+	outbound, initErr := activitypub.StartOutboundWorker()
+	log.FatalIf(initErr)
+	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
 
 	log.Info("Server is starting on %s", config.C.Listen)
 

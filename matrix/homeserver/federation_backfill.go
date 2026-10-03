@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -24,6 +25,7 @@ func RegisterBackfillRoutes(r gin.IRouter) {
 	}
 
 	fed := r.Group("/_matrix/federation/v1")
+	fed.Use(requireFederationAuth())
 	{
 		// Backfill - 获取房间历史事件
 		fed.GET("/backfill/:roomId", handleBackfill)
@@ -47,87 +49,24 @@ func RegisterBackfillRoutes(r gin.IRouter) {
 // 参数: v (事件ID列表), limit (限制数量).
 func handleBackfill(c *gin.Context) {
 	roomID := c.Param("roomId")
-	hs := GetHomeServer()
-
-	// 解析查询参数
-	v := c.QueryArray("v") // 最早已知的事件ID列表
-	limitStr := c.DefaultQuery("limit", "100")
-
-	limit, _ := strconv.Atoi(limitStr)
+	if !requireFederationRoomAccess(c, roomID) {
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
-
-	// 验证房间是否存在
-	room, err := hs.Room.GetRoom(roomID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",    //nolint:goconst
-			"error":   "Room not found", //nolint:goconst
-		})
-
+	roots := c.QueryArray("v")
+	if len(roots) == 0 {
+		federationFailure(c, 400, fmt.Errorf("at least one v event is required"))
 		return
 	}
-
-	// Find the starting point timestamp from the v events
-	var events []MatrixEvent
-
-	startTS := time.Now().UnixMilli()
-
-	if len(v) > 0 {
-		var vEvent MatrixEvent
-		// Use the EARLIEST v event's timestamp to walk backward from
-		result := db.GetDB().Where("event_id IN ?", v).Order("origin_server_ts ASC").First(&vEvent)
-		if result.Error == nil {
-			startTS = vEvent.OriginServerTS
-		}
+	pdus, err := federationAncestors(roomID, roots, nil, limit, 0, true)
+	if err != nil {
+		federationFailure(c, 400, err)
+		return
 	}
-
-	// Query events at or before the starting point (include v events per spec)
-	query := db.GetDB().Where("room_id = ? AND origin_server_ts <= ?", roomID, startTS).
-		Order("origin_server_ts DESC").
-		Limit(limit)
-	query.Find(&events)
-
-	// Reverse to chronological order
-	pdus := make([]ClientEvent, len(events))
-	for i, event := range events {
-		pdus[len(events)-1-i] = *event.ToClientEvent()
-	}
-
-	// Build auth chain from room state events
-	authChain := buildRoomAuthChain(roomID)
-	_ = room
-
-	c.JSON(http.StatusOK, gin.H{
-		"origin":           hs.Config.ServerName,   //nolint:goconst
-		"origin_server_ts": time.Now().UnixMilli(), //nolint:goconst
-		"pdus":             pdus,                   //nolint:goconst
-		"auth_chain":       authChain,
-	})
-}
-
-// buildRoomAuthChain returns auth chain events (create, power_levels, join_rules) for a room.
-func buildRoomAuthChain(roomID string) []ClientEvent {
-	authTypes := []string{
-		string(EventTypeRoomCreate),
-		string(EventTypeRoomPowerLevels),
-		string(EventTypeRoomJoinRules),
-		string(EventTypeRoomMember),
-	}
-
-	var stateEntries []MatrixRoomState
-	db.GetDB().Where("room_id = ? AND event_type IN ?", roomID, authTypes).Find(&stateEntries)
-
-	chain := make([]ClientEvent, 0, len(stateEntries))
-	for _, entry := range stateEntries {
-		var evt MatrixEvent
-		if db.GetDB().Where("event_id = ?", entry.EventID).First(&evt).Error == nil {
-			chain = append(chain, *evt.ToClientEvent())
-		}
-	}
-
-	return chain
+	c.JSON(200, gin.H{"origin": GetHomeServer().Config.ServerName, "origin_server_ts": time.Now().UnixMilli(), "pdus": pdus})
 }
 
 // handleTimestampToEvent 时间戳映射到事件
@@ -157,6 +96,10 @@ func handleTimestampToEvent(c *gin.Context) {
 			"error":   "Room not found",
 		})
 
+		return
+	}
+
+	if !requireFederationRoomAccess(c, roomID) {
 		return
 	}
 
@@ -197,47 +140,15 @@ func handleTimestampToEvent(c *gin.Context) {
 // GET /_matrix/federation/v1/event_auth/:roomId/:eventId.
 func handleEventAuth(c *gin.Context) {
 	roomID := c.Param("roomId")
-	eventID := c.Param("eventId")
-	hs := GetHomeServer()
-
-	// 验证房间
-	_, err := hs.Room.GetRoom(roomID)
+	if !requireFederationRoomAccess(c, roomID) {
+		return
+	}
+	chain, err := federationAuthChain(roomID, c.Param("eventId"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
-		})
-
+		federationFailure(c, 404, err)
 		return
 	}
-
-	// 获取目标事件
-	var targetEvent MatrixEvent
-	if err := db.GetDB().Where("event_id = ?", eventID).First(&targetEvent).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Event not found", //nolint:goconst
-		})
-
-		return
-	}
-
-	// 获取授权链
-	authEvents := []ClientEvent{}
-
-	if targetEvent.AuthEvents != nil {
-		for _, authEventID := range targetEvent.AuthEvents {
-			var authEvent MatrixEvent
-			err := db.GetDB().Where("event_id = ?", authEventID).First(&authEvent).Error
-			if err == nil {
-				authEvents = append(authEvents, *authEvent.ToClientEvent())
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"auth_events": authEvents, //nolint:goconst
-	})
+	c.JSON(200, gin.H{"auth_chain": chain})
 }
 
 // QueryAuthRequest Query Auth 请求.
@@ -249,60 +160,20 @@ type QueryAuthRequest struct {
 // POST /_matrix/federation/v1/query_auth/:roomId/:eventId.
 func handleQueryAuth(c *gin.Context) {
 	roomID := c.Param("roomId")
-	eventID := c.Param("eventId")
-
-	var req QueryAuthRequest
+	if !requireFederationRoomAccess(c, roomID) {
+		return
+	}
+	var req map[string]any
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",   //nolint:goconst
-			"error":   "Invalid JSON", //nolint:goconst
-		})
-
+		federationFailure(c, 400, err)
 		return
 	}
-
-	hs := GetHomeServer()
-
-	// 验证房间
-	_, err := hs.Room.GetRoom(roomID)
+	chain, err := federationAuthChain(roomID, c.Param("eventId"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
-		})
-
+		federationFailure(c, 404, err)
 		return
 	}
-
-	// 获取授权链
-	authChain := []ClientEvent{}
-	authEvents := []ClientEvent{}
-
-	// 获取请求事件的授权事件
-	if req.Event.EventID != "" {
-		var event MatrixEvent
-		err := db.GetDB().Where("event_id = ?", req.Event.EventID).First(&event).Error
-		if err == nil {
-			// 解析授权事件
-			if event.AuthEvents != nil {
-				for _, authEventID := range event.AuthEvents {
-					var authEvent MatrixEvent
-					err := db.GetDB().Where("event_id = ?", authEventID).First(&authEvent).Error
-					if err == nil {
-						authEvents = append(authEvents, *authEvent.ToClientEvent())
-						authChain = append(authChain, *authEvent.ToClientEvent())
-					}
-				}
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"auth_chain":  authChain,
-		"auth_events": authEvents,
-	})
-
-	_ = eventID
+	c.JSON(200, gin.H{"auth_chain": chain, "rejects": []string{}, "missing": []string{}})
 }
 
 // GetMissingEventsRequest 获取缺失事件请求.
@@ -322,100 +193,91 @@ type GetMissingEventsResponse struct {
 // POST /_matrix/federation/v1/get_missing_events/:roomId.
 func handleGetMissingEvents(c *gin.Context) {
 	roomID := c.Param("roomId")
-
 	var req GetMissingEventsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"errcode": "M_BAD_JSON",
-			"error":   "Invalid JSON",
-		})
-
+		federationFailure(c, 400, err)
 		return
 	}
-
+	if !requireFederationRoomAccess(c, roomID) {
+		return
+	}
 	if req.Limit <= 0 || req.Limit > 100 {
 		req.Limit = 100
 	}
-
-	hs := GetHomeServer()
-
-	// 验证房间
-	_, err := hs.Room.GetRoom(roomID)
+	events, err := federationAncestors(roomID, req.LatestEvents, req.EarliestEvents, req.Limit, req.MinDepth, false)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
-		})
-
+		federationFailure(c, 400, err)
 		return
 	}
+	c.JSON(200, gin.H{"events": events})
+}
 
-	// Build set of earliest event IDs (already known by requester, should be excluded)
-	earliestSet := make(map[string]bool)
-	for _, eid := range req.EarliestEvents {
-		earliestSet[eid] = true
+// federationAncestors follows verified DAG references, never timestamp ordering.
+// Every lookup is room-scoped, including caller-provided boundary events.
+func federationAncestors(roomID string, roots, stops []string, limit, minDepth int, includeRoots bool) ([]map[string]any, error) {
+	out := []map[string]any{}
+	seen := map[string]bool{}
+	for _, id := range stops {
+		seen[id] = true
 	}
-
-	// Get timestamp bounds from earliest and latest events
-	var earliestTS int64 = 0
-
-	if len(req.EarliestEvents) > 0 {
-		var earliestEvent MatrixEvent
-		err := db.GetDB().Where("event_id IN ?", req.EarliestEvents).
-			Order("origin_server_ts ASC").
-			First(&earliestEvent).Error
-		if err == nil {
-			earliestTS = earliestEvent.OriginServerTS
-		}
+	queue := append([]string{}, roots...)
+	rootSet := map[string]bool{}
+	for _, id := range roots {
+		rootSet[id] = true
 	}
-
-	latestTS := time.Now().UnixMilli()
-
-	if len(req.LatestEvents) > 0 {
-		var latestEvent MatrixEvent
-		err := db.GetDB().Where("event_id IN ?", req.LatestEvents).
-			Order("origin_server_ts DESC").
-			First(&latestEvent).Error
-		if err == nil {
-			latestTS = latestEvent.OriginServerTS
-		}
-	}
-
-	// Query events between earliest and latest (inclusive on both sides to handle
-	// same-timestamp events, then filter out earliest_events by ID)
-	var events []MatrixEvent
-
-	query := db.GetDB().Where("room_id = ? AND origin_server_ts >= ? AND origin_server_ts <= ?",
-		roomID, earliestTS, latestTS).
-		Order("origin_server_ts ASC")
-
-	if req.MinDepth > 0 {
-		query = query.Where("depth >= ?", req.MinDepth)
-	}
-
-	query.Limit(req.Limit + len(req.EarliestEvents)).Find(&events)
-
-	// Filter out earliest_events (already known) and latest_events (already known)
-	latestSet := make(map[string]bool)
-	for _, eid := range req.LatestEvents {
-		latestSet[eid] = true
-	}
-
-	result := make([]ClientEvent, 0, len(events))
-	for _, event := range events {
-		if earliestSet[event.EventID] || latestSet[event.EventID] {
+	for len(queue) > 0 && len(out) < limit {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
 			continue
 		}
-
-		result = append(result, *event.ToClientEvent())
-		if len(result) >= req.Limit {
-			break
+		seen[id] = true
+		var event MatrixEvent
+		if err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, id).First(&event).Error; err != nil {
+			return nil, fmt.Errorf("unknown room event %s", id)
 		}
+		if event.Depth < int64(minDepth) {
+			continue
+		}
+		queue = append(queue, event.PrevEvents...)
+		if !includeRoots && rootSet[id] {
+			continue
+		}
+		wire, err := matrixEventToPDU(&event)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wire)
 	}
+	return out, nil
+}
 
-	c.JSON(http.StatusOK, GetMissingEventsResponse{
-		Events: result,
-	})
+func federationAuthChain(roomID, eventID string) ([]map[string]any, error) {
+	out := []map[string]any{}
+	queue := []string{eventID}
+	seen := map[string]bool{}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		var event MatrixEvent
+		if err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, id).First(&event).Error; err != nil {
+			return nil, err
+		}
+		queue = append(queue, event.AuthEvents...)
+		if id == eventID {
+			continue
+		}
+		wire, err := matrixEventToPDU(&event)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wire)
+	}
+	return out, nil
 }
 
 // RegisterAdditionalFederationRoutes 注册额外的联邦路由.
@@ -426,6 +288,7 @@ func RegisterAdditionalFederationRoutes(r gin.IRouter) {
 	}
 
 	fed := r.Group("/_matrix/federation/v1")
+	fed.Use(requireFederationAuth())
 	{
 		// 注册用户查询
 		fed.GET("/query/user", handleQueryUser)

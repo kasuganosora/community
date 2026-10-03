@@ -29,6 +29,11 @@ func setupStatusReachDB(t *testing.T) *testutil.TestDB {
 	)
 	database.SetTestDB(testDB.GormDB)
 	t.Cleanup(database.ResetTestDB)
+	oldClient := sharedHTTPClient
+	sharedHTTPClient = &http.Client{Transport: outboundTransport(func(r *http.Request) (*http.Response, error) {
+		return outboundResponse(200, `{"id":"`+r.URL.String()+`","inbox":"`+r.URL.String()+`/inbox"}`), nil
+	})}
+	t.Cleanup(func() { sharedHTTPClient = oldClient })
 	return testDB
 }
 
@@ -63,6 +68,7 @@ func TestStatusReachFinderGetInboxesWithFollowers(t *testing.T) {
 	remoteDomain := "remote.example.com"
 	remoteFollower := &models.Account{
 		Username: "follower1",
+		OriginId: "https://remote.example.com/users/follower1",
 		Domain:   &remoteDomain,
 	}
 	require.NoError(t, testDB.GormDB.Create(remoteFollower).Error)
@@ -97,8 +103,8 @@ func TestStatusReachFinderGetInboxesDedup(t *testing.T) {
 
 	// Create two remote followers from the same domain
 	remoteDomain := "shared.example.com"
-	f1 := &models.Account{Username: "f1", Domain: &remoteDomain}
-	f2 := &models.Account{Username: "f2", Domain: &remoteDomain}
+	f1 := &models.Account{Username: "f1", OriginId: "https://shared.example.com/users/f1", Domain: &remoteDomain}
+	f2 := &models.Account{Username: "f2", OriginId: "https://shared.example.com/users/f2", Domain: &remoteDomain}
 	require.NoError(t, testDB.GormDB.Create(f1).Error)
 	require.NoError(t, testDB.GormDB.Create(f2).Error)
 
@@ -164,6 +170,7 @@ func TestStatusReachFinderBlockedFollowerExcluded(t *testing.T) {
 	remoteDomain := "blocked.example.com"
 	blockedFollower := &models.Account{
 		Username: "blockedfollower",
+		OriginId: "https://blocked.example.com/users/blockedfollower",
 		Domain:   &remoteDomain,
 	}
 	require.NoError(t, testDB.GormDB.Create(blockedFollower).Error)
@@ -236,7 +243,7 @@ func TestAccountReachFinderGetInboxesWithFollowers(t *testing.T) {
 	require.NoError(t, testDB.GormDB.Create(account).Error)
 
 	remoteDomain := "remote2.example.com"
-	follower := &models.Account{Username: "follower2", Domain: &remoteDomain}
+	follower := &models.Account{Username: "follower2", OriginId: "https://remote2.example.com/users/follower2", Domain: &remoteDomain}
 	require.NoError(t, testDB.GormDB.Create(follower).Error)
 
 	require.NoError(t, testDB.GormDB.Create(&models.Follow{

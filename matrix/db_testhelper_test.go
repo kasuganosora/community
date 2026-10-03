@@ -115,6 +115,8 @@ func matrixTestModels() []any {
 		&models.AccountConversation{},
 		&models.Status{},
 		&models.StatusContent{},
+		// Status conversation hooks read mentions when saving direct messages.
+		&models.StatusToAccount{},
 		&models.MatrixUser{},
 		&models.MatrixRoom{},
 		&models.MatrixMessage{},

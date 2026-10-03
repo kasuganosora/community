@@ -1,6 +1,6 @@
 import client from '@/shared/api/client'
 import type { MastodonStatus, MastodonContext, MastodonPoll, MastodonAttachment, MastodonStatusSource } from '@/shared/types/mastodon'
-import type { CreateStatusParams, UpdateStatusParams } from '../domain/entities'
+import type { CreateStatusParams, ReplaceStatusParams } from '../domain/entities'
 
 /** Factory for status action endpoints that return a single MastodonStatus */
 function createStatusAction(action: string) {
@@ -37,8 +37,8 @@ export const postApi = {
     await client.delete(`/api/v1/statuses/${encodeURIComponent(id)}`)
   },
 
-  async updateStatus(id: string, params: UpdateStatusParams): Promise<MastodonStatus> {
-    const { data } = await client.put<MastodonStatus>(`/api/v1/statuses/${encodeURIComponent(id)}`, params)
+  async replaceStatus(id: string, params: ReplaceStatusParams): Promise<MastodonStatus> {
+    const { data } = await client.post<MastodonStatus>(`/api/v1/statuses/${encodeURIComponent(id)}/replace`, params)
     return data
   },
 

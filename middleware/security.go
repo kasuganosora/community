@@ -26,6 +26,12 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// 跨域隔离，提供针对 Spectre 类侧信道攻击的深度防御
 		c.Header("Cross-Origin-Opener-Policy", "same-origin")
 		c.Header("Cross-Origin-Resource-Policy", "same-origin")
+		// Uploaded media is intentionally embedded by separate web clients
+		// and federated instances. Keep documents private to their origin,
+		// but allow those clients to display the public media endpoint.
+		if strings.HasPrefix(c.Request.URL.Path, "/media/") {
+			c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+		}
 		// 内容安全策略
 		// TODO: 前端迁移到 nonce-based CSP 后移除 'unsafe-inline'
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self' wss: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
@@ -80,6 +86,7 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 		"X-Request-ID",
 	}
 	config.ExposeHeaders = []string{
+		"Link",
 		"Content-Length",
 		"Content-Type",
 		"X-Request-ID",

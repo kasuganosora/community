@@ -33,9 +33,9 @@ export const listApi = {
   },
 
   async getAccounts(id: string): Promise<MastodonAccount[]> {
-    const { data } = await client.get<MastodonAccount[]>(`/api/v1/lists/${encodeURIComponent(id)}/accounts`, {
-      params: { limit: 80 },
-    })
+    // This endpoint returns all members when limit is omitted. Its internal
+    // relationship cursor is not exposed, so a fixed limit hides members.
+    const { data } = await client.get<MastodonAccount[]>(`/api/v1/lists/${encodeURIComponent(id)}/accounts`)
     return data
   },
 

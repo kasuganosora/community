@@ -61,10 +61,19 @@ type MatrixEvent struct { //nolint:recvcheck
 	Redacts        *string        `gorm:"type:varchar(255)"                json:"redacts"`
 	SenderDomain   string         `gorm:"type:varchar(128)"                json:"sender_domain"`
 
+	// Canonical federation PDU is immutable; client-only metadata is kept separately.
+	FederationJSON string            `gorm:"type:longtext" json:"-"`
+	Hashes         map[string]string `gorm:"type:json;serializer:json" json:"hashes,omitempty"`
+
+	// The event's historical state before applying this event, separate from wire PDU.
+	StateBefore        []string `gorm:"type:json;serializer:json" json:"-"`
+	StateSnapshotKnown bool     `json:"-"`
+
 	// 签名（联邦用）
 	Signatures map[string]map[string]string `gorm:"type:json;serializer:json" json:"signatures,omitempty"`
 
 	// 客户端事务 ID（用于 unsigned.transaction_id）
+	TxnKey         *string `gorm:"type:varchar(255);uniqueIndex" json:"-"`
 	TxnID          *string `gorm:"type:varchar(255);index" json:"-"`
 	SenderDeviceID string  `gorm:"type:varchar(255)"       json:"-"`
 
@@ -89,7 +98,7 @@ func (e *MatrixEvent) BeforeCreate(tx *gorm.DB) error {
 		e.OriginServerTS = time.Now().UnixMilli()
 	}
 
-	return nil
+	return preparePersistedLocalPDU(tx, e)
 }
 
 // IsStateEvent 判断是否为状态事件.

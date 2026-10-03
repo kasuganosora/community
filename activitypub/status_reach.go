@@ -1,7 +1,7 @@
 package activitypub
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -78,11 +78,15 @@ func (f *StatusReachFinder) GetInboxes() ([]string, error) {
 // getFollowerInboxes 获取粉丝的 inbox URL.
 func (f *StatusReachFinder) getFollowerInboxes() ([]string, error) {
 	var inboxes []string
+	// Direct messages are never distributed to followers.
+	if f.status.Visibility == models.StatusVisibilityDirect {
+		return inboxes, nil
+	}
 
 	// 获取账户的粉丝
 	var follows []models.Follow
 
-	err := f.db.Where("follow_id = ?", f.status.AccountId).
+	err := f.db.Where("follow_id = ? AND status = ?", f.status.AccountId, models.FollowStatusFollowed).
 		Preload("Account").
 		Find(&follows).Error
 	if err != nil {
@@ -96,7 +100,10 @@ func (f *StatusReachFinder) getFollowerInboxes() ([]string, error) {
 				continue
 			}
 			// 远程账户，构建 inbox URL
-			inboxURL := fmt.Sprintf("https://%s/users/%s/inbox", *follow.Account.Domain, follow.Account.Username)
+			inboxURL, err := remoteActorInbox(context.Background(), follow.Account)
+			if err != nil {
+				return nil, err
+			}
 			inboxes = append(inboxes, inboxURL)
 		}
 	}
@@ -116,7 +123,10 @@ func (f *StatusReachFinder) getMentionInboxes() ([]string, error) { //nolint:unp
 				continue
 			}
 			// 远程账户，构建 inbox URL
-			inboxURL := fmt.Sprintf("https://%s/users/%s/inbox", *mention.Domain, mention.Username)
+			inboxURL, err := remoteActorInbox(context.Background(), mention)
+			if err != nil {
+				return nil, err
+			}
 			inboxes = append(inboxes, inboxURL)
 		}
 	}
@@ -127,7 +137,7 @@ func (f *StatusReachFinder) getMentionInboxes() ([]string, error) { //nolint:unp
 // getRelayInboxes 获取中继的 inbox URL.
 func (f *StatusReachFinder) getRelayInboxes() ([]string, error) {
 	// 只有公开状态才发送到中继
-	if !f.isPublicVisibility() {
+	if f.status.Visibility != models.StatusVisibilityPublic {
 		return nil, nil
 	}
 
@@ -152,39 +162,15 @@ func (f *StatusReachFinder) isAccountBlocked(accountId uint64) bool {
 
 // getStatusMentions 获取状态中提及的账户.
 func (f *StatusReachFinder) getStatusMentions() []*models.Account {
-	var accounts []*models.Account
-
-	// Get content from status
-	content := f.status.Content.Content
-
-	// Parse mentions from content
-	mentions := ParseMentions(content, nil)
-
-	// Resolve mentions to accounts
-	for _, mention := range mentions {
-		var account models.Account
-
-		// Try to find by origin ID first
-		if mention.URI != "" {
-			err := f.db.Where("origin_id = ?", mention.URI).First(&account).Error
-			if err == nil {
-				accounts = append(accounts, &account)
-
-				continue
-			}
-		}
-
-		// Try to find by username and domain
-		if mention.Domain != "" {
-			err := f.db.Where("username = ? AND domain = ?", mention.Username, mention.Domain).First(&account).Error
-			if err == nil {
-				accounts = append(accounts, &account)
-
-				continue
-			}
-		}
+	// Authorized mentions are normalized stored relationships; never reparse
+	// arbitrary rendered HTML to invent direct-message recipients.
+	if f.status.ToAccounts != nil {
+		return f.status.ToAccounts
 	}
-
+	var accounts []*models.Account
+	if f.status.Id > 0 {
+		_ = f.db.Model(f.status).Association("ToAccounts").Find(&accounts)
+	}
 	return accounts
 }
 
@@ -249,7 +235,7 @@ func (f *AccountReachFinder) getFollowerInboxes() ([]string, error) {
 
 	var follows []models.Follow
 
-	err := f.db.Where("follow_id = ?", f.account.Id).
+	err := f.db.Where("follow_id = ? AND status = ?", f.account.Id, models.FollowStatusFollowed).
 		Preload("Account").
 		Find(&follows).Error
 	if err != nil {
@@ -259,7 +245,10 @@ func (f *AccountReachFinder) getFollowerInboxes() ([]string, error) {
 	for _, follow := range follows {
 		if follow.Account != nil && follow.Account.Domain != nil {
 			// 远程账户，构建 inbox URL
-			inboxURL := fmt.Sprintf("https://%s/users/%s/inbox", *follow.Account.Domain, follow.Account.Username)
+			inboxURL, err := remoteActorInbox(context.Background(), follow.Account)
+			if err != nil {
+				return nil, err
+			}
 			inboxes = append(inboxes, inboxURL)
 		}
 	}

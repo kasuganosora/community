@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -256,6 +257,7 @@ func TestFederationClient_FederationHTTPClient_Caching(t *testing.T) {
 func TestHandleFederationVersion_ViaRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/_matrix/federation/v1/version", handleFederationVersion)
 
 	w := httptest.NewRecorder()
@@ -287,6 +289,7 @@ func TestHandleQueryProfile_InvalidUserID(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/query/profile", handleQueryProfile)
 
 	w := httptest.NewRecorder()
@@ -303,6 +306,7 @@ func TestHandleQueryProfile_RemoteUser(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/query/profile", handleQueryProfile)
 
 	w := httptest.NewRecorder()
@@ -322,6 +326,7 @@ func TestHandleMakeJoin_RoomNotFound(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/make_join/:roomId/:userId", handleMakeJoin)
 
 	w := httptest.NewRecorder()
@@ -329,7 +334,7 @@ func TestHandleMakeJoin_RoomNotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "M_NOT_FOUND")
+	assert.Contains(t, w.Body.String(), "M_FORBIDDEN")
 }
 
 func TestHandleMakeLeave_RoomNotFound(t *testing.T) {
@@ -339,6 +344,7 @@ func TestHandleMakeLeave_RoomNotFound(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/make_leave/:roomId/:userId", handleMakeLeave)
 
 	w := httptest.NewRecorder()
@@ -351,49 +357,36 @@ func TestHandleMakeLeave_RoomNotFound(t *testing.T) {
 // ===== handleSendJoin bad JSON =====
 
 func TestHandleSendJoin_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	restore := resetGlobalHS(minimalHS("test.local"))
+	hs, room := signedHandlerRoom(t)
+	restore := resetGlobalHS(hs)
 	defer restore()
-
 	r := gin.New()
-	r.PUT("/send_join/:roomId/:eventId", handleSendJoin)
-
+	r.PUT("/event/:roomId/:eventId", handleSendJoin)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_join/!room:test.local/$evt:1", strings.NewReader("invalid json"))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "M_BAD_JSON")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/$bad", strings.NewReader("not JSON")))
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 }
 
 func TestHandleSendJoinV1_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	restore := resetGlobalHS(minimalHS("test.local"))
+	hs, room := signedHandlerRoom(t)
+	restore := resetGlobalHS(hs)
 	defer restore()
-
 	r := gin.New()
-	r.PUT("/send_join/:roomId/:eventId", handleSendJoinV1)
-
+	r.PUT("/event/:roomId/:eventId", handleSendJoinV1)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_join/!room:test.local/$evt:1", strings.NewReader("not json"))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/$bad", strings.NewReader("not JSON")))
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 }
 
 func TestHandleSendLeave_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	restore := resetGlobalHS(minimalHS("test.local"))
+	hs, room := signedHandlerRoom(t)
+	restore := resetGlobalHS(hs)
 	defer restore()
-
 	r := gin.New()
-	r.PUT("/send_leave/:roomId/:eventId", handleSendLeave)
-
+	r.PUT("/event/:roomId/:eventId", handleSendLeave)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_leave/!room:test.local/$evt:1", strings.NewReader("bad"))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/$bad", strings.NewReader("not JSON")))
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 }
 
 func TestHandleFederationInvite_BadJSON(t *testing.T) {
@@ -402,6 +395,7 @@ func TestHandleFederationInvite_BadJSON(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/invite/:roomId/:eventId", handleFederationInvite)
 
 	w := httptest.NewRecorder()
@@ -419,6 +413,7 @@ func TestHandleFederationSend_BadJSON(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	w := httptest.NewRecorder()
@@ -435,6 +430,7 @@ func TestHandleFederationSend_EmptyTransaction(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	body := `{"origin":"remote.server","origin_server_ts":1234567890,"pdus":[],"edus":[]}`
@@ -455,6 +451,7 @@ func TestHandleQueryDirectory_NotFound(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/query/directory", handleQueryDirectory)
 
 	w := httptest.NewRecorder()
@@ -467,36 +464,38 @@ func TestHandleQueryDirectory_NotFound(t *testing.T) {
 
 // ===== handleGetState / handleGetStateIDs (empty room) =====
 
-func TestHandleGetState_EmptyRoom(t *testing.T) {
+func TestHandleGetState_UnknownRoomForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	setupMinimalTestDB(t)
 	restore := resetGlobalHS(minimalHS("test.local"))
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/state/:roomId", handleGetState)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/state/!empty:test.local", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-func TestHandleGetStateIDs_EmptyRoom(t *testing.T) {
+func TestHandleGetStateIDs_UnknownRoomForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	setupMinimalTestDB(t)
 	restore := resetGlobalHS(minimalHS("test.local"))
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/state_ids/:roomId", handleGetStateIDs)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/state_ids/!empty:test.local", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 // ===== handleGetFederationEvent (not found) =====
@@ -508,6 +507,7 @@ func TestHandleGetFederationEvent_NotFound(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/event/:eventId", handleGetFederationEvent)
 
 	w := httptest.NewRecorder()
@@ -515,7 +515,7 @@ func TestHandleGetFederationEvent_NotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "M_NOT_FOUND")
+	assert.Contains(t, w.Body.String(), "M_FORBIDDEN")
 }
 
 // ===== handleGetPublicRooms =====
@@ -527,6 +527,7 @@ func TestHandleGetPublicRooms_Empty(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/publicRooms", handleGetPublicRooms)
 
 	w := httptest.NewRecorder()
@@ -544,6 +545,7 @@ func TestHandleGetPublicRooms_WithLimit(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/publicRooms", handleGetPublicRooms)
 
 	w := httptest.NewRecorder()
@@ -566,51 +568,32 @@ func TestStoreFederationPDU_MissingFields(t *testing.T) {
 	}
 	eventID, err := storeFederationPDU(hs, event)
 	assert.Error(t, err)
-	assert.Equal(t, "$test:test.local", eventID)
+	assert.Empty(t, eventID)
 }
 
-func TestStoreFederationPDU_CreateRoom(t *testing.T) {
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
-
-	event := map[string]any{
-		"event_id":         "$create:test.local",
-		"room_id":          "!newroom:test.local",
-		"type":             "m.room.create",
-		"sender":           "@creator:test.local",
-		"state_key":        "",
-		"content":          map[string]any{"creator": "@creator:test.local", "room_version": "10"},
-		"origin_server_ts": float64(1234567890),
-	}
-	eventID, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-	assert.Equal(t, "$create:test.local", eventID)
+func TestStoreFederationPDU_UnsignedCreateCannotBootstrapRoom(t *testing.T) {
+	hs := createTestHomeServer(t)
+	_, err := storeFederationPDU(hs, map[string]any{"event_id": "$fake", "room_id": "!unknown:test.local", "type": "m.room.create", "sender": "@alice:test.local", "state_key": "", "content": map[string]any{"room_version": "10"}})
+	require.Error(t, err)
+	var n int64
+	require.NoError(t, db.GetDB().Model(&MatrixRoom{}).Where("room_id = ?", "!unknown:test.local").Count(&n).Error)
+	require.Zero(t, n)
 }
 
 func TestStoreFederationPDU_DuplicateEvent(t *testing.T) {
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
-
-	event := map[string]any{
-		"event_id":         "$dup:test.local",
-		"room_id":          "!room:test.local",
-		"type":             "m.room.message",
-		"sender":           "@alice:test.local",
-		"content":          map[string]any{"body": "hello"},
-		"origin_server_ts": float64(1234567890),
+	hs, room := signedHandlerRoom(t)
+	event := signedHandlerEvent(t, hs, room, "@alice:test.local", nil, "m.room.message", map[string]any{"msgtype": "m.text", "body": "deduplicated"})
+	wire, err := matrixEventToPDU(event)
+	require.NoError(t, err)
+	for i := 0; i < 2; i++ {
+		id, err := storeFederationPDU(hs, wire)
+		require.NoError(t, err)
+		require.Equal(t, event.EventID, id)
 	}
-
-	// First store
-	_, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-
-	// Second store (duplicate) - should return same eventID, no error
-	eventID, err := storeFederationPDU(hs, event)
-	require.NoError(t, err)
-	assert.Equal(t, "$dup:test.local", eventID)
+	var n int64
+	require.NoError(t, db.GetDB().Model(&MatrixEvent{}).Where("event_id = ?", event.EventID).Count(&n).Error)
+	require.EqualValues(t, 1, n)
 }
-
-// ===== buildAuthChainForRoom tests =====
 
 func TestBuildAuthChainForRoom_Empty(t *testing.T) {
 	setupMinimalTestDB(t)
@@ -621,169 +604,127 @@ func TestBuildAuthChainForRoom_Empty(t *testing.T) {
 // ===== handleMakeJoin / handleMakeLeave with existing room =====
 
 func TestHandleMakeJoin_RoomExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
-	// Create a room in DB
-	room := &MatrixRoom{RoomID: "!joinroom:test.local", RoomVersion: "10"}
-	require.NoError(t, db.GetDB().Create(room).Error)
-
 	r := gin.New()
-	r.GET("/make_join/:roomId/:userId", handleMakeJoin)
-
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
+	r.GET("/make/:roomId/:userId", handleMakeJoin)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/make_join/!joinroom:test.local/@alice:remote.server", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "test.local", resp["origin"])
-	assert.Equal(t, "10", resp["room_version"])
-
-	event, ok := resp["event"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "m.room.member", event["type"])
-	assert.Equal(t, "@alice:remote.server", event["sender"])
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/make/"+room.RoomID+"/@bob:test.local?ver=10", nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	event := response["event"].(map[string]any)
+	require.Equal(t, "join", event["content"].(map[string]any)["membership"])
+	require.NotEmpty(t, event["auth_events"])
 }
 
 func TestHandleMakeLeave_RoomExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
-	room := &MatrixRoom{RoomID: "!leaveroom:test.local", RoomVersion: "10"}
-	require.NoError(t, db.GetDB().Create(room).Error)
-
 	r := gin.New()
-	r.GET("/make_leave/:roomId/:userId", handleMakeLeave)
-
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
+	r.GET("/make/:roomId/:userId", handleMakeLeave)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/make_leave/!leaveroom:test.local/@bob:remote.server", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	event, ok := resp["event"].(map[string]any)
-	require.True(t, ok)
-	content := event["content"].(map[string]any)
-	assert.Equal(t, "leave", content["membership"])
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/make/"+room.RoomID+"/@alice:test.local?ver=10", nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	event := response["event"].(map[string]any)
+	require.Equal(t, "leave", event["content"].(map[string]any)["membership"])
+	require.NotEmpty(t, event["auth_events"])
 }
 
-// ===== handleSendJoin success =====
-
 func TestHandleSendJoin_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
+	user := "@bob:test.local"
+	event := signedHandlerEvent(t, hs, room, user, &user, "m.room.member", map[string]any{"membership": "join"})
 	r := gin.New()
-	r.PUT("/send_join/:roomId/:eventId", handleSendJoin)
-
-	body := `{"event_id":"$join:test.local","sender":"@alice:remote.server","state_key":"@alice:remote.server","content":{"membership":"join"},"origin_server_ts":1234567890}`
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
+	r.PUT("/event/:roomId/:eventId", handleSendJoin)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_join/!room:test.local/$join:test.local", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "origin")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/"+event.EventID, strings.NewReader(event.FederationJSON)))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var stored MatrixEvent
+	require.NoError(t, db.GetDB().Where("event_id = ?", event.EventID).First(&stored).Error)
+	require.Equal(t, "join", stored.Content["membership"])
 }
 
 func TestHandleSendJoinV1_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
+	user := "@bob:test.local"
+	event := signedHandlerEvent(t, hs, room, user, &user, "m.room.member", map[string]any{"membership": "join"})
 	r := gin.New()
-	r.PUT("/send_join/:roomId/:eventId", handleSendJoinV1)
-
-	body := `{"event_id":"$joinv1:test.local","sender":"@alice:remote.server","state_key":"@alice:remote.server","content":{"membership":"join"}}`
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
+	r.PUT("/event/:roomId/:eventId", handleSendJoinV1)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_join/!room:test.local/$joinv1:test.local", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	// V1 format wraps in [200, {...}]
-	assert.Contains(t, w.Body.String(), "origin")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/"+event.EventID, strings.NewReader(event.FederationJSON)))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var stored MatrixEvent
+	require.NoError(t, db.GetDB().Where("event_id = ?", event.EventID).First(&stored).Error)
+	require.Equal(t, "join", stored.Content["membership"])
 }
-
-// ===== handleSendLeave success =====
 
 func TestHandleSendLeave_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
+	user := "@alice:test.local"
+	event := signedHandlerEvent(t, hs, room, user, &user, "m.room.member", map[string]any{"membership": "leave"})
 	r := gin.New()
-	r.PUT("/send_leave/:roomId/:eventId", handleSendLeave)
-
-	body := `{"event_id":"$leave:test.local","sender":"@alice:remote.server","state_key":"@alice:remote.server","content":{"membership":"leave"},"origin_server_ts":1234567890}`
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
+	r.PUT("/event/:roomId/:eventId", handleSendLeave)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send_leave/!room:test.local/$leave:test.local", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "event")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/event/"+room.RoomID+"/"+event.EventID, strings.NewReader(event.FederationJSON)))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var stored MatrixEvent
+	require.NoError(t, db.GetDB().Where("event_id = ?", event.EventID).First(&stored).Error)
+	require.Equal(t, "leave", stored.Content["membership"])
 }
 
-// ===== handleFederationInvite success =====
-
-func TestHandleFederationInvite_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+func TestHandleFederationInvite_RejectsUnsignedLegacyEnvelope(t *testing.T) {
+	hs, _ := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
 	r := gin.New()
 	r.PUT("/invite/:roomId/:eventId", handleFederationInvite)
-
-	body := `{"sender":"@inviter:remote.server","state_key":"@invitee:test.local","content":{"membership":"invite","displayname":"Invitee"}}`
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/invite/!room:test.local/$invite:1", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "event")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/invite/!room:test.local/$fake", strings.NewReader(`{"sender":"@alice:remote.server","state_key":"@bob:test.local","content":{"membership":"invite"}}`)))
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	var n int64
+	require.NoError(t, db.GetDB().Model(&MatrixEvent{}).Where("event_id = ?", "$fake").Count(&n).Error)
+	require.Zero(t, n)
 }
 
-// ===== handleFederationSend with PDUs =====
-
-func TestHandleFederationSend_WithPDUs(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+func TestHandleFederationSend_WithSignedPDUs(t *testing.T) {
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
+	event := signedHandlerEvent(t, hs, room, "@alice:test.local", nil, "m.room.message", map[string]any{"msgtype": "m.text", "body": "federated"})
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
-
-	pdu := `{"event_id":"$msg:test.local","room_id":"!sendroom:test.local","type":"m.room.message","sender":"@alice:remote.server","content":{"body":"hello","msgtype":"m.text"},"origin_server_ts":1234567890}`
-	body := `{"origin":"remote.server","origin_server_ts":1234567890,"pdus":[` + pdu + `],"edus":[]}`
+	body := `{"origin":"test.local","pdus":[` + event.FederationJSON + `],"edus":[]}`
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/send/txn123", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "pdus")
+	r.ServeHTTP(w, httptest.NewRequest("PUT", "/send/signed", strings.NewReader(body)))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		PDUs map[string]map[string]any `json:"pdus"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	result, ok := response.PDUs[event.EventID]
+	require.True(t, ok)
+	require.Empty(t, result)
+	var stored MatrixEvent
+	require.NoError(t, db.GetDB().Where("event_id = ?", event.EventID).First(&stored).Error)
+	require.Equal(t, "federated", stored.Content["body"])
 }
-
-// ===== handleFederationSend with EDUs (typing, presence, receipt) =====
 
 func TestHandleFederationSend_TypingEDU(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -793,6 +734,7 @@ func TestHandleFederationSend_TypingEDU(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	typingEDU := `{"edu_type":"m.typing","content":{"room_id":"!typing:test.local","user_ids":["@alice:remote.server"]}}`
@@ -812,6 +754,7 @@ func TestHandleFederationSend_PresenceEDU(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	presenceEDU := `{"edu_type":"m.presence","content":{"user_id":"@alice:remote.server","presence":"online"}}`
@@ -831,6 +774,7 @@ func TestHandleFederationSend_ReceiptEDU(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	receiptEDU := `{"edu_type":"m.receipt","content":{"!room:test.local":{"$event:1":{"m.read":{"@alice:remote.server":{"ts":1234567890}}}}}}`
@@ -850,6 +794,7 @@ func TestHandleFederationSend_DeviceListEDU(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.PUT("/send/:txnId", handleFederationSend)
 
 	dlEDU := `{"edu_type":"m.device_list_update","origin":"remote.server","content":{"user_id":"@alice:remote.server","device_id":"DEV1","stream_id":1,"changed":["DEV1"]}}`
@@ -864,76 +809,100 @@ func TestHandleFederationSend_DeviceListEDU(t *testing.T) {
 // ===== handleGetState with existing room =====
 
 func TestHandleGetState_RoomExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
-	room := &MatrixRoom{RoomID: "!stateroom:test.local", RoomVersion: "10"}
-	require.NoError(t, db.GetDB().Create(room).Error)
-
+	before, err := currentStatePDUs(db.GetDB(), room.RoomID, "10")
+	require.NoError(t, err)
+	expected := make([]string, 0, len(before))
+	for _, pdu := range before {
+		expected = append(expected, pdu.EventID())
+	}
+	anchor := signedHandlerEvent(t, hs, room, "@alice:test.local", nil, "m.room.message", map[string]any{"msgtype": "m.text", "body": "historical state anchor"})
+	wire, err := matrixEventToPDU(anchor)
+	require.NoError(t, err)
+	_, err = storeFederationPDU(hs, wire)
+	require.NoError(t, err)
+	key := ""
+	later := signedHandlerEvent(t, hs, room, "@alice:test.local", &key, "m.room.topic", map[string]any{"topic": "after anchor"})
+	wire, err = matrixEventToPDU(later)
+	require.NoError(t, err)
+	_, err = storeFederationPDU(hs, wire)
+	require.NoError(t, err)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
 	r.GET("/state/:roomId", handleGetState)
-
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/state/!stateroom:test.local", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "pdus")
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/state/"+room.RoomID+"?event_id="+url.QueryEscape(anchor.EventID), nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		PDUs []map[string]any `json:"pdus"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	actual := make([]string, 0, len(response.PDUs))
+	for _, wire := range response.PDUs {
+		pdu, err := decodeWirePDU("10", wire)
+		require.NoError(t, err)
+		actual = append(actual, pdu.EventID())
+	}
+	require.ElementsMatch(t, expected, actual)
+	require.NotContains(t, actual, later.EventID)
 }
 
 func TestHandleGetStateIDs_RoomExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
-	room := &MatrixRoom{RoomID: "!stateidsroom:test.local", RoomVersion: "10"}
-	require.NoError(t, db.GetDB().Create(room).Error)
-
+	before, err := currentStatePDUs(db.GetDB(), room.RoomID, "10")
+	require.NoError(t, err)
+	expected := make([]string, 0, len(before))
+	for _, pdu := range before {
+		expected = append(expected, pdu.EventID())
+	}
+	anchor := signedHandlerEvent(t, hs, room, "@alice:test.local", nil, "m.room.message", map[string]any{"msgtype": "m.text", "body": "historical state anchor"})
+	wire, err := matrixEventToPDU(anchor)
+	require.NoError(t, err)
+	_, err = storeFederationPDU(hs, wire)
+	require.NoError(t, err)
+	key := ""
+	later := signedHandlerEvent(t, hs, room, "@alice:test.local", &key, "m.room.topic", map[string]any{"topic": "after anchor"})
+	wire, err = matrixEventToPDU(later)
+	require.NoError(t, err)
+	_, err = storeFederationPDU(hs, wire)
+	require.NoError(t, err)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
 	r.GET("/state_ids/:roomId", handleGetStateIDs)
-
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/state_ids/!stateidsroom:test.local", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/state_ids/"+room.RoomID+"?event_id="+url.QueryEscape(anchor.EventID), nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		IDs []string `json:"pdu_ids"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.ElementsMatch(t, expected, response.IDs)
+	require.NotContains(t, response.IDs, later.EventID)
 }
-
-// ===== handleGetFederationEvent existing =====
 
 func TestHandleGetFederationEvent_Exists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	setupMinimalTestDB(t)
-	hs := minimalHS("test.local")
+	hs, room := signedHandlerRoom(t)
 	restore := resetGlobalHS(hs)
 	defer restore()
-
-	evt := &MatrixEvent{
-		EventID:        "$fethevent:test.local",
-		RoomID:         "!room:test.local",
-		EventType:      EventTypeRoomMessage,
-		Sender:         "@alice:test.local",
-		OriginServerTS: 1234567890,
-	}
-	require.NoError(t, db.GetDB().Create(evt).Error)
-
+	var event MatrixEvent
+	require.NoError(t, db.GetDB().Where("room_id = ?", room.RoomID).Order("depth DESC").First(&event).Error)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "test.local"); c.Next() })
 	r.GET("/event/:eventId", handleGetFederationEvent)
-
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/event/$fethevent:test.local", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "pdus")
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/event/"+event.EventID, nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		PDUs []map[string]any `json:"pdus"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.PDUs, 1)
+	require.NotEmpty(t, response.PDUs[0]["signatures"])
 }
-
-// ===== handleGetPublicRooms with public rooms =====
 
 func TestHandleGetPublicRooms_WithRooms(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -953,6 +922,7 @@ func TestHandleGetPublicRooms_WithRooms(t *testing.T) {
 	require.NoError(t, db.GetDB().Create(room).Error)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	r.GET("/publicRooms", handleGetPublicRooms)
 
 	w := httptest.NewRecorder()
@@ -973,6 +943,7 @@ func TestRegisterFederationRoutes_HSEnabled(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	RegisterFederationRoutes(r)
 
 	// version endpoint should work
@@ -994,6 +965,7 @@ func TestRegisterFederationRoutes_HSDisabled(t *testing.T) {
 	defer restore()
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("origin", "remote.server"); c.Next() })
 	// Should not register any routes
 	RegisterFederationRoutes(r)
 
@@ -1097,4 +1069,19 @@ func fullHS(serverName string) *HomeServer {
 	hs.Push = NewPushService(hs)
 	hs.SyncNotifier = NewSyncNotifier()
 	return hs
+}
+
+// Handler tests bypass only HTTP request authentication; PDUs use real room auth chains and signatures.
+func signedHandlerRoom(t *testing.T) (*HomeServer, *CreateRoomResponse) {
+	t.Helper()
+	hs := createTestHomeServer(t)
+	room, e := hs.Room.CreateRoom("@alice:test.local", &CreateRoomRequest{Preset: "public_chat", RoomVersion: "10"})
+	require.Nil(t, e)
+	return hs, room
+}
+func signedHandlerEvent(t *testing.T, hs *HomeServer, room *CreateRoomResponse, sender string, stateKey *string, kind string, content map[string]any) *MatrixEvent {
+	t.Helper()
+	event := &MatrixEvent{RoomID: room.RoomID, Sender: sender, StateKey: stateKey, EventType: EventType(kind), Content: content, OriginServerTS: time.Now().UnixMilli()}
+	require.NoError(t, buildLocalPDU(db.GetDB(), hs, event, "10"))
+	return event
 }

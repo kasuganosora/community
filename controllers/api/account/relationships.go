@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -85,10 +86,15 @@ func Followers(c *gin.Context) {
 	}
 
 	follows := make([]*models.Follow, 0)
-	if err := query.Limit(req.Limit).Find(&follows).Error; err != nil {
+	if err := query.Limit(req.Limit + 1).Find(&follows).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get followers error"))
 
 		return
+	}
+
+	if len(follows) > req.Limit {
+		follows = follows[:req.Limit]
+		common.SetNextPage(c, follows[len(follows)-1].Id)
 	}
 
 	// Extract accounts
@@ -151,8 +157,6 @@ func Following(c *gin.Context) {
 
 	// Query following (accounts that this account follows)
 	query := db.GetDB().Model(&models.Follow{}).
-		Joins("LEFT JOIN accounts ON accounts.id = follows.follow_id").
-		Preload("Account.Emojis", "account_id = follows.follow_id").
 		Scopes(models.Followed).
 		Where("follows.account_id = ?", accountId).
 		Order("follows.id DESC")
@@ -171,10 +175,15 @@ func Following(c *gin.Context) {
 	}
 
 	follows := make([]*models.Follow, 0)
-	if err := query.Limit(req.Limit).Find(&follows).Error; err != nil {
+	if err := query.Limit(req.Limit + 1).Find(&follows).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get following error"))
 
 		return
+	}
+
+	if len(follows) > req.Limit {
+		follows = follows[:req.Limit]
+		common.SetNextPage(c, follows[len(follows)-1].Id)
 	}
 
 	// Load follow accounts separately
@@ -190,6 +199,17 @@ func Following(c *gin.Context) {
 			_ = c.Error(errors.Wrap(err, "get accounts error"))
 
 			return
+		}
+	}
+
+	byID := make(map[uint64]*models.Account, len(accounts))
+	for _, account := range accounts {
+		byID[account.Id] = account
+	}
+	accounts = make([]*models.Account, 0, len(accountIds))
+	for _, id := range accountIds {
+		if account := byID[id]; account != nil {
+			accounts = append(accounts, account)
 		}
 	}
 

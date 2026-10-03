@@ -539,8 +539,20 @@ func TestPrevEventsMatchRoomVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(legacy.PrevEvents) < 2 || len(legacy.PrevEvents) > 10 {
-		t.Fatalf("room v1 prev_events = %d, want 2..10", len(legacy.PrevEvents))
+	if len(legacy.PrevEvents) != 1 {
+		t.Fatalf("linear room v1 DAG has %d predecessors, want its single forward extremity", len(legacy.PrevEvents))
+	}
+	wire, err := matrixEventToPDU(&legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev, ok := wire["prev_events"].([]any)
+	if !ok || len(prev) != 1 {
+		t.Fatalf("v1 must encode predecessor reference tuples: %#v", wire["prev_events"])
+	}
+	tuple, ok := prev[0].([]any)
+	if !ok || len(tuple) != 2 || tuple[0] != legacy.PrevEvents[0] {
+		t.Fatalf("v1 predecessor must contain event ID and hash: %#v", prev)
 	}
 }
 

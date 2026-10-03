@@ -127,6 +127,7 @@ const MainRoutes: RouteRecordRaw[] = [
   },
   {
     path: '@:username/status/:statusId',
+    alias: '@:username/:statusId(\\d+)',
     name: RouteNames.POST_DETAIL,
     component: () => import('@/domains/post/presentation/pages/PostDetailPage.vue'),
     props: true,

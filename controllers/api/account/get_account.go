@@ -36,12 +36,13 @@ func GetAccount(c *gin.Context) {
 		var cached models.Account
 		cacheKey := fmt.Sprintf(cache.KeyAccountByAcct, accountId)
 		if err := cache.GetCache().Get(c.Request.Context(), cacheKey, &cached); err == nil {
-			c.JSON(200, serializer.ToAccount(&cached))
-
-			return
+			// Extra and Emojis use json:"-" and are not present in cached
+			// Account JSON. Always hydrate these associations below; returning
+			// the cache directly silently reset counters and fields to zero.
+			account = &cached
+		} else {
+			err = db.GetDB().Where("id = ?", accountId).First(&account).Error
 		}
-
-		err = db.GetDB().Where("id = ?", accountId).First(&account).Error
 	}
 
 	if err != nil {

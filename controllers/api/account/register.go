@@ -416,7 +416,7 @@ func checkExists(username string, email string) (existsFieldName string, err err
 var usernameRegexp = regexp.MustCompile(`^[\p{L}\p{N}_]+$`)
 
 const (
-	maxUsernameLength = 30
+	maxUsernameLength = 20
 	minPasswordLength = 8
 	maxDisplayNameLen = 64
 )
@@ -425,7 +425,7 @@ const (
 // and returns an error message, or "" when they are acceptable.
 func validateRegisterRequest(req *RegisterRequest) string {
 	if n := utf8.RuneCountInString(req.UserName); n == 0 || n > maxUsernameLength || !usernameRegexp.MatchString(req.UserName) {
-		return "username may only contain letters, numbers and underscores (max 30 characters)"
+		return "username may only contain letters, numbers and underscores (max 20 characters)"
 	}
 
 	if utf8.RuneCountInString(req.DisplayName) > maxDisplayNameLen {

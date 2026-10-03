@@ -2,6 +2,7 @@ package search
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/search"
@@ -75,6 +76,17 @@ func Search(c *gin.Context) {
 	searchType := strings.ToLower(req.Type)
 	if searchType == "" {
 		searchType = "all"
+	}
+
+	if req.Resolve && currentAccount != nil && (searchType == "accounts" || searchType == "all") {
+		resolved, resolveErr := activitypub.ResolveSearchAccount(c.Request.Context(), req.Q)
+		if resolveErr != nil {
+			c.AbortWithStatusJSON(422, gin.H{"error": "remote account could not be resolved"})
+			return
+		}
+		if resolved != nil && resolved.Domain != nil {
+			req.Q = resolved.Username + "@" + *resolved.Domain
+		}
 	}
 
 	switch searchType {

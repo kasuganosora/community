@@ -157,7 +157,7 @@ func TestHandleBackfill_RoomNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/backfill/!nonexistent:test.local?limit=10&v=$evt:1", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code, "unverified server must not read history")
 }
 
 func TestRegisterBackfillRoutes_GlobalHSNil(t *testing.T) {
@@ -228,7 +228,7 @@ func TestHandleEventAuth_RoomNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/event_auth/!nonexistent:test.local/$evt:1", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code, "unverified server must not read event auth")
 }
 
 func TestRegisterAdditionalFederationRoutes_GlobalHSNil(t *testing.T) {

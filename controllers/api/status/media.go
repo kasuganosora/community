@@ -1,6 +1,7 @@
 package status
 
 import (
+	"gorm.io/gorm"
 	"strconv"
 
 	"github.com/kasuganosora/community/db"
@@ -12,6 +13,10 @@ import (
 // either unattached or already attached to statusId (0 for a new status).
 // The result keeps the order of mediaIds. ok is false if any id is invalid.
 func loadAttachableMedia(mediaIds []string, accountId uint64, statusId uint64) (attachments models.Attachments, ok bool) {
+	return loadAttachableMediaDB(db.GetDB(), mediaIds, accountId, statusId)
+}
+
+func loadAttachableMediaDB(conn *gorm.DB, mediaIds []string, accountId uint64, statusId uint64) (attachments models.Attachments, ok bool) {
 	ids := make([]uint64, 0, len(mediaIds))
 	seen := make(map[uint64]bool, len(mediaIds))
 
@@ -31,7 +36,7 @@ func loadAttachableMedia(mediaIds []string, accountId uint64, statusId uint64) (
 
 	found := make(models.Attachments, 0, len(ids))
 
-	err := db.GetDB().Where("id IN ?", ids).Where("account_id = ?", accountId).Find(&found).Error
+	err := conn.Where("id IN ?", ids).Where("account_id = ?", accountId).Find(&found).Error
 	if err != nil {
 		return nil, false
 	}

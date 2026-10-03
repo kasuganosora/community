@@ -297,7 +297,7 @@ func (a *AuthService) createSession(account models.Account, deviceID *string, di
 		RefreshToken: refreshToken,
 		WellKnown:    &WellKnown{},
 	}
-	resp.WellKnown.Homeserver.BaseURL = "https://" + a.HS.Config.ServerName
+	resp.WellKnown.Homeserver.BaseURL = a.GetWellKnown().Homeserver.BaseURL
 
 	return resp, nil
 }
@@ -364,7 +364,7 @@ func (a *AuthService) Register(req *RegisterRequest, isAdmin bool) (*RegisterRes
 	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
 
 	// Validate localpart per Matrix spec: [a-z0-9._=/-]+
-	if !validLocalpartRe.MatchString(req.Username) {
+	if len(req.Username) > 20 || !validLocalpartRe.MatchString(req.Username) {
 		return nil, ErrInvalidUsername
 	}
 
@@ -711,7 +711,10 @@ type ServerWellKnown struct {
 // GetWellKnown 获取服务器发现信息.
 func (a *AuthService) GetWellKnown() *ServerWellKnown {
 	wk := &ServerWellKnown{}
-	wk.Homeserver.BaseURL = "https://" + a.HS.Config.ServerName
+	wk.Homeserver.BaseURL = a.HS.Config.BaseURL
+	if wk.Homeserver.BaseURL == "" {
+		wk.Homeserver.BaseURL = "https://" + a.HS.Config.ServerName
+	}
 
 	return wk
 }

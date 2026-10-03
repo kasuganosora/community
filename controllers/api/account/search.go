@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -10,10 +11,10 @@ import (
 )
 
 type SearchRequest struct {
-	Keyword   string `binding:"required,min=1,max=100" form:"q"`
+	Keyword   string `binding:"required,min=1,max=500" form:"q"`
 	Limit     int    `binding:"omitempty,min=1,max=100" form:"limit"`
 	Offset    int    `binding:"min=0"                  form:"offset"`
-	Resolve   bool   `form:"resolve"`   // 是否使用 WebFinger 协议 查找， q必须为精确的账号地址 TODO ...
+	Resolve   bool   `form:"resolve"`   // 是否解析精确的远端账号地址
 	Following bool   `form:"following"` // 是否只查找关注的账号
 }
 
@@ -31,6 +32,16 @@ func Search(c *gin.Context) {
 		req.Limit = 4
 	}
 
+	if req.Resolve && c.GetBool("authenticated") {
+		resolved, err := activitypub.ResolveSearchAccount(c.Request.Context(), req.Keyword)
+		if err != nil {
+			c.AbortWithStatusJSON(422, gin.H{"error": "remote account could not be resolved"})
+			return
+		}
+		if resolved != nil && resolved.Domain != nil {
+			req.Keyword = resolved.Username + "@" + *resolved.Domain
+		}
+	}
 	accounts := make([]*models.Account, 0)
 	req.Keyword = strings.Trim(req.Keyword, " \t\n@")
 	keywordParts := strings.Split(req.Keyword, "@")

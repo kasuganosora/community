@@ -14,7 +14,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 const props = defineProps<{
   /** Compose a reply to this status (prefills mentions and visibility). */
   replyTo?: MastodonStatus | null
-  /** Edit this (own) status instead of creating a new one. */
+  /** Replace this own status by deleting it and publishing a new status. */
   editStatus?: MastodonStatus | null
   placeholder?: string
   autofocus?: boolean
@@ -23,7 +23,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** The created (or, in edit mode, updated) status returned by the API. */
+  /** The newly created status returned by the API. */
   posted: [status: MastodonStatus]
   cancel: []
 }>()
@@ -39,6 +39,8 @@ const poll = ref<PollDraft | null>(null)
 interface MediaItem { key: string; name: string; uploading: boolean; attachment?: MastodonAttachment; error?: string }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
+const loadingSource = ref(!!props.editStatus)
+const sourceUnavailable = ref(false)
 const error = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement>()
 const textareaRef = ref<{ focus?: () => void } | null>(null)
@@ -61,18 +63,18 @@ const draft = computed<ComposeDraft>(() => ({
     ? visibility.value
     : (choices.value[0]?.value ?? visibility.value),
   poll: poll.value,
-  mediaIds: mediaIds.value,
+  mediaIds: props.editStatus ? props.editStatus.media_attachments.map(m => m.id) : mediaIds.value,
   inReplyToId: props.replyTo?.id,
 }))
 const charCount = computed(() => composeLength(draft.value))
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH))
-const canPost = computed(() => !validationError.value && !posting.value && !uploading.value)
+const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? `回复 @${props.replyTo.account.acct}` : '有什么新鲜事？'))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
 const submitLabel = computed(() => {
-  if (isEdit.value) return '保存'
+  if (isEdit.value) return '删除原帖并重发'
   if (props.replyTo) return '回复'
   return draft.value.visibility === 'direct' ? '发送' : '发布'
 })
@@ -98,10 +100,10 @@ async function loadEditSource() {
     spoilerEnabled.value = !!src.spoiler_text
     spoilerText.value = src.spoiler_text || ''
   } catch {
-    // Fall back to the rendered content as plain text.
-    const div = document.createElement('div')
-    div.innerHTML = s.content
-    content.value = div.textContent || ''
+    sourceUnavailable.value = true
+    error.value = '无法读取原帖内容，请关闭后重试，原帖尚未更改。'
+  } finally {
+    loadingSource.value = false
   }
 }
 
@@ -175,7 +177,7 @@ function reset() {
 }
 
 async function handlePost() {
-  if (posting.value) return
+  if (posting.value || uploading.value || loadingSource.value || sourceUnavailable.value) return
   if (validationError.value) {
     error.value = validationError.value
     return
@@ -185,7 +187,7 @@ async function handlePost() {
   try {
     let status: MastodonStatus
     if (props.editStatus) {
-      status = await postApi.updateStatus(props.editStatus.id, {
+      status = await postApi.replaceStatus(props.editStatus.id, {
         status: content.value,
         spoiler_text: spoilerEnabled.value ? spoilerText.value.trim() : '',
         sensitive: spoilerEnabled.value && !!spoilerText.value.trim(),
@@ -197,7 +199,8 @@ async function handlePost() {
     if (!props.editStatus) reset()
   } catch (e) {
     console.error('Failed to post status:', e)
-    error.value = (e instanceof Error && e.message) ? `发布失败：${e.message}` : '发布失败，请重试'
+    const reason = e instanceof Error && e.message ? `：${e.message}` : '，请重试'
+    error.value = `${isEdit.value ? '删除重发未完成，草稿已保留' : '发布失败'}${reason}`
   } finally {
     posting.value = false
   }
@@ -216,6 +219,10 @@ defineExpose({ focus, reset })
 
 <template>
   <div class="composer" @keydown="onKeydown">
+    <p v-if="isEdit" class="composer__replace-notice" role="note">
+      编辑会删除原帖并重新发布，帖子链接会改变。点赞、转发、书签和投票记录不会保留，已有回复不会迁移。可见范围、回复对象和附件保持不变。
+      <span v-if="editStatus?.poll">投票截止时间保持不变。</span>
+    </p>
     <div class="composer__body">
       <UserAvatar
         v-if="authStore.currentUser"
@@ -240,6 +247,7 @@ defineExpose({ focus, reset })
           :aria-label="placeholderText"
           :autosize="{ minRows: 1, maxRows: 12 }"
           class="composer__textarea"
+          :disabled="loadingSource || posting"
         />
 
         <ul v-if="media.length" class="composer__media" aria-label="已添加的媒体">
@@ -399,6 +407,15 @@ defineExpose({ focus, reset })
 .composer {
   padding: var(--space-3) var(--gutter);
   box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--color-separator);
+}
+
+.composer__replace-notice {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
 }
 
 .composer__body {

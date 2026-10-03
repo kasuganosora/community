@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"strconv"
 )
 
@@ -99,55 +100,56 @@ func Authorize(c *gin.Context) {
 	// Get current account
 	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Find the follow request
-	followRequest := &models.Follow{}
-
-	err = db.GetDB().Scopes(models.FollowRequested).
-		Where("account_id = ? AND follow_id = ?", targetId, currentAccount.Id).
-		First(followRequest).Error
+	// Lock the pending row and update both counters in the same transaction,
+	// so concurrent approvals cannot count the same request twice.
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		followRequest := &models.Follow{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Scopes(models.FollowRequested).
+			Where("account_id = ? AND follow_id = ?", targetId, currentAccount.Id).First(followRequest).Error; err != nil {
+			return err
+		}
+		followRequest.Status = models.FollowStatusFollowed
+		if err := tx.Save(followRequest).Error; err != nil {
+			return err
+		}
+		if err := models.QueueFederationFollowDecision(tx, "Accept", followRequest); err != nil {
+			return err
+		}
+		if err := tx.Model(&models.AccountExtra{}).Where("account_id = ?", currentAccount.Id).
+			UpdateColumn("followers_count", gorm.Expr("followers_count + ?", 1)).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.AccountExtra{}).Where("account_id = ?", targetId).
+			UpdateColumn("following_count", gorm.Expr("following_count + ?", 1)).Error
+	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "follow request not found"})
-
-			return
+		} else {
+			_ = c.Error(errors.Wrap(err, "authorize follow request error"))
 		}
-
-		_ = c.Error(errors.Wrap(err, "get follow request error"))
-
 		return
 	}
 
-	// Update status to followed
-	followRequest.Status = models.FollowStatusFollowed
-	if err := db.GetDB().Save(followRequest).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "update follow request error"))
-
+	// Report the relationship from the authenticated owner's perspective.
+	outgoing := &models.Follow{}
+	lookupErr := db.GetDB().Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetId).First(outgoing).Error
+	if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		_ = c.Error(errors.Wrap(lookupErr, "get outgoing relationship error"))
 		return
 	}
-
-	// Update follower count for current account
-	if err := db.GetDB().Model(&models.AccountExtra{}).
-		Where("account_id = ?", currentAccount.Id).
-		UpdateColumn("followers_count", gorm.Expr("followers_count + ?", 1)).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "update followers count error"))
-	}
-
-	// Update following count for target account
-	if err := db.GetDB().Model(&models.AccountExtra{}).
-		Where("account_id = ?", targetId).
-		UpdateColumn("following_count", gorm.Expr("following_count + ?", 1)).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "update following count error"))
-	}
+	following := lookupErr == nil && outgoing.Status == models.FollowStatusFollowed
+	requested := lookupErr == nil && outgoing.Status == models.FollowStatusRequested
 
 	// Return relationship
 	c.JSON(200, gin.H{
 		"id":                   targetAccountId,
-		"following":            true,
-		"followed_by":          false,
+		"following":            following,
+		"followed_by":          true,
 		"blocking":             false,
 		"muting":               false,
 		"muting_notifications": false,
-		"requested":            false,
+		"requested":            requested,
 		"domain_blocking":      false,
 		"showing_reblogs":      true,
 		"endorsed":             false,
@@ -175,32 +177,45 @@ func Reject(c *gin.Context) {
 	// Get current account
 	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Find and delete the follow request
-	result := db.GetDB().Scopes(models.FollowRequested).
-		Where("account_id = ? AND follow_id = ?", targetId, currentAccount.Id).
-		Delete(&models.Follow{})
-
-	if result.Error != nil {
-		_ = c.Error(errors.Wrap(result.Error, "delete follow request error"))
-
+	// Persist the rejection response before deleting its original Follow ID.
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		var request models.Follow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Scopes(models.FollowRequested).Where("account_id = ? AND follow_id = ?", targetId, currentAccount.Id).First(&request).Error; err != nil {
+			return err
+		}
+		if err := models.QueueFederationFollowDecision(tx, "Reject", &request); err != nil {
+			return err
+		}
+		return tx.Delete(&request).Error
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(404, gin.H{"error": "follow request not found"})
+		} else {
+			_ = c.Error(errors.Wrap(err, "delete follow request error"))
+		}
 		return
 	}
 
-	if result.RowsAffected == 0 {
-		c.AbortWithStatusJSON(404, gin.H{"error": "follow request not found"})
-
+	// Report the relationship from the authenticated owner's perspective.
+	outgoing := &models.Follow{}
+	lookupErr := db.GetDB().Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetId).First(outgoing).Error
+	if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		_ = c.Error(errors.Wrap(lookupErr, "get outgoing relationship error"))
 		return
 	}
+	following := lookupErr == nil && outgoing.Status == models.FollowStatusFollowed
+	requested := lookupErr == nil && outgoing.Status == models.FollowStatusRequested
 
 	// Return relationship
 	c.JSON(200, gin.H{
 		"id":                   targetAccountId,
-		"following":            false,
+		"following":            following,
 		"followed_by":          false,
 		"blocking":             false,
 		"muting":               false,
 		"muting_notifications": false,
-		"requested":            false,
+		"requested":            requested,
 		"domain_blocking":      false,
 		"showing_reblogs":      true,
 		"endorsed":             false,

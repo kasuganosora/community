@@ -139,9 +139,8 @@ export const useTimelineStore = defineStore('timeline', () => {
       if (!list.some(s => s.id === status.id)) list.unshift(status)
     }
     add(homeTimeline.value.statuses)
-    // Only public posts belong on the public timeline (and only once loaded);
-    // unlisted/followers-only/direct posts used to show up there too.
-    if (status.visibility === 'public' && publicTimeline.value.statuses.length > 0) {
+    // Only public posts belong on the public timeline, including its first post.
+    if (status.visibility === 'public') {
       add(publicTimeline.value.statuses)
     }
   }

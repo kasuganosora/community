@@ -1,4 +1,5 @@
-import client from '@/shared/api/client'
+import { cursorPage, type CursorPage } from '@/shared/utils/pagination'
+import client, { tokenService } from '@/shared/api/client'
 import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/shared/types/mastodon'
 import type { PaginationParams } from '@/shared/types/pagination'
 import { pickAccountByAcct } from '../domain/acct'
@@ -17,7 +18,7 @@ export const userApi = {
     const q = acct.replace(/^@/, '')
     const search = async (term: string) => {
       const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
-        params: { q: term, limit: 40 },
+        params: { q: term, limit: 40, resolve: !!tokenService.get() },
       })
       return data
     }
@@ -65,10 +66,29 @@ export const userApi = {
     return data
   },
 
+  async getFollowPage(id: string, kind: 'followers' | 'following', params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<CursorPage<MastodonAccount>> {
+    const { data, headers } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${encodeURIComponent(id)}/${kind}`, { params })
+    return cursorPage(data, headers.link)
+  },
+
+  async getAllFollowing(id: string): Promise<MastodonAccount[]> {
+    const accounts: MastodonAccount[] = []
+    const seen = new Set<string>()
+    let cursor: string | undefined
+    do {
+      const page = await this.getFollowPage(id, 'following', { limit: 80, max_id: cursor })
+      accounts.push(...page.items)
+      cursor = page.nextCursor
+      if (cursor && seen.has(cursor)) break
+      if (cursor) seen.add(cursor)
+    } while (cursor)
+    return accounts
+  },
+
   /** Statuses the current user has liked (only available for yourself). */
-  async getFavourites(params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonStatus[]> {
-    const { data } = await client.get<MastodonStatus[]>('/api/v1/favourites', { params })
-    return data
+  async getFavourites(params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<CursorPage<MastodonStatus>> {
+    const { data, headers } = await client.get<MastodonStatus[]>('/api/v1/favourites', { params })
+    return cursorPage(data, headers.link)
   },
 
   /**

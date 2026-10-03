@@ -55,12 +55,14 @@ func (DeviceListStream) TableName() string {
 
 // DeviceListUpdateEDU 设备列表更新 EDU.
 type DeviceListUpdateEDU struct {
-	UserID   string   `json:"user_id"`
-	DeviceID string   `json:"device_id,omitempty"`
-	StreamID int64    `json:"stream_id"`
-	PrevID   []int64  `json:"prev_id,omitempty"`
-	Changed  []string `json:"changed,omitempty"` // 变更的设备列表
-	Removed  []string `json:"removed,omitempty"` // 移除的设备列表
+	UserID   string      `json:"user_id"`
+	DeviceID string      `json:"device_id,omitempty"`
+	StreamID int64       `json:"stream_id"`
+	PrevID   []int64     `json:"prev_id"`
+	Keys     *DeviceKeys `json:"keys,omitempty"`
+	Deleted  bool        `json:"deleted,omitempty"`
+	Changed  []string    `json:"changed,omitempty"` // 变更的设备列表
+	Removed  []string    `json:"removed,omitempty"` // 移除的设备列表
 }
 
 // DeviceListService 设备列表服务.
@@ -183,17 +185,10 @@ func (dls *DeviceListService) federateDeviceListUpdate(userID, deviceID string, 
 		}
 	}
 
-	// 构建 EDU
-	edu := &DeviceListUpdateEDU{
-		UserID:   userID,
-		DeviceID: deviceID,
-		StreamID: streamID,
-	}
-
-	if changeType == "removed" {
-		edu.Removed = []string{deviceID}
-	} else {
-		edu.Changed = []string{deviceID}
+	edu, err := dls.buildDeviceListUpdate(userID, deviceID, streamID, changeType)
+	if err != nil {
+		log.Warn("Cannot construct device list update: %v", err)
+		return
 	}
 
 	// 发送到所有相关服务器
@@ -297,8 +292,15 @@ func (dls *DeviceListService) getRoomServers(roomID string) ([]string, error) {
 // HandleIncomingDeviceListUpdate 处理收到的设备列表更新.
 func (dls *DeviceListService) HandleIncomingDeviceListUpdate(origin string, edu *DeviceListUpdateEDU) error {
 	// 验证来源服务器
-	if origin == "" {
-		return errors.New("missing origin")
+	if origin == "" || extractServerName(edu.UserID) != origin {
+		return errors.New("device list origin mismatch")
+	}
+	if edu.DeviceID != "" {
+		if edu.Deleted {
+			edu.Removed = []string{edu.DeviceID}
+		} else {
+			edu.Changed = []string{edu.DeviceID}
+		}
 	}
 
 	// 更新设备信息
@@ -392,11 +394,16 @@ func (dls *DeviceListService) GetUserDevices(userID string) (*UserDevicesRespons
 	for i, d := range devices {
 		var dk DeviceKeys
 
-		_ = json.Unmarshal([]byte(d.DeviceKey), &dk)
+		if err := json.Unmarshal([]byte(d.DeviceKey), &dk); err != nil {
+			return nil, err
+		}
+		if dk.UserID != userID || dk.DeviceID != d.DeviceID {
+			return nil, errors.New("persisted device key identity mismatch")
+		}
 
 		deviceList[i] = DeviceInfoDL{
 			DeviceID:   d.DeviceID,
-			Keys:       dk.Keys,
+			Keys:       &dk,
 			Algorithms: dk.Algorithms,
 		}
 	}
@@ -419,10 +426,10 @@ type UserDevicesResponseDL struct {
 
 // DeviceInfoDL 设备信息（设备列表服务版本）.
 type DeviceInfoDL struct {
-	DeviceID    string            `json:"device_id"`
-	Keys        map[string]string `json:"keys"`
-	Algorithms  []string          `json:"algorithms"`
-	DisplayName string            `json:"display_name,omitempty"`
+	DeviceID    string      `json:"device_id"`
+	Keys        *DeviceKeys `json:"keys"`
+	Algorithms  []string    `json:"algorithms"`
+	DisplayName string      `json:"device_display_name,omitempty"`
 }
 
 // ===== HTTP Handlers =====
@@ -457,27 +464,24 @@ func handleFederationGetUserDevices(c *gin.Context) {
 		return
 	}
 
-	// Convert to federation response format
-	devices := make([]DeviceKeyInfo, 0, len(resp.Devices))
-	for _, d := range resp.Devices {
-		devices = append(devices, DeviceKeyInfo{
-			DeviceID:    d.DeviceID,
-			Keys:        d.Keys,
-			Algorithms:  d.Algorithms,
-			DisplayName: d.DisplayName,
-		})
+	public := &QueryKeysResponse{}
+	if err := appendClientSigningKeys(public, map[string][]string{userID: nil}, ""); err != nil {
+		c.JSON(500, MatrixError{ErrCode: "M_UNKNOWN", Error: "Cannot load device signing keys"})
+		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":   resp.UserID,
-		"stream_id": resp.StreamID,
-		"devices":   devices,
-	})
+	body := gin.H{"user_id": resp.UserID, "stream_id": resp.StreamID, "devices": resp.Devices}
+	if key := public.MasterKeys[userID]; key != nil {
+		body["master_key"] = key
+	}
+	if key := public.SelfSigningKeys[userID]; key != nil {
+		body["self_signing_key"] = key
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // 辅助函数.
 func parseUserID(userID string) string {
-	parts := strings.Split(userID, ":")
+	parts := strings.SplitN(userID, ":", 2)
 	if len(parts) == 2 {
 		return parts[1]
 	}
@@ -486,7 +490,32 @@ func parseUserID(userID string) string {
 }
 
 func isLocalUser(userID, serverName string) bool {
-	parts := strings.Split(userID, ":")
+	parts := strings.SplitN(userID, ":", 2)
 
 	return len(parts) == 2 && parts[1] == serverName
+}
+
+func (dls *DeviceListService) buildDeviceListUpdate(userID, deviceID string, streamID int64, changeType string) (*DeviceListUpdateEDU, error) {
+	edu := &DeviceListUpdateEDU{
+		UserID:   userID,
+		DeviceID: deviceID,
+		StreamID: streamID,
+		PrevID:   []int64{},
+	}
+
+	if changeType == "removed" {
+		edu.Deleted = true
+	} else {
+		var record MatrixDeviceKey
+		if err := db.GetDB().Where("user_id = ? AND device_id = ?", userID, deviceID).First(&record).Error; err != nil {
+			return nil, err
+		}
+		var key DeviceKeys
+		if json.Unmarshal([]byte(record.DeviceKey), &key) != nil || key.UserID != userID || key.DeviceID != deviceID {
+			return nil, errors.New("invalid persisted device keys")
+		}
+		edu.Keys = &key
+	}
+
+	return edu, nil
 }

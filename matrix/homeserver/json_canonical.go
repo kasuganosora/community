@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 )
@@ -16,6 +17,8 @@ func CanonicalJSON(v any) ([]byte, error) {
 		return canonicalJSONObject(val)
 	case []any:
 		return canonicalJSONArray(val)
+	case string:
+		return []byte(`"` + EscapeJSONString(val) + `"`), nil
 	case float64:
 		// Matrix spec: canonical JSON must represent integer-valued numbers without decimal point
 		// Go's json.Unmarshal parses all JSON numbers as float64 into interface{}
@@ -25,6 +28,24 @@ func CanonicalJSON(v any) ([]byte, error) {
 
 		return json.Marshal(val)
 	default:
+		// Named maps (for example gin.H), typed slices and structs must use
+		// the same string rules recursively; json.Marshal HTML-escapes them.
+		if v != nil {
+			switch reflect.TypeOf(v).Kind() {
+			case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct, reflect.Pointer:
+				raw, err := json.Marshal(v)
+				if err != nil {
+					return nil, err
+				}
+				var normalized any
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.UseNumber()
+				if err := decoder.Decode(&normalized); err != nil {
+					return nil, err
+				}
+				return CanonicalJSON(normalized)
+			}
+		}
 		return json.Marshal(val)
 	}
 }
@@ -49,12 +70,9 @@ func canonicalJSONObject(obj map[string]any) ([]byte, error) {
 		}
 
 		// 写入键
-		keyBytes, err := json.Marshal(key)
-		if err != nil {
-			return nil, err
-		}
-
-		buf.Write(keyBytes)
+		buf.WriteByte('"')
+		buf.WriteString(EscapeJSONString(key))
+		buf.WriteByte('"')
 		buf.WriteByte(':')
 
 		// 递归处理值
@@ -122,16 +140,10 @@ func EscapeJSONString(s string) string {
 				// 控制字符使用 Unicode 转义
 				buf.WriteString(`\u`)
 				buf.WriteString(formatUnicode(uint16(r))) //nolint:gosec // G115: reviewed and safe
-			case r < 0x10000:
-				buf.WriteRune(r)
 			default:
-				// 辅助平面的字符
-				r1, r2 := utf16Encode(r)
-
-				buf.WriteString(`\u`)
-				buf.WriteString(formatUnicode(r1))
-				buf.WriteString(`\u`)
-				buf.WriteString(formatUnicode(r2))
+				// Canonical JSON uses UTF-8, including supplementary planes;
+				// only controls, quotation marks and backslashes are escaped.
+				buf.WriteRune(r)
 			}
 		}
 	}

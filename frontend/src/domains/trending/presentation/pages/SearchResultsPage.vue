@@ -89,7 +89,7 @@ async function search(q: string) {
   loading.value = true
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
-      params: { q: trimmedQuery, limit: SEARCH_LIMIT },
+      params: { q: trimmedQuery, limit: SEARCH_LIMIT, resolve: authStore.isAuthenticated },
     })
     if (myVersion !== searchVersion) return
     statuses.value = data.statuses || []

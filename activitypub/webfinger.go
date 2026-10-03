@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -88,6 +89,7 @@ func WebFinger(c *gin.Context) {
 		},
 	}
 
+	c.Header("Content-Type", "application/jrd+json")
 	c.JSON(200, response)
 }
 
@@ -121,6 +123,12 @@ func NodeInfo(c *gin.Context) {
 
 // DiscoverActor discovers an actor via WebFinger.
 func DiscoverActor(acct string) (*Actor, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return DiscoverActorContext(ctx, acct)
+}
+
+func DiscoverActorContext(ctx context.Context, acct string) (*Actor, error) {
 	// Parse acct format (user@domain or acct:user@domain)
 	acct = strings.TrimPrefix(acct, "acct:")
 
@@ -133,13 +141,10 @@ func DiscoverActor(acct string) (*Actor, error) {
 	domain := parts[1]
 
 	// Validate the domain doesn't resolve to internal addresses
-	webfingerURL := "https://" + domain + "/.well-known/webfinger?resource=acct:" + acct
+	webfingerURL := "https://" + domain + "/.well-known/webfinger?resource=" + url.QueryEscape("acct:"+acct)
 	if err := validateFederationURI(webfingerURL); err != nil {
 		return nil, fmt.Errorf("invalid webfinger target: %w", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, webfingerURL, nil)
 	if err != nil {

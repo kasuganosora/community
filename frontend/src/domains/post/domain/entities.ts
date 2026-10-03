@@ -14,7 +14,7 @@ export interface CreateStatusParams {
   visibility?: Visibility
 }
 
-export interface UpdateStatusParams {
+export interface ReplaceStatusParams {
   status: string
   spoiler_text?: string
   sensitive?: boolean

@@ -10,6 +10,7 @@ import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import type { CursorPage } from '@/shared/utils/pagination'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '@/domains/timeline/presentation/components/TimelineFeed.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -35,11 +36,10 @@ const relationship = computed(() => account.value ? relationships.rels.get(accou
 const followState = computed(() => account.value ? relationships.state(account.value.id) : 'unknown')
 const profileBase = computed(() => `/@${route.params.username as string}`)
 
-function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[]> {
+function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[] | CursorPage<MastodonStatus>> {
   const acct = account.value
   if (!acct) return Promise.resolve([])
-  // The likes tab lists the current user's favourites (favourite ids are the
-  // cursor there; the backend sends no Link header, so max_id is best effort).
+  // Likes use the relationship cursor supplied by the server's Link header.
   if (activeTab.value === 'likes') return userApi.getFavourites({ max_id: maxId, limit })
   return userApi.getStatuses(acct.id, {
     max_id: maxId,
@@ -82,12 +82,13 @@ async function loadProfile() {
 async function toggleFollow() {
   if (!account.value) return
   const targetId = account.value.id
+  const wasFollowing = relationships.state(targetId) === 'following'
   try {
     await relationships.toggleFollow(targetId)
     // Keep the follower count in step with the button.
     if (account.value?.id === targetId) {
       const following = relationships.state(targetId) === 'following'
-      account.value.followers_count = Math.max(0, account.value.followers_count + (following ? 1 : -1))
+      account.value.followers_count = Math.max(0, account.value.followers_count + Number(following) - Number(wasFollowing))
     }
   } catch (e) {
     MessagePlugin.error(e instanceof Error ? e.message : '操作失败')

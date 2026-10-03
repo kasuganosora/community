@@ -241,3 +241,21 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Strict-Transport-Security"))
 	})
 }
+
+func TestSecurityHeadersMediaEmbedding(t *testing.T) {
+	for _, tc := range []struct{ path, policy string }{
+		{"/media/1/original/photo.png", "cross-origin"},
+		{"/api/v1/accounts/verify_credentials", "same-origin"},
+		{"/media-private", "same-origin"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			r := gin.New()
+			r.Use(SecurityHeadersMiddleware())
+			r.GET(tc.path, func(c *gin.Context) { c.Status(http.StatusOK) })
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			assert.Equal(t, tc.policy, w.Header().Get("Cross-Origin-Resource-Policy"))
+			assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+		})
+	}
+}

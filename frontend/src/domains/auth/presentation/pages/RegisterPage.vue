@@ -59,6 +59,7 @@ const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
 const isStrongPassword = computed(() => passwordRegex.test(form.password))
 
 const passwordMatch = computed(() => form.password === form.passwordConfirm)
+const isValidUsername = computed(() => /^[\p{L}\p{N}_]{2,20}$/u.test(form.username))
 
 // Fixed: Check for non-empty password confirm correctly
 const showPasswordMismatch = computed(() => 
@@ -66,7 +67,7 @@ const showPasswordMismatch = computed(() =>
 )
 
 const canRegister = computed(() =>
-  form.username.length >= 2 &&
+  isValidUsername.value &&
   isValidEmail.value &&
   isStrongPassword.value &&
   passwordMatch.value &&
@@ -210,7 +211,7 @@ function close() {
         <t-alert v-if="error" theme="error" :message="error" style="margin-bottom: var(--space-4)" />
 
         <t-form @submit="handleRegister" class="register-form" label-align="top">
-          <t-form-item label="Username" :help="'Cannot be changed later.'">
+          <t-form-item label="Username" :help="'2–20 letters, numbers or underscores. Cannot be changed later.'">
             <t-input
               v-model="form.username"
               size="large"

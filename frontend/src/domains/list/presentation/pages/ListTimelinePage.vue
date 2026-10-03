@@ -72,7 +72,7 @@ async function openManage() {
     const [m, following] = await Promise.all([
       listApi.getAccounts(listId.value),
       // Lists can only contain accounts you follow.
-      me ? userApi.getFollowing(me.id, { limit: 80 }) : Promise.resolve([]),
+      me ? userApi.getAllFollowing(me.id) : Promise.resolve([]),
     ])
     members.value = m
     candidates.value = following

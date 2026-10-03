@@ -113,6 +113,7 @@ func TestWebFingerSuccess(t *testing.T) {
 	c, w := newWebfingerRequest(t, "/.well-known/webfinger", "?resource=acct:alice@localhost", nil)
 	WebFinger(c)
 	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/jrd+json", w.Header().Get("Content-Type"))
 
 	var resp WebFingerResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -194,6 +195,7 @@ func TestWebFingerWithCustomDomain(t *testing.T) {
 	c, w := newWebfingerRequest(t, "/.well-known/webfinger", "?resource=acct:bob@fedi.example.com", nil)
 	WebFinger(c)
 	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/jrd+json", w.Header().Get("Content-Type"))
 
 	var resp WebFingerResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))

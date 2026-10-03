@@ -312,8 +312,8 @@ func TestAuthorize_Success(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, strconv.FormatUint(otherAccount.Id, 10), resp["id"])
-	assert.Equal(t, true, resp["following"])
-	assert.Equal(t, false, resp["followed_by"])
+	assert.Equal(t, false, resp["following"])
+	assert.Equal(t, true, resp["followed_by"])
 	assert.Equal(t, false, resp["requested"])
 
 	// Verify follow status was updated
@@ -506,4 +506,46 @@ func TestReject_AlreadyFollowed(t *testing.T) {
 
 	// Should return 404 since there's no "requested" follow
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRemoteFollowDecisionQueuesOriginalActivityAtomically(t *testing.T) {
+	for _, decision := range []string{"Accept", "Reject"} {
+		t.Run(decision, func(t *testing.T) {
+			setupTestDB(t)
+			require.NoError(t, testDB.AutoMigrate(&models.FederationOutbox{}))
+			owner := createTestAccount(t, "locked_owner")
+			remote := createTestAccount(t, "remote_requester")
+			domain := "remote.example"
+			remote.Domain = &domain
+			remote.OriginId = "https://remote.example/users/requester"
+			require.NoError(t, testDB.GormDB.Save(remote).Error)
+			follow := models.Follow{AccountId: remote.Id, FollowId: owner.Id, Status: models.FollowStatusRequested, Properties: map[string]any{"activitypub_follow_id": "https://remote.example/activities/follow-original"}}
+			require.NoError(t, testDB.GormDB.Create(&follow).Error)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/", nil)
+			c.Set("account", owner)
+			c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(remote.Id, 10)}}
+			if decision == "Accept" {
+				Authorize(c)
+			} else {
+				Reject(c)
+			}
+			require.Equal(t, 200, w.Code, w.Body.String())
+			require.Empty(t, c.Errors)
+			var events []models.FederationOutbox
+			require.NoError(t, testDB.GormDB.Where("kind = ?", decision).Find(&events).Error)
+			require.Len(t, events, 1)
+			require.Equal(t, owner.Id, events[0].AccountID)
+			require.Equal(t, []uint64{remote.Id}, events[0].RecipientIDs)
+			require.Contains(t, events[0].Payload, "follow-original")
+			var count int64
+			require.NoError(t, testDB.GormDB.Model(&models.Follow{}).Where("id = ?", follow.Id).Count(&count).Error)
+			if decision == "Accept" {
+				require.EqualValues(t, 1, count)
+			} else {
+				require.Zero(t, count)
+			}
+		})
+	}
 }

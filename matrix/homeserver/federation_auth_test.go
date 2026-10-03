@@ -32,7 +32,9 @@ func TestExtractServerName(t *testing.T) {
 		expected string
 	}{
 		{"standard user id", "@alice:example.com", "example.com"},
-		{"user id with port", "@alice:host.example:8448", "host.example"},
+		{"user id with port", "@alice:host.example:8448", "host.example:8448"},
+		{"IPv6 with port", "@alice:[2001:db8::1]:8448", "[2001:db8::1]:8448"},
+		{"IPv6 without port", "@alice:[2001:db8::1]", "[2001:db8::1]"},
 		{"no colon", "alice", ""},
 		{"empty string", "", ""},
 		{"just colon", "@alice:", ""},
@@ -354,7 +356,7 @@ func TestFederationAuthMiddleware_HSDisabled(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
-func TestFederationAuthMiddleware_NoAuthHeader_PassesThrough(t *testing.T) {
+func TestFederationAuthMiddleware_NoAuthHeader_Rejects(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	restore := resetGlobalHS(&HomeServer{Config: &HSConfig{Enabled: true, ServerName: "test.local"}})
 	defer restore()
@@ -371,8 +373,8 @@ func TestFederationAuthMiddleware_NoAuthHeader_PassesThrough(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.True(t, called, "without auth header, request should pass through")
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, called, "unsigned requests must not reach federation handlers")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestFederationAuthMiddleware_InvalidAuthHeader(t *testing.T) {

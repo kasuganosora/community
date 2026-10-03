@@ -512,29 +512,17 @@ func TestFederationClient_SendJoin_SuccessV2ViaTLS(t *testing.T) {
 	assert.Equal(t, "dest.server", result["origin"])
 }
 
-func TestFederationClient_SendJoin_GeneratesEventIDIfMissing(t *testing.T) {
-	var capturedPath string
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedPath = r.URL.Path
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"origin":"dest.server","state":[],"auth_chain":[]}`))
-	}))
+func TestFederationClient_SendJoin_RejectsMissingEventID(t *testing.T) {
+	var contacted bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { contacted = true; w.WriteHeader(http.StatusOK) }))
 	defer server.Close()
-
-	c, addr := newTLSFederationClient(server)
-	// Event without event_id — SendJoin should generate one
-	event := map[string]any{
-		"type":   "m.room.member",
-		"sender": "@alice:origin.local",
-	}
-	result, err := c.SendJoin(addr, "!room:dest.server", event)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	// The generated event_id should appear in the URL path
-	assert.Contains(t, capturedPath, "/send_join/")
-	// The event map should now have an event_id
-	assert.NotEmpty(t, event["event_id"])
+	client, addr := newTLSFederationClient(server)
+	event := map[string]any{"type": "m.room.member", "sender": "@alice:origin.local"}
+	result, err := client.SendJoin(addr, "!room:dest.server", event)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.False(t, contacted)
+	require.Empty(t, event["event_id"])
 }
 
 func TestFederationClient_SendJoin_NonOKViaTLS(t *testing.T) {

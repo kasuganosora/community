@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,7 +22,9 @@ type FederationTimestampTest struct {
 func (ft *FederationTimestampTest) Setup(t *testing.T) {
 	var err error
 
-	ft.db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	// A shared unnamed memory database can outlive another test's handle
+	// while background work still has a connection, leaking its event IDs.
+	ft.db, err = gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "events.db")), &gorm.Config{})
 	require.NoError(t, err)
 
 	// 迁移表结构 - 只迁移我们需要的基本字段
@@ -179,7 +182,7 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 		Content:        map[string]any{"body": "A"},
 		OriginServerTS: startTime,
 	}
-	ft.db.Create(eventA)
+	require.NoError(t, ft.db.Create(eventA).Error)
 
 	// 模拟多个联邦事件乱序到达
 	// 事件 C 创建时间最早，但到达最晚
@@ -202,7 +205,7 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 			OriginServerTS: e.OriginTS,
 			SenderDomain:   "remote.server",
 		}
-		ft.db.Create(event)
+		require.NoError(t, ft.db.Create(event).Error)
 		t.Logf("Created %s: origin_ts=%d", e.ID, e.OriginTS)
 	}
 
@@ -212,8 +215,8 @@ func TestScenario_MultipleFederatedEvents(t *testing.T) {
 	// 查询: origin_server_ts
 	var byOrigin []MatrixEvent
 
-	ft.db.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
-		Order("origin_server_ts ASC").Find(&byOrigin)
+	require.NoError(t, ft.db.Where("room_id = ? AND origin_server_ts > ?", roomID, sinceToken).
+		Order("origin_server_ts ASC").Find(&byOrigin).Error)
 
 	t.Log("")
 	t.Logf("Sync since=%d", sinceToken)

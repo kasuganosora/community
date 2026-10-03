@@ -22,6 +22,9 @@ var ScripsType = []MigrationScript{
 	MigrateRelayTableScript{},
 	UnifyMediaAttachmentsScript{},
 	RepairMatrixHSTablesScript{},
+	AddFederationOutboxScript{},
+	AddDeliveryAuthorizationScript{},
+	NullableRemoteAccountUserScript{},
 }
 
 type MigrationScript interface {

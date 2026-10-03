@@ -2,6 +2,7 @@ package favourite
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -35,9 +36,9 @@ func Favourites(c *gin.Context) {
 
 	// Query favourite statuses
 	query := db.GetDB().Model(&models.FavoriteStatus{}).
-		Joins("LEFT JOIN statuses ON statuses.id = favorite_statuses.status_id").
+		Joins("JOIN statuses ON statuses.id = favorite_statuses.status_id").
 		Where("favorite_statuses.account_id = ?", currentAccount.Id).
-		Where("statuses.scheduled_at IS NULL").
+		Where("statuses.scheduled_at IS NULL AND statuses.deleted_at IS NULL").
 		Order("favorite_statuses.id DESC")
 
 	// Pagination
@@ -60,10 +61,15 @@ func Favourites(c *gin.Context) {
 	}
 
 	favoriteStatuses := make([]*models.FavoriteStatus, 0)
-	if err := query.Limit(req.Limit).Find(&favoriteStatuses).Error; err != nil {
+	if err := query.Limit(req.Limit + 1).Find(&favoriteStatuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get favourites error"))
 
 		return
+	}
+
+	if len(favoriteStatuses) > req.Limit {
+		favoriteStatuses = favoriteStatuses[:req.Limit]
+		common.SetNextPage(c, favoriteStatuses[len(favoriteStatuses)-1].Id)
 	}
 
 	// Get status IDs
@@ -88,6 +94,18 @@ func Favourites(c *gin.Context) {
 		_ = c.Error(errors.Wrap(err, "get statuses error"))
 
 		return
+	}
+
+	// Preserve the relation order; an IN query does not preserve input order.
+	byID := make(map[uint64]*models.Status, len(statuses))
+	for _, status := range statuses {
+		byID[status.Id] = status
+	}
+	statuses = make(models.Statuses, 0, len(statusIds))
+	for _, id := range statusIds {
+		if status := byID[id]; status != nil {
+			statuses = append(statuses, status)
+		}
 	}
 
 	// Convert to serializer
@@ -119,9 +137,9 @@ func Bookmarks(c *gin.Context) {
 
 	// Query bookmarked statuses
 	query := db.GetDB().Model(&models.BookmarkStatus{}).
-		Joins("LEFT JOIN statuses ON statuses.id = bookmark_statuses.status_id").
+		Joins("JOIN statuses ON statuses.id = bookmark_statuses.status_id").
 		Where("bookmark_statuses.account_id = ?", currentAccount.Id).
-		Where("statuses.scheduled_at IS NULL").
+		Where("statuses.scheduled_at IS NULL AND statuses.deleted_at IS NULL").
 		Order("bookmark_statuses.id DESC")
 
 	// Pagination
@@ -144,10 +162,15 @@ func Bookmarks(c *gin.Context) {
 	}
 
 	bookmarkStatuses := make([]*models.BookmarkStatus, 0)
-	if err := query.Limit(req.Limit).Find(&bookmarkStatuses).Error; err != nil {
+	if err := query.Limit(req.Limit + 1).Find(&bookmarkStatuses).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get bookmarks error"))
 
 		return
+	}
+
+	if len(bookmarkStatuses) > req.Limit {
+		bookmarkStatuses = bookmarkStatuses[:req.Limit]
+		common.SetNextPage(c, bookmarkStatuses[len(bookmarkStatuses)-1].Id)
 	}
 
 	// Get status IDs
@@ -172,6 +195,18 @@ func Bookmarks(c *gin.Context) {
 		_ = c.Error(errors.Wrap(err, "get statuses error"))
 
 		return
+	}
+
+	// Preserve the relation order; an IN query does not preserve input order.
+	byID := make(map[uint64]*models.Status, len(statuses))
+	for _, status := range statuses {
+		byID[status.Id] = status
+	}
+	statuses = make(models.Statuses, 0, len(statusIds))
+	for _, id := range statusIds {
+		if status := byID[id]; status != nil {
+			statuses = append(statuses, status)
+		}
 	}
 
 	// Convert to serializer

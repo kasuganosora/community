@@ -98,6 +98,7 @@ func SetRouter(app gin.IRouter) {
 
 	// ActivityPub Actor 端点
 	app.GET("/users/:username", activitypub.ActorProfile)
+	app.GET("/users/:username/statuses/:id", activitypub.StatusObject)
 
 	// 用户 Inbox（限流：每 IP 每分钟 50 次请求）
 	userInboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/users/inbox", 50))
@@ -264,6 +265,7 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses", status.Create).
 		DELETE("/statuses/:id", status.Delete).
 		PUT("/statuses/:id", status.Update).
+		POST("/statuses/:id/replace", status.Replace).
 		POST("/statuses/:id/pin", status.Pin).
 		POST("/statuses/:id/unpin", status.UnPin).
 		POST("/statuses/:id/reblog", status.Reblog).
@@ -544,6 +546,7 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses", status.Create).
 		DELETE("/statuses/:id", status.Delete).
 		PUT("/statuses/:id", status.Update).
+		POST("/statuses/:id/replace", status.Replace).
 		POST("/statuses/:id/pin", status.Pin).
 		POST("/statuses/:id/unpin", status.UnPin).
 		POST("/statuses/:id/reblog", status.Reblog).

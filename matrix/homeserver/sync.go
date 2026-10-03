@@ -315,6 +315,14 @@ func (s *SyncService) Sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 		DeviceOneTimeKeysCount: make(map[string]int64),
 	}
 
+	// Clients use this count to replenish OTKs. Omitting it makes them upload
+	// indefinitely and eventually discard private keys the server still offers.
+	if s.HS.KeyStore != nil {
+		for algorithm, count := range s.HS.KeyStore.GetOneTimeKeysCount(userID, deviceID) {
+			resp.DeviceOneTimeKeysCount[algorithm] = int64(count)
+		}
+	}
+
 	// 获取用户加入的房间
 	joinedRooms, _ := s.HS.Room.GetJoinedRooms(userID)
 
@@ -750,6 +758,13 @@ func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
 		roomID, EventTypeRoomMember, userID).
 		Order("created_at ASC, origin_server_ts ASC").Find(&events)
 
+	// A local join writes its event before publishing membership. A sync can
+	// start between those writes; the event timestamp alone then incorrectly
+	// says this room was already joined. Use the publication time for the
+	// current join transition, but not for later join->join profile updates.
+	var member MatrixRoomMember
+	db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member)
+
 	joined := false
 	joinedAfter := false
 
@@ -762,6 +777,10 @@ func (s *SyncService) userJoinedAfter(roomID, userID string, since int64) bool {
 		}
 
 		membership, _ := ev.Content["membership"].(string)
+		if membership == string(MembershipJoin) && !joined && member.EventID == ev.EventID &&
+			member.Membership == MembershipJoin && member.UpdatedAt != nil {
+			ts = max(ts, member.UpdatedAt.UnixMilli())
+		}
 		if ts <= since {
 			joined = membership == string(MembershipJoin)
 
@@ -1251,8 +1270,15 @@ func (s *SyncService) getToDeviceMessages(userID, deviceID string) *SyncToDevice
 		}
 	}
 
-	// 删除已发送的消息
-	db.GetDB().Where("target_user = ? AND target_device = ?", userID, deviceID).Delete(&MatrixToDeviceMessage{})
+	// Consume only the snapshot returned above. A new encrypted key can arrive
+	// between SELECT and DELETE; deleting the entire device inbox would lose it.
+	if len(messages) > 0 {
+		ids := make([]uint64, len(messages))
+		for i, message := range messages {
+			ids[i] = message.ID
+		}
+		db.GetDB().Where("id IN ?", ids).Delete(&MatrixToDeviceMessage{})
+	}
 
 	return &SyncToDevice{Events: events}
 }

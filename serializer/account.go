@@ -3,6 +3,7 @@ package serializer
 import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -46,10 +47,17 @@ type Account struct {
 func accountAddress(account *models.Account) (acct, profileURL, actorURI string) {
 	if account.Domain != nil && *account.Domain != "" {
 		domain := *account.Domain
+		actorURI = "https://" + domain + "/users/" + account.Username
+		// Remote implementations need not identify actors by username (Misskey
+		// uses an opaque ID). Preserve the actor URI learned through discovery.
+		if origin, err := url.Parse(account.OriginId); err == nil && origin.Host != "" &&
+			(origin.Scheme == "https" || origin.Scheme == "http") && origin.User == nil {
+			actorURI = account.OriginId
+		}
 
 		return account.Username + "@" + domain,
 			"https://" + domain + "/@" + account.Username,
-			"https://" + domain + "/users/" + account.Username
+			actorURI
 	}
 
 	base := systemsettings.GetBaseURL()

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // skipIfNoGlobalRedis 如果没有配置全局 Redis 则跳过测试
@@ -33,19 +35,28 @@ func skipIfNoGlobalRedis(t *testing.T) {
 
 // IntegrationTestSetup 集成测试设置.
 type IntegrationTestSetup struct {
-	DB       *testutil.TestDB
+	DB       *gorm.DB
 	Redis    *testutil.RedisTestClient
 	Fixtures *testutil.FixtureBuilder
 }
 
 // SetupIntegrationTest 创建集成测试环境.
 func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
-	// 设置 DB
-	db, err := testutil.NewIsolatedTestDB(t)
+	t.Helper()
+
+	// Exercise JOINs against a SQL engine. SQLExec v0.7.1 does not quote
+	// qualified identifiers correctly and can ignore JOIN filters, so it
+	// cannot validate the production DBService queries reliably.
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err, "Failed to create test DB")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	// A :memory: database belongs to one connection.
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 
 	// 自动迁移所需的模型
-	err = db.AutoMigrate(
+	migrationModels := []any{
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
@@ -55,8 +66,20 @@ func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 		&models.StatusContent{},
 		&models.StatusToAccount{},
 		&models.UserSecretData{},
-	)
-	require.NoError(t, err, "Failed to migrate models")
+	}
+	// Models declare MySQL bigint primary keys explicitly. SQLite only
+	// generates IDs for INTEGER PRIMARY KEY, so normalize autoincrement
+	// fields in this database's private schema cache before migration.
+	for _, model := range migrationModels {
+		statement := &gorm.Statement{DB: db}
+		require.NoError(t, statement.Parse(model))
+		for _, field := range statement.Schema.Fields {
+			if field.AutoIncrement {
+				field.DataType = schema.Int
+			}
+		}
+	}
+	require.NoError(t, db.AutoMigrate(migrationModels...), "Failed to migrate models")
 
 	// 设置 Redis - 强制使用真实 Redis
 	redisClient := testutil.NewRealRedis(t)
@@ -65,7 +88,7 @@ func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 	require.True(t, redisClient.IsReal(), "Must use real Redis, not mock")
 
 	// 创建 fixture builder
-	fixtures := testutil.NewFixtureBuilder(t, db.GormDB)
+	fixtures := testutil.NewFixtureBuilder(t, db)
 
 	return &IntegrationTestSetup{
 		DB:       db,
@@ -86,7 +109,7 @@ func (s *IntegrationTestSetup) GetFeedService() *FeedService {
 
 // GetDBService 获取使用真实 DB 的 DBService.
 func (s *IntegrationTestSetup) GetDBService() *DBService {
-	return NewDBService(s.DB.GormDB)
+	return NewDBService(s.DB)
 }
 
 // Cleanup 清理测试数据.
@@ -443,22 +466,22 @@ func TestDBService_GetAccountFollowersId_WithData(t *testing.T) {
 
 	// 1. 创建用户和账号（真实场景）
 	user1 := &models.User{UserName: "user1_followers", EmailHash: "user1_followers@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user1).Error)
+	require.NoError(t, setup.DB.Create(user1).Error)
 
 	account1 := &models.Account{UserId: user1.Id, Username: "user1_followers", DisplayName: "User 1"}
-	require.NoError(t, setup.DB.GormDB.Create(account1).Error)
+	require.NoError(t, setup.DB.Create(account1).Error)
 
 	user2 := &models.User{UserName: "user2_follower", EmailHash: "user2_follower@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user2).Error)
+	require.NoError(t, setup.DB.Create(user2).Error)
 
 	account2 := &models.Account{UserId: user2.Id, Username: "user2_follower", DisplayName: "User 2"}
-	require.NoError(t, setup.DB.GormDB.Create(account2).Error)
+	require.NoError(t, setup.DB.Create(account2).Error)
 
 	user3 := &models.User{UserName: "user3_follower", EmailHash: "user3_follower@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user3).Error)
+	require.NoError(t, setup.DB.Create(user3).Error)
 
 	account3 := &models.Account{UserId: user3.Id, Username: "user3_follower", DisplayName: "User 3"}
-	require.NoError(t, setup.DB.GormDB.Create(account3).Error)
+	require.NoError(t, setup.DB.Create(account3).Error)
 
 	// 2. 创建关注关系: user2 和 user3 关注 user1
 	// Follow.AccountId = 粉丝ID, Follow.FollowId = 被关注者ID
@@ -491,19 +514,19 @@ func TestDBService_GetAccountFollowingAccounts(t *testing.T) {
 
 	// 创建用户和账号
 	user1 := &models.User{UserName: "user1_following", EmailHash: "user1_following@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user1).Error)
+	require.NoError(t, setup.DB.Create(user1).Error)
 	account1 := &models.Account{UserId: user1.Id, Username: "user1_following"}
-	require.NoError(t, setup.DB.GormDB.Create(account1).Error)
+	require.NoError(t, setup.DB.Create(account1).Error)
 
 	user2 := &models.User{UserName: "user2_followed", EmailHash: "user2_followed@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user2).Error)
+	require.NoError(t, setup.DB.Create(user2).Error)
 	account2 := &models.Account{UserId: user2.Id, Username: "user2_followed"}
-	require.NoError(t, setup.DB.GormDB.Create(account2).Error)
+	require.NoError(t, setup.DB.Create(account2).Error)
 
 	user3 := &models.User{UserName: "user3_followed", EmailHash: "user3_followed@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user3).Error)
+	require.NoError(t, setup.DB.Create(user3).Error)
 	account3 := &models.Account{UserId: user3.Id, Username: "user3_followed"}
-	require.NoError(t, setup.DB.GormDB.Create(account3).Error)
+	require.NoError(t, setup.DB.Create(account3).Error)
 
 	// account1 关注 account2 和 account3
 	require.NoError(t, dbSvc.CreateTestFollow(account1.Id, account2.Id))
@@ -515,13 +538,18 @@ func TestDBService_GetAccountFollowingAccounts(t *testing.T) {
 
 	// 验证返回的关注列表包含预期的账号
 	followingIds := following.GetIds()
-	assert.Contains(t, followingIds, account2.Id)
-	assert.Contains(t, followingIds, account3.Id)
+	assert.ElementsMatch(t, []uint64{account2.Id, account3.Id}, followingIds)
 
 	// 验证 account2 没有关注任何人
 	following2, err := dbSvc.GetAccountFollowingAccounts(account2.Id)
 	require.NoError(t, err)
 	assert.Empty(t, following2)
+
+	// Soft-deleted accounts must not leak into timelines through the JOIN.
+	require.NoError(t, setup.DB.Delete(account3).Error)
+	following, err = dbSvc.GetAccountFollowingAccounts(account1.Id)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{account2.Id}, following.GetIds())
 }
 
 // TestDBService_GetAccountRecentActiveLocalFollowersId 测试活跃粉丝查询.
@@ -537,13 +565,13 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 
 	// 创建目标账号
 	user := &models.User{UserName: "target_user_active", EmailHash: "target_user_active@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user).Error)
+	require.NoError(t, setup.DB.Create(user).Error)
 	account := &models.Account{UserId: user.Id, Username: "target_user_active"}
-	require.NoError(t, setup.DB.GormDB.Create(account).Error)
+	require.NoError(t, setup.DB.Create(account).Error)
 
 	// 创建本地活跃粉丝
 	activeUser := &models.User{UserName: "active_follower", EmailHash: "active_follower@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(activeUser).Error)
+	require.NoError(t, setup.DB.Create(activeUser).Error)
 
 	now := time.Now()
 	activeFollower := &models.Account{
@@ -551,11 +579,11 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 		Username:       "active_follower",
 		LastActivityAt: &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(activeFollower).Error)
+	require.NoError(t, setup.DB.Create(activeFollower).Error)
 
 	// 创建本地不活跃粉丝
 	inactiveUser := &models.User{UserName: "inactive_follower", EmailHash: "inactive_follower@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(inactiveUser).Error)
+	require.NoError(t, setup.DB.Create(inactiveUser).Error)
 
 	oldTime := time.Now().Add(-30 * 24 * time.Hour) // 30天前
 	inactiveFollower := &models.Account{
@@ -563,11 +591,11 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 		Username:       "inactive_follower",
 		LastActivityAt: &oldTime,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(inactiveFollower).Error)
+	require.NoError(t, setup.DB.Create(inactiveFollower).Error)
 
 	// 创建远程粉丝（有 domain）
 	remoteUser := &models.User{UserName: "remote_follower_user", EmailHash: "remote_follower_user@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(remoteUser).Error)
+	require.NoError(t, setup.DB.Create(remoteUser).Error)
 
 	remoteDomain := "remote.example.com"
 	remoteFollower := &models.Account{
@@ -576,7 +604,13 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 		Domain:         &remoteDomain,
 		LastActivityAt: &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(remoteFollower).Error)
+	require.NoError(t, setup.DB.Create(remoteFollower).Error)
+
+	// An active local account that does not follow the target must be excluded.
+	unrelated := &models.Account{
+		UserId: activeUser.Id, Username: "active_non_follower", LastActivityAt: &now,
+	}
+	require.NoError(t, setup.DB.Create(unrelated).Error)
 
 	// 创建关注关系
 	require.NoError(t, dbSvc.CreateTestFollow(activeFollower.Id, account.Id))
@@ -588,9 +622,7 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	require.NoError(t, err)
 
 	// 应该只包含活跃的本地粉丝
-	assert.Contains(t, followers, activeFollower.Id)
-	assert.NotContains(t, followers, inactiveFollower.Id) // 不活跃
-	assert.NotContains(t, followers, remoteFollower.Id)   // 远程用户
+	assert.Equal(t, []uint64{activeFollower.Id}, followers)
 }
 
 // TestDBService_GetAccountRemoteFollowers 测试获取远程粉丝.
@@ -606,19 +638,19 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 
 	// 创建目标账号
 	user := &models.User{UserName: "target_remote_test", EmailHash: "target_remote_test@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user).Error)
+	require.NoError(t, setup.DB.Create(user).Error)
 	account := &models.Account{UserId: user.Id, Username: "target_remote_test"}
-	require.NoError(t, setup.DB.GormDB.Create(account).Error)
+	require.NoError(t, setup.DB.Create(account).Error)
 
 	// 创建本地粉丝
 	localUser := &models.User{UserName: "local_follower_remote", EmailHash: "local_follower_remote@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(localUser).Error)
+	require.NoError(t, setup.DB.Create(localUser).Error)
 	localFollower := &models.Account{UserId: localUser.Id, Username: "local_follower_remote"}
-	require.NoError(t, setup.DB.GormDB.Create(localFollower).Error)
+	require.NoError(t, setup.DB.Create(localFollower).Error)
 
 	// 创建远程粉丝
 	remoteUser1 := &models.User{UserName: "remote_user1", EmailHash: "remote_user1@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(remoteUser1).Error)
+	require.NoError(t, setup.DB.Create(remoteUser1).Error)
 
 	domain1 := "remote1.example.com"
 	remoteFollower1 := &models.Account{
@@ -626,10 +658,10 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 		Username: "remote_user1",
 		Domain:   &domain1,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(remoteFollower1).Error)
+	require.NoError(t, setup.DB.Create(remoteFollower1).Error)
 
 	remoteUser2 := &models.User{UserName: "remote_user2", EmailHash: "remote_user2@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(remoteUser2).Error)
+	require.NoError(t, setup.DB.Create(remoteUser2).Error)
 
 	domain2 := "remote2.example.com"
 	remoteFollower2 := &models.Account{
@@ -637,7 +669,7 @@ func TestDBService_GetAccountRemoteFollowers(t *testing.T) {
 		Username: "remote_user2",
 		Domain:   &domain2,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(remoteFollower2).Error)
+	require.NoError(t, setup.DB.Create(remoteFollower2).Error)
 
 	// 创建关注关系
 	require.NoError(t, dbSvc.CreateTestFollow(localFollower.Id, account.Id))
@@ -823,7 +855,7 @@ func TestDBService_CreateTestAccount(t *testing.T) {
 	// 验证账号已创建
 	var found models.Account
 
-	setup.DB.GormDB.First(&found, account.Id)
+	setup.DB.First(&found, account.Id)
 	assert.Equal(t, "test_create_account", found.Username)
 }
 
@@ -999,14 +1031,14 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 
 	// 1. 创建测试用户和账号
 	user1 := &models.User{UserName: "timeline_user1", EmailHash: "timeline_user1@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user1).Error)
+	require.NoError(t, setup.DB.Create(user1).Error)
 	account1 := &models.Account{UserId: user1.Id, Username: "timeline_user1"}
-	require.NoError(t, setup.DB.GormDB.Create(account1).Error)
+	require.NoError(t, setup.DB.Create(account1).Error)
 
 	user2 := &models.User{UserName: "timeline_user2", EmailHash: "timeline_user2@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user2).Error)
+	require.NoError(t, setup.DB.Create(user2).Error)
 	account2 := &models.Account{UserId: user2.Id, Username: "timeline_user2"}
-	require.NoError(t, setup.DB.GormDB.Create(account2).Error)
+	require.NoError(t, setup.DB.Create(account2).Error)
 
 	// 2. 创建关注关系: account1 关注 account2
 	require.NoError(t, dbSvc.CreateTestFollow(account1.Id, account2.Id))
@@ -1019,7 +1051,7 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 		Content:    models.StatusContent{Content: "Test status 1"},
 		CreatedAt:  &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(status1).Error)
+	require.NoError(t, setup.DB.Create(status1).Error)
 
 	status2 := &models.Status{
 		AccountId:  account2.Id,
@@ -1027,7 +1059,7 @@ func TestGetStatusTimelineContent_RealDBAndRedis(t *testing.T) {
 		Content:    models.StatusContent{Content: "Test status 2"},
 		CreatedAt:  &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(status2).Error)
+	require.NoError(t, setup.DB.Create(status2).Error)
 
 	// 4. 创建时间线并添加数据
 	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: strconv.FormatUint(account1.Id, 10)}
@@ -1075,9 +1107,9 @@ func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 
 	// 创建测试账号
 	user := &models.User{UserName: "pagination_user", EmailHash: "pagination_user@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user).Error)
+	require.NoError(t, setup.DB.Create(user).Error)
 	account := &models.Account{UserId: user.Id, Username: "pagination_user"}
-	require.NoError(t, setup.DB.GormDB.Create(account).Error)
+	require.NoError(t, setup.DB.Create(account).Error)
 
 	// 创建多个状态
 	now := time.Now()
@@ -1088,7 +1120,7 @@ func TestGetStatusTimelineContent_WithPagination(t *testing.T) {
 			Content:    models.StatusContent{Content: "Status " + strconv.Itoa(i)},
 			CreatedAt:  &now,
 		}
-		require.NoError(t, setup.DB.GormDB.Create(status).Error)
+		require.NoError(t, setup.DB.Create(status).Error)
 
 		// 添加到 Redis 时间线
 		setup.Redis.Client.ZAdd(ctx, "feed:home:pagination_test", redis.Z{
@@ -1159,16 +1191,16 @@ func TestBackwardCompatibleFunctions_RealDBAndRedis(t *testing.T) {
 
 	// 创建测试用户和账号
 	user1 := &models.User{UserName: "compat_user1", EmailHash: "compat_user1@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user1).Error)
+	require.NoError(t, setup.DB.Create(user1).Error)
 	account1 := &models.Account{UserId: user1.Id, Username: "compat_user1"}
-	require.NoError(t, setup.DB.GormDB.Create(account1).Error)
+	require.NoError(t, setup.DB.Create(account1).Error)
 
 	user2 := &models.User{UserName: "compat_user2", EmailHash: "compat_user2@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user2).Error)
+	require.NoError(t, setup.DB.Create(user2).Error)
 
 	now := time.Now()
 	account2 := &models.Account{UserId: user2.Id, Username: "compat_user2", LastActivityAt: &now}
-	require.NoError(t, setup.DB.GormDB.Create(account2).Error)
+	require.NoError(t, setup.DB.Create(account2).Error)
 
 	// 创建关注关系: account2 关注 account1
 	require.NoError(t, dbSvc.CreateTestFollow(account2.Id, account1.Id))
@@ -1268,9 +1300,9 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 
 	// 创建测试账号
 	user := &models.User{UserName: "after_filter_user", EmailHash: "after_filter_user@example.com"}
-	require.NoError(t, setup.DB.GormDB.Create(user).Error)
+	require.NoError(t, setup.DB.Create(user).Error)
 	account := &models.Account{UserId: user.Id, Username: "after_filter_user"}
-	require.NoError(t, setup.DB.GormDB.Create(account).Error)
+	require.NoError(t, setup.DB.Create(account).Error)
 
 	// 创建两个状态
 	now := time.Now()
@@ -1280,7 +1312,7 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 		Content:    models.StatusContent{Content: "Public status"},
 		CreatedAt:  &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(status1).Error)
+	require.NoError(t, setup.DB.Create(status1).Error)
 
 	status2 := &models.Status{
 		AccountId:  account.Id,
@@ -1288,7 +1320,7 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 		Content:    models.StatusContent{Content: "Private status"},
 		CreatedAt:  &now,
 	}
-	require.NoError(t, setup.DB.GormDB.Create(status2).Error)
+	require.NoError(t, setup.DB.Create(status2).Error)
 
 	// 添加到时间线
 	setup.Redis.Client.ZAdd(ctx, "feed:home:after_filter_test", redis.Z{
@@ -1321,4 +1353,40 @@ func TestGetStatusTimelineContent_WithAfterFilter(t *testing.T) {
 	for _, s := range statuses {
 		assert.Equal(t, models.StatusVisibilityPublic, s.Visibility)
 	}
+}
+
+// Pending follow requests must neither receive private home timeline items nor
+// cause home timeline rebuilds to include the requested account.
+func TestDBService_ExcludesPendingFollows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires Redis")
+	}
+	setup := SetupIntegrationTest(t)
+	target := &models.Account{Username: "locked", Locked: true}
+	now := time.Now()
+	local := &models.Account{Username: "pending", LastActivityAt: &now}
+	domain := "remote.example.com"
+	remote := &models.Account{Username: "remote_pending", Domain: &domain, LastActivityAt: &now}
+	for _, a := range []*models.Account{target, local, remote} {
+		require.NoError(t, setup.DB.Create(a).Error)
+	}
+	for _, a := range []*models.Account{local, remote} {
+		require.NoError(t, setup.DB.Create(&models.Follow{AccountId: a.Id, FollowId: target.Id, Status: models.FollowStatusRequested}).Error)
+	}
+	service := setup.GetDBService()
+	ids, err := service.GetAccountFollowersId(target.Id)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	ids, err = service.GetAccountRecentActiveLocalFollowersId(target.Id)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	accounts, err := service.GetAccountFollowingAccounts(local.Id)
+	require.NoError(t, err)
+	require.Empty(t, accounts)
+	remotes, err := service.GetAccountRemoteFollowers(target.Id)
+	require.NoError(t, err)
+	require.Empty(t, remotes)
+	extra := &models.AccountExtra{}
+	require.NoError(t, setup.DB.First(extra, "account_id = ?", target.Id).Error)
+	require.Zero(t, extra.FollowersCount)
 }

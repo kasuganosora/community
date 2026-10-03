@@ -160,34 +160,6 @@ func newGinContextPost(t *testing.T, params gin.Params, body any) (*gin.Context,
 	return c, w
 }
 
-// newGinContextPut creates a gin.Context with PUT method and body.
-func newGinContextPut(t *testing.T, params gin.Params, body any) (*gin.Context, *httptest.ResponseRecorder) {
-	t.Helper()
-
-	w := httptest.NewRecorder()
-
-	var bodyReader *bytes.Reader
-
-	if body != nil {
-		b, err := json.Marshal(body)
-		require.NoError(t, err)
-
-		bodyReader = bytes.NewReader(b)
-	} else {
-		bodyReader = bytes.NewReader([]byte{})
-	}
-
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/", bodyReader) //nolint:noctx
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	if params != nil {
-		c.Params = params
-	}
-
-	return c, w
-}
-
 // setAccount sets the account in the gin context.
 func setAccount(c *gin.Context, acct *models.Account) {
 	if acct != nil {
@@ -451,16 +423,16 @@ func TestCreate_UnlistedVisibility(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 }
 
-// ============== Update Tests ==============
+// ============== Delete-and-repost Tests ==============
 
-func TestUpdate_Success(t *testing.T) {
+func TestReplace_Success(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		Status: new("Updated content"),
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 200, w.Code)
 	// Verify content was actually updated in the response
@@ -472,56 +444,56 @@ func TestUpdate_Success(t *testing.T) {
 
 }
 
-func TestUpdate_Forbidden(t *testing.T) {
+func TestReplace_Forbidden(t *testing.T) {
 	ts := newTestSetup(t)
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "other2" })
 	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "other2" })
 
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		Status: new("Hacked!"),
 	})
 	setAccount(c, otherAcct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 403, w.Code)
 }
 
-func TestUpdate_NotFound(t *testing.T) {
+func TestReplace_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: "99999"}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: "99999"}}, UpdateStatusRequest{
 		Status: new("Updated"),
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 404, w.Code)
 }
 
-func TestUpdate_InvalidID(t *testing.T) {
+func TestReplace_InvalidID(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: "abc"}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: "abc"}}, UpdateStatusRequest{
 		Status: new("Updated"),
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 422, w.Code)
 }
 
-func TestUpdate_InvalidBody(t *testing.T) {
+func TestReplace_InvalidBody(t *testing.T) {
 	ts := newTestSetup(t)
 	// Send genuinely invalid JSON that will trigger a binding error
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/", bytes.NewReader([]byte("{invalid json"))) //nolint:noctx
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("{invalid json"))) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 	// handler should return 400 for malformed JSON binding error
 	assert.Equal(t, 400, c.Writer.Status(), "malformed JSON should produce 400 binding error")
 }
@@ -1956,7 +1928,7 @@ func TestCreateThenDelete(t *testing.T) {
 
 // ============== Integration: Create then Update ==============
 
-func TestCreateThenUpdate(t *testing.T) {
+func TestCreateThenReplace(t *testing.T) {
 	ts := newTestSetup(t)
 
 	// Create
@@ -1978,11 +1950,11 @@ func TestCreateThenUpdate(t *testing.T) {
 	require.True(t, ok, "response should contain id")
 
 	// Update
-	c2, w2 := newGinContextPut(t, gin.Params{{Key: "id", Value: newIdStr}}, UpdateStatusRequest{
+	c2, w2 := newGinContextPost(t, gin.Params{{Key: "id", Value: newIdStr}}, UpdateStatusRequest{
 		Status: new("Updated content"),
 	})
 	setAccount(c2, ts.acct)
-	safeHandler(c2, Update)
+	safeHandler(c2, Replace)
 	assert.Equal(t, 200, w2.Code)
 }
 
@@ -2563,35 +2535,36 @@ func TestCreate_WithSpoilerText(t *testing.T) {
 
 // ============== Update visibility ==============
 
-func TestUpdate_ChangeVisibility(t *testing.T) {
+func TestReplace_ChangeVisibility(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		Visibility: new("private"),
+		Status:     new("Valid replacement content"),
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 200, w.Code, w.Body.String())
 }
 
-func TestUpdate_InvalidVisibility(t *testing.T) {
+func TestReplace_InvalidVisibility(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, map[string]string{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, map[string]string{
 		"visibility": "invalid",
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 400, w.Code)
 }
 
 // ============== Update with poll ==============
 
-func TestUpdate_WithPoll(t *testing.T) {
+func TestReplace_WithPoll(t *testing.T) {
 	ts := newTestSetup(t)
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		Status: new("Updated with poll"),
 		Poll: &CreatePollContent{
 			Options:   []string{"New A", "New B"},
@@ -2601,14 +2574,14 @@ func TestUpdate_WithPoll(t *testing.T) {
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 200, w.Code)
 }
 
 // ============== Update with media ==============
 
-func TestUpdate_WithMediaIds(t *testing.T) {
+func TestReplace_WithMediaIds(t *testing.T) {
 	ts := newTestSetup(t)
 
 	attachment := ts.fix.CreateAttachment(func(a *models.Attachment) {
@@ -2616,26 +2589,26 @@ func TestUpdate_WithMediaIds(t *testing.T) {
 	})
 
 	mediaIds := []string{strconv.FormatUint(attachment.Id, 10)}
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		MediaIds: &mediaIds,
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	assert.Equal(t, 200, w.Code)
 }
 
-func TestUpdate_InvalidMediaIds(t *testing.T) {
+func TestReplace_InvalidMediaIds(t *testing.T) {
 	ts := newTestSetup(t)
 
 	mediaIds := []string{"99999"}
-	c, w := newGinContextPut(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}}, UpdateStatusRequest{
 		MediaIds: &mediaIds,
 	})
 	setAccount(c, ts.acct)
 
-	safeHandler(c, Update)
+	safeHandler(c, Replace)
 
 	// Attachment doesn't belong to this account, should fail
 	assert.Equal(t, 422, w.Code)

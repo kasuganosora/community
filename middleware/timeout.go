@@ -9,6 +9,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// MatrixSyncHandlerTimeout leaves query and serialization time around a bounded
+// 30-second Matrix /sync long poll. It does not depend on client input.
+const MatrixSyncHandlerTimeout = 60 * time.Second
+
+func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.Duration {
+	if request.Method == http.MethodGet {
+		switch request.URL.Path {
+		case "/_matrix/client/v3/sync", "/_matrix/client/r0/sync":
+			return MatrixSyncHandlerTimeout
+		}
+	}
+	return fallback
+}
+
 // TimeoutMiddleware 请求超时中间件
 // 使用 goroutine + select 模式实现真正的超时控制：
 // - 超时后立即返回 504 响应
@@ -16,7 +30,7 @@ import (
 // - 使用 responseWriterWrapper 防止超时后 goroutine 继续写入响应.
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), requestHandlerTimeout(c.Request, timeout))
 		defer cancel()
 
 		// 用 wrapper 包装 writer，超时后禁止写入

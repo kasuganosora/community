@@ -145,6 +145,16 @@ func TestGetTimelineContent_PrivateVisibilityAfterFilter(t *testing.T) {
 	assert.NotContains(t, gotIds, otherPrivate.Id)
 	rm.ExpectationsWereMet()
 
+	// A pending request grants no access, even when its author is present in
+	// the same follows table used to build the visibility map.
+	require.NoError(t, gdb.Exec("INSERT INTO follows (account_id, follow_id, status) VALUES (40, 10, ?)", models.FollowStatusRequested).Error)
+	rm.ExpectExists(timelineKey).SetVal(1)
+	rm.ExpectZRangeArgs(redis.ZRangeArgs{Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true}).SetVal(ids)
+	pending, err := GetTimelineContent("priv", &models.Account{Id: 40}, &feed.ListParam{Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, pending, "pending followers cannot see private tagged statuses")
+	require.NoError(t, rm.ExpectationsWereMet())
+
 	// Viewer = follower (account 20): sees author's private (following) but not stranger's.
 	rm.ExpectExists(timelineKey).SetVal(1)
 	rm.ExpectZRangeArgs(redis.ZRangeArgs{

@@ -2,7 +2,6 @@ package activitypub
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/kasuganosora/community/htmlsafe"
 
@@ -49,9 +48,10 @@ func Featured(c *gin.Context) {
 		db.GetDB().Preload("Content").
 			Preload("Attachments").
 			Preload("Emojis").
-			Preload("ToAccounts").
+			Preload("ToAccounts").Preload("ReplyAccount").
 			Preload("Tags").
 			Where("id IN ?", statusIds).
+			Where("account_id = ? AND visibility IN ? AND deleted_at IS NULL AND scheduled_at IS NULL", account.Id, []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).
 			Find(&statuses)
 	}
 
@@ -72,26 +72,32 @@ func Featured(c *gin.Context) {
 		OrderedItems: items,
 	}
 
+	c.Header("Content-Type", "application/activity+json")
 	c.JSON(200, response)
 }
 
 // buildNoteFromStatus builds an ActivityPub Note object from a Status.
 func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL string) map[string]any {
-	statusURL := baseURL + "/users/" + account.Username + "/statuses/" + strconv.FormatUint(status.Id, 10)
-	actorURL := baseURL + "/users/" + account.Username
+	statusURL := statusObjectURI(status, account, baseURL)
+	actorURL := accountActorURI(account, baseURL)
+	to, cc := statusRecipients(status, account, baseURL)
 
 	note := map[string]any{
+		"@context":     "https://www.w3.org/ns/activitystreams",
 		"id":           statusURL,
 		"type":         "Note",
 		"attributedTo": actorURL,
 		"content":      status.ContentHTML(htmlsafe.OptionsForBaseURL(baseURL)),
 		"url":          statusURL,
 		"published":    status.CreatedAt,
-		"to":           []string{"https://www.w3.org/ns/activitystreams#Public"},
-		"cc":           []string{actorURL + "/followers"},
+		"to":           to,
+		"cc":           cc,
 		"sensitive":    status.Sensitive,
 	}
 
+	if status.UpdatedAt != nil && status.CreatedAt != nil && status.UpdatedAt.After(*status.CreatedAt) {
+		note["updated"] = status.UpdatedAt
+	}
 	if status.Content.SpoilerText != "" {
 		note["summary"] = status.SpoilerTextPlain()
 	}
@@ -102,7 +108,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 		err := db.GetDB().Preload("Account").First(&replyToStatus, *status.InReplyToId).Error
 		if err == nil {
 			if replyToStatus.Account != nil {
-				replyURL := baseURL + "/users/" + replyToStatus.Account.Username + "/statuses/" + strconv.FormatUint(replyToStatus.Id, 10)
+				replyURL := statusObjectURI(&replyToStatus, replyToStatus.Account, baseURL)
 				note["inReplyTo"] = replyURL
 			}
 		}
@@ -147,8 +153,8 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 		for _, mentioned := range status.ToAccounts {
 			tag := map[string]any{
 				"type": "Mention",
-				"href": baseURL + "/users/" + mentioned.Username,
-				"name": "@" + mentioned.Username,
+				"href": accountActorURI(mentioned, baseURL),
+				"name": mentionName(mentioned),
 			}
 			tags = append(tags, tag)
 		}

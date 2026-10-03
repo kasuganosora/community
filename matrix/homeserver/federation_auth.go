@@ -354,68 +354,11 @@ func fetchServerKeys(client *FederationClient, baseURL, serverName string) (*Ser
 func FederationAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hs := GetHomeServer()
-		if hs == nil || !hs.Config.Enabled {
-			c.JSON(http.StatusServiceUnavailable, MatrixError{
-				ErrCode: "M_UNKNOWN",                //nolint:goconst
-				Error:   "Homeserver not available", //nolint:goconst
-			})
-			c.Abort()
-
+		if hs == nil || hs.Config == nil || !hs.Config.Enabled {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, MatrixError{ErrCode: "M_UNKNOWN", Error: "Homeserver not available"})
 			return
 		}
-
-		// 获取请求头中的 Authorization
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			// 某些联邦请求可能没有 Authorization（如获取服务器密钥）
-			c.Next()
-
-			return
-		}
-
-		// 解析 X-Matrix 认证
-		if strings.HasPrefix(authHeader, "X-Matrix origin=") {
-			origin, destination, keyID, signature, err := parseXMatrixAuth(authHeader)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, MatrixError{
-					ErrCode: "M_UNAUTHORIZED", //nolint:goconst
-					Error:   "Invalid authorization header: " + err.Error(),
-				})
-				c.Abort()
-
-				return
-			}
-
-			// 验证签名
-			verifier := NewEventAuthVerifier(hs)
-
-			publicKey, err := verifier.getServerPublicKey(origin)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, MatrixError{
-					ErrCode: "M_UNAUTHORIZED",
-					Error:   "Failed to get server key: " + err.Error(),
-				})
-				c.Abort()
-
-				return
-			}
-
-			// 验证请求签名
-			if !verifyRequestSignature(c.Request, origin, destination, keyID, signature, publicKey) {
-				c.JSON(http.StatusUnauthorized, MatrixError{
-					ErrCode: "M_UNAUTHORIZED",
-					Error:   "Invalid request signature",
-				})
-				c.Abort()
-
-				return
-			}
-
-			// 将 origin 存储在上下文中
-			c.Set("origin", origin)
-		}
-
-		c.Next()
+		requireFederationAuth()(c)
 	}
 }
 
@@ -497,7 +440,7 @@ func contains(slice []string, item string) bool {
 }
 
 func extractServerName(userID string) string {
-	parts := strings.Split(userID, ":")
+	parts := strings.SplitN(userID, ":", 2)
 	if len(parts) >= 2 {
 		return parts[1]
 	}

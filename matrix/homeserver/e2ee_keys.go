@@ -13,6 +13,8 @@ import (
 	"github.com/awnumar/memguard"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // KeyStore 设备密钥存储服务.
@@ -347,17 +349,25 @@ func (ks *KeyStore) ClaimOneTimeKeys(req *ClaimKeysRequest) (*ClaimKeysResponse,
 			// 查找未使用的一次性密钥
 			var otkRecord MatrixOneTimeKey
 
-			result := db.GetDB().Where("user_id = ? AND device_id = ? AND algorithm = ? AND used = ?",
-				userID, deviceID, algorithm, false).
-				Order("created_at ASC").
-				First(&otkRecord)
-
-			if result.Error != nil {
-				continue // 没有可用密钥
+			err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ? AND device_id = ? AND algorithm = ? AND used = ?", userID, deviceID, algorithm, false).Order("created_at ASC").First(&otkRecord).Error; err != nil {
+					return err
+				}
+				changed := tx.Model(&MatrixOneTimeKey{}).Where("id = ? AND used = ?", otkRecord.ID, false).Update("used", true)
+				if changed.Error != nil {
+					return changed.Error
+				}
+				if changed.RowsAffected != 1 {
+					return fmt.Errorf("one-time key was concurrently consumed")
+				}
+				return nil
+			})
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
 			}
-
-			// 标记为已使用
-			db.GetDB().Model(&otkRecord).Update("used", true)
+			if err != nil {
+				return nil, err
+			}
 
 			// 返回公钥 — PublicKey stores either a JSON string "base64..." or a JSON object {...}
 			if deviceKeys[deviceID] == nil {

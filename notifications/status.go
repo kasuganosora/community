@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
@@ -10,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func init() {
@@ -22,11 +24,11 @@ func init() {
 		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
-			safeGo("creatReblogNotification", func() { creatReblogNotification(status) })   // 创建boost notification
-			safeGo("creatMentionNotification", func() { creatMentionNotification(status) }) // 创建mention notification
+			safeGo("creatReblogNotification", func() { creatReblogNotification(status) }) // 创建boost notification
+			dispatchMentionNotification(status, false)
 		case "after_update":
 			safeGo("updateReblogNotification", func() { updateReblogNotification(status) })
-			safeGo("updateMentionNotification", func() { updateMentionNotification(status) })
+			dispatchMentionNotification(status, true)
 		case "after_delete":
 			safeGo("removeReblogNotification", func() { removeReblogNotification(status) })
 			safeGo("removeMentionNotification", func() { removeMentionNotification(status) })
@@ -56,6 +58,90 @@ func init() {
 
 		return true
 	}})
+}
+
+// Locking the saved status waits for its transaction to commit or roll back.
+// Read recipients only after that barrier, including when an edit rolls back.
+func dispatchMentionNotification(status *models.Status, update bool) {
+	statusID := status.Id
+	version := mentionStatusVersion{content: status.Content}
+	if status.UpdatedAt != nil {
+		version.updatedAt = *status.UpdatedAt
+	}
+	conn := db.GetDB()
+	safeGo("mentionNotification", func() {
+		if err := processMentionNotification(conn, statusID, update, version); err != nil {
+			log.ErrorV(errors.Wrap(err, "process committed status mentions"))
+		}
+	})
+}
+
+type mentionStatusVersion struct {
+	updatedAt time.Time
+	content   models.StatusContent
+}
+
+func processMentionNotification(conn *gorm.DB, statusID uint64, update bool, version mentionStatusVersion) error {
+	var created []*models.Notification
+	err := conn.Transaction(func(tx *gorm.DB) error {
+		var status models.Status
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&status, statusID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		// The save may have rolled back, or a newer edit may already have won.
+		// MySQL stores these timestamps at millisecond precision.
+		if !version.updatedAt.IsZero() && (status.UpdatedAt == nil || !status.UpdatedAt.Truncate(time.Millisecond).Equal(version.updatedAt.Truncate(time.Millisecond))) {
+			return nil
+		}
+		// Distinguish content edits even when two saves share a millisecond.
+		if version.content.StatusId != 0 {
+			var content models.StatusContent
+			if err := tx.First(&content, "status_id = ?", statusID).Error; err != nil {
+				return err
+			}
+			if content.Content != version.content.Content || content.SpoilerText != version.content.SpoilerText {
+				return nil
+			}
+		}
+		ids, err := mentionAccountIDs(tx, statusID)
+		if err != nil {
+			return err
+		}
+		// Publish notification events only after their rows commit; otherwise
+		// the feed can publish records that disappear if this worker rolls back.
+		tx = tx.Session(&gorm.Session{SkipHooks: true})
+		if update {
+			return updateMentionNotificationForAccounts(tx, &status, ids, &created)
+		}
+		return createMentionNotificationForAccounts(tx, &status, ids, &created)
+	})
+	if err != nil {
+		return err
+	}
+	for _, n := range created {
+		event.Trigger("notification", event.Event{Name: "after_create", Data: n})
+	}
+	return nil
+}
+
+func createMentionBatch(tx *gorm.DB, rows []*models.Notification, created *[]*models.Notification) error {
+	if err := tx.Create(rows).Error; err != nil {
+		return err
+	}
+	if created != nil {
+		*created = append(*created, rows...)
+	}
+	return nil
+}
+
+func mentionAccountIDs(tx *gorm.DB, statusID uint64) ([]uint64, error) {
+	ids := make([]uint64, 0)
+	err := tx.Model(&models.StatusToAccount{}).Where("status_id = ?", statusID).Pluck("account_id", &ids).Error
+	return ids, err
 }
 
 // unfavouriteNotification 取消收藏通知
@@ -195,22 +281,22 @@ func removeMentionNotification(status *models.Status) {
 // 如果有的账号不再是mention账号，就删除对应的通知
 // 给现有的账号发送更新status通知.
 func updateMentionNotification(status *models.Status) {
+	ids, err := mentionAccountIDs(db.GetDB(), status.Id)
+	if err != nil {
+		log.ErrorV(errors.Wrap(err, "read updated status mentions"))
+		return
+	}
+	_ = updateMentionNotificationForAccounts(db.GetDB(), status, ids, nil)
+}
+
+func updateMentionNotificationForAccounts(tx *gorm.DB, status *models.Status, newMentionAccountList []uint64, created *[]*models.Notification) error {
 	// 获取原来的Mention 通知
 	oldNsList := make([]*models.Notification, 0)
 
-	err := db.GetDB().Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&oldNsList).Error
+	err := tx.Where("type = ? and status_id = ?", models.NotificationTypeMention, status.Id).Find(&oldNsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find old mention notification error, status id %d", status.Id)))
-		return
-	}
-
-	// 新的 mention 账号列表
-	newMentionAccountList := make([]uint64, 0)
-
-	err = db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
-	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] find new mention account list error, status id %d", status.Id)))
-		return
+		return err
 	}
 
 	newMentionAccountListExistsMap := utils.GetExistsMap(newMentionAccountList)
@@ -226,17 +312,17 @@ func updateMentionNotification(status *models.Status) {
 	}
 
 	if len(needRemoveNsList) > 0 {
-		err = db.GetDB().Delete(needRemoveNsList).Error
+		err = tx.Delete(needRemoveNsList).Error
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] remove mention notification error, status id %d", status.Id)))
-			return
+			return err
 		}
 	}
 
-	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
+	accounts, err := models.GetLocalAccounts(tx, newMentionAccountList)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] get local accounts error, status id %d", status.Id)))
-		return
+		return err
 	}
 
 	// 找出那些需要创建的通知（新提及的但不在旧通知列表中的账号）
@@ -265,10 +351,10 @@ func updateMentionNotification(status *models.Status) {
 	}
 
 	if len(needCreateNsList) > 0 {
-		err = db.GetDB().Create(needCreateNsList).Error
+		err = createMentionBatch(tx, needCreateNsList, created)
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create mention notification error, status id %d", status.Id)))
-			return
+			return err
 		}
 	}
 
@@ -290,31 +376,34 @@ func updateMentionNotification(status *models.Status) {
 	}
 
 	if len(updateNfs) > 0 {
-		err = db.GetDB().Create(updateNfs).Error
+		err = createMentionBatch(tx, updateNfs, created)
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create update notification error, status id %d", status.Id)))
-			return
+			return err
 		}
 	}
+	return nil
 }
 
 func creatMentionNotification(status *models.Status) {
-	newMentionAccountList := make([]uint64, 0)
-
-	err := db.GetDB().Model(&models.StatusToAccount{}).Where("status_id = ?", status.Id).Pluck("account_id", &newMentionAccountList).Error
+	newMentionAccountList, err := mentionAccountIDs(db.GetDB(), status.Id)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] find new mention account list error, status id %d", status.Id)))
 		return
 	}
+	_ = createMentionNotificationForAccounts(db.GetDB(), status, newMentionAccountList, nil)
+}
+
+func createMentionNotificationForAccounts(tx *gorm.DB, status *models.Status, newMentionAccountList []uint64, created *[]*models.Notification) error {
 
 	if len(newMentionAccountList) == 0 {
-		return
+		return nil
 	}
 
-	accounts, err := models.GetLocalAccounts(db.GetDB(), newMentionAccountList)
+	accounts, err := models.GetLocalAccounts(tx, newMentionAccountList)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] get local accounts error, status id %d", status.Id)))
-		return
+		return err
 	}
 
 	nsList := make([]*models.Notification, 0)
@@ -336,14 +425,15 @@ func creatMentionNotification(status *models.Status) {
 
 	// 空切片时不调用 Create
 	if len(nsList) == 0 {
-		return
+		return nil
 	}
 
-	err = db.GetDB().Create(nsList).Error
+	err = createMentionBatch(tx, nsList, created)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[creatMentionNotification] create mention notification error, status id %d", status.Id)))
-		return
+		return err
 	}
+	return nil
 }
 
 func removeReblogNotification(status *models.Status) {

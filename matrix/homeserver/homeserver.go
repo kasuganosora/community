@@ -138,7 +138,9 @@ func loadHSConfig() *HSConfig {
 		cfg.ServerName = "localhost"
 	}
 
-	if os.Getenv("SERVER_NAME") != "" {
+	if config.AppBaseURLConfigured() {
+		cfg.BaseURL = systemsettings.GetBaseURL()
+	} else if os.Getenv("SERVER_NAME") != "" {
 		cfg.BaseURL = "https://" + cfg.ServerName
 	} else {
 		cfg.BaseURL = systemsettings.GetBaseURL()
@@ -157,6 +159,7 @@ func autoMigrate() error {
 		&MatrixRoomMember{},
 		&MatrixUserSession{},
 		&MatrixToDeviceMessage{},
+		&MatrixToDeviceDelivery{},
 		&MatrixReceipt{},
 		&MatrixAccountData{},
 		&MatrixTyping{},

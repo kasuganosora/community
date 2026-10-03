@@ -70,8 +70,9 @@ type Status struct { //nolint:recvcheck
 	Reblog       *Status      `gorm:"foreignKey:reblog_id"                json:"relog"`
 	Tags         Tags         `gorm:"many2many:status_tags;"              json:"tags"`
 
-	isLoadAllExtendFields bool `gorm:"-"`
-	conversationIdChanged bool `gorm:"-"`
+	isLoadAllExtendFields bool    `gorm:"-"`
+	conversationIdChanged bool    `gorm:"-"`
+	deletedReplyParentID  *uint64 `gorm:"-"`
 }
 
 func (Status) TableName() string {
@@ -122,6 +123,11 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 		s.Account = &Account{}
 		err = tx.Model(s).Association("Account").Find(s.Account)
 		if err != nil {
+			return err
+		}
+	}
+	if s.Account != nil && s.Account.Extra == nil {
+		if err = tx.Model(s.Account).Association("Extra").Find(&s.Account.Extra); err != nil {
 			return err
 		}
 	}
@@ -197,7 +203,7 @@ func BatchLoadAllExtendFields(tx *gorm.DB, statuses []*Status) (err error) {
 	// 批量加载 Accounts
 	if len(accountIDs) > 0 {
 		accounts := make([]*Account, 0, len(accountIDs))
-		err = tx.Where("id IN ?", accountIDs).Find(&accounts).Error
+		err = tx.Preload("Extra").Where("id IN ?", accountIDs).Find(&accounts).Error
 		if err != nil {
 			return err
 		}
@@ -249,7 +255,7 @@ func (s *Status) SpoilerTextPlain() string {
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	triggerStatusEvent(tx, event.Event{
 		Name: "before_save", //nolint:goconst
 		Data: s,
 	})
@@ -271,7 +277,7 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 		s.conversationIdChanged = false
 	}
 
-	event.GetEventManager("status").Trigger(event.Event{
+	triggerStatusEvent(tx, event.Event{
 		Name: "after_save",
 		Data: s,
 	})
@@ -280,7 +286,17 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	if err = queueFederationStatus(tx, "Create", s); err != nil {
+		return err
+	}
+	if s.InReplyToId != nil && (s.ReblogId == nil || *s.ReblogId == 0) {
+		if err = tx.Model(&Status{}).Where("id = ?", *s.InReplyToId).
+			UpdateColumn("replies_count", gorm.Expr("replies_count + ?", 1)).Error; err != nil {
+			return err
+		}
+	}
+
+	triggerStatusEvent(tx, event.Event{
 		Name: "after_create", //nolint:goconst
 		Data: s,
 	})
@@ -302,7 +318,7 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 // 注意：BeforeSave 会在 create+update 都触发，因此不能把 before_update 语义
 // 放进 BeforeSave，否则新建时也会误触发清理逻辑。
 func (s *Status) BeforeUpdate(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	triggerStatusEvent(tx, event.Event{
 		Name: "before_update",
 		Data: s,
 	})
@@ -311,7 +327,7 @@ func (s *Status) BeforeUpdate(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	triggerStatusEvent(tx, event.Event{
 		Name: "after_update", //nolint:goconst
 		Data: s,
 	})
@@ -320,7 +336,24 @@ func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	if err = queueFederationStatus(tx, "Delete", s); err != nil {
+		return err
+	}
+	s.deletedReplyParentID = nil
+	if s.Id > 0 {
+		var reply Status
+		// Serialize concurrent deletion of the same reply. Otherwise both
+		// requests could remember its parent and decrement the counter.
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("in_reply_to_id").Where("id = ? AND in_reply_to_id IS NOT NULL AND (reblog_id IS NULL OR reblog_id = 0)", s.Id).Take(&reply)
+		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return result.Error
+		}
+		if result.Error == nil {
+			s.deletedReplyParentID = reply.InReplyToId
+		}
+	}
+
+	triggerStatusEvent(tx, event.Event{
 		Name: "before_delete",
 		Data: s,
 	})
@@ -397,7 +430,16 @@ func (s *Status) deleteDependents(tx *gorm.DB) error {
 }
 
 func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
-	event.GetEventManager("status").Trigger(event.Event{
+	// Only a deleted original reply changes the parent's count. Guard zero
+	// for legacy rows whose counters predate reply-count maintenance.
+	if s.deletedReplyParentID != nil {
+		if err = tx.Model(&Status{}).Where("id = ? AND replies_count > 0", *s.deletedReplyParentID).
+			UpdateColumn("replies_count", gorm.Expr("replies_count - ?", 1)).Error; err != nil {
+			return err
+		}
+	}
+
+	triggerStatusEvent(tx, event.Event{
 		Name: "after_delete",
 		Data: s,
 	})
@@ -789,6 +831,7 @@ func (s *Status) SetConversation(tx *gorm.DB) (err error) {
 
 func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 	return query.Preload("Account").
+		Preload("Account.Extra").
 		Preload("Content").
 		Preload("Application").
 		Preload("Attachments").
@@ -800,6 +843,7 @@ func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 		Preload("Tags").
 		Preload("Reblog").
 		Preload("Reblog.Account").
+		Preload("Reblog.Account.Extra").
 		Preload("Reblog.Content").
 		Preload("Reblog.Application").
 		Preload("Reblog.Attachments").
@@ -1044,6 +1088,25 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 }
 
 func (sc *StatusContent) bindToAccountsByStatusContent(tx *gorm.DB, refresh bool) (err error) {
+	if structured, _ := tx.Statement.Context.Value(structuredMentionsKey{}).(bool); structured {
+		ids, provided := tx.Statement.Context.Value(structuredRecipientIDsKey{}).([]uint64)
+		if !provided {
+			return nil
+		}
+		if refresh {
+			if err := tx.Where("status_id = ?", sc.StatusId).Delete(&StatusToAccount{}).Error; err != nil {
+				return err
+			}
+		}
+		rows := make([]StatusToAccount, 0, len(ids))
+		for _, id := range ids {
+			rows = append(rows, StatusToAccount{StatusId: sc.StatusId, AccountId: id})
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		return tx.Create(&rows).Error
+	}
 	if refresh {
 		err = tx.Where("status_id = ?", sc.StatusId).Delete(&StatusToAccount{}).Error
 		if err != nil {
