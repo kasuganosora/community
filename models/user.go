@@ -25,7 +25,7 @@ const (
 type User struct { //nolint:recvcheck
 	Id             uint64          `gorm:"primary_key;autoIncrement"                        json:"id"`
 	UUID           string          `gorm:"unique;not null;type:varchar(36)"                 json:"uuid"`       // UUID
-	UserName       string          `gorm:"unique;column:username;not null;type:varchar(20)" json:"username"`   // 用户名
+	UserName       string          `gorm:"unique;column:username;not null;type:varchar(64)" json:"username"`   // 用户名
 	IsBan          bool            `gorm:"default:false"                                    json:"is_ban"`     // 是否被封禁
 	IsAdmin        bool            `gorm:"default:false"                                    json:"is_admin"`   // 是否是管理员
 	EmailHash      string          `gorm:"type:varchar(255); unique;not null"               json:"email_hash"` // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
@@ -70,6 +70,7 @@ func (u *User) GetAccountBase(db *gorm.DB) (account *Account, err error) {
 
 // UserSecretData 保存用户的敏感数据，如密码，邮箱等 里面的所有数据在保存时候都会加密.
 type UserSecretData struct { //nolint:recvcheck
+	PasswordScheme  string         `gorm:"type:varchar(32);default:''" json:"-"`
 	UserId          uint64         `gorm:"primary_key, column:user_id" json:"user_id"`
 	Salt            string         `gorm:"type:varchar(255);not null"  json:"salt"`
 	Password        string         `gorm:"type:varchar(255);not null"  json:"password"` // 密码不需要加密, 因为入库的时候进行过不可逆加密
@@ -222,4 +223,34 @@ func CompareHashAndPassword(base64PwdHash, password string, salt string) (err er
 	}
 
 	return bcrypt.CompareHashAndPassword(hash, legacy)
+}
+
+// CheckPassword retains the source verifier only when explicitly marked by a
+// validated import. A subsequent password change uses the native scheme.
+func (u *UserSecretData) CheckPassword(password string) error {
+	switch u.PasswordScheme {
+	case "", "community":
+		return CompareHashAndPassword(u.Password, password, u.Salt)
+	case "bcrypt":
+		if err := ValidateImportedBcrypt(u.Password); err != nil {
+			return err
+		}
+		input := []byte(password)
+		if len(input) > bcryptMaxInput {
+			input = input[:bcryptMaxInput]
+		}
+		return bcrypt.CompareHashAndPassword([]byte(u.Password), input)
+	default:
+		return errors.New("unsupported password scheme")
+	}
+}
+func ValidateImportedBcrypt(hash string) error {
+	if !(strings.HasPrefix(hash, "$2a$") || strings.HasPrefix(hash, "$2b$") || strings.HasPrefix(hash, "$2y$")) {
+		return errors.New("unsupported imported bcrypt encoding")
+	}
+	if len(hash) != 60 {
+		return errors.New("invalid imported bcrypt encoding")
+	}
+	_, err := bcrypt.Cost([]byte(hash))
+	return err
 }

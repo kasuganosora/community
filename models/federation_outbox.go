@@ -59,14 +59,14 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 	if kind == "Create" && tx.Statement.Context.Value(deferredFederationCreateKey{}) == true {
 		return nil
 	}
-	if s.Id == 0 || s.AccountId == 0 || !s.IsLocal() || s.ScheduledAt != nil || s.ReblogId != nil || !hasFederationOutbox(tx) {
+	if s.LocalOnly || s.Id == 0 || s.AccountId == 0 || !s.IsLocal() || s.ScheduledAt != nil || s.ReblogId != nil || !hasFederationOutbox(tx) {
 		return nil
 	}
 	var snapshot Status
 	if err := StatusLoadAllQuery(tx.Session(&gorm.Session{NewDB: true})).First(&snapshot, s.Id).Error; err != nil {
 		return err
 	}
-	if snapshot.Account == nil || snapshot.Account.Domain != nil {
+	if snapshot.LocalOnly || snapshot.Account == nil || snapshot.Account.Domain != nil {
 		return nil
 	}
 	recipients := make(map[uint64]bool)

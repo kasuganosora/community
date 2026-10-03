@@ -9,6 +9,7 @@ services:
       # The app stores uploads under ./uploads relative to its working
       # directory (/app).
       - ./uploads:/app/uploads
+      - transfer-data:/app/.data-transfers
     depends_on:
       mysql:
         condition: service_healthy
@@ -31,6 +32,7 @@ services:
       REDIS_0_DB: "0"
       APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set in .env, e.g. https://social.example.org}
       ENCRYPTED_KEY: ${ENCRYPTED_KEY:?ENCRYPTED_KEY must be set in .env (at least 16 characters)}
+      DATA_TRANSFER_DIR: /app/.data-transfers
     networks:
       - community-net
 
@@ -73,6 +75,7 @@ services:
 volumes:
   mysql-data:
   redis-data:
+  transfer-data:
 
 networks:
   community-net:

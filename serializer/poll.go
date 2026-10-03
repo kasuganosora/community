@@ -107,6 +107,14 @@ func toPollsMapByStatusIdWithDB(conn *gorm.DB, polls []*models.Poll, current *mo
 	for _, p := range polls {
 		c := counts[p.Id]
 		own := mine[p.Id]
+		// Imported polls may preserve aggregates without individual voter identities.
+		var aggregate uint64
+		for _, option := range p.Options {
+			aggregate += option.Votes
+		}
+		if aggregate > c.VotesCount {
+			c.VotesCount = aggregate
+		}
 		out := ToBasePoll(p, len(own) > 0, c.VotesCount, c.VotersCount)
 		out.Options = toPollOptions(p)
 		out.OwnVotes = ownVoteIndexes(own, options)

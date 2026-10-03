@@ -25,7 +25,7 @@ func reactionContent(activity map[string]any) string {
 }
 func reactionStatus(conn *gorm.DB, uri string) (*models.Status, error) {
 	var s models.Status
-	err := conn.Preload("Account").Preload("ToAccounts").Where("origin_uri = ?", uri).First(&s).Error
+	err := conn.Preload("Account").Preload("ToAccounts").Where("origin_uri = ? OR local_object_uri = ?", uri, uri).First(&s).Error
 	if err == nil {
 		return &s, nil
 	}
@@ -146,7 +146,7 @@ func reactionPayload(e *models.FederationOutbox, actorURI, activityID string) (m
 	err := db.GetDB().Preload("Account").Preload("ToAccounts").First(&status, e.ObjectID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) && e.Kind == "ReactionUndo" {
 		status.Id = e.ObjectID
-		status.Account = &models.Account{Username: snap.OwnerUsername}
+		status.Account = &models.Account{Username: snap.OwnerUsername, LocalActorURI: snap.OwnerActorURI}
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil, nil
 	} else if err != nil {

@@ -64,7 +64,7 @@ func accountAddress(account *models.Account) (acct, profileURL, actorURI string)
 
 	base := systemsettings.GetBaseURL()
 
-	return account.Username, base + "/@" + account.Username, base + "/users/" + account.Username
+	return account.Username, base + "/@" + account.Username, account.ActorURI(base)
 }
 
 func ToAccount(account *models.Account) (acc *Account) {

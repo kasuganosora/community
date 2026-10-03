@@ -11,6 +11,12 @@ describe('pageTitle', () => {
 })
 
 describe('routes', () => {
+  it('separates administrator site migration from personal data tools', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    expect(router.resolve('/admin/migrations').meta).toMatchObject({ requiresAuth: true, requiresAdmin: true })
+    expect(router.resolve('/settings/data').meta.requiresAuth).toBe(true)
+    expect(router.resolve('/settings/data').meta.requiresAdmin).not.toBe(true)
+  })
   it('marks emoji administration as authenticated and administrator-only', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     const route = router.resolve('/admin/emojis')

@@ -47,9 +47,9 @@ func Inbox(c *gin.Context) {
 
 	// Verify the local user exists (for user-specific inbox)
 	var targetAccount *models.Account
-	if username != "" {
+	if username != "" || c.Request.URL.Path == "/actor/inbox" {
 		targetAccount = &models.Account{}
-		err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(targetAccount).Error
+		err := localActorRouteQuery(db.GetDB(), c).First(targetAccount).Error
 		if err != nil {
 			c.JSON(404, gin.H{"error": "user not found"})
 
@@ -608,11 +608,9 @@ func handleDeleteActivity(ctx context.Context, c *gin.Context, activity map[stri
 func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) {
 	if targetAccount == nil {
 		if uri, ok := activity["object"].(string); ok {
-			if name, ok := localActorName(uri); ok {
-				var local models.Account
-				if activityDB(ctx).Where("username = ? AND domain IS NULL", name).First(&local).Error == nil {
-					targetAccount = &local
-				}
+			var local models.Account
+			if localActorQuery(activityDB(ctx), uri).First(&local).Error == nil {
+				targetAccount = &local
 			}
 		}
 	}
@@ -633,7 +631,7 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Verify the object is our local user
 
-	expectedActorURI := systemsettings.GetBaseURL() + "/users/" + targetAccount.Username
+	expectedActorURI := targetAccount.ActorURI(systemsettings.GetBaseURL())
 	if object != expectedActorURI {
 		c.JSON(403, gin.H{"error": "wrong target"})
 
@@ -758,7 +756,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	// Find the original status (might be local or remote)
 	var originalStatus models.Status
 
-	err = activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&originalStatus).Error
+	err = activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&originalStatus).Error
 	if err != nil {
 		// Try to fetch the remote status
 		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(ctx, object, remoteAccount) //nolint:contextcheck
@@ -772,6 +770,10 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 		originalStatus = *fetchedStatus
 	}
 
+	if originalStatus.LocalOnly {
+		c.JSON(403, gin.H{"error": "forbidden"})
+		return
+	}
 	// Check if we already have this reblog
 	var existingReblog models.Status
 
@@ -1002,9 +1004,8 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 
 	var blockedAccount models.Account
 
-	expectedURI := systemsettings.GetBaseURL() + "/users/"
-	if username, ok := strings.CutPrefix(objectStr, expectedURI); ok {
-		err := activityDB(ctx).Where("username = ? AND domain IS NULL", username).First(&blockedAccount).Error
+	{
+		err := localActorQuery(activityDB(ctx), objectStr).First(&blockedAccount).Error
 		if err == nil {
 			// Create block record
 			block := models.Block{
@@ -1013,9 +1014,9 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 			}
 			err := activityDB(ctx).Create(&block).Error
 			if err != nil {
-				log.Error("Failed to create block from %s to %s: %v", actor, username, err)
+				log.Error("Failed to create block from %s to %s: %v", actor, blockedAccount.Username, err)
 			} else {
-				log.Info("Remote user %s blocked local user %s", actor, username)
+				log.Info("Remote user %s blocked local user %s", actor, blockedAccount.Username)
 			}
 		}
 	}
@@ -1060,7 +1061,7 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	for _, objectID := range objectIDs {
 		// Check if it's a status
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ?", objectID, objectID).First(&status).Error
+		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", objectID, objectID, objectID).First(&status).Error
 		if err == nil {
 			reportedStatusIds = append(reportedStatusIds, status.Id)
 			if reportedAccountId == 0 {
@@ -1281,8 +1282,8 @@ func getVisibilityFromActivity(object map[string]any) uint8 {
 
 // sendAcceptActivity sends an Accept activity to a remote server.
 func queueAcceptActivity(ctx context.Context, localAccount *models.Account, remoteAccount *models.Account, followActivityID string) error {
-	actorURL := systemsettings.GetBaseURL() + "/users/" + localAccount.Username
-	targetURL := systemsettings.GetBaseURL() + "/users/" + localAccount.Username
+	actorURL := localAccount.ActorURI(systemsettings.GetBaseURL())
+	targetURL := localAccount.ActorURI(systemsettings.GetBaseURL())
 
 	// Get remote inbox
 	var inboxURL string
@@ -1359,7 +1360,7 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 	if strings.Contains(target, "/collections/featured") {
 		// Adding to featured/pinned statuses collection
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
+		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&status).Error
 		if err == nil {
 			// Mark as featured (pinned)
 			if status.AccountId == remoteAccount.Id {
@@ -1410,7 +1411,7 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if strings.Contains(target, "/collections/featured") {
 		// Removing from featured/pinned statuses collection
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
+		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&status).Error
 		if err == nil {
 			// Unmark as featured (unpin)
 			if status.AccountId == remoteAccount.Id {
@@ -1626,7 +1627,7 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string, attribute
 	if inReplyTo != "" {
 		var parentStatus models.Status
 
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ?", inReplyTo, inReplyTo).First(&parentStatus).Error
+		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", inReplyTo, inReplyTo, inReplyTo).First(&parentStatus).Error
 		if err == nil {
 			status.InReplyToId = &parentStatus.Id
 		}

@@ -175,8 +175,9 @@ func UpdateAccount(c *gin.Context) {
 
 	if req.Note != nil {
 		account.Note = *req.Note
+		account.ImportedNoteHTML = ""
 
-		updateFields = append(updateFields, "note")
+		updateFields = append(updateFields, "note", "imported_note_html")
 	}
 
 	if req.Locked != nil {

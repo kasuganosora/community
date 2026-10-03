@@ -28,6 +28,8 @@ var ScripsType = []MigrationScript{
 	CustomEmojiMetadataScript{},
 	StatusReactionsScript{},
 	ReactionActivityHistoryScript{},
+	DataTransferScript{},
+	MediaBlurhashCapacityScript{},
 }
 
 type MigrationScript interface {

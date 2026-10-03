@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -23,43 +24,61 @@ func handleFollowResponse(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 	}
-	index := strings.LastIndex(id, "/follows/")
-	if index < 0 {
-		handleSpecialFollowResponse(ctx, c, id, actor, accepted)
-		return
-	}
-	localURI := id[:index]
-	name, ok := localActorName(localURI)
-	followID, err := strconv.ParseUint(id[index+len("/follows/"):], 10, 64)
-	if !ok || err != nil || followID == 0 {
-		c.JSON(403, gin.H{"error": "invalid follow reference"})
-		return
-	}
-	if object != nil && (object["actor"] != localURI || object["object"] != actor) {
-		c.JSON(403, gin.H{"error": "follow identity mismatch"})
-		return
-	}
-	if target == nil {
-		target = &models.Account{}
-		if activityDB(ctx).Where("username = ? AND domain IS NULL", name).First(target).Error != nil {
-			c.JSON(403, gin.H{"error": "unknown local actor"})
-			return
-		}
-	}
-	if target.Username != name || target.Domain != nil {
-		c.JSON(403, gin.H{"error": "wrong follow recipient"})
-		return
-	}
 	var remote models.Account
 	if err := activityDB(ctx).Where("origin_id = ? AND domain IS NOT NULL", actor).First(&remote).Error; err != nil {
 		c.JSON(403, gin.H{"error": "unknown follow actor"})
 		return
 	}
 	var follow models.Follow
-	err = activityDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND account_id = ? AND follow_id = ?", followID, target.Id, remote.Id).First(&follow).Error
-	if err != nil {
-		c.JSON(403, gin.H{"error": "unknown follow reference"})
-		return
+	err := activityDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("follow_id = ? AND json_extract(properties, '$.activity_uri') = ?", remote.Id, id).First(&follow).Error
+	if err == nil {
+		var local models.Account
+		if activityDB(ctx).First(&local, follow.AccountId).Error != nil || local.Domain != nil || (target != nil && target.Id != local.Id) {
+			c.JSON(403, gin.H{"error": "wrong follow recipient"})
+			return
+		}
+		target = &local
+		if object != nil && (object["actor"] != target.ActorURI(systemsettings.GetBaseURL()) || object["object"] != actor) {
+			c.JSON(403, gin.H{"error": "follow identity mismatch"})
+			return
+		}
+	} else {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(500, gin.H{"error": "failed to locate follow"})
+			return
+		}
+		index := strings.LastIndex(id, "/follows/")
+		if index < 0 {
+			handleSpecialFollowResponse(ctx, c, id, actor, accepted)
+			return
+		}
+		localURI := id[:index]
+		followID, parseErr := strconv.ParseUint(id[index+len("/follows/"):], 10, 64)
+		if parseErr != nil || followID == 0 {
+			c.JSON(403, gin.H{"error": "invalid follow reference"})
+			return
+		}
+		if object != nil && (object["actor"] != localURI || object["object"] != actor) {
+			c.JSON(403, gin.H{"error": "follow identity mismatch"})
+			return
+		}
+		if target == nil {
+			target = &models.Account{}
+			if localActorQuery(activityDB(ctx), localURI).First(target).Error != nil {
+				c.JSON(403, gin.H{"error": "unknown local actor"})
+				return
+			}
+		}
+		if target.Domain != nil || target.ActorURI(systemsettings.GetBaseURL()) != localURI {
+			c.JSON(403, gin.H{"error": "wrong follow recipient"})
+			return
+		}
+		err = activityDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND account_id = ? AND follow_id = ?", followID, target.Id, remote.Id).First(&follow).Error
+		imported, _ := follow.Properties["activity_uri"].(string)
+		if err != nil || (imported != "" && imported != id) {
+			c.JSON(403, gin.H{"error": "unknown follow reference"})
+			return
+		}
 	}
 	if follow.Status != models.FollowStatusRequested {
 		c.JSON(200, gin.H{"status": "accepted"})

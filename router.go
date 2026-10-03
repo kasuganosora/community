@@ -24,6 +24,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/status"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
+	transferapi "github.com/kasuganosora/community/controllers/api/transfer"
 	"github.com/kasuganosora/community/controllers/api/trends"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/matrix"
@@ -54,10 +55,13 @@ func SetRouter(app gin.IRouter) {
 
 	// 全局：自毁模式下的写操作限制（必须在业务路由之前应用）
 	app.Use(middleware.SelfDestructMiddleware())
+	app.Use(activitypub.ImportedWebAliases())
 
 	// Uploaded media files (URLs built by serializer.ToMediaAttachment).
 	app.GET("/media/:id/*file", media.Serve)
 	app.GET("/emoji-assets/:file", emojiasset.Serve)
+	app.GET("/system/*file", transferapi.ServeMediaAlias)
+	app.GET("/files/*file", transferapi.ServeMediaAlias)
 
 	apiGroup := app.Group("/api")
 
@@ -100,11 +104,25 @@ func SetRouter(app gin.IRouter) {
 
 	// ActivityPub Actor 端点
 	app.GET("/users/:username", activitypub.ActorProfile)
+	app.GET("/actor", activitypub.ActorProfile)
+	app.GET("/actor/outbox", activitypub.Outbox)
+	app.GET("/actor/followers", activitypub.Followers)
+	app.GET("/actor/following", activitypub.Following)
+	app.GET("/actor/collections/featured", activitypub.Featured)
 	app.GET("/users/:username/statuses/:id", activitypub.StatusObject)
+	app.GET("/notes/:id", activitypub.ImportedStatusObject)
+	app.GET("/ap/statuses/:id", activitypub.ImportedStatusObject)
+	app.GET("/ap/users/:username", activitypub.ActorProfile)
+	app.GET("/ap/users/:username/outbox", activitypub.Outbox)
+	app.GET("/ap/users/:username/followers", activitypub.Followers)
+	app.GET("/ap/users/:username/following", activitypub.Following)
+	app.GET("/ap/users/:username/collections/featured", activitypub.Featured)
 
 	// 用户 Inbox（限流：每 IP 每分钟 50 次请求）
 	userInboxGroup := app.Group("", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/users/inbox", 50))
 	userInboxGroup.POST("/users/:username/inbox", activitypub.Inbox)
+	userInboxGroup.POST("/ap/users/:username/inbox", activitypub.Inbox)
+	userInboxGroup.POST("/actor/inbox", activitypub.Inbox)
 
 	app.GET("/users/:username/outbox", activitypub.Outbox)
 	app.GET("/users/:username/followers", activitypub.Followers)
@@ -174,6 +192,22 @@ func SetRouter(app gin.IRouter) {
 	// ===== 需要登录的路由（v1）=====
 	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
 	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	transfers := authGroupV1.Group("", transferapi.AuthorizeTransfer)
+	for _, scope := range []string{"personal", "site"} {
+		path := "/data/imports"
+		if scope == "site" {
+			path = "/admin/data/imports"
+		}
+		transfers.GET(path, transferapi.List(scope))
+		transfers.POST(path, transferapi.Create(scope))
+		transfers.GET(path+"/:id", transferapi.Get(scope))
+		transfers.POST(path+"/:id/execute", transferapi.Execute(scope))
+		transfers.GET(path+"/:id/report", transferapi.Report(scope))
+		transfers.DELETE(path+"/:id", transferapi.Delete(scope))
+	}
+	transfers.GET("/data/export", transferapi.Export)
+	transfers.GET("/data/archive", transferapi.ArchivedPosts)
+	transfers.GET("/data/archive/:id", transferapi.ArchivedPost)
 
 	// OAuth 应用凭证验证
 	authGroupV1.GET("/apps/verify_credentials", oauth.VerifyCredentials)

@@ -63,7 +63,7 @@ func WebFinger(c *gin.Context) {
 
 	// Build response
 	baseURL := systemsettings.GetBaseURL()
-	actorURL := baseURL + "/users/" + username
+	actorURL := account.ActorURI(baseURL)
 
 	response := WebFingerResponse{
 		Subject: resource,

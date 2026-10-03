@@ -151,6 +151,9 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 			return nil, errors.New("follow recipient has no remote actor URI")
 		}
 		followID := actorURI + "/follows/" + strconv.FormatUint(follow.Id, 10)
+		if imported, _ := follow.Properties["activity_uri"].(string); imported != "" {
+			followID = imported
+		}
 		original := map[string]any{"id": followID, "type": "Follow", "actor": actorURI, "object": target.OriginId}
 		if e.Kind == "Follow" {
 			payload = original
@@ -163,7 +166,10 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		if err := json.Unmarshal([]byte(e.Payload), &follow); err != nil {
 			return nil, err
 		}
-		originalID, _ := follow.Properties["activitypub_follow_id"].(string)
+		originalID, _ := follow.Properties["activity_uri"].(string)
+		if originalID == "" {
+			originalID, _ = follow.Properties["activitypub_follow_id"].(string)
+		}
 		if originalID == "" {
 			return nil, errors.New("follow decision is missing original activity ID")
 		}
@@ -179,6 +185,9 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		snapshot = &models.Status{}
 		if err := json.Unmarshal([]byte(e.Payload), snapshot); err != nil {
 			return nil, err
+		}
+		if snapshot.LocalOnly {
+			return nil, nil
 		}
 		if snapshot.Account == nil || snapshot.Account.Domain != nil || !snapshot.IsLocal() {
 			return nil, errors.New("outbox status must be local")

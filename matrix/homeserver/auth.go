@@ -162,7 +162,7 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 	}
 
 	// 验证密码
-	err = models.CompareHashAndPassword(secretData.Password, req.Password, secretData.Salt)
+	err = secretData.CheckPassword(req.Password)
 	if err != nil {
 		return nil, ErrForbidden
 	}
@@ -677,7 +677,7 @@ func (a *AuthService) VerifyUserPassword(matrixUserID, password string) bool {
 		return false
 	}
 
-	return models.CompareHashAndPassword(secretData.Password, password, secretData.Salt) == nil
+	return secretData.CheckPassword(password) == nil
 }
 
 func (a *AuthService) GetLocalAccountID(matrixUserID string) (uint64, error) {

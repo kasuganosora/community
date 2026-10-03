@@ -86,9 +86,12 @@ async function logout() {
         </div>
       </section>
 
+      <section v-if="authStore.currentUser" class="settings__section"><h2 class="settings__heading">数据</h2><div class="settings__group"><router-link to="/settings/data" class="settings__row">个人数据导入与导出</router-link></div></section>
+
       <section v-if="authStore.currentUser?.is_admin" class="settings__section" aria-labelledby="settings-admin">
         <h2 id="settings-admin" class="settings__heading">管理</h2>
         <div class="settings__group">
+          <router-link to="/admin/migrations" class="settings__row">整站迁移</router-link>
           <router-link to="/admin/emojis" class="settings__row">自定义表情管理</router-link>
         </div>
       </section>

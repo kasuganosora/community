@@ -11,12 +11,13 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
+	"time"
 )
 
 func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 	baseURL := systemsettings.GetBaseURL()
 	username := account.Username
-	actorURL := baseURL + "/users/" + username
+	actorURL := account.ActorURI(baseURL)
 
 	// Build actor profile
 	actor := Actor{
@@ -65,9 +66,20 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 		return Actor{}, err
 	}
 	actor.PublicKey = &PublicKey{
-		ID: actorURL + "#main-key", Owner: actorURL, PublicKeyPem: accountKey.PublicKey,
+		ID: accountKey.SigningKeyID(actorURL), Owner: actorURL, PublicKeyPem: accountKey.PublicKey,
 	}
 
+	if account.LocalActorURI != "" {
+		var keys []models.AccountFederationKey
+		if err := db.GetDB().Where("account_id = ? AND revoked = ? AND (expires_at IS NULL OR expires_at > ?)", account.Id, false, time.Now()).Order("id ASC").Find(&keys).Error; err != nil {
+			return Actor{}, err
+		}
+		for _, key := range keys {
+			if supportedRSAAlgorithm(key.Algorithm) && key.KeyID != actor.PublicKey.ID {
+				actor.PublicKeys = append(actor.PublicKeys, &PublicKey{ID: key.KeyID, Owner: actorURL, PublicKeyPem: key.PublicKey})
+			}
+		}
+	}
 	// Bot/Service accounts use "Service" actor type
 	if account.Bot {
 		actor.Type = "Service" //nolint:goconst

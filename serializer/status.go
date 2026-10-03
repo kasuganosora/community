@@ -77,11 +77,7 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	ret.Visibility = status.GetVisibilityString()
 
 	ret.Language = status.Language
-	if status.OriginUri != nil {
-		ret.Uri = *status.OriginUri
-	} else {
-		ret.Uri = fmt.Sprintf("%s/users/%s/statuses/%d", systemsettings.GetBaseURL(), status.Account.Username, status.Id)
-	}
+	ret.Uri = status.ObjectURI(systemsettings.GetBaseURL())
 
 	if status.OriginUri != nil {
 		ret.Url = *status.OriginUri

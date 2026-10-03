@@ -19,6 +19,12 @@ NUL
 # Local media uploads
 /uploads/
 
+# Private account/site import packages, including credentials and signing keys
+/.data-transfers/
+
+# Python migration adapter test bytecode
+__pycache__/
+
 # Local test configuration (copy .env.test.example)
 .env.test
 

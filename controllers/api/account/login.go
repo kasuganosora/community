@@ -57,7 +57,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if models.CompareHashAndPassword(usersd.Password, req.Password, usersd.Salt) != nil {
+	if usersd.CheckPassword(req.Password) != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return

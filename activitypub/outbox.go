@@ -12,11 +12,10 @@ import (
 // Outbox handles GET /users/:username/outbox
 // Returns the user's activity stream.
 func Outbox(c *gin.Context) {
-	username := c.Param("username")
 
 	// Verify the local user exists
 	var account models.Account
-	err := db.GetDB().Preload("Extra").Where("username = ? AND domain IS NULL", username).First(&account).Error
+	err := localActorRouteQuery(db.GetDB().Preload("Extra"), c).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"}) //nolint:goconst
 
@@ -30,12 +29,12 @@ func Outbox(c *gin.Context) {
 	limit := 20
 
 	baseURL := systemsettings.GetBaseURL()
-	outboxURL := baseURL + "/users/" + username + "/outbox"
+	outboxURL := account.ActorURI(baseURL) + "/outbox"
 
 	if !page {
 		// Return collection info
 		var totalItems int64
-		db.GetDB().Model(&models.Status{}).Where("account_id = ? AND visibility IN ? AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL", account.Id, []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).Count(&totalItems)
+		db.GetDB().Model(&models.Status{}).Where("account_id = ? AND visibility IN ? AND local_only = false AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL", account.Id, []int{int(models.StatusVisibilityPublic), int(models.StatusVisibilityUnlisted)}).Count(&totalItems)
 
 		c.JSON(200, Collection{
 			Context:    []string{"https://www.w3.org/ns/activitystreams"}, //nolint:goconst
@@ -52,8 +51,8 @@ func Outbox(c *gin.Context) {
 	// Get statuses
 	query := db.GetDB().Model(&models.Status{}).Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("Emojis").Preload("ReplyAccount").
 		Where("account_id = ?", account.Id).
-		Where("visibility IN ?", []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).
-		Where("deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL").
+		Where("visibility IN ?", []int{int(models.StatusVisibilityPublic), int(models.StatusVisibilityUnlisted)}).
+		Where("local_only = false AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL").
 		Order("id DESC").
 		Limit(limit)
 
@@ -116,10 +115,9 @@ func buildCreateActivity(status *models.Status, account *models.Account, baseURL
 
 // Followers handles GET /users/:username/followers.
 func Followers(c *gin.Context) {
-	username := c.Param("username")
 
 	var account models.Account
-	err := db.GetDB().Where("username = ?", username).First(&account).Error
+	err := localActorRouteQuery(db.GetDB(), c).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 
@@ -128,7 +126,7 @@ func Followers(c *gin.Context) {
 
 	page := c.Query("page") == "true"
 	baseURL := systemsettings.GetBaseURL()
-	followersURL := baseURL + "/users/" + username + "/followers"
+	followersURL := account.ActorURI(baseURL) + "/followers"
 
 	// Get followers count
 	var count int64
@@ -164,7 +162,7 @@ func Followers(c *gin.Context) {
 				items = append(items, follow.Account.OriginId)
 			} else {
 				// Local account: use our local actor URL
-				items = append(items, baseURL+"/users/"+follow.Account.Username)
+				items = append(items, follow.Account.ActorURI(baseURL))
 			}
 		}
 	}
@@ -180,10 +178,9 @@ func Followers(c *gin.Context) {
 
 // Following handles GET /users/:username/following.
 func Following(c *gin.Context) {
-	username := c.Param("username")
 
 	var account models.Account
-	err := db.GetDB().Where("username = ?", username).First(&account).Error
+	err := localActorRouteQuery(db.GetDB(), c).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 
@@ -192,7 +189,7 @@ func Following(c *gin.Context) {
 
 	page := c.Query("page") == "true"
 	baseURL := systemsettings.GetBaseURL()
-	followingURL := baseURL + "/users/" + username + "/following"
+	followingURL := account.ActorURI(baseURL) + "/following"
 
 	// Get following count
 	var count int64
@@ -239,7 +236,7 @@ func Following(c *gin.Context) {
 					items = append(items, targetAccount.OriginId)
 				} else {
 					// Local account: use our local actor URL
-					items = append(items, baseURL+"/users/"+targetAccount.Username)
+					items = append(items, targetAccount.ActorURI(baseURL))
 				}
 			}
 		}
@@ -257,10 +254,9 @@ func Following(c *gin.Context) {
 // ActorProfile handles GET /users/:username
 // Returns the ActivityPub actor profile.
 func ActorProfile(c *gin.Context) {
-	username := c.Param("username")
 
 	var account models.Account
-	err := db.GetDB().Preload("Extra").Preload("Emojis").Where("username = ? AND domain IS NULL", username).First(&account).Error
+	err := localActorRouteQuery(db.GetDB().Preload("Extra").Preload("Emojis"), c).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 

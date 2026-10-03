@@ -1,7 +1,9 @@
 package media
 
 import (
+	"mime"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -49,7 +51,7 @@ func Serve(c *gin.Context) {
 		contentType = media.ContentType
 	case media.ThumbnailPath != nil && *media.ThumbnailPath != "" && requested == "thumbnail/"+*media.ThumbnailPath:
 		rel = path.Join(dir, *media.ThumbnailPath)
-		contentType = "" // let http.ServeFile sniff from the extension
+		contentType = "" // Sniff bytes below, never trust an imported thumbnail extension.
 	default:
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 
@@ -62,11 +64,39 @@ func Serve(c *gin.Context) {
 		return
 	}
 
-	if contentType != "" {
-		c.Header("Content-Type", contentType)
+	if contentType == "" {
+		file, err := os.Open(filepath.Join(mediaRootDir, filepath.FromSlash(rel)))
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		sample := make([]byte, 512)
+		n, _ := file.Read(sample)
+		_ = file.Close()
+		contentType = http.DetectContentType(sample[:n])
+	}
+	parsed, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		parsed = "application/octet-stream"
+	}
+	// Setting a specific inert MIME plus nosniff prevents attacker-controlled
+	// metadata/extensions from turning downloaded HTML into an active document.
+	c.Header("Content-Type", parsed)
+	if !safeInlineMediaType(parsed) {
+		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(rel)}))
 	}
 
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	c.File(filepath.Join(mediaRootDir, filepath.FromSlash(rel)))
+}
+
+func safeInlineMediaType(contentType string) bool {
+	switch strings.ToLower(contentType) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif",
+		"audio/mpeg", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm", "audio/wav", "audio/x-wav", "audio/flac", "audio/x-flac",
+		"video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/mpeg":
+		return true
+	}
+	return false
 }

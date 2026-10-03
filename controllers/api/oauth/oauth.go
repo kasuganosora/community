@@ -476,7 +476,7 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 	}
 
 	// Verify password
-	if err := models.CompareHashAndPassword(userSecret.Password, req.Password, userSecret.Salt); err != nil {
+	if err := userSecret.CheckPassword(req.Password); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_grant"})
 
 		return

@@ -25,6 +25,7 @@ type Client struct {
 	httpClient *http.Client
 	privateKey *rsa.PrivateKey
 	actorID    string
+	keyID      string
 }
 
 // NewClient creates a new ActivityPub client.
@@ -33,6 +34,7 @@ func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 		httpClient: sharedHTTPClient,
 		privateKey: privateKey,
 		actorID:    actorID,
+		keyID:      actorID + "#main-key",
 	}
 }
 
@@ -143,8 +145,8 @@ func (c *Client) signRequest(req *http.Request, body []byte) error {
 	}
 
 	// Build Signature header
-	sigHeader := fmt.Sprintf(`keyId="%s#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="%s"`,
-		c.actorID,
+	sigHeader := fmt.Sprintf(`keyId="%s",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="%s"`,
+		c.signingKeyID(),
 		base64.StdEncoding.EncodeToString(signature),
 	)
 
@@ -229,4 +231,11 @@ func signRequestPath(u *url.URL) string {
 		path += "?" + u.RawQuery
 	}
 	return path
+}
+
+func (c *Client) signingKeyID() string {
+	if c.keyID != "" {
+		return c.keyID
+	}
+	return c.actorID + "#main-key"
 }

@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/systemsettings"
 )
 
 // DeliveryStatus represents the status of a delivery.
@@ -334,13 +332,8 @@ func (q *DeliveryQueue) signingClient(activity map[string]any) (*Client, error) 
 	if q.client != nil && q.client.privateKey != nil && q.client.actorID == actorURI {
 		return q.client, nil
 	}
-	prefix := systemsettings.GetBaseURL() + "/users/"
-	if !strings.HasPrefix(actorURI, prefix) {
-		return nil, fmt.Errorf("activity actor is not a local signing identity")
-	}
-	username := strings.TrimPrefix(actorURI, prefix)
 	var account models.Account
-	if err := db.GetDB().Where("domain IS NULL AND username = ?", username).First(&account).Error; err != nil {
+	if err := localActorQuery(db.GetDB(), actorURI).First(&account).Error; err != nil {
 		return nil, err
 	}
 	return localAccountClient(&account, actorURI)

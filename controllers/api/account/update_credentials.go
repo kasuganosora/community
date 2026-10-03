@@ -51,6 +51,7 @@ func UpdateCredentials(c *gin.Context) {
 
 	if req.Note != nil {
 		updates["note"] = *req.Note
+		updates["imported_note_html"] = ""
 	}
 
 	if req.Locked != nil {

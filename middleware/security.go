@@ -145,6 +145,10 @@ func BodySizeLimitMiddleware(defaultLimit int64, mediaLimit func() int64) gin.Ha
 
 func bodyLimitFor(r *http.Request, defaultLimit int64, mediaLimit func() int64) int64 {
 	isMultipart := strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
+	if r.Method == http.MethodPost && isMultipart &&
+		(r.URL.Path == "/api/v1/data/imports" || r.URL.Path == "/api/v1/admin/data/imports") {
+		return 256<<20 + multipartOverhead
+	}
 	isMatrixMedia := strings.HasPrefix(r.URL.Path, "/_matrix/media/") ||
 		(strings.HasPrefix(r.URL.Path, "/_matrix/client/") && strings.Contains(r.URL.Path, "/media/"))
 

@@ -33,6 +33,7 @@ func (ProxyFollow) TableName() string {
 
 // AccountKey stores RSA keypairs for local accounts (used for HTTP Signatures).
 type AccountKey struct {
+	KeyID      string     `gorm:"type:varchar(2048)" json:"-"`
 	ID         uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	AccountID  uint64     `gorm:"not null;uniqueIndex"     json:"account_id"`
 	PublicKey  string     `gorm:"type:text;not null"       json:"-"`

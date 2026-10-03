@@ -146,6 +146,9 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 	}
 	var allowed func(*Status, map[*Status]bool) bool
 	allowed = func(s *Status, chain map[*Status]bool) bool {
+		if s != nil && s.LocalOnly && viewer != nil && viewer.Domain != nil {
+			return false
+		}
 		if s == nil || s.DeletedAt != nil || chain[s] || len(chain) >= 32 {
 			return false
 		}

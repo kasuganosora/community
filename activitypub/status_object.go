@@ -4,27 +4,30 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"gorm.io/gorm"
 )
 
 const publicAddress = "https://www.w3.org/ns/activitystreams#Public"
 
 func accountActorURI(account *models.Account, baseURL string) string {
-	if account.Domain != nil && account.OriginId != "" {
-		return account.OriginId
-	}
-	return baseURL + "/users/" + account.Username
+	return account.ActorURI(baseURL)
 }
 func statusObjectURI(status *models.Status, account *models.Account, baseURL string) string {
 	if status.OriginUri != nil && *status.OriginUri != "" {
 		return *status.OriginUri
 	}
-	return accountActorURI(account, baseURL) + "/statuses/" + strconv.FormatUint(status.Id, 10)
+	if status.LocalObjectURI != "" {
+		return status.LocalObjectURI
+	}
+	return account.ActorURI(baseURL) + "/statuses/" + strconv.FormatUint(status.Id, 10)
 }
+
 func mentionName(account *models.Account) string {
 	name := "@" + account.Username
 	if account.Domain != nil {
@@ -64,7 +67,7 @@ func statusRecipients(status *models.Status, account *models.Account, baseURL st
 // StatusToNote is shared by object retrieval, collections and outbound delivery.
 // Callers load content, attachments, mentions and tags with the status.
 func StatusToNote(status *models.Status) (map[string]any, error) {
-	if status == nil {
+	if status == nil || status.LocalOnly {
 		return nil, errors.New("status is required")
 	}
 	if status.Account == nil {
@@ -81,19 +84,37 @@ func StatusToNote(status *models.Status) (map[string]any, error) {
 // valid federation signature AND permission for its actor; possession of a URL
 // (or an unrelated actor key) never grants access.
 func StatusObject(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	var account models.Account
-	if err = db.GetDB().Where("username = ? AND domain IS NULL", c.Param("username")).First(&account).Error; err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
+	uri := systemsettings.GetBaseURL() + c.Request.URL.Path
 	var status models.Status
-	query := db.GetDB().Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("Emojis").Preload("ReplyAccount")
-	if err = query.Where("id = ? AND account_id = ? AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL", id, account.Id).First(&status).Error; err != nil {
+	query := db.GetDB().Preload("Account").Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("Emojis").Preload("ReplyAccount")
+	err := query.Session(&gorm.Session{}).Where("(local_object_uri = ? OR (origin_url = ? AND (origin_uri IS NULL OR origin_uri = ''))) AND deleted_at IS NULL AND scheduled_at IS NULL AND (reblog_id IS NULL OR reblog_id = 0)", uri, uri).First(&status).Error
+	var account models.Account
+	if err == nil {
+		if status.Account == nil || status.Account.Domain != nil || !status.IsLocal() {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		account = *status.Account
+	} else {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		id, parseErr := strconv.ParseUint(c.Param("id"), 10, 64)
+		if parseErr != nil || id == 0 || c.Param("username") == "" {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if err = localActorRouteQuery(db.GetDB(), c).First(&account).Error; err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if err = query.Where("id = ? AND account_id = ? AND deleted_at IS NULL AND scheduled_at IS NULL AND (reblog_id IS NULL OR reblog_id = 0) AND (local_object_uri = '' OR local_object_uri IS NULL)", id, account.Id).First(&status).Error; err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+	}
+	if status.LocalOnly {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -128,4 +149,22 @@ func StatusObject(c *gin.Context) {
 	}
 	c.Header("Content-Type", "application/activity+json")
 	c.JSON(http.StatusOK, note)
+}
+
+// ImportedStatusObject resolves an exact preserved local object URI (Misskey
+// /notes/:id and Mastodon numeric object aliases) with normal Note authorization.
+func ImportedStatusObject(c *gin.Context) {
+	if strings.Contains(c.GetHeader("Accept"), "text/html") && !strings.Contains(c.GetHeader("Accept"), "application/activity+json") && !strings.Contains(c.GetHeader("Accept"), "application/ld+json") {
+		var status models.Status
+		uri := strings.TrimRight(systemsettings.GetBaseURL(), "/") + c.Request.URL.Path
+		if db.GetDB().Preload("Account").Where("local_object_uri = ? AND deleted_at IS NULL AND scheduled_at IS NULL", uri).First(&status).Error != nil || status.Account == nil || status.Account.Domain != nil || !status.IsLocal() || (status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Header("Vary", "Accept")
+		c.Redirect(http.StatusFound, "/@"+status.Account.Username+"/status/"+strconv.FormatUint(status.Id, 10))
+		return
+	}
+	c.Header("Vary", "Accept")
+	StatusObject(c)
 }

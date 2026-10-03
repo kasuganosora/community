@@ -172,8 +172,9 @@ func (as *AccountService) updatePassword(userID, newPassword string) error {
 	return db.GetDB().Model(&models.UserSecretData{}).
 		Where("user_id = ?", account.UserId).
 		Updates(map[string]any{
-			"password": hashedPassword,
-			"salt":     salt,
+			"password":        hashedPassword,
+			"password_scheme": "",
+			"salt":            salt,
 		}).Error
 }
 
@@ -223,7 +224,7 @@ func (as *AccountService) verifyUserPassword(userID, password string) error {
 		return errors.New("secret data not found")
 	}
 
-	return models.CompareHashAndPassword(secretData.Password, password, secretData.Salt)
+	return secretData.CheckPassword(password)
 }
 
 // DeactivateAccount 停用账户.

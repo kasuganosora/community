@@ -6,7 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
+	"strings"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -29,10 +30,51 @@ func localAccountKey(account *models.Account) (*models.AccountKey, error) {
 		}
 		err := tx.Where("account_id = ?", account.Id).First(&stored).Error
 		if err == nil {
-			return nil
+			if owner.LocalActorURI == "" {
+				return nil
+			}
+			var keys []models.AccountFederationKey
+			if err := tx.Where("account_id = ?", owner.Id).Order("id ASC").Find(&keys).Error; err != nil {
+				return err
+			}
+			now := time.Now()
+			usable := func(k models.AccountFederationKey) bool {
+				return !k.Revoked && (k.ExpiresAt == nil || k.ExpiresAt.After(now)) && supportedRSAAlgorithm(k.Algorithm) && k.PrivateKey != ""
+			}
+			found := false
+			for _, k := range keys {
+				if k.KeyID == stored.SigningKeyID(owner.LocalActorURI) {
+					found = true
+					if usable(k) {
+						return nil
+					}
+					break
+				}
+			}
+			// Older imports without lifecycle metadata retain their explicitly stored key.
+			if !found {
+				return nil
+			}
+			for _, k := range keys {
+				if usable(k) {
+					replacement := models.AccountKey{ID: stored.ID, AccountID: owner.Id, KeyID: k.KeyID, PublicKey: k.PublicKey, PrivateKey: k.PrivateKey}
+					if replacement.ValidateKeyPair() != nil {
+						continue
+					}
+					if err := tx.Model(&stored).Updates(map[string]any{"key_id": k.KeyID, "public_key": k.PublicKey, "private_key": k.PrivateKey}).Error; err != nil {
+						return err
+					}
+					stored = replacement
+					return nil
+				}
+			}
+			return errors.New("imported actor has no active signing key")
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if owner.LocalActorURI != "" {
+			return errors.New("imported actor has no preserved signing key")
 		}
 		key, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
@@ -52,13 +94,20 @@ func localAccountClient(account *models.Account, actorURL string) (*Client, erro
 	if err != nil {
 		return nil, err
 	}
-	block, _ := pem.Decode([]byte(key.PrivateKey))
-	if block == nil {
-		return nil, errors.New("invalid local signing key PEM")
-	}
-	private, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+	private, err := models.ParseAccountPrivateKey(key.PrivateKey)
 	if err != nil {
-		return nil, fmt.Errorf("parse local signing key: %w", err)
+		return nil, err
 	}
-	return NewClient(private, actorURL), nil
+	client := NewClient(private, actorURL)
+	client.keyID = key.SigningKeyID(actorURL)
+	return client, nil
+}
+
+func supportedRSAAlgorithm(algorithm string) bool {
+	switch strings.ToLower(algorithm) {
+	case "", "rsa", "rsa-sha256":
+		return true
+	}
+	return false
 }

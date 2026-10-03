@@ -36,14 +36,16 @@ const (
 )
 
 type Status struct { //nolint:recvcheck
-	Id            uint64        `gorm:"primary_key;autoIncrement" json:"id"`
-	Content       StatusContent `json:"content"`
-	AccountId     uint64        `gorm:"not null;index"            json:"account_id"`
-	ApplicationId *uint64       `json:"application_id"`
-	Visibility    uint8         `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
-	ReblogId      *uint64       `json:"reblog_id"`
-	ReblogsCount  uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
-	RepliesCount  uint64        `gorm:"not null;default:0"        json:"replies_count"`
+	LocalOnly      bool          `gorm:"not null;default:false" json:"local_only"`
+	LocalObjectURI string        `gorm:"type:varchar(2048);index:idx_local_object_uri,length:191" json:"local_object_uri,omitempty"`
+	Id             uint64        `gorm:"primary_key;autoIncrement" json:"id"`
+	Content        StatusContent `json:"content"`
+	AccountId      uint64        `gorm:"not null;index"            json:"account_id"`
+	ApplicationId  *uint64       `json:"application_id"`
+	Visibility     uint8         `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
+	ReblogId       *uint64       `json:"reblog_id"`
+	ReblogsCount   uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
+	RepliesCount   uint64        `gorm:"not null;default:0"        json:"replies_count"`
 
 	InReplyToId        *uint64        `json:"in_reply_to_id"`
 	InReplyToAccountId *uint64        `json:"in_reply_to_account_id"`
@@ -242,6 +244,9 @@ func (s *Status) IsLocal() bool {
 // ContentHTML returns the status content as safe HTML: local plain text is
 // escaped and linkified, remote HTML is sanitized.
 func (s *Status) ContentHTML(opts htmlsafe.RenderOptions) string {
+	if original, ok := s.Properties["import_original_html"].(string); ok && s.IsLocal() {
+		return htmlsafe.Sanitize(original)
+	}
 	return htmlsafe.LocalOrRemote(s.Content.Content, s.IsLocal(), opts)
 }
 
@@ -617,6 +622,9 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 }
 
 func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
+	if s.LocalOnly && account != nil && account.Domain != nil {
+		return false
+	}
 	if account == nil {
 		return s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted
 	}
@@ -690,6 +698,9 @@ func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canVie
 }
 
 func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
+	if s.LocalOnly && account != nil && account.Domain != nil {
+		return false, nil
+	}
 	if account == nil {
 		return !s.IsScheduled() && s.CanView(nil, nil), nil
 	}

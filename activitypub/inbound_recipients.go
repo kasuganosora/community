@@ -30,18 +30,6 @@ func activityAddresses(value any) []string {
 	return nil
 }
 
-func localActorName(uri string) (string, bool) {
-	prefix := strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/users/"
-	if !strings.HasPrefix(uri, prefix) {
-		return "", false
-	}
-	name := strings.TrimPrefix(uri, prefix)
-	if name == "" || strings.ContainsAny(name, "/?#%") {
-		return "", false
-	}
-	return name, true
-}
-
 func recipientAccounts(ctx context.Context, object map[string]any, public bool) (models.Accounts, error) {
 	addresses := append(activityAddresses(object["to"]), activityAddresses(object["cc"])...)
 	// Public mentions are presentation/notification targets. For restricted
@@ -62,8 +50,8 @@ func recipientAccounts(ctx context.Context, object map[string]any, public bool) 
 	for _, uri := range addresses {
 		var account models.Account
 		query := activityDB(ctx).Where("origin_id = ? AND domain IS NOT NULL", uri)
-		if name, ok := localActorName(uri); ok {
-			query = activityDB(ctx).Where("username = ? AND domain IS NULL", name)
+		if sameURIOrigin(uri, systemsettings.GetBaseURL()) {
+			query = localActorQuery(activityDB(ctx), uri)
 		}
 		err := query.First(&account).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -88,18 +76,27 @@ func sameURIOrigin(a, b string) bool {
 
 func findInboundParent(ctx context.Context, uri string) (*models.Status, error) {
 	var status models.Status
+	if sameURIOrigin(uri, systemsettings.GetBaseURL()) {
+		err := activityDB(ctx).Preload("ToAccounts").Where("local_object_uri = ?", uri).First(&status).Error
+		if err == nil {
+			return &status, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
 	prefix := strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/users/"
 	if strings.HasPrefix(uri, prefix) {
 		parts := strings.Split(strings.TrimPrefix(uri, prefix), "/")
 		if len(parts) == 3 && parts[1] == "statuses" {
 			id, err := strconv.ParseUint(parts[2], 10, 64)
 			if err == nil {
-				err = activityDB(ctx).Preload("ToAccounts").Joins("JOIN accounts ON accounts.id = statuses.account_id").Where("statuses.id = ? AND accounts.username = ? AND accounts.domain IS NULL", id, parts[0]).First(&status).Error
+				err = activityDB(ctx).Preload("ToAccounts").Joins("JOIN accounts ON accounts.id = statuses.account_id").Where("statuses.id = ? AND accounts.username = ? AND accounts.domain IS NULL AND (accounts.local_actor_uri = '' OR accounts.local_actor_uri IS NULL) AND (statuses.local_object_uri = '' OR statuses.local_object_uri IS NULL)", id, parts[0]).First(&status).Error
 				return &status, err
 			}
 		}
 	}
-	err := activityDB(ctx).Preload("ToAccounts").Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error
+	err := activityDB(ctx).Preload("ToAccounts").Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", uri, uri, uri).First(&status).Error
 	return &status, err
 }
 

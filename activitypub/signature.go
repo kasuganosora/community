@@ -50,6 +50,9 @@ func ParsePublicKey(pemStr string) (*rsa.PublicKey, error) {
 
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
+		if legacy, legacyErr := x509.ParsePKCS1PublicKey(block.Bytes); legacyErr == nil {
+			return legacy, nil
+		}
 		return nil, fmt.Errorf("parsing public key: %w", err)
 	}
 
@@ -279,11 +282,11 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return nil, fmt.Errorf("fetching actor: %w", err)
 	}
 
-	if err := validateActorSigningKey(actor, actorURI, keyID); err != nil {
+	signingKey, err := actorSigningKey(actor, actorURI, keyID)
+	if err != nil {
 		return nil, err
 	}
-
-	publicKey, err := ParsePublicKey(actor.PublicKey.PublicKeyPem)
+	publicKey, err := ParsePublicKey(signingKey.PublicKeyPem)
 	if err != nil {
 		return nil, fmt.Errorf("parsing public key: %w", err)
 	}
@@ -438,20 +441,27 @@ func actorURIFromKeyID(keyID string) (string, error) {
 // Both the actor identity and its explicit delegation to this exact key must
 // match. Missing fields are not permission to impersonate an unrelated actor.
 func validateActorSigningKey(actor *Actor, actorURI, keyID string) error {
+	_, err := actorSigningKey(actor, actorURI, keyID)
+	return err
+}
+func actorSigningKey(actor *Actor, actorURI, keyID string) (*PublicKey, error) {
 	if actor == nil {
-		return errors.New("missing actor")
+		return nil, errors.New("missing actor")
 	}
 	if actor.ID != actorURI {
-		return fmt.Errorf("actor ID %q does not match requested keyId URI %q", actor.ID, actorURI)
+		return nil, fmt.Errorf("actor ID %q does not match requested keyId URI %q", actor.ID, actorURI)
 	}
-	if actor.PublicKey == nil || actor.PublicKey.PublicKeyPem == "" {
-		return errors.New("actor has no public key")
+	keys := append([]*PublicKey{actor.PublicKey}, actor.PublicKeys...)
+	for _, key := range keys {
+		if key != nil && key.ID == keyID {
+			if key.Owner != actorURI {
+				return nil, fmt.Errorf("public key owner %q does not match actor URI %q", key.Owner, actorURI)
+			}
+			if key.PublicKeyPem == "" {
+				return nil, errors.New("actor has no public key")
+			}
+			return key, nil
+		}
 	}
-	if actor.PublicKey.ID != keyID {
-		return fmt.Errorf("public key ID %q does not match signature keyId %q", actor.PublicKey.ID, keyID)
-	}
-	if actor.PublicKey.Owner != actorURI {
-		return fmt.Errorf("public key owner %q does not match actor URI %q", actor.PublicKey.Owner, actorURI)
-	}
-	return nil
+	return nil, errors.New("actor does not delegate the requested keyId")
 }

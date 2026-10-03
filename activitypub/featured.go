@@ -14,11 +14,10 @@ import (
 // Featured handles GET /users/:username/collections/featured
 // Returns the user's pinned statuses as an OrderedCollection.
 func Featured(c *gin.Context) {
-	username := c.Param("username")
 
 	// Verify the local user exists
 	var account models.Account
-	err := db.GetDB().Preload("Extra").Where("username = ? AND domain IS NULL", username).First(&account).Error
+	err := localActorRouteQuery(db.GetDB().Preload("Extra"), c).First(&account).Error
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 
@@ -26,7 +25,7 @@ func Featured(c *gin.Context) {
 	}
 
 	baseURL := systemsettings.GetBaseURL()
-	featuredURL := baseURL + "/users/" + username + "/collections/featured"
+	featuredURL := account.ActorURI(baseURL) + "/collections/featured"
 
 	// Get pinned status IDs
 	var pinnedStatuses []models.PinStatus
@@ -51,7 +50,7 @@ func Featured(c *gin.Context) {
 			Preload("ToAccounts").Preload("ReplyAccount").
 			Preload("Tags").
 			Where("id IN ?", statusIds).
-			Where("account_id = ? AND visibility IN ? AND deleted_at IS NULL AND scheduled_at IS NULL", account.Id, []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).
+			Where("account_id = ? AND visibility IN ? AND local_only = false AND deleted_at IS NULL AND scheduled_at IS NULL", account.Id, []int{int(models.StatusVisibilityPublic), int(models.StatusVisibilityUnlisted)}).
 			Find(&statuses)
 	}
 
@@ -106,7 +105,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	if status.InReplyToId != nil {
 		var replyToStatus models.Status
 		err := db.GetDB().Preload("Account").First(&replyToStatus, *status.InReplyToId).Error
-		if err == nil {
+		if err == nil && !replyToStatus.LocalOnly {
 			if replyToStatus.Account != nil {
 				replyURL := statusObjectURI(&replyToStatus, replyToStatus.Account, baseURL)
 				note["inReplyTo"] = replyURL

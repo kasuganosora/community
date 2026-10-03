@@ -87,3 +87,12 @@ export function shortenBareLinks(html: string, max = MAX_LINK_TEXT): string {
   })
   return changed ? tpl.innerHTML : html
 }
+
+/** Explicit outbound links must not contain executable schemes or credentials. */
+export function safeHttpLink(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null
+  } catch { return null }
+}

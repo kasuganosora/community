@@ -56,6 +56,9 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 		if err != nil {
 			return nil, false, err
 		}
+		if status.LocalOnly {
+			return activity, false, nil
+		}
 		if ((status.AccountId != auth.AccountID || !status.IsLocal()) && auth.Kind != "Reaction") || status.ScheduledAt != nil || status.DeletedAt != nil {
 			return activity, false, nil
 		}

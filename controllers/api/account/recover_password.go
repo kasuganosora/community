@@ -189,6 +189,7 @@ func RecoverPassword(c *gin.Context) {
 	}
 
 	// 设置新密码
+	user.UserSecret.PasswordScheme = ""
 	user.UserSecret.Password, err = models.EncryptPassword(req.Password, user.UserSecret.Salt)
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPassword")

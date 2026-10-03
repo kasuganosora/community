@@ -36,7 +36,7 @@ func ChangePassword(c *gin.Context) {
 		return
 	}
 
-	if err = models.CompareHashAndPassword(userSecret.Password, req.OldPassword, userSecret.Salt); err != nil {
+	if err = userSecret.CheckPassword(req.OldPassword); err != nil {
 		c.JSON(400, gin.H{"error": "old password is wrong"})
 
 		return
@@ -51,7 +51,7 @@ func ChangePassword(c *gin.Context) {
 		return
 	}
 
-	err = db.GetDB().Model(userSecret).Where("user_id =?", userSecret.UserId).Update("password", newPassword).Error
+	err = db.GetDB().Model(userSecret).Where("user_id =?", userSecret.UserId).Updates(map[string]any{"password": newPassword, "password_scheme": ""}).Error
 	if err != nil {
 		err = errors.Wrap(err, "update password failed")
 		_ = c.Error(err)

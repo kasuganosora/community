@@ -191,3 +191,21 @@ func TestReplacementRejectsUnauthorizedAndInvalidMediaWithoutDeleting(t *testing
 	require.Equal(t, 422, callReplacement(t, owner, original.Id, map[string]any{"media_ids": []string{strconv.FormatUint(media.Id, 10)}}).Code)
 	require.NoError(t, conn.First(&models.Status{}, original.Id).Error)
 }
+
+func TestReplacementImportedLocalOnlyDropsHTMLAndPreservesFederationBoundary(t *testing.T) {
+	conn, fix, owner := replacementDB(t)
+	original := fix.CreateStatus(owner, func(s *models.Status) {
+		s.LocalOnly = true
+		s.Content.Content = "original"
+		s.Properties = map[string]any{"import_original_html": "<p><strong>old HTML</strong></p>"}
+	})
+	nextID := decodedReplacementID(t, callReplacement(t, owner, original.Id, map[string]any{"status": "new plain text"}))
+	var next models.Status
+	require.NoError(t, models.StatusLoadAllQuery(conn).First(&next, nextID).Error)
+	require.True(t, next.LocalOnly)
+	require.Nil(t, next.Properties["import_original_html"])
+	require.Equal(t, "new plain text", next.Content.Content)
+	var count int64
+	require.NoError(t, conn.Model(&models.FederationOutbox{}).Where("object_id IN ?", []uint64{original.Id, nextID}).Count(&count).Error)
+	require.Zero(t, count)
+}

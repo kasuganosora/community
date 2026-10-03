@@ -176,11 +176,12 @@ type ReactionSnapshot struct {
 	Reaction      StatusReaction
 	ObjectURI     string
 	OwnerUsername string
+	OwnerActorURI string
 	Emoji         *Emoji
 }
 
 func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, status *Status, actor *Account, emoji *Emoji) error {
-	if actor.Domain != nil || !hasFederationOutbox(tx) {
+	if status.LocalOnly || actor.Domain != nil || !hasFederationOutbox(tx) {
 		return nil
 	}
 	if emoji == nil && reaction.EmojiID != 0 {
@@ -221,7 +222,7 @@ func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, stat
 	if status.Account == nil {
 		return fmt.Errorf("reaction target has no owner")
 	}
-	objectURI := ""
+	objectURI := status.LocalObjectURI
 	recipients := []uint64{}
 	if status.Account.Domain != nil {
 		if status.OriginUri == nil || *status.OriginUri == "" {
@@ -247,7 +248,7 @@ func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, stat
 	if kind == "ReactionUndo" {
 		recipients = originalRecipients
 	}
-	payload, err := json.Marshal(ReactionSnapshot{Reaction: *reaction, ObjectURI: objectURI, OwnerUsername: status.Account.Username, Emoji: emoji})
+	payload, err := json.Marshal(ReactionSnapshot{Reaction: *reaction, ObjectURI: objectURI, OwnerUsername: status.Account.Username, OwnerActorURI: status.Account.LocalActorURI, Emoji: emoji})
 	if err != nil {
 		return err
 	}

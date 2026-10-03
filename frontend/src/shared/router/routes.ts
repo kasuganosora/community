@@ -20,6 +20,8 @@ export const RouteNames = {
   LIST_TIMELINE: 'list-timeline',
   SETTINGS: 'settings',
   ADMIN_EMOJIS: 'admin-emojis',
+  ADMIN_MIGRATIONS: 'admin-migrations',
+  PERSONAL_DATA: 'personal-data',
   ABOUT: 'about',
 } as const
 
@@ -58,6 +60,8 @@ const PublicRoutes: RouteRecordRaw[] = [
 ]
 
 const MainRoutes: RouteRecordRaw[] = [
+  { path: 'admin/migrations', name: RouteNames.ADMIN_MIGRATIONS, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'site' }, meta: { requiresAdmin: true } },
+  { path: 'settings/data', name: RouteNames.PERSONAL_DATA, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'personal' } },
   {
     path: 'admin/emojis',
     name: RouteNames.ADMIN_EMOJIS,
@@ -176,6 +180,8 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.LISTS]: { title: '列表' },
   [RouteNames.LIST_TIMELINE]: { title: '列表' },
   [RouteNames.SETTINGS]: { title: '设置' },
+  [RouteNames.ADMIN_MIGRATIONS]: { title: '整站迁移' },
+  [RouteNames.PERSONAL_DATA]: { title: '个人数据导入与导出' },
   [RouteNames.ADMIN_EMOJIS]: { title: '自定义表情管理' },
   [RouteNames.ABOUT]: { title: '关于' },
 }

@@ -43,7 +43,7 @@ func TestUpdateCredentialsDisplayNameJSONAndFormPersist(t *testing.T) {
 	previousRedis := cRedis.GetRedisesForTest()
 	cRedis.SetRedisesForTest([]*redis.Client{accountCacheRedis.client})
 	t.Cleanup(func() { cRedis.SetRedisesForTest(previousRedis) })
-	a := &models.Account{Id: 808, Username: "profile_emoji", Avatar: "https://example.com/avatar.png", Header: "https://example.com/header.png"}
+	a := &models.Account{Id: 808, Username: "profile_emoji", ImportedNoteHTML: "<p>Imported bio</p>", Avatar: "https://example.com/avatar.png", Header: "https://example.com/header.png"}
 	require.NoError(t, conn.Create(a).Error)
 	var multipartBody bytes.Buffer
 	writer := multipart.NewWriter(&multipartBody)
@@ -75,6 +75,7 @@ func TestUpdateCredentialsDisplayNameJSONAndFormPersist(t *testing.T) {
 			require.NoError(t, conn.First(&saved, a.Id).Error)
 			require.Equal(t, tc.wantName, saved.DisplayName)
 			require.Equal(t, tc.wantNote, saved.Note)
+			require.Empty(t, saved.ImportedNoteHTML)
 			require.Equal(t, a.Avatar, saved.Avatar)
 			require.Equal(t, a.Header, saved.Header)
 		})

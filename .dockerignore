@@ -6,6 +6,8 @@
 !.env.test.example
 dump.rdb
 uploads/
+.data-transfers/
+__pycache__/
 storage/
 logs/
 *.out

@@ -4,6 +4,7 @@ import "time"
 
 // Actor represents an ActivityPub Actor.
 type Actor struct {
+	PublicKeys                []*PublicKey `json:"-"`
 	Context                   any          `json:"@context,omitempty"`
 	ID                        string       `json:"id"`
 	Type                      string       `json:"type"`

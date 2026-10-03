@@ -11,7 +11,7 @@ type Poll struct { //nolint:recvcheck
 	Id         uint64         `gorm:"primary_key;autoIncrement" json:"id"`
 	AccountId  uint64         `gorm:"not null;index"             json:"account_id"`
 	StatusId   uint64         `gorm:"not null;index"             json:"status_id"`
-	ExpiresAt  *time.Time     `gorm:"not null"                   json:"expires_at"`
+	ExpiresAt  *time.Time     `json:"expires_at"` // nil preserves polls without a closing time
 	Multiple   bool           `gorm:"not null;default:false"     json:"multiple"`
 	Options    PollOptions    `json:"options"`
 	Properties map[string]any `gorm:"type:json;serializer:json"  json:"properties"`

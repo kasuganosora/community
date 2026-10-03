@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/errors"
 	"github.com/kasuganosora/community/event"
@@ -62,6 +64,9 @@ func main() {
 	}
 
 	log.Info("Instance base URL: %s (domain %s)", systemsettings.GetBaseURL(), systemsettings.GetDomain())
+	transferContext, stopTransfers := context.WithCancel(context.Background())
+	defer stopTransfers()
+	datatransfer.ResumeJobs(transferContext, db.GetDB())
 
 	event.GetEventManager("status")
 
@@ -82,7 +87,7 @@ func main() {
 	app := setupServer()
 
 	// 启动服务器（带优雅关闭）
-	startServer(app)
+	startServer(app, stopTransfers)
 }
 
 // initLogger 初始化日志配置.
@@ -230,7 +235,7 @@ func setupFrontend(app *gin.Engine) {
 }
 
 // startServer 启动服务器（带优雅关闭）.
-func startServer(app *gin.Engine) {
+func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	opts := server.DefaultOptions()
 	opts.ListenAddr = config.C.Listen
 	// The socket deadline must outlive the longest handler budget so an idle
@@ -239,6 +244,7 @@ func startServer(app *gin.Engine) {
 
 	// 注册关闭前钩子
 	srv := server.New(app, opts)
+	srv.RegisterPreShutdown(func() error { stopTransfers(); return nil })
 	outbound, initErr := activitypub.StartOutboundWorker()
 	log.FatalIf(initErr)
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })

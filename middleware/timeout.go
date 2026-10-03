@@ -13,7 +13,17 @@ import (
 // 30-second Matrix /sync long poll. It does not depend on client input.
 const MatrixSyncHandlerTimeout = 60 * time.Second
 
+const DataTransferHandlerTimeout = 5 * time.Minute
+
+func isDataTransferRequest(request *http.Request) bool {
+	return (request.Method == http.MethodPost && (request.URL.Path == "/api/v1/data/imports" || request.URL.Path == "/api/v1/admin/data/imports")) ||
+		(request.Method == http.MethodGet && request.URL.Path == "/api/v1/data/export")
+}
+
 func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.Duration {
+	if isDataTransferRequest(request) {
+		return DataTransferHandlerTimeout
+	}
 	if request.Method == http.MethodGet {
 		switch request.URL.Path {
 		case "/_matrix/client/v3/sync", "/_matrix/client/r0/sync":
@@ -30,6 +40,16 @@ func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.D
 // - 使用 responseWriterWrapper 防止超时后 goroutine 继续写入响应.
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if isDataTransferRequest(c.Request) {
+			// Socket deadlines otherwise remain the normal 10s read / 65s
+			// write budgets, which would truncate legitimate large backups.
+			// Gin exposes Unwrap to the controller; net/http resets deadlines
+			// for the next request on this connection.
+			controller := http.NewResponseController(c.Writer)
+			deadline := time.Now().Add(DataTransferHandlerTimeout + 5*time.Second)
+			_ = controller.SetReadDeadline(deadline)
+			_ = controller.SetWriteDeadline(deadline)
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), requestHandlerTimeout(c.Request, timeout))
 		defer cancel()
 

@@ -30,7 +30,7 @@ type MediaAttachment struct {
 	ThumbnailPath *string   `gorm:"size:500"                           json:"thumbnail_path"`
 	RemoteUrl     string    `gorm:"size:500"                           json:"remote_url"` // original URL of federated media
 	Description   string    `gorm:"type:text"                          json:"description"`
-	Blurhash      string    `gorm:"size:50"                            json:"blurhash"`
+	Blurhash      string    `gorm:"size:255"                           json:"blurhash"`
 	FocusX        float64   `gorm:"default:0"                          json:"focus_x"`
 	FocusY        float64   `gorm:"default:0"                          json:"focus_y"`
 	CreatedAt     time.Time `gorm:"autoCreateTime"                     json:"created_at"`
