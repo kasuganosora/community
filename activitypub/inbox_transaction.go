@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -53,6 +54,8 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	buffer := &inboxResponse{ResponseWriter: original, header: make(http.Header)}
 	c.Writer = buffer
 	defer func() { c.Writer = original }()
+	ctx, publishReactions := models.BeginReactionNotifications(ctx)
+	ctx, invalidateProfiles := beginProfileInvalidations(ctx)
 	handlerFailure := errors.New("activity handler rejected request")
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if id != "" {
@@ -73,6 +76,10 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 		return nil
 	})
 	c.Writer = original
+	if err == nil {
+		publishReactions()
+		invalidateProfiles()
+	}
 	if err != nil && !errors.Is(err, handlerFailure) {
 		c.JSON(500, gin.H{"error": "failed to commit activity"})
 		return

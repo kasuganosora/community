@@ -25,6 +25,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/controllers/api/timelines"
 	"github.com/kasuganosora/community/controllers/api/trends"
+	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/matrix/homeserver"
 	"github.com/kasuganosora/community/middleware"
@@ -56,6 +57,7 @@ func SetRouter(app gin.IRouter) {
 
 	// Uploaded media files (URLs built by serializer.ToMediaAttachment).
 	app.GET("/media/:id/*file", media.Serve)
+	app.GET("/emoji-assets/:file", emojiasset.Serve)
 
 	apiGroup := app.Group("/api")
 
@@ -133,6 +135,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/accounts/:id/following", account.Following)
 	maybeAuthGroupV1.GET("/statuses/:id", status.Show)
 	maybeAuthGroupV1.GET("/statuses/:id/context", status.Context)
+	maybeAuthGroupV1.GET("/statuses/:id/reactions", status.Reactions)
 	maybeAuthGroupV1.GET("/timelines/public", timelines.Public)
 	maybeAuthGroupV1.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroupV1.GET("/timelines/tag/:tag", timelines.Tag)
@@ -272,6 +275,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/unreblog", status.Unreblog).
 		POST("/statuses/:id/favourite", status.Favourite).
 		POST("/statuses/:id/unfavourite", status.Unfavourite).
+		PUT("/statuses/:id/reactions/:name", status.AddReaction).
+		DELETE("/statuses/:id/reactions/:name", status.RemoveReaction).
 		POST("/statuses/:id/mute", status.MuteStatus).
 		POST("/statuses/:id/unmute", status.UnmuteStatus).
 		POST("/statuses/:id/bookmark", status.Bookmark).
@@ -421,11 +426,14 @@ func SetRouter(app gin.IRouter) {
 	// 自定义表情管理（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
 		GET("/admin/custom_emojis", admin.ListCustomEmojis).
+		GET("/admin/emoji_roles", admin.EmojiRoles).
 		GET("/admin/custom_emojis/:id", admin.GetCustomEmoji)
 
 	// 自定义表情管理（管理员写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
 		POST("/admin/custom_emojis", admin.CreateCustomEmoji).
+		POST("/admin/custom_emojis/upload", admin.UploadCustomEmoji).
+		POST("/admin/custom_emojis/batch", admin.BatchCustomEmojis).
 		PUT("/admin/custom_emojis/:id", admin.UpdateCustomEmoji).
 		DELETE("/admin/custom_emojis/:id", admin.DeleteCustomEmoji).
 		POST("/admin/custom_emojis/:id/copy", admin.CopyCustomEmoji).

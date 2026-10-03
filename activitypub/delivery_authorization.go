@@ -30,7 +30,7 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	}
 	// Revocation messages contain identifiers, never old note content, and
 	// must be delivered even after an unfollow/block removed access.
-	if auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" {
+	if auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" {
 		return activity, true, nil
 	}
 	var author models.Account
@@ -50,8 +50,17 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 		if err != nil {
 			return nil, false, err
 		}
-		if status.AccountId != auth.AccountID || !status.IsLocal() || status.ScheduledAt != nil || status.DeletedAt != nil {
+		if ((status.AccountId != auth.AccountID || !status.IsLocal()) && auth.Kind != "Reaction") || status.ScheduledAt != nil || status.DeletedAt != nil {
 			return activity, false, nil
+		}
+		if auth.Kind == "Reaction" {
+			ok, err := status.CanViewEx(db.GetDB(), &author)
+			if err != nil {
+				return nil, false, err
+			}
+			if !ok {
+				return activity, false, nil
+			}
 		}
 		// A formerly public envelope may be cached/redistributed by a peer.
 		// Never send it once the author has narrowed the audience.
@@ -67,6 +76,9 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	revoked := make(map[string]bool)
 	for i := range recipients {
 		ok, err := outboundRecipientAllowed(status, &author, &recipients[i])
+		if auth.Kind == "ProfileUpdate" {
+			ok, err = profileRecipientAllowed(&author, &recipients[i])
+		}
 		if err != nil {
 			return nil, false, err
 		}

@@ -13,17 +13,29 @@ import (
 func GetCustomEmojis(c *gin.Context) {
 	// Query custom emojis
 	emojis := make([]*models.Emoji, 0)
-	db.GetDB().Where("visible_in_picker = ?", true).Order("shortcode ASC").Find(&emojis)
+	if err := db.GetDB().Where("domain = '' AND disabled = ?", false).Order("shortcode ASC").Find(&emojis).Error; err != nil {
+		c.JSON(500, gin.H{"error": "failed to load custom emojis"})
+		return
+	}
 
 	// Build response
 	result := make([]gin.H, 0, len(emojis))
 	for _, emoji := range emojis {
+		aliases := emoji.Aliases
+		if aliases == nil {
+			aliases = []string{}
+		}
 		result = append(result, gin.H{
 			"shortcode":         emoji.Shortcode,
 			"url":               emoji.Url, //nolint:goconst
 			"static_url":        emoji.StaticUrl,
 			"visible_in_picker": emoji.VisibleInPicker,
 			"category":          emoji.Category,
+			"aliases":           aliases,
+			"license":           emoji.License,
+			"local_only":        emoji.LocalOnly,
+			"is_sensitive":      emoji.IsSensitive,
+			"disabled":          emoji.Disabled,
 		})
 	}
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -97,7 +98,7 @@ async function handleLogout() {
         <button type="button" class="user-info" aria-haspopup="menu" :aria-label="`账户菜单：@${authStore.currentUser.username}`">
           <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
-            <div class="user-info__name">{{ authStore.currentUser.display_name }}</div>
+            <div class="user-info__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></div>
             <div class="user-info__username">@{{ authStore.currentUser.username }}</div>
           </div>
           <t-icon name="more" :size="18" class="user-info__more" />

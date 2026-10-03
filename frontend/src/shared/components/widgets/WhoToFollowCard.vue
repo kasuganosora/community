@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import { suggestionApi } from '@/domains/user/infrastructure/suggestionApi'
@@ -84,7 +85,7 @@ async function handleFollow(user: MastodonAccount) {
       <router-link :to="`/@${user.acct}`" class="follow-item__link">
         <UserAvatar :account="user" :size="40" class="follow-item__avatar" />
         <div class="follow-item__info">
-          <div class="follow-item__name">{{ user.display_name || user.username }}</div>
+          <div class="follow-item__name"><EmojiText :text="user.display_name || user.username" :emojis="user.emojis" /></div>
           <div class="follow-item__username">@{{ user.acct }}</div>
         </div>
       </router-link>

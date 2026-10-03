@@ -26,7 +26,7 @@ type OutboundWorker struct {
 }
 
 func StartOutboundWorker() (*OutboundWorker, error) {
-	for _, model := range []any{&models.FederationOutbox{}, &Delivery{}, &models.AccountKey{}} {
+	for _, model := range []any{&models.FederationOutbox{}, &Delivery{}, &models.AccountKey{}, &models.StatusReaction{}} {
 		if !db.GetDB().Migrator().HasTable(model) {
 			return nil, errors.New("federation tables are missing; run database migrations")
 		}
@@ -35,6 +35,7 @@ func StartOutboundWorker() (*OutboundWorker, error) {
 		return nil, errors.New("federation delivery authorization migration is missing")
 	}
 	models.RequireFederationOutbox()
+	models.RequireReactionSchema()
 	w := &OutboundWorker{stop: make(chan struct{}), delivery: NewDeliveryQueue(nil, "", 1)}
 	w.wg.Add(1)
 	go func() {
@@ -117,6 +118,21 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 	var payload map[string]any
 	var snapshot *models.Status
 	switch e.Kind {
+	case "ProfileUpdate":
+		var err error
+		payload, err = profileUpdatePayload(e, actorURI, activityID)
+		if err != nil {
+			return nil, err
+		}
+	case "Reaction", "ReactionUndo":
+		var err error
+		payload, snapshot, err = reactionPayload(e, actorURI, activityID)
+		if err != nil {
+			return nil, err
+		}
+		if payload == nil {
+			return nil, nil
+		}
 	case "Follow", "Undo":
 		var follow models.Follow
 		if err := json.Unmarshal([]byte(e.Payload), &follow); err != nil {
@@ -191,7 +207,10 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 	authorizedIDs := map[uint64]bool{}
 	for _, target := range targets {
 		allowed, err := outboundRecipientAllowed(snapshot, &author, &target)
-		if e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" {
+		if e.Kind == "ProfileUpdate" {
+			allowed, err = profileRecipientAllowed(&author, &target)
+		}
+		if e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" {
 			allowed = true
 			err = nil
 		}

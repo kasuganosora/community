@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { sanitizeHtml } from '@/shared/utils/sanitize'
+import { renderEmojiHtml } from '@/domains/emoji/domain/emoji'
+import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
 import { localHosts } from '@/shared/utils/env'
 
 const props = defineProps<{
   html: string
+  emojis?: MastodonEmoji[]
 }>()
 
-const safeHtml = computed(() => shortenBareLinks(sanitizeHtml(props.html)))
+const revealed = ref(false)
+watch(() => props.html, () => { revealed.value = false })
+const sensitive = computed(() => props.emojis?.some(e => e.is_sensitive && props.html.includes(`:${e.shortcode}:`)))
+const safeHtml = computed(() => renderEmojiHtml(shortenBareLinks(sanitizeHtml(props.html)), props.emojis, revealed.value))
 const router = useRouter()
 
 // Mentions and hashtags open the in-app profile / tag page instead of a new
@@ -27,10 +33,12 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div class="rich-text" v-html="safeHtml" @click="onClick" />
+  <div class="rich-text"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? '隐藏敏感表情' : '显示敏感表情' }}</button></div>
 </template>
 
 <style scoped>
+.rich-text :deep(.custom-emoji) { width: 1.3em; height: 1.3em; object-fit: contain; vertical-align: -0.25em; }
+.emoji-reveal { color: var(--color-accent-text); font-size: var(--text-footnote); }
 .rich-text {
   overflow-wrap: anywhere;
   line-height: inherit;

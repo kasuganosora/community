@@ -11,13 +11,14 @@ import (
 )
 
 type Notification struct {
-	Id        string     `json:"id"`
-	Type      string     `json:"type"`
-	CreatedAt *time.Time `json:"created_at"`
-	Account   *Account   `json:"account,omitempty"`
-	Status    *Status    `json:"status,omitempty"`
-	Report    *Report    `json:"report,omitempty"`
-	List      *List      `json:"list,omitempty"`
+	EmojiReaction *Reaction  `json:"emoji_reaction,omitempty"`
+	Id            string     `json:"id"`
+	Type          string     `json:"type"`
+	CreatedAt     *time.Time `json:"created_at"`
+	Account       *Account   `json:"account,omitempty"`
+	Status        *Status    `json:"status,omitempty"`
+	Report        *Report    `json:"report,omitempty"`
+	List          *List      `json:"list,omitempty"`
 }
 
 // NotificationVisible rechecks current authorization even for historical rows.
@@ -62,6 +63,15 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	ret.Id = strconv.FormatUint(n.Id, 10)
 	ret.Type = n.GetTypeString()
 	ret.CreatedAt = n.CreatedAt
+	if n.Type == models.NotificationTypeEmojiReaction {
+		ret.EmojiReaction, err = notificationReaction(n)
+		if err != nil {
+			return nil, err
+		}
+		if ret.EmojiReaction == nil {
+			return nil, nil
+		}
+	}
 
 	if n.FromAccountId != 0 && n.FromAccount == nil {
 		fromAccount := &models.Account{}
@@ -263,6 +273,15 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		nf.Id = strconv.FormatUint(n.Id, 10)
 		nf.Type = n.GetTypeString()
 		nf.CreatedAt = n.CreatedAt
+		if n.Type == models.NotificationTypeEmojiReaction {
+			nf.EmojiReaction, err = notificationReaction(n)
+			if err != nil {
+				return nil, err
+			}
+			if nf.EmojiReaction == nil {
+				continue
+			}
+		}
 
 		if n.FromAccountId != 0 {
 			if account, ok := accountsMap[n.FromAccountId]; ok {
@@ -292,4 +311,25 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 	}
 
 	return ret, err
+}
+
+func notificationReaction(n *models.Notification) (*Reaction, error) {
+	var row models.StatusReaction
+	err := db.GetDB().Where("status_id = ? AND account_id = ?", n.StatusId, n.FromAccountId).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r := &Reaction{Name: row.Name, Count: 1}
+	if row.EmojiID != 0 {
+		var e models.Emoji
+		if db.GetDB().First(&e, row.EmojiID).Error == nil && !e.Disabled {
+			r.URL = e.Url
+			r.StaticURL = e.StaticUrl
+			r.IsSensitive = e.IsSensitive
+		}
+	}
+	return r, nil
 }

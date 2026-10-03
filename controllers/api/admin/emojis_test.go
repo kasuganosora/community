@@ -45,7 +45,7 @@ func TestSerializeAdminEmoji_Remote(t *testing.T) {
 	result := serializeAdminEmoji(emoji)
 
 	assert.Equal(t, "remote.social", result["domain"])
-	assert.True(t, result["disabled"].(bool)) // !VisibleInPicker
+	assert.False(t, result["disabled"].(bool)) // Picker visibility does not disable use.
 }
 
 func TestSerializeAdminEmoji_Timestamps(t *testing.T) {
@@ -190,13 +190,11 @@ func TestGetCustomEmoji_NotFound(t *testing.T) {
 // ============== CreateCustomEmoji ==============
 
 func TestCreateCustomEmoji_Success(t *testing.T) {
-	newAdminTestEnv(t)
-	c, w := newJSONContext(t, http.MethodPost, nil, CreateEmojiRequest{
-		Shortcode:       "newone",
-		Category:        "cat",
-		Image:           "https://example.com/new.png",
-		VisibleInPicker: true,
-	})
+	env := newAdminTestEnv(t)
+	require.NoError(t, env.gdb.AutoMigrate(&models.EmojiUpload{}))
+	require.NoError(t, env.gdb.Create(&models.EmojiUpload{Id: "validated", AccountId: 1, Url: "https://local.example/emoji-assets/test.png", StaticUrl: "https://local.example/emoji-assets/test.png"}).Error)
+	c, w := newJSONContext(t, http.MethodPost, nil, CreateEmojiRequest{Shortcode: "newone", Category: "cat", ImageID: "validated"})
+	c.Set("account", &models.Account{Id: 1})
 	CreateCustomEmoji(c)
 
 	assert.Equal(t, 200, w.Code)
@@ -211,8 +209,9 @@ func TestCreateCustomEmoji_DuplicateShortcode(t *testing.T) {
 
 	c, w := newJSONContext(t, http.MethodPost, nil, CreateEmojiRequest{
 		Shortcode: "dup",
-		Image:     "x",
+		ImageID:   "",
 	})
+	c.Set("account", &models.Account{Id: 1})
 	CreateCustomEmoji(c)
 	assert.Equal(t, 422, w.Code)
 }
@@ -221,7 +220,7 @@ func TestCreateCustomEmoji_MissingShortcode(t *testing.T) {
 	newAdminTestEnv(t)
 	c := ginContextWithBody(t, http.MethodPost, nil, `{"category":"x"}`)
 	CreateCustomEmoji(c)
-	assert.Equal(t, 400, c.Writer.Status())
+	assert.Equal(t, 422, c.Writer.Status())
 }
 
 func TestCreateCustomEmoji_InvalidJSON(t *testing.T) {
@@ -238,8 +237,8 @@ func TestUpdateCustomEmoji_Success(t *testing.T) {
 	emoji := createEmojiRow(t, env, "update", "")
 
 	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "id", Value: uitoa(emoji.Id)}}, UpdateEmojiRequest{
-		Shortcode: "updated",
-		Category:  "newcat",
+		Shortcode: emojiStringPtr("updated"),
+		Category:  emojiStringPtr("newcat"),
 	})
 
 	UpdateCustomEmoji(c)
@@ -272,7 +271,7 @@ func TestUpdateCustomEmoji_SetVisible(t *testing.T) {
 
 func TestUpdateCustomEmoji_NotFound(t *testing.T) {
 	newAdminTestEnv(t)
-	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "id", Value: "999999"}}, UpdateEmojiRequest{Shortcode: "x"})
+	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "id", Value: "999999"}}, UpdateEmojiRequest{Shortcode: emojiStringPtr("x")})
 	UpdateCustomEmoji(c)
 	assert.Equal(t, 404, w.Code)
 }
@@ -307,7 +306,7 @@ func TestDeleteCustomEmoji_NotFound(t *testing.T) {
 
 // ============== CopyCustomEmoji ==============
 
-func TestCopyCustomEmoji_Success(t *testing.T) {
+func TestCopyCustomEmoji_RejectsLocalCopy(t *testing.T) {
 	env := newAdminTestEnv(t)
 	emoji := createEmojiRow(t, env, "orig", "")
 
@@ -317,10 +316,7 @@ func TestCopyCustomEmoji_Success(t *testing.T) {
 
 	CopyCustomEmoji(c)
 
-	assert.Equal(t, 200, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "copied", resp["shortcode"])
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestCopyCustomEmoji_DuplicateShortcode(t *testing.T) {
@@ -348,7 +344,7 @@ func TestCopyCustomEmoji_MissingShortcode(t *testing.T) {
 
 	c := ginContextWithBody(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(emoji.Id)}}, `{}`)
 	CopyCustomEmoji(c)
-	assert.Equal(t, 400, c.Writer.Status())
+	assert.Equal(t, 422, c.Writer.Status())
 }
 
 // ============== EnableCustomEmoji / DisableCustomEmoji ==============
@@ -365,7 +361,8 @@ func TestEnableCustomEmoji_Success(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.True(t, resp["visible_in_picker"].(bool))
+	assert.False(t, resp["disabled"].(bool))
+	assert.False(t, resp["visible_in_picker"].(bool))
 }
 
 func TestEnableCustomEmoji_NotFound(t *testing.T) {
@@ -385,7 +382,8 @@ func TestDisableCustomEmoji_Success(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp["visible_in_picker"].(bool))
+	assert.True(t, resp["disabled"].(bool))
+	assert.True(t, resp["visible_in_picker"].(bool))
 }
 
 func TestDisableCustomEmoji_NotFound(t *testing.T) {
@@ -394,3 +392,5 @@ func TestDisableCustomEmoji_NotFound(t *testing.T) {
 	DisableCustomEmoji(c)
 	assert.Equal(t, 404, w.Code)
 }
+
+func emojiStringPtr(value string) *string { return &value }

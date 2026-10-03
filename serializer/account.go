@@ -1,6 +1,7 @@
 package serializer
 
 import (
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/url"
@@ -92,7 +93,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		LastStatusAt:    account.LastStatusAt,
 		HideCollections: account.HideCollections,
 		NoIndex:         account.NoIndex,
-		Emoji:           ToEmojis(account.Emojis),
+		Emoji:           accountEmojis(account),
 		intId:           account.Id,
 	}
 
@@ -146,4 +147,24 @@ func ToMentions(accounts []*models.Account) (mentions []*Mention) {
 	}
 
 	return
+}
+
+func accountEmojis(account *models.Account) []*Emoji {
+	domain := ""
+	if account.Domain != nil {
+		domain = *account.Domain
+	}
+	emojis := account.Emojis
+	text := models.AccountEmojiText(account)
+	if domain == "" && len(models.MatchEmojiTags(models.EmojiText(text))) > 0 && db.GetDB() != nil {
+		if found, err := models.GetEmojiFromText(db.GetDB(), text); err == nil {
+			for _, e := range found {
+				emojis = append(emojis, e)
+			}
+		}
+	}
+	if domain != "" && emojis == nil && account.Id != 0 && len(models.MatchEmojiTags(models.EmojiText(text))) > 0 && db.GetDB() != nil {
+		_ = db.GetDB().Model(account).Association("Emojis").Find(&emojis)
+	}
+	return ToEmojis(models.EmojisInText(emojis, text, domain, false))
 }

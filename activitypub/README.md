@@ -13,6 +13,14 @@ ActivityPub 联邦协议实现包，负责与其他去中心化社交实例之�
 - **触达范围计算**：`StatusReachFinder` / `AccountReachFinder` 计算一条状态/账户相关活动应被分发到哪些远程 inbox（粉丝、被提及者、中继，并剔除被屏蔽账户）。
 - **系统代理账户**：`ProxyService` 维护一个 `system.proxy` 系统账户，在无本地用户关注某个远程用户时由代理账户代为关注，以保证内容可达性。
 
+## 自定义表情与回应
+
+`emoji.go` 解析和生成 `Emoji` tag（名称、图片及 Misskey 的 `_misskey_license.freeText`），以实例域名和短代码共同标识远端表情。只有实际用于正文、内容警告或资料的表情才关联到对象；禁用或仅限本站使用的表情不会作为本站 Emoji tag 对外发布。远端资源导入使用原有的 TLS、SSRF 与重定向验证，图片限制见 [emojiasset](../emojiasset/README.md)。
+
+`reactions.go` 使用 Misskey 的 `Like.content`、`_misskey_reaction` 和 `Emoji` tag 交换回应；`Undo` 必须匹配原活动身份与作者。回应独立于普通 Like，每位用户每帖一种，替换与撤回保持幂等。数据库变更与持久发件队列同事务提交，投递前复核帖子可见性和屏蔽关系。
+
+`profile_update.go` 在资料修改时向已接受的远端关注者投递 Person `Update`，保留事务内快照，支持明确清空昵称、简介和表情。入站更新区分字段省略与明确清空，并在事务提交后清理资料缓存。帖子仍使用删除并重发，不支持原地编辑。
+
 ## 架构 / 结构
 
 | 源文件 | 职责 |

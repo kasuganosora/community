@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { shallowMount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
+import EmojiPicker from '../EmojiPicker.vue'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 
@@ -84,4 +85,25 @@ describe('PostComposer delete and repost', () => {
     wrapper.unmount()
   })
 
+})
+
+
+describe('PostComposer custom emoji insertion', () => {
+  it('replaces the selected range and restores the caret', async () => {
+    const wrapper = shallowMount(PostComposer, { global: {
+      plugins: [createPinia()],
+      stubs: { TTextarea: { props: ['modelValue'], emits: ['update:modelValue'], template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' } },
+    } })
+    const input = wrapper.get('textarea')
+    await input.setValue('left replace right')
+    const element = input.element as HTMLTextAreaElement
+    element.setSelectionRange(5, 12)
+    await wrapper.get('button[aria-label="自定义表情"]').trigger('click')
+    wrapper.findComponent(EmojiPicker).vm.$emit('select', { shortcode: 'wave' })
+    await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('left :wave: right')
+    expect(element.selectionStart).toBe(11)
+    expect(element.selectionEnd).toBe(11)
+    wrapper.unmount()
+  })
 })

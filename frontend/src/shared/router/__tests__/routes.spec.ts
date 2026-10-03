@@ -11,6 +11,13 @@ describe('pageTitle', () => {
 })
 
 describe('routes', () => {
+  it('marks emoji administration as authenticated and administrator-only', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const route = router.resolve('/admin/emojis')
+    expect(route.meta.requiresAuth).toBe(true)
+    expect(route.meta.requiresAdmin).toBe(true)
+    expect(pageTitle(route.name)).toBe('自定义表情管理 - Community')
+  })
   it('opens the public post URLs published by the API and federation', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     const canonical = router.resolve('/@alice/status/42')

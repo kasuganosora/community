@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes, pageTitle } from './routes'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { tokenService } from '@/shared/api/client'
 
 // Extend RouteMeta interface
@@ -7,6 +8,7 @@ declare module 'vue-router' {
   interface RouteMeta {
     guestOnly?: boolean
     requiresAuth?: boolean
+    requiresAdmin?: boolean
     title?: string
   }
 }
@@ -25,7 +27,7 @@ function isSafeRedirect(path: string): boolean {
   return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\')
 }
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const token = tokenService.get()
 
   // Redirect authenticated users away from guest-only pages to home
@@ -37,6 +39,14 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !token) {
     const redirectPath = to.fullPath !== '/' && isSafeRedirect(to.fullPath) ? { redirect: to.fullPath } : undefined
     return { name: 'landing', query: redirectPath }
+  }
+
+  if (to.meta.requiresAdmin) {
+    const auth = useAuthStore()
+    // Recheck permissions on entry; the API independently enforces authorization.
+    if (!await auth.fetchCurrentUser() || auth.currentUser?.is_admin !== true) {
+      return { name: 'settings' }
+    }
   }
 })
 

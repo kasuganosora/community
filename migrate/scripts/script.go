@@ -25,6 +25,8 @@ var ScripsType = []MigrationScript{
 	AddFederationOutboxScript{},
 	AddDeliveryAuthorizationScript{},
 	NullableRemoteAccountUserScript{},
+	CustomEmojiMetadataScript{},
+	StatusReactionsScript{},
 }
 
 type MigrationScript interface {

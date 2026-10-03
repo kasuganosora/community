@@ -13,6 +13,7 @@ import (
 )
 
 type Status struct {
+	EmojiReactions     []*Reaction   `json:"emoji_reactions"`
 	Id                 string        `json:"id"`
 	CreatedAt          *time.Time    `json:"created_at"`
 	InReplyToId        *string       `json:"in_reply_to_id"`
@@ -52,7 +53,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 		return ret, err
 	}
 
-	ret = &Status{}
+	ret = &Status{EmojiReactions: make([]*Reaction, 0)}
 	ret.Id = strconv.FormatUint(status.Id, 10)
 	ret.intId = status.Id
 	ret.CreatedAt = status.CreatedAt
@@ -103,7 +104,11 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	ret.Application = ToApplication(status.Application)
 	ret.Mentions = ToMentions(status.ToAccounts)
 	ret.Tags = ToTags(status.Tags)
-	ret.Emojis = ToEmojis(status.Emojis)
+	emojiDomain := ""
+	if status.Domain != nil {
+		emojiDomain = *status.Domain
+	}
+	ret.Emojis = ToEmojis(models.EmojisInText(status.Emojis, status.ContentHTML(contentRenderOptions())+" "+status.SpoilerTextPlain(), emojiDomain, false))
 	ret.Card = status.Content.Card
 	ret.Account = ToAccount(status.Account)
 
@@ -112,6 +117,11 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 
 func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Status, err error) {
 	ret, err = ToStatusBase(status)
+	if err != nil {
+		return ret, err
+	}
+
+	ret.EmojiReactions, err = StatusReactions(status.Id, currentAccount, false)
 	if err != nil {
 		return ret, err
 	}
@@ -184,6 +194,14 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 
 	dbConn := db.GetDB()
 	statusIds := statuses.GetIdsWithoutReblogWarp()
+	reactionIDs := append([]uint64{}, statusIds...)
+	for _, s := range statuses {
+		reactionIDs = append(reactionIDs, s.Id)
+	}
+	reactionBatch, reactionErr := StatusReactionsBatch(reactionIDs, currentAccount)
+	if reactionErr != nil {
+		return nil, reactionErr
+	}
 
 	var filters models.Filters
 
@@ -301,6 +319,11 @@ func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret [
 
 		if err != nil {
 			return nil, err
+		}
+
+		retStatus.EmojiReactions = reactionBatch[status.Id]
+		if status.Reblog != nil && retStatus.Reblog != nil {
+			retStatus.Reblog.EmojiReactions = reactionBatch[status.Reblog.Id]
 		}
 
 		retStatus.Pinned = utils.IsExistsForCheckMap(pinnedCheckMap, status.Id)

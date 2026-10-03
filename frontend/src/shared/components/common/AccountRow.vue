@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MastodonAccount } from '@/shared/types/mastodon'
@@ -33,9 +34,9 @@ function open(e: MouseEvent | KeyboardEvent) {
   >
     <UserAvatar :account="account" :size="48" />
     <div class="user-item__info">
-      <div class="user-item__name">{{ account.display_name || account.username }}</div>
+      <div class="user-item__name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></div>
       <div class="user-item__username">@{{ account.acct }}</div>
-      <RichText v-if="account.note" class="user-item__bio" :html="account.note" />
+      <RichText v-if="account.note" class="user-item__bio" :html="account.note" :emojis="account.emojis" />
     </div>
     <slot name="action">
       <t-button

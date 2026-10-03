@@ -330,7 +330,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Content association is saved once by GORM. Its local mention parser is
 	// disabled because authenticated AP addressing is authoritative.
-	err = persistIncomingStatus(ctx, activityDB(ctx), &status)
+	err = persistIncomingStatusWithEmoji(ctx, activityDB(ctx), &status, object["tag"])
 
 	if err != nil {
 		log.Error("Failed to create status: %v", err)
@@ -407,16 +407,18 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 
-		name, _ := object["name"].(string)
-		summary, _ := object["summary"].(string)
+		nameValue, hasName := object["name"]
+		name, validName := nameValue.(string)
+		summaryValue, hasSummary := object["summary"]
+		summary, validSummary := summaryValue.(string)
 		preferredUsername, _ := object["preferredUsername"].(string)
 
 		updates := map[string]any{}
-		if name != "" {
+		if hasName && (validName || nameValue == nil) {
 			updates["display_name"] = name
 		}
 
-		if summary != "" {
+		if hasSummary && (validSummary || summaryValue == nil) {
 			updates["note"] = htmlsafe.Sanitize(summary)
 		}
 
@@ -424,8 +426,19 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			updates["username"] = preferredUsername
 		}
 
-		if len(updates) > 0 {
-			err := activityDB(ctx).Model(remoteAccount).Updates(updates).Error
+		{
+			err := activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+				if err := tx.Model(remoteAccount).Updates(updates).Error; err != nil {
+					return err
+				}
+				if err := tx.First(remoteAccount, remoteAccount.Id).Error; err != nil {
+					return err
+				}
+				if tags, present := object["tag"]; present {
+					return importAccountEmojiTags(tx, remoteAccount, tags)
+				}
+				return nil
+			})
 			if err != nil {
 				log.Error("Failed to update remote account: %v", err)
 				c.JSON(500, gin.H{"error": "failed account update"})
@@ -433,6 +446,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			}
 		}
 
+		queueProfileInvalidation(ctx, remoteAccount)
 		c.JSON(200, gin.H{"status": "accepted"})
 
 		return
@@ -471,22 +485,25 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		now := time.Now()
-		err = activityDB(ctx).Model(&status).Updates(map[string]any{
-			"updated_at": now,
-		}).Error
+		err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+			domain := ""
+			if statusAuthor.Domain != nil {
+				domain = *statusAuthor.Domain
+			}
+			emojis, err := importEmojiTags(tx, domain, content+" "+summary, object["tag"])
+			if err != nil {
+				return err
+			}
+			// Save the complete content value so association hooks see the new text.
+			status.Content.Content = content
+			status.Content.SpoilerText = summary
+			writeCtx := models.WithStructuredEmojiIDs(models.WithStructuredMentions(ctx), emojis.GetIds())
+			if err := tx.WithContext(writeCtx).Save(&status.Content).Error; err != nil {
+				return err
+			}
+			return tx.Model(&status).Update("updated_at", now).Error
+		})
 		if err != nil {
-			log.Error("Failed to update status %d: %v", status.Id, err)
-			c.JSON(500, gin.H{"error": "failed status update"})
-			return
-		}
-
-		// Update content
-		err = activityDB(ctx).WithContext(models.WithStructuredMentions(ctx)).Model(&status.Content).Updates(map[string]any{
-			"content":      content,
-			"spoiler_text": summary,
-		}).Error
-		if err != nil {
-			log.Error("Failed to update status content %d: %v", status.Id, err)
 			c.JSON(500, gin.H{"error": "failed content update"})
 			return
 		}
@@ -781,6 +798,10 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 
 // handleLikeActivity handles Like activities (favourites).
 func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
+	if reactionContent(activity) != "" {
+		handleEmojiReaction(ctx, c, activity, false)
+		return
+	}
 	actor, _ := ctx.Value(actorKey).(string)
 
 	object, ok := activity["object"].(string)
@@ -798,14 +819,19 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 
-	// Find the status
-	var status models.Status
-
-	err = activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR id = ?", object, object, object).First(&status).Error
+	statusPtr, err := reactionStatus(activityDB(ctx), object)
 	if err != nil {
-		log.Warn("Could not find status for like: %s", object)
-		c.JSON(200, gin.H{"status": "accepted"})
-
+		c.JSON(202, gin.H{"status": "ignored"})
+		return
+	}
+	status := *statusPtr
+	allowed, err := status.CanViewEx(activityDB(ctx), remoteAccount)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "permission lookup failed"})
+		return
+	}
+	if !allowed {
+		c.JSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -832,10 +858,7 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 
-	// Increment favourites_count on the status
-	if err := activityDB(ctx).Model(&status).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
-		log.Error("Failed to increment favourites_count for status %d: %v", status.Id, err)
-	}
+	// FavoriteStatus.AfterCreate owns the counter increment.
 
 	log.Info("Created remote favourite from %s on status %d", actor, status.Id)
 	c.JSON(200, gin.H{"status": "accepted"})
@@ -852,7 +875,15 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 
+	if embedded, ok := objectMap["actor"].(string); ok && embedded != actor {
+		c.JSON(403, gin.H{"error": "actor mismatch"})
+		return
+	}
 	objectType, _ := objectMap["type"].(string)
+	if objectType == "Like" && reactionContent(objectMap) != "" {
+		handleEmojiReaction(ctx, c, activity, true)
+		return
+	}
 	objectID, _ := objectMap["id"].(string)
 	objectObject, _ := objectMap["object"].(string)
 
@@ -878,16 +909,22 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 
 	case "Like":
 		// Undo a like
+		statusPtr, err := reactionStatus(activityDB(ctx), objectObject)
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR id = ?", objectObject, objectObject, objectObject).First(&status).Error
 		if err == nil {
-			err := activityDB(ctx).Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{}).Error
-			if err != nil {
-				log.Error("Failed to undo like from %s on status %d: %v", actor, status.Id, err)
-			} else {
-				// Decrement favourites_count
-				activityDB(ctx).Model(&status).UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - 1 ELSE 0 END"))
-				log.Info("Undid like from %s on status %d", actor, status.Id)
+			status = *statusPtr
+		}
+		if err == nil {
+			result := activityDB(ctx).Session(&gorm.Session{SkipHooks: true}).Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{})
+			if result.Error != nil {
+				c.JSON(500, gin.H{"error": "failed to undo favourite"})
+				return
+			}
+			if result.RowsAffected > 0 {
+				if err := activityDB(ctx).Model(&models.Status{}).Where("id = ?", status.Id).UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - 1 ELSE 0 END")).Error; err != nil {
+					c.JSON(500, gin.H{"error": "failed to update favourite count"})
+					return
+				}
 			}
 		}
 

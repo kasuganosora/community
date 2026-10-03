@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PostReactions from '@/shared/components/post/PostReactions.vue'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -111,7 +113,7 @@ function onMenuClick(data: { value?: unknown }) {
     <!-- Reblog header -->
     <div v-if="isReblog" class="post-card__reblog">
       <t-icon name="swap" :size="14" />
-      <span>{{ status.account.display_name || status.account.username }} 转发了</span>
+      <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> 转发了</span>
     </div>
 
     <div class="post-card__body">
@@ -141,7 +143,7 @@ function onMenuClick(data: { value?: unknown }) {
             @keydown.enter="navigateToProfile"
             @keydown.space.prevent="navigateToProfile"
           >
-            {{ displayStatus.account.display_name || displayStatus.account.username }}
+            <EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" />
           </span>
           <span class="post-card__username">
             @{{ displayStatus.account.acct }}
@@ -168,6 +170,7 @@ function onMenuClick(data: { value?: unknown }) {
         <PostContent :status="displayStatus" text-class="post-card__text" />
 
         <!-- Actions -->
+        <PostReactions :status="displayStatus" />
         <PostActions
           :status="displayStatus"
           @reply="navigateToDetail({ reply: '1' })"

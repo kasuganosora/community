@@ -145,7 +145,7 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 		note["attachment"] = attachments
 	}
 
-	// Add tags (mentions, hashtags)
+	// Add tags (mentions, hashtags, custom emoji)
 	tags := make([]map[string]any, 0)
 
 	// Add mentions
@@ -172,7 +172,11 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 		}
 	}
 
+	for _, emoji := range emojiTags(status.Emojis, note["content"].(string)+" "+status.SpoilerTextPlain(), baseURL) {
+		tags = append(tags, map[string]any{"id": emoji.ID, "type": emoji.Type, "name": emoji.Name, "updated": emoji.Updated, "icon": emoji.Icon, "_misskey_license": emoji.MisskeyLicense})
+	}
 	if len(tags) > 0 {
+		note["@context"] = emojiContext()
 		note["tag"] = tags
 	}
 

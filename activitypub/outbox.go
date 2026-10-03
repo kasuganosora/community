@@ -5,9 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -52,7 +50,7 @@ func Outbox(c *gin.Context) {
 	}
 
 	// Get statuses
-	query := db.GetDB().Model(&models.Status{}).Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("ReplyAccount").
+	query := db.GetDB().Model(&models.Status{}).Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("Emojis").Preload("ReplyAccount").
 		Where("account_id = ?", account.Id).
 		Where("visibility IN ?", []uint8{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}).
 		Where("deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL").
@@ -269,68 +267,10 @@ func ActorProfile(c *gin.Context) {
 		return
 	}
 
-	baseURL := systemsettings.GetBaseURL()
-	actorURL := baseURL + "/users/" + username
-
-	// Build actor profile
-	actor := Actor{
-		Context: []string{
-			"https://www.w3.org/ns/activitystreams",
-			"https://w3id.org/security/v1",
-		},
-		ID:                        actorURL,
-		Type:                      "Person", //nolint:goconst
-		Following:                 actorURL + "/following",
-		Followers:                 actorURL + "/followers",
-		Inbox:                     actorURL + "/inbox",
-		Outbox:                    actorURL + "/outbox",
-		PreferredUsername:         account.Username,
-		ManuallyApprovesFollowers: account.Locked,
-		Name:                      account.DisplayName,
-		Summary:                   account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
-		URL:                       baseURL + "/@" + username,
-		Endpoints: &Endpoints{
-			SharedInbox: baseURL + "/inbox",
-		},
-	}
-
-	if account.Avatar != "" {
-		actor.Icon = &Image{
-			Type: "Image", //nolint:goconst
-			URL:  account.Avatar,
-		}
-	}
-
-	if account.Header != "" {
-		actor.Image = &Image{
-			Type: "Image",
-			URL:  account.Header,
-		}
-	}
-
-	accountKey, err := localAccountKey(&account)
+	actor, err := buildActorProfile(&account, localAccountEmojiTags(&account, systemsettings.GetBaseURL()))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to load actor signing key"})
 		return
-	}
-	actor.PublicKey = &PublicKey{
-		ID: actorURL + "#main-key", Owner: actorURL, PublicKeyPem: accountKey.PublicKey,
-	}
-
-	// Bot/Service accounts use "Service" actor type
-	if account.Bot {
-		actor.Type = "Service" //nolint:goconst
-	}
-
-	// Add profile fields
-	if account.Extra != nil {
-		for _, field := range serializer.ToFields(account.Extra.Fields) {
-			actor.Attachments = append(actor.Attachments, Attachment{
-				Type:  "PropertyValue",
-				Name:  field.Name,
-				Value: field.Val,
-			})
-		}
 	}
 
 	c.Header("Content-Type", "application/activity+json")

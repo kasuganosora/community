@@ -11,6 +11,7 @@ export function notificationTarget(n: { type: string; account: MastodonAccount; 
 
 export function notificationText(type: NotificationType | string): string {
   switch (type) {
+    case 'emoji_reaction': return '用表情回应了你的帖子'
     case 'favourite': return '喜欢了你的帖子'
     case 'reblog': return '转发了你的帖子'
     case 'follow': return '关注了你'

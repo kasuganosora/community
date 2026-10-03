@@ -17,6 +17,7 @@ const (
 	NotificationTypeAdminReport
 	NotificationTypeAddList    // 添加到列表
 	NotificationTypeRemoveList // 从列表中移除
+	NotificationTypeEmojiReaction
 )
 
 type Notification struct {
@@ -123,6 +124,8 @@ func (n *Notification) AfterSave(tx *gorm.DB) (err error) {
 
 func (n *Notification) GetTypeString() string {
 	switch n.Type {
+	case NotificationTypeEmojiReaction:
+		return "emoji_reaction"
 	case NotificationTypeMention:
 		return "mention" //nolint:goconst
 	case NotificationTypeReblog:
@@ -152,6 +155,8 @@ func (n *Notification) GetTypeString() string {
 // to its numeric notification type. Returns -1 if unknown.
 func NotificationTypeFromString(s string) int {
 	switch s {
+	case "emoji_reaction":
+		return NotificationTypeEmojiReaction
 	case "mention":
 		return NotificationTypeMention
 	case "reblog":

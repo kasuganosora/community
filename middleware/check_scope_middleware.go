@@ -23,48 +23,32 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 		}
 
 		tokenData, ok := td.(*models.AuthTokenData)
-		if !ok {
+		if !ok || tokenData == nil {
 			returnUnauthorized(c)
 
 			return
 		}
 
-		// 如果是网站登陆的token 则不需要检查scope（除非是admin scope）
-		if tokenData.AuthType == models.AuthTokenTypeWeb {
-			hasAdminScope := false
-
-			for _, scope := range scopes {
-				if scope.Type == models.AppScopeTypeAdmin {
-					hasAdminScope = true
-
-					break
-				}
-			}
-
-			if hasAdminScope {
-				userRaw, exists := c.Get("user")
-				if !exists {
-					returnUnauthorized(c)
-
-					return
-				}
-
+		// An OAuth scope limits access; it never grants an ordinary user admin
+		// privileges. Check the current authenticated user for both token types.
+		for _, scope := range scopes {
+			if scope.Type == models.AppScopeTypeAdmin {
+				userRaw, _ := c.Get("user")
 				user, ok := userRaw.(*models.User)
 				if !ok || user == nil || !user.IsAdmin {
 					returnUnauthorized(c)
-
 					return
 				}
 			}
-
+		}
+		if tokenData.AuthType == models.AuthTokenTypeWeb {
 			c.Next()
-
 			return
 		}
 
 		// Oauth的都需要检查scope
 		for _, scope := range scopes {
-			if !tokenData.Scopes.HasScope(scope.Type, scope.Value) {
+			if tokenData.Scopes == nil || !tokenData.Scopes.HasScope(scope.Type, scope.Value) {
 				returnUnauthorized(c)
 
 				return

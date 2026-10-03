@@ -631,7 +631,7 @@ func TestToStatusBase_WithReblog(t *testing.T) {
 func TestToStatusBase_WithTagsAndEmojis(t *testing.T) {
 	status := &models.Status{
 		Id:         1,
-		Content:    models.StatusContent{Content: "x"},
+		Content:    models.StatusContent{Content: "x :smile:"},
 		Visibility: models.StatusVisibilityPublic,
 		Account:    &models.Account{Id: 7, Username: "u"},
 		Tags: []*models.Tag{

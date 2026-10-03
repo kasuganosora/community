@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -218,6 +219,9 @@ func UpdateAccount(c *gin.Context) {
 		}
 
 		err = tx.Select(updateFields).Save(account).Error
+		if err == nil {
+			err = models.QueueFederationProfile(tx, account.Id)
+		}
 
 		return
 	})
@@ -230,6 +234,7 @@ func UpdateAccount(c *gin.Context) {
 		return
 	}
 
+	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
 	acc := serializer.ToAccount(account)
 
 	c.JSON(200, gin.H{"account": acc}) //nolint:goconst

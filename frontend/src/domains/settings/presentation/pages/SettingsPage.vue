@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -63,7 +64,7 @@ async function logout() {
           <button type="button" class="settings__row" @click="openProfile">
             <UserAvatar :account="authStore.currentUser" :size="40" />
             <span class="settings__row-text">
-              <span class="settings__row-title">{{ authStore.currentUser.display_name || authStore.currentUser.username }}</span>
+              <span class="settings__row-title"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></span>
               <span class="settings__row-sub">@{{ authStore.currentUser.username }}</span>
             </span>
             <t-icon name="chevron-right" :size="16" class="settings__chevron" />
@@ -82,6 +83,13 @@ async function logout() {
         <h2 id="settings-password" class="settings__heading">修改密码</h2>
         <div class="settings__group settings__group--padded">
           <PasswordSettingsForm />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser?.is_admin" class="settings__section" aria-labelledby="settings-admin">
+        <h2 id="settings-admin" class="settings__heading">管理</h2>
+        <div class="settings__group">
+          <router-link to="/admin/emojis" class="settings__row">自定义表情管理</router-link>
         </div>
       </section>
 

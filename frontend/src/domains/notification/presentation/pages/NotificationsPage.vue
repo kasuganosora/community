@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ReactionLabel from '@/shared/components/post/ReactionLabel.vue'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -37,6 +39,7 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, 
 
 function getNotificationIcon(type: NotificationType) {
   switch (type) {
+    case 'emoji_reaction': return 'chat'
     case 'favourite': return 'heart-filled'
     case 'reblog': return 'swap'
     case 'follow': return 'user-add'
@@ -137,7 +140,7 @@ watch(filter, () => feed.refresh())
       </div>
       <h2 class="empty-state__title">暂时没有通知</h2>
       <p class="empty-state__text">
-        {{ filter === 'mention' ? '有人提到你时会显示在这里。' : '喜欢、转发、提及和新关注者会显示在这里。' }}
+        {{ filter === 'mention' ? '有人提到你时会显示在这里。' : '喜欢、表情回应、转发、提及和新关注者会显示在这里。' }}
       </p>
     </div>
 
@@ -172,8 +175,9 @@ watch(filter, () => feed.refresh())
             <div class="notification-content">
               <UserAvatar :account="notification.account" :size="32" />
               <div class="notification-text">
-                <strong>{{ notification.account.display_name || notification.account.username }}</strong>
-                {{ notificationText(notification.type) }}
+                <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
+                <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">用 <ReactionLabel :reaction="notification.emoji_reaction" /> 回应了你的帖子</template>
+                <template v-else>{{ notificationText(notification.type) }}</template>
                 <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
               <div v-if="notification.status" class="notification-preview">

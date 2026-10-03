@@ -31,8 +31,11 @@ func VerifyCredentials(c *gin.Context) {
 
 	// note is rendered HTML; source.note is the raw text the user typed and
 	// is what clients use to prefill the profile editor (Mastodon API).
+	user, _ := c.Get("user")
+	currentUser, _ := user.(*models.User)
 	c.JSON(200, AccountWithSource{
 		Account: serializer.ToAccount(account),
+		IsAdmin: currentUser != nil && currentUser.IsAdmin,
 		Source: AccountSource{
 			Privacy:   "public",
 			Sensitive: false,
@@ -55,5 +58,6 @@ type AccountSource struct {
 type AccountWithSource struct {
 	*serializer.Account
 
-	Source AccountSource `json:"source"`
+	Source  AccountSource `json:"source"`
+	IsAdmin bool          `json:"is_admin"`
 }

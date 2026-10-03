@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PostReactions from '@/shared/components/post/PostReactions.vue'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
@@ -160,7 +162,7 @@ function openProfile() {
             <UserAvatar :account="mainStatus.account" :size="48" />
           </button>
           <div class="detail-main__user">
-            <div class="detail-main__name">{{ mainStatus.account.display_name || mainStatus.account.username }}</div>
+            <div class="detail-main__name"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></div>
             <div class="detail-main__username">@{{ mainStatus.account.acct }}</div>
           </div>
         </div>
@@ -185,6 +187,7 @@ function openProfile() {
           <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
         </div>
 
+        <PostReactions :status="mainStatus" />
         <PostActions
           :status="mainStatus"
           @reply="focusReply"

@@ -4,7 +4,7 @@
 export type Visibility = 'public' | 'unlisted' | 'private' | 'direct'
 
 /** Notification types that always include a `status` field */
-export type NotificationTypeWithStatus = 'mention' | 'reblog' | 'favourite' | 'poll' | 'update' | 'status'
+export type NotificationTypeWithStatus = 'mention' | 'reblog' | 'favourite' | 'poll' | 'update' | 'status' | 'emoji_reaction'
 
 /** Notification types that never include a `status` field */
 export type NotificationTypeWithoutStatus = 'follow' | 'follow_request'
@@ -28,6 +28,12 @@ export interface MastodonEmoji {
   url: string
   static_url: string
   visible_in_picker: boolean
+  category?: string | null
+  aliases?: string[]
+  license?: string | null
+  local_only?: boolean
+  is_sensitive?: boolean
+  disabled?: boolean
 }
 
 export interface MastodonField {
@@ -37,6 +43,8 @@ export interface MastodonField {
 }
 
 export interface MastodonAccount {
+  /** Present only on the authenticated account verification response. */
+  is_admin?: boolean
   id: string
   username: string
   acct: string
@@ -157,7 +165,18 @@ export interface MastodonCard {
   provider_url: string
 }
 
+export interface MastodonEmojiReaction {
+  name: string
+  count: number
+  me: boolean
+  url?: string
+  static_url?: string
+  is_sensitive?: boolean
+  accounts?: MastodonAccount[]
+}
+
 export interface MastodonStatus {
+  emoji_reactions?: MastodonEmojiReaction[]
   id: string
   created_at: string
   in_reply_to_id: string | null
@@ -191,6 +210,7 @@ export interface MastodonStatus {
 
 /** Notification that always carries a status (mention, reblog, favourite, poll, update, status) */
 export interface MastodonNotificationWithStatus {
+  emoji_reaction?: MastodonEmojiReaction
   id: string
   type: NotificationTypeWithStatus
   created_at: string

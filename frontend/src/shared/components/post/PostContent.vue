@@ -6,6 +6,7 @@
 import { ref, computed, watch } from 'vue'
 import type { MastodonPoll, MastodonStatus } from '@/shared/types/mastodon'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
 import PostPoll from './PostPoll.vue'
@@ -38,7 +39,7 @@ const contentId = computed(() => `status-content-${props.status.id}-${Math.rando
 <template>
   <div class="post-content">
     <div v-if="hasCw" class="post-content__cw">
-      <span class="post-content__cw-text">{{ status.spoiler_text }}</span>
+      <span class="post-content__cw-text"><EmojiText :text="status.spoiler_text" :emojis="status.emojis" /></span>
       <button
         type="button"
         class="post-content__cw-toggle"
@@ -50,7 +51,7 @@ const contentId = computed(() => `status-content-${props.status.id}-${Math.rando
       </button>
     </div>
     <div v-show="bodyVisible" :id="contentId">
-      <RichText :html="status.content" :class="textClass" @click.stop />
+      <RichText :html="status.content" :emojis="status.emojis" :class="textClass" @click.stop />
       <div v-if="status.media_attachments?.length" class="post-content__media">
         <PostMedia v-if="!mediaHidden" :attachments="status.media_attachments" />
         <button

@@ -416,7 +416,7 @@ func (s *Status) deleteDependents(tx *gorm.DB) error {
 	}
 
 	for _, model := range []any{
-		&Notification{}, &FavoriteStatus{}, &BookmarkStatus{}, &PinStatus{}, &MuteStatus{},
+		&Notification{}, &StatusReaction{}, &FavoriteStatus{}, &BookmarkStatus{}, &PinStatus{}, &MuteStatus{},
 		&StatusTag{}, &StatusEmoji{}, &StatusToAccount{}, &StatusContent{},
 	} {
 		if has(model) {
@@ -968,29 +968,22 @@ func (sc *StatusContent) bindEmojiByStatusContent(tx *gorm.DB, refresh bool) (er
 		}
 	}
 
-	// emoji tag format: :emoji_name:
-	// example: :ablobdj:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:fes:​​:blobcatrainbow:​​:ablobdj:
-
-	preg := statusEmojiRegex
-
-	emojiNames := preg.FindAllString(sc.Content, -1)
-	if len(emojiNames) == 0 {
-		return err
-	}
-
-	emojiNames = utils.FilterDuplicateAndEmptyString(emojiNames)
-
-	if len(emojiNames) == 0 {
-		return err
-	}
-
-	for i, emojiName := range emojiNames {
-		emojiNames[i] = strings.Trim(emojiName, ": \t\n\r")
-	}
-
 	emojis := make([]*Emoji, 0)
-	if err = tx.Where("shortcode IN ?", emojiNames).Find(&emojis).Error; err != nil {
-		return err
+	if ids, structured := StructuredEmojiIDs(tx.Statement.Context); structured {
+		if len(ids) == 0 {
+			return nil
+		}
+		if err = tx.Where("id IN ? AND disabled = ?", ids, false).Find(&emojis).Error; err != nil {
+			return err
+		}
+	} else {
+		matched, matchErr := GetEmojiFromText(tx, sc.Content+" "+sc.SpoilerText)
+		if matchErr != nil {
+			return matchErr
+		}
+		for _, emoji := range matched {
+			emojis = append(emojis, emoji)
+		}
 	}
 
 	if len(emojis) == 0 {

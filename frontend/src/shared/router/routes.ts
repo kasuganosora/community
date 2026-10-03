@@ -19,6 +19,7 @@ export const RouteNames = {
   LISTS: 'lists',
   LIST_TIMELINE: 'list-timeline',
   SETTINGS: 'settings',
+  ADMIN_EMOJIS: 'admin-emojis',
   ABOUT: 'about',
 } as const
 
@@ -57,6 +58,12 @@ const PublicRoutes: RouteRecordRaw[] = [
 ]
 
 const MainRoutes: RouteRecordRaw[] = [
+  {
+    path: 'admin/emojis',
+    name: RouteNames.ADMIN_EMOJIS,
+    component: () => import('@/domains/admin/presentation/pages/EmojiAdminPage.vue'),
+    meta: { requiresAdmin: true },
+  },
   {
     path: '',
     name: RouteNames.HOME,
@@ -169,6 +176,7 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.LISTS]: { title: '列表' },
   [RouteNames.LIST_TIMELINE]: { title: '列表' },
   [RouteNames.SETTINGS]: { title: '设置' },
+  [RouteNames.ADMIN_EMOJIS]: { title: '自定义表情管理' },
   [RouteNames.ABOUT]: { title: '关于' },
 }
 

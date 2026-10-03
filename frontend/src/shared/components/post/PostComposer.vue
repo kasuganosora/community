@@ -9,6 +9,9 @@ import {
   buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
   type ComposeDraft, type PollDraft,
 } from '@/domains/post/domain/compose'
+import EmojiPicker from './EmojiPicker.vue'
+import { insertShortcode } from '@/domains/emoji/domain/emoji'
+import type { MastodonEmoji } from '@/shared/types/mastodon'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const props = defineProps<{
@@ -32,6 +35,23 @@ const authStore = useAuthStore()
 const uid = Math.random().toString(36).slice(2, 8)
 
 const content = ref('')
+const composerRoot = ref<HTMLElement>()
+const pickerOpen = ref(false)
+let selection = { start: 0, end: 0 }
+function toggleEmojiPicker() {
+  const input = composerRoot.value?.querySelector('textarea')
+  selection = { start: input?.selectionStart ?? content.value.length, end: input?.selectionEnd ?? content.value.length }
+  pickerOpen.value = !pickerOpen.value
+}
+async function insertEmoji(emoji: MastodonEmoji) {
+  const inserted = insertShortcode(content.value, emoji.shortcode, selection.start, selection.end)
+  content.value = inserted.text
+  pickerOpen.value = false
+  await nextTick()
+  const input = composerRoot.value?.querySelector('textarea')
+  input?.focus()
+  input?.setSelectionRange(inserted.cursor, inserted.cursor)
+}
 const spoilerEnabled = ref(false)
 const spoilerText = ref('')
 const visibility = ref<Visibility>('public')
@@ -218,7 +238,7 @@ defineExpose({ focus, reset })
 </script>
 
 <template>
-  <div class="composer" @keydown="onKeydown">
+  <div ref="composerRoot" class="composer" @keydown="onKeydown">
     <p v-if="isEdit" class="composer__replace-notice" role="note">
       编辑会删除原帖并重新发布，帖子链接会改变。点赞、转发、书签和投票记录不会保留，已有回复不会迁移。可见范围、回复对象和附件保持不变。
       <span v-if="editStatus?.poll">投票截止时间保持不变。</span>
@@ -309,9 +329,11 @@ defineExpose({ focus, reset })
           </div>
         </fieldset>
 
+        <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="pickerOpen = false" />
         <div v-if="error" class="composer__error" role="alert">{{ error }}</div>
         <div class="composer__toolbar">
           <div class="composer__tools">
+            <button type="button" class="tool-btn" aria-label="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker">☺</button>
             <template v-if="!isEdit">
               <input
                 :id="`composer-file-${uid}`"

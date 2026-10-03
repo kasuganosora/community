@@ -1,5 +1,5 @@
 import client from '@/shared/api/client'
-import type { MastodonStatus, MastodonContext, MastodonPoll, MastodonAttachment, MastodonStatusSource } from '@/shared/types/mastodon'
+import type { MastodonStatus, MastodonContext, MastodonPoll, MastodonAttachment, MastodonStatusSource, MastodonEmojiReaction } from '@/shared/types/mastodon'
 import type { CreateStatusParams, ReplaceStatusParams } from '../domain/entities'
 
 /** Factory for status action endpoints that return a single MastodonStatus */
@@ -11,6 +11,15 @@ function createStatusAction(action: string) {
 }
 
 export const postApi = {
+  async react(id: string, name: string, remove = false): Promise<MastodonStatus> {
+    const path = `/api/v1/statuses/${encodeURIComponent(id)}/reactions/${encodeURIComponent(name)}`
+    const { data } = remove ? await client.delete<MastodonStatus>(path) : await client.put<MastodonStatus>(path)
+    return data
+  },
+  async reactions(id: string): Promise<MastodonEmojiReaction[]> {
+    const { data } = await client.get<MastodonEmojiReaction[]>(`/api/v1/statuses/${encodeURIComponent(id)}/reactions`)
+    return data
+  },
   async create(params: CreateStatusParams): Promise<MastodonStatus> {
     const { data } = await client.post<MastodonStatus>('/api/v1/statuses', params)
     return data

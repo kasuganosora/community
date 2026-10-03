@@ -22,6 +22,7 @@ type Actor struct {
 	Endpoints                 *Endpoints   `json:"endpoints,omitempty"`
 	PublicKey                 *PublicKey   `json:"publicKey,omitempty"`
 	Published                 *time.Time   `json:"published,omitempty"`
+	Tag                       any          `json:"tag,omitempty"`
 	Attachments               []Attachment `json:"attachment,omitempty"`
 	AlsoKnownAs               string       `json:"alsoKnownAs,omitempty"`
 	MovedTo                   string       `json:"movedTo,omitempty"`
@@ -90,11 +91,18 @@ type Source struct {
 }
 
 // Tag represents a mention, hashtag, or emoji.
+type EmojiLicense struct {
+	FreeText string `json:"freeText"`
+}
+
 type Tag struct {
-	Type string `json:"type"`
-	Href string `json:"href,omitempty"`
-	Name string `json:"name"`
-	Icon *Image `json:"icon,omitempty"`
+	ID             string        `json:"id,omitempty"`
+	Updated        string        `json:"updated,omitempty"`
+	MisskeyLicense *EmojiLicense `json:"_misskey_license,omitempty"`
+	Type           string        `json:"type"`
+	Href           string        `json:"href,omitempty"`
+	Name           string        `json:"name"`
+	Icon           *Image        `json:"icon,omitempty"`
 }
 
 // Activity represents a generic ActivityPub activity.

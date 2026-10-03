@@ -1,0 +1,164 @@
+package activitypub
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/kasuganosora/community/cache"
+	"github.com/kasuganosora/community/db"
+	cRedis "github.com/kasuganosora/community/db/redis"
+	"github.com/kasuganosora/community/htmlsafe"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/systemsettings"
+)
+
+func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
+	baseURL := systemsettings.GetBaseURL()
+	username := account.Username
+	actorURL := baseURL + "/users/" + username
+
+	// Build actor profile
+	actor := Actor{
+		Context: []string{
+			"https://www.w3.org/ns/activitystreams",
+			"https://w3id.org/security/v1",
+		},
+		ID:                        actorURL,
+		Type:                      "Person", //nolint:goconst
+		Following:                 actorURL + "/following",
+		Followers:                 actorURL + "/followers",
+		Inbox:                     actorURL + "/inbox",
+		Outbox:                    actorURL + "/outbox",
+		PreferredUsername:         account.Username,
+		ManuallyApprovesFollowers: account.Locked,
+		Name:                      account.DisplayName,
+		Summary:                   account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
+		URL:                       baseURL + "/@" + username,
+		Endpoints: &Endpoints{
+			SharedInbox: baseURL + "/inbox",
+		},
+	}
+
+	profileEmojiTags := tags
+	if len(profileEmojiTags) > 0 {
+		actor.Tag = profileEmojiTags
+		actor.Context = emojiContext()
+	}
+
+	if account.Avatar != "" {
+		actor.Icon = &Image{
+			Type: "Image", //nolint:goconst
+			URL:  account.Avatar,
+		}
+	}
+
+	if account.Header != "" {
+		actor.Image = &Image{
+			Type: "Image",
+			URL:  account.Header,
+		}
+	}
+
+	accountKey, err := localAccountKey(account)
+	if err != nil {
+		return Actor{}, err
+	}
+	actor.PublicKey = &PublicKey{
+		ID: actorURL + "#main-key", Owner: actorURL, PublicKeyPem: accountKey.PublicKey,
+	}
+
+	// Bot/Service accounts use "Service" actor type
+	if account.Bot {
+		actor.Type = "Service" //nolint:goconst
+	}
+
+	// Add profile fields
+	if account.Extra != nil {
+		for _, field := range serializer.ToFields(account.Extra.Fields) {
+			actor.Attachments = append(actor.Attachments, Attachment{
+				Type:  "PropertyValue",
+				Name:  field.Name,
+				Value: field.Val,
+			})
+		}
+	}
+
+	return actor, nil
+}
+
+func profileUpdatePayload(e *models.FederationOutbox, actorURI, activityID string) (map[string]any, error) {
+	var snapshot models.FederationProfileSnapshot
+	if err := json.Unmarshal([]byte(e.Payload), &snapshot); err != nil {
+		return nil, err
+	}
+	account := &snapshot.Account
+	if account.Id != e.AccountID || account.Domain != nil {
+		return nil, errors.New("profile snapshot must belong to local author")
+	}
+	account.Extra = snapshot.Extra
+	account.Emojis = snapshot.Emojis
+	actor, err := buildActorProfile(account, emojiTags(snapshot.Emojis, models.AccountEmojiText(account), systemsettings.GetBaseURL()))
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(actor)
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	// Update semantics distinguish omission from clearing. Actor pull responses
+	// may omit empty optional fields, but updates must explicitly clear them.
+	object["name"] = actor.Name
+	object["summary"] = actor.Summary
+	if actor.Name == "" {
+		object["name"] = nil
+	}
+	if actor.Summary == "" {
+		object["summary"] = nil
+	}
+	if actor.Tag == nil {
+		object["tag"] = []Tag{}
+	}
+	return map[string]any{"id": activityID, "type": "Update", "actor": actorURI, "to": []string{actorURI + "/followers"}, "object": object}, nil
+}
+
+func profileRecipientAllowed(author, target *models.Account) (bool, error) {
+	allowed, err := outboundRecipientAllowed(nil, author, target)
+	if err != nil || !allowed {
+		return allowed, err
+	}
+	if target.Domain == nil {
+		return false, nil
+	}
+	var count int64
+	err = db.GetDB().Model(&models.Follow{}).Where("account_id = ? AND follow_id = ? AND status = ?", target.Id, author.Id, models.FollowStatusFollowed).Count(&count).Error
+	return count > 0, err
+}
+
+type profileInvalidationsKey struct{}
+
+func beginProfileInvalidations(ctx context.Context) (context.Context, func()) {
+	accounts := make([]models.Account, 0)
+	return context.WithValue(ctx, profileInvalidationsKey{}, &accounts), func() {
+		for _, a := range accounts {
+			invalidateProfile(ctx, &a)
+		}
+	}
+}
+func queueProfileInvalidation(ctx context.Context, account *models.Account) {
+	if pending, ok := ctx.Value(profileInvalidationsKey{}).(*[]models.Account); ok {
+		*pending = append(*pending, *account)
+		return
+	}
+	invalidateProfile(ctx, account)
+}
+func invalidateProfile(ctx context.Context, account *models.Account) {
+	getDefaultResolver().accountCache.Delete(account.OriginId)
+	if len(cRedis.GetRedises()) > 0 {
+		_ = cache.InvalidateAccount(ctx, account.Id)
+	}
+}

@@ -451,8 +451,9 @@ func GetCachedAccount(ctx context.Context, accountID uint64, dest any) error {
 // InvalidateAccount 使账户缓存失效.
 func InvalidateAccount(ctx context.Context, accountID uint64) error {
 	key := fmt.Sprintf(KeyAccount, accountID)
-
-	return GetCache().Delete(ctx, key)
+	// The account endpoint also caches numeric IDs under its acct key.
+	byID := fmt.Sprintf(KeyAccountByAcct, fmt.Sprint(accountID))
+	return GetCache().Delete(ctx, key, byID)
 }
 
 // CacheStatus 缓存嘟文.

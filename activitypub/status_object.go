@@ -92,7 +92,7 @@ func StatusObject(c *gin.Context) {
 		return
 	}
 	var status models.Status
-	query := db.GetDB().Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("ReplyAccount")
+	query := db.GetDB().Preload("Content").Preload("Attachments").Preload("ToAccounts").Preload("Tags").Preload("Emojis").Preload("ReplyAccount")
 	if err = query.Where("id = ? AND account_id = ? AND deleted_at IS NULL AND scheduled_at IS NULL AND reblog_id IS NULL", id, account.Id).First(&status).Error; err != nil {
 		c.Status(http.StatusNotFound)
 		return

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import BottomSheet from './BottomSheet.vue'
@@ -33,7 +34,7 @@ async function logout() {
       <button type="button" class="account__me" @click="go(`/@${authStore.currentUser.username}`)">
         <UserAvatar :account="authStore.currentUser" :size="52" />
         <span class="account__text">
-          <span class="account__name">{{ authStore.currentUser.display_name || authStore.currentUser.username }}</span>
+          <span class="account__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></span>
           <span class="account__handle">@{{ authStore.currentUser.username }}</span>
         </span>
         <t-icon name="chevron-right" :size="18" class="account__chevron" />

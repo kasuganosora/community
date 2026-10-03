@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -113,7 +114,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
-        <h1 class="page-header__title">{{ account.display_name || account.username }}</h1>
+        <h1 class="page-header__title"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h1>
         <span class="profile-header-bar__count">{{ formatCount(account.statuses_count) }} 条帖子</span>
       </div>
     </div>
@@ -144,13 +145,13 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         </t-button>
       </div>
 
-      <h2 class="profile-name">{{ account.display_name || account.username }}</h2>
+      <h2 class="profile-name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h2>
       <div class="profile-username">
         @{{ account.acct }}
         <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
       </div>
 
-      <RichText v-if="account.note" class="profile-bio" :html="account.note" />
+      <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 
       <div class="profile-stats">
         <router-link :to="`${profileBase}/following`" class="stat-item">

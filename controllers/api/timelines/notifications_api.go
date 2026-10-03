@@ -38,17 +38,16 @@ func GetNotification(c *gin.Context) {
 		return
 	}
 
-	visible, err := serializer.NotificationVisible(notification, account)
+	response, err := serializer.ToNotification(notification, account)
 	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "failed to read notification"})
 		return
 	}
-	if !visible {
+	if response == nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "notification not found"})
 		return
 	}
-	// Build response
-	c.JSON(200, buildNotificationResponse(notification, c))
+	c.JSON(200, response)
 }
 
 // DismissNotification handles POST /api/v1/notifications/:id/dismiss.

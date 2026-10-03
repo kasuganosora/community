@@ -108,5 +108,5 @@ func persistIncomingStatus(ctx context.Context, conn *gorm.DB, status *models.St
 	for _, account := range status.ToAccounts {
 		ids = append(ids, account.Id)
 	}
-	return conn.WithContext(models.WithStructuredRecipientIDs(ctx, ids)).Omit("ToAccounts").Create(status).Error
+	return conn.WithContext(models.WithStructuredRecipientIDs(ctx, ids)).Omit("ToAccounts", "Emojis").Create(status).Error
 }

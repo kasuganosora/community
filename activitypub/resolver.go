@@ -155,7 +155,7 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 	// Check database first
 	var account models.Account
 
-	err := db.GetDB().Where("origin_id = ?", uri).First(&account).Error
+	err := db.GetDB().Preload("Emojis").Where("origin_id = ?", uri).First(&account).Error
 	if err == nil {
 		// Check if we need to refresh
 		if shouldRefreshAccount(&account) {
@@ -223,7 +223,7 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 	// Check database first
 	var status models.Status
 
-	err := db.GetDB().Preload("Content").Preload("Account").Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error
+	err := db.GetDB().Preload("Content").Preload("Emojis").Preload("Account").Preload("Account.Emojis").Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error
 	if err == nil {
 		r.storeStatusCache(uri, &status)
 
@@ -293,7 +293,15 @@ func (r *Resolver) refreshAccount(uri string) {
 		updates["header_static"] = actor.Image.URL
 	}
 
-	if err := db.GetDB().Model(&account).Updates(updates).Error; err != nil {
+	if err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&account).Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&account, account.Id).Error; err != nil {
+			return err
+		}
+		return importAccountEmojiTags(tx, &account, actor.Tag)
+	}); err != nil {
 		log.Error("Failed to update account %s: %v", uri, err)
 	}
 
@@ -365,7 +373,10 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 		} else {
 			return err
 		}
-		return tx.Model(&identity).Update("account_id", account.Id).Error
+		if err := tx.Model(&identity).Update("account_id", account.Id).Error; err != nil {
+			return err
+		}
+		return importAccountEmojiTags(tx, &account, actor.Tag)
 	})
 	if err != nil {
 		return models.Account{}, fmt.Errorf("creating account in database: %w", err)
@@ -456,7 +467,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	}
 
 	err = db.GetDB().WithContext(models.WithStructuredMentions(ctx)).Transaction(func(tx *gorm.DB) error {
-		err := persistIncomingStatus(ctx, tx, &status)
+		err := persistIncomingStatusWithEmoji(ctx, tx, &status, obj["tag"])
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,8 @@
 package account
 
 import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,26 +15,29 @@ import (
 
 // UpdateCredentialsRequest represents the request for updating account credentials.
 type UpdateCredentialsRequest struct {
-	DisplayName      *string `form:"display_name"`
+	DisplayName      *string `form:"display_name" json:"display_name"`
 	Note             *string `form:"note"`
 	Avatar           string  `form:"avatar"`
 	Header           string  `form:"header"`
 	Locked           *bool   `form:"locked"`
 	Bot              *bool   `form:"bot"`
 	Discoverable     *bool   `form:"discoverable"`
-	HideCollections  *bool   `form:"hide_collections"`
+	HideCollections  *bool   `form:"hide_collections" json:"hide_collections"`
 	Indexable        *bool   `form:"indexable"`
 	FieldsAttributes []struct {
 		Name  string `form:"name"`
 		Value string `form:"value"`
-	} `form:"fields_attributes"`
+	} `form:"fields_attributes" json:"fields_attributes"`
 }
 
 // UpdateCredentials handles PATCH /api/v1/accounts/update_credentials.
 func UpdateCredentials(c *gin.Context) {
 	var req UpdateCredentialsRequest
 
-	_ = c.ShouldBind(&req)
+	if err := c.ShouldBind(&req); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid profile update"})
+		return
+	}
 
 	// Get current account
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
@@ -78,45 +83,41 @@ func UpdateCredentials(c *gin.Context) {
 	now := time.Now()
 	updates["updated_at"] = &now
 
-	// Apply updates to account
-	if len(updates) > 0 {
-		err := db.GetDB().Model(account).Updates(updates).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "update account error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
-
-			return
+	// Commit the profile, fields, and durable follower delivery together.
+	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+		var locked models.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, account.Id).Error; err != nil {
+			return err
 		}
-	}
-
-	// Update fields attributes if provided
-	if len(req.FieldsAttributes) > 0 {
-		// Update account's fields array
-		fields := make([]models.AccountField, 0)
-
-		for _, field := range req.FieldsAttributes {
-			if field.Name == "" && field.Value == "" {
-				continue
+		if req.Indexable != nil {
+			updates["no_index"] = !*req.Indexable
+		}
+		if err := tx.Model(&locked).Updates(updates).Error; err != nil {
+			return err
+		}
+		if req.FieldsAttributes != nil {
+			var extra models.AccountExtra
+			if err := tx.FirstOrCreate(&extra, models.AccountExtra{AccountId: account.Id}).Error; err != nil {
+				return err
 			}
-
-			fields = append(fields, models.AccountField{
-				Name: field.Name,
-				Val:  field.Value,
-			})
+			extra.Fields = make([]models.AccountField, 0, len(req.FieldsAttributes))
+			for _, field := range req.FieldsAttributes {
+				if field.Name != "" || field.Value != "" {
+					extra.Fields = append(extra.Fields, models.AccountField{Name: field.Name, Val: field.Value})
+				}
+			}
+			if err := tx.Model(&extra).Select("Fields").Updates(&extra).Error; err != nil {
+				return err
+			}
 		}
-		// Update the fields via raw SQL since AccountField is a json field
-		db.GetDB().Model(account).Update("fields", fields)
-	}
-
-	// Reload account with associations
-	// Fields is a JSON column, not an association: preloading it failed with
-	// "unsupported relations" and turned every successful update into a 500.
-	err := db.GetDB().Preload("Emojis").Preload("Extra").
-		First(account, account.Id).Error
+		if err := models.QueueFederationProfile(tx, account.Id); err != nil {
+			return err
+		}
+		return tx.Preload("Emojis").Preload("Extra").First(account, account.Id).Error
+	})
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "reload account error"))
+		_ = c.Error(errors.Wrap(err, "update account"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
 		return
 	}
 
