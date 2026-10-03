@@ -3,10 +3,9 @@ package tag
 import (
 	"testing"
 
-	"github.com/go-redis/redismock/v9"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -34,7 +33,7 @@ import (
 // feed functions work) and a redismock-backed global redis pool (so
 // GetTimelineContent's Exists/ZRangeArgs can be scripted), returning the
 // redismock ClientMock.
-func setupMockFeedRedis(t *testing.T) redismock.ClientMock {
+func setupMockFeedRedis(t *testing.T) *miniredis.Miniredis {
 	t.Helper()
 	setupMockFeedService(t)
 	_, rm := setupRedismockRedis(t)
@@ -80,10 +79,7 @@ func TestGetTimelineContent_DirectVisibilityAfterFilter(t *testing.T) {
 	}
 
 	timelineKey := "feed:hashtag:dm"
-	rm.ExpectExists(timelineKey).SetVal(1)
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{
-		Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true,
-	}).SetVal(ids)
+	seedTimelineCache(t, rm, timelineKey, ids)
 
 	viewer := &models.Account{Id: 30}
 	got, err := GetTimelineContent("dm", viewer, &feed.ListParam{Limit: 10})
@@ -92,7 +88,6 @@ func TestGetTimelineContent_DirectVisibilityAfterFilter(t *testing.T) {
 	assert.Contains(t, gotIds, directToViewer.Id, "viewer mentioned on direct must see it")
 	assert.NotContains(t, gotIds, directToOther.Id, "direct not mentioning viewer must be filtered")
 
-	rm.ExpectationsWereMet()
 }
 
 // private visibility: visible to the author themselves and to followers, but
@@ -133,40 +128,30 @@ func TestGetTimelineContent_PrivateVisibilityAfterFilter(t *testing.T) {
 	timelineKey := "feed:hashtag:priv"
 
 	// Viewer = author (account 10): sees own private, not stranger's.
-	rm.ExpectExists(timelineKey).SetVal(1)
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{
-		Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true,
-	}).SetVal(ids)
+	seedTimelineCache(t, rm, timelineKey, ids)
 	author := &models.Account{Id: 10}
 	got, err := GetTimelineContent("priv", author, &feed.ListParam{Limit: 10})
 	require.NoError(t, err)
 	gotIds := statusIds(got)
 	assert.Contains(t, gotIds, own.Id)
 	assert.NotContains(t, gotIds, otherPrivate.Id)
-	rm.ExpectationsWereMet()
 
 	// A pending request grants no access, even when its author is present in
 	// the same follows table used to build the visibility map.
 	require.NoError(t, gdb.Exec("INSERT INTO follows (account_id, follow_id, status) VALUES (40, 10, ?)", models.FollowStatusRequested).Error)
-	rm.ExpectExists(timelineKey).SetVal(1)
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true}).SetVal(ids)
+	seedTimelineCache(t, rm, timelineKey, ids)
 	pending, err := GetTimelineContent("priv", &models.Account{Id: 40}, &feed.ListParam{Limit: 10})
 	require.NoError(t, err)
 	assert.Empty(t, pending, "pending followers cannot see private tagged statuses")
-	require.NoError(t, rm.ExpectationsWereMet())
 
 	// Viewer = follower (account 20): sees author's private (following) but not stranger's.
-	rm.ExpectExists(timelineKey).SetVal(1)
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{
-		Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true,
-	}).SetVal(ids)
+	seedTimelineCache(t, rm, timelineKey, ids)
 	follower := &models.Account{Id: 20}
 	got, err = GetTimelineContent("priv", follower, &feed.ListParam{Limit: 10})
 	require.NoError(t, err)
 	gotIds = statusIds(got)
 	assert.Contains(t, gotIds, own.Id, "follower must see the private status of the followed author")
 	assert.NotContains(t, gotIds, otherPrivate.Id)
-	rm.ExpectationsWereMet()
 }
 
 // only_media afterFilter passes a status that HAS attachments through.
@@ -195,16 +180,12 @@ func TestGetTimelineContent_OnlyMediaKeepsAttachmentStatus(t *testing.T) {
 	}).Error)
 
 	timelineKey := "feed:hashtag:pics"
-	rm.ExpectExists(timelineKey).SetVal(1)
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{
-		Key: timelineKey, Start: int64(0), Stop: int64(9), Rev: true,
-	}).SetVal([]string{uintToStr(s.Id)})
+	seedTimelineCache(t, rm, timelineKey, []string{uintToStr(s.Id)})
 
 	got, err := GetTimelineContent("pics", nil, &feed.ListParam{Limit: 10, Other: map[string]any{"only_media": true}})
 	require.NoError(t, err)
 	require.Len(t, got, 1, "status with attachments must survive only_media filter")
 	assert.Equal(t, s.Id, got[0].Id)
-	rm.ExpectationsWereMet()
 }
 
 // ---------------------------------------------------------------------------
@@ -311,16 +292,12 @@ func TestGetTimelineContent_LimitClampsResult(t *testing.T) {
 	}
 
 	timelineKey := "feed:hashtag:many"
-	rm.ExpectExists(timelineKey).SetVal(1)
 	// Limit=2 -> GetRedisRangeOffsetCount = (0, 1).
-	rm.ExpectZRangeArgs(redis.ZRangeArgs{
-		Key: timelineKey, Start: int64(0), Stop: int64(1), Rev: true,
-	}).SetVal(ids[:2])
+	seedTimelineCache(t, rm, timelineKey, ids[:2])
 
 	got, err := GetTimelineContent("many", nil, &feed.ListParam{Limit: 2})
 	require.NoError(t, err)
 	assert.Len(t, got, 2, "limit must clamp the returned slice")
-	rm.ExpectationsWereMet()
 }
 
 // ---------------------------------------------------------------------------

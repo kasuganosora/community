@@ -129,3 +129,26 @@ describe('pagination after removing an item', () => {
     expect(list.hasMore.value).toBe(false)
   })
 })
+
+describe('scope transitions and nonadvancing cursors', () => {
+  it('clears old-scope content immediately and rejects its pending page', async () => {
+    let resolve!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn().mockResolvedValueOnce(page(5, 4)).mockImplementationOnce(() => new Promise(r => { resolve = r }))
+    const list = usePaginatedList(fetcher, 2)
+    await list.refresh()
+    const old = list.loadMore()
+    list.reset()
+    expect(list.items.value).toEqual([])
+    resolve(page(3, 2)); await old
+    expect(list.items.value).toEqual([])
+    expect(list.loading.value).toBe(false)
+  })
+  it('stops an unchanged cursor so a visible sentinel cannot refetch forever', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: page(5, 4), nextCursor: '4' })
+    const list = usePaginatedList(fetcher, 2)
+    await list.refresh(); await list.loadMore(); await list.loadMore()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(list.items.value.map(s => s.id)).toEqual(['5', '4'])
+    expect(list.hasMore.value).toBe(false)
+  })
+})

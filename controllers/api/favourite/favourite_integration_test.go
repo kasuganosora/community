@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // allTestModels lists all models needed for auto-migration in tests.
@@ -28,6 +30,8 @@ var allTestModels = []any{
 	&models.AccountExtra{},
 	&models.AccountEmoji{},
 	&models.Status{},
+	&models.StatusReaction{},
+	&models.SystemSetting{},
 	&models.StatusContent{},
 	&models.StatusHistory{},
 	&models.StatusTag{},
@@ -67,15 +71,28 @@ func TestMain(m *testing.M) {
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	tdb, err := testutil.NewIsolatedTestDB(t)
+	// The collection serializer uses UNION ALL, which the SQLExec fixture
+	// engine does not implement. Exercise its actual SQL with isolated SQLite.
+	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-
-	database.SetTestDB(tdb.GormDB)
+	sqlDB, err := conn.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	database.SetTestDB(conn)
 	t.Cleanup(database.ResetTestDB)
+	for _, model := range allTestModels {
+		stmt := &gorm.Statement{DB: conn}
+		require.NoError(t, stmt.Parse(model))
+		for _, field := range stmt.Schema.Fields {
+			if field.AutoIncrement {
+				field.DataType = schema.Int
+			}
+		}
+	}
+	require.NoError(t, conn.AutoMigrate(allTestModels...))
 
-	require.NoError(t, tdb.GormDB.AutoMigrate(allTestModels...))
-
-	return tdb.GormDB
+	return conn
 }
 
 // createAccountWithUser builds a User + Account pair using the fixture builder.
@@ -115,6 +132,7 @@ func TestFavourites_EmptyResult(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	// Empty list should still be valid JSON array, not null
@@ -138,6 +156,7 @@ func TestFavourites_WithResults(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -156,6 +175,7 @@ func TestFavourites_DefaultLimit(t *testing.T) {
 	// No limit param → handler defaults to 20
 	c, w := newGetContext("", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -172,6 +192,7 @@ func TestFavourites_ExplicitLimit(t *testing.T) {
 
 	c, w := newGetContext("limit=5", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -191,6 +212,7 @@ func TestFavourites_PaginationMaxId(t *testing.T) {
 	// max_id should exclude favourites with id >= max_id
 	c, w := newGetContext("max_id="+itoa(fav2.Id), acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -215,6 +237,7 @@ func TestFavourites_PaginationMinId(t *testing.T) {
 	// min_id should return only favourites with id > min_id
 	c, w := newGetContext("min_id="+itoa(fav1.Id), acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -238,6 +261,7 @@ func TestFavourites_PaginationSinceId(t *testing.T) {
 	// since_id should return only favourites with id > since_id (like min_id)
 	c, w := newGetContext("since_id="+itoa(fav1.Id), acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -259,6 +283,7 @@ func TestFavourites_InvalidMaxIdIgnored(t *testing.T) {
 	// Non-numeric max_id should be silently ignored (no filter applied)
 	c, w := newGetContext("max_id=abc", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -279,6 +304,7 @@ func TestFavourites_InvalidMinIdIgnored(t *testing.T) {
 
 	c, w := newGetContext("min_id=xyz", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -299,6 +325,7 @@ func TestFavourites_InvalidSinceIdIgnored(t *testing.T) {
 
 	c, w := newGetContext("since_id=notnum", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -332,6 +359,7 @@ func TestFavourites_ScheduledStatusFilterPath(t *testing.T) {
 	// so we assert the handler runs successfully rather than the exact count.)
 	c, w := newGetContext("", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -355,6 +383,7 @@ func TestFavourites_OnlyOwnFavourites(t *testing.T) {
 	// acct should see zero favourites since only other favourited
 	c, w := newGetContext("", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -375,6 +404,7 @@ func TestFavourites_AllPaginationParams(t *testing.T) {
 	// All pagination params at once with valid numbers
 	c, w := newGetContext("limit=20&max_id=999999&min_id=0&since_id=0", acct)
 	Favourites(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -391,6 +421,7 @@ func TestBookmarks_EmptyResult(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var result []any
@@ -412,6 +443,7 @@ func TestBookmarks_WithResults(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -428,6 +460,7 @@ func TestBookmarks_DefaultLimit(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -444,6 +477,7 @@ func TestBookmarks_ExplicitLimit(t *testing.T) {
 
 	c, w := newGetContext("limit=10", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -462,6 +496,7 @@ func TestBookmarks_PaginationMaxId(t *testing.T) {
 
 	c, w := newGetContext("max_id="+itoa(bm2.Id), acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -484,6 +519,7 @@ func TestBookmarks_PaginationMinId(t *testing.T) {
 
 	c, w := newGetContext("min_id="+itoa(bm1.Id), acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -506,6 +542,7 @@ func TestBookmarks_PaginationSinceId(t *testing.T) {
 
 	c, w := newGetContext("since_id="+itoa(bm1.Id), acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -525,6 +562,7 @@ func TestBookmarks_InvalidMaxIdIgnored(t *testing.T) {
 
 	c, w := newGetContext("max_id=abc", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -544,6 +582,7 @@ func TestBookmarks_InvalidMinIdIgnored(t *testing.T) {
 
 	c, w := newGetContext("min_id=xyz", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -563,6 +602,7 @@ func TestBookmarks_InvalidSinceIdIgnored(t *testing.T) {
 
 	c, w := newGetContext("since_id=notnum", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -593,6 +633,7 @@ func TestBookmarks_ScheduledStatusFilterPath(t *testing.T) {
 	// so we assert the handler runs successfully rather than the exact count.)
 	c, w := newGetContext("", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -614,6 +655,7 @@ func TestBookmarks_OnlyOwnBookmarks(t *testing.T) {
 
 	c, w := newGetContext("", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any
@@ -633,6 +675,7 @@ func TestBookmarks_AllPaginationParams(t *testing.T) {
 
 	c, w := newGetContext("limit=20&max_id=999999&min_id=0&since_id=0", acct)
 	Bookmarks(c)
+	require.Empty(t, c.Errors)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var result []map[string]any

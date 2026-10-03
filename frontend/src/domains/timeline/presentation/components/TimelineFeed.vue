@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import PostCard from '@/shared/components/post/PostCard.vue'
 
@@ -24,18 +24,17 @@ const sentinel = ref<HTMLElement>()
 
 let observer: IntersectionObserver | null = null
 
+function loadIfVisible() {
+  if (props.loading || props.error || props.hasMore === false || props.statuses.length === 0 || !sentinel.value) return
+  const rect = sentinel.value.getBoundingClientRect()
+  if (rect.top <= window.innerHeight + 200 && rect.bottom >= -200) emit('loadMore')
+}
+
+// A completed request can leave the sentinel in view without another intersection transition.
+watch([() => props.loading, () => props.statuses.length, () => props.hasMore], loadIfVisible, { flush: 'post' })
 onMounted(() => {
-  observer = new IntersectionObserver(
-    (entries) => {
-      if (entries[0]?.isIntersecting && !props.loading && !props.error && props.hasMore !== false && props.statuses.length > 0) {
-        emit('loadMore')
-      }
-    },
-    { rootMargin: '200px' },
-  )
-  if (sentinel.value) {
-    observer.observe(sentinel.value)
-  }
+  observer = new IntersectionObserver(() => loadIfVisible(), { rootMargin: '200px' })
+  if (sentinel.value) observer.observe(sentinel.value)
 })
 
 onUnmounted(() => {

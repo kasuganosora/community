@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { sanitizeHtml } from '@/shared/utils/sanitize'
 import { renderEmojiHtml } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
@@ -15,7 +14,7 @@ const props = defineProps<{
 const revealed = ref(false)
 watch(() => props.html, () => { revealed.value = false })
 const sensitive = computed(() => props.emojis?.some(e => e.is_sensitive && props.html.includes(`:${e.shortcode}:`)))
-const safeHtml = computed(() => renderEmojiHtml(shortenBareLinks(sanitizeHtml(props.html)), props.emojis, revealed.value))
+const safeHtml = computed(() => shortenBareLinks(renderEmojiHtml(props.html, props.emojis, revealed.value)))
 const router = useRouter()
 
 // Mentions and hashtags open the in-app profile / tag page instead of a new

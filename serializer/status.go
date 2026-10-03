@@ -1,7 +1,9 @@
 package serializer
 
 import (
+	"context"
 	"fmt"
+	"gorm.io/gorm"
 	"strconv"
 	"time"
 
@@ -9,7 +11,6 @@ import (
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
-	"github.com/kasuganosora/community/utils"
 )
 
 type Status struct {
@@ -49,6 +50,9 @@ type Status struct {
 }
 
 func ToStatusBase(status *models.Status) (ret *Status, err error) {
+	return toStatusBase(status, nil)
+}
+func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *Status, err error) {
 	if status == nil {
 		return ret, err
 	}
@@ -95,7 +99,7 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 
 	ret.Content = status.ContentHTML(contentRenderOptions())
 
-	ret.Reblog, err = ToStatusBase(status.Reblog)
+	ret.Reblog, err = toStatusBase(status.Reblog, accounts)
 	if err != nil {
 		return ret, err
 	}
@@ -108,9 +112,13 @@ func ToStatusBase(status *models.Status) (ret *Status, err error) {
 	if status.Domain != nil {
 		emojiDomain = *status.Domain
 	}
-	ret.Emojis = ToEmojis(models.EmojisInText(status.Emojis, status.ContentHTML(contentRenderOptions())+" "+status.SpoilerTextPlain(), emojiDomain, false))
+	ret.Emojis = ToEmojis(models.EmojisInText(status.Emojis, ret.Content+" "+ret.SpoilerText, emojiDomain, false))
 	ret.Card = status.Content.Card
-	ret.Account = ToAccount(status.Account)
+	if accounts == nil {
+		ret.Account = ToAccount(status.Account)
+	} else {
+		ret.Account = accounts.account(status.Account)
+	}
 
 	return ret, err
 }
@@ -185,163 +193,150 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 	return ret, err
 }
 
-func ToStatuses(statuses models.Statuses, currentAccount *models.Account) (ret []*Status, err error) {
+func ToStatuses(statuses models.Statuses, currentAccount *models.Account) ([]*Status, error) {
+	return toStatusesWithDB(db.GetDB(), statuses, currentAccount)
+}
+
+// ToStatusesContext propagates the request deadline/cancellation through every
+// serializer query without changing the legacy API for non-request callers.
+func ToStatusesContext(ctx context.Context, statuses models.Statuses, currentAccount *models.Account) ([]*Status, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	conn := db.GetDB()
+	if conn != nil {
+		conn = conn.WithContext(ctx)
+	}
+	return toStatusesWithDB(conn, statuses, currentAccount)
+}
+func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *models.Account) (ret []*Status, err error) {
 	ret = make([]*Status, 0, len(statuses))
-
-	if statuses == nil {
-		return ret, err
+	if len(statuses) == 0 {
+		return ret, nil
 	}
-
-	dbConn := db.GetDB()
-	statusIds := statuses.GetIdsWithoutReblogWarp()
-	reactionIDs := append([]uint64{}, statusIds...)
-	for _, s := range statuses {
-		reactionIDs = append(reactionIDs, s.Id)
-	}
-	reactionBatch, reactionErr := StatusReactionsBatch(reactionIDs, currentAccount)
-	if reactionErr != nil {
-		return nil, reactionErr
-	}
-
-	var filters models.Filters
-
-	muteAccounts := make(models.MuteAccounts, 0)
-	blocks := make(models.Blocks, 0)
-	bookmarkedCheckMap := make(map[uint64]bool)
-	rebloggedCheckMap := make(map[uint64]bool)
-	favouritedCheckMap := make(map[uint64]bool)
-	pinnedCheckMap := make(map[uint64]bool)
-	muteCheckMap := make(map[uint64]bool)
-
-	if currentAccount != nil {
-		bookmarkedIds := make([]uint64, 0, len(statusIds))
-		rebloggedIds := make([]uint64, 0, len(statusIds))
-		favouritedIds := make([]uint64, 0, len(statusIds))
-		pinnedIds := make([]uint64, 0, len(statusIds))
-		muteIds := make([]uint64, 0, len(statusIds))
-		// 找出这些状态那些是我置顶过的
-		err = dbConn.Model(&models.PinStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &pinnedIds).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 找出这些状态那些是我点赞过的
-		err = dbConn.Model(&models.FavoriteStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &favouritedIds).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 找出这些状态那些是我转发过的
-		err = dbConn.Model(&models.Status{}).Where("account_id = ? AND reblog_id IN (?) AND reblog_id IS NOT NULL", currentAccount.Id, statusIds).Pluck("reblog_id", &rebloggedIds).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 那些是我加入书签的
-		err = dbConn.Model(&models.BookmarkStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &bookmarkedIds).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 我有那些过滤器
-		filters, err = models.GetFilters(dbConn, currentAccount.Id)
-		if err != nil {
-			return ret, err
-		}
-
-		// 我屏蔽了那些用户
-		err = dbConn.Model(&models.MuteAccount{}).Where("account_id = ?", currentAccount.Id).Find(&muteAccounts).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 我block了那些用户
-		err = dbConn.Model(&models.Block{}).Where("account_id = ? or account_id = 0", currentAccount.Id).Find(&blocks).Error
-		if err != nil {
-			return ret, err
-		}
-
-		// 我屏蔽了那些状态
-		err = dbConn.Model(&models.MuteStatus{}).Where("account_id = ? AND status_id IN (?)", currentAccount.Id, statusIds).Pluck("status_id", &muteIds).Error
-		if err != nil {
-			return ret, err
-		}
-
-		bookmarkedCheckMap = utils.GetExistsMap(bookmarkedIds)
-		bookmarkedIds = nil
-		rebloggedCheckMap = utils.GetExistsMap(rebloggedIds)
-		rebloggedIds = nil
-		favouritedCheckMap = utils.GetExistsMap(favouritedIds)
-		favouritedIds = nil
-		pinnedCheckMap = utils.GetExistsMap(pinnedIds)
-		pinnedIds = nil
-		muteCheckMap = utils.GetExistsMap(muteIds)
-		muteIds = nil
-	} else {
-		// 没有登陆下
-		filters, err = models.GetFilters(dbConn, 0)
-		if err != nil {
-			return ret, err
-		}
-	}
-
-	muteAccounts = muteAccounts.ExcludeExpired()
-
-	polls := make([]*models.Poll, 0)
-
-	for _, status := range statuses {
-		if status.Poll != nil {
-			polls = append(polls, status.Poll)
-		}
-	}
-
-	sPolls, err := ToPollsMapByStatusId(polls, currentAccount)
+	statuses, err = models.FilterVisibleStatuses(conn, currentAccount, statuses)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-
-	for _, status := range statuses {
-		if blocks.IsBlocked(status.Account) {
-			continue
+	if len(statuses) == 0 {
+		return ret, nil
+	}
+	flat := make(models.Statuses, 0, len(statuses))
+	seen := map[*models.Status]bool{}
+	var collect func(*models.Status)
+	collect = func(s *models.Status) {
+		if s == nil || seen[s] {
+			return
 		}
-
-		var retStatus *Status
-
-		retStatus, err = ToStatusBase(status)
-		// 只要是那个人发的，或者是转发的，都不要
-		if muteAccounts.IsMuted(status.AccountId) || (status.Reblog != nil && muteAccounts.IsMuted(status.Reblog.AccountId)) {
-			retStatus.Muted = true
+		seen[s] = true
+		flat = append(flat, s)
+		collect(s.Reblog)
+	}
+	for _, s := range statuses {
+		collect(s)
+	}
+	ids := make([]uint64, 0, len(flat))
+	authors := make([]*models.Account, 0, len(flat))
+	polls := make([]*models.Poll, 0)
+	uniqueIDs := map[uint64]bool{}
+	for _, s := range flat {
+		if !uniqueIDs[s.Id] {
+			ids = append(ids, s.Id)
+			uniqueIDs[s.Id] = true
 		}
-
-		if utils.IsExistsForCheckMap(muteCheckMap, status.Id) {
-			retStatus.Muted = true
+		authors = append(authors, s.Account)
+		if s.Poll != nil {
+			polls = append(polls, s.Poll)
 		}
-
+	}
+	accounts, err := newAccountSerializationWithDB(conn, authors)
+	if err != nil {
+		return nil, err
+	}
+	reactions, err := statusReactionsBatchWithDB(conn, ids, currentAccount)
+	if err != nil {
+		return nil, err
+	}
+	filters, err := models.GetFilters(conn, func() uint64 {
+		if currentAccount == nil {
+			return 0
+		}
+		return currentAccount.Id
+	}())
+	if err != nil {
+		return nil, err
+	}
+	pinned := map[uint64]bool{}
+	favourited := map[uint64]bool{}
+	reblogged := map[uint64]bool{}
+	bookmarked := map[uint64]bool{}
+	muted := map[uint64]bool{}
+	mutedAuthors := map[uint64]bool{}
+	if currentAccount != nil {
+		// Fetch independent viewer flags in one round trip. UNION ALL preserves
+		// each flag's identity even when the same status has several interactions.
+		authorIDs := make([]uint64, 0, len(authors))
+		seenAuthors := map[uint64]bool{}
+		for _, a := range authors {
+			if a != nil && !seenAuthors[a.Id] {
+				authorIDs = append(authorIDs, a.Id)
+				seenAuthors[a.Id] = true
+			}
+		}
+		var flags []struct {
+			Kind     string
+			ObjectID uint64
+		}
+		err := conn.Raw(`SELECT 'pinned' AS kind, status_id AS object_id FROM pin_statuses WHERE account_id = ? AND status_id IN ?
+UNION ALL SELECT 'favourited', status_id FROM favorite_statuses WHERE account_id = ? AND status_id IN ?
+UNION ALL SELECT 'reblogged', reblog_id FROM statuses WHERE account_id = ? AND reblog_id IN ?
+UNION ALL SELECT 'bookmarked', status_id FROM bookmark_statuses WHERE account_id = ? AND status_id IN ?
+UNION ALL SELECT 'muted', status_id FROM mute_statuses WHERE account_id = ? AND status_id IN ?
+UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id = ? AND target_id IN ? AND (expired_at IS NULL OR expired_at > ?)`,
+			currentAccount.Id, ids, currentAccount.Id, ids, currentAccount.Id, ids,
+			currentAccount.Id, ids, currentAccount.Id, ids, currentAccount.Id, authorIDs, time.Now()).Scan(&flags).Error
 		if err != nil {
 			return nil, err
 		}
-
-		retStatus.EmojiReactions = reactionBatch[status.Id]
-		if status.Reblog != nil && retStatus.Reblog != nil {
-			retStatus.Reblog.EmojiReactions = reactionBatch[status.Reblog.Id]
+		destinations := map[string]map[uint64]bool{"pinned": pinned, "favourited": favourited, "reblogged": reblogged, "bookmarked": bookmarked, "muted": muted, "muted_author": mutedAuthors}
+		for _, flag := range flags {
+			destinations[flag.Kind][flag.ObjectID] = true
 		}
 
-		retStatus.Pinned = utils.IsExistsForCheckMap(pinnedCheckMap, status.Id)
-		retStatus.Reblogged = utils.IsExistsForCheckMap(rebloggedCheckMap, status.Id)
-		retStatus.Favourited = utils.IsExistsForCheckMap(favouritedCheckMap, status.Id)
-		retStatus.Bookmarked = utils.IsExistsForCheckMap(bookmarkedCheckMap, status.Id)
-		retStatus.Filtered = filters.GetStatusFilters(status, currentAccount).GetFilterActionsName()
-
-		if status.Poll != nil {
-			if sPoll, ok := sPolls[status.Id]; ok {
-				retStatus.Poll = sPoll
+	}
+	serializedPolls, err := toPollsMapByStatusIdWithDB(conn, polls, currentAccount)
+	if err != nil {
+		return nil, err
+	}
+	var apply func(*models.Status, *Status)
+	apply = func(s *models.Status, out *Status) {
+		if s == nil || out == nil {
+			return
+		}
+		out.EmojiReactions = reactions[s.Id]
+		out.Pinned = pinned[s.Id]
+		out.Favourited = favourited[s.Id]
+		out.Reblogged = reblogged[s.Id]
+		out.Bookmarked = bookmarked[s.Id]
+		out.Muted = muted[s.Id] || mutedAuthors[s.AccountId] || (s.Reblog != nil && mutedAuthors[s.Reblog.AccountId])
+		out.Filtered = filters.GetStatusFilters(s, currentAccount).GetFilterActionsName()
+		out.Poll = serializedPolls[s.Id]
+		apply(s.Reblog, out.Reblog)
+	}
+	for _, s := range statuses {
+		if conn != nil {
+			if err := conn.Statement.Context.Err(); err != nil {
+				return nil, err
 			}
 		}
-
-		ret = append(ret, retStatus)
+		out, e := toStatusBase(s, accounts)
+		if e != nil {
+			return nil, e
+		}
+		apply(s, out)
+		ret = append(ret, out)
 	}
-
-	return ret, err
+	return ret, nil
 }
 
 // contentRenderOptions returns the options used to render local plain text

@@ -1,6 +1,7 @@
 package mention
 
 import (
+	"context"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
@@ -20,11 +21,6 @@ func init() {
 		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
-		}
-
-		// 不展示 私信
-		if status.Visibility == models.StatusVisibilityDirect {
-			return true
 		}
 
 		// 如果是新增的事件
@@ -75,37 +71,32 @@ func (timeline *MentionTimeline) GetTimelineId() string {
 	return strconv.FormatUint(timeline.Account.Id, 10)
 }
 
-func (timeline *MentionTimeline) Rebuild() (err error) {
+func (timeline *MentionTimeline) Rebuild() error {
+	return timeline.RebuildContext(context.Background())
+}
+
+func (timeline *MentionTimeline) RebuildContext(ctx context.Context) error {
 	statuses := make(models.Statuses, 0)
-
-	err = db.GetDB().Model(
-		&models.Status{}).Where("id in (?)", db.GetDB().Model(
-		&models.StatusToAccount{}).
-		Where("account_id = ?", timeline.Account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)).
-		Order("id desc").Find(
-		&statuses).Error
-	if err != nil {
+	if err := mentionCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).
+		Order("statuses.id DESC").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error; err != nil {
 		return err
 	}
+	return feed.RebuildTimelineContext(ctx, timeline, statuses, timeline.AggregateReblogs())
+}
 
-	if err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()}); err != nil {
-		return err
+func (timeline *MentionTimeline) AggregateReblogs() bool {
+	if timeline.Account.User != nil && timeline.Account.User.Settings != nil {
+		return timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
+	return false
+}
 
-	for _, status := range statuses {
-		err = feed.AddToTimelineItem(timeline, status, true)
-		if err != nil {
-			return err
-		}
-
-		err = feed.TrimTimeline(timeline)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+// Apply publication and membership predicates before LIMIT, including on the
+// database fallback. Limiting the mention subquery would truncate all history.
+func mentionCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
+	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).
+		Where("account_id = ?", accountID).Select("status_id")
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("statuses.id IN (?)", mentions)
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
@@ -239,12 +230,15 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 
 func GetTimelineContent(account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeline := &MentionTimeline{Account: account}
-
-	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		return tx.Where("id in (?)", db.GetDB().Model(
-			&models.StatusToAccount{}).
-			Where("account_id = ?", account.Id).Select("status_id").Order("id desc").Limit(feed.MAX_ITEMS/2)), nil
+	if params == nil {
+		params = &feed.ListParam{}
+	} else {
+		copyParams := *params
+		params = &copyParams
 	}
-
+	params.Viewer = account
+	newFilterCondition := func(tx *gorm.DB) (*gorm.DB, error) {
+		return mentionCandidates(tx, account.Id), nil
+	}
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
 }

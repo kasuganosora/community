@@ -1162,8 +1162,16 @@ func TestContext_DirectStatus_Forbidden(t *testing.T) {
 	assert.Equal(t, 403, w.Code)
 }
 
+// Context serialization executes the production UNION ALL batch query, which
+// the legacy sqlexec test engine does not implement. Use real SQLite here.
+func newContextSQLiteSetup(t *testing.T) *testSetup {
+	t.Helper()
+	conn, fix, account := replacementDB(t)
+	return &testSetup{t: t, db: conn, fix: fix, acct: account, status: fix.CreateStatus(account, func(s *models.Status) { s.Visibility = models.StatusVisibilityPublic })}
+}
+
 func TestContext_WithReplyThread(t *testing.T) {
-	ts := newTestSetup(t)
+	ts := newContextSQLiteSetup(t)
 
 	// Create a reply chain: parent -> ts.status -> child
 	parent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
@@ -1179,12 +1187,17 @@ func TestContext_WithReplyThread(t *testing.T) {
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}})
 	setAccount(c, ts.acct)
 
-	_ = parent
-	_ = replyStatus
+	require.NoError(t, ts.db.Model(ts.status).Update("in_reply_to_id", parent.Id).Error)
 
 	safeHandler(c, Context)
 
-	assert.Equal(t, 200, w.Code)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response ContextResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.Ancestors, 1)
+	require.Len(t, response.Descendants, 1)
+	require.Equal(t, strconv.FormatUint(parent.Id, 10), response.Ancestors[0].Id)
+	require.Equal(t, strconv.FormatUint(replyStatus.Id, 10), response.Descendants[0].Id)
 }
 
 // ============== Translation Tests ==============
@@ -2628,7 +2641,7 @@ func TestReplace_InvalidMediaIds(t *testing.T) {
 // ============== Context with thread ==============
 
 func TestContext_StatusWithAncestors(t *testing.T) {
-	ts := newTestSetup(t)
+	ts := newContextSQLiteSetup(t)
 
 	// Create parent status
 	parent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
@@ -2652,7 +2665,8 @@ func TestContext_StatusWithAncestors(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	// Should have at least the parent as ancestor
-	assert.NotEmpty(t, resp.Ancestors, "should have ancestors")
+	require.Len(t, resp.Ancestors, 1)
+	assert.Equal(t, strconv.FormatUint(parent.Id, 10), resp.Ancestors[0].Id)
 }
 
 // ============== Unfavourite after delete ==============
@@ -3040,7 +3054,7 @@ func TestCreate_NullBytes(t *testing.T) {
 // ============== Reply Chain Context Verification ==============
 
 func TestContext_ReplyChain_VerifyAncestors(t *testing.T) {
-	ts := newTestSetup(t)
+	ts := newContextSQLiteSetup(t)
 
 	// Create a 3-level reply chain: grandparent -> parent -> child
 	grandparent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {

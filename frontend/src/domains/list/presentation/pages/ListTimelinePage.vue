@@ -29,14 +29,20 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
+  const id = listId.value
+  feed.reset()
   listError.value = null
   list.value = null
   try {
-    list.value = await listApi.getList(listId.value)
+    const result = await listApi.getList(id)
+    if (version !== loadVersion) return
+    list.value = result
     feed.refresh()
   } catch (e) {
-    listError.value = e instanceof Error ? e.message : '列表不存在'
+    if (version === loadVersion) listError.value = e instanceof Error ? e.message : '列表不存在'
   }
 }
 

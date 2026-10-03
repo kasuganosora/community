@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, ref, watch } from 'vue'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -25,6 +26,7 @@ function image(reaction: MastodonEmojiReaction) {
 async function toggle(name: string) {
   if (!auth.currentUser || pending.value) return
   const id = props.status.id
+  const epoch = sessionEpoch.value
   const remove = reactions.value.some(r => r.name === name && r.me)
   const next = reactions.value.map(r => ({ ...r, count: r.count - (r.me ? 1 : 0), me: false })).filter(r => r.count > 0)
   if (!remove) {
@@ -36,7 +38,7 @@ async function toggle(name: string) {
   pending.value = true
   choosing.value = false
   error.value = ''
-  try { markStatusEdited(await postApi.react(id, name, remove)) }
+  try { const updated = await postApi.react(id, name, remove); if (sessionEpoch.value === epoch) markStatusEdited(updated) }
   catch { if (props.status.id === id) error.value = '无法回应，已恢复原状态：表情可能不可用或受限制，帖子也可能已不可见。' }
   finally { optimistic.value = null; pending.value = false }
 }

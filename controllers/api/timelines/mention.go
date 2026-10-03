@@ -19,10 +19,12 @@ func Mention(c *gin.Context) {
 
 	var statuses models.Statuses
 
-	statuses, err = mentionTimeline.GetTimelineContent(account, req.ToFeedListParams())
+	params := req.ToFeedListParams()
+	params.Context = c.Request.Context()
+	statuses, err = mentionTimeline.GetTimelineContent(account, params)
 	controllers.AbortIfError(c, err)
 
-	ret, err := serializer.ToStatuses(statuses, account)
+	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
 	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)

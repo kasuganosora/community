@@ -17,10 +17,12 @@ func Home(c *gin.Context) {
 	}
 
 	account := controllers.GetAccount(c)
-	statuses, err := home.GetTimeLineContent(account, req.ToFeedListParams())
+	params := req.ToFeedListParams()
+	params.Context = c.Request.Context()
+	statuses, err := home.GetTimeLineContent(account, params)
 	controllers.AbortIfError(c, err)
 
-	ret, err := serializer.ToStatuses(statuses, account)
+	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
 	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)

@@ -98,7 +98,7 @@ func TestPush_PublicStatusAddedToMemberLists(t *testing.T) {
 	require.NoError(t, err)
 
 	// The timeline key should now exist in redis.
-	key := "feed:list:" + list.Title
+	key := "feed:list:v2:" + strconv.FormatUint(list.Id, 10)
 	assert.True(t, mr.Exists(key), "timeline key %q should exist after Push", key)
 }
 
@@ -118,7 +118,7 @@ func TestPush_UpdateFlagUsesStatusUpdateMethod(t *testing.T) {
 
 	err := Push(status, true, false)
 	require.NoError(t, err)
-	assert.True(t, mr.Exists("feed:list:"+list.Title))
+	assert.True(t, mr.Exists("feed:list:v2:"+strconv.FormatUint(list.Id, 10)))
 }
 
 // TestPush_WithReblog exercises the reblog branch of Push, which uses the
@@ -142,7 +142,7 @@ func TestPush_WithReblog(t *testing.T) {
 
 	err := Push(reblog, false, false)
 	require.NoError(t, err)
-	assert.True(t, mr.Exists("feed:list:"+list.Title))
+	assert.True(t, mr.Exists("feed:list:v2:"+strconv.FormatUint(list.Id, 10)))
 }
 
 // TestPush_PushToClientWithSubscriber exercises the pushToClient=true branch
@@ -180,7 +180,7 @@ func TestUnpush_RemovesStatusFromTimeline(t *testing.T) {
 	status := createStatus(t, gdb, author)
 
 	require.NoError(t, Push(status, false, false))
-	key := "feed:list:" + list.Title
+	key := "feed:list:v2:" + strconv.FormatUint(list.Id, 10)
 	require.True(t, mr.Exists(key), "precondition: key should exist after Push")
 
 	// Now unpush.
@@ -256,7 +256,7 @@ func TestRebuild_PopulatesTimelineFromDB(t *testing.T) {
 	err := timeline.Rebuild()
 	require.NoError(t, err)
 
-	key := "feed:list:" + list.Title
+	key := "feed:list:v2:" + strconv.FormatUint(list.Id, 10)
 	members, err := mr.ZMembers(key)
 	require.NoError(t, err)
 
@@ -367,27 +367,27 @@ func TestGetTimelineContent_NilParamsReturnsAll(t *testing.T) {
 // of the redis key contract and must never change silently.
 func TestGetKeyFormat_Stability(t *testing.T) {
 	tl := &ListTimeline{}
-	assert.Equal(t, "feed:list:%s", tl.GetKeyFormat())
+	assert.Equal(t, "feed:list:v2:%s", tl.GetKeyFormat())
 }
 
 // TestGetTimelineId_EmptyTitle covers the degenerate case where only the
 // (empty) title contributes to the id.
 func TestGetTimelineId_EmptyTitle(t *testing.T) {
 	tl := &ListTimeline{List: &models.List{}}
-	assert.Equal(t, "", tl.GetTimelineId())
+	assert.Equal(t, "0", tl.GetTimelineId())
 }
 
 // TestGetTimelineId_OnlyRemote covers the branch where OnlyRemote is the
 // sole prefix.
 func TestGetTimelineId_OnlyRemote(t *testing.T) {
 	tl := &ListTimeline{List: &models.List{Title: "r"}, OnlyRemote: true}
-	assert.Equal(t, "remote:r", tl.GetTimelineId())
+	assert.Equal(t, "remote:0", tl.GetTimelineId())
 }
 
 // TestGetTimelineId_LocalAndMedia covers the local+media (no remote) combo.
 func TestGetTimelineId_LocalAndMedia(t *testing.T) {
 	tl := &ListTimeline{List: &models.List{Title: "lm"}, OnlyLocal: true, OnlyMedia: true}
-	assert.Equal(t, "local:media:lm", tl.GetTimelineId())
+	assert.Equal(t, "local:media:0", tl.GetTimelineId())
 }
 
 // ---------------------------------------------------------------------------

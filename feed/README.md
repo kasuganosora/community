@@ -41,7 +41,7 @@ feed/
 | `public` | `feed/public` | `feed:public:%s` | `all` / `media` / `local` / `remote` 等组合 | 公开可见的状态，支持 media/local/remote 过滤 |
 | `mention` | `feed/mention` | `feed:mention:%s` | 账号 ID | 提及当前用户的状态（仅本地用户） |
 | `direct` | `feed/direct` | `direct:%s` | 账号 ID | 私信通知，不缓存内容，仅推送 conversation 事件 |
-| `list` | `feed/list` | `feed:list:%s` | 过滤条件 + 列表标题 | 自定义列表，仅含 30 天内有访问记录的列表 |
+| `list` | `feed/list` | `feed:list:v2:%s` | 过滤条件 + 列表 ID | 自定义列表，同名列表分别缓存，仅含 30 天内有访问记录的列表 |
 | `tag` | `feed/tag` | `feed:hashtag:%s` | 过滤条件 + 话题名 | 话题时间线，支持 local/remote/media 过滤 |
 | `notification` | `feed/notification` | `feed:notification:%s` | 账号 ID | 通知列表，监听 `notification` 表的 `after_create` 事件 |
 
@@ -62,9 +62,9 @@ import (
 )
 
 // 1. 读取主页时间线（分页）
-params := &feed.ListParam{}
+params := &feed.ListParam{Context: ctx, Viewer: account}
 params.SetLimit(20)
-params.SetMaxId(1000) // 向下翻页：取 id <= 1000 的状态
+params.SetMaxId(1000) // 向下翻页：取 id < 1000 的状态，边界不重复
 
 statuses, err := home.GetTimeLineContent(account, params)
 
@@ -84,6 +84,10 @@ tagParams := &feed.ListParam{
 }
 statuses, err = tag.GetTimelineContent("golang", account, tagParams)
 ```
+
+HTTP 调用应传入请求的 `Context`；公共时间线登录访问时也应传入 `Viewer`，以执行当前账号的屏蔽与可见性检查。`max_id`、`min_id`、`since_id` 均不包含边界，同时指定两个下界时取较大值。缓存记录候选 ID；读取时仍复核列表成员、关注、屏蔽和转发原帖权限，不缓存授权结论。
+
+压测方法、工作负载和测量限制见 [时间线性能记录](../docs/timeline-performance.md)。
 
 ### 手动向时间线添加 / 移除状态
 

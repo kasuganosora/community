@@ -67,8 +67,8 @@ func TestListParam_GetRedisRangeMinMax(t *testing.T) {
 	t.Run("With MaxId and MinId", func(t *testing.T) {
 		p := &ListParam{MaxId: 100, MinId: 50}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "50", start)
-		assert.Equal(t, "100", end)
+		assert.Equal(t, "(50", start)
+		assert.Equal(t, "(100", end)
 	})
 
 	t.Run("Without MaxId and MinId", func(t *testing.T) {
@@ -82,13 +82,13 @@ func TestListParam_GetRedisRangeMinMax(t *testing.T) {
 		p := &ListParam{MaxId: 100}
 		start, end := p.GetRedisRangeMinMax()
 		assert.Equal(t, "-inf", start)
-		assert.Equal(t, "100", end)
+		assert.Equal(t, "(100", end)
 	})
 
 	t.Run("With only MinId", func(t *testing.T) {
 		p := &ListParam{MinId: 50}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "50", start)
+		assert.Equal(t, "(50", start)
 		assert.Equal(t, "+inf", end)
 	})
 }
@@ -279,16 +279,16 @@ func TestGetRedisRangeMinMax_EdgeCases(t *testing.T) {
 	t.Run("Max equals Min", func(t *testing.T) {
 		p := &ListParam{MaxId: 100, MinId: 100}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "100", start)
-		assert.Equal(t, "100", end)
+		assert.Equal(t, "(100", start)
+		assert.Equal(t, "(100", end)
 	})
 
 	t.Run("Very large IDs", func(t *testing.T) {
 		largeId := uint64(18446744073709551615)
 		p := &ListParam{MaxId: largeId, MinId: 1}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "1", start)
-		assert.Equal(t, "18446744073709551615", end)
+		assert.Equal(t, "(1", start)
+		assert.Equal(t, "(18446744073709551615", end)
 	})
 }
 
@@ -312,14 +312,14 @@ func TestGetRedisRangeMinMax_WithSinceId(t *testing.T) {
 	t.Run("SinceId used as min when no MinId", func(t *testing.T) {
 		p := &ListParam{SinceId: 500}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "500", start)
+		assert.Equal(t, "(500", start)
 		assert.Equal(t, "+inf", end)
 	})
 
-	t.Run("MinId takes precedence over SinceId", func(t *testing.T) {
+	t.Run("Stricter lower bound wins", func(t *testing.T) {
 		p := &ListParam{MinId: 200, SinceId: 500}
 		start, end := p.GetRedisRangeMinMax()
-		assert.Equal(t, "200", start)
+		assert.Equal(t, "(500", start)
 		assert.Equal(t, "+inf", end)
 	})
 }

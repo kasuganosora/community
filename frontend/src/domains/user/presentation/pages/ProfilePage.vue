@@ -62,7 +62,7 @@ async function loadProfile() {
   loading.value = true
   error.value = null
   account.value = null
-  statuses.value = []
+  feed.reset()
   activeTab.value = 'posts'
   const username = route.params.username as string
   try {

@@ -3,6 +3,7 @@ package serializer
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 	"strconv"
 	"time"
 )
@@ -44,38 +45,12 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 	return ret
 }
 
-func ToPoll(poll *models.Poll, current *models.Account) (ret *Poll, err error) {
-	optionsIndexMap := make(map[uint64]uint8)
-	ret = ToBasePoll(poll, false, 0, 0)
-
-	for _, option := range poll.Options {
-		optionsIndexMap[option.Id] = option.Index
-	}
-
-	ret.Options = toPollOptions(poll)
-
-	votes := make(models.PollOptionVotes, 0)
-
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ?", poll.Id).Find(&votes).Error
+func ToPoll(poll *models.Poll, current *models.Account) (*Poll, error) {
+	results, err := ToPollsMapByStatusId([]*models.Poll{poll}, current)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-
-	ret.VotesCount = uint64(len(votes))
-	ret.VotersCount = uint64(len(votes.GetVotersAccountId()))
-
-	if current != nil {
-		myVotes := votes.GetVotedOptionIds(current.Id)
-
-		if len(myVotes) > 0 {
-			ret.Voted = true
-			for _, myVotId := range myVotes {
-				ret.OwnVotes = append(ret.OwnVotes, int(optionsIndexMap[myVotId]))
-			}
-		}
-	}
-
-	return ret, err
+	return results[poll.StatusId], nil
 }
 
 type Counts struct {
@@ -83,60 +58,61 @@ type Counts struct {
 	Count int64
 }
 
-func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (ret map[uint64]*Poll, err error) {
-	// 一次过取出所有投票的选项
-	optionsIndexMap := make(map[uint64]uint8)
-	pollIds := make([]uint64, 0, len(polls))
-	ret = make(map[uint64]*Poll)
-
-	for _, poll := range polls {
-		pollIds = append(pollIds, poll.Id)
-
-		for _, option := range poll.Options {
-			optionsIndexMap[option.Id] = option.Index
+func ToPollsMapByStatusId(polls []*models.Poll, current *models.Account) (map[uint64]*Poll, error) {
+	return toPollsMapByStatusIdWithDB(db.GetDB(), polls, current)
+}
+func toPollsMapByStatusIdWithDB(conn *gorm.DB, polls []*models.Poll, current *models.Account) (map[uint64]*Poll, error) {
+	if conn != nil {
+		if err := conn.Statement.Context.Err(); err != nil {
+			return nil, err
 		}
 	}
-
-	votes := make(models.PollOptionVotes, 0)
-
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id in (?)", pollIds).Find(&votes).Error
-	if err != nil {
-		return ret, err
+	result := make(map[uint64]*Poll, len(polls))
+	if len(polls) == 0 {
+		return result, nil
 	}
-
-	var mySelectOptions map[uint64]models.PollOptionVotes
-
+	ids := make([]uint64, 0, len(polls))
+	seen := map[uint64]bool{}
+	options := map[uint64]uint8{}
+	for _, p := range polls {
+		if !seen[p.Id] {
+			ids = append(ids, p.Id)
+			seen[p.Id] = true
+		}
+		for _, o := range p.Options {
+			options[o.Id] = o.Index
+		}
+	}
+	type total struct {
+		PollID      uint64
+		VotesCount  uint64
+		VotersCount uint64
+	}
+	var totals []total
+	if err := conn.Model(&models.PollOptionVote{}).Select("poll_id, COUNT(*) AS votes_count, COUNT(DISTINCT account_id) AS voters_count").Where("poll_id IN ?", ids).Group("poll_id").Scan(&totals).Error; err != nil {
+		return nil, err
+	}
+	counts := map[uint64]total{}
+	for _, c := range totals {
+		counts[c.PollID] = c
+	}
+	mine := map[uint64]models.PollOptionVotes{}
 	if current != nil {
-		mySelectOptions = votes.FilterAccountId(current.Id).ToPollIdMap()
-	}
-
-	pollVoteMap := votes.ToPollIdMap()
-
-	for _, poll := range polls {
-		voted := false
-
-		if current != nil {
-			if _, ok := mySelectOptions[poll.Id]; ok {
-				voted = true
-			}
+		var votes models.PollOptionVotes
+		if err := conn.Where("poll_id IN ? AND account_id = ?", ids, current.Id).Order("id ASC").Find(&votes).Error; err != nil {
+			return nil, err
 		}
-
-		voteCounts := len(pollVoteMap[poll.Id])
-		votersCount := len(pollVoteMap[poll.Id].GetVotersAccountId())
-
-		// Keyed by status id: ToStatuses looks polls up with sPolls[status.Id].
-		// Keying by poll.Id dropped the poll from every timeline/list response
-		// whose status id differed from its poll id (i.e. almost all of them).
-		p := ToBasePoll(poll, voted, uint64(voteCounts), uint64(votersCount))
-		p.Options = toPollOptions(poll)
-		if voted {
-			p.OwnVotes = ownVoteIndexes(mySelectOptions[poll.Id], optionsIndexMap)
-		}
-
-		ret[poll.StatusId] = p
+		mine = votes.ToPollIdMap()
 	}
-
-	return ret, err
+	for _, p := range polls {
+		c := counts[p.Id]
+		own := mine[p.Id]
+		out := ToBasePoll(p, len(own) > 0, c.VotesCount, c.VotersCount)
+		out.Options = toPollOptions(p)
+		out.OwnVotes = ownVoteIndexes(own, options)
+		result[p.StatusId] = out
+	}
+	return result, nil
 }
 
 // ownVoteIndexes maps the viewer's votes to option indexes (Mastodon's

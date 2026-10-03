@@ -654,8 +654,8 @@ func TestEventHandler_NilStatus(t *testing.T) {
 	})
 }
 
-// direct visibility 的 status 应被跳过（返回 true，不触发 Push）。
-func TestEventHandler_DirectVisibilitySkipped(t *testing.T) {
+// A direct event without recipient links must be harmless.
+func TestEventHandler_DirectWithoutRecipients(t *testing.T) {
 	setupMentionEnv(t)
 
 	status := &models.Status{

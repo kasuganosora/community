@@ -40,6 +40,11 @@ func AccountStatuses(c *gin.Context) {
 
 		return
 	}
+	authorID, err := strconv.ParseUint(accountId, 10, 64)
+	if err != nil || authorID == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+		return
+	}
 
 	// Get current account if authenticated
 	var currentAccount *models.Account
@@ -48,10 +53,23 @@ func AccountStatuses(c *gin.Context) {
 	}
 
 	// Query statuses
-	query := db.GetDB().Model(&models.Status{}).Where("account_id = ?", accountId)
+	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Status{}).Where("statuses.account_id = ?", authorID)
 
 	// Exclude scheduled statuses
-	query = query.Where("scheduled_at IS NULL")
+	query = query.Where("scheduled_at IS NULL AND deleted_at IS NULL")
+	// Restrict the audience before LIMIT and association loading. Filtering a
+	// loaded page one status at a time both underfills pages and repeats the
+	// same follow/block lookups. Anonymous callers must never load private rows.
+	if currentAccount == nil {
+		query = query.Where("visibility IN ?", []int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted})
+	} else if currentAccount.Id != authorID {
+		query = query.Where(`(visibility IN ? OR
+			(visibility = ? AND EXISTS (SELECT 1 FROM follows WHERE follows.account_id = ? AND follows.follow_id = ? AND follows.status = ?)) OR
+			(visibility IN ? AND EXISTS (SELECT 1 FROM status_to_accounts WHERE status_to_accounts.status_id = statuses.id AND status_to_accounts.account_id = ?)))`,
+			[]int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}, models.StatusVisibilityPrivate,
+			currentAccount.Id, authorID, models.FollowStatusFollowed,
+			[]int{models.StatusVisibilityPrivate, models.StatusVisibilityDirect}, currentAccount.Id)
+	}
 
 	// Pagination
 	if req.MaxId != "" {
@@ -90,38 +108,54 @@ func AccountStatuses(c *gin.Context) {
 	// Load all related data
 	query = models.StatusLoadAllQuery(query)
 
-	// Order by created_at desc
-	query = query.Order("created_at DESC")
+	// Cursor comparisons use the same ordering key, including imported posts
+	// whose published timestamp does not match their local insertion order.
+	query = query.Order("statuses.id DESC")
 
-	statuses := make(models.Statuses, 0)
-	if err := query.Limit(req.Limit).Find(&statuses).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "get statuses error"))
-
-		return
-	}
-
-	// Filter by visibility
-	if currentAccount != nil {
-		filteredStatuses := make(models.Statuses, 0)
-
-		for _, status := range statuses {
-			canView, err := status.CanViewEx(db.GetDB(), currentAccount)
-			if err != nil || !canView {
-				continue
-			}
-
-			filteredStatuses = append(filteredStatuses, status)
+	serializedStatuses := make([]*serializer.Status, 0, req.Limit)
+	var cursor uint64
+	authorChecked := false
+	for len(serializedStatuses) < req.Limit {
+		remaining := req.Limit - len(serializedStatuses)
+		pageQuery := query.Limit(remaining)
+		if cursor > 0 {
+			pageQuery = pageQuery.Where("statuses.id < ?", cursor)
 		}
-
-		statuses = filteredStatuses
-	}
-
-	// Serialize
-	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
-	if err != nil {
-		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
-
-		return
+		statuses := make(models.Statuses, 0, remaining)
+		if err := pageQuery.Find(&statuses).Error; err != nil {
+			_ = c.Error(errors.Wrap(err, "get statuses error"))
+			return
+		}
+		if len(statuses) == 0 {
+			break
+		}
+		// A hidden original can remove a public reblog. Continue from the last
+		// candidate so a filtered page cannot conceal older visible posts.
+		page, err := serializer.ToStatusesContext(c.Request.Context(), statuses, currentAccount)
+		if err != nil {
+			_ = c.Error(errors.Wrap(err, "serialize statuses error"))
+			return
+		}
+		serializedStatuses = append(serializedStatuses, page...)
+		if len(statuses) < remaining || len(serializedStatuses) == req.Limit {
+			break
+		}
+		if !authorChecked {
+			// A blocked/banned root author has no eligible history. Check once
+			// on the slow path instead of scanning every post they ever wrote.
+			roots, err := models.FilterVisibleStatuses(db.GetDB().WithContext(c.Request.Context()), currentAccount, models.Statuses{
+				&models.Status{AccountId: authorID, Account: statuses[0].Account, Visibility: models.StatusVisibilityPublic},
+			})
+			if err != nil {
+				_ = c.Error(errors.Wrap(err, "check account visibility error"))
+				return
+			}
+			if len(roots) == 0 {
+				break
+			}
+			authorChecked = true
+		}
+		cursor = statuses[len(statuses)-1].Id
 	}
 
 	c.JSON(200, serializedStatuses)

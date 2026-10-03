@@ -52,6 +52,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.Follow{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.Block{},
+		&models.MuteAccount{},
 		&models.StatusContent{},
 		&models.StatusToAccount{},
 		&models.Poll{},

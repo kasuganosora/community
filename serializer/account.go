@@ -2,6 +2,7 @@ package serializer
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/url"
@@ -71,6 +72,13 @@ func ToAccount(account *models.Account) (acc *Account) {
 		return nil
 	}
 
+	return toAccount(account, contentRenderOptions(), accountEmojis(account))
+}
+func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis []*Emoji) (acc *Account) {
+	if account == nil {
+		return nil
+	}
+
 	acct, profileURL, actorURI := accountAddress(account)
 
 	acc = &Account{
@@ -83,7 +91,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		Indexable:       !account.NoIndex,
 		Group:           account.Group,
 		CreatedAt:       account.CreatedAt,
-		Note:            account.NoteHTML(contentRenderOptions()),
+		Note:            account.NoteHTML(options),
 		Url:             profileURL,
 		Uri:             actorURI,
 		Avatar:          account.Avatar,
@@ -93,7 +101,7 @@ func ToAccount(account *models.Account) (acc *Account) {
 		LastStatusAt:    account.LastStatusAt,
 		HideCollections: account.HideCollections,
 		NoIndex:         account.NoIndex,
-		Emoji:           accountEmojis(account),
+		Emoji:           emojis,
 		intId:           account.Id,
 	}
 
@@ -112,11 +120,15 @@ func ToAccount(account *models.Account) (acc *Account) {
 
 func ToAccounts(accounts []*models.Account) (accs []*Account) {
 	accs = make([]*Account, len(accounts))
-	for i, account := range accounts {
-		accs[i] = ToAccount(account)
+	ctx, err := newAccountSerialization(accounts)
+	for i, a := range accounts {
+		if err != nil {
+			accs[i] = ToAccount(a)
+		} else {
+			accs[i] = ctx.account(a)
+		}
 	}
-
-	return
+	return accs
 }
 
 type Mention struct {

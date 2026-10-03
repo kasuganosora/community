@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/feed/home"
+	"github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/models"
-	"github.com/redis/go-redis/v9"
 	"github.com/urfave/cli/v2"
 )
 
@@ -66,6 +66,10 @@ func buildFeeds(c *cli.Context) error {
 	verbose := c.Bool("verbose")
 	dryRun := c.Bool("dry-run")
 
+	if concurrency < 1 {
+		return errors.New("concurrency must be greater than zero")
+	}
+
 	if username == "" && !buildAll {
 		return errors.New("USERNAME is required, or use --all")
 	}
@@ -79,13 +83,13 @@ func buildFeeds(c *cli.Context) error {
 	var accounts []*models.Account
 	if buildAll {
 		// Get all local accounts
-		err := db.GetDB().Where("domain IS NULL").Find(&accounts).Error
+		err := db.GetDB().WithContext(c.Context).Preload("User.Settings").Where("domain IS NULL").Find(&accounts).Error
 		if err != nil {
 			return fmt.Errorf("failed to query accounts: %w", err)
 		}
 	} else {
 		// Get specific account
-		err := db.GetDB().Where("username = ? AND domain IS NULL", username).First(&accounts).Error
+		err := db.GetDB().WithContext(c.Context).Preload("User.Settings").Where("username = ? AND domain IS NULL", username).First(&accounts).Error
 		if err != nil {
 			return fmt.Errorf("account not found: %w", err)
 		}
@@ -127,7 +131,7 @@ func buildFeeds(c *cli.Context) error {
 					continue
 				}
 
-				items, err := buildAccountFeeds(job.account)
+				items, err := buildAccountFeedsContext(c.Context, job.account)
 
 				mu.Lock()
 				processed++
@@ -166,89 +170,71 @@ func buildFeeds(c *cli.Context) error {
 		fmt.Printf("Total feed items: %d\n", totalFeedItems)
 	}
 
+	if errors > 0 {
+		return fmt.Errorf("failed to build feeds for %d accounts", errors)
+	}
 	return nil
 }
 
+// buildAccountFeeds expects the account's User.Settings association to be
+// loaded, as buildFeeds does in its account query.
 func buildAccountFeeds(account *models.Account) (int, error) {
-	ctx := context.Background()
-	accountID := strconv.FormatUint(account.Id, 10)
+	return buildAccountFeedsContext(context.Background(), account)
+}
 
-	// Cache in Redis
+func buildAccountFeedsContext(ctx context.Context, account *models.Account) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	redisClient := db.GetRedis()
 	if redisClient == nil {
 		return 0, errors.New("redis not available")
 	}
-
-	// Get statuses from user's home timeline
-	// We'll query directly from the database and cache in Redis
-	var statuses []*models.Status
-
-	err := db.GetDB().Preload("Content").
-		Joins("LEFT JOIN follows ON statuses.account_id = follows.follow_id").
-		Where("follows.account_id = ? OR statuses.account_id = ?", account.Id, account.Id).
-		Where("statuses.visibility IN ?", []string{"public", "unlisted", "private"}). //nolint:goconst
-		Where("statuses.deleted_at IS NULL").
-		Order("statuses.id DESC").
-		Limit(400).
-		Find(&statuses).Error
-	if err != nil {
-		return 0, fmt.Errorf("failed to get home timeline: %w", err)
-	}
-
-	// Clear existing feed
-	key := "feed:home:" + accountID
-	redisClient.Del(ctx, key)
-
-	// Add new items
-	now := float64(time.Now().Unix())
-	for _, status := range statuses {
-		redisClient.ZAdd(ctx, key, redisZ(now, status.Id))
-	}
-
-	// Build list feeds
 	var userLists []*models.List
-	if err := db.GetDB().Where("account_id = ?", account.Id).Find(&userLists).Error; err == nil {
-		for _, userList := range userLists {
-			// Get list accounts
-			var listAccounts []uint64
-			db.GetDB().Model(&models.ListAccount{}).
-				Where("list_id = ?", userList.Id).
-				Pluck("account_id", &listAccounts)
-
-			if len(listAccounts) == 0 {
-				continue
-			}
-
-			// Get statuses from list accounts
-			var listStatuses []*models.Status
-			db.GetDB().Preload("Content").
-				Where("account_id IN ?", listAccounts).
-				Where("visibility IN ?", []string{"public", "unlisted", "private"}).
-				Where("deleted_at IS NULL").
-				Order("id DESC").
-				Limit(400).
-				Find(&listStatuses)
-
-			listKey := "feed:list:" + strconv.FormatUint(userList.Id, 10)
-			redisClient.Del(ctx, listKey)
-
-			for _, status := range listStatuses {
-				redisClient.ZAdd(ctx, listKey, redisZ(now, status.Id))
-			}
+	if err := db.GetDB().WithContext(ctx).Where("account_id = ?", account.Id).Find(&userLists).Error; err != nil {
+		return 0, fmt.Errorf("failed to query account lists: %w", err)
+	}
+	homeTimeline := &home.HomeTimeline{Account: account}
+	key := fmt.Sprintf(homeTimeline.GetKeyFormat(), homeTimeline.GetTimelineId())
+	if err := repairLegacyFeedScores(ctx, key); err != nil {
+		return 0, fmt.Errorf("failed to repair home timeline scores: %w", err)
+	}
+	if err := homeTimeline.RebuildContext(ctx); err != nil {
+		return 0, fmt.Errorf("failed to rebuild home timeline: %w", err)
+	}
+	for _, userList := range userLists {
+		listTimeline := &list.ListTimeline{List: userList}
+		listKey := fmt.Sprintf(listTimeline.GetKeyFormat(), listTimeline.GetTimelineId())
+		if err := repairLegacyFeedScores(ctx, listKey); err != nil {
+			return 0, fmt.Errorf("failed to repair list %d scores: %w", userList.Id, err)
+		}
+		if err := listTimeline.RebuildContext(ctx); err != nil {
+			return 0, fmt.Errorf("failed to rebuild list %d: %w", userList.Id, err)
 		}
 	}
-
-	return len(statuses), nil
+	count, err := redisClient.ZCard(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count home timeline: %w", err)
+	}
+	return int(count), nil
 }
 
-// redisZ creates a Redis Z member for sorted sets.
-func redisZ(baseScore float64, id uint64) redis.Z {
-	idFloat, _ := strconv.ParseFloat(strconv.FormatUint(id, 10), 64)
-
-	return redis.Z{
-		Score:  baseScore - idFloat/1000000000,
-		Member: strconv.FormatUint(id, 10),
-	}
+// Correct only malformed scores in the exact canonical feed. The atomic script
+// preserves valid concurrent pushes; it does not delete/recreate the whole key.
+func repairLegacyFeedScores(ctx context.Context, key string) error {
+	const script = `
+local rows=redis.call('ZRANGE',KEYS[1],0,-1,'WITHSCORES')
+for i=1,#rows,2 do
+ local id=tonumber(rows[i])
+ if not id then
+  redis.call('ZREM',KEYS[1],rows[i])
+ elseif id~=tonumber(rows[i+1]) then
+  redis.call('ZADD',KEYS[1],id,rows[i])
+ end
+end
+return 1
+`
+	return db.GetRedis().Eval(ctx, script, []string{key}).Err()
 }
 
 // FeedsClearCommand implements tootctl feeds clear

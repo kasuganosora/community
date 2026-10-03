@@ -74,7 +74,7 @@ func TestPush_VisibilityCheck(t *testing.T) {
 		{"public", models.StatusVisibilityPublic, true},
 		{"unlisted", models.StatusVisibilityUnlisted, true},
 		{"private", models.StatusVisibilityPrivate, true},
-		{"direct", models.StatusVisibilityDirect, false},
+		{"direct", models.StatusVisibilityDirect, true},
 	}
 
 	for _, tt := range tests {

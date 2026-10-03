@@ -36,21 +36,25 @@ func Public(c *gin.Context) {
 
 	var statuses models.Statuses
 
-	if utils.ToBool(req.OnlyMedia) {
-		statuses, err = public.GetTimelineContentMedia(req.ToFeedListParams())
-	} else {
-		statuses, err = public.GetTimelineContentAll(req.ToFeedListParams())
-	}
-
-	controllers.AbortIfError(c, err)
-
 	var account *models.Account
 
 	if _account, ok := c.Get("account"); ok {
 		account = _account.(*models.Account) //nolint:forcetypeassert
 	}
 
-	ret, err := serializer.ToStatuses(statuses, account)
+	params := req.ToFeedListParams()
+	params.Context = c.Request.Context()
+	params.Viewer = account
+
+	if utils.ToBool(req.OnlyMedia) {
+		statuses, err = public.GetTimelineContentMedia(params)
+	} else {
+		statuses, err = public.GetTimelineContentAll(params)
+	}
+
+	controllers.AbortIfError(c, err)
+
+	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
 	controllers.AbortIfError(c, err)
 
 	c.JSON(http.StatusOK, ret)

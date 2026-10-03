@@ -1,6 +1,7 @@
 package home
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -69,24 +70,11 @@ func (timeline *HomeTimeline) GetTimelineId() string {
 	return strconv.FormatUint(timeline.Account.Id, 10)
 }
 
-func (timeline *HomeTimeline) Rebuild() (err error) {
+func (timeline *HomeTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
+func (timeline *HomeTimeline) RebuildContext(ctx context.Context) (err error) {
 	statuses := make(models.Statuses, 0)
 
-	followingAccounts, err := feed.GetAccountFollowingAccounts(timeline.Account.Id)
-	if err != nil {
-		return err
-	}
-
-	limit := feed.MAX_ITEMS / 2
-
-	accountsId := followingAccounts.GetIds()
-	// 加上我自己
-	accountsId = append(accountsId, timeline.Account.Id)
-	// 找出我关注的人和最近提及我的status
-	err = db.GetDB().
-		Preload("ToAccounts").
-		Where("account_id in ? or id in (select status_id from status_to_accounts where account_id = ?)", accountsId, timeline.Account.Id).
-		Order("id desc").Limit(limit).Find(&statuses).Error
+	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Preload("ToAccounts").Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
@@ -94,25 +82,17 @@ func (timeline *HomeTimeline) Rebuild() (err error) {
 	// 过滤掉只有对方可见的status
 	statuses = statuses.Filter(func(status *models.Status) bool {
 		if status.Visibility == models.StatusVisibilityDirect {
-			return status.ToAccounts.Contains(timeline.Account.Id)
+			return status.AccountId == timeline.Account.Id || status.ToAccounts.Contains(timeline.Account.Id)
 		}
 
 		return true
 	})
 
-	err = feed.CleanFeeds(timeline, []string{strconv.FormatUint(timeline.Account.Id, 10)})
-	if err != nil {
-		return err
+	aggregate := true
+	if timeline.Account.User != nil && timeline.Account.User.Settings != nil {
+		aggregate = timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
-
-	for _, status := range statuses {
-		err = PushToHome(timeline.Account, status, false, false)
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
+	return feed.RebuildTimelineContext(ctx, timeline, statuses, aggregate)
 }
 
 // ClearMentionsPushStatus 清除提及的推送状态.
@@ -373,35 +353,27 @@ func Unpush(status *models.Status) (err error) {
 
 func GetTimeLineContent(account *models.Account, params *feed.ListParam) (statuses models.Statuses, err error) {
 	timeLine := &HomeTimeline{Account: account}
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+	params.Viewer = account
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		// 没有找到 statuses id，尝试从数据库中找
-		var followingAccounts models.Accounts
-
-		followingAccounts, err = feed.GetAccountFollowingAccounts(account.Id)
-		if err != nil {
-			return
-		}
-
-		accountIds := followingAccounts.GetIds()
-		// 加上我自己
-		accountIds = append(accountIds, account.Id)
-
-		query = tx.Where("account_id in (?) or id in (select status_id from status_to_accounts where account_id = ?)", accountIds, account.Id).
-			Order("id desc")
-
-		return
+		return homeCandidates(tx, account.Id), nil
 	}
 
-	afterFilter := func(statuses models.Statuses) (ret models.Statuses) {
-		return statuses.Filter(func(status *models.Status) bool {
-			if status.Visibility == models.StatusVisibilityDirect {
-				return status.ToAccounts.Contains(account.Id)
-			}
+	return feed.GetStatusTimelineContent(timeLine, params, newFilterCondition, nil)
+}
 
-			return true
-		})
+func homeCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
+	following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("account_id = ? AND status = ?", accountID, models.FollowStatusFollowed).Select("follow_id")
+	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).Where("account_id = ?", accountID).Select("status_id")
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
+}
+
+func (timeline *HomeTimeline) AggregateReblogs() bool {
+	if timeline.Account != nil && timeline.Account.User != nil && timeline.Account.User.Settings != nil {
+		return timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
-
-	return feed.GetStatusTimelineContent(timeLine, params, newFilterCondition, afterFilter)
+	return true
 }

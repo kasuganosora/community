@@ -11,11 +11,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // callHandler invokes a gin handler and recovers from AbortSentinel panic used by AbortIf/AbortIfError.
@@ -41,22 +44,25 @@ func TestMain(m *testing.M) {
 func setupTestDB(t *testing.T) {
 	t.Helper()
 
-	var err error
+	// SQLite executes the serializer's UNION ALL; SQLExec does not.
+	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := conn.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	testDB = &testutil.TestDB{GormDB: conn}
+	database.SetTestDB(conn)
+	t.Cleanup(database.ResetTestDB)
 
-	testDB, err = testutil.NewIsolatedTestDB(t)
-	if err != nil {
-		t.Fatalf("Failed to create test DB: %v", err)
-	}
-
-	database.SetTestDB(testDB.GormDB)
-
-	if err := testDB.AutoMigrate(
+	migrationModels := []any{
 		&models.User{},
 		&models.Account{},
 		&models.AccountExtra{},
 		&models.AccountEmoji{},
 		&models.Report{},
 		&models.Status{},
+		&models.StatusReaction{},
 		&models.StatusContent{},
 		&models.StatusTag{},
 		&models.StatusToAccount{},
@@ -85,9 +91,17 @@ func setupTestDB(t *testing.T) {
 		&models.Application{},
 		&models.Rule{},
 		&models.SystemSetting{},
-	); err != nil {
-		t.Fatalf("Failed to migrate: %v", err)
 	}
+	for _, model := range migrationModels {
+		stmt := &gorm.Statement{DB: conn}
+		require.NoError(t, stmt.Parse(model))
+		for _, field := range stmt.Schema.Fields {
+			if field.AutoIncrement {
+				field.DataType = schema.Int
+			}
+		}
+	}
+	require.NoError(t, conn.AutoMigrate(migrationModels...))
 
 	// Explicitly create many2many join tables for Status associations
 	joinTables := []string{
@@ -267,7 +281,7 @@ func TestCreate_WithStatusIds(t *testing.T) {
 
 	callHandler(Create, c)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code, "response: %s; errors: %v", w.Body.String(), c.Errors)
 }
 
 func TestCreate_WithRuleIds(t *testing.T) {

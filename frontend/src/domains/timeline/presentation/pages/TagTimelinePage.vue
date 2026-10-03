@@ -20,7 +20,7 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
-watch(tag, () => feed.refresh())
+watch(tag, () => { feed.reset(); feed.refresh() })
 onMounted(() => feed.refresh())
 </script>
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 )
 
 type Reaction struct {
@@ -47,6 +48,14 @@ func StatusReactions(statusID uint64, viewer *models.Account, accounts bool) ([]
 // A timeline resolves grouped counts, viewer reactions and emoji metadata with
 // three queries for the whole page, including statuses wrapped in reblogs.
 func StatusReactionsBatch(statusIDs []uint64, viewer *models.Account) (map[uint64][]*Reaction, error) {
+	return statusReactionsBatchWithDB(db.GetDB(), statusIDs, viewer)
+}
+func statusReactionsBatchWithDB(conn *gorm.DB, statusIDs []uint64, viewer *models.Account) (map[uint64][]*Reaction, error) {
+	if conn != nil {
+		if err := conn.Statement.Context.Err(); err != nil {
+			return nil, err
+		}
+	}
 	result := make(map[uint64][]*Reaction, len(statusIDs))
 	for _, id := range statusIDs {
 		result[id] = make([]*Reaction, 0)
@@ -54,7 +63,6 @@ func StatusReactionsBatch(statusIDs []uint64, viewer *models.Account) (map[uint6
 	if len(statusIDs) == 0 {
 		return result, nil
 	}
-	conn := db.GetDB()
 	if conn == nil {
 		if models.ReactionSchemaRequired() {
 			return nil, errors.New("reaction database is unavailable")

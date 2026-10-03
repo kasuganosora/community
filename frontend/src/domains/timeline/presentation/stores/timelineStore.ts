@@ -1,4 +1,6 @@
-import { ref, computed } from 'vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { mergeById } from '@/shared/utils/pagination'
+import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import type { ManagedTimelineType } from '../../domain/entities'
@@ -34,6 +36,14 @@ export const useTimelineStore = defineStore('timeline', () => {
   // overwriting newer data when fetchTimeline / loadMore race with each other
   const requestVersionMap: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
   
+  watch(sessionEpoch, () => {
+    for (const type of ['home', 'public'] as const) {
+      ++requestVersionMap[type]
+      const timeline = getTimeline(type)
+      timeline.statuses = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
+    }
+  }, { flush: 'sync' })
+
   // Computed accessors for backward compatibility
   const homeStatuses = computed(() => homeTimeline.value.statuses)
   const publicStatuses = computed(() => publicTimeline.value.statuses)
@@ -69,7 +79,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer request superseded this one
       if (myVersion !== requestVersionMap[type]) return
-      timeline.statuses = data
+      timeline.statuses = mergeById([], data)
       timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     } catch (e) {
       // Only set error if this is still the latest request
@@ -113,8 +123,8 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer fetch replaced the timeline
       if (myVersion !== requestVersionMap[type]) return
-      timeline.statuses.push(...data)
-      timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
+      timeline.statuses = mergeById(timeline.statuses, data)
+      timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE && data[data.length - 1]?.id !== lastId
     } catch (e) {
       if (myVersion !== requestVersionMap[type]) return
       timeline.error = e instanceof Error ? e.message : 'Failed to load more'
@@ -151,14 +161,12 @@ export const useTimelineStore = defineStore('timeline', () => {
         // Match the top-level status ...
         if (item.id === statusId) {
           Object.assign(item, updates)
-          return
         }
         // ... or the reblog wrapper's inner status. PostCard emits the
         // displayStatus (the reblog content) for actions, so the id being
         // updated is the inner status id, not the wrapper's.
         if (item.reblog?.id === statusId) {
           Object.assign(item.reblog, updates)
-          return
         }
       }
     }

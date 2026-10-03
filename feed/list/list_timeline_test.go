@@ -10,7 +10,7 @@ import (
 
 func TestListTimeline_GetKeyFormat(t *testing.T) {
 	timeline := &ListTimeline{}
-	assert.Equal(t, "feed:list:%s", timeline.GetKeyFormat())
+	assert.Equal(t, "feed:list:v2:%s", timeline.GetKeyFormat())
 }
 
 func TestListTimeline_GetTimelineId(t *testing.T) {
@@ -21,42 +21,42 @@ func TestListTimeline_GetTimelineId(t *testing.T) {
 	}{
 		{
 			name:     "Basic list",
-			timeline: &ListTimeline{List: &models.List{Title: "mylist"}},
-			expected: "mylist",
+			timeline: &ListTimeline{List: &models.List{Id: 42, Title: "mylist"}},
+			expected: "42",
 		},
 		{
 			name: "List with local filter",
 			timeline: &ListTimeline{
-				List:      &models.List{Title: "tech"},
+				List:      &models.List{Id: 42, Title: "tech"},
 				OnlyLocal: true,
 			},
-			expected: "local:tech",
+			expected: "local:42",
 		},
 		{
 			name: "List with remote filter",
 			timeline: &ListTimeline{
-				List:       &models.List{Title: "news"},
+				List:       &models.List{Id: 42, Title: "news"},
 				OnlyRemote: true,
 			},
-			expected: "remote:news",
+			expected: "remote:42",
 		},
 		{
 			name: "List with media filter",
 			timeline: &ListTimeline{
-				List:      &models.List{Title: "photos"},
+				List:      &models.List{Id: 42, Title: "photos"},
 				OnlyMedia: true,
 			},
-			expected: "media:photos",
+			expected: "media:42",
 		},
 		{
 			name: "List with all filters",
 			timeline: &ListTimeline{
-				List:       &models.List{Title: "all"},
+				List:       &models.List{Id: 42, Title: "all"},
 				OnlyLocal:  true,
 				OnlyRemote: true,
 				OnlyMedia:  true,
 			},
-			expected: "local:remote:media:all",
+			expected: "local:remote:media:42",
 		},
 	}
 
@@ -72,8 +72,8 @@ func TestListTimeline_TimelineInterface(t *testing.T) {
 
 	var timeline feed.Timeline = &ListTimeline{List: list}
 
-	assert.Equal(t, "feed:list:%s", timeline.GetKeyFormat())
-	assert.Equal(t, "test", timeline.GetTimelineId())
+	assert.Equal(t, "feed:list:v2:%s", timeline.GetKeyFormat())
+	assert.Equal(t, "1", timeline.GetTimelineId())
 }
 
 func TestListTimeline_DifferentLists(t *testing.T) {
@@ -120,7 +120,7 @@ func TestListTimeline_Combinations(t *testing.T) {
 
 	for _, combo := range combinations {
 		timeline := &ListTimeline{
-			List:       &models.List{Title: "test"},
+			List:       &models.List{Id: 42, Title: "test"},
 			OnlyLocal:  combo.local,
 			OnlyRemote: combo.remote,
 			OnlyMedia:  combo.media,
@@ -132,7 +132,7 @@ func TestListTimeline_Combinations(t *testing.T) {
 
 func TestListTimeline_ConcurrentAccess(t *testing.T) {
 	timeline := &ListTimeline{
-		List:      &models.List{Title: "concurrent"},
+		List:      &models.List{Id: 42, Title: "concurrent"},
 		OnlyLocal: true,
 	}
 
@@ -157,6 +157,6 @@ func TestListTimeline_ConcurrentAccess(t *testing.T) {
 func TestListTimeline_NilList(t *testing.T) {
 	timeline := &ListTimeline{List: nil}
 	// GetKeyFormat 应该仍然工作
-	assert.Equal(t, "feed:list:%s", timeline.GetKeyFormat())
+	assert.Equal(t, "feed:list:v2:%s", timeline.GetKeyFormat())
 	// GetTimelineId 会在 nil list 上 panic，这是预期行为
 }

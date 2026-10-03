@@ -1,13 +1,13 @@
 package tag
 
 import (
+	"context"
 	"log"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 	"strings"
 )
@@ -95,42 +95,35 @@ func (timeline *TagTimeline) GetTimelineId() string {
 	return strings.Join(strs, ":")
 }
 
-func (timeline *TagTimeline) Rebuild() (err error) {
+func (timeline *TagTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
+func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 	statuses := make(models.Statuses, 0)
 	tag := &models.Tag{}
 
-	err = db.GetDB().Model(&models.Tag{}).Where("name = ?", timeline.Tag).First(tag).Error
+	err = db.GetDB().WithContext(ctx).Model(&models.Tag{}).Where("name = ?", timeline.Tag).First(tag).Error
 	if err != nil {
 		return err
 	}
 
-	err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()})
+	membership, err := tagMembership(db.GetDB().WithContext(ctx), tag.Id)
+	if err != nil {
+		return err
+	}
+	query := membership(feed.EligibleTimelineStatuses(db.GetDB().WithContext(ctx).Model(&models.Status{})))
+	if timeline.OnlyLocal {
+		query = query.Where("statuses.domain IS NULL")
+	} else if timeline.OnlyRemote {
+		query = query.Where("statuses.domain IS NOT NULL")
+	}
+	if timeline.OnlyMedia {
+		query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
+	}
+	err = query.Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
 
-	err = db.GetDB().Model(&models.Status{}).
-		Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tag.Id).Select("status_id")).
-		Order("id desc").Limit(feed.MAX_ITEMS / 2).
-		Find(&statuses).Error
-	if err != nil {
-		return err
-	}
-
-	for _, status := range statuses {
-		err = feed.AddToTimelineItem(timeline, status, true)
-		if err != nil {
-			return err
-		}
-
-		err = feed.TrimTimeline(timeline)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
+	return feed.RebuildTimelineContext(ctx, timeline, statuses, true)
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
@@ -281,72 +274,84 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 		params = &feed.ListParam{}
 	}
 
+	params.Viewer = account
 	if params.Other == nil {
 		params.Other = make(map[string]any)
 	}
+	// Resolve once per request, including requests which cross several cache
+	// batches after filtering. This identifier is not an authorization cache.
+	tagModel := &models.Tag{}
+	if err := db.GetDB().WithContext(contextForParams(params)).Where("name = ?", tag).First(tagModel).Error; err != nil {
+		return nil, err
+	}
 
+	membership, err := tagMembership(db.GetDB().WithContext(contextForParams(params)), tagModel.Id)
+	if err != nil {
+		return nil, err
+	}
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		// Look up tag ID by name
-		tagModel := &models.Tag{}
-		if findErr := db.GetDB().Where("name = ?", tag).First(tagModel).Error; findErr != nil {
-			return nil, findErr
+		query = membership(feed.EligibleTimelineStatuses(tx))
+		// Preserve the personalized tag audience, but filter it before LIMIT
+		// and association loading instead of hydrating inaccessible pages.
+		if account == nil {
+			query = query.Where("statuses.visibility IN ?", []int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted})
+		} else {
+			query = query.Where(`(statuses.visibility IN ? OR
+				(statuses.visibility = ? AND (statuses.account_id = ? OR EXISTS (SELECT 1 FROM follows WHERE follows.account_id = ? AND follows.follow_id = statuses.account_id AND follows.status = ?))) OR
+				(statuses.visibility = ? AND EXISTS (SELECT 1 FROM status_to_accounts WHERE status_to_accounts.status_id = statuses.id AND status_to_accounts.account_id = ?)))`,
+				[]int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}, models.StatusVisibilityPrivate,
+				account.Id, account.Id, models.FollowStatusFollowed, models.StatusVisibilityDirect, account.Id)
 		}
-		query = tx.Where("id in (?)", db.GetDB().Model(&models.StatusTag{}).Where("tag_id = ?", tagModel.Id).Select("status_id"))
 		if isLocal := params.Other["local"]; isLocal != nil && isLocal.(bool) { //nolint:forcetypeassert
 			query = query.Where("domain is null")
 		} else if isRemote := params.Other["remote"]; isRemote != nil && isRemote.(bool) { //nolint:forcetypeassert
 			query = query.Where("domain is not null")
 		}
 
+		if onlyMedia, _ := params.Other["only_media"].(bool); onlyMedia {
+			query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
+		}
 		return
 	}
 
-	followingIds := make([]uint64, 0)
-	if account != nil {
-		err = db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Where("account_id = ?", account.Id).Select("follow_id").Find(&followingIds).Error
-		if err != nil {
-			return statuses, err
-		}
+	if local, _ := params.Other["local"].(bool); local {
+		params.Other["database_only"] = true
 	}
-
-	followingCheckMap := utils.GetExistsMap(followingIds)
-
-	var accountId uint64
-
-	if account != nil {
-		accountId = account.Id
+	if remote, _ := params.Other["remote"].(bool); remote {
+		params.Other["database_only"] = true
 	}
-
-	afterFilter := func(statuses models.Statuses) models.Statuses {
-		ret := make(models.Statuses, 0, len(statuses))
-
-		for _, status := range statuses {
-			if onlyMedia, ok := params.Other["only_media"]; ok && onlyMedia.(bool) && len(status.Attachments) == 0 { //nolint:forcetypeassert
-				continue
-			}
-
-			switch status.Visibility {
-			case models.StatusVisibilityPublic:
-				// 公开的，所有人都能看到
-				ret = append(ret, status)
-			case models.StatusVisibilityUnlisted:
-				// 对所有人可见，但不出现在公共时间线，tag 时间线可见
-				ret = append(ret, status)
-			case models.StatusVisibilityPrivate:
-				// 私有的，只有关注的人才能看到
-				if followingCheckMap[status.AccountId] || accountId == status.AccountId {
-					ret = append(ret, status)
-				}
-			case models.StatusVisibilityDirect:
-				// 私信，只有被提及的人才能看到
-				if status.ToAccounts.Contains(accountId) {
-					ret = append(ret, status)
-				}
-			}
-		}
-
-		return ret
+	if media, _ := params.Other["only_media"].(bool); media {
+		params.Other["database_only"] = true
 	}
+	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
+}
 
-	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, afterFilter)
+func contextForParams(params *feed.ListParam) context.Context {
+	if params.Context != nil {
+		return params.Context
+	}
+	return context.Background()
+}
+
+func (timeline *TagTimeline) AggregateReblogs() bool { return true }
+
+// Choose a request-local query shape from a bounded indexed membership probe.
+// Small/empty tags must not scan status history to find an old post or EOF.
+// Dense tags avoid MySQL's association-driven semijoin and global filesort.
+// Large but old/sparse tags are not universally optimal under this heuristic;
+// an ordered covering association index is a separate measured DDL decision.
+func tagMembership(conn *gorm.DB, tagID uint64) (func(*gorm.DB) *gorm.DB, error) {
+	ids := []uint64{}
+	if err := conn.Model(&models.StatusTag{}).Where("tag_id = ?", tagID).Limit(feed.MAX_ITEMS+1).Pluck("status_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return func(tx *gorm.DB) *gorm.DB { return tx.Where("1 = 0") }, nil
+	}
+	if len(ids) <= feed.MAX_ITEMS {
+		return func(tx *gorm.DB) *gorm.DB { return tx.Where("statuses.id IN ?", ids) }, nil
+	}
+	return func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("(SELECT 1 FROM status_tags WHERE tag_id = ? AND status_id = statuses.id LIMIT 1) IS NOT NULL", tagID)
+	}, nil
 }

@@ -8,148 +8,315 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"time"
 )
 
 type FilterCondition func(tx *gorm.DB) (query *gorm.DB, err error)
 type AfterFilter func(statuses models.Statuses) models.Statuses
 
-func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCondition FilterCondition, afterFilter AfterFilter) (statuses models.Statuses, err error) {
-	statusesId := make([]uint64, 0)
-
-	// 判断是否有缓存, 没有缓存则重建
-	redisConn := db.GetRedis()
-	ctx := context.Background()
-	timelineKey := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
-
-	if redisConn.Exists(ctx, timelineKey).Val() == 0 {
-		err = timeline.Rebuild()
-		if err != nil {
-			return statuses, err
-		}
-	}
-
+func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCondition FilterCondition, afterFilter AfterFilter) (models.Statuses, error) {
 	if params == nil {
-		// 从缓存中取出timeline status id
-		var statusesIdStr []string
-
-		statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: 0, Stop: -1, Rev: true}).Result()
-		if err != nil {
-			return statuses, err
-		}
-
-		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
+		params = &ListParam{Limit: MAX_ITEMS}
 	} else {
-		var statusesIdStr []string
-
-		if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
-			min, max := params.GetRedisRangeMinMax()
-			statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: min, Stop: max, ByScore: true, Rev: true}).Result()
-			if err != nil {
-				return statuses, err
+		copyParams := *params
+		params = &copyParams
+	}
+	limit := int(params.Limit)
+	if limit <= 0 {
+		limit = MAX_ITEMS
+	}
+	if limit > MAX_ITEMS {
+		limit = MAX_ITEMS
+	}
+	ctx := params.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	conn := db.GetDB().WithContext(ctx)
+	redisConn := db.GetRedis()
+	key := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
+	databaseOnly, _ := params.Other["database_only"].(bool)
+	output := make(models.Statuses, 0, limit)
+	aggregate := false
+	if policy, ok := timeline.(interface{ AggregateReblogs() bool }); ok {
+		aggregate = policy.AggregateReblogs()
+	}
+	page := newPageAggregation(aggregate)
+	firstBatch := true
+	hydrated := map[uint64]*models.Status{}
+	// Read candidates in bounded pages. Filters and current authorization can
+	// remove candidates, so continue rather than incorrectly returning an empty
+	// or short page while older matching rows still exist.
+	for len(output) < limit {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		remaining := limit - len(output)
+		candidateLimit := min(MAX_ITEMS, max(32, remaining*2))
+		if firstBatch {
+			candidateLimit = remaining
+		}
+		var ids []uint64
+		fromDatabase := databaseOnly
+		if !databaseOnly {
+			readIDs := func() ([]uint64, error) {
+				args := redis.ZRangeArgs{Key: key, Start: 0, Stop: candidateLimit - 1, Rev: true}
+				if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
+					min, max := params.GetRedisRangeMinMax()
+					args = redis.ZRangeArgs{Key: key, Start: min, Stop: max, ByScore: true, Rev: true, Count: int64(candidateLimit)}
+				}
+				raw, err := redisConn.ZRangeArgs(ctx, args).Result()
+				return utils.StringNumberArrayConvertUint64(raw), err
 			}
+			var err error
+			ids, err = readIDs()
+			if err != nil {
+				return nil, err
+			}
+			if len(ids) == 0 {
+				exists, err := redisConn.Exists(ctx, key, key+":empty").Result()
+				if err != nil {
+					return nil, err
+				}
+				if exists == 0 {
+					err = coalesceRebuildContext(ctx, key, func() error {
+						exists, err := redisConn.Exists(ctx, key, key+":empty").Result()
+						if err != nil || exists > 0 {
+							return err
+						}
+						rebuild := timeline.Rebuild
+						if contextual, ok := timeline.(interface{ RebuildContext(context.Context) error }); ok {
+							rebuild = func() error { return contextual.RebuildContext(ctx) }
+						}
+						if err := rebuild(); err != nil {
+							return err
+						}
+						size, err := redisConn.ZCard(ctx, key).Result()
+						if err != nil {
+							return err
+						}
+						if size == 0 {
+							return redisConn.Set(ctx, key+":empty", "1", 5*time.Second).Err()
+						}
+						return nil
+					})
+					if err != nil {
+						return nil, err
+					}
+					ids, err = readIDs()
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+			if len(ids) == 0 {
+				databaseOnly = true
+				fromDatabase = true
+			}
+		}
+		if fromDatabase {
+			query, err := newFilterCondition(conn.Model(&models.Status{}))
+			if err != nil {
+				return nil, err
+			}
+			if params.MaxId > 0 {
+				query = query.Where("statuses.id < ?", params.MaxId)
+			}
+			if params.MinId > 0 {
+				query = query.Where("statuses.id > ?", params.MinId)
+			}
+			if params.SinceId > 0 {
+				query = query.Where("statuses.id > ?", params.SinceId)
+			}
+			if err := timelineMuteFilter(query, params.Viewer).Order("statuses.id desc").Limit(candidateLimit).Pluck("statuses.id", &ids).Error; err != nil {
+				return nil, err
+			}
+			if len(ids) == 0 {
+				break
+			}
+		}
+		var statuses models.Statuses
+		var err error
+		if firstBatch {
+			headers := conn.Model(&models.Status{})
+			if !fromDatabase {
+				headers, err = newFilterCondition(headers)
+			}
+			if err != nil {
+				return nil, err
+			}
+			err = timelineMuteFilter(headers, params.Viewer).Select("statuses.id", "statuses.reblog_id").Where("statuses.id IN ?", ids).Order("statuses.id DESC").Find(&statuses).Error
+			if err == nil {
+				statuses, err = loadTimelineStatuses(conn, statuses)
+			}
+			if err == nil {
+				for _, status := range statuses {
+					hydrated[status.Id] = status
+				}
+			}
+			firstBatch = false
 		} else {
-			start, end := params.GetRedisRangeOffsetCount()
-			statusesIdStr, err = redisConn.ZRangeArgs(ctx, redis.ZRangeArgs{Key: timelineKey, Start: start, Stop: end, Rev: true}).Result()
-			if err != nil {
-				return statuses, err
+			statuses, err = loadTimelineCandidates(conn, ids, newFilterCondition, !fromDatabase, params.Viewer, afterFilter != nil)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if afterFilter != nil {
+			statuses = afterFilter(statuses)
+		}
+		statuses, err = models.FilterVisibleStatuses(conn, params.Viewer, statuses)
+		if err != nil {
+			return nil, err
+		}
+		for _, status := range statuses {
+			if len(output) == limit {
+				break
+			}
+			if page.accept(status) {
+				output = append(output, status)
 			}
 		}
-
-		statusesId = utils.StringNumberArrayConvertUint64(statusesIdStr)
-	}
-
-	// 如果这时候一个都没有，就肯能存在以下情况：
-	// 1. 真的什么没有
-	// 2. 可能翻页的时候超过 redis 缓存的范围了（MAX_ITEMS) , 例如 redis 里 只有id 为 1-100 的数据，但是你要翻到 101-200 的数据
-	// 还有种可能是 redis找出来的结果未能完全覆盖，例如 redis 里只有 1-100 的数据，但是你要翻到 1-200 的数据 (这种不支持，让用户/客户端调整参数/max_id/min_id/since_id)
-	// 因为她可能获取了一小段数据，但是不知道数据库里还有更多的数据，所以这种情况下，让其多拉取1一次 如果下次为空的话就会跑到逻辑 2 里
-
-	if len(statusesId) == 0 {
-		// 如果是第一页，那么就是真的没有数据
-		if params == nil || (params.MaxId == 0 && params.MinId == 0 && params.SinceId == 0) {
-			return statuses, err
+		// IDs are descending in both stores. Advancing by the last candidate rather
+		// than last visible result guarantees progress through inaccessible entries.
+		params.MaxId = ids[len(ids)-1]
+		if params.MaxId == 0 {
+			break
 		}
-
-		// 如果不是一页就是超过redis缓存的范围了，这时候就需要从数据库里取数据了
-		query := db.GetDB().Model(&models.Status{})
-
-		query, err = newFilterCondition(query)
+	}
+	if len(output) == 0 {
+		return output, nil
+	}
+	missing := models.Statuses{}
+	for _, status := range output {
+		if hydrated[status.Id] == nil {
+			missing = append(missing, status)
+		}
+	}
+	if len(missing) > 0 {
+		loaded, err := loadTimelineStatuses(conn, missing)
 		if err != nil {
-			return statuses, err
+			return nil, err
 		}
-
-		if params.MaxId > 0 {
-			query = query.Where("id <= ?", params.MaxId)
-		}
-
-		if params.MinId > 0 {
-			query = query.Where("id >= ?", params.MinId)
-		}
-
-		if params.SinceId > 0 {
-			query = query.Where("id > ?", params.SinceId)
-		}
-
-		// 按 ID 倒序排列，与 Redis 缓存中的顺序一致
-		query = query.Order("id desc")
-
-		if params.Limit > 0 {
-			query = query.Limit(int(params.Limit)) //nolint:gosec // G115: reviewed and safe
-		}
-
-		err = query.Pluck("statuses.id", &statusesId).Error
-		if err != nil {
-			return statuses, err
+		for _, status := range loaded {
+			hydrated[status.Id] = status
 		}
 	}
-
-	// 还是没有找到，返回空
-	if len(statusesId) == 0 {
-		return statuses, err
+	result := make(models.Statuses, 0, len(output))
+	for _, status := range output {
+		if loaded := hydrated[status.Id]; loaded != nil {
+			result = append(result, loaded)
+		}
 	}
+	return result, nil
+}
 
-	if params != nil && params.Limit > 0 && len(statusesId) > int(params.Limit) { //nolint:gosec // G115: reviewed and safe
-		statusesId = statusesId[:params.Limit]
+// Roots and originals share each association preload query. Candidate selection
+// already supplied their identities, so no recursive preload tree is necessary.
+func loadTimelineStatuses(conn *gorm.DB, selected models.Statuses) (models.Statuses, error) {
+	if len(selected) == 0 {
+		return models.Statuses{}, nil
 	}
-
-	statuses = make([]*models.Status, 0)
-	query := db.GetDB().Model(&models.Status{}).Preload("Account").
-		Preload("Account.Extra").
-		Preload("Content").
-		Preload("Application").
-		Preload("Attachments").
-		Preload("ReplyAccount").
-		Preload("Emojis").
-		Preload("ToAccounts").
-		Preload("Poll").
-		Preload("Poll.Options").
-		Preload("Tags").
-		Preload("Reblog").
-		Preload("Reblog.Account").
-		Preload("Reblog.Account.Extra").
-		Preload("Reblog.Content").
-		Preload("Reblog.Application").
-		Preload("Reblog.Attachments").
-		Preload("Reblog.ReplyAccount").
-		Preload("Reblog.Emojis").
-		Preload("Reblog.ToAccounts").
-		Preload("Reblog.Poll").
-		Preload("Reblog.Poll.Options").
-		Preload("Reblog.Tags")
-
-	err = query.Where("id in (?)", statusesId).Order("statuses.id desc").Find(&statuses).Error
+	ids := make([]uint64, 0, len(selected)*2)
+	seen := map[uint64]bool{}
+	for _, status := range selected {
+		if !seen[status.Id] {
+			ids = append(ids, status.Id)
+			seen[status.Id] = true
+		}
+		if status.ReblogId != nil && *status.ReblogId > 0 && !seen[*status.ReblogId] {
+			ids = append(ids, *status.ReblogId)
+			seen[*status.ReblogId] = true
+		}
+	}
+	flat := models.Statuses{}
+	err := conn.Model(&models.Status{}).Preload("Account").Preload("Account.Extra").
+		Preload("Content").Preload("Application").Preload("Attachments").Preload("ReplyAccount").
+		Preload("Emojis").Preload("ToAccounts").Preload("Poll").Preload("Poll.Options").Preload("Tags").
+		Where("statuses.id IN ?", ids).Find(&flat).Error
 	if err != nil {
-		return statuses, err
+		return nil, err
 	}
-
-	// 如果有设置后置过滤器，那么就过滤一下
-	if afterFilter != nil {
-		statuses = afterFilter(statuses)
-	}
-
-	for _, status := range statuses {
+	byID := make(map[uint64]*models.Status, len(flat))
+	for _, status := range flat {
 		status.SetAllExtendFieldsLoaded()
+		byID[status.Id] = status
 	}
+	result := make(models.Statuses, 0, len(selected))
+	for _, candidate := range selected {
+		status := byID[candidate.Id]
+		if status == nil {
+			continue
+		}
+		if status.ReblogId != nil && *status.ReblogId > 0 {
+			status.Reblog = byID[*status.ReblogId]
+			if status.Reblog == nil {
+				continue
+			}
+		}
+		result = append(result, status)
+	}
+	return result, nil
+}
 
+// EligibleTimelineStatuses excludes unpublished and banned-author content before
+// LIMIT in both cache snapshots and database pagination.
+func EligibleTimelineStatuses(tx *gorm.DB) *gorm.DB {
+	return tx.Where("statuses.scheduled_at IS NULL AND statuses.deleted_at IS NULL").Where("EXISTS (SELECT 1 FROM accounts WHERE accounts.id = statuses.account_id AND accounts.is_ban = ?)", false)
+}
+
+type pageAggregation struct {
+	enabled  bool
+	position int
+	seen     map[uint64]int
+}
+
+func newPageAggregation(enabled bool) *pageAggregation {
+	return &pageAggregation{enabled: enabled, seen: make(map[uint64]int)}
+}
+func (p *pageAggregation) accept(status *models.Status) bool {
+	if !p.enabled {
+		return true
+	}
+	origin := status.Id
+	if status.ReblogId != nil && *status.ReblogId > 0 {
+		origin = *status.ReblogId
+	}
+	if previous, ok := p.seen[origin]; ok && p.position-previous <= REBLOG_FALLOFF {
+		return false
+	}
+	p.seen[origin] = p.position
+	p.position++
+	return true
+}
+
+// Mutes are a feed preference, not object authorization. Always evaluate them
+// against current rows, including the original author of a reblog.
+func timelineMuteFilter(tx *gorm.DB, viewer *models.Account) *gorm.DB {
+	if viewer == nil {
+		return tx
+	}
+	return tx.Where(`NOT EXISTS (SELECT 1 FROM mute_accounts WHERE mute_accounts.account_id = ? AND (mute_accounts.expired_at IS NULL OR mute_accounts.expired_at > ?) AND (mute_accounts.target_id = statuses.account_id OR mute_accounts.target_id = (SELECT original.account_id FROM statuses AS original WHERE original.id = statuses.reblog_id)))`, viewer.Id, time.Now())
+}
+
+func loadTimelineCandidates(conn *gorm.DB, ids []uint64, filter FilterCondition, recheck bool, viewer *models.Account, legacyFilter bool) (models.Statuses, error) {
+	query := conn.Model(&models.Status{})
+	if recheck {
+		var err error
+		query, err = filter(query)
+		if err != nil {
+			return nil, err
+		}
+	}
+	query = timelineMuteFilter(query, viewer)
+	statuses := models.Statuses{}
+	// Only fields needed for visibility and legacy post-filter predicates are
+	// loaded here. All presentation associations are hydrated once, after filling.
+	if legacyFilter {
+		query = query.Preload("ToAccounts").Preload("Attachments")
+	}
+	err := query.Preload("Reblog").Where("statuses.id IN ?", ids).Order("statuses.id DESC").Find(&statuses).Error
 	return statuses, err
 }

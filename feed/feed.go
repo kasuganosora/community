@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -79,6 +80,8 @@ type Timeline interface {
 }
 
 type ListParam struct {
+	Context context.Context
+	Viewer  *models.Account
 	MaxId   uint64
 	MinId   uint64
 	SinceId uint64
@@ -104,17 +107,15 @@ func (p *ListParam) SetLimit(limit uint64) {
 
 func (p *ListParam) GetRedisRangeMinMax() (start, end string) {
 	if p.MaxId > 0 {
-		end = strconv.FormatUint(p.MaxId, 10)
+		end = "(" + strconv.FormatUint(p.MaxId, 10)
 	} else {
 		end = "+inf"
 	}
 
-	switch {
-	case p.MinId > 0:
-		start = strconv.FormatUint(p.MinId, 10)
-	case p.SinceId > 0:
-		start = strconv.FormatUint(p.SinceId, 10)
-	default:
+	lower := max(p.MinId, p.SinceId)
+	if lower > 0 {
+		start = "(" + strconv.FormatUint(lower, 10)
+	} else {
 		start = "-inf"
 	}
 

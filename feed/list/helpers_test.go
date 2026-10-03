@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // allListModels is the full set of models that GetStatusTimelineContent
@@ -27,6 +28,8 @@ func allListModels() []any {
 		&models.UserSecretData{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.Block{},
+		&models.MuteAccount{},
 		&models.List{},
 		&models.ListAccount{},
 		&models.ListFollowAccount{},
@@ -68,6 +71,15 @@ func newIsolatedGormDB(t *testing.T) *gorm.DB {
 		sqlDB.SetMaxIdleConns(1)
 	}
 
+	for _, model := range allListModels() {
+		stmt := &gorm.Statement{DB: gdb}
+		require.NoError(t, stmt.Parse(model))
+		for _, field := range stmt.Schema.Fields {
+			if field.AutoIncrement {
+				field.DataType = schema.Int
+			}
+		}
+	}
 	require.NoError(t, gdb.AutoMigrate(allListModels()...), "failed to auto-migrate models")
 
 	return gdb

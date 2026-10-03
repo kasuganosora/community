@@ -1,3 +1,4 @@
+import { invalidateSessionData } from '@/shared/api/sessionScope'
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { MastodonAccount } from '@/shared/types/mastodon'
@@ -40,6 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       const res = await authApi.login(credentials)
+      invalidateSessionData()
       token.value = res.token
       tokenService.set(res.token)
 
@@ -81,6 +83,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout(redirectToLogin = false) {
+    ++fetchUserVersion
+    invalidateSessionData()
     // Notify backend to invalidate the token — ignore failures to ensure local cleanup always runs
     if (!USE_MOCK) {
       try {
@@ -89,6 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
         console.error('Logout API call failed, proceeding with local cleanup:', e)
       }
     }
+    invalidateSessionData()
     token.value = null
     currentUser.value = null
     tokenService.clear()

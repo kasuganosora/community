@@ -20,7 +20,10 @@ func List(c *gin.Context) {
 
 	var statuses models.Statuses
 
-	statuses, err = listTimeline.GetTimelineContent(listObj, req.ToFeedListParams())
+	params := req.ToFeedListParams()
+	params.Context = c.Request.Context()
+	params.Viewer = controllers.GetAccount(c)
+	statuses, err = listTimeline.GetTimelineContent(listObj, params)
 	if err != nil {
 		_ = c.Error(err)
 
@@ -29,7 +32,7 @@ func List(c *gin.Context) {
 
 	account := controllers.GetAccount(c)
 
-	ret, err := serializer.ToStatuses(statuses, account)
+	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
 	if err != nil {
 		_ = c.Error(err)
 

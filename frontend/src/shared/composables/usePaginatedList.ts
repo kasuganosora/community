@@ -1,4 +1,5 @@
-import { ref, type Ref } from 'vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { ref, watch, type Ref } from 'vue'
 import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
 
 export interface PaginatedList<T> {
@@ -8,6 +9,8 @@ export interface PaginatedList<T> {
   hasMore: Ref<boolean>
   /** Reload the first page. Existing items stay until the new page arrives. */
   refresh: () => Promise<void>
+  /** Invalidate pending responses and clear data when account or list scope changes. */
+  reset: () => void
   /** Fetch the next page using its server cursor (or last item id for array APIs). */
   loadMore: () => Promise<void>
 }
@@ -29,6 +32,12 @@ export function usePaginatedList<T extends { id: string }>(
   let version = 0
   let nextCursor: string | undefined
 
+  function reset() {
+    ++version
+    items.value = []; loading.value = false; error.value = null; hasMore.value = true; nextCursor = undefined
+  }
+  watch(sessionEpoch, reset, { flush: 'sync' })
+
   async function run(append: boolean) {
     const my = ++version
     const maxId = append ? nextCursor : undefined
@@ -39,8 +48,8 @@ export function usePaginatedList<T extends { id: string }>(
       if (my !== version) return
       const page = Array.isArray(result) ? result : result.items
       nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
-      items.value = append ? mergeById(items.value, page) : page
-      hasMore.value = Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor
+      items.value = mergeById(append ? items.value : [], page)
+      hasMore.value = (Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor) && (!append || nextCursor !== maxId)
     } catch (e) {
       if (my !== version) return
       error.value = e instanceof Error ? e.message : '加载失败'
@@ -55,6 +64,7 @@ export function usePaginatedList<T extends { id: string }>(
     error,
     hasMore,
     refresh: () => run(false),
+    reset,
     loadMore: async () => {
       if (loading.value || !hasMore.value || items.value.length === 0) return
       await run(true)

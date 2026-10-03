@@ -1,11 +1,13 @@
 package list
 
 import (
+	"context"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,7 +53,25 @@ type ListTimeline struct {
 }
 
 func (timeline *ListTimeline) GetKeyFormat() string {
-	return "feed:list:%s"
+	return "feed:list:v2:%s"
+}
+
+func (timeline *ListTimeline) AggregateReblogs() bool { return true }
+
+func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
+	members := tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Select("account_id")
+	query := feed.EligibleTimelineStatuses(tx).Where("statuses.visibility = ?", models.StatusVisibilityPublic).
+		Where("statuses.account_id IN (?)", members)
+	if timeline.OnlyLocal {
+		query = query.Where("statuses.domain IS NULL")
+	}
+	if timeline.OnlyRemote {
+		query = query.Where("statuses.domain IS NOT NULL")
+	}
+	if timeline.OnlyMedia {
+		query = query.Where("EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id)")
+	}
+	return query
 }
 
 func (timeline *ListTimeline) GetTimelineId() string {
@@ -68,51 +88,21 @@ func (timeline *ListTimeline) GetTimelineId() string {
 		strs = append(strs, "media")
 	}
 
-	strs = append(strs, timeline.List.Title)
+	strs = append(strs, strconv.FormatUint(timeline.List.Id, 10))
 
 	return strings.Join(strs, ":")
 }
 
-func (timeline *ListTimeline) Rebuild() (err error) {
-	accountIds := make([]uint64, 0)
-
-	err = db.GetDB().Model(
-		&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Pluck("account_id", &accountIds).Error
-	if err != nil {
-		return err
-	}
-
+func (timeline *ListTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
+func (timeline *ListTimeline) RebuildContext(ctx context.Context) (err error) {
 	statuses := make(models.Statuses, 0)
-
-	err = db.GetDB().Model(
-		&models.Status{}).Where("account_id in (?)", accountIds).
-		Where("visibility = ?", models.StatusVisibilityPublic).
-		Order("id desc").Limit(feed.MAX_ITEMS / 4).
-		Find(
-			&statuses).Error
+	err = timeline.candidates(db.GetDB().WithContext(ctx).Model(&models.Status{})).
+		Order("statuses.id desc").Limit(feed.MAX_ITEMS / 4).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
 
-	err = feed.CleanFeeds(timeline, []string{timeline.GetTimelineId()})
-	if err != nil {
-		return err
-	}
-
-	for _, status := range statuses {
-		err = feed.AddToTimelineItem(timeline, status, true)
-		if err != nil {
-			return err
-		}
-
-		err = feed.TrimTimeline(timeline)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
+	return feed.RebuildTimelineContext(ctx, timeline, statuses, true)
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
@@ -242,21 +232,27 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	timeline := &ListTimeline{
 		List: list,
 	}
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+	ctx := params.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	// 标记最后查看时间
+	// Activity bookkeeping is coarse (the active-list window is 30 days).
+	// The controller-loaded timestamp avoids rewriting the list on every page.
 	now := time.Now()
-	list.LastViewedAt = &now
-
-	err = db.GetDB().Model(
-		&models.List{}).Where("id = ?", list.Id).Update("last_viewed_at", now).Error
-	if err != nil {
-		return
+	if list.LastViewedAt == nil || now.Sub(*list.LastViewedAt) >= time.Minute {
+		err = db.GetDB().WithContext(ctx).Model(&models.List{}).Where("id = ?", list.Id).Update("last_viewed_at", now).Error
+		if err != nil {
+			return
+		}
+		list.LastViewedAt = &now
 	}
 
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		query = tx.Where("visibility = ?", models.StatusVisibilityPublic)
-
-		return
+		return timeline.candidates(tx), nil
 	}
 
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)

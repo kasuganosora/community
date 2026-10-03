@@ -36,7 +36,7 @@ function selectTab(tab: ExploreTab) {
   router.replace({ query: { ...route.query, tab } }).catch(() => {})
 }
 
-watch(activeTab, () => feed.refresh())
+watch(activeTab, () => { feed.reset(); feed.refresh() })
 onMounted(() => feed.refresh())
 </script>
 
