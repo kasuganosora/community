@@ -127,7 +127,13 @@ func List(c *gin.Context) {
 // Membership in a reply thread does not grant access to every direct message.
 func visibleDirectStatuses(conn *gorm.DB, accountId uint64) *gorm.DB {
 	recipients := conn.Table("status_to_accounts").Select("status_id").Where("account_id = ?", accountId)
+	blocked := conn.Model(&models.Block{}).Select("target_account_id").Where("account_id IN ? AND type = ?", []uint64{0, accountId}, models.BlockTypeAccount)
+	reverse := conn.Model(&models.Block{}).Select("account_id").Where("target_account_id = ? AND type = ?", accountId, models.BlockTypeAccount)
+	domains := conn.Model(&models.Block{}).Select("target_domain").Where("account_id IN ? AND type = ?", []uint64{0, accountId}, models.BlockTypeDomain)
+	domainAuthors := conn.Model(&models.Account{}).Select("id").Where("domain IN (?)", domains)
+	globallyBlockedViewer := conn.Model(&models.Block{}).Select("1").Where("account_id = 0 AND type = ? AND target_account_id = ?", models.BlockTypeAccount, accountId)
 	return conn.Model(&models.Status{}).
+		Where("account_id = ? OR (account_id NOT IN (?) AND account_id NOT IN (?) AND account_id NOT IN (?) AND NOT EXISTS (?))", accountId, blocked, reverse, domainAuthors, globallyBlockedViewer).
 		Where("visibility = ? AND deleted_at IS NULL AND scheduled_at IS NULL", models.StatusVisibilityDirect).
 		Where("account_id = ? OR id IN (?)", accountId, recipients)
 }

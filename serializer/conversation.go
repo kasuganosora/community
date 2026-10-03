@@ -1,10 +1,12 @@
 package serializer
 
 import (
+	"strconv"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
-	"strconv"
+	"gorm.io/gorm"
 )
 
 type Conversation struct {
@@ -14,128 +16,122 @@ type Conversation struct {
 	LastStatus *Status    `json:"last_status"`
 }
 
-func ToConversation(conversation *models.Conversation, account *models.Account) (conv Conversation, err error) {
-	ret := Conversation{
-		Id: strconv.FormatUint(conversation.Id, 10),
-	}
-
-	accountConversation := make([]*models.AccountConversation, 0)
-
-	err = db.GetDB().Model(conversation).Where("account_id = ?", account.Id).Association("AccountConversations").Find(&accountConversation)
+func ToConversation(conversation *models.Conversation, account *models.Account) (Conversation, error) {
+	rows, err := ToConversations([]*models.Conversation{conversation}, account)
 	if err != nil {
-		return conv, err
+		return Conversation{}, err
 	}
-
-	if len(accountConversation) > 0 {
-		ret.Unread = accountConversation[0].IsUnread()
+	if len(rows) == 0 {
+		return Conversation{}, gorm.ErrRecordNotFound
 	}
-
-	accounts := make(models.Accounts, 0)
-
-	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", conversation.AccountsIds).Find(&accounts).Error
-	if err != nil {
-		return conv, err
-	}
-
-	ret.Accounts = ToAccounts(accounts)
-
-	lastStatus := &models.Status{}
-
-	query := db.GetDB().Model(&models.Status{}).Where("id = ?", utils.Max(conversation.StatusesIds)).Order("created_at desc")
-	query = models.StatusLoadAllQuery(query)
-
-	err = query.First(lastStatus).Error
-	if err != nil {
-		return conv, err
-	}
-
-	ret.LastStatus, err = ToStatus(lastStatus, account)
-	if err != nil {
-		return conv, err
-	}
-
-	return conv, err
+	return rows[0], nil
 }
 
-func ToConversations(conversations []*models.Conversation, account *models.Account) (ret []Conversation, err error) {
-	ret = make([]Conversation, 0)
+type visibleConversation struct {
+	latest       uint64
+	participants []uint64
+}
 
+// A reply thread can contain several private audiences. Its union of stored
+// account IDs must never reveal participants of messages the viewer cannot read.
+func visibleConversationData(conn *gorm.DB, ids []uint64, viewer uint64) (map[uint64]visibleConversation, error) {
+	recipients := conn.Table("status_to_accounts").Select("status_id").Where("account_id = ?", viewer)
+	var messages []*models.Status
+	err := conn.Model(&models.Status{}).Select("id", "account_id", "conversation_id", "visibility").
+		Where("conversation_id IN ? AND visibility = ? AND deleted_at IS NULL AND scheduled_at IS NULL", ids, models.StatusVisibilityDirect).
+		Where("account_id = ? OR id IN (?)", viewer, recipients).
+		Preload("ToAccounts").Order("id ASC").Find(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[uint64]visibleConversation)
+	for _, message := range messages {
+		allowed, err := message.CanViewEx(conn, &models.Account{Id: viewer})
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		if message.ConversationId == nil {
+			continue
+		}
+		id := *message.ConversationId
+		row := result[id]
+		row.latest = message.Id
+		row.participants = append(row.participants, message.AccountId)
+		for _, recipient := range message.ToAccounts {
+			row.participants = append(row.participants, recipient.Id)
+		}
+		row.participants = utils.UniqueSlice(row.participants)
+		result[id] = row
+	}
+	return result, nil
+}
+
+func ToConversations(conversations []*models.Conversation, account *models.Account) ([]Conversation, error) {
+	ret := make([]Conversation, 0, len(conversations))
 	if len(conversations) == 0 {
 		return ret, nil
 	}
-
-	accountsIds := make([]uint64, 0)
-	statusesId := make([]uint64, 0, len(conversations))
-
+	if account == nil {
+		return ret, nil
+	}
+	conn := db.GetDB()
+	ids := make([]uint64, 0, len(conversations))
 	for _, conversation := range conversations {
-		accountsIds = append(accountsIds, conversation.AccountsIds...)
-		statusesId = append(statusesId, utils.Max(conversation.StatusesIds))
+		ids = append(ids, conversation.Id)
 	}
-
-	accounts := make(models.Accounts, 0)
-
-	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountsIds).Find(&accounts).Error
+	visible, err := visibleConversationData(conn, ids, account.Id)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-
-	statuses := make([]*models.Status, 0)
-	query := db.GetDB().Model(&models.Status{}).Where("id in ?", statusesId).Order("created_at desc")
-	query = models.StatusLoadAllQuery(query)
-
-	err = query.Find(&statuses).Error
+	var accountIDs, statusIDs []uint64
+	for _, row := range visible {
+		accountIDs = append(accountIDs, row.participants...)
+		statusIDs = append(statusIDs, row.latest)
+	}
+	if len(statusIDs) == 0 {
+		return ret, nil
+	}
+	var accounts models.Accounts
+	if err := conn.Preload("Emojis").Preload("Extra").Where("id IN ?", utils.UniqueSlice(accountIDs)).Find(&accounts).Error; err != nil {
+		return nil, err
+	}
+	var statuses []*models.Status
+	if err := models.StatusLoadAllQuery(conn).Where("id IN ?", statusIDs).Find(&statuses).Error; err != nil {
+		return nil, err
+	}
+	serialized, err := ToStatuses(statuses, account)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
-
-	accs := ToAccounts(accounts)
-	accountsMap := utils.MapByAnyFiled(accs, func(account *Account) uint64 {
-		return account.intId
-	})
-
-	sts, err := ToStatuses(statuses, account)
-	if err != nil {
-		return ret, err
+	accountsByID := utils.MapByAnyFiled(ToAccounts(accounts), func(a *Account) uint64 { return a.intId })
+	statusesByID := utils.MapByAnyFiled(serialized, func(s *Status) uint64 { return s.intId })
+	var memberships []*models.AccountConversation
+	if err := conn.Where("conversation_id IN ? AND account_id = ?", ids, account.Id).Find(&memberships).Error; err != nil {
+		return nil, err
 	}
-
-	statusesMap := utils.MapByAnyFiled(sts, func(status *Status) uint64 {
-		return status.intId
-	})
-
-	accountConversations := make([]*models.AccountConversation, 0)
-
-	conversationId := make([]uint64, 0)
+	readThrough := make(map[uint64]uint64)
+	for _, membership := range memberships {
+		readThrough[membership.ConversationId] = membership.LastStatusId
+	}
 	for _, conversation := range conversations {
-		conversationId = append(conversationId, conversation.Id)
-	}
-
-	err = db.GetDB().Model(&models.AccountConversation{}).Where("conversation_id in ? and account_id = ?", conversationId, account.Id).Find(&accountConversations).Error
-	if err != nil {
-		return ret, err
-	}
-
-	accountConversationsMap := utils.MapByAnyFiled(accountConversations, func(accountConversation *models.AccountConversation) uint64 {
-		return accountConversation.ConversationId
-	})
-
-	ret = make([]Conversation, len(conversations))
-
-	for i, conversation := range conversations {
-		ret[i].Id = strconv.FormatUint(conversation.Id, 10)
-		ret[i].Accounts = make([]*Account, 0)
-
-		for _, accountId := range conversation.AccountsIds {
-			if acc, ok := accountsMap[accountId]; ok {
-				ret[i].Accounts = append(ret[i].Accounts, acc)
+		row, ok := visible[conversation.Id]
+		if !ok {
+			continue
+		}
+		last := statusesByID[row.latest]
+		if last == nil {
+			continue
+		}
+		item := Conversation{Id: strconv.FormatUint(conversation.Id, 10), Accounts: make([]*Account, 0), LastStatus: last, Unread: row.latest > readThrough[conversation.Id]}
+		for _, id := range row.participants {
+			if a := accountsByID[id]; a != nil {
+				item.Accounts = append(item.Accounts, a)
 			}
 		}
-
-		ret[i].LastStatus = statusesMap[utils.Max(conversation.StatusesIds)]
-
-		if accountConversation, ok := accountConversationsMap[conversation.Id]; ok {
-			ret[i].Unread = accountConversation.IsUnread()
-		}
+		ret = append(ret, item)
 	}
-
-	return ret, err
+	return ret, nil
 }

@@ -21,26 +21,15 @@ func Context(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
 	account := controllers.GetAccount(c)
 
-	// Check permission
-	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
-		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
-
-			return
-		}
-
-		canView, err := status.CanViewEx(db.GetDB(), account)
-		if err != nil {
-			controllers.AbortIfError(c, err)
-
-			return
-		}
-
-		if !canView {
-			c.JSON(403, gin.H{"error": "has no permission"})
-
-			return
-		}
+	// Thread membership is not authorization for any individual message.
+	allowed, err := status.CanViewEx(db.GetDB(), account)
+	if err != nil {
+		controllers.AbortIfError(c, err)
+		return
+	}
+	if !allowed {
+		c.JSON(403, gin.H{"error": "has no permission"})
+		return
 	}
 
 	// Get ancestors (parent statuses in the thread)
@@ -58,6 +47,17 @@ func Context(c *gin.Context) {
 		if allStatuses[i] != nil {
 			_ = allStatuses[i].CheckAndLoadAllExtendFields(db.GetDB())
 		}
+	}
+
+	ancestors, err = visibleThreadStatuses(db.GetDB(), ancestors, account)
+	if err != nil {
+		controllers.AbortIfError(c, err)
+		return
+	}
+	descendants, err = visibleThreadStatuses(db.GetDB(), descendants, account)
+	if err != nil {
+		controllers.AbortIfError(c, err)
+		return
 	}
 
 	// Serialize
@@ -150,4 +150,18 @@ func getDescendants(dbConn *gorm.DB, statusId uint64, limit int, depth int) []*m
 	}
 
 	return descendants
+}
+
+func visibleThreadStatuses(conn *gorm.DB, statuses []*models.Status, viewer *models.Account) ([]*models.Status, error) {
+	result := make([]*models.Status, 0, len(statuses))
+	for _, status := range statuses {
+		allowed, err := status.CanViewEx(conn, viewer)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			result = append(result, status)
+		}
+	}
+	return result, nil
 }

@@ -55,6 +55,7 @@ func allModels() []any {
 		&models.StatusMediaAttachment{},
 		&models.FavoriteStatus{},
 		&models.Follow{},
+		&models.Block{},
 		&models.Notification{},
 		&models.Report{},
 		&models.Poll{},

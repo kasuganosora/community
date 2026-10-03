@@ -129,6 +129,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.Conversation{},
 		&models.AccountConversation{},
 		&models.Follow{},
+		&models.Block{},
 		&models.Report{},
 		&models.Filter{},
 	)
@@ -1136,6 +1137,8 @@ func TestGetNotification_WithPreloadedAccount(t *testing.T) {
 	now := time.Now()
 	account := makeAccount(1)
 	require.NoError(t, testDB.Create(account).Error)
+
+	require.NoError(t, testDB.Create(makeAccount(2)).Error)
 
 	n := &models.Notification{
 		Type:          uint8(models.NotificationTypeFollow),

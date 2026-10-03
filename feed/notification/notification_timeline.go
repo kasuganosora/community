@@ -92,13 +92,16 @@ func (timeline *NotificationTimeline) push(notification *models.Notification, pu
 	}
 
 	if pushToClient && feed.PushUpdateRequired(timeline) {
-		var payload any
+		var payload *serializer.Notification
 
 		payload, err = serializer.ToNotification(notification, timeline.Account)
 		if err != nil {
 			return
 		}
 
+		if payload == nil {
+			return nil
+		}
 		err = feed.PushToClient(timeline, "notification", payload)
 		if err != nil {
 			return

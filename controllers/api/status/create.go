@@ -69,7 +69,26 @@ func Create(c *gin.Context) {
 		inReplyToId, err = strconv.ParseUint(req.InReplyToId, 10, 64)
 		controllers.AbortIfError(c, err)
 
+		var parent models.Status
+		if err := db.GetDB().Preload("ToAccounts").First(&parent, inReplyToId).Error; err != nil {
+			c.JSON(404, gin.H{"error": "reply target not found"})
+			return
+		}
+		allowed, err := parent.CanViewEx(db.GetDB(), currentAccount)
+		if err != nil {
+			controllers.AbortIfError(c, err)
+			return
+		}
+		if !allowed {
+			c.JSON(403, gin.H{"error": "reply target is not visible"})
+			return
+		}
+		if !models.ValidateReplyVisibility(&parent, status.Visibility) {
+			c.JSON(422, gin.H{"error": "Reply visibility cannot be broader than its parent"})
+			return
+		}
 		status.InReplyToId = &inReplyToId
+		status.InReplyToAccountId = &parent.AccountId
 	}
 
 	if req.Poll != nil {
@@ -104,7 +123,16 @@ func Create(c *gin.Context) {
 		status.Attachments = attachments
 	}
 
-	err = db.GetDB().Create(status).Error
+	createDB := db.GetDB().WithContext(c.Request.Context())
+	if status.Visibility == models.StatusVisibilityDirect {
+		recipients, err := prepareDirectRecipients(c.Request.Context(), req.Status, currentAccount.Id, status.InReplyToAccountId)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		createDB = createDB.WithContext(models.WithStructuredRecipientIDs(c.Request.Context(), recipients))
+	}
+	err = createDB.Create(status).Error
 	if err != nil {
 		_ = c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create status"})

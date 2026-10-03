@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -265,12 +266,10 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return key, nil
 	}
 
-	// KeyID is typically the actor URI with #main-key suffix
-	actorURI := strings.TrimSuffix(keyID, "#main-key")
-
-	// Validate that the actorURI is a safe federation target before fetching
-	if err := validateFederationURI(actorURI); err != nil {
-		return nil, fmt.Errorf("invalid keyId URI: %w", err)
+	// A fragment identifies an actor's key; its name is server-defined.
+	actorURI, err := actorURIFromKeyID(keyID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch the actor to get the public key
@@ -280,27 +279,8 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return nil, fmt.Errorf("fetching actor: %w", err)
 	}
 
-	// Critical: verify that the fetched actor's ID matches the URI we requested.
-	// Without this check, a malicious server could serve a different actor's
-	// document (with a victim's public key) under an attacker-controlled URL,
-	// enabling impersonation.
-	if actor.ID != "" && actor.ID != actorURI {
-		return nil, fmt.Errorf("actor ID %q does not match requested keyId URI %q", actor.ID, actorURI)
-	}
-
-	// Parse the public key
-	if actor.PublicKey == nil || actor.PublicKey.PublicKeyPem == "" {
-		return nil, errors.New("actor has no public key")
-	}
-
-	// H2: Verify public key ID matches the keyId from the signature
-	if actor.PublicKey.ID != "" && actor.PublicKey.ID != keyID {
-		return nil, fmt.Errorf("public key ID %q does not match signature keyId %q", actor.PublicKey.ID, keyID)
-	}
-
-	// H2: Verify public key owner is the actor itself
-	if actor.PublicKey.Owner != "" && actor.PublicKey.Owner != actorURI {
-		return nil, fmt.Errorf("public key owner %q does not match actor URI %q", actor.PublicKey.Owner, actorURI)
+	if err := validateActorSigningKey(actor, actorURI, keyID); err != nil {
+		return nil, err
 	}
 
 	publicKey, err := ParsePublicKey(actor.PublicKey.PublicKeyPem)
@@ -439,7 +419,39 @@ func VerifyActivitySignature(c interface{ GetHeader(string) string }, body []byt
 	}
 
 	// Extract actor URI from keyId
-	actorURI := strings.TrimSuffix(sig.KeyID, "#main-key")
+	return actorURIFromKeyID(sig.KeyID)
+}
 
+// actorURIFromKeyID removes only the URL fragment, preserving the exact actor
+// URI spelling for the subsequent ID/owner checks and SSRF-protected fetch.
+func actorURIFromKeyID(keyID string) (string, error) {
+	if _, err := url.Parse(keyID); err != nil {
+		return "", fmt.Errorf("invalid keyId URI: %w", err)
+	}
+	actorURI, _, _ := strings.Cut(keyID, "#")
+	if err := validateFederationURI(actorURI); err != nil {
+		return "", fmt.Errorf("invalid keyId URI: %w", err)
+	}
 	return actorURI, nil
+}
+
+// Both the actor identity and its explicit delegation to this exact key must
+// match. Missing fields are not permission to impersonate an unrelated actor.
+func validateActorSigningKey(actor *Actor, actorURI, keyID string) error {
+	if actor == nil {
+		return errors.New("missing actor")
+	}
+	if actor.ID != actorURI {
+		return fmt.Errorf("actor ID %q does not match requested keyId URI %q", actor.ID, actorURI)
+	}
+	if actor.PublicKey == nil || actor.PublicKey.PublicKeyPem == "" {
+		return errors.New("actor has no public key")
+	}
+	if actor.PublicKey.ID != keyID {
+		return fmt.Errorf("public key ID %q does not match signature keyId %q", actor.PublicKey.ID, keyID)
+	}
+	if actor.PublicKey.Owner != actorURI {
+		return fmt.Errorf("public key owner %q does not match actor URI %q", actor.PublicKey.Owner, actorURI)
+	}
+	return nil
 }

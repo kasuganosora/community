@@ -38,8 +38,9 @@ func TestMentionNotificationTransaction(t *testing.T) {
 	} {
 		require.NoError(t, conn.Exec(ddl).Error)
 	}
+	require.NoError(t, conn.AutoMigrate(&models.Block{}, &models.AccountExtra{}))
 	t.Cleanup(func() {
-		for _, table := range []string{"notifications", "status_to_accounts", "status_contents", "statuses", "accounts"} {
+		for _, table := range []string{"blocks", "accounts_extra", "notifications", "status_to_accounts", "status_contents", "statuses", "accounts"} {
 			_ = conn.Exec("DROP TABLE " + table).Error
 		}
 	})

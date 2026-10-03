@@ -2,6 +2,8 @@ package conversation
 
 import (
 	"encoding/json"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +60,8 @@ func setupTestDB(t *testing.T) {
 		&models.AccountExtra{},
 		&models.Status{},
 		&models.StatusContent{},
+		&models.Block{},
+		&models.StatusToAccount{},
 		&models.PinStatus{},
 		&models.Conversation{},
 		&models.AccountConversation{},
@@ -257,18 +261,26 @@ func TestList_InvalidMaxId(t *testing.T) {
 // ========== MarkRead Tests ==========
 
 func TestMarkRead_Success(t *testing.T) {
-	setupTestDB(t)
+	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := conn.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	testDB = &testutil.TestDB{GormDB: conn}
+	database.SetTestDB(conn)
+	require.NoError(t, testDB.AutoMigrate(&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.Conversation{}, &models.AccountConversation{}, &models.Block{}, &models.StatusToAccount{}))
 	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/conversations/1/read")
 	otherAccount := createTestAccount(t, "otheruser")
 
 	// Create a conversation with a status
 	statusId := uint64(42)
 	conv := createTestConversation(t, []uint64{account.Id, otherAccount.Id}, []uint64{statusId})
+	require.NoError(t, testDB.GormDB.Session(&gorm.Session{SkipHooks: true}).Create(&models.Status{Id: statusId, AccountId: account.Id, ConversationId: &conv.Id, Visibility: models.StatusVisibilityDirect}).Error)
 
 	// Verify the AccountConversation was created by AfterSave hook
 	var ac models.AccountConversation
 
-	err := testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&ac).Error
+	err = testDB.GormDB.Where("account_id = ? AND conversation_id = ?", account.Id, conv.Id).First(&ac).Error
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

@@ -399,15 +399,26 @@ func TestCreate_PrivateVisibility(t *testing.T) {
 
 func TestCreate_DirectVisibility(t *testing.T) {
 	ts := newTestSetup(t)
+	recipient := ts.fix.CreateAccount(ts.fix.CreateUser(func(u *models.User) { u.UserName = "direct_recipient" }), func(a *models.Account) { a.Username = "direct_recipient" })
 	c, w := newGinContextPost(t, nil, CreateStatusRequest{
-		Status:     "Direct post",
+		Status:     "@direct_recipient Direct post",
 		Visibility: "direct",
 	})
 	setAccount(c, ts.acct)
 
 	safeHandler(c, Create)
 
-	assert.Equal(t, 200, w.Code)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		Visibility string `json:"visibility"`
+		Mentions   []struct {
+			ID string `json:"id"`
+		} `json:"mentions"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Equal(t, "direct", response.Visibility)
+	require.Len(t, response.Mentions, 1)
+	require.Equal(t, strconv.FormatUint(recipient.Id, 10), response.Mentions[0].ID)
 }
 
 func TestCreate_UnlistedVisibility(t *testing.T) {

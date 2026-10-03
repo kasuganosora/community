@@ -82,6 +82,20 @@ func Replace(c *gin.Context) {
 	// lock; first-use settings loading must not borrow a second connection
 	// from a pool already exhausted by replacement transactions.
 	_ = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, 500)
+	directSnapshot, directRecipients, err := prepareReplacementDirectRecipients(c.Request.Context(), id, owner, &req)
+	if err != nil {
+		var rejected replacementError
+		switch {
+		case errors.As(err, &rejected):
+			c.JSON(rejected.code, gin.H{"error": rejected.message})
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			c.JSON(404, gin.H{"error": "status or reply target not found"})
+		default:
+			_ = c.Error(err)
+			c.JSON(500, gin.H{"error": "Failed to prepare replacement; the original post was retained"})
+		}
+		return
+	}
 	var replacement *models.Status
 	transactionContext, publishStatusEvents := models.BeginDeferredStatusEvents(c.Request.Context())
 	err = db.GetDB().WithContext(transactionContext).Transaction(func(tx *gorm.DB) error {
@@ -89,6 +103,9 @@ func Replace(c *gin.Context) {
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)
 		if err := models.StatusLoadAllQuery(query).First(original).Error; err != nil {
 			return err
+		}
+		if directSnapshot != nil && !sameDirectRecipientSnapshot(directSnapshot, original) {
+			return replacementError{409, "The original post changed while resolving recipients; retry the replacement"}
 		}
 		if original.AccountId != owner.Id || !original.IsLocal() {
 			return replacementError{403, "forbidden"}
@@ -143,6 +160,9 @@ func Replace(c *gin.Context) {
 			if !visible {
 				return replacementError{403, "Reply target is not visible"}
 			}
+			if !models.ValidateReplyVisibility(&parent, next.Visibility) {
+				return invalidReplacement("Reply visibility cannot be broader than its parent")
+			}
 			next.InReplyToAccountId = &parent.AccountId
 		}
 		mediaIDs := make([]string, 0, len(original.Attachments))
@@ -173,6 +193,12 @@ func Replace(c *gin.Context) {
 			return invalidReplacement(message)
 		}
 		createTx := tx.WithContext(models.WithDeferredFederationCreate(tx.Statement.Context))
+		if next.Visibility == models.StatusVisibilityDirect {
+			if directSnapshot == nil {
+				return invalidReplacement("Direct recipients were not validated")
+			}
+			createTx = createTx.WithContext(models.WithStructuredRecipientIDs(createTx.Statement.Context, directRecipients))
+		}
 		if err := createTx.Create(next).Error; err != nil {
 			return fmt.Errorf("create replacement: %w", err)
 		}

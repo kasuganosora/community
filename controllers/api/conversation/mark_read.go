@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"strconv"
 )
@@ -38,26 +37,23 @@ func MarkRead(c *gin.Context) {
 		return
 	}
 
-	conversation := &models.Conversation{}
-
-	err = db.GetDB().Model(conversation).Where("id = ?", id).First(conversation).Error
+	// Read-through tracks only messages this account is authorized to read.
+	var maxStatusId uint64
+	err = visibleDirectStatuses(db.GetDB(), account.Id).Where("conversation_id = ?", id).
+		Select("COALESCE(MAX(id), 0)").Scan(&maxStatusId).Error
 	if err != nil {
-		err = errors.Wrap(err, "can't find conversation")
-		_ = c.Error(err)
-
+		_ = c.Error(errors.Wrap(err, "can't find readable messages"))
 		return
 	}
-
-	// 获取这个 conversation 最大的 status id
-	maxStatusId := utils.Max(conversation.StatusesIds)
-
-	// 写入到 account conversation
-	ac.LastStatusId = maxStatusId
-
-	if err = db.GetDB().Select("last_status_id").Save(ac).Error; err != nil {
-		err = errors.Wrap(err, "can't save conversation")
-		_ = c.Error(err)
-
+	if maxStatusId == 0 {
+		c.JSON(404, gin.H{"error": "conversation has no readable messages"})
+		return
+	}
+	// A concurrent read request must never move the cursor backwards.
+	err = db.GetDB().Model(ac).Where("last_status_id < ?", maxStatusId).
+		UpdateColumn("last_status_id", maxStatusId).Error
+	if err != nil {
+		_ = c.Error(errors.Wrap(err, "can't save conversation"))
 		return
 	}
 

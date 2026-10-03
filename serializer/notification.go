@@ -1,9 +1,11 @@
 package serializer
 
 import (
+	"errors"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
+	"gorm.io/gorm"
 	"strconv"
 	"time"
 )
@@ -18,7 +20,44 @@ type Notification struct {
 	List      *List      `json:"list,omitempty"`
 }
 
+// NotificationVisible rechecks current authorization even for historical rows.
+// A stale notification is not a grant to a direct/private post after revocation.
+func NotificationVisible(n *models.Notification, currentAccount *models.Account) (bool, error) {
+	if n == nil {
+		return false, nil
+	}
+	conn := db.GetDB()
+	if currentAccount != nil && n.FromAccountId != 0 {
+		var sender models.Account
+		if err := conn.First(&sender, n.FromAccountId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+		blocked, err := models.AccountsBlocked(conn, currentAccount, &sender)
+		if err != nil || blocked {
+			return false, err
+		}
+	}
+	if n.StatusId == 0 {
+		return true, nil
+	}
+	var status models.Status
+	if err := conn.Preload("ToAccounts").Preload("Account").First(&status, n.StatusId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return status.CanViewEx(conn, currentAccount)
+}
+
 func ToNotification(n *models.Notification, currentAccount *models.Account) (ret *Notification, err error) {
+	visible, err := NotificationVisible(n, currentAccount)
+	if err != nil || !visible {
+		return nil, err
+	}
 	ret = &Notification{}
 	ret.Id = strconv.FormatUint(n.Id, 10)
 	ret.Type = n.GetTypeString()
@@ -86,6 +125,21 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 }
 
 func ToNotifications(ns []*models.Notification, currentAccount *models.Account) (ret []*Notification, err error) {
+	visibleNotifications := make([]*models.Notification, 0, len(ns))
+	for _, n := range ns {
+		visible, err := NotificationVisible(n, currentAccount)
+		if err != nil {
+			return nil, err
+		}
+		if visible {
+			visibleNotifications = append(visibleNotifications, n)
+		}
+	}
+	ns = visibleNotifications
+	if len(ns) == 0 {
+		return []*Notification{}, nil
+	}
+
 	accountIds := make([]uint64, 0)
 	statusIds := make([]uint64, 0)
 	reportsIds := make([]uint64, 0)

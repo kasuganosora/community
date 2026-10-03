@@ -280,7 +280,7 @@ func TestVerifyActivitySignatureSuccess(t *testing.T) {
 	})))
 	require.NoError(t, err)
 
-	keyID := "https://actor.example.com/users/ginverify#main-key"
+	keyID := "https://actor.example.com/users/ginverify#rsa-2d1bfa24a05cd8d9"
 	globalKeyCache.Add(keyID, pubKey)
 
 	host := "inbox.example.com"

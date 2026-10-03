@@ -29,11 +29,6 @@ updates:
           - "github.com/stretchr/*"
           - "github.com/alicebob/*"
           - "github.com/go-redis/redismock/*"
-    # Ignore patch updates for indirect deps (they generate too much noise)
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-        # Only ignore patch updates for indirect deps
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -42,3 +37,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      frontend:
+        patterns:
+          - "*"

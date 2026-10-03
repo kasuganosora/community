@@ -40,7 +40,7 @@ func persistenceDB(t *testing.T, mysqlDB bool) *gorm.DB {
 		require.NoError(t, conn.Exec("PRAGMA foreign_keys = ON").Error)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	all := []any{&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.RemoteActorIdentity{}, &ProcessedActivity{}, &models.Follow{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.StatusTag{}, &models.StatusEmoji{}, &models.StatusToAccount{}, &models.Conversation{}, &models.AccountConversation{}, &models.Notification{}}
+	all := []any{&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.RemoteActorIdentity{}, &ProcessedActivity{}, &models.Follow{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.StatusTag{}, &models.StatusEmoji{}, &models.StatusToAccount{}, &models.Conversation{}, &models.AccountConversation{}, &models.Notification{}, &models.Block{}}
 	if mysqlDB {
 		all = all[:6]
 	}
@@ -216,4 +216,36 @@ func TestFollowAcceptanceAuthenticatesReferenceAndCountsOnce(t *testing.T) {
 	var remoteExtra models.AccountExtra
 	require.NoError(t, conn.First(&remoteExtra, "account_id = ?", remote.Id).Error)
 	require.Equal(t, 1, remoteExtra.FollowersCount)
+}
+
+func TestInboundBlockedDirectIsIgnoredAndGroupKeepsOtherRecipients(t *testing.T) {
+	conn := persistenceDB(t, false)
+	domain := "remote.example"
+	author := models.Account{Username: "block_author", Domain: &domain, OriginId: "https://remote.example/users/block_author"}
+	blocked := models.Account{Username: "blocked"}
+	allowed := models.Account{Username: "allowed"}
+	for _, a := range []*models.Account{&author, &blocked, &allowed} {
+		require.NoError(t, conn.Create(a).Error)
+	}
+	require.NoError(t, conn.Create(&models.Block{AccountId: blocked.Id, TargetAccountId: author.Id}).Error)
+	base := systemsettings.GetBaseURL()
+	deliver := func(id string, to []any) int {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		object := map[string]any{"id": id, "type": "Note", "attributedTo": author.OriginId, "content": "private", "to": to}
+		ctx := context.WithValue(context.Background(), actorKey, author.OriginId)
+		processInboxTransaction(ctx, c, id+"/activity", func(ctx context.Context) { handleCreateActivity(ctx, c, map[string]any{"object": object}, &blocked) })
+		return w.Code
+	}
+	id := "https://remote.example/notes/blocked"
+	require.Equal(t, 202, deliver(id, []any{base + "/users/blocked"}))
+	var count int64
+	require.NoError(t, conn.Model(&models.Status{}).Where("origin_uri = ?", id).Count(&count).Error)
+	require.Zero(t, count)
+	id = "https://remote.example/notes/group"
+	require.Equal(t, 200, deliver(id, []any{base + "/users/blocked", base + "/users/allowed"}))
+	var status models.Status
+	require.NoError(t, conn.Preload("ToAccounts").Where("origin_uri = ?", id).First(&status).Error)
+	require.Len(t, status.ToAccounts, 1)
+	require.Equal(t, allowed.Id, status.ToAccounts[0].Id)
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 )
 
@@ -37,6 +38,15 @@ func GetNotification(c *gin.Context) {
 		return
 	}
 
+	visible, err := serializer.NotificationVisible(notification, account)
+	if err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "failed to read notification"})
+		return
+	}
+	if !visible {
+		c.AbortWithStatusJSON(404, gin.H{"error": "notification not found"})
+		return
+	}
 	// Build response
 	c.JSON(200, buildNotificationResponse(notification, c))
 }

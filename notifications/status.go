@@ -139,9 +139,21 @@ func createMentionBatch(tx *gorm.DB, rows []*models.Notification, created *[]*mo
 }
 
 func mentionAccountIDs(tx *gorm.DB, statusID uint64) ([]uint64, error) {
-	ids := make([]uint64, 0)
-	err := tx.Model(&models.StatusToAccount{}).Where("status_id = ?", statusID).Pluck("account_id", &ids).Error
-	return ids, err
+	var status models.Status
+	if err := tx.Preload("ToAccounts").Preload("Account").First(&status, statusID).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]uint64, 0, len(status.ToAccounts))
+	for _, account := range status.ToAccounts {
+		visible, err := status.CanViewEx(tx, account)
+		if err != nil {
+			return nil, err
+		}
+		if visible {
+			ids = append(ids, account.Id)
+		}
+	}
+	return ids, nil
 }
 
 // unfavouriteNotification 取消收藏通知

@@ -265,6 +265,10 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 				c.JSON(403, gin.H{"error": "reply target is not visible"})
 				return
 			}
+			if !models.ValidateReplyVisibility(parent, getVisibilityFromActivity(object)) {
+				c.JSON(422, gin.H{"error": "reply visibility cannot be broader than its parent"})
+				return
+			}
 			inReplyToID = &parent.Id
 			inReplyToAccountID = &parent.AccountId
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -278,6 +282,26 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		c.JSON(500, gin.H{"error": "failed to resolve recipients"})
 		return
 	}
+
+	// A signed address is not a bypass for either side's block. Keep other
+	// group recipients, but acknowledge a fully blocked direct delivery without
+	// storing it or asking the remote server to retry forever.
+	visibleRecipients := recipients[:0]
+	for _, recipient := range recipients {
+		blocked, err := models.AccountsBlocked(activityDB(ctx), remoteAccount, recipient)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to check recipient"})
+			return
+		}
+		if !blocked {
+			visibleRecipients = append(visibleRecipients, recipient)
+		}
+	}
+	if visibility == models.StatusVisibilityDirect && len(recipients) > 0 && len(visibleRecipients) == 0 {
+		c.Status(202)
+		return
+	}
+	recipients = visibleRecipients
 
 	// Create status
 	now := time.Now()

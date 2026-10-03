@@ -23,19 +23,9 @@ func Show(c *gin.Context) {
 		status.Reblog = reblog
 	}
 
-	// check permission
-	// 如果是私有的，只有自己和关注者/提及的人可以看到
-	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
-		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
-
-			return
-		} else {
-			canview, err := status.CanViewEx(db.GetDB(), account)
-			controllers.AbortIfError(c, err)
-			controllers.AbortIf(c, !canview, 403, gin.H{"error": "has no permission"})
-		}
-	}
+	allowed, err := status.CanViewEx(db.GetDB(), account)
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !allowed, 403, gin.H{"error": "has no permission"})
 
 	returnFullSingleStatus(c, status, account)
 }

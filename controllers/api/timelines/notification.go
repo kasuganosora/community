@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"gorm.io/gorm"
 	"strconv"
 )
 
@@ -26,7 +27,6 @@ func NotificationTimeline(c *gin.Context) {
 
 	account := controllers.MustGetAccount(c)
 
-	nfs := make(models.Notifications, 0)
 	query := db.GetDB().Model(&models.Notification{}).Where("account_id = ?", account.Id)
 
 	if len(req.ExcludeTypes) > 0 {
@@ -80,11 +80,37 @@ func NotificationTimeline(c *gin.Context) {
 		req.Limit = 20
 	}
 
-	err = query.Order("id DESC").Limit(req.Limit).Find(&nfs).Error
-	controllers.AbortIfError(c, err)
-
-	ret, err := serializer.ToNotifications(nfs, account)
-	controllers.AbortIfError(c, err)
-
+	// Authorization can hide an entire batch after a block or recipient change.
+	// Keep scanning older rows until the visible page is full or history ends;
+	// an empty filtered batch must not masquerade as the end of pagination.
+	ret := make([]*serializer.Notification, 0, req.Limit)
+	var cursor uint64
+	for len(ret) < req.Limit {
+		batchQuery := query.Session(&gorm.Session{})
+		if cursor != 0 {
+			batchQuery = batchQuery.Where("id < ?", cursor)
+		}
+		batchSize := req.Limit
+		if batchSize < 20 {
+			batchSize = 20
+		}
+		nfs := make(models.Notifications, 0, batchSize)
+		err = batchQuery.Order("id DESC").Limit(batchSize).Find(&nfs).Error
+		controllers.AbortIfError(c, err)
+		if len(nfs) == 0 {
+			break
+		}
+		visible, err := serializer.ToNotifications(nfs, account)
+		controllers.AbortIfError(c, err)
+		remaining := req.Limit - len(ret)
+		if len(visible) > remaining {
+			visible = visible[:remaining]
+		}
+		ret = append(ret, visible...)
+		cursor = nfs[len(nfs)-1].Id
+		if len(nfs) < batchSize {
+			break
+		}
+	}
 	c.JSON(200, ret)
 }

@@ -109,15 +109,16 @@ func StatusObject(c *gin.Context) {
 			c.Status(http.StatusForbidden)
 			return
 		}
-		follows := map[uint64]*models.Follow{}
-		var follow models.Follow
-		if db.GetDB().Scopes(models.Followed).Where("account_id = ? AND follow_id = ?", viewer.Id, account.Id).First(&follow).Error == nil {
-			follows[account.Id] = &follow
+		visible, checkErr := status.CanViewEx(db.GetDB(), &viewer)
+		if checkErr != nil {
+			c.Status(http.StatusInternalServerError)
+			return
 		}
-		if !status.CanView(&viewer, follows) {
+		if !visible {
 			c.Status(http.StatusForbidden)
 			return
 		}
+
 	}
 	status.Account = &account
 	note, err := StatusToNote(&status)

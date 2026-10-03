@@ -690,10 +690,32 @@ func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canVie
 }
 
 func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
+	if account == nil {
+		return !s.IsScheduled() && s.CanView(nil, nil), nil
+	}
 	if s.AccountId == account.Id {
 		ok = true
 
 		return
+	}
+
+	if s.IsScheduled() {
+		return false, nil
+	}
+	author := s.Account
+	if author == nil {
+		author = &Account{}
+		if err := db.First(author, s.AccountId).Error; err != nil {
+			return false, err
+		}
+	}
+	blocked, err := AccountsBlocked(db, account, author)
+	if err != nil || blocked {
+		return false, err
+	}
+
+	if s.Visibility != StatusVisibilityPrivate {
+		return s.CanView(account, nil), nil
 	}
 
 	follows := make(Follows, 0)

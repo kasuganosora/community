@@ -86,6 +86,28 @@ func TestList_OnlyVisibleDirectMessagesBeforePagination(t *testing.T) {
 	require.NotNil(t, result[0].LastStatus)
 	require.Equal(t, strconv.FormatUint(visible.Id, 10), result[0].LastStatus.Id)
 	require.Equal(t, "direct", result[0].LastStatus.Visibility)
+	participantIDs := func(c serializer.Conversation) []string {
+		ids := make([]string, 0, len(c.Accounts))
+		for _, account := range c.Accounts {
+			ids = append(ids, account.Id)
+		}
+		return ids
+	}
+	require.ElementsMatch(t, []string{strconv.FormatUint(alice.Id, 10), strconv.FormatUint(bob.Id, 10)}, participantIDs(result[0]), "participants from an unreadable branch must remain private")
+	// Reading only the visible branch must produce a real single response and
+	// a later hidden branch must not change either preview or unread status.
+	require.NoError(t, conn.Model(&models.AccountConversation{}).Where("conversation_id = ? AND account_id = ?", direct.Id, alice.Id).Update("last_status_id", visible.Id).Error)
+	single, err := serializer.ToConversation(direct, alice)
+	require.NoError(t, err)
+	require.Equal(t, strconv.FormatUint(direct.Id, 10), single.Id)
+	require.False(t, single.Unread)
+	require.Equal(t, strconv.FormatUint(visible.Id, 10), single.LastStatus.Id)
+	require.ElementsMatch(t, participantIDs(result[0]), participantIDs(single))
+	newVisible := addStatus(direct, bob, models.StatusVisibilityDirect, alice)
+	single, err = serializer.ToConversation(direct, alice)
+	require.NoError(t, err)
+	require.True(t, single.Unread, "a new visible DM after reading must become unread again")
+	require.Equal(t, strconv.FormatUint(newVisible.Id, 10), single.LastStatus.Id)
 	// Filtering the private inbox must not alter public reply-thread storage.
 	var preserved models.Conversation
 	require.NoError(t, testDB.GormDB.First(&preserved, public.Id).Error)

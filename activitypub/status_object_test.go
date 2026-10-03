@@ -30,7 +30,7 @@ func TestStatusObjectVisibilityAndOwner(t *testing.T) {
 	previous := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previous) })
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{}, &models.MediaAttachment{}, &models.Follow{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{}, &models.MediaAttachment{}, &models.Follow{}, &models.Block{}))
 	raw := conn.Session(&gorm.Session{SkipHooks: true})
 	author := &models.Account{Id: 910, Username: "object_author"}
 	require.NoError(t, raw.Omit("User").Create(author).Error)
