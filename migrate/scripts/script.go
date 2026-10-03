@@ -27,6 +27,7 @@ var ScripsType = []MigrationScript{
 	NullableRemoteAccountUserScript{},
 	CustomEmojiMetadataScript{},
 	StatusReactionsScript{},
+	ReactionActivityHistoryScript{},
 }
 
 type MigrationScript interface {

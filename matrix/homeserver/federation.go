@@ -48,6 +48,8 @@ func RegisterFederationRoutes(r gin.IRouter) {
 	{
 		fed.GET("/v1/version", handleFederationVersion)
 		fed.Use(requireFederationAuth())
+		fed.GET("/v1/media/download/:mediaId", handleFederationMediaDownload)
+		fed.GET("/v1/media/thumbnail/:mediaId", handleFederationMediaThumbnail)
 		fed.GET("/v1/query/directory", handleQueryDirectory)
 		fed.GET("/v1/query/profile", handleQueryProfile)
 		fed.GET("/v1/make_join/:roomId/:userId", handleMakeJoin)

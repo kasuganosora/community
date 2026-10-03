@@ -424,3 +424,19 @@ func TestProcessImage_LargeImage(t *testing.T) {
 		_ = os.Remove(thumbnailFullPath)
 	}
 }
+
+func TestCreateWebPThumbnailReturnsActualJPEGName(t *testing.T) {
+	dir := t.TempDir()
+	name, err := NewImageProcessor().CreateThumbnail(image.NewRGBA(image.Rect(0, 0, 96, 64)), filepath.Join(dir, "source.webp"), "webp")
+	require.NoError(t, err)
+	require.Equal(t, "thumb_source.jpg", name)
+	file, err := os.Open(filepath.Join(dir, name))
+	require.NoError(t, err)
+	defer file.Close()
+	decoded, format, err := image.Decode(file)
+	require.NoError(t, err)
+	require.Equal(t, "jpeg", format)
+	require.Positive(t, decoded.Bounds().Dx())
+	_, err = os.Stat(filepath.Join(dir, "thumb_source.webp"))
+	require.True(t, os.IsNotExist(err))
+}

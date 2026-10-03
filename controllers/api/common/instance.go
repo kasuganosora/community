@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
+	mediamanagement "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -103,7 +104,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Configuration.Statuses.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
 	resp.Configuration.Statuses.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
 	resp.Configuration.Statuses.CharactersReservedPerUrl = systemsettings.GetInt(systemsettings.KeyStatusCharactersPerURL, nil)
-	resp.Configuration.MediaAttachments.SupportedMimeTypes = systemsettings.GetStrings(systemsettings.KeyMediaMimeTypes, nil)
+	resp.Configuration.MediaAttachments.SupportedMimeTypes = mediamanagement.SupportedMimeTypes()
 	resp.Configuration.MediaAttachments.ImageSizeLimit = int(systemsettings.MediaImageSizeLimit())
 	resp.Configuration.MediaAttachments.ImageMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, nil)
 	resp.Configuration.MediaAttachments.VideoSizeLimit = int(systemsettings.MediaVideoSizeLimit())

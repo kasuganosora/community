@@ -28,7 +28,7 @@ func pngChunk(kind string, data []byte) []byte {
 // APNG's frame streams use the standard PNG decoder. Validate and decode every
 // bounded frame, preserving original animation bytes while rendering its actual
 // first frame (which can differ from the PNG default image).
-func decodePNG(data []byte, width, height int) (image.Image, error) {
+func decodePNG(data []byte, width, height int, limits DecodeLimits) (image.Image, error) {
 	var header []byte
 	var shared [][]byte
 	var frames []pngFrame
@@ -62,7 +62,7 @@ func decodePNG(data []byte, width, height int) (image.Image, error) {
 				return nil, errors.New("invalid APNG animation header")
 			}
 			declared = binary.BigEndian.Uint32(chunk)
-			if declared == 0 || declared > maxFrames {
+			if declared == 0 || uint64(declared) > uint64(limits.MaxFrames) {
 				return nil, errors.New("APNG frame count exceeds limit")
 			}
 		case "fcTL":
@@ -72,7 +72,7 @@ func decodePNG(data []byte, width, height int) (image.Image, error) {
 			sequence++
 			w, h, x, y := binary.BigEndian.Uint32(chunk[4:]), binary.BigEndian.Uint32(chunk[8:]), binary.BigEndian.Uint32(chunk[12:]), binary.BigEndian.Uint32(chunk[16:])
 			pixels += uint64(w) * uint64(h)
-			if w == 0 || h == 0 || w > MaxDimension || h > MaxDimension || uint64(x)+uint64(w) > uint64(width) || uint64(y)+uint64(h) > uint64(height) || len(frames) >= maxFrames || pixels > maxAnimationPixels || chunk[24] > 2 || chunk[25] > 1 {
+			if w == 0 || h == 0 || uint64(w) > uint64(limits.MaxDimension) || uint64(h) > uint64(limits.MaxDimension) || uint64(x)+uint64(w) > uint64(width) || uint64(y)+uint64(h) > uint64(height) || len(frames) >= limits.MaxFrames || uint64(pixels) > uint64(limits.MaxAnimationPixels) || chunk[24] > 2 || chunk[25] > 1 {
 				return nil, errors.New("APNG animation exceeds rectangle or frame budget")
 			}
 			frames = append(frames, pngFrame{x: int(x), y: int(y), w: int(w), h: int(h), blend: chunk[25]})

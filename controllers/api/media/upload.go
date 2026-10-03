@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/h2non/filetype"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/models"
@@ -280,6 +281,31 @@ func validateFileUpload(header *multipart.FileHeader) (string, error) {
 		return "", err
 	}
 
+	if models.GetMediaType(contentType) == models.MediaTypeImage {
+		file, err := header.Open()
+		if err != nil {
+			return "", errors.Wrap(err, "open image")
+		}
+		data, err := io.ReadAll(io.LimitReader(file, systemsettings.MediaImageSizeLimit()+1))
+		_ = file.Close()
+		if err != nil {
+			return "", errors.Wrap(err, "read image")
+		}
+		if int64(len(data)) > systemsettings.MediaImageSizeLimit() {
+			return "", errors.New("file size too large")
+		}
+		pixels := systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, 16*1024*1024)
+		if pixels <= 0 {
+			pixels = 16 * 1024 * 1024
+		}
+		// Independent work/memory limits keep animated images bounded while allowing
+		// normal post images larger than the emoji endpoint's 1024px cap.
+		pixels = min(pixels, 32*1024*1024)
+		_, _, _, _, err = emojiasset.DecodeImage(data, contentType, emojiasset.DecodeLimits{MaxDimension: 16384, MaxPixels: pixels, MaxFrames: 256, MaxAnimationPixels: 64 * 1024 * 1024})
+		if err != nil {
+			return "", errors.Wrap(err, "invalid image")
+		}
+	}
 	return contentType, nil
 }
 
@@ -613,4 +639,9 @@ func readAllFromFileHeader(header *multipart.FileHeader) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// SupportedMimeTypes is shared by upload validation and instance discovery.
+func SupportedMimeTypes() []string {
+	return strings.Split(AllowedImageTypes+","+AllowedVideoTypes+","+AllowedAudioTypes, ",")
 }

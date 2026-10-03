@@ -2,9 +2,14 @@ package media
 
 import (
 	"bytes"
+	"image"
+	"image/color"
+	"image/gif"
+	"image/png"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -135,10 +140,7 @@ func TestValidateFileUpload_MagicBytesMismatch(t *testing.T) {
 }
 
 func TestValidateFileUpload_ValidPNG(t *testing.T) {
-	pngData := []byte{
-		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG header
-		0x00, 0x00, 0x00, 0x0D,
-	}
+	pngData := validPNGBytes()
 	header := createFileHeader(t, "test.png", "image/png", pngData)
 	ct, err := validateFileUpload(header)
 	require.NoError(t, err)
@@ -146,9 +148,7 @@ func TestValidateFileUpload_ValidPNG(t *testing.T) {
 }
 
 func TestValidateFileUpload_ContentTypeWithParams(t *testing.T) {
-	pngData := []byte{
-		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-	}
+	pngData := validPNGBytes()
 	header := createFileHeader(t, "test.png", "image/png; charset=utf-8", pngData)
 	ct, err := validateFileUpload(header)
 	require.NoError(t, err)
@@ -183,4 +183,35 @@ func TestNormalizeContentType_InjectedSemicolon(t *testing.T) {
 	// Content-Type with injected parameter should still normalize correctly
 	result := normalizeContentType("image/jpeg; foo=bar")
 	assert.Equal(t, "image/jpeg", result)
+}
+
+func TestValidateUploadFullyDecodesImagesAndKeepsAnimation(t *testing.T) {
+	for _, name := range []string{"animated.png", "animated.webp", "default-plus-animation.png"} {
+		data, err := os.ReadFile("../../../emojiasset/testdata/" + name)
+		require.NoError(t, err)
+		mime := "image/png"
+		if name == "animated.webp" {
+			mime = "image/webp"
+		}
+		_, err = validateFileUpload(createFileHeader(t, name, mime, data))
+		require.NoError(t, err, name)
+		_, err = validateFileUpload(createFileHeader(t, name, mime, data[:len(data)-3]))
+		require.Error(t, err, name)
+	}
+	var large bytes.Buffer
+	require.NoError(t, png.Encode(&large, image.NewRGBA(image.Rect(0, 0, 1500, 32))))
+	_, err := validateFileUpload(createFileHeader(t, "photo.png", "image/png", large.Bytes()))
+	require.NoError(t, err, "ordinary attachments must not inherit the emoji 1024px cap")
+	_, err = validateFileUpload(createFileHeader(t, "bad.png", "image/png", []byte("\x89PNG\r\n\x1a\n")))
+	require.Error(t, err)
+	var animation bytes.Buffer
+	frames := []*image.Paletted{}
+	delays := []int{}
+	for range 257 {
+		frames = append(frames, image.NewPaletted(image.Rect(0, 0, 1, 1), []color.Color{color.Black}))
+		delays = append(delays, 1)
+	}
+	require.NoError(t, gif.EncodeAll(&animation, &gif.GIF{Image: frames, Delay: delays}))
+	_, err = validateFileUpload(createFileHeader(t, "too-many.gif", "image/gif", animation.Bytes()))
+	require.ErrorContains(t, err, "budget")
 }

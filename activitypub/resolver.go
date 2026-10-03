@@ -466,6 +466,10 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 		status.CreatedAt = &now
 	}
 
+	status.Attachments, err = incomingAttachments(ctx, obj["attachment"], account.Id)
+	if err != nil {
+		return models.Status{}, err
+	}
 	err = db.GetDB().WithContext(models.WithStructuredMentions(ctx)).Transaction(func(tx *gorm.DB) error {
 		err := persistIncomingStatusWithEmoji(ctx, tx, &status, obj["tag"])
 		if err != nil {

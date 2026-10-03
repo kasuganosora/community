@@ -330,6 +330,11 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Content association is saved once by GORM. Its local mention parser is
 	// disabled because authenticated AP addressing is authoritative.
+	status.Attachments, err = incomingAttachments(ctx, object["attachment"], remoteAccount.Id)
+	if err != nil {
+		c.JSON(503, gin.H{"error": "attachment address validation temporarily failed"})
+		return
+	}
 	err = persistIncomingStatusWithEmoji(ctx, activityDB(ctx), &status, object["tag"])
 
 	if err != nil {
@@ -485,7 +490,23 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		now := time.Now()
+		attachments, err := incomingAttachments(ctx, object["attachment"], status.AccountId)
+		if err != nil {
+			c.JSON(503, gin.H{"error": "attachment address validation temporarily failed"})
+			return
+		}
 		err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+			if _, present := object["attachment"]; present {
+				if err := tx.Where("status_id = ?", status.Id).Delete(&models.MediaAttachment{}).Error; err != nil {
+					return err
+				}
+				for _, attachment := range attachments {
+					attachment.StatusId = &status.Id
+					if err := tx.Create(attachment).Error; err != nil {
+						return err
+					}
+				}
+			}
 			domain := ""
 			if statusAuthor.Domain != nil {
 				domain = *statusAuthor.Domain
@@ -1609,6 +1630,11 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string, attribute
 		if err == nil {
 			status.InReplyToId = &parentStatus.Id
 		}
+	}
+
+	status.Attachments, err = incomingAttachments(ctx, statusData["attachment"], authorAccount.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create status in transaction (safe against panics — Transaction auto-rolls-back)

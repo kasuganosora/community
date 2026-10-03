@@ -152,6 +152,15 @@ func reactionPayload(e *models.FederationOutbox, actorURI, activityID string) (m
 	} else if err != nil {
 		return nil, nil, err
 	}
+	if e.Kind == "Reaction" {
+		var count int64
+		if err := db.GetDB().Model(&models.StatusReaction{}).Where("id = ? AND account_id = ? AND status_id = ? AND name = ?", snap.Reaction.ID, e.AccountID, e.ObjectID, snap.Reaction.Name).Count(&count).Error; err != nil {
+			return nil, nil, err
+		}
+		if count == 0 {
+			return nil, nil, nil
+		}
+	}
 	if e.Kind == "Reaction" && snap.Emoji != nil {
 		var current models.Emoji
 		if err := db.GetDB().First(&current, snap.Emoji.Id).Error; errors.Is(err, gorm.ErrRecordNotFound) {
@@ -176,4 +185,40 @@ func reactionPayload(e *models.FederationOutbox, actorURI, activityID string) (m
 		return map[string]any{"id": activityID, "type": "Undo", "actor": actorURI, "object": like}, &status, nil
 	}
 	return like, &status, nil
+}
+
+// HTTP acceptance does not guarantee the peer has applied a queued Like. Do
+// not send a stale queued Like after its local reaction was replaced/revoked;
+// revocations themselves still go through to clean already-delivered copies.
+func reactionDeliveryCurrent(auth DeliveryAuthorization, activity map[string]any) (bool, error) {
+	if auth.Kind != "Reaction" {
+		return true, nil
+	}
+	var row models.StatusReaction
+	err := db.GetDB().Where("account_id = ? AND status_id = ?", auth.AccountID, auth.StatusID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	actor, _ := activity["actor"].(string)
+	id, _ := activity["id"].(string)
+	if actor == "" || id != actor+"/reactions/"+strconv.FormatUint(row.ID, 10) || reactionContent(activity) != row.Name {
+		return false, nil
+	}
+	if row.EmojiID != 0 {
+		var emoji models.Emoji
+		err := db.GetDB().First(&emoji, row.EmojiID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if emoji.Disabled || emoji.LocalOnly {
+			return false, nil
+		}
+	}
+	return true, nil
 }

@@ -36,6 +36,7 @@ func newTLSFederationClient(server *httptest.Server) (*FederationClient, string)
 	// Override the cached federation HTTP client so it trusts the test server's
 	// self-signed certificate. federationHTTPClient() returns this cache.
 	c.fedHTTPClient = server.Client()
+	c.fedMediaHTTPClient = server.Client()
 	// Also configure the httpclient.Client transport so methods that use
 	// c.httpClient directly (FetchMedia, FetchServerKey, etc.) trust the server.
 	testClient := server.Client()
@@ -81,10 +82,9 @@ func TestFederationClient_FetchMedia_Success(t *testing.T) {
 	body := []byte("fake-media-content")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/_matrix/media/v3/download/")
+		assert.Contains(t, r.URL.Path, "/_matrix/federation/v1/media/download/")
 		assert.NotEmpty(t, r.Header.Get("Authorization"))
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(body)
+		writeMockFederationMedia(w, "image/png", body)
 	}))
 	defer server.Close()
 
@@ -97,8 +97,7 @@ func TestFederationClient_FetchMedia_Success(t *testing.T) {
 
 func TestFederationClient_FetchMedia_VerifiesContentTypeFromHeader(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "video/mp4")
-		_, _ = w.Write([]byte("mp4data"))
+		writeMockFederationMedia(w, "video/mp4", []byte("mp4data"))
 	}))
 	defer server.Close()
 
@@ -112,7 +111,7 @@ func TestFederationClient_FetchMedia_BinaryContent(t *testing.T) {
 	// Binary PNG data to verify the full round-trip including content-type sniffing.
 	binaryBody := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(binaryBody)
+		writeMockFederationMedia(w, "application/octet-stream", binaryBody)
 	}))
 	defer server.Close()
 
@@ -126,8 +125,7 @@ func TestFederationClient_FetchMedia_SignedRequest(t *testing.T) {
 	var capturedAuth string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write([]byte("ok"))
+		writeMockFederationMedia(w, "application/octet-stream", []byte("ok"))
 	}))
 	defer server.Close()
 
@@ -146,14 +144,13 @@ func TestFederationClient_FetchMedia_SignedRequest(t *testing.T) {
 func TestFederationClient_FetchThumbnail_Success(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/_matrix/media/v3/thumbnail/")
+		assert.Contains(t, r.URL.Path, "/_matrix/federation/v1/media/thumbnail/")
 		// Check query parameters
 		q := r.URL.Query()
 		assert.Equal(t, "64", q.Get("width"))
 		assert.Equal(t, "64", q.Get("height"))
 		assert.Equal(t, "scale", q.Get("method"))
-		w.Header().Set("Content-Type", "image/jpeg")
-		_, _ = w.Write([]byte("thumbnail-data"))
+		writeMockFederationMedia(w, "image/jpeg", []byte("thumbnail-data"))
 	}))
 	defer server.Close()
 
@@ -169,8 +166,7 @@ func TestFederationClient_FetchThumbnail_CropMethod(t *testing.T) {
 		q := r.URL.Query()
 		assert.Equal(t, "crop", q.Get("method"))
 		assert.Equal(t, "128", q.Get("width"))
-		w.Header().Set("Content-Type", "image/jpeg")
-		_, _ = w.Write([]byte("cropped"))
+		writeMockFederationMedia(w, "image/jpeg", []byte("cropped"))
 	}))
 	defer server.Close()
 
@@ -772,8 +768,7 @@ func TestFederationClient_SignRequest_ProducesValidXMatrixHeader(t *testing.T) {
 	var authHeader string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write([]byte("ok"))
+		writeMockFederationMedia(w, "application/octet-stream", []byte("ok"))
 	}))
 	defer server.Close()
 

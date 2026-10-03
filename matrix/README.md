@@ -73,6 +73,12 @@ type HomeServer struct {
 
 主要能力包括：Client-Server API（`handlers.go`）、Federation 联邦（`federation.go`，端口 8448）、E2EE 端到端加密（`crypto_olm.go`、`e2ee_*.go`）、媒体服务（`media.go`）、状态解析（`state_resolution.go`）、Application Service 管理（`appservice.go`）等。通过 `RegisterRoutes(r)` 注册 Client-Server API 路由，`RegisterFederationRoutes(r)` 注册联邦路由。
 
+## 联邦文件传输
+
+媒体下载使用 Matrix 1.11 的认证媒体协议：客户端通过 `/_matrix/client/v1/media/` 携带令牌下载，服务器通过带联邦签名的 `/_matrix/federation/v1/media/` 交换 multipart 媒体。旧的匿名媒体下载地址不提供现代上传文件，避免绕过认证。
+
+上传保留原始文件名，单文件上限为 50 MiB。加密附件作为原始密文字节传输，由客户端解密；服务器不应把密文当图片处理。远端 multipart 重定向目前不支持，避免未经验证的二次下载。
+
 ## 配置说明
 
 ### 环境变量配置

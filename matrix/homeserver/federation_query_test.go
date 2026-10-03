@@ -378,8 +378,7 @@ func TestFederationClient_FetchThumbnail_SuccessViaMockTLS(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Contains(t, r.URL.Path, "/thumbnail/")
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte("thumbnail-bytes"))
+		writeMockFederationMedia(w, "image/png", []byte("thumbnail-bytes"))
 	}))
 	defer server.Close()
 
@@ -397,8 +396,7 @@ func TestFederationClient_FetchThumbnail_DefaultContentType(t *testing.T) {
 	// to text/plain). Instead we test that the returned content-type matches
 	// what the server sends.
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/webp")
-		_, _ = w.Write([]byte("thumb"))
+		writeMockFederationMedia(w, "image/webp", []byte("thumb"))
 	}))
 	defer server.Close()
 

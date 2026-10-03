@@ -67,6 +67,12 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 	// 构建文件 URL
 	url := fmt.Sprintf("%s/media/%s/%s", baseURL, strconv.FormatUint(media.Id, 10), media.FileName)
 
+	// Remote attachments have no local cache file. Return their validated origin
+	// URL instead of a nonexistent local /media path.
+	if media.RemoteUrl != "" && media.FilePath == "" {
+		url = media.RemoteUrl
+	}
+
 	// 构建缩略图 URL
 	var previewUrl string
 	if media.ThumbnailPath != nil && *media.ThumbnailPath != "" {

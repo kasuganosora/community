@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"mime/multipart"
 	"net"
@@ -20,19 +21,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
 )
 
 // FederationClient 联邦客户端.
 type FederationClient struct {
-	hs              *HomeServer
-	privateKey      ed25519.PrivateKey
-	httpClient      *httpclient.Client
-	keyCache        *KeyCache
-	fedHTTPClient   *http.Client // cached federation HTTP client
-	fedHTTPClientMu sync.Mutex
+	hs                 *HomeServer
+	privateKey         ed25519.PrivateKey
+	httpClient         *httpclient.Client
+	keyCache           *KeyCache
+	fedMediaHTTPClient *http.Client
+	fedHTTPClient      *http.Client // cached federation HTTP client
+	fedHTTPClientMu    sync.Mutex
 }
 
 // NewFederationClient 创建联邦客户端.
@@ -58,71 +59,19 @@ func (c *FederationClient) federationBaseURL(serverName string) string {
 
 // FetchMedia 从远程服务器获取媒体.
 func (c *FederationClient) FetchMedia(serverName, mediaID string) ([]byte, string, error) {
-	// 构建 URL
-	mediaURL := fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", c.federationBaseURL(serverName), serverName, mediaID)
-
-	// 创建请求
-	req := c.httpClient.NewRequest("GET", mediaURL)
-	req.SetHeader("Host", serverName)
-	req.SetTimeout(30)
-
-	// 添加签名
-	c.signRequest(req, serverName)
-
-	// 发送请求
-	resp, err := req.Do()
+	media, err := c.fetchAuthenticatedMedia(serverName, mediaID, "download", "")
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to fetch media: %w", err)
+		return nil, "", err
 	}
-
-	// 获取内容类型
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
-	// 读取响应体
-	data, err := resp.GetBodyData()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	return data, contentType, nil
+	return media.Data, media.ContentType, nil
 }
-
-// FetchThumbnail 从远程服务器获取缩略图.
 func (c *FederationClient) FetchThumbnail(serverName, mediaID string, width, height int, method string) ([]byte, string, error) {
-	// 构建 URL
-	thumbURL := fmt.Sprintf("%s/_matrix/media/v3/thumbnail/%s/%s?width=%d&height=%d&method=%s",
-		c.federationBaseURL(serverName), serverName, mediaID, width, height, method)
-
-	// 创建请求
-	req := c.httpClient.NewRequest("GET", thumbURL)
-	req.SetHeader("Host", serverName)
-	req.SetTimeout(30)
-
-	// 添加签名
-	c.signRequest(req, serverName)
-
-	// 发送请求
-	resp, err := req.Do()
+	query := fmt.Sprintf("?width=%d&height=%d&method=%s", width, height, url.QueryEscape(method))
+	media, err := c.fetchAuthenticatedMedia(serverName, mediaID, "thumbnail", query)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to fetch thumbnail: %w", err)
+		return nil, "", err
 	}
-
-	// 获取内容类型
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "image/jpeg"
-	}
-
-	// 读取响应体
-	data, err := resp.GetBodyData()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	return data, contentType, nil
+	return media.Data, media.ContentType, nil
 }
 
 // SendTransaction 发送联邦事务.
@@ -338,6 +287,9 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	}
 
 	client := c.federationHTTPClient()
+	if strings.HasPrefix(parsedURL.Path, "/_matrix/federation/v1/media/") {
+		client = c.federationMediaHTTPClient()
+	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -347,7 +299,11 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 	defer func() { _ = resp.Body.Close() }()
 
 	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
+	var responseReader io.Reader = resp.Body
+	if strings.Contains(parsedURL.Path, "/federation/v1/media/") {
+		responseReader = io.LimitReader(resp.Body, matrixMediaLimit+(1<<20))
+	}
+	if _, err := buf.ReadFrom(responseReader); err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
@@ -610,33 +566,14 @@ func (c *FederationClient) GetWellKnown(serverName string) (string, error) {
 }
 
 // DownloadAndSaveMedia 下载并保存远程媒体.
+// DownloadAndSaveMedia creates a local mirror with a new local MXC identity.
+// It must not relabel the random local ID as a remote cache key.
 func (c *FederationClient) DownloadAndSaveMedia(serverName, mediaID string) (*MatrixMedia, error) {
-	// 下载媒体
-	data, contentType, err := c.FetchMedia(serverName, mediaID)
+	media, err := c.fetchAuthenticatedMedia(serverName, mediaID, "download", "")
 	if err != nil {
 		return nil, err
 	}
-
-	// 保存到本地
-	mediaService := NewMediaService(c.hs)
-	reader := bytes.NewReader(data)
-
-	// 创建 multipart header
-	header := &multipart.FileHeader{
-		Size: int64(len(data)),
-	}
-
-	// 上传并保存
-	mediaInfo, err := mediaService.UploadMedia(reader, header, contentType, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to save media: %w", err)
-	}
-
-	// 更新服务器名称
-	mediaInfo.ServerName = serverName
-	db.GetDB().Save(mediaInfo)
-
-	return mediaInfo, nil
+	return NewMediaService(c.hs).UploadMedia(bytes.NewReader(media.Data), &multipart.FileHeader{Filename: media.Filename, Size: int64(len(media.Data))}, media.ContentType, "")
 }
 
 type federationHTTPError struct {

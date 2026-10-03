@@ -138,7 +138,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 		if err == nil {
 			width = &w
 			height = &h
-			thumbnailPath = thumbPath
+			thumbnailPath = filepath.Join(filepath.Dir(fullPath), thumbPath)
 		}
 	}
 
@@ -155,7 +155,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 	matrixMedia := &MatrixMedia{
 		MediaID:     mediaID,
 		ServerName:  s.hs.Config.ServerName,
-		FileName:    fileName,
+		FileName:    originalMediaFilename(header, fileName),
 		ContentType: contentType,
 		FileSize:    fileSize,
 		Width:       width,
@@ -217,6 +217,10 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 
 // GetThumbnail 获取缩略图.
 func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height int, method string) (*MatrixThumbnail, io.ReadCloser, error) {
+	// Thumbnail IDs are local storage identities, never remote MXC identities.
+	if serverName != s.hs.Config.ServerName {
+		return nil, nil, errors.New("remote thumbnail requires federation")
+	}
 	var thumbnail MatrixThumbnail
 
 	// Try exact match first, then any available thumbnail for this media
@@ -245,7 +249,16 @@ func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height in
 	}
 
 	// 从本地存储读取
-	file, err := os.Open(thumbnail.FilePath)
+	// Older records stored only the processor's returned basename.
+	thumbPath := thumbnail.FilePath
+	if filepath.Base(thumbPath) == thumbPath {
+		var original MatrixMedia
+		if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&original).Error; err != nil {
+			return nil, nil, errors.New("thumbnail media not found")
+		}
+		thumbPath = filepath.Join(filepath.Dir(original.FilePath), thumbPath)
+	}
+	file, err := os.Open(thumbPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open thumbnail: %w", err)
 	}
@@ -333,8 +346,14 @@ func handleUploadMedia(c *gin.Context) {
 
 	mediaService := NewMediaService(hs)
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, matrixMediaLimit)
 	matrixMedia, err := mediaService.UploadMedia(c.Request.Body, fakeHeader, contentType, userID)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(413, gin.H{"errcode": "M_TOO_LARGE", "error": "Media exceeds 50 MiB"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_UNKNOWN", //nolint:goconst
 			"error":   err.Error(), //nolint:goconst
@@ -390,7 +409,7 @@ func handleDownloadMedia(c *gin.Context) {
 
 	// 设置响应头
 	c.Header("Content-Type", matrixMedia.ContentType)
-	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", matrixMedia.FileName))
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": matrixMedia.FileName}))
 	c.Header("Content-Length", strconv.FormatInt(matrixMedia.FileSize, 10))
 
 	// 流式传输文件
@@ -403,47 +422,15 @@ func handleDownloadMedia(c *gin.Context) {
 func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
 	hs := GetHomeServer()
 
-	// 检查缓存
-	mediaService := NewMediaService(hs)
-
-	matrixMedia, reader, err := mediaService.GetMedia(serverName, mediaID)
-	if err == nil {
-		defer func() { _ = reader.Close() }()
-
-		c.Header("Content-Type", matrixMedia.ContentType)
-		c.Header("Content-Length", strconv.FormatInt(matrixMedia.FileSize, 10))
-		_, _ = io.Copy(c.Writer, reader)
-
-		return
-	}
-
-	// 通过联邦获取远程媒体
-	fedClient := NewFederationClient(hs)
-
-	data, contentType, err := fedClient.FetchMedia(serverName, mediaID)
+	media, err := NewFederationClient(hs).fetchAuthenticatedMedia(serverName, mediaID, "download", "")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Remote media not available",
-		})
-
+		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Remote media not available"})
 		return
 	}
-
-	// 保存到缓存
-	reader = io.NopCloser(bytes.NewReader(data))
-	header := &multipart.FileHeader{Size: int64(len(data))}
-
-	cachedMedia, cacheErr := mediaService.UploadMedia(reader, header, contentType, "")
-	if cacheErr == nil {
-		// 更新服务器名称
-		db.GetDB().Model(cachedMedia).Update("server_name", serverName)
-	}
-
-	// 返回媒体
-	c.Header("Content-Type", contentType)
-	c.Header("Content-Length", strconv.Itoa(len(data)))
-	_, _ = io.Copy(c.Writer, bytes.NewReader(data))
+	c.Header("Content-Type", media.ContentType)
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": media.Filename}))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, media.ContentType, media.Data)
 }
 
 // handleThumbnailMedia 处理缩略图请求.
@@ -499,7 +486,7 @@ func handleThumbnailMedia(c *gin.Context) {
 
 		// 返回缩略图
 		c.Header("Content-Type", contentType)
-		c.Header("Cache-Control", "public, max-age=31536000")
+		c.Header("Cache-Control", "private, max-age=31536000")
 		c.Header("Content-Length", strconv.Itoa(len(data)))
 		_, _ = io.Copy(c.Writer, bytes.NewReader(data))
 
@@ -522,8 +509,12 @@ func handleThumbnailMedia(c *gin.Context) {
 	defer func() { _ = reader.Close() }()
 
 	// 设置响应头
-	c.Header("Content-Type", "image/jpeg")
-	c.Header("Cache-Control", "public, max-age=31536000")
+	prefix := make([]byte, 512)
+	n, _ := io.ReadFull(reader, prefix)
+	prefix = prefix[:n]
+	c.Header("Content-Type", http.DetectContentType(prefix))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=31536000")
 
 	// 获取文件信息（安全类型断言）
 	if f, ok := reader.(*os.File); ok {
@@ -533,7 +524,7 @@ func handleThumbnailMedia(c *gin.Context) {
 		}
 	}
 
-	if _, err := io.Copy(c.Writer, reader); err != nil {
+	if _, err := io.Copy(c.Writer, io.MultiReader(bytes.NewReader(prefix), reader)); err != nil {
 		log.Warn("Failed to copy media response: %v", err)
 	}
 
@@ -965,4 +956,11 @@ func InitMediaDB() {
 // ToJSON 序列化为 JSON.
 func (m *MatrixMedia) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
+}
+
+func originalMediaFilename(header *multipart.FileHeader, fallback string) string {
+	if header == nil || header.Filename == "" {
+		return fallback
+	}
+	return filepath.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
 }

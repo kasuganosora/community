@@ -14,7 +14,7 @@ import (
 
 func TestReactionAtomicReplacementAndUndo(t *testing.T) {
 	conn := outboundDB(t)
-	require.NoError(t, conn.AutoMigrate(&models.StatusReaction{}))
+	require.NoError(t, conn.AutoMigrate(&models.StatusReaction{}, &models.RemoteReactionActivity{}))
 	local := outboundAccount(t, conn, "local", false)
 	remote := outboundAccount(t, conn, "remote", true)
 	uri := "https://remote.example/notes/reaction"
@@ -23,6 +23,10 @@ func TestReactionAtomicReplacementAndUndo(t *testing.T) {
 	require.NoError(t, models.SetStatusReaction(conn, status.Id, local, "😀", nil, "", false))
 	require.NoError(t, models.SetStatusReaction(conn, status.Id, local, "😀", nil, "", false))
 	require.Len(t, outboxEvents(t, conn), 1)
+	initial := outboxEvents(t, conn)[0]
+	like, _, err := reactionPayload(&initial, "https://local.example/users/local", "event1")
+	require.NoError(t, err)
+	require.Equal(t, "😀", like["_misskey_reaction"])
 	require.NoError(t, models.SetStatusReaction(conn, status.Id, local, "👍", nil, "", false))
 	events := outboxEvents(t, conn)
 	require.Len(t, events, 3)
@@ -43,9 +47,9 @@ func TestReactionAtomicReplacementAndUndo(t *testing.T) {
 	require.NoError(t, conn.First(&refreshed, status.Id).Error)
 	require.Zero(t, refreshed.FavouritesCount)
 	// Wire Like/Undo use the same stable original ID and Misskey metadata.
-	like, _, err := reactionPayload(&events[0], "https://local.example/users/local", "event1")
+	stale, _, err := reactionPayload(&events[0], "https://local.example/users/local", "event1")
 	require.NoError(t, err)
-	require.Equal(t, "😀", like["_misskey_reaction"])
+	require.Nil(t, stale)
 	undo, _, err := reactionPayload(&events[1], "https://local.example/users/local", "event2")
 	require.NoError(t, err)
 	require.Equal(t, like["id"], undo["object"].(map[string]any)["id"])
@@ -53,7 +57,7 @@ func TestReactionAtomicReplacementAndUndo(t *testing.T) {
 
 func TestReactionDirectAndBlockAuthorization(t *testing.T) {
 	conn := outboundDB(t)
-	require.NoError(t, conn.AutoMigrate(&models.StatusReaction{}))
+	require.NoError(t, conn.AutoMigrate(&models.StatusReaction{}, &models.RemoteReactionActivity{}))
 	owner := outboundAccount(t, conn, "owner", false)
 	allowed := outboundAccount(t, conn, "allowed", true)
 	outsider := outboundAccount(t, conn, "outsider", true)
@@ -86,7 +90,7 @@ func TestReactionUnicodeAndCustomPolicy(t *testing.T) {
 		require.False(t, models.ValidUnicodeReaction(s), s)
 	}
 	conn := outboundDB(t)
-	require.NoError(t, conn.AutoMigrate(&models.RoleUser{}, &models.StatusReaction{}))
+	require.NoError(t, conn.AutoMigrate(&models.RoleUser{}, &models.StatusReaction{}, &models.RemoteReactionActivity{}))
 	local := outboundAccount(t, conn, "local", false)
 	remote := outboundAccount(t, conn, "remote", true)
 	emoji := models.Emoji{Shortcode: "restricted", Url: "https://local.example/e.png", StaticUrl: "https://local.example/e.png", ReactionRoleIDs: []uint64{9}}
@@ -108,7 +112,7 @@ func TestReactionUnicodeAndCustomPolicy(t *testing.T) {
 
 func TestReactionPlainLikeKeepsFavouriteCounterAccurate(t *testing.T) {
 	conn := outboundDB(t)
-	require.NoError(t, conn.AutoMigrate(&models.FavoriteStatus{}, &models.StatusReaction{}))
+	require.NoError(t, conn.AutoMigrate(&models.FavoriteStatus{}, &models.StatusReaction{}, &models.RemoteReactionActivity{}))
 	author := outboundAccount(t, conn, "author", false)
 	actor := outboundAccount(t, conn, "reactor", true)
 	status := &models.Status{AccountId: author.Id, Content: models.StatusContent{Content: "favourite"}}

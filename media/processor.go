@@ -180,16 +180,10 @@ func (p *ImageProcessor) CreateThumbnail(img image.Image, srcPath string, format
 	case "gif":
 		err = p.saveGIF(thumbImg, thumbPath)
 	case "webp": //nolint:goconst
-		// WebP 保存为 JPEG 格式以兼容性更好
+		// The encoder writes JPEG, so persist and return the JPEG name together.
+		thumbName = strings.TrimSuffix(thumbName, ext) + ".jpg"
+		thumbPath = filepath.Join(dir, thumbName)
 		err = p.saveJPEG(thumbImg, thumbPath)
-		// 更改扩展名
-		newThumbPath := strings.TrimSuffix(thumbPath, ext) + ".jpg"
-		if err == nil {
-			renameErr := os.Rename(thumbPath, newThumbPath)
-			if renameErr != nil {
-				log.Warn("failed to rename thumbnail: %v", renameErr)
-			}
-		}
 	default:
 		// 默认保存为 JPEG
 		err = p.saveJPEG(thumbImg, thumbPath)

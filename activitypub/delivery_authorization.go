@@ -33,6 +33,12 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	if auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" {
 		return activity, true, nil
 	}
+	if auth.Kind == "Reaction" {
+		current, err := reactionDeliveryCurrent(auth, activity)
+		if err != nil || !current {
+			return activity, false, err
+		}
+	}
 	var author models.Account
 	if err := db.GetDB().First(&author, auth.AccountID).Error; err != nil {
 		return nil, false, err

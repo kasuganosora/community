@@ -122,7 +122,7 @@ func TestValidateFileUpload_UnsupportedType(t *testing.T) {
 func TestValidateFileUpload_NonNormalizedContentType(t *testing.T) {
 	// Content-Type with whitespace and params should be normalized before the
 	// allow-list check.
-	pngData := validPNGFileHeader()
+	pngData := validPNGBytes()
 	header := createFileHeader(t, "test.png", "  Image/PNG ; charset=utf-8 ", pngData)
 	ct, err := validateFileUpload(header)
 	require.NoError(t, err)

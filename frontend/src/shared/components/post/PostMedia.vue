@@ -26,9 +26,16 @@ const audios = computed(() =>
   props.attachments.filter(a => a.type === 'audio')
 )
 
-const hasMedia = computed(() =>
-  images.value.length > 0 || videos.value.length > 0 || audios.value.length > 0
-)
+const fileLinks = computed(() => props.attachments.flatMap((attachment, index) => {
+  try {
+    const url = new URL(attachment.url, window.location.origin)
+    if (!attachment.url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
+    let filename = url.pathname.split('/').pop() || '文件'
+    try { filename = decodeURIComponent(filename) } catch { /* Keep the original filename if malformed. */ }
+    return [{ id: attachment.id, url: url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
+  } catch { return [] }
+}))
+const hasMedia = computed(() => props.attachments.length > 0)
 
 const gridClass = computed(() => {
   const count = images.value.length
@@ -43,6 +50,9 @@ const gridClass = computed(() => {
 
 <template>
   <div class="post-media" v-if="hasMedia">
+    <ul v-if="fileLinks.length" class="media-file-links" aria-label="原始附件">
+      <li v-for="file in fileLinks" :key="file.id"><a :href="file.url" target="_blank" rel="noopener noreferrer" @click.stop>{{ file.label }}</a></li>
+    </ul>
     <!-- Images -->
     <div :class="gridClass" v-if="images.length">
       <div
@@ -110,6 +120,8 @@ const gridClass = computed(() => {
 
 
 <style scoped>
+.media-file-links { margin: 0 0 var(--space-2); padding-left: var(--space-4); overflow-wrap: anywhere; }
+.media-file-links a { color: var(--color-accent-text); text-decoration: underline; }
 .post-media {
   margin-top: var(--space-2);
 }

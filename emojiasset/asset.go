@@ -108,7 +108,24 @@ func ImportEmojiImage(ctx context.Context, remoteURL string) (*Asset, error) {
 	return StoreEmojiImage(ctx, bytes.NewReader(data), contentType)
 }
 
+// DecodeLimits bounds canvas size and total decoded animation work separately
+// from an endpoint's encoded-byte quota. Values must be positive.
+type DecodeLimits struct {
+	MaxDimension       int
+	MaxPixels          int
+	MaxFrames          int
+	MaxAnimationPixels int
+}
+
+var emojiDecodeLimits = DecodeLimits{MaxDimension, MaxDimension * MaxDimension, maxFrames, maxAnimationPixels}
+
 func decodeImage(data []byte, declared string) (image.Image, string, int, int, error) {
+	return DecodeImage(data, declared, emojiDecodeLimits)
+}
+
+// DecodeImage validates every animation frame and returns its static first frame.
+// It neither reads remote URLs nor writes files.
+func DecodeImage(data []byte, declared string, limits DecodeLimits) (image.Image, string, int, int, error) {
 	fail := func(err error) (image.Image, string, int, int, error) { return nil, "", 0, 0, err }
 	if declared != "" {
 		mediaType, _, err := mime.ParseMediaType(declared)
@@ -128,8 +145,8 @@ func decodeImage(data []byte, declared string) (image.Image, string, int, int, e
 	if format != "png" && format != "jpeg" && format != "gif" && format != "webp" {
 		return fail(errors.New("unsupported emoji image format"))
 	}
-	if config.Width < 1 || config.Height < 1 || config.Width > MaxDimension || config.Height > MaxDimension {
-		return fail(errors.New("emoji dimensions must be between 1 and 1024 pixels"))
+	if config.Width < 1 || config.Height < 1 || config.Width > limits.MaxDimension || config.Height > limits.MaxDimension || int64(config.Width)*int64(config.Height) > int64(limits.MaxPixels) {
+		return fail(errors.New("image dimensions exceed the decoded-pixel limit"))
 	}
 	if declared != "" {
 		mediaType, _, _ := mime.ParseMediaType(declared)
@@ -139,7 +156,7 @@ func decodeImage(data []byte, declared string) (image.Image, string, int, int, e
 	}
 	var decoded image.Image
 	if format == "gif" {
-		if err := validateGIFBudget(data); err != nil {
+		if err := validateGIFBudgetWithLimits(data, limits); err != nil {
 			return fail(err)
 		}
 		animation, err := gif.DecodeAll(bytes.NewReader(data))
@@ -150,12 +167,12 @@ func decodeImage(data []byte, declared string) (image.Image, string, int, int, e
 		draw.Draw(canvas, animation.Image[0].Bounds(), animation.Image[0], animation.Image[0].Bounds().Min, draw.Src)
 		decoded = canvas
 	} else if format == "png" {
-		decoded, err = decodePNG(data, config.Width, config.Height)
+		decoded, err = decodePNG(data, config.Width, config.Height, limits)
 		if err != nil {
 			return fail(err)
 		}
 	} else if format == "webp" {
-		decoded, err = decodeWebP(data, config.Width, config.Height)
+		decoded, err = decodeWebP(data, config.Width, config.Height, limits)
 		if err != nil {
 			return fail(err)
 		}
@@ -170,6 +187,9 @@ func decodeImage(data []byte, declared string) (image.Image, string, int, int, e
 
 // GIF frame budgets are checked before DecodeAll allocates per-frame images.
 func validateGIFBudget(data []byte) error {
+	return validateGIFBudgetWithLimits(data, emojiDecodeLimits)
+}
+func validateGIFBudgetWithLimits(data []byte, limits DecodeLimits) error {
 	if len(data) < 13 {
 		return errors.New("truncated GIF")
 	}
@@ -199,7 +219,7 @@ func validateGIFBudget(data []byte) error {
 			width, height := int(binary.LittleEndian.Uint16(data[offset+4:])), int(binary.LittleEndian.Uint16(data[offset+6:]))
 			frames++
 			pixels += width * height
-			if width < 1 || height < 1 || width > MaxDimension || height > MaxDimension || frames > maxFrames || pixels > maxAnimationPixels {
+			if width < 1 || height < 1 || width > limits.MaxDimension || height > limits.MaxDimension || frames > limits.MaxFrames || pixels > limits.MaxAnimationPixels {
 				return errors.New("GIF animation exceeds frame or decoded-pixel budget")
 			}
 			packed := data[offset+8]

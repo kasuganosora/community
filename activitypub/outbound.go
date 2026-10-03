@@ -26,7 +26,7 @@ type OutboundWorker struct {
 }
 
 func StartOutboundWorker() (*OutboundWorker, error) {
-	for _, model := range []any{&models.FederationOutbox{}, &Delivery{}, &models.AccountKey{}, &models.StatusReaction{}} {
+	for _, model := range []any{&models.FederationOutbox{}, &Delivery{}, &models.AccountKey{}, &models.StatusReaction{}, &models.RemoteReactionActivity{}} {
 		if !db.GetDB().Migrator().HasTable(model) {
 			return nil, errors.New("federation tables are missing; run database migrations")
 		}
@@ -59,7 +59,12 @@ func (w *OutboundWorker) Stop() { w.once.Do(func() { close(w.stop); w.wg.Wait();
 func (w *OutboundWorker) processPending() {
 	var events []models.FederationOutbox
 	now := time.Now()
-	if err := db.GetDB().Where("state IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{"pending", "processing"}, now).Order("id ASC").Limit(20).Find(&events).Error; err != nil {
+	if err := db.GetDB().Where("state IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", []string{"pending", "processing"}, now).
+		Where(`NOT EXISTS (SELECT 1 FROM activitypub_outbox_events AS prior
+			WHERE prior.account_id = activitypub_outbox_events.account_id
+			AND prior.id < activitypub_outbox_events.id AND prior.state IN ?
+			AND prior.next_attempt_at > ?)`, []string{"pending", "processing"}, now).
+		Order("id ASC").Limit(20).Find(&events).Error; err != nil {
 		log.Warn("Federation outbox read failed: %v", err)
 		return
 	}

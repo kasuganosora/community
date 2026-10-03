@@ -234,14 +234,14 @@ func RegisterRoutes(r gin.IRouter) {
 
 	// 媒体 (unstable endpoint)
 	r.POST("/_matrix/media/v1/upload", matrixAuthMiddleware(), handleUploadMedia)
-	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleDownloadMedia)
-	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleThumbnailMedia)
+	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleLegacyMediaDownload)
+	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleLegacyMediaDownload)
 	r.GET("/_matrix/media/v1/preview_url", handlePreviewURL)
 
 	// 媒体 (v3 endpoint)
 	r.POST("/_matrix/media/v3/upload", matrixAuthMiddleware(), handleUploadMedia)
-	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleDownloadMedia)
-	r.GET("/_matrix/media/v3/thumbnail/:serverName/:mediaId", handleThumbnailMedia)
+	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleLegacyMediaDownload)
+	r.GET("/_matrix/media/v3/thumbnail/:serverName/:mediaId", handleLegacyMediaDownload)
 	r.GET("/_matrix/media/v3/preview_url", handlePreviewURL)
 
 	// 媒体 (client/v1 authenticated endpoint - requires auth, returns 401 without token)

@@ -16,7 +16,7 @@ func put24(b []byte, n int) { b[0] = byte(n); b[1] = byte(n >> 8); b[2] = byte(n
 // WebP's existing decoder supports the VP8/VP8L frame codecs. Split ANMF only
 // after checking all lengths/rectangles; decode each frame using that decoder.
 // This avoids invoking a general-purpose multimedia/network subprocess.
-func decodeWebP(data []byte, width, height int) (image.Image, error) {
+func decodeWebP(data []byte, width, height int, limits DecodeLimits) (image.Image, error) {
 	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WEBP" || uint64(binary.LittleEndian.Uint32(data[4:]))+8 != uint64(len(data)) {
 		return nil, errors.New("invalid WebP container length")
 	}
@@ -56,7 +56,7 @@ func decodeWebP(data []byte, width, height int) (image.Image, error) {
 			x, y, w, h := little24(chunk)*2, little24(chunk[3:])*2, little24(chunk[6:])+1, little24(chunk[9:])+1
 			frames++
 			pixels += w * h
-			if w > MaxDimension || h > MaxDimension || x+w > width || y+h > height || frames > maxFrames || pixels > maxAnimationPixels || chunk[15]&0xfc != 0 {
+			if w > limits.MaxDimension || h > limits.MaxDimension || x+w > width || y+h > height || frames > limits.MaxFrames || uint64(pixels) > uint64(limits.MaxAnimationPixels) || chunk[15]&0xfc != 0 {
 				return nil, errors.New("WebP animation exceeds rectangle or frame budget")
 			}
 			frame, err := decodeWebPFrame(chunk[16:], w, h)

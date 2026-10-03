@@ -94,6 +94,7 @@ func ResolveReaction(conn *gorm.DB, name string, actor *Account) (*Emoji, error)
 // insert/change/delete. The durable outbox is committed with each actual change.
 func SetStatusReaction(conn *gorm.DB, statusID uint64, actor *Account, name string, emoji *Emoji, activityURI string, remove bool) error {
 	ctx, publish := BeginReactionNotifications(conn.Statement.Context)
+	rollbackNotifications := snapshotReactionNotifications(ctx)
 	err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var status Status
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Account").Preload("ToAccounts").First(&status, statusID).Error; err != nil {
@@ -115,6 +116,13 @@ func SetStatusReaction(conn *gorm.DB, statusID uint64, actor *Account, name stri
 		}
 		if emoji != nil && emoji.LocalOnly && (actor.Domain != nil || !status.IsLocal()) {
 			return ErrInvalidReaction
+		}
+		apply, err := recordRemoteReactionActivity(tx, actor, statusID, name, activityURI, remove)
+		if err != nil {
+			return err
+		}
+		if !apply {
+			return nil
 		}
 		var old StatusReaction
 		err = tx.Where("account_id = ? AND status_id = ?", actor.Id, statusID).First(&old).Error
@@ -158,6 +166,8 @@ func SetStatusReaction(conn *gorm.DB, statusID uint64, actor *Account, name stri
 	})
 	if err == nil {
 		publish()
+	} else {
+		rollbackNotifications()
 	}
 	return err
 }
@@ -180,7 +190,31 @@ func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, stat
 		}
 		emoji = &stored
 	}
-	if emoji != nil && emoji.LocalOnly {
+	var originalRecipients []uint64
+	if kind == "ReactionUndo" {
+		// Revoke only copies that were previously queued, including recipients who
+		// unfollowed or lost private access. A newly local-only policy cannot cancel
+		// cleanup, but an emoji that was always local-only must never be disclosed.
+		var originals []FederationOutbox
+		if err := tx.Where("account_id = ? AND object_id = ? AND kind = ?", actor.Id, status.Id, "Reaction").Find(&originals).Error; err != nil {
+			return err
+		}
+		found := false
+		for _, e := range originals {
+			var snapshot ReactionSnapshot
+			if err := json.Unmarshal([]byte(e.Payload), &snapshot); err != nil {
+				return err
+			}
+			if snapshot.Reaction.ID == reaction.ID {
+				originalRecipients = append(originalRecipients, e.RecipientIDs...)
+				found = true
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	if emoji != nil && emoji.LocalOnly && kind != "ReactionUndo" {
 		return nil
 	}
 	// Reactions are delivered to the object owner, who handles distribution.
@@ -209,6 +243,9 @@ func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, stat
 				recipients = append(recipients, targets[i].Id)
 			}
 		}
+	}
+	if kind == "ReactionUndo" {
+		recipients = originalRecipients
 	}
 	payload, err := json.Marshal(ReactionSnapshot{Reaction: *reaction, ObjectURI: objectURI, OwnerUsername: status.Account.Username, Emoji: emoji})
 	if err != nil {

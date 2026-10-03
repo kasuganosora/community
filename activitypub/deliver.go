@@ -118,6 +118,13 @@ func (q *DeliveryQueue) processPending() {
 	// Find pending deliveries that are ready to be processed
 	err := db.GetDB().Where("status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)",
 		[]DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}, now).
+		// Exclude successors of a deferred retry before applying the batch limit.
+		// Otherwise one offline inbox can fill the entire batch with blocked rows
+		// and prevent deliveries to healthy, unrelated instances.
+		Where(`NOT EXISTS (SELECT 1 FROM activitypub_deliveries AS prior
+			WHERE prior.target_inbox = activitypub_deliveries.target_inbox
+			AND prior.id < activitypub_deliveries.id AND prior.status IN ?
+			AND prior.next_retry_at > ?)`, []DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}, now).
 		Order("id ASC").
 		Limit(10).
 		Find(&deliveries).Error

@@ -27,7 +27,19 @@ func deleteReactionNotification(tx *gorm.DB, actorID, statusID uint64) error {
 	if !tx.Migrator().HasTable(&Notification{}) {
 		return nil
 	}
-	return tx.Session(&gorm.Session{SkipHooks: true}).Where("type = ? AND from_account_id = ? AND status_id = ?", NotificationTypeEmojiReaction, actorID, statusID).Delete(&Notification{}).Error
+	if err := tx.Session(&gorm.Session{SkipHooks: true}).Where("type = ? AND from_account_id = ? AND status_id = ?", NotificationTypeEmojiReaction, actorID, statusID).Delete(&Notification{}).Error; err != nil {
+		return err
+	}
+	if buffer, ok := tx.Statement.Context.Value(reactionNotificationsKey{}).(*reactionNotifications); ok {
+		pending := make([]*Notification, 0, len(buffer.created))
+		for _, n := range buffer.created {
+			if n.FromAccountId != actorID || n.StatusId != statusID {
+				pending = append(pending, n)
+			}
+		}
+		buffer.created = pending
+	}
+	return nil
 }
 func createReactionNotification(tx *gorm.DB, row *StatusReaction, status *Status, actor *Account) error {
 	if actor.Id == status.AccountId || status.Account == nil || status.Account.Domain != nil || !tx.Migrator().HasTable(&Notification{}) {
@@ -41,4 +53,15 @@ func createReactionNotification(tx *gorm.DB, row *StatusReaction, status *Status
 		buffer.created = append(buffer.created, notification)
 	}
 	return nil
+}
+
+// A failed nested mutation must discard just its notifications, even if the
+// enclosing transaction catches the error and commits an unrelated operation.
+func snapshotReactionNotifications(ctx context.Context) func() {
+	buffer, _ := ctx.Value(reactionNotificationsKey{}).(*reactionNotifications)
+	if buffer == nil {
+		return func() {}
+	}
+	previous := append([]*Notification(nil), buffer.created...)
+	return func() { buffer.created = previous }
 }
