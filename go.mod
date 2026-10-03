@@ -19,6 +19,7 @@ require (
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kasuganosora/sqlexec v0.7.1
+	github.com/matrix-org/gomatrixserverlib v0.0.0-20260716140101-4fe595dc7f58
 	github.com/meilisearch/meilisearch-go v0.36.3
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/minio/minio-go/v7 v7.3.0
@@ -32,11 +33,11 @@ require (
 	github.com/sirupsen/logrus v1.10.1
 	github.com/stretchr/testify v1.12.0
 	github.com/urfave/cli/v2 v2.27.7
-	golang.org/x/crypto v0.55.0
-	golang.org/x/image v0.45.0
-	golang.org/x/net v0.58.0
-	golang.org/x/text v0.41.0
-	golang.org/x/time v0.15.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
+	golang.org/x/net v0.59.0
+	golang.org/x/text v0.42.0
+	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.2
@@ -81,7 +82,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
-	github.com/matrix-org/gomatrixserverlib v0.0.0-20260716140101-4fe595dc7f58 // indirect
 	github.com/matrix-org/util v0.0.0-20221111132719-399730281e66 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -130,7 +130,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.29.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
