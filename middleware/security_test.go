@@ -267,3 +267,33 @@ func TestSecurityHeadersMediaEmbedding(t *testing.T) {
 		})
 	}
 }
+
+func TestSecurityHeadersPublicEmojiEmbeddingBoundary(t *testing.T) {
+	const file = "cb0cbe14-9e27-41e0-bc76-468566d43528-static.png"
+	for _, tc := range []struct{ method, path, policy string }{
+		{http.MethodGet, "/emoji-assets/" + file, "cross-origin"},
+		{http.MethodPost, "/emoji-assets/" + file, "same-origin"},
+		{http.MethodGet, "/emoji-assets", "same-origin"},
+		{http.MethodGet, "/emoji-assets/", "same-origin"},
+		{http.MethodGet, "/emoji-assets-private/" + file, "same-origin"},
+		{http.MethodGet, "/private/emoji-assets/" + file, "same-origin"},
+		{http.MethodGet, "/emoji-assets/private/" + file, "same-origin"},
+		{http.MethodGet, "/emoji-assets/../api/v1/accounts/verify_credentials", "same-origin"},
+		{http.MethodGet, "/api/v1/admin/custom_emojis", "same-origin"},
+		{http.MethodGet, "/api/v1/admin/custom_emojis/upload", "same-origin"},
+		{http.MethodGet, "/api/v1/data/imports/private/archive", "same-origin"},
+	} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			router := gin.New()
+			router.Use(SecurityHeadersMiddleware())
+			router.NoRoute(func(c *gin.Context) { c.Status(http.StatusOK) })
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
+			assert.Equal(t, tc.policy, response.Header().Get("Cross-Origin-Resource-Policy"))
+			assert.Equal(t, "same-origin", response.Header().Get("Cross-Origin-Opener-Policy"))
+			assert.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+			assert.Contains(t, response.Header().Get("Content-Security-Policy"), "img-src 'self' data: https:")
+			assert.NotContains(t, response.Header().Get("Content-Security-Policy"), "http:")
+		})
+	}
+}

@@ -40,8 +40,10 @@ onMounted(() => store.load())
 </template>
 <style scoped>
 .emoji-picker { margin: var(--space-2) 0; padding: var(--space-3); background: var(--color-bg-grouped); border-radius: var(--radius-md); font-size: var(--text-footnote); }
-.emoji-picker__filters { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
-.emoji-picker__filters input { min-width: 0; flex: 1; }
+.emoji-picker__filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-2); margin-bottom: var(--space-2); }
+.emoji-picker__filters input { grid-column: 1 / -1; }
+.emoji-picker__filters button { min-width: 2rem; min-height: 2rem; padding: var(--space-1); }
+.emoji-picker__filters input, .emoji-picker__filters select { min-width: 0; width: 100%; box-sizing: border-box; }
 .emoji-picker__filters input, .emoji-picker__filters select { color: var(--color-label); background: var(--color-bg-row); border: 1px solid var(--color-separator); border-radius: var(--radius-sm); padding: var(--space-1); }
 .emoji-picker__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); gap: var(--space-1); max-height: 15rem; overflow: auto; margin-top: var(--space-2); }
 .emoji-picker__grid button { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-2); min-width: 0; border-radius: var(--radius-sm); }

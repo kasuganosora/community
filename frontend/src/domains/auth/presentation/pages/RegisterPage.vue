@@ -12,12 +12,24 @@ const step = ref<'rules' | 'form'>('rules')
 // Server rules come from /api/v1/instance/rules (they were hard-coded);
 // the defaults are only shown when the admin has not configured any.
 const rules = ref<InstanceRule[]>(DEFAULT_RULES)
+const serverDomain = ref(window.location.host)
 onMounted(async () => {
-  try {
-    const list = await instanceApi.getRules()
-    if (list.length) rules.value = list
-  } catch {
-    // keep the defaults
+  const [rulesResult, instanceResult] = await Promise.allSettled([
+    instanceApi.getRules(),
+    instanceApi.getInstance(),
+  ])
+  if (rulesResult.status === 'fulfilled' && rulesResult.value.length) {
+    rules.value = rulesResult.value
+  }
+  if (instanceResult.status === 'fulfilled') {
+    const domain = instanceResult.value.domain || instanceResult.value.uri
+    if (domain) {
+      try {
+        serverDomain.value = new URL(domain.includes('://') ? domain : `https://${domain}`).host
+      } catch {
+        // Keep the current host when instance metadata is malformed.
+      }
+    }
   }
 })
 
@@ -35,20 +47,6 @@ const form = reactive({
 
 const registering = ref(false)
 const error = ref<string | null>(null)
-
-// Server domain from environment or default
-const serverDomain = computed(() => {
-  const apiUrl = import.meta.env.VITE_API_URL
-  if (apiUrl) {
-    try {
-      const url = new URL(apiUrl)
-      return url.hostname
-    } catch {
-      return 'community.local'
-    }
-  }
-  return 'community.local'
-})
 
 // Email validation regex
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -120,7 +118,7 @@ function close() {
     <div class="register-modal">
       <!-- Header -->
       <div class="register-header">
-        <button class="register-header__close" @click="close">
+        <button type="button" aria-label="关闭注册" class="register-header__close" @click="close">
           <t-icon name="close" :size="20" />
         </button>
         <h1 class="register-header__title">Register</h1>
@@ -222,7 +220,7 @@ function close() {
                 <span class="input-prefix">@</span>
               </template>
               <template #suffix>
-                <span class="input-suffix">@{{ serverDomain }}</span>
+                <span class="input-suffix" :title="`@${serverDomain}`">@{{ serverDomain }}</span>
               </template>
             </t-input>
           </t-form-item>
@@ -553,6 +551,11 @@ function close() {
 }
 
 .input-suffix {
+  display: block;
+  max-width: min(36vw, 12rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-label-secondary);
   font-size: var(--text-footnote);
   font-variant-numeric: tabular-nums;

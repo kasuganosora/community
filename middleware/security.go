@@ -31,7 +31,14 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// requests; same-origin CORP would block those successfully authorized
 		// bytes. The Matrix routes still require their normal bearer token.
 		path := c.Request.URL.Path
-		if strings.HasPrefix(path, "/media/") ||
+		// The emoji route serves public generated image files, which must be
+		// embeddable by federated clients. Match only its single file segment;
+		// admin APIs and similarly named/private routes retain same-origin.
+		emojiFile, emojiAsset := strings.CutPrefix(path, "/emoji-assets/")
+		publicEmoji := c.Request.Method == http.MethodGet && emojiAsset &&
+			emojiFile != "" && emojiFile != "." && emojiFile != ".." &&
+			!strings.ContainsAny(emojiFile, "/\\")
+		if publicEmoji || strings.HasPrefix(path, "/media/") ||
 			strings.HasPrefix(path, "/_matrix/client/v1/media/download/") ||
 			strings.HasPrefix(path, "/_matrix/client/v1/media/thumbnail/") {
 			c.Header("Cross-Origin-Resource-Policy", "cross-origin")
