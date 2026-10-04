@@ -16,7 +16,7 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to initialize auth:', e)
     const msg = e instanceof Error ? e.message : String(e)
-    initError.value = `Failed to initialize application: ${msg}`
+    initError.value = `应用启动失败：${msg}`
   } finally {
     initializing.value = false
   }
@@ -30,7 +30,7 @@ onMounted(async () => {
   </div>
   <div v-else-if="initError" class="app-init-error">
     <p>{{ initError }}</p>
-    <t-button theme="primary" @click="retryInit">Retry</t-button>
+    <t-button theme="primary" @click="retryInit">重试</t-button>
   </div>
   <router-view v-else />
 </template>

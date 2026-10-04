@@ -206,6 +206,9 @@ export interface MastodonStatus {
   emojis: MastodonEmoji[]
   card: MastodonCard | null
   poll: MastodonPoll | null
+  /** Embedded quote, when the server provides one. Link previews use `card`. */
+  quote?: MastodonStatus | null
+  quotes_count?: number
 }
 
 /** Notification that always carries a status (mention, reblog, favourite, poll, update, status) */

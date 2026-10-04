@@ -59,7 +59,12 @@ onUnmounted(() => {
       <t-loading />
     </div>
 
-    <div v-if="error && !loading" class="empty-state" role="alert">
+    <div v-if="error && statuses.length" class="timeline-inline" role="alert">
+      <span>没能继续加载：{{ error }}</span>
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">重试</button>
+    </div>
+
+    <div v-else-if="error && !loading" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
@@ -74,6 +79,10 @@ onUnmounted(() => {
       </div>
       <h2 class="empty-state__title">{{ emptyTitle ?? '这里还没有内容' }}</h2>
       <p class="empty-state__text">{{ emptyText ?? '关注其他用户后，他们的帖子会出现在这里。' }}</p>
+    </div>
+
+    <div v-else-if="!loading && hasMore && statuses.length" class="timeline-inline">
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">加载更多</button>
     </div>
   </div>
 </template>
@@ -91,5 +100,16 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   padding: var(--space-8);
+}
+
+.timeline-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--gutter);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
 }
 </style>

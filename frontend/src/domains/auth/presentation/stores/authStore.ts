@@ -28,7 +28,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(credentials: AuthCredentials) {
     if (isLoggingIn) {
-      throw new Error('Login is already in progress')
+      throw new Error('正在登录，请稍候')
     }
     isLoggingIn = true
     loading.value = true
@@ -44,7 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await authApi.login(credentials)
       await establishSession(res.token)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Login failed'
+      const msg = e instanceof Error ? e.message : '登录失败，请检查用户名和密码'
       error.value = msg
       throw e
     } finally {
@@ -65,7 +65,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loginWithPasskey() {
-    if (isLoggingIn) throw new Error('Login is already in progress')
+    if (isLoggingIn) throw new Error('正在登录，请稍候')
     isLoggingIn = true
     loading.value = true
     error.value = null

@@ -94,7 +94,7 @@ async function handleRegister() {
       query: { registered: '1', username: form.username, ...(typeof route.query.redirect === 'string' ? { redirect: route.query.redirect } : {}) },
     })
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Registration failed'
+    error.value = e instanceof Error ? e.message : '注册失败，请检查填写内容后重试'
   } finally {
     registering.value = false
   }
@@ -121,7 +121,7 @@ function close() {
         <button type="button" aria-label="关闭注册" class="register-header__close" @click="close">
           <t-icon name="close" :size="20" />
         </button>
-        <h1 class="register-header__title">Register</h1>
+        <h1 class="register-header__title">注册</h1>
       </div>
 
       <!-- Step 1: Rules -->
@@ -133,14 +133,14 @@ function close() {
         </div>
 
         <p class="rules-intro">
-          To register on this server, you need to review and agree to the following.
-          <strong>Please read carefully, this is important.</strong>
+          注册前请先阅读并同意下面的内容。
+          <strong>请仔细看完，这些规则会生效。</strong>
         </p>
 
         <!-- Server rules -->
         <div class="rules-section">
           <div class="rules-section__header">
-            <span>Server Rules</span>
+            <span>服务器规则</span>
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-list">
@@ -151,30 +151,30 @@ function close() {
           </div>
           <label class="agree-check">
             <input type="checkbox" v-model="rulesAgreed" class="agree-check__input" />
-            <span class="agree-check__label">I agree</span>
+            <span class="agree-check__label">我同意</span>
           </label>
         </div>
 
         <!-- ToS -->
         <div class="rules-section">
           <div class="rules-section__header">
-            <span>Terms of Service</span>
+            <span>服务条款</span>
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-tos">
             <!-- New tab, so the registration progress isn't lost. -->
             <a href="/about#terms" target="_blank" rel="noopener" class="tos-link">
-              Terms of Service
+              查看服务条款
               <t-icon name="link" :size="14" />
             </a>
           </div>
           <label class="agree-check">
             <input type="checkbox" v-model="tosAgreed" class="agree-check__input" />
-            <span class="agree-check__label">I agree</span>
+            <span class="agree-check__label">我同意</span>
           </label>
         </div>
 
-        <p class="rules-note">You must agree to all items above to continue.</p>
+        <p class="rules-note">需要同意以上全部内容才能继续。</p>
 
         <div class="register-actions">
           <t-button
@@ -183,7 +183,7 @@ function close() {
             size="large"
             @click="goBack"
           >
-            Cancel
+            取消
           </t-button>
           <t-button
             theme="primary"
@@ -193,7 +193,7 @@ function close() {
             @click="proceedToForm"
             class="btn-continue"
           >
-            Continue →
+            继续
           </t-button>
         </div>
       </div>
@@ -209,7 +209,7 @@ function close() {
         <t-alert v-if="error" theme="error" :message="error" style="margin-bottom: var(--space-4)" />
 
         <t-form @submit="handleRegister" class="register-form" label-align="top">
-          <t-form-item label="Username" :help="'2–20 letters, numbers or underscores. Cannot be changed later.'">
+          <t-form-item label="用户名" help="2–20 个字母、数字或下划线。注册后不能修改。">
             <t-input
               v-model="form.username"
               size="large"
@@ -225,7 +225,7 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="Email">
+          <t-form-item label="邮箱">
             <t-input
               v-model="form.email"
               type="text"
@@ -239,12 +239,12 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="Password">
+          <t-form-item label="密码" help="至少 8 位，并包含大写字母、小写字母和数字。">
             <t-input
               v-model="form.password"
               type="password"
               size="large"
-              placeholder="At least 8 characters"
+              placeholder="至少 8 个字符"
               autocomplete="new-password"
             >
               <template #prefixIcon>
@@ -253,12 +253,12 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="Confirm Password">
+          <t-form-item label="确认密码">
             <t-input
               v-model="form.passwordConfirm"
               type="password"
               size="large"
-              placeholder="Enter password again"
+              placeholder="再输入一次密码"
               autocomplete="new-password"
               :status="showPasswordMismatch ? 'error' : 'default'"
             >
@@ -267,7 +267,7 @@ function close() {
               </template>
             </t-input>
             <div v-if="showPasswordMismatch" class="form-error">
-              Passwords do not match
+              两次输入的密码不一致
             </div>
           </t-form-item>
 
@@ -281,7 +281,7 @@ function close() {
               :loading="registering"
               class="btn-continue"
             >
-              Start
+              开始使用
             </t-button>
           </div>
         </t-form>

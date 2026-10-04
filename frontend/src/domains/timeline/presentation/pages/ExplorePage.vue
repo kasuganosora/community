@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, watch, onMounted, nextTick } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
+import { readListSnapshot, restoreListScroll, saveListSnapshot } from '@/shared/utils/listMemory'
 import TimelineFeed from '../components/TimelineFeed.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
@@ -32,12 +33,38 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
 
 function selectTab(tab: ExploreTab) {
   if (tab === activeTab.value) return
+  saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value)
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } }).catch(() => {})
 }
 
-watch(activeTab, () => { feed.reset(); feed.refresh() })
-onMounted(() => feed.refresh())
+watch(activeTab, () => {
+  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
+  if (snap?.items.length) {
+    feed.hydrate(snap.items, snap.hasMore)
+    nextTick(() => restoreListScroll(snap.scroll))
+    return
+  }
+  feed.reset()
+  feed.refresh()
+})
+
+onMounted(() => {
+  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
+  if (snap?.items.length) {
+    feed.hydrate(snap.items, snap.hasMore)
+    nextTick(() => restoreListScroll(snap.scroll))
+    return
+  }
+  feed.refresh()
+})
+
+onBeforeRouteLeave(() => saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value))
+
+function retryFeed() {
+  if (statuses.value.length && hasMore.value) void feed.loadMore()
+  else void feed.refresh()
+}
 </script>
 
 <template>
@@ -63,7 +90,7 @@ onMounted(() => feed.refresh())
       :error="error"
       empty-text="还没有公开帖子。"
       @load-more="feed.loadMore"
-      @retry="feed.refresh"
+      @retry="retryFeed"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"

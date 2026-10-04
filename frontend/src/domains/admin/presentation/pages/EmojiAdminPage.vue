@@ -9,7 +9,7 @@ const items = ref<AdminEmoji[]>([]), selected = ref<string[]>([])
 const loading = ref(false), busy = ref(false), error = ref(''), notice = ref('')
 const editor = ref(false), editing = ref<AdminEmoji | null>(null)
 const copySource = ref<AdminEmoji | null>(null), copyName = ref('')
-const imageId = ref(''), preview = ref(''), aliases = ref('')
+const imageId = ref(''), preview = ref(''), aliases = ref(''), uploadMeta = ref(''), previewNote = ref('')
 const batchAction = ref('disable'), batchText = ref(''), batchValue = ref(true)
 const roles = ref<{ id: string; name: string }[]>([]), rolesError = ref('')
 const form = reactive<EmojiFields>(defaults())
@@ -19,7 +19,16 @@ function defaults(): EmojiFields {
 }
 const pages = computed(() => Math.max(1, Math.ceil(total.value / limit)))
 const allSelected = computed(() => items.value.length > 0 && items.value.every(e => selected.value.includes(e.id)))
+const actionLabel: Record<string, string> = {
+  enable: '启用', disable: '禁用', delete: '删除', set_category: '设置分类', set_license: '设置许可证',
+  set_aliases: '替换别名', add_aliases: '添加别名', remove_aliases: '移除别名', set_local_only: '设置仅本地', set_sensitive: '设置敏感内容',
+}
 function message(e: unknown) { return e instanceof Error ? e.message : '操作失败，请重试' }
+function formatSize(size: number) {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`
+}
 function revokePreview() { if (objectUrl) URL.revokeObjectURL(objectUrl); objectUrl = '' }
 async function load() {
   const version = ++request
@@ -35,7 +44,7 @@ function search() { page.value = 1; void load() }
 function changeOrigin() { batchAction.value = 'disable'; search() }
 function toggleAll() { selected.value = allSelected.value ? [] : items.value.map(e => e.id) }
 function openEditor(emoji: AdminEmoji | null = null) {
-  revokePreview(); uploadVersion++; editing.value = emoji; imageId.value = ''; error.value = ''; notice.value = ''
+  revokePreview(); uploadVersion++; editing.value = emoji; imageId.value = ''; uploadMeta.value = ''; previewNote.value = ''; error.value = ''; notice.value = ''
   const initial = defaults()
   for (const key of Object.keys(initial) as (keyof EmojiFields)[]) {
     Object.assign(form, { [key]: emoji?.[key] ?? initial[key] })
@@ -47,17 +56,34 @@ async function upload(event: Event) {
   const input = event.target as HTMLInputElement, file = input.files?.[0]
   if (!file) return
   input.value = ''
-  if (!['image/png', 'image/apng', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
-    error.value = '请选择不超过 2 MiB 的 PNG、JPEG、GIF 或 WebP 图片'; return
+  const allowed = ['image/png', 'image/apng', 'image/jpeg', 'image/gif', 'image/webp']
+  if (!allowed.includes(file.type)) {
+    error.value = `无法上传「${file.name || '未命名文件'}」：类型是 ${file.type || '未知'}。请改用 PNG、JPEG、GIF 或 WebP。`
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    error.value = `无法上传「${file.name}」：大小为 ${formatSize(file.size)}，超过 2 MiB。`
+    return
   }
   const version = ++uploadVersion
-  busy.value = true; error.value = ''
+  busy.value = true; error.value = ''; previewNote.value = '正在上传并生成预览…'
   try {
     const result = await emojiAdminApi.upload(file)
     if (version !== uploadVersion) return
     imageId.value = result.id; revokePreview(); objectUrl = URL.createObjectURL(file); preview.value = objectUrl
-  } catch (e) { error.value = message(e) }
+    uploadMeta.value = `${file.name} · ${formatSize(file.size)} · ${file.type}`
+    previewNote.value = '预览已生成。确认图片显示正常后，再点击保存。'
+  } catch (e) { error.value = `上传失败：${message(e)}。预览没有更新，请换一张图片后再试。`; previewNote.value = '' }
   finally { busy.value = false }
+}
+function onPreviewLoad(event: Event) {
+  const img = event.target as HTMLImageElement
+  if (img.naturalWidth > 1024 || img.naturalHeight > 1024) {
+    previewNote.value = `预览尺寸是 ${img.naturalWidth} × ${img.naturalHeight}，超过 1024 × 1024，保存时服务器可能会拒绝。`
+  }
+}
+function onPreviewError() {
+  previewNote.value = '预览失败：浏览器打不开这个文件。它可能已损坏，或不是支持的图片。'
 }
 function splitAliases(value: string) { return [...new Set(value.split(/[,，\n]/).map(s => s.trim()).filter(Boolean))] }
 async function save() {
@@ -92,12 +118,20 @@ async function batch() {
   if (batchAction.value === 'delete' && !window.confirm(`删除选中的 ${selected.value.length} 个表情？此操作无法撤销。`)) return
   busy.value = true; error.value = ''
   const action = batchAction.value
+  const label = actionLabel[action] || '更新'
+  const chosen = selected.value.length
   const fields = action === 'set_category' ? { category: batchText.value }
     : action === 'set_license' ? { license: batchText.value }
     : action.includes('aliases') ? { aliases: splitAliases(batchText.value) }
     : { value: batchValue.value }
-  try { const result = await emojiAdminApi.bulk(selected.value, action, fields); notice.value = `已更新 ${result.updated} 个表情`; await load() }
-  catch (e) { error.value = message(e) } finally { busy.value = false }
+  try {
+    const result = await emojiAdminApi.bulk(selected.value, action, fields)
+    notice.value = result.updated < chosen
+      ? `批量${label}只完成了 ${result.updated} / ${chosen} 个。其余可能已被删除，或你没有权限修改。`
+      : `已${label} ${result.updated} 个表情`
+    await load()
+  }
+  catch (e) { error.value = `批量${label}失败：${message(e)}。选中的表情没有全部更新，请刷新后核对。` } finally { busy.value = false }
 }
 async function loadRoles() {
   rolesError.value = ''
@@ -126,7 +160,9 @@ onUnmounted(() => { request++; uploadVersion++; revokePreview() })
 
       <form v-if="editor" class="editor" aria-label="表情编辑" @submit.prevent="save">
         <h2>{{ editing ? '编辑表情' : '新建表情' }}</h2>
-        <img v-if="preview" :src="preview" alt="表情预览" class="preview" />
+        <img v-if="preview" :src="preview" alt="表情预览" class="preview" @load="onPreviewLoad" @error="onPreviewError" />
+        <p v-if="uploadMeta" class="muted">{{ uploadMeta }}</p>
+        <p v-if="previewNote" class="muted">{{ previewNote }}</p>
         <template v-if="!editing?.domain">
           <label>图片<input type="file" accept="image/png,image/apng,image/jpeg,image/gif,image/webp" :disabled="busy" @change="upload" /></label>
           <p class="muted">支持 PNG / APNG、GIF、JPEG、WebP（含动画），不支持 SVG。最多 2 MiB，最大 1024 × 1024 像素。上传完成后点击保存。</p>
@@ -160,6 +196,7 @@ onUnmounted(() => { request++; uploadVersion++; revokePreview() })
       <template v-else>
         <form v-if="items.length" class="toolbar batch" @submit.prevent="batch">
           <label class="check"><input type="checkbox" :checked="allSelected" :disabled="busy" @change="toggleAll" />本页全选（{{ selected.length }}）</label>
+          <p v-if="!selected.length" class="muted">先勾选要处理的表情。批量失败时会写明原因，不会悄悄跳过。</p>
           <label>批量操作<select v-model="batchAction" :disabled="busy"><option value="enable">启用</option><option value="disable">禁用</option><option value="delete">删除</option><template v-if="origin === 'local'"><option value="set_category">设置分类</option><option value="set_license">设置许可证</option><option value="set_aliases">替换别名</option><option value="add_aliases">添加别名</option><option value="remove_aliases">移除别名</option><option value="set_local_only">设置仅本地</option><option value="set_sensitive">设置敏感内容</option></template></select></label>
           <label v-if="['set_category', 'set_license', 'set_aliases', 'add_aliases', 'remove_aliases'].includes(batchAction)">内容<input v-model="batchText" placeholder="留空可清除；别名用逗号分隔" :disabled="busy" /></label>
           <label v-if="['set_local_only', 'set_sensitive'].includes(batchAction)" class="check"><input v-model="batchValue" type="checkbox" :disabled="busy" />开启</label>

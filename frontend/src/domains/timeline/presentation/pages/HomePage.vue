@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useTimelineStore } from '../stores/timelineStore'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import type { ManagedTimelineType } from '../../domain/entities'
 import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
+import { saveListSnapshot, readListSnapshot, restoreListScroll } from '@/shared/utils/listMemory'
 
 const timelineStore = useTimelineStore()
 type TabType = 'for-you' | 'following'
@@ -25,14 +29,34 @@ const statuses = computed(() => {
     : timelineStore.homeStatuses
 })
 
+const newerCount = computed(() => currentTimeline.value.newer.length)
+const newerLabel = computed(() => newerCount.value >= TIMELINE_PAGE_SIZE
+  ? '有很多新帖子'
+  : `${newerCount.value} 条新帖子`)
+
+function timelineType(tab: TabType = activeTab.value): ManagedTimelineType {
+  return tab === 'for-you' ? 'public' : 'home'
+}
+
+function rememberPosition(tab: TabType = activeTab.value) {
+  const timeline = tab === 'for-you' ? timelineStore.publicTimeline : timelineStore.homeTimeline
+  saveListSnapshot(`home:${tab}`, timeline.statuses, timeline.hasMore)
+}
+
+function restorePosition(tab: TabType = activeTab.value) {
+  const snap = readListSnapshot(`home:${tab}`)
+  if (snap) restoreListScroll(snap.scroll)
+}
+
 // Reuse the shared action handlers — optimistic update via the store.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => timelineStore.updateStatus(id, updates),
 )
 
 function onTabChange(val: TabType) {
+  rememberPosition()
   activeTab.value = val
-  loadTimeline()
+  openTimeline(false)
 }
 
 function loadTimeline() {
@@ -43,6 +67,15 @@ function loadTimeline() {
   }
 }
 
+function openTimeline(restore: boolean) {
+  if (statuses.value.length === 0) {
+    loadTimeline()
+    return
+  }
+  if (restore) nextTick(() => restorePosition())
+  void timelineStore.checkNewer(timelineType())
+}
+
 async function handleLoadMore() {
   if (activeTab.value === 'for-you') {
     await timelineStore.loadMorePublic()
@@ -51,13 +84,32 @@ async function handleLoadMore() {
   }
 }
 
+function retryTimeline() {
+  if (statuses.value.length > 0 && currentTimeline.value.hasMore) void handleLoadMore()
+  else loadTimeline()
+}
+
+function revealNew() {
+  timelineStore.revealNewer(timelineType())
+  window.scrollTo(0, 0)
+  rememberPosition()
+}
+
 function handlePosted(status: MastodonStatus) {
   timelineStore.prependStatus(status)
 }
 
+let pollTimer = 0
 onMounted(() => {
-  loadTimeline()
+  openTimeline(true)
+  pollTimer = window.setInterval(() => {
+    if (document.hidden || statuses.value.length === 0 || currentTimeline.value.isLoading) return
+    void timelineStore.checkNewer(timelineType())
+  }, 45_000)
 })
+
+onBeforeRouteLeave(() => rememberPosition())
+onBeforeUnmount(() => window.clearInterval(pollTimer))
 </script>
 
 <template>
@@ -76,6 +128,10 @@ onMounted(() => {
     <!-- Compose box -->
     <PostComposer @posted="handlePosted" />
 
+    <button v-if="newerCount" type="button" class="home-new" @click="revealNew">
+      {{ newerLabel }}，点击查看
+    </button>
+
     <!-- Timeline -->
     <TimelineFeed
       :statuses="statuses"
@@ -84,7 +140,7 @@ onMounted(() => {
       :error="currentTimeline.error"
       :empty-text="activeTab === 'for-you' ? '还没有人发布公开帖子。' : undefined"
       @load-more="handleLoadMore"
-      @retry="loadTimeline"
+      @retry="retryTimeline"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
@@ -132,5 +188,21 @@ onMounted(() => {
   .home-page > .composer {
     display: none;
   }
+}
+
+.home-new {
+  position: sticky;
+  top: 6.5rem;
+  z-index: calc(var(--z-bar) - 1);
+  display: block;
+  margin: var(--space-3) auto 0;
+  min-height: 2.25rem;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-2);
 }
 </style>

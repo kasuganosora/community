@@ -13,6 +13,8 @@ export interface PaginatedList<T> {
   reset: () => void
   /** Fetch the next page using its server cursor (or last item id for array APIs). */
   loadMore: () => Promise<void>
+  /** Restore a previously shown page without hitting the network. */
+  hydrate: (items: T[], hasMore: boolean) => void
 }
 
 /**
@@ -47,15 +49,29 @@ export function usePaginatedList<T extends { id: string }>(
       const result = await fetchPage(maxId, pageSize)
       if (my !== version) return
       const page = Array.isArray(result) ? result : result.items
+      const before = append ? items.value.length : 0
       nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
       items.value = mergeById(append ? items.value : [], page)
-      hasMore.value = (Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor) && (!append || nextCursor !== maxId)
+      const grew = items.value.length > before
+      // A page that adds nothing would otherwise keep the sentinel requesting forever.
+      hasMore.value = (Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor)
+        && (!append || nextCursor !== maxId)
+        && (!append || grew)
     } catch (e) {
       if (my !== version) return
       error.value = e instanceof Error ? e.message : '加载失败'
     } finally {
       if (my === version) loading.value = false
     }
+  }
+
+  function hydrate(next: T[], more: boolean) {
+    ++version
+    items.value = next.slice()
+    hasMore.value = more
+    nextCursor = next[next.length - 1]?.id
+    loading.value = false
+    error.value = null
   }
 
   return {
@@ -65,6 +81,7 @@ export function usePaginatedList<T extends { id: string }>(
     hasMore,
     refresh: () => run(false),
     reset,
+    hydrate,
     loadMore: async () => {
       if (loading.value || !hasMore.value || items.value.length === 0) return
       await run(true)

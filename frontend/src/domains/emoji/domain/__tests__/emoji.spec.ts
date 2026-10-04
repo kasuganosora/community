@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emojiUrl, renderEmojiHtml, insertShortcode } from '../emoji'
+import { emojiUrl, renderEmojiHtml, insertShortcode, rememberRecentEmoji } from '../emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 const smile: MastodonEmoji = { shortcode: 'smile', url: 'https://images.test/smile.gif', static_url: 'https://images.test/smile.png', visible_in_picker: true }
 
@@ -27,5 +27,10 @@ describe('safe custom emoji rendering', () => {
   })
   it('replaces selected text without dropping surrounding draft characters', () => {
     expect(insertShortcode('hello selected world', 'smile', 6, 14)).toEqual({ text: 'hello :smile: world', cursor: 13 })
+  })
+  it('keeps recently used emoji in front and drops duplicates', () => {
+    localStorage.clear()
+    expect(rememberRecentEmoji('wave', rememberRecentEmoji('cat'))).toEqual(['wave', 'cat'])
+    expect(rememberRecentEmoji('cat')).toEqual(['cat', 'wave'])
   })
 })

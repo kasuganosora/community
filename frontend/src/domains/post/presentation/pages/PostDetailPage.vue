@@ -5,7 +5,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
-import { canBoost, visibilityOption } from '../../domain/compose'
+import { canBoost, visibilityOption, DIRECT_SCOPE } from '../../domain/compose'
 import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
 } from '../../presentation/composables/useStatusActions'
@@ -170,9 +170,9 @@ function openProfile() {
         <PostContent :status="mainStatus" text-class="detail-main__content rich-text" />
 
         <div class="detail-main__time">
-          <span v-if="visibility" class="detail-main__visibility">
+          <span v-if="visibility" class="detail-main__visibility" :title="visibility.label">
             <t-icon :name="visibility.icon" :size="14" />
-            {{ visibility.short }}
+            {{ visibility.label }}
             <span aria-hidden="true"> · </span>
           </span>
           <time :datetime="mainStatus.created_at">
@@ -180,6 +180,7 @@ function openProfile() {
           </time>
           <span v-if="mainStatus.edited_at"> · 已编辑</span>
         </div>
+        <p v-if="mainStatus.visibility === 'direct'" class="detail-main__scope">{{ DIRECT_SCOPE }}</p>
 
         <div class="detail-main__stats">
           <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
@@ -293,6 +294,13 @@ function openProfile() {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+.detail-main__scope {
+  margin: 0 0 var(--space-3);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  line-height: var(--leading-footnote);
 }
 
 .detail-main__stats {

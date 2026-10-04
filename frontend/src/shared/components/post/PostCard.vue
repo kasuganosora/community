@@ -7,7 +7,7 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
-import { visibilityOption } from '@/domains/post/domain/compose'
+import { visibilityOption, REPLACE_MENU, REPLACE_DIALOG, REPLACE_SUCCESS } from '@/domains/post/domain/compose'
 import {
   deletedStatusIds, editedStatuses, markStatusDeleted,
 } from '@/domains/post/presentation/composables/useStatusActions'
@@ -69,7 +69,7 @@ function navigateToProfile(e: Event) {
 function confirmDelete() {
   const dialog = DialogPlugin.confirm({
     header: '删除帖子？',
-    body: '删除后无法恢复，转发和回复也会失去关联。',
+    body: '删除后无法恢复。这条帖子的转发和回复也会失去关联。',
     confirmBtn: { content: '删除', theme: 'danger' },
     cancelBtn: '取消',
     onConfirm: async () => {
@@ -91,7 +91,7 @@ function onEdited(updated: MastodonStatus) {
   const originalID = displayStatus.value.id
   editing.value = false
   markStatusDeleted(originalID)
-  MessagePlugin.success('原帖已删除，已重新发布')
+  MessagePlugin.success(REPLACE_SUCCESS)
   router.push({ name: 'post-detail', params: { username: updated.account.acct || updated.account.username, statusId: updated.id } }).catch(() => {})
 }
 
@@ -151,14 +151,14 @@ function onMenuClick(data: { value?: unknown }) {
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
           <span v-if="displayStatus.edited_at" class="post-card__edited" title="已编辑">· 已编辑</span>
-          <span v-if="visibility" class="post-card__visibility" :title="visibility.short">
+          <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
             <t-icon :name="visibility.icon" :size="14" />
             <span class="sr-only">{{ visibility.short }}</span>
           </span>
           <t-dropdown
             v-if="isOwn"
             trigger="click"
-            :options="[{ content: '编辑（删除并重发）', value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }]"
+            :options="[{ content: REPLACE_MENU, value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }]"
             @click="onMenuClick"
           >
             <button type="button" class="post-card__menu" aria-label="更多操作" @click.stop>
@@ -184,7 +184,7 @@ function onMenuClick(data: { value?: unknown }) {
     <t-dialog
       v-if="editing"
       :visible="editing"
-      header="编辑帖子 · 删除并重发"
+      :header="REPLACE_DIALOG"
       :footer="false"
       width="600px"
       destroy-on-close

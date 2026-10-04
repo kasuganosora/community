@@ -7,11 +7,28 @@ const props = defineProps<{
 }>()
 
 const failedMedia = ref<Set<string>>(new Set())
+const viewer = ref<number | null>(null)
 
 function handleMediaError(id: string) {
   const newSet = new Set(failedMedia.value)
   newSet.add(id)
   failedMedia.value = newSet
+}
+
+function openViewer(index: number) {
+  viewer.value = index
+}
+
+function moveViewer(step: number) {
+  if (viewer.value === null) return
+  const count = images.value.length
+  viewer.value = (viewer.value + step + count) % count
+}
+
+function onViewerKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') viewer.value = null
+  else if (event.key === 'ArrowRight') moveViewer(1)
+  else if (event.key === 'ArrowLeft') moveViewer(-1)
 }
 
 const images = computed(() =>
@@ -55,10 +72,13 @@ const gridClass = computed(() => {
     </ul>
     <!-- Images -->
     <div :class="gridClass" v-if="images.length">
-      <div
+      <button
         v-for="(img, index) in images.slice(0, 4)"
         :key="img.id"
+        type="button"
         class="media-item"
+        :aria-label="img.description ? `查看图片：${img.description}` : `查看第 ${index + 1} 张图片`"
+        @click.stop="openViewer(index)"
       >
         <img
           v-if="!failedMedia.has(img.id)"
@@ -78,6 +98,32 @@ const gridClass = computed(() => {
         <div v-if="index === 3 && images.length > 4" class="media-overflow">
           +{{ images.length - 4 }}
         </div>
+      </button>
+    </div>
+
+    <div
+      v-if="viewer !== null && images[viewer]"
+      class="media-viewer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片预览"
+      tabindex="-1"
+      @click.stop
+      @keydown="onViewerKey"
+    >
+      <div class="media-viewer__bar">
+        <span>{{ viewer + 1 }} / {{ images.length }}</span>
+        <button type="button" @click="viewer = null">关闭</button>
+      </div>
+      <img
+        class="media-viewer__img"
+        :src="images[viewer].url"
+        :alt="images[viewer].description || ''"
+      />
+      <p v-if="images[viewer].description" class="media-viewer__alt">{{ images[viewer].description }}</p>
+      <div v-if="images.length > 1" class="media-viewer__nav">
+        <button type="button" @click="moveViewer(-1)">上一张</button>
+        <button type="button" @click="moveViewer(1)">下一张</button>
       </div>
     </div>
 
@@ -91,6 +137,7 @@ const gridClass = computed(() => {
         loop
         playsinline
         class="media-video"
+        @click.stop
         @error="handleMediaError(vid.id)"
       />
       <div v-else class="media-fallback media-fallback--video">
@@ -109,6 +156,7 @@ const gridClass = computed(() => {
         controls
         preload="none"
         class="media-audio"
+        @click.stop
         @error="handleMediaError(aud.id)"
       />
       <div v-else class="media-fallback media-fallback--audio">
@@ -126,8 +174,6 @@ const gridClass = computed(() => {
   margin-top: var(--space-2);
 }
 
-/* Image grid: continuous rounded frame, hairline gutters, and a hairline
-   inner stroke so light photos don't bleed into a light background. */
 [class^='media-grid--'] {
   position: relative;
   display: grid;
@@ -178,6 +224,11 @@ const gridClass = computed(() => {
   overflow: hidden;
   cursor: pointer;
   min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: inherit;
 }
 
 .media-img {
@@ -199,54 +250,94 @@ const gridClass = computed(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  min-height: 7.5rem;
+  min-height: 6rem;
+  color: var(--color-label-secondary);
   background: var(--color-fill);
-  color: var(--color-label-tertiary);
-  font-size: var(--text-footnote);
-}
-
-.media-fallback--video {
-  min-height: 12.5rem;
-  background: #000;
-  color: #8e8e93;
-}
-
-.media-fallback--audio {
-  min-height: 3rem;
-  border-radius: var(--radius-md);
-}
-
-.media-video-wrap {
-  margin-top: var(--space-2);
-}
-
-.media-video {
-  display: block;
-  width: 100%;
-  max-height: 32rem;
-  object-fit: contain;
-  border-radius: var(--radius-lg);
-  background: #000;
-}
-
-.media-audio-wrap {
-  margin-top: var(--space-2);
-}
-
-.media-audio {
-  width: 100%;
 }
 
 .media-overflow {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
   font-size: var(--text-title-2);
   font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-title-2);
+  pointer-events: none;
+}
+
+.media-video,
+.media-audio {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-lg);
+  background: #000;
+}
+
+.media-audio {
+  background: var(--color-fill);
+}
+
+@media (max-width: 43.74rem) {
+  [class^='media-grid--'] {
+    max-height: 16rem;
+    aspect-ratio: 1 / 1;
+  }
+
+  .media-grid--single {
+    aspect-ratio: auto;
+    max-height: none;
+  }
+
+  .media-grid--single .media-img {
+    max-height: 18rem;
+    object-fit: contain;
+    background: var(--color-fill);
+  }
+}
+
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: calc(var(--space-4) + var(--safe-top)) var(--gutter) calc(var(--space-4) + var(--safe-bottom));
+  background: rgba(0, 0, 0, 0.92);
+  color: #fff;
+}
+
+.media-viewer__bar,
+.media-viewer__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.media-viewer__bar button,
+.media-viewer__nav button {
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.media-viewer__img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+}
+
+.media-viewer__alt {
+  margin: 0;
+  font-size: var(--text-footnote);
+  line-height: var(--leading-footnote);
+  overflow-wrap: anywhere;
 }
 </style>

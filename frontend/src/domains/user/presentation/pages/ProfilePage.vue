@@ -182,7 +182,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
       empty-title="暂无内容"
       :empty-text="activeTab === 'likes' ? '你喜欢的帖子会显示在这里。' : '这里还没有帖子。'"
       @load-more="feed.loadMore"
-      @retry="feed.refresh"
+      @retry="statuses.length && feed.hasMore.value ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"

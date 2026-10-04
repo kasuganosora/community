@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conversationPreview, conversationTitle, conversationTarget } from '../conversation'
+import { conversationMediaLabel, conversationPreview, conversationTitle, conversationTarget } from '../conversation'
 import type { MastodonAccount, MastodonConversation, MastodonStatus } from '@/shared/types/mastodon'
 
 const acc = (id: string, name: string) => ({ id, username: name.toLowerCase(), acct: name.toLowerCase(), display_name: name }) as MastodonAccount
@@ -35,5 +35,13 @@ describe('conversationTarget', () => {
   it('opens the last status thread', () => {
     expect(conversationTarget(conv({ last_status: { id: '9', account: bob } as MastodonStatus }))).toBe('/@bob/status/9')
     expect(conversationTarget(conv({}))).toBeNull()
+  })
+})
+
+describe('conversationMediaLabel', () => {
+  it('counts images separately from other attachments', () => {
+    const media = [{ id: 'a', type: 'image' }, { id: 'b', type: 'image' }, { id: 'c', type: 'video' }]
+    expect(conversationMediaLabel(conv({ last_status: { id: '9', account: bob, media_attachments: media } as MastodonStatus }))).toBe('2 张图片，另有 1 个附件')
+    expect(conversationMediaLabel(conv({}))).toBeNull()
   })
 })

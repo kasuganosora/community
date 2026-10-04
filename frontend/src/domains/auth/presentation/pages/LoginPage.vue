@@ -72,7 +72,7 @@ async function handleLogin() {
         <LogoIcon :size="40" />
       </div>
 
-      <h1 class="login-title">Sign in to Community</h1>
+      <h1 class="login-title">登录社区</h1>
 
       <t-alert v-if="justRegistered && !authStore.error" theme="success" message="注册成功，请登录。" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
@@ -81,7 +81,7 @@ async function handleLogin() {
         <t-form-item>
           <t-input
             v-model="form.username"
-            placeholder="Username"
+            placeholder="用户名"
             size="large"
             clearable
             autocomplete="username"
@@ -93,7 +93,7 @@ async function handleLogin() {
             v-model="form.password"
             class="password-input"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="Password"
+            placeholder="密码"
             size="large"
             autocomplete="current-password"
             :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
@@ -116,7 +116,7 @@ async function handleLogin() {
           </t-input>
         </t-form-item>
         <p v-if="loginAttempts >= MAX_LOGIN_ATTEMPTS" class="login-locked">
-          Too many failed attempts. Please try again in 30 seconds.
+          尝试次数太多了，请在 30 秒后再试。
         </p>
         <t-form-item>
           <t-button
@@ -128,7 +128,7 @@ async function handleLogin() {
             :loading="authStore.loading"
             :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
           >
-            Sign in
+            登录
           </t-button>
         </t-form-item>
       </t-form>
@@ -146,8 +146,8 @@ async function handleLogin() {
       </t-button>
 
       <div class="login-footer">
-        Don't have an account?
-        <router-link to="/register" class="login-link">Sign up</router-link>
+        还没有账号？
+        <router-link to="/register" class="login-link">去注册</router-link>
       </div>
     </div>
   </div>

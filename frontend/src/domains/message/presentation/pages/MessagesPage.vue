@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonConversation } from '@/shared/types/mastodon'
 import { conversationApi } from '../../infrastructure/conversationApi'
-import { conversationPreview, conversationTitle, conversationTarget } from '../../domain/conversation'
+import { conversationImage, conversationMediaLabel, conversationPreview, conversationTitle, conversationTarget } from '../../domain/conversation'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { isInteractiveClick } from '@/shared/utils/dom'
+import { DIRECT_SCOPE } from '@/domains/post/domain/compose'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
+
+const LAST_CONVERSATION = 'dm-opened'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -29,6 +32,9 @@ async function open(c: MastodonConversation, e?: MouseEvent) {
     return
   }
   const wasUnread = c.unread
+  try {
+    sessionStorage.setItem(LAST_CONVERSATION, c.id)
+  } catch { /* ignore */ }
   try {
     await router.push(to)
   } catch {
@@ -64,14 +70,26 @@ function onPosted() {
   feed.refresh()
 }
 
-onMounted(() => feed.refresh())
+onMounted(async () => {
+  await feed.refresh()
+  await nextTick()
+  let id = ''
+  try { id = sessionStorage.getItem(LAST_CONVERSATION) || '' } catch { /* ignore */ }
+  const target = id
+    ? document.getElementById(`conversation-${id}`)
+    : document.querySelector<HTMLElement>('.conversation--unread')
+  target?.scrollIntoView({ block: 'center' })
+})
 </script>
 
 <template>
   <div class="messages-page">
     <div class="page-header">
       <h1 class="page-header__title">私信</h1>
+      <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ conversations.filter(c => c.unread).length }} 个未读会话</p>
     </div>
+
+    <p class="messages-scope">{{ DIRECT_SCOPE }}</p>
 
     <!-- Messages are direct-visibility statuses (Mastodon "private mentions"). -->
     <PostComposer initial-visibility="direct" placeholder="@用户名 写一条私信…" @posted="onPosted" />
@@ -91,18 +109,19 @@ onMounted(() => feed.refresh())
     <div v-else-if="!loading && conversations.length === 0" class="empty-state">
       <div class="empty-state__icon"><t-icon name="mail" :size="48" /></div>
       <h2 class="empty-state__title">还没有私信</h2>
-      <p class="empty-state__text">在上方输入框中 @提及 某人即可发送仅对方可见的私信。</p>
+      <p class="empty-state__text">在上方写给某人。私信只会发给被 @ 的人。</p>
     </div>
 
     <ul v-else-if="conversations.length > 0" class="conversation-list" aria-label="私信会话">
       <li
         v-for="c in conversations"
         :key="c.id"
+        :id="`conversation-${c.id}`"
         class="conversation"
         :class="{ 'conversation--unread': c.unread }"
         role="link"
         tabindex="0"
-        :aria-label="`${conversationTitle(c, authStore.currentUser?.id)}${c.unread ? '，未读' : ''}，${conversationPreview(c)}`"
+        :aria-label="`${conversationTitle(c, authStore.currentUser?.id)}${c.unread ? '，未读' : ''}，仅提及的人可见，${conversationPreview(c)}`"
         @click="open(c, $event)"
         @keydown.enter.self="open(c)"
         @keydown.space.self.prevent="open(c)"
@@ -116,9 +135,14 @@ onMounted(() => feed.refresh())
             <span class="conversation__title">{{ conversationTitle(c, authStore.currentUser?.id) }}</span>
             <RelativeTime v-if="c.last_status" :datetime="c.last_status.created_at" class="conversation__time" />
           </div>
-          <p class="conversation__preview">{{ conversationPreview(c) }}</p>
+          <p class="conversation__preview">
+            <img v-if="conversationImage(c)" class="conversation__thumb" :src="conversationImage(c)!" alt="" />
+            <span v-if="conversationMediaLabel(c)" class="conversation__media">{{ conversationMediaLabel(c) }}</span>
+            {{ conversationPreview(c) || (conversationMediaLabel(c) ? '' : '（没有可显示的消息）') }}
+          </p>
+          <p class="conversation__scope">仅提及的人可见</p>
         </div>
-        <span v-if="c.unread" class="conversation__dot" aria-hidden="true" />
+        <span v-if="c.unread" class="conversation__dot">未读</span>
         <button type="button" class="conversation__remove" aria-label="删除此会话" @click.stop="remove(c)">
           <t-icon name="close" :size="16" />
         </button>
@@ -135,6 +159,19 @@ onMounted(() => feed.refresh())
 <style scoped>
 .messages-page {
   min-height: 100dvh;
+}
+
+.messages-unread,
+.messages-scope {
+  margin: 0;
+  padding: 0 var(--gutter, var(--space-4)) var(--space-2);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+}
+
+.messages-unread {
+  color: var(--color-accent-text);
+  font-weight: var(--weight-semibold);
 }
 
 .messages-banner {
@@ -234,17 +271,45 @@ onMounted(() => feed.refresh())
 }
 
 .conversation__preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.conversation__dot {
-  width: 0.5rem;
-  height: 0.5rem;
+.conversation__thumb {
+  width: 1.75rem;
+  height: 1.75rem;
   flex-shrink: 0;
-  border-radius: 50%;
+  object-fit: cover;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-fill);
+}
+
+.conversation__media {
+  flex-shrink: 0;
+  color: var(--color-label);
+  font-weight: var(--weight-medium, 500);
+}
+
+.conversation__scope {
+  margin: 0;
+  color: var(--color-label-tertiary, var(--color-label-secondary));
+  font-size: var(--text-caption, 0.75rem);
+}
+
+.conversation__dot {
+  flex-shrink: 0;
+  min-height: 1.25rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full, 999px);
   background: var(--color-accent, var(--accent-blue));
+  color: #fff;
+  font-size: var(--text-caption, 0.75rem);
+  font-weight: var(--weight-semibold, 600);
+  line-height: 1.25rem;
 }
 
 .conversation__remove {

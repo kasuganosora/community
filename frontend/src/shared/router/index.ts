@@ -17,6 +17,13 @@ declare module 'vue-router' {
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  scrollBehavior(_to, _from, savedPosition) {
+    if (!savedPosition) return { top: 0 }
+    // Wait a frame so a returning timeline has its rows before the offset is applied.
+    return new Promise(resolve => {
+      requestAnimationFrame(() => resolve(savedPosition))
+    })
+  },
 })
 
 /**

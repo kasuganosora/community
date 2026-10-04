@@ -37,6 +37,17 @@ describe('usePaginatedList', () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
+  it('stops when the next page adds no new items', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(5, 4))
+      .mockResolvedValueOnce(page(4, 5))
+    const list = usePaginatedList(fetcher, 2)
+    await list.refresh()
+    await list.loadMore()
+    expect(list.items.value.map(item => item.id)).toEqual(['5', '4'])
+    expect(list.hasMore.value).toBe(false)
+  })
+
   it('ignores a stale response after refresh', async () => {
     let resolveOld: (v: { id: string }[]) => void = () => {}
     const fetcher = vi.fn()

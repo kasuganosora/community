@@ -20,8 +20,8 @@ interface InstanceInfo {
 }
 
 const instanceInfo = ref<InstanceInfo>({
-  name: 'Community',
-  description: 'A decentralized social platform',
+  name: '社区',
+  description: '一个可以安静待着的社区',
   userCount: 0,
   statusCount: 0,
   domain: window.location.host,
@@ -50,8 +50,8 @@ onMounted(async () => {
     if (instanceRes.status === 'fulfilled') {
       const inst = instanceRes.value.data
       instanceInfo.value = {
-        name: inst.title || inst.uri || 'Community',
-        description: inst.short_description || inst.description || 'A decentralized social platform',
+        name: inst.title || inst.uri || '社区',
+        description: inst.short_description || inst.description || '一个可以安静待着的社区',
         userCount: inst.stats?.user_count || 0,
         statusCount: inst.stats?.status_count || 0,
         domain: inst.uri || window.location.host,
@@ -110,7 +110,7 @@ function stripHtml(html: string | null | undefined): string {
               shape="round"
               @click="goRegister"
             >
-              Register on this server
+              在本站注册
             </t-button>
             <t-button
               theme="default"
@@ -123,7 +123,7 @@ function stripHtml(html: string | null | undefined): string {
               target="_blank"
               rel="noopener"
             >
-              Explore other servers
+              看看其他服务器
             </t-button>
             <t-button
               theme="default"
@@ -134,17 +134,17 @@ function stripHtml(html: string | null | undefined): string {
               class="btn-login"
               @click="goLogin"
             >
-              Login
+              登录
             </t-button>
           </div>
 
           <div class="instance-card__stats">
             <div class="stat">
-              <span class="stat__label">Users</span>
+              <span class="stat__label">用户</span>
               <span class="stat__value">{{ formatCount(instanceInfo.userCount) }}</span>
             </div>
             <div class="stat">
-              <span class="stat__label">Posts</span>
+              <span class="stat__label">帖子</span>
               <span class="stat__value">{{ formatCount(instanceInfo.statusCount) }}</span>
             </div>
           </div>
@@ -152,7 +152,8 @@ function stripHtml(html: string | null | undefined): string {
 
         <!-- Public timeline preview -->
         <div class="timeline-preview">
-          <h2 class="timeline-preview__title">Public Timeline</h2>
+          <h2 class="timeline-preview__title">公开时间线</h2>
+          <p v-if="!previewStatuses.length" class="timeline-preview__empty">还没有公开帖子。</p>
           <div class="timeline-preview__list">
             <div
               v-for="status in previewStatuses"
@@ -385,6 +386,12 @@ function stripHtml(html: string | null | undefined): string {
   letter-spacing: var(--tracking-headline);
   font-weight: var(--weight-semibold);
   color: var(--color-label);
+}
+
+.timeline-preview__empty {
+  padding: 0 var(--space-4) var(--space-4);
+  color: var(--color-label-secondary);
+  font-size: var(--text-subhead);
 }
 
 .preview-post {

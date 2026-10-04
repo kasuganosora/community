@@ -53,3 +53,27 @@ export function insertShortcode(text: string, shortcode: string, start: number, 
   const token = `:${shortcode}:`
   return { text: text.slice(0, start) + token + text.slice(end), cursor: start + token.length }
 }
+
+const RECENT_KEY = 'emoji-recent'
+const RECENT_LIMIT = 16
+
+export function readRecentEmoji(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter((item): item is string => typeof item === 'string' && item.length > 0).slice(0, RECENT_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+/** Moves the shortcode to the front and persists the list. Storage failures are ignored. */
+export function rememberRecentEmoji(shortcode: string, current = readRecentEmoji()): string[] {
+  const next = [shortcode, ...current.filter(item => item !== shortcode)].slice(0, RECENT_LIMIT)
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+  } catch {
+    // Private mode or a full disk should not block inserting the emoji.
+  }
+  return next
+}

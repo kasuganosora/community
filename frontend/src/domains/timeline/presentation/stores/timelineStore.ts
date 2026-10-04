@@ -14,6 +14,7 @@ interface TimelineState {
   isLoading: boolean
   hasMore: boolean
   error: string | null
+  newer: MastodonStatus[]
 }
 
 export const useTimelineStore = defineStore('timeline', () => {
@@ -23,6 +24,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     isLoading: false,
     hasMore: true,
     error: null,
+    newer: [],
   })
   
   const publicTimeline = ref<TimelineState>({
@@ -30,17 +32,20 @@ export const useTimelineStore = defineStore('timeline', () => {
     isLoading: false,
     hasMore: true,
     error: null,
+    newer: [],
   })
 
   // Per-timeline request version guard — prevents stale responses from
   // overwriting newer data when fetchTimeline / loadMore race with each other
   const requestVersionMap: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
+  const listGeneration: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
   
   watch(sessionEpoch, () => {
     for (const type of ['home', 'public'] as const) {
       ++requestVersionMap[type]
+      ++listGeneration[type]
       const timeline = getTimeline(type)
-      timeline.statuses = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
+      timeline.statuses = []; timeline.newer = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
     }
   }, { flush: 'sync' })
 
@@ -79,12 +84,14 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer request superseded this one
       if (myVersion !== requestVersionMap[type]) return
+      ++listGeneration[type]
       timeline.statuses = mergeById([], data)
+      timeline.newer = []
       timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     } catch (e) {
       // Only set error if this is still the latest request
       if (myVersion !== requestVersionMap[type]) return
-      timeline.error = e instanceof Error ? e.message : 'Failed to load timeline'
+      timeline.error = e instanceof Error ? e.message : '时间线加载失败'
       console.error(`Failed to fetch ${type} timeline:`, e)
     } finally {
       // Only clear loading state if this is still the latest request
@@ -123,11 +130,13 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer fetch replaced the timeline
       if (myVersion !== requestVersionMap[type]) return
+      const before = timeline.statuses.length
       timeline.statuses = mergeById(timeline.statuses, data)
-      timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE && data[data.length - 1]?.id !== lastId
+      const grew = timeline.statuses.length > before
+      timeline.hasMore = grew && data.length >= TIMELINE_PAGE_SIZE && data[data.length - 1]?.id !== lastId
     } catch (e) {
       if (myVersion !== requestVersionMap[type]) return
-      timeline.error = e instanceof Error ? e.message : 'Failed to load more'
+      timeline.error = e instanceof Error ? e.message : '加载更多失败'
       console.error(`Failed to load more ${type} timeline:`, e)
     } finally {
       if (myVersion === requestVersionMap[type]) {
@@ -145,14 +154,46 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function prependStatus(status: MastodonStatus) {
-    const add = (list: MastodonStatus[]) => {
+    const add = (list: MastodonStatus[], newer: MastodonStatus[]) => {
+      const index = newer.findIndex(item => item.id === status.id)
+      if (index >= 0) newer.splice(index, 1)
       if (!list.some(s => s.id === status.id)) list.unshift(status)
     }
-    add(homeTimeline.value.statuses)
+    add(homeTimeline.value.statuses, homeTimeline.value.newer)
     // Only public posts belong on the public timeline, including its first post.
     if (status.visibility === 'public') {
-      add(publicTimeline.value.statuses)
+      add(publicTimeline.value.statuses, publicTimeline.value.newer)
     }
+  }
+
+  async function checkNewer(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    const sinceId = timeline.statuses[0]?.id
+    if (!sinceId || timeline.isLoading) return
+    const generation = listGeneration[type]
+    try {
+      const data = type === 'home'
+        ? await timelineApi.getHomeTimeline({ since_id: sinceId, limit: TIMELINE_PAGE_SIZE })
+        : await timelineApi.getPublicTimeline({ since_id: sinceId, limit: TIMELINE_PAGE_SIZE })
+      if (generation !== listGeneration[type] || timeline.statuses[0]?.id !== sinceId) return
+      const seen = new Set(timeline.statuses.map(status => status.id))
+      const fresh = data.filter(status => {
+        if (seen.has(status.id)) return false
+        seen.add(status.id)
+        return true
+      })
+      fresh.sort((a, b) => (a.id.length === b.id.length ? (a.id < b.id ? 1 : -1) : b.id.length - a.id.length))
+      timeline.newer = fresh
+    } catch (e) {
+      console.error(`Failed to check newer ${type} posts:`, e)
+    }
+  }
+
+  function revealNewer(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    if (!timeline.newer.length) return
+    timeline.statuses = mergeById(timeline.newer, timeline.statuses)
+    timeline.newer = []
   }
 
   function updateStatus(statusId: string, updates: Partial<MastodonStatus>) {
@@ -184,6 +225,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     fetchPublicTimeline,
     loadMoreHome, 
     loadMorePublic,
+    checkNewer,
+    revealNewer,
     prependStatus, 
     updateStatus,
   }

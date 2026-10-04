@@ -7,6 +7,7 @@ import type { MastodonAttachment, MastodonStatus, Visibility } from '@/shared/ty
 import {
   MAX_MEDIA_ATTACHMENTS, MAX_POLL_OPTIONS, MIN_POLL_OPTIONS, POLL_DURATIONS,
   buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
+  REPLACE_NOTE, REPLACE_ACTION, REPLACE_FAILED, DIRECT_SCOPE,
   type ComposeDraft, type PollDraft,
 } from '@/domains/post/domain/compose'
 import EmojiPicker from './EmojiPicker.vue'
@@ -94,9 +95,15 @@ const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? `回复 @${props.replyTo.account.acct}` : '有什么新鲜事？'))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
 const submitLabel = computed(() => {
-  if (isEdit.value) return '删除原帖并重发'
+  if (posting.value) return isEdit.value ? '正在删除并重发…' : draft.value.visibility === 'direct' ? '正在发送…' : '正在发布…'
+  if (isEdit.value) return REPLACE_ACTION
   if (props.replyTo) return '回复'
-  return draft.value.visibility === 'direct' ? '发送' : '发布'
+  return draft.value.visibility === 'direct' ? '发送私信' : '发布'
+})
+const postingLabel = computed(() => {
+  if (isEdit.value) return '正在删除原帖并重新发布，请稍候。'
+  if (draft.value.visibility === 'direct') return '正在发送私信…'
+  return '正在发布…'
 })
 
 function resetForReply() {
@@ -220,7 +227,7 @@ async function handlePost() {
   } catch (e) {
     console.error('Failed to post status:', e)
     const reason = e instanceof Error && e.message ? `：${e.message}` : '，请重试'
-    error.value = `${isEdit.value ? '删除重发未完成，草稿已保留' : '发布失败'}${reason}`
+    error.value = `${isEdit.value ? REPLACE_FAILED : draft.value.visibility === 'direct' ? '发送失败，这条私信还没有发出去' : '发布失败'}${reason}`
   } finally {
     posting.value = false
   }
@@ -240,8 +247,11 @@ defineExpose({ focus, reset })
 <template>
   <div ref="composerRoot" class="composer" @keydown="onKeydown">
     <p v-if="isEdit" class="composer__replace-notice" role="note">
-      编辑会删除原帖并重新发布，帖子链接会改变。点赞、转发、书签和投票记录不会保留，已有回复不会迁移。可见范围、回复对象和附件保持不变。
+      {{ REPLACE_NOTE }}
       <span v-if="editStatus?.poll">投票截止时间保持不变。</span>
+    </p>
+    <p v-else-if="draft.visibility === 'direct'" class="composer__replace-notice" role="note">
+      {{ DIRECT_SCOPE }}
     </p>
     <div class="composer__body">
       <UserAvatar
@@ -330,7 +340,11 @@ defineExpose({ focus, reset })
         </fieldset>
 
         <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="pickerOpen = false" />
-        <div v-if="error" class="composer__error" role="alert">{{ error }}</div>
+        <p v-if="posting" class="composer__status" role="status">{{ postingLabel }}</p>
+        <div v-else-if="error" class="composer__error" role="alert">
+          <span>{{ error }}</span>
+          <button v-if="!sourceUnavailable" type="button" class="composer__retry" :disabled="!canPost" @click="handlePost">重试</button>
+        </div>
         <div class="composer__toolbar">
           <div class="composer__tools">
             <button type="button" class="tool-btn" aria-label="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker">☺</button>
@@ -796,9 +810,27 @@ defineExpose({ focus, reset })
   color: initial;
 }
 
+.composer__status,
 .composer__error {
-  color: var(--color-danger);
+  color: var(--color-label-secondary);
   font-size: var(--text-footnote);
   padding: var(--space-1) 0;
+}
+
+.composer__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-danger);
+}
+
+.composer__retry {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-fill);
+  color: var(--color-label);
+  font-weight: var(--weight-semibold);
 }
 </style>

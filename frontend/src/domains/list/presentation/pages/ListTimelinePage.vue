@@ -181,7 +181,7 @@ onMounted(load)
       empty-title="列表时间线为空"
       empty-text="点击「管理」添加成员，他们的新帖子会出现在这里。"
       @load-more="feed.loadMore"
-      @retry="feed.refresh"
+      @retry="statuses.length && hasMore ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"

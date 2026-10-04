@@ -23,5 +23,29 @@ export function conversationPreview(c: MastodonConversation): string {
   const spoiler = s.spoiler_text?.trim()
   if (spoiler) return `内容警告：${spoiler}`
   const text = stripHtml(s.content || '').replace(/\s+/g, ' ').trim()
-  return text || '（没有可显示的消息）'
+  return text || (s.media_attachments?.length ? '' : '（没有可显示的消息）')
+}
+
+/** Short label for the last message's attachments, kept separate from the text preview. */
+export function conversationMediaLabel(c: MastodonConversation): string | null {
+  const media = c.last_status?.media_attachments ?? []
+  if (!media.length) return null
+  const images = media.filter(item => item.type === 'image').length
+  const rest = media.length - images
+  if (images && !rest) return images === 1 ? '1 张图片' : `${images} 张图片`
+  if (!images) return `${media.length} 个附件`
+  return `${images} 张图片，另有 ${rest} 个附件`
+}
+
+export function conversationImage(c: MastodonConversation): string | null {
+  const image = c.last_status?.media_attachments?.find(item => item.type === 'image')
+  const raw = image?.preview_url || image?.url
+  if (!raw) return null
+  try {
+    const url = new URL(raw, 'http://local.invalid')
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
+    return raw
+  } catch {
+    return null
+  }
 }
