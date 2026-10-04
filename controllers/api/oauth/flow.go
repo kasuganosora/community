@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
+	"gorm.io/gorm"
 )
 
 func resolveAuthorizeClient(c *gin.Context, clientID, redirectURI string) (*OAuthApplication, *ClientInformation, string) {
@@ -48,11 +50,43 @@ func resolveAuthorizeClient(c *gin.Context, clientID, redirectURI string) (*OAut
 	return nil, &info, ""
 }
 
-func alreadyAuthorized(appID, userID uint64) bool {
-	var userAuth models.ApplicationUserAuth
-	err := db.GetDB().Where("application_id = ? AND user_id = ?", appID, userID).First(&userAuth).Error
+func priorGrantCovers(appID, userID uint64, requested string) bool {
+	var row models.ApplicationUserAuth
+	err := db.GetDB().Where("application_id = ? AND user_id = ?", appID, userID).First(&row).Error
+	if err != nil {
+		return false
+	}
 
-	return err == nil
+	stored := strings.TrimSpace(row.Scopes)
+	if stored == "" {
+		return false
+	}
+
+	return scopeStringSubset(stored, requested)
+}
+
+func rememberGrant(appID, userID uint64, scope string) error {
+	var row models.ApplicationUserAuth
+	err := db.GetDB().Where("application_id = ? AND user_id = ?", appID, userID).First(&row).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		return db.GetDB().Create(&models.ApplicationUserAuth{
+			ApplicationId: appID,
+			UserId:        int64(userID), //nolint:gosec // G115: reviewed and safe
+			Scopes:        mergeScopeStrings(scope),
+		}).Error
+	}
+
+	return db.GetDB().Model(&row).Update("scopes", mergeScopeStrings(row.Scopes, scope)).Error
+}
+
+func mergeScopeStrings(parts ...string) string {
+	scopes := parseScopes(strings.Join(parts, " "))
+
+	return scopes.OAuthScopeString()
 }
 
 func showConsent(c *gin.Context, view consentView) {
@@ -86,6 +120,7 @@ func consentFromOAuth(app *OAuthApplication, info *ClientInformation, account *m
 		Username:    account.Username,
 		Labels:      scopeLabels(req.Scope),
 		Action:      "/oauth/authorize",
+		Callback:    displayCallback(req.RedirectUri),
 		Hidden: hiddenPairs(map[string]string{
 			"client_id":             req.ClientId,
 			"redirect_uri":          req.RedirectUri,

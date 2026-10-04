@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kasuganosora/community/config"
 	"github.com/pkg/errors"
 )
 
@@ -37,15 +38,7 @@ var (
 
 func isIndieAuthClientID(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.User != nil || u.Fragment != "" {
-		return false
-	}
-
-	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname())) {
-		return false
-	}
-
-	if u.Hostname() == "" {
+	if err != nil || u.User != nil || u.Fragment != "" || u.Hostname() == "" {
 		return false
 	}
 
@@ -55,12 +48,26 @@ func isIndieAuthClientID(raw string) bool {
 		}
 	}
 
-	ip := net.ParseIP(u.Hostname())
-	if ip != nil && !ip.IsLoopback() {
+	host := u.Hostname()
+	switch u.Scheme {
+	case "https":
+	case "http":
+		if !allowLoopbackClients() || !isLoopback(host) {
+			return false
+		}
+	default:
 		return false
 	}
 
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() && allowLoopbackClients()
+	}
+
 	return true
+}
+
+func allowLoopbackClients() bool {
+	return config.C.DevMode == "true"
 }
 
 func lookupClientInfo(ctx context.Context, clientID string) (ClientInformation, error) {
@@ -219,14 +226,18 @@ var indieHTTP = &http.Client{
 			return errors.New("too many redirects")
 		}
 
-		if !isIndieAuthClientID(req.URL.String()) && req.URL.Scheme != "https" {
+		if !isIndieAuthClientID(req.URL.String()) {
 			return errors.New("redirect blocked")
+		}
+
+		if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+			return errors.New("redirect host changed")
 		}
 
 		return nil
 	},
 	Transport: &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: nil, // never follow HTTP_PROXY into an internal network
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -243,7 +254,7 @@ var indieHTTP = &http.Client{
 			}
 
 			for _, ip := range ips {
-				if !isPublicOrLoopback(ip.IP) {
+				if !isDialable(ip.IP) {
 					return nil, errors.New("blocked address")
 				}
 			}
@@ -261,12 +272,20 @@ func isLoopback(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-func isPublicOrLoopback(ip net.IP) bool {
-	if ip.IsLoopback() {
-		return true
+func isDialable(ip net.IP) bool {
+	if ip == nil {
+		return false
 	}
 
-	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+	if ip.IsLoopback() {
+		return allowLoopbackClients()
+	}
+
+	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+
+	if v4 := ip.To4(); v4 != nil && v4[0] >= 240 {
 		return false
 	}
 

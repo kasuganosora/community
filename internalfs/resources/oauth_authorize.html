@@ -52,6 +52,7 @@
         }
         .name { font-weight: 650; }
         .muted { color: #6d6458; font-size: 13px; }
+        .callback { word-break: break-all; }
         ul { list-style: none; padding: 0; margin: 0 0 18px; }
         .label {
             padding: 10px 0;
@@ -82,6 +83,7 @@
             {{if .Icon}}<img class="icon" src="{{.Icon}}" alt="">{{end}}
             <strong>{{.AppName}}</strong> 想访问你的账户
         </p>
+        {{if .Callback}}<p class="muted">完成后会回到 <span class="callback">{{.Callback}}</span></p>{{end}}
         {{if .Website}}<p class="muted"><a href="{{.Website}}">{{.Website}}</a></p>{{end}}
         <div class="user">
             <div class="avatar">{{.Initial}}</div>

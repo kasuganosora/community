@@ -18,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 const ceremonyCookie = "passkey_ceremony"
@@ -77,7 +78,7 @@ func LoginBegin(c *gin.Context) {
 
 // LoginFinish completes passkey login and issues the normal web session.
 func LoginFinish(c *gin.Context) {
-	wa, ceremony, err := loadCeremony(c, "login")
+	wa, ceremony, err := takeCeremony(c, "login")
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "passkey ceremony expired"})
 
@@ -90,10 +91,6 @@ func LoginFinish(c *gin.Context) {
 
 		return
 	}
-
-	// The assertion is valid for this challenge. Drop the ceremony before any
-	// later failure so the same POST cannot be replayed.
-	clearCeremony(c)
 
 	concrete, ok := user.(*waUser)
 	if !ok || concrete.user == nil {
@@ -181,7 +178,7 @@ func RegisterFinish(c *gin.Context) {
 		return
 	}
 
-	wa, ceremony, err := loadCeremony(c, "register")
+	wa, ceremony, err := takeCeremony(c, "register")
 	if err != nil || ceremony.Session.UserID == nil || string(ceremony.Session.UserID) != owner.user.UUID {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "passkey ceremony expired"})
 
@@ -194,8 +191,6 @@ func RegisterFinish(c *gin.Context) {
 
 		return
 	}
-
-	clearCeremony(c)
 
 	raw, err := json.Marshal(credential)
 	if err != nil {
@@ -357,7 +352,7 @@ func saveCeremony(c *gin.Context, kind string, userID uint64, name string, sessi
 	return nil
 }
 
-func loadCeremony(c *gin.Context, kind string) (*webauthn.WebAuthn, *storedCeremony, error) {
+func takeCeremony(c *gin.Context, kind string) (*webauthn.WebAuthn, *storedCeremony, error) {
 	wa, err := relyingParty(c)
 	if err != nil {
 		return nil, nil, err
@@ -369,13 +364,28 @@ func loadCeremony(c *gin.Context, kind string) (*webauthn.WebAuthn, *storedCerem
 	}
 
 	row := &models.WebAuthnSession{}
-	if err = db.GetDB().Where("id = ? AND kind = ?", id, kind).First(row).Error; err != nil {
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND kind = ?", id, kind).First(row).Error; err != nil {
+			return err
+		}
+
+		res := tx.Where("id = ? AND kind = ?", id, kind).Delete(&models.WebAuthnSession{})
+		if res.Error != nil {
+			return res.Error
+		}
+
+		if res.RowsAffected == 0 {
+			return errors.New("ceremony used")
+		}
+
+		return nil
+	})
+	clearCeremony(c)
+	if err != nil {
 		return nil, nil, err
 	}
 
 	if row.ExpiresAt.Before(time.Now()) {
-		_ = db.GetDB().Delete(row)
-
 		return nil, nil, errors.New("expired")
 	}
 

@@ -443,6 +443,7 @@ func TestAuthorizePage_AlreadyAuthorizedRedirects(t *testing.T) {
 	userAuth := &models.ApplicationUserAuth{
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
+		Scopes:        "read",
 	}
 	require.NoError(t, env.gdb.Create(userAuth).Error)
 
@@ -473,6 +474,7 @@ func TestAuthorizePage_ForceLoginSkipsAlreadyAuthorized(t *testing.T) {
 	userAuth := &models.ApplicationUserAuth{
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
+		Scopes:        "read",
 	}
 	require.NoError(t, env.gdb.Create(userAuth).Error)
 

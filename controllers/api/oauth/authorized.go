@@ -3,6 +3,7 @@ package oauth
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,11 +36,16 @@ func ListAuthorized(c *gin.Context) {
 			continue
 		}
 
+		scopes := strings.TrimSpace(link.Scopes)
+		if scopes == "" {
+			scopes = app.Scopes.OAuthScopeString()
+		}
+
 		item := authorizedApp{
 			ID:      strconv.FormatUint(app.Id, 10),
 			Name:    app.Name,
 			Website: app.Website,
-			Scopes:  app.Scopes.OAuthScopeString(),
+			Scopes:  scopes,
 		}
 		if link.CreatedAt != nil {
 			item.Created = link.CreatedAt.UTC().Format(time.RFC3339)

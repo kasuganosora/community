@@ -31,6 +31,7 @@ var ScripsType = []MigrationScript{
 	DataTransferScript{},
 	MediaBlurhashCapacityScript{},
 	OAuthCompatScript{},
+	OAuthGrantHardeningScript{},
 }
 
 type MigrationScript interface {

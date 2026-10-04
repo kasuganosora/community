@@ -18,14 +18,17 @@ const (
 )
 
 type AuthToken struct {
-	Token          string     `gorm:"column:token;type:varchar(128);not null;primary_key"`
-	Type           uint8      `gorm:"column:type;not null"`
-	UserId         uint64     `gorm:"column:user_id;not null;index"`
-	ApplicationId  uint64     `gorm:"column:application_id;index"`
-	ExternalClient string     `gorm:"column:external_client;type:varchar(512)"` // IndieAuth / Misskey OAuth client_id URL
-	ExpiredAt      *time.Time `gorm:"column:expired_at;"`                       // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
-	CreatedAt      *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
-	Revoke         *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
+	Token          string `gorm:"column:token;type:varchar(128);not null;primary_key"`
+	Type           uint8  `gorm:"column:type;not null"`
+	UserId         uint64 `gorm:"column:user_id;not null;index"`
+	ApplicationId  uint64 `gorm:"column:application_id;index"`
+	ExternalClient string `gorm:"column:external_client;type:varchar(512)"` // IndieAuth / Misskey OAuth client_id URL
+	// PairHash is the SHA-256 of the other token in this access/refresh pair.
+	// Refreshing or reusing an authorization code revokes both halves.
+	PairHash  string     `gorm:"column:pair_hash;type:varchar(64)"`
+	ExpiredAt *time.Time `gorm:"column:expired_at;"` // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
+	CreatedAt *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
+	Revoke    *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
 }
 
 func (AuthToken) TableName() string {

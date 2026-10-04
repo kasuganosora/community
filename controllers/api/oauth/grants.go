@@ -10,10 +10,12 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Token handles POST /oauth/token.
@@ -122,7 +124,12 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
 		codeRow = &OAuthAuthorizationCode{}
 
-		query := tx.Where("code = ?", req.Code)
+		query := tx
+		if tx.Dialector.Name() == "mysql" {
+			query = tx.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+
+		query = query.Where("code = ?", req.Code)
 		if app != nil {
 			query = query.Where("application_id = ?", app.Id)
 		} else {
@@ -131,6 +138,13 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 
 		if err := query.First(codeRow).Error; err != nil {
 			return errors.New("invalid_grant")
+		}
+
+		if codeRow.Used {
+			reused = true
+			reuseHashes = [2]string{codeRow.AccessTokenHash, codeRow.RefreshTokenHash}
+
+			return nil
 		}
 
 		if codeRow.ExpiresAt != nil && codeRow.ExpiresAt.Before(time.Now()) {
@@ -150,20 +164,8 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 			if !verifyPKCE(req.CodeVerifier, codeRow.CodeChallenge, codeRow.CodeChallengeMethod) {
 				return errors.New("invalid_grant")
 			}
-		} else if secretSkipped {
+		} else if secretSkipped || external != "" {
 			return errors.New("invalid_client")
-		}
-
-		result := tx.Model(codeRow).Where("used = ?", false).Update("used", true)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		if result.RowsAffected == 0 {
-			reused = true
-			reuseHashes = [2]string{codeRow.AccessTokenHash, codeRow.RefreshTokenHash}
-
-			return nil
 		}
 
 		account = &models.Account{}
@@ -182,18 +184,36 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 			return err
 		}
 
+		result := tx.Model(&OAuthAuthorizationCode{}).
+			Where("code = ? AND used = ?", codeRow.Code, false).
+			Updates(map[string]any{
+				"used":               true,
+				"access_token_hash":  aHash,
+				"refresh_token_hash": rHash,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			return errors.New("code_reused")
+		}
+
 		accessToken = access
 		refreshToken = refresh
-		if err = tx.Model(codeRow).Updates(map[string]any{
-			"access_token_hash":  aHash,
-			"refresh_token_hash": rHash,
-		}).Error; err != nil {
-			return err
-		}
 
 		return nil
 	})
 	if err != nil {
+		if err.Error() == "code_reused" {
+			var current OAuthAuthorizationCode
+			_ = db.GetDB().Where("code = ?", req.Code).First(&current).Error
+			revokeByHashes(current.AccessTokenHash, current.RefreshTokenHash)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+
+			return
+		}
+
 		status := http.StatusBadRequest
 		errCode := err.Error()
 		if errCode == "invalid_client" {
@@ -224,20 +244,23 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 func persistTokenPair(tx *gorm.DB, userID, appID uint64, scopeStr, external string) (access, refresh, accessHash, refreshHash string, err error) {
 	scopes := parseScopes(scopeStr)
 	accessRow, access := models.NewAuthToken(userID, models.AuthTokenTypeOauth, appID, 0, &scopes, 0, config.C.EncryptedKey)
+	refreshRow, refresh := models.NewAuthToken(userID, models.AuthTokenTypeOauth, appID, 0, &scopes, 0, config.C.EncryptedKey)
+	accessHash = tokenHash(access)
+	refreshHash = tokenHash(refresh)
 	accessRow.ExternalClient = external
+	refreshRow.ExternalClient = external
+	accessRow.PairHash = refreshHash
+	refreshRow.PairHash = accessHash
 
 	if err = tx.Create(accessRow).Error; err != nil {
 		return "", "", "", "", err
 	}
 
-	refreshRow, refresh := models.NewAuthToken(userID, models.AuthTokenTypeOauth, appID, 0, &scopes, 0, config.C.EncryptedKey)
-	refreshRow.ExternalClient = external
-
 	if err = tx.Create(refreshRow).Error; err != nil {
 		return "", "", "", "", err
 	}
 
-	return access, refresh, tokenHash(access), tokenHash(refresh), nil
+	return access, refresh, accessHash, refreshHash, nil
 }
 
 func revokeByHashes(hashes ...string) {
@@ -246,6 +269,8 @@ func revokeByHashes(hashes ...string) {
 		if hash == "" {
 			continue
 		}
+
+		middleware.InvalidateTokenCacheHash(hash)
 
 		var row models.AuthToken
 		if err := db.GetDB().Where("token = ?", hash).First(&row).Error; err != nil {
@@ -367,10 +392,20 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, external str
 	}
 
 	now := time.Now()
-	oldToken.Revoke = &now
-	if err = db.GetDB().Save(oldToken).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "save revoked token error"))
+	res := db.GetDB().Model(&models.AuthToken{}).Where("token = ? AND revoke IS NULL", oldToken.Token).Update("revoke", now)
+	if res.Error != nil {
+		_ = c.Error(errors.Wrap(res.Error, "save revoked token error"))
+
+		return
 	}
+
+	if res.RowsAffected == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+
+		return
+	}
+
+	middleware.InvalidateTokenCache(req.RefreshToken)
 
 	var appID uint64
 	clientRef := external
@@ -382,8 +417,13 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, external str
 	access, refresh, _, _, err := persistTokenPair(db.GetDB(), oldToken.UserId, appID, scope, clientRef)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 
 		return
+	}
+
+	if oldToken.PairHash != "" {
+		revokeByHashes(oldToken.PairHash)
 	}
 
 	c.JSON(http.StatusOK, TokenResponse{

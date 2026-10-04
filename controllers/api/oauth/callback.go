@@ -160,6 +160,15 @@ func loginReturnURL(c *gin.Context) string {
 	return "/login?redirect=" + url.QueryEscape(path)
 }
 
+func displayCallback(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || isOOB(raw) || !isAllowedRedirect(raw) {
+		return ""
+	}
+
+	return raw
+}
+
 func scopeAllowed(granted models.ApplicationScope, requested string) bool {
 	req := parseScopes(requested)
 	// Apps created before scopes were stored are unrestricted, except admin.
@@ -176,14 +185,25 @@ func scopeAllowed(granted models.ApplicationScope, requested string) bool {
 func normalizeScope(app *OAuthApplication, requested string) (string, bool) {
 	requested = strings.Join(strings.Fields(strings.ReplaceAll(requested, ",", " ")), " ")
 	if requested == "" {
-		if s := app.Scopes.OAuthScopeString(); s != "" {
-			return s, true
+		if app != nil {
+			if s := app.Scopes.OAuthScopeString(); s != "" {
+				return s, true
+			}
 		}
 
 		return "read", true
 	}
 
-	if app != nil && !scopeAllowed(app.Scopes, requested) {
+	// IndieAuth clients are not pre-registered. Never hand them admin.
+	if app == nil {
+		if parseScopes(requested).AdminScope != 0 {
+			return "", false
+		}
+
+		return requested, true
+	}
+
+	if !scopeAllowed(app.Scopes, requested) {
 		return "", false
 	}
 

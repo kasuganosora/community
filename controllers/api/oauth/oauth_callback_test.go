@@ -46,7 +46,11 @@ func TestAuthorizeRedirectIncludesIssuer(t *testing.T) {
 	env := newOAuthTestEnv(t)
 	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
 	account := createAccountInContext(t, env).(*models.Account)
-	require.NoError(t, env.gdb.Create(&models.ApplicationUserAuth{ApplicationId: app.Id, UserId: int64(account.UserId)}).Error)
+	require.NoError(t, env.gdb.Create(&models.ApplicationUserAuth{
+		ApplicationId: app.Id,
+		UserId:        int64(account.UserId),
+		Scopes:        "read",
+	}).Error)
 
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -123,4 +127,110 @@ func TestLegacyMisskeyCallbackUsesTokenQuery(t *testing.T) {
 	assert.Equal(t, row.Session, parsed.Query().Get("token"))
 	assert.Empty(t, parsed.Query().Get("code"))
 	assert.Empty(t, parsed.Query().Get("session"))
+}
+
+func TestAuthorizePage_ScopeUpgradeRequiresConsent(t *testing.T) {
+	env := newOAuthTestEnv(t)
+	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
+	account := createAccountInContext(t, env).(*models.Account)
+	require.NoError(t, env.gdb.Create(&models.ApplicationUserAuth{
+		ApplicationId: app.Id,
+		UserId:        int64(account.UserId),
+		Scopes:        "read",
+	}).Error)
+
+	q := url.Values{}
+	q.Set("response_type", "code")
+	q.Set("client_id", app.ClientId)
+	q.Set("redirect_uri", "https://example.com/cb")
+	q.Set("scope", "read write")
+	c, w := newGETContext(t, q)
+	c.Set("authenticated", true)
+	c.Set("account", account)
+	AuthorizePage(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Header().Get("Location"), "code=")
+	assert.Contains(t, w.Body.String(), "允许")
+}
+
+func TestNormalizeScope_ExternalClient(t *testing.T) {
+	got, ok := normalizeScope(nil, "")
+	assert.True(t, ok)
+	assert.Equal(t, "read", got)
+
+	got, ok = normalizeScope(nil, "read write")
+	assert.True(t, ok)
+	assert.Equal(t, "read write", got)
+
+	_, ok = normalizeScope(nil, "admin:read")
+	assert.False(t, ok)
+}
+
+func TestRefreshRevokesPairedAccessToken(t *testing.T) {
+	env := newOAuthTestEnv(t)
+	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
+	account := createAccountInContext(t, env).(*models.Account)
+	code := generateAuthorizationCode(app.Id, account.Id, "https://example.com/cb", "read", "", "", "")
+	require.NotEmpty(t, code)
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("client_id", app.ClientId)
+	form.Set("client_secret", app.ClientSecret)
+	form.Set("code", code)
+	form.Set("redirect_uri", "https://example.com/cb")
+	c, w := newFormContext(t, http.MethodPost, form)
+	Token(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var issued TokenResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &issued))
+
+	refreshForm := url.Values{}
+	refreshForm.Set("grant_type", "refresh_token")
+	refreshForm.Set("client_id", app.ClientId)
+	refreshForm.Set("client_secret", app.ClientSecret)
+	refreshForm.Set("refresh_token", issued.RefreshToken)
+	c2, w2 := newFormContext(t, http.MethodPost, refreshForm)
+	Token(c2)
+	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+
+	old, err := models.GetTokenByTokenStr(issued.AccessToken)
+	require.NoError(t, err)
+	assert.NotNil(t, old.Revoke)
+}
+
+func TestMiAuthRejectsSessionFromAnotherUser(t *testing.T) {
+	env := newOAuthTestEnv(t)
+	first := createAccountInContext(t, env).(*models.Account)
+	secondUser := env.fix.CreateUser(func(u *models.User) {
+		u.UserName = "other-user"
+		u.Id = first.UserId + 1
+	})
+	second := env.fix.CreateAccount(secondUser, func(a *models.Account) {
+		a.Username = "other-user"
+	})
+
+	c, w := newFormContext(t, http.MethodPost, url.Values{
+		"name":     {"Milktea"},
+		"callback": {"https://app.example/cb"},
+	})
+	c.Params = gin.Params{{Key: "session", Value: "session-fixed-1"}}
+	c.Set("authenticated", true)
+	c.Set("account", first)
+	MiAuthDecision(c)
+	firstLoc, err := url.Parse(w.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "session-fixed-1", firstLoc.Query().Get("session"))
+
+	c2, w2 := newFormContext(t, http.MethodPost, url.Values{
+		"name":     {"Milktea"},
+		"callback": {"https://evil.example/cb"},
+	})
+	c2.Params = gin.Params{{Key: "session", Value: "session-fixed-1"}}
+	c2.Set("authenticated", true)
+	c2.Set("account", second)
+	MiAuthDecision(c2)
+	assert.Equal(t, http.StatusConflict, w2.Code)
 }

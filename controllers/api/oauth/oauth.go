@@ -213,7 +213,7 @@ func AuthorizePage(c *gin.Context) {
 	// Get current account
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert // guaranteed by auth middleware
 
-	if app != nil && !req.ForceLogin && alreadyAuthorized(app.Id, account.UserId) {
+	if app != nil && !req.ForceLogin && priorGrantCovers(app.Id, account.UserId, req.Scope) {
 		finishAuthorize(c, app, info, account, req)
 
 		return
@@ -279,12 +279,7 @@ func Authorize(c *gin.Context) {
 	}
 
 	if app != nil {
-		userAuth := &models.ApplicationUserAuth{
-			ApplicationId: app.Id,
-			UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
-		}
-		err = db.GetDB().Where("application_id = ? AND user_id = ?", app.Id, account.UserId).FirstOrCreate(userAuth).Error
-		if err != nil {
+		if err = rememberGrant(app.Id, account.UserId, scope); err != nil {
 			_ = c.Error(errors.Wrap(err, "create user auth error"))
 			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 

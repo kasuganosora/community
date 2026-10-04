@@ -184,6 +184,18 @@ func InvalidateTokenCache(tokenStr string) {
 		return
 	}
 
+	sum := sha256.Sum256([]byte(tokenStr))
+	InvalidateTokenCacheHash(hex.EncodeToString(sum[:]))
+}
+
+// InvalidateTokenCacheHash marks a stored token digest as revoked.
+// hash is the SHA-256 hex already stored in auth_tokens.token, used when the
+// raw bearer token is no longer available (refresh rotation, code replay).
+func InvalidateTokenCacheHash(hash string) {
+	if hash == "" {
+		return
+	}
+
 	redisClient := GetRedisClient()
 	if redisClient == nil {
 		return
@@ -192,7 +204,7 @@ func InvalidateTokenCache(tokenStr string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if err := redisClient.Set(ctx, tokenCacheKey(tokenStr), "revoked", revokedTokenCacheTTL).Err(); err != nil {
+	if err := redisClient.Set(ctx, "token_cache:"+hash, "revoked", revokedTokenCacheTTL).Err(); err != nil {
 		log.Warn("failed to invalidate token cache: %v", err)
 	}
 }

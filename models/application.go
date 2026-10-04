@@ -267,9 +267,12 @@ type ApplicationUserAuth struct {
 	// 应用ID
 	ApplicationId uint64 `gorm:"index" json:"application_id"`
 	// 用户ID
-	UserId    int64      `gorm:"index"          json:"user_id"`
-	CreatedAt *time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UserId int64 `gorm:"index" json:"user_id"`
+	// Scopes is the coarse set the user actually granted. An empty value is a
+	// legacy row and must not skip the consent screen.
+	Scopes    string     `gorm:"type:varchar(1024)" json:"scopes,omitempty"`
+	CreatedAt *time.Time `gorm:"autoCreateTime"    json:"created_at"`
+	UpdatedAt *time.Time `gorm:"autoUpdateTime"    json:"updated_at"`
 }
 
 func (a *ApplicationUserAuth) TableName() string {

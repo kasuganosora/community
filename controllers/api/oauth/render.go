@@ -23,6 +23,7 @@ type consentView struct {
 	Initial     string
 	Labels      []string
 	Action      string
+	Callback    string
 	Hidden      [][2]string
 }
 

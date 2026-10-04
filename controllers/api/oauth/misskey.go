@@ -63,6 +63,7 @@ func MiAuthPage(c *gin.Context) {
 		Username:    account.Username,
 		Labels:      scopeLabels(strings.ReplaceAll(permission, ",", " ")),
 		Action:      "/miauth/" + session,
+		Callback:    displayCallback(callback),
 		Hidden: hiddenPairs(map[string]string{
 			"name":       name,
 			"icon":       icon,
@@ -105,6 +106,20 @@ func MiAuthDecision(c *gin.Context) {
 	}
 
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	var existing models.MisskeyAuthSession
+	lookupErr := db.GetDB().Where("session = ?", session).First(&existing).Error
+	if lookupErr == nil && existing.Approved && !sessionExpired(existing.ExpiresAt) {
+		if existing.UserId != account.UserId {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "session already used"})
+
+			return
+		}
+
+		finishMiAuthRedirect(c, existing.CallbackURL, session, existing.AccessToken, existing.AppName)
+
+		return
+	}
+
 	scope := misskeyPermissionToScope(permission)
 	access, _, _, _, err := persistTokenPair(db.GetDB(), account.UserId, 0, scope, "miauth:"+session)
 	if err != nil {
@@ -152,14 +167,7 @@ func MiAuthDecision(c *gin.Context) {
 		return
 	}
 
-	loc, err := appendQuery(callback, map[string]string{"session": session})
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid callback"})
-
-		return
-	}
-
-	c.Redirect(http.StatusFound, loc)
+	finishMiAuthRedirect(c, callback, session, access, row.AppName)
 }
 
 // MiAuthCheck handles POST /api/miauth/:session/check.
@@ -326,6 +334,7 @@ func LegacyAuthPage(c *gin.Context) {
 		Username:    account.Username,
 		Labels:      scopeLabels(row.Permission),
 		Action:      "/auth/" + token,
+		Callback:    displayCallback(row.CallbackURL),
 	})
 }
 
@@ -435,9 +444,16 @@ func MisskeyUserKey(c *gin.Context) {
 	}
 
 	row.Consumed = true
-	if err := db.GetDB().Model(row).Update("consumed", true).Error; err != nil {
-		_ = c.Error(err)
+	res := db.GetDB().Model(&models.MisskeyAuthSession{}).Where("id = ? AND consumed = ?", row.Id, false).Update("consumed", true)
+	if res.Error != nil {
+		_ = c.Error(res.Error)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+
+		return
+	}
+
+	if res.RowsAffected == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
 
 		return
 	}
@@ -449,6 +465,23 @@ func MisskeyUserKey(c *gin.Context) {
 		// Legacy secure-token clients derive i as sha256(accessToken + appSecret).
 		"i": hex.EncodeToString(sum[:]),
 	})
+}
+
+func finishMiAuthRedirect(c *gin.Context, callback, session, access, appName string) {
+	if callback == "" {
+		renderOOB(c, access, appName, false)
+
+		return
+	}
+
+	loc, err := appendQuery(callback, map[string]string{"session": session})
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid callback"})
+
+		return
+	}
+
+	c.Redirect(http.StatusFound, loc)
 }
 
 func loadLegacySession(token string) (*models.MisskeyAuthSession, *OAuthApplication) {
