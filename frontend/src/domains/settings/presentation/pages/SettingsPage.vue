@@ -7,6 +7,8 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
+import PasskeySettings from '../components/PasskeySettings.vue'
+import AuthorizedApps from '../components/AuthorizedApps.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
 
@@ -83,6 +85,20 @@ async function logout() {
         <h2 id="settings-password" class="settings__heading">修改密码</h2>
         <div class="settings__group settings__group--padded">
           <PasswordSettingsForm />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-passkey">
+        <h2 id="settings-passkey" class="settings__heading">通行密钥</h2>
+        <div class="settings__group settings__group--padded">
+          <PasskeySettings />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-apps">
+        <h2 id="settings-apps" class="settings__heading">已授权的应用</h2>
+        <div class="settings__group settings__group--padded">
+          <AuthorizedApps />
         </div>
       </section>
 

@@ -2,6 +2,8 @@
 import { reactive, ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
+import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
+import { passkeySupported } from '@/shared/utils/webauthn'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
 const router = useRouter()
@@ -21,9 +23,28 @@ const justRegistered = route.query.registered === '1'
 
 const showPassword = ref(false)
 const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse'))
+const canUsePasskey = passkeySupported()
 const loginAttempts = ref(0)
 const MAX_LOGIN_ATTEMPTS = 5
 const LOCK_MS = 30_000
+
+async function loginWithPasskey() {
+  try {
+    await authStore.loginWithPasskey()
+    continueAfterLogin()
+  } catch {
+    // The store already surfaces the message.
+  }
+}
+
+function continueAfterLogin() {
+  const target = safeInternalPath(route.query.redirect)
+  if (target && isServerAuthReturn(target)) {
+    window.location.assign(target)
+    return
+  }
+  router.push(target ?? { name: 'home' as const })
+}
 
 async function handleLogin() {
   if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
@@ -32,14 +53,8 @@ async function handleLogin() {
 
   try {
     await authStore.login(form)
-    // Reset attempts on successful login
     loginAttempts.value = 0
-    // Redirect to the originally requested page if available
-    const redirectPath = route.query.redirect as string | undefined
-    const safePath = redirectPath && redirectPath.startsWith('/') && !redirectPath.startsWith('//')
-      ? redirectPath
-      : { name: 'home' as const }
-    router.push(safePath)
+    continueAfterLogin()
   } catch {
     loginAttempts.value++
     // The lock used to be permanent until a full page reload.
@@ -117,6 +132,18 @@ async function handleLogin() {
           </t-button>
         </t-form-item>
       </t-form>
+
+      <t-button
+        v-if="canUsePasskey"
+        variant="outline"
+        block
+        size="large"
+        shape="round"
+        :loading="authStore.loading"
+        @click="loginWithPasskey"
+      >
+        使用通行密钥登录
+      </t-button>
 
       <div class="login-footer">
         Don't have an account?

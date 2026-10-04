@@ -213,6 +213,8 @@ func setupFrontend(app *gin.Engine) {
 			// Don't serve frontend for API, OAuth, ActivityPub, Matrix routes
 			if strings.HasPrefix(path, "/api/") ||
 				strings.HasPrefix(path, "/oauth/") ||
+				strings.HasPrefix(path, "/miauth/") ||
+				strings.HasPrefix(path, "/auth/") ||
 				strings.HasPrefix(path, "/.well-known/") ||
 				strings.HasPrefix(path, "/users/") ||
 				strings.HasPrefix(path, "/inbox") ||

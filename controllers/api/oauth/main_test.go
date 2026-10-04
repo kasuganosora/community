@@ -45,6 +45,9 @@ var allTestModels = []any{
 	&models.UserSecretData{},
 	&OAuthApplication{},
 	&OAuthAuthorizationCode{},
+	&models.MisskeyAuthSession{},
+	&models.PasskeyCredential{},
+	&models.WebAuthnSession{},
 }
 
 // oauthTestEnv bundles the resources shared by every test in this package.

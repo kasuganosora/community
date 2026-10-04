@@ -18,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/marker"
 	"github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/controllers/api/oauth"
+	passkeyapi "github.com/kasuganosora/community/controllers/api/passkey"
 	report2 "github.com/kasuganosora/community/controllers/api/report"
 	"github.com/kasuganosora/community/controllers/api/rule"
 	"github.com/kasuganosora/community/controllers/api/search"
@@ -89,12 +90,30 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.GET("/captcha/config", common.GetCaptchaConfig)
 	v1ApiGroup.GET("/captcha/providers", common.GetCaptchaProviders)
 
-	// OAuth 端点
+	// OAuth 端点（Mastodon 授权码 + Misskey OAuth / IndieAuth 的 code、state、iss）
 	oauthGroup := app.Group("/oauth")
 	oauthGroup.GET("/authorize", middleware.AuthMiddleware(), oauth.AuthorizePage)
 	oauthGroup.POST("/authorize", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), oauth.Authorize)
 	oauthGroup.POST("/token", oauth.Token)
 	oauthGroup.POST("/revoke", oauth.Revoke)
+
+	// RFC 8414. Mastodon 客户端和 Misskey OAuth 都从这里发现端点。
+	app.GET("/.well-known/oauth-authorization-server", oauth.AuthorizationServerMetadata)
+
+	// MiAuth：回调格式是 callback?session=<session>
+	app.GET("/miauth/:session", middleware.AuthMiddleware(), oauth.MiAuthPage)
+	app.POST("/miauth/:session", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), oauth.MiAuthDecision)
+	apiGroup.POST("/miauth/:session/check", oauth.MiAuthCheck)
+	// 旧版 Misskey：回调格式是 callbackUrl?token=<session>
+	apiGroup.POST("/app/create", oauth.MisskeyCreateApp)
+	apiGroup.POST("/auth/session/generate", oauth.MisskeyGenerateSession)
+	apiGroup.POST("/auth/session/userkey", oauth.MisskeyUserKey)
+	app.GET("/auth/:token", middleware.AuthMiddleware(), oauth.LegacyAuthPage)
+	app.POST("/auth/:token", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), oauth.LegacyAuthDecision)
+
+	// 通行密钥（WebAuthn）。登录无需已有会话；注册和列表需要。
+	v1ApiGroup.POST("/auth/passkey/login/begin", passkeyapi.LoginBegin)
+	v1ApiGroup.POST("/auth/passkey/login/finish", passkeyapi.LoginFinish)
 
 	// ===== ActivityPub 联邦端点 =====
 	// WebFinger / NodeInfo
@@ -211,6 +230,12 @@ func SetRouter(app gin.IRouter) {
 
 	// OAuth 应用凭证验证
 	authGroupV1.GET("/apps/verify_credentials", oauth.VerifyCredentials)
+	authGroupV1.GET("/oauth/authorized_applications", oauth.ListAuthorized)
+	authGroupV1.DELETE("/oauth/authorized_applications/:id", oauth.RevokeAuthorized)
+	authGroupV1.POST("/auth/passkey/register/begin", passkeyapi.RegisterBegin)
+	authGroupV1.POST("/auth/passkey/register/finish", passkeyapi.RegisterFinish)
+	authGroupV1.GET("/auth/passkeys", passkeyapi.List)
+	authGroupV1.DELETE("/auth/passkeys/:id", passkeyapi.Delete)
 
 	// 账户凭证
 	authGroupV1.GET("/accounts/verify_credentials", account.VerifyCredentials)

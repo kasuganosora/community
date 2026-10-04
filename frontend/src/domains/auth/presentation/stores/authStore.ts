@@ -5,6 +5,7 @@ import type { MastodonAccount } from '@/shared/types/mastodon'
 import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
 import { tokenService } from '@/shared/api/client'
+import { getPasskey } from '@/shared/utils/webauthn'
 
 
 import { USE_MOCK } from '@/shared/utils/env'
@@ -41,18 +42,40 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       const res = await authApi.login(credentials)
-      invalidateSessionData()
-      token.value = res.token
-      tokenService.set(res.token)
-
-      // Verify that we can actually fetch the user — if not, roll back
-      const success = await fetchCurrentUser()
-      if (!success) {
-        await logout()
-        throw new Error('登录后获取用户信息失败')
-      }
+      await establishSession(res.token)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Login failed'
+      error.value = msg
+      throw e
+    } finally {
+      isLoggingIn = false
+      loading.value = false
+    }
+  }
+
+  async function establishSession(rawToken: string) {
+    invalidateSessionData()
+    token.value = rawToken
+    tokenService.set(rawToken)
+    const success = await fetchCurrentUser()
+    if (!success) {
+      await logout()
+      throw new Error('登录后获取用户信息失败')
+    }
+  }
+
+  async function loginWithPasskey() {
+    if (isLoggingIn) throw new Error('Login is already in progress')
+    isLoggingIn = true
+    loading.value = true
+    error.value = null
+    try {
+      const options = await authApi.passkeyLoginBegin()
+      const credential = await getPasskey(options)
+      const res = await authApi.passkeyLoginFinish(credential)
+      await establishSession(res.token)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '通行密钥登录失败'
       error.value = msg
       throw e
     } finally {
@@ -122,6 +145,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     login,
+    loginWithPasskey,
     logout,
     fetchCurrentUser,
     initialize,

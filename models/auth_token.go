@@ -18,13 +18,14 @@ const (
 )
 
 type AuthToken struct {
-	Token         string     `gorm:"column:token;type:varchar(128);not null;primary_key"`
-	Type          uint8      `gorm:"column:type;not null"`
-	UserId        uint64     `gorm:"column:user_id;not null;index"`
-	ApplicationId uint64     `gorm:"column:application_id;index"`
-	ExpiredAt     *time.Time `gorm:"column:expired_at;"` // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
-	CreatedAt     *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
-	Revoke        *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
+	Token          string     `gorm:"column:token;type:varchar(128);not null;primary_key"`
+	Type           uint8      `gorm:"column:type;not null"`
+	UserId         uint64     `gorm:"column:user_id;not null;index"`
+	ApplicationId  uint64     `gorm:"column:application_id;index"`
+	ExternalClient string     `gorm:"column:external_client;type:varchar(512)"` // IndieAuth / Misskey OAuth client_id URL
+	ExpiredAt      *time.Time `gorm:"column:expired_at;"`                       // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
+	CreatedAt      *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
+	Revoke         *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
 }
 
 func (AuthToken) TableName() string {
@@ -38,6 +39,7 @@ type AuthTokenData struct {
 	ApplicationId uint64            `json:"application_id"`
 	Permissions   uint64            `json:"permissions"`
 	Scopes        *ApplicationScope `json:"scopes"`
+	Scope         string            `json:"scope,omitempty"`
 	CreatedAt     int64             `json:"created_at"`
 	ExpiredAt     int64             `json:"expired_at"`
 }
@@ -151,6 +153,10 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 		ExpiredAt:     expiredAtUnix,
 	}
 
+	if scopes != nil {
+		tokenData.Scope = scopes.OAuthScopeString()
+	}
+
 	if tokenData.ExpiredAt > 0 {
 		tokenData.ExpiredAt = expiredAtUnix
 	}
@@ -161,10 +167,11 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 	sha256Token := sha256.Sum256([]byte(tokenStr))
 	sha256TokenStr := hex.EncodeToString(sha256Token[:])
 	tokenRow = &AuthToken{
-		UserId:    userId,
-		Type:      authType,
-		Token:     sha256TokenStr,
-		ExpiredAt: expiredAt,
+		UserId:        userId,
+		Type:          authType,
+		Token:         sha256TokenStr,
+		ExpiredAt:     expiredAt,
+		ApplicationId: appId,
 	}
 
 	return tokenRow, tokenStr

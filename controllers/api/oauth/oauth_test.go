@@ -158,16 +158,19 @@ func TestBuildDenyRedirectUrl(t *testing.T) {
 
 	t.Run("url with existing query params uses ampersand separator", func(t *testing.T) {
 		result := buildDenyRedirectUrl("https://app.example.com/callback?foo=bar", "")
-		if !contains(result, "foo=bar&error=access_denied") {
-			t.Errorf("expected ampersand separator after existing params: %s", result)
+		if !contains(result, "foo=bar") || !contains(result, "error=access_denied") || !contains(result, "&") {
+			t.Errorf("expected existing params kept and error appended with &: %s", result)
+		}
+
+		if contains(result, "callback?foo=bar?error=") {
+			t.Errorf("second question mark would break the query: %s", result)
 		}
 	})
 
 	t.Run("error_description is url encoded", func(t *testing.T) {
 		result := buildDenyRedirectUrl("https://app.example.com/callback", "")
-		// "User denied access" should be URL-encoded
-		if !contains(result, "error_description=User+denied+access") &&
-			!contains(result, "error_description=User%20denied%20access") {
+		if !contains(result, "error_description=The+user+denied+the+request") &&
+			!contains(result, "error_description=The%20user%20denied%20the%20request") {
 			t.Errorf("error_description not properly URL-encoded: %s", result)
 		}
 	})

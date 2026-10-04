@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -104,6 +105,38 @@ func (s *ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
 	}
 
 	return (sc & scope) == scope
+}
+
+// OAuthScopeString renders the coarse Mastodon scope tokens stored in this set.
+// Granular scopes collapse to their parent (read:accounts → read), which is
+// what Mastodon clients send back on refresh.
+func (s *ApplicationScope) OAuthScopeString() string {
+	if s == nil {
+		return ""
+	}
+
+	parts := make([]string, 0, 5)
+	if s.ReadScope != 0 {
+		parts = append(parts, "read")
+	}
+
+	if s.WriteScope != 0 {
+		parts = append(parts, "write")
+	}
+
+	if s.AdminScope != 0 {
+		parts = append(parts, "admin")
+	}
+
+	if s.OtherScope&AppScopeFollow != 0 {
+		parts = append(parts, "follow")
+	}
+
+	if s.OtherScope&AppScopePush != 0 {
+		parts = append(parts, "push")
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func (s *ApplicationScope) AddScope(scopeType uint8, scope uint64) {
@@ -206,9 +239,9 @@ type Application struct {
 	Id          uint64           `gorm:"primary_key;autoIncrement"          json:"id"`
 	Uuid        *uuid.UUID       `gorm:"type:char(36);uniqueIndex;not null" json:"uuid"`
 	UserId      int64            `gorm:"index"                              json:"user_id"`
-	Name        string           `gorm:"type:varchar(32);not null"          json:"name"`
+	Name        string           `gorm:"type:varchar(128);not null"         json:"name"`
 	Website     string           `gorm:"type:varchar(255);not null"         json:"website"`
-	RedirectUri string           `gorm:"type:varchar(255);not null"         json:"redirect_uri"`
+	RedirectUri string           `gorm:"type:text;not null"                 json:"redirect_uri"`
 	Scopes      ApplicationScope `gorm:"type:varchar(255);not null"         json:"scopes"`
 	IsEnabled   bool             `gorm:"not null;default:true"              json:"is_enabled"`
 	CreatedAt   *time.Time       `gorm:"autoCreateTime"                     json:"created_at"`

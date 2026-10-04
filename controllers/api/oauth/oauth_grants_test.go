@@ -405,7 +405,7 @@ func TestGenerateAuthorizationCode_Success(t *testing.T) {
 	env := newOAuthTestEnv(t)
 	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
 
-	code := generateAuthorizationCode(app.Id, 123, "https://example.com/cb", "read")
+	code := generateAuthorizationCode(app.Id, 123, "https://example.com/cb", "read", "", "", "")
 	assert.NotEmpty(t, code, "should generate a non-empty code")
 
 	// Verify the code was persisted
@@ -421,7 +421,7 @@ func TestGenerateAuthorizationCode_Expiry(t *testing.T) {
 	env := newOAuthTestEnv(t)
 	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
 
-	code := generateAuthorizationCode(app.Id, 456, "https://example.com/cb", "read")
+	code := generateAuthorizationCode(app.Id, 456, "https://example.com/cb", "read", "", "", "")
 	require.NotEmpty(t, code)
 
 	var authCode OAuthAuthorizationCode

@@ -75,25 +75,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	sessionExpire, err := strconv.Atoi(config.C.SessionExpire)
-	if err != nil || sessionExpire <= 0 {
-		sessionExpire = 1382400 // 默认 16 天
-	}
-
-	// 取出当前用户所拥有的权限位
-	permissions, err := models.GetUserPermissions(db.GetDB(), user.Id)
-	if err != nil {
-		log.ErrorV(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-
-		return
-	}
-
-	// 生成登录态 Token
-	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
-
-	// 保存 Token
-	err = db.GetDB().Create(token).Error
+	rawTokenStr, err := IssueWebSession(c, user)
 	if err != nil {
 		log.ErrorV(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -102,13 +84,29 @@ func Login(c *gin.Context) {
 	}
 
 	log.Debug("User id %d logged in successfully", user.Id)
+	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr}) //nolint:goconst
+}
 
-	// 设置 Cookie
-	// Secure 标志根据请求是否为 HTTPS 动态判断
-	// SameSite=Lax 防止跨站请求伪造（CSRF）
-	secure := c.Request.TLS != nil
+// IssueWebSession creates the same web session cookie and bearer token as password login.
+func IssueWebSession(c *gin.Context, user *models.User) (string, error) {
+	sessionExpire, err := strconv.Atoi(config.C.SessionExpire)
+	if err != nil || sessionExpire <= 0 {
+		sessionExpire = 1382400 // 默认 16 天
+	}
+
+	permissions, err := models.GetUserPermissions(db.GetDB(), user.Id)
+	if err != nil {
+		return "", err
+	}
+
+	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
+	if err = db.GetDB().Create(token).Error; err != nil {
+		return "", err
+	}
+
+	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("app-token", rawTokenStr, sessionExpire, "/", "", secure, true)
-	// 返回首页
-	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr}) //nolint:goconst
+
+	return rawTokenStr, nil
 }

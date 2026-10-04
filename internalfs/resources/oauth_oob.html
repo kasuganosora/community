@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if .Auto}}{{.Code}}{{else}}授权码 · {{.AppName}}{{end}}</title>
+    <style>
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f1ea; color: #1c1915;
+            font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; padding: 24px; }
+        main { width: min(480px, 100%); background: #fffdf8; border-radius: 18px; padding: 28px 24px; }
+        code { display: block; word-break: break-all; background: #f6f1e7; padding: 14px; border-radius: 12px; font-size: 14px; }
+        p { color: #6d6458; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>{{.AppName}}</h1>
+        <p>把下面的授权码粘贴回应用。{{if .Auto}}本页标题也是授权码，方便客户端自动读取。{{end}}</p>
+        <code id="code">{{.Code}}</code>
+    </main>
+</body>
+</html>

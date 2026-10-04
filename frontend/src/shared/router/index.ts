@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { routes, pageTitle } from './routes'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { tokenService } from '@/shared/api/client'
+import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
 
 // Extend RouteMeta interface
 declare module 'vue-router' {
@@ -23,15 +24,20 @@ const router = createRouter({
  * Only allow relative paths starting with a single '/'.
  */
 function isSafeRedirect(path: string): boolean {
-  // Reject protocol-relative URLs: "//evil.com" and backslash variants "/\evil.com"
-  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\')
+  return safeInternalPath(path) != null
 }
 
 router.beforeEach(async (to) => {
   const token = tokenService.get()
 
-  // Redirect authenticated users away from guest-only pages to home
+  // An already signed-in user opening an OAuth / MiAuth link must land on the
+  // server consent page, not be bounced to the home timeline.
   if (to.meta.guestOnly && token) {
+    const back = safeInternalPath(to.query.redirect)
+    if (back && isServerAuthReturn(back)) {
+      window.location.assign(back)
+      return false
+    }
     return { name: 'home' }
   }
 

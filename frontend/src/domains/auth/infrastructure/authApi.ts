@@ -37,4 +37,57 @@ export const authApi = {
       // Ignore error — we clear the token locally regardless
     }
   },
+
+  async passkeyLoginBegin(): Promise<{ publicKey: Record<string, unknown> }> {
+    const { data } = await client.post<{ publicKey: Record<string, unknown> }>('/api/v1/auth/passkey/login/begin', {})
+    return data
+  },
+
+  async passkeyLoginFinish(credential: Record<string, unknown>): Promise<LoginResponse> {
+    const { data } = await client.post<LoginResponse>('/api/v1/auth/passkey/login/finish', credential)
+    return data
+  },
+
+  async passkeyRegisterBegin(name: string): Promise<{ publicKey: Record<string, unknown> }> {
+    const { data } = await client.post<{ publicKey: Record<string, unknown> }>('/api/v1/auth/passkey/register/begin', { name })
+    return data
+  },
+
+  async passkeyRegisterFinish(credential: Record<string, unknown>): Promise<{ id: string; name: string }> {
+    const { data } = await client.post<{ id: string; name: string }>('/api/v1/auth/passkey/register/finish', credential)
+    return data
+  },
+
+  async listPasskeys(): Promise<PasskeyItem[]> {
+    const { data } = await client.get<PasskeyItem[]>('/api/v1/auth/passkeys')
+    return data
+  },
+
+  async deletePasskey(id: string): Promise<void> {
+    await client.delete(`/api/v1/auth/passkeys/${id}`)
+  },
+
+  async listAuthorizedApps(): Promise<AuthorizedApp[]> {
+    const { data } = await client.get<AuthorizedApp[]>('/api/v1/oauth/authorized_applications')
+    return data
+  },
+
+  async revokeAuthorizedApp(id: string): Promise<void> {
+    await client.delete(`/api/v1/oauth/authorized_applications/${id}`)
+  },
+}
+
+export interface PasskeyItem {
+  id: string
+  name: string
+  created_at?: string
+  last_used_at?: string
+}
+
+export interface AuthorizedApp {
+  id: string
+  name: string
+  website?: string
+  scopes?: string
+  created_at?: string
 }

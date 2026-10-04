@@ -314,6 +314,9 @@ func TestAuthorizePage_UnauthenticatedRedirectsToLogin(t *testing.T) {
 	q.Set("state", "abc")
 
 	c, w := newGETContext(t, q)
+	// The helper builds the request at "/". Production routes hit /oauth/authorize,
+	// and the login return URL must echo that path so the SPA can bounce back.
+	c.Request.URL.Path = "/oauth/authorize"
 	// authenticated not set -> false
 	AuthorizePage(c)
 
@@ -321,7 +324,11 @@ func TestAuthorizePage_UnauthenticatedRedirectsToLogin(t *testing.T) {
 	loc := w.Header().Get("Location")
 	assert.NotEmpty(t, loc, "expected a redirect to the login page")
 	assert.Contains(t, loc, "/login")
-	assert.Contains(t, loc, "client_id=")
+	assert.Contains(t, loc, "redirect=")
+	unescaped, err := url.QueryUnescape(loc)
+	require.NoError(t, err)
+	assert.Contains(t, unescaped, "client_id="+app.ClientId)
+	assert.Contains(t, unescaped, "/oauth/authorize")
 }
 
 // ============== Token Tests ==============
