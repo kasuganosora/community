@@ -21,6 +21,33 @@ func TestGetMeilisearchHost_Default(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7700", host)
 }
 
+func TestNormalizeMeiliHost(t *testing.T) {
+	assert.Equal(t, "http://127.0.0.1:7700", normalizeMeiliHost("  "))
+	assert.Equal(t, "http://127.0.0.1:7700", normalizeMeiliHost("http://127.0.0.1:7700/"))
+	assert.Equal(t, "http://meilisearch:7700", normalizeMeiliHost("meilisearch:7700"))
+	assert.Equal(t, "https://ms-example.meilisearch.io", normalizeMeiliHost("https://ms-example.meilisearch.io/"))
+	assert.Equal(t, "https://ms-example.meilisearch.io", normalizeMeiliHost("ms-example.meilisearch.io"))
+	assert.Equal(t, "http://10.1.2.3:7700", normalizeMeiliHost("10.1.2.3:7700"))
+}
+
+func TestNormalizeIndexPrefix(t *testing.T) {
+	assert.Equal(t, "", normalizeIndexPrefix("  "))
+	assert.Equal(t, "", normalizeIndexPrefix("中文"))
+	assert.Equal(t, "community_", normalizeIndexPrefix("community"))
+	assert.Equal(t, "community_", normalizeIndexPrefix(" community_ "))
+	assert.Equal(t, "my-app_", normalizeIndexPrefix("my-app"))
+	assert.Equal(t, "myapp_", normalizeIndexPrefix("my app"))
+}
+
+func TestIndexUID(t *testing.T) {
+	plain := &MeilisearchClient{}
+	assert.Equal(t, "statuses", plain.uid(IndexStatuses))
+
+	external := &MeilisearchClient{prefix: "ext_"}
+	assert.Equal(t, "ext_statuses", external.uid(IndexStatuses))
+	assert.Equal(t, "ext_accounts", external.uid(IndexAccounts))
+}
+
 func TestGetMeilisearchHost_Configured(t *testing.T) {
 	original := config.C.Other["MEILISEARCH_HOST"]
 	config.C.Other["MEILISEARCH_HOST"] = "http://meili:7700"

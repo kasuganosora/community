@@ -30,19 +30,21 @@ Meilisearch 索引名称常量：
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
-| `MEILISEARCH_HOST` | `http://127.0.0.1:7700` | Meilisearch 服务地址。默认用 IPv4，避免 `localhost` 先走 `::1` 连不上只监听 127.0.0.1 的实例 |
-| `MEILISEARCH_API_KEY` | （空） | Meilisearch API Key。开发模式不设 master key 时留空 |
+| `MEILISEARCH_HOST` | `http://127.0.0.1:7700` | 引擎地址。本机、`http://meilisearch:7700`，或外部 `https://…`。没写协议时，带点的域名按 https |
+| `MEILISEARCH_API_KEY` | （空） | Master Key 或 Admin API Key。外部生产实例必填。只读 Search API Key 不能建索引 |
+| `MEILISEARCH_INDEX_PREFIX` | （空） | 共用外部引擎时的索引前缀，例如 `community` 会使用 `community_statuses` |
 | `MEILISEARCH_ENABLED` | `auto` | `auto` 或未设置：引擎在线就用，离线走数据库并持续重试。`true` 启动时先连一次。`false` 完全不用 |
 
 ```bash
-# Meilisearch 服务地址
+# 本机。开发模式可不设密钥。
 MEILISEARCH_HOST=http://127.0.0.1:7700
-
-# Meilisearch API Key（开发模式可留空）
 MEILISEARCH_API_KEY=
-
-# 自动适配。显式 false 才关闭
 MEILISEARCH_ENABLED=auto
+
+# 外部实例。用 Master Key 或 Admin API Key，不要用只读 Search API Key。
+# MEILISEARCH_HOST=https://ms-example.meilisearch.io
+# MEILISEARCH_API_KEY=your-admin-or-master-key
+# MEILISEARCH_INDEX_PREFIX=community
 ```
 
 > **自动适配**：未设置或 `auto` 时后台探测默认地址，通了就建索引并回填，断了立刻改走数据库，恢复后重新建索引并回填。显式 `false`/`off` 不会探测。
@@ -405,4 +407,4 @@ Meilisearch 的过滤器使用表达式 DSL（类似 SQL `WHERE`）。本包对�
 
 ### 外部服务
 
-- **Meilisearch**：需要独立部署的 Meilisearch 实例（v1.12+），默认连 `http://127.0.0.1:7700`。未设置 `MEILISEARCH_ENABLED` 时自动探测：在线就建索引，离线走数据库。请参考 [Meilisearch 官方文档](https://www.meilisearch.com/docs/learn/getting_started/quick_start) 进行安装与配置。Docker Compose 已带上 `meilisearch` 服务。
+- **Meilisearch**：本机、Docker Compose 自带服务，或外部实例（含 Meilisearch Cloud）均可。地址用 `MEILISEARCH_HOST`，生产环境加上 Master Key 或 Admin API Key。共用一台引擎时用 `MEILISEARCH_INDEX_PREFIX` 避开默认索引名。未设置 `MEILISEARCH_ENABLED` 时自动探测：在线就建索引，离线走数据库。Docker Compose 未设置 HOST 时连自带的 `meilisearch`；只用外部实例可以 `docker compose up -d --scale meilisearch=0`。

@@ -15,8 +15,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # 自带引擎没起来时也不要挡住应用：搜索会退回数据库，外部地址同样如此。
       meilisearch:
         condition: service_healthy
+        required: false
     # Everything in .env is passed to the container; the app reads its
     # configuration from environment variables (they override any .env file).
     env_file:
@@ -35,9 +37,14 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set in .env, e.g. https://social.example.org}
       ENCRYPTED_KEY: ${ENCRYPTED_KEY:?ENCRYPTED_KEY must be set in .env (at least 16 characters)}
       DATA_TRANSFER_DIR: /app/.data-transfers
+      # 外部 Meilisearch：在 .env 设置 MEILISEARCH_HOST 和 MEILISEARCH_API_KEY
+      # （Master Key 或 Admin API Key，不要用只读的 Search API Key）。
+      # 未设置 HOST 时连下面这个服务。不需要自带引擎时：
+      # docker compose up -d --scale meilisearch=0
       MEILISEARCH_ENABLED: ${MEILISEARCH_ENABLED:-auto}
-      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_HOST: ${MEILISEARCH_HOST:-http://meilisearch:7700}
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
+      MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-}
     networks:
       - community-net
 

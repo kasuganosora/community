@@ -112,6 +112,7 @@ type MeilisearchClient struct {
 	client  meilisearch.ServiceManager
 	host    string
 	apiKey  string
+	prefix  string // 外部实例上的索引前缀，避免和别的应用抢 accounts/statuses/hashtags
 	enabled bool
 	indexed bool
 	mu      sync.RWMutex // 保护 enabled 字段的并发读写
@@ -131,6 +132,7 @@ func GetMeilisearchClient() *MeilisearchClient {
 		meiliClient = &MeilisearchClient{
 			host:   getMeilisearchHost(),
 			apiKey: getMeilisearchAPIKey(),
+			prefix: getMeilisearchIndexPrefix(),
 		}
 		switch meiliMode() {
 		case "off":
@@ -162,7 +164,7 @@ func meiliMode() string {
 
 func getMeilisearchHost() string {
 	if host, ok := config.C.Other["MEILISEARCH_HOST"]; ok {
-		return host
+		return normalizeMeiliHost(host)
 	}
 
 	return "http://127.0.0.1:7700" //nolint:goconst
@@ -170,10 +172,67 @@ func getMeilisearchHost() string {
 
 func getMeilisearchAPIKey() string {
 	if apiKey, ok := config.C.Other["MEILISEARCH_API_KEY"]; ok {
-		return apiKey
+		return strings.TrimSpace(apiKey)
 	}
 
 	return ""
+}
+
+// getMeilisearchIndexPrefix 读取外部实例用的索引前缀。本机单实例留空即可。
+func getMeilisearchIndexPrefix() string {
+	if prefix, ok := config.C.Other["MEILISEARCH_INDEX_PREFIX"]; ok {
+		return normalizeIndexPrefix(prefix)
+	}
+
+	return ""
+}
+
+// normalizeMeiliHost 接受本机、Compose 服务名，以及没写协议的外部域名。
+// 带点且没写端口的主机名视为公网地址，补 https；其余补 http。
+func normalizeMeiliHost(raw string) string {
+	host := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if host == "" {
+		return "http://127.0.0.1:7700"
+	}
+	if strings.Contains(host, "://") {
+		return host
+	}
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.") || strings.Contains(host, ":") {
+		return "http://" + host
+	}
+	if strings.Contains(host, ".") {
+		return "https://" + host
+	}
+
+	return "http://" + host
+}
+
+// normalizeIndexPrefix 只保留 Meilisearch 索引名允许的字符，并补上分隔符。
+func normalizeIndexPrefix(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(raw) {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	prefix := b.String()
+	if prefix == "" {
+		return ""
+	}
+	if !strings.HasSuffix(prefix, "_") && !strings.HasSuffix(prefix, "-") {
+		prefix += "_"
+	}
+
+	return prefix
+}
+
+// uid 把逻辑索引名映射到实际 uid。没有前缀时与原来的名字相同。
+func (m *MeilisearchClient) uid(name string) string {
+	if m == nil || m.prefix == "" {
+		return name
+	}
+
+	return m.prefix + name
 }
 
 func isMeilisearchEnabled() bool {
@@ -226,7 +285,11 @@ func (m *MeilisearchClient) tryConnect() {
 		return
 	}
 	m.indexed = true
-	log.Info("Meilisearch connected at %s", m.host)
+	if m.prefix != "" {
+		log.Info("Meilisearch connected at %s (index prefix %s)", m.host, m.prefix)
+	} else {
+		log.Info("Meilisearch connected at %s", m.host)
+	}
 	m.setEnabled(true)
 	if hook := currentReadyHook(); hook != nil {
 		go hook()
@@ -311,19 +374,19 @@ func (m *MeilisearchClient) initIndexes() error {
 		uid      string
 		settings *meilisearch.Settings
 	}{
-		{IndexAccounts, &meilisearch.Settings{
+		{m.uid(IndexAccounts), &meilisearch.Settings{
 			SearchableAttributes: []string{"username", "display_name", "bio", "domain"},
 			FilterableAttributes: []string{"id", "created_at"}, //nolint:goconst
 			SortableAttributes:   []string{"created_at"},
 			RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"}, //nolint:goconst
 		}},
-		{IndexStatuses, &meilisearch.Settings{
+		{m.uid(IndexStatuses), &meilisearch.Settings{
 			SearchableAttributes: []string{"content", "spoiler_text", "username"},
 			FilterableAttributes: []string{"account_id", "visibility", "created_at"},
 			SortableAttributes:   []string{"created_at"},
 			RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
 		}},
-		{IndexHashtags, &meilisearch.Settings{
+		{m.uid(IndexHashtags), &meilisearch.Settings{
 			SearchableAttributes: []string{"name"},
 			FilterableAttributes: []string{"status_count", "created_at"},
 			SortableAttributes:   []string{"status_count", "created_at"},
@@ -418,7 +481,7 @@ func (m *MeilisearchClient) IndexAccount(doc *AccountSearchDocument) error {
 		return errors.New("invalid document: id is required")
 	}
 
-	index := m.client.Index(IndexAccounts)
+	index := m.client.Index(m.uid(IndexAccounts))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	// AddDocuments 需要传入数组，单个文档须包装为切片
@@ -439,7 +502,7 @@ func (m *MeilisearchClient) IndexStatus(doc *StatusSearchDocument) error {
 		return errors.New("invalid document: id is required")
 	}
 
-	index := m.client.Index(IndexStatuses)
+	index := m.client.Index(m.uid(IndexStatuses))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	task, err := index.AddDocumentsWithContext(ctx, []*StatusSearchDocument{doc}, nil)
@@ -459,7 +522,7 @@ func (m *MeilisearchClient) IndexHashtag(doc *HashtagSearchDocument) error {
 		return errors.New("invalid document: id is required")
 	}
 
-	index := m.client.Index(IndexHashtags)
+	index := m.client.Index(m.uid(IndexHashtags))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	task, err := index.AddDocumentsWithContext(ctx, []*HashtagSearchDocument{doc}, nil)
@@ -479,7 +542,7 @@ func (m *MeilisearchClient) DeleteAccount(id string) error {
 		return errors.New("id is required")
 	}
 
-	index := m.client.Index(IndexAccounts)
+	index := m.client.Index(m.uid(IndexAccounts))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
@@ -497,7 +560,7 @@ func (m *MeilisearchClient) DeleteStatus(id string) error {
 		return errors.New("id is required")
 	}
 
-	index := m.client.Index(IndexStatuses)
+	index := m.client.Index(m.uid(IndexStatuses))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
@@ -515,7 +578,7 @@ func (m *MeilisearchClient) DeleteHashtag(id string) error {
 		return errors.New("id is required")
 	}
 
-	index := m.client.Index(IndexHashtags)
+	index := m.client.Index(m.uid(IndexHashtags))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	_, err := index.DeleteDocumentWithContext(ctx, id, nil)
@@ -586,7 +649,7 @@ func (m *MeilisearchClient) SearchAccounts(query string, limit, offset int64, fo
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
 	defer cancel()
-	result, err := m.client.Index(IndexAccounts).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
+	result, err := m.client.Index(m.uid(IndexAccounts)).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Filter: filter,
@@ -651,7 +714,7 @@ func (m *MeilisearchClient) SearchStatuses(query string, limit, offset int64, ac
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
 	defer cancel()
-	result, err := m.client.Index(IndexStatuses).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
+	result, err := m.client.Index(m.uid(IndexStatuses)).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Filter: filter,
@@ -687,7 +750,7 @@ func (m *MeilisearchClient) SearchHashtags(query string, limit, offset int64) ([
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSearchTimeout)
 	defer cancel()
-	result, err := m.client.Index(IndexHashtags).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
+	result, err := m.client.Index(m.uid(IndexHashtags)).SearchWithContext(ctx, query, &meilisearch.SearchRequest{
 		Limit:  limit,
 		Offset: offset,
 		Sort:   []string{"status_count:desc"},
@@ -718,7 +781,7 @@ func (m *MeilisearchClient) BatchIndexAccounts(docs []*AccountSearchDocument) er
 		return nil
 	}
 
-	index := m.client.Index(IndexAccounts)
+	index := m.client.Index(m.uid(IndexAccounts))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
@@ -734,7 +797,7 @@ func (m *MeilisearchClient) BatchIndexStatuses(docs []*StatusSearchDocument) err
 		return nil
 	}
 
-	index := m.client.Index(IndexStatuses)
+	index := m.client.Index(m.uid(IndexStatuses))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
@@ -750,7 +813,7 @@ func (m *MeilisearchClient) BatchIndexHashtags(docs []*HashtagSearchDocument) er
 		return nil
 	}
 
-	index := m.client.Index(IndexHashtags)
+	index := m.client.Index(m.uid(IndexHashtags))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
