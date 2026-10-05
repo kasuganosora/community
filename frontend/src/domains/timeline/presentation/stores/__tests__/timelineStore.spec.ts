@@ -3,6 +3,7 @@ import { invalidateSessionData } from '@/shared/api/sessionScope'
 import { timelineApi } from '../../../infrastructure/timelineApi'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTimelineStore } from '../timelineStore'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 
 vi.mock('../../../infrastructure/timelineApi', () => ({ timelineApi: { getHomeTimeline: vi.fn(), getPublicTimeline: vi.fn() } }))
@@ -22,6 +23,15 @@ describe('new posts in timelines', () => {
     store.prependStatus({ id: 'private', visibility } as MastodonStatus)
     expect(store.publicStatuses).toEqual([])
     expect(store.homeStatuses).toHaveLength(1)
+  })
+  it('hides your own boost when the original post is already in the feed', () => {
+    const auth = useAuthStore()
+    auth.currentUser = { id: 'me' } as NonNullable<typeof auth.currentUser>
+    const store = useTimelineStore()
+    store.prependStatus({ id: 'orig', visibility: 'public', account: { id: 'other' } } as MastodonStatus)
+    store.prependStatus({ id: 'mine', visibility: 'public', account: { id: 'me' }, reblog: { id: 'orig' } } as MastodonStatus)
+    store.prependStatus({ id: 'theirs', visibility: 'public', account: { id: 'them' }, reblog: { id: 'orig' } } as MastodonStatus)
+    expect(store.publicStatuses.map(status => status.id)).toEqual(['theirs', 'orig'])
   })
 })
 

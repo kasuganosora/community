@@ -60,7 +60,15 @@ async function showResponders() {
       <button v-for="reaction in reactions" :key="reaction.name" type="button" class="reaction" :class="{ 'reaction--mine': reaction.me }" :aria-label="`${reaction.name} ${reaction.count} 个回应${reaction.me ? '，撤销我的回应' : ''}`" :title="!reaction.me && /^:[^:]+@[^:]+:$/.test(reaction.name) ? '远端表情仅供展示；请管理员复制为本站表情后使用' : reaction.name" :aria-pressed="reaction.me" :disabled="pending || !auth.currentUser || (!reaction.me && /^:[^:]+@[^:]+:$/.test(reaction.name))" @click="toggle(reaction.name)">
         <img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" referrerpolicy="no-referrer" /><span v-else>{{ reaction.is_sensitive ? '敏感表情' : reaction.name }}</span><span>{{ reaction.count }}</span>
       </button>
-      <button v-if="auth.currentUser" type="button" class="reaction" aria-label="添加表情回应" :aria-expanded="choosing" :disabled="pending" @click="choosing = !choosing">☺ +</button>
+      <button v-if="auth.currentUser" type="button" class="reaction reaction--add" aria-label="添加表情回应" :aria-expanded="choosing" :disabled="pending" @click="choosing = !choosing">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10" cy="12" r="7.25" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <circle cx="7.7" cy="10.4" r="1" fill="currentColor" />
+          <circle cx="12.3" cy="10.4" r="1" fill="currentColor" />
+          <path d="M7.3 13.4c.9 1.5 2.1 2.2 2.7 2.2s1.8-.7 2.7-2.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          <path d="M17.2 8.2v5.6M14.4 11h5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
+      </button>
       <button v-if="reactions.length" type="button" class="reaction" @click="showResponders">查看回应者</button>
     </div>
     <div v-if="choosing" class="post-reactions__picker">
@@ -86,6 +94,14 @@ async function showResponders() {
 .post-reactions__row { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .reaction { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 2rem; padding: var(--space-1) var(--space-2); border-radius: var(--radius-full); background: var(--color-fill); }
 .reaction img { width: 1.3em; height: 1.3em; object-fit: contain; }
+.reaction--add {
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+}
+.reaction--add svg { width: 1.5rem; height: 1.5rem; }
 .reaction--mine { background: var(--color-accent-soft); color: var(--color-accent-text); }
 .post-reactions__picker { padding-top: var(--space-2); }
 .post-reactions [role=alert] { color: var(--color-danger); }

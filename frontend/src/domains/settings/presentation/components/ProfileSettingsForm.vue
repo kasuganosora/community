@@ -5,6 +5,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../domain/validation'
 
@@ -89,21 +90,23 @@ onMounted(async () => {
 
 <template>
   <form class="settings-form" @submit.prevent="saveProfile">
-    <div class="settings-images">
-      <div class="settings-header-preview">
-        <img v-if="profile.header" :src="profile.header" alt="" />
+    <div class="settings-hero">
+      <div class="settings-hero__cover">
+        <img v-if="profile.header" :src="sameOriginMediaUrl(profile.header)" alt="" />
       </div>
-      <UserAvatar v-if="previewAccount" :account="previewAccount" :size="72" class="settings-avatar" />
-    </div>
-    <div class="settings-row">
-      <label class="btn btn--secondary btn--sm settings-file">
-        {{ uploading.avatar ? '上传中…' : '更换头像' }}
-        <input type="file" accept="image/*" class="sr-only" :disabled="uploading.avatar" @change="onPickImage('avatar', $event)" />
-      </label>
-      <label class="btn btn--secondary btn--sm settings-file">
-        {{ uploading.header ? '上传中…' : '更换封面' }}
-        <input type="file" accept="image/*" class="sr-only" :disabled="uploading.header" @change="onPickImage('header', $event)" />
-      </label>
+      <div class="settings-hero__bar">
+        <UserAvatar v-if="previewAccount" :account="previewAccount" :size="72" class="settings-avatar" />
+        <div class="settings-hero__actions">
+          <label class="btn btn--secondary btn--sm settings-file">
+            {{ uploading.avatar ? '上传中…' : '更换头像' }}
+            <input type="file" accept="image/*" class="sr-only" :disabled="uploading.avatar" @change="onPickImage('avatar', $event)" />
+          </label>
+          <label class="btn btn--secondary btn--sm settings-file">
+            {{ uploading.header ? '上传中…' : '更换封面' }}
+            <input type="file" accept="image/*" class="sr-only" :disabled="uploading.header" @change="onPickImage('header', $event)" />
+          </label>
+        </div>
+      </div>
     </div>
 
     <div class="settings-field">
@@ -175,33 +178,41 @@ onMounted(async () => {
   font-size: var(--font-sm);
 }
 
-.settings-images {
-  position: relative;
-  margin-bottom: var(--space-6);
-}
-
-.settings-header-preview {
-  height: 120px;
+.settings-hero__cover {
+  height: 7.5rem;
   border-radius: var(--radius-md, 12px);
   overflow: hidden;
   background: var(--color-fill, var(--bg-secondary));
 }
 
-.settings-header-preview img {
+.settings-hero__cover img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.settings-avatar {
-  position: absolute;
-  left: var(--space-4);
-  bottom: calc(-1 * var(--space-6));
+.settings-hero__bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: -2.25rem;
+  padding-left: var(--space-4);
 }
 
-.settings-row {
+.settings-avatar {
+  flex: 0 0 auto;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--color-bg-grouped);
+}
+
+.settings-hero__actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2);
+  padding-bottom: var(--space-1);
 }
 
 .settings-file {

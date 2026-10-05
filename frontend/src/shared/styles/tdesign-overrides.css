@@ -286,8 +286,15 @@ html .t-avatar {
   color: var(--color-label-secondary);
   font-weight: var(--weight-semibold);
   border: none;
+  line-height: 1;
   /* hairline ring keeps white-ish avatars from bleeding into the page */
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+}
+
+/* The fallback letter sits low in the em box, so the circle looks top-heavy. */
+html .t-avatar > span {
+  line-height: 1;
+  transform: translateY(-0.17em) !important;
 }
 
 :root[theme-mode='dark'] .t-avatar {

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
+	listfeed "github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -195,6 +196,8 @@ func AddAccountToList(c *gin.Context) {
 		return
 	}
 
+	listfeed.DropCache(list.Id)
+
 	// Trigger proxy follow for remote accounts that have no local followers
 	go ensureProxyFollowsForList(unExistAccountIds, list.Id)
 
@@ -277,6 +280,8 @@ func RemoveAccountFromList(c *gin.Context) {
 
 		return
 	}
+
+	listfeed.DropCache(list.Id)
 
 	// Trigger proxy follow cleanup for remote accounts
 	go func() {

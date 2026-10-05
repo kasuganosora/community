@@ -31,6 +31,7 @@ const captcha = reactive({ required: false, provider: '', siteKey: '' })
 const captchaToken = ref('')
 const captchaField = ref<{ reset: () => void; verify: () => Promise<string> } | null>(null)
 const captchaNote = ref('')
+const pending = ref(false)
 
 onMounted(async () => {
   const [instanceResult, captchaResult] = await Promise.allSettled([
@@ -95,24 +96,39 @@ function continueAfterLogin() {
 async function handleLogin() {
   if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) return
   if (captchaNote.value) return
+  if (authStore.isAuthenticated) {
+    continueAfterLogin()
+    return
+  }
+  if (pending.value) return
   if (captcha.required && captcha.provider !== 'local' && !captchaToken.value) return
 
+  pending.value = true
   try {
     if (captcha.required && captcha.provider === 'local' && !captchaToken.value) {
       try {
         captchaToken.value = await captchaField.value?.verify() ?? ''
       } catch {
+        pending.value = false
         return
       }
-      if (!captchaToken.value) return
+      if (!captchaToken.value) {
+        pending.value = false
+        return
+      }
     }
     await authStore.login({ ...form, captchaResponse: captchaToken.value || undefined })
     loginAttempts.value = 0
     continueAfterLogin()
   } catch {
+    if (authStore.isAuthenticated) {
+      continueAfterLogin()
+      return
+    }
     captchaToken.value = ''
     captchaField.value?.reset()
     loginAttempts.value++
+    pending.value = false
     // The lock used to be permanent until a full page reload.
     if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
       setTimeout(() => { loginAttempts.value = 0 }, LOCK_MS)
@@ -192,8 +208,8 @@ async function handleLogin() {
             block
             size="large"
             shape="round"
-            :loading="authStore.loading"
-            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS || !!captchaNote || (captcha.required && captcha.provider !== 'local' && !captchaToken)"
+            :loading="pending || authStore.loading"
+            :disabled="pending || loginAttempts >= MAX_LOGIN_ATTEMPTS || !!captchaNote || (captcha.required && captcha.provider !== 'local' && !captchaToken)"
           >
             登录
           </t-button>

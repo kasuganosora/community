@@ -75,7 +75,7 @@ function retryFeed() {
     <!-- The right rail (with its search field) is hidden on narrow screens,
          so Explore carries its own search entry there. -->
     <div class="explore-search">
-      <SearchBox />
+      <SearchBox live />
     </div>
     <TabBar
       :model-value="activeTab"

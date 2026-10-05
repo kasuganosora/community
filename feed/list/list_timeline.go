@@ -2,14 +2,17 @@ package list
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/kasuganosora/community/db"
+	appredis "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
-	"strconv"
-	"strings"
-	"time"
 )
 
 func init() {
@@ -58,10 +61,14 @@ func (timeline *ListTimeline) GetKeyFormat() string {
 
 func (timeline *ListTimeline) AggregateReblogs() bool { return true }
 
+func (timeline *ListTimeline) memberIDs(tx *gorm.DB) *gorm.DB {
+	return tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Select("account_id")
+}
+
 func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
-	members := tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Select("account_id")
-	query := feed.EligibleTimelineStatuses(tx).Where("statuses.visibility = ?", models.StatusVisibilityPublic).
-		Where("statuses.account_id IN (?)", members)
+	query := feed.EligibleTimelineStatuses(tx).
+		Where("(statuses.visibility = ? OR statuses.visibility = ?)", models.StatusVisibilityPublic, models.StatusVisibilityUnlisted).
+		Where("statuses.account_id IN (?)", timeline.memberIDs(tx))
 	if timeline.OnlyLocal {
 		query = query.Where("statuses.domain IS NULL")
 	}
@@ -71,7 +78,33 @@ func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
 	if timeline.OnlyMedia {
 		query = query.Where("EXISTS (SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id)")
 	}
+	if timeline.List == nil {
+		return query
+	}
+	switch timeline.List.RepliesPolicy {
+	case models.ListRepliesPolicyNone:
+		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0")
+	case models.ListRepliesPolicyFollowed:
+		following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).
+			Scopes(models.Followed).
+			Where("account_id = ?", timeline.List.AccountId).
+			Select("follow_id")
+		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0 OR statuses.in_reply_to_account_id IN (?)", following)
+	default:
+		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0 OR statuses.in_reply_to_account_id IN (?)", timeline.memberIDs(tx))
+	}
 	return query
+}
+
+// DropCache forgets a list feed so the next read rebuilds it from the current
+// members. Adding or removing someone otherwise leaves the previous snapshot.
+func DropCache(listID uint64) {
+	if listID == 0 || len(appredis.GetRedises()) == 0 {
+		return
+	}
+	timeline := &ListTimeline{List: &models.List{Id: listID}}
+	key := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
+	_ = db.GetRedis().Del(context.Background(), key, key+":empty").Err()
 }
 
 func (timeline *ListTimeline) GetTimelineId() string {

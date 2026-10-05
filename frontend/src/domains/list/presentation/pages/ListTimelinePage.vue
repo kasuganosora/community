@@ -41,6 +41,7 @@ async function load() {
     if (version !== loadVersion) return
     list.value = result
     feed.refresh()
+    if (route.query.manage === '1') void openManage()
   } catch (e) {
     if (version === loadVersion) listError.value = e instanceof Error ? e.message : '列表不存在'
   }

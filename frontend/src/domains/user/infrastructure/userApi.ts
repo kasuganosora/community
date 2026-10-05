@@ -10,6 +10,13 @@ export const userApi = {
     return data
   },
 
+  async searchAccounts(q: string, limit = 8): Promise<MastodonAccount[]> {
+    const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
+      params: { q, limit, resolve: false },
+    })
+    return data
+  },
+
   async lookupAccount(acct: string): Promise<MastodonAccount> {
     // Backend has no /accounts/lookup; /accounts/search is a prefix search,
     // so pick the exact match instead of the first hit. Local accounts

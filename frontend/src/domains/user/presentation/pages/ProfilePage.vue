@@ -18,6 +18,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import AddToListButton from '@/domains/list/presentation/components/AddToListButton.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -150,6 +151,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         @{{ account.acct }}
         <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
       </div>
+      <AddToListButton v-if="!isOwnProfile && followState === 'following'" :account-id="account.id" />
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { MastodonAccount } from '@/shared/types/mastodon'
+import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 
 const props = defineProps<{
   account: MastodonAccount
@@ -13,7 +14,7 @@ const avatarSize = computed(() => props.size || 40)
 <template>
   <t-avatar
     :size="`${avatarSize}px`"
-    :image="account.avatar || undefined"
+    :image="sameOriginMediaUrl(account.avatar) || undefined"
     shape="circle"
     class="user-avatar"
     role="img"

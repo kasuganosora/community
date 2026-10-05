@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, reactive, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
+import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
+import { userApi } from '@/domains/user/infrastructure/userApi'
+import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
-import type { MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import {
   MAX_MEDIA_ATTACHMENTS, MAX_POLL_OPTIONS, MIN_POLL_OPTIONS, POLL_DURATIONS,
   buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
@@ -11,6 +14,7 @@ import {
   type ComposeDraft, type PollDraft,
 } from '@/domains/post/domain/compose'
 import EmojiPicker from './EmojiPicker.vue'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { insertShortcode } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -56,8 +60,20 @@ async function insertEmoji(emoji: MastodonEmoji) {
 const spoilerEnabled = ref(false)
 const spoilerText = ref('')
 const visibility = ref<Visibility>('public')
+const visibilityOpen = ref(false)
+
+function closeVisibilityOnOutside(e: Event) {
+  if (!composerRoot.value?.contains(e.target as Node)) visibilityOpen.value = false
+}
+
+watch(visibilityOpen, (open) => {
+  if (open) document.addEventListener('pointerdown', closeVisibilityOnOutside)
+  else document.removeEventListener('pointerdown', closeVisibilityOnOutside)
+})
+
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeVisibilityOnOutside))
 const poll = ref<PollDraft | null>(null)
-interface MediaItem { key: string; name: string; uploading: boolean; attachment?: MastodonAttachment; error?: string }
+interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
 const loadingSource = ref(!!props.editStatus)
@@ -164,6 +180,11 @@ function removePollOption(i: number) {
   if (poll.value && poll.value.options.length > MIN_POLL_OPTIONS) poll.value.options.splice(i, 1)
 }
 
+function mediaPreview(item: MediaItem) {
+  if (item.attachment?.type === 'image') return sameOriginMediaUrl(item.attachment.preview_url || item.attachment.url) || item.preview
+  return item.preview
+}
+
 function pickFiles() {
   fileInput.value?.click()
 }
@@ -175,11 +196,13 @@ async function onFilesSelected(e: Event) {
   const room = MAX_MEDIA_ATTACHMENTS - media.length
   if (files.length > room) error.value = `最多只能添加 ${MAX_MEDIA_ATTACHMENTS} 个媒体文件`
   await Promise.all(files.slice(0, room).map(async (file) => {
-    const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name, uploading: true })
+    const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
+    const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name, uploading: true, preview })
     media.push(item)
     try {
       item.attachment = await postApi.uploadMedia(file)
     } catch (err) {
+      if (item.preview) URL.revokeObjectURL(item.preview)
       item.error = err instanceof Error ? err.message : '上传失败'
       error.value = `${file.name} 上传失败：${item.error}`
       media.splice(media.indexOf(item), 1)
@@ -190,10 +213,13 @@ async function onFilesSelected(e: Event) {
 }
 
 function removeMedia(i: number) {
+  const item = media[i]
+  if (item?.preview) URL.revokeObjectURL(item.preview)
   media.splice(i, 1)
 }
 
 function reset() {
+  for (const item of media) if (item.preview) URL.revokeObjectURL(item.preview)
   content.value = ''
   spoilerEnabled.value = false
   spoilerText.value = ''
@@ -233,6 +259,82 @@ async function handlePost() {
   }
 }
 
+const mentions = ref<MastodonAccount[]>([])
+const mentionIndex = ref(0)
+let mentionRange: { start: number; end: number } | null = null
+let mentionTimer = 0
+let mentionSeq = 0
+
+function scheduleMentions() {
+  window.clearTimeout(mentionTimer)
+  const input = composerRoot.value?.querySelector('textarea')
+  const query = mentionAtCaret(content.value, input?.selectionStart ?? content.value.length)
+  if (!query) {
+    mentions.value = []
+    mentionRange = null
+    return
+  }
+  mentionRange = { start: query.start, end: query.end }
+  const q = query.q
+  mentionTimer = window.setTimeout(() => { void loadMentions(q) }, 120)
+}
+
+watch(content, () => scheduleMentions())
+
+async function loadMentions(q: string) {
+  const seq = ++mentionSeq
+  try {
+    const rows = await userApi.searchAccounts(q, 6)
+    if (seq !== mentionSeq) return
+    const input = composerRoot.value?.querySelector('textarea')
+    const current = mentionAtCaret(content.value, input?.selectionStart ?? content.value.length)
+    if (!current || current.q !== q) return
+    mentions.value = rows
+    mentionIndex.value = 0
+    mentionRange = { start: current.start, end: current.end }
+  } catch {
+    if (seq === mentionSeq) mentions.value = []
+  }
+}
+
+function applyMention(account: MastodonAccount) {
+  if (!mentionRange) return
+  window.clearTimeout(mentionTimer)
+  mentionSeq++
+  const label = account.acct.includes('@') ? account.acct : account.username
+  const insert = `@${label} `
+  const cursor = mentionRange.start + insert.length
+  content.value = content.value.slice(0, mentionRange.start) + insert + content.value.slice(mentionRange.end)
+  mentions.value = []
+  mentionRange = null
+  void nextTick(() => {
+    const input = composerRoot.value?.querySelector('textarea')
+    input?.focus()
+    input?.setSelectionRange(cursor, cursor)
+  })
+}
+
+function onMentionKeydown(e: KeyboardEvent) {
+  if (visibilityOpen.value && e.key === 'Escape') {
+    e.preventDefault()
+    visibilityOpen.value = false
+    return
+  }
+  if (!mentions.value.length) return
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    const step = e.key === 'ArrowDown' ? 1 : -1
+    mentionIndex.value = (mentionIndex.value + step + mentions.value.length) % mentions.value.length
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault()
+    const account = mentions.value[mentionIndex.value]
+    if (account) applyMention(account)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    mentions.value = []
+  }
+}
+
 function onKeydown(e: KeyboardEvent) {
   // Ctrl/Cmd+Enter posts, like most Mastodon clients.
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -245,7 +347,7 @@ defineExpose({ focus, reset })
 </script>
 
 <template>
-  <div ref="composerRoot" class="composer" @keydown="onKeydown">
+  <div ref="composerRoot" class="composer" :class="{ 'composer--menu': visibilityOpen }" @keydown.capture="onMentionKeydown" @keydown="onKeydown">
     <p v-if="isEdit" class="composer__replace-notice" role="note">
       {{ REPLACE_NOTE }}
       <span v-if="editStatus?.poll">投票截止时间保持不变。</span>
@@ -270,19 +372,41 @@ defineExpose({ focus, reset })
           aria-label="内容警告说明"
           maxlength="500"
         />
-        <t-textarea
-          ref="textareaRef"
-          v-model="content"
-          :placeholder="placeholderText"
-          :aria-label="placeholderText"
-          :autosize="{ minRows: 1, maxRows: 12 }"
-          class="composer__textarea"
-          :disabled="loadingSource || posting"
-        />
+        <div class="composer__field">
+          <t-textarea
+            ref="textareaRef"
+            v-model="content"
+            :placeholder="placeholderText"
+            :aria-label="placeholderText"
+            :autosize="{ minRows: 1, maxRows: 12 }"
+            class="composer__textarea"
+            :disabled="loadingSource || posting"
+            @keyup="scheduleMentions"
+            @click="scheduleMentions"
+          />
+          <ul v-if="mentions.length" class="composer__mentions" role="listbox" aria-label="提及用户">
+            <li v-for="(account, i) in mentions" :key="account.id">
+              <button
+                type="button"
+                class="composer__mention"
+                :class="{ 'composer__mention--active': i === mentionIndex }"
+                role="option"
+                :aria-selected="i === mentionIndex"
+                @mousedown.prevent="applyMention(account)"
+              >
+                <UserAvatar :account="account" :size="28" />
+                <span class="composer__mention-text">
+                  <EmojiText class="composer__mention-name" :text="account.display_name || account.username" :emojis="account.emojis" />
+                  <span class="composer__mention-acct">@{{ account.acct }}</span>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
 
         <ul v-if="media.length" class="composer__media" aria-label="已添加的媒体">
           <li v-for="(m, i) in media" :key="m.key" class="composer__media-item">
-            <img v-if="m.attachment?.type === 'image'" :src="m.attachment.preview_url || m.attachment.url" :alt="m.name" />
+            <img v-if="mediaPreview(m)" :src="mediaPreview(m)" alt="" />
             <span v-else class="composer__media-name">{{ m.uploading ? '上传中…' : m.name }}</span>
             <t-loading v-if="m.uploading" size="small" class="composer__media-spinner" />
             <button
@@ -393,12 +517,35 @@ defineExpose({ focus, reset })
             >
               CW
             </button>
-            <label v-if="!isEdit && choices.length > 1" class="composer__visibility" :title="currentVisibility.label">
-              <t-icon :name="currentVisibility.icon" :size="16" />
-              <select v-model="visibility" aria-label="可见范围">
-                <option v-for="v in choices" :key="v.value" :value="v.value">{{ v.label }}</option>
-              </select>
-            </label>
+            <div v-if="!isEdit && choices.length > 1" class="composer__visibility">
+              <button
+                type="button"
+                class="composer__visibility-btn"
+                :aria-expanded="visibilityOpen"
+                aria-haspopup="listbox"
+                aria-label="可见范围"
+                :title="currentVisibility.label"
+                @click="visibilityOpen = !visibilityOpen"
+              >
+                <t-icon :name="currentVisibility.icon" :size="16" />
+                <span>{{ currentVisibility.label }}</span>
+              </button>
+              <ul v-if="visibilityOpen" class="composer__visibility-menu" role="listbox" aria-label="可见范围">
+                <li v-for="v in choices" :key="v.value">
+                  <button
+                    type="button"
+                    class="composer__visibility-option"
+                    :class="{ 'is-selected': v.value === visibility }"
+                    role="option"
+                    :aria-selected="v.value === visibility"
+                    @click="visibility = v.value; visibilityOpen = false"
+                  >
+                    <t-icon :name="v.icon" :size="16" />
+                    <span>{{ v.label }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
             <span v-else-if="!isEdit" class="composer__visibility composer__visibility--locked" :title="currentVisibility.label">
               <t-icon :name="currentVisibility.icon" :size="16" />
               <span>{{ currentVisibility.short }}</span>
@@ -445,6 +592,11 @@ defineExpose({ focus, reset })
   box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--color-separator);
 }
 
+.composer--menu {
+  position: relative;
+  z-index: 4;
+}
+
 .composer__replace-notice {
   margin: 0 0 var(--space-3);
   padding: var(--space-3);
@@ -466,6 +618,67 @@ defineExpose({ focus, reset })
 .composer__input-area {
   flex: 1;
   min-width: 0;
+}
+
+.composer__field {
+  position: relative;
+}
+
+.composer__mentions {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  top: calc(100% - var(--space-1));
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-bg-grouped);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.composer__mention {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--color-label);
+}
+
+.composer__mention--active,
+.composer__mention:hover {
+  background: var(--color-fill);
+}
+
+.composer__mention :deep(.user-avatar) {
+  pointer-events: none;
+}
+
+.composer__mention-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.composer__mention-name {
+  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__mention-acct {
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The text field is the canvas: no box, no focus ring — the caret and the
@@ -753,8 +966,7 @@ defineExpose({ focus, reset })
   accent-color: var(--color-accent);
 }
 
-.composer__poll-duration select,
-.composer__visibility select {
+.composer__poll-duration select {
   min-height: 2rem;
   border: none;
   background: transparent;
@@ -763,51 +975,83 @@ defineExpose({ focus, reset })
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
   cursor: pointer;
+  color-scheme: light;
 }
 
 .composer__visibility {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-0);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-full);
-  color: var(--color-accent-text);
-}
-
-.composer__visibility select {
-  max-width: 7.5em;
-  /* Size to the chosen option; the chevron glyph follows the label. */
-  field-sizing: content;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-/* Small chevron drawn in currentColor after the label. */
-.composer__visibility--locked::after {
-  display: none;
 }
 
 .composer__visibility--locked {
   min-height: 2.5rem;
   padding: 0 var(--space-2);
+  gap: var(--space-1);
+  border-radius: var(--radius-full);
+  color: var(--color-accent-text);
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
-  gap: var(--space-1);
 }
 
-.composer__visibility::after {
+.composer__visibility-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 2.5rem;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  color: var(--color-accent-text);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+}
+
+.composer__visibility-btn[aria-expanded='true'] {
+  background: var(--color-accent-soft);
+}
+
+.composer__visibility-btn::after {
   content: '';
   width: 0.625rem;
   height: 0.625rem;
   background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
-  pointer-events: none;
 }
 
-.composer__visibility option,
-.composer__poll-duration option {
-  color: initial;
+.composer__visibility-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 16rem;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-bg-grouped);
+  color: var(--color-label);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.composer__visibility-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: inherit;
+  font-size: var(--text-subhead);
+}
+
+.composer__visibility-option.is-selected,
+.composer__visibility-option:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
 }
 
 .composer__status,

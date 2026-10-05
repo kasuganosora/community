@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+
+const props = defineProps<{
+  /** On Explore, start searching as the query is typed. The rail still waits for submit. */
+  live?: boolean
+}>()
 
 const router = useRouter()
 const query = ref('')
@@ -8,6 +13,7 @@ const root = ref<HTMLElement | null>(null)
 const edged = ref(false)
 
 let scroller: HTMLElement | Window | null = null
+let liveTimer = 0
 
 function scrollParent(el: HTMLElement): HTMLElement | Window {
   let parent = el.parentElement
@@ -27,10 +33,17 @@ function updateEdge() {
 
 function handleSearch() {
   const trimmedQuery = query.value.trim()
-  if (trimmedQuery) {
-    router.push({ name: 'search', query: { q: trimmedQuery } }).catch(() => {})
-  }
+  if (!trimmedQuery) return
+  router.push({ name: 'search', query: { q: trimmedQuery } }).catch(() => {})
 }
+
+watch(query, (value) => {
+  window.clearTimeout(liveTimer)
+  if (!props.live) return
+  const trimmed = value.trim()
+  if (!trimmed) return
+  liveTimer = window.setTimeout(handleSearch, 400)
+})
 
 onMounted(() => {
   if (!root.value) return
@@ -40,15 +53,16 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.clearTimeout(liveTimer)
   scroller?.removeEventListener('scroll', updateEdge)
 })
 </script>
 
 <template>
-  <div ref="root" class="search-box" :class="{ 'search-box--edge': edged }">
+  <form ref="root" class="search-box" :class="{ 'search-box--edge': edged }" role="search" @submit.prevent="handleSearch">
     <t-input
       v-model="query"
-      placeholder="搜索"
+      placeholder="搜索帖子、用户或话题"
       aria-label="搜索"
       clearable
       @enter="handleSearch"
@@ -57,7 +71,8 @@ onBeforeUnmount(() => {
         <t-icon name="search" />
       </template>
     </t-input>
-  </div>
+    <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim()">搜索</button>
+  </form>
 </template>
 
 <style scoped>
@@ -69,6 +84,7 @@ onBeforeUnmount(() => {
   z-index: var(--z-sticky);
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   min-height: var(--bar-height);
   margin: 0 calc(-1 * var(--space-2));
   padding: var(--space-2);
@@ -85,12 +101,17 @@ onBeforeUnmount(() => {
 }
 
 .search-box :deep(.t-input__wrap) {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .search-box :deep(.t-input) {
   height: var(--hit-target);
   border-radius: var(--radius-full);
   padding: 0 var(--space-4);
+}
+
+.search-box__submit {
+  flex: 0 0 auto;
 }
 </style>

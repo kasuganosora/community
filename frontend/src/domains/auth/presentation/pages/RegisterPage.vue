@@ -95,12 +95,22 @@ const showPasswordMismatch = computed(() =>
   form.passwordConfirm !== '' && !passwordMatch.value
 )
 
+const registerBlock = computed(() => {
+  if (form.username.trim() !== '' && !isValidUsername.value) return '用户名需要 2–20 个字母、数字或下划线。'
+  if (form.email.trim() !== '' && !isValidEmail.value) return '邮箱格式不对。'
+  if (form.password !== '' && !isStrongPassword.value) return '密码至少 8 位，并包含大写字母、小写字母和数字。'
+  if (form.passwordConfirm !== '' && !passwordMatch.value) return '两次输入的密码不一致。'
+  if (inviteRequired.value && form.inviteCode.trim() === '' && form.username.trim() !== '') return '需要邀请码。'
+  return ''
+})
+
 const canRegister = computed(() =>
-  isValidUsername.value &&
-  isValidEmail.value &&
-  isStrongPassword.value &&
-  passwordMatch.value &&
+  form.username.trim() !== '' &&
+  form.email.trim() !== '' &&
+  form.password !== '' &&
+  form.passwordConfirm !== '' &&
   (!inviteRequired.value || form.inviteCode.trim() !== '') &&
+  registerBlock.value === '' &&
   (!captcha.required || captcha.provider === 'local' || captchaToken.value !== '') &&
   !error.value?.includes('验证码没有配好') &&
   !registering.value,
@@ -121,6 +131,10 @@ function proceedToForm() {
 }
 
 async function handleRegister() {
+  if (registerBlock.value) {
+    error.value = registerBlock.value
+    return
+  }
   if (!canRegister.value) return
   registering.value = true
   error.value = null
@@ -361,6 +375,8 @@ function close() {
             @token="captchaToken = $event"
             @fail="error = $event"
           />
+
+          <p v-if="registerBlock" class="form-error register-block">{{ registerBlock }}</p>
 
           <div class="register-actions register-actions--center">
             <t-button
@@ -607,8 +623,9 @@ function close() {
   margin-top: var(--space-2);
 }
 
-.btn-continue {
-  min-width: 7.5rem;
+.register-block {
+  margin: 0 0 var(--space-3);
+  text-align: center;
 }
 
 .register-form :deep(.t-form__label) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
+import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 
 const props = defineProps<{
   attachments: MastodonAttachment[]
@@ -49,7 +50,7 @@ const fileLinks = computed(() => props.attachments.flatMap((attachment, index) =
     if (!attachment.url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
     let filename = url.pathname.split('/').pop() || '文件'
     try { filename = decodeURIComponent(filename) } catch { /* Keep the original filename if malformed. */ }
-    return [{ id: attachment.id, url: url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
+    return [{ id: attachment.id, url: sameOriginMediaUrl(attachment.url) || url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
   } catch { return [] }
 }))
 const hasMedia = computed(() => props.attachments.length > 0)
@@ -82,7 +83,7 @@ const gridClass = computed(() => {
       >
         <img
           v-if="!failedMedia.has(img.id)"
-          :src="img.preview_url || img.url"
+          :src="sameOriginMediaUrl(img.preview_url || img.url)"
           :alt="img.description || ''"
           loading="lazy"
           class="media-img"
@@ -117,7 +118,7 @@ const gridClass = computed(() => {
       </div>
       <img
         class="media-viewer__img"
-        :src="images[viewer].url"
+        :src="sameOriginMediaUrl(images[viewer].url)"
         :alt="images[viewer].description || ''"
       />
       <p v-if="images[viewer].description" class="media-viewer__alt">{{ images[viewer].description }}</p>
@@ -131,8 +132,8 @@ const gridClass = computed(() => {
     <div v-for="vid in videos" :key="vid.id" class="media-video-wrap">
       <video
         v-if="!failedMedia.has(vid.id)"
-        :src="vid.url"
-        :poster="vid.preview_url || undefined"
+        :src="sameOriginMediaUrl(vid.url)"
+        :poster="sameOriginMediaUrl(vid.preview_url) || undefined"
         controls
         loop
         playsinline
@@ -152,7 +153,7 @@ const gridClass = computed(() => {
     <div v-for="aud in audios" :key="aud.id" class="media-audio-wrap">
       <audio
         v-if="!failedMedia.has(aud.id)"
-        :src="aud.url"
+        :src="sameOriginMediaUrl(aud.url)"
         controls
         preload="none"
         class="media-audio"

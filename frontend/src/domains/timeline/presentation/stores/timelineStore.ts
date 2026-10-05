@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import type { ManagedTimelineType } from '../../domain/entities'
 import { timelineApi } from '../../infrastructure/timelineApi'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
 import { USE_MOCK } from '@/shared/utils/env'
@@ -18,6 +19,7 @@ interface TimelineState {
 }
 
 export const useTimelineStore = defineStore('timeline', () => {
+  const auth = useAuthStore()
   // Separate state for each timeline type to avoid shared state issues
   const homeTimeline = ref<TimelineState>({
     statuses: [],
@@ -49,9 +51,17 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
   }, { flush: 'sync' })
 
+  // A post you boosted is already on the timeline. Don't show that boost as a second copy.
+  function withoutOwnRepeatBoost(list: MastodonStatus[]) {
+    const me = auth.currentUser?.id
+    if (!me) return list
+    const originals = new Set(list.filter(status => !status.reblog?.id).map(status => status.id))
+    return list.filter(status => !(status.reblog?.id && status.account?.id === me && originals.has(status.reblog.id)))
+  }
+
   // Computed accessors for backward compatibility
-  const homeStatuses = computed(() => homeTimeline.value.statuses)
-  const publicStatuses = computed(() => publicTimeline.value.statuses)
+  const homeStatuses = computed(() => withoutOwnRepeatBoost(homeTimeline.value.statuses))
+  const publicStatuses = computed(() => withoutOwnRepeatBoost(publicTimeline.value.statuses))
   const isLoading = computed(() => 
     homeTimeline.value.isLoading || publicTimeline.value.isLoading
   )

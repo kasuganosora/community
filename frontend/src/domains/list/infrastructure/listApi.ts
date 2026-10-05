@@ -32,6 +32,11 @@ export const listApi = {
     await client.delete(`/api/v1/lists/${encodeURIComponent(id)}`)
   },
 
+  async listsContaining(accountId: string): Promise<MastodonList[]> {
+    const { data } = await client.get<MastodonList[]>(`/api/v1/accounts/${encodeURIComponent(accountId)}/lists`)
+    return data
+  },
+
   async getAccounts(id: string): Promise<MastodonAccount[]> {
     // This endpoint returns all members when limit is omitted. Its internal
     // relationship cursor is not exposed, so a fixed limit hides members.

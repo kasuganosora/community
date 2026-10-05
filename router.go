@@ -323,7 +323,8 @@ func SetRouter(app gin.IRouter) {
 		GET("/lists", list.GetMyLists).
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
-		GET("/lists/:id/followers", list.GetListFollowers)
+		GET("/lists/:id/followers", list.GetListFollowers).
+		GET("/accounts/:id/lists", list.ListsContainingAccount)
 
 	// 状态（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
@@ -609,7 +610,8 @@ func SetRouter(app gin.IRouter) {
 		GET("/lists", list.GetMyLists).
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
-		GET("/lists/:id/followers", list.GetListFollowers)
+		GET("/lists/:id/followers", list.GetListFollowers).
+		GET("/accounts/:id/lists", list.ListsContainingAccount)
 
 	// 状态（写入）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).

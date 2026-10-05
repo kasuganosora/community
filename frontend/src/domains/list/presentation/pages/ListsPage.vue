@@ -62,6 +62,7 @@ onMounted(load)
       <button type="submit" class="btn btn--primary btn--sm" :disabled="creating || !newTitle.trim()">创建</button>
     </form>
     <p v-if="createError" class="lists-error" role="alert">{{ createError }}</p>
+    <p v-else class="lists-note">点开列表查看成员的帖子。管理成员可以把正在关注的人加进去，他们已经发过的公开帖也会出现。</p>
 
     <div v-if="loading" class="page-loading"><t-loading /></div>
 
@@ -79,12 +80,14 @@ onMounted(load)
     </div>
 
     <ul v-else class="lists-list">
-      <li v-for="l in lists" :key="l.id">
+      <li v-for="l in lists" :key="l.id" class="lists-row">
         <router-link :to="`/lists/${l.id}`" class="lists-item">
           <t-icon name="view-list" :size="20" aria-hidden="true" />
           <span class="lists-item__title">{{ l.title }}</span>
+          <span class="lists-item__hint">时间线</span>
           <t-icon name="chevron-right" :size="18" aria-hidden="true" />
         </router-link>
+        <router-link :to="{ path: `/lists/${l.id}`, query: { manage: '1' } }" class="btn btn--secondary btn--sm">管理成员</router-link>
       </li>
     </ul>
   </div>
@@ -125,14 +128,31 @@ onMounted(load)
   padding: 0;
 }
 
+.lists-note {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+  line-height: var(--leading-footnote);
+}
+
+.lists-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-3);
+  border-bottom: var(--hairline, 1px) solid var(--color-separator, var(--border-color));
+}
+
 .lists-item {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
   padding: var(--space-3) var(--space-4);
   color: inherit;
   text-decoration: none;
-  border-bottom: var(--hairline, 1px) solid var(--color-separator, var(--border-color));
 }
 
 .lists-item__title {
@@ -142,5 +162,10 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lists-item__hint {
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
 }
 </style>

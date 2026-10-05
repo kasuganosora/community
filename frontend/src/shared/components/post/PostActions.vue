@@ -22,23 +22,60 @@ const replyCount = computed(() => props.status.replies_count > 0 ? formatCount(p
 const reblogCount = computed(() => props.status.reblogs_count > 0 ? formatCount(props.status.reblogs_count) : '')
 const favCount = computed(() => props.status.favourites_count > 0 ? formatCount(props.status.favourites_count) : '')
 
+function shareUrl(status: MastodonStatus): string {
+  const raw = status.url || status.uri || ''
+  try {
+    if (raw) return new URL(raw, window.location.origin).href
+  } catch {
+    // Fall through to the local permalink.
+  }
+  const name = status.account?.acct || status.account?.username || 'user'
+  return new URL(`/@${name}/${status.id}`, window.location.origin).href
+}
+
+function copyText(text: string): boolean {
+  const el = document.createElement('textarea')
+  el.value = text
+  el.setAttribute('readonly', '')
+  el.style.position = 'fixed'
+  el.style.top = '0'
+  el.style.left = '0'
+  el.style.opacity = '0'
+  document.body.appendChild(el)
+  el.focus()
+  el.select()
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+  el.remove()
+  return ok
+}
+
 async function handleShare() {
-  const url = props.status.url || props.status.uri || window.location.href
-  if (navigator.share) {
+  const url = shareUrl(props.status)
+  // Desktop browsers often expose share() but reject it outside a top-level
+  // mobile sheet. Copy the link there instead of showing a dead error.
+  const touch = window.matchMedia('(pointer: coarse)').matches
+  if (touch && typeof navigator.share === 'function') {
     try {
       await navigator.share({ url })
+      return
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        MessagePlugin.error('分享失败')
-      }
+      if (err instanceof DOMException && err.name === 'AbortError') return
     }
-  } else {
-    try {
-      await navigator.clipboard.writeText(url)
-      MessagePlugin.success('已复制链接')
-    } catch {
-      MessagePlugin.error('复制失败，请手动复制')
-    }
+  }
+  if (copyText(url)) {
+    MessagePlugin.success('已复制链接')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    MessagePlugin.success('已复制链接')
+  } catch {
+    MessagePlugin.error('分享失败')
   }
 }
 </script>

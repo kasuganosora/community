@@ -23,6 +23,11 @@ describe('original attachment access', () => {
     expect(wrapper.findAll('a')).toHaveLength(5)
     expect(wrapper.findAll('a')[4]!.attributes('href')).toBe('https://remote.test/full4.png')
   })
+  it('loads uploaded files from the current site instead of the configured host', () => {
+    const wrapper = mount(PostMedia, { props: { attachments: [file({ type: 'image', url: 'http://127.0.0.1:8080/media/9/photo.png', preview_url: 'http://127.0.0.1:8080/media/9/thumbnail/photo.jpg' })] } })
+    expect(wrapper.get('img').attributes('src')).toBe('/media/9/thumbnail/photo.jpg')
+    expect(wrapper.get('a').attributes('href')).toBe('/media/9/photo.png')
+  })
   it('never creates executable, data or credential-bearing file links', () => {
     const wrapper = mount(PostMedia, { props: { attachments: ['javascript:alert(1)', 'data:text/html,hello', 'https://name:password@remote.test/file', ''].map((url, i) => file({ id: String(i), url })) } })
     expect(wrapper.find('a').exists()).toBe(false)
