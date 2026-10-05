@@ -103,25 +103,31 @@ func GetCaptchaProviders(c *gin.Context) {
 		{
 			"id":          "recaptcha",                        //nolint:goconst
 			"name":        "Google reCAPTCHA",                 //nolint:goconst
-			"description": "Google reCAPTCHA v2/v3",           //nolint:goconst
+			"description": "专业第三方，防护更强。",
 			"website":     "https://www.google.com/recaptcha", //nolint:goconst
 		},
 		{
 			"id":          "cloudflare", //nolint:goconst
 			"name":        "Cloudflare Turnstile",
-			"description": "Cloudflare Turnstile - Privacy-preserving CAPTCHA alternative",
+			"description": "专业第三方，防护更强。",
 			"website":     "https://www.cloudflare.com/products/turnstile/",
 		},
 		{
 			"id":          "hcaptcha",
 			"name":        "hCaptcha",
-			"description": "hCaptcha - Privacy-focused CAPTCHA",
+			"description": "专业第三方，防护更强。",
 			"website":     "https://www.hcaptcha.com/",
 		},
 		{
+			"id":          "local",
+			"name":        "本站验证码",
+			"description": "不接第三方时的本地方案。能拦住大部分低技术机器人，挡不住专门的识别。",
+			"website":     "",
+		},
+		{
 			"id":          "none", //nolint:goconst
-			"name":        "Disabled",
-			"description": "No CAPTCHA verification",
+			"name":        "不使用",
+			"description": "不做验证码验证。",
 			"website":     "",
 		},
 	}

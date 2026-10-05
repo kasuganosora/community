@@ -8,7 +8,6 @@ import { conversationImage, conversationMediaLabel, conversationPreview, convers
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { isInteractiveClick } from '@/shared/utils/dom'
-import { DIRECT_SCOPE } from '@/domains/post/domain/compose'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
@@ -89,8 +88,6 @@ onMounted(async () => {
       <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ conversations.filter(c => c.unread).length }} 个未读会话</p>
     </div>
 
-    <p class="messages-scope">{{ DIRECT_SCOPE }}</p>
-
     <!-- Messages are direct-visibility statuses (Mastodon "private mentions"). -->
     <PostComposer initial-visibility="direct" placeholder="@用户名 写一条私信…" @posted="onPosted" />
 
@@ -138,7 +135,7 @@ onMounted(async () => {
           <p class="conversation__preview">
             <img v-if="conversationImage(c)" class="conversation__thumb" :src="conversationImage(c)!" alt="" />
             <span v-if="conversationMediaLabel(c)" class="conversation__media">{{ conversationMediaLabel(c) }}</span>
-            {{ conversationPreview(c) || (conversationMediaLabel(c) ? '' : '（没有可显示的消息）') }}
+            <span class="conversation__excerpt">{{ conversationPreview(c) || (conversationMediaLabel(c) ? '' : '（没有可显示的消息）') }}</span>
           </p>
           <p class="conversation__scope">仅提及的人可见</p>
         </div>
@@ -161,16 +158,11 @@ onMounted(async () => {
   min-height: 100dvh;
 }
 
-.messages-unread,
-.messages-scope {
+.messages-unread {
   margin: 0;
   padding: 0 var(--gutter, var(--space-4)) var(--space-2);
-  color: var(--color-label-secondary);
-  font-size: var(--text-footnote);
-}
-
-.messages-unread {
   color: var(--color-accent-text);
+  font-size: var(--text-footnote);
   font-weight: var(--weight-semibold);
 }
 
@@ -243,9 +235,12 @@ onMounted(async () => {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .conversation__title {
+  flex: 1;
+  min-width: 0;
   font-weight: var(--weight-semibold, 600);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -274,6 +269,13 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.conversation__excerpt {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

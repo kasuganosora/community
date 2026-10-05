@@ -12,9 +12,10 @@ import (
 )
 
 type AuthRequest struct {
-	Username string `form:"username"`
-	Email    string `form:"email"`
-	Password string `binding:"required" form:"password"`
+	Username string `form:"username"            json:"username"`
+	Email    string `form:"email"               json:"email"`
+	Password string `binding:"required"         form:"password"            json:"password"`
+	Captcha  string `form:"grecaptcha[response]" json:"captcha_response"`
 }
 
 func Login(c *gin.Context) {
@@ -29,6 +30,14 @@ func Login(c *gin.Context) {
 	if req.Username == "" && req.Email == "" {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "username or email is required"})
 
+		return
+	}
+
+	token := req.Captcha
+	if token == "" {
+		token = c.PostForm("grecaptcha[response]")
+	}
+	if !requireCaptcha(c, token) {
 		return
 	}
 

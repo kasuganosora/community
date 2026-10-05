@@ -89,6 +89,9 @@ func SetRouter(app gin.IRouter) {
 	// Captcha 配置
 	v1ApiGroup.GET("/captcha/config", common.GetCaptchaConfig)
 	v1ApiGroup.GET("/captcha/providers", common.GetCaptchaProviders)
+	v1ApiGroup.POST("/captcha/local/start", common.LocalCaptchaStart)
+	v1ApiGroup.GET("/captcha/local/:id/frame", common.LocalCaptchaFrame)
+	v1ApiGroup.POST("/captcha/local/:id/verify", common.LocalCaptchaVerify)
 
 	// OAuth 端点（Mastodon 授权码 + Misskey OAuth / IndieAuth 的 code、state、iss）
 	oauthGroup := app.Group("/oauth")

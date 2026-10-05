@@ -13,9 +13,9 @@ function goHome() {
   <div class="not-found-page">
     <div class="not-found__content">
       <h1 class="not-found__code">404</h1>
-      <p class="not-found__text">This page could not be found.</p>
+      <p class="not-found__text">这个页面不存在。</p>
       <button class="btn btn--primary" @click="goHome">
-        Back to Home
+        回到首页
       </button>
     </div>
   </div>

@@ -93,6 +93,7 @@ onMounted(load)
 <style scoped>
 .lists-page {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .lists-create {
@@ -136,6 +137,10 @@ onMounted(load)
 
 .lists-item__title {
   flex: 1;
+  min-width: 0;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

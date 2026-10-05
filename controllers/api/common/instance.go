@@ -115,7 +115,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Configuration.Polls.MinExpiration = systemsettings.GetInt(systemsettings.KeyPollMinExpiration, nil)
 	resp.Configuration.Polls.MaxExpiration = systemsettings.GetInt(systemsettings.KeyPollMaxExpiration, nil)
 	resp.Configuration.Translation.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, nil)
-	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, true)
+	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
 	resp.Registrations.InviteRequired = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)
 	resp.Registrations.Message = systemsettings.GetString(systemsettings.KeyRegistrationMessage, "")

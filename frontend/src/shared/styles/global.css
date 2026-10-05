@@ -13,6 +13,10 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  /* TDesign paints a grey ripple from this variable, and its variant rules
+     beat a normal override. Press feedback is our own scale, not that sweep. */
+  --ripple-color: transparent !important;
 }
 
 html {
@@ -24,6 +28,13 @@ html {
   -webkit-tap-highlight-color: transparent;
   background-color: var(--color-bg);
   scrollbar-gutter: stable;
+  /* An app shell, not a document: don't let the browser steal the top of the timeline. */
+  overscroll-behavior: none;
+}
+
+body,
+#app {
+  overscroll-behavior: none;
 }
 
 body {
@@ -141,6 +152,19 @@ textarea,
 select {
   font: inherit;
   color: inherit;
+}
+
+/* iOS zooms the page when a focused field is under 16px, and it does not zoom back.
+   Component rules use `font: inherit` (15px body) and load after this file, so the
+   minimum has to win the cascade. The composer field sets a larger size with
+   !important and a tighter selector, so it stays 20px. File and checkbox controls
+   do not open the text keyboard. */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='button']):not([type='submit']):not([type='file']):not([type='hidden']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 textarea {

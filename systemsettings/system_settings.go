@@ -48,7 +48,7 @@ const (
 	KeyRecaptchaEnabled             = "config.recaptcha.enabled"                        // 是否启用recaptcha (deprecated, use config.captcha.enabled)
 
 	// 新的通用验证码配置.
-	KeyCaptchaProvider              = "config.captcha.provider"                 // 验证码供应商: recaptcha, cloudflare, hcaptcha, none
+	KeyCaptchaProvider              = "config.captcha.provider"                 // 验证码供应商: recaptcha, cloudflare, hcaptcha, local, none
 	KeyCaptchaSiteKey               = "config.captcha.site_key"                 // 验证码站点密钥
 	KeyCaptchaSecretKey             = "config.captcha.secret_key"               //nolint:gosec // G101: config key name, not a credential
 	KeyCaptchaEnabled               = "config.captcha.enabled"                  // 是否启用验证码

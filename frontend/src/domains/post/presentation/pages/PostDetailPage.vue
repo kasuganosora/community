@@ -162,7 +162,7 @@ function openProfile() {
             <UserAvatar :account="mainStatus.account" :size="48" />
           </button>
           <div class="detail-main__user">
-            <div class="detail-main__name"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></div>
+            <div class="detail-main__name" :title="mainStatus.account.display_name || mainStatus.account.username"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></div>
             <div class="detail-main__username">@{{ mainStatus.account.acct }}</div>
           </div>
         </div>
@@ -176,7 +176,7 @@ function openProfile() {
             <span aria-hidden="true"> · </span>
           </span>
           <time :datetime="mainStatus.created_at">
-            {{ new Date(mainStatus.created_at).toLocaleString() }}
+            {{ new Date(mainStatus.created_at).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
           </time>
           <span v-if="mainStatus.edited_at"> · 已编辑</span>
         </div>
@@ -254,6 +254,13 @@ function openProfile() {
   letter-spacing: var(--tracking-headline);
   font-weight: var(--weight-semibold);
   color: var(--color-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-main__name :deep(span) {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

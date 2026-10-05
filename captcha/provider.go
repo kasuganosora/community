@@ -42,6 +42,9 @@ const (
 	// ProviderHCaptcha hCaptcha.
 	ProviderHCaptcha ProviderType = "hcaptcha"
 
+	// ProviderLocal is the built-in animated challenge, used when a third party is unavailable.
+	ProviderLocal ProviderType = "local"
+
 	// ProviderNone 不使用验证码.
 	ProviderNone ProviderType = "none"
 )
@@ -60,6 +63,8 @@ func ParseProviderType(s string) (ProviderType, error) {
 		return ProviderCloudflare, nil
 	case "hcaptcha": //nolint:goconst
 		return ProviderHCaptcha, nil
+	case "local", "builtin":
+		return ProviderLocal, nil
 	case "none", "": //nolint:goconst
 		return ProviderNone, nil
 	default:

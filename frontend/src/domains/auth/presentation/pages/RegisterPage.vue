@@ -2,32 +2,63 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '../../infrastructure/authApi'
+import { captchaApi } from '../../infrastructure/captchaApi'
 import { instanceApi, DEFAULT_RULES, type InstanceRule } from '@/domains/instance/infrastructure/instanceApi'
+import CaptchaField from '../components/CaptchaField.vue'
 
 const router = useRouter()
 const route = useRoute()
 
-const step = ref<'rules' | 'form'>('rules')
+const step = ref<'rules' | 'form' | 'closed'>('rules')
 
 // Server rules come from /api/v1/instance/rules (they were hard-coded);
 // the defaults are only shown when the admin has not configured any.
 const rules = ref<InstanceRule[]>(DEFAULT_RULES)
 const serverDomain = ref(window.location.host)
+const registrationMessage = ref('')
+const inviteRequired = ref(false)
+const approvalRequired = ref(false)
+const captcha = reactive({ required: false, provider: '', siteKey: '' })
+const captchaToken = ref('')
+const captchaField = ref<{ reset: () => void; verify: () => Promise<string> } | null>(null)
+const error = ref<string | null>(null)
+
 onMounted(async () => {
-  const [rulesResult, instanceResult] = await Promise.allSettled([
+  const [rulesResult, instanceResult, captchaResult] = await Promise.allSettled([
     instanceApi.getRules(),
     instanceApi.getInstance(),
+    captchaApi.getConfig(),
   ])
   if (rulesResult.status === 'fulfilled' && rulesResult.value.length) {
     rules.value = rulesResult.value
   }
   if (instanceResult.status === 'fulfilled') {
-    const domain = instanceResult.value.domain || instanceResult.value.uri
+    const info = instanceResult.value
+    const domain = info.domain || info.uri
     if (domain) {
       try {
         serverDomain.value = new URL(domain.includes('://') ? domain : `https://${domain}`).host
       } catch {
         // Keep the current host when instance metadata is malformed.
+      }
+    }
+    const registrations = info.registrations
+    if (registrations?.enabled === false) {
+      registrationMessage.value = registrations.message?.trim() || ''
+      step.value = 'closed'
+    }
+    inviteRequired.value = registrations?.invite_required === true
+    approvalRequired.value = registrations?.approval_required === true
+  }
+  if (captchaResult.status === 'fulfilled') {
+    const cfg = captchaResult.value
+    if (cfg.enabled && cfg.provider !== 'none') {
+      if (cfg.provider !== 'local' && !cfg.site_key) {
+        error.value = '验证码没有配好，暂时不能注册。'
+      } else {
+        captcha.required = true
+        captcha.provider = cfg.provider
+        captcha.siteKey = cfg.site_key || 'local'
       }
     }
   }
@@ -43,10 +74,10 @@ const form = reactive({
   email: '',
   password: '',
   passwordConfirm: '',
+  inviteCode: '',
 })
 
 const registering = ref(false)
-const error = ref<string | null>(null)
 
 // Email validation regex
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -69,8 +100,19 @@ const canRegister = computed(() =>
   isValidEmail.value &&
   isStrongPassword.value &&
   passwordMatch.value &&
+  (!inviteRequired.value || form.inviteCode.trim() !== '') &&
+  (!captcha.required || captcha.provider === 'local' || captchaToken.value !== '') &&
+  !error.value?.includes('验证码没有配好') &&
   !registering.value,
 )
+
+function explainRegisterError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : ''
+  if (/暂不开放|not open/i.test(msg)) return '本站暂不开放注册。'
+  if (/验证码|captcha/i.test(msg)) return '验证码没有通过，请再试一次。'
+  if (/invite/i.test(msg)) return '需要有效的邀请码。'
+  return msg || '注册失败，请检查填写内容后重试'
+}
 
 function proceedToForm() {
   if (canContinue.value) {
@@ -83,18 +125,35 @@ async function handleRegister() {
   registering.value = true
   error.value = null
   try {
-    await authApi.register({
+    if (captcha.required && captcha.provider === 'local' && !captchaToken.value) {
+      try {
+        captchaToken.value = await captchaField.value?.verify() ?? ''
+      } catch {
+        return
+      }
+      if (!captchaToken.value) return
+    }
+    const result = await authApi.register({
       username: form.username,
       email: form.email,
       password: form.password,
       passwordConfirm: form.passwordConfirm,
+      inviteCode: form.inviteCode.trim() || undefined,
+      captchaResponse: captchaToken.value || undefined,
     })
-    router.push({
-      name: 'login',
-      query: { registered: '1', username: form.username, ...(typeof route.query.redirect === 'string' ? { redirect: route.query.redirect } : {}) },
-    })
+    const redirect = typeof route.query.redirect === 'string' ? { redirect: route.query.redirect } : {}
+    const query = { username: form.username, ...redirect }
+    if (result.approval_required) {
+      await router.push({ name: 'login', query: { ...query, pending: '1' } })
+    } else if (result.message?.includes('verify email')) {
+      await router.push({ name: 'login', query: { ...query, verify: '1' } })
+    } else {
+      await router.push({ name: 'login', query: { ...query, registered: '1' } })
+    }
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : '注册失败，请检查填写内容后重试'
+    captchaToken.value = ''
+    captchaField.value?.reset()
+    error.value = explainRegisterError(e)
   } finally {
     registering.value = false
   }
@@ -122,6 +181,18 @@ function close() {
           <t-icon name="close" :size="20" />
         </button>
         <h1 class="register-header__title">注册</h1>
+      </div>
+
+      <div v-if="step === 'closed'" class="register-body">
+        <p class="rules-intro">
+          <strong>本站暂不开放注册。</strong>
+        </p>
+        <p v-if="registrationMessage" class="rules-note">{{ registrationMessage }}</p>
+        <div class="register-actions register-actions--center">
+          <t-button theme="primary" shape="round" size="large" @click="router.push({ name: 'login' })">
+            返回登录
+          </t-button>
+        </div>
       </div>
 
       <!-- Step 1: Rules -->
@@ -270,6 +341,26 @@ function close() {
               两次输入的密码不一致
             </div>
           </t-form-item>
+
+          <t-form-item v-if="inviteRequired" label="邀请码">
+            <t-input
+              v-model="form.inviteCode"
+              size="large"
+              placeholder="向邀请你的人索取"
+              autocomplete="off"
+            />
+          </t-form-item>
+
+          <p v-if="approvalRequired" class="rules-note">提交后需要管理员通过，通过之前不能登录。</p>
+
+          <CaptchaField
+            v-if="captcha.required"
+            ref="captchaField"
+            :provider="captcha.provider"
+            :site-key="captcha.siteKey"
+            @token="captchaToken = $event"
+            @fail="error = $event"
+          />
 
           <div class="register-actions register-actions--center">
             <t-button

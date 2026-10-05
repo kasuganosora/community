@@ -179,6 +179,8 @@ func createProvider(cfg *Config) (Provider, error) {
 		return providers.NewCloudflareProvider(cfg.SiteKey, cfg.SecretKey), nil
 	case ProviderHCaptcha:
 		return providers.NewHCaptchaProvider(cfg.SiteKey, cfg.SecretKey), nil
+	case ProviderLocal:
+		return providers.NewLocalProvider(), nil
 	case ProviderNone:
 		return nil, nil //nolint:nilnil // no provider when disabled
 	default:

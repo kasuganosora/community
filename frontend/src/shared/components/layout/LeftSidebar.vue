@@ -131,6 +131,10 @@ async function handleLogout() {
   margin: var(--space-1) 0 var(--space-3) var(--space-1);
   border-radius: var(--radius-full);
   color: var(--color-label);
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   transition:
     background-color var(--duration-fast) var(--ease-out),
     transform var(--duration-release) var(--ease-spring);
@@ -163,6 +167,10 @@ async function handleLogout() {
   letter-spacing: var(--tracking-headline);
   font-weight: var(--weight-regular);
   text-align: left;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   transition:
     background-color var(--duration-fast) var(--ease-out),
     transform var(--duration-release) var(--ease-spring);

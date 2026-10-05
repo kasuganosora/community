@@ -254,6 +254,7 @@ onMounted(load)
 <style scoped>
 .list-timeline-page {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .list-timeline-page__title {

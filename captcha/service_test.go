@@ -156,6 +156,8 @@ func TestParseProviderType(t *testing.T) {
 		{"cloudflare", "cloudflare", ProviderCloudflare, false}, //nolint:goconst
 		{"turnstile alias", "turnstile", ProviderCloudflare, false},
 		{"hcaptcha", "hcaptcha", ProviderHCaptcha, false}, //nolint:goconst
+		{"local", "local", ProviderLocal, false},
+		{"builtin alias", "builtin", ProviderLocal, false},
 		{"none", "none", ProviderNone, false},
 		{"empty", "", ProviderNone, false},
 		{"unknown", "unknown", "", true},
@@ -197,6 +199,7 @@ func TestProviderType_String(t *testing.T) {
 		{ProviderRecaptcha, "recaptcha"},
 		{ProviderCloudflare, "cloudflare"},
 		{ProviderHCaptcha, "hcaptcha"},
+		{ProviderLocal, "local"},
 		{ProviderNone, "none"},
 	}
 

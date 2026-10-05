@@ -13,7 +13,12 @@ export interface InstanceInfo {
   short_description?: string
   stats?: { user_count?: number; status_count?: number; domain_count?: number }
   usage?: { users?: { active_month?: number } }
-  registrations?: { enabled?: boolean; approval_required?: boolean; message?: string }
+  registrations?: {
+    enabled?: boolean
+    approval_required?: boolean
+    invite_required?: boolean
+    message?: string
+  }
   contact?: { email?: string }
 }
 

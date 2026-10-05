@@ -115,6 +115,9 @@ function go(to: string) {
   color: var(--color-label-vibrant);
   transition: color var(--duration-fast) var(--ease-out);
   -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .tabbar__item > :first-child {

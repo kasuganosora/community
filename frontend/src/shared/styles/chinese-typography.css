@@ -132,9 +132,11 @@
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 
-.chinese-link:hover {
-  border-bottom-color: var(--accent-blue);
-  text-decoration: none;
+@media (hover: hover) and (pointer: fine) {
+  .chinese-link:hover {
+    border-bottom-color: var(--accent-blue);
+    text-decoration: none;
+  }
 }
 
 /* Small text for Chinese (captions, notes) */

@@ -51,5 +51,6 @@ onMounted(() => feed.refresh())
 <style scoped>
 .tag-page {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 </style>

@@ -49,10 +49,15 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 检查当前是否开放注册
+	// 检查当前是否开放注册。缺省与 /api/v1/instance 一致：没写配置就视为关闭。
 	if !systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "registration is not open"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "本站暂不开放注册"})
 
+		return
+	}
+
+	// 开放注册之后先过人机验证，避免用「用户名已存在」探号。
+	if !requireCaptcha(c, captchaToken(c, req.RecaptchaResponse)) {
 		return
 	}
 
@@ -94,16 +99,6 @@ func Register(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 
 		return
-	}
-
-	// 如果开启了验证码, 那么就验证验证码
-	if captcha.IsCaptchaEnabled() {
-		err = checkCaptcha(c, req.RecaptchaResponse)
-		if err != nil {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
-
-			return
-		}
 	}
 
 	// 创建用户和账号
@@ -151,7 +146,12 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "register success", "account": acc}) //nolint:goconst
+	payload := gin.H{"message": "register success", "account": acc} //nolint:goconst
+	if user.Status == models.UserStatusUnapproved {
+		payload["approval_required"] = true
+	}
+
+	c.JSON(http.StatusOK, payload)
 }
 
 func sendWelcomeEmail(c *gin.Context, req RegisterRequest, user *models.User) (err error) {
@@ -219,7 +219,7 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 		EmailHash: models.GetEmailHash(req.Email),
 	}
 
-	if systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, true) {
+	if systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false) {
 		user.Status = models.UserStatusUnapproved
 	} else {
 		user.Status = models.UserStatusNormal
@@ -298,6 +298,36 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 	}
 
 	return user, account, err
+}
+
+// requireCaptcha consumes a captcha token when the site has captcha enabled.
+// It writes the response and returns false when the caller should stop.
+func requireCaptcha(c *gin.Context, token string) bool {
+	if !captcha.IsCaptchaEnabled() {
+		return true
+	}
+	if err := checkCaptcha(c, token); err != nil {
+		log.ErrorV(err)
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "验证码没有通过，请再试一次"})
+		return false
+	}
+	return true
+}
+
+// captchaToken reads whichever field the widget posted. The bound form name is
+// Mastodon's grecaptcha[response]; hCaptcha and Turnstile use their own.
+func captchaToken(c *gin.Context, bound string) string {
+	if token := strings.TrimSpace(bound); token != "" {
+		return token
+	}
+
+	for _, key := range []string{"h-captcha-response", "cf-turnstile-response", "captcha_response"} {
+		if token := strings.TrimSpace(c.PostForm(key)); token != "" {
+			return token
+		}
+	}
+
+	return ""
 }
 
 // checkCaptcha 检查验证码.

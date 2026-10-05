@@ -75,10 +75,6 @@ function goLogin() {
   router.push({ name: 'login', query: authQuery() }).catch(() => {})
 }
 
-function goRegister() {
-  router.push({ name: 'register', query: authQuery() }).catch(() => {})
-}
-
 function stripHtml(html: string | null | undefined): string {
   if (!html) return ''
   return stripHtmlUtil(html)
@@ -108,9 +104,9 @@ function stripHtml(html: string | null | undefined): string {
               block
               size="large"
               shape="round"
-              @click="goRegister"
+              @click="goLogin"
             >
-              在本站注册
+              登录
             </t-button>
             <t-button
               theme="default"
@@ -124,17 +120,6 @@ function stripHtml(html: string | null | undefined): string {
               rel="noopener"
             >
               看看其他服务器
-            </t-button>
-            <t-button
-              theme="default"
-              block
-              size="large"
-              shape="round"
-              variant="text"
-              class="btn-login"
-              @click="goLogin"
-            >
-              登录
             </t-button>
           </div>
 
@@ -333,10 +318,6 @@ function stripHtml(html: string | null | undefined): string {
   background: var(--color-fill) !important;
   border-color: transparent !important;
   color: var(--color-label-secondary) !important;
-}
-
-.btn-login {
-  color: var(--color-accent-text) !important;
 }
 
 /* Stats: a two-cell inset group. */

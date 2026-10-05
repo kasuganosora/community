@@ -208,9 +208,9 @@ async function handleShare() {
   cursor: not-allowed;
 }
 
-/* State change: the new glyph settles in with a critically damped spring
-   (no overshoot); only turning a state ON animates, and the old glyph
-   leaves instantly so the two never overlap. */
+/* State change on a control people hit many times a day: a short,
+   interruptible settle, only when turning a state on. The old glyph leaves
+   instantly so the two never overlap. */
 .glyph-leave-active {
   position: absolute;
   opacity: 0;
@@ -219,12 +219,18 @@ async function handleShare() {
 .action-btn--active-pink .glyph-enter-active,
 .action-btn--active-green .glyph-enter-active,
 .action-btn--active-blue .glyph-enter-active {
-  animation: glyph-in 300ms var(--ease-spring);
+  transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out);
 }
 
-@keyframes glyph-in {
-  from { transform: scale(0.6); opacity: 0.4; }
-  to { transform: scale(1); opacity: 1; }
+.action-btn--active-pink .glyph-enter-from,
+.action-btn--active-green .glyph-enter-from,
+.action-btn--active-blue .glyph-enter-from {
+  transform: scale(0.92);
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glyph-enter-from { transform: none; opacity: 1; }
 }
 
 .action-count {

@@ -181,8 +181,8 @@ func TestGetCaptchaProviders(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &providers)
 	require.NoError(t, err)
 
-	// Should have 4 providers: recaptcha, cloudflare, hcaptcha, none
-	assert.Len(t, providers, 4)
+	// Should have the external providers, the built-in fallback, and none.
+	assert.Len(t, providers, 5)
 
 	// Check each expected provider is present
 	ids := make(map[string]bool)
@@ -193,6 +193,7 @@ func TestGetCaptchaProviders(t *testing.T) {
 	assert.True(t, ids["recaptcha"], "recaptcha provider should be present")
 	assert.True(t, ids["cloudflare"], "cloudflare provider should be present")
 	assert.True(t, ids["hcaptcha"], "hcaptcha provider should be present")
+	assert.True(t, ids["local"], "local provider should be present")
 	assert.True(t, ids["none"], "none provider should be present")
 
 	// Verify structure of each provider
@@ -629,7 +630,7 @@ func TestGetCaptchaProviders_IsIdempotent(t *testing.T) {
 
 		err := json.Unmarshal(w.Body.Bytes(), &providers)
 		require.NoError(t, err)
-		assert.Len(t, providers, 4)
+		assert.Len(t, providers, 5)
 	}
 }
 

@@ -2,10 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount, type VueWrapper } from '@vue/test-utils'
 import RegisterPage from '../RegisterPage.vue'
 import { DEFAULT_RULES, instanceApi, type InstanceInfo } from '@/domains/instance/infrastructure/instanceApi'
+import { captchaApi } from '../../../infrastructure/captchaApi'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
   useRoute: () => ({ query: {} }),
+}))
+
+vi.mock('../../../infrastructure/captchaApi', () => ({
+  captchaApi: { getConfig: vi.fn(), startLocal: vi.fn(), fetchLocalFrame: vi.fn(), verifyLocal: vi.fn() },
+  loadCaptchaScript: vi.fn(),
+  solveCaptchaPow: vi.fn(),
 }))
 
 const stubs = {
@@ -21,6 +28,7 @@ let wrapper: VueWrapper | undefined
 beforeEach(() => {
   vi.spyOn(instanceApi, 'getRules').mockResolvedValue([{ id: 'rule', text: 'Instance-specific rule' }])
   vi.spyOn(instanceApi, 'getInstance').mockResolvedValue({ domain: 'social.example' })
+  vi.mocked(captchaApi.getConfig).mockResolvedValue({ enabled: false, provider: 'none', site_key: '' })
 })
 
 afterEach(() => {
@@ -74,5 +82,28 @@ describe('registration instance identity', () => {
     }
     await wrapper.get('.btn-continue').trigger('click')
     expect(wrapper.get('.input-suffix').text()).toBe('@independent.example:9443')
+  })
+
+  it('shows the closed notice and does not open the form when registration is disabled', async () => {
+    vi.mocked(instanceApi.getInstance).mockResolvedValue({
+      domain: 'social.example',
+      registrations: { enabled: false, message: '暂停注册' },
+    })
+    wrapper = shallowMount(RegisterPage, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('本站暂不开放注册')
+    expect(wrapper.text()).toContain('暂停注册')
+    expect(wrapper.find('.btn-continue').exists()).toBe(false)
+  })
+
+  it('keeps submit disabled until a required captcha produces a token', async () => {
+    vi.mocked(captchaApi.getConfig).mockResolvedValue({
+      enabled: true,
+      provider: 'cloudflare',
+      site_key: 'site-key',
+    })
+    const page = await openForm()
+    const submit = page.get('button[type="submit"], .btn-continue')
+    expect(submit.attributes('disabled')).toBeDefined()
   })
 })

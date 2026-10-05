@@ -17,14 +17,11 @@
    motion must never be in the way).
    -------------------------------------------------------------------------- */
 .page-enter-active {
-  transition:
-    opacity 180ms var(--ease-out),
-    transform 260ms var(--ease-spring);
+  transition: opacity 160ms var(--ease-out);
 }
 
 .page-enter-from {
   opacity: 0;
-  transform: translate3d(0, 6px, 0);
 }
 
 .page-leave-active {
@@ -46,7 +43,7 @@
 
   /* Movement becomes a plain cross-fade. The indicator still jumps to the
      selected tab — it just doesn't travel. */
-  .page-enter-from { transform: none; }
+  .page-enter-from { opacity: 0; }
 
   .tab-bar__indicator--ready { transition: none; }
 

@@ -117,6 +117,7 @@ onMounted(load)
 <style scoped>
 .follow-list-page {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .follow-list-page__owner {

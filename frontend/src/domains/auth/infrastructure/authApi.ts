@@ -4,11 +4,15 @@ import type { AuthCredentials, RegisterCredentials, LoginResponse } from '../dom
 
 export const authApi = {
   async login(credentials: AuthCredentials): Promise<LoginResponse> {
-    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login', credentials)
+    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login', {
+      username: credentials.username,
+      password: credentials.password,
+      captcha_response: credentials.captchaResponse || undefined,
+    })
     return data
   },
 
-  async register(credentials: RegisterCredentials): Promise<{ message: string }> {
+  async register(credentials: RegisterCredentials): Promise<{ message: string; approval_required?: boolean }> {
     // The backend binds the Mastodon web-form field names (see
     // RegisterRequest in controllers/api/account/register.go); a plain JSON
     // {username,email,password} body always failed with 422 because
@@ -19,7 +23,9 @@ export const authApi = {
     form.set('user[email]', credentials.email)
     form.set('user[password]', credentials.password)
     form.set('user[password_confirmation]', credentials.passwordConfirm ?? credentials.password)
-    const { data } = await client.post<{ message: string }>('/api/v1/accounts/register', form, {
+    if (credentials.inviteCode) form.set('user[invite_code]', credentials.inviteCode)
+    if (credentials.captchaResponse) form.set('grecaptcha[response]', credentials.captchaResponse)
+    const { data } = await client.post<{ message: string; approval_required?: boolean }>('/api/v1/accounts/register', form, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
     return data

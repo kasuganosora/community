@@ -99,7 +99,10 @@ onMounted(() => store.load())
 .emoji-picker__cats button[aria-selected='true'] { background: var(--color-accent-soft); color: var(--color-accent-text); }
 .emoji-picker__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); gap: var(--space-1); max-height: 15rem; overflow: auto; margin-top: var(--space-2); }
 .emoji-picker__grid button { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-2); min-width: 0; border-radius: var(--radius-sm); }
-.emoji-picker__grid button:hover, .emoji-picker__grid button:focus-visible { background: var(--color-fill); }
+.emoji-picker__grid button:focus-visible { background: var(--color-fill); }
+@media (hover: hover) and (pointer: fine) {
+  .emoji-picker__grid button:hover { background: var(--color-fill); }
+}
 .emoji-picker__grid img { width: 2rem; height: 2rem; object-fit: contain; }
 .emoji-picker__grid small { max-width: 100%; overflow-wrap: anywhere; }
 .emoji-picker__grid button:disabled { opacity: .6; }

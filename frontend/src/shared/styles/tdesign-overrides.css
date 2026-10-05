@@ -120,10 +120,12 @@ html .t-button {
     transform var(--duration-release) var(--ease-spring);
   -webkit-user-select: none;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  /* TDesign's material ripple reads this; transparent = no ripple. Press
-     feedback is the scale below instead. */
-  --ripple-color: rgba(0, 0, 0, 0);
+  /* TDesign's own rules (primary, outline, text) set a grey or brand ripple
+     with higher specificity than a plain custom property. The sweep is the
+     grey flash on tap; press feedback is the scale below. */
+  --ripple-color: transparent !important;
 }
 
 html .t-button:not(.t-is-disabled):not(:disabled):active {
@@ -191,9 +193,7 @@ html .t-input {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--color-label);
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 html .t-input--focused,
@@ -212,6 +212,13 @@ html .t-input__wrap .t-is-error {
 html .t-input__inner {
   color: var(--color-label);
   font-size: var(--text-body);
+}
+
+@media (pointer: coarse) {
+  html .t-input__inner,
+  html .t-textarea__inner {
+    font-size: 16px;
+  }
 }
 
 html .t-input__inner::placeholder,
@@ -241,18 +248,6 @@ html .t-textarea__inner {
 html .t-textarea__inner:focus {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-soft);
-}
-
-/* iOS zooms into inputs under 16px and never zooms back — keep touch
-   inputs at 1rem (never disable zoom instead). */
-@media (pointer: coarse) {
-  html .t-input__inner,
-  html .t-textarea__inner,
-  input,
-  textarea,
-  select {
-    font-size: max(1rem, 16px);
-  }
 }
 
 /* ---- Form ------------------------------------------------------------------ */

@@ -62,10 +62,27 @@ client.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
+function readApiMessage(data: unknown): string | undefined {
+  if (!data) return undefined
+  if (data instanceof ArrayBuffer) {
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(data)) as { error?: string; message?: string }
+      return parsed.error || parsed.message
+    } catch {
+      return undefined
+    }
+  }
+  if (typeof data === 'object') {
+    const body = data as { error?: string; message?: string }
+    return body.error || body.message
+  }
+  return undefined
+}
+
 // Enhanced error transform
 function transformError(error: AxiosError<ApiErrorData>): Error {
   const status = error.response?.status
-  const apiMessage = error.response?.data?.error || error.response?.data?.message
+  const apiMessage = readApiMessage(error.response?.data)
 
   if (!error.response) {
     // Network error

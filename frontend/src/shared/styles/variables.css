@@ -168,7 +168,7 @@
   --duration-base: 220ms;              /* popovers, small surfaces */
   --duration-sheet: 420ms;             /* sheets (spring settle) */
   --press-scale: 0.97;
-  --press-scale-small: 0.9;            /* icon buttons */
+  --press-scale-small: 0.96;           /* icon buttons; stay in 0.95–0.98 */
 
   /* ---- Z layers ------------------------------------------------------------ */
   --z-sticky: 20;

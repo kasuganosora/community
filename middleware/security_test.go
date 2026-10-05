@@ -292,7 +292,7 @@ func TestSecurityHeadersPublicEmojiEmbeddingBoundary(t *testing.T) {
 			assert.Equal(t, tc.policy, response.Header().Get("Cross-Origin-Resource-Policy"))
 			assert.Equal(t, "same-origin", response.Header().Get("Cross-Origin-Opener-Policy"))
 			assert.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
-			assert.Contains(t, response.Header().Get("Content-Security-Policy"), "img-src 'self' data: https:")
+			assert.Contains(t, response.Header().Get("Content-Security-Policy"), "img-src 'self' data: blob: https:")
 			assert.NotContains(t, response.Header().Get("Content-Security-Policy"), "http:")
 		})
 	}

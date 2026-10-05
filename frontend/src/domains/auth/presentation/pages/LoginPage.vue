@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
 import { passkeySupported } from '@/shared/utils/webauthn'
+import { instanceApi } from '@/domains/instance/infrastructure/instanceApi'
+import { captchaApi } from '../../infrastructure/captchaApi'
+import CaptchaField from '../components/CaptchaField.vue'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
 const router = useRouter()
@@ -20,6 +23,41 @@ const form = reactive<LoginForm>({
   password: '',
 })
 const justRegistered = route.query.registered === '1'
+const pendingApproval = route.query.pending === '1'
+const emailVerify = route.query.verify === '1'
+const registrationOpen = ref<boolean | null>(null)
+const registrationMessage = ref('')
+const captcha = reactive({ required: false, provider: '', siteKey: '' })
+const captchaToken = ref('')
+const captchaField = ref<{ reset: () => void; verify: () => Promise<string> } | null>(null)
+const captchaNote = ref('')
+
+onMounted(async () => {
+  const [instanceResult, captchaResult] = await Promise.allSettled([
+    instanceApi.getInstance(),
+    captchaApi.getConfig(),
+  ])
+  if (instanceResult.status === 'fulfilled') {
+    registrationOpen.value = instanceResult.value.registrations?.enabled !== false
+    registrationMessage.value = instanceResult.value.registrations?.message?.trim() || ''
+  } else {
+    // Don't hide registration when the instance call itself fails; the
+    // register page checks again and the server still refuses a closed site.
+    registrationOpen.value = true
+  }
+  if (captchaResult.status === 'fulfilled') {
+    const cfg = captchaResult.value
+    if (cfg.enabled && cfg.provider !== 'none') {
+      if (cfg.provider !== 'local' && !cfg.site_key) {
+        captchaNote.value = '验证码没有配好，暂时不能登录。'
+      } else {
+        captcha.required = true
+        captcha.provider = cfg.provider
+        captcha.siteKey = cfg.site_key || 'local'
+      }
+    }
+  }
+})
 
 const showPassword = ref(false)
 const passwordIcon = computed(() => (showPassword.value ? 'browse-off' : 'browse'))
@@ -37,6 +75,14 @@ async function loginWithPasskey() {
   }
 }
 
+function goRegister() {
+  const redirect = route.query.redirect
+  router.push({
+    name: 'register',
+    query: typeof redirect === 'string' && redirect ? { redirect } : undefined,
+  }).catch(() => {})
+}
+
 function continueAfterLogin() {
   const target = safeInternalPath(route.query.redirect)
   if (target && isServerAuthReturn(target)) {
@@ -47,15 +93,25 @@ function continueAfterLogin() {
 }
 
 async function handleLogin() {
-  if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
-    return
-  }
+  if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) return
+  if (captchaNote.value) return
+  if (captcha.required && captcha.provider !== 'local' && !captchaToken.value) return
 
   try {
-    await authStore.login(form)
+    if (captcha.required && captcha.provider === 'local' && !captchaToken.value) {
+      try {
+        captchaToken.value = await captchaField.value?.verify() ?? ''
+      } catch {
+        return
+      }
+      if (!captchaToken.value) return
+    }
+    await authStore.login({ ...form, captchaResponse: captchaToken.value || undefined })
     loginAttempts.value = 0
     continueAfterLogin()
   } catch {
+    captchaToken.value = ''
+    captchaField.value?.reset()
     loginAttempts.value++
     // The lock used to be permanent until a full page reload.
     if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) {
@@ -75,6 +131,8 @@ async function handleLogin() {
       <h1 class="login-title">登录社区</h1>
 
       <t-alert v-if="justRegistered && !authStore.error" theme="success" message="注册成功，请登录。" style="margin-bottom: var(--space-4)" />
+      <t-alert v-if="pendingApproval && !authStore.error" theme="info" message="注册已提交，管理员通过后才能登录。" style="margin-bottom: var(--space-4)" />
+      <t-alert v-if="emailVerify && !authStore.error" theme="info" message="验证邮件已发出，请先点邮件里的链接，再登录。" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
 
       <t-form @submit="handleLogin" class="login-form" label-width="0">
@@ -118,6 +176,15 @@ async function handleLogin() {
         <p v-if="loginAttempts >= MAX_LOGIN_ATTEMPTS" class="login-locked">
           尝试次数太多了，请在 30 秒后再试。
         </p>
+        <p v-if="captchaNote" class="login-locked">{{ captchaNote }}</p>
+        <CaptchaField
+          v-if="captcha.required"
+          ref="captchaField"
+          :provider="captcha.provider"
+          :site-key="captcha.siteKey"
+          @token="captchaToken = $event"
+          @fail="captchaNote = $event"
+        />
         <t-form-item>
           <t-button
             theme="primary"
@@ -126,7 +193,7 @@ async function handleLogin() {
             size="large"
             shape="round"
             :loading="authStore.loading"
-            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
+            :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS || !!captchaNote || (captcha.required && captcha.provider !== 'local' && !captchaToken)"
           >
             登录
           </t-button>
@@ -135,6 +202,7 @@ async function handleLogin() {
 
       <t-button
         v-if="canUsePasskey"
+        class="login-passkey"
         variant="outline"
         block
         size="large"
@@ -145,10 +213,21 @@ async function handleLogin() {
         使用通行密钥登录
       </t-button>
 
-      <div class="login-footer">
-        还没有账号？
-        <router-link to="/register" class="login-link">去注册</router-link>
+      <div v-if="!justRegistered && !pendingApproval && registrationOpen === true" class="login-account">
+        <p class="login-account__q">有本站账号就在上面登录。还没有？</p>
+        <t-button
+          variant="outline"
+          block
+          size="large"
+          shape="round"
+          @click="goRegister"
+        >
+          没有，去注册
+        </t-button>
       </div>
+      <p v-else-if="!justRegistered && registrationOpen === false" class="login-account__q login-closed">
+        {{ registrationMessage || '本站暂不开放注册。' }}
+      </p>
     </div>
   </div>
 </template>
@@ -211,17 +290,24 @@ async function handleLogin() {
   font-weight: var(--weight-semibold);
 }
 
-.login-footer {
+.login-passkey {
+  margin-top: var(--space-3);
+}
+
+.login-account {
+  margin-top: var(--space-8);
   text-align: center;
-  margin-top: var(--space-6);
+}
+
+.login-account__q {
+  margin-bottom: var(--space-3);
   color: var(--color-label-secondary);
   font-size: var(--text-subhead);
 }
 
-.login-link {
-  color: var(--color-accent-text);
-  font-weight: var(--weight-medium);
-  margin-left: var(--space-1);
+.login-closed {
+  margin-top: var(--space-8);
+  text-align: center;
 }
 
 .login-locked {
