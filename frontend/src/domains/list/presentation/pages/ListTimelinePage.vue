@@ -295,6 +295,13 @@ onMounted(load)
   font: inherit;
 }
 
+/* The native popup ignores the dark theme and paints light text on white. */
+select.manage-input {
+  color-scheme: light;
+  background: #fff;
+  color: #1c1c1e;
+}
+
 .manage-actions {
   display: flex;
   justify-content: flex-end;

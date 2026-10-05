@@ -8,8 +8,6 @@ import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 
 const props = defineProps<{
   poll: MastodonPoll
-  /** True when the poll belongs to the current user (results are always visible). */
-  own?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,7 +19,7 @@ const voting = ref(false)
 const revealed = ref(false)
 const name = `poll-${props.poll.id}-${Math.random().toString(36).slice(2, 6)}`
 
-const showResults = computed(() => revealed.value || pollShowsResults(props.poll, props.own))
+const showResults = computed(() => revealed.value || pollShowsResults(props.poll))
 const total = computed(() => props.poll.multiple ? (props.poll.voters_count ?? props.poll.votes_count) : props.poll.votes_count)
 
 function toggle(i: number) {

@@ -154,6 +154,15 @@ select {
   color: inherit;
 }
 
+/* A dark page makes the native menu white while the text stays light.
+   Force a light control so every option list stays readable. */
+select,
+select option {
+  color-scheme: light;
+  background-color: #fff;
+  color: #1c1c1e;
+}
+
 /* iOS zooms the page when a focused field is under 16px, and it does not zoom back.
    Component rules use `font: inherit` (15px body) and load after this file, so the
    minimum has to win the cascade. The composer field sets a larger size with

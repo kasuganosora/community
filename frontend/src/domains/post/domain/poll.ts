@@ -6,7 +6,8 @@ export function pollOptionPercent(votes: number | null | undefined, total: numbe
   return Math.round((votes / total) * 100)
 }
 
-/** Results are shown once the viewer voted, the poll ended, or it's their own poll. */
-export function pollShowsResults(poll: Pick<MastodonPoll, 'voted' | 'expired'>, own = false): boolean {
-  return !!poll.voted || !!poll.expired || own
+/** Results replace the ballot once the viewer has voted or the poll has ended.
+ *  The author can still vote; "查看结果" reveals the tally without voting. */
+export function pollShowsResults(poll: Pick<MastodonPoll, 'voted' | 'expired'>): boolean {
+  return !!poll.voted || !!poll.expired
 }

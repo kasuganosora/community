@@ -969,8 +969,8 @@ defineExpose({ focus, reset })
 .composer__poll-duration select {
   min-height: 2rem;
   border: none;
-  background: transparent;
-  color: var(--color-accent-text);
+  background: #fff;
+  color: #1c1c1e;
   font: inherit;
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);

@@ -6,7 +6,6 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MastodonPoll, MastodonStatus } from '@/shared/types/mastodon'
-import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
@@ -18,7 +17,6 @@ const props = defineProps<{
   textClass?: string
 }>()
 
-const authStore = useAuthStore()
 const router = useRouter()
 const cwOpen = ref(false)
 const mediaRevealed = ref(false)
@@ -39,7 +37,6 @@ watch(() => props.status.content, () => { void measure() })
 const hasCw = computed(() => !!props.status.spoiler_text)
 const bodyVisible = computed(() => !hasCw.value || cwOpen.value)
 const poll = computed(() => pollOverride.value ?? props.status.poll)
-const isOwn = computed(() => !!authStore.currentUser && authStore.currentUser.id === props.status.account.id)
 // Media marked sensitive without a CW still needs a click to reveal.
 const mediaHidden = computed(() => props.status.sensitive && !hasCw.value && !mediaRevealed.value)
 const contentId = ref(`status-content-${props.status.id}-${Math.random().toString(36).slice(2, 6)}`)
@@ -112,7 +109,7 @@ onMounted(measure)
     </div>
     <div v-show="bodyVisible" :id="contentId">
       <div ref="textEl" class="post-content__text" :class="{ 'is-clamped': long && !expanded }">
-        <RichText :html="status.content" :emojis="status.emojis" :class="textClass" @click.stop />
+        <RichText :html="status.content" :emojis="status.emojis" :class="textClass" />
       </div>
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? '收起' : '展开全文' }}
@@ -143,7 +140,7 @@ onMounted(measure)
           <small>{{ status.card.provider_name || '链接' }}</small>
         </span>
       </a>
-      <PostPoll v-if="poll" :poll="poll" :own="isOwn" @updated="pollOverride = $event" />
+      <PostPoll v-if="poll" :poll="poll" @updated="pollOverride = $event" />
     </div>
   </div>
 </template>

@@ -8,10 +8,9 @@ describe('poll helpers', () => {
     expect(pollOptionPercent(0, 0)).toBe(0)
     expect(pollOptionPercent(null, 10)).toBe(0)
   })
-  it('shows results after voting, after expiry, or for the author', () => {
+  it('shows results after voting or expiry, but still lets the author vote', () => {
     expect(pollShowsResults({ voted: false, expired: false })).toBe(false)
     expect(pollShowsResults({ voted: true, expired: false })).toBe(true)
     expect(pollShowsResults({ voted: false, expired: true })).toBe(true)
-    expect(pollShowsResults({ voted: false, expired: false }, true)).toBe(true)
   })
 })

@@ -228,12 +228,51 @@ func setupFrontend(app *gin.Engine) {
 				return
 			}
 
+			if file, ok := frontendAsset(frontendDir, path); ok {
+				c.File(file)
+
+				return
+			}
+
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 		})
 		log.Info("Serving frontend from %s", frontendDir)
 	} else {
 		log.Info("Frontend directory not found at %s, skipping static file serving", frontendDir)
 	}
+}
+
+// frontendAsset returns a built file (theme-init.js, icons, …) when the
+// request matches one. SPA routes fall through to index.html. The path is
+// cleaned so a request cannot escape the dist directory.
+func frontendAsset(frontendDir, requestPath string) (string, bool) {
+	rel := strings.TrimPrefix(requestPath, "/")
+	if rel == "" || strings.Contains(rel, "\x00") {
+		return "", false
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || rel == "index.html" || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", false
+	}
+
+	root, err := filepath.Abs(frontendDir)
+	if err != nil {
+		return "", false
+	}
+	candidate := filepath.Join(root, rel)
+	abs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", false
+	}
+	if abs != root && !strings.HasPrefix(abs, root+string(os.PathSeparator)) {
+		return "", false
+	}
+	info, err := os.Stat(abs)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+
+	return abs, true
 }
 
 // startServer 启动服务器（带优雅关闭）.
