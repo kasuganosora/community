@@ -155,7 +155,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
-        <h1 class="page-header__title"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h1>
+        <h1 class="page-header__title" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h1>
         <span class="profile-header-bar__count">{{ formatCount(account.statuses_count) }} 条帖子</span>
       </div>
     </div>
@@ -186,7 +186,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         </t-button>
       </div>
 
-      <h2 class="profile-name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h2>
+      <h2 class="profile-name" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h2>
       <div class="profile-username">
         @{{ account.acct }}
         <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
@@ -341,12 +341,15 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
   letter-spacing: var(--tracking-title-2);
   font-weight: var(--weight-bold);
   color: var(--color-label);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  unicode-bidi: plaintext;
 }
 
 .profile-username {
   color: var(--color-label-secondary);
   font-size: var(--text-subhead);
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .profile-bio {

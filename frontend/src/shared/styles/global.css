@@ -4,6 +4,33 @@
 @import './chinese-typography.css';
 @import './motion.css';
 
+/* Arabic-script glyphs only. Latin and Han stay on the system fonts.
+   The files are the OFL Noto Sans Arabic subsets in public/fonts. */
+@font-face {
+  font-family: CommunityArabic;
+  src: url("/fonts/noto-sans-arabic-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+@font-face {
+  font-family: CommunityArabic;
+  src: url("/fonts/noto-sans-arabic-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+@font-face {
+  font-family: CommunityArabic;
+  src: url("/fonts/noto-sans-arabic-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
 /* ==========================================================================
    Base
    ========================================================================== */
@@ -60,11 +87,18 @@ body {
   overflow-wrap: break-word;
 }
 
-/* Han text needs more leading than Latin; tracking stays at 0 for CJK. */
+/* Han text needs more leading than Latin; tracking stays at 0 for CJK.
+   Any tracking pulls Arabic letters apart, so a right-to-left block drops it. */
 :lang(zh) .rich-text,
 :lang(ja) .rich-text,
 :lang(ko) .rich-text {
   line-height: var(--leading-cjk);
+}
+
+/* Attribute selector, not :dir(). The CSS minifier rewrites :dir(rtl) into a
+   :lang() list, which never matches a post that only sets dir. */
+[dir="rtl"] {
+  letter-spacing: 0;
 }
 
 #app {

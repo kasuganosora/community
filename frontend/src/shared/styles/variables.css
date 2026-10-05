@@ -85,6 +85,7 @@
      after the Latin ones so Latin glyphs keep the UI face and Han glyphs
      fall through to PingFang / Noto Sans CJK per character. */
   --font-sans:
+    "CommunityArabic",
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, Roboto,
     "Helvetica Neue", Arial,

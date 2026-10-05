@@ -11,6 +11,7 @@ import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
 import PostPoll from './PostPoll.vue'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { markBidiNumbers } from '@/shared/utils/bidi'
 
 const props = defineProps<{
   status: MastodonStatus
@@ -34,6 +35,10 @@ watch(() => props.status.id, () => {
 })
 watch(() => props.status.content, () => { void measure() })
 
+const ARABIC_SCRIPT = /^(ar|fa|ur|ps|sd|ug|ckb)(?:-|$)/i
+function textDir(language?: string | null): 'rtl' | 'auto' {
+  return language && ARABIC_SCRIPT.test(language) ? 'rtl' : 'auto'
+}
 const hasCw = computed(() => !!props.status.spoiler_text)
 const bodyVisible = computed(() => !hasCw.value || cwOpen.value)
 const poll = computed(() => pollOverride.value ?? props.status.poll)
@@ -44,8 +49,8 @@ const quoted = computed(() => props.status.quote?.id ? props.status.quote : null
 const quoteText = computed(() => {
   const status = quoted.value
   if (!status) return ''
-  if (status.spoiler_text) return `内容警告：${status.spoiler_text}`
-  return stripHtml(status.content || '').replace(/\s+/g, ' ').trim()
+  if (status.spoiler_text) return markBidiNumbers(`内容警告：${status.spoiler_text}`)
+  return markBidiNumbers(stripHtml(status.content || '').replace(/\s+/g, ' ').trim())
 })
 const hiddenSummary = computed(() => {
   const bits: string[] = []
@@ -95,7 +100,7 @@ onMounted(measure)
 <template>
   <div class="post-content">
     <div v-if="hasCw" class="post-content__cw">
-      <span class="post-content__cw-text"><EmojiText :text="status.spoiler_text" :emojis="status.emojis" /></span>
+      <span class="post-content__cw-text" dir="auto"><EmojiText :text="status.spoiler_text" :emojis="status.emojis" /></span>
       <span v-if="!cwOpen && hiddenSummary" class="post-content__cw-meta">{{ hiddenSummary }}</span>
       <button
         type="button"
@@ -109,7 +114,7 @@ onMounted(measure)
     </div>
     <div v-show="bodyVisible" :id="contentId">
       <div ref="textEl" class="post-content__text" :class="{ 'is-clamped': long && !expanded }">
-        <RichText :html="status.content" :emojis="status.emojis" :class="textClass" />
+        <RichText :html="status.content" :emojis="status.emojis" :class="textClass" :dir="textDir(status.language)" />
       </div>
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? '收起' : '展开全文' }}
@@ -130,7 +135,7 @@ onMounted(measure)
           <EmojiText :text="quoted.account.display_name || quoted.account.username" :emojis="quoted.account.emojis" />
           <span>@{{ quoted.account.acct }}</span>
         </header>
-        <p class="post-quote__text">{{ quoteText || '（这条引用没有文字）' }}</p>
+        <p class="post-quote__text" dir="auto">{{ quoteText || '（这条引用没有文字）' }}</p>
       </article>
       <a v-else-if="status.card && cardUrl" class="post-quote post-quote--link" :href="cardUrl" target="_blank" rel="noopener noreferrer" @click.stop>
         <img v-if="cardImage" class="post-quote__thumb" :src="cardImage" alt="" loading="lazy" />
@@ -162,6 +167,8 @@ onMounted(measure)
   min-width: 0;
   font-weight: var(--weight-medium);
   color: var(--color-label);
+  letter-spacing: 0;
+  unicode-bidi: plaintext;
 }
 
 .post-content__cw-toggle {
@@ -246,7 +253,9 @@ onMounted(measure)
   color: var(--color-label);
   font-size: var(--text-subhead);
   line-height: var(--leading-subhead);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  letter-spacing: 0;
+  unicode-bidi: plaintext;
 }
 
 .post-quote__copy {

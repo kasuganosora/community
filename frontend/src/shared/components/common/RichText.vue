@@ -4,17 +4,21 @@ import { useRouter } from 'vue-router'
 import { renderEmojiHtml } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
+import { markBidiNumbersHtml } from '@/shared/utils/bidi'
 import { localHosts } from '@/shared/utils/env'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   html: string
   emojis?: MastodonEmoji[]
-}>()
+  dir?: 'auto' | 'rtl' | 'ltr'
+}>(), {
+  dir: 'auto',
+})
 
 const revealed = ref(false)
 watch(() => props.html, () => { revealed.value = false })
 const sensitive = computed(() => props.emojis?.some(e => e.is_sensitive && props.html.includes(`:${e.shortcode}:`)))
-const safeHtml = computed(() => shortenBareLinks(renderEmojiHtml(props.html, props.emojis, revealed.value)))
+const safeHtml = computed(() => markBidiNumbersHtml(shortenBareLinks(renderEmojiHtml(props.html, props.emojis, revealed.value))))
 const router = useRouter()
 
 // Mentions and hashtags open the in-app profile / tag page instead of a new
@@ -32,15 +36,34 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div class="rich-text"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? '隐藏敏感表情' : '显示敏感表情' }}</button></div>
+  <div class="rich-text" :dir="dir"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? '隐藏敏感表情' : '显示敏感表情' }}</button></div>
 </template>
 
 <style scoped>
 .rich-text :deep(.custom-emoji) { width: 1.3em; height: 1.3em; object-fit: contain; vertical-align: -0.25em; }
 .emoji-reveal { color: var(--color-accent-text); font-size: var(--text-footnote); }
 .rich-text {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   line-height: inherit;
+  letter-spacing: 0;
+}
+
+.rich-text[dir="auto"],
+.rich-text[dir="auto"] :deep(p) {
+  unicode-bidi: plaintext;
+}
+
+.rich-text[dir="rtl"],
+.rich-text[dir="rtl"] :deep(p) {
+  letter-spacing: 0;
+}
+
+/* Keep @mentions, hashtags and URLs in their own direction so a following
+   number or Latin word is not pulled into the Arabic run. */
+.rich-text :deep(a),
+.rich-text :deep(code) {
+  unicode-bidi: isolate;
+  direction: ltr;
 }
 
 .rich-text :deep(p) {

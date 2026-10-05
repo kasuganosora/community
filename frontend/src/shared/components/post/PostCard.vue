@@ -169,6 +169,7 @@ function onMenuClick(data: { value?: unknown }) {
         <div class="post-card__header">
           <span
             class="post-card__name"
+            dir="auto"
             @click="navigateToProfile"
             role="link"
             tabindex="0"
@@ -335,6 +336,7 @@ function onMenuClick(data: { value?: unknown }) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  unicode-bidi: plaintext;
 }
 
 .post-card__menu {
@@ -397,6 +399,8 @@ function onMenuClick(data: { value?: unknown }) {
 .post-card__username {
   flex: 0 1 auto;
   min-width: 0;
+  direction: ltr;
+  unicode-bidi: isolate;
   color: var(--color-label-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -421,7 +425,7 @@ function onMenuClick(data: { value?: unknown }) {
   line-height: var(--leading-body);
   letter-spacing: var(--tracking-body);
   color: var(--color-label);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .post-card__content :deep(.post-card__text:lang(zh)),

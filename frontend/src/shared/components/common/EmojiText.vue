@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { emojiMap, emojiUrl } from '@/domains/emoji/domain/emoji'
+import { markBidiNumbers } from '@/shared/utils/bidi'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 const props = defineProps<{ text: string; emojis?: MastodonEmoji[] }>()
 const parts = computed(() => {
   const map = emojiMap(props.emojis)
   return props.text.split(/(:[a-zA-Z0-9_+-]+:)/g).map(text => {
     const emoji = text.startsWith(':') && text.endsWith(':') ? map.get(text.slice(1, -1)) : undefined
-    return { text, src: emoji && !emoji.is_sensitive ? emojiUrl(emoji) : null }
+    return { text: emoji ? text : markBidiNumbers(text), src: emoji && !emoji.is_sensitive ? emojiUrl(emoji) : null }
   })
 })
 </script>

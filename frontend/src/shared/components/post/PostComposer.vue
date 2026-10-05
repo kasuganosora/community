@@ -6,6 +6,7 @@ import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { markBidiNumbers, stripBidiMarks } from '@/shared/utils/bidi'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
 import type { MastodonAccount, MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import {
@@ -62,6 +63,56 @@ async function insertEmoji(emoji: MastodonEmoji) {
 }
 const spoilerEnabled = ref(false)
 const spoilerText = ref('')
+let composing = false
+
+/** Invisible marks keep numbers in place while typing. They are stripped before posting. */
+function holdBidiCaret(selector: string, value: string, next: string) {
+  const input = composerRoot.value?.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null
+  const start = input?.selectionStart ?? next.length
+  const end = input?.selectionEnd ?? start
+  const map = (pos: number) => {
+    let i = 0
+    let j = 0
+    while (i < pos && j < next.length) {
+      if (next[j] === '\u200e' && value[i] !== '\u200e') { j++; continue }
+      i++
+      j++
+    }
+    return j
+  }
+  void nextTick(() => {
+    const el = composerRoot.value?.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null
+    el?.setSelectionRange(map(start), map(end))
+  })
+}
+
+watch(content, (value) => {
+  if (composing) return
+  const next = markBidiNumbers(value)
+  if (next === value) return
+  holdBidiCaret('textarea', value, next)
+  content.value = next
+})
+watch(spoilerText, (value) => {
+  if (composing) return
+  const next = markBidiNumbers(value)
+  if (next === value) return
+  holdBidiCaret('input.composer__spoiler', value, next)
+  spoilerText.value = next
+})
+
+onMounted(() => {
+  const root = composerRoot.value
+  if (!root) return
+  root.addEventListener('compositionstart', () => { composing = true })
+  root.addEventListener('compositionend', () => {
+    composing = false
+    const next = markBidiNumbers(content.value)
+    if (next !== content.value) content.value = next
+    const spoiler = markBidiNumbers(spoilerText.value)
+    if (spoiler !== spoilerText.value) spoilerText.value = spoiler
+  })
+})
 const visibility = ref<Visibility>('public')
 const visibilityOpen = ref(false)
 const quote = ref<MastodonStatus | null>(props.quoteTo ?? null)
@@ -98,9 +149,9 @@ const choices = computed(() => {
   return visibilityChoices(ceiling)
 })
 const draft = computed<ComposeDraft>(() => ({
-  text: content.value,
+  text: stripBidiMarks(content.value),
   spoilerEnabled: spoilerEnabled.value,
-  spoilerText: spoilerText.value,
+  spoilerText: stripBidiMarks(spoilerText.value),
   visibility: choices.value.some(v => v.value === visibility.value)
     ? visibility.value
     : (choices.value[0]?.value ?? visibility.value),
@@ -248,8 +299,8 @@ async function handlePost() {
     let status: MastodonStatus
     if (props.editStatus) {
       status = await postApi.replaceStatus(props.editStatus.id, {
-        status: content.value,
-        spoiler_text: spoilerEnabled.value ? spoilerText.value.trim() : '',
+        status: stripBidiMarks(content.value),
+        spoiler_text: spoilerEnabled.value ? stripBidiMarks(spoilerText.value).trim() : '',
         sensitive: spoilerEnabled.value && !!spoilerText.value.trim(),
       })
     } else {
@@ -375,6 +426,7 @@ defineExpose({ focus, reset })
           v-model="spoilerText"
           class="composer__spoiler"
           type="text"
+          dir="auto"
           placeholder="内容警告（例如：剧透）"
           aria-label="内容警告说明"
           maxlength="500"
@@ -706,7 +758,8 @@ defineExpose({ focus, reset })
   color: var(--color-label) !important;
   font-size: var(--text-title-3) !important;
   line-height: var(--leading-title-3) !important;
-  letter-spacing: var(--tracking-title-3);
+  letter-spacing: 0;
+  unicode-bidi: plaintext;
   padding: var(--space-2) 0 !important;
   resize: none !important;
 }
