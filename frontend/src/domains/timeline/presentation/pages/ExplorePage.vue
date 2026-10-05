@@ -2,6 +2,8 @@
 import { ref, watch, onMounted, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { timelineApi } from '../../infrastructure/timelineApi'
+import { tagApi, type TagInfo } from '../../infrastructure/tagApi'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
@@ -18,6 +20,8 @@ const TABS: { value: ExploreTab; label: string }[] = [
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const followedTags = ref<TagInfo[]>([])
 const activeTab = ref<ExploreTab>(route.query.tab === 'federated' ? 'federated' : 'local')
 
 const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
@@ -50,6 +54,9 @@ watch(activeTab, () => {
 })
 
 onMounted(() => {
+  if (authStore.currentUser) {
+    tagApi.followed().then((rows) => { followedTags.value = rows }).catch(() => { followedTags.value = [] })
+  }
   const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
   if (snap?.items.length) {
     feed.hydrate(snap.items, snap.hasMore)
@@ -76,6 +83,10 @@ function retryFeed() {
          so Explore carries its own search entry there. -->
     <div class="explore-search">
       <SearchBox live />
+    </div>
+    <div v-if="followedTags.length" class="explore-followed">
+      <span>关注的话题</span>
+      <router-link v-for="item in followedTags" :key="item.name" :to="`/tags/${encodeURIComponent(item.name)}`">#{{ item.name }}</router-link>
     </div>
     <TabBar
       :model-value="activeTab"
@@ -106,6 +117,17 @@ function retryFeed() {
 .explore-search {
   padding: 0 var(--space-4);
 }
+
+.explore-followed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-4) 0;
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+}
+.explore-followed a { color: var(--color-accent-text); }
 
 /* The page header is already the sticky bar here. */
 .explore-search :deep(.search-box) {

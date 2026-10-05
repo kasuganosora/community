@@ -18,7 +18,7 @@ import (
 func TestGetMeilisearchHost_Default(t *testing.T) {
 	// config.C.Other is empty in tests, so default is returned
 	host := getMeilisearchHost()
-	assert.Equal(t, "http://localhost:7700", host)
+	assert.Equal(t, "http://127.0.0.1:7700", host)
 }
 
 func TestGetMeilisearchHost_Configured(t *testing.T) {
@@ -832,34 +832,39 @@ func TestCreateIndexWithSettings_SettingsError(t *testing.T) {
 // test sandbox), which disables the client and spawns the reconnect loop.
 // ---------------------------------------------------------------------------
 
-func TestInit_ConnectionFailureDisablesClient(t *testing.T) {
-	// Fresh client: initOnce has not fired yet for this instance.
+func TestTryConnect_RefusesDeadPort(t *testing.T) {
 	client := &MeilisearchClient{
-		host:    "http://127.0.0.1:7700",
+		host:    "http://127.0.0.1:1",
 		apiKey:  "key",
 		enabled: true,
 	}
-
-	// init() will create a real client and fail to connect (no server running).
-	// It must not panic; it should set enabled=false and start reconnectLoop.
 	assert.NotPanics(t, func() {
-		client.init()
+		client.tryConnect()
 	})
 	assert.False(t, client.IsEnabled())
 }
 
-func TestInit_OnceGuarantee(t *testing.T) {
-	// init() is guarded by sync.Once; calling it twice must be a no-op.
-	client := &MeilisearchClient{
-		host:    "http://127.0.0.1:7700",
-		apiKey:  "key",
-		enabled: true,
-	}
-
-	assert.NotPanics(t, func() {
-		client.init()
-		client.init() // second call is a no-op
+func TestMeiliMode(t *testing.T) {
+	original, had := config.C.Other["MEILISEARCH_ENABLED"]
+	t.Cleanup(func() {
+		if had {
+			config.C.Other["MEILISEARCH_ENABLED"] = original
+		} else {
+			delete(config.C.Other, "MEILISEARCH_ENABLED")
+		}
 	})
+
+	delete(config.C.Other, "MEILISEARCH_ENABLED")
+	assert.Equal(t, "auto", meiliMode())
+
+	config.C.Other["MEILISEARCH_ENABLED"] = "false"
+	assert.Equal(t, "off", meiliMode())
+
+	config.C.Other["MEILISEARCH_ENABLED"] = "true"
+	assert.Equal(t, "on", meiliMode())
+
+	config.C.Other["MEILISEARCH_ENABLED"] = "auto"
+	assert.Equal(t, "auto", meiliMode())
 }
 
 // ---------------------------------------------------------------------------

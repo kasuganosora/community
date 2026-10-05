@@ -5,6 +5,7 @@ import { postApi } from '@/domains/post/infrastructure/postApi'
 import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
+import { stripHtml } from '@/shared/utils/sanitize'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
 import type { MastodonAccount, MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import {
@@ -28,6 +29,8 @@ const props = defineProps<{
   autofocus?: boolean
   /** Visibility for new (non-reply) posts, e.g. 'direct' on the messages page. */
   initialVisibility?: Visibility
+  /** Embed this public post. */
+  quoteTo?: MastodonStatus | null
 }>()
 
 const emit = defineEmits<{
@@ -61,6 +64,8 @@ const spoilerEnabled = ref(false)
 const spoilerText = ref('')
 const visibility = ref<Visibility>('public')
 const visibilityOpen = ref(false)
+const quote = ref<MastodonStatus | null>(props.quoteTo ?? null)
+watch(() => props.quoteTo, (value) => { quote.value = value ?? null })
 
 function closeVisibilityOnOutside(e: Event) {
   if (!composerRoot.value?.contains(e.target as Node)) visibilityOpen.value = false
@@ -102,6 +107,7 @@ const draft = computed<ComposeDraft>(() => ({
   poll: poll.value,
   mediaIds: props.editStatus ? props.editStatus.media_attachments.map(m => m.id) : mediaIds.value,
   inReplyToId: props.replyTo?.id,
+  quoteId: props.editStatus ? undefined : quote.value?.id,
 }))
 const charCount = computed(() => composeLength(draft.value))
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
@@ -226,6 +232,7 @@ function reset() {
   poll.value = null
   media.splice(0, media.length)
   error.value = null
+  quote.value = null
   resetForReply()
 }
 
@@ -464,6 +471,11 @@ defineExpose({ focus, reset })
         </fieldset>
 
         <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="pickerOpen = false" />
+        <div v-if="quote && !isEdit" class="composer__quote">
+          <span class="composer__quote-who">引用 @{{ quote.account.acct }}</span>
+          <p>{{ quote.spoiler_text ? `内容警告：${quote.spoiler_text}` : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || '（这条引用没有文字）') }}</p>
+          <button type="button" class="composer__link-btn" @click="quote = null">移除引用</button>
+        </div>
         <p v-if="posting" class="composer__status" role="status">{{ postingLabel }}</p>
         <div v-else-if="error" class="composer__error" role="alert">
           <span>{{ error }}</span>
@@ -1053,6 +1065,17 @@ defineExpose({ focus, reset })
   background: var(--color-accent-soft);
   color: var(--color-accent-text);
 }
+
+.composer__quote {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+}
+.composer__quote p { margin: var(--space-1) 0; }
+.composer__quote-who { color: var(--color-label); font-weight: var(--weight-semibold); }
 
 .composer__status,
 .composer__error {

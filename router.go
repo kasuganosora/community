@@ -65,6 +65,7 @@ func SetRouter(app gin.IRouter) {
 	app.GET("/files/*file", transferapi.ServeMediaAlias)
 
 	apiGroup := app.Group("/api")
+	apiGroup.Use(middleware.AttachFilterContext())
 
 	// API v1 - Mastodon 标准 API
 	v1ApiGroup := apiGroup.Group("/v1")

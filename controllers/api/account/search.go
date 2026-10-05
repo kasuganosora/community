@@ -63,7 +63,7 @@ func Search(c *gin.Context) {
 		return
 	}
 
-	query := db.GetDB().Model(&models.Account{}).Where("username LIKE ?", usernameKeyword+"%")
+	query := db.GetDB().Model(&models.Account{}).Where("username LIKE ? ESCAPE '\\\\'", escapeLike(usernameKeyword)+"%")
 
 	query = query.Preload("Emojis").Preload("Extra")
 
@@ -85,5 +85,23 @@ func Search(c *gin.Context) {
 		return
 	}
 
+	var viewer *models.Account
+	if c.GetBool("authenticated") {
+		viewer = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	}
+	accounts, err = models.FilterAccountsByDomainPolicy(db.GetDB(), viewer, accounts)
+	if err != nil {
+		_ = c.Error(errors.Wrap(err, "filter blocked domains"))
+
+		return
+	}
+
 	c.JSON(200, serializer.ToAccounts(accounts))
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }

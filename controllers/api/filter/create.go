@@ -1,19 +1,22 @@
 package filter
 
 import (
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"time"
 )
 
 type CreateFilterRequest struct {
-	Title     string                  `binding:"required" json:"title"`
-	ExpiresIn uint64                  `json:"expires_in"`
-	Context   []string                `binding:"required" json:"context"`
-	Keywords  []*models.FilterKeyword `binding:"required" json:"keywords"`
+	Title        string                  `binding:"required" json:"title"`
+	ExpiresIn    uint64                  `json:"expires_in"`
+	Context      []string                `binding:"required" json:"context"`
+	FilterAction string                  `json:"filter_action"`
+	Keywords     []*models.FilterKeyword `binding:"required" json:"keywords"`
 }
 
 func Create(c *gin.Context) {
@@ -25,17 +28,45 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	action, ok := models.ParseFilterAction(req.FilterAction)
+	if !ok {
+		c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤动作"})
 
-	for i := range req.Keywords {
-		req.Keywords[i].Uuid = uuid.NewString()
+		return
+	}
+	if !models.ValidFilterContexts(req.Context) {
+		c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤范围"})
+
+		return
+	}
+	if len(req.Keywords) == 0 {
+		c.AbortWithStatusJSON(422, gin.H{"error": "至少需要一个关键词"})
+
+		return
+	}
+	for _, keyword := range req.Keywords {
+		if keyword == nil || strings.TrimSpace(keyword.Keyword) == "" {
+			c.AbortWithStatusJSON(422, gin.H{"error": "关键词不能为空"})
+
+			return
+		}
+		keyword.Keyword = strings.TrimSpace(keyword.Keyword)
+		keyword.Uuid = uuid.NewString()
 	}
 
+	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+
 	filter := &models.Filter{
-		Title:     req.Title,
-		Context:   req.Context,
-		Keywords:  req.Keywords,
-		AccountId: currentAccount.Id,
+		Title:        strings.TrimSpace(req.Title),
+		Context:      req.Context,
+		Keywords:     req.Keywords,
+		AccountId:    currentAccount.Id,
+		FilterAction: action,
+	}
+	if filter.Title == "" {
+		c.AbortWithStatusJSON(422, gin.H{"error": "标题不能为空"})
+
+		return
 	}
 
 	if req.ExpiresIn != 0 {

@@ -27,6 +27,7 @@ import (
 	"github.com/kasuganosora/community/migrate"
 	"github.com/kasuganosora/community/models"
 	_ "github.com/kasuganosora/community/notifications"
+	"github.com/kasuganosora/community/search/indexsync"
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
@@ -53,6 +54,7 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+	indexsync.Start()
 
 	// Federation identities (actor/status URIs, acct domain) are derived from
 	// APP_BASE_URL; refuse to start a production instance that would publish

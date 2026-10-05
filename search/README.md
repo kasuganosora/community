@@ -30,22 +30,22 @@ Meilisearch 索引名称常量：
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
-| `MEILISEARCH_HOST` | `http://localhost:7700` | Meilisearch 服务地址 |
-| `MEILISEARCH_API_KEY` | （空） | Meilisearch API Key |
-| `MEILISEARCH_ENABLED` | `false` | 是否启用搜索引擎（仅当值为 `true` 时启用） |
+| `MEILISEARCH_HOST` | `http://127.0.0.1:7700` | Meilisearch 服务地址。默认用 IPv4，避免 `localhost` 先走 `::1` 连不上只监听 127.0.0.1 的实例 |
+| `MEILISEARCH_API_KEY` | （空） | Meilisearch API Key。开发模式不设 master key 时留空 |
+| `MEILISEARCH_ENABLED` | `auto` | `auto` 或未设置：引擎在线就用，离线走数据库并持续重试。`true` 启动时先连一次。`false` 完全不用 |
 
 ```bash
 # Meilisearch 服务地址
-MEILISEARCH_HOST=http://localhost:7700
+MEILISEARCH_HOST=http://127.0.0.1:7700
 
-# Meilisearch API Key
-MEILISEARCH_API_KEY=your-master-key
+# Meilisearch API Key（开发模式可留空）
+MEILISEARCH_API_KEY=
 
-# 启用搜索引擎
-MEILISEARCH_ENABLED=true
+# 自动适配。显式 false 才关闭
+MEILISEARCH_ENABLED=auto
 ```
 
-> **自动降级**：当 `MEILISEARCH_ENABLED` 未设置为 `true` 时，客户端不会被启用，所有索引操作静默返回 `nil`，搜索操作返回 `"meilisearch not enabled"` 错误。即使启用但连接失败，也会自动降级并启动后台重连。
+> **自动适配**：未设置或 `auto` 时后台探测默认地址，通了就建索引并回填，断了立刻改走数据库，恢复后重新建索引并回填。显式 `false`/`off` 不会探测。
 
 ## 架构与结构
 
@@ -405,4 +405,4 @@ Meilisearch 的过滤器使用表达式 DSL（类似 SQL `WHERE`）。本包对�
 
 ### 外部服务
 
-- **Meilisearch**：需要独立部署的 Meilisearch 实例（v1.x+），默认监听 `http://localhost:7700`。请参考 [Meilisearch 官方文档](https://www.meilisearch.com/docs/learn/getting_started/quick_start) 进行安装与配置。
+- **Meilisearch**：需要独立部署的 Meilisearch 实例（v1.12+），默认连 `http://127.0.0.1:7700`。未设置 `MEILISEARCH_ENABLED` 时自动探测：在线就建索引，离线走数据库。请参考 [Meilisearch 官方文档](https://www.meilisearch.com/docs/learn/getting_started/quick_start) 进行安装与配置。Docker Compose 已带上 `meilisearch` 服务。

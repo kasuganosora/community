@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
-import { canBoost, canShare } from '@/domains/post/domain/compose'
+import { canBoost, canQuote, canShare } from '@/domains/post/domain/compose'
 import { formatCount } from '@/shared/utils/format'
 
 const props = defineProps<{
@@ -14,9 +14,11 @@ const emit = defineEmits<{
   reblog: []
   favourite: []
   bookmark: []
+  quote: []
 }>()
 
 const showBoost = computed(() => canBoost(props.status.visibility))
+const showQuote = computed(() => canQuote(props.status.visibility))
 const showShare = computed(() => canShare(props.status.visibility))
 const replyCount = computed(() => props.status.replies_count > 0 ? formatCount(props.status.replies_count) : '')
 const reblogCount = computed(() => props.status.reblogs_count > 0 ? formatCount(props.status.reblogs_count) : '')
@@ -128,6 +130,15 @@ async function handleShare() {
       <Transition name="glyph">
         <t-icon :key="status.bookmarked ? 'on' : 'off'" :name="status.bookmarked ? 'bookmark-filled' : 'bookmark'" :size="18" />
       </Transition>
+    </button>
+
+    <button
+      v-if="showQuote"
+      class="action-btn action-btn--reply"
+      @click.stop="emit('quote')"
+      aria-label="引用"
+    >
+      <t-icon name="quote" :size="18" />
     </button>
 
     <button

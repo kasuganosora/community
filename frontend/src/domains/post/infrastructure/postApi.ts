@@ -41,6 +41,8 @@ export const postApi = {
   unfavourite: createStatusAction('unfavourite'),
   bookmark: createStatusAction('bookmark'),
   unbookmark: createStatusAction('unbookmark'),
+  pin: createStatusAction('pin'),
+  unpin: createStatusAction('unpin'),
 
   async deleteStatus(id: string): Promise<void> {
     await client.delete(`/api/v1/statuses/${encodeURIComponent(id)}`)

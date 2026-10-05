@@ -27,14 +27,16 @@ const (
 const (
 	// maxSearchLimit 限制单次搜索返回的最大结果数量，防止滥用.
 	maxSearchLimit = 40
-	// defaultSearchTimeout 是每次搜索请求的超时时间，防止搜索引擎无响应时阻塞调用方.
-	defaultSearchTimeout = 10 * time.Second
+	// defaultSearchTimeout 是每次搜索请求的超时时间。超时后调用方改走数据库，
+	// 所以这里故意短，避免搜索引擎无响应时把整次搜索拖住。
+	defaultSearchTimeout = 4 * time.Second
 	// defaultHTTPTimeout 是 Meilisearch HTTP 客户端的整体超时时间.
 	defaultHTTPTimeout = 30 * time.Second
 	// initCheckTimeout 是初始化时连接检查的超时时间.
 	initCheckTimeout = 5 * time.Second
-	// indexOpsTimeout 是索引写操作（增删改）的超时时间.
-	indexOpsTimeout = 15 * time.Second
+	// indexOpsTimeout 是索引写操作的超时时间。建索引、改设置和写入都要等任务完成，
+	// 所以比一次搜索宽裕，避免设置还没生效就把文档写进去。
+	indexOpsTimeout = 60 * time.Second
 	// batchSize 是批量索引时的批次大小.
 	batchSize = 1000
 )
@@ -68,9 +70,9 @@ type StatusSearchDocument struct {
 	ID          string `json:"id"`
 	Content     string `json:"content"`
 	SpoilerText string `json:"spoiler_text"`
-	AccountID   string `json:"account_id"`
+	AccountID   uint64 `json:"account_id"`
 	Username    string `json:"username"`
-	Visibility  string `json:"visibility"`
+	Visibility  int    `json:"visibility"`
 	CreatedAt   int64  `json:"created_at"`
 }
 
@@ -107,12 +109,12 @@ type SearchResult struct {
 
 // MeilisearchClient Meilisearch 客户端封装.
 type MeilisearchClient struct {
-	client   meilisearch.ServiceManager
-	host     string
-	apiKey   string
-	enabled  bool
-	mu       sync.RWMutex // 保护 enabled 字段的并发读写
-	initOnce sync.Once
+	client  meilisearch.ServiceManager
+	host    string
+	apiKey  string
+	enabled bool
+	indexed bool
+	mu      sync.RWMutex // 保护 enabled 字段的并发读写
 }
 
 var (
@@ -121,19 +123,41 @@ var (
 )
 
 // GetMeilisearchClient 获取 Meilisearch 客户端单例.
+//
+// MEILISEARCH_ENABLED 未设置或为 auto 时，后台探测默认地址：通了就建索引并
+// 回填，断了就关掉并继续探测。显式 true 会在返回前先连一次。false 完全不用。
 func GetMeilisearchClient() *MeilisearchClient {
 	clientOnce.Do(func() {
 		meiliClient = &MeilisearchClient{
-			host:    getMeilisearchHost(),
-			apiKey:  getMeilisearchAPIKey(),
-			enabled: isMeilisearchEnabled(),
+			host:   getMeilisearchHost(),
+			apiKey: getMeilisearchAPIKey(),
 		}
-		if meiliClient.enabled {
-			meiliClient.init()
+		switch meiliMode() {
+		case "off":
+			meiliClient.setEnabled(false)
+		case "on":
+			meiliClient.bootstrap(true)
+		default:
+			go meiliClient.bootstrap(false)
 		}
 	})
 
 	return meiliClient
+}
+
+func meiliMode() string {
+	enabled, ok := config.C.Other["MEILISEARCH_ENABLED"]
+	if !ok {
+		return "auto"
+	}
+	switch strings.ToLower(strings.TrimSpace(enabled)) {
+	case "", "auto":
+		return "auto"
+	case "1", "true", "on", "yes":
+		return "on"
+	default:
+		return "off"
+	}
 }
 
 func getMeilisearchHost() string {
@@ -141,7 +165,7 @@ func getMeilisearchHost() string {
 		return host
 	}
 
-	return "http://localhost:7700" //nolint:goconst
+	return "http://127.0.0.1:7700" //nolint:goconst
 }
 
 func getMeilisearchAPIKey() string {
@@ -160,51 +184,117 @@ func isMeilisearchEnabled() bool {
 	return false
 }
 
-// init 初始化 Meilisearch 客户端.
-func (m *MeilisearchClient) init() {
-	m.initOnce.Do(func() {
-		m.client = meilisearch.New(m.host,
-			meilisearch.WithAPIKey(m.apiKey),
-			meilisearch.WithCustomClient(&http.Client{
-				Timeout: defaultHTTPTimeout,
-			}))
-
-		// 检查连接（带超时，防止阻塞启动）
-		ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
-		_, err := m.client.VersionWithContext(ctx)
-		cancel()
-		if err != nil {
-			log.Error("Failed to connect to Meilisearch: %v", err)
-			m.setEnabled(false)
-			// 启动后台健康检查，在 Meilisearch 恢复后自动重连
-			go m.reconnectLoop()
-			return
-		}
-
-		log.Info("Meilisearch connected successfully")
-
-		// 初始化索引
-		m.initIndexes()
-	})
+// bootstrap 建立客户端并在后台保持连接。syncFirst 为 true 时先阻塞探测一次。
+func (m *MeilisearchClient) bootstrap(syncFirst bool) {
+	m.ensureClient()
+	if syncFirst {
+		m.tryConnect()
+	}
+	go m.reconnectLoop()
 }
 
-// reconnectLoop 在后台定期检查 Meilisearch 连接，恢复后重新启用客户端.
-func (m *MeilisearchClient) reconnectLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
-		_, err := m.client.VersionWithContext(ctx)
-		cancel()
-		if err != nil {
-			continue
-		}
-
-		log.Info("Meilisearch reconnected successfully")
-		m.setEnabled(true)
-		m.initIndexes()
+func (m *MeilisearchClient) ensureClient() {
+	if m.client != nil {
 		return
+	}
+	m.client = meilisearch.New(m.host,
+		meilisearch.WithAPIKey(m.apiKey),
+		meilisearch.WithCustomClient(&http.Client{
+			Timeout: defaultHTTPTimeout,
+		}))
+}
+
+// tryConnect 在不可用和可用之间切换。已经连着时不重复建索引。
+func (m *MeilisearchClient) tryConnect() {
+	m.ensureClient()
+	ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
+	_, err := m.client.VersionWithContext(ctx)
+	cancel()
+	if err != nil {
+		if m.IsEnabled() {
+			log.Warn("Meilisearch unavailable, using database search: %v", err)
+			m.setEnabled(false)
+		}
+		return
+	}
+	// 从断开恢复时重新应用设置。只在「已经启用」的轮询里跳过，避免每 15 秒重建设置。
+	if m.IsEnabled() {
+		return
+	}
+	if err = m.initIndexes(); err != nil {
+		log.Warn("Meilisearch index setup failed, will retry: %v", err)
+		return
+	}
+	m.indexed = true
+	log.Info("Meilisearch connected at %s", m.host)
+	m.setEnabled(true)
+	if hook := currentReadyHook(); hook != nil {
+		go hook()
+	}
+}
+
+// NoteFailure 在一次搜索失败后确认引擎是否还活着，死了就立刻改走数据库。
+func (m *MeilisearchClient) NoteFailure() {
+	if !m.IsEnabled() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	_, err := m.client.VersionWithContext(ctx)
+	cancel()
+	if err == nil {
+		return
+	}
+	log.Warn("Meilisearch search failed, using database search: %v", err)
+	m.setEnabled(false)
+}
+
+var (
+	readyMu        sync.RWMutex
+	readyHook      func()
+	accountIndexMu sync.RWMutex
+	accountIndexer func(uint64)
+)
+
+// SetReadyHook 注册连接成功（含断线重连）后的回调，用来回填索引。
+func SetReadyHook(fn func()) {
+	readyMu.Lock()
+	readyHook = fn
+	readyMu.Unlock()
+}
+
+func currentReadyHook() func() {
+	readyMu.RLock()
+	defer readyMu.RUnlock()
+	return readyHook
+}
+
+// SetAccountIndexer 注册账户资料变更后的索引函数。
+func SetAccountIndexer(fn func(uint64)) {
+	accountIndexMu.Lock()
+	accountIndexer = fn
+	accountIndexMu.Unlock()
+}
+
+// QueueAccountIndex 在资料更新后异步刷新该账户的搜索文档。引擎没开时什么都不做。
+func QueueAccountIndex(id uint64) {
+	if id == 0 {
+		return
+	}
+	accountIndexMu.RLock()
+	fn := accountIndexer
+	accountIndexMu.RUnlock()
+	if fn != nil {
+		go fn(id)
+	}
+}
+
+// reconnectLoop 持续探测。连上后保持启用，断开后自动降级，恢复后再建索引并回填。
+func (m *MeilisearchClient) reconnectLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	m.tryConnect()
+	for range ticker.C {
+		m.tryConnect()
 	}
 }
 
@@ -215,44 +305,100 @@ func (m *MeilisearchClient) setEnabled(v bool) {
 	m.mu.Unlock()
 }
 
-// initIndexes 初始化索引设置.
-func (m *MeilisearchClient) initIndexes() {
-	// 账户索引
-	m.createIndexWithSettings(IndexAccounts, &meilisearch.Settings{
-		SearchableAttributes: []string{"username", "display_name", "bio", "domain"},
-		FilterableAttributes: []string{"id", "created_at"}, //nolint:goconst
-		SortableAttributes:   []string{"created_at"},
-		RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"}, //nolint:goconst
-	})
+// initIndexes 初始化索引设置. 索引不存在时先创建，并等到设置任务成功再返回。
+func (m *MeilisearchClient) initIndexes() error {
+	specs := []struct {
+		uid      string
+		settings *meilisearch.Settings
+	}{
+		{IndexAccounts, &meilisearch.Settings{
+			SearchableAttributes: []string{"username", "display_name", "bio", "domain"},
+			FilterableAttributes: []string{"id", "created_at"}, //nolint:goconst
+			SortableAttributes:   []string{"created_at"},
+			RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"}, //nolint:goconst
+		}},
+		{IndexStatuses, &meilisearch.Settings{
+			SearchableAttributes: []string{"content", "spoiler_text", "username"},
+			FilterableAttributes: []string{"account_id", "visibility", "created_at"},
+			SortableAttributes:   []string{"created_at"},
+			RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+		}},
+		{IndexHashtags, &meilisearch.Settings{
+			SearchableAttributes: []string{"name"},
+			FilterableAttributes: []string{"status_count", "created_at"},
+			SortableAttributes:   []string{"status_count", "created_at"},
+			RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+		}},
+	}
+	var first error
+	for _, spec := range specs {
+		if err := m.createIndexWithSettings(spec.uid, spec.settings); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
 
-	// 嘟文索引
-	m.createIndexWithSettings(IndexStatuses, &meilisearch.Settings{
-		SearchableAttributes: []string{"content", "spoiler_text", "username"},
-		FilterableAttributes: []string{"account_id", "visibility", "created_at"},
-		SortableAttributes:   []string{"created_at"},
-		RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
-	})
+type taskWaiter interface {
+	WaitForTaskWithContext(ctx context.Context, taskUID int64, interval time.Duration) (*meilisearch.Task, error)
+}
 
-	// 标签索引
-	m.createIndexWithSettings(IndexHashtags, &meilisearch.Settings{
-		SearchableAttributes: []string{"name"},
-		FilterableAttributes: []string{"status_count", "created_at"},
-		SortableAttributes:   []string{"status_count", "created_at"},
-		RankingRules:         []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
-	})
+func finishTask(ctx context.Context, waiter taskWaiter, task *meilisearch.TaskInfo) error {
+	if task == nil {
+		return nil
+	}
+	done, err := waiter.WaitForTaskWithContext(ctx, task.TaskUID, 50*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	if done != nil && done.Status != meilisearch.TaskStatusSucceeded {
+		return fmt.Errorf("meilisearch task %d %s", task.TaskUID, done.Status)
+	}
+	return nil
+}
+
+func finishTasks(ctx context.Context, waiter taskWaiter, tasks []meilisearch.TaskInfo) error {
+	for i := range tasks {
+		if err := finishTask(ctx, waiter, &tasks[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // createIndexWithSettings 创建带设置的索引.
-func (m *MeilisearchClient) createIndexWithSettings(indexUID string, settings *meilisearch.Settings) {
-	index := m.client.Index(indexUID)
-
-	// 更新设置（带超时）
+func (m *MeilisearchClient) createIndexWithSettings(indexUID string, settings *meilisearch.Settings) error {
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
-	_, err := index.UpdateSettingsWithContext(ctx, settings)
+
+	if _, err := m.client.GetIndexWithContext(ctx, indexUID); err != nil {
+		task, cerr := m.client.CreateIndexWithContext(ctx, &meilisearch.IndexConfig{
+			Uid:        indexUID,
+			PrimaryKey: "id",
+		})
+		if cerr != nil {
+			log.Error("Failed to create index %s: %v", indexUID, cerr)
+			return cerr
+		}
+		if werr := finishTask(ctx, m.client, task); werr != nil {
+			if _, gerr := m.client.GetIndexWithContext(ctx, indexUID); gerr != nil {
+				log.Error("Failed to create index %s: %v", indexUID, werr)
+				return werr
+			}
+		}
+	}
+
+	index := m.client.Index(indexUID)
+	task, err := index.UpdateSettingsWithContext(ctx, settings)
 	if err != nil {
 		log.Error("Failed to update settings for index %s: %v", indexUID, err)
+		return err
 	}
+	if err = finishTask(ctx, index, task); err != nil {
+		log.Error("Failed to apply settings for index %s: %v", indexUID, err)
+		return err
+	}
+	return nil
 }
 
 // IsEnabled 检查是否启用.
@@ -276,9 +422,11 @@ func (m *MeilisearchClient) IndexAccount(doc *AccountSearchDocument) error {
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
 	// AddDocuments 需要传入数组，单个文档须包装为切片
-	_, err := index.AddDocumentsWithContext(ctx, []*AccountSearchDocument{doc}, nil)
-
-	return err
+	task, err := index.AddDocumentsWithContext(ctx, []*AccountSearchDocument{doc}, nil)
+	if err != nil {
+		return err
+	}
+	return finishTask(ctx, index, task)
 }
 
 // IndexStatus 索引嘟文.
@@ -294,9 +442,11 @@ func (m *MeilisearchClient) IndexStatus(doc *StatusSearchDocument) error {
 	index := m.client.Index(IndexStatuses)
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
-	_, err := index.AddDocumentsWithContext(ctx, []*StatusSearchDocument{doc}, nil)
-
-	return err
+	task, err := index.AddDocumentsWithContext(ctx, []*StatusSearchDocument{doc}, nil)
+	if err != nil {
+		return err
+	}
+	return finishTask(ctx, index, task)
 }
 
 // IndexHashtag 索引标签.
@@ -312,9 +462,11 @@ func (m *MeilisearchClient) IndexHashtag(doc *HashtagSearchDocument) error {
 	index := m.client.Index(IndexHashtags)
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
-	_, err := index.AddDocumentsWithContext(ctx, []*HashtagSearchDocument{doc}, nil)
-
-	return err
+	task, err := index.AddDocumentsWithContext(ctx, []*HashtagSearchDocument{doc}, nil)
+	if err != nil {
+		return err
+	}
+	return finishTask(ctx, index, task)
 }
 
 // DeleteAccount 删除账户索引.
@@ -569,9 +721,11 @@ func (m *MeilisearchClient) BatchIndexAccounts(docs []*AccountSearchDocument) er
 	index := m.client.Index(IndexAccounts)
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
-	_, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
-
-	return err
+	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
+	if err != nil {
+		return err
+	}
+	return finishTasks(ctx, index, tasks)
 }
 
 // BatchIndexStatuses 批量索引嘟文.
@@ -583,9 +737,27 @@ func (m *MeilisearchClient) BatchIndexStatuses(docs []*StatusSearchDocument) err
 	index := m.client.Index(IndexStatuses)
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
 	defer cancel()
-	_, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
+	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
+	if err != nil {
+		return err
+	}
+	return finishTasks(ctx, index, tasks)
+}
 
-	return err
+// BatchIndexHashtags 批量索引标签。文档 id 用标签名，搜索直接返回名字。
+func (m *MeilisearchClient) BatchIndexHashtags(docs []*HashtagSearchDocument) error {
+	if !m.IsEnabled() || len(docs) == 0 {
+		return nil
+	}
+
+	index := m.client.Index(IndexHashtags)
+	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
+	defer cancel()
+	tasks, err := index.AddDocumentsInBatchesWithContext(ctx, docs, batchSize, nil)
+	if err != nil {
+		return err
+	}
+	return finishTasks(ctx, index, tasks)
 }
 
 // ParseSearchQuery 解析高级搜索语法

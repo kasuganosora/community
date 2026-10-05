@@ -48,6 +48,7 @@ export interface ComposeDraft {
   poll: PollDraft | null
   mediaIds: string[]
   inReplyToId?: string
+  quoteId?: string
 }
 
 const VISIBILITY_RANK: Record<Visibility, number> = { public: 0, unlisted: 1, private: 2, direct: 3 }
@@ -73,6 +74,10 @@ export function canBoost(visibility: Visibility): boolean {
   return visibility === 'public' || visibility === 'unlisted'
 }
 
+/** A quote embeds a public or unlisted post. Followers-only and direct stay put. */
+export function canQuote(visibility: Visibility): boolean {
+  return visibility === 'public' || visibility === 'unlisted'
+}
 /** Direct messages are not a public link. */
 export function canShare(visibility: Visibility): boolean {
   return visibility !== 'direct'
@@ -120,7 +125,7 @@ export function validateDraft(draft: ComposeDraft, limit: number): string | null
     }
     if (draft.mediaIds.length) return '投票不能和媒体同时发布'
   }
-  if (!text && draft.mediaIds.length === 0) return '写点什么再发布'
+  if (!text && draft.mediaIds.length === 0 && !draft.quoteId) return '写点什么再发布'
   if (draft.visibility === 'direct' && !MENTION.test(draft.text)) return '私信需要 @提及 至少一位用户'
   return null
 }
@@ -132,6 +137,7 @@ export function buildCreateParams(draft: ComposeDraft): CreateStatusParams {
     params.sensitive = true
   }
   if (draft.inReplyToId) params.in_reply_to_id = draft.inReplyToId
+  if (draft.quoteId) params.quote_id = draft.quoteId
   if (draft.mediaIds.length) params.media_ids = draft.mediaIds
   if (draft.poll) {
     params.poll = {

@@ -12,6 +12,7 @@ export interface CreateStatusParams {
   sensitive?: boolean
   spoiler_text?: string
   visibility?: Visibility
+  quote_id?: string
 }
 
 export interface ReplaceStatusParams {

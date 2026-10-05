@@ -216,8 +216,10 @@ html .t-input__inner {
 
 @media (pointer: coarse) {
   html .t-input__inner,
-  html .t-textarea__inner {
-    font-size: 16px;
+  html .t-textarea__inner,
+  html .t-input__inner:focus,
+  html .t-textarea__inner:focus {
+    font-size: 16px !important;
   }
 }
 

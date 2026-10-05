@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import {
-  buildCreateParams, canBoost, canShare, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
+  buildCreateParams, canBoost, canQuote, canShare, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
   type ComposeDraft,
 } from '../compose'
 
@@ -21,7 +21,8 @@ describe('composeLength', () => {
 
 describe('validateDraft', () => {
   it('rejects empty posts but allows media-only posts', () => {
-    expect(validateDraft(draft({ text: '   ' }), 500)).toBeTruthy()
+    expect(validateDraft(draft({ text: '' }), 500)).toBeTruthy()
+    expect(validateDraft(draft({ text: '', quoteId: '3' }), 500)).toBeNull()
     expect(validateDraft(draft({ text: '', mediaIds: ['1'] }), 500)).toBeNull()
   })
   it('enforces the character limit including the CW', () => {
@@ -53,6 +54,16 @@ describe('buildCreateParams', () => {
   it('omits optional fields that are not in use', () => {
     expect(buildCreateParams(draft({ spoilerText: 'ignored' }))).toEqual({ status: 'hello', visibility: 'public' })
     expect(buildCreateParams(draft({ mediaIds: ['4', '5'] })).media_ids).toEqual(['4', '5'])
+    expect(buildCreateParams(draft({ quoteId: '8' })).quote_id).toBe('8')
+  })
+})
+
+describe('quotes', () => {
+  it('only public and unlisted posts can be quoted', () => {
+    expect(canQuote('public')).toBe(true)
+    expect(canQuote('unlisted')).toBe(true)
+    expect(canQuote('private')).toBe(false)
+    expect(canQuote('direct')).toBe(false)
   })
 })
 

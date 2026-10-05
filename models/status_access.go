@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"strings"
+
+	"gorm.io/gorm"
+)
 
 // AccountsBlocked applies both directions: a previous direct-message address
 // does not remain a grant after either participant blocks the other.
@@ -22,13 +26,23 @@ func AccountsBlocked(conn *gorm.DB, first, second *Account) (bool, error) {
 			}
 		}
 		if block.Type == BlockTypeDomain {
-			if (block.AccountId == first.Id || block.AccountId == 0) && second.Domain != nil && block.TargetDomain == *second.Domain {
+			if (block.AccountId == first.Id || block.AccountId == 0) && second.Domain != nil && strings.EqualFold(block.TargetDomain, *second.Domain) {
 				return true, nil
 			}
-			if (block.AccountId == second.Id || block.AccountId == 0) && first.Domain != nil && block.TargetDomain == *first.Domain {
+			if (block.AccountId == second.Id || block.AccountId == 0) && first.Domain != nil && strings.EqualFold(block.TargetDomain, *first.Domain) {
 				return true, nil
 			}
 		}
+	}
+	suspend, _, err := DomainSeverities(conn)
+	if err != nil {
+		return false, err
+	}
+	if first.Domain != nil && domainListed(suspend, *first.Domain) {
+		return true, nil
+	}
+	if second.Domain != nil && domainListed(suspend, *second.Domain) {
+		return true, nil
 	}
 	return false, nil
 }

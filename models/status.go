@@ -44,6 +44,7 @@ type Status struct { //nolint:recvcheck
 	ApplicationId  *uint64       `json:"application_id"`
 	Visibility     uint8         `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
 	ReblogId       *uint64       `json:"reblog_id"`
+	QuoteId        *uint64       `gorm:"index" json:"quote_id"`
 	ReblogsCount   uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
 	RepliesCount   uint64        `gorm:"not null;default:0"        json:"replies_count"`
 
@@ -70,7 +71,10 @@ type Status struct { //nolint:recvcheck
 	Poll         *Poll        `gorm:"foreignKey:status_id"                json:"poll"`
 	Account      *Account     `gorm:"foreignKey:account_id"               json:"account"`
 	Reblog       *Status      `gorm:"foreignKey:reblog_id"                json:"relog"`
-	Tags         Tags         `gorm:"many2many:status_tags;"              json:"tags"`
+	// Quote is loaded on demand. It is not a foreign key: deleting the
+	// quoted post must not fail, and the quote simply disappears.
+	Quote *Status `gorm:"-"                                    json:"-"`
+	Tags  Tags    `gorm:"many2many:status_tags;"              json:"tags"`
 
 	isLoadAllExtendFields bool    `gorm:"-"`
 	conversationIdChanged bool    `gorm:"-"`
@@ -103,6 +107,21 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 		err = tx.Model(s).Association("Reblog").Find(s.Reblog)
 		if err != nil {
 			return err
+		}
+	}
+
+	if s.QuoteId != nil && *s.QuoteId > 0 && (s.Quote == nil || s.Quote.Id == 0) {
+		quoted := &Status{}
+		err = tx.Preload("Account").Preload("Account.Extra").First(quoted, *s.QuoteId).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		err = nil
+		if quoted.Id > 0 {
+			if err = tx.Model(quoted).Association("Content").Find(&quoted.Content); err != nil {
+				return err
+			}
+			s.Quote = quoted
 		}
 	}
 
@@ -886,6 +905,59 @@ func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 		Preload("Reblog.Poll").
 		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Tags")
+}
+
+// AttachQuotes fills one level of Quote for statuses that have QuoteId set.
+// Quote is not a foreign key (gorm:"-"), so preloads never populate it, and
+// deleting the quoted post must not be blocked. Nested quotes are not loaded.
+func AttachQuotes(tx *gorm.DB, statuses []*Status) error {
+	if tx == nil || len(statuses) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0)
+	seen := map[uint64]bool{}
+	var consider func(*Status)
+	consider = func(s *Status) {
+		if s == nil || s.QuoteId == nil || *s.QuoteId == 0 || (s.Quote != nil && s.Quote.Id > 0) {
+			return
+		}
+		if !seen[*s.QuoteId] {
+			seen[*s.QuoteId] = true
+			ids = append(ids, *s.QuoteId)
+		}
+	}
+	for _, s := range statuses {
+		consider(s)
+		if s != nil {
+			consider(s.Reblog)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	quoted := make([]*Status, 0, len(ids))
+	if err := tx.Preload("Account").Preload("Account.Extra").Preload("Content").Where("id IN ?", ids).Find(&quoted).Error; err != nil {
+		return err
+	}
+	byID := make(map[uint64]*Status, len(quoted))
+	for _, q := range quoted {
+		q.Quote = nil
+		byID[q.Id] = q
+	}
+	var assign func(*Status)
+	assign = func(s *Status) {
+		if s == nil || s.QuoteId == nil || *s.QuoteId == 0 || (s.Quote != nil && s.Quote.Id > 0) {
+			return
+		}
+		s.Quote = byID[*s.QuoteId]
+	}
+	for _, s := range statuses {
+		assign(s)
+		if s != nil {
+			assign(s.Reblog)
+		}
+	}
+	return nil
 }
 
 type Statuses []*Status

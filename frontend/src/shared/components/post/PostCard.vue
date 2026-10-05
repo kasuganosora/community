@@ -9,14 +9,17 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { visibilityOption, REPLACE_MENU, REPLACE_DIALOG, REPLACE_SUCCESS } from '@/domains/post/domain/compose'
 import {
-  deletedStatusIds, editedStatuses, markStatusDeleted,
+  deletedStatusIds, editedStatuses, markStatusDeleted, markStatusEdited,
 } from '@/domains/post/presentation/composables/useStatusActions'
 import { isInteractiveClick } from '@/shared/utils/dom'
+import { useUiChrome } from '@/shared/composables/useUiChrome'
+import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostContent from './PostContent.vue'
 import PostActions from './PostActions.vue'
 import PostComposer from './PostComposer.vue'
+import FilteredNotice from './FilteredNotice.vue'
 
 const props = defineProps<{
   status: MastodonStatus
@@ -31,6 +34,8 @@ const emit = defineEmits<{
 const router = useRouter()
 const authStore = useAuthStore()
 const editing = ref(false)
+const reporting = ref(false)
+const { openQuote } = useUiChrome()
 
 const baseStatus = computed(() => props.status.reblog?.id ? props.status.reblog : props.status)
 // Pick up edits made elsewhere in this session (e.g. on the detail page).
@@ -39,9 +44,35 @@ const displayStatus = computed(() => {
   return edited ? { ...baseStatus.value, ...edited } : baseStatus.value
 })
 const isReblog = computed(() => !!props.status.reblog)
+const filterMarks = computed(() => {
+  const marks = new Set<string>()
+  for (const item of [props.status, displayStatus.value]) {
+    for (const mark of item.filtered ?? []) marks.add(mark)
+  }
+  return [...marks]
+})
 const isDeleted = computed(() => deletedStatusIds.has(props.status.id) || deletedStatusIds.has(displayStatus.value.id))
 const isOwn = computed(() => !!authStore.currentUser && displayStatus.value.account.id === authStore.currentUser.id)
 const visibility = computed(() => displayStatus.value.visibility !== 'public' ? visibilityOption(displayStatus.value.visibility) : null)
+const menuOptions = computed(() => isOwn.value
+  ? [
+      { content: displayStatus.value.pinned ? '取消置顶' : '置顶', value: 'pin' },
+      { content: REPLACE_MENU, value: 'edit' },
+      { content: '删除', value: 'delete', theme: 'error' as const },
+    ]
+  : [{ content: '举报', value: 'report' }])
+
+async function togglePin() {
+  try {
+    const updated = displayStatus.value.pinned
+      ? await postApi.unpin(displayStatus.value.id)
+      : await postApi.pin(displayStatus.value.id)
+    markStatusEdited(updated)
+    MessagePlugin.success(updated.pinned ? '已置顶' : '已取消置顶')
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : '置顶失败')
+  }
+}
 
 function navigateToDetail(query?: Record<string, string>) {
   const s = displayStatus.value
@@ -98,6 +129,8 @@ function onEdited(updated: MastodonStatus) {
 function onMenuClick(data: { value?: unknown }) {
   if (data.value === 'edit') editing.value = true
   else if (data.value === 'delete') confirmDelete()
+  else if (data.value === 'pin') void togglePin()
+  else if (data.value === 'report') reporting.value = true
 }
 </script>
 
@@ -156,9 +189,9 @@ function onMenuClick(data: { value?: unknown }) {
             <span class="sr-only">{{ visibility.short }}</span>
           </span>
           <t-dropdown
-            v-if="isOwn"
+            v-if="authStore.currentUser"
             trigger="click"
-            :options="[{ content: REPLACE_MENU, value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }]"
+            :options="menuOptions"
             @click="onMenuClick"
           >
             <button type="button" class="post-card__menu" aria-label="更多操作" @click.stop>
@@ -167,17 +200,18 @@ function onMenuClick(data: { value?: unknown }) {
           </t-dropdown>
         </div>
 
-        <PostContent :status="displayStatus" text-class="post-card__text" />
-
-        <!-- Actions -->
-        <PostReactions :status="displayStatus" />
-        <PostActions
-          :status="displayStatus"
-          @reply="navigateToDetail({ reply: '1' })"
-          @reblog="emit('reblog', displayStatus)"
-          @favourite="emit('favourite', displayStatus)"
-          @bookmark="emit('bookmark', displayStatus)"
-        />
+        <FilteredNotice :marks="filterMarks">
+          <PostContent :status="displayStatus" text-class="post-card__text" />
+          <PostReactions :status="displayStatus" />
+          <PostActions
+            :status="displayStatus"
+            @reply="navigateToDetail({ reply: '1' })"
+            @reblog="emit('reblog', displayStatus)"
+            @favourite="emit('favourite', displayStatus)"
+            @bookmark="emit('bookmark', displayStatus)"
+            @quote="openQuote(displayStatus)"
+          />
+        </FilteredNotice>
       </div>
     </div>
 
@@ -192,6 +226,7 @@ function onMenuClick(data: { value?: unknown }) {
     >
       <PostComposer :edit-status="displayStatus" autofocus @posted="onEdited" @cancel="editing = false" />
     </t-dialog>
+    <ReportDialog v-if="reporting" v-model="reporting" :account-id="displayStatus.account.id" :status-id="displayStatus.id" />
   </article>
 </template>
 
@@ -228,6 +263,12 @@ function onMenuClick(data: { value?: unknown }) {
 .post-card:active {
   background: var(--color-pressed);
   transition-duration: 0s;
+}
+
+@media (pointer: coarse) {
+  .post-card:active {
+    background: transparent;
+  }
 }
 
 .post-card:has(button:active, a:active, [role='button']:active) {

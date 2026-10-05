@@ -87,6 +87,24 @@ func TestFilter_GetStatusFilterAction(t *testing.T) {
 		result := filter.GetStatusFilterAction(status)
 		assert.Equal(t, uint8(FilterActionNone), result)
 	})
+
+	t.Run("Whole word inside a sentence", func(t *testing.T) {
+		filter := &Filter{
+			FilterAction: FilterActionWarn,
+			Keywords:     []*FilterKeyword{{Keyword: "spam", WholeWord: true}},
+		}
+		status := &Status{Content: StatusContent{Content: "this is SPAM today"}}
+		assert.Equal(t, uint8(FilterActionWarn), filter.GetStatusFilterAction(status))
+	})
+
+	t.Run("Whole word does not match inside another word", func(t *testing.T) {
+		filter := &Filter{
+			FilterAction: FilterActionHide,
+			Keywords:     []*FilterKeyword{{Keyword: "spam", WholeWord: true}},
+		}
+		status := &Status{Content: StatusContent{Content: "antispam"}}
+		assert.Equal(t, uint8(FilterActionNone), filter.GetStatusFilterAction(status))
+	})
 }
 
 func TestFilters_GetStatusFilters(t *testing.T) {
@@ -136,6 +154,25 @@ func TestFilters_GetStatusFilters(t *testing.T) {
 		status := &Status{AccountId: 2, Content: StatusContent{Content: "good content"}}
 		result := filters.GetStatusFilters(status, otherAccount)
 		assert.Empty(t, result)
+	})
+
+	t.Run("Own boost still filters the original", func(t *testing.T) {
+		original := &Status{AccountId: 2, Content: StatusContent{Content: "bad content"}}
+		boost := &Status{AccountId: account.Id, Reblog: original}
+		result := filters.GetStatusFilters(boost, account)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("Context limits where a filter applies", func(t *testing.T) {
+		scoped := Filters{{
+			Id:           9,
+			FilterAction: FilterActionHide,
+			Context:      []string{"home"},
+			Keywords:     []*FilterKeyword{{Keyword: "bad"}},
+		}}
+		status := &Status{AccountId: 2, Content: StatusContent{Content: "bad content"}}
+		assert.Empty(t, scoped.GetStatusFiltersIn(status, account, "public"))
+		assert.Len(t, scoped.GetStatusFiltersIn(status, account, "home"), 1)
 	})
 
 	_ = now

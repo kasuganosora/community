@@ -219,7 +219,7 @@ func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, er
 	if remote, _ := params.Other["remote"].(bool); remote {
 		params.Other["database_only"] = true
 	}
-	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
+	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, dropSilencedDomains)
 }
 
 func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, err error) {
@@ -243,5 +243,35 @@ func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, 
 	// Publication maintains the shared public feed. Filtered views use SQL so
 	// a separately cached filter cannot miss posts published after its rebuild.
 	params.Other["database_only"] = true
-	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
+	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, dropSilencedDomains)
+}
+
+// dropSilencedDomains keeps silenced instances out of public timelines without
+// hiding them from followers. Suspended domains are removed later by visibility.
+func dropSilencedDomains(statuses models.Statuses) models.Statuses {
+	_, silence, err := models.DomainSeverities(db.GetDB())
+	if err != nil || len(silence) == 0 {
+		return statuses
+	}
+	out := make(models.Statuses, 0, len(statuses))
+	for _, status := range statuses {
+		if statusDomainSilenced(silence, status) {
+			continue
+		}
+		out = append(out, status)
+	}
+	return out
+}
+
+func statusDomainSilenced(silence map[string]bool, status *models.Status) bool {
+	if status == nil {
+		return false
+	}
+	if status.Domain != nil && silence[strings.ToLower(*status.Domain)] {
+		return true
+	}
+	if status.Reblog != nil && status.Reblog.Domain != nil && silence[strings.ToLower(*status.Reblog.Domain)] {
+		return true
+	}
+	return false
 }

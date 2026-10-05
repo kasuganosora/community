@@ -63,6 +63,36 @@ export const userApi = {
     return data
   },
 
+  async block(id: string): Promise<MastodonRelationship> {
+    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/block`)
+    return data
+  },
+
+  async unblock(id: string): Promise<MastodonRelationship> {
+    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/unblock`)
+    return data
+  },
+
+  async mute(id: string): Promise<MastodonRelationship> {
+    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/mute`)
+    return data
+  },
+
+  async unmute(id: string): Promise<MastodonRelationship> {
+    const { data } = await client.post<MastodonRelationship>(`/api/v1/accounts/${encodeURIComponent(id)}/unmute`)
+    return data
+  },
+
+  async report(accountId: string, comment: string, category: string, statusIds: string[] = []): Promise<void> {
+    await client.post('/api/v1/reports', {
+      account_id: accountId,
+      status_ids: statusIds,
+      comment,
+      category,
+      forward: false,
+    })
+  },
+
   async getFollowers(id: string, params?: Pick<PaginationParams, 'max_id' | 'limit'>): Promise<MastodonAccount[]> {
     const { data } = await client.get<MastodonAccount[]>(`/api/v1/accounts/${encodeURIComponent(id)}/followers`, { params })
     return data

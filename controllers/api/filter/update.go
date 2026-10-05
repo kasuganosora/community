@@ -9,14 +9,16 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type UpdateFilterRequest struct {
-	Title     *string                  `json:"title"`
-	ExpiresIn *uint64                  `json:"expires_in"`
-	Context   *[]string                `json:"context"`
-	Keywords  *[]*models.FilterKeyword `json:"keywords"`
+	Title        *string                  `json:"title"`
+	ExpiresIn    *uint64                  `json:"expires_in"`
+	Context      *[]string                `json:"context"`
+	FilterAction *string                  `json:"filter_action"`
+	Keywords     *[]*models.FilterKeyword `json:"keywords"`
 }
 
 func Update(c *gin.Context) {
@@ -52,7 +54,23 @@ func Update(c *gin.Context) {
 	}
 
 	if req.Title != nil {
-		filter.Title = *req.Title
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			c.AbortWithStatusJSON(422, gin.H{"error": "标题不能为空"})
+
+			return
+		}
+		filter.Title = title
+	}
+
+	if req.FilterAction != nil {
+		action, ok := models.ParseFilterAction(*req.FilterAction)
+		if !ok || strings.TrimSpace(*req.FilterAction) == "" {
+			c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤动作"})
+
+			return
+		}
+		filter.FilterAction = action
 	}
 
 	if req.ExpiresIn != nil {
@@ -65,10 +83,28 @@ func Update(c *gin.Context) {
 	}
 
 	if req.Context != nil {
+		if !models.ValidFilterContexts(*req.Context) {
+			c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤范围"})
+
+			return
+		}
 		filter.Context = *req.Context
 	}
 
 	if req.Keywords != nil {
+		if len(*req.Keywords) == 0 {
+			c.AbortWithStatusJSON(422, gin.H{"error": "至少需要一个关键词"})
+
+			return
+		}
+		for _, keyword := range *req.Keywords {
+			if keyword == nil || strings.TrimSpace(keyword.Keyword) == "" {
+				c.AbortWithStatusJSON(422, gin.H{"error": "关键词不能为空"})
+
+				return
+			}
+			keyword.Keyword = strings.TrimSpace(keyword.Keyword)
+		}
 		filter.Keywords = updateKeywordsFields(filter.Keywords, *req.Keywords)
 	}
 

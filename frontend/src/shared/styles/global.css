@@ -30,11 +30,15 @@ html {
   scrollbar-gutter: stable;
   /* An app shell, not a document: don't let the browser steal the top of the timeline. */
   overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  /* Pinch stays. Double-tap zoom, which fights form fields, does not. */
+  touch-action: manipulation;
 }
 
 body,
 #app {
   overscroll-behavior: none;
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -365,6 +369,20 @@ html[data-scrolled] .home-header {
 
 .tab-bar__item:active {
   background: var(--color-pressed);
+}
+
+@media (pointer: coarse) {
+  .post-card:active,
+  .settings__row:active,
+  .tab-bar__item:active,
+  .notification-body:active,
+  .conversation:active,
+  .user-item:active,
+  .nav-item:active,
+  .user-info:active {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

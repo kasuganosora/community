@@ -2,7 +2,7 @@
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
 import { userApi } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
@@ -19,6 +19,7 @@ import { formatCount } from '@/shared/utils/format'
 import RichText from '@/shared/components/common/RichText.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 import AddToListButton from '@/domains/list/presentation/components/AddToListButton.vue'
+import ReportDialog from '../components/ReportDialog.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -27,6 +28,7 @@ const activeTab = ref<ProfileTabValue>('posts')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const relationships = useRelationships()
+const reporting = ref(false)
 
 // Request version guard — a slow lookup for a previous profile must not
 // overwrite the profile we navigated to.
@@ -97,6 +99,44 @@ async function toggleFollow() {
   }
 }
 
+async function applyRelation(next: Promise<import('@/shared/types/mastodon').MastodonRelationship>) {
+  if (!account.value) return
+  const rel = await next
+  relationships.rels.set(account.value.id, rel)
+}
+
+function toggleMute() {
+  if (!account.value || !relationship.value) return
+  const id = account.value.id
+  const muting = relationship.value.muting
+  void applyRelation(muting ? userApi.unmute(id) : userApi.mute(id)).catch((e) => {
+    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+  })
+}
+
+function toggleBlock() {
+  if (!account.value || !relationship.value) return
+  const id = account.value.id
+  const blocking = relationship.value.blocking
+  const dialog = DialogPlugin.confirm({
+    header: blocking ? '取消屏蔽？' : '屏蔽这个账号？',
+    body: blocking ? '取消后可以再次看到对方的帖子。' : '屏蔽后会取消互相关注，并且不再看到对方的帖子。',
+    confirmBtn: blocking ? '取消屏蔽' : { content: '屏蔽', theme: 'danger' },
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      try {
+        await applyRelation(blocking ? userApi.unblock(id) : userApi.block(id))
+        MessagePlugin.success(blocking ? '已取消屏蔽' : '已屏蔽')
+      } catch (e) {
+        MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+      } finally {
+        dialog.destroy()
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
 watch(activeTab, () => { if (account.value) feed.refresh() })
@@ -152,6 +192,11 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
         <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
       </div>
       <AddToListButton v-if="!isOwnProfile && followState === 'following'" :account-id="account.id" />
+      <div v-if="!isOwnProfile && followState !== 'unknown'" class="profile-relations">
+        <button type="button" class="btn btn--ghost btn--sm" @click="toggleMute">{{ relationship?.muting ? '取消静音' : '静音' }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" @click="toggleBlock">{{ relationship?.blocking ? '取消屏蔽' : '屏蔽' }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>
+      </div>
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 
@@ -189,6 +234,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
     />
+    <ReportDialog v-if="reporting" v-model="reporting" :account-id="account.id" />
   </div>
 
   <div v-else-if="loading" class="page-loading">
@@ -333,6 +379,13 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
   border-radius: var(--radius-sm, 4px);
   background: var(--color-fill, var(--bg-secondary));
   font-size: var(--font-xs);
+}
+
+.profile-relations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .stat-item strong {

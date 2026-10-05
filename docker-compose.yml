@@ -15,6 +15,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     # Everything in .env is passed to the container; the app reads its
     # configuration from environment variables (they override any .env file).
     env_file:
@@ -33,6 +35,9 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set in .env, e.g. https://social.example.org}
       ENCRYPTED_KEY: ${ENCRYPTED_KEY:?ENCRYPTED_KEY must be set in .env (at least 16 characters)}
       DATA_TRANSFER_DIR: /app/.data-transfers
+      MEILISEARCH_ENABLED: ${MEILISEARCH_ENABLED:-auto}
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
     networks:
       - community-net
 
@@ -72,10 +77,41 @@ services:
     networks:
       - community-net
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.12.8
+    container_name: community-meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili-data:/meili_data
+    environment:
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+      # An empty MEILI_MASTER_KEY makes Meilisearch refuse to start. Only pass
+      # it when MEILISEARCH_API_KEY is set; development mode otherwise accepts
+      # unauthenticated requests, which matches the app's empty key.
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$MEILISEARCH_API_KEY" ]; then
+          exec /bin/meilisearch --master-key "$$MEILISEARCH_API_KEY"
+        fi
+        exec /bin/meilisearch
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - community-net
+
 volumes:
   mysql-data:
   redis-data:
   transfer-data:
+  meili-data:
 
 networks:
   community-net:

@@ -209,6 +209,8 @@ export interface MastodonStatus {
   /** Embedded quote, when the server provides one. Link previews use `card`. */
   quote?: MastodonStatus | null
   quotes_count?: number
+  /** Filter actions that matched this status: "warn" and/or "hide". */
+  filtered?: string[]
 }
 
 /** Notification that always carries a status (mention, reblog, favourite, poll, update, status) */

@@ -88,18 +88,18 @@ func TestStatusSearchDocument_Struct(t *testing.T) {
 		ID:          "1",
 		Content:     "Status content",
 		SpoilerText: "Spoiler",
-		AccountID:   "2",
+		AccountID:   2,
 		Username:    "user",
-		Visibility:  "public",
+		Visibility:  0,
 		CreatedAt:   1234567890,
 	}
 
 	assert.Equal(t, "1", doc.ID)
 	assert.Equal(t, "Status content", doc.Content)
 	assert.Equal(t, "Spoiler", doc.SpoilerText)
-	assert.Equal(t, "2", doc.AccountID)
+	assert.Equal(t, uint64(2), doc.AccountID)
 	assert.Equal(t, "user", doc.Username)
-	assert.Equal(t, "public", doc.Visibility)
+	assert.Equal(t, 0, doc.Visibility)
 	assert.Equal(t, int64(1234567890), doc.CreatedAt)
 }
 

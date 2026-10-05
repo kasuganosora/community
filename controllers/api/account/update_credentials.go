@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 )
@@ -124,6 +125,7 @@ func UpdateCredentials(c *gin.Context) {
 
 	// 使账户缓存失效
 	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
+	search.QueueAccountIndex(account.Id)
 
 	c.JSON(200, serializer.ToAccount(account))
 }

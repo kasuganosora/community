@@ -127,7 +127,9 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 
 		// Search with Meilisearch
 		ids, err := meiliClient.SearchAccounts(keyword, int64(req.Limit), int64(req.Offset), followingIDs)
-		if err == nil && len(ids) > 0 {
+		if err != nil {
+			meiliClient.NoteFailure()
+		} else if len(ids) > 0 {
 			// Fetch full account data from database
 			err := db.GetDB().Model(&models.Account{}).
 				Preload("Emojis").Preload("Extra").
@@ -149,7 +151,11 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 					}
 				}
 
-				return serializer.ToAccounts(sortedAccounts)
+				kept, keepErr := models.FilterAccountsByDomainPolicy(db.GetDB(), currentAccount, sortedAccounts)
+				if keepErr != nil {
+					return []*serializer.Account{}
+				}
+				return serializer.ToAccounts(kept)
 			}
 		}
 	}
@@ -174,9 +180,9 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 		return []*serializer.Account{}
 	}
 
-	// Search by username or display name (fuzzy matching)
-	query = query.Where("username LIKE ? OR display_name LIKE ?",
-		"%"+usernameKeyword+"%", "%"+usernameKeyword+"%")
+	escapedUser := escapeLike(usernameKeyword)
+	query = query.Where("(username LIKE ? ESCAPE '\\\\' OR display_name LIKE ? ESCAPE '\\\\')",
+		"%"+escapedUser+"%", "%"+escapedUser+"%")
 
 	// Filter by domain if specified
 	if domain != "" {
@@ -199,8 +205,8 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 	// Order by relevance (exact match first, then partial match)
 	// Use parameterized query to prevent SQL injection
 	query = query.Order(db.GetDB().Raw(
-		"CASE WHEN username = ? THEN 0 WHEN username LIKE ? THEN 1 ELSE 2 END",
-		usernameKeyword, usernameKeyword+"%",
+		"CASE WHEN username = ? THEN 0 WHEN username LIKE ? ESCAPE '\\\\' THEN 1 ELSE 2 END",
+		usernameKeyword, escapeLike(usernameKeyword)+"%",
 	))
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error
@@ -208,7 +214,11 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 		return []*serializer.Account{}
 	}
 
-	return serializer.ToAccounts(accounts)
+	kept, keepErr := models.FilterAccountsByDomainPolicy(db.GetDB(), currentAccount, accounts)
+	if keepErr != nil {
+		return []*serializer.Account{}
+	}
+	return serializer.ToAccounts(kept)
 }
 
 // getFollowingIDs 获取关注用户ID列表.
@@ -243,7 +253,7 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 	if meiliClient.IsEnabled() {
 		// Parse advanced search query
 		keyword, filters := search.ParseSearchQuery(req.Q)
-		if keyword == "" {
+		if keyword == "" && len(filters) == 0 {
 			keyword = req.Q
 		}
 
@@ -271,7 +281,9 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 
 		// Search with Meilisearch
 		ids, err := meiliClient.SearchStatuses(keyword, int64(req.Limit), int64(req.Offset), accountID, visibilities)
-		if err == nil && len(ids) > 0 {
+		if err != nil {
+			meiliClient.NoteFailure()
+		} else if len(ids) > 0 {
 			// Fetch full status data from database
 			query := db.GetDB().Model(&models.Status{}).
 				Where("id IN (?)", ids)
@@ -315,11 +327,20 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 		}
 	}
 
-	// Fallback to database search
+	// Fallback to database search. Operators such as from: still apply when
+	// Meilisearch is down; unknown operators are dropped instead of being
+	// searched as literal text.
+	text, filters := search.ParseSearchQuery(req.Q)
+	if text == "" && filters["from"] == "" && req.AccountId == "" {
+		return []*serializer.Status{}
+	}
 	query := db.GetDB().Model(&models.Status{}).
-		Joins("LEFT JOIN status_contents ON statuses.id = status_contents.status_id").
-		Where("status_contents.content LIKE ? OR status_contents.spoiler_text LIKE ?",
-			"%"+req.Q+"%", "%"+req.Q+"%")
+		Joins("LEFT JOIN status_contents ON statuses.id = status_contents.status_id")
+	if text != "" {
+		pattern := "%" + escapeLike(text) + "%"
+		query = query.Where("(status_contents.content LIKE ? ESCAPE '\\\\' OR status_contents.spoiler_text LIKE ? ESCAPE '\\\\')",
+			pattern, pattern)
+	}
 
 	// Filter by public visibility only for non-own statuses
 	query = query.Where("visibility = ? OR account_id = ?",
@@ -328,6 +349,10 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 	// Filter by account_id if specified
 	if req.AccountId != "" {
 		query = query.Where("account_id = ?", req.AccountId)
+	}
+	if fromUser := strings.TrimPrefix(filters["from"], "@"); fromUser != "" {
+		query = query.Where("statuses.account_id IN (?)",
+			db.GetDB().Model(&models.Account{}).Select("id").Where("username = ?", fromUser))
 	}
 
 	// Exclude scheduled statuses
@@ -373,7 +398,9 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 	if meiliClient.IsEnabled() {
 		// Search with Meilisearch
 		names, err := meiliClient.SearchHashtags(keyword, int64(req.Limit), int64(req.Offset))
-		if err == nil && len(names) > 0 {
+		if err != nil {
+			meiliClient.NoteFailure()
+		} else if len(names) > 0 {
 			// Fetch full tag data from database
 			err := db.GetDB().Model(&models.Tag{}).
 				Where("name IN (?)", names).
@@ -399,10 +426,11 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 	}
 
 	// Fallback to database search
+	escaped := escapeLike(keyword)
 	query := db.GetDB().Model(&models.Tag{}).
 		// Tags parsed from statuses are stored without the leading '#'
 		// (featured tags are stored with it), so match both forms.
-		Where("name LIKE ? OR name LIKE ?", keyword+"%", "#"+keyword+"%").
+		Where("(name LIKE ? ESCAPE '\\\\' OR name LIKE ? ESCAPE '\\\\')", escaped+"%", "#"+escaped+"%").
 		Order("status_count DESC, name ASC")
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error
@@ -411,4 +439,11 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 	}
 
 	return serializer.ToTags(tags)
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }

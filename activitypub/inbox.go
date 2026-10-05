@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -98,6 +99,17 @@ func Inbox(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid activity identity"})
 		return
 	}
+	if host := actorHostname(actor); host != "" {
+		suspend, _, severityErr := models.DomainSeverities(db.GetDB())
+		if severityErr != nil {
+			c.JSON(500, gin.H{"error": "internal error"})
+			return
+		}
+		if suspend[host] {
+			c.JSON(403, gin.H{"error": "domain suspended"})
+			return
+		}
+	}
 	// Route based on activity type
 	activityType, _ := activity["type"].(string)
 
@@ -140,6 +152,14 @@ func Inbox(c *gin.Context) {
 			c.JSON(200, gin.H{"status": "accepted"})
 		}
 	})
+}
+
+func actorHostname(actor string) string {
+	parsed, err := url.Parse(actor)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Hostname())
 }
 
 // isValidActivityPubContentType checks if the Content-Type is valid for ActivityPub.

@@ -1,7 +1,10 @@
 package models
 
 import (
+	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // DomainBlock represents an instance-level domain block (admin setting).
@@ -23,3 +26,91 @@ func (DomainBlock) TableName() string {
 }
 
 type DomainBlocks []*DomainBlock
+
+func isMissingRelation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such table") || strings.Contains(msg, "doesn't exist") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "undefined table")
+}
+
+// DomainSeverities loads instance blocks. suspend hides the domain everywhere;
+// silence only drops it from public timelines. A missing table is treated as
+// no policy so partial test schemas keep working.
+func DomainSeverities(conn *gorm.DB) (suspend map[string]bool, silence map[string]bool, err error) {
+	suspend = map[string]bool{}
+	silence = map[string]bool{}
+	if conn == nil {
+		return suspend, silence, nil
+	}
+	var rows []DomainBlock
+	if err = conn.Select("domain", "severity").Find(&rows).Error; err != nil {
+		if isMissingRelation(err) {
+			return suspend, silence, nil
+		}
+		return nil, nil, err
+	}
+	for _, row := range rows {
+		domain := strings.ToLower(strings.TrimSpace(row.Domain))
+		if domain == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(row.Severity)) {
+		case "", "suspend":
+			suspend[domain] = true
+		case "silence":
+			silence[domain] = true
+		}
+	}
+	return suspend, silence, nil
+}
+
+func domainListed(set map[string]bool, domain string) bool {
+	if domain == "" || len(set) == 0 {
+		return false
+	}
+	return set[domain] || set[strings.ToLower(domain)]
+}
+
+// FilterAccountsByDomainPolicy drops accounts on a suspended instance domain
+// or a domain the viewer has blocked.
+func FilterAccountsByDomainPolicy(conn *gorm.DB, viewer *Account, accounts []*Account) ([]*Account, error) {
+	if len(accounts) == 0 {
+		return accounts, nil
+	}
+	blocked := map[string]bool{}
+	suspend, _, err := DomainSeverities(conn)
+	if err != nil {
+		return nil, err
+	}
+	for domain := range suspend {
+		blocked[domain] = true
+	}
+	if viewer != nil && conn != nil {
+		var rows []Block
+		if err = conn.Where("account_id = ? AND type = ?", viewer.Id, BlockTypeDomain).Find(&rows).Error; err != nil {
+			if !isMissingRelation(err) {
+				return nil, err
+			}
+		} else {
+			for _, row := range rows {
+				domain := strings.ToLower(strings.TrimSpace(row.TargetDomain))
+				if domain != "" {
+					blocked[domain] = true
+				}
+			}
+		}
+	}
+	if len(blocked) == 0 {
+		return accounts, nil
+	}
+	out := make([]*Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account != nil && account.Domain != nil && domainListed(blocked, *account.Domain) {
+			continue
+		}
+		out = append(out, account)
+	}
+	return out, nil
+}

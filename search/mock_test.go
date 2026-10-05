@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	ms "github.com/meilisearch/meilisearch-go"
 )
@@ -59,6 +60,10 @@ func (m *mockServiceManager) GetStatsWithContext(_ context.Context, _ *ms.StatsP
 }
 
 func (m *mockServiceManager) Close() {}
+
+func (m *mockServiceManager) GetIndexWithContext(_ context.Context, uid string) (*ms.IndexResult, error) {
+	return &ms.IndexResult{UID: uid, PrimaryKey: "id"}, nil
+}
 
 // --- mockIndexManager ---------------------------------------------------------
 
@@ -129,6 +134,10 @@ func (m *mockIndexManager) UpdateSettingsWithContext(_ context.Context, _ *ms.Se
 		return nil, m.settingsErr
 	}
 	return &ms.TaskInfo{TaskUID: 1}, nil
+}
+
+func (m *mockIndexManager) WaitForTaskWithContext(_ context.Context, taskUID int64, _ time.Duration) (*ms.Task, error) {
+	return &ms.Task{Status: ms.TaskStatusSucceeded, TaskUID: taskUID}, nil
 }
 
 // --- helpers ------------------------------------------------------------------

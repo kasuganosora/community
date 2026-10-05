@@ -6,6 +6,10 @@ import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
 import { canBoost, visibilityOption, DIRECT_SCOPE } from '../../domain/compose'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { useUiChrome } from '@/shared/composables/useUiChrome'
+import { MessagePlugin } from 'tdesign-vue-next'
+import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vue'
 import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
 } from '../../presentation/composables/useStatusActions'
@@ -13,10 +17,14 @@ import PostCard from '@/shared/components/post/PostCard.vue'
 import PostContent from '@/shared/components/post/PostContent.vue'
 import PostActions from '@/shared/components/post/PostActions.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
+import FilteredNotice from '@/shared/components/post/FilteredNotice.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const { openQuote } = useUiChrome()
+const reporting = ref(false)
 
 const status = ref<MastodonStatus | null>(null)
 const ancestors = ref<MastodonStatus[]>([])
@@ -34,9 +42,17 @@ const mainStatus = computed(() => {
   return edited ? { ...base, ...edited } : base
 })
 const heading = computed(() => mainStatus.value?.visibility === 'direct' ? '私信' : '帖子')
+const isOwn = computed(() => !!mainStatus.value && mainStatus.value.account.id === authStore.currentUser?.id)
 const visibility = computed(() => {
   const v = mainStatus.value?.visibility
   return v && v !== 'public' ? visibilityOption(v) : null
+})
+const filterMarks = computed(() => {
+  const marks = new Set<string>()
+  for (const item of [status.value, mainStatus.value]) {
+    for (const mark of item?.filtered ?? []) marks.add(mark)
+  }
+  return [...marks]
 })
 
 // All status arrays (ancestors + descendants + main status) need updates;
@@ -121,6 +137,17 @@ function openProfile() {
   const a = mainStatus.value.account
   router.push({ name: 'profile', params: { username: a.acct || a.username } }).catch(() => {})
 }
+
+async function togglePin() {
+  if (!mainStatus.value) return
+  try {
+    const updated = mainStatus.value.pinned ? await postApi.unpin(mainStatus.value.id) : await postApi.pin(mainStatus.value.id)
+    status.value = updated
+    MessagePlugin.success(updated.pinned ? '已置顶' : '已取消置顶')
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : '置顶失败')
+  }
+}
 </script>
 
 <template>
@@ -167,35 +194,40 @@ function openProfile() {
           </div>
         </div>
 
-        <PostContent :status="mainStatus" text-class="detail-main__content rich-text" />
+        <FilteredNotice :marks="filterMarks">
+          <PostContent :status="mainStatus" text-class="detail-main__content rich-text" />
 
-        <div class="detail-main__time">
-          <span v-if="visibility" class="detail-main__visibility" :title="visibility.label">
-            <t-icon :name="visibility.icon" :size="14" />
-            {{ visibility.label }}
-            <span aria-hidden="true"> · </span>
-          </span>
-          <time :datetime="mainStatus.created_at">
-            {{ new Date(mainStatus.created_at).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
-          </time>
-          <span v-if="mainStatus.edited_at"> · 已编辑</span>
-        </div>
-        <p v-if="mainStatus.visibility === 'direct'" class="detail-main__scope">{{ DIRECT_SCOPE }}</p>
+          <div class="detail-main__time">
+            <span v-if="visibility" class="detail-main__visibility" :title="visibility.label">
+              <t-icon :name="visibility.icon" :size="14" />
+              {{ visibility.label }}
+              <span aria-hidden="true"> · </span>
+            </span>
+            <time :datetime="mainStatus.created_at">
+              {{ new Date(mainStatus.created_at).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
+            </time>
+            <span v-if="mainStatus.edited_at"> · 已编辑</span>
+            <button v-if="isOwn" type="button" class="btn btn--ghost btn--sm" @click="togglePin">{{ mainStatus.pinned ? '取消置顶' : '置顶' }}</button>
+            <button v-else-if="authStore.currentUser" type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>
+          </div>
+          <p v-if="mainStatus.visibility === 'direct'" class="detail-main__scope">{{ DIRECT_SCOPE }}</p>
 
-        <div class="detail-main__stats">
-          <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
-          <span><strong>{{ mainStatus.favourites_count }}</strong> 个喜欢</span>
-          <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
-        </div>
+          <div class="detail-main__stats">
+            <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
+            <span><strong>{{ mainStatus.favourites_count }}</strong> 个喜欢</span>
+            <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
+          </div>
 
-        <PostReactions :status="mainStatus" />
-        <PostActions
-          :status="mainStatus"
-          @reply="focusReply"
-          @reblog="toggleReblog(mainStatus)"
-          @favourite="toggleFavourite(mainStatus)"
-          @bookmark="toggleBookmark(mainStatus)"
-        />
+          <PostReactions :status="mainStatus" />
+          <PostActions
+            :status="mainStatus"
+            @reply="focusReply"
+            @reblog="toggleReblog(mainStatus)"
+            @favourite="toggleFavourite(mainStatus)"
+            @bookmark="toggleBookmark(mainStatus)"
+            @quote="openQuote(mainStatus)"
+          />
+        </FilteredNotice>
       </article>
 
       <PostComposer ref="replyComposer" :reply-to="mainStatus" @posted="onReplied" />
@@ -210,6 +242,7 @@ function openProfile() {
         @bookmark="toggleBookmark"
       />
     </template>
+    <ReportDialog v-if="reporting && mainStatus" v-model="reporting" :account-id="mainStatus.account.id" :status-id="mainStatus.id" />
   </div>
 </template>
 

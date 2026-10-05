@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"strings"
+
+	"gorm.io/gorm"
+)
 
 // FilterVisibleStatuses authorizes each root and its embedded original using
 // request-local bulk reads. It never stores an authorization result on a model
@@ -124,7 +128,7 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 				if b.Type == BlockTypeAccount {
 					globalAccounts[b.TargetAccountId] = true
 				} else if b.Type == BlockTypeDomain {
-					globalDomains[b.TargetDomain] = true
+					globalDomains[strings.ToLower(b.TargetDomain)] = true
 				}
 				continue
 			}
@@ -132,17 +136,24 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 				if b.Type == BlockTypeAccount {
 					blockedAccounts[b.TargetAccountId] = true
 				} else if b.Type == BlockTypeDomain {
-					blockedDomains[b.TargetDomain] = true
+					blockedDomains[strings.ToLower(b.TargetDomain)] = true
 				}
 				continue
 			}
 			if b.Type == BlockTypeAccount && b.TargetAccountId == viewerID {
 				blockedAccounts[b.AccountId] = true
 			}
-			if b.Type == BlockTypeDomain && viewer != nil && viewer.Domain != nil && b.TargetDomain == viewerDomain {
+			if b.Type == BlockTypeDomain && viewer != nil && viewer.Domain != nil && strings.EqualFold(b.TargetDomain, viewerDomain) {
 				blockedAccounts[b.AccountId] = true
 			}
 		}
+	}
+	suspend, _, err := DomainSeverities(conn)
+	if err != nil {
+		return nil, err
+	}
+	for domain := range suspend {
+		globalDomains[domain] = true
 	}
 	var allowed func(*Status, map[*Status]bool) bool
 	allowed = func(s *Status, chain map[*Status]bool) bool {
@@ -155,7 +166,7 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 		chain[s] = true
 		defer delete(chain, s)
 		a := authors[s.AccountId]
-		if a == nil || a.IsBan || globalAccounts[a.Id] || (a.Domain != nil && globalDomains[*a.Domain]) {
+		if a == nil || a.IsBan || globalAccounts[a.Id] || (a.Domain != nil && domainListed(globalDomains, *a.Domain)) {
 			return false
 		}
 		owner := viewer != nil && s.AccountId == viewer.Id
@@ -171,10 +182,10 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 				if globalAccounts[viewer.Id] || globalAccounts[a.Id] || blockedAccounts[a.Id] {
 					return false
 				}
-				if viewer.Domain != nil && globalDomains[*viewer.Domain] {
+				if viewer.Domain != nil && domainListed(globalDomains, *viewer.Domain) {
 					return false
 				}
-				if a.Domain != nil && (globalDomains[*a.Domain] || blockedDomains[*a.Domain]) {
+				if a.Domain != nil && (domainListed(globalDomains, *a.Domain) || domainListed(blockedDomains, *a.Domain)) {
 					return false
 				}
 			}

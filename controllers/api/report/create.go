@@ -66,7 +66,9 @@ func Create(c *gin.Context) {
 
 	report.SetCategory(req.Category)
 
-	err = db.GetDB().Create(report).Error
+	// Unset moderator fields are 0, which is not an account. The columns are
+	// nullable; inserting 0 trips the foreign key.
+	err = db.GetDB().Omit("ActionTakenByAccountId", "AssignedAccountId").Create(report).Error
 	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToReport(report, currentAccount)

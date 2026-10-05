@@ -38,6 +38,7 @@ type Status struct {
 	Content            string        `json:"content"`
 	Filtered           []string      `json:"filtered"`
 	Reblog             *Status       `json:"reblog"`
+	Quote              *Status       `json:"quote,omitempty"`
 	Application        *Application  `json:"application"`
 	Account            *Account      `json:"account"`
 	MediaAttachments   []*Attachment `json:"media_attachments"`
@@ -100,6 +101,13 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 		return ret, err
 	}
 
+	if status.Quote != nil && status.Quote.Id > 0 {
+		ret.Quote, err = toStatusBase(status.Quote, accounts)
+		if err != nil {
+			return ret, err
+		}
+	}
+
 	ret.MediaAttachments = ToAttachments(status.Attachments)
 	ret.Application = ToApplication(status.Application)
 	ret.Mentions = ToMentions(status.ToAccounts)
@@ -120,6 +128,9 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 }
 
 func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Status, err error) {
+	if err = models.AttachQuotes(db.GetDB(), []*models.Status{status}); err != nil {
+		return nil, err
+	}
 	ret, err = ToStatusBase(status)
 	if err != nil {
 		return ret, err
@@ -134,6 +145,16 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		ret.Reblog, err = ToStatus(status.Reblog, currentAccount)
 		if err != nil {
 			return ret, err
+		}
+	}
+
+	if ret.Quote != nil && status.Quote != nil {
+		visible, viewErr := status.Quote.CanViewEx(db.GetDB(), currentAccount)
+		if viewErr != nil {
+			return ret, viewErr
+		}
+		if !visible {
+			ret.Quote = nil
 		}
 	}
 
@@ -184,7 +205,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		return ret, err
 	}
 
-	ret.Filtered = filters.GetStatusFilters(status, currentAccount).GetFilterActionsName()
+	ret.Filtered = filters.GetStatusFiltersIn(status, currentAccount, filterContextName(dbConn)).GetFilterActionsName()
 
 	return ret, err
 }
@@ -230,6 +251,9 @@ func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *m
 	}
 	for _, s := range statuses {
 		collect(s)
+	}
+	if err = models.AttachQuotes(conn, statuses); err != nil {
+		return nil, err
 	}
 	ids := make([]uint64, 0, len(flat))
 	authors := make([]*models.Account, 0, len(flat))
@@ -315,7 +339,7 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		out.Reblogged = reblogged[s.Id]
 		out.Bookmarked = bookmarked[s.Id]
 		out.Muted = muted[s.Id] || mutedAuthors[s.AccountId] || (s.Reblog != nil && mutedAuthors[s.Reblog.AccountId])
-		out.Filtered = filters.GetStatusFilters(s, currentAccount).GetFilterActionsName()
+		out.Filtered = filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)).GetFilterActionsName()
 		out.Poll = serializedPolls[s.Id]
 		apply(s.Reblog, out.Reblog)
 	}
@@ -329,14 +353,43 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		if e != nil {
 			return nil, e
 		}
+		if err = clearHiddenQuote(conn, s, out, currentAccount); err != nil {
+			return nil, err
+		}
+		if s.Reblog != nil && out.Reblog != nil {
+			if err = clearHiddenQuote(conn, s.Reblog, out.Reblog, currentAccount); err != nil {
+				return nil, err
+			}
+		}
 		apply(s, out)
 		ret = append(ret, out)
 	}
 	return ret, nil
 }
 
+func filterContextName(conn *gorm.DB) string {
+	if conn == nil || conn.Statement == nil {
+		return ""
+	}
+	return models.FilterContextOf(conn.Statement.Context)
+}
+
 // contentRenderOptions returns the options used to render local plain text
 // (status content, profile notes) as HTML for this instance.
 func contentRenderOptions() htmlsafe.RenderOptions {
 	return htmlsafe.OptionsForBaseURL(systemsettings.GetBaseURL())
+}
+
+func clearHiddenQuote(conn *gorm.DB, src *models.Status, out *Status, viewer *models.Account) error {
+	if out == nil || out.Quote == nil || src == nil || src.Quote == nil {
+		return nil
+	}
+	visible, err := src.Quote.CanViewEx(conn, viewer)
+	if err != nil {
+		return err
+	}
+	if !visible {
+		out.Quote = nil
+	}
+	return nil
 }

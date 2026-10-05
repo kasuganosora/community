@@ -28,6 +28,7 @@ type CreateStatusRequest struct {
 	Visibility  string             `binding:"required,oneof=public unlisted private direct" json:"visibility"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    string             `json:"language"`
+	QuoteId     string             `binding:"omitempty,numeric"                             json:"quote_id"`
 }
 
 type CreatePollContent struct {
@@ -89,6 +90,40 @@ func Create(c *gin.Context) {
 		}
 		status.InReplyToId = &inReplyToId
 		status.InReplyToAccountId = &parent.AccountId
+	}
+
+	if req.QuoteId != "" {
+		quoteId, parseErr := strconv.ParseUint(req.QuoteId, 10, 64)
+		controllers.AbortIfError(c, parseErr)
+
+		var quoted models.Status
+		if err := db.GetDB().First(&quoted, quoteId).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "quote target not found"})
+			return
+		}
+		if quoted.ReblogId != nil && *quoted.ReblogId > 0 {
+			quoteId = *quoted.ReblogId
+			if err := db.GetDB().First(&quoted, quoteId).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "quote target not found"})
+				return
+			}
+		}
+		allowed, viewErr := quoted.CanViewEx(db.GetDB(), currentAccount)
+		if viewErr != nil {
+			controllers.AbortIfError(c, viewErr)
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "quote target is not visible"})
+			return
+		}
+		switch quoted.Visibility {
+		case models.StatusVisibilityPublic, models.StatusVisibilityUnlisted:
+		default:
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "只能引用公开或不公开的帖子"})
+			return
+		}
+		status.QuoteId = &quoteId
 	}
 
 	if req.Poll != nil {
@@ -157,7 +192,7 @@ func Create(c *gin.Context) {
 // one-option polls and polls with more than max_options were accepted.
 // It returns an error message, or "" if the request is valid.
 func validateCreateStatusRequest(req *CreateStatusRequest) string {
-	if strings.TrimSpace(req.Status) == "" && len(req.MediaIds) == 0 && req.Poll == nil {
+	if strings.TrimSpace(req.Status) == "" && len(req.MediaIds) == 0 && req.Poll == nil && strings.TrimSpace(req.QuoteId) == "" {
 		return "Validation failed: Text can't be blank"
 	}
 

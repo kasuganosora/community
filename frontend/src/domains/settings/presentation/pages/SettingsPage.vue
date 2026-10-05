@@ -9,6 +9,8 @@ import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import PasskeySettings from '../components/PasskeySettings.vue'
 import AuthorizedApps from '../components/AuthorizedApps.vue'
+import FilterSettings from '../components/FilterSettings.vue'
+import DomainBlockSettings from '../components/DomainBlockSettings.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
 
@@ -102,6 +104,20 @@ async function logout() {
         </div>
       </section>
 
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-filters">
+        <h2 id="settings-filters" class="settings__heading">过滤器</h2>
+        <div class="settings__group settings__group--padded">
+          <FilterSettings />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-domains">
+        <h2 id="settings-domains" class="settings__heading">域名屏蔽</h2>
+        <div class="settings__group settings__group--padded">
+          <DomainBlockSettings />
+        </div>
+      </section>
+
       <section v-if="authStore.currentUser" class="settings__section"><h2 class="settings__heading">数据</h2><div class="settings__group"><router-link to="/settings/data" class="settings__row">个人数据导入与导出</router-link></div></section>
 
       <section v-if="authStore.currentUser?.is_admin" class="settings__section" aria-labelledby="settings-admin">
@@ -185,6 +201,12 @@ async function logout() {
 .settings__row:active {
   background: var(--color-pressed);
   transition-duration: 0s;
+}
+
+@media (pointer: coarse) {
+  .settings__row:active {
+    background: transparent;
+  }
 }
 
 .settings__row-text {
