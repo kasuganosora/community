@@ -71,7 +71,7 @@ async function showResponders() {
         <svg v-if="reaction.me" class="reaction__check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8 3 3 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
       <button v-if="auth.currentUser" ref="addButton" type="button" class="reaction reaction--add" :class="{ 'reaction--open': choosing }" aria-label="添加表情回应" :aria-expanded="choosing" :disabled="pending" @click="choosing = !choosing">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.3 14a8.5 8.5 0 1 1-9-10.5M8 13.5c1 2 4 2 5 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /><circle cx="7.8" cy="10" r=".9" fill="currentColor" /><circle cx="13.2" cy="10" r=".9" fill="currentColor" /><path d="M18 3v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
       </button>
       <button v-if="reactions.length" type="button" class="post-reactions__details" :aria-label="`查看回应者，共 ${total} 个回应`" @click="showResponders">查看回应者<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
     </div>
@@ -109,7 +109,7 @@ async function showResponders() {
 .reaction__check { width: 12px; height: 12px; flex-shrink: 0; }
 .reaction--mine { border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-accent-text); }
 .reaction--readonly:disabled { opacity: 1; cursor: default; }
-.reaction--add { width: 34px; padding: 5px; color: var(--color-label-secondary); background: transparent; border-color: var(--color-separator); }
+.reaction--add { width: 34px; padding: 5px; color: var(--color-label-secondary); background: transparent; border-color: transparent; }
 .reaction--add svg { width: 21px; height: 21px; }
 .reaction--open { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent-text); }
 .post-reactions__details { display: inline-flex; align-items: center; gap: 2px; min-height: 34px; padding: 4px 6px; color: var(--color-label-secondary); background: transparent; border: 0; border-radius: 8px; font-size: 11px; cursor: pointer; }
