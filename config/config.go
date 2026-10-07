@@ -46,6 +46,14 @@ type Config struct {
 
 var C Config
 
+// configuredKeys distinguishes deployed values from defaults for the admin UI.
+var configuredKeys = map[string]bool{}
+
+// IsExplicitlyConfigured includes nonempty .env and process environment values.
+func IsExplicitlyConfigured(key string) bool {
+	return configuredKeys[key] || strings.TrimSpace(os.Getenv(key)) != ""
+}
+
 // appBaseURLConfigured records whether APP_BASE_URL was set explicitly (in the
 // environment or the .env file) rather than taken from the default.
 var appBaseURLConfigured bool
@@ -214,6 +222,10 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 
 // loadMapToConfig 将 map 中的数据加载到 Config 中.
 func loadMapToConfig(data map[string]string) {
+	configuredKeys = make(map[string]bool, len(data))
+	for key, value := range data {
+		configuredKeys[key] = strings.TrimSpace(value) != ""
+	}
 	sType := reflect.TypeFor[Config]()
 	sValue := reflect.ValueOf(&C).Elem()
 

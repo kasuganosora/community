@@ -36,6 +36,7 @@ var ScripsType = []MigrationScript{
 	QuoteStatusScript{},
 	FilterActionDefaultScript{},
 	FilterExpiresNullableScript{},
+	AdminManagementScript{},
 }
 
 type MigrationScript interface {

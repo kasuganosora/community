@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AnalyticsOverview from '../components/AnalyticsOverview.vue'
 import { dashboardApi, type AdminMeasure } from '../../infrastructure/dashboardApi'
 import { instanceApi, type InstanceInfo } from '@/domains/instance/infrastructure/instanceApi'
 const measures = ref<AdminMeasure[] | null>(null)
@@ -42,6 +43,7 @@ onMounted(load)
       <section class="admin-card overview-instance"><div class="overview-section-heading"><h2>你的社区</h2><t-icon name="internet" :size="20" aria-hidden="true" /></div><p v-if="instanceError" role="alert" class="admin-error">{{ instanceError }}</p><template v-if="instance"><strong class="overview-instance-title">{{ instance.title || 'Community' }}</strong><p class="overview-domain">{{ instance.domain || instance.uri || '—' }}</p><dl><div><dt>注册</dt><dd>{{ instance.registrations?.enabled === true ? '开放注册' : instance.registrations?.enabled === false ? '已关闭' : '未提供状态' }}</dd></div><div><dt>网络</dt><dd>ActivityPub · Matrix</dd></div><div><dt>统计更新</dt><dd>{{ updated || '尚未更新' }}</dd></div></dl></template><router-link to="/admin/settings" class="admin-button">管理站点设置 <t-icon name="arrow-right" aria-hidden="true" /></router-link></section>
     </div>
     <section class="admin-card overview-federation"><div class="overview-federation-symbol" aria-hidden="true"><t-icon name="internet" :size="34" /></div><div><h2>让社区与更大的世界相连</h2><p>管理联邦中继、查看 Matrix 连接，或从原站点迁入完整数据。</p></div><div class="overview-federation-links"><router-link to="/admin/federation" class="admin-button">联邦中继</router-link><router-link to="/admin/system" class="admin-button">Matrix 服务</router-link></div></section>
+    <AnalyticsOverview />
     <p class="overview-footnote">统计来自本站数据库；收录帖子包含已接收的远程内容。</p>
   </div>
 </template>

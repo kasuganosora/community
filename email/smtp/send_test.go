@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	netsmtp "net/smtp"
 	"os"
 	"strings"
 	"sync"
@@ -196,7 +197,7 @@ func TestNewDrive_AuthConfigured(t *testing.T) {
 	require.NotNil(t, d.auth)
 
 	// Verify the auth implementation produces the expected PLAIN payload.
-	proto, resp, err := d.auth.Start(nil)
+	proto, resp, err := d.auth.Start(&netsmtp.ServerInfo{Name: "smtp.example.com", TLS: true})
 	require.NoError(t, err)
 	assert.Equal(t, "PLAIN", proto)
 	// identity\0username\0password

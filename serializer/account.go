@@ -11,33 +11,35 @@ import (
 )
 
 type Account struct {
-	Id                string     `json:"id"`
-	Username          string     `json:"username"`
-	Acct              string     `json:"acct"`
-	DisplayName       string     `json:"display_name"`
-	Locked            bool       `json:"locked"`
-	Bot               bool       `json:"bot"`
-	Discoverable      bool       `json:"discoverable"`
-	Indexable         bool       `json:"indexable"`
-	Group             bool       `json:"group"`
-	CreatedAt         *time.Time `json:"created_at"`
-	Note              string     `json:"note"`
-	Url               string     `json:"url"`
-	Uri               string     `json:"uri"`
-	Avatar            string     `json:"avatar"`
-	AvatarStatic      string     `json:"avatar_static"`
-	AvatarDescription string     `json:"avatar_description"`
-	Header            string     `json:"header"`
-	HeaderStatic      string     `json:"header_static"`
-	HeaderDescription string     `json:"header_description"`
-	FollowersCount    int        `json:"followers_count"`
-	FollowingCount    int        `json:"following_count"`
-	StatusesCount     int        `json:"statuses_count"`
-	LastStatusAt      *time.Time `json:"last_status_at"`
-	HideCollections   bool       `json:"hide_collections"`
-	Emoji             []*Emoji   `json:"emojis"`
-	Fields            []Field    `json:"fields"`
-	NoIndex           bool       `json:"noindex,omitempty"`
+	AvatarDecorationURL string     `json:"avatar_decoration_url,omitempty"`
+	AvatarDecorationID  string     `json:"avatar_decoration_id,omitempty"`
+	Id                  string     `json:"id"`
+	Username            string     `json:"username"`
+	Acct                string     `json:"acct"`
+	DisplayName         string     `json:"display_name"`
+	Locked              bool       `json:"locked"`
+	Bot                 bool       `json:"bot"`
+	Discoverable        bool       `json:"discoverable"`
+	Indexable           bool       `json:"indexable"`
+	Group               bool       `json:"group"`
+	CreatedAt           *time.Time `json:"created_at"`
+	Note                string     `json:"note"`
+	Url                 string     `json:"url"`
+	Uri                 string     `json:"uri"`
+	Avatar              string     `json:"avatar"`
+	AvatarStatic        string     `json:"avatar_static"`
+	AvatarDescription   string     `json:"avatar_description"`
+	Header              string     `json:"header"`
+	HeaderStatic        string     `json:"header_static"`
+	HeaderDescription   string     `json:"header_description"`
+	FollowersCount      int        `json:"followers_count"`
+	FollowingCount      int        `json:"following_count"`
+	StatusesCount       int        `json:"statuses_count"`
+	LastStatusAt        *time.Time `json:"last_status_at"`
+	HideCollections     bool       `json:"hide_collections"`
+	Emoji               []*Emoji   `json:"emojis"`
+	Fields              []Field    `json:"fields"`
+	NoIndex             bool       `json:"noindex,omitempty"`
 
 	intId uint64 `json:"-"`
 }
@@ -82,27 +84,29 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 	acct, profileURL, actorURI := accountAddress(account)
 
 	acc = &Account{
-		Username:        account.Username,
-		Acct:            acct,
-		DisplayName:     account.DisplayName,
-		Locked:          account.Locked,
-		Bot:             account.Bot,
-		Discoverable:    account.Discoverable,
-		Indexable:       !account.NoIndex,
-		Group:           account.Group,
-		CreatedAt:       account.CreatedAt,
-		Note:            account.NoteHTML(options),
-		Url:             profileURL,
-		Uri:             actorURI,
-		Avatar:          account.Avatar,
-		AvatarStatic:    account.AvatarStatic,
-		Header:          account.Header,
-		HeaderStatic:    account.HeaderStatic,
-		LastStatusAt:    account.LastStatusAt,
-		HideCollections: account.HideCollections,
-		NoIndex:         account.NoIndex,
-		Emoji:           emojis,
-		intId:           account.Id,
+		Username:            account.Username,
+		AvatarDecorationURL: avatarDecorationURL(account),
+		AvatarDecorationID:  strconv.FormatUint(account.AvatarDecorationID, 10),
+		Acct:                acct,
+		DisplayName:         account.DisplayName,
+		Locked:              account.Locked,
+		Bot:                 account.Bot,
+		Discoverable:        account.Discoverable,
+		Indexable:           !account.NoIndex,
+		Group:               account.Group,
+		CreatedAt:           account.CreatedAt,
+		Note:                account.NoteHTML(options),
+		Url:                 profileURL,
+		Uri:                 actorURI,
+		Avatar:              account.Avatar,
+		AvatarStatic:        account.AvatarStatic,
+		Header:              account.Header,
+		HeaderStatic:        account.HeaderStatic,
+		LastStatusAt:        account.LastStatusAt,
+		HideCollections:     account.HideCollections,
+		NoIndex:             account.NoIndex,
+		Emoji:               emojis,
+		intId:               account.Id,
 	}
 
 	acc.Id = strconv.FormatUint(account.Id, 10)
@@ -179,4 +183,11 @@ func accountEmojis(account *models.Account) []*Emoji {
 		_ = db.GetDB().Model(account).Association("Emojis").Find(&emojis)
 	}
 	return ToEmojis(models.EmojisInText(emojis, text, domain, false))
+}
+
+func avatarDecorationURL(account *models.Account) string {
+	if account.AvatarDecorationID == 0 || !account.IsLocal() {
+		return ""
+	}
+	return "/api/v1/avatar_decorations/" + strconv.FormatUint(account.AvatarDecorationID, 10) + "/image"
 }

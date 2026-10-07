@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 )
 
@@ -29,20 +30,47 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 			return
 		}
 
+		hasAdminScope := false
+
 		// An OAuth scope limits access; it never grants an ordinary user admin
 		// privileges. Check the current authenticated user for both token types.
 		for _, scope := range scopes {
 			if scope.Type == models.AppScopeTypeAdmin {
+				hasAdminScope = true
 				userRaw, _ := c.Get("user")
 				user, ok := userRaw.(*models.User)
-				if !ok || user == nil || !user.IsAdmin {
+				if !ok || user == nil || user.IsBan || user.Status != models.UserStatusNormal {
 					returnUnauthorized(c)
 					return
 				}
+				if !user.IsAdmin {
+					required := adminRoutePermission(c.Request.URL.Path)
+					if required == 0 {
+						returnUnauthorized(c)
+						return
+					}
+					bits, err := models.EffectiveAdminPermissions(db.GetDB().WithContext(c.Request.Context()), user)
+					if err != nil {
+						c.AbortWithStatusJSON(500, gin.H{"error": "permission lookup failed"})
+						return
+					}
+					if bits&required != required {
+						returnUnauthorized(c)
+						return
+					}
+				}
+			}
+		}
+		finish := func() {
+			if hasAdminScope {
+				c.Set("admin_authorized", true)
+				AdminAuditMiddleware()(c)
+			} else {
+				c.Next()
 			}
 		}
 		if tokenData.AuthType == models.AuthTokenTypeWeb {
-			c.Next()
+			finish()
 			return
 		}
 
@@ -56,7 +84,7 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 		}
 
 		// 检查通过，继续执行
-		c.Next()
+		finish()
 	}
 }
 

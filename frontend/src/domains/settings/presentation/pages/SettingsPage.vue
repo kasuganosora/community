@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { adminEntry } from '@/domains/admin/domain/navigation'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
+import AvatarDecorationPicker from '../components/AvatarDecorationPicker.vue'
 import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import PasskeySettings from '../components/PasskeySettings.vue'
@@ -80,6 +82,7 @@ async function logout() {
         <h2 id="settings-profile" class="settings__heading">个人资料</h2>
         <div class="settings__group settings__group--padded">
           <ProfileSettingsForm />
+          <AvatarDecorationPicker />
         </div>
       </section>
 
@@ -120,10 +123,11 @@ async function logout() {
 
       <section v-if="authStore.currentUser" class="settings__section"><h2 class="settings__heading">数据</h2><div class="settings__group"><router-link to="/settings/data" class="settings__row">个人数据导入与导出</router-link></div></section>
 
-      <section v-if="authStore.currentUser?.is_admin" class="settings__section" aria-labelledby="settings-admin">
+      <section class="settings__section"><h2 class="settings__heading">社区</h2><div class="settings__group"><router-link to="/announcements" class="settings__row">社区公告 <t-icon name="chevron-right" :size="16" /></router-link></div></section>
+      <section v-if="adminEntry(authStore.currentUser)" class="settings__section" aria-labelledby="settings-admin">
         <h2 id="settings-admin" class="settings__heading">管理</h2>
         <div class="settings__group">
-          <router-link to="/admin" class="settings__row">管理后台 <t-icon name="chevron-right" :size="16" /></router-link>
+          <router-link :to="adminEntry(authStore.currentUser)!" class="settings__row">管理后台 <t-icon name="chevron-right" :size="16" /></router-link>
         </div>
       </section>
 

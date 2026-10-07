@@ -8,10 +8,12 @@ const props = defineProps<{
   size?: number
 }>()
 
+const decoration = computed(() => /^\/api\/v1\/avatar_decorations\/\d+\/image$/.test(props.account.avatar_decoration_url || '') ? props.account.avatar_decoration_url : '')
 const avatarSize = computed(() => props.size || 40)
 </script>
 
 <template>
+ <span class="avatar-frame" :style="{ width: `${avatarSize}px`, height: `${avatarSize}px` }">
   <t-avatar
     :size="`${avatarSize}px`"
     :image="sameOriginMediaUrl(account.avatar) || undefined"
@@ -22,9 +24,13 @@ const avatarSize = computed(() => props.size || 40)
   >
     {{ account.display_name?.charAt(0) || account.username?.charAt(0) || 'U' }}
   </t-avatar>
+  <img v-if="decoration" :key="decoration" class="avatar-decoration" :src="decoration" alt="" aria-hidden="true" @error="($event.target as HTMLImageElement).style.visibility = 'hidden'" />
+ </span>
 </template>
 
 <style scoped>
+.avatar-frame { display: inline-flex; position: relative; flex-shrink: 0; vertical-align: middle; }
+.avatar-decoration { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .user-avatar {
   flex-shrink: 0;
   cursor: pointer;

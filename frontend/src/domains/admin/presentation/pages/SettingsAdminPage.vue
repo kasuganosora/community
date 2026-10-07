@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { operationsAdminApi as api, type CaptchaConfig, type SiteRule } from "../../infrastructure/operationsAdminApi";
+const props = withDefaults(defineProps<{ mode?: 'rules' | 'security' | 'all' }>(), { mode: 'all' })
 const rules = ref<SiteRule[]>([]);
 const config = ref<CaptchaConfig>();
 const saved = ref("");
@@ -17,11 +18,11 @@ async function load() {
     loading.value = true;
     error.value = "";
     try {
-        const [r, c] = await Promise.all([api.rules(), api.captcha()]);
+        const [r, c] = await Promise.all([props.mode === 'security' ? Promise.resolve([]) : api.rules(), props.mode === 'rules' ? Promise.resolve(undefined) : api.captcha()]);
         if (alive) {
             rules.value = r;
             config.value = c;
-            saved.value = JSON.stringify(c);
+            saved.value = JSON.stringify(c) || "";
             secret.value = "";
         }
     }
@@ -108,16 +109,16 @@ onUnmounted(() => {
 <template>
   <div class="admin-page">
     <header>
-      <h1>站点设置</h1>
-      <p>维护公开的社区规则及注册验证码。</p>
+      <h1>{{ mode === 'rules' ? '社区规则' : mode === 'security' ? '安全' : '站点设置' }}</h1>
+      <p>{{ mode === 'rules' ? '维护向社区成员公开的站点规则。' : mode === 'security' ? '配置注册与登录验证码。' : '维护公开的社区规则及注册验证码。' }}</p>
     </header>
     <p v-if="loading" role="status">正在加载设置…</p>
     <p v-if="error" class="admin-error" role="alert">
       {{ error }} <button v-if="!config" class="admin-button" :disabled="loading" @click="load">重试加载</button>
     </p>
     <p v-if="notice" role="status">{{ notice }}</p>
-    <template v-if="config && !loading">
-      <section class="admin-card">
+    <template v-if="!loading && (config || mode === 'rules')">
+      <section v-if="mode !== 'security'" class="admin-card">
         <h2>社区规则</h2>
         <p>规则会展示在站点介绍及注册页面。</p>
         <p v-if="!rules.length" class="admin-empty">尚未设置规则。</p>
@@ -139,7 +140,7 @@ onUnmounted(() => {
           </div>
         </form>
       </section>
-      <form class="admin-card" @submit.prevent="saveCaptcha">
+      <form v-if="config && mode !== 'rules'" class="admin-card" @submit.prevent="saveCaptcha">
         <h2>验证码</h2>
         <p v-if="config.environment_override" role="status">验证码使用服务器环境配置，请由部署管理员修改；此处仅供查看。</p>
         <p v-else-if="config.enabled && config.effective_enabled === false" role="status">已设置启用，但服务尚未生效，请检查供应商和密钥配置。</p>

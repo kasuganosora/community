@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { adminEntry } from '@/domains/admin/domain/navigation'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -23,11 +24,12 @@ const navItems = computed(() => [
   { value: 'home', label: '首页', icon: 'home', iconActive: 'home-filled', route: '/' },
   { value: 'explore', label: '探索', icon: 'search', iconActive: 'search', route: '/explore' },
   { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
+  { value: 'announcements', label: '公告', icon: 'notification', iconActive: 'notification-filled', route: '/announcements' },
   { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
   { value: 'lists', label: '列表', icon: 'view-list', iconActive: 'view-list', route: '/lists' },
   { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
-  ...(authStore.currentUser?.is_admin ? [{ value: 'admin', label: '管理后台', icon: 'dashboard', iconActive: 'dashboard', route: '/admin' }] : []),
+  ...(adminEntry(authStore.currentUser) ? [{ value: 'admin', label: '管理后台', icon: 'dashboard', iconActive: 'dashboard', route: adminEntry(authStore.currentUser)! }] : []),
   { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
 

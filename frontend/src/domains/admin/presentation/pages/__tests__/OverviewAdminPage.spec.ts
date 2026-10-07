@@ -5,7 +5,7 @@ import { dashboardApi } from '../../../infrastructure/dashboardApi'
 import { instanceApi } from '@/domains/instance/infrastructure/instanceApi'
 vi.mock('../../../infrastructure/dashboardApi', () => ({ dashboardApi: { measures: vi.fn() } }))
 vi.mock('@/domains/instance/infrastructure/instanceApi', () => ({ instanceApi: { getInstance: vi.fn() } }))
-const options = { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, TIcon: true } } }
+const options = { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, TIcon: true, AnalyticsOverview: true } } }
 describe('administrator overview', () => {
   it('uses actual totals and subtracts resolved reports', async () => {
     vi.mocked(dashboardApi.measures).mockResolvedValue([

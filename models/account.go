@@ -16,35 +16,36 @@ import (
 )
 
 type Account struct { //nolint:recvcheck
-	ImportedNoteHTML string     `gorm:"type:text" json:"imported_note_html,omitempty"`
-	LocalActorURI    string     `gorm:"type:varchar(2048);index:idx_local_actor_uri,length:191" json:"local_actor_uri,omitempty"`
-	Id               uint64     `gorm:"primary_key;type:bigint(20);autoIncrement" json:"id"`
-	UserId           uint64     `gorm:"type:bigint(20);index;serializer:nullable_user_id" json:"-"` // 创建这个账号的用户ID,如果是远程账号则为 null
-	Username         string     `gorm:"not null;type:varchar(64)"                 json:"username"`
-	Domain           *string    `gorm:"type:varchar(128);index"                   json:"domain"`      // 远程账号的域名,如果是本地账号则为 null
-	OriginId         string     `gorm:"type:varchar(2048)"                          json:"origin_id"` // 远程账号的ID,如果是本地账号则为 null
-	Acct             string     `gorm:"not null;type:varchar(128);index"          json:"acct"`        // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
-	DisplayName      string     `gorm:"not null;type:varchar(128)"                json:"display_name"`
-	Avatar           string     `gorm:"type:varchar(1024)"                        json:"avatar"`
-	AvatarStatic     string     `gorm:"type:varchar(1024)"                        json:"avatar_static"`
-	Header           string     `gorm:"type:varchar(1024)"                        json:"header"`
-	HeaderStatic     string     `gorm:"type:varchar(1024)"                        json:"header_static"`
-	Locked           bool       `gorm:"default:false"                             json:"locked"`
-	Bot              bool       `gorm:"default:false"                             json:"bot"`
-	Discoverable     bool       `gorm:"default:false"                             json:"discoverable"`
-	Group            bool       `gorm:"default:false"                             json:"group"`
-	NoIndex          bool       `gorm:"default:false"                             json:"noindex"`
-	HideCollections  bool       `gorm:"default:false"                             json:"hide_collections"`
-	Note             string     `gorm:"type:text"                        json:"note"`
-	Website          string     `gorm:"type:varchar(1024)"                        json:"website"`
-	CreatedAt        *time.Time `gorm:"autoCreateTime"                            json:"created_at"`
-	UpdatedAt        *time.Time `gorm:"autoUpdateTime"                            json:"updated_at"`
-	LastStatusAt     *time.Time `gorm:"type:datetime"                             json:"last_status_at"`
-	LastActivityAt   *time.Time `gorm:"type:datetime"                             json:"last_activity_at"`
-	IsBan            bool       `gorm:"default:false"                             json:"is_ban"`
-	DeletedAt        gorm.DeletedAt
-	Emojis           []*Emoji      `gorm:"many2many:account_emojis;" json:"-"`
-	Extra            *AccountExtra `json:"-"`
+	AvatarDecorationID uint64     `gorm:"not null;default:0" json:"avatar_decoration_id"`
+	ImportedNoteHTML   string     `gorm:"type:text" json:"imported_note_html,omitempty"`
+	LocalActorURI      string     `gorm:"type:varchar(2048);index:idx_local_actor_uri,length:191" json:"local_actor_uri,omitempty"`
+	Id                 uint64     `gorm:"primary_key;type:bigint(20);autoIncrement" json:"id"`
+	UserId             uint64     `gorm:"type:bigint(20);index;serializer:nullable_user_id" json:"-"` // 创建这个账号的用户ID,如果是远程账号则为 null
+	Username           string     `gorm:"not null;type:varchar(64)"                 json:"username"`
+	Domain             *string    `gorm:"type:varchar(128);index"                   json:"domain"`      // 远程账号的域名,如果是本地账号则为 null
+	OriginId           string     `gorm:"type:varchar(2048)"                          json:"origin_id"` // 远程账号的ID,如果是本地账号则为 null
+	Acct               string     `gorm:"not null;type:varchar(128);index"          json:"acct"`        // 远程账号的全局唯一ID,如果是本地账号则为 username@domain
+	DisplayName        string     `gorm:"not null;type:varchar(128)"                json:"display_name"`
+	Avatar             string     `gorm:"type:varchar(1024)"                        json:"avatar"`
+	AvatarStatic       string     `gorm:"type:varchar(1024)"                        json:"avatar_static"`
+	Header             string     `gorm:"type:varchar(1024)"                        json:"header"`
+	HeaderStatic       string     `gorm:"type:varchar(1024)"                        json:"header_static"`
+	Locked             bool       `gorm:"default:false"                             json:"locked"`
+	Bot                bool       `gorm:"default:false"                             json:"bot"`
+	Discoverable       bool       `gorm:"default:false"                             json:"discoverable"`
+	Group              bool       `gorm:"default:false"                             json:"group"`
+	NoIndex            bool       `gorm:"default:false"                             json:"noindex"`
+	HideCollections    bool       `gorm:"default:false"                             json:"hide_collections"`
+	Note               string     `gorm:"type:text"                        json:"note"`
+	Website            string     `gorm:"type:varchar(1024)"                        json:"website"`
+	CreatedAt          *time.Time `gorm:"autoCreateTime"                            json:"created_at"`
+	UpdatedAt          *time.Time `gorm:"autoUpdateTime"                            json:"updated_at"`
+	LastStatusAt       *time.Time `gorm:"type:datetime"                             json:"last_status_at"`
+	LastActivityAt     *time.Time `gorm:"type:datetime"                             json:"last_activity_at"`
+	IsBan              bool       `gorm:"default:false"                             json:"is_ban"`
+	DeletedAt          gorm.DeletedAt
+	Emojis             []*Emoji      `gorm:"many2many:account_emojis;" json:"-"`
+	Extra              *AccountExtra `json:"-"`
 
 	User *User `gorm:"foreignKey:UserId;references:Id" json:"-"`
 }

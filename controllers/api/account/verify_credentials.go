@@ -33,9 +33,15 @@ func VerifyCredentials(c *gin.Context) {
 	// is what clients use to prefill the profile editor (Mastodon API).
 	user, _ := c.Get("user")
 	currentUser, _ := user.(*models.User)
+	permissions, err := models.EffectiveAdminPermissions(db.GetDB().WithContext(c.Request.Context()), currentUser)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "permission lookup failed"})
+		return
+	}
 	c.JSON(200, AccountWithSource{
-		Account: serializer.ToAccount(account),
-		IsAdmin: currentUser != nil && currentUser.IsAdmin,
+		Account:          serializer.ToAccount(account),
+		IsAdmin:          currentUser != nil && currentUser.IsAdmin,
+		AdminPermissions: models.AdminCapabilities(permissions),
 		Source: AccountSource{
 			Privacy:   "public",
 			Sensitive: false,
@@ -58,6 +64,7 @@ type AccountSource struct {
 type AccountWithSource struct {
 	*serializer.Account
 
-	Source  AccountSource `json:"source"`
-	IsAdmin bool          `json:"is_admin"`
+	Source           AccountSource `json:"source"`
+	IsAdmin          bool          `json:"is_admin"`
+	AdminPermissions []string      `json:"admin_permissions"`
 }

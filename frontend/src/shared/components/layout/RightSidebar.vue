@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdvertisementCard from '@/shared/components/widgets/AdvertisementCard.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import TrendingCard from '@/shared/components/widgets/TrendingCard.vue'
 import WhoToFollowCard from '@/shared/components/widgets/WhoToFollowCard.vue'
@@ -7,6 +8,7 @@ import WhoToFollowCard from '@/shared/components/widgets/WhoToFollowCard.vue'
 <template>
   <div class="right-sidebar">
     <SearchBox />
+    <AdvertisementCard />
     <TrendingCard />
     <WhoToFollowCard />
   </div>

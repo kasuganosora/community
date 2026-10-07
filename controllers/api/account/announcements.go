@@ -1,102 +1,85 @@
 package account
 
 import (
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"html"
 	"strconv"
+	"time"
 )
 
-// Announcement represents an announcement.
-type Announcement struct {
-	Id          uint64     `gorm:"primary_key;autoIncrement" json:"id"`
-	Text        string     `gorm:"type:text;not null"         json:"text"`
-	Published   bool       `gorm:"not null;default:false"     json:"published"`
-	AllDay      bool       `gorm:"not null;default:false"     json:"all_day"`
-	ScheduledAt *time.Time `json:"scheduled_at"`
-	StartsAt    *time.Time `json:"starts_at"`
-	EndsAt      *time.Time `json:"ends_at"`
-	PublishedAt *time.Time `json:"published_at"`
-	UpdatedAt   *time.Time `gorm:"not null;autoUpdateTime"    json:"updated_at"`
-	CreatedAt   *time.Time `gorm:"not null;autoCreateTime"    json:"created_at"`
+func activeAnnouncements(conn *gorm.DB, now time.Time) *gorm.DB {
+	return conn.Model(&models.Announcement{}).Where("published = ?", true).
+		Where("scheduled_at IS NULL OR scheduled_at <= ?", now).
+		Where("starts_at IS NULL OR starts_at <= ?", now).
+		Where("ends_at IS NULL OR ends_at > ?", now)
 }
-
-func (a *Announcement) TableName() string {
-	return "announcements"
-}
-
-// ListAnnouncements handles GET /api/v1/announcements.
 func ListAnnouncements(c *gin.Context) {
-	// Get announcements
-	query := db.GetDB().Table("announcements").
-		Where("published = ?", true).
-		Where("scheduled_at IS NULL OR scheduled_at <= ?", time.Now()).
-		Order("created_at DESC")
-
-	announcements := make([]Announcement, 0)
-	err := query.Find(&announcements).Error
-	if err != nil {
-		// If table doesn't exist, return empty array
-		c.JSON(200, []any{})
-
+	conn := db.GetDB().WithContext(c.Request.Context())
+	now := time.Now()
+	announcements := make([]models.Announcement, 0)
+	if err := activeAnnouncements(conn, now).Order("id DESC").Find(&announcements).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Unable to load announcements"})
 		return
 	}
-
-	// Build response
-	result := make([]gin.H, 0, len(announcements))
-
-	for _, a := range announcements {
-		var scheduledAt, startsAt, endsAt, publishedAt any
-		if a.ScheduledAt != nil {
-			scheduledAt = a.ScheduledAt.Format(time.RFC3339)
+	reads := map[uint64]time.Time{}
+	if value, ok := c.Get("account"); ok {
+		if account, ok := value.(*models.Account); ok && account != nil {
+			var rows []models.AnnouncementDismissal
+			if err := conn.Where("account_id = ?", account.Id).Find(&rows).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Unable to load announcement read state"})
+				return
+			}
+			for _, r := range rows {
+				reads[r.AnnouncementID] = r.ReadAt
+			}
 		}
-
-		if a.StartsAt != nil {
-			startsAt = a.StartsAt.Format(time.RFC3339)
-		}
-
-		if a.EndsAt != nil {
-			endsAt = a.EndsAt.Format(time.RFC3339)
-		}
-
-		if a.PublishedAt != nil {
-			publishedAt = a.PublishedAt.Format(time.RFC3339)
-		}
-
-		result = append(result, gin.H{
-			"id":           strconv.FormatUint(a.Id, 10),
-			"content":      a.Text,
-			"published":    a.Published,
-			"all_day":      a.AllDay,
-			"scheduled_at": scheduledAt,
-			"starts_at":    startsAt,
-			"ends_at":      endsAt,
-			"published_at": publishedAt,
-			"updated_at":   a.UpdatedAt.Format(time.RFC3339),
-			"read":         false,
-			"mentions":     []any{},
-			"statuses":     []any{},
-			"tags":         []any{},
-			"emojis":       []any{},
-			"reactions":    []any{},
-		})
 	}
-
+	result := make([]gin.H, 0, len(announcements))
+	for _, a := range announcements {
+		readAt, seen := reads[a.Id]
+		read := seen && (a.UpdatedAt == nil || !readAt.Before(*a.UpdatedAt))
+		if c.Query("with_dismissed") == "false" && read {
+			continue
+		}
+		result = append(result, gin.H{"id": strconv.FormatUint(a.Id, 10), "content": html.EscapeString(a.Text), "text": a.Text, "published": a.Published, "all_day": a.AllDay, "scheduled_at": a.ScheduledAt, "starts_at": a.StartsAt, "ends_at": a.EndsAt, "published_at": a.PublishedAt, "updated_at": a.UpdatedAt, "read": read, "mentions": []any{}, "statuses": []any{}, "tags": []any{}, "emojis": []any{}, "reactions": []any{}})
+	}
 	c.JSON(200, result)
 }
-
-// DismissAnnouncement handles POST /api/v1/announcements/:id/dismiss.
 func DismissAnnouncement(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "announcement id required"}) //nolint:goconst
-
+	value, ok := c.Get("account")
+	account, valid := value.(*models.Account)
+	if !ok || !valid || account == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-
-	// In a full implementation, we'd store dismissed announcements per user
-	// For simplicity, just return success
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(422, gin.H{"error": "Invalid announcement ID"})
+		return
+	}
+	conn := db.GetDB().WithContext(c.Request.Context())
+	var a models.Announcement
+	if err := activeAnnouncements(conn, time.Now()).First(&a, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(404, gin.H{"error": "Announcement not found"})
+		} else {
+			c.JSON(500, gin.H{"error": "Unable to load announcement"})
+		}
+		return
+	}
+	readAt := time.Now()
+	if a.UpdatedAt != nil {
+		readAt = *a.UpdatedAt
+	}
+	read := models.AnnouncementDismissal{AccountID: account.Id, AnnouncementID: id, ReadAt: readAt}
+	if err := conn.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "account_id"}, {Name: "announcement_id"}}, DoUpdates: clause.AssignmentColumns([]string{"read_at"})}).Create(&read).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Unable to mark announcement read"})
+		return
+	}
 	c.JSON(200, gin.H{})
 }
 
@@ -114,7 +97,7 @@ func AddAnnouncementReaction(c *gin.Context) {
 
 	// In a full implementation, we'd store reactions per user
 	// For simplicity, just return success
-	c.JSON(200, gin.H{})
+	c.JSON(501, gin.H{"error": "Announcement reactions are not supported"})
 }
 
 // RemoveAnnouncementReaction handles DELETE /api/v1/announcements/:id/reactions/:name.
@@ -131,5 +114,5 @@ func RemoveAnnouncementReaction(c *gin.Context) {
 
 	// In a full implementation, we'd remove reactions per user
 	// For simplicity, just return success
-	c.JSON(200, gin.H{})
+	c.JSON(501, gin.H{"error": "Announcement reactions are not supported"})
 }

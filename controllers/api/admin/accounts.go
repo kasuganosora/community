@@ -158,6 +158,30 @@ func performAdminAccountAction(c *gin.Context, action string) {
 			code, message = 422, "unsupported account action"
 			return nil
 		}
+		if account.User != nil && account.User.IsAdmin {
+			current, _ := c.Get("user")
+			actor, _ := current.(*models.User)
+			if actor == nil || !actor.IsAdmin {
+				code, message = 403, "only root administrators may manage root accounts"
+				return nil
+			}
+			if action == "suspend" || action == "disable" || action == "reject" {
+				var admins []models.User
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("is_admin = ?", true).Order("id ASC").Find(&admins).Error; err != nil {
+					return err
+				}
+				active := 0
+				for _, admin := range admins {
+					if !admin.IsBan && admin.Status == models.UserStatusNormal {
+						active++
+					}
+				}
+				if !account.User.IsBan && account.User.Status == models.UserStatusNormal && active <= 1 {
+					code, message = 422, "cannot disable the last active root administrator"
+					return nil
+				}
+			}
+		}
 		if action == "suspend" || action == "disable" || action == "reject" {
 			current, _ := c.Get("user")
 			if user, ok := current.(*models.User); ok && user != nil && account.UserId == user.Id {

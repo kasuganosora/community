@@ -1,4 +1,4 @@
-const SECTIONS = ['explore', 'notifications', 'messages', 'bookmarks', 'lists', 'settings'] as const
+const SECTIONS = ['explore', 'announcements', 'notifications', 'messages', 'bookmarks', 'lists', 'settings'] as const
 export type NavSection = 'home' | 'profile' | (typeof SECTIONS)[number] | ''
 
 /**

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/datatransfer"
@@ -27,6 +28,7 @@ import (
 	"github.com/kasuganosora/community/migrate"
 	"github.com/kasuganosora/community/models"
 	_ "github.com/kasuganosora/community/notifications"
+	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/search/indexsync"
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/systemsettings"
@@ -62,6 +64,7 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+	runtimeconfig.ApplyStored()
 	if err = models.ReconcileFollowCounts(db.GetDB()); err != nil {
 		log.Warn("Failed to reconcile follow counts: %v", err)
 	}
@@ -80,6 +83,7 @@ func main() {
 	transferContext, stopTransfers := context.WithCancel(context.Background())
 	defer stopTransfers()
 	datatransfer.ResumeJobs(transferContext, db.GetDB())
+	adminwebhook.Start(transferContext, db.GetDB())
 
 	event.GetEventManager("status")
 

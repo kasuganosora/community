@@ -43,8 +43,13 @@ func isValidTemplateName(templateName string) bool {
 
 var useDrive types.Drive
 
-func init() {
-	if config.C.SmtpServer != "" {
+func init() { Reload() }
+
+// Reload is called during startup, after saved settings are applied and before
+// handlers or background jobs can send mail. It is not a live mutation API.
+func Reload() {
+	useDrive = nil
+	if config.C.EmailMode == "smtp" && config.C.SmtpServer != "" {
 		useDrive = smtp.NewDrive()
 	}
 }

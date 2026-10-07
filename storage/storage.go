@@ -273,9 +273,7 @@ func NewS3Provider() *S3Provider {
 		return p
 	}
 
-	p.client = client
-
-	// 确保 bucket 存在
+	// Verify an existing bucket without creating it or changing its policy.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -287,31 +285,12 @@ func NewS3Provider() *S3Provider {
 	}
 
 	if !exists {
-		err = client.MakeBucket(ctx, p.bucket, minio.MakeBucketOptions{Region: p.region})
-		if err != nil {
-			log.Error("Failed to create bucket: %v", err)
-
-			return p
-		}
-
-		log.Info("Created S3 bucket: %s", p.bucket)
+		log.Error("Configured S3 bucket does not exist")
+		return p
 	}
-
-	// 设置 bucket 策略为公开读取
-	policy := fmt.Sprintf(`{
-		"Version": "2012-10-17",
-		"Statement": [{
-			"Effect": "Allow",
-			"Principal": {"AWS": "*"},
-			"Action": ["s3:GetObject"],
-			"Resource": ["arn:aws:s3:::%s/*"]
-		}]
-	}`, p.bucket)
-
-	err = client.SetBucketPolicy(ctx, p.bucket, policy)
-	if err != nil {
-		log.Warn("Failed to set bucket policy: %v", err)
-	}
+	p.client = client
+	// Bucket access policies belong to the storage administrator. Never make
+	// the entire bucket public merely because Community was configured to use it.
 
 	log.Info("S3 storage configured successfully")
 

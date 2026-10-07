@@ -210,11 +210,12 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.GET("/trends/links", trends.ListLinks)
 
 	// 公告（公开）
-	v1ApiGroup.GET("/announcements", account.ListAnnouncements)
+	maybeAuthGroupV1.GET("/announcements", account.ListAnnouncements)
 
 	// ===== 需要登录的路由（v1）=====
 	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
 	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	registerAdminManagementRoutes(v1ApiGroup, authGroupV1)
 	transfers := authGroupV1.Group("", transferapi.AuthorizeTransfer)
 	for _, scope := range []string{"personal", "site"} {
 		path := "/data/imports"

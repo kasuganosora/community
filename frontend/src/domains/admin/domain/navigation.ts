@@ -1,21 +1,53 @@
-export const adminNavigation = [
-  { label: '工作台', items: [
-    { path: '/admin', title: '概览', description: '了解社区近况，处理需要关注的事务。', icon: 'dashboard' },
+export interface AdminIdentity { is_admin?: boolean; admin_permissions?: string[] }
+export interface AdminNavItem { path: string; title: string; description: string; icon: string; permission?: string; rootOnly?: boolean }
+export interface AdminNavGroup { label: string; items: AdminNavItem[] }
+const item = (path: string, title: string, icon: string, permission: string, description = ''): AdminNavItem => ({ path: '/admin' + path, title, icon, permission, description })
+export const adminNavigation: AdminNavGroup[] = [
+  { label: '管理', items: [
+    item('', '概览', 'dashboard', 'dashboard', '了解社区近况，处理需要关注的事务。'),
+    item('/accounts', '用户管理', 'usergroup', 'users'),
+    item('/invites', '邀请', 'user-add', 'invites'),
+    item('/roles', '角色', 'secured', 'roles'),
+    item('/emojis', '自定义表情', 'happy', 'emojis'),
+    item('/decorations', '头像装饰', 'image', 'branding'),
+    item('/instances', '联合', 'internet', 'federation'),
+    item('/jobs', '作业队列（含联邦投递）', 'time', 'system'),
+    item('/files', '文件', 'file', 'media'),
+    item('/announcements', '公告', 'notification', 'announcements'),
+    item('/advertisements', '广告', 'image', 'branding'),
+    item('/reports', '举报与内容', 'flag', 'reports'),
+    item('/audit-logs', '审查日志', 'history', 'audit'),
+    item('/rules', '社区规则', 'bulletpoint', 'rules'),
   ] },
-  { label: '社区管理', items: [
-    { path: '/admin/accounts', title: '用户管理', description: '查找成员、审核注册申请与管理账户状态。', icon: 'usergroup' },
-    { path: '/admin/reports', title: '举报与内容', description: '查看举报上下文，跟进处理结果。', icon: 'flag' },
-    { path: '/admin/emojis', title: '自定义表情', description: '让社区有自己的表达方式。', icon: 'happy' },
+  { label: '设置', items: [
+    item('/settings/general', '常规', 'setting', 'settings'),
+    item('/settings/branding', '品牌', 'palette', 'branding'),
+    item('/settings/moderation', '注册管理', 'user-checked', 'settings'),
+    item('/settings/email', '邮件服务器', 'mail', 'settings'),
+    item('/settings/storage', '对象存储', 'cloud', 'settings'),
+    item('/settings/security', '安全', 'lock-on', 'settings'),
+    item('/federation', '中继', 'internet', 'federation'),
+    item('/settings/external', '外部服务', 'link', 'settings'),
+    item('/webhooks', 'Webhook', 'code', 'webhooks'),
+    item('/settings/performance', '性能', 'chart', 'settings'),
   ] },
-  { label: '联邦与服务', items: [
-    { path: '/admin/federation', title: '联邦中继', description: '管理 ActivityPub 中继连接。', icon: 'internet' },
-    { path: '/admin/system', title: 'Matrix 服务', description: '查看消息服务状态与连接诊断。', icon: 'server' },
-  ] },
-  { label: '站点维护', items: [
-    { path: '/admin/settings', title: '站点设置', description: '维护社区规则与验证码配置。', icon: 'setting' },
-    { path: '/admin/migrations', title: '数据迁移', description: '预检并导入同域名的完整站点备份。', icon: 'data' },
+  { label: '关于与维护', items: [
+    item('/settings/database', '数据库', 'data', 'system'),
+    item('/system', 'Matrix 服务', 'server', 'system'),
+    { path: '/admin/migrations', title: '数据迁移', icon: 'data', description: '预检并导入同域名的完整站点备份。', rootOnly: true },
   ] },
 ]
-export function adminSection(path: string) {
-  return adminNavigation.flatMap(group => group.items).find(item => item.path === path.replace(/\/$/, '')) ?? adminNavigation[0]!.items[0]!
+export function canAccessAdmin(identity: AdminIdentity | null | undefined, permission?: string, rootOnly = false): boolean {
+  if (identity?.is_admin === true) return true
+  if (!identity || rootOnly || !permission) return false
+  return identity.admin_permissions?.includes(permission) === true
+}
+export function visibleAdminNavigation(identity: AdminIdentity | null | undefined): AdminNavGroup[] {
+  return adminNavigation.map(group => ({ ...group, items: group.items.filter(i => canAccessAdmin(identity, i.permission, i.rootOnly)) })).filter(g => g.items.length)
+}
+export function adminEntry(identity: AdminIdentity | null | undefined): string | undefined {
+  return visibleAdminNavigation(identity)[0]?.items[0]?.path
+}
+export function adminSection(path: string): AdminNavItem {
+  return adminNavigation.flatMap(group => group.items).find(i => i.path === path.replace(/\/$/, '')) ?? adminNavigation[0]!.items[0]!
 }

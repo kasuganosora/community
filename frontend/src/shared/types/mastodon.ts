@@ -43,8 +43,11 @@ export interface MastodonField {
 }
 
 export interface MastodonAccount {
+  avatar_decoration_id?: string
+  avatar_decoration_url?: string
   /** Present only on the authenticated account verification response. */
   is_admin?: boolean
+  admin_permissions?: string[]
   id: string
   username: string
   acct: string

@@ -1,3 +1,4 @@
+import { adminEntry, canAccessAdmin } from '@/domains/admin/domain/navigation'
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes, pageTitle } from './routes'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -10,6 +11,8 @@ declare module 'vue-router' {
     guestOnly?: boolean
     requiresAuth?: boolean
     requiresAdmin?: boolean
+    adminPermission?: string
+    adminRootOnly?: boolean
     title?: string
   }
 }
@@ -57,8 +60,10 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAdmin) {
     const auth = useAuthStore()
     // Recheck permissions on entry; the API independently enforces authorization.
-    if (!await auth.fetchCurrentUser() || auth.currentUser?.is_admin !== true) {
-      return { name: 'settings' }
+    if (!await auth.fetchCurrentUser()) return { name: 'settings' }
+    if (!canAccessAdmin(auth.currentUser, to.meta.adminPermission, to.meta.adminRootOnly)) {
+      const entry = adminEntry(auth.currentUser)
+      return entry && entry !== to.path ? { path: entry } : { name: 'settings' }
     }
   }
 })

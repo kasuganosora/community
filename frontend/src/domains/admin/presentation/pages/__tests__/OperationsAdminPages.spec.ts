@@ -60,4 +60,21 @@ describe('administrative operation recovery', () => {
     w.unmount()
   })
 
+  it('does not require rule privileges to load captcha security, or settings privileges to load rules', async () => {
+    const rules = vi.spyOn(api, 'rules').mockResolvedValue([])
+    const captcha = vi.spyOn(api, 'captcha').mockResolvedValue({ enabled: false, provider: 'none', site_key: '' })
+    const security = mount(SettingsAdminPage, { props: { mode: 'security' } }); await flushPromises()
+    expect(rules).not.toHaveBeenCalled()
+    expect(captcha).toHaveBeenCalledOnce()
+    expect(security.find('textarea').exists()).toBe(false)
+    security.unmount()
+    captcha.mockClear()
+    const rulesPage = mount(SettingsAdminPage, { props: { mode: 'rules' } }); await flushPromises()
+    expect(rules).toHaveBeenCalledOnce()
+    expect(captcha).not.toHaveBeenCalled()
+    expect(rulesPage.find('textarea').exists()).toBe(true)
+    expect(rulesPage.find('input[type=password]').exists()).toBe(false)
+    rulesPage.unmount()
+  })
+
 })

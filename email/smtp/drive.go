@@ -71,7 +71,7 @@ func NewDrive() *Drive {
 		port = "587"
 	}
 
-	server := config.C.SmtpServer + ":" + port
+	server := net.JoinHostPort(config.C.SmtpServer, port)
 
 	// Parse connection timeout (seconds, default 10)
 	timeoutSec := 10
@@ -83,14 +83,11 @@ func NewDrive() *Drive {
 	}
 
 	// Determine TLS mode (default: true, encrypted)
-	useTLS := strings.ToLower(strings.TrimSpace(config.C.SmtpTLS)) != "false" &&
-		strings.TrimSpace(config.C.SmtpTLS) != "0"
+	useTLS := ImplicitTLS(config.C.SmtpTLS)
 
-	auth := &tlsPlainAuth{
-		identity: "",
-		username: config.C.SmtpUsername,
-		password: config.C.SmtpPassword,
-		host:     config.C.SmtpServer,
+	var auth smtp.Auth
+	if config.C.SmtpUsername != "" {
+		auth = Authentication(config.C.SmtpAuthMethod, config.C.SmtpUsername, config.C.SmtpPassword, config.C.SmtpServer)
 	}
 
 	return &Drive{
@@ -105,7 +102,7 @@ func NewDrive() *Drive {
 // Connection timeout is controlled by Drive.timeout, SMTP operations have a 30s deadline.
 func (d Drive) sendWithTLS(from string, to []string, body []byte) error {
 	tlsConfig := &tls.Config{
-		ServerName: config.C.SmtpServer,
+		ServerName: config.C.SmtpServer, MinVersion: tls.VersionTLS12,
 	}
 
 	dialer := &net.Dialer{Timeout: d.timeout}
@@ -130,9 +127,8 @@ func (d Drive) sendWithTLS(from string, to []string, body []byte) error {
 	return d.doSend(client, from, to, body)
 }
 
-// sendWithSTARTTLS sends email over a plaintext connection with optional STARTTLS upgrade.
-// If the server supports STARTTLS, the connection is upgraded to TLS; otherwise it falls
-// back to plaintext transmission (with a warning log).
+// sendWithSTARTTLS requires a verified STARTTLS upgrade for remote servers.
+// Only an explicitly configured loopback relay may use plaintext.
 // Connection timeout is controlled by Drive.timeout, SMTP operations have a 30s deadline.
 func (d Drive) sendWithSTARTTLS(from string, to []string, body []byte) error {
 	conn, err := (&net.Dialer{Timeout: d.timeout}).DialContext(context.Background(), "tcp", d.server)
@@ -154,14 +150,18 @@ func (d Drive) sendWithSTARTTLS(from string, to []string, body []byte) error {
 
 	// Attempt STARTTLS upgrade if server supports it
 	if ok, _ := client.Extension("STARTTLS"); ok {
-		tlsConfig := &tls.Config{ServerName: config.C.SmtpServer}
+		tlsConfig := &tls.Config{ServerName: config.C.SmtpServer, MinVersion: tls.VersionTLS12}
 		err := client.StartTLS(tlsConfig)
 		if err != nil {
-			// STARTTLS failed; log warning and fall back to plaintext
-			log.Warn("SMTP STARTTLS failed, falling back to plaintext: %v", err)
+			// Never downgrade a failed TLS negotiation to plaintext.
+			return errors.Wrap(err, "SMTP STARTTLS failed")
 		}
 	} else {
-		log.Warn("SMTP server does not support STARTTLS, sending in plaintext")
+		host := config.C.SmtpServer
+		if !LoopbackHost(host) {
+			return errors.New("SMTP server does not support STARTTLS")
+		}
+		log.Warn("Using plaintext SMTP on explicitly configured loopback server")
 	}
 
 	return d.doSend(client, from, to, body)
@@ -170,8 +170,10 @@ func (d Drive) sendWithSTARTTLS(from string, to []string, body []byte) error {
 // doSend performs SMTP authentication and sends the email on an established client.
 func (d Drive) doSend(client *smtp.Client, from string, to []string, body []byte) error {
 	// Authenticate
-	if err := client.Auth(d.auth); err != nil {
-		return errors.Wrap(err, "SMTP auth failed")
+	if d.auth != nil {
+		if err := client.Auth(d.auth); err != nil {
+			return errors.Wrap(err, "SMTP auth failed")
+		}
 	}
 
 	// Set sender
@@ -235,10 +237,15 @@ func (d Drive) Send(to string, cc string, body []byte) (err error) {
 		}
 	}
 
+	_, sender, senderErr := configuredSender()
+	if senderErr != nil {
+		return senderErr
+	}
+
 	if d.useTLS {
-		err = d.sendWithTLS(config.C.SmtpUsername, addrs, body)
+		err = d.sendWithTLS(sender, addrs, body)
 	} else {
-		err = d.sendWithSTARTTLS(config.C.SmtpUsername, addrs, body)
+		err = d.sendWithSTARTTLS(sender, addrs, body)
 	}
 
 	return
@@ -251,8 +258,11 @@ func (d Drive) SendMail(to string, cc string, mailObject *types.Mail) (err error
 		}
 	}()
 
-	msg := enmime.Builder().
-		From("", config.C.SmtpUsername)
+	senderName, senderAddress, senderErr := configuredSender()
+	if senderErr != nil {
+		return senderErr
+	}
+	msg := enmime.Builder().From(senderName, senderAddress)
 
 	toAddrs := utils.FilterDuplicateAndEmptyString(strings.Split(to, ";"))
 
@@ -329,4 +339,17 @@ func (d Drive) SendMail(to string, cc string, mailObject *types.Mail) (err error
 	}
 
 	return err
+}
+
+// Use the same address for the visible header and SMTP envelope. Authentication
+// usernames need not be email addresses; an explicit SMTP_FROM takes precedence.
+func configuredSender() (name, address string, err error) {
+	if strings.TrimSpace(config.C.SmtpFrom) == "" {
+		return "", config.C.SmtpUsername, nil
+	}
+	parsed, parseErr := mail.ParseAddress(config.C.SmtpFrom)
+	if parseErr != nil {
+		return "", "", errors.New("invalid SMTP sender address")
+	}
+	return parsed.Name, parsed.Address, nil
 }
