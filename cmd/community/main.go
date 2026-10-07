@@ -43,6 +43,14 @@ func main() {
 
 	log.Info("Starting Community Server v%s", config.Version)
 
+	// Health checks stat these paths. uploads and logs are runtime dirs;
+	// media and cache are source packages and already exist in a checkout.
+	for _, dir := range []string{"uploads", "logs"} {
+		if err = os.MkdirAll(dir, 0o755); err != nil {
+			log.Warn("Failed to create %s: %v", dir, err)
+		}
+	}
+
 	// 如果有 --rollback 参数，则回滚
 	if flag.Arg(0) == "--rollback" {
 		err = migrate.Down(db.GetDB())

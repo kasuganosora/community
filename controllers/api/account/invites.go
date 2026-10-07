@@ -132,12 +132,13 @@ func CreateInvite(c *gin.Context) {
 
 	now := time.Now()
 	invite := models.InviteCode{
-		Code:        code,
-		UserId:      account.UserId,
-		AccountId:   strconv.FormatUint(account.Id, 10),
-		MaxUseCount: req.MaxUses,
-		UseCount:    0,
-		CreatedAt:   &now,
+		Code:                     code,
+		UserId:                   account.UserId,
+		AccountId:                strconv.FormatUint(account.Id, 10),
+		MaxUseCount:              req.MaxUses,
+		UseCount:                 0,
+		AfterRegisterActionParam: map[string]any{},
+		CreatedAt:                &now,
 	}
 
 	if req.ExpiresIn > 0 {

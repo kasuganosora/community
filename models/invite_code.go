@@ -14,7 +14,7 @@ type InviteCode struct { //nolint:recvcheck
 	UseCount                 int            `gorm:"type:int(11)"                          json:"use_count"`
 	ExpireAt                 *time.Time     `gorm:"type:timestamp"                        json:"expire_at"`
 	AfterRegisterAction      string         `gorm:"type:varchar(64)"                      json:"after_register_action"`
-	AfterRegisterActionParam map[string]any `gorm:"type:json"                             json:"after_register_action_param"`
+	AfterRegisterActionParam map[string]any `gorm:"type:json;serializer:json"             json:"after_register_action_param"`
 	Disabled                 bool           `gorm:"default:false"                         json:"disabled"`
 	CreatedAt                *time.Time     `gorm:"autoCreateTime"                        json:"created_at"`
 	UpdatedAt                *time.Time     `gorm:"autoUpdateTime"                        json:"updated_at"`
