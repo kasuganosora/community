@@ -120,6 +120,29 @@ func updateFollowCounters(tx *gorm.DB, accountId, followId uint64, delta int) (e
 // DeleteFollowEdges removes both directions of a follow so AfterDelete
 // can decrement followers_count and following_count. A bulk Where().Delete
 // skips those hooks and leaves the profile counters stale.
+
+// ReconcileFollowCounts rewrites profile counters from accepted follow rows.
+// Bulk deletes used to skip the follow hook, so a profile could show a
+// follower count while the list was empty.
+func ReconcileFollowCounts(conn *gorm.DB) error {
+	if !conn.Migrator().HasTable(&AccountExtra{}) || !conn.Migrator().HasTable(&Follow{}) {
+		return nil
+	}
+	err := conn.Exec(`UPDATE accounts_extra e
+		LEFT JOIN (
+			SELECT account_id, COUNT(*) AS c FROM follows WHERE status = ? GROUP BY account_id
+		) f ON f.account_id = e.account_id
+		SET e.following_count = COALESCE(f.c, 0)`, FollowStatusFollowed).Error
+	if err != nil {
+		return err
+	}
+	return conn.Exec(`UPDATE accounts_extra e
+		LEFT JOIN (
+			SELECT follow_id, COUNT(*) AS c FROM follows WHERE status = ? GROUP BY follow_id
+		) f ON f.follow_id = e.account_id
+		SET e.followers_count = COALESCE(f.c, 0)`, FollowStatusFollowed).Error
+}
+
 func DeleteFollow(conn *gorm.DB, accountId, followId uint64) error {
 	if accountId == 0 || followId == 0 {
 		return nil

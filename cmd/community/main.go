@@ -62,6 +62,9 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+	if err = models.ReconcileFollowCounts(db.GetDB()); err != nil {
+		log.Warn("Failed to reconcile follow counts: %v", err)
+	}
 	indexsync.Start()
 
 	// Federation identities (actor/status URIs, acct domain) are derived from
