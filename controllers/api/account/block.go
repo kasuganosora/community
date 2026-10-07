@@ -75,14 +75,9 @@ func Block(c *gin.Context) {
 		return
 	}
 
-	// Also unfollow if following
-	if err := db.GetDB().Where("account_id = ? AND follow_id = ?", account.Id, accid).Delete(&models.Follow{}).Error; err != nil {
+	// Remove both follow directions through the model so counters decrement.
+	if err := models.DeleteFollowEdges(db.GetDB(), account.Id, accid); err != nil {
 		_ = c.Error(errors.Wrap(err, "unfollow error"))
-	}
-
-	// Also remove follower relationship
-	if err := db.GetDB().Where("account_id = ? AND follow_id = ?", accid, account.Id).Delete(&models.Follow{}).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "remove follower error"))
 	}
 
 	c.JSON(200, buildRelationship(account, targetAccount))

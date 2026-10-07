@@ -116,6 +116,34 @@ func updateFollowCounters(tx *gorm.DB, accountId, followId uint64, delta int) (e
 	return
 }
 
+
+// DeleteFollowEdges removes both directions of a follow so AfterDelete
+// can decrement followers_count and following_count. A bulk Where().Delete
+// skips those hooks and leaves the profile counters stale.
+func DeleteFollow(conn *gorm.DB, accountId, followId uint64) error {
+	if accountId == 0 || followId == 0 {
+		return nil
+	}
+	var follows []Follow
+	err := conn.Where("account_id = ? AND follow_id = ?", accountId, followId).Find(&follows).Error
+	if err != nil {
+		return err
+	}
+	for i := range follows {
+		if err = conn.Delete(&follows[i]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DeleteFollowEdges(conn *gorm.DB, a, b uint64) error {
+	if err := DeleteFollow(conn, a, b); err != nil {
+		return err
+	}
+	return DeleteFollow(conn, b, a)
+}
+
 func Followed(db *gorm.DB) *gorm.DB {
 	return db.Where("status = ?", FollowStatusFollowed)
 }

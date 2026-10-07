@@ -61,12 +61,11 @@ async function vote() {
     </ul>
     <fieldset v-else class="post-poll__form">
       <legend class="sr-only">投票选项</legend>
-      <label v-for="(opt, i) in poll.options" :key="i" class="post-poll__choice">
+      <label v-for="(opt, i) in poll.options" :key="i" class="post-poll__choice" @click.prevent="toggle(i)">
         <input
           :type="poll.multiple ? 'checkbox' : 'radio'"
           :name="name"
           :checked="selected.includes(i)"
-          @change="toggle(i)"
         />
         <span>{{ opt.title }}</span>
       </label>

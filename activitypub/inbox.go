@@ -942,7 +942,7 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	case "Follow":
 		// Undo a follow
 		if targetAccount != nil {
-			err := activityDB(ctx).Where("account_id = ? AND follow_id = ?", remoteAccount.Id, targetAccount.Id).Delete(&models.Follow{}).Error
+			err := models.DeleteFollow(activityDB(ctx), remoteAccount.Id, targetAccount.Id)
 			if err != nil {
 				log.Error("Failed to undo follow from %s to %s: %v", actor, targetAccount.Username, err)
 			} else {
