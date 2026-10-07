@@ -123,8 +123,7 @@ async function logout() {
       <section v-if="authStore.currentUser?.is_admin" class="settings__section" aria-labelledby="settings-admin">
         <h2 id="settings-admin" class="settings__heading">管理</h2>
         <div class="settings__group">
-          <router-link to="/admin/migrations" class="settings__row">整站迁移</router-link>
-          <router-link to="/admin/emojis" class="settings__row">自定义表情管理</router-link>
+          <router-link to="/admin" class="settings__row">管理后台 <t-icon name="chevron-right" :size="16" /></router-link>
         </div>
       </section>
 

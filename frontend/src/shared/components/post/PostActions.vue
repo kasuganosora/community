@@ -46,7 +46,7 @@ function copyText(text: string): boolean {
   document.body.appendChild(el)
   el.focus()
   el.select()
-  let ok = false
+  let ok: boolean
   try {
     ok = document.execCommand('copy')
   } catch {

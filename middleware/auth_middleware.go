@@ -106,6 +106,12 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Moderation is evaluated against current rows on every request,
+		// including OAuth tokens already present in the token cache.
+		if user.IsBan || user.Status != models.UserStatusNormal || account.IsBan {
+			returnUnauthorizedAndRemoveCookie(c)
+			return
+		}
 		if tokenData.ApplicationId > 0 {
 			application := &models.Application{}
 

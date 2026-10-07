@@ -27,6 +27,7 @@ const navItems = computed(() => [
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
   { value: 'lists', label: '列表', icon: 'view-list', iconActive: 'view-list', route: '/lists' },
   { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
+  ...(authStore.currentUser?.is_admin ? [{ value: 'admin', label: '管理后台', icon: 'dashboard', iconActive: 'dashboard', route: '/admin' }] : []),
   { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
 

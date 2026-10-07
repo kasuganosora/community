@@ -947,3 +947,35 @@ func TestReopen_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestAdminReportPagesAreBoundedAndStable(t *testing.T) {
+	setupTestDB(t)
+	reporter := createTestAccount(t, "page_reporter")
+	target := createTestAccount(t, "page_target")
+	admin := createTestAccount(t, "page_admin")
+	for i := 0; i < 45; i++ {
+		createTestReport(t, reporter.Id, target.Id)
+	}
+	page := func(query string) []map[string]any {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/reports"+query, nil)
+		c.Set("account", admin)
+		callHandler(List, c)
+		require.Equal(t, 200, w.Code, w.Body.String())
+		var rows []map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rows))
+		return rows
+	}
+	first := page("")
+	require.Len(t, first, 40)
+	seen := map[string]bool{}
+	for _, row := range first {
+		seen[row["id"].(string)] = true
+	}
+	second := page("?max_id=" + first[len(first)-1]["id"].(string))
+	require.Len(t, second, 5)
+	for _, row := range second {
+		require.False(t, seen[row["id"].(string)])
+	}
+}

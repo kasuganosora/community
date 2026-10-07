@@ -82,6 +82,7 @@ func TestGetStatus_Success(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, uitoa(status.Id), resp["id"])
+	assert.Equal(t, "hello", resp["content"])
 }
 
 func TestGetStatus_NotFound(t *testing.T) {
@@ -151,7 +152,7 @@ func TestPerformStatusAction_UnknownType(t *testing.T) {
 	PerformStatusAction(c)
 
 	// Unknown type is a no-op; returns the serialized status.
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestPerformStatusAction_InvalidJSON(t *testing.T) {
@@ -241,4 +242,12 @@ func TestParseTimeRFC3339(t *testing.T) {
 	tt := parseTimeRFC3339(t, "2024-01-01T00:00:00Z")
 	assert.Equal(t, 2024, tt.Year())
 	_ = time.Now() // keep import alive if other tests removed
+}
+
+func TestAdminStatusRejectsSQLConditionIDs(t *testing.T) {
+	for _, handler := range []gin.HandlerFunc{GetStatus, DeleteStatus, PerformStatusAction} {
+		c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: "1 OR 1=1"}}, StatusActionRequest{Type: "delete"})
+		handler(c)
+		require.Equal(t, 400, w.Code)
+	}
 }

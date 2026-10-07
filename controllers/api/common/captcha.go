@@ -2,6 +2,7 @@ package common
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/captcha"
@@ -35,6 +36,25 @@ func GetCaptchaConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// AdminGetCaptchaConfig returns editable settings, not the public runtime state.
+// The secret remains write-only even when the runtime provider is disabled.
+func AdminGetCaptchaConfig(c *gin.Context) {
+	service := captcha.GetService()
+	environmentOverride := false
+	for _, name := range []string{"CAPTCHA_PROVIDER", "CAPTCHA_SITE_KEY", "CAPTCHA_SECRET_KEY", "CLOUDFLARE_TURNSTILE_SITE_KEY", "CLOUDFLARE_TURNSTILE_SECRET_KEY", "HCAPTCHA_SITE_KEY", "HCAPTCHA_SECRET_KEY"} {
+		if os.Getenv(name) != "" {
+			environmentOverride = true
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":              systemsettings.GetBool(systemsettings.KeyCaptchaEnabled, false),
+		"provider":             systemsettings.GetString(systemsettings.KeyCaptchaProvider, service.GetProviderType().String()),
+		"site_key":             systemsettings.GetString(systemsettings.KeyCaptchaSiteKey, service.GetSiteKey()),
+		"effective_enabled":    service.IsEnabled(),
+		"environment_override": environmentOverride,
+	})
 }
 
 // VerifyCaptchaRequest 验证码验证请求.
@@ -101,8 +121,8 @@ func VerifyCaptcha(c *gin.Context) {
 func GetCaptchaProviders(c *gin.Context) {
 	providers := []map[string]string{
 		{
-			"id":          "recaptcha",                        //nolint:goconst
-			"name":        "Google reCAPTCHA",                 //nolint:goconst
+			"id":          "recaptcha",        //nolint:goconst
+			"name":        "Google reCAPTCHA", //nolint:goconst
 			"description": "专业第三方，防护更强。",
 			"website":     "https://www.google.com/recaptcha", //nolint:goconst
 		},

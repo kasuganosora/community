@@ -78,7 +78,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if user.Status != models.UserStatusNormal {
+	if user.IsBan || user.Status != models.UserStatusNormal {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user status abnormal"})
 
 		return

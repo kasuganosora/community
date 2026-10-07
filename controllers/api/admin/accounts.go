@@ -5,11 +5,13 @@ import (
 	"strings"
 	"time"
 
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func escapeLike(s string) string {
@@ -20,116 +22,100 @@ func escapeLike(s string) string {
 	return s
 }
 
-// ListAccounts handles GET /api/v1/admin/accounts.
+// ListAccounts returns bounded, stable offset pages of administrative accounts.
 func ListAccounts(c *gin.Context) {
-	limit := 40
-
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
-			limit = parsed
-		}
+	limit, offset := 40, 0
+	if n, err := strconv.Atoi(c.Query("limit")); err == nil && n > 0 && n <= 80 {
+		limit = n
 	}
-
-	offset := 0
-
-	if o := c.Query("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			offset = parsed
-		}
+	if n, err := strconv.Atoi(c.Query("offset")); err == nil && n >= 0 {
+		offset = n
 	}
-
-	// Build query
-	query := db.GetDB().Model(&models.Account{}).Preload("Extra")
-
-	// Filter by status
-	if status := c.Query("status"); status != "" {
-		switch status {
-		case "active":
-			query = query.Where("suspended = ? AND silenced = ? AND is_ban = ?", false, false, false)
-		case "pending":
-			query = query.Where("user_id IS NULL")
-		case "disabled":
-			query = query.Where("suspended = ?", true)
-		case "silenced": //nolint:goconst
-			query = query.Where("silenced = ?", true)
-		case "suspended": //nolint:goconst
-			query = query.Where("suspended = ?", true)
-		}
-	}
-
-	// Filter by origin
-	if origin := c.Query("origin"); origin != "" {
-		switch origin {
-		case "local":
-			query = query.Where("domain IS NULL")
-		case "remote":
-			query = query.Where("domain IS NOT NULL")
-		}
-	}
-
-	// Filter by username
-	if username := c.Query("username"); username != "" {
-		query = query.Where("username LIKE ?", "%"+escapeLike(username)+"%")
-	}
-
-	// Filter by display name
-	if displayName := c.Query("display_name"); displayName != "" {
-		query = query.Where("display_name LIKE ?", "%"+escapeLike(displayName)+"%")
-	}
-
-	// Filter by email (for local accounts)
-	if email := c.Query("email"); email != "" {
-		query = query.Joins("JOIN users ON users.id = accounts.user_id").
-			Where("users.email LIKE ?", "%"+escapeLike(email)+"%")
-	}
-
-	// Filter by IP address
-	if ip := c.Query("ip"); ip != "" {
-		query = query.Joins("JOIN users ON users.id = accounts.user_id").
-			Where("users.sign_up_ip = ?", ip)
-	}
-
-	// Order
-	query = query.Order("accounts.created_at DESC")
-
-	accounts := make([]*models.Account, 0)
-	err := query.Limit(limit).Offset(offset).Find(&accounts).Error
-	if err != nil {
-		_ = c.Error(errors.Wrap(err, "list accounts error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
-
+	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Account{}).Preload("Extra").Preload("User")
+	userQuery := db.GetDB().WithContext(c.Request.Context()).Model(&models.User{}).Select("id")
+	switch c.Query("status") {
+	case "":
+	case "active":
+		query = query.Where("accounts.is_ban = ?", false).Where("accounts.domain IS NOT NULL OR accounts.user_id IN (?)", userQuery.Where("status = ? AND is_ban = ?", models.UserStatusNormal, false))
+	case "pending":
+		query = query.Where("accounts.domain IS NULL AND accounts.user_id IN (?)", userQuery.Where("status = ?", models.UserStatusUnapproved))
+	case "disabled":
+		query = query.Where("accounts.domain IS NULL AND accounts.user_id IN (?)", userQuery.Where("status = ?", models.UserStatusRejected))
+	case "suspended":
+		query = query.Where("accounts.is_ban = ? OR accounts.user_id IN (?)", true, userQuery.Where("is_ban = ?", true))
+	default:
+		c.JSON(422, gin.H{"error": "unsupported account status"})
 		return
 	}
-
-	// Build response
-	result := make([]gin.H, 0, len(accounts))
-	for _, account := range accounts {
-		result = append(result, serializeAdminAccount(account))
+	switch c.Query("origin") {
+	case "":
+	case "local":
+		query = query.Where("accounts.domain IS NULL")
+	case "remote":
+		query = query.Where("accounts.domain IS NOT NULL")
+	default:
+		c.JSON(422, gin.H{"error": "invalid origin"})
+		return
 	}
-
+	if v := c.Query("username"); v != "" {
+		query = query.Where("accounts.username LIKE ?", "%"+escapeLike(v)+"%")
+	}
+	if v := c.Query("display_name"); v != "" {
+		query = query.Where("accounts.display_name LIKE ?", "%"+escapeLike(v)+"%")
+	}
+	if v := c.Query("email"); v != "" {
+		query = query.Where("accounts.user_id IN (?)", db.GetDB().Model(&models.User{}).Select("id").Where("email_hash = ?", models.GetEmailHash(v)))
+	}
+	if c.Query("ip") != "" {
+		c.JSON(422, gin.H{"error": "IP search is not supported"})
+		return
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		c.JSON(500, gin.H{"error": "internal error"})
+		return
+	}
+	accounts := []*models.Account{}
+	if err := query.Order("accounts.id DESC").Limit(limit).Offset(offset).Find(&accounts).Error; err != nil {
+		c.JSON(500, gin.H{"error": "internal error"})
+		return
+	}
+	result := make([]gin.H, 0, len(accounts))
+	for _, a := range accounts {
+		result = append(result, serializeAdminAccount(a))
+	}
+	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
 	c.JSON(200, result)
 }
-
-// GetAccount handles GET /api/v1/admin/accounts/:id.
-func GetAccount(c *gin.Context) {
+func adminAccountID(c *gin.Context) (uint64, bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"}) //nolint:goconst
-
+		c.JSON(400, gin.H{"error": "invalid account id"})
+		return 0, false
+	}
+	return id, true
+}
+func GetAccount(c *gin.Context) {
+	id, ok := adminAccountID(c)
+	if !ok {
 		return
 	}
-
 	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").Preload("User").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"}) //nolint:goconst
-
+	err := db.GetDB().WithContext(c.Request.Context()).Preload("Extra").Preload("User").First(account, id).Error
+	if err != nil {
+		adminAccountError(c, err)
 		return
 	}
-
 	c.JSON(200, serializeAdminAccount(account))
 }
+func adminAccountError(c *gin.Context, err error) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(404, gin.H{"error": "account not found"})
+	} else {
+		c.JSON(500, gin.H{"error": "internal error"})
+	}
+}
 
-// AccountActionRequest represents an account action request.
 type AccountActionRequest struct {
 	Type                  string `json:"type"`
 	ReportId              string `json:"report_id"`
@@ -138,193 +124,105 @@ type AccountActionRequest struct {
 	SendEmailNotification bool   `json:"send_email_notification"`
 }
 
-// PerformAccountAction handles POST /api/v1/admin/accounts/:id/action.
 func PerformAccountAction(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
-		return
-	}
-
 	var req AccountActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request"}) //nolint:goconst
-
+	if c.ShouldBindJSON(&req) != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
 		return
 	}
-
-	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
+	if req.ReportId != "" || req.WarningPresetId != "" || req.Text != "" || req.SendEmailNotification {
+		c.JSON(422, gin.H{"error": "warning and report side effects are not supported by this action"})
 		return
 	}
-
-	switch req.Type {
-	case "enable":
-		account.IsBan = false
-		account.Locked = false
-	case "silence":
-		account.Locked = true
-	case "unsilence":
-		account.Locked = false
-	case "suspend":
-		account.IsBan = true
-		account.Locked = true
-	case "unsuspend":
-		account.IsBan = false
-		account.Locked = false
-	case "sensitive", "unsensitive":
-		// No-op for now
-	}
-
-	if err := db.GetDB().Save(account).Error; err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	c.JSON(200, serializeAdminAccount(account))
+	performAdminAccountAction(c, req.Type)
 }
-
-// EnableAccount handles POST /api/v1/admin/accounts/:id/enable.
-func EnableAccount(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
+func EnableAccount(c *gin.Context)    { performAdminAccountAction(c, "enable") }
+func ApproveAccount(c *gin.Context)   { performAdminAccountAction(c, "approve") }
+func RejectAccount(c *gin.Context)    { performAdminAccountAction(c, "reject") }
+func UnsilenceAccount(c *gin.Context) { performAdminAccountAction(c, "unsilence") }
+func UnsuspendAccount(c *gin.Context) { performAdminAccountAction(c, "unsuspend") }
+func performAdminAccountAction(c *gin.Context, action string) {
+	id, ok := adminAccountID(c)
+	if !ok {
 		return
 	}
-
 	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
-		return
-	}
-
-	account.IsBan = false
-
-	account.Locked = false
-
-	if err := db.GetDB().Save(account).Error; err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	c.JSON(200, serializeAdminAccount(account))
-}
-
-// ApproveAccount handles POST /api/v1/admin/accounts/:id/approve.
-func ApproveAccount(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
-		return
-	}
-
-	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").Preload("User").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
-		return
-	}
-
-	// Update user status to approved
-	if account.User != nil {
-		account.User.Status = 0 // 0 = normal
-		err := db.GetDB().Save(account.User).Error
-		if err != nil {
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-			return
+	code, message := 0, ""
+	err := db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("User").Preload("Extra").First(account, id).Error; err != nil {
+			return err
 		}
-	}
-
-	c.JSON(200, serializeAdminAccount(account))
-}
-
-// RejectAccount handles POST /api/v1/admin/accounts/:id/reject.
-func RejectAccount(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
+		switch action {
+		case "suspend", "unsuspend", "enable", "disable", "approve", "reject":
+		default:
+			code, message = 422, "unsupported account action"
+			return nil
+		}
+		if action == "suspend" || action == "disable" || action == "reject" {
+			current, _ := c.Get("user")
+			if user, ok := current.(*models.User); ok && user != nil && account.UserId == user.Id {
+				code, message = 422, "cannot disable your own account"
+				return nil
+			}
+			currentAccount, _ := c.Get("account")
+			if own, ok := currentAccount.(*models.Account); ok && own != nil && own.Id == id {
+				code, message = 422, "cannot disable your own account"
+				return nil
+			}
+		}
+		if action == "suspend" || action == "unsuspend" {
+			banned := action == "suspend"
+			if err := tx.Model(account).UpdateColumn("is_ban", banned).Error; err != nil {
+				return err
+			}
+			account.IsBan = banned
+			if account.User != nil {
+				if err := tx.Model(account.User).UpdateColumn("is_ban", banned).Error; err != nil {
+					return err
+				}
+				account.User.IsBan = banned
+			}
+			return nil
+		}
+		if account.Domain != nil || account.User == nil {
+			code, message = 422, "action requires a local login account"
+			return nil
+		}
+		state := account.User.Status
+		switch action {
+		case "approve", "reject":
+			if state != models.UserStatusUnapproved {
+				code, message = 422, "account is not awaiting approval"
+				return nil
+			}
+			if action == "approve" {
+				state = models.UserStatusNormal
+			} else {
+				state = models.UserStatusRejected
+			}
+		case "disable":
+			state = models.UserStatusRejected
+		case "enable":
+			if state != models.UserStatusRejected && state != models.UserStatusNormal {
+				code, message = 422, "account requires approval or email verification"
+				return nil
+			}
+			state = models.UserStatusNormal
+		}
+		if err := tx.Model(account.User).UpdateColumn("status", state).Error; err != nil {
+			return err
+		}
+		account.User.Status = state
+		return nil
+	})
+	if err != nil {
+		adminAccountError(c, err)
 		return
 	}
-
-	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
+	if code != 0 {
+		c.JSON(code, gin.H{"error": message})
 		return
 	}
-
-	// Delete account
-	if err := db.GetDB().Delete(account).Error; err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	c.JSON(200, gin.H{})
-}
-
-// UnsilenceAccount handles POST /api/v1/admin/accounts/:id/unsilence.
-func UnsilenceAccount(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
-		return
-	}
-
-	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
-		return
-	}
-
-	account.Locked = false
-	if err := db.GetDB().Save(account).Error; err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	c.JSON(200, serializeAdminAccount(account))
-}
-
-// UnsuspendAccount handles POST /api/v1/admin/accounts/:id/unsuspend.
-func UnsuspendAccount(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
-
-		return
-	}
-
-	account := &models.Account{}
-	if err := db.GetDB().Preload("Extra").First(account, id).Error; err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "account not found"})
-
-		return
-	}
-
-	account.IsBan = false
-
-	account.Locked = false
-
-	if err := db.GetDB().Save(account).Error; err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
 	c.JSON(200, serializeAdminAccount(account))
 }
 
@@ -349,7 +247,7 @@ func serializeAdminAccount(account *models.Account) gin.H {
 
 	// Use IsBan and Locked as suspended/silenced equivalents
 	suspended := account.IsBan
-	silenced := account.Locked && !account.IsBan
+	silenced := false // Follow approval (Locked) is not moderation silencing.
 
 	result := gin.H{
 		"id":               strconv.FormatUint(account.Id, 10),
@@ -383,6 +281,9 @@ func serializeAdminAccount(account *models.Account) gin.H {
 		}
 
 		result["user_status"] = account.User.Status
+		result["disabled"] = account.User.Status == models.UserStatusRejected
+		result["approved"] = account.User.Status == models.UserStatusNormal
+		result["suspended"] = account.IsBan || account.User.IsBan
 	}
 
 	return result

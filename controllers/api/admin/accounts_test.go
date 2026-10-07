@@ -2,7 +2,12 @@ package admin
 
 import (
 	"encoding/json"
+	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/db/database"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -94,7 +99,7 @@ func TestSerializeAdminAccount_Silenced(t *testing.T) {
 	account.Domain = nil
 
 	result := serializeAdminAccount(account)
-	assert.True(t, result["silenced"].(bool))
+	assert.False(t, result["silenced"].(bool), "locked profiles are not moderation-silenced")
 	assert.False(t, result["suspended"].(bool))
 }
 
@@ -111,7 +116,7 @@ func TestSerializeAdminAccount_NilTimes(t *testing.T) {
 // ============== GetAccount ==============
 
 func TestGetAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "getme")
 
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, "")
@@ -124,21 +129,21 @@ func TestGetAccount_Success(t *testing.T) {
 }
 
 func TestGetAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "abc"}}, "")
 	GetAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestGetAccount_ZeroID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "0"}}, "")
 	GetAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestGetAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "999999"}}, "")
 	GetAccount(c)
 	assert.Equal(t, 404, w.Code)
@@ -147,7 +152,7 @@ func TestGetAccount_NotFound(t *testing.T) {
 // ============== ListAccounts ==============
 
 func TestListAccounts_Empty(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, nil, "")
 	ListAccounts(c)
 
@@ -158,7 +163,7 @@ func TestListAccounts_Empty(t *testing.T) {
 }
 
 func TestListAccounts_WithResults(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "alpha")
 	createLocalAccount(t, env, "beta")
 
@@ -172,7 +177,7 @@ func TestListAccounts_WithResults(t *testing.T) {
 }
 
 func TestListAccounts_LimitOffset(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	for _, n := range []string{"u1", "u2", "u3"} {
 		createLocalAccount(t, env, n)
 	}
@@ -187,7 +192,7 @@ func TestListAccounts_LimitOffset(t *testing.T) {
 }
 
 func TestListAccounts_InvalidLimitIgnored(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "onlyone")
 
 	// limit=0 and limit=999 are invalid => defaults to 40
@@ -202,7 +207,7 @@ func TestListAccounts_InvalidLimitIgnored(t *testing.T) {
 }
 
 func TestListAccounts_FilterByUsername(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "alice")
 	createLocalAccount(t, env, "bob")
 
@@ -217,7 +222,7 @@ func TestListAccounts_FilterByUsername(t *testing.T) {
 }
 
 func TestListAccounts_FilterByDisplayName(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "alice") // DisplayName defaults to "alice"
 
 	c, w := newGetContext(t, nil, "display_name=alice")
@@ -230,7 +235,7 @@ func TestListAccounts_FilterByDisplayName(t *testing.T) {
 }
 
 func TestListAccounts_FilterByStatusActive(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "active")
 
 	c, w := newGetContext(t, nil, "status=active")
@@ -243,7 +248,7 @@ func TestListAccounts_FilterByStatusActive(t *testing.T) {
 }
 
 func TestListAccounts_FilterByStatusSuspended(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "suspended")
 	createLocalAccount(t, env, "active")
 
@@ -258,11 +263,11 @@ func TestListAccounts_FilterByStatusSuspended(t *testing.T) {
 	var resp []map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// No account is actually banned (IsBan=false), so none should match.
-	_ = resp // result is DB-dependent; we only assert no crash / 200.
+	assert.Empty(t, resp, "only actual banned accounts match suspended")
 }
 
 func TestListAccounts_FilterByOriginLocal(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "local")
 
 	c, w := newGetContext(t, nil, "origin=local")
@@ -275,7 +280,7 @@ func TestListAccounts_FilterByOriginLocal(t *testing.T) {
 }
 
 func TestListAccounts_FilterByOriginRemote(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	createLocalAccount(t, env, "local")
 
 	c, w := newGetContext(t, nil, "origin=remote")
@@ -290,7 +295,7 @@ func TestListAccounts_FilterByOriginRemote(t *testing.T) {
 // ============== PerformAccountAction ==============
 
 func TestPerformAccountAction_Suspend(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "victim")
 
 	c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(account.Id)}},
@@ -305,7 +310,7 @@ func TestPerformAccountAction_Suspend(t *testing.T) {
 }
 
 func TestPerformAccountAction_Unsuspend(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "unban")
 	account.IsBan = true
 	account.Locked = true
@@ -323,7 +328,7 @@ func TestPerformAccountAction_Unsuspend(t *testing.T) {
 }
 
 func TestPerformAccountAction_Silence(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "tobesilenced")
 
 	c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(account.Id)}},
@@ -331,14 +336,11 @@ func TestPerformAccountAction_Silence(t *testing.T) {
 
 	PerformAccountAction(c)
 
-	require.Equal(t, 200, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.True(t, resp["silenced"].(bool))
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestPerformAccountAction_Unsilence(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "tobesilenced")
 	account.Locked = true
 	require.NoError(t, env.gdb.Save(account).Error)
@@ -348,14 +350,11 @@ func TestPerformAccountAction_Unsilence(t *testing.T) {
 
 	PerformAccountAction(c)
 
-	require.Equal(t, 200, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp["silenced"].(bool))
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestPerformAccountAction_Enable(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "enableme")
 	account.IsBan = true
 	account.Locked = true
@@ -369,22 +368,22 @@ func TestPerformAccountAction_Enable(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp["suspended"].(bool))
+	assert.True(t, resp["suspended"].(bool), "enabling login does not lift suspension")
 }
 
 func TestPerformAccountAction_SensitiveNoop(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "sensitive")
 
 	c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(account.Id)}},
 		AccountActionRequest{Type: "sensitive"})
 
 	PerformAccountAction(c)
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestPerformAccountAction_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: "bad"}},
 		AccountActionRequest{Type: "enable"})
 
@@ -393,7 +392,7 @@ func TestPerformAccountAction_InvalidID(t *testing.T) {
 }
 
 func TestPerformAccountAction_InvalidBody(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "x")
 
 	// Send invalid JSON
@@ -403,7 +402,7 @@ func TestPerformAccountAction_InvalidBody(t *testing.T) {
 }
 
 func TestPerformAccountAction_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: "999999"}},
 		AccountActionRequest{Type: "enable"})
 
@@ -414,7 +413,7 @@ func TestPerformAccountAction_NotFound(t *testing.T) {
 // ============== EnableAccount ==============
 
 func TestEnableAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "enable2")
 	account.IsBan = true
 	account.Locked = true
@@ -427,14 +426,14 @@ func TestEnableAccount_Success(t *testing.T) {
 }
 
 func TestEnableAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "abc"}}, "")
 	EnableAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestEnableAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "888888"}}, "")
 	EnableAccount(c)
 	assert.Equal(t, 404, w.Code)
@@ -443,7 +442,7 @@ func TestEnableAccount_NotFound(t *testing.T) {
 // ============== ApproveAccount ==============
 
 func TestApproveAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "pending")
 	// Mark the associated user as unapproved
 	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", account.UserId).Update("status", models.UserStatusUnapproved).Error)
@@ -455,7 +454,7 @@ func TestApproveAccount_Success(t *testing.T) {
 }
 
 func TestApproveAccount_NoUser(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	// Create an account with no associated user via preloading path
 	domain := "remote.social"
 	account := &models.Account{
@@ -469,18 +468,18 @@ func TestApproveAccount_NoUser(t *testing.T) {
 	ApproveAccount(c)
 
 	// account.User == nil => still returns 200 (no-op)
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestApproveAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "x"}}, "")
 	ApproveAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestApproveAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "777777"}}, "")
 	ApproveAccount(c)
 	assert.Equal(t, 404, w.Code)
@@ -489,8 +488,9 @@ func TestApproveAccount_NotFound(t *testing.T) {
 // ============== RejectAccount ==============
 
 func TestRejectAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "rejectme")
+	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", account.UserId).Update("status", models.UserStatusUnapproved).Error)
 
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, "")
 	RejectAccount(c)
@@ -498,18 +498,20 @@ func TestRejectAccount_Success(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Empty(t, resp)
+	assert.EqualValues(t, models.UserStatusRejected, resp["user_status"])
+	var remaining models.Account
+	require.NoError(t, env.gdb.First(&remaining, account.Id).Error)
 }
 
 func TestRejectAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "bad"}}, "")
 	RejectAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestRejectAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "666666"}}, "")
 	RejectAccount(c)
 	assert.Equal(t, 404, w.Code)
@@ -518,7 +520,7 @@ func TestRejectAccount_NotFound(t *testing.T) {
 // ============== UnsilenceAccount / UnsuspendAccount ==============
 
 func TestUnsilenceAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "sil")
 	account.Locked = true
 	require.NoError(t, env.gdb.Save(account).Error)
@@ -526,28 +528,25 @@ func TestUnsilenceAccount_Success(t *testing.T) {
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, "")
 	UnsilenceAccount(c)
 
-	require.Equal(t, 200, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp["silenced"].(bool))
+	assert.Equal(t, 422, w.Code)
 }
 
 func TestUnsilenceAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "zzz"}}, "")
 	UnsilenceAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestUnsilenceAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "555555"}}, "")
 	UnsilenceAccount(c)
 	assert.Equal(t, 404, w.Code)
 }
 
 func TestUnsuspendAccount_Success(t *testing.T) {
-	env := newAdminTestEnv(t)
+	env := newAdminAccountTestEnv(t)
 	account := createLocalAccount(t, env, "sus")
 	account.IsBan = true
 	account.Locked = true
@@ -563,15 +562,81 @@ func TestUnsuspendAccount_Success(t *testing.T) {
 }
 
 func TestUnsuspendAccount_InvalidID(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "nope"}}, "")
 	UnsuspendAccount(c)
 	assert.Equal(t, 400, w.Code)
 }
 
 func TestUnsuspendAccount_NotFound(t *testing.T) {
-	newAdminTestEnv(t)
+	newAdminAccountTestEnv(t)
 	c, w := newGetContext(t, gin.Params{{Key: "id", Value: "444444"}}, "")
 	UnsuspendAccount(c)
 	assert.Equal(t, 404, w.Code)
+}
+
+func TestAccountModerationPreservesPrivacyAndRejectsSelfAction(t *testing.T) {
+	env := newAdminAccountTestEnv(t)
+	account := createLocalAccount(t, env, "moderated")
+	require.NoError(t, env.gdb.Model(account).UpdateColumn("locked", true).Error)
+	for _, action := range []string{"disable", "enable", "suspend", "unsuspend"} {
+		c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, AccountActionRequest{Type: action})
+		PerformAccountAction(c)
+		require.Equal(t, 200, w.Code, w.Body.String())
+		var a models.Account
+		require.NoError(t, env.gdb.Preload("User").First(&a, account.Id).Error)
+		require.True(t, a.Locked)
+		if action == "disable" {
+			require.Equal(t, models.UserStatusRejected, a.User.Status)
+		}
+		if action == "suspend" {
+			require.True(t, a.IsBan)
+			require.True(t, a.User.IsBan)
+		}
+		if action == "unsuspend" {
+			require.False(t, a.IsBan)
+			require.False(t, a.User.IsBan)
+		}
+	}
+	for _, action := range []string{"disable", "suspend", "reject"} {
+		c, w := newJSONContext(t, http.MethodPost, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, AccountActionRequest{Type: action})
+		c.Set("user", &models.User{Id: account.UserId, IsAdmin: true})
+		PerformAccountAction(c)
+		require.Equal(t, 422, w.Code)
+	}
+}
+
+func TestAdminAccountPendingPaginationUsesActualUserState(t *testing.T) {
+	env := newAdminAccountTestEnv(t)
+	pending := createLocalAccount(t, env, "pendingactual")
+	createLocalAccount(t, env, "normalactual")
+	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", pending.UserId).UpdateColumn("status", models.UserStatusUnapproved).Error)
+	c, w := newGetContext(t, nil, "status=pending&limit=1")
+	ListAccounts(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, "1", w.Header().Get("X-Total-Count"))
+	var rows []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, uitoa(pending.Id), rows[0]["id"])
+	require.EqualValues(t, models.UserStatusUnapproved, rows[0]["user_status"])
+}
+
+// Execute account filtering against real SQL: the old SQLExec fixture silently
+// ignored OR/subquery predicates and could not validate moderation state.
+func newAdminAccountTestEnv(t *testing.T) *adminTestEnv {
+	t.Helper()
+	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	raw, err := conn.DB()
+	require.NoError(t, err)
+	raw.SetMaxOpenConns(1)
+	t.Cleanup(func() { raw.Close(); database.ResetTestDB() })
+	require.NoError(t, conn.AutoMigrate(allTestModels...))
+	var ddl string
+	require.NoError(t, conn.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'").Scan(&ddl).Error)
+	require.NoError(t, conn.Exec("DROP TABLE accounts").Error)
+	require.NoError(t, conn.Exec(strings.ReplaceAll(ddl, "bigint(20)", "integer")).Error)
+	database.SetTestDB(conn)
+	return &adminTestEnv{gdb: conn}
 }

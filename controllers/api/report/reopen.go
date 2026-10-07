@@ -13,6 +13,8 @@ func Reopen(c *gin.Context) {
 
 	currentAccount := controllers.MustGetAccount(c)
 	report.ActionTakenAt = nil
+	report.ActionTakenByAccountId = 0
+	report.ActionTakenByAccount = nil
 
 	err := db.GetDB().Save(report).Error
 	controllers.AbortIfError(c, err)

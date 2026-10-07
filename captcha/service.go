@@ -229,8 +229,26 @@ func loadConfigFromSettings() *Config {
 		cfg.SecretKey = getConfigValue("HCAPTCHA_SECRET_KEY", "config.hcaptcha.secret_key", "")
 	}
 
-	// 如果没有启用标记但有密钥配置，自动启用
-	if !cfg.Enabled && cfg.SiteKey != "" && cfg.SecretKey != "" {
+	// Administrator settings override legacy provider-specific keys. Their
+	// presence (including an explicit empty value) distinguishes intentional
+	// edits from installations which still use legacy configuration.
+	siteEnv, secretEnv := "CAPTCHA_SITE_KEY", "CAPTCHA_SECRET_KEY"
+	if provider == ProviderCloudflare {
+		siteEnv, secretEnv = "CLOUDFLARE_TURNSTILE_SITE_KEY", "CLOUDFLARE_TURNSTILE_SECRET_KEY"
+	}
+	if provider == ProviderHCaptcha {
+		siteEnv, secretEnv = "HCAPTCHA_SITE_KEY", "HCAPTCHA_SECRET_KEY"
+	}
+	if value := systemsettings.Get(systemsettings.KeyCaptchaSiteKey, nil); value != nil && os.Getenv(siteEnv) == "" {
+		cfg.SiteKey = systemsettings.GetString(systemsettings.KeyCaptchaSiteKey, "")
+	}
+	if value := systemsettings.Get(systemsettings.KeyCaptchaSecretKey, nil); value != nil && os.Getenv(secretEnv) == "" {
+		cfg.SecretKey = systemsettings.GetString(systemsettings.KeyCaptchaSecretKey, "")
+	}
+
+	// Legacy installations may auto-enable from credentials, but an explicit
+	// administrator disable must remain disabled.
+	if systemsettings.Get(systemsettings.KeyCaptchaEnabled, nil) == nil && cfg.SiteKey != "" && cfg.SecretKey != "" {
 		cfg.Enabled = true
 	}
 

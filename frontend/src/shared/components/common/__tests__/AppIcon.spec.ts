@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AppIcon from '../AppIcon.vue'
+import { adminNavigation } from '@/domains/admin/domain/navigation'
 import { normalizeIconSize, resolveIcon } from '../appIcons'
 
 describe('normalizeIconSize', () => {
@@ -16,6 +17,16 @@ describe('normalizeIconSize', () => {
 })
 
 describe('AppIcon', () => {
+  it('renders each admin navigation and action icon as a real SVG', () => {
+    const names = [...adminNavigation.flatMap(group => group.items.map(item => item.icon)), 'menu', 'arrow-top-right', 'arrow-right', 'quote']
+    for (const name of names) {
+      const wrapper = mount(AppIcon, { props: { name } })
+      expect(wrapper.find('svg').exists(), name).toBe(true)
+      expect(wrapper.find('svg path').exists(), name).toBe(true)
+      wrapper.unmount()
+    }
+  })
+
   it('renders an inline svg without any network sprite', () => {
     const w = mount(AppIcon, { props: { name: 'heart', size: 18 } })
     const svg = w.find('svg')

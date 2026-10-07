@@ -31,6 +31,7 @@ func ToReport(r *models.Report, account *models.Account) (ret *Report, err error
 	ret = &Report{}
 	ret.Id = strconv.FormatUint(r.Id, 10)
 	ret.ActionTaken = r.ActionTakenAt != nil
+	ret.ActionTakenAt = r.ActionTakenAt
 	ret.Comment = r.Comment
 	ret.Category = r.ToCategoryString()
 	ret.Forwarded = r.Forwarded
@@ -141,6 +142,10 @@ func ToReports(rs []*models.Report, account *models.Account) (ret []*Report, err
 	for _, r := range rs {
 		if r.AccountId > 0 {
 			accountsId = append(accountsId, r.AccountId)
+		}
+
+		if r.AssignedAccountId > 0 {
+			accountsId = append(accountsId, r.AssignedAccountId)
 		}
 
 		if r.ActionTakenByAccountId > 0 {

@@ -133,7 +133,7 @@ async function verify(): Promise<string> {
     emit('token', '')
     const msg = e instanceof Error ? e.message : '验证码不正确，请再试一次'
     hint.value = msg
-    throw new Error(msg)
+    throw new Error(msg, { cause: e })
   } finally {
     busy.value = false
   }

@@ -775,7 +775,7 @@ func SetRouter(app gin.IRouter) {
 
 	// Captcha 配置（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
-		GET("/admin/captcha/config", common.GetCaptchaConfig)
+		GET("/admin/captcha/config", common.AdminGetCaptchaConfig)
 
 	// Captcha 配置（管理员写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).

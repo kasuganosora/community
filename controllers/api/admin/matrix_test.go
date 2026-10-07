@@ -21,10 +21,10 @@ func TestStopMatrixBridge(t *testing.T) {
 	c, w := newJSONContext(t, http.MethodPost, nil, nil)
 	StopMatrixBridge(c)
 
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 501, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "Matrix Bridge stop request received", resp["message"])
+	assert.NotEmpty(t, resp["error"])
 }
 
 // ============== GetMatrixConfig ==============
@@ -67,10 +67,10 @@ func TestStartMatrixBridge_Disabled(t *testing.T) {
 	c, w := newJSONContext(t, http.MethodPost, nil, nil)
 	StartMatrixBridge(c)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 501, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Contains(t, resp["error"], "not configured")
+	assert.Contains(t, resp["error"], "managed by the server process")
 }
 
 // ============== TestMatrixConnection ==============

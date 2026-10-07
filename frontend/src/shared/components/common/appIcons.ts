@@ -14,8 +14,22 @@ import {
   NotificationFilledIcon, SettingFilledIcon, UserCircleFilledIcon,
 } from 'tdesign-icons-vue-next'
 
+import { QuoteIcon, DashboardIcon, UsergroupIcon, FlagIcon, HappyIcon, InternetIcon, ServerIcon, DataIcon, MenuIcon, ArrowRightUpIcon, ArrowRightIcon } from 'tdesign-icons-vue-next'
+
 /** Icons bundled locally (no runtime download). Add names here as needed. */
 export const ICONS: Record<string, Component> = {
+  'quote': QuoteIcon,
+  'dashboard': DashboardIcon,
+  'usergroup': UsergroupIcon,
+  'flag': FlagIcon,
+  'happy': HappyIcon,
+  'internet': InternetIcon,
+  'server': ServerIcon,
+  'data': DataIcon,
+  'menu': MenuIcon,
+  'arrow-top-right': ArrowRightUpIcon,
+  'arrow-right': ArrowRightIcon,
+
   'add': AddIcon,
   'arrow-left': ArrowLeftIcon,
   'bookmark': BookmarkIcon,

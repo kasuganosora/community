@@ -19,6 +19,12 @@ export const RouteNames = {
   LISTS: 'lists',
   LIST_TIMELINE: 'list-timeline',
   SETTINGS: 'settings',
+  ADMIN_OVERVIEW: 'admin-overview',
+  ADMIN_ACCOUNTS: 'admin-accounts',
+  ADMIN_REPORTS: 'admin-reports',
+  ADMIN_FEDERATION: 'admin-federation',
+  ADMIN_SYSTEM: 'admin-system',
+  ADMIN_SETTINGS: 'admin-settings',
   ADMIN_EMOJIS: 'admin-emojis',
   ADMIN_MIGRATIONS: 'admin-migrations',
   PERSONAL_DATA: 'personal-data',
@@ -60,14 +66,7 @@ const PublicRoutes: RouteRecordRaw[] = [
 ]
 
 const MainRoutes: RouteRecordRaw[] = [
-  { path: 'admin/migrations', name: RouteNames.ADMIN_MIGRATIONS, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'site' }, meta: { requiresAdmin: true } },
   { path: 'settings/data', name: RouteNames.PERSONAL_DATA, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'personal' } },
-  {
-    path: 'admin/emojis',
-    name: RouteNames.ADMIN_EMOJIS,
-    component: () => import('@/domains/admin/presentation/pages/EmojiAdminPage.vue'),
-    meta: { requiresAdmin: true },
-  },
   {
     path: '',
     name: RouteNames.HOME,
@@ -155,6 +154,21 @@ export const routes: RouteRecordRaw[] = [
     children: MainRoutes,
   },
   {
+    path: '/admin',
+    component: () => import('@/domains/admin/presentation/layouts/AdminLayout.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
+    children: [
+      { path: '', name: RouteNames.ADMIN_OVERVIEW, component: () => import('@/domains/admin/presentation/pages/OverviewAdminPage.vue') },
+      { path: 'accounts', name: RouteNames.ADMIN_ACCOUNTS, component: () => import('@/domains/admin/presentation/pages/AccountsAdminPage.vue') },
+      { path: 'reports', name: RouteNames.ADMIN_REPORTS, component: () => import('@/domains/admin/presentation/pages/ReportsAdminPage.vue') },
+      { path: 'federation', name: RouteNames.ADMIN_FEDERATION, component: () => import('@/domains/admin/presentation/pages/FederationAdminPage.vue') },
+      { path: 'system', name: RouteNames.ADMIN_SYSTEM, component: () => import('@/domains/admin/presentation/pages/SystemAdminPage.vue') },
+      { path: 'settings', name: RouteNames.ADMIN_SETTINGS, component: () => import('@/domains/admin/presentation/pages/SettingsAdminPage.vue') },
+      { path: 'emojis', name: RouteNames.ADMIN_EMOJIS, component: () => import('@/domains/admin/presentation/pages/EmojiAdminPage.vue') },
+      { path: 'migrations', name: RouteNames.ADMIN_MIGRATIONS, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'site' } },
+    ],
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/shared/components/common/NotFoundPage.vue'),
@@ -180,6 +194,12 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.LISTS]: { title: '列表' },
   [RouteNames.LIST_TIMELINE]: { title: '列表' },
   [RouteNames.SETTINGS]: { title: '设置' },
+  [RouteNames.ADMIN_OVERVIEW]: { title: '管理后台' },
+  [RouteNames.ADMIN_ACCOUNTS]: { title: '用户管理' },
+  [RouteNames.ADMIN_REPORTS]: { title: '举报与内容' },
+  [RouteNames.ADMIN_FEDERATION]: { title: '联邦中继' },
+  [RouteNames.ADMIN_SYSTEM]: { title: 'Matrix 服务' },
+  [RouteNames.ADMIN_SETTINGS]: { title: '站点设置' },
   [RouteNames.ADMIN_MIGRATIONS]: { title: '整站迁移' },
   [RouteNames.PERSONAL_DATA]: { title: '个人数据导入与导出' },
   [RouteNames.ADMIN_EMOJIS]: { title: '自定义表情管理' },

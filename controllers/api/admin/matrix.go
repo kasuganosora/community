@@ -56,32 +56,10 @@ func GetMatrixStatus(c *gin.Context) {
 
 // StartMatrixBridge 启动 Matrix Bridge.
 func StartMatrixBridge(c *gin.Context) {
-	matrix.LoadConfig()
-
-	cfg := &matrix.GlobalConfig
-
-	if !cfg.IsEnabled() {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Matrix Bridge is not configured or disabled", //nolint:goconst
-		})
-
-		return
-	}
-
-	// 这里可以集成全局 Bridge 实例的启动逻辑
-	// 实际实现中，Bridge 应该在应用启动时初始化
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Matrix Bridge start request received", //nolint:goconst
-	})
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "bridge lifecycle is managed by the server process"})
 }
-
-// StopMatrixBridge 停止 Matrix Bridge.
 func StopMatrixBridge(c *gin.Context) {
-	// 停止 Bridge 的逻辑
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Matrix Bridge stop request received",
-	})
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "bridge lifecycle is managed by the server process"})
 }
 
 // RunMatrixMigration 运行 Matrix 数据库迁移.

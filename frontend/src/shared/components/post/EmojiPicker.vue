@@ -45,7 +45,7 @@ function onKeydown(event: KeyboardEvent) {
   const current = buttons.findIndex(button => button === document.activeElement)
   const width = grid.value?.clientWidth || 320
   const cols = Math.max(1, Math.floor(width / 80))
-  let next = current
+  let next: number
   if (event.key === 'ArrowDown') next = current < 0 ? 0 : Math.min(buttons.length - 1, current + cols)
   else if (event.key === 'ArrowUp') next = Math.max(0, current - cols)
   else if (event.key === 'ArrowRight') next = Math.min(buttons.length - 1, current < 0 ? 0 : current + 1)

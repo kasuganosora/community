@@ -11,6 +11,15 @@ describe('pageTitle', () => {
 })
 
 describe('routes', () => {
+  it('isolates administrator pages and inherits authentication and admin guards', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    for (const path of ['', '/accounts', '/reports', '/emojis', '/federation', '/system', '/settings', '/migrations']) {
+      const resolved = router.resolve('/admin' + path)
+      expect(resolved.meta).toMatchObject({ requiresAuth: true, requiresAdmin: true })
+      expect(resolved.matched[0]?.path).toBe('/admin')
+      expect(resolved.name).not.toBe('not-found')
+    }
+  })
   it('separates administrator site migration from personal data tools', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     expect(router.resolve('/admin/migrations').meta).toMatchObject({ requiresAuth: true, requiresAdmin: true })

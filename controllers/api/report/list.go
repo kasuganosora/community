@@ -23,7 +23,7 @@ func List(c *gin.Context) {
 	err := c.ShouldBindQuery(req)
 	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
-	query := db.GetDB().Model(&models.Report{})
+	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Report{})
 
 	if req.Resolved != nil {
 		if *req.Resolved {
@@ -49,9 +49,13 @@ func List(c *gin.Context) {
 		query = query.Where("id > ?", req.SinceId)
 	}
 
-	if req.Limit != 0 {
-		query = query.Limit(req.Limit)
+	if req.Limit <= 0 {
+		req.Limit = 40
 	}
+	if req.Limit > 80 {
+		req.Limit = 80
+	}
+	query = query.Limit(req.Limit).Order("id DESC")
 
 	if req.MinId != 0 {
 		query = query.Where("id > ?", req.MinId)

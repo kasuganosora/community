@@ -10,15 +10,15 @@ import (
 
 // GetStatus handles GET /api/v1/admin/statuses/:id.
 func GetStatus(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "status id required"}) //nolint:goconst
+	id, parseErr := strconv.ParseUint(c.Param("id"), 10, 64)
+	if parseErr != nil || id == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid status id"}) //nolint:goconst
 
 		return
 	}
 
 	status := &models.Status{}
-	err := db.GetDB().Preload("Account").Preload("Account.Extra").First(status, id).Error
+	err := db.GetDB().WithContext(c.Request.Context()).Preload("Content").Preload("Account").Preload("Account.Extra").First(status, id).Error
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "status not found"}) //nolint:goconst
 
@@ -35,9 +35,9 @@ type StatusActionRequest struct {
 
 // PerformStatusAction handles POST /api/v1/admin/statuses/:id/action.
 func PerformStatusAction(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "status id required"})
+	id, parseErr := strconv.ParseUint(c.Param("id"), 10, 64)
+	if parseErr != nil || id == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid status id"})
 
 		return
 	}
@@ -51,7 +51,7 @@ func PerformStatusAction(c *gin.Context) {
 	}
 
 	status := &models.Status{}
-	err = db.GetDB().First(status, id).Error
+	err = db.GetDB().WithContext(c.Request.Context()).Preload("Content").Preload("Account").First(status, id).Error
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "status not found"})
 
@@ -62,13 +62,16 @@ func PerformStatusAction(c *gin.Context) {
 
 	switch req.Type {
 	case "delete":
-		dbErr = db.GetDB().Delete(status).Error
+		status, dbErr = deleteAdminStatus(c.Request.Context(), db.GetDB(), id)
 	case "mark_as_sensitive":
 		status.Sensitive = true
-		dbErr = db.GetDB().Save(status).Error
+		dbErr = db.GetDB().WithContext(c.Request.Context()).Model(status).Update("sensitive", status.Sensitive).Error
 	case "mark_as_not_sensitive":
 		status.Sensitive = false
-		dbErr = db.GetDB().Save(status).Error
+		dbErr = db.GetDB().WithContext(c.Request.Context()).Model(status).Update("sensitive", status.Sensitive).Error
+	default:
+		c.JSON(422, gin.H{"error": "unsupported status action"})
+		return
 	}
 
 	if dbErr != nil {
@@ -82,22 +85,22 @@ func PerformStatusAction(c *gin.Context) {
 
 // DeleteStatus handles DELETE /api/v1/admin/statuses/:id.
 func DeleteStatus(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "status id required"})
+	id, parseErr := strconv.ParseUint(c.Param("id"), 10, 64)
+	if parseErr != nil || id == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid status id"})
 
 		return
 	}
 
 	status := &models.Status{}
-	err := db.GetDB().First(status, id).Error
+	err := db.GetDB().WithContext(c.Request.Context()).Preload("Content").Preload("Account").First(status, id).Error
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "status not found"})
 
 		return
 	}
 
-	err = db.GetDB().Delete(status).Error
+	_, err = deleteAdminStatus(c.Request.Context(), db.GetDB(), id)
 	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
@@ -162,7 +165,7 @@ func serializeAdminStatusAccount(account *models.Account) gin.H {
 		"display_name": account.DisplayName, //nolint:goconst
 		"avatar":       account.Avatar,
 		"bot":          account.Bot,
-		"suspended":    account.IsBan,                    //nolint:goconst
-		"silenced":     account.Locked && !account.IsBan, //nolint:goconst
+		"suspended":    account.IsBan, //nolint:goconst
+		"silenced":     false,         //nolint:goconst
 	}
 }

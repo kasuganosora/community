@@ -14,6 +14,7 @@ func Resolve(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	report.AssignedAccountId = currentAccount.Id
+	report.ActionTakenByAccountId = currentAccount.Id
 	now := time.Now()
 	report.ActionTakenAt = &now
 
