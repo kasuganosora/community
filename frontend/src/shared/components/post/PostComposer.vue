@@ -52,6 +52,11 @@ function toggleEmojiPicker() {
   selection = { start: input?.selectionStart ?? content.value.length, end: input?.selectionEnd ?? content.value.length }
   pickerOpen.value = !pickerOpen.value
 }
+async function closeEmojiPicker() {
+  pickerOpen.value = false
+  await nextTick()
+  composerRoot.value?.querySelector<HTMLButtonElement>('[aria-label="自定义表情"]')?.focus({ preventScroll: true })
+}
 async function insertEmoji(emoji: MastodonEmoji) {
   const inserted = insertShortcode(content.value, emoji.shortcode, selection.start, selection.end)
   content.value = inserted.text
@@ -522,7 +527,7 @@ defineExpose({ focus, reset })
           </div>
         </fieldset>
 
-        <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="pickerOpen = false" />
+        <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="closeEmojiPicker" />
         <div v-if="quote && !isEdit" class="composer__quote">
           <span class="composer__quote-who">引用 @{{ quote.account.acct }}</span>
           <p>{{ quote.spoiler_text ? `内容警告：${quote.spoiler_text}` : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || '（这条引用没有文字）') }}</p>
@@ -535,7 +540,7 @@ defineExpose({ focus, reset })
         </div>
         <div class="composer__toolbar">
           <div class="composer__tools">
-            <button type="button" class="tool-btn" aria-label="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker">☺</button>
+            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" aria-label="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
             <template v-if="!isEdit">
               <input
                 :id="`composer-file-${uid}`"

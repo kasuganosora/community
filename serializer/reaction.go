@@ -27,7 +27,7 @@ func StatusReactions(statusID uint64, viewer *models.Account, accounts bool) ([]
 		conn := db.GetDB()
 		for _, r := range result {
 			var actors []*models.Account
-			if err := conn.Joins("JOIN status_reactions ON status_reactions.account_id = accounts.id").Where("status_reactions.status_id = ? AND status_reactions.name = ?", statusID, r.Name).Order("status_reactions.id DESC").Limit(20).Find(&actors).Error; err != nil {
+			if err := conn.Joins("JOIN status_reactions ON status_reactions.account_id = accounts.id").Where("status_reactions.status_id = ? AND "+models.ReactionNameSQL(conn)+" = ?", statusID, r.Name).Order("status_reactions.id DESC").Limit(20).Find(&actors).Error; err != nil {
 				return nil, err
 			}
 			r.Accounts = make([]*Account, 0)
@@ -81,7 +81,8 @@ func statusReactionsBatchWithDB(conn *gorm.DB, statusIDs []uint64, viewer *model
 		Count    int64
 	}
 	var groups []group
-	if err := conn.Model(&models.StatusReaction{}).Select("status_id, name, emoji_id, COUNT(*) AS count").Where("status_id IN ?", statusIDs).Group("status_id, name, emoji_id").Order("MIN(id)").Scan(&groups).Error; err != nil {
+	nameSQL := models.ReactionNameSQL(conn)
+	if err := conn.Model(&models.StatusReaction{}).Select("status_id, "+nameSQL+" AS name, emoji_id, COUNT(*) AS count").Where("status_id IN ?", statusIDs).Group("status_id, " + nameSQL + ", emoji_id").Order("MIN(id)").Scan(&groups).Error; err != nil {
 		return nil, err
 	}
 	emojiIDs := make([]uint64, 0)

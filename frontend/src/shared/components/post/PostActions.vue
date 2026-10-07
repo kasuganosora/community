@@ -290,4 +290,9 @@ async function handleShare() {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: -2px;
 }
+@media (max-width: 360px) {
+  .post-actions { flex-wrap: wrap; }
+  .action-btn { padding-inline: 8px; gap: 2px; }
+  .action-btn::before { left: 0; }
+}
 </style>

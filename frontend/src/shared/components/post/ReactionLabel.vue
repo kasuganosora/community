@@ -13,10 +13,15 @@ const src = computed(() => {
 <template>
   <span class="reaction-label">
     <img v-if="src" :src="src" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
-    <template v-else>{{ reaction.name }}</template>
-    <button v-if="reaction.is_sensitive && !revealed" type="button" class="btn btn--ghost btn--sm" @click.stop="revealed = true" @keydown.enter.stop>显示敏感表情</button>
+    <span v-else class="reaction-label__text">{{ reaction.name }}</span>
+    <button v-if="reaction.is_sensitive && !revealed" type="button" class="reaction-label__reveal" @click.stop="revealed = true" @keydown.enter.stop>显示敏感表情</button>
   </span>
 </template>
 <style scoped>
-.reaction-label img { width: 1.3em; height: 1.3em; object-fit: contain; vertical-align: -0.25em; }
+.reaction-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; vertical-align: middle; }
+.reaction-label img { display: inline-block; width: 1.3em; height: 1.3em; flex-shrink: 0; object-fit: contain; }
+.reaction-label__text { overflow-wrap: anywhere; }
+.reaction-label__reveal { padding: 3px 7px; border: 1px solid var(--color-separator); border-radius: 6px; background: var(--color-fill); color: var(--color-label-secondary); font-size: 11px; line-height: 1.4; cursor: pointer; }
+.reaction-label__reveal:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+@media (hover: hover) { .reaction-label__reveal:hover { color: var(--color-accent-text); background: var(--color-accent-soft); } }
 </style>

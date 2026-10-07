@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shallowMount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import PostReactions from '../PostReactions.vue'
@@ -6,6 +6,9 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { editedStatuses } from '@/domains/post/presentation/composables/useStatusActions'
 import type { MastodonStatus, MastodonAccount } from '@/shared/types/mastodon'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+afterEach(() => vi.restoreAllMocks())
 const status = { id: 'reaction-post', emoji_reactions: [{ name: '👍', count: 3, me: true }, { name: '🎉', count: 2, me: false }] } as MastodonStatus
 function mountReaction() {
   const pinia = createPinia(); useAuthStore(pinia).currentUser = { id: 'me' } as MastodonAccount
@@ -41,4 +44,37 @@ describe('post emoji reactions', () => {
     expect(wrapper.findAll('li')).toHaveLength(0)
     wrapper.unmount()
   })
+  it('shows a selected quick reaction and returns keyboard focus when closing', async () => {
+    const wrapper = mountReaction()
+    const add = byLabel(wrapper, '添加表情回应')
+    await add.trigger('click')
+    expect(wrapper.findAll('.reaction-quickbar__item')).toHaveLength(6)
+    expect(byLabel(wrapper, '回应 👍').attributes('aria-pressed')).toBe('true')
+    await wrapper.find('.post-reactions').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.reaction-quickbar').exists()).toBe(false)
+    expect(add.attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+  it('renders responders with actual account avatars without loading sensitive emoji images', async () => {
+    const account = { id: 'alice', username: 'alice', acct: 'alice@remote.test', display_name: 'Alice', avatar: 'https://remote.test/avatar.png' } as MastodonAccount
+    vi.spyOn(postApi, 'reactions').mockResolvedValue([{ name: ':sensitive:', count: 1, me: false, is_sensitive: true, url: 'https://remote.test/sensitive.png', accounts: [account] }])
+    const wrapper = mountReaction()
+    await wrapper.find('.post-reactions__details').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(UserAvatar).props('account')).toEqual(account)
+    expect(wrapper.find('.responders__handle').text()).toBe('@alice@remote.test')
+    expect(wrapper.findAll('img[src="https://remote.test/sensitive.png"]')).toHaveLength(0)
+    wrapper.unmount()
+  })
+  it('discards responder identities when the session changes during a request', async () => {
+    let resolve!: (rows: Awaited<ReturnType<typeof postApi.reactions>>) => void
+    vi.spyOn(postApi, 'reactions').mockImplementation(() => new Promise(done => { resolve = done }))
+    const wrapper = mountReaction()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    sessionEpoch.value++
+    resolve([{ name: '👍', count: 1, me: false, accounts: [{ id: 'private', username: 'private' } as MastodonAccount] }])
+    await flushPromises()
+    expect(wrapper.findAll('.responders__account')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
 })

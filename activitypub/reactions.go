@@ -154,7 +154,7 @@ func reactionPayload(e *models.FederationOutbox, actorURI, activityID string) (m
 	}
 	if e.Kind == "Reaction" {
 		var count int64
-		if err := db.GetDB().Model(&models.StatusReaction{}).Where("id = ? AND account_id = ? AND status_id = ? AND name = ?", snap.Reaction.ID, e.AccountID, e.ObjectID, snap.Reaction.Name).Count(&count).Error; err != nil {
+		if err := db.GetDB().Model(&models.StatusReaction{}).Where("id = ? AND account_id = ? AND status_id = ? AND "+models.ReactionNameSQL(db.GetDB())+" = ?", snap.Reaction.ID, e.AccountID, e.ObjectID, snap.Reaction.Name).Count(&count).Error; err != nil {
 			return nil, nil, err
 		}
 		if count == 0 {

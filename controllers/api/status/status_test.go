@@ -54,6 +54,7 @@ var allTestModels = []any{
 	&models.Application{},
 	&models.Follow{},
 	&models.Block{},
+	&models.DomainBlock{},
 	&models.Emoji{},
 	&models.StatusEmoji{},
 	&models.StatusMediaAttachment{},

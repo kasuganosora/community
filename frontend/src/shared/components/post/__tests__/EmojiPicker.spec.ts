@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import EmojiPicker from '../EmojiPicker.vue'
@@ -12,6 +12,19 @@ function setup() {
   return mount(EmojiPicker, { global: { plugins: [pinia] } })
 }
 describe('custom emoji picker', () => {
+  beforeEach(() => localStorage.clear())
+  it('clears searches, previews a focused name and closes with Escape', async () => {
+    const wrapper = setup(); await flushPromises()
+    await wrapper.get('input[type=search]').setValue('no match')
+    expect(wrapper.text()).toContain('没有匹配的表情')
+    await wrapper.get('[aria-label="清除表情搜索"]').trigger('click')
+    expect(wrapper.findAll('.emoji-picker__grid button')).toHaveLength(2)
+    await wrapper.get('.emoji-picker__grid button').trigger('focus')
+    expect(wrapper.get('.emoji-picker__preview strong').text()).toBe(':wave:')
+    await wrapper.get('section').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
   it('searches aliases and filters by category, excludes hidden entries', async () => {
     const wrapper = setup(); await flushPromises()
     expect(wrapper.findAll('.emoji-picker__grid button')).toHaveLength(2)

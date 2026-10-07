@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import { emojiUrl, readRecentEmoji, rememberRecentEmoji } from '@/domains/emoji/domain/emoji'
+import AppIcon from '@/shared/components/common/AppIcon.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 const emit = defineEmits<{ select: [emoji: MastodonEmoji]; close: [] }>()
 const store = useEmojiStore()
@@ -10,6 +11,9 @@ const category = ref('')
 const sensitive = ref(false)
 const recentCodes = ref(readRecentEmoji())
 const grid = ref<HTMLElement>()
+const searchInput = ref<HTMLInputElement>()
+const highlighted = ref<MastodonEmoji | null>(null)
+watch([query, category, sensitive], () => { highlighted.value = null })
 const available = computed(() => store.emojis.filter(e => e.visible_in_picker && !e.disabled))
 const categories = computed(() => [...new Set(available.value.map(e => e.category || '未分类'))].sort())
 const recentEmojis = computed(() => {
@@ -44,7 +48,7 @@ function onKeydown(event: KeyboardEvent) {
   if (!buttons.length) return
   const current = buttons.findIndex(button => button === document.activeElement)
   const width = grid.value?.clientWidth || 320
-  const cols = Math.max(1, Math.floor(width / 80))
+  const cols = Math.max(1, Math.floor((width + 6) / 62))
   let next: number
   if (event.key === 'ArrowDown') next = current < 0 ? 0 : Math.min(buttons.length - 1, current + cols)
   else if (event.key === 'ArrowUp') next = Math.max(0, current - cols)
@@ -56,54 +60,59 @@ function onKeydown(event: KeyboardEvent) {
   event.preventDefault()
   buttons[next]?.focus()
 }
-onMounted(() => store.load())
+onMounted(() => { void store.load(); searchInput.value?.focus({ preventScroll: true }) })
 </script>
 <template>
   <section class="emoji-picker" aria-label="自定义表情选择器" @keydown="onKeydown">
+    <header class="emoji-picker__header">
+      <div class="emoji-picker__heading"><span class="emoji-picker__mark"><AppIcon name="happy" /></span><div><strong>自定义表情</strong><span>让表达更有趣一点</span></div></div>
+      <div class="emoji-picker__tools"><button type="button" class="icon-button" aria-label="刷新表情列表" :disabled="store.loading" @click="store.load(true)"><AppIcon name="refresh" /></button><button type="button" class="icon-button" aria-label="关闭表情选择器" @click="emit('close')"><AppIcon name="close" /></button></div>
+    </header>
+    <div class="emoji-picker__search"><AppIcon name="search" /><input ref="searchInput" v-model="query" type="search" aria-label="搜索表情名称或别名" placeholder="搜索名称或别名…" /><button v-if="query" type="button" class="icon-button" aria-label="清除表情搜索" @click="query = ''; searchInput?.focus()"><AppIcon name="close" /></button></div>
     <div class="emoji-picker__filters">
-      <input v-model="query" type="search" aria-label="搜索表情名称或别名" placeholder="搜索名称或别名" />
-      <select :value="category === '__recent' ? '' : category" aria-label="表情分类" @change="category = ($event.target as HTMLSelectElement).value">
-        <option value="">全部分类</option>
-        <option v-for="c in categories" :key="c">{{ c }}</option>
-      </select>
-      <button type="button" aria-label="刷新表情列表" :disabled="store.loading" @click="store.load(true)">刷新</button>
-      <button type="button" aria-label="关闭表情选择器" @click="emit('close')">×</button>
+      <div class="emoji-picker__cats" aria-label="浏览范围">
+        <button type="button" :aria-pressed="category !== '__recent'" @click="category = ''">全部</button>
+        <button v-if="recentEmojis.length" type="button" :aria-pressed="category === '__recent'" @click="category = '__recent'"><AppIcon name="time" />最近</button>
+      </div>
+      <select :value="category === '__recent' ? '' : category" aria-label="表情分类" @change="category = ($event.target as HTMLSelectElement).value"><option value="">全部分类</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
     </div>
-    <div class="emoji-picker__cats" role="tablist" aria-label="按分类浏览">
-      <button type="button" role="tab" :aria-selected="category === ''" @click="category = ''">全部</button>
-      <button v-if="recentEmojis.length" type="button" role="tab" :aria-selected="category === '__recent'" @click="category = '__recent'">最近使用</button>
-      <button v-for="c in categories" :key="c" type="button" role="tab" :aria-selected="category === c" @click="category = c">{{ c }}</button>
-    </div>
-    <label><input v-model="sensitive" type="checkbox" />显示敏感表情</label>
-    <p v-if="store.loading" role="status">加载表情…</p>
-    <p v-else-if="store.error" role="alert">{{ store.error }} <button type="button" @click="store.load(true)">重试</button></p>
-    <p v-else-if="category === '__recent' && !matches.length">还没有最近使用的表情</p>
-    <p v-else-if="!matches.length">没有匹配的表情</p>
+    <div v-if="store.loading" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>正在加载表情</strong><span>马上就好…</span></div>
+    <div v-else-if="store.error" class="emoji-picker__empty" role="alert"><AppIcon name="error-circle" /><strong>暂时无法加载</strong><span>{{ store.error }}</span><button type="button" class="retry-button" @click="store.load(true)">重新加载</button></div>
+    <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' ? '还没有最近使用的表情' : '没有匹配的表情' }}</strong><span>{{ query ? '试试其他名称，或清除搜索条件' : '换个分类，寻找喜欢的表情' }}</span></div>
     <div v-else ref="grid" class="emoji-picker__grid">
-      <button v-for="emoji in matches" :key="emoji.shortcode" type="button" :aria-label="`插入 :${emoji.shortcode}:${emoji.local_only ? '（仅本站显示）' : ''}`" :title="`${emoji.shortcode}${emoji.license ? ' · ' + emoji.license : ''}`" :disabled="!!emoji.is_sensitive && !sensitive" @click="choose(emoji)">
+      <button v-for="emoji in matches" :key="emoji.shortcode" type="button" :aria-label="`插入 :${emoji.shortcode}:${emoji.local_only ? '（仅本站显示）' : ''}`" :title="`${emoji.shortcode}${emoji.license ? ' · ' + emoji.license : ''}`" :disabled="!!emoji.is_sensitive && !sensitive" @mouseenter="highlighted = emoji" @focus="highlighted = emoji" @click="choose(emoji)">
         <img v-if="(!emoji.is_sensitive || sensitive) && emojiUrl(emoji)" :src="emojiUrl(emoji)!" :alt="`:${emoji.shortcode}:`" loading="lazy" referrerpolicy="no-referrer" />
-        <span v-else>{{ emoji.is_sensitive ? '敏感表情' : `:${emoji.shortcode}:` }}</span>
-        <small>{{ emoji.shortcode }}</small><small v-if="emoji.local_only">仅本站显示</small>
+        <AppIcon v-else :name="emoji.is_sensitive ? 'lock-on' : 'happy'" />
+        <small>{{ emoji.is_sensitive && !sensitive ? '敏感表情' : emoji.shortcode }}</small><i v-if="emoji.local_only" aria-hidden="true" class="local-dot" />
       </button>
     </div>
+    <footer class="emoji-picker__footer">
+      <div class="emoji-picker__preview" aria-live="polite"><strong>{{ highlighted ? `:${highlighted.shortcode}:` : '挑一个喜欢的表情' }}</strong><span>{{ highlighted ? [highlighted.category || '未分类', highlighted.local_only ? '仅本站显示' : '', highlighted.license || ''].filter(Boolean).join(' · ') : `${matches.length} 个表情 · 方向键浏览，回车选择` }}</span></div>
+      <label class="emoji-picker__sensitive"><input v-model="sensitive" type="checkbox" /><span>显示敏感表情</span></label>
+    </footer>
   </section>
 </template>
 <style scoped>
-.emoji-picker { margin: var(--space-2) 0; padding: var(--space-3); background: var(--color-bg-grouped); border-radius: var(--radius-md); font-size: var(--text-footnote); }
-.emoji-picker__filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-2); margin-bottom: var(--space-2); }
-.emoji-picker__filters input { grid-column: 1 / -1; }
-.emoji-picker__filters button { min-width: 2rem; min-height: 2rem; padding: var(--space-1); }
-.emoji-picker__filters input, .emoji-picker__filters select { min-width: 0; width: 100%; box-sizing: border-box; color: var(--color-label); background: var(--color-bg-row); border: 1px solid var(--color-separator); border-radius: var(--radius-sm); padding: var(--space-1); }
-.emoji-picker__cats { display: flex; gap: var(--space-1); overflow-x: auto; margin-bottom: var(--space-2); padding-bottom: var(--space-1); }
-.emoji-picker__cats button { flex: 0 0 auto; min-height: 2rem; padding: 0 var(--space-3); border-radius: var(--radius-full); background: var(--color-fill); }
-.emoji-picker__cats button[aria-selected='true'] { background: var(--color-accent-soft); color: var(--color-accent-text); }
-.emoji-picker__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); gap: var(--space-1); max-height: 15rem; overflow: auto; margin-top: var(--space-2); }
-.emoji-picker__grid button { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-2); min-width: 0; border-radius: var(--radius-sm); }
-.emoji-picker__grid button:focus-visible { background: var(--color-fill); }
-@media (hover: hover) and (pointer: fine) {
-  .emoji-picker__grid button:hover { background: var(--color-fill); }
-}
-.emoji-picker__grid img { width: 2rem; height: 2rem; object-fit: contain; }
-.emoji-picker__grid small { max-width: 100%; overflow-wrap: anywhere; }
-.emoji-picker__grid button:disabled { opacity: .6; }
+.emoji-picker { margin:12px 0; padding:16px; min-width:0; color:var(--color-label); background:var(--color-bg-row); border:1px solid var(--color-separator); border-radius:20px; box-shadow:0 8px 28px rgb(0 0 0 / 5%); font-size:13px; }
+.emoji-picker__header,.emoji-picker__heading,.emoji-picker__tools { display:flex; align-items:center; gap:10px; }
+.emoji-picker__header { justify-content:space-between; margin-bottom:14px; }
+.emoji-picker__heading strong { display:block; font-size:14px; }.emoji-picker__heading span:not(.emoji-picker__mark) { display:block; margin-top:3px; font-size:11px; color:var(--color-label-secondary); }
+.emoji-picker__mark { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:var(--color-accent-soft); color:var(--color-accent-text); font-size:22px; }
+.icon-button { display:grid; place-items:center; flex-shrink:0; width:32px; height:32px; border-radius:10px; color:var(--color-label-secondary); font-size:18px; }
+.emoji-picker__tools { gap:2px; }.emoji-picker button { border:0; cursor:pointer; }.emoji-picker button:disabled { opacity:.45; cursor:default; }
+.emoji-picker__search { display:flex; align-items:center; gap:9px; padding:4px 10px; border:1px solid transparent; background:var(--color-bg-grouped); border-radius:12px; color:var(--color-label-secondary); }
+.emoji-picker__search:focus-within { border-color:var(--color-accent-text); box-shadow:0 0 0 3px var(--color-accent-soft); }
+.emoji-picker__search input { width:100%; min-width:0; min-height:34px; padding:0; border:0; outline:0; background:transparent; color:var(--color-label); font:inherit; }.emoji-picker__search input::-webkit-search-cancel-button { display:none; }
+.emoji-picker__filters { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:12px 0; }.emoji-picker__cats { display:flex; gap:4px; flex-shrink:0; }
+.emoji-picker__cats button { display:flex; align-items:center; justify-content:center; gap:4px; min-height:34px; padding:0 12px; border-radius:9px; color:var(--color-label-secondary); background:transparent; font:inherit; }
+.emoji-picker__cats button[aria-pressed='true'] { background:var(--color-accent-soft); color:var(--color-accent-text); font-weight:600; }
+.emoji-picker__filters select { min-width:0; max-width:45%; min-height:34px; border:1px solid var(--color-separator); border-radius:9px; padding:0 6px; color:var(--color-label-secondary); background:var(--color-bg-row); font:inherit; }
+.emoji-picker__grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(56px,1fr)); align-content:start; gap:6px; max-height:240px; min-height:116px; overflow:auto; overscroll-behavior:contain; padding:3px; margin:0 -3px; }
+.emoji-picker__grid button { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-width:0; min-height:68px; padding:7px 3px; border-radius:12px; background:transparent; color:var(--color-label-secondary); transition:background .15s,transform .15s; }.emoji-picker__grid img { width:32px; height:32px; object-fit:contain; }.emoji-picker__grid :deep(svg) { font-size:26px; }.emoji-picker__grid small { max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; }.local-dot { position:absolute; right:7px; top:7px; width:5px; height:5px; border-radius:50%; background:var(--color-accent-text); }
+.emoji-picker button:focus-visible,.emoji-picker select:focus-visible { outline:2px solid var(--color-accent-text); outline-offset:1px; }.emoji-picker__grid button:active:not(:disabled) { transform:scale(.94); }
+@media(hover:hover) { .icon-button:hover,.emoji-picker__grid button:hover:not(:disabled) { background:var(--color-accent-soft); color:var(--color-accent-text); } }
+.emoji-picker__empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; min-height:156px; text-align:center; color:var(--color-label-secondary); }.emoji-picker__empty>:deep(svg) { font-size:28px; opacity:.6; }.emoji-picker__empty span { font-size:12px; }.retry-button { padding:8px 14px; border-radius:9px; color:var(--color-accent-text); background:var(--color-accent-soft); }
+.emoji-picker__footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid var(--color-separator); }.emoji-picker__preview { min-width:0; flex:1 1 160px; }.emoji-picker__preview strong { display:block; font-size:12px; overflow-wrap:anywhere; }.emoji-picker__preview>span { display:block; margin-top:4px; font-size:11px; color:var(--color-label-secondary); overflow-wrap:anywhere; }.emoji-picker__sensitive { display:flex; align-items:center; gap:6px; min-height:32px; font-size:11px; color:var(--color-label-secondary); cursor:pointer; }.emoji-picker__sensitive input { accent-color:var(--color-accent-text); }
+@media(max-width:400px) { .emoji-picker { padding:12px; border-radius:16px; }.emoji-picker__heading { gap:7px; min-width:0; }.emoji-picker__heading>div { min-width:0; }.emoji-picker__heading span:not(.emoji-picker__mark) { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.emoji-picker__mark { width:30px; height:30px; }.emoji-picker__heading strong { font-size:13px; }.emoji-picker__cats button { padding:0 9px; } }
+@media(prefers-reduced-motion:reduce) { .emoji-picker__grid button { transition:none; } }
 </style>
