@@ -16,6 +16,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -1016,7 +1017,7 @@ func setupMinimalTestDB(t *testing.T) {
 	// a handler that used a second connection (e.g. a query outside its
 	// transaction, or a background goroutine) failed with "no such table".
 	uniqueDSN := "file:hshandler_" + randomSuffix() + "?mode=memory&cache=shared&_busy_timeout=5000"
-	dbConn, err := gorm.Open(sqlite.Open(uniqueDSN), &gorm.Config{
+	dbConn, err := pgtest.GormOpen(t, sqlite.Open(uniqueDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

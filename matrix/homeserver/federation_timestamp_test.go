@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -24,7 +25,7 @@ func (ft *FederationTimestampTest) Setup(t *testing.T) {
 
 	// A shared unnamed memory database can outlive another test's handle
 	// while background work still has a connection, leaking its event IDs.
-	ft.db, err = gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "events.db")), &gorm.Config{})
+	ft.db, err = pgtest.GormOpen(t, sqlite.Open(filepath.Join(t.TempDir(), "events.db")), &gorm.Config{})
 	require.NoError(t, err)
 
 	// 迁移表结构 - 只迁移我们需要的基本字段

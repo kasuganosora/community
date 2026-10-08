@@ -16,6 +16,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -33,7 +34,7 @@ import (
 func closedTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{
 		SkipDefaultTransaction:                   true,
 		IgnoreRelationshipsWhenMigrating:         true,
 		DisableForeignKeyConstraintWhenMigrating: true,
@@ -530,7 +531,7 @@ func TestProcessUploadAsync_DBUpdateError(t *testing.T) {
 	// We still need a media id. Create it via a fresh DB then swap in the
 	// closed one. Re-open a working DB, create the record, capture the id, then
 	// inject the closed DB.
-	workingGdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	workingGdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{
 		SkipDefaultTransaction:                   true,
 		IgnoreRelationshipsWhenMigrating:         true,
 		DisableForeignKeyConstraintWhenMigrating: true,

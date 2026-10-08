@@ -26,6 +26,9 @@ type TestDB struct {
 	// singleton) set this to false so they only close their own Session and
 	// never tear down the shared database out from under other tests.
 	ownsDB bool
+
+	// closeFn releases a PostgreSQL test schema (see postgres.go).
+	closeFn func()
 }
 
 // DBMode defines the test database mode.
@@ -109,6 +112,17 @@ func NewIsolatedTestDB(t interface {
 }) (*TestDB, error) {
 	t.Helper()
 
+	if UsePostgres() {
+		gdb, cleanup, err := openPostgresTestDB(&gorm.Config{SkipDefaultTransaction: true, DisableForeignKeyConstraintWhenMigrating: true})
+		if err != nil {
+			return nil, err
+		}
+
+		t.Cleanup(cleanup)
+
+		return &TestDB{GormDB: gdb}, nil
+	}
+
 	dsName := "test_" + uuid.New().String()[:8]
 
 	db, err := api.NewDB(nil)
@@ -169,6 +183,15 @@ func NewIsolatedTestDB(t interface {
 // newTestDBNoCleanup creates an isolated test database without registering t.Cleanup.
 // Used internally by NewTestSetup which manages cleanup itself.
 func newTestDBNoCleanup() (*TestDB, error) {
+	if UsePostgres() {
+		gdb, cleanup, err := openPostgresTestDB(&gorm.Config{SkipDefaultTransaction: true, DisableForeignKeyConstraintWhenMigrating: true})
+		if err != nil {
+			return nil, err
+		}
+
+		return &TestDB{GormDB: gdb, closeFn: cleanup}, nil
+	}
+
 	dsName := "test_" + uuid.New().String()[:8]
 
 	db, err := api.NewDB(nil)
@@ -274,6 +297,11 @@ func SetupSharedTestDB(t *testing.T, tables ...string) (*TestDB, error) {
 // the underlying *api.DB is left open because it is shared with other tests.
 // Close is safe to call multiple times.
 func (t *TestDB) Close() {
+	if t.closeFn != nil {
+		t.closeFn()
+		t.closeFn = nil
+	}
+
 	if t.Session != nil {
 		_ = t.Session.Close()
 		t.Session = nil
@@ -292,6 +320,16 @@ func (t *TestDB) AutoMigrate(models ...any) error {
 
 // TruncateTables clears data from specified tables.
 func (t *TestDB) TruncateTables(tables ...string) error {
+	if t.Session == nil {
+		for _, table := range tables {
+			if err := t.GormDB.Exec("TRUNCATE TABLE " + table).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
 	for _, table := range tables {
 		_, err := t.Session.Execute("TRUNCATE TABLE " + table)
 		if err != nil {
@@ -304,6 +342,10 @@ func (t *TestDB) TruncateTables(tables ...string) error {
 
 // CreateTable creates a table using raw SQL.
 func (t *TestDB) CreateTable(sql string) error {
+	if t.Session == nil {
+		return t.GormDB.Exec(sql).Error
+	}
+
 	_, err := t.Session.Execute(sql)
 
 	return err
@@ -323,6 +365,10 @@ func (t *TestDB) CreateTables(sqls ...string) error {
 
 // Exec executes a raw SQL statement.
 func (t *TestDB) Exec(sql string, args ...any) error {
+	if t.Session == nil {
+		return t.GormDB.Exec(sql, args...).Error
+	}
+
 	_, err := t.Session.Execute(sql, args...)
 
 	return err
@@ -330,11 +376,25 @@ func (t *TestDB) Exec(sql string, args ...any) error {
 
 // QueryOne executes a query and returns one row.
 func (t *TestDB) QueryOne(sql string, args ...any) (map[string]any, error) {
+	if t.Session == nil {
+		row := map[string]any{}
+		err := t.GormDB.Raw(sql, args...).Take(&row).Error
+
+		return row, err
+	}
+
 	return t.Session.QueryOne(sql, args...)
 }
 
 // QueryAll executes a query and returns all rows.
 func (t *TestDB) QueryAll(sql string, args ...any) ([]map[string]any, error) {
+	if t.Session == nil {
+		var rows []map[string]any
+		err := t.GormDB.Raw(sql, args...).Scan(&rows).Error
+
+		return rows, err
+	}
+
 	rows, err := t.Session.QueryAll(sql, args...)
 	if err != nil {
 		return nil, err

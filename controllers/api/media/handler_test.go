@@ -19,6 +19,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -31,7 +32,7 @@ import (
 func setupMediaTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{
 		SkipDefaultTransaction:                   true,
 		IgnoreRelationshipsWhenMigrating:         true,
 		DisableForeignKeyConstraintWhenMigrating: true,

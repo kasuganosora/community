@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/sqlexec/pkg/api"
 	sqlexecgorm "github.com/kasuganosora/sqlexec/pkg/api/gorm"
 	"github.com/kasuganosora/sqlexec/pkg/resource/domain"
@@ -34,6 +35,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
 	modelsDBCache.once.Do(func() {
+		if pgtest.Enabled() {
+			modelsDBCache.gormDB, modelsDBCache.err = pgtest.OpenShared("t_models_pkg", &gorm.Config{SkipDefaultTransaction: true, DisableForeignKeyConstraintWhenMigrating: true})
+
+			return
+		}
+
 		dsName := "models_test_" + uuid.New().String()[:8]
 
 		db, err := api.NewDB(nil)

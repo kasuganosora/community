@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ type notifTestEnv struct {
 func setupNotifEnv(t *testing.T) *notifTestEnv {
 	t.Helper()
 
-	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	gormDB, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
 	// SQLite :memory: 需要单连接以确保所有查询共享同一个内存数据库.

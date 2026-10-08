@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -17,7 +18,7 @@ import (
 
 func operationsDB(t *testing.T) (*gorm.DB, *models.Account) {
 	t.Helper()
-	db, e := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard, DisableForeignKeyConstraintWhenMigrating: true})
+	db, e := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard, DisableForeignKeyConstraintWhenMigrating: true})
 	require.NoError(t, e)
 	raw, e := db.DB()
 	require.NoError(t, e)
@@ -58,7 +59,7 @@ func TestOperationsQueueCASAndRedactedPayloads(t *testing.T) {
 	var delivery activitypub.Delivery
 	require.NoError(t, db.First(&delivery, 1).Error)
 	require.Equal(t, "stable-activity", delivery.ActivityID)
-	require.Equal(t, `{"content":"PRIVATE_BODY"}`, delivery.Payload)
+	require.JSONEq(t, `{"content":"PRIVATE_BODY"}`, delivery.Payload)
 	delivery = activitypub.Delivery{}
 	require.NoError(t, db.First(&delivery, "id = ?", 4).Error)
 	require.Equal(t, activitypub.DeliveryStatus("cancelled"), delivery.Status)

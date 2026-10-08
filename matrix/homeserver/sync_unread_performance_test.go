@@ -8,6 +8,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -29,7 +30,7 @@ func (m *syncReadMetrics) Trace(_ context.Context, _ time.Time, fc func() (strin
 
 func TestSyncUnreadReadAmplification(t *testing.T) {
 	metrics := &syncReadMetrics{Interface: logger.Discard}
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: metrics})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: metrics})
 	require.NoError(t, err)
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)

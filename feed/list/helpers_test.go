@@ -11,6 +11,7 @@ import (
 	cRedis "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -59,8 +60,14 @@ func allListModels() []any {
 func newIsolatedGormDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err, "failed to open in-memory sqlite")
+
+	return migrateListDB(t, gdb)
+}
+
+func migrateListDB(t *testing.T, gdb *gorm.DB) *gorm.DB {
+	t.Helper()
 
 	if sqlDB, dbErr := gdb.DB(); dbErr == nil {
 		// A single pooled connection guarantees that every statement runs
@@ -107,6 +114,15 @@ func getSharedGormDB(t *testing.T) *gorm.DB {
 	defer sharedDBMu.Unlock()
 
 	if sharedGormDB != nil {
+		return sharedGormDB
+	}
+
+	if pgtest.Enabled() {
+		// Outlives the first test (event handler goroutines keep using it),
+		// so it must not be tied to that test's cleanup.
+		gdb, err := pgtest.OpenShared("t_feed_list_shared", &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
+		require.NoError(t, err)
+		sharedGormDB = migrateListDB(t, gdb)
 		return sharedGormDB
 	}
 

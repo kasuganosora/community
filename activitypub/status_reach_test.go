@@ -8,6 +8,7 @@ import (
 
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -412,6 +413,9 @@ func TestDeliveryQueueHandleDeliveryErrorMaxRetries(t *testing.T) {
 }
 
 func TestDeliveryQueueDeliverInvalidPayload(t *testing.T) {
+	if pgtest.Enabled() {
+		t.Skip("PostgreSQL (like MySQL) json columns cannot store an invalid payload")
+	}
 	testDB := setupStatusReachDB(t)
 
 	delivery := &Delivery{

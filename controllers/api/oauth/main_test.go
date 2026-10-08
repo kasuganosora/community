@@ -16,6 +16,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -65,7 +66,7 @@ func newOAuthTestEnv(t *testing.T) *oauthTestEnv {
 	// Use a unique DSN per call to avoid shared-cache test pollution.
 	dsn := fmt.Sprintf("file:oauth_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
 
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	gormDB, err := pgtest.GormOpen(t, sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)

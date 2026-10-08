@@ -8,6 +8,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -16,7 +17,7 @@ import (
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	// Use shared cache + busy timeout to handle concurrent goroutine DB access
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{
+	db, err := pgtest.GormOpen(t, sqlite.Open("file::memory:?cache=shared&_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

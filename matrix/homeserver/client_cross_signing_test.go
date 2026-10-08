@@ -14,13 +14,14 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 func clientSigningDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)

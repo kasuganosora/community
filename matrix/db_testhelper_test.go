@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	sqlexecapi "github.com/kasuganosora/sqlexec/pkg/api"
 	sqlexecgorm "github.com/kasuganosora/sqlexec/pkg/api/gorm"
 	"github.com/kasuganosora/sqlexec/pkg/resource/domain"
@@ -39,6 +40,12 @@ func setupMatrixTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
 	mDBCache.once.Do(func() {
+		if pgtest.Enabled() {
+			mDBCache.gormDB, mDBCache.err = pgtest.OpenShared("t_matrix_pkg", &gorm.Config{SkipDefaultTransaction: true, DisableForeignKeyConstraintWhenMigrating: true})
+
+			return
+		}
+
 		dsName := "matrix_test_" + uuid.New().String()[:8]
 
 		db, err := sqlexecapi.NewDB(nil)

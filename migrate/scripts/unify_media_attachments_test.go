@@ -10,10 +10,11 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 )
 
 func TestUnifyMediaAttachments_MovesLinksAndDropsLegacyTables(t *testing.T) {
-	gdb, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
+	gdb, err := pgtest.GormOpen(t, sqlite.Open("file::memory:"), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 	require.NoError(t, err)
 
 	require.NoError(t, gdb.Exec("CREATE TABLE attachments (id INTEGER PRIMARY KEY)").Error)

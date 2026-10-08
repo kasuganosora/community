@@ -59,6 +59,8 @@ func setupDirectDB(t *testing.T) *testutil.TestDB {
 	testDB, err := testutil.NewIsolatedTestDB(t)
 	require.NoError(t, err)
 	require.NoError(t, testDB.AutoMigrate(directIntegrationModels...))
+	// Fill status_to_accounts.created_at (NOT NULL) on Association().Append.
+	require.NoError(t, testDB.GormDB.SetupJoinTable(&models.Status{}, "ToAccounts", &models.StatusToAccount{}))
 
 	database.SetTestDB(testDB.GormDB)
 	t.Cleanup(func() {

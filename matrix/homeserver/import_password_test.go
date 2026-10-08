@@ -4,6 +4,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestImportedPasswordAccountServiceVerification(t *testing.T) {
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sql, err := conn.DB()
 	require.NoError(t, err)

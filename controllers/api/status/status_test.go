@@ -1477,9 +1477,6 @@ func TestViewPoll_Success(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 
-	// Link poll to status
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
-
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}})
 	setAccount(c, ts.acct)
 
@@ -1507,7 +1504,6 @@ func TestViewPoll_NoAccount(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}})
 
@@ -1529,7 +1525,6 @@ func TestVotePoll_Success(t *testing.T) {
 
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0},
@@ -1567,7 +1562,6 @@ func TestVotePoll_Expired(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0},
@@ -1592,7 +1586,6 @@ func TestVotePoll_SingleChoiceMultipleVotes(t *testing.T) {
 
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0, 1},
@@ -1614,7 +1607,6 @@ func TestVotePoll_InvalidChoice(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{5}, // invalid index
@@ -1636,7 +1628,6 @@ func TestVotePoll_AlreadyVoted(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	// Pre-vote
 	require.NoError(t, ts.db.Create(&models.PollOptionVote{
@@ -1665,7 +1656,6 @@ func TestVotePoll_EmptyChoices(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{},
@@ -1688,7 +1678,6 @@ func TestVotePoll_NegativeChoice(t *testing.T) {
 	})
 	option1 := &models.PollOption{PollId: poll.Id, Content: "Option A", Index: 0}
 	require.NoError(t, ts.db.Create(option1).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{-1},
@@ -1715,7 +1704,6 @@ func TestVotePoll_MultipleChoice(t *testing.T) {
 	require.NoError(t, ts.db.Create(option1).Error)
 	require.NoError(t, ts.db.Create(option2).Error)
 	require.NoError(t, ts.db.Create(option3).Error)
-	require.NoError(t, ts.db.Model(ts.status).Update("poll_id", poll.Id).Error)
 
 	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
 		Choices: []int{0, 2},

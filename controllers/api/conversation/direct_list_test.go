@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -21,7 +22,7 @@ import (
 func TestList_OnlyVisibleDirectMessagesBeforePagination(t *testing.T) {
 	// Exercise real SQL subquery and NULL semantics: the in-memory sqlexec
 	// test adapter does not implement the nested IN filtering used here.
-	connDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	connDB, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := connDB.DB()
 	require.NoError(t, err)

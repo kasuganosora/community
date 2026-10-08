@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/kasuganosora/community/cache"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"mime/multipart"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +24,7 @@ import (
 )
 
 func TestUpdateCredentialsDisplayNameJSONAndFormPersist(t *testing.T) {
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)

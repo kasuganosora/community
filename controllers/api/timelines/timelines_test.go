@@ -17,6 +17,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	redisTest "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,7 +99,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	// Use a unique DSN per call to avoid shared-cache test pollution
 	dsn := fmt.Sprintf("file:timelines_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
 
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	db, err := pgtest.GormOpen(t, sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)

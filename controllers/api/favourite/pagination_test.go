@@ -11,6 +11,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -20,7 +21,7 @@ import (
 func TestCollectionPaginationUsesRelationIDs(t *testing.T) {
 	for _, kind := range []string{"favourites", "bookmarks"} {
 		t.Run(kind, func(t *testing.T) {
-			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			db, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
 			sqlDB, err := db.DB()
 			require.NoError(t, err)

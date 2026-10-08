@@ -83,10 +83,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	// result cache can retain an empty SELECT if that read finishes after
 	// the concurrent INSERT invalidates the cache. Use uncached reads so
 	// these tests observe database state, like the production MySQL driver.
-	session := testDB.DB.SessionWithOptions(&sqlexecapi.SessionOptions{CacheEnabled: false})
-	t.Cleanup(func() { _ = session.Close() })
-	testDB.GormDB, err = gorm.Open(sqlexecgorm.NewDialector(session), &gorm.Config{SkipDefaultTransaction: true})
-	require.NoError(t, err)
+	if testDB.DB != nil {
+		session := testDB.DB.SessionWithOptions(&sqlexecapi.SessionOptions{CacheEnabled: false})
+		t.Cleanup(func() { _ = session.Close() })
+		testDB.GormDB, err = gorm.Open(sqlexecgorm.NewDialector(session), &gorm.Config{SkipDefaultTransaction: true})
+		require.NoError(t, err)
+	}
 
 	require.NoError(t, testDB.AutoMigrate(allModels()...), "failed to auto-migrate models")
 

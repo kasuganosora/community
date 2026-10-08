@@ -8,6 +8,7 @@ import (
 	data "github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -20,7 +21,7 @@ import (
 func TestMain(m *testing.M) { database.SetTestMode(); gin.SetMode(gin.TestMode); os.Exit(m.Run()) }
 func transferDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, e := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	db, e := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, e)
 	sql, e := db.DB()
 	require.NoError(t, e)

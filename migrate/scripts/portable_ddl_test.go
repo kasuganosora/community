@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -33,7 +34,7 @@ type ddlThing struct {
 }
 
 func TestApplyPortableDDL_SkipsMissingAndIsIdempotent(t *testing.T) {
-	gdb, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	gdb, err := pgtest.GormOpen(t, sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, gdb.AutoMigrate(&ddlThing{}))
 

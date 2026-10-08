@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	mediaController "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"golang.org/x/crypto/bcrypt"
 	"net/http/httptest"
 	"os"
@@ -30,7 +31,7 @@ import (
 
 func importerDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, err)
 	raw, err := conn.DB()
 	require.NoError(t, err)
@@ -40,6 +41,9 @@ func importerDB(t *testing.T) *gorm.DB {
 	// SQLite requires INTEGER PRIMARY KEY for auto-generated row IDs; the
 	// production MySQL models explicitly use bigint(20) for these two tables.
 	for _, table := range []string{"accounts", "follows"} {
+		if pgtest.Enabled() {
+			break
+		}
 		var ddl string
 		require.NoError(t, conn.Raw("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&ddl).Error)
 		require.NoError(t, conn.Exec("DROP TABLE "+table).Error)
@@ -237,7 +241,7 @@ func TestImportTypedCollectionsRemainOperationalAndIdempotent(t *testing.T) {
 		require.EqualValues(t, 1, count, fmt.Sprintf("%T", model))
 	}
 	var option models.PollOption
-	require.NoError(t, conn.Where("`index` = ?", 0).First(&option).Error)
+	require.NoError(t, conn.Where(map[string]any{"index": 0}).First(&option).Error)
 	require.EqualValues(t, 1, option.Votes, "imported vote rows must not increment source aggregate votes")
 	var status models.Status
 	require.NoError(t, conn.First(&status).Error)

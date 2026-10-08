@@ -10,6 +10,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -47,7 +48,7 @@ func SetupIntegrationTest(t *testing.T) *IntegrationTestSetup {
 	// Exercise JOINs against a SQL engine. SQLExec v0.7.1 does not quote
 	// qualified identifiers correctly and can ignore JOIN filters, so it
 	// cannot validate the production DBService queries reliably.
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err, "Failed to create test DB")
 	sqlDB, err := db.DB()
 	require.NoError(t, err)

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/invitecode"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,8 +18,10 @@ func accessFixture(t *testing.T) (*adminTestEnv, *models.User, *models.Account, 
 	require.NoError(t, env.gdb.AutoMigrate(&models.Role{}, &models.RoleUser{}, &models.InviteCode{}))
 	// InviteCode's historical explicit bigint primary key needs INTEGER for
 	// real SQLite auto IDs; production uses MySQL's auto_increment unchanged.
-	require.NoError(t, env.gdb.Exec("DROP TABLE invite_codes").Error)
-	require.NoError(t, env.gdb.Exec(`CREATE TABLE invite_codes (id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL,account_id TEXT NOT NULL,max_use_count INTEGER,use_count INTEGER,expire_at DATETIME,after_register_action TEXT,after_register_action_param TEXT,disabled BOOLEAN DEFAULT false,created_at DATETIME,updated_at DATETIME,deleted_at DATETIME)`).Error)
+	if !pgtest.Enabled() {
+		require.NoError(t, env.gdb.Exec("DROP TABLE invite_codes").Error)
+		require.NoError(t, env.gdb.Exec(`CREATE TABLE invite_codes (id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL,account_id TEXT NOT NULL,max_use_count INTEGER,use_count INTEGER,expire_at DATETIME,after_register_action TEXT,after_register_action_param TEXT,disabled BOOLEAN DEFAULT false,created_at DATETIME,updated_at DATETIME,deleted_at DATETIME)`).Error)
+	}
 	root := createLocalAccount(t, env, "access_root")
 	target := createLocalAccount(t, env, "access_target")
 	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", root.UserId).UpdateColumn("is_admin", true).Error)

@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -25,7 +26,7 @@ func ptrTime(t time.Time) *time.Time {
 // functions that call db.GetDB() run without an external database.
 func withTestDB(t *testing.T) {
 	t.Helper()
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{SkipDefaultTransaction: true})
+	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{SkipDefaultTransaction: true})
 	if err != nil {
 		t.Fatalf("failed to open in-memory sqlite: %v", err)
 	}

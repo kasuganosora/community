@@ -18,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/feed/home"
 	"github.com/kasuganosora/community/feed/notification"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -456,7 +457,7 @@ func setupRedisClientForTest(t *testing.T) *redis.Client {
 func setupTestDBForHandler(t *testing.T) {
 	t.Helper()
 
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
 	require.NoError(t, gdb.AutoMigrate(

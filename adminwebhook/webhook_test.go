@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -16,7 +17,7 @@ import (
 )
 
 func hookDB(t *testing.T) *gorm.DB {
-	db, e := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	db, e := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, e)
 	raw, e := db.DB()
 	require.NoError(t, e)

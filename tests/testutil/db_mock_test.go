@@ -55,7 +55,9 @@ func TestNewIsolatedTestDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, testDB)
 	assert.NotNil(t, testDB.GormDB)
-	assert.NotNil(t, testDB.DB)
+	if !UsePostgres() { // the sqlexec handle only exists for the default engine
+		assert.NotNil(t, testDB.DB)
+	}
 	// Cleanup is automatic via t.Cleanup
 }
 

@@ -22,7 +22,7 @@ func TestSettingsWhitelistAndCommittedRuntime(t *testing.T) {
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Equal(t, "Updated Admin Title", systemsettings.GetString(systemsettings.KeyTitle, ""))
 	var row models.SystemSetting
-	require.NoError(t, env.gdb.Where("`key` = ?", systemsettings.KeyTitle).First(&row).Error)
+	require.NoError(t, env.gdb.Where(map[string]any{"key": systemsettings.KeyTitle}).First(&row).Error)
 	require.Equal(t, "Updated Admin Title", row.Val)
 	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "general"}}, map[string]any{"values": map[string]any{"DB_PASSWORD": "must-not-write"}})
 	UpdateSettings(c)

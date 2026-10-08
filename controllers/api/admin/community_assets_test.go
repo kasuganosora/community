@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/alicebob/miniredis/v2"
 	cRedis "github.com/kasuganosora/community/db/redis"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/redis/go-redis/v9"
 	"image"
 	"image/png"
@@ -25,7 +26,7 @@ import (
 
 func assetsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sql, err := conn.DB()
 	require.NoError(t, err)

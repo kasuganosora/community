@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"net/http"
@@ -626,17 +627,19 @@ func TestAdminAccountPendingPaginationUsesActualUserState(t *testing.T) {
 // ignored OR/subquery predicates and could not validate moderation state.
 func newAdminAccountTestEnv(t *testing.T) *adminTestEnv {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, err)
 	raw, err := conn.DB()
 	require.NoError(t, err)
 	raw.SetMaxOpenConns(1)
 	t.Cleanup(func() { raw.Close(); database.ResetTestDB() })
 	require.NoError(t, conn.AutoMigrate(allTestModels...))
-	var ddl string
-	require.NoError(t, conn.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'").Scan(&ddl).Error)
-	require.NoError(t, conn.Exec("DROP TABLE accounts").Error)
-	require.NoError(t, conn.Exec(strings.ReplaceAll(ddl, "bigint(20)", "integer")).Error)
+	if !pgtest.Enabled() { // SQLite only auto-generates ids for INTEGER PRIMARY KEY
+		var ddl string
+		require.NoError(t, conn.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'").Scan(&ddl).Error)
+		require.NoError(t, conn.Exec("DROP TABLE accounts").Error)
+		require.NoError(t, conn.Exec(strings.ReplaceAll(ddl, "bigint(20)", "integer")).Error)
+	}
 	database.SetTestDB(conn)
 	return &adminTestEnv{gdb: conn}
 }

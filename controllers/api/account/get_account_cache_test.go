@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	cRedis "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -30,7 +31,7 @@ var accountCacheRedis struct {
 }
 
 func TestGetAccountCacheHydratesCounters(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
