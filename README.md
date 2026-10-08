@@ -49,7 +49,7 @@ Misskey 可双向交换表情回应及撤回，也可交换帖子和个人资料
 
 ### Docker Compose
 
-仓库中的 Compose 配置包含 Community、MySQL 8.4 和 Redis 7，并在构建时编译前后端。
+仓库中的 Compose 配置包含 Community、Redis 7 和 Meilisearch，并在构建时编译前后端；数据库可以使用 Compose 自带的 MySQL 8.4 / PostgreSQL 17 容器，也可以连接外部服务器（需要 Docker Compose v2.20+）。
 
 ```bash
 git clone https://github.com/kasuganosora/community.git
@@ -62,6 +62,7 @@ openssl rand -base64 32
 
 - 将上一步生成的随机值填入 `ENCRYPTED_KEY`。
 - 将 `DB_PASSWORD` 改为自己的数据库密码；默认 Compose 使用 `DB_USERNAME=root`。
+- 选择数据库（见下表）；`.env.example` 默认启用自带的 MySQL 容器。
 - 本地体验使用 `APP_BASE_URL=http://localhost:8080`；正式联邦实例应填写固定、可从外部访问的 HTTPS 地址。
 
 ```bash
@@ -79,9 +80,20 @@ curl -fsS http://localhost:8080/api/v2/instance
 
 上传文件保存在 `./uploads`，数据库和 Redis 使用 Docker 数据卷。升级前备份数据库与上传目录，启动时让数据库迁移正常完成。
 
-如需改用 PostgreSQL，在 `.env` 中设置 `DB_CONNECTION=postgres`、`COMPOSE_DB_HOST=postgres`、`COMPOSE_DB_PORT=5432`，然后执行 `docker compose --profile postgres up -d --build --scale mysql=0`。
+数据库在 `.env` 中选择，四种方式任选其一（`.env.example` 中有对应的注释示例）：
 
-默认 Compose 还会映射 MySQL 的 `3306` 和 Redis 的 `6379` 端口。公开部署时应移除这些映射或限制到本机，并为应用配置 HTTPS 反向代理。`APP_BASE_URL` 是账号与联邦对象身份的一部分，建立实例后不要随意更换。
+| 方式 | `.env` 设置 |
+|------|-------------|
+| 自带 PostgreSQL 容器 | `COMPOSE_PROFILES=postgres`、`DB_CONNECTION=postgres` |
+| 自带 MySQL 容器 | `COMPOSE_PROFILES=mysql`、`DB_CONNECTION=mysql` |
+| 外部 PostgreSQL | `DB_CONNECTION=postgres`、`DB_HOST`、`DB_PORT`（默认 5432），可选 `DB_SSLMODE` / `DB_DSN` |
+| 外部 MySQL | `DB_CONNECTION=mysql`、`DB_HOST`、`DB_PORT`（默认 3306） |
+
+使用自带容器时不要设置 `DB_HOST` / `DB_PORT`：应用默认连接网络别名 `db`（即启用的数据库容器），容器按 `DB_DATABASE`、`DB_USERNAME`、`DB_PASSWORD` 初始化。`postgres` 和 `mysql` profile 只能启用一个；连接外部服务器时两个都不要启用。两种方式都必须设置 `DB_PASSWORD`。
+
+从旧版 Compose 升级（MySQL 原先总是启动）：在 `.env` 中加入 `COMPOSE_PROFILES=mysql`，并删除只用于本机运行的 `DB_HOST` / `DB_PORT`。旧版 Compose 会强制覆盖这两项，现在则直接使用 `.env` 中的值。数据卷名称不变，已有数据会保留。
+
+默认 Compose 还会映射自带数据库的端口（MySQL `3306`、PostgreSQL `5432`）和 Redis 的 `6379` 端口。公开部署时应移除这些映射或限制到本机，并为应用配置 HTTPS 反向代理。`APP_BASE_URL` 是账号与联邦对象身份的一部分，建立实例后不要随意更换。
 
 ### 本地源码开发
 

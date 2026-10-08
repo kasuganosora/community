@@ -11,7 +11,13 @@ services:
       - ./uploads:/app/uploads
       - transfer-data:/app/.data-transfers
     depends_on:
-      # required: false lets `--scale mysql=0` run against PostgreSQL instead.
+      # The bundled database servers are optional (profiles "postgres" and
+      # "mysql", usually selected with COMPOSE_PROFILES in .env). required:
+      # false waits for whichever one is enabled and ignores the other; it
+      # needs Docker Compose v2.20 or later.
+      postgres:
+        condition: service_healthy
+        required: false
       mysql:
         condition: service_healthy
         required: false
@@ -27,14 +33,14 @@ services:
       - .env
     # Container-specific settings override the values from .env.
     environment:
-      # PostgreSQL: set DB_CONNECTION=postgres, COMPOSE_DB_HOST=postgres and
-      # COMPOSE_DB_PORT=5432 in .env, then
-      # docker compose --profile postgres up -d --scale mysql=0
-      DB_HOST: ${COMPOSE_DB_HOST:-mysql}
-      DB_PORT: ${COMPOSE_DB_PORT:-3306}
-      DB_DATABASE: ${DB_DATABASE:-community}
-      DB_USERNAME: ${DB_USERNAME:-root}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      # Database settings (DB_CONNECTION, DB_PORT, DB_DATABASE, DB_USERNAME,
+      # DB_PASSWORD, DB_SSLMODE, DB_DSN) come from .env as-is.
+      # - Bundled server: COMPOSE_PROFILES=postgres or =mysql, DB_HOST and
+      #   DB_PORT unset. "db" is the network alias of that service and the
+      #   app uses the dialect's default port.
+      # - External server: set DB_HOST (and DB_PORT if not the default) and
+      #   enable no database profile.
+      DB_HOST: ${DB_HOST:-db}
       REDIS_0_HOST: redis
       REDIS_0_PORT: "6379"
       REDIS_0_PASSWORD: ""
@@ -53,9 +59,13 @@ services:
     networks:
       - community-net
 
+  # Bundled MySQL server, started only with the "mysql" profile
+  # (COMPOSE_PROFILES=mysql). Credentials follow DB_DATABASE / DB_USERNAME /
+  # DB_PASSWORD from .env.
   mysql:
     image: mysql:8.4.11@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
     container_name: community-mysql
+    profiles: ["mysql"]
     restart: unless-stopped
     ports:
       - "3306:3306"
@@ -64,16 +74,31 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       MYSQL_DATABASE: ${DB_DATABASE:-community}
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      COMMUNITY_DB_USERNAME: ${DB_USERNAME:-root}
+    # The image creates a non-root user only through MYSQL_USER, which must
+    # not be "root"; set it (with the same password) when DB_USERNAME names
+    # another user.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ "$$COMMUNITY_DB_USERNAME" != "root" ]; then
+          export MYSQL_USER="$$COMMUNITY_DB_USERNAME" MYSQL_PASSWORD="$$MYSQL_ROOT_PASSWORD"
+        fi
+        exec docker-entrypoint.sh mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      # TCP, so the image's socket-only init server does not count as ready.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 60s
     networks:
-      - community-net
+      community-net:
+        aliases: [db]
 
-  # Optional PostgreSQL server, started only with --profile postgres.
+  # Bundled PostgreSQL server, started only with the "postgres" profile
+  # (COMPOSE_PROFILES=postgres). Credentials follow DB_DATABASE /
+  # DB_USERNAME / DB_PASSWORD from .env.
   postgres:
     image: postgres:17-alpine
     container_name: community-postgres
@@ -88,12 +113,15 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-root}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      # TCP, so the image's socket-only init server does not count as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 30s
     networks:
-      - community-net
+      community-net:
+        aliases: [db]
 
   redis:
     image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
