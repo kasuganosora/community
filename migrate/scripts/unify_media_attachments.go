@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
@@ -53,7 +54,7 @@ WHERE status_id IS NULL
 	// metadata lock the UPDATE above holds inside the migration transaction.
 	for _, table := range []string{"status_media_attachments", "attachments"} {
 		if m.HasTable(table) {
-			if err := db.Exec("DROP TABLE IF EXISTS `" + table + "`").Error; err != nil {
+			if err := db.Exec("DROP TABLE IF EXISTS " + dialect.Quote(db, table)).Error; err != nil {
 				return errors.Wrapf(err, "drop legacy table %s", table)
 			}
 		}

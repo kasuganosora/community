@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -33,7 +34,7 @@ func (RepairMatrixHSTablesScript) Up(db *gorm.DB) error {
 		var rows int64
 		// Raw queries on the migration's own connection (see
 		// UnifyMediaAttachmentsScript for why Migrator().DropTable is avoided).
-		if err := db.Raw("SELECT COUNT(*) FROM `" + table + "`").Scan(&rows).Error; err != nil {
+		if err := db.Raw("SELECT COUNT(*) FROM " + dialect.Quote(db, table)).Scan(&rows).Error; err != nil {
 			return errors.Wrapf(err, "count rows in %s", table)
 		}
 
@@ -44,7 +45,7 @@ func (RepairMatrixHSTablesScript) Up(db *gorm.DB) error {
 			continue
 		}
 
-		if err := db.Exec("DROP TABLE IF EXISTS `" + table + "`").Error; err != nil {
+		if err := db.Exec("DROP TABLE IF EXISTS " + dialect.Quote(db, table)).Error; err != nil {
 			return errors.Wrapf(err, "drop legacy matrix table %s", table)
 		}
 	}

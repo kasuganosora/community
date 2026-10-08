@@ -23,24 +23,7 @@ func (MigrateRelayTableScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	sql := `
-	-- 创建 relays 表
-	CREATE TABLE IF NOT EXISTS relays (
-		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-		inbox_url VARCHAR(512) NOT NULL,
-		follow_activity_id VARCHAR(255),
-		state TINYINT NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		deleted_at DATETIME DEFAULT NULL,
-		UNIQUE INDEX idx_relays_inbox_url (inbox_url),
-		INDEX idx_relays_state (state),
-		INDEX idx_relays_follow_activity_id (follow_activity_id),
-		INDEX idx_relays_deleted_at (deleted_at)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-	`
-
-	err = db.Exec(sql).Error
+	err = db.Exec(ddlFor(db, relayTableSQL, relayTablePostgresSQL)).Error
 	if err != nil {
 		log.Error("Failed to create relays table: %v", err)
 
@@ -71,7 +54,21 @@ func MigrateRelayTable() error {
 		return nil
 	}
 
-	sql := `
+	conn := db.GetDB()
+	err := conn.Exec(ddlFor(conn, relayTableSQL, relayTablePostgresSQL)).Error
+	if err != nil {
+		log.Error("Failed to create relays table: %v", err)
+
+		return err
+	}
+
+	log.Info("Relay table migration completed successfully")
+
+	return nil
+}
+
+// relayTableSQL creates the relays table on MySQL/MariaDB.
+const relayTableSQL = `
 	-- 创建 relays 表
 	CREATE TABLE IF NOT EXISTS relays (
 		id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -86,16 +83,4 @@ func MigrateRelayTable() error {
 		INDEX idx_relays_follow_activity_id (follow_activity_id),
 		INDEX idx_relays_deleted_at (deleted_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-	`
-
-	err := db.GetDB().Exec(sql).Error
-	if err != nil {
-		log.Error("Failed to create relays table: %v", err)
-
-		return err
-	}
-
-	log.Info("Relay table migration completed successfully")
-
-	return nil
-}
+`

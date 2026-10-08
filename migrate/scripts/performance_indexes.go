@@ -3,6 +3,7 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -197,7 +198,12 @@ func OptimizeDatabase() error {
 	// 表名来自硬编码常量列表（非用户输入），不存在 SQL 注入风险。
 	for _, table := range tables {
 		// 分析表
-		err := db.GetDB().Exec("ANALYZE TABLE `" + table + "`").Error
+		conn := db.GetDB()
+		stmt := "ANALYZE TABLE " + dialect.Quote(conn, table)
+		if dialect.IsPostgres(conn) {
+			stmt = "ANALYZE " + dialect.Quote(conn, table)
+		}
+		err := conn.Exec(stmt).Error
 		if err != nil {
 			log.Warn("Failed to analyze table %s: %v", table, err)
 		}

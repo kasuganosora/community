@@ -6,6 +6,7 @@ import (
 
 	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
@@ -62,9 +63,9 @@ func ensureAdminAnalyticsIndex(conn *gorm.DB, table, name string, columns []stri
 	// Identifiers are fixed literals controlled exclusively by this migration.
 	quoted := make([]string, len(columns))
 	for i, column := range columns {
-		quoted[i] = "`" + column + "`"
+		quoted[i] = dialect.Quote(conn, column)
 	}
-	return conn.Exec("CREATE INDEX `" + name + "` ON `" + table + "` (" + strings.Join(quoted, ",") + ")").Error
+	return conn.Exec("CREATE INDEX " + dialect.Quote(conn, name) + " ON " + dialect.Quote(conn, table) + " (" + strings.Join(quoted, ",") + ")").Error
 }
 
 func (AdminManagementScript) Down(*gorm.DB) error {

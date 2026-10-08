@@ -3,6 +3,7 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -170,6 +171,13 @@ func CreateSearchIndexes() error {
 func OptimizeTables() error {
 	if database.IsXmlMode() {
 		log.Debug("Skip OptimizeTables in XML mode")
+
+		return nil
+	}
+
+	if !dialect.IsMySQL(db.GetDB()) {
+		// OPTIMIZE TABLE is MySQL-only; PostgreSQL relies on autovacuum.
+		log.Debug("Skip OptimizeTables: not MySQL")
 
 		return nil
 	}

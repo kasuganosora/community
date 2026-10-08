@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type InitSystemConfigOptions struct {
@@ -84,7 +85,7 @@ func (InitSystemConfigOptions) Up(db *gorm.DB) (err error) {
 	// 创建系统配置项
 	err = db.Transaction(func(tx *gorm.DB) (err error) {
 		for key, val := range records {
-			err = tx.Model(&models.SystemSetting{}).Where("`key` = ?", key).FirstOrCreate(&models.SystemSetting{Key: key, Val: val}).Error
+			err = tx.Model(&models.SystemSetting{}).Where(clause.Eq{Column: "key", Value: key}).FirstOrCreate(&models.SystemSetting{Key: key, Val: val}).Error
 			if err != nil {
 				return
 			}

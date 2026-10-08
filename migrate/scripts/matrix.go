@@ -23,7 +23,7 @@ func (MigrateMatrixTablesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(matrixTablesSQL).Error
+	err = db.Exec(ddlFor(db, matrixTablesSQL, matrixTablesPostgresSQL)).Error
 	if err != nil {
 		log.Error("Failed to run Matrix tables migration: %v", err)
 
@@ -59,7 +59,8 @@ func MigrateMatrixTables() error {
 		return nil
 	}
 
-	err := db.GetDB().Exec(matrixTablesSQL).Error
+	conn := db.GetDB()
+	err := conn.Exec(ddlFor(conn, matrixTablesSQL, matrixTablesPostgresSQL)).Error
 	if err != nil {
 		log.Error("Failed to run Matrix tables migration: %v", err)
 

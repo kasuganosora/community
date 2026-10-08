@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +38,7 @@ func (MigrateMatrixHSScript) Down(db *gorm.DB) (err error) {
 
 	// Table names are constants, not user input.
 	for _, table := range legacyMatrixHSTables {
-		if err = db.Exec("DROP TABLE IF EXISTS `" + table + "`").Error; err != nil {
+		if err = db.Exec("DROP TABLE IF EXISTS " + dialect.Quote(db, table)).Error; err != nil {
 			return err
 		}
 	}

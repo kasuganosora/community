@@ -3,6 +3,7 @@ package scripts
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -23,7 +24,7 @@ func (MigrateGroupTablesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(groupTablesSQL).Error
+	err = db.Exec(ddlFor(db, groupTablesSQL, groupTablesPostgresSQL)).Error
 	if err != nil {
 		log.Error("Failed to migrate Group tables: %v", err)
 
@@ -41,13 +42,13 @@ func (MigrateGroupTablesScript) Down(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	return db.Exec(`
-		DROP TABLE IF EXISTS contact_requests;
-		DROP TABLE IF EXISTS contacts;
-		DROP TABLE IF EXISTS group_messages;
-		DROP TABLE IF EXISTS group_members;
-		DROP TABLE IF EXISTS ` + "`groups`" + `;
-	`).Error
+	for _, table := range []string{"contact_requests", "contacts", "group_messages", "group_members", "groups"} {
+		if err = db.Exec("DROP TABLE IF EXISTS " + dialect.Quote(db, table)).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // MigrateGroupTables 群组和联系人表迁移（使用全局 DB 句柄，供非迁移框架场景调用）.
@@ -61,7 +62,8 @@ func MigrateGroupTables() error {
 		return nil
 	}
 
-	err := db.GetDB().Exec(groupTablesSQL).Error
+	conn := db.GetDB()
+	err := conn.Exec(ddlFor(conn, groupTablesSQL, groupTablesPostgresSQL)).Error
 	if err != nil {
 		log.Error("Failed to migrate Group tables: %v", err)
 

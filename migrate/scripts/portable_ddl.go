@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
 )
@@ -82,6 +83,21 @@ func tableHasColumns(m gorm.Migrator, table string, cols []string) (bool, string
 	return true, ""
 }
 
+// portableColumnDef translates the leading MySQL column type of a column
+// definition (e.g. "DOUBLE DEFAULT 0") for PostgreSQL.
+func portableColumnDef(db *gorm.DB, def string) string {
+	if !dialect.IsPostgres(db) {
+		return def
+	}
+
+	typ, rest, _ := strings.Cut(def, " ")
+	if pg, ok := dialect.PostgresType(typ); ok {
+		return strings.TrimSpace(pg + " " + rest)
+	}
+
+	return def
+}
+
 // applyPortableDDL executes the given index/column DDL statements in a way
 // that works on both MySQL and MariaDB (see comment above).
 func applyPortableDDL(db *gorm.DB, sql string) error {
@@ -122,6 +138,14 @@ func applyPortableDDL(db *gorm.DB, sql string) error {
 				continue
 			}
 
+			// FULLTEXT is MySQL-only. Nothing queries it with MATCH ... AGAINST
+			// (database search falls back to LIKE), so other engines skip it.
+			if !dialect.IsMySQL(db) {
+				log.Debug("Skip fulltext index %s on %s: not supported by %s", name, table, dialect.Name(db))
+
+				continue
+			}
+
 			ddl := fmt.Sprintf("ALTER TABLE %s ADD FULLTEXT INDEX %s (%s)", table, name, colList)
 			if err := db.Exec(ddl).Error; err != nil {
 				return fmt.Errorf("%s: %w", ddl, err)
@@ -141,7 +165,7 @@ func applyPortableDDL(db *gorm.DB, sql string) error {
 				continue
 			}
 
-			ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, def)
+			ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, portableColumnDef(db, def))
 			if err := db.Exec(ddl).Error; err != nil {
 				return fmt.Errorf("%s: %w", ddl, err)
 			}
