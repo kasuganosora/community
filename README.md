@@ -192,6 +192,8 @@ HTTP_PROXY= http_proxy= go test -p 3 ./...
 
 时间线压测使用独立数据库中的 2,000 个账号、60,000 条帖子，覆盖六种时间线、20 / 40 条分页、并发 1 / 8 / 32、冷缓存及深分页。优化包括批量缓存重建、关联与互动状态批量加载、标签及媒体查询计划、游标与列表缓存隔离。测量条件、结果和限制见[时间线性能报告](docs/timeline-performance.md)；可使用[压测脚本](scripts/benchmark-timelines.md)对自己的数据进行复测。
 
+后续 Feed 可靠分发、多实例扩展与网页虚拟列表的实现细节、阶段和验收标准见 [Feed 扩展实施计划](docs/tasks/feed_scaling_plan.md)。该文档是实施设计，其中性能门槛不是已测得结果。
+
 Matrix 使用独立的 30 个账号、100 个房间和 50,000 条时间线事件测试同步、历史分页及消息发送，并以真实 Element / Synapse 验证双向普通和加密消息、文件下载。优化包括批量状态及撤回查询、未读计数、请求取消、设备消息确认和媒体连接复用，同时修复历史权限、私有回执和异步上传问题。测量结果和限制见 [Matrix 性能报告](docs/matrix-performance.md)，复测方法见 [Matrix 压测脚本](scripts/benchmark-matrix.md)。
 
 ## 代码与文档导航

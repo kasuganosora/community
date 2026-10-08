@@ -79,6 +79,8 @@ Redis 冷缓存的等价单请求：首页 169.058 → 44.209 ms，列表 117.49
 
 ## 复现
 
+后续架构与验收设计见 [Feed 时间线可靠性与横向扩展实施计划](tasks/feed_scaling_plan.md)。计划复用现有 Go、MySQL 和 Redis，按阶段实现持久分发、多实例重建与网页虚拟列表；其中性能数字是待验证目标，不属于本文的历史测量结果。
+
 仓库提供仅依赖 Python 标准库的 [压测脚本](../scripts/benchmark-timelines.py) 和[参数说明](../scripts/benchmark-timelines.md)。脚本只发 GET，不创建数据、清缓存或管理进程。认证令牌从环境或仓库外私有文件读取，不写入结果。
 
 ```sh
