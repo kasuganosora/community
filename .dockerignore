@@ -8,7 +8,7 @@ dump.rdb
 uploads/
 .data-transfers/
 __pycache__/
-storage/
+storage/uploads/
 logs/
 *.out
 frontend/node_modules
