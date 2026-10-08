@@ -21,6 +21,8 @@ type Config struct {
 	DbDatabase              string `default:"community"             env:"DB_DATABASE"`
 	DbUsername              string `default:"root"                  env:"DB_USERNAME"`
 	DbPassword              string `default:""                      env:"DB_PASSWORD"`
+	DbSSLMode               string `env:"DB_SSLMODE"` // PostgreSQL only; default disable
+	DbDSN                   string `env:"DB_DSN"`     // PostgreSQL only; full DSN/URL, overrides the DB_* fields
 	HttpProxy               string `env:"HTTP_PROXY"`
 	SmtpServer              string `env:"SMTP_SERVER"`
 	SmtpPort                string `env:"SMTP_PORT"`

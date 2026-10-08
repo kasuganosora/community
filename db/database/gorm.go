@@ -10,6 +10,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -129,6 +130,8 @@ func initGormLocked() string {
 	switch dsnType {
 	case "mysql": //nolint:goconst
 		err = initMysqlConnection()
+	case "postgres":
+		err = initPostgresConnection()
 	case "sqlite": //nolint:goconst
 		err = initSqliteConnection()
 	case "xml": //nolint:goconst
@@ -231,6 +234,113 @@ func initMysqlConnection() (err error) {
 	return
 }
 
+func initPostgresConnection() (err error) {
+	dsn := postgresDSN()
+
+	DB, err = gorm.Open(dialect.OpenPostgres(dsn))
+	if err != nil {
+		return
+	}
+
+	if err = configureConnectionPool(DB, "PostgreSQL"); err != nil {
+		return err
+	}
+
+	if err = dialect.EnsureExtensions(DB); err != nil {
+		_ = closeGormSilently(DB)
+		DB = nil
+
+		return err
+	}
+
+	if config.C.DevMode == "true" {
+		DB = DB.Debug()
+	}
+
+	return
+}
+
+// postgresDSN builds a pgx/libpq DSN. DB_DSN, when set, is used verbatim so
+// operators can pass anything libpq accepts (keyword/value or a postgres://
+// URL); otherwise the DSN is assembled from the DB_HOST/PORT/DATABASE/
+// USERNAME/PASSWORD fields plus DB_SSLMODE (default "disable").
+//
+// DB_PORT defaults to MySQL's 3306, so an unset DB_PORT means 5432 here.
+func postgresDSN() string {
+	if dsn := strings.TrimSpace(config.C.DbDSN); dsn != "" {
+		return dsn
+	}
+
+	host := config.C.DbHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	port := config.C.DbPort
+	if port == "" || !config.IsExplicitlyConfigured("DB_PORT") {
+		port = "5432"
+	}
+
+	sslmode := config.C.DbSSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
+	parts := []string{
+		"host=" + quoteDSNValue(host),
+		"port=" + quoteDSNValue(port),
+		"user=" + quoteDSNValue(config.C.DbUsername),
+		"password=" + quoteDSNValue(config.C.DbPassword),
+		"dbname=" + quoteDSNValue(config.C.DbDatabase),
+		"sslmode=" + quoteDSNValue(sslmode),
+	}
+
+	// Match MySQL's loc=Local: the session time zone follows the process, so
+	// NOW()/CURRENT_TIMESTAMP and timestamp scans agree with Go's time.Local.
+	if tz := time.Local.String(); tz != "" && tz != "Local" {
+		parts = append(parts, "TimeZone="+quoteDSNValue(tz))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// quoteDSNValue quotes a libpq keyword value when it contains spaces or
+// characters that terminate a value.
+func quoteDSNValue(v string) string {
+	if v == "" || strings.ContainsAny(v, " '\\\t") {
+		v = strings.ReplaceAll(v, `\`, `\\`)
+		v = strings.ReplaceAll(v, `'`, `\'`)
+
+		return "'" + v + "'"
+	}
+
+	return v
+}
+
+// configureConnectionPool applies the shared pool settings from LoadDBConfig.
+// On failure the opened handle is closed so a half-initialized connection
+// cannot leak.
+func configureConnectionPool(gdb *gorm.DB, name string) error {
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		_ = closeGormSilently(gdb)
+		DB = nil
+
+		return err
+	}
+
+	cfg := LoadDBConfig()
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+
+	log.Info("%s connection pool configured: max_open=%d, max_idle=%d, max_lifetime=%v, max_idle_time=%v",
+		name, cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
+
+	return nil
+}
+
 func initSqliteConnection() (err error) {
 	dbPath := config.C.DbHost
 	if dbPath == "" {
@@ -299,6 +409,8 @@ func getDsnType() string {
 	switch config.C.DbConnection {
 	case "mysql":
 		return "mysql"
+	case "postgres", "postgresql", "pgsql":
+		return "postgres"
 	case "sqlite":
 		return "sqlite"
 	case "xml":

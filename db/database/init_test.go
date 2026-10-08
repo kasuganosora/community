@@ -59,7 +59,10 @@ func TestGetDsnType_AllBranches(t *testing.T) {
 		{"sqlite", "sqlite", "sqlite"},
 		{"xml", "xml", "xml"},
 		{"empty", "", ""},
-		{"unknown", "postgres", ""},
+		{"postgres", "postgres", "postgres"},
+		{"postgresql", "postgresql", "postgres"},
+		{"pgsql", "pgsql", "postgres"},
+		{"unknown", "oracle", ""},
 		{"uppercase", "MySQL", ""}, // case-sensitive
 	}
 
@@ -182,7 +185,7 @@ func TestInitGormLocked_UnsupportedDsn(t *testing.T) {
 	// initGormLocked() treats an empty dsnType as "Config DSN is invalid"
 	// (the switch default branch is therefore unreachable in practice).
 	withNonTestModeGlobally(t)
-	config.C.DbConnection = "postgres"
+	config.C.DbConnection = "oracle"
 
 	dbMu.Lock()
 	msg := initGormLocked()
