@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type UserMeta struct {
@@ -21,7 +22,7 @@ func (UserMeta) TableName() string {
 func SaveUserMeta(db *gorm.DB, userId uint64, key string, value any) (err error) {
 	meta := &UserMeta{}
 
-	err = db.Where("user_id = ? AND `key` = ?", userId, key).First(meta).Error
+	err = db.Where("user_id = ?", userId).Where(clause.Eq{Column: "key", Value: key}).First(meta).Error
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		err = errors.Wrap(err, "SaveUserMeta")
@@ -71,7 +72,7 @@ func SaveUserMeta(db *gorm.DB, userId uint64, key string, value any) (err error)
 func GetUserMeta(db *gorm.DB, userId uint64, key string, outValue any) (err error) {
 	meta := &UserMeta{}
 
-	err = db.Where("user_id = ? AND `key` = ?", userId, key).First(meta).Error
+	err = db.Where("user_id = ?", userId).Where(clause.Eq{Column: "key", Value: key}).First(meta).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = errors.Errorf("user meta not found: %s", key)

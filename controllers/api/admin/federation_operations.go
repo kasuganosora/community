@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"net/url"
@@ -86,7 +87,7 @@ func FederationInstances(c *gin.Context) {
 			c.JSON(422, gin.H{"error": "search too long"})
 			return
 		}
-		q = q.Where("domain LIKE ?", "%"+search+"%")
+		q = q.Where("domain "+dialect.ILike(q)+" ?", "%"+search+"%")
 	}
 	var total int64
 	if operationError(c, q.Distinct("domain").Count(&total).Error) {
@@ -101,7 +102,7 @@ func FederationInstances(c *gin.Context) {
 		Followers         int64      `json:"followers"`
 	}
 	var rows []instance
-	if operationError(c, q.Select("domain, COUNT(*) AS accounts, SUM(CASE WHEN is_ban = 1 THEN 1 ELSE 0 END) AS suspended_accounts, MAX(last_activity_at) AS last_activity").Group("domain").Order("domain").Offset((page-1)*limit).Limit(limit).Scan(&rows).Error) {
+	if operationError(c, q.Select("domain, COUNT(*) AS accounts, SUM(CASE WHEN is_ban = ? THEN 1 ELSE 0 END) AS suspended_accounts, MAX(last_activity_at) AS last_activity", true).Group("domain").Order("domain").Offset((page-1)*limit).Limit(limit).Scan(&rows).Error) {
 		return
 	}
 	for i := range rows {

@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"maps"
 	"sort"
 	"strings"
@@ -294,7 +295,7 @@ func SaveToDB(keys ...string) (err error) {
 
 	rows := make([]models.SystemSetting, 0)
 
-	err = dbInstance.Model(&models.SystemSetting{}).Where("`key` in (?)", keys).Find(&rows).Error
+	err = dbInstance.Model(&models.SystemSetting{}).Where(clause.IN{Column: "key", Values: stringsToAny(keys)}).Find(&rows).Error
 	if err != nil {
 		err = errors.Wrapf(err, "failed to get system settings from db, keys: %v", keys)
 
@@ -309,7 +310,7 @@ func SaveToDB(keys ...string) (err error) {
 	err = dbInstance.Transaction(func(tx *gorm.DB) (err error) {
 		for _, key := range keys {
 			if _, ok := existsKeyMap[key]; ok {
-				err = tx.Model(&models.SystemSetting{}).Where("`key` = ?", key).Update("val", snapshot[key]).Error
+				err = tx.Model(&models.SystemSetting{}).Where(clause.Eq{Column: "key", Value: key}).Update("val", snapshot[key]).Error
 			} else {
 				err = tx.Model(&models.SystemSetting{}).Create(&models.SystemSetting{
 					Key: key,
@@ -522,4 +523,13 @@ func CheckBaseURL(production bool) (warning string, err error) {
 	}
 
 	return fmt.Sprintf("APP_BASE_URL is not set; using the domain system setting (%s) as https://%s", d, d), nil
+}
+
+func stringsToAny(values []string) []any {
+	out := make([]any, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+
+	return out
 }

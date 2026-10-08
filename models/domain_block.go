@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kasuganosora/community/db/dialect"
 	"gorm.io/gorm"
 )
 
@@ -35,6 +36,18 @@ func isMissingRelation(err error) bool {
 	return strings.Contains(msg, "no such table") || strings.Contains(msg, "doesn't exist") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "undefined table")
 }
 
+// queryTolerantOfMissingTable runs query so that a missing-table error can be
+// swallowed by the caller. PostgreSQL aborts the surrounding transaction on
+// any error, so there the query runs in its own (nested) transaction, which
+// GORM turns into a savepoint when conn is already inside one.
+func queryTolerantOfMissingTable(conn *gorm.DB, query func(tx *gorm.DB) error) error {
+	if !dialect.IsPostgres(conn) {
+		return query(conn)
+	}
+
+	return conn.Transaction(query)
+}
+
 // DomainSeverities loads instance blocks. suspend hides the domain everywhere;
 // silence only drops it from public timelines. A missing table is treated as
 // no policy so partial test schemas keep working.
@@ -45,7 +58,10 @@ func DomainSeverities(conn *gorm.DB) (suspend map[string]bool, silence map[strin
 		return suspend, silence, nil
 	}
 	var rows []DomainBlock
-	if err = conn.Select("domain", "severity").Find(&rows).Error; err != nil {
+	err = queryTolerantOfMissingTable(conn, func(tx *gorm.DB) error {
+		return tx.Select("domain", "severity").Find(&rows).Error
+	})
+	if err != nil {
 		if isMissingRelation(err) {
 			return suspend, silence, nil
 		}
@@ -89,7 +105,10 @@ func FilterAccountsByDomainPolicy(conn *gorm.DB, viewer *Account, accounts []*Ac
 	}
 	if viewer != nil && conn != nil {
 		var rows []Block
-		if err = conn.Where("account_id = ? AND type = ?", viewer.Id, BlockTypeDomain).Find(&rows).Error; err != nil {
+		err = queryTolerantOfMissingTable(conn, func(tx *gorm.DB) error {
+			return tx.Where("account_id = ? AND type = ?", viewer.Id, BlockTypeDomain).Find(&rows).Error
+		})
+		if err != nil {
 			if !isMissingRelation(err) {
 				return nil, err
 			}

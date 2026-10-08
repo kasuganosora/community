@@ -8,6 +8,7 @@ import (
 
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (i *importer) importEmojis() error {
@@ -165,7 +166,7 @@ func (i *importer) importExtras() error {
 				return 0, err
 			}
 			var option models.PollOption
-			if err = tx.Where("poll_id = ? AND `index` = ?", poll, vote.Option).First(&option).Error; err != nil {
+			if err = tx.Where("poll_id = ?", poll).Where(clause.Eq{Column: "index", Value: vote.Option}).First(&option).Error; err != nil {
 				return 0, err
 			}
 			row := models.PollOptionVote{PollId: poll, AccountId: account, OptionId: option.Id, CreatedAt: timePointer(vote.CreatedAt)}

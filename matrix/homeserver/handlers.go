@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 )
@@ -2721,7 +2722,8 @@ func handleGetPublicRoomsClient(c *gin.Context) {
 
 	if filter.GenericSearchTerm != "" {
 		term := "%" + filter.GenericSearchTerm + "%"
-		query = query.Where("name LIKE ? OR topic LIKE ?", term, term)
+		like := dialect.ILike(query)
+		query = query.Where("name "+like+" ? OR topic "+like+" ?", term, term)
 	}
 
 	var rooms []MatrixRoom

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm/clause"
 )
 
 // SelfDestructMode middleware restricts user actions when server is in self-destruct mode
@@ -48,7 +49,7 @@ func IsSelfDestructEnabled() bool {
 	}
 
 	var setting models.SystemSetting
-	err := db.GetDB().Where("`key` = ?", "self_destruct_mode").First(&setting).Error
+	err := db.GetDB().Where(clause.Eq{Column: "key", Value: "self_destruct_mode"}).First(&setting).Error
 	if err == nil {
 		selfDestructMode.enabled = isSelfDestructValue(setting.Val)
 	}
@@ -78,7 +79,7 @@ func RefreshSelfDestructMode() {
 	selfDestructMode.enabled = false
 
 	var setting models.SystemSetting
-	err := db.GetDB().Where("`key` = ?", "self_destruct_mode").First(&setting).Error
+	err := db.GetDB().Where(clause.Eq{Column: "key", Value: "self_destruct_mode"}).First(&setting).Error
 	if err == nil {
 		selfDestructMode.enabled = isSelfDestructValue(setting.Val)
 	}

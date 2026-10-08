@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
@@ -63,7 +64,8 @@ func Search(c *gin.Context) {
 		return
 	}
 
-	query := db.GetDB().Model(&models.Account{}).Where("username LIKE ? ESCAPE '\\\\'", escapeLike(usernameKeyword)+"%")
+	conn := db.GetDB()
+	query := conn.Model(&models.Account{}).Where("username "+dialect.ILike(conn)+" ? "+dialect.LikeEscape(conn), escapeLike(usernameKeyword)+"%")
 
 	query = query.Preload("Emojis").Preload("Extra")
 

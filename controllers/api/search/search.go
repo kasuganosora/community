@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
@@ -181,7 +182,8 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 	}
 
 	escapedUser := escapeLike(usernameKeyword)
-	query = query.Where("(username LIKE ? ESCAPE '\\\\' OR display_name LIKE ? ESCAPE '\\\\')",
+	like, esc := dialect.ILike(query), dialect.LikeEscape(query)
+	query = query.Where("(username "+like+" ? "+esc+" OR display_name "+like+" ? "+esc+")",
 		"%"+escapedUser+"%", "%"+escapedUser+"%")
 
 	// Filter by domain if specified
@@ -205,7 +207,7 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 	// Order by relevance (exact match first, then partial match)
 	// Use parameterized query to prevent SQL injection
 	query = query.Order(db.GetDB().Raw(
-		"CASE WHEN username = ? THEN 0 WHEN username LIKE ? ESCAPE '\\\\' THEN 1 ELSE 2 END",
+		"CASE WHEN username = ? THEN 0 WHEN username "+like+" ? "+esc+" THEN 1 ELSE 2 END",
 		usernameKeyword, escapeLike(usernameKeyword)+"%",
 	))
 
@@ -338,7 +340,8 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 		Joins("LEFT JOIN status_contents ON statuses.id = status_contents.status_id")
 	if text != "" {
 		pattern := "%" + escapeLike(text) + "%"
-		query = query.Where("(status_contents.content LIKE ? ESCAPE '\\\\' OR status_contents.spoiler_text LIKE ? ESCAPE '\\\\')",
+		like, esc := dialect.ILike(query), dialect.LikeEscape(query)
+		query = query.Where("(status_contents.content "+like+" ? "+esc+" OR status_contents.spoiler_text "+like+" ? "+esc+")",
 			pattern, pattern)
 	}
 
@@ -427,10 +430,12 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 
 	// Fallback to database search
 	escaped := escapeLike(keyword)
-	query := db.GetDB().Model(&models.Tag{}).
+	conn := db.GetDB()
+	like, esc := dialect.ILike(conn), dialect.LikeEscape(conn)
+	query := conn.Model(&models.Tag{}).
 		// Tags parsed from statuses are stored without the leading '#'
 		// (featured tags are stored with it), so match both forms.
-		Where("(name LIKE ? ESCAPE '\\\\' OR name LIKE ? ESCAPE '\\\\')", escaped+"%", "#"+escaped+"%").
+		Where("(name "+like+" ? "+esc+" OR name "+like+" ? "+esc+")", escaped+"%", "#"+escaped+"%").
 		Order("status_count DESC, name ASC")
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/search"
 	"gorm.io/gorm"
@@ -145,7 +146,7 @@ func (s *SearchService) searchRoomEventsFromDB(query string, roomIDs []string, l
 			Where("event_type = ?", "m.room.message").
 			Where("content != '{}' AND content != 'null'")
 		for _, word := range words {
-			q = q.Where("content LIKE ?", "%"+word+"%")
+			q = q.Where("content "+dialect.ILike(q)+" ?", "%"+word+"%")
 		}
 
 		if len(roomIDs) > 0 {
@@ -348,7 +349,7 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 	var accounts []models.Account
 
 	db.GetDB().Where("username IN ?", localparts).
-		Where("username LIKE ? OR display_name LIKE ?",
+		Where("username "+dialect.ILike(db.GetDB())+" ? OR display_name "+dialect.ILike(db.GetDB())+" ?",
 			"%"+searchQuery+"%", "%"+searchQuery+"%").
 		Limit(limit).
 		Find(&accounts)

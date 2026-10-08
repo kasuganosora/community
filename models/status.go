@@ -1090,7 +1090,7 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 	if refresh {
 		// 把之前的tag的使用次数减一
 		err = tx.Model(&Tag{}).Where("id IN (?)", tx.Model(&StatusTag{}).Select("tag_id").Where("status_id = ?", sc.StatusId)).
-			Update("status_count", gorm.Expr("if(status_count > 0, status_count - ?, 0)", 1)).Error
+			Update("status_count", gorm.Expr("CASE WHEN status_count > 0 THEN status_count - ? ELSE 0 END", 1)).Error
 		if err != nil {
 			return err
 		}
@@ -1378,7 +1378,7 @@ func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
 
 func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
 	// 使用 if(...) 防止 favorites_count 无符号下溢（uint64 减到负数会回绕成巨大值）。
-	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("if(favourites_count > 0, favourites_count - ?, 0)", 1)).Error; err != nil {
+	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - ? ELSE 0 END", 1)).Error; err != nil {
 		return
 	}
 

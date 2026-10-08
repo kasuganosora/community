@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
@@ -141,9 +142,10 @@ func ListCustomEmojis(c *gin.Context) {
 	}
 	query := db.GetDB().Model(&models.Emoji{})
 	if search := c.Query("q"); search != "" {
-		query = query.Where("shortcode LIKE ? OR aliases LIKE ?", "%"+search+"%", "%"+search+"%")
+		like := dialect.ILike(query)
+		query = query.Where("shortcode "+like+" ? OR aliases "+like+" ?", "%"+search+"%", "%"+search+"%")
 	} else if shortcode := c.Query("shortcode"); shortcode != "" {
-		query = query.Where("shortcode LIKE ?", "%"+shortcode+"%")
+		query = query.Where("shortcode "+dialect.ILike(query)+" ?", "%"+shortcode+"%")
 	}
 
 	for _, field := range []string{"category", "domain"} {

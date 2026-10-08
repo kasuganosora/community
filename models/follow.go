@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/event"
 	"gorm.io/gorm"
 )
@@ -116,7 +117,6 @@ func updateFollowCounters(tx *gorm.DB, accountId, followId uint64, delta int) (e
 	return
 }
 
-
 // DeleteFollowEdges removes both directions of a follow so AfterDelete
 // can decrement followers_count and following_count. A bulk Where().Delete
 // skips those hooks and leaves the profile counters stale.
@@ -127,6 +127,17 @@ func updateFollowCounters(tx *gorm.DB, accountId, followId uint64, delta int) (e
 func ReconcileFollowCounts(conn *gorm.DB) error {
 	if !conn.Migrator().HasTable(&AccountExtra{}) || !conn.Migrator().HasTable(&Follow{}) {
 		return nil
+	}
+	if !dialect.IsMySQL(conn) {
+		// UPDATE ... JOIN is MySQL-only; correlated subqueries work on
+		// PostgreSQL and SQLite.
+		err := conn.Exec(`UPDATE accounts_extra SET following_count = (
+			SELECT COUNT(*) FROM follows WHERE follows.account_id = accounts_extra.account_id AND follows.status = ?)`, FollowStatusFollowed).Error
+		if err != nil {
+			return err
+		}
+		return conn.Exec(`UPDATE accounts_extra SET followers_count = (
+			SELECT COUNT(*) FROM follows WHERE follows.follow_id = accounts_extra.account_id AND follows.status = ?)`, FollowStatusFollowed).Error
 	}
 	err := conn.Exec(`UPDATE accounts_extra e
 		LEFT JOIN (

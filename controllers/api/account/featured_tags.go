@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 )
@@ -48,9 +49,10 @@ func ListFeaturedTags(c *gin.Context) {
 
 		var statusesCount int64
 
-		db.GetDB().Table("status_contents").
+		conn := db.GetDB()
+		conn.Table("status_contents").
 			Joins("JOIN statuses ON statuses.id = status_contents.status_id").
-			Where("statuses.account_id = ? AND status_contents.content LIKE ?", account.Id, "%#"+ft.Name+"%").
+			Where("statuses.account_id = ? AND status_contents.content "+dialect.ILike(conn)+" ?", account.Id, "%#"+ft.Name+"%").
 			Count(&statusesCount)
 
 		result = append(result, gin.H{

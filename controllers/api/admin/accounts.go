@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm"
@@ -58,10 +59,10 @@ func ListAccounts(c *gin.Context) {
 		return
 	}
 	if v := c.Query("username"); v != "" {
-		query = query.Where("accounts.username LIKE ?", "%"+escapeLike(v)+"%")
+		query = query.Where("accounts.username "+dialect.ILike(query)+" ?", "%"+escapeLike(v)+"%")
 	}
 	if v := c.Query("display_name"); v != "" {
-		query = query.Where("accounts.display_name LIKE ?", "%"+escapeLike(v)+"%")
+		query = query.Where("accounts.display_name "+dialect.ILike(query)+" ?", "%"+escapeLike(v)+"%")
 	}
 	if v := c.Query("email"); v != "" {
 		query = query.Where("accounts.user_id IN (?)", db.GetDB().Model(&models.User{}).Select("id").Where("email_hash = ?", models.GetEmailHash(v)))

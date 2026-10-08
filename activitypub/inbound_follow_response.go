@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
@@ -30,7 +31,8 @@ func handleFollowResponse(ctx context.Context, c *gin.Context, activity map[stri
 		return
 	}
 	var follow models.Follow
-	err := activityDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("follow_id = ? AND json_extract(properties, '$.activity_uri') = ?", remote.Id, id).First(&follow).Error
+	conn := activityDB(ctx)
+	err := conn.Clauses(clause.Locking{Strength: "UPDATE"}).Where("follow_id = ? AND "+dialect.JSONText(conn, "properties", "activity_uri")+" = ?", remote.Id, id).First(&follow).Error
 	if err == nil {
 		var local models.Account
 		if activityDB(ctx).First(&local, follow.AccountId).Error != nil || local.Domain != nil || (target != nil && target.Id != local.Id) {

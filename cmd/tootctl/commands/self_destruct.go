@@ -13,6 +13,7 @@ import (
 
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
@@ -499,11 +500,12 @@ func countPendingDeliveries() int64 {
 func countProcessedAccounts() int64 {
 	// Count distinct account IDs from delivered Delete activities
 	var count int64
-	db.GetDB().Raw(`
-		SELECT COUNT(DISTINCT JSON_EXTRACT(payload, '$.actor'))
+	conn := db.GetDB()
+	conn.Raw(`
+		SELECT COUNT(DISTINCT ` + dialect.JSONText(conn, "payload", "actor") + `)
 		FROM activitypub_deliveries
 		WHERE status = 'delivered'
-		AND JSON_EXTRACT(payload, '$.type') = 'Delete'
+		AND ` + dialect.JSONText(conn, "payload", "type") + ` = 'Delete'
 	`).Scan(&count)
 
 	return count

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
@@ -125,7 +126,8 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 		codeRow = &OAuthAuthorizationCode{}
 
 		query := tx
-		if tx.Dialector.Name() == "mysql" {
+		// SQLite and the sqlexec test engine have no row locks.
+		if dialect.IsMySQL(tx) || dialect.IsPostgres(tx) {
 			query = tx.Clauses(clause.Locking{Strength: "UPDATE"})
 		}
 

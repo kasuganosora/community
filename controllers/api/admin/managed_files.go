@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -59,7 +60,7 @@ func ListManagedFiles(c *gin.Context) {
 	limit := 30
 	query := db.GetDB().Model(&models.MediaAttachment{})
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
-		query = query.Where("file_name LIKE ?", "%"+q+"%")
+		query = query.Where("file_name "+dialect.ILike(query)+" ?", "%"+q+"%")
 	}
 	if owner := c.Query("account_id"); owner != "" {
 		id, e := strconv.ParseUint(owner, 10, 64)
