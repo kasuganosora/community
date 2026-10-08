@@ -297,7 +297,9 @@ export TLS_KEY=/certs/tls.key
 
 ### tootctl 配置
 
-tootctl 启动时会自动执行 `migrate.Up()` 数据库迁移，并通过 `config.C.DevMode` 判断是否启用 debug 日志。支持全局 `--verbose` / `-v` flag 切换详细输出。
+tootctl 执行命令前会自动执行 `migrate.Up()` 数据库迁移（仅查看帮助 `--help` / `-h` / `help` 时跳过），并通过 `config.C.DevMode` 判断是否启用 debug 日志。支持全局 `--verbose` / `-v` flag 切换详细输出；`--version` 打印 CLI 版本（无短别名，`-v` 始终表示 verbose）。
+
+> 注意：`db` 包在进程启动时即建立数据库连接，因此即使只查看帮助，也需要可用的数据库配置。
 
 ## 依赖关系
 

@@ -22,13 +22,44 @@ func main() {
 		log.SetLevel("debug")
 	}
 
-	// 迁移数据库
-	err := migrate.Up(db.GetDB())
-	if err != nil {
-		log.Warn("Database migration warning: %v", err)
+	app := newApp(version, func() {
+		// 迁移数据库
+		if err := migrate.Up(db.GetDB()); err != nil {
+			log.Warn("Database migration warning: %v", err)
+		}
+	})
+
+	// 处理中断信号
+	sigChan := make(chan os.Signal, 1)
+
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("\nOperation cancelled.")
+		os.Exit(130)
+	}()
+
+	if err := app.Run(os.Args); err != nil {
+		log.Error("%v", err)
+		os.Exit(1)
+	}
+}
+
+// newApp builds the CLI. prepare (database migrations in production) runs
+// before any command that may touch the database, but not for help output.
+func newApp(version string, prepare func()) *cli.App {
+	// urfave/cli registers "--version, -v" on the root command by default,
+	// which collided with the "-v" alias of --verbose and made every
+	// invocation panic with "flag redefined: v". Keep "-v" for verbose (as
+	// the subcommands use it) and leave --version without a short alias.
+	cli.VersionFlag = &cli.BoolFlag{
+		Name:               "version",
+		Usage:              "print the version",
+		DisableDefaultText: true,
 	}
 
-	app := &cli.App{
+	return &cli.App{
 		Name:    "tootctl",
 		Usage:   "Community server command-line interface (Mastodon-compatible)",
 		Version: version,
@@ -56,24 +87,36 @@ func main() {
 				log.SetLevel("debug")
 			}
 
+			if prepare != nil && needsDatabase(c.Args().Slice()) {
+				prepare()
+			}
+
 			return nil
 		},
 	}
+}
 
-	// 处理中断信号
-	sigChan := make(chan os.Signal, 1)
-
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		fmt.Println("\nOperation cancelled.")
-		os.Exit(130)
-	}()
-
-	err = app.Run(os.Args)
-	if err != nil {
-		log.Error("%v", err)
-		os.Exit(1)
+// needsDatabase reports whether the command line runs a command (as opposed
+// to only printing help), so plain help works without a database.
+func needsDatabase(args []string) bool {
+	if len(args) == 0 {
+		return false
 	}
+
+	switch args[0] {
+	case "help", "h":
+		return false
+	}
+
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+
+		if arg == "-h" || arg == "--help" {
+			return false
+		}
+	}
+
+	return true
 }

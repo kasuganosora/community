@@ -1021,7 +1021,13 @@ func getStorageInfo() string {
 
 	var size int64
 
-	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, _ error) error {
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		// A missing uploads directory (or an unreadable entry) reports an
+		// error with a nil info; skip it instead of dereferencing nil.
+		if err != nil || info == nil {
+			return nil
+		}
+
 		if !info.IsDir() {
 			size += info.Size()
 		}
