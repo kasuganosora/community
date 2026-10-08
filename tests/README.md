@@ -107,6 +107,16 @@ setup := testutil.NewTestSetup(t, testutil.WithIsolatedDB(), testutil.WithModels
 setup := testutil.NewTestSetup(t, testutil.WithSharedDB())
 ```
 
+### 在 PostgreSQL 上运行数据库测试
+
+设置 `TEST_DATABASE_URL`（`postgres://` URL；其他 DSN 形式需同时设置 `TEST_DB_CONNECTION=postgres`）后，`testutil.NewIsolatedTestDB`、models / matrix 包的共享测试库以及使用 `pgtest.GormOpen` 的 SQLite 测试辅助函数都会改用 PostgreSQL：每个测试库是一个独立 schema（`t_<随机>`），结束时删除（设置 `TEST_KEEP_SCHEMA=1` 可保留以便排查）。PostgreSQL 测试库与 SQLite 一样不建外键约束，迁移本身仍会建外键。
+
+```bash
+TEST_DATABASE_URL='postgres://community:community@127.0.0.1:5432/community_test?sslmode=disable' go test -p 4 ./...
+```
+
+依赖 SQLite 专有 SQL（`sqlite_master`、`AUTOINCREMENT` 等）的测试仍固定使用 SQLite。
+
 ### Redis 设置
 
 ```go

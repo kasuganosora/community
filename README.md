@@ -79,6 +79,8 @@ curl -fsS http://localhost:8080/api/v2/instance
 
 上传文件保存在 `./uploads`，数据库和 Redis 使用 Docker 数据卷。升级前备份数据库与上传目录，启动时让数据库迁移正常完成。
 
+如需改用 PostgreSQL，在 `.env` 中设置 `DB_CONNECTION=postgres`、`COMPOSE_DB_HOST=postgres`、`COMPOSE_DB_PORT=5432`，然后执行 `docker compose --profile postgres up -d --build --scale mysql=0`。
+
 默认 Compose 还会映射 MySQL 的 `3306` 和 Redis 的 `6379` 端口。公开部署时应移除这些映射或限制到本机，并为应用配置 HTTPS 反向代理。`APP_BASE_URL` 是账号与联邦对象身份的一部分，建立实例后不要随意更换。
 
 ### 本地源码开发
@@ -87,7 +89,7 @@ curl -fsS http://localhost:8080/api/v2/instance
 
 前端使用 TypeScript **6.0.3**；当前 `typescript-eslint` 的兼容范围尚不包含 TypeScript 7。依赖版本与完整解析结果分别记录在 `go.mod` / `go.sum` 和 `frontend/package.json` / `frontend/package-lock.json` 中。
 
-先准备可访问的 MySQL 数据库和 Redis，再复制 `.env.example`。除上述必填项外，本机运行还需要填写连接参数，例如：
+先准备可访问的 MySQL（或 PostgreSQL，`DB_CONNECTION=postgres`，见 [db/README.md](db/README.md)）数据库和 Redis，再复制 `.env.example`。除上述必填项外，本机运行还需要填写连接参数，例如：
 
 ```dotenv
 LISTEN=127.0.0.1:8080
@@ -181,6 +183,8 @@ npm --prefix frontend test
 npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
+
+数据库相关测试默认使用内存引擎（sqlexec / SQLite）；设置 `TEST_DATABASE_URL=postgres://…` 可改在 PostgreSQL 上运行，详见 [tests/README.md](tests/README.md)。
 
 如果测试环境设置了 `HTTP_PROXY`，本机测试服务器的请求可能被代理；此时可仅对测试命令清除该变量：
 

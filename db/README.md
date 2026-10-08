@@ -1,6 +1,6 @@
 # db (数据库连接层)
 
-统一管理应用数据存储连接的基础设施模块，对外暴露 GORM 数据库句柄与多实例 Redis 客户端，支持 MySQL、SQLite 与基于 sqlexec 的 XML 持久化三种后端。
+统一管理应用数据存储连接的基础设施模块，对外暴露 GORM 数据库句柄与多实例 Redis 客户端，支持 MySQL、PostgreSQL、SQLite 与基于 sqlexec 的 XML 持久化四种后端。
 
 ## 目录结构
 
@@ -8,6 +8,7 @@
 |------|---------|------|
 | `db.go` | `db` | 对外门面（facade），聚合 `database` 与 `redis` 子包，在 `init()` 中触发 GORM 初始化 |
 | `database/` | `database` | GORM 初始化、连接池管理、测试模式、sqlexec XML 适配 |
+| `dialect/` | `dialect` | 方言差异小工具（标识符引用、ILIKE、JSON 取值等）与 PostgreSQL dialector |
 | `redis/` | `redis` | 多实例 Redis 客户端管理与测试工具 |
 
 ## 支持的后端
@@ -15,6 +16,7 @@
 | 后端 | `DbConnection` 取值 | 说明 |
 |------|---------------------|------|
 | MySQL | `mysql` | 生产环境推荐，支持完整 DDL/索引/外键 |
+| PostgreSQL | `postgres`（亦接受 `postgresql`、`pgsql`） | 基于 pgx；模型中的 MySQL 列类型由 `dialect.PostgresDialector` 自动转换 |
 | SQLite | `sqlite` | 轻量本地存储，启用 WAL 模式 |
 | XML (sqlexec) | `xml` | 基于 [sqlexec](https://github.com/kasuganosora/sqlexec) 的 XML 文件持久化，适配嵌入式/测试场景 |
 
@@ -83,6 +85,15 @@ DB_USERNAME=root
 DB_PASSWORD=secret
 DB_DATABASE=community
 
+# PostgreSQL（DB_PORT 未显式设置时使用 5432）
+DB_CONNECTION=postgres
+DB_HOST=127.0.0.1
+DB_USERNAME=community
+DB_PASSWORD=secret
+DB_DATABASE=community
+DB_SSLMODE=disable          # 可选：disable / require / verify-full …
+# DB_DSN=postgres://user:pass@host:5432/community?sslmode=require  # 可选：完整 DSN，覆盖上面的 DB_* 字段
+
 # SQLite（DbHost 为数据库文件路径）
 DB_CONNECTION=sqlite
 DB_HOST=./community.db
@@ -96,7 +107,7 @@ DB_DATABASE=community
 ### 连接池（环境变量覆盖）
 
 ```bash
-# 仅对 MySQL 生效；非法或 ≤0 的值会被忽略并回退默认值
+# 对 MySQL 与 PostgreSQL 生效；非法或 ≤0 的值会被忽略并回退默认值
 DB_MAX_OPEN_CONNS=100
 DB_MAX_IDLE_CONNS=10
 DB_CONN_MAX_LIFETIME_MINUTES=30
@@ -260,6 +271,7 @@ func TestRedisLogic(t *testing.T) {
 |------|------|
 | [`gorm.io/gorm`](https://gorm.io) | ORM 框架与 Migrator |
 | [`gorm.io/driver/mysql`](https://github.com/go-gorm/mysql) | MySQL 驱动 |
+| [`gorm.io/driver/postgres`](https://github.com/go-gorm/postgres) | PostgreSQL 驱动（pgx） |
 | [`github.com/glebarez/sqlite`](https://github.com/glebarez/sqlite) | 纯 Go SQLite 驱动（CGO-free） |
 | [`github.com/redis/go-redis/v9`](https://github.com/redis/go-redis) | Redis 客户端 |
 | [`github.com/kasuganosora/sqlexec`](https://github.com/kasuganosora/sqlexec) | XML 持久化引擎 |
@@ -271,4 +283,11 @@ func TestRedisLogic(t *testing.T) {
 - **并发安全**：所有对全局 `DB` 的读写均由 `dbMu sync.RWMutex` 保护，业务代码应始终通过 `GetDB()` 而非直接访问 `DB` 变量。
 - **multiStatements**：MySQL DSN 显式开启 `multiStatements=true`，以支持迁移脚本中的批量 DDL；这些语句不拼接任何用户输入，不存在注入风险。
 - **`InitGorm` 的 Fatal 行为**：致命配置错误（如无效 DSN、不支持的连接类型）会通过 `log.Fatal` 终止进程，因此 `Fatal` 在解锁互斥锁之后才执行，避免 `exitAfterDefer`。
+- **PostgreSQL 差异**：
+  - 模型保留 MySQL 列类型标签（`tinyint`、`datetime`、`json`、`longtext` …），由 `PostgresDialector.DataTypeOf` 转为 `smallint`、`timestamptz`、`jsonb`、`text` 等，因此 MySQL 现有表结构不受影响。
+  - 需要 `citext` 扩展（PostgreSQL 13+ 为受信任扩展，数据库 owner 可创建；启动时自动执行 `CREATE EXTENSION IF NOT EXISTS citext`，无权限时请由超级用户预先创建）。`accounts.username`、`accounts.acct`、`accounts.domain`、`users.username`、`tags.name` 使用 `citext`，与 MySQL `_ci` 排序规则一样大小写不敏感（含唯一索引）。
+  - 会话时区跟随进程本地时区（与 MySQL DSN 的 `loc=Local` 一致）；使用 `DB_DSN` 时需自行设置 `TimeZone`。
+  - 写入前会去掉字符串中的 NUL 字节（PostgreSQL `text` 无法存储 U+0000）。
+  - 原生 SQL 中的方言差异请使用 `db/dialect`：`dialect.Quote`、`dialect.ILike` + `dialect.LikeEscape`（其余文本列在 PostgreSQL 上大小写敏感）、`dialect.JSONText`；保留字列名优先使用 `clause.Eq` / `map[string]any` 条件。
+  - `FULLTEXT` 索引与 `OPTIMIZE TABLE` 仅在 MySQL 上执行。
 - **Redis 未配置**：若没有任何 Redis 实例被加载，`GetRedis()` 会 `panic("no redis config")`，调用方需确保配置就绪。

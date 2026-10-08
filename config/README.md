@@ -44,12 +44,14 @@ init() → loadConfig()
 
 | 字段 | 环境变量 | 默认值 | 说明 |
 |------|----------|--------|------|
-| `DbConnection` | `DB_CONNECTION` | `mysql` | 数据库连接类型 |
+| `DbConnection` | `DB_CONNECTION` | `mysql` | 数据库连接类型：`mysql` / `postgres`（`postgresql`、`pgsql`）/ `sqlite` / `xml` |
 | `DbHost` | `DB_HOST` | _(无)_ | 数据库主机 |
-| `DbPort` | `DB_PORT` | `3306` | 数据库端口 |
+| `DbPort` | `DB_PORT` | `3306` | 数据库端口（PostgreSQL 未显式设置时使用 `5432`） |
 | `DbDatabase` | `DB_DATABASE` | `community` | 数据库名称 |
 | `DbUsername` | `DB_USERNAME` | `root` | 数据库用户名 |
 | `DbPassword` | `DB_PASSWORD` | _(无)_ | 数据库密码（生产环境必填） |
+| `DbSSLMode` | `DB_SSLMODE` | `disable` | 仅 PostgreSQL：`sslmode` |
+| `DbDSN` | `DB_DSN` | _(无)_ | 仅 PostgreSQL：完整 DSN / URL，设置后忽略其他 `DB_*` 连接字段 |
 
 ### Redis 配置
 

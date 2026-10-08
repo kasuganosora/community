@@ -11,8 +11,10 @@ services:
       - ./uploads:/app/uploads
       - transfer-data:/app/.data-transfers
     depends_on:
+      # required: false lets `--scale mysql=0` run against PostgreSQL instead.
       mysql:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       # 自带引擎没起来时也不要挡住应用：搜索会退回数据库，外部地址同样如此。
@@ -25,8 +27,11 @@ services:
       - .env
     # Container-specific settings override the values from .env.
     environment:
-      DB_HOST: mysql
-      DB_PORT: "3306"
+      # PostgreSQL: set DB_CONNECTION=postgres, COMPOSE_DB_HOST=postgres and
+      # COMPOSE_DB_PORT=5432 in .env, then
+      # docker compose --profile postgres up -d --scale mysql=0
+      DB_HOST: ${COMPOSE_DB_HOST:-mysql}
+      DB_PORT: ${COMPOSE_DB_PORT:-3306}
       DB_DATABASE: ${DB_DATABASE:-community}
       DB_USERNAME: ${DB_USERNAME:-root}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
@@ -62,6 +67,28 @@ services:
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - community-net
+
+  # Optional PostgreSQL server, started only with --profile postgres.
+  postgres:
+    image: postgres:17-alpine
+    container_name: community-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-community}
+      POSTGRES_USER: ${DB_USERNAME:-root}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -116,6 +143,7 @@ services:
 
 volumes:
   mysql-data:
+  postgres-data:
   redis-data:
   transfer-data:
   meili-data:

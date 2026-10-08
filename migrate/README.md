@@ -109,7 +109,14 @@ var ScripsType = []MigrationScript{
 | `*Tables` (Group/Matrix/Relay) | `CREATE TABLE IF NOT EXISTS` |
 | `*Indexes` (Performance/Media) | `CREATE INDEX IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` |
 
-### 4. XML 模式适配
+### 4. 多数据库适配（PostgreSQL / SQLite）
+
+- AutoMigrate 类脚本直接复用模型；MySQL 列类型在 PostgreSQL 上由 `dialect.PostgresDialector` 转换。
+- 手写 DDL 的脚本（`group.go`、`matrix.go`、`relay.go`）通过 `ddlFor(conn, mysqlSQL, postgresSQL)` 选择方言，PostgreSQL 版本见 `scripts/postgres_ddl.go`（PostgreSQL 的索引名在 schema 内全局唯一，因此带表名前缀）。
+- 原生 SQL 中的标识符使用 `dialect.Quote`，不再写死反引号；`FULLTEXT` 索引仅在 MySQL 上创建。
+- `migrate/postgres_test.go` 在空 PostgreSQL 库上执行全部迁移两次，并确认再次 AutoMigrate 不产生 `ALTER`。
+
+### 5. XML 模式适配
 
 所有 MySQL 特有脚本通过 `database.IsXmlMode()` 判断后端，在 sqlexec XML 模式下跳过（sqlexec 不支持 `ENGINE=InnoDB`、`FOREIGN KEY`、`COMMENT`、`FULLTEXT INDEX`、`ALTER TABLE` 等）。脚本同时保证 `Up` 与 `Down` 的跳过行为对称。
 
@@ -266,5 +273,6 @@ if err := scripts.RunPerformanceMigrations(); err != nil { ... }
 - **事务范围**：`Up()` / `Down()` 会把脚本执行与迁移记录写入包裹在事务中；脚本内部应使用传入的 `tx`（可能是事务句柄）而非 `db.GetDB()`，否则事务无法回滚。
 - **MySQL DDL 隐式提交**：`ALTER`/`CREATE TABLE` 等 DDL 在 MySQL 中会触发隐式提交，纯 DDL 脚本即使事务失败也无法撤销已应用的 schema 变更；迁移脚本因此都被设计为幂等，重复 `Up()` 安全。
 - **脚本命名不可变**：迁移记录以结构体的反射类型名作为唯一标识；重命名已发布的脚本会使其被视为新脚本而被重复执行。
+- **PostgreSQL 事务**：PostgreSQL 中任何语句出错都会使当前事务失效（后续语句报 `25P02`），迁移脚本不能依赖“先执行、出错再忽略”，应先用 `HasTable` / `HasColumn` / `HasIndex` 判断。
 - **XML 模式**：sqlexec XML 后端不支持 `ALTER TABLE`、`FULLTEXT INDEX`、`ENGINE=InnoDB` 等 MySQL DDL，相关脚本会在 `IsXmlMode()` 下自动跳过。
 - **`Down` 的 no-op 设计**：`performance_indexes` 与 `media_indexes` 的 `Down()` 为 no-op——索引与新增列属非破坏性变更，按名 drop 索引在跨 DB 版本时脆弱，且重跑 `Up()` 本身幂等。
