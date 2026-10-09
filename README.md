@@ -147,13 +147,38 @@ Vite 默认使用 `http://localhost:3000`，将 API 请求代理到 `http://loca
 | `APP_BASE_URL` | 含协议的实例地址，用于本地账号、对象 URL 和联邦身份 |
 | `ENCRYPTED_KEY` | 必填加密密钥，至少 16 个字符；应使用随机生成的值 |
 | `DB_*`、`REDIS_0_*` | 数据库与 Redis 连接 |
-| `STORAGE_TYPE`、`S3_*` | 本地媒体或 S3 兼容存储 |
+| `STORAGE_TYPE`、`S3_*` | 本地媒体或 S3 兼容存储（见下文“对象存储”） |
 | `SMTP_*` | 需要发送邮件时配置 SMTP |
 | `MEILISEARCH_*` | 可选全文搜索服务 |
 | `ENV_FILE` | 显式指定配置文件路径 |
 | `APP_ROOT` | 配置和前端等运行时文件的根目录 |
 
 环境变量优先于配置文件。未指定 `ENV_FILE` 时，配置按 `APP_ROOT`、工作目录、可执行文件目录等位置查找。不要把密码、私钥或真实会话令牌提交到仓库。
+
+### 对象存储（S3 / Cloudflare R2 / MinIO）
+
+`STORAGE_TYPE=local`（默认）时文件写入 `./uploads`。`STORAGE_TYPE=s3` 时，网页端与 Mastodon API 的媒体上传（`/api/v1/media`、`/api/v2/media`）、缩略图、旧版头像/头图上传、自定义表情和 Matrix 媒体都只写入存储桶，本地不保留副本。数据库只保存对象键（如 `media/2026/10/09/<文件名>`），不保存存储桶 URL 或本机路径。
+
+Cloudflare R2 示例（存储桶需事先创建；令牌需对该桶有“对象读和写”权限）：
+
+```dotenv
+STORAGE_TYPE=s3
+S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+S3_REGION=auto
+S3_BUCKET=community-file
+S3_ACCESS_KEY=<R2_ACCESS_KEY_ID>
+S3_SECRET_KEY=<R2_SECRET_ACCESS_KEY>
+S3_USE_SSL=true
+S3_FORCE_PATH_STYLE=true
+# 可选：R2 公开访问地址（r2.dev 或自定义域名），对应存储桶根目录
+# S3_PUBLIC_URL=https://media.example.com
+```
+
+- 媒体地址始终是本站的 `/media/<id>/<文件名>`（联邦与客户端看到的地址不随存储后端变化）。未配置 `S3_PUBLIC_URL` 时，由本站从存储桶读取后返回（支持 Range 请求）；配置后，图片、音频、视频直接 302 跳转到 `<S3_PUBLIC_URL>/<对象键>`，其他类型仍由本站以附件形式返回。
+- `S3_PUBLIC_URL` 指向**存储桶根目录**，不要在末尾附加桶名。
+- 配置错误不会悄悄回退到本地存储：上传会失败，`/health/detailed` 的 `storage` 项会显示 `unhealthy` 及原因（HeadBucket 探测，超时 4 秒，结果缓存 30 秒，不包含密钥和端点主机名）。
+- 从本地切换到 S3 后，桶内缺失的旧文件仍会从 `./uploads` 读取（`S3_LEGACY_LOCAL_FALLBACK=false` 可关闭）。如需完全迁移，可把 `./uploads` 下的目录结构原样上传到桶根目录（例如 `rclone copy ./uploads r2:community-file`）。
+- 旧版本在 S3 模式下把完整的存储桶 URL 写进 `media_attachments.file_path`；迁移脚本 `NormalizeStorageKeysScript` 会把它们改回对象键，读取时也会自动兼容。
 
 ## 联邦与客户端验证范围
 
