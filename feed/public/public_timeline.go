@@ -22,6 +22,11 @@ func init() {
 			return false
 		}
 
+		// Old posts imported late never enter the live timelines.
+		if feed.SkipsTimelines(status) {
+			return true
+		}
+
 		// 只展示 公开的
 		if status.Visibility != models.StatusVisibilityPublic {
 			return true
@@ -56,7 +61,7 @@ func (timeline *PublicTimeline) GetKeyFormat() string {
 func (timeline *PublicTimeline) AggregateReblogs() bool { return true }
 
 func (timeline *PublicTimeline) candidates(tx *gorm.DB) *gorm.DB {
-	query := feed.EligibleTimelineStatuses(tx).Where("statuses.visibility = ?", models.StatusVisibilityPublic)
+	query := feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(tx)).Where("statuses.visibility = ?", models.StatusVisibilityPublic)
 	if timeline.OnlyMedia {
 		query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
 	}

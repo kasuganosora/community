@@ -38,6 +38,8 @@ type Resolver struct {
 	accountCache sync.Map // Cache for remote accounts with expiration
 	statusCache  sync.Map // Cache for remote statuses with expiration
 	cacheTTL     time.Duration
+	// noQuoteFetch stops imported posts from fetching their own quotes.
+	noQuoteFetch bool
 }
 
 // Default cache TTL (30 minutes).
@@ -523,6 +525,9 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
 	}
+	if models.ShouldBackfill(*status.CreatedAt, now, true) {
+		status.MarkBackfilled()
+	}
 
 	status.Attachments, err = incomingAttachments(ctx, obj["attachment"], account.Id)
 	if err != nil {
@@ -539,6 +544,8 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	if err != nil {
 		return models.Status{}, fmt.Errorf("creating status in database: %w", err)
 	}
+
+	scheduleQuoteFetch(r, &status, obj)
 
 	return status, nil
 }

@@ -1,0 +1,130 @@
+package commands
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
+	"github.com/urfave/cli/v2"
+)
+
+func statusesBackfillCommands() []*cli.Command {
+	return []*cli.Command{
+		{
+			Name:  "fetch-quotes",
+			Usage: "Import the quoted posts of recent remote quote posts and link them",
+			Flags: []cli.Flag{
+				&cli.IntFlag{Name: "days", Value: 7, Usage: "only look at statuses created in the last N days"},
+				&cli.IntFlag{Name: "limit", Value: 200, Usage: "fetch at most N quoted posts"},
+			},
+			Action: func(c *cli.Context) error {
+				linked, err := activitypub.BackfillQuotes(context.Background(), c.Int("days"), c.Int("limit"))
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Linked %d quoted posts\n", linked)
+				return nil
+			},
+		},
+		{
+			Name:  "mark-backfilled",
+			Usage: "Keep remote posts that were imported long after publication out of public, tag, home and list timelines",
+			Description: "Marks remote statuses (never edited) whose last update is more than --gap hours after their publish time,\n" +
+				"which is how posts fetched late (boost originals, reply context) look. Safe to re-run; then clears timeline caches.",
+			Flags: []cli.Flag{
+				&cli.IntFlag{Name: "gap", Value: 24, Usage: "hours between publish time and import"},
+				&cli.IntFlag{Name: "days", Value: 60, Usage: "only look at statuses imported in the last N days"},
+				&cli.BoolFlag{Name: "dry-run", Usage: "print the count only"},
+			},
+			Action: markBackfilled,
+		},
+	}
+}
+
+func markBackfilled(c *cli.Context) error {
+	if c.Int("gap") <= 0 || c.Int("days") <= 0 {
+		return errors.New("gap and days must be positive")
+	}
+	conn := db.GetDB()
+	gap := time.Duration(c.Int("gap")) * time.Hour
+	since := time.Now().AddDate(0, 0, -c.Int("days"))
+	ctx := context.Background()
+
+	edited := map[uint64]bool{}
+	if conn.Migrator().HasTable(&models.StatusHistory{}) {
+		var ids []uint64
+		if err := conn.WithContext(ctx).Model(&models.StatusHistory{}).Distinct().Pluck("status_id", &ids).Error; err != nil {
+			return err
+		}
+		for _, id := range ids {
+			edited[id] = true
+		}
+	}
+
+	var cursor uint64
+	marked, scanned := 0, 0
+	for {
+		var rows []models.Status
+		err := conn.WithContext(ctx).Select("id", "created_at", "updated_at", "properties").
+			Where("id > ? AND domain IS NOT NULL AND reblog_id IS NULL AND updated_at > ?", cursor, since).
+			Order("id ASC").Limit(500).Find(&rows).Error
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for i := range rows {
+			s := &rows[i]
+			cursor = s.Id
+			scanned++
+			if s.IsBackfilled() || edited[s.Id] || s.CreatedAt == nil || s.UpdatedAt == nil || s.UpdatedAt.Sub(*s.CreatedAt) <= gap {
+				continue
+			}
+			marked++
+			if c.Bool("dry-run") {
+				continue
+			}
+			s.MarkBackfilled()
+			if err := conn.WithContext(ctx).Model(&models.Status{}).Where("id = ?", s.Id).UpdateColumn("properties", s.Properties).Error; err != nil {
+				return err
+			}
+		}
+	}
+	fmt.Printf("Scanned %d remote statuses, marked %d as backfilled\n", scanned, marked)
+	if c.Bool("dry-run") || marked == 0 {
+		return nil
+	}
+
+	redis := db.GetRedis()
+	if redis == nil {
+		return nil
+	}
+	cleared := 0
+	for _, pattern := range []string{"feed:public:*", "feed:tag:*", "feed:home:*", "feed:list:*"} {
+		var next uint64
+		for {
+			keys, n, err := redis.Scan(ctx, next, pattern, 1000).Result()
+			if err != nil {
+				return fmt.Errorf("scan %s: %w", pattern, err)
+			}
+			if len(keys) > 0 {
+				d, err := redis.Del(ctx, keys...).Result()
+				if err != nil {
+					return err
+				}
+				cleared += int(d)
+			}
+			next = n
+			if next == 0 {
+				break
+			}
+		}
+	}
+	fmt.Printf("Cleared %d timeline cache keys; they rebuild on next read\n", cleared)
+	return nil
+}

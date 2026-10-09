@@ -24,6 +24,11 @@ func init() {
 			return false
 		}
 
+		// Old posts imported late never enter the live timelines.
+		if feed.SkipsTimelines(status) {
+			return true
+		}
+
 		// 不展示 私信
 		if status.Visibility == models.StatusVisibilityDirect {
 			return true
@@ -109,7 +114,7 @@ func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	query := membership(feed.EligibleTimelineStatuses(db.GetDB().WithContext(ctx).Model(&models.Status{})))
+	query := membership(feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(db.GetDB().WithContext(ctx).Model(&models.Status{}))))
 	if timeline.OnlyLocal {
 		query = query.Where("statuses.domain IS NULL")
 	} else if timeline.OnlyRemote {
@@ -290,7 +295,7 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 		return nil, err
 	}
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
-		query = membership(feed.EligibleTimelineStatuses(tx))
+		query = membership(feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(tx)))
 		// Preserve the personalized tag audience, but filter it before LIMIT
 		// and association loading instead of hydrating inaccessible pages.
 		if account == nil {

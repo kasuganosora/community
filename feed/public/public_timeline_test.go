@@ -356,6 +356,26 @@ func TestEventHandler_AfterCreate_PublicStatus(t *testing.T) {
 	assert.Contains(t, zSet, "5001")
 }
 
+// A post imported late (backfilled) never enters the shared timeline, on
+// create or on update, while a live post next to it still does.
+func TestEventHandler_BackfilledStatusSkipped(t *testing.T) {
+	mockRedis := setupMockFeedService()
+
+	old := &models.Status{Id: 5010, AccountId: 1, Visibility: models.StatusVisibilityPublic}
+	old.MarkBackfilled()
+	live := &models.Status{Id: 5011, AccountId: 1, Visibility: models.StatusVisibilityPublic}
+
+	for _, name := range []string{"after_create", "after_update"} {
+		event.Trigger("status", event.Event{Name: name, Data: old})
+	}
+	event.Trigger("status", event.Event{Name: "after_create", Data: live})
+	time.Sleep(200 * time.Millisecond)
+
+	zSet := mockRedis.GetZSet("feed:public:all")
+	assert.Contains(t, zSet, "5011")
+	assert.NotContains(t, zSet, "5010")
+}
+
 // 非 public status 的事件应被跳过。
 func TestEventHandler_NonPublicStatus_Skipped(t *testing.T) {
 	mockRedis := setupMockFeedService()

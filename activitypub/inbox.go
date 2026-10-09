@@ -372,6 +372,9 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
 	}
+	if models.ShouldBackfill(*status.CreatedAt, now, false) {
+		status.MarkBackfilled()
+	}
 
 	// Set domain for remote status
 	domain := utils.ExtractDomainFromURI(actor)
@@ -396,6 +399,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 
 	log.Info("Created remote status %d from %s with %d mentions", status.Id, actor, len(recipients))
+	scheduleQuoteFetch(nil, &status, object)
 	c.JSON(200, gin.H{"status": "accepted"})
 }
 

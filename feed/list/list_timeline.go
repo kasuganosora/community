@@ -27,6 +27,11 @@ func init() {
 			return false
 		}
 
+		// Old posts imported late never enter the live timelines.
+		if feed.SkipsTimelines(status) {
+			return true
+		}
+
 		// 不展示 私信
 		if status.Visibility == models.StatusVisibilityDirect {
 			return true
@@ -66,7 +71,7 @@ func (timeline *ListTimeline) memberIDs(tx *gorm.DB) *gorm.DB {
 }
 
 func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
-	query := feed.EligibleTimelineStatuses(tx).
+	query := feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(tx)).
 		Where("(statuses.visibility = ? OR statuses.visibility = ?)", models.StatusVisibilityPublic, models.StatusVisibilityUnlisted).
 		Where("statuses.account_id IN (?)", timeline.memberIDs(tx))
 	if timeline.OnlyLocal {

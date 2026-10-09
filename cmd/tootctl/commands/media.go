@@ -1030,7 +1030,7 @@ func mediaLookup(c *cli.Context) error {
 
 // StatusesCommand implements tootctl statuses subcommands.
 func StatusesCommand() *cli.Command {
-	return &cli.Command{
+	cmd := &cli.Command{
 		Name:  "statuses", //nolint:goconst
 		Usage: "Manage statuses",
 		Subcommands: []*cli.Command{
@@ -1045,6 +1045,9 @@ func StatusesCommand() *cli.Command {
 			},
 		},
 	}
+	cmd.Subcommands = append(cmd.Subcommands, statusesBackfillCommands()...)
+
+	return cmd
 }
 
 func removeStatuses(c *cli.Context) error {

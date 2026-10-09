@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/log"
@@ -25,6 +26,11 @@ func init() {
 		status := event.Data.(*models.Status) //nolint:forcetypeassert
 		if status == nil {
 			return false
+		}
+
+		// Old posts imported late never enter the live timelines.
+		if feed.SkipsTimelines(status) {
+			return true
 		}
 
 		// 如果是新增的事件
@@ -368,7 +374,7 @@ func GetTimeLineContent(account *models.Account, params *feed.ListParam) (status
 func homeCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
 	following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("account_id = ? AND status = ?", accountID, models.FollowStatusFollowed).Select("follow_id")
 	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).Where("account_id = ?", accountID).Select("status_id")
-	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
 }
 
 func (timeline *HomeTimeline) AggregateReblogs() bool {
