@@ -124,6 +124,9 @@ func SetRouter(app gin.IRouter) {
 	app.GET("/.well-known/webfinger", activitypub.WebFinger)
 	app.GET("/.well-known/host-meta", activitypub.HostMeta)
 	app.GET("/.well-known/nodeinfo", activitypub.NodeInfo)
+	app.GET("/nodeinfo/2.0", activitypub.NodeInfo20)
+	app.GET("/nodeinfo/2.1", activitypub.NodeInfo21)
+	activitypub.NodeInfoMatrixEnabled = homeserver.IsEnabled
 
 	// ActivityPub Actor 端点
 	app.GET("/users/:username", activitypub.ActorProfile)

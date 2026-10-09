@@ -7,7 +7,7 @@ ActivityPub 联邦协议实现包，负责与其他去中心化社交实例之�
 - **联邦消息收发**：通过 `Inbox` / `SharedInbox` 接收远程实例的活动（Create、Follow、Like、Announce、Delete、Undo、Move 等），通过 `DeliveryQueue` 异步投递本地活动到远程 inbox。
 - **SSRF 防护**：`ssrfSafeHTTPClient` 在拨号层拦截所有指向内网/保留地址（loopback、private、link-local、CGNAT、云元数据地址 169.254.169.254 等）的请求，并通过 `ValidateURI` / `IsSSRFBlocked` 提供前置校验与错误识别。
 - **HTTP Signatures**：实现 RFC 草案 [HTTP Signatures](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures)，支持请求签名（`SignWithRSA`）、验签（`VerifyRequest` / `SignatureVerifier`）、Digest 校验、`(request-target)` 强制签名、Date 时间窗口防重放、公钥 LRU 缓存。
-- **WebFinger / NodeInfo 发现**：对外提供 `/.well-known/webfinger`、`/.well-known/host-meta`、`/.well-known/nodeinfo` 端点；对内可通过 `DiscoverActor` 根据 acct（`user@domain`）反向发现远程 Actor。
+- **WebFinger / NodeInfo 发现**：对外提供 `/.well-known/webfinger`、`/.well-known/host-meta`、`/.well-known/nodeinfo` 端点，以及 `/nodeinfo/2.1`、`/nodeinfo/2.0` 文档（带 schema profile 的 Content-Type，用户数/活跃数/本地帖子数缓存 10 分钟，`openRegistrations` 取自站点设置）；对内可通过 `DiscoverActor` 根据 acct（`user@domain`）反向发现远程 Actor。
 - **远程资源解析**：`Resolver` 负责将远程 Actor / Note 解析为本地 `models.Account` / `models.Status`，内置 `sync.Map` + TTL 缓存与后台刷新机制。
 - **中继（Relay）服务**：`RelayService` 管理与公共中继服务器的订阅关系，自动发送/撤销 Follow 活动，并将公开状态分发到中继 inbox。
 - **触达范围计算**：`StatusReachFinder` / `AccountReachFinder` 计算一条状态/账户相关活动应被分发到哪些远程 inbox（粉丝、被提及者、中继，并剔除被屏蔽账户）。
@@ -39,7 +39,8 @@ ActivityPub 联邦协议实现包，负责与其他去中心化社交实例之�
 | `deliver.go` | `DeliveryQueue` 异步投递队列、`Delivery` / `ProcessedActivity` GORM 模型、`DeliveryStatus` 状态机、指数退避重试 `RetryPolicy` / `GetNextRetryTime` |
 | `inbox.go` | `Inbox` / `SharedInbox` Gin handler，按活动类型分发到 `handleCreateActivity`、`handleFollowActivity` 等；活动去重、Content-Type 校验 |
 | `outbox.go` | `Outbox` / `Followers` / `Following` / `ActorProfile` Gin handler，对外暴露本地用户的 ActivityPub 端点 |
-| `webfinger.go` | `WebFinger` / `HostMeta` / `NodeInfo` 端点、`DiscoverActor` 反向发现、`ActivityPubError` 错误类型 |
+| `nodeinfo.go` | `NodeInfo` 发现文档与 `NodeInfo20` / `NodeInfo21` |
+| `webfinger.go` | `WebFinger` / `HostMeta` 端点、`DiscoverActor` 反向发现、`ActivityPubError` 错误类型 |
 | `resolver.go` | `Resolver` 远程资源解析与本地化（Account / Status），带 TTL 缓存；`GetOrCreateRemoteAccount` / `ResolveRemoteStatus` 便捷函数 |
 | `relay.go` | `RelayService` 中继管理：创建/启用/禁用/删除中继，`RelaySerializer` 序列化 |
 | `proxy.go` | `ProxyService` 系统代理账户，`GetOrCreateProxyAccount` / `EnsureProxyFollow` / `CleanupProxyFollow` |

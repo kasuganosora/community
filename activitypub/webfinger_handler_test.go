@@ -175,8 +175,11 @@ func TestNodeInfo(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	links, ok := resp["links"].([]any)
 	require.True(t, ok)
-	require.Len(t, links, 1)
+	require.Len(t, links, 2)
 	link := links[0].(map[string]any) //nolint:forcetypeassert
+	assert.Equal(t, "http://nodeinfo.diaspora.software/ns/schema/2.1", link["rel"])
+	assert.Contains(t, link["href"], "/nodeinfo/2.1")
+	link = links[1].(map[string]any) //nolint:forcetypeassert
 	assert.Equal(t, "http://nodeinfo.diaspora.software/ns/schema/2.0", link["rel"])
 	assert.Contains(t, link["href"], "/nodeinfo/2.0")
 }

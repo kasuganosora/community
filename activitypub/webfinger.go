@@ -105,22 +105,6 @@ func HostMeta(c *gin.Context) {
 	c.Data(200, "application/xrd+xml", []byte(xml))
 }
 
-// NodeInfo handles GET /.well-known/nodeinfo.
-func NodeInfo(c *gin.Context) {
-	baseURL := systemsettings.GetBaseURL()
-
-	response := map[string]any{
-		"links": []map[string]string{
-			{
-				"rel":  "http://nodeinfo.diaspora.software/ns/schema/2.0",
-				"href": baseURL + "/nodeinfo/2.0", //nolint:goconst
-			},
-		},
-	}
-
-	c.JSON(200, response)
-}
-
 // DiscoverActor discovers an actor via WebFinger.
 func DiscoverActor(acct string) (*Actor, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
