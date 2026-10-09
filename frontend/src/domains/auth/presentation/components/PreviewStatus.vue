@@ -3,7 +3,7 @@
  * Read-only status for the logged-out landing page: author, time, content
  * warning, rich text with custom emoji, media thumbnails and a quote/link hint.
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
@@ -78,7 +78,22 @@ watch(() => shown.value.id, () => {
   void measure()
 })
 watch(cwOpen, open => { if (open) void measure() })
-onMounted(measure)
+
+// Width changes (column resize, web fonts, emoji images) change the line
+// count, so re-check whether the text is clamped.
+let resizeObserver: ResizeObserver | null = null
+watch(textEl, (el, old) => {
+  if (old) resizeObserver?.unobserve(old)
+  if (el) resizeObserver?.observe(el)
+})
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => { void measure() })
+    if (textEl.value) resizeObserver.observe(textEl.value)
+  }
+  void measure()
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <template>

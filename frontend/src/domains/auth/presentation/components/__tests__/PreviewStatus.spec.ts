@@ -59,6 +59,17 @@ describe('PreviewStatus', () => {
     expect(wrapper.find('.preview-status__media.is-blurred').exists()).toBe(false)
   })
 
+  it('blurs sensitive media without a content warning until revealed', async () => {
+    const wrapper = render(makeStatus({
+      sensitive: true,
+      media_attachments: [{ id: 'm', type: 'image', url: 'https://remote.example/a.jpg', preview_url: 'https://remote.example/a.jpg' }] as MastodonStatus['media_attachments'],
+    }))
+    expect(wrapper.find('.preview-status__text').exists()).toBe(true)
+    expect(wrapper.get('.preview-status__media').classes()).toContain('is-blurred')
+    await wrapper.get('.preview-status__reveal').trigger('click')
+    expect(wrapper.get('.preview-status__media').classes()).not.toContain('is-blurred')
+  })
+
   it('shows the boosted post with its own author', () => {
     const inner = makeStatus({ id: '2', content: '<p>original</p>' })
     const wrapper = render(makeStatus({ content: '', reblog: inner, account: { id: '3', username: 'luna', acct: 'luna@maid.lat', display_name: '露娜', emojis: [] } as unknown as MastodonStatus['account'] }))

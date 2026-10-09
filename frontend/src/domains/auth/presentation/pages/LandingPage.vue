@@ -27,8 +27,11 @@ const instanceInfo = ref<InstanceInfo>({
   domain: window.location.host,
 })
 
-// Computed to limit the timeline preview to 5 items
-const previewStatuses = computed(() => publicTimeline.value.slice(0, 5))
+// One fetch, split between the columns: the card shows the newest few and
+// the feed on the right continues after them, so no post appears twice.
+const PREVIEW_COUNT = 5
+const previewStatuses = computed(() => publicTimeline.value.slice(0, PREVIEW_COUNT))
+const feedStatuses = computed(() => publicTimeline.value.slice(PREVIEW_COUNT))
 
 interface InstanceResponse {
   title?: string
@@ -45,7 +48,7 @@ onMounted(async () => {
   try {
     const [instanceRes, timelineRes] = await Promise.allSettled([
       client.get<InstanceResponse>('/api/v1/instance'),
-      client.get<MastodonStatus[]>('/api/v1/timelines/public', { params: { limit: 20 } }),
+      client.get<MastodonStatus[]>('/api/v1/timelines/public', { params: { limit: 25 } }),
     ])
     if (instanceRes.status === 'fulfilled') {
       const inst = instanceRes.value.data
@@ -148,12 +151,12 @@ function goLogin() {
 
       <!-- Right column: Scrolling feed -->
       <div class="landing__right">
-        <div class="feed-column">
+        <div v-if="feedStatuses.length" class="feed-column">
           <PreviewStatus
-            v-for="status in publicTimeline"
+            v-for="status in feedStatuses"
             :key="'feed-' + status.id"
             :status="status"
-            :lines="8"
+            :lines="6"
             class="feed-note"
           />
         </div>
