@@ -3,7 +3,6 @@ package migrate_test
 import (
 	activitypub "github.com/kasuganosora/community/activitypub"
 	adminwebhook "github.com/kasuganosora/community/adminwebhook"
-	tootctl "github.com/kasuganosora/community/cmd/tootctl/commands"
 	accountapi "github.com/kasuganosora/community/controllers/api/account"
 	oauthapi "github.com/kasuganosora/community/controllers/api/oauth"
 	datatransfer "github.com/kasuganosora/community/datatransfer"
@@ -22,7 +21,7 @@ var appModels = []any{
 	&activitypub.ProcessedActivity{},
 	&adminwebhook.Delivery{},
 	&adminwebhook.Subscription{},
-	&tootctl.EmailDomainBlock{},
+	&models.EmailDomainBlock{},
 	&accountapi.Endorsement{},
 	&accountapi.FeaturedTag{},
 	&accountapi.FollowedTag{},

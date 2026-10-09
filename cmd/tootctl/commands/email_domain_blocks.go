@@ -9,19 +9,11 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/urfave/cli/v2"
 )
 
-// EmailDomainBlock represents an email domain block.
-type EmailDomainBlock struct {
-	ID        uint64     `gorm:"primaryKey;autoIncrement"          json:"id"`
-	Domain    string     `gorm:"unique;not null;type:varchar(255)" json:"domain"`
-	CreatedAt *time.Time `gorm:"autoCreateTime"                    json:"created_at"`
-}
-
-func (EmailDomainBlock) TableName() string {
-	return "email_domain_blocks"
-}
+type EmailDomainBlock = models.EmailDomainBlock
 
 // EmailDomainBlocksCommand implements tootctl email-domain-blocks subcommands.
 func EmailDomainBlocksCommand() *cli.Command {
@@ -104,7 +96,7 @@ func addEmailDomainBlocks(c *cli.Context) error {
 
 	for _, domain := range domains {
 		// Normalize domain
-		domain = strings.ToLower(strings.TrimSpace(domain))
+		domain = models.NormalizeEmailDomain(domain)
 
 		// Check if already blocked
 		var existing EmailDomainBlock
@@ -208,7 +200,7 @@ func removeEmailDomainBlocks(c *cli.Context) error {
 	removed := 0
 
 	for _, domain := range domains {
-		domain = strings.ToLower(strings.TrimSpace(domain))
+		domain = models.NormalizeEmailDomain(domain)
 
 		result := db.GetDB().Where("domain = ?", domain).Delete(&EmailDomainBlock{})
 		if result.Error != nil {
@@ -231,65 +223,9 @@ func removeEmailDomainBlocks(c *cli.Context) error {
 	return nil
 }
 
-// IsEmailDomainBlocked checks if an email domain is blocked.
+// IsEmailDomainBlocked checks if an email's domain or a parent domain is blocked.
 func IsEmailDomainBlocked(email string) bool {
-	parts := strings.Split(email, "@")
-	if len(parts) != 2 {
-		return false
-	}
+	blocked, err := models.EmailDomainBlocked(db.GetDB(), email)
 
-	domain := strings.ToLower(parts[1])
-
-	// Check direct match
-	var block EmailDomainBlock
-	err := db.GetDB().Where("domain = ?", domain).First(&block).Error
-	if err == nil {
-		return true
-	}
-
-	// Check parent domains (e.g., sub.example.com -> example.com)
-	domainParts := strings.Split(domain, ".")
-	for i := 1; i < len(domainParts)-1; i++ {
-		parentDomain := strings.Join(domainParts[i:], ".")
-		err := db.GetDB().Where("domain = ?", parentDomain).First(&block).Error
-		if err == nil {
-			return true
-		}
-	}
-
-	return false
-}
-
-// SyncEmailDomainBlocksToCache syncs blocked domains to cache.
-func SyncEmailDomainBlocksToCache() error {
-	redis := db.GetRedis()
-	if redis == nil {
-		return nil
-	}
-
-	var blocks []EmailDomainBlock
-	err := db.GetDB().Find(&blocks).Error
-	if err != nil {
-		return err
-	}
-
-	ctx := context.Background()
-	for _, block := range blocks {
-		redis.SAdd(ctx, "blocked_email_domains", block.Domain)
-	}
-
-	return nil
-}
-
-// GetEmailDomainBlockStats returns statistics about email domain blocks.
-func GetEmailDomainBlockStats() (map[string]any, error) {
-	var count int64
-	err := db.GetDB().Model(&EmailDomainBlock{}).Count(&count).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]any{
-		"total_blocked_domains": count,
-	}, nil
+	return err == nil && blocked
 }

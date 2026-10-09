@@ -47,6 +47,20 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// Blocked e-mail domains (and their subdomains), like Mastodon.
+	blocked, blockErr := models.EmailDomainBlocked(db.GetDB(), req.Email)
+	if blockErr != nil {
+		log.ErrorV(blockErr) // do not lock everyone out when the check itself fails
+	} else if blocked {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":   "Validation failed: Email " + models.ErrEmailDomainBlocked.Error(),
+			"field":   "email",
+			"details": gin.H{"email": []gin.H{{"error": "ERR_BLOCKED", "description": models.ErrEmailDomainBlocked.Error()}}},
+		})
+
+		return
+	}
+
 	// 检查当前是否开放注册。缺省与 /api/v1/instance 一致：没写配置就视为关闭。
 	if !systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "本站暂不开放注册"})
