@@ -26,6 +26,11 @@ type Client struct {
 	privateKey *rsa.PrivateKey
 	actorID    string
 	keyID      string
+	// signedFallback lazily provides a signing client. An unsigned GET that is
+	// rejected with 401/403 (Mastodon "authorized fetch" / secure mode, GoToSocial,
+	// Misskey with signed-fetch enforcement) is retried once with an HTTP
+	// signature from that client.
+	signedFallback func() (*Client, error)
 }
 
 // NewClient creates a new ActivityPub client.
@@ -38,34 +43,76 @@ func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 	}
 }
 
-// Get fetches a remote ActivityPub resource.
+// Get fetches a remote ActivityPub resource. Requests are signed when the
+// client has a key; unsigned clients created by NewFetchClient retry once with
+// a signature when the remote requires authorized fetch.
 func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
+	data, status, err := c.get(ctx, uri)
+	if err != nil && (status == http.StatusUnauthorized || status == http.StatusForbidden) && c.privateKey == nil && c.signedFallback != nil {
+		signer, signerErr := c.signedFallback()
+		if signerErr != nil || signer == nil || signer.privateKey == nil {
+			return nil, err
+		}
+		data, _, err = signer.get(ctx, uri)
+	}
+	return data, err
+}
+
+func (c *Client) get(ctx context.Context, uri string) ([]byte, int, error) {
 	if err := validateFederationURI(uri); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, 0, fmt.Errorf("creating request: %w", err)
 	}
 
-	// Set ActivityPub headers
-	req.Header.Set("Accept", "application/activity+json, application/ld+json")
+	// Set ActivityPub headers. The profile-qualified ld+json form is the one
+	// the ActivityPub spec mandates; Misskey and Mastodon accept either.
+	req.Header.Set("Accept", `application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"`)
 	req.Header.Set("User-Agent", "Community/1.0 ActivityPub Client")
+
+	if c.privateKey != nil {
+		if err := c.signGetRequest(req); err != nil {
+			return nil, 0, fmt.Errorf("signing request: %w", err)
+		}
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching resource: %w", err)
+		return nil, 0, fmt.Errorf("fetching resource: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, resp.StatusCode, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	// Limit response body size to prevent OOM attacks
-	return io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	return data, resp.StatusCode, err
+}
+
+// signGetRequest adds a draft-cavage HTTP signature over
+// "(request-target) host date", which is what Mastodon, Misskey, Pleroma and
+// GoToSocial require for authorized fetch.
+func (c *Client) signGetRequest(req *http.Request) error {
+	date := time.Now().UTC().Format(http.TimeFormat)
+	req.Header.Set("Date", date)
+	host := req.Host
+	if host == "" {
+		host = req.URL.Host
+	}
+	signingString := fmt.Sprintf("(request-target): get %s\nhost: %s\ndate: %s", signRequestPath(req.URL), host, date)
+	signature, err := SignWithRSA(c.privateKey, []byte(signingString))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Signature", fmt.Sprintf(`keyId="%s",algorithm="rsa-sha256",headers="(request-target) host date",signature="%s"`,
+		c.signingKeyID(), base64.StdEncoding.EncodeToString(signature)))
+	return nil
 }
 
 // Post sends an activity to a remote inbox with HTTP signature.
@@ -238,4 +285,23 @@ func (c *Client) signingKeyID() string {
 		return c.keyID
 	}
 	return c.actorID + "#main-key"
+}
+
+// NewFetchClient returns an unsigned client for fetching remote objects that
+// transparently retries with the instance's system proxy actor signature when
+// the remote server enforces authorized fetch.
+func NewFetchClient() *Client {
+	client := NewClient(nil, "")
+	client.signedFallback = systemSigningClient
+	return client
+}
+
+// systemSigningClient is a variable so tests can substitute a signer.
+var systemSigningClient = func() (*Client, error) {
+	service := NewProxyService()
+	account, _, err := service.GetOrCreateProxyAccount()
+	if err != nil {
+		return nil, err
+	}
+	return localAccountClient(account, service.getProxyActorURI())
 }

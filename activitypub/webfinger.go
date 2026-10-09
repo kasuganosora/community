@@ -150,8 +150,10 @@ func DiscoverActorContext(ctx context.Context, acct string) (*Actor, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Accept", "application/jrd+json, application/json")
+	req.Header.Set("User-Agent", "Community/1.0 ActivityPub Client")
 
-	resp, err := ssrfSafeHTTPClient.Do(req)
+	resp, err := sharedHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +173,7 @@ func DiscoverActorContext(ctx context.Context, acct string) (*Actor, error) {
 	var actorURL string
 
 	for _, link := range webfinger.Links {
-		if link.Rel == "self" && (link.Type == "application/activity+json" || link.Type == "application/ld+json") {
+		if link.Rel == "self" && isActivityPubMediaType(link.Type) && link.Href != "" {
 			actorURL = link.Href
 
 			break
@@ -183,9 +185,15 @@ func DiscoverActorContext(ctx context.Context, acct string) (*Actor, error) {
 	}
 
 	// Fetch the actor using the SSRF-safe client
-	client := NewClient(nil, "")
+	return NewFetchClient().FetchActor(ctx, actorURL)
+}
 
-	return client.FetchActor(ctx, actorURL)
+// isActivityPubMediaType accepts application/activity+json and
+// application/ld+json with or without parameters such as
+// profile="https://www.w3.org/ns/activitystreams".
+func isActivityPubMediaType(value string) bool {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(value, ";", 2)[0]))
+	return mediaType == "application/activity+json" || mediaType == "application/ld+json"
 }
 
 // Error definitions.

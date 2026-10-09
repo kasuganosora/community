@@ -275,8 +275,9 @@ func (v *SignatureVerifier) getPublicKey(ctx context.Context, keyID string) (*rs
 		return nil, err
 	}
 
-	// Fetch the actor to get the public key
-	client := NewClient(nil, "")
+	// Fetch the actor to get the public key. Servers in authorized-fetch mode
+	// only serve their actor to signed requests.
+	client := NewFetchClient()
 	actor, err := client.FetchActor(ctx, actorURI)
 	if err != nil {
 		return nil, fmt.Errorf("fetching actor: %w", err)

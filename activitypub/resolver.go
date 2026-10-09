@@ -49,8 +49,12 @@ const maxCacheEntries = 10000
 
 // NewResolver creates a new Resolver.
 func NewResolver(privateKey *rsa.PrivateKey, actorID string) *Resolver {
+	client := NewClient(privateKey, actorID)
+	if privateKey == nil {
+		client = NewFetchClient()
+	}
 	return &Resolver{
-		client:   NewClient(privateKey, actorID),
+		client:   client,
 		cacheTTL: defaultCacheTTL,
 	}
 }
@@ -167,14 +171,18 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 		return &account, nil
 	}
 
-	// Fetch from remote
-	actor, err := r.client.FetchActor(ctx, uri)
+	// Fetch from remote. Profile URLs such as https://maid.lat/@luna or
+	// https://mastodon.social/@Gargron return the actor whose canonical id
+	// differs from the requested URL; follow it to the canonical id.
+	actor, err := r.fetchCanonicalActor(ctx, uri)
 	if err != nil {
-		return nil, fmt.Errorf("fetching actor: %w", err)
+		return nil, err
 	}
-
 	if actor.ID != uri {
-		return nil, fmt.Errorf("actor ID does not match requested URI")
+		if err := db.GetDB().Preload("Emojis").Where("origin_id = ?", actor.ID).First(&account).Error; err == nil {
+			r.storeAccountCache(uri, &account)
+			return &account, nil
+		}
 	}
 
 	// Create account from actor
@@ -188,12 +196,45 @@ func (r *Resolver) resolveAccountByURI(ctx context.Context, uri string) (*models
 	return &account, nil
 }
 
+// actorTypes are the ActivityStreams actor types we accept as accounts.
+var actorTypes = map[string]bool{"Person": true, "Service": true, "Application": true, "Group": true, "Organization": true}
+
+// fetchCanonicalActor fetches uri as an actor. When the document's id differs
+// from uri, the id is fetched again and must identify itself, so a server can
+// only vouch for actors it actually hosts.
+func (r *Resolver) fetchCanonicalActor(ctx context.Context, uri string) (*Actor, error) {
+	actor, err := r.client.FetchActor(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("fetching actor: %w", err)
+	}
+	if actor.ID != "" && actor.ID != uri {
+		if err := validateFederationURI(actor.ID); err != nil {
+			return nil, fmt.Errorf("actor ID: %w", err)
+		}
+		canonical := actor.ID
+		actor, err = r.client.FetchActor(ctx, canonical)
+		if err != nil {
+			return nil, fmt.Errorf("fetching canonical actor: %w", err)
+		}
+		if actor.ID != canonical {
+			return nil, errors.New("actor ID does not match requested URI")
+		}
+	}
+	if actor.ID == "" {
+		return nil, errors.New("actor has no id")
+	}
+	if !actorTypes[actor.Type] {
+		return nil, fmt.Errorf("object is not an actor: %s", actor.Type)
+	}
+	return actor, nil
+}
+
 // resolveAccountByWebFinger resolves an account using WebFinger.
 func (r *Resolver) resolveAccountByWebFinger(ctx context.Context, username, domain string) (*models.Account, error) {
 	// Check database first
 	var account models.Account
 
-	err := db.GetDB().Where("username = ? AND domain = ?", username, domain).First(&account).Error
+	err := db.GetDB().Where("LOWER(username) = LOWER(?) AND LOWER(domain) = LOWER(?)", username, domain).First(&account).Error
 	if err == nil {
 		if shouldRefreshAccount(&account) {
 			go r.safeRefreshAccount(account.OriginId) //nolint:contextcheck
@@ -230,14 +271,22 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 		return &status, nil
 	}
 
-	// Fetch from remote
-	obj, err := r.client.FetchObject(ctx, uri)
+	// Fetch from remote, following a differing canonical id (Mastodon's
+	// https://host/@user/123 web URLs serve the object
+	// https://host/users/user/statuses/123).
+	obj, canonical, err := r.fetchCanonicalObject(ctx, uri)
 	if err != nil {
-		return nil, fmt.Errorf("fetching object: %w", err)
+		return nil, err
+	}
+	if canonical != uri {
+		if err := db.GetDB().Preload("Content").Preload("Emojis").Preload("Account").Preload("Account.Emojis").Where("origin_uri = ?", canonical).First(&status).Error; err == nil {
+			r.storeStatusCache(uri, &status)
+			return &status, nil
+		}
 	}
 
 	// Create status from object
-	status, err = r.createStatusFromObject(obj, uri) //nolint:contextcheck // internal call chain
+	status, err = r.createStatusFromObject(obj, canonical) //nolint:contextcheck // internal call chain
 	if err != nil {
 		return nil, fmt.Errorf("creating status: %w", err)
 	}
@@ -245,6 +294,33 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 	r.storeStatusCache(uri, &status)
 
 	return &status, nil
+}
+
+// fetchCanonicalObject fetches uri and, when the returned id differs, fetches
+// that id and requires it to identify itself.
+func (r *Resolver) fetchCanonicalObject(ctx context.Context, uri string) (map[string]any, string, error) {
+	obj, err := r.client.FetchObject(ctx, uri)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetching object: %w", err)
+	}
+	id, _ := obj["id"].(string)
+	if id == "" {
+		return nil, "", errors.New("remote object has no id")
+	}
+	if id == uri {
+		return obj, uri, nil
+	}
+	if err := validateFederationURI(id); err != nil {
+		return nil, "", fmt.Errorf("object id: %w", err)
+	}
+	obj, err = r.client.FetchObject(ctx, id)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetching canonical object: %w", err)
+	}
+	if again, _ := obj["id"].(string); again != id {
+		return nil, "", errors.New("remote object identity mismatch")
+	}
+	return obj, id, nil
 }
 
 // safeRefreshAccount wraps refreshAccount with panic recovery.
@@ -388,12 +464,12 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 // createStatusFromObject creates a local status record from an ActivityPub object.
 func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (models.Status, error) {
 	objectType, _ := obj["type"].(string)
-	if objectType != "Note" { //nolint:goconst
+	if !statusObjectTypes[objectType] {
 		return models.Status{}, fmt.Errorf("object is not a Note: %s", objectType)
 	}
 
 	// Get author account
-	attributedTo, _ := obj["attributedTo"].(string)
+	attributedTo := firstActorID(obj["attributedTo"])
 	if attributedTo == "" {
 		return models.Status{}, errors.New("no attributedTo in object")
 	}
@@ -483,6 +559,33 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	}
 
 	return status, nil
+}
+
+// statusObjectTypes are the object types stored as statuses when resolved.
+var statusObjectTypes = map[string]bool{"Note": true, "Question": true, "Article": true, "Page": true}
+
+// firstActorID returns the actor id from an attributedTo value, which may be a
+// string, an object with an id, or an array of those (PeerTube, Lemmy).
+func firstActorID(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case map[string]any:
+		id, _ := v["id"].(string)
+		return id
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				if t, _ := m["type"].(string); t != "" && !actorTypes[t] {
+					continue
+				}
+			}
+			if id := firstActorID(item); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 // shouldRefreshAccount checks if a remote account should be refreshed.
