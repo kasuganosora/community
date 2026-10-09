@@ -137,8 +137,8 @@ onMounted(measure)
         </header>
         <p class="post-quote__text" dir="auto">{{ quoteText || '（这条引用没有文字）' }}</p>
       </article>
-      <a v-else-if="status.card && cardUrl" class="post-quote post-quote--link" :href="cardUrl" target="_blank" rel="noopener noreferrer" @click.stop>
-        <img v-if="cardImage" class="post-quote__thumb" :src="cardImage" alt="" loading="lazy" />
+      <a v-else-if="status.card && cardUrl" class="post-quote post-quote--link" :href="cardUrl" target="_blank" rel="nofollow noopener noreferrer" @click.stop>
+        <img v-if="cardImage" class="post-quote__thumb" :src="cardImage" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
         <span class="post-quote__copy">
           <strong>{{ status.card.title || status.card.url }}</strong>
           <span v-if="status.card.description">{{ status.card.description }}</span>

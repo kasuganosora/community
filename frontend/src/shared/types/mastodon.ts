@@ -166,6 +166,8 @@ export interface MastodonCard {
   image: string | null
   provider_name: string
   provider_url: string
+  author_name?: string
+  author_url?: string
 }
 
 export interface MastodonEmojiReaction {
