@@ -40,7 +40,7 @@ func main() {
 		os.Exit(130)
 	}()
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(commands.NormalizeAccountArgs(os.Args)); err != nil {
 		log.Error("%v", err)
 		os.Exit(1)
 	}

@@ -165,6 +165,17 @@ func (u *UserSecretData) AfterSave(tx *gorm.DB) (err error) {
 	return
 }
 
+// EncryptSecretValue encrypts a value for an `encrypt:"true"` column of a
+// row with the given salt, exactly as BeforeSave does. Use it for column
+// updates that bypass the struct hooks.
+func EncryptSecretValue(value, salt string) (string, error) {
+	if config.C.EncryptedKey == "" {
+		return value, nil
+	}
+
+	return utils.AesEncrypt([]byte(value), utils.GetEncryptKey(config.C.EncryptedKey, salt))
+}
+
 // passwordHashV2Prefix marks hashes produced by the current scheme.
 // Hashes without it were produced by the legacy "bcrypt(salt+password)" scheme.
 const passwordHashV2Prefix = "v2$"

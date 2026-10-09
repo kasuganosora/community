@@ -44,7 +44,7 @@ WORKDIR /app
 # Copy binary
 COPY --from=go-builder /build/community .
 COPY --from=go-builder /build/community-transfer .
-# Admin CLI, e.g. `docker compose exec app tootctl accounts create ...`
+# Admin CLI, e.g. `docker compose exec community tootctl accounts create ...`
 COPY --from=go-builder /build/tootctl /usr/local/bin/tootctl
 
 # Copy frontend dist

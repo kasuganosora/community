@@ -16,8 +16,6 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"net/http"
-	"net/mail"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -438,37 +436,25 @@ func checkExists(username string, email string) (existsFieldName string, err err
 	return "", nil
 }
 
-// usernameRegexp allows letters (including CJK), digits and underscores.
-// Usernames end up in URLs (/users/<name>, /@<name>) and in
-// acct:<name>@<domain> WebFinger handles, so characters such as '/', '.',
-// '@', '?', '#' or whitespace must never be accepted. Before this check a
-// username like "../../etc" could be registered.
-var usernameRegexp = regexp.MustCompile(`^[\p{L}\p{N}_]+$`)
-
-const (
-	maxUsernameLength = 20
-	minPasswordLength = 8
-	maxDisplayNameLen = 64
-)
+const maxDisplayNameLen = 64
 
 // validateRegisterRequest validates the user supplied registration fields
 // and returns an error message, or "" when they are acceptable.
 func validateRegisterRequest(req *RegisterRequest) string {
-	if n := utf8.RuneCountInString(req.UserName); n == 0 || n > maxUsernameLength || !usernameRegexp.MatchString(req.UserName) {
-		return "username may only contain letters, numbers and underscores (max 20 characters)"
+	if err := models.ValidateUsername(req.UserName); err != nil {
+		return err.Error()
 	}
 
 	if utf8.RuneCountInString(req.DisplayName) > maxDisplayNameLen {
 		return "display name is too long (max 64 characters)"
 	}
 
-	addr, err := mail.ParseAddress(req.Email)
-	if err != nil || addr.Address != req.Email || !strings.Contains(req.Email, "@") {
-		return "email is invalid"
+	if err := models.ValidateEmail(req.Email); err != nil {
+		return err.Error()
 	}
 
-	if len(req.Password) < minPasswordLength {
-		return "password is too short (minimum is 8 characters)"
+	if err := models.ValidatePassword(req.Password); err != nil {
+		return err.Error()
 	}
 
 	return ""

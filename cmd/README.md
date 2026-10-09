@@ -186,9 +186,14 @@ flag.Parse()
 
 | 子命令 | 说明 | 常用 Flag |
 |--------|------|-----------|
-| `accounts create` | 创建新账号 | `--username`, `--email`, `--confirmed`, `--admin` |
-| `accounts delete` | 删除账号 | `--username`, `--email` |
-| `accounts modify` | 修改账号属性（确认/封禁/管理员/重置密码等） | `--username`, `--confirm`, `--disable`, `--enable`, `--admin`, `--unadmin`, `--reset-password` |
+| `accounts create [USERNAME]` | 创建本地账号（已审核通过） | `--username`, `--email`, `--confirmed`, `--approve`, `--admin`, `--role`, `--password-stdin`, `--password` |
+| `accounts delete [USERNAME]` | 删除账号 | `--username`, `--email` |
+| `accounts modify [USERNAME]` | 修改账号属性 | `--email`, `--confirm`, `--approve`, `--disable`, `--enable`, `--admin`, `--unadmin`, `--role`, `--remove-role`, `--reset-password`, `--password-stdin`, `--password` |
+
+- 密码：`--password-stdin` 读取标准输入的第一行；`--password` 会留在 shell 历史和进程列表中，不推荐。都不指定时 `create` 生成随机密码，只输出一次（`New password: ...`）。密码至少 8 个字符，与网页注册规则相同。
+- `modify --reset-password` 生成并输出新的随机密码；修改密码会同时吊销该用户现有的登录会话和令牌。
+- 角色：`--role NAME` 按名称分配角色（不区分大小写，可重复），内置 `owner`、`admin`、`moderator`，也可使用后台创建的自定义角色。`--admin` 表示超级管理员：设置管理员标记并分配 `owner` 角色；`--unadmin` 撤销两者。`--remove-role` 移除全部角色。
+- `--confirmed` / `--confirm` 将邮箱标记为已验证；`modify --approve` 审核通过待审核账号。
 
 #### self-destruct
 
@@ -228,15 +233,26 @@ go build -o complement ./cmd/complement
 Docker 镜像已内置 `tootctl`（`/usr/local/bin/tootctl`），可直接在运行中的容器里执行，配置沿用容器的环境变量：
 
 ```bash
-docker compose exec community tootctl accounts create --username admin --email admin@example.com --confirmed --admin
+# 创建管理员，密码从标准输入读取（-T 关闭 TTY，管道才能传入）
+printf '%s\n' "$ADMIN_PASSWORD" | docker compose exec -T community \
+  tootctl accounts create admin --email admin@example.com --confirmed --admin --password-stdin
+
+# 不指定密码时生成随机密码并输出一次
+docker compose exec community tootctl accounts create admin --email admin@example.com --confirmed --admin
+
+# 重置密码（输出新的随机密码）
+docker compose exec community tootctl accounts modify admin --reset-password
 ```
 
 ```bash
 # 查看版本
 ./tootctl version
 
-# 创建管理员账号
-./tootctl accounts create --username admin --email admin@example.com --confirmed --admin
+# 创建管理员账号（生成随机密码并输出）
+./tootctl accounts create admin --email admin@example.com --confirmed --admin
+
+# 创建版主账号，密码从标准输入读取
+./tootctl accounts create mod --email mod@example.com --confirmed --role moderator --password-stdin < password.txt
 
 # 清空缓存
 ./tootctl cache clear
