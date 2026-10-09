@@ -73,6 +73,7 @@ func newApp(version string, prepare func()) *cli.App {
 			commands.EmojiCommand(),
 			commands.FeedsCommand(),
 			commands.MediaCommand(),
+			commands.RelaysCommand(),
 			commands.StatusesCommand(),
 		},
 		Flags: []cli.Flag{
