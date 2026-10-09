@@ -16,6 +16,9 @@ import (
 )
 
 func setupProxyTestDB(t *testing.T) *testutil.TestDB {
+	resetProxyCache()
+	t.Cleanup(resetProxyCache)
+
 	return testutil.QuickDBSetup(t,
 		&models.Account{},
 		&models.AccountExtra{},

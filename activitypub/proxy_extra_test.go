@@ -77,18 +77,20 @@ func TestProxyServiceGetOrCreateProxyAccountExisting(t *testing.T) {
 func TestProxyServiceGetOrCreateProxyAccountKeyNotFound(t *testing.T) {
 	testDB := setupProxyTestDB(t)
 
-	// Create proxy account without a key
+	// A proxy account left without a key (older releases) gets one: the
+	// actor document must always carry a public key.
 	account := &models.Account{
 		Username: proxyUsername,
 		Bot:      true,
 	}
 	require.NoError(t, testDB.GormDB.Create(account).Error)
 
-	// Call the internal method directly (bypassing the sync.Once cache)
 	service := &ProxyService{db: testDB.GormDB}
-	_, _, err := service.getOrCreateProxyAccountInternal()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "key not found")
+	got, key, err := service.getOrCreateProxyAccountInternal()
+	require.NoError(t, err)
+	assert.Equal(t, account.Id, got.Id)
+	assert.Equal(t, account.Id, key.AccountID)
+	assert.Contains(t, key.PublicKey, "PUBLIC KEY")
 }
 
 func TestProxySendFollowActivity(t *testing.T) {

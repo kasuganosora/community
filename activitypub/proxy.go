@@ -2,9 +2,9 @@ package activitypub
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -32,10 +32,11 @@ type ProxyService struct {
 }
 
 var (
-	cachedProxyAccount *models.Account
-	cachedProxyKey     *models.AccountKey
-	proxyOnce          sync.Once
-	errProxyInit       error
+	// proxyMu guards the cached proxy identity; proxyEnsureMu serialises
+	// ensures inside one process.
+	proxyMu, proxyEnsureMu sync.Mutex
+	cachedProxyAccount     *models.Account
+	cachedProxyKey         *models.AccountKey
 )
 
 // NewProxyService creates a new ProxyService.
@@ -45,100 +46,212 @@ func NewProxyService() *ProxyService {
 	}
 }
 
-// GetOrCreateProxyAccount returns the system proxy account, creating it if needed.
-// Results are cached after first successful call.
+// GetOrCreateProxyAccount returns the system proxy account, creating it if
+// needed. Successful results are cached; failures are retried next call.
 func (s *ProxyService) GetOrCreateProxyAccount() (*models.Account, *models.AccountKey, error) {
-	proxyOnce.Do(func() {
-		cachedProxyAccount, cachedProxyKey, errProxyInit = s.getOrCreateProxyAccountInternal()
-	})
+	proxyMu.Lock()
+	account, key := cachedProxyAccount, cachedProxyKey
+	proxyMu.Unlock()
 
-	if errProxyInit != nil {
-		// Reset so next call retries
-		proxyOnce = sync.Once{}
-
-		return nil, nil, errProxyInit
+	if account != nil && key != nil {
+		return account, key, nil
 	}
 
-	return cachedProxyAccount, cachedProxyKey, nil
+	account, key, err := s.getOrCreateProxyAccountInternal()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cacheProxyAccount(account, key)
+
+	return account, key, nil
 }
 
-func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *models.AccountKey, error) {
-	// Try to find existing proxy account
-	var account models.Account
+func cacheProxyAccount(account *models.Account, key *models.AccountKey) {
+	proxyMu.Lock()
+	cachedProxyAccount, cachedProxyKey = account, key
+	proxyMu.Unlock()
+}
 
-	err := s.db.Where("username = ? AND domain IS NULL", proxyUsername).First(&account).Error
-	if err == nil {
-		// Account exists, get key
-		var key models.AccountKey
-		err := s.db.Where("account_id = ?", account.Id).First(&key).Error
-		if err != nil {
-			return nil, nil, fmt.Errorf("proxy account exists but key not found: %w", err)
+// resetProxyCache drops the cached identity (tests swap databases).
+func resetProxyCache() { cacheProxyAccount(nil, nil) }
+
+func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *models.AccountKey, error) {
+	return ensureProxyAccount(context.Background(), s.db)
+}
+
+// EnsureProxyAccount makes sure the system.proxy service actor and its
+// signing keypair exist, so https://<domain>/users/system.proxy (the keyId
+// of every request signed by the instance) resolves from the first request
+// on. It is idempotent and safe to run concurrently, including from several
+// replicas starting at once: creation is serialised with a database lock and
+// the key relies on the unique account_keys.account_id index.
+func EnsureProxyAccount(ctx context.Context) (*models.Account, *models.AccountKey, error) {
+	account, key, err := ensureProxyAccount(ctx, db.GetDB())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cacheProxyAccount(account, key)
+
+	return account, key, nil
+}
+
+const proxyEnsureAttempts = 5
+
+func ensureProxyAccount(ctx context.Context, conn *gorm.DB) (*models.Account, *models.AccountKey, error) {
+	proxyEnsureMu.Lock()
+	defer proxyEnsureMu.Unlock()
+
+	return ensureProxyAccountWithRetry(ctx, conn)
+}
+
+// ensureProxyAccountWithRetry is the cross-process part of the ensure (no
+// in-process mutex), retrying transient lock / serialisation failures.
+func ensureProxyAccountWithRetry(ctx context.Context, conn *gorm.DB) (*models.Account, *models.AccountKey, error) {
+	var lastErr error
+
+	for attempt := range proxyEnsureAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			case <-time.After(time.Duration(attempt*attempt) * 50 * time.Millisecond):
+			}
 		}
 
-		return &account, &key, nil
+		account, err := findOrCreateProxyAccount(ctx, conn)
+		if err != nil {
+			lastErr = err
+
+			continue
+		}
+
+		// localAccountKey locks the account row and is backed by the
+		// unique account_id index, so concurrent callers share one key.
+		key, err := localAccountKeyWith(conn.WithContext(ctx), account)
+		if err != nil {
+			lastErr = fmt.Errorf("ensuring proxy signing key: %w", err)
+
+			continue
+		}
+
+		return account, key, nil
+	}
+
+	return nil, nil, lastErr
+}
+
+// findProxyAccount returns the oldest system.proxy row: if an older release
+// raced and created duplicates, everyone (including the actor endpoint,
+// which also takes the first row by id) agrees on the same one.
+func findProxyAccount(tx *gorm.DB) (*models.Account, error) {
+	var account models.Account
+
+	err := tx.Where("username = ? AND domain IS NULL", proxyUsername).Order("id ASC").First(&account).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func findOrCreateProxyAccount(ctx context.Context, conn *gorm.DB) (*models.Account, error) {
+	conn = conn.WithContext(ctx)
+
+	account, err := findProxyAccount(conn)
+	if err == nil {
+		return account, nil
 	}
 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, fmt.Errorf("querying proxy account: %w", err)
+		return nil, fmt.Errorf("querying proxy account: %w", err)
 	}
 
-	// Create proxy account with keypair in a transaction
-	var (
-		newAccount models.Account
-		newKey     models.AccountKey
-	)
+	err = withProxyCreationLock(ctx, conn, func(tx *gorm.DB) error {
+		// Re-check under the lock: another process may have won.
+		if existing, err := findProxyAccount(tx); err == nil {
+			account = existing
 
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		newAccount = models.Account{
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		created := &models.Account{
 			Username:    proxyUsername,
 			DisplayName: proxyDisplayName,
 			Note:        proxyNote,
 			Bot:         true,
 			Locked:      true,
 		}
-		if err := tx.Create(&newAccount).Error; err != nil {
+		if err := tx.Create(created).Error; err != nil {
 			return fmt.Errorf("creating proxy account: %w", err)
 		}
 
-		// Generate RSA keypair
-		privateKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
-		if err != nil {
-			return fmt.Errorf("generating RSA key: %w", err)
-		}
-
-		privPEM := pem.EncodeToMemory(&pem.Block{
-			Type:  "RSA PRIVATE KEY",
-			Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-		})
-
-		pubBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-		if err != nil {
-			return fmt.Errorf("marshaling public key: %w", err)
-		}
-
-		pubPEM := pem.EncodeToMemory(&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: pubBytes,
-		})
-
-		newKey = models.AccountKey{
-			AccountID:  newAccount.Id,
-			PublicKey:  string(pubPEM),
-			PrivateKey: string(privPEM),
-		}
-		if err := tx.Create(&newKey).Error; err != nil {
-			return fmt.Errorf("creating account key: %w", err)
-		}
+		account = created
+		log.Info("Created system proxy account (id=%d)", created.Id)
 
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	log.Info("Created system proxy account (id=%d)", newAccount.Id)
+	return account, nil
+}
 
-	return &newAccount, &newKey, nil
+// Cross-process lock identifiers for proxy account creation.
+const (
+	proxyLockName = "community:system.proxy"
+	proxyLockID   = int64(0x636f6d6d7072) // "commpr"
+)
+
+// withProxyCreationLock runs fn in a transaction that holds a cross-process
+// lock: a transaction-scoped advisory lock on PostgreSQL, a named lock held
+// on the transaction's own connection on MySQL. SQLite already serialises
+// writers per database file.
+func withProxyCreationLock(ctx context.Context, conn *gorm.DB, fn func(tx *gorm.DB) error) error {
+	switch conn.Dialector.Name() {
+	case "postgres":
+		return conn.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", proxyLockID).Error; err != nil {
+				return fmt.Errorf("locking proxy account creation: %w", err)
+			}
+
+			return fn(tx)
+		})
+	case "mysql":
+		sqlDB, err := conn.DB()
+		if err != nil {
+			return err
+		}
+
+		c, err := sqlDB.Conn(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = c.Close() }()
+
+		var got sql.NullInt64
+		if err := c.QueryRowContext(ctx, "SELECT GET_LOCK(?, 30)", proxyLockName).Scan(&got); err != nil {
+			return fmt.Errorf("locking proxy account creation: %w", err)
+		}
+
+		if !got.Valid || got.Int64 != 1 {
+			return errors.New("timed out waiting for the proxy account creation lock")
+		}
+
+		// Released after the transaction committed, on the same session.
+		defer func() { _, _ = c.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", proxyLockName) }()
+
+		session := conn.WithContext(ctx)
+		session.Statement.ConnPool = c
+
+		return session.Transaction(fn)
+	default:
+		return conn.Transaction(fn)
+	}
 }
 
 // getProxyActorURI returns the ActivityPub actor URI for the proxy account.

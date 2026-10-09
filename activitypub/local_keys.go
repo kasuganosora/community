@@ -19,11 +19,16 @@ import (
 // Locking the owning account serializes concurrent first actor requests, so
 // clients never observe one public key while deliveries use a different key.
 func localAccountKey(account *models.Account) (*models.AccountKey, error) {
+	return localAccountKeyWith(db.GetDB(), account)
+}
+
+// localAccountKeyWith is localAccountKey on an explicit connection.
+func localAccountKeyWith(conn *gorm.DB, account *models.Account) (*models.AccountKey, error) {
 	if account == nil || account.Id == 0 || account.Domain != nil {
 		return nil, errors.New("signing keys require a local account")
 	}
 	var stored models.AccountKey
-	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+	err := conn.Transaction(func(tx *gorm.DB) error {
 		var owner models.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND domain IS NULL", account.Id).First(&owner).Error; err != nil {
 			return err

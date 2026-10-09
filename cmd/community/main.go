@@ -80,6 +80,16 @@ func main() {
 	}
 
 	log.Info("Instance base URL: %s (domain %s)", systemsettings.GetBaseURL(), systemsettings.GetDomain())
+
+	// The system.proxy service actor signs instance-level fetches; create it
+	// (and its keypair) up front so https://<domain>/users/system.proxy
+	// resolves for the very first signed request. Idempotent across
+	// restarts and replicas; failures are retried lazily on first use.
+	ensureCtx, cancelEnsure := context.WithTimeout(context.Background(), 30*time.Second)
+	if _, _, err := activitypub.EnsureProxyAccount(ensureCtx); err != nil {
+		log.Warn("Failed to ensure system proxy actor: %v", err)
+	}
+	cancelEnsure()
 	transferContext, stopTransfers := context.WithCancel(context.Background())
 	defer stopTransfers()
 	datatransfer.ResumeJobs(transferContext, db.GetDB())
