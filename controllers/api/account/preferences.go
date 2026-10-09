@@ -1,9 +1,70 @@
 package account
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 )
+
+const expandMediaKey = "reading_expand_media"
+
+// validExpandMedia: "default" follows each post's sensitive flag,
+// "show_all" never hides media, "hide_all" always hides it.
+func validExpandMedia(v string) bool {
+	return v == "default" || v == "show_all" || v == "hide_all"
+}
+
+// UpdatePreferences handles PATCH /api/v1/preferences. Only
+// "reading:expand:media" can be changed.
+func UpdatePreferences(c *gin.Context) {
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	var req map[string]any
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(422, gin.H{"error": "invalid request body"})
+
+		return
+	}
+	v, _ := req["reading:expand:media"].(string)
+	if !validExpandMedia(v) {
+		c.JSON(422, gin.H{"error": "reading:expand:media must be default, show_all or hide_all"})
+
+		return
+	}
+	if account.User == nil {
+		c.JSON(422, gin.H{"error": "no user"})
+
+		return
+	}
+	conn := db.GetDB().WithContext(c.Request.Context())
+	var setting models.UserSetting
+	err := conn.Where("user_id = ?", account.User.Id).First(&setting).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		setting = models.UserSetting{ID: uuid.NewString(), UserID: int64(account.User.Id), Data: map[string]any{}}
+		err = nil
+	}
+	if err != nil {
+		_ = c.Error(err)
+		c.JSON(500, gin.H{"error": "internal error"})
+
+		return
+	}
+	if setting.Data == nil {
+		setting.Data = map[string]any{}
+	}
+	setting.Data[expandMediaKey] = v
+	if err := conn.Save(&setting).Error; err != nil {
+		_ = c.Error(err)
+		c.JSON(500, gin.H{"error": "internal error"})
+
+		return
+	}
+	account.User.Settings = &setting
+	GetPreferences(c)
+}
 
 // GetPreferences handles GET /api/v1/preferences.
 func GetPreferences(c *gin.Context) {
@@ -20,6 +81,10 @@ func GetPreferences(c *gin.Context) {
 
 	// Check account settings
 	if account.User != nil && account.User.Settings != nil {
+		if v, ok := account.User.Settings.Data[expandMediaKey].(string); ok && validExpandMedia(v) {
+			defaultExpandMedia = v
+		}
+
 		// Check if user has privacy settings for posts
 		if postProtect, ok := account.User.Settings.Data["post_protect"]; ok {
 			if protect, ok := postProtect.(bool); ok && protect {

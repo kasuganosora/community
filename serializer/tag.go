@@ -62,6 +62,8 @@ func ToTags(tags []*models.Tag) (ret []*Tag) {
 		return
 	}
 
+	ret = make([]*Tag, 0, len(tags))
+
 	for _, tag := range tags {
 		if t := ToTag(tag); t != nil {
 			ret = append(ret, t)

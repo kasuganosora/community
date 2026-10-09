@@ -72,6 +72,8 @@ func incomingAttachments(ctx context.Context, value any, accountID uint64) (mode
 			Width     int    `json:"width"`
 			Height    int    `json:"height"`
 			Blurhash  string `json:"blurhash"`
+			// Misskey and Mastodon mark single files as sensitive.
+			Sensitive bool `json:"sensitive"`
 		}
 		if json.Unmarshal(entry, &a) != nil {
 			continue
@@ -111,7 +113,7 @@ func incomingAttachments(ctx context.Context, value any, accountID uint64) (mode
 		if len(desc) > 10000 {
 			desc = string([]rune(desc)[:min(len([]rune(desc)), 2500)])
 		}
-		att := &models.Attachment{AccountId: accountID, FileName: filename, RemoteUrl: rawURL, ContentType: mediaType, Type: models.GetMediaType(mediaType), Description: desc}
+		att := &models.Attachment{Sensitive: a.Sensitive || urlMarkedSensitive(rawURL), AccountId: accountID, FileName: filename, RemoteUrl: rawURL, ContentType: mediaType, Type: models.GetMediaType(mediaType), Description: desc}
 		if mediaType == "image/apng" {
 			att.Type = models.MediaTypeImage
 		}
@@ -127,4 +129,30 @@ func incomingAttachments(ctx context.Context, value any, accountID uint64) (mode
 		result = append(result, att)
 	}
 	return result, nil
+}
+
+// urlMarkedSensitive reports Misskey's "?sensitive=true" media URL marker.
+func urlMarkedSensitive(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	v := strings.ToLower(u.Query().Get("sensitive"))
+
+	return v == "true" || v == "1"
+}
+
+// deriveSensitive is a remote status's effective sensitive flag: the
+// Note's own flag, a content warning (like Mastodon) or any sensitive file.
+func deriveSensitive(noteSensitive bool, summary string, attachments models.Attachments) bool {
+	if noteSensitive || strings.TrimSpace(summary) != "" {
+		return true
+	}
+	for _, a := range attachments {
+		if a != nil && a.Sensitive {
+			return true
+		}
+	}
+
+	return false
 }

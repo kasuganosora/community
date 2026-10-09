@@ -389,6 +389,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		c.JSON(503, gin.H{"error": "attachment address validation temporarily failed"})
 		return
 	}
+	status.Sensitive = deriveSensitive(sensitive, summary, status.Attachments)
 	err = persistIncomingStatusWithEmoji(ctx, activityDB(ctx), &status, object["tag"])
 
 	if err != nil {
@@ -587,7 +588,15 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			}
 			// Not Model(&status): its loaded Content association would be
 			// upserted again and re-run the tag/emoji hooks.
-			return tx.Model(&models.Status{}).Where("id = ?", status.Id).Update("updated_at", now).Error
+			updates := map[string]any{"updated_at": now}
+			_, hasFlag := object["sensitive"]
+			_, hasFiles := object["attachment"]
+			_, hasSummary := object["summary"]
+			if hasFlag || hasFiles || hasSummary {
+				noteSensitive, _ := object["sensitive"].(bool)
+				updates["sensitive"] = deriveSensitive(noteSensitive, summary, attachments)
+			}
+			return tx.Model(&models.Status{}).Where("id = ?", status.Id).Updates(updates).Error
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": "failed content update"})
@@ -1644,6 +1653,12 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 		statusURI = canonical
 	}
 
+	return importFetchedStatus(ctx, statusURI, statusData)
+}
+
+// importFetchedStatus stores an already fetched, canonical status object.
+func importFetchedStatus(ctx context.Context, statusURI string, statusData map[string]any) (*models.Status, error) {
+	var err error
 	// Parse the status data
 	statusType, _ := statusData["type"].(string)
 	if statusType != "Note" && statusType != "Article" && statusType != "Page" {
@@ -1734,6 +1749,8 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 	if err != nil {
 		return nil, err
 	}
+	noteSensitive, _ := statusData["sensitive"].(bool)
+	status.Sensitive = deriveSensitive(noteSensitive, summary, status.Attachments)
 
 	// Create status in transaction (safe against panics — Transaction auto-rolls-back)
 	err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {

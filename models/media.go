@@ -38,10 +38,12 @@ type MediaAttachment struct {
 	RemoteUrl     string    `gorm:"size:500"                           json:"remote_url"` // original URL of federated media
 	Description   string    `gorm:"type:text"                          json:"description"`
 	Blurhash      string    `gorm:"size:255"                           json:"blurhash"`
-	FocusX        float64   `gorm:"default:0"                          json:"focus_x"`
-	FocusY        float64   `gorm:"default:0"                          json:"focus_y"`
-	CreatedAt     time.Time `gorm:"autoCreateTime"                     json:"created_at"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime"                     json:"updated_at"`
+	// Sensitive is the per-file flag federated servers send (Misskey, Mastodon).
+	Sensitive bool      `gorm:"not null;default:false"             json:"sensitive"`
+	FocusX    float64   `gorm:"default:0"                          json:"focus_x"`
+	FocusY    float64   `gorm:"default:0"                          json:"focus_y"`
+	CreatedAt time.Time `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"                     json:"updated_at"`
 
 	// 关联
 	Account *Account `gorm:"foreignKey:AccountId" json:"-"`

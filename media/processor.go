@@ -509,3 +509,35 @@ func DetectImageType(data []byte) string {
 
 	return format
 }
+
+// maxBlurhashPixels bounds what BlurhashFromBytes will decode.
+const maxBlurhashPixels = 50_000_000
+
+// BlurhashFromBytes decodes an image (PNG, JPEG, GIF, WebP) and returns its
+// BlurHash (4x3 components, computed from a downsample of at most 32x32
+// pixels) plus the original dimensions. Oversized images are rejected from
+// their header before any pixel is decoded.
+func BlurhashFromBytes(data []byte) (hash string, width, height int, err error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return "", 0, 0, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxBlurhashPixels {
+		return "", 0, 0, fmt.Errorf("image dimensions %dx%d out of range", cfg.Width, cfg.Height)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", 0, 0, err
+	}
+	small := img
+	if cfg.Width > 32 || cfg.Height > 32 {
+		scale := 32 / float64(max(cfg.Width, cfg.Height))
+		small = resizeImage(img, max(1, int(float64(cfg.Width)*scale)), max(1, int(float64(cfg.Height)*scale)))
+	}
+	b := small.Bounds()
+	rgba := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(rgba, rgba.Bounds(), small, b.Min, draw.Src)
+	hash, err = blurhash.Encode(BlurHashComponentsX, BlurHashComponentsY, rgba)
+
+	return hash, cfg.Width, cfg.Height, err
+}

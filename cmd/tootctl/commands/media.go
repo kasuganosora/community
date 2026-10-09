@@ -34,6 +34,7 @@ func MediaCommand() *cli.Command {
 			MediaRefreshCommand(),
 			MediaUsageCommand(),
 			MediaLookupCommand(),
+			MediaBlurhashCommand(),
 		},
 	}
 }
@@ -1046,6 +1047,7 @@ func StatusesCommand() *cli.Command {
 		},
 	}
 	cmd.Subcommands = append(cmd.Subcommands, statusesBackfillCommands()...)
+	cmd.Subcommands = append(cmd.Subcommands, statusesRefreshSensitiveCommand())
 
 	return cmd
 }

@@ -42,6 +42,7 @@ var ScripsType = []MigrationScript{
 	TagCaseInsensitiveScript{},
 	MissingAppTablesScript{},
 	StatusCardsScript{},
+	AttachmentSensitiveScript{},
 }
 
 type MigrationScript interface {

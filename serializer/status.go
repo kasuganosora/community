@@ -75,7 +75,17 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	}
 
 	ret.Sensitive = status.Sensitive
+	for _, a := range status.Attachments {
+		if a != nil && a.Sensitive {
+			ret.Sensitive = true
+
+			break
+		}
+	}
 	ret.SpoilerText = status.SpoilerTextPlain()
+	if ret.SpoilerText != "" {
+		ret.Sensitive = true // like Mastodon: a content warning implies sensitive
+	}
 	ret.Visibility = status.GetVisibilityString()
 
 	ret.Language = status.Language

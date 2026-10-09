@@ -533,6 +533,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	if err != nil {
 		return models.Status{}, err
 	}
+	status.Sensitive = deriveSensitive(sensitive, summary, status.Attachments)
 	err = db.GetDB().WithContext(models.WithStructuredMentions(ctx)).Transaction(func(tx *gorm.DB) error {
 		err := persistIncomingStatusWithEmoji(ctx, tx, &status, obj["tag"])
 		if err != nil {

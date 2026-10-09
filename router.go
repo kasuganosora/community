@@ -29,6 +29,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/trends"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/linkcard"
+	_ "github.com/kasuganosora/community/mediablur"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/matrix/homeserver"
 	mediaproxyserve "github.com/kasuganosora/community/mediaproxy/serve"
@@ -397,6 +398,7 @@ func SetRouter(app gin.IRouter) {
 		GET("/conversations", conversation.List).
 		GET("/markers", marker.List).
 		GET("/preferences", account.GetPreferences)
+	authGroupV1.PATCH("/preferences", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), account.UpdatePreferences)
 
 	// 建议与公告（已登录）
 	authGroupV1.GET("/suggestions", account.ListSuggestions)
