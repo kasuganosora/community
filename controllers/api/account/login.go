@@ -41,14 +41,16 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	user := &models.User{}
-
-	var emailHash string
-	if req.Email != "" {
-		emailHash = models.GetEmailHash(req.Email)
+	identifier := req.Username
+	if identifier == "" {
+		identifier = req.Email
 	}
 
-	err := db.GetDB().Where("username = ? or email_hash = ?", req.Username, emailHash).First(user).Error
+	user, err := models.FindUserForLogin(db.GetDB(), identifier)
+	if err != nil && req.Email != "" && req.Email != identifier {
+		user, err = models.FindUserForLogin(db.GetDB(), req.Email)
+	}
+
 	if err != nil {
 		// 不泄露用户是否存在：无论用户不存在还是密码错误，都返回相同的错误信息和状态码
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})

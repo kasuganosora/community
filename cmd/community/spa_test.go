@@ -39,7 +39,7 @@ func TestSPAFallbackServesFrontendRoutes(t *testing.T) {
 	for _, p := range []string{
 		"/", "/login", "/about", "/explore", "/notifications", "/settings", "/settings/data",
 		"/@alice", "/@alice@remote.example", "/@alice/status/123", "/@alice@mastodon.social/followers",
-		"/tags/golang", "/lists/7", "/admin", "/admin/settings/storage", "/notes/abc123", "/public", "/public/local",
+		"/tags/golang", "/lists/7", "/admin", "/admin/settings/storage", "/notes/abc123", "/public", "/public/local", "/federated", "/timeline/public",
 	} {
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
@@ -57,7 +57,7 @@ func TestSPAFallbackServesFrontendRoutes(t *testing.T) {
 	}
 
 	// Unknown pages render the app's not-found page with a real 404.
-	for _, p := range []string{"/some/unknown-page", "/web/timelines", "/publicx"} {
+	for _, p := range []string{"/some/unknown-page", "/web/timelines", "/publicx", "/timeline/home"} {
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
 		if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") != "text/html; charset=utf-8" {

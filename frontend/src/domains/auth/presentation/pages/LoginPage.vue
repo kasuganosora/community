@@ -155,7 +155,7 @@ async function handleLogin() {
         <t-form-item>
           <t-input
             v-model="form.username"
-            placeholder="用户名"
+            placeholder="用户名或邮箱"
             size="large"
             clearable
             autocomplete="username"

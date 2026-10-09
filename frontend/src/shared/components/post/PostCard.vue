@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed, ref } from 'vue'
@@ -184,7 +185,7 @@ function onMenuClick(data: { value?: unknown }) {
           </span>
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
-          <span v-if="displayStatus.edited_at" class="post-card__edited" title="已编辑">· 已编辑</span>
+          <span v-if="wasEdited(displayStatus)" class="post-card__edited" title="已编辑">· 已编辑</span>
           <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
             <t-icon :name="visibility.icon" :size="14" />
             <span class="sr-only">{{ visibility.short }}</span>

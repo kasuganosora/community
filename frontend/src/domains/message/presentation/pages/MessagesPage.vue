@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -129,7 +130,7 @@ onMounted(async () => {
         </div>
         <div class="conversation__body">
           <div class="conversation__head">
-            <span class="conversation__title">{{ conversationTitle(c, authStore.currentUser?.id) }}</span>
+            <span class="conversation__title"><EmojiText :text="conversationTitle(c, authStore.currentUser?.id)" :emojis="[...c.accounts, ...(c.last_status ? [c.last_status.account] : [])].flatMap(a => a.emojis ?? [])" /></span>
             <RelativeTime v-if="c.last_status" :datetime="c.last_status.created_at" class="conversation__time" />
           </div>
           <p class="conversation__preview">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimeLeft } from '../format'
+import { formatTimeLeft, wasEdited } from '../format'
 
 describe('formatTimeLeft', () => {
   const now = Date.parse('2026-09-26T10:00:00Z')
@@ -12,5 +12,15 @@ describe('formatTimeLeft', () => {
   it('clamps past dates and rejects garbage', () => {
     expect(formatTimeLeft('2026-09-26T09:00:00Z', now)).toBe('0s')
     expect(formatTimeLeft('nope', now)).toBe('')
+  })
+})
+
+describe('wasEdited', () => {
+  it('only reports edits made after the post was created', () => {
+    expect(wasEdited({ created_at: '2026-10-01T00:00:00Z', edited_at: null })).toBe(false)
+    expect(wasEdited({ created_at: '2026-10-01T00:00:00Z' })).toBe(false)
+    expect(wasEdited({ created_at: '2026-10-01T00:00:00Z', edited_at: '2026-10-01T00:00:00.400Z' })).toBe(false)
+    expect(wasEdited({ created_at: '2026-10-01T00:00:00Z', edited_at: '2026-09-30T00:00:00Z' })).toBe(false)
+    expect(wasEdited({ created_at: '2026-10-01T00:00:00Z', edited_at: '2026-10-01T00:05:00Z' })).toBe(true)
   })
 })

@@ -15,15 +15,22 @@ const authStore = useAuthStore()
 const tag = computed(() => String(route.params.tag ?? '').replace(/^#/, ''))
 const following = ref(false)
 const followBusy = ref(false)
+// The server's spelling of the tag (#Ukraine for /tags/ukraine).
+const canonicalName = ref('')
+const displayTag = computed(() =>
+  canonicalName.value && canonicalName.value.toLowerCase() === tag.value.toLowerCase() ? canonicalName.value : tag.value,
+)
 
 async function loadFollow() {
-  if (!authStore.currentUser || !tag.value) {
-    following.value = false
-    return
-  }
+  const requested = tag.value
+  canonicalName.value = ''
+  following.value = false
+  if (!requested) return
   try {
-    const info = await tagApi.get(tag.value)
-    following.value = !!info.following
+    const info = await tagApi.get(requested)
+    if (requested !== tag.value) return
+    canonicalName.value = info.name || ''
+    following.value = !!authStore.currentUser && !!info.following
   } catch {
     following.value = false
   }
@@ -63,7 +70,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
       <button class="page-header__back-btn" type="button" aria-label="返回" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
-      <h1 class="page-header__title">#{{ tag }}</h1>
+      <h1 class="page-header__title">#{{ displayTag }}</h1>
       <button v-if="authStore.currentUser" type="button" class="btn btn--secondary btn--sm tag-follow" :disabled="followBusy" @click="toggleFollow">
         {{ following ? '已关注话题' : '关注话题' }}
       </button>
@@ -74,7 +81,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
       :has-more="hasMore"
       :error="error"
       empty-title="暂无帖子"
-      :empty-text="`还没有带 #${tag} 的公开帖子。`"
+      :empty-text="`还没有带 #${displayTag} 的公开帖子。`"
       @load-more="feed.loadMore"
       @retry="statuses.length && hasMore ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"

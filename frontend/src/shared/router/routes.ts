@@ -205,6 +205,8 @@ export const routes: RouteRecordRaw[] = [
   // Mastodon web paths.
   { path: '/public', redirect: { name: RouteNames.EXPLORE, query: { tab: 'federated' } } },
   { path: '/public/local', redirect: { name: RouteNames.EXPLORE, query: { tab: 'local' } } },
+  { path: '/federated', redirect: { name: RouteNames.EXPLORE, query: { tab: 'federated' } } },
+  { path: '/timeline/public', redirect: { name: RouteNames.EXPLORE, query: { tab: 'federated' } } },
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

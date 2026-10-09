@@ -96,3 +96,17 @@ export function formatTimeLeft(dateStr: string, now: number = Date.now()): strin
   if (hours < 24) return `${hours}h`
   return `${Math.floor(hours / 24)}d`
 }
+
+/**
+ * Whether a status was edited after it was posted. Older servers (and ours
+ * before edit tracking) echo updated_at as edited_at, so a value at or before
+ * created_at is not an edit.
+ */
+export function wasEdited(status: { created_at: string; edited_at?: string | null }): boolean {
+  if (!status.edited_at) return false
+  const edited = Date.parse(status.edited_at)
+  const created = Date.parse(status.created_at)
+  if (Number.isNaN(edited)) return false
+  if (Number.isNaN(created)) return true
+  return Math.floor(edited / 1000) > Math.floor(created / 1000)
+}

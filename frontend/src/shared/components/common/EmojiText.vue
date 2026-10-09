@@ -16,5 +16,5 @@ const parts = computed(() => {
   <span><template v-for="(part, index) in parts" :key="index"><img v-if="part.src" class="custom-emoji" :src="part.src" :alt="part.text" :title="part.text" loading="lazy" decoding="async" referrerpolicy="no-referrer" /><template v-else>{{ part.text }}</template></template></span>
 </template>
 <style scoped>
-.custom-emoji { width: 1.3em; height: 1.3em; object-fit: contain; vertical-align: -0.25em; }
+.custom-emoji { display: inline-block; width: 1.3em; height: 1.3em; max-width: none; object-fit: contain; vertical-align: -0.25em; }
 </style>

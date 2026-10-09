@@ -72,20 +72,24 @@ func isSPARoute(method, p string) bool {
 
 // spaSections are the first path segments the Vue router knows (see
 // frontend/src/shared/router/routes.ts); /@user... routes are matched
-// separately. /public and /public/local are Mastodon web aliases.
+// separately. /public, /public/local, /federated and /timeline/public are
+// web aliases for the explore timelines.
 var spaSections = map[string]bool{
 	"": true, "login": true, "register": true, "about": true, "announcements": true,
 	"settings": true, "explore": true, "notifications": true, "messages": true,
 	"bookmarks": true, "search": true, "lists": true, "tags": true, "admin": true,
-	"public": true, "notes": true,
+	"public": true, "notes": true, "federated": true,
 }
+
+// spaPaths are single frontend routes whose first segment is not a section.
+var spaPaths = map[string]bool{"/timeline/public": true}
 
 // isKnownSPAPage reports whether the frontend has a page for p. Other paths
 // still get the shell (so the app renders its own not-found page) but with
 // a 404 status instead of a soft 404.
 func isKnownSPAPage(p string) bool {
 	first, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/")
-	return strings.HasPrefix(first, "@") || spaSections[first]
+	return strings.HasPrefix(first, "@") || spaSections[first] || spaPaths[strings.TrimSuffix(p, "/")]
 }
 
 // spaFallback serves built files, the SPA shell for frontend routes and a

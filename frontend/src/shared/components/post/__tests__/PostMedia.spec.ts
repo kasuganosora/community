@@ -20,13 +20,27 @@ describe('original attachment access', () => {
     const attachments = Array.from({ length: 5 }, (_, i) => file({ id: String(i), type: 'image', url: `https://remote.test/full${i}.png`, preview_url: `https://remote.test/thumb${i}.png` }))
     const wrapper = mount(PostMedia, { props: { attachments } })
     expect(wrapper.findAll('img')).toHaveLength(4)
-    expect(wrapper.findAll('a')).toHaveLength(5)
-    expect(wrapper.findAll('a')[4]!.attributes('href')).toBe('https://remote.test/full4.png')
+    // Previewed images are not listed again; only the fifth gets a link.
+    expect(wrapper.findAll('a')).toHaveLength(1)
+    expect(wrapper.get('a').attributes('href')).toBe('https://remote.test/full4.png')
   })
   it('loads uploaded files from the current site instead of the configured host', () => {
     const wrapper = mount(PostMedia, { props: { attachments: [file({ type: 'image', url: 'http://127.0.0.1:8080/media/9/photo.png', preview_url: 'http://127.0.0.1:8080/media/9/thumbnail/photo.jpg' })] } })
     expect(wrapper.get('img').attributes('src')).toBe('/media/9/thumbnail/photo.jpg')
-    expect(wrapper.get('a').attributes('href')).toBe('/media/9/photo.png')
+    const doc = mount(PostMedia, { props: { attachments: [file({ url: 'http://127.0.0.1:8080/media/9/doc.pdf' })] } })
+    expect(doc.get('a').attributes('href')).toBe('/media/9/doc.pdf')
+  })
+  it('shows images, videos and audio once, without a duplicate link list', async () => {
+    const wrapper = mount(PostMedia, { props: { attachments: [
+      file({ id: 'i', type: 'image', url: 'https://remote.test/a.png' }),
+      file({ id: 'v', type: 'video', url: 'https://remote.test/v.mp4' }),
+      file({ id: 'a', type: 'audio', url: 'https://remote.test/a.mp3' }),
+    ] } })
+    expect(wrapper.find('.media-file-links').exists()).toBe(false)
+    expect(wrapper.find('video').exists()).toBe(true)
+    // A broken preview falls back to the original link.
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://remote.test/a.png')
   })
   it('never creates executable, data or credential-bearing file links', () => {
     const wrapper = mount(PostMedia, { props: { attachments: ['javascript:alert(1)', 'data:text/html,hello', 'https://name:password@remote.test/file', ''].map((url, i) => file({ id: String(i), url })) } })

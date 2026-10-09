@@ -6,9 +6,24 @@ import ComposeSheet from '@/shared/components/sheets/ComposeSheet.vue'
 import AccountSheet from '@/shared/components/sheets/AccountSheet.vue'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { useScrollEdge } from '@/shared/composables/useScrollEdge'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 const { openCompose } = useUiChrome()
 useScrollEdge()
+
+// On a profile the header's follow/edit button sits where the FAB floats on
+// narrow screens; keep the FAB out of the way until the header scrolls off.
+const PROFILE_ROUTES = new Set(['profile', 'followers', 'following'])
+const route = useRoute()
+const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
+const onScroll = () => { scrollY.value = window.scrollY }
+onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
+onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
+watch(() => route.fullPath, () => { onScroll() })
+const fabHidden = computed(() => {
+  return PROFILE_ROUTES.has(String(route.name)) && scrollY.value < 600
+})
 </script>
 
 <template>
@@ -32,7 +47,10 @@ useScrollEdge()
     <!-- Mobile chrome: floating compose button + translucent tab bar -->
     <button
       class="app-fab"
+      :class="{ 'app-fab--hidden': fabHidden }"
       type="button"
+      :tabindex="fabHidden ? -1 : undefined"
+      :aria-hidden="fabHidden ? 'true' : undefined"
       aria-label="发布新帖子"
       data-shot="compose"
       @click="openCompose"
@@ -143,6 +161,13 @@ useScrollEdge()
     color: var(--color-on-accent);
     box-shadow: var(--shadow-fab);
     transition: transform var(--duration-release) var(--ease-spring);
+  }
+
+  .app-fab--hidden {
+    transform: scale(0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform var(--duration-press) var(--ease-out), opacity var(--duration-press) var(--ease-out);
   }
 
   .app-fab:active {

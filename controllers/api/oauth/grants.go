@@ -293,9 +293,7 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 		return
 	}
 
-	user := &models.User{}
-	emailHash := models.GetEmailHash(req.Username)
-	err := db.GetDB().Where("email_hash = ? OR username = ?", emailHash, req.Username).First(user).Error
+	user, err := models.FindUserForLogin(db.GetDB(), req.Username)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
 

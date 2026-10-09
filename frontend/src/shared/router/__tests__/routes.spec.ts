@@ -52,6 +52,8 @@ describe('routes', () => {
     expect(router.resolve('/public').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'federated' } })
     expect(router.resolve('/public/local').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'local' } })
     expect(router.resolve('/public/nope').name).toBe('not-found')
+    expect(router.resolve('/federated').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'federated' } })
+    expect(router.resolve('/timeline/public').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'federated' } })
   })
   it('round-trips a login redirect that carries an encoded query', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })

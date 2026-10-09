@@ -20,6 +20,7 @@ import RichText from '@/shared/components/common/RichText.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 import AddToListButton from '@/domains/list/presentation/components/AddToListButton.vue'
 import ReportDialog from '../components/ReportDialog.vue'
+import ProfileMediaGrid from '../components/ProfileMediaGrid.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -228,7 +229,17 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
     />
 
     <!-- Posts -->
+    <ProfileMediaGrid
+      v-if="activeTab === 'media'"
+      :statuses="statuses"
+      :loading="feed.loading.value"
+      :has-more="feed.hasMore.value"
+      :error="feed.error.value"
+      @load-more="feed.loadMore"
+      @retry="feed.refresh()"
+    />
     <TimelineFeed
+      v-else
       :statuses="statuses"
       :loading="feed.loading.value"
       :has-more="feed.hasMore.value"
@@ -320,7 +331,15 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
   width: var(--profile-avatar) !important;
   height: var(--profile-avatar) !important;
   font-size: calc(var(--profile-avatar) * 0.4) !important;
+  border-radius: 50%;
+  background: var(--color-bg);
   box-shadow: 0 0 0 4px var(--color-bg), var(--shadow-1);
+}
+
+/* The frame is round too, so the ring follows the avatar, not a square. */
+.profile-avatar :deep(.user-avatar) {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* Follow is the one prominent action: a label-coloured capsule.

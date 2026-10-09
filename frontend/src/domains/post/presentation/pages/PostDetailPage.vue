@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
@@ -206,7 +207,7 @@ async function togglePin() {
             <time :datetime="mainStatus.created_at">
               {{ new Date(mainStatus.created_at).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
             </time>
-            <span v-if="mainStatus.edited_at"> · 已编辑</span>
+            <span v-if="wasEdited(mainStatus)"> · 已编辑</span>
             <button v-if="isOwn" type="button" class="btn btn--ghost btn--sm" @click="togglePin">{{ mainStatus.pinned ? '取消置顶' : '置顶' }}</button>
             <button v-else-if="authStore.currentUser" type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>
           </div>

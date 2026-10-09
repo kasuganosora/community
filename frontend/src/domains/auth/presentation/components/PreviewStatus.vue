@@ -126,7 +126,7 @@ onMounted(measure)
           </span>
         </div>
         <span v-if="otherMedia > 0 || !thumbs.length" class="preview-status__meta">
-          <t-icon name="attach" :size="12" /> {{ media.length }} 个媒体
+          <t-icon name="file" :size="12" /> {{ media.length }} 个媒体
         </span>
         <button v-if="mediaBlurred" type="button" class="preview-status__reveal" @click="mediaRevealed = true">
           敏感内容，点击查看

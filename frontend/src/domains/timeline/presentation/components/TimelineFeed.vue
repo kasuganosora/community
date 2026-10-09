@@ -23,17 +23,21 @@ const emit = defineEmits<{
 const sentinel = ref<HTMLElement>()
 
 let observer: IntersectionObserver | null = null
+// Start the next page well before the end so scrolling does not stall; the
+// "加载更多" button stays as a fallback (no IntersectionObserver, errors).
+const PREFETCH_PX = 1200
 
 function loadIfVisible() {
   if (props.loading || props.error || props.hasMore === false || props.statuses.length === 0 || !sentinel.value) return
   const rect = sentinel.value.getBoundingClientRect()
-  if (rect.top <= window.innerHeight + 200 && rect.bottom >= -200) emit('loadMore')
+  if (rect.top <= window.innerHeight + PREFETCH_PX && rect.bottom >= -PREFETCH_PX) emit('loadMore')
 }
 
 // A completed request can leave the sentinel in view without another intersection transition.
 watch([() => props.loading, () => props.statuses.length, () => props.hasMore], loadIfVisible, { flush: 'post' })
 onMounted(() => {
-  observer = new IntersectionObserver(() => loadIfVisible(), { rootMargin: '200px' })
+  if (typeof IntersectionObserver === 'undefined') return
+  observer = new IntersectionObserver(() => loadIfVisible(), { rootMargin: `${PREFETCH_PX}px 0px` })
   if (sentinel.value) observer.observe(sentinel.value)
 })
 

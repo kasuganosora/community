@@ -20,25 +20,72 @@ onMounted(load)
 </script>
 <template>
   <main class="announcements-page">
-    <h1>站点公告</h1>
-    <label><input v-model="unreadOnly" type="checkbox" :disabled="loading || dismissing.length > 0" @change="load" />只看未读</label>
-    <button type="button" :disabled="loading || dismissing.length > 0" @click="load">刷新</button>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="loading" role="status">正在加载公告…</p>
-    <p v-else-if="!rows.length">{{ unreadOnly ? '没有未读公告' : '暂无公告' }}</p>
-    <article v-for="row in rows" :key="row.id">
-      <h2>公告 #{{ row.id }} <small>{{ row.read ? '已读' : '未读' }}</small></h2>
-      <p class="announcement-text">{{ row.text ?? row.content }}</p>
-      <time :datetime="row.updated_at">{{ new Date(row.updated_at).toLocaleString() }}</time>
-      <button v-if="!row.read" type="button" :disabled="loading || dismissing.includes(row.id)" @click="dismiss(row)">标记已读</button>
+    <div class="page-header page-header--with-back">
+      <button class="page-header__back-btn" type="button" aria-label="返回" @click="$router.back()">
+        <t-icon name="chevron-left" :size="20" />
+      </button>
+      <h1 class="page-header__title">站点公告</h1>
+    </div>
+    <div class="announcements-toolbar">
+      <label class="announcements-filter">
+        <input v-model="unreadOnly" type="checkbox" :disabled="loading || dismissing.length > 0" @change="load" />
+        <span>只看未读</span>
+      </label>
+      <button type="button" class="btn btn--secondary btn--sm" :disabled="loading || dismissing.length > 0" @click="load">
+        <t-icon name="refresh" :size="16" />
+        刷新
+      </button>
+    </div>
+    <p v-if="error" class="announcements-error" role="alert">{{ error }}</p>
+    <p v-if="loading" class="announcements-status" role="status">正在加载公告…</p>
+    <div v-else-if="!rows.length" class="empty-state">
+      <div class="empty-state__icon"><t-icon name="notification" /></div>
+      <p class="empty-state__title">{{ unreadOnly ? '没有未读公告' : '暂无公告' }}</p>
+    </div>
+    <article v-for="row in rows" :key="row.id" class="announcement" :class="{ 'announcement--unread': !row.read }">
+      <header class="announcement__meta">
+        <span class="announcement__badge">{{ row.read ? '已读' : '未读' }}</span>
+        <time :datetime="row.updated_at">{{ new Date(row.updated_at).toLocaleString() }}</time>
+      </header>
+      <p class="announcement__text">{{ row.text ?? row.content }}</p>
+      <button v-if="!row.read" type="button" class="btn btn--secondary btn--sm" :disabled="loading || dismissing.includes(row.id)" @click="dismiss(row)">标记已读</button>
     </article>
   </main>
 </template>
 <style scoped>
-.announcements-page { max-width: 800px; padding: 24px; margin: auto; }
-article { border: 1px solid var(--td-component-border); border-radius: 12px; padding: 20px; margin: 20px 0; }
-.announcement-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-button { margin: 8px; padding: 8px 12px; }
-small { font-weight: normal; font-size: 14px; }
-[role='alert'] { color: var(--td-error-color); }
+.announcements-page { min-height: 100vh; min-height: 100dvh; }
+.announcements-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--gutter);
+}
+.announcements-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-label);
+  font-size: var(--text-subhead);
+  cursor: pointer;
+}
+.announcements-filter input { width: 1.125rem; height: 1.125rem; margin: 0; accent-color: var(--color-accent); }
+.announcements-toolbar .btn { gap: var(--space-1); }
+.announcements-status,
+.announcements-error { padding: var(--space-4) var(--gutter); color: var(--color-label-secondary); font-size: var(--text-subhead); }
+.announcements-error { color: var(--color-danger); }
+.announcement {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0 var(--gutter) var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-fill);
+}
+.announcement__meta { display: flex; align-items: center; gap: var(--space-2); color: var(--color-label-secondary); font-size: var(--text-footnote); }
+.announcement__badge { padding: 0 var(--space-2); border-radius: var(--radius-full); background: var(--color-bg); }
+.announcement--unread .announcement__badge { background: var(--color-accent); color: var(--color-on-accent); }
+.announcement__text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-label); font-size: var(--text-body); line-height: var(--leading-body); }
 </style>

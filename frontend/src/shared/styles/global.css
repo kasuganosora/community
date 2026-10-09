@@ -185,6 +185,11 @@ img {
   display: block;
 }
 
+/* Custom emoji are inline glyphs, not block images. */
+img.custom-emoji {
+  display: inline-block;
+}
+
 input,
 textarea,
 select {

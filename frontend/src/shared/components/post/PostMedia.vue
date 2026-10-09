@@ -44,7 +44,20 @@ const audios = computed(() =>
   props.attachments.filter(a => a.type === 'audio')
 )
 
+// Inline media (first four images, videos, audio) is already shown; only
+// files without a preview, images past the fourth and media that failed to
+// load get a plain link to the original.
+const shownInline = computed(() => {
+  const ids = new Set<string>()
+  images.value.slice(0, 4).forEach(a => ids.add(a.id))
+  videos.value.forEach(a => ids.add(a.id))
+  audios.value.forEach(a => ids.add(a.id))
+  failedMedia.value.forEach(id => ids.delete(id))
+  return ids
+})
+
 const fileLinks = computed(() => props.attachments.flatMap((attachment, index) => {
+  if (shownInline.value.has(attachment.id)) return []
   try {
     const url = new URL(attachment.url, window.location.origin)
     if (!attachment.url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
