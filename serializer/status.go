@@ -93,8 +93,11 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 
 	if status.OriginUri != nil {
 		ret.Url = *status.OriginUri
-	} else {
+	} else if status.Account != nil {
 		ret.Url = fmt.Sprintf("%s/@%s/%d", systemsettings.GetBaseURL(), status.Account.Username, status.Id)
+	} else {
+		// author not loaded: fall back to the canonical object URI
+		ret.Url = ret.Uri
 	}
 
 	ret.RepliesCount = status.RepliesCount
@@ -107,9 +110,11 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 
 	ret.Content = status.ContentHTML(contentRenderOptions())
 
-	ret.Reblog, err = toStatusBase(status.Reblog, accounts)
-	if err != nil {
-		return ret, err
+	if status.Reblog != nil && (status.Reblog.Id > 0 || status.Reblog.Account != nil) {
+		ret.Reblog, err = toStatusBase(status.Reblog, accounts)
+		if err != nil {
+			return ret, err
+		}
 	}
 
 	if status.Quote != nil && status.Quote.Id > 0 {
@@ -153,7 +158,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		return ret, err
 	}
 
-	if status.Reblog != nil {
+	if status.Reblog != nil && status.Reblog.Id > 0 {
 		ret.Reblog, err = ToStatus(status.Reblog, currentAccount)
 		if err != nil {
 			return ret, err

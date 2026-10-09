@@ -76,6 +76,10 @@ func serializerStatusEvent(account *models.Account, payload string) (eventType s
 		return eventType, payloadStr, err
 	}
 
+	if event.Payload == nil {
+		return eventType, payloadStr, errors.New("streaming: status event has no payload")
+	}
+
 	// 查看扩展字段是否加载全, 如果没有加载全, 则加载全
 	err = event.Payload.CheckAndLoadAllExtendFields(db.GetDB())
 	if err != nil {
@@ -88,6 +92,16 @@ func serializerStatusEvent(account *models.Account, payload string) (eventType s
 		payloadStr = strconv.FormatUint(event.Payload.Id, 10)
 
 		return eventType, payloadStr, err
+	}
+
+	// The author is mandatory for clients; skip the event (logged by the
+	// caller) instead of serializing a status without an account.
+	if event.Payload.Account == nil || event.Payload.Account.Id == 0 {
+		return eventType, payloadStr, errors.Wrapf(errEventAccountMissing, "status %d", event.Payload.Id)
+	}
+
+	if event.Payload.Reblog != nil && event.Payload.Reblog.Account == nil {
+		return eventType, payloadStr, errors.Wrapf(errEventAccountMissing, "reblogged status %d", event.Payload.Reblog.Id)
 	}
 
 	// 序列化
@@ -204,3 +218,5 @@ func serializerAnnouncementDeleteEvent(payload json.RawMessage) (eventType strin
 func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType string, payloadStr string, err error) {
 	return "announcement.reaction", string(payload), nil
 }
+
+var errEventAccountMissing = errors.New("streaming: status event account missing")

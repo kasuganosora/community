@@ -105,10 +105,19 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 	}
 
 	if s.ReblogId != nil && *s.ReblogId > 0 && s.Reblog == nil {
-		s.Reblog = &Status{}
-		err = tx.Model(s).Association("Reblog").Find(s.Reblog)
-		if err != nil {
+		// The reblogged status needs its own author and extension fields,
+		// otherwise serializing the reblog dereferences a nil Account.
+		reblogged := &Status{}
+		err = tx.Preload("Account").Preload("Account.Extra").First(reblogged, *s.ReblogId).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		err = nil
+		if reblogged.Id > 0 {
+			if err = reblogged.CheckAndLoadAllExtendFields(tx); err != nil {
+				return err
+			}
+			s.Reblog = reblogged
 		}
 	}
 
@@ -147,6 +156,10 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 		err = tx.Model(s).Association("Account").Find(s.Account)
 		if err != nil {
 			return err
+		}
+		if s.Account.Id == 0 {
+			// author row is gone; leave the relation nil so callers can skip
+			s.Account = nil
 		}
 	}
 	if s.Account != nil && s.Account.Extra == nil {
