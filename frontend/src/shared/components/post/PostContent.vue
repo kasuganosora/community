@@ -120,7 +120,7 @@ onMounted(measure)
         {{ expanded ? '收起' : '展开全文' }}
       </button>
       <div v-if="status.media_attachments?.length" class="post-content__media" :class="{ 'is-blurred': mediaHidden }">
-        <PostMedia :attachments="status.media_attachments" :inert="mediaHidden || undefined" :aria-hidden="mediaHidden || undefined" />
+        <PostMedia :attachments="status.media_attachments" :status-id="status.id" :inert="mediaHidden || undefined" :aria-hidden="mediaHidden || undefined" />
         <button
           v-if="mediaHidden"
           type="button"

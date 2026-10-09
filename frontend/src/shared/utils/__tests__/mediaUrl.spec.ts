@@ -11,3 +11,14 @@ describe('sameOriginMediaUrl', () => {
     expect(sameOriginMediaUrl('')).toBe('')
   })
 })
+
+import { isProxiedMediaUrl } from '../mediaUrl'
+describe('isProxiedMediaUrl', () => {
+  it('recognises the proxy path on any host', () => {
+    expect(isProxiedMediaUrl('https://c.test/proxy/media/TOKEN')).toBe(true)
+    expect(isProxiedMediaUrl('/proxy/media/TOKEN')).toBe(true)
+    expect(isProxiedMediaUrl('https://c.test/media/1/a.png')).toBe(false)
+    expect(isProxiedMediaUrl('')).toBe(false)
+    expect(isProxiedMediaUrl(null)).toBe(false)
+  })
+})

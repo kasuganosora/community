@@ -35,7 +35,11 @@ const (
 	failureTTL     = 2 * time.Minute
 	hostRate       = rate.Limit(20)
 	hostBurst      = 40
-	cacheControl   = "public, max-age=86400"
+	maxAge         = 86400 // seconds, capped by the token's remaining life
+	ipRate         = rate.Limit(40)
+	ipBurst        = 120
+	ipConcurrent   = 12
+	maxIPKeys      = 20000
 	sandboxPolicy  = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 	maxFailureKeys = 5000
 )
@@ -112,15 +116,22 @@ func Serve(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	kind, rawURL, ok := mediaproxy.Open(c.Param("token"))
-	if !ok {
-		c.Status(http.StatusForbidden)
+	// Other sites and API clients may use proxied URLs; the encrypted token
+	// is the only authorisation. Responses carry no credentials.
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+	claims, err := mediaproxy.Open(c.Param("token"))
+	switch {
+	case errors.Is(err, mediaproxy.ErrExpired):
+		c.Header("Cache-Control", "no-store")
+		c.String(http.StatusGone, "media link expired; reload the post to get a new one")
+		return
+	case err != nil:
+		c.Header("Cache-Control", "no-store")
+		c.String(http.StatusForbidden, "invalid media link")
 		return
 	}
-	if !ownSiteRequest(c) {
-		c.Status(http.StatusForbidden)
-		return
-	}
+	kind, rawURL := claims.Kind, claims.URL
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		c.Status(http.StatusBadRequest)
@@ -140,6 +151,12 @@ func Serve(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
+	ip := c.ClientIP()
+	if !ipAllowed(ip) {
+		c.Header("Retry-After", "5")
+		c.Status(http.StatusTooManyRequests)
+		return
+	}
 	if !hostAllowed(strings.ToLower(u.Host)) {
 		c.Header("Retry-After", "5")
 		c.Status(http.StatusTooManyRequests)
@@ -152,8 +169,15 @@ func Serve(c *gin.Context) {
 		return
 	}
 	defer release()
+	releaseIP, ok := ipAcquire(ip)
+	if !ok {
+		c.Header("Retry-After", "2")
+		c.Status(http.StatusTooManyRequests)
+		return
+	}
+	defer releaseIP()
 
-	relay(c, key, rawURL, kind)
+	relay(c, key, rawURL, kind, claims)
 }
 
 func acquire(ctx context.Context) (func(), bool) {
@@ -215,7 +239,7 @@ func upstreamType(h http.Header) string {
 }
 
 // relay fetches the source and streams it to the client.
-func relay(c *gin.Context, key, rawURL, kind string) {
+func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 	timer := time.AfterFunc(headerTimeout, cancel)
@@ -253,7 +277,7 @@ func relay(c *gin.Context, key, rawURL, kind string) {
 				c.Header(h, v)
 			}
 		}
-		c.Header("Cache-Control", cacheControl)
+		c.Header("Cache-Control", cacheControlFor(claims))
 		c.Status(http.StatusNotModified)
 		return
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
@@ -319,7 +343,7 @@ func relay(c *gin.Context, key, rawURL, kind string) {
 	}
 
 	setCommonHeaders(c, ctype)
-	c.Header("Cache-Control", cacheControl)
+	c.Header("Cache-Control", cacheControlFor(claims))
 	c.Header("Accept-Ranges", "bytes")
 	for _, h := range []string{"Content-Range", "Etag", "Last-Modified"} {
 		if v := resp.Header.Get(h); v != "" {
@@ -339,28 +363,72 @@ func relay(c *gin.Context, key, rawURL, kind string) {
 	}
 }
 
-// ownSiteRequest keeps other sites from embedding the proxy. It never needs a
-// login or cookie: visitors who send no Referer, Origin or Fetch Metadata
-// (privacy settings, direct visits, curl) are allowed, and only a request that
-// declares a foreign origin is refused.
-func ownSiteRequest(c *gin.Context) bool {
-	if c.GetHeader("Sec-Fetch-Site") == "cross-site" {
-		return false
-	}
-	own := map[string]bool{strings.ToLower(c.Request.Host): true}
-	if b, err := url.Parse(systemsettings.GetBaseURL()); err == nil && b.Host != "" {
-		own[strings.ToLower(b.Host)] = true
-	}
-	for _, h := range []string{"Origin", "Referer"} {
-		v := c.GetHeader(h)
-		if v == "" || v == "null" {
-			continue
+// cacheControlFor lets browsers cache for a day, but never past the moment
+// the token stops working.
+func cacheControlFor(claims mediaproxy.Claims) string {
+	age := int64(maxAge)
+	if claims.Expiry != 0 {
+		if r := int64(claims.Remaining() / time.Second); r < age {
+			age = r
 		}
-		u, err := url.Parse(v)
-		if err != nil || !own[strings.ToLower(u.Host)] {
-			return false
-		}
+	}
+	if age < 0 {
+		age = 0
 	}
 
-	return true
+	return "public, max-age=" + strconv.FormatInt(age, 10)
+}
+
+// Per-client limits: the endpoint is open to other sites, so every client
+// address gets its own request rate and number of simultaneous transfers.
+type ipState struct {
+	limiter *rate.Limiter
+	active  int
+	seen    time.Time
+}
+
+var (
+	ipMu     sync.Mutex
+	ipStates = map[string]*ipState{}
+)
+
+func ipEntry(ip string) *ipState {
+	st := ipStates[ip]
+	if st == nil {
+		if len(ipStates) >= maxIPKeys {
+			for k, v := range ipStates {
+				if v.active == 0 && now().Sub(v.seen) > time.Minute {
+					delete(ipStates, k)
+				}
+			}
+		}
+		st = &ipState{limiter: rate.NewLimiter(ipRate, ipBurst)}
+		ipStates[ip] = st
+	}
+	st.seen = now()
+
+	return st
+}
+
+func ipAllowed(ip string) bool {
+	ipMu.Lock()
+	defer ipMu.Unlock()
+
+	return ipEntry(ip).limiter.Allow()
+}
+
+func ipAcquire(ip string) (func(), bool) {
+	ipMu.Lock()
+	defer ipMu.Unlock()
+	st := ipEntry(ip)
+	if st.active >= ipConcurrent {
+		return nil, false
+	}
+	st.active++
+
+	return func() {
+		ipMu.Lock()
+		st.active--
+		ipMu.Unlock()
+	}, true
 }

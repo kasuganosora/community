@@ -1,19 +1,55 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
-import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
+import { sameOriginMediaUrl, isProxiedMediaUrl } from '@/shared/utils/mediaUrl'
+import { postApi } from '@/domains/post/infrastructure/postApi'
 
 const props = defineProps<{
   attachments: MastodonAttachment[]
+  /** Status the media belongs to; lets expired proxy links be renewed. */
+  statusId?: string
 }>()
+
+// Proxied links stop working after about an hour. A page that stays open
+// longer asks the server for the status once and swaps in fresh links.
+const renewed = ref<MastodonAttachment[] | null>(null)
+const items = computed(() => renewed.value ?? props.attachments)
+let renewTried = false
 
 const failedMedia = ref<Set<string>>(new Set())
 const viewer = ref<number | null>(null)
 
-function handleMediaError(id: string) {
+function markFailed(id: string) {
   const newSet = new Set(failedMedia.value)
   newSet.add(id)
   failedMedia.value = newSet
+}
+
+async function linkExpired(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: 'HEAD' })
+    return res.status === 410 || res.status === 403
+  } catch {
+    return false
+  }
+}
+
+async function handleMediaError(id: string) {
+  const attachment = items.value.find(a => a.id === id)
+  const url = attachment ? attachment.preview_url || attachment.url : ''
+  if (!props.statusId || renewTried || !attachment || !isProxiedMediaUrl(url) || !(await linkExpired(sameOriginMediaUrl(url)))) {
+    markFailed(id)
+    return
+  }
+  renewTried = true
+  try {
+    const status = await postApi.getStatus(props.statusId)
+    if (!status.media_attachments?.length) throw new Error('no media')
+    renewed.value = status.media_attachments
+    failedMedia.value = new Set()
+  } catch {
+    markFailed(id)
+  }
 }
 
 function openViewer(index: number) {
@@ -33,15 +69,15 @@ function onViewerKey(event: KeyboardEvent) {
 }
 
 const images = computed(() =>
-  props.attachments.filter(a => a.type === 'image')
+  items.value.filter(a => a.type === 'image')
 )
 
 const videos = computed(() =>
-  props.attachments.filter(a => a.type === 'video' || a.type === 'gifv')
+  items.value.filter(a => a.type === 'video' || a.type === 'gifv')
 )
 
 const audios = computed(() =>
-  props.attachments.filter(a => a.type === 'audio')
+  items.value.filter(a => a.type === 'audio')
 )
 
 // Inline media (first four images, videos, audio) is already shown; only
@@ -58,7 +94,7 @@ const shownInline = computed(() => {
 
 // The fallback link opens the original file: remote_url when the API proxies
 // the media, so a broken proxy never links back to itself.
-const fileLinks = computed(() => props.attachments.flatMap((attachment, index) => {
+const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
   if (shownInline.value.has(attachment.id)) return []
   try {
     const target = attachment.remote_url || attachment.url
@@ -69,7 +105,7 @@ const fileLinks = computed(() => props.attachments.flatMap((attachment, index) =
     return [{ id: attachment.id, url: sameOriginMediaUrl(target) || url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
   } catch { return [] }
 }))
-const hasMedia = computed(() => props.attachments.length > 0)
+const hasMedia = computed(() => items.value.length > 0)
 
 const gridClass = computed(() => {
   const count = images.value.length

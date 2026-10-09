@@ -11,3 +11,13 @@ export function sameOriginMediaUrl(raw: string | null | undefined): string {
   }
   return raw
 }
+
+/** Whether the URL goes through the server's remote media proxy. */
+export function isProxiedMediaUrl(raw: string | null | undefined): boolean {
+  if (!raw) return false
+  try {
+    return new URL(raw, window.location.origin).pathname.startsWith('/proxy/media/')
+  } catch {
+    return false
+  }
+}

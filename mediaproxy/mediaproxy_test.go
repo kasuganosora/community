@@ -25,10 +25,10 @@ func TestSealOpenRoundTrip(t *testing.T) {
 		for _, kind := range kindCodes {
 			tok, ok := Seal(kind, raw, 0)
 			require.True(t, ok)
-			k, u, ok := Open(tok)
-			require.True(t, ok)
-			require.Equal(t, kind, k)
-			require.Equal(t, raw, u)
+			c, err := Open(tok)
+			require.NoError(t, err)
+			require.Equal(t, kind, c.Kind)
+			require.Equal(t, raw, c.URL)
 		}
 	}
 }
@@ -60,20 +60,20 @@ func TestTamperedTokensAreRejected(t *testing.T) {
 		for bit := 0; bit < 8; bit++ {
 			c := append([]byte(nil), raw...)
 			c[i] ^= 1 << bit
-			_, _, ok := Open(base64.RawURLEncoding.EncodeToString(c))
-			require.False(t, ok, "byte %d bit %d", i, bit)
+			_, err := Open(base64.RawURLEncoding.EncodeToString(c))
+			require.ErrorIs(t, err, ErrInvalid, "byte %d bit %d", i, bit)
 		}
 	}
 	for _, bad := range []string{"", "!!!", tok[:len(tok)-1], tok + "A", base64.RawURLEncoding.EncodeToString(raw[:10])} {
-		_, _, ok := Open(bad)
-		require.False(t, ok, bad)
+		_, err := Open(bad)
+		require.ErrorIs(t, err, ErrInvalid, bad)
 	}
 	v := append([]byte(nil), raw...)
 	v[0] = 2
-	_, _, ok := Open(base64.RawURLEncoding.EncodeToString(v))
-	require.False(t, ok, "unknown version")
-	_, _, ok = Open(strings.Repeat("A", maxToken+1))
-	require.False(t, ok, "oversize token")
+	_, err := Open(base64.RawURLEncoding.EncodeToString(v))
+	require.ErrorIs(t, err, ErrInvalid, "unknown version")
+	_, err = Open(strings.Repeat("A", maxToken+1))
+	require.ErrorIs(t, err, ErrInvalid, "oversize token")
 }
 
 func TestKeysAndRotation(t *testing.T) {
@@ -81,41 +81,88 @@ func TestKeysAndRotation(t *testing.T) {
 	tok, _ := Seal(KindEmoji, "https://r.example/e.png", 0)
 
 	config.C.EncryptedKey = "a-completely-different-secret-key"
-	_, _, ok := Open(tok)
-	require.False(t, ok, "wrong key")
+	_, err := Open(tok)
+	require.ErrorIs(t, err, ErrInvalid, "wrong key")
 
 	config.C.MediaProxyPreviousKey = "0123456789abcdef-test-key"
-	k, u, ok := Open(tok)
-	require.True(t, ok, "previous key is accepted")
-	require.Equal(t, KindEmoji, k)
-	require.Equal(t, "https://r.example/e.png", u)
+	c, err := Open(tok)
+	require.NoError(t, err, "previous key is accepted")
+	require.Equal(t, KindEmoji, c.Kind)
+	require.Equal(t, "https://r.example/e.png", c.URL)
 	fresh, _ := Seal(KindEmoji, "https://r.example/e.png", 0)
 	require.NotEqual(t, tok, fresh, "always sealed with the current key")
 	config.C.MediaProxyPreviousKey = ""
-	_, _, ok = Open(fresh)
-	require.True(t, ok)
+	_, err = Open(fresh)
+	require.NoError(t, err)
 
 	config.C.MediaProxyKey = "dedicated-proxy-key-dedicated-key"
-	_, _, ok = Open(fresh)
-	require.False(t, ok, "MEDIA_PROXY_KEY overrides the server key")
+	_, err = Open(fresh)
+	require.ErrorIs(t, err, ErrInvalid, "MEDIA_PROXY_KEY overrides the server key")
 	own, _ := Seal(KindEmoji, "https://r.example/e.png", 0)
-	_, _, ok = Open(own)
-	require.True(t, ok)
+	_, err = Open(own)
+	require.NoError(t, err)
 }
 
-func TestExpiryIsEnforcedOnlyWhenSet(t *testing.T) {
+func at(sec int64) { Now = func() time.Time { return time.Unix(sec, 0) } }
+
+func TestExpiryIsEnforced(t *testing.T) {
 	setup(t)
+	defer func() { Now = time.Now }()
 	tok, _ := Seal(KindMedia, "https://r.example/a.png", 1000)
-	now = func() time.Time { return time.Unix(999, 0) }
-	defer func() { now = time.Now }()
-	_, _, ok := Open(tok)
-	require.True(t, ok)
-	now = func() time.Time { return time.Unix(1001, 0) }
-	_, _, ok = Open(tok)
-	require.False(t, ok)
+	at(999)
+	c, err := Open(tok)
+	require.NoError(t, err)
+	require.EqualValues(t, 1000, c.Expiry)
+	at(1000)
+	_, err = Open(tok)
+	require.NoError(t, err, "valid through the expiry second")
+	at(1001)
+	c, err = Open(tok)
+	require.ErrorIs(t, err, ErrExpired)
+	require.Equal(t, "https://r.example/a.png", c.URL)
 	forever, _ := Seal(KindMedia, "https://r.example/a.png", 0)
-	_, _, ok = Open(forever)
-	require.True(t, ok)
+	_, err = Open(forever)
+	require.NoError(t, err)
+
+	// A forged expiry cannot be authenticated.
+	raw, _ := base64.RawURLEncoding.DecodeString(tok)
+	raw[2+nonceBytes] ^= 0xff
+	_, err = Open(base64.RawURLEncoding.EncodeToString(raw))
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestLinksLiveBetween3000And3600SecondsAndAreStablePerBucket(t *testing.T) {
+	setup(t)
+	defer func() { Now = time.Now }()
+	const raw = "https://r.example/a.png"
+	base := int64(1_800_000_000) // multiple of 600
+	require.Zero(t, base%600)
+	var first string
+	for off := int64(0); off < 600; off += 37 {
+		at(base + off)
+		u := URL(KindMedia, raw)
+		if first == "" {
+			first = u
+		}
+		require.Equal(t, first, u, "same bucket, same token (offset %d)", off)
+		c, err := Open(strings.TrimPrefix(u, "https://c.test/proxy/media/"))
+		require.NoError(t, err)
+		life := c.Expiry - (base + off)
+		require.Greater(t, life, int64(3000)-1)
+		require.LessOrEqual(t, life, int64(3600))
+	}
+	at(base + 600)
+	require.NotEqual(t, first, URL(KindMedia, raw), "next bucket mints a new token")
+	// Valid for at least 3000s, expired after 3600s.
+	at(base)
+	u := URL(KindMedia, raw)
+	tok := strings.TrimPrefix(u, "https://c.test/proxy/media/")
+	at(base + 2999)
+	_, err := Open(tok)
+	require.NoError(t, err)
+	at(base + 3601)
+	_, err = Open(tok)
+	require.ErrorIs(t, err, ErrExpired)
 }
 
 func TestSealRejectsBadInput(t *testing.T) {
@@ -133,10 +180,11 @@ func TestURLRewritesOnlyRemote(t *testing.T) {
 	remote := "https://ovo.wxw.moe/media/a.jpeg?x=1"
 	got := URL(KindMedia, remote)
 	require.True(t, strings.HasPrefix(got, "https://c.test/proxy/media/"), got)
-	kind, decoded, ok := Open(strings.TrimPrefix(got, "https://c.test/proxy/media/"))
-	require.True(t, ok)
-	require.Equal(t, KindMedia, kind)
-	require.Equal(t, remote, decoded)
+	c, err := Open(strings.TrimPrefix(got, "https://c.test/proxy/media/"))
+	require.NoError(t, err)
+	require.Equal(t, KindMedia, c.Kind)
+	require.Equal(t, remote, c.URL)
+	require.NotZero(t, c.Expiry, "API links always carry an expiry")
 	require.NotContains(t, got, "wxw.moe")
 
 	for _, same := range []string{"", "/media/1/a.png", "https://c.test/media/1/a.png", "HTTPS://C.TEST/emoji-assets/x.png", "data:image/png;base64,AAAA", "ftp://x.example/a", strings.Repeat("https://r.example/", 200)} {

@@ -7,9 +7,11 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
@@ -35,6 +37,9 @@ func setup(t *testing.T, upstream http.Handler) (*httptest.Server, *gin.Engine) 
 	Validate = func(string) error { return nil }
 	failures.Range(func(k, _ any) bool { failures.Delete(k); return true })
 	failN = 0
+	ipMu.Lock()
+	ipStates = map[string]*ipState{}
+	ipMu.Unlock()
 	limiters.Range(func(k, _ any) bool { limiters.Delete(k); return true })
 	t.Cleanup(func() { config.C = old; NewClient, Validate = oldClient, oldValidate })
 	srv := httptest.NewServer(upstream)
@@ -257,29 +262,122 @@ func TestRedirectLimit(t *testing.T) {
 	require.LessOrEqual(t, n.Load(), int32(maxRedirects+1))
 }
 
-func TestGuestsOnOwnSiteAreServedAndOtherSitesAreNot(t *testing.T) {
-	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+func pngServer(t *testing.T) (*httptest.Server, *gin.Engine) {
+	return setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("ETag", `"e1"`)
 		_, _ = w.Write(pngBytes())
 	}))
+}
+
+func TestAnySiteAndGuestCanUseAValidToken(t *testing.T) {
+	srv, r := pngServer(t)
 	p := proxyPath("avatar", srv.URL+"/a.png")
-	// Logged-out visitor: no cookies, no Authorization, from our own pages.
 	for name, hdr := range map[string]map[string]string{
-		"no referrer or origin": nil,
-		"own referrer":          {"Referer": "https://c.test/"},
-		"own origin":            {"Origin": "https://c.test"},
-		"same-origin fetch":     {"Sec-Fetch-Site": "same-origin", "Referer": "https://c.test/explore"},
-		"same-site fetch":       {"Sec-Fetch-Site": "same-site"},
-		"direct navigation":     {"Sec-Fetch-Site": "none"},
-		"referrer stripped":     {"Referer": "null"},
+		"guest, no headers": nil,
+		"foreign referrer":  {"Referer": "https://evil.example/page"},
+		"foreign origin":    {"Origin": "https://evil.example"},
+		"cross-site fetch":  {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors"},
 	} {
-		require.Equal(t, 200, do(r, "GET", p, hdr).Code, name)
+		w := do(r, "GET", p, hdr)
+		require.Equal(t, 200, w.Code, name)
+		require.Equal(t, "cross-origin", w.Header().Get("Cross-Origin-Resource-Policy"), name)
+		require.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"), name)
+		require.Empty(t, w.Header().Get("Set-Cookie"), name)
 	}
-	for name, hdr := range map[string]map[string]string{
-		"foreign referrer": {"Referer": "https://evil.example/page"},
-		"foreign origin":   {"Origin": "https://evil.example"},
-		"cross-site fetch": {"Sec-Fetch-Site": "cross-site"},
-	} {
-		require.Equal(t, 403, do(r, "GET", p, hdr).Code, name)
+	head := do(r, "HEAD", p, map[string]string{"Origin": "https://evil.example"})
+	require.Equal(t, 200, head.Code)
+	require.Equal(t, "cross-origin", head.Header().Get("Cross-Origin-Resource-Policy"))
+}
+
+func TestExpiredLinkIsGoneAndTamperedIsForbidden(t *testing.T) {
+	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { t.Error("upstream must not be contacted") }))
+	defer func() { mediaproxy.Now = time.Now }()
+	raw := srv.URL + "/a.png"
+	tok, _ := mediaproxy.Seal(mediaproxy.KindMedia, raw, time.Now().Unix()-10)
+	w := do(r, "GET", "/proxy/media/"+tok, nil)
+	require.Equal(t, 410, w.Code)
+	require.Contains(t, w.Body.String(), "expired")
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.Equal(t, "cross-origin", w.Header().Get("Cross-Origin-Resource-Policy"))
+	require.Equal(t, 410, do(r, "HEAD", "/proxy/media/"+tok, nil).Code)
+
+	// Editing the token to extend it breaks authentication, not expiry.
+	b, _ := base64.RawURLEncoding.DecodeString(tok)
+	b[len(b)-1] ^= 1
+	require.Equal(t, 403, do(r, "GET", "/proxy/media/"+base64.RawURLEncoding.EncodeToString(b), nil).Code)
+}
+
+func TestMaxAgeNeverOutlivesTheToken(t *testing.T) {
+	srv, r := pngServer(t)
+	defer func() { mediaproxy.Now = time.Now }()
+	nowSec := time.Now().Unix()
+	mediaproxy.Now = func() time.Time { return time.Unix(nowSec, 0) }
+	for _, tc := range []struct {
+		remaining int64
+		want      string
+	}{{100, "public, max-age=100"}, {30, "public, max-age=30"}, {0, "public, max-age=0"}, {400000, "public, max-age=86400"}} {
+		tok, _ := mediaproxy.Seal(mediaproxy.KindMedia, srv.URL+"/a.png", nowSec+tc.remaining)
+		w := do(r, "GET", "/proxy/media/"+tok, nil)
+		require.Equal(t, 200, w.Code)
+		require.Equal(t, tc.want, w.Header().Get("Cache-Control"))
+		require.Equal(t, `"e1"`, w.Header().Get("ETag"))
+	}
+	// API-minted links live at most 3600s, so the cap applies to them too.
+	tok, _ := mediaproxy.Seal(mediaproxy.KindMedia, srv.URL+"/a.png", mediaproxy.ExpiryFor(time.Unix(nowSec, 0)))
+	cc := do(r, "GET", "/proxy/media/"+tok, nil).Header().Get("Cache-Control")
+	age, err := strconv.Atoi(strings.TrimPrefix(cc, "public, max-age="))
+	require.NoError(t, err)
+	require.LessOrEqual(t, age, 3600)
+	require.GreaterOrEqual(t, age, 2990)
+	// Links without an expiry keep the default.
+	tok, _ = mediaproxy.Seal(mediaproxy.KindMedia, srv.URL+"/a.png", 0)
+	require.Equal(t, "public, max-age=86400", do(r, "GET", "/proxy/media/"+tok, nil).Header().Get("Cache-Control"))
+}
+
+func TestPerIPRateLimit(t *testing.T) {
+	srv, r := pngServer(t)
+	p := proxyPath("avatar", srv.URL+"/a.png")
+	// Make the per-host limiter irrelevant for this test.
+	hostRateReset := func() { limiters.Range(func(k, _ any) bool { limiters.Delete(k); return true }) }
+	var limited bool
+	for i := 0; i < ipBurst+10; i++ {
+		hostRateReset()
+		req := httptest.NewRequest("GET", p, nil)
+		req.RemoteAddr = "203.0.113.7:1234"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code == 429 {
+			limited = true
+			require.NotEmpty(t, w.Header().Get("Retry-After"))
+			break
+		}
+	}
+	require.True(t, limited, "one client cannot exceed its burst")
+	// Another client is unaffected.
+	hostRateReset()
+	req := httptest.NewRequest("GET", p, nil)
+	req.RemoteAddr = "198.51.100.9:1234"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code)
+}
+
+func TestPerIPConcurrencyLimit(t *testing.T) {
+	var releases []func()
+	for i := 0; i < ipConcurrent; i++ {
+		rel, ok := ipAcquire("192.0.2.1")
+		require.True(t, ok)
+		releases = append(releases, rel)
+	}
+	_, ok := ipAcquire("192.0.2.1")
+	require.False(t, ok, "too many simultaneous transfers for one client")
+	_, ok = ipAcquire("192.0.2.2")
+	require.True(t, ok, "other clients are independent")
+	releases[0]()
+	_, ok = ipAcquire("192.0.2.1")
+	require.True(t, ok, "a finished transfer frees a slot")
+	for _, rel := range releases[1:] {
+		rel()
 	}
 }

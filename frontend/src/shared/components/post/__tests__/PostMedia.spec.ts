@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
+import { postApi } from '@/domains/post/infrastructure/postApi'
 import { mount } from '@vue/test-utils'
 import PostMedia from '../PostMedia.vue'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
@@ -54,5 +56,55 @@ describe('original attachment access', () => {
     await wrapper.get('img').trigger('error')
     expect(wrapper.findAll('.media-file-links a')).toHaveLength(1)
     expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://wxw.moe/a.png')
+  })
+  describe('expired proxy links', () => {
+    afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+    const stale = file({ id: 'm', type: 'image', url: 'https://c.test/proxy/media/OLD', preview_url: 'https://c.test/proxy/media/OLDP', remote_url: 'https://wxw.moe/a.png' })
+    const fresh = file({ id: 'm', type: 'image', url: 'https://c.test/proxy/media/NEW', preview_url: 'https://c.test/proxy/media/NEWP', remote_url: 'https://wxw.moe/a.png' })
+
+    it('asks for the status once on 410 and shows the renewed link', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ status: 410 })
+      vi.stubGlobal('fetch', fetchMock)
+      const get = vi.spyOn(postApi, 'getStatus').mockResolvedValue({ id: 's1', media_attachments: [fresh] } as never)
+      const wrapper = mount(PostMedia, { props: { attachments: [stale], statusId: 's1' } })
+      await wrapper.get('img').trigger('error')
+      await flushPromises()
+      expect(fetchMock).toHaveBeenCalledWith('/proxy/media/OLDP', { method: 'HEAD' })
+      expect(get).toHaveBeenCalledTimes(1)
+      expect(wrapper.get('img').attributes('src')).toBe('/proxy/media/NEWP')
+      expect(wrapper.find('.media-file-links').exists()).toBe(false)
+      // A second failure does not loop: the original link is offered instead.
+      await wrapper.get('img').trigger('error')
+      await flushPromises()
+      expect(get).toHaveBeenCalledTimes(1)
+      expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://wxw.moe/a.png')
+    })
+
+    it('treats 403 as expired too, but not a plain failure such as 502', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 502 }))
+      const get = vi.spyOn(postApi, 'getStatus')
+      const wrapper = mount(PostMedia, { props: { attachments: [stale], statusId: 's1' } })
+      await wrapper.get('img').trigger('error')
+      await flushPromises()
+      expect(get).not.toHaveBeenCalled()
+      expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://wxw.moe/a.png')
+
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 403 }))
+      vi.spyOn(postApi, 'getStatus').mockResolvedValue({ id: 's1', media_attachments: [fresh] } as never)
+      const w2 = mount(PostMedia, { props: { attachments: [stale], statusId: 's1' } })
+      await w2.get('img').trigger('error')
+      await flushPromises()
+      expect(w2.get('img').attributes('src')).toBe('/proxy/media/NEWP')
+    })
+
+    it('falls back gracefully when the status cannot be loaded', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 410 }))
+      vi.spyOn(postApi, 'getStatus').mockRejectedValue(new Error('offline'))
+      const wrapper = mount(PostMedia, { props: { attachments: [stale], statusId: 's1' } })
+      await wrapper.get('img').trigger('error')
+      await flushPromises()
+      expect(wrapper.find('img').exists()).toBe(false)
+      expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://wxw.moe/a.png')
+    })
   })
 })
