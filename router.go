@@ -33,6 +33,7 @@ import (
 	"github.com/kasuganosora/community/matrix/homeserver"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
+	"net/http"
 )
 
 // SetRouter registers all HTTP routes on the given Gin engine/router group.
@@ -60,11 +61,7 @@ func SetRouter(app gin.IRouter) {
 	app.Use(activitypub.ImportedWebAliases())
 
 	// Uploaded media files (URLs built by serializer.ToMediaAttachment).
-	app.GET("/media/:id/*file", media.Serve)
-	app.GET("/emoji-assets/:file", emojiasset.Serve)
-	app.GET("/card-images/:file", linkcard.ServeImage)
-	app.GET("/system/*file", transferapi.ServeMediaAlias)
-	app.GET("/files/*file", transferapi.ServeMediaAlias)
+	registerPublicFileRoutes(app)
 
 	apiGroup := app.Group("/api")
 	apiGroup.Use(middleware.AttachFilterContext())
@@ -797,4 +794,16 @@ func safeRegisterRoutes(fn func()) {
 	}()
 
 	fn()
+}
+
+// registerPublicFileRoutes serves public files. Each route also answers
+// HEAD (link checkers, CDNs and crawlers probe with it); the handlers
+// already omit the body for HEAD.
+func registerPublicFileRoutes(app gin.IRoutes) {
+	both := []string{http.MethodGet, http.MethodHead}
+	app.Match(both, "/media/:id/*file", media.Serve)
+	app.Match(both, "/emoji-assets/:file", emojiasset.Serve)
+	app.Match(both, "/card-images/:file", linkcard.ServeImage)
+	app.Match(both, "/system/*file", transferapi.ServeMediaAlias)
+	app.Match(both, "/files/*file", transferapi.ServeMediaAlias)
 }

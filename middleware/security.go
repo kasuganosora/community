@@ -35,7 +35,7 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// embeddable by federated clients. Match only its single file segment;
 		// admin APIs and similarly named/private routes retain same-origin.
 		emojiFile, emojiAsset := strings.CutPrefix(path, "/emoji-assets/")
-		publicEmoji := c.Request.Method == http.MethodGet && emojiAsset &&
+		publicEmoji := (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) && emojiAsset &&
 			emojiFile != "" && emojiFile != "." && emojiFile != ".." &&
 			!strings.ContainsAny(emojiFile, "/\\")
 		if publicEmoji || strings.HasPrefix(path, "/media/") || strings.HasPrefix(path, "/card-images/") ||
