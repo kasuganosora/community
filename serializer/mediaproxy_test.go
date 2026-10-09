@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/mediaproxy"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,8 +20,8 @@ func TestProxiedCardRewritesRemoteImageOnly(t *testing.T) {
 	require.Equal(t, "https://r.example/i.png", card["image"], "stored card is untouched")
 	require.Equal(t, "https://r.example/p", out["url"])
 
-	local := map[string]any{"image": "/card-images/a.png"}
-	require.Equal(t, "/card-images/a.png", proxiedCard(local)["image"])
+	local := map[string]any{"url": "https://r.example/p", "image": "/card-images/a.png"}
+	require.Equal(t, systemsettings.GetBaseURL()+"/card-images/a.png", proxiedCard(local)["image"])
 	require.Equal(t, "https://r.example/p", proxiedCard(map[string]any{"url": "https://r.example/p"})["url"])
 }
 
@@ -67,14 +68,18 @@ func TestLocalCardImagesKeepTheirImage(t *testing.T) {
 		"/card-images/abc.png",
 	} {
 		out := proxiedCard(map[string]any{"url": "https://x.example/p", "image": img, "title": "t"})
-		require.Equal(t, img, out["image"], img)
+		want := img
+		if want[0] == '/' {
+			want = systemsettings.GetBaseURL() + img
+		}
+		require.Equal(t, want, out["image"], img)
 		require.Equal(t, "t", out["title"])
 	}
 	// A remote image is proxied and the other fields survive; a missing one stays missing.
-	out := proxiedCard(map[string]any{"image": "https://r.example/i.png", "width": 10})
+	out := proxiedCard(map[string]any{"url": "https://x.example/p", "image": "https://r.example/i.png", "width": 10})
 	require.Contains(t, out["image"], "/proxy/media/")
 	require.Equal(t, 10, out["width"])
-	out = proxiedCard(map[string]any{"image": nil, "title": "t"})
+	out = proxiedCard(map[string]any{"url": "https://x.example/p", "image": nil, "title": "t"})
 	require.Nil(t, out["image"])
 	_, has := out["image"]
 	require.True(t, has, "image key is preserved")

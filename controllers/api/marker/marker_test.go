@@ -118,9 +118,9 @@ func TestList_TimelinesNotFound(t *testing.T) {
 
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	// Should have entries for both timelines but with empty/zero values
-	assert.Contains(t, resp, "home")
-	assert.Contains(t, resp, "notifications")
+	// Mastodon omits timelines that have no marker.
+	assert.NotContains(t, resp, "home")
+	assert.NotContains(t, resp, "notifications")
 }
 
 func TestList_ExistingMarker(t *testing.T) {
@@ -165,12 +165,13 @@ func TestList_ExistingMarker(t *testing.T) {
 	assert.Contains(t, resp, "home")
 	assert.NotContains(t, resp, "notifications")
 
-	var homeItem models.MarkerTimelineItem
+	var homeItem markerResponseItem
 
 	err = json.Unmarshal(resp["home"], &homeItem)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(12345), homeItem.LastReadId)
+	assert.Equal(t, "12345", homeItem.LastReadId)
 	assert.Equal(t, uint64(1), homeItem.Version)
+	assert.Regexp(t, `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`, homeItem.UpdatedAt)
 }
 
 func TestList_ExistingMarker_MultipleTimelines(t *testing.T) {
@@ -208,20 +209,15 @@ func TestList_ExistingMarker_MultipleTimelines(t *testing.T) {
 
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp, 2)
+	assert.Len(t, resp, 1)
 
-	var homeItem models.MarkerTimelineItem
+	var homeItem markerResponseItem
 
 	err = json.Unmarshal(resp["home"], &homeItem)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(999), homeItem.LastReadId)
+	assert.Equal(t, "999", homeItem.LastReadId)
 
-	// notifications should have zero values since it doesn't exist
-	var notifItem models.MarkerTimelineItem
-
-	err = json.Unmarshal(resp["notifications"], &notifItem)
-	require.NoError(t, err)
-	assert.Equal(t, uint64(0), notifItem.LastReadId)
+	assert.NotContains(t, resp, "notifications")
 }
 
 // ========== Save Tests ==========
@@ -257,11 +253,11 @@ func TestSave_CreateNewMarker(t *testing.T) {
 	assert.Contains(t, resp, "home")
 	assert.Contains(t, resp, "notifications")
 
-	var homeItem models.MarkerTimelineItem
+	var homeItem markerResponseItem
 
 	err = json.Unmarshal(resp["home"], &homeItem)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(12345), homeItem.LastReadId)
+	assert.Equal(t, "12345", homeItem.LastReadId)
 	assert.Equal(t, uint64(1), homeItem.Version)
 
 	// Verify marker was persisted in DB
@@ -321,11 +317,11 @@ func TestSave_UpdateExistingMarker(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	var homeItem models.MarkerTimelineItem
+	var homeItem markerResponseItem
 
 	err = json.Unmarshal(resp["home"], &homeItem)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(200), homeItem.LastReadId)
+	assert.Equal(t, "200", homeItem.LastReadId)
 	// Version should have been incremented from 2 to 3
 	assert.Equal(t, uint64(3), homeItem.Version)
 
@@ -456,4 +452,11 @@ func TestSave_NegativeLastReadId(t *testing.T) {
 
 	// ParseUint with negative number should fail -> 400
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// markerResponseItem is the Mastodon Marker entity: last_read_id is a string.
+type markerResponseItem struct {
+	LastReadId string `json:"last_read_id"`
+	Version    uint64 `json:"version"`
+	UpdatedAt  string `json:"updated_at"`
 }

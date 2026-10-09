@@ -2,6 +2,8 @@ package serializer
 
 import "github.com/kasuganosora/community/models"
 
+// Application is the minimal Mastodon Application entity embedded in
+// statuses. website is null or a valid absolute URL, never "".
 type Application struct {
 	Name    string  `json:"name"`
 	Website *string `json:"website"`
@@ -9,16 +11,14 @@ type Application struct {
 
 func ToApplication(app *models.Application) *Application {
 	if app == nil {
-		empty := ""
-
-		return &Application{
-			Name:    "web",
-			Website: &empty,
-		}
+		return &Application{Name: "web"}
 	}
 
-	return &Application{
-		Name:    app.Name,
-		Website: &app.Website,
+	out := &Application{Name: app.Name}
+	if isAbsoluteURL(app.Website) {
+		w := app.Website
+		out.Website = &w
 	}
+
+	return out
 }

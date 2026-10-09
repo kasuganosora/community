@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/serializer"
 	"regexp"
 	"strings"
 
@@ -18,26 +19,8 @@ func GetCustomEmojis(c *gin.Context) {
 		return
 	}
 
-	// Build response
-	result := make([]gin.H, 0, len(emojis))
-	for _, emoji := range emojis {
-		aliases := emoji.Aliases
-		if aliases == nil {
-			aliases = []string{}
-		}
-		result = append(result, gin.H{
-			"shortcode":         emoji.Shortcode,
-			"url":               emoji.Url, //nolint:goconst
-			"static_url":        emoji.StaticUrl,
-			"visible_in_picker": emoji.VisibleInPicker,
-			"category":          emoji.Category,
-			"aliases":           aliases,
-			"license":           emoji.License,
-			"local_only":        emoji.LocalOnly,
-			"is_sensitive":      emoji.IsSensitive,
-			"disabled":          emoji.Disabled,
-		})
-	}
+	// Same entity as nested status emojis: absolute URLs, null category.
+	result := serializer.ToEmojis(emojis)
 
 	c.JSON(200, result)
 }

@@ -440,7 +440,7 @@ func TestListTags_ResponseStructure(t *testing.T) {
 
 	tag := result[0]
 	assert.Equal(t, "golang", tag["name"])
-	assert.Equal(t, "https://example.com/tags/golang", tag["url"])
+	assert.Regexp(t, `^https?://[^/]+/tags/golang$`, tag["url"])
 
 	history, ok := tag["history"].([]any)
 	require.True(t, ok)
@@ -450,7 +450,6 @@ func TestListTags_ResponseStructure(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "42", entry["uses"])
 	assert.Equal(t, "7", entry["accounts"])
-	assert.Equal(t, "1", entry["_version"])
 }
 
 // =====================================================================

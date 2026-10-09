@@ -107,7 +107,8 @@ func TestTimelineBatchReblogsKeepViewerMetadataAndPrivacy(t *testing.T) {
 	require.NotNil(t, nested.Poll)
 	require.Equal(t, []int{1}, nested.Poll.OwnVotes)
 	require.True(t, nested.EmojiReactions[0].Me)
-	require.Equal(t, []string{"warn"}, nested.Filtered)
+	require.Len(t, nested.Filtered, 1)
+	require.Equal(t, "warn", nested.Filtered[0].Filter.FilterAction)
 	require.False(t, out[0].Favourited, "a boost wrapper is not the original favourite")
 	original.Visibility = models.StatusVisibilityDirect
 	out, err = ToStatuses(models.Statuses{wrapper}, viewer)

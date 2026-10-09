@@ -1,6 +1,10 @@
 package serializer
 
-import "github.com/kasuganosora/community/models"
+import (
+	"strconv"
+
+	"github.com/kasuganosora/community/models"
+)
 
 /*
 *
@@ -25,26 +29,26 @@ import "github.com/kasuganosora/community/models"
 */
 
 type FollowStatus struct {
-	Id                  uint64  `json:"id"`
-	Following           bool    `json:"following"`
-	ShowingReblogs      bool    `json:"showing_reblogs"`
-	Notifying           bool    `json:"notifying"`
-	Languages           *string `json:"languages"`
-	FollowedBy          bool    `json:"followed_by"`
-	Blocking            bool    `json:"blocking"`
-	BlockedBy           bool    `json:"blocked_by"`
-	Muting              bool    `json:"muting"`
-	MutingNotifications bool    `json:"muting_notifications"`
-	Requested           bool    `json:"requested"`
-	RequestedBy         bool    `json:"requested_by"`
-	DomainBlocking      bool    `json:"domain_blocking"`
-	Endorsed            bool    `json:"endorsed"`
-	Note                string  `json:"note"`
+	Id                  string   `json:"id"`
+	Following           bool     `json:"following"`
+	ShowingReblogs      bool     `json:"showing_reblogs"`
+	Notifying           bool     `json:"notifying"`
+	Languages           []string `json:"languages"`
+	FollowedBy          bool     `json:"followed_by"`
+	Blocking            bool     `json:"blocking"`
+	BlockedBy           bool     `json:"blocked_by"`
+	Muting              bool     `json:"muting"`
+	MutingNotifications bool     `json:"muting_notifications"`
+	Requested           bool     `json:"requested"`
+	RequestedBy         bool     `json:"requested_by"`
+	DomainBlocking      bool     `json:"domain_blocking"`
+	Endorsed            bool     `json:"endorsed"`
+	Note                string   `json:"note"`
 }
 
 func ToFollowStatus(account *models.Account, follow *models.Follow) (ret *FollowStatus) {
 	ret = &FollowStatus{
-		Id:                  account.Id,
+		Id:                  strconv.FormatUint(account.Id, 10),
 		Notifying:           false,
 		Languages:           nil,
 		FollowedBy:          false,

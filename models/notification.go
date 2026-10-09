@@ -139,9 +139,9 @@ func (n *Notification) GetTypeString() string {
 	case NotificationTypeFollowRequest:
 		return "follow_request" //nolint:goconst
 	case NotificationTypeStatusUpdate:
-		return "status_update" //nolint:goconst
+		return "update" //nolint:goconst
 	case NotificationTypeAdminReport:
-		return "admin_report" //nolint:goconst
+		return "admin.report" //nolint:goconst
 	case NotificationTypeAddList:
 		return "add_list" //nolint:goconst
 	case NotificationTypeRemoveList:
@@ -169,9 +169,9 @@ func NotificationTypeFromString(s string) int {
 		return NotificationTypePoll
 	case "follow_request":
 		return NotificationTypeFollowRequest
-	case "status_update":
+	case "update", "status_update":
 		return NotificationTypeStatusUpdate
-	case "admin_report":
+	case "admin.report", "admin_report":
 		return NotificationTypeAdminReport
 	case "add_list":
 		return NotificationTypeAddList

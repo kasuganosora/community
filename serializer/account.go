@@ -30,10 +30,10 @@ type Account struct {
 	Uri                 string   `json:"uri"`
 	Avatar              string   `json:"avatar"`
 	AvatarStatic        string   `json:"avatar_static"`
-	AvatarDescription   string   `json:"avatar_description"`
+	AvatarDescription   string   `json:"avatar_description,omitempty"`
 	Header              string   `json:"header"`
 	HeaderStatic        string   `json:"header_static"`
-	HeaderDescription   string   `json:"header_description"`
+	HeaderDescription   string   `json:"header_description,omitempty"`
 	FollowersCount      int      `json:"followers_count"`
 	FollowingCount      int      `json:"following_count"`
 	StatusesCount       int      `json:"statuses_count"`
@@ -222,7 +222,7 @@ func proxiedAccountMedia(account *models.Account, kind, raw string) string {
 // mediaOrDefault never lets an avatar/header URL be empty: Mastodon clients
 // decode these as non-optional URLs, so fall back to the bundled PNG.
 func mediaOrDefault(raw, asset string) string {
-	if raw != "" {
+	if raw = absoluteURL(raw); isAbsoluteURL(raw) {
 		return raw
 	}
 

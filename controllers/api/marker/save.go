@@ -82,10 +82,12 @@ func Save(c *gin.Context) {
 		}
 	}
 
-	ret := make(map[string]*models.MarkerTimelineItem)
+	ret := make(map[string]gin.H)
 
 	for timeline := range req {
-		ret[timeline] = marker.Timelines[timeline]
+		if item := marker.Timelines[timeline]; item != nil {
+			ret[timeline] = markerJSON(item)
+		}
 	}
 
 	c.JSON(200, ret)

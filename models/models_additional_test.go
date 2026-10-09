@@ -347,8 +347,8 @@ func TestAdditional_Notification_GetTypeString(t *testing.T) {
 		{"follow", NotificationTypeFollow, "follow"},                        //nolint:goconst
 		{"poll", NotificationTypePoll, "poll"},                              //nolint:goconst
 		{"follow_request", NotificationTypeFollowRequest, "follow_request"}, //nolint:goconst
-		{"status_update", NotificationTypeStatusUpdate, "status_update"},    //nolint:goconst
-		{"admin_report", NotificationTypeAdminReport, "admin_report"},       //nolint:goconst
+		{"update", NotificationTypeStatusUpdate, "update"},    //nolint:goconst
+		{"admin.report", NotificationTypeAdminReport, "admin.report"},       //nolint:goconst
 		{"add_list", NotificationTypeAddList, "add_list"},                   //nolint:goconst
 		{"remove_list", NotificationTypeRemoveList, "remove_list"},          //nolint:goconst
 		{"unknown", 99, ""}, //nolint:goconst

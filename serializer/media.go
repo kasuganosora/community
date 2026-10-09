@@ -2,10 +2,11 @@ package serializer
 
 import (
 	"fmt"
-	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"strconv"
+	"strings"
 )
 
 // MediaAttachmentSerializer 媒体附件序列化器.
@@ -21,8 +22,8 @@ type MediaAttachmentResponse struct {
 	PreviewRemoteUrl *string              `json:"preview_remote_url"`
 	TextUrl          *string              `json:"text_url"`
 	Meta             *MediaAttachmentMeta `json:"meta"`
-	Description      string               `json:"description"`
-	Blurhash         string               `json:"blurhash"`
+	Description      *string              `json:"description"`
+	Blurhash         *string              `json:"blurhash"`
 }
 
 // MediaAttachmentMeta 媒体元数据.
@@ -63,7 +64,7 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 	}
 
 	// 获取基础 URL
-	baseURL := config.C.AppBaseURL
+	baseURL := strings.TrimRight(systemsettings.GetBaseURL(), "/")
 
 	// 构建文件 URL
 	url := fmt.Sprintf("%s/media/%s/%s", baseURL, strconv.FormatUint(media.Id, 10), media.FileName)
@@ -89,12 +90,10 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		previewUrl = mediaproxy.URL(mediaproxy.KindPreview, previewUrl)
 	}
 
-	// 构建元数据
-	meta := &MediaAttachmentMeta{
-		Focus: &MediaAttachmentFocus{
-			X: media.FocusX,
-			Y: media.FocusY,
-		},
+	// 构建元数据 (focus only when the author set one)
+	meta := &MediaAttachmentMeta{}
+	if media.FocusX != 0 || media.FocusY != 0 {
+		meta.Focus = &MediaAttachmentFocus{X: media.FocusX, Y: media.FocusY}
 	}
 
 	// 添加原始尺寸信息
@@ -129,17 +128,26 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		remoteUrl = &media.RemoteUrl
 	}
 
+	var description, blurhash *string
+	if media.Description != "" {
+		description = &media.Description
+	}
+
+	if media.Blurhash != "" {
+		blurhash = &media.Blurhash
+	}
+
 	return &MediaAttachmentResponse{
 		Id:               strconv.FormatUint(media.Id, 10),
-		Type:             string(media.Type),
+		Type:             normalizeMediaType(string(media.Type)),
 		Url:              url,
 		PreviewUrl:       previewUrl,
 		RemoteUrl:        remoteUrl,
 		PreviewRemoteUrl: nil,
 		TextUrl:          nil,
 		Meta:             meta,
-		Description:      media.Description,
-		Blurhash:         media.Blurhash,
+		Description:      description,
+		Blurhash:         blurhash,
 	}, nil
 }
 
@@ -163,4 +171,13 @@ func ToMediaAttachmentList(medias models.MediaAttachments) ([]*MediaAttachmentRe
 	}
 
 	return results, nil
+}
+
+func normalizeMediaType(t string) string {
+	switch t {
+	case "image", "video", "gifv", "audio":
+		return t
+	}
+
+	return "unknown"
 }

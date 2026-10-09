@@ -17,8 +17,7 @@ func TestToApplication_Nil(t *testing.T) {
 	result := ToApplication(nil)
 	require.NotNil(t, result)
 	assert.Equal(t, "web", result.Name)
-	assert.NotNil(t, result.Website)
-	assert.Empty(t, *result.Website)
+	assert.Nil(t, result.Website, "website must be null, never an empty string")
 }
 
 func TestToApplication_WithValues(t *testing.T) {
@@ -44,8 +43,7 @@ func TestToApplication_EmptyWebsite(t *testing.T) {
 	result := ToApplication(app)
 	require.NotNil(t, result)
 	assert.Equal(t, "MyApp", result.Name)
-	require.NotNil(t, result.Website)
-	assert.Empty(t, *result.Website)
+	assert.Nil(t, result.Website)
 }
 
 // =============================================================================
@@ -249,7 +247,7 @@ func TestToFollowStatus_NilFollow(t *testing.T) {
 
 	result := ToFollowStatus(account, nil)
 	require.NotNil(t, result)
-	assert.Equal(t, uint64(42), result.Id)
+	assert.Equal(t, "42", result.Id)
 	assert.False(t, result.Following)
 	assert.False(t, result.ShowingReblogs)
 	assert.False(t, result.Notifying)
@@ -279,7 +277,7 @@ func TestToFollowStatus_WithReblogsTrue(t *testing.T) {
 
 	result := ToFollowStatus(account, follow)
 	require.NotNil(t, result)
-	assert.Equal(t, uint64(1), result.Id)
+	assert.Equal(t, "1", result.Id)
 	assert.True(t, result.Following)
 	assert.True(t, result.ShowingReblogs)
 }
@@ -340,7 +338,7 @@ func TestToFollowStatus_ZeroAccountId(t *testing.T) {
 
 	result := ToFollowStatus(account, nil)
 	require.NotNil(t, result)
-	assert.Equal(t, uint64(0), result.Id)
+	assert.Equal(t, "0", result.Id)
 	assert.False(t, result.Following)
 }
 
@@ -686,8 +684,10 @@ func TestToMediaAttachment_Image(t *testing.T) {
 	assert.Equal(t, "image", result.Type)
 	assert.Contains(t, result.Url, "/media/1/photo.jpg")
 	assert.Contains(t, result.PreviewUrl, "/media/1/thumbnail/thumb.jpg")
-	assert.Equal(t, "A test photo", result.Description)
-	assert.Equal(t, "L6Pj0^i_.AyE_3t7t7R**0o#DgR4", result.Blurhash)
+	require.NotNil(t, result.Description)
+	assert.Equal(t, "A test photo", *result.Description)
+	require.NotNil(t, result.Blurhash)
+	assert.Equal(t, "L6Pj0^i_.AyE_3t7t7R**0o#DgR4", *result.Blurhash)
 	assert.Nil(t, result.RemoteUrl)
 	assert.Nil(t, result.PreviewRemoteUrl)
 	assert.Nil(t, result.TextUrl)
@@ -762,7 +762,7 @@ func TestToMediaAttachment_NoDimensions(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "unknown", result.Type)
 	require.NotNil(t, result.Meta)
-	require.NotNil(t, result.Meta.Focus)
+	assert.Nil(t, result.Meta.Focus, "focus only when set")
 	// No original/small when no dimensions
 	assert.Nil(t, result.Meta.Original)
 	assert.Nil(t, result.Meta.Small)
@@ -960,7 +960,7 @@ func TestNotificationStruct_Fields(t *testing.T) {
 	n := &Notification{
 		Id:        "1",
 		Type:      "mention",
-		CreatedAt: &now,
+		CreatedAt: NewAPITime(&now),
 	}
 
 	assert.Equal(t, "1", n.Id)
@@ -983,8 +983,8 @@ func TestNotificationGetTypeString_AllTypes(t *testing.T) {
 		{models.NotificationTypeFollow, "follow"},
 		{models.NotificationTypePoll, "poll"},
 		{models.NotificationTypeFollowRequest, "follow_request"},
-		{models.NotificationTypeStatusUpdate, "status_update"},
-		{models.NotificationTypeAdminReport, "admin_report"},
+		{models.NotificationTypeStatusUpdate, "update"},
+		{models.NotificationTypeAdminReport, "admin.report"},
 		{models.NotificationTypeAddList, "add_list"},
 		{models.NotificationTypeRemoveList, "remove_list"},
 		{uint8(255), ""},

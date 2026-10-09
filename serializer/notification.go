@@ -8,18 +8,17 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 	"strconv"
-	"time"
 )
 
 type Notification struct {
-	EmojiReaction *Reaction  `json:"emoji_reaction,omitempty"`
-	Id            string     `json:"id"`
-	Type          string     `json:"type"`
-	CreatedAt     *time.Time `json:"created_at"`
-	Account       *Account   `json:"account,omitempty"`
-	Status        *Status    `json:"status,omitempty"`
-	Report        *Report    `json:"report,omitempty"`
-	List          *List      `json:"list,omitempty"`
+	EmojiReaction *Reaction `json:"emoji_reaction,omitempty"`
+	Id            string    `json:"id"`
+	Type          string    `json:"type"`
+	CreatedAt     *APITime  `json:"created_at"`
+	Account       *Account  `json:"account,omitempty"`
+	Status        *Status   `json:"status,omitempty"`
+	Report        *Report   `json:"report,omitempty"`
+	List          *List     `json:"list,omitempty"`
 }
 
 // NotificationVisible rechecks current authorization even for historical rows.
@@ -63,7 +62,7 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	ret = &Notification{}
 	ret.Id = strconv.FormatUint(n.Id, 10)
 	ret.Type = n.GetTypeString()
-	ret.CreatedAt = n.CreatedAt
+	ret.CreatedAt = NewAPITime(n.CreatedAt)
 	if n.Type == models.NotificationTypeEmojiReaction {
 		ret.EmojiReaction, err = notificationReaction(n)
 		if err != nil {
@@ -130,6 +129,10 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 		if err != nil {
 			return ret, err
 		}
+	}
+
+	if !notificationComplete(ret) {
+		return nil, nil
 	}
 
 	return ret, err
@@ -273,7 +276,7 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		nf := &Notification{}
 		nf.Id = strconv.FormatUint(n.Id, 10)
 		nf.Type = n.GetTypeString()
-		nf.CreatedAt = n.CreatedAt
+		nf.CreatedAt = NewAPITime(n.CreatedAt)
 		if n.Type == models.NotificationTypeEmojiReaction {
 			nf.EmojiReaction, err = notificationReaction(n)
 			if err != nil {
@@ -308,6 +311,10 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 			}
 		}
 
+		if !notificationComplete(nf) {
+			continue
+		}
+
 		ret = append(ret, nf)
 	}
 
@@ -333,4 +340,21 @@ func notificationReaction(n *models.Notification) (*Reaction, error) {
 		}
 	}
 	return r, nil
+}
+
+// notificationComplete reports whether a notification carries what Mastodon
+// clients decode as non-optional: the sending account always, and the status
+// for every status-bearing type. Incomplete rows (deleted sender/status) are
+// dropped instead of poisoning the whole page.
+func notificationComplete(n *Notification) bool {
+	if n.Account == nil {
+		return false
+	}
+
+	switch n.Type {
+	case "mention", "status", "reblog", "favourite", "poll", "update", "emoji_reaction":
+		return n.Status != nil
+	}
+
+	return true
 }

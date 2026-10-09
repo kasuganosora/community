@@ -210,7 +210,8 @@ func TestSerializerNotificationEvent_Valid(t *testing.T) {
 	notif := &serializer.Notification{
 		Id:        "42",
 		Type:      "mention",
-		CreatedAt: &now,
+		CreatedAt: serializer.NewAPITime(&now),
+		Account:   &serializer.Account{Id: "1", Username: "a"},
 	}
 
 	payloadBytes, err := json.Marshal(map[string]any{"payload": notif})

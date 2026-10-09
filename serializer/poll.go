@@ -10,7 +10,7 @@ import (
 
 type Poll struct {
 	Id          string       `json:"id"`
-	ExpiresAt   *time.Time   `json:"expires_at"`
+	ExpiresAt   *APITime     `json:"expires_at"`
 	Expired     bool         `json:"expired"`
 	Multiple    bool         `json:"multiple"`
 	VotesCount  uint64       `json:"votes_count"`
@@ -31,7 +31,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 
 	ret := &Poll{
 		Id:          id,
-		ExpiresAt:   poll.ExpiresAt,
+		ExpiresAt:   NewAPITime(poll.ExpiresAt),
 		Expired:     poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()),
 		Multiple:    poll.Multiple,
 		VotesCount:  votesCount,

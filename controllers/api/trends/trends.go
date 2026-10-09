@@ -59,17 +59,24 @@ func ListTags(c *gin.Context) {
 	// Build response
 	result := make([]gin.H, 0, len(tags))
 	for _, tag := range tags {
+		st := serializer.ToTag(tag)
+		if st == nil {
+			continue
+		}
+
+		day := time.Now()
+		if tag.LastStatusUsedAt != nil {
+			day = *tag.LastStatusUsedAt
+		}
+
 		result = append(result, gin.H{
-			"name": tag.Name,
-			"url":  "https://" + c.Request.Host + "/tags/" + tag.Name,
+			"name": st.Name,
+			"url":  st.Url,
 			"history": []gin.H{
 				{
-					"day":        strconv.FormatInt(tag.LastStatusUsedAt.Unix(), 10),
-					"uses":       strconv.FormatUint(tag.StatusCount, 10),
-					"accounts":   strconv.FormatUint(tag.AccountCount, 10),
-					"_version":   "1",
-					"_createdAt": tag.CreatedAt.Format(time.RFC3339),
-					"_updatedAt": tag.UpdatedAt.Format(time.RFC3339),
+					"day":      strconv.FormatInt(day.Unix(), 10),
+					"uses":     strconv.FormatUint(tag.StatusCount, 10),
+					"accounts": strconv.FormatUint(tag.AccountCount, 10),
 				},
 			},
 		})
@@ -182,12 +189,24 @@ func ListLinks(c *gin.Context) {
 	result := make([]gin.H, 0, len(links))
 	for _, link := range links {
 		result = append(result, gin.H{
-			"url":           link.URL,
-			"title":         link.Title,
-			"description":   link.Description,
-			"image":         imageOrNil(link.ImageURL),
-			"provider_name": link.ProviderName,
-			"published_at":  nil,
+			"url":               link.URL,
+			"title":             link.Title,
+			"description":       link.Description,
+			"image":             imageOrNil(link.ImageURL),
+			"provider_name":     link.ProviderName,
+			"published_at":      nil,
+			"type":              "link",
+			"author_name":       "",
+			"author_url":        "",
+			"provider_url":      "",
+			"html":              "",
+			"width":             0,
+			"height":            0,
+			"image_description": "",
+			"embed_url":         "",
+			"blurhash":          nil,
+			"language":          nil,
+			"authors":           []any{},
 			"history": []gin.H{
 				{
 					"day":      strconv.FormatInt(time.Now().Unix(), 10),

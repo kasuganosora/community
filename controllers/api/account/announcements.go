@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"html"
@@ -45,7 +46,16 @@ func ListAnnouncements(c *gin.Context) {
 		if c.Query("with_dismissed") == "false" && read {
 			continue
 		}
-		result = append(result, gin.H{"id": strconv.FormatUint(a.Id, 10), "content": html.EscapeString(a.Text), "text": a.Text, "published": a.Published, "all_day": a.AllDay, "scheduled_at": a.ScheduledAt, "starts_at": a.StartsAt, "ends_at": a.EndsAt, "published_at": a.PublishedAt, "updated_at": a.UpdatedAt, "read": read, "mentions": []any{}, "statuses": []any{}, "tags": []any{}, "emojis": []any{}, "reactions": []any{}})
+		publishedAt, updatedAt := a.PublishedAt, a.UpdatedAt
+		if publishedAt == nil {
+			publishedAt = a.CreatedAt
+		}
+
+		if updatedAt == nil {
+			updatedAt = publishedAt
+		}
+
+		result = append(result, gin.H{"id": strconv.FormatUint(a.Id, 10), "content": html.EscapeString(a.Text), "text": a.Text, "published": a.Published, "all_day": a.AllDay, "scheduled_at": serializer.NewAPITime(a.ScheduledAt), "starts_at": serializer.NewAPITime(a.StartsAt), "ends_at": serializer.NewAPITime(a.EndsAt), "published_at": serializer.NewAPITime(publishedAt), "updated_at": serializer.NewAPITime(updatedAt), "read": read, "mentions": []any{}, "statuses": []any{}, "tags": []any{}, "emojis": []any{}, "reactions": []any{}})
 	}
 	c.JSON(200, result)
 }

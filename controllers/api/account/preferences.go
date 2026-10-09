@@ -117,5 +117,6 @@ func GetPreferences(c *gin.Context) {
 		"posting:default:content_type": defaultPostingContentType,
 		"reading:expand:spoilers":      defaultExpandSpoilers,
 		"reading:expand:media":         defaultExpandMedia,
+		"reading:autoplay:gifs":        true,
 	})
 }

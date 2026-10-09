@@ -27,7 +27,8 @@ func TestToEmoji(t *testing.T) {
 	assert.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, "https://example.com/smile.png"), result.Url)
 	assert.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, "https://example.com/smile_static.png"), result.StaticUrl)
 	assert.True(t, result.VisibleInPicker)
-	assert.Equal(t, "people", result.Category)
+	require.NotNil(t, result.Category)
+	assert.Equal(t, "people", *result.Category)
 }
 
 func TestToEmojis(t *testing.T) {

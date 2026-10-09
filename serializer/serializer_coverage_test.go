@@ -380,8 +380,10 @@ func TestToAttachment_WithValues(t *testing.T) {
 	assert.Contains(t, result.PreviewUrl, "/media/10/thumbnail/preview.jpg")
 	require.NotNil(t, result.RemoteUrl)
 	assert.Equal(t, "https://remote/file.jpg", *result.RemoteUrl)
-	assert.Equal(t, "An image", result.Description)
-	assert.Equal(t, "blurhash", result.Blurhash)
+	require.NotNil(t, result.Description)
+	assert.Equal(t, "An image", *result.Description)
+	require.NotNil(t, result.Blurhash)
+	assert.Equal(t, "blurhash", *result.Blurhash)
 }
 
 func TestToAttachment_NoPreview(t *testing.T) {
@@ -464,11 +466,12 @@ func TestToStatusBase_Basic(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "100", result.Id)
 	require.NotNil(t, result.CreatedAt)
-	assert.Equal(t, created, *result.CreatedAt)
+	assert.Equal(t, created, result.CreatedAt.Time)
 	assert.True(t, result.Sensitive)
 	assert.Equal(t, "spoiler", result.SpoilerText)
 	assert.Equal(t, "public", result.Visibility)
-	assert.Equal(t, "en", result.Language)
+	require.NotNil(t, result.Language)
+	assert.Equal(t, "en", *result.Language)
 	assert.Equal(t, "<p>Hello world</p>", result.Content)
 	// nil InReplyToId -> stays nil
 	assert.Nil(t, result.InReplyToId)
@@ -562,7 +565,7 @@ func TestToStatusBase_EditedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.EditedAt)
-	assert.Equal(t, updated, *result.EditedAt)
+	assert.Equal(t, updated, result.EditedAt.Time)
 
 	// updated_at after created_at alone (remote receive time, counter
 	// saves) is not an edit.
@@ -772,7 +775,7 @@ func TestApplication_Nil_JSONHasEmptyWebsite(t *testing.T) {
 	data, err := json.Marshal(app)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"name":"web"`)
-	assert.Contains(t, string(data), `"website":""`)
+	assert.Contains(t, string(data), `"website":null`)
 }
 
 func TestEmoji_JSONMarshal(t *testing.T) {
@@ -785,7 +788,8 @@ func TestEmoji_JSONMarshal(t *testing.T) {
 	assert.Equal(t, "smile", decoded.Shortcode)
 	assert.Equal(t, "u", decoded.Url)
 	assert.Equal(t, "su", decoded.StaticUrl)
-	assert.Equal(t, "c", decoded.Category)
+	require.NotNil(t, decoded.Category)
+	assert.Equal(t, "c", *decoded.Category)
 }
 
 func TestRule_JSONMarshalHidesIntId(t *testing.T) {
@@ -1223,7 +1227,8 @@ func TestToScheduledStatus_WithAttachments(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, result.MediaAttachments, 2)
 	assert.Equal(t, "100", result.MediaAttachments[0].Id)
-	assert.Equal(t, "first", result.MediaAttachments[0].Description)
+	require.NotNil(t, result.MediaAttachments[0].Description)
+	assert.Equal(t, "first", *result.MediaAttachments[0].Description)
 	assert.Equal(t, "200", result.MediaAttachments[1].Id)
 	require.Len(t, result.Params.MediaIds, 2)
 	assert.Equal(t, "100", result.Params.MediaIds[0])
@@ -1299,18 +1304,23 @@ func TestToNotification_AllZeroIds(t *testing.T) {
 		CreatedAt: &created,
 	}
 
+	// A notification without its sender account is not decodable by Mastodon
+	// clients (account is required), so it is dropped.
 	result, err := ToNotification(n, nil)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+
+	n.FromAccountId = 5
+	n.FromAccount = &models.Account{Id: 5, Username: "a", CreatedAt: &created}
+	result, err = ToNotification(n, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "99", result.Id)
 	assert.Equal(t, "follow", result.Type)
 	require.NotNil(t, result.CreatedAt)
-	assert.Equal(t, created, *result.CreatedAt)
-	// No accounts/statuses/reports/lists resolved
-	assert.Nil(t, result.Account)
+	assert.Equal(t, created, result.CreatedAt.Time)
+	assert.NotNil(t, result.Account)
 	assert.Nil(t, result.Status)
-	assert.Nil(t, result.Report)
-	assert.Nil(t, result.List)
 }
 
 func TestToNotification_AllTypes(t *testing.T) {
@@ -1325,8 +1335,8 @@ func TestToNotification_AllTypes(t *testing.T) {
 		{"follow", models.NotificationTypeFollow, "follow"},
 		{"poll", models.NotificationTypePoll, "poll"},
 		{"follow_request", models.NotificationTypeFollowRequest, "follow_request"},
-		{"status_update", models.NotificationTypeStatusUpdate, "status_update"},
-		{"admin_report", models.NotificationTypeAdminReport, "admin_report"},
+		{"status_update", models.NotificationTypeStatusUpdate, "update"},
+		{"admin_report", models.NotificationTypeAdminReport, "admin.report"},
 		{"add_list", models.NotificationTypeAddList, "add_list"},
 		{"remove_list", models.NotificationTypeRemoveList, "remove_list"},
 		{"unknown", uint8(255), ""},
@@ -1334,10 +1344,7 @@ func TestToNotification_AllTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n := &models.Notification{Id: 1, Type: tt.nType}
-			result, err := ToNotification(n, nil)
-			require.NoError(t, err)
-			require.NotNil(t, result)
-			assert.Equal(t, tt.wantStr, result.Type)
+			assert.Equal(t, tt.wantStr, n.GetTypeString())
 		})
 	}
 }
@@ -1358,11 +1365,8 @@ func TestToNotifications_WithZeroIds(t *testing.T) {
 	}
 	result, err := ToNotifications(ns, nil)
 	require.NoError(t, err)
-	require.Len(t, result, 2)
-	assert.Equal(t, "1", result[0].Id)
-	assert.Equal(t, "follow", result[0].Type)
-	assert.Equal(t, "2", result[1].Id)
-	assert.Equal(t, "mention", result[1].Type)
+	// no sender account: dropped (Mastodon requires notification.account)
+	assert.Empty(t, result)
 }
 
 func strPtr(s string) *string { return &s }

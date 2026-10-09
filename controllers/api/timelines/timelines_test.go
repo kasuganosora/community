@@ -832,11 +832,11 @@ func TestNotificationTimeline_FilterByAccountId(t *testing.T) {
 	require.NoError(t, testDB.Create(fromAccount2).Error)
 
 	n1 := &models.Notification{
-		Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+		Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 		CreatedAt: &now, UpdatedAt: &now,
 	}
 	n2 := &models.Notification{
-		Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 3,
+		Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 3,
 		CreatedAt: &now, UpdatedAt: &now,
 	}
 
@@ -884,7 +884,7 @@ func TestNotificationTimeline_WithMaxId(t *testing.T) {
 
 	for range 5 {
 		n := &models.Notification{
-			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+			Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
 		}
 		require.NoError(t, testDB.Create(n).Error)
@@ -917,7 +917,7 @@ func TestNotificationTimeline_LimitCapping(t *testing.T) {
 	// Create 200 notifications
 	for range 200 {
 		n := &models.Notification{
-			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+			Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
 		}
 		require.NoError(t, testDB.Create(n).Error)
@@ -950,7 +950,7 @@ func TestNotificationTimeline_DefaultLimit(t *testing.T) {
 
 	for range 30 {
 		n := &models.Notification{
-			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+			Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
 		}
 		require.NoError(t, testDB.Create(n).Error)
@@ -983,7 +983,7 @@ func TestNotificationTimeline_WithMinId(t *testing.T) {
 
 	for range 5 {
 		n := &models.Notification{
-			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+			Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
 		}
 		require.NoError(t, testDB.Create(n).Error)
@@ -1015,7 +1015,7 @@ func TestNotificationTimeline_WithSinceId(t *testing.T) {
 
 	for range 5 {
 		n := &models.Notification{
-			Type: uint8(models.NotificationTypeFavourite), AccountId: 1, FromAccountId: 2,
+			Type: uint8(models.NotificationTypeFollow), AccountId: 1, FromAccountId: 2,
 			CreatedAt: &now, UpdatedAt: &now,
 		}
 		require.NoError(t, testDB.Create(n).Error)
@@ -1077,7 +1077,7 @@ func TestGetNotification_Success(t *testing.T) {
 	require.NoError(t, testDB.Create(fromAccount).Error)
 
 	n := &models.Notification{
-		Type:          uint8(models.NotificationTypeFavourite),
+		Type:          uint8(models.NotificationTypeFollow),
 		AccountId:     1,
 		FromAccountId: 2,
 		CreatedAt:     &now,

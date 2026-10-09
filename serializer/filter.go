@@ -3,27 +3,32 @@ package serializer
 import (
 	"github.com/kasuganosora/community/models"
 	"strconv"
-	"time"
 )
 
 type Filter struct {
 	Id           string           `json:"id"`
 	Title        string           `json:"title"`
 	Context      []string         `json:"context"`
-	ExpiresAt    *time.Time       `json:"expires_at"`
+	ExpiresAt    *APITime         `json:"expires_at"`
 	FilterAction string           `json:"filter_action"`
 	Keywords     []*FilterKeyword `json:"keywords"`
-	Statuses     []*Status        `json:"statuses"`
+	Statuses     []FilterStatus   `json:"statuses"`
 }
 
 func ToFilter(filter *models.Filter) *Filter {
+	ctx := filter.Context
+	if ctx == nil {
+		ctx = []string{}
+	}
+
 	return &Filter{
 		Id:           strconv.FormatUint(filter.Id, 10),
 		Title:        filter.Title,
-		Context:      filter.Context,
-		ExpiresAt:    filter.ExpiresAt,
+		Context:      ctx,
+		ExpiresAt:    NewAPITime(filter.ExpiresAt),
 		FilterAction: filter.GetFilterActionString(),
 		Keywords:     ToFilterKeywords(filter),
+		Statuses:     []FilterStatus{},
 	}
 }
 
@@ -46,4 +51,33 @@ func ToFilterKeyword(filter *models.Filter, keyword *models.FilterKeyword) *Filt
 		Id:            strconv.FormatUint(filter.Id, 10) + "-" + keyword.Uuid,
 		FilterKeyword: *keyword,
 	}
+}
+
+// FilterStatus is a v2 filter's status rule.
+type FilterStatus struct {
+	Id       string `json:"id"`
+	StatusId string `json:"status_id"`
+}
+
+// FilterResult is the entry type of Status#filtered (Mastodon FilterResult).
+type FilterResult struct {
+	Filter         *Filter  `json:"filter"`
+	KeywordMatches []string `json:"keyword_matches"`
+	StatusMatches  []string `json:"status_matches"`
+}
+
+// ToFilterResults converts matched filters (action warn/hide) to the
+// Mastodon FilterResult array; never nil.
+func ToFilterResults(filters models.Filters) []FilterResult {
+	out := make([]FilterResult, 0, len(filters))
+
+	for _, f := range filters {
+		if f == nil || f.FilterAction == models.FilterActionNone {
+			continue
+		}
+
+		out = append(out, FilterResult{Filter: ToFilter(f)})
+	}
+
+	return out
 }

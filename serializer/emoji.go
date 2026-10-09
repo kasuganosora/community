@@ -3,6 +3,8 @@ package serializer
 import (
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
+	"strings"
 )
 
 type Emoji struct {
@@ -10,7 +12,7 @@ type Emoji struct {
 	Url             string   `json:"url"`
 	StaticUrl       string   `json:"static_url"`
 	VisibleInPicker bool     `json:"visible_in_picker"`
-	Category        string   `json:"category"`
+	Category        *string  `json:"category"`
 	Aliases         []string `json:"aliases"`
 	License         string   `json:"license"`
 	LocalOnly       bool     `json:"local_only"`
@@ -21,12 +23,24 @@ func ToEmoji(emoji *models.Emoji) *Emoji {
 	if emoji == nil {
 		return nil
 	}
+	emojiURL := mediaproxy.URL(mediaproxy.KindEmoji, absoluteURL(emoji.Url))
+
+	staticURL := absoluteURL(emoji.StaticUrl)
+	if staticURL == "" {
+		staticURL = absoluteURL(emoji.Url)
+	}
+
+	var category *string
+	if emoji.Category != "" {
+		category = &emoji.Category
+	}
+
 	return &Emoji{
 		Shortcode:       emoji.Shortcode,
-		Url:             mediaproxy.URL(mediaproxy.KindEmoji, emoji.Url),
-		StaticUrl:       mediaproxy.URL(mediaproxy.KindEmoji, emoji.StaticUrl),
+		Url:             emojiURL,
+		StaticUrl:       mediaproxy.URL(mediaproxy.KindEmoji, staticURL),
 		VisibleInPicker: emoji.VisibleInPicker,
-		Category:        emoji.Category,
+		Category:        category,
 		Aliases:         append([]string{}, emoji.Aliases...), License: emoji.License, LocalOnly: emoji.LocalOnly, IsSensitive: emoji.IsSensitive,
 	}
 }
@@ -40,4 +54,13 @@ func ToEmojis(emojis []*models.Emoji) []*Emoji {
 	}
 
 	return res
+}
+
+// absoluteURL turns a site-relative path into an absolute URL.
+func absoluteURL(raw string) string {
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+		return strings.TrimRight(systemsettings.GetBaseURL(), "/") + raw
+	}
+
+	return raw
 }

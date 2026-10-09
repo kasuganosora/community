@@ -4,8 +4,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"strconv"
+	"time"
 )
 
 type ListRequest struct {
@@ -37,15 +40,29 @@ func List(c *gin.Context) {
 		marker.Timelines = make(map[string]*models.MarkerTimelineItem)
 	}
 
-	ret := make(map[string]*models.MarkerTimelineItem)
+	// Mastodon omits timelines that have no marker; each entry is
+	// {last_read_id: "<id>", version: int, updated_at: ISO8601 .000Z}.
+	ret := make(map[string]gin.H)
 
 	for _, timeline := range req.Timelines {
-		if item, ok := marker.Timelines[timeline]; ok {
-			ret[timeline] = item
-		} else {
-			ret[timeline] = &models.MarkerTimelineItem{}
+		if item, ok := marker.Timelines[timeline]; ok && item != nil {
+			ret[timeline] = markerJSON(item)
 		}
 	}
 
 	c.JSON(200, ret)
+}
+
+func markerJSON(item *models.MarkerTimelineItem) gin.H {
+	updated := item.UpdatedAt
+	if updated == nil {
+		now := time.Now()
+		updated = &now
+	}
+
+	return gin.H{
+		"last_read_id": strconv.FormatUint(item.LastReadId, 10),
+		"version":      item.Version,
+		"updated_at":   serializer.NewAPITime(updated),
+	}
 }

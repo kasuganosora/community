@@ -252,7 +252,7 @@ func TestProcessRedisMsg_NotificationChannel(t *testing.T) {
 	defer func() { _ = ws.Close() }()
 
 	// Valid notification payload
-	notifPayload := `{"payload":{"id":"42","type":"mention"}}`
+	notifPayload := `{"payload":{"id":"42","type":"mention","account":{"id":"1","username":"a"}}}`
 	msg := &redis.Message{
 		Channel: "feed:notification:123",
 		Payload: notifPayload,

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"github.com/kasuganosora/community/mediaproxy"
 	"gorm.io/gorm"
+	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kasuganosora/community/db"
@@ -15,40 +18,40 @@ import (
 )
 
 type Status struct {
-	EmojiReactions     []*Reaction   `json:"emoji_reactions"`
-	Id                 string        `json:"id"`
-	CreatedAt          *time.Time    `json:"created_at"`
-	InReplyToId        *string       `json:"in_reply_to_id"`
-	InReplyToAccountId *string       `json:"in_reply_to_account_id"`
-	Sensitive          bool          `json:"sensitive"`
-	SpoilerText        string        `json:"spoiler_text"`
-	Visibility         string        `json:"visibility"`
-	Language           string        `json:"language"`
-	Uri                string        `json:"uri"`
-	Url                string        `json:"url"`
-	RepliesCount       uint64        `json:"replies_count"`
-	ReblogsCount       uint64        `json:"reblogs_count"`
-	FavouritesCount    uint64        `json:"favourites_count"`
-	QuotesCount        uint64        `json:"quotes_count"`
-	EditedAt           *time.Time    `json:"edited_at"`
-	Favourited         bool          `json:"favourited"`
-	Reblogged          bool          `json:"reblogged"`
-	Muted              bool          `json:"muted"`
-	Bookmarked         bool          `json:"bookmarked"`
-	Pinned             bool          `json:"pinned"`
-	Content            string        `json:"content"`
-	Filtered           []string      `json:"filtered"`
-	Reblog             *Status       `json:"reblog"`
-	Quote              *Status       `json:"quote,omitempty"`
-	Application        *Application  `json:"application"`
-	Account            *Account      `json:"account"`
-	MediaAttachments   []*Attachment `json:"media_attachments"`
-	Mentions           []*Mention    `json:"mentions"`
-	Tags               []*Tag        `json:"tags"`
-	Emojis             []*Emoji      `json:"emojis"`
-	Card               Card          `json:"card"`
-	Poll               *Poll         `json:"poll"`
-	intId              uint64        `json:"-"`
+	EmojiReactions     []*Reaction    `json:"emoji_reactions"`
+	Id                 string         `json:"id"`
+	CreatedAt          *APITime       `json:"created_at"`
+	InReplyToId        *string        `json:"in_reply_to_id"`
+	InReplyToAccountId *string        `json:"in_reply_to_account_id"`
+	Sensitive          bool           `json:"sensitive"`
+	SpoilerText        string         `json:"spoiler_text"`
+	Visibility         string         `json:"visibility"`
+	Language           *string        `json:"language"`
+	Uri                string         `json:"uri"`
+	Url                string         `json:"url"`
+	RepliesCount       uint64         `json:"replies_count"`
+	ReblogsCount       uint64         `json:"reblogs_count"`
+	FavouritesCount    uint64         `json:"favourites_count"`
+	QuotesCount        uint64         `json:"quotes_count"`
+	EditedAt           *APITime       `json:"edited_at"`
+	Favourited         bool           `json:"favourited"`
+	Reblogged          bool           `json:"reblogged"`
+	Muted              bool           `json:"muted"`
+	Bookmarked         bool           `json:"bookmarked"`
+	Pinned             bool           `json:"pinned"`
+	Content            string         `json:"content"`
+	Filtered           []FilterResult `json:"filtered"`
+	Reblog             *Status        `json:"reblog"`
+	Quote              *Status        `json:"quote,omitempty"`
+	Application        *Application   `json:"application"`
+	Account            *Account       `json:"account"`
+	MediaAttachments   []*Attachment  `json:"media_attachments"`
+	Mentions           []*Mention     `json:"mentions"`
+	Tags               []*Tag         `json:"tags"`
+	Emojis             []*Emoji       `json:"emojis"`
+	Card               Card           `json:"card"`
+	Poll               *Poll          `json:"poll"`
+	intId              uint64         `json:"-"`
 }
 
 func ToStatusBase(status *models.Status) (ret *Status, err error) {
@@ -59,10 +62,10 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 		return ret, err
 	}
 
-	ret = &Status{EmojiReactions: make([]*Reaction, 0)}
+	ret = &Status{EmojiReactions: make([]*Reaction, 0), Filtered: []FilterResult{}}
 	ret.Id = strconv.FormatUint(status.Id, 10)
 	ret.intId = status.Id
-	ret.CreatedAt = status.CreatedAt
+	ret.CreatedAt = NewAPITime(status.CreatedAt)
 
 	if status.InReplyToId != nil && *status.InReplyToId > 0 {
 		ret.InReplyToId = new(string)
@@ -88,10 +91,10 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	}
 	ret.Visibility = status.GetVisibilityString()
 
-	ret.Language = status.Language
+	ret.Language = normalizeLanguage(status.Language)
 	ret.Uri = status.ObjectURI(systemsettings.GetBaseURL())
 
-	if status.OriginUri != nil {
+	if status.OriginUri != nil && isAbsoluteURL(*status.OriginUri) {
 		ret.Url = *status.OriginUri
 	} else if status.Account != nil {
 		ret.Url = fmt.Sprintf("%s/@%s/%d", systemsettings.GetBaseURL(), status.Account.Username, status.Id)
@@ -105,7 +108,7 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	ret.FavouritesCount = status.FavouritesCount
 
 	if status.Edited && status.UpdatedAt != nil && status.CreatedAt != nil && status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
-		ret.EditedAt = status.UpdatedAt
+		ret.EditedAt = NewAPITime(status.UpdatedAt)
 	}
 
 	ret.Content = status.ContentHTML(contentRenderOptions())
@@ -125,7 +128,9 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	}
 
 	ret.MediaAttachments = ToAttachments(status.Attachments)
-	ret.Application = ToApplication(status.Application)
+	if status.Application != nil || status.Domain == nil {
+		ret.Application = ToApplication(status.Application)
+	}
 	ret.Mentions = ToMentions(status.ToAccounts)
 	ret.Tags = ToTags(status.Tags)
 	emojiDomain := ""
@@ -222,7 +227,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		return ret, err
 	}
 
-	ret.Filtered = filters.GetStatusFiltersIn(status, currentAccount, filterContextName(dbConn)).GetFilterActionsName()
+	ret.Filtered = ToFilterResults(filters.GetStatusFiltersIn(status, currentAccount, filterContextName(dbConn)))
 
 	return ret, err
 }
@@ -357,7 +362,7 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		out.Reblogged = reblogged[s.Id]
 		out.Bookmarked = bookmarked[s.Id]
 		out.Muted = muted[s.Id] || mutedAuthors[s.AccountId] || (s.Reblog != nil && mutedAuthors[s.Reblog.AccountId])
-		out.Filtered = filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)).GetFilterActionsName()
+		out.Filtered = ToFilterResults(filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)))
 		out.Poll = serializedPolls[s.Id]
 		apply(s.Reblog, out.Reblog)
 	}
@@ -412,22 +417,72 @@ func clearHiddenQuote(conn *gorm.DB, src *models.Status, out *Status, viewer *mo
 	return nil
 }
 
-// proxiedCard returns the link card with a remote preview image routed
-// through the media proxy. The stored map is not modified.
+// proxiedCard returns the strictly typed Mastodon card (nil when the stored
+// card is empty or has no URL), with a remote preview image routed through
+// the media proxy. The stored map is not modified.
 func proxiedCard(card map[string]any) Card {
-	image, _ := card["image"].(string)
-	if image == "" {
-		return card
+	rawURL, _ := card["url"].(string)
+	if !isAbsoluteURL(rawURL) {
+		return nil
 	}
-	proxied := mediaproxy.URL(mediaproxy.KindPreview, image)
-	if proxied == image {
-		return card
-	}
-	out := make(Card, len(card))
-	for k, v := range card {
-		out[k] = v
-	}
-	out["image"] = proxied
 
-	return out
+	str := func(k string) string { v, _ := card[k].(string); return v }
+	num := func(k string) int {
+		switch v := card[k].(type) {
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case float64:
+			return int(v)
+		}
+
+		return 0
+	}
+
+	cardType := str("type")
+	switch cardType {
+	case "link", "photo", "video", "rich":
+	default:
+		cardType = "link"
+	}
+
+	var image any
+
+	img := str("image")
+	if strings.HasPrefix(img, "/") && !strings.HasPrefix(img, "//") {
+		img = strings.TrimRight(systemsettings.GetBaseURL(), "/") + img
+	}
+
+	if isAbsoluteURL(img) {
+		image = mediaproxy.URL(mediaproxy.KindPreview, img)
+	}
+
+	return Card{
+		"url": rawURL, "title": str("title"), "description": str("description"), "language": nil,
+		"type": cardType, "author_name": str("author_name"), "author_url": str("author_url"),
+		"provider_name": str("provider_name"), "provider_url": str("provider_url"),
+		"html": str("html"), "width": num("width"), "height": num("height"),
+		"image": image, "image_description": str("image_description"), "embed_url": str("embed_url"),
+		"blurhash": nil, "published_at": nil,
+	}
+}
+
+var languageRe = regexp.MustCompile(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
+
+// normalizeLanguage returns nil for empty or malformed language tags:
+// Mastodon's language is null or an ISO code, never "".
+func normalizeLanguage(l string) *string {
+	l = strings.TrimSpace(l)
+	if !languageRe.MatchString(l) {
+		return nil
+	}
+
+	return &l
+}
+
+func isAbsoluteURL(raw string) bool {
+	u, err := url.Parse(raw)
+
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }

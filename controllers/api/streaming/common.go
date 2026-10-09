@@ -132,6 +132,12 @@ func serializerNotificationEvent(account *models.Account, payload string) (event
 		return
 	}
 
+	// Mastodon clients require notification.account; the sender may have
+	// been deleted since the event was queued.
+	if event.Payload == nil || event.Payload.Account == nil {
+		return eventType, payloadStr, errors.Wrap(errEventAccountMissing, "notification")
+	}
+
 	_payloadStr, err := json.Marshal(event.Payload)
 	if err != nil {
 		return

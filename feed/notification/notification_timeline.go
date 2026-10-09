@@ -99,12 +99,13 @@ func (timeline *NotificationTimeline) push(notification *models.Notification, pu
 			return
 		}
 
-		if payload == nil {
-			return nil
-		}
-		err = feed.PushToClient(timeline, "notification", payload)
-		if err != nil {
-			return
+		// An invisible/incomplete notification is not streamed, but the
+		// feed must still be trimmed.
+		if payload != nil {
+			err = feed.PushToClient(timeline, "notification", payload)
+			if err != nil {
+				return
+			}
 		}
 	}
 
