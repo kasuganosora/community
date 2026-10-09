@@ -805,7 +805,7 @@ func registerPublicFileRoutes(app gin.IRoutes) {
 	app.Match(both, "/media/:id/*file", media.Serve)
 	app.Match(both, "/emoji-assets/:file", emojiasset.Serve)
 	app.Match(both, "/card-images/:file", linkcard.ServeImage)
-	app.Match(both, "/proxy/media/:sig/:encoded", mediaproxyserve.Serve)
+	app.Match(both, "/proxy/media/:token", mediaproxyserve.Serve)
 	app.Match(both, "/system/*file", transferapi.ServeMediaAlias)
 	app.Match(both, "/files/*file", transferapi.ServeMediaAlias)
 }

@@ -45,6 +45,8 @@ type Config struct {
 	// Remote media proxy: browsers load remote avatars, headers, media, emoji
 	// and card images through /proxy/media instead of the remote server.
 	MediaProxyEnabled        string `default:"true"     env:"MEDIA_PROXY_ENABLED"`
+	MediaProxyKey            string `env:"MEDIA_PROXY_KEY"`                                  // secret for proxy tokens; defaults to the server encryption key
+	MediaProxyPreviousKey    string `env:"MEDIA_PROXY_PREVIOUS_KEY"`                         // old secret still accepted when opening tokens (key rotation)
 	MediaProxyMaxBytes       string `default:"20971520" env:"MEDIA_PROXY_MAX_BYTES"`         // largest image that is relayed
 	MediaProxyMaxStreamBytes string `default:"536870912" env:"MEDIA_PROXY_MAX_STREAM_BYTES"` // largest video/audio that is streamed through
 

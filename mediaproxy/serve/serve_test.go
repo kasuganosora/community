@@ -40,12 +40,13 @@ func setup(t *testing.T, upstream http.Handler) (*httptest.Server, *gin.Engine) 
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 	r := gin.New()
-	r.Match([]string{"GET", "HEAD", "POST"}, "/proxy/media/:sig/:encoded", Serve)
+	r.Match([]string{"GET", "HEAD", "POST"}, "/proxy/media/:token", Serve)
 	return srv, r
 }
 
 func proxyPath(kind, raw string) string {
-	return "/proxy/media/" + mediaproxy.Sign(kind, raw) + "/" + base64.RawURLEncoding.EncodeToString([]byte(raw)) + "?kind=" + kind
+	tok, _ := mediaproxy.Seal(kind, raw, 0)
+	return "/proxy/media/" + tok
 }
 
 func do(r http.Handler, method, path string, hdr map[string]string) *httptest.ResponseRecorder {
@@ -58,15 +59,23 @@ func do(r http.Handler, method, path string, hdr map[string]string) *httptest.Re
 	return w
 }
 
-func TestRejectsUnsignedAndTampered(t *testing.T) {
+func TestRejectsForgedAndTamperedTokens(t *testing.T) {
 	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { t.Error("upstream must not be contacted") }))
 	raw := srv.URL + "/a.png"
-	require.Equal(t, 403, do(r, "GET", "/proxy/media/AAAA/"+base64.RawURLEncoding.EncodeToString([]byte(raw))+"?kind=avatar", nil).Code)
-	require.Equal(t, 403, do(r, "GET", strings.Replace(proxyPath("avatar", raw), "kind=avatar", "kind=header", 1), nil).Code)
-	require.Equal(t, 403, do(r, "GET", strings.Replace(proxyPath("avatar", raw), "kind=avatar", "kind=nope", 1), nil).Code)
-	require.Equal(t, 405, do(r, "POST", proxyPath("avatar", raw), nil).Code)
+	p := proxyPath("avatar", raw)
+	require.Equal(t, 403, do(r, "GET", "/proxy/media/AAAA", nil).Code)
+	require.Equal(t, 403, do(r, "GET", "/proxy/media/"+base64.RawURLEncoding.EncodeToString([]byte(raw)), nil).Code, "plain base64 URL")
+	flipped := []byte(p)
+	if flipped[len(flipped)-3] == 'A' {
+		flipped[len(flipped)-3] = 'B'
+	} else {
+		flipped[len(flipped)-3] = 'A'
+	}
+	require.Equal(t, 403, do(r, "GET", string(flipped), nil).Code)
+	require.Equal(t, 403, do(r, "GET", "/proxy/media/"+strings.Repeat("A", 4000), nil).Code)
+	require.Equal(t, 405, do(r, "POST", p, nil).Code)
 	config.C.MediaProxyEnabled = "false"
-	require.Equal(t, 404, do(r, "GET", proxyPath("avatar", raw), nil).Code)
+	require.Equal(t, 404, do(r, "GET", p, nil).Code)
 }
 
 func TestRelaysImageWithSafeHeaders(t *testing.T) {

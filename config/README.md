@@ -38,6 +38,8 @@ init() → loadConfig()
 | `SessionExpire` | `SESSION_EXPIRE` | `1382400` | Session 过期时间（秒），默认 16 天 |
 | `CORSAllowedOrigins` | `CORS_ALLOWED_ORIGINS` | _(无)_ | 逗号分隔的允许来源列表，为空则允许所有（仅开发模式） |
 | `MediaProxyEnabled` | `MEDIA_PROXY_ENABLED` | `true` | 远程头像/附件/表情/卡片图经 `/proxy/media` 流式转发（不落盘、不缓存） |
+| `MediaProxyKey` | `MEDIA_PROXY_KEY` | _(服务端加密密钥)_ | 代理令牌（AES-256-GCM，HKDF 派生）的密钥 |
+| `MediaProxyPreviousKey` | `MEDIA_PROXY_PREVIOUS_KEY` | _(无)_ | 轮换密钥时仍可解密的旧密钥；新令牌始终用当前密钥 |
 | `MediaProxyMaxBytes` | `MEDIA_PROXY_MAX_BYTES` | `20971520` | 转发图片的大小上限 |
 | `MediaProxyMaxStreamBytes` | `MEDIA_PROXY_MAX_STREAM_BYTES` | `536870912` | 转发视频/音频的大小上限 |
 | `WebSocketAllowedOrigins` | `WEBSOCKET_ALLOWED_ORIGINS` | _(无)_ | WebSocket 允许的来源 |

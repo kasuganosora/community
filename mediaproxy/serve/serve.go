@@ -1,4 +1,4 @@
-// Package serve implements GET/HEAD /proxy/media/:sig/:encoded, which relays
+// Package serve implements GET/HEAD /proxy/media/:token, which relays
 // remote media to browsers (see package mediaproxy). It is a pure
 // stream-through proxy: nothing is stored on this server.
 package serve
@@ -106,15 +106,14 @@ func failureKey(rawURL string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Serve handles GET and HEAD /proxy/media/:sig/:encoded.
+// Serve handles GET and HEAD /proxy/media/:token.
 func Serve(c *gin.Context) {
 	if !mediaproxy.Enabled() {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	kind := c.Query("kind")
-	rawURL, ok := mediaproxy.Decode(c.Param("encoded"))
-	if !ok || !mediaproxy.ValidKind(kind) || !mediaproxy.Verify(kind, rawURL, c.Param("sig")) {
+	kind, rawURL, ok := mediaproxy.Open(c.Param("token"))
+	if !ok {
 		c.Status(http.StatusForbidden)
 		return
 	}
