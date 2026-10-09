@@ -225,6 +225,12 @@ go build -o complement ./cmd/complement
 
 ### tootctl 命令示例
 
+Docker 镜像已内置 `tootctl`（`/usr/local/bin/tootctl`），可直接在运行中的容器里执行，配置沿用容器的环境变量：
+
+```bash
+docker compose exec community tootctl accounts create --username admin --email admin@example.com --confirmed --admin
+```
+
 ```bash
 # 查看版本
 ./tootctl version

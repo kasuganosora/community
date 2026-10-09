@@ -17,6 +17,7 @@ COPY . .
 # Build static binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/community ./cmd/community
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/community-transfer ./cmd/community-transfer
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/tootctl ./cmd/tootctl
 
 # ============================================
 # Stage 2: Build frontend
@@ -43,6 +44,8 @@ WORKDIR /app
 # Copy binary
 COPY --from=go-builder /build/community .
 COPY --from=go-builder /build/community-transfer .
+# Admin CLI, e.g. `docker compose exec app tootctl accounts create ...`
+COPY --from=go-builder /build/tootctl /usr/local/bin/tootctl
 
 # Copy frontend dist
 COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
