@@ -331,7 +331,9 @@ func TestBackfill(t *testing.T) {
 
 func TestStartQueueDropsWhenFull(t *testing.T) {
 	block := make(chan struct{})
-	svc := &Service{DB: func() *gorm.DB { <-block; return nil }}
+	empty, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	svc := &Service{DB: func() *gorm.DB { <-block; return empty }}
 	cur := startQueue(svc, 1, 2, 1000)
 	defer close(block)
 	accepted := 0
