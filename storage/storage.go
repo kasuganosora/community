@@ -1,25 +1,23 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net/url"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/config"
-	"github.com/kasuganosora/community/log"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// StorageProvider 存储提供者接口.
+// StorageProvider is the legacy provider interface, kept for callers that
+// predate Backend. CloudStorage implements it on top of Default().
 type StorageProvider interface {
 	Upload(filePath string, objectKey string) (string, error)
 	UploadReader(reader io.Reader, objectKey string, size int64) (string, error)
@@ -29,13 +27,9 @@ type StorageProvider interface {
 	IsEnabled() bool
 }
 
-// uploadsRoot returns the cleaned absolute root for uploads and its separator.
-// Used to validate that resolved paths remain inside the uploads directory.
+// uploadsRoot returns the cleaned root for uploads and its separator.
 func uploadsRoot() (cleanRoot, sep string) {
-	cleanRoot = filepath.Clean("uploads")
-	sep = string(filepath.Separator)
-
-	return cleanRoot, sep
+	return filepath.Clean("uploads"), string(filepath.Separator)
 }
 
 // isPathInsideRoot 验证 path 是否仍在 root 目录内（防止路径遍历）.
@@ -48,24 +42,34 @@ func isPathInsideRoot(path, root, sep string) bool {
 	return strings.HasPrefix(path, root+sep)
 }
 
-// Save 保存文件到存储（兼容旧 API）.
-func Save(path string, data []byte) (string, error) {
-	localStorage := &LocalStorage{Root: "uploads"}
+const opTimeout = 5 * time.Minute
 
-	return localStorage.Save(path, data)
-}
-
-// SaveByMultipart 通过 multipart 表单保存文件（兼容旧 API）.
-func SaveByMultipart(path string, fileHeader *multipart.FileHeader) (string, error) {
-	// 验证路径合法性（防止路径遍历攻击）
-	root, sep := uploadsRoot()
-
-	fullPath := filepath.Clean(filepath.Join(root, path))
-	if !isPathInsideRoot(fullPath, root, sep) {
-		return "", fmt.Errorf("invalid file path: potential path traversal detected")
+// Save stores data under key in the default backend and returns "/"+key
+// (the historical return format).
+func Save(key string, data []byte) (string, error) {
+	k, err := CleanKey(key)
+	if err != nil {
+		return "", fmt.Errorf("%w: potential path traversal detected", err)
 	}
 
-	// 打开上传的文件
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	if err := Default().Put(ctx, k, bytes.NewReader(data), int64(len(data)), sniffContentType(k, data)); err != nil {
+		return "", err
+	}
+
+	return "/" + k, nil
+}
+
+// SaveByMultipart stores an uploaded multipart file under key in the default
+// backend and returns the key.
+func SaveByMultipart(key string, fileHeader *multipart.FileHeader) (string, error) {
+	k, err := CleanKey(key)
+	if err != nil {
+		return "", fmt.Errorf("%w: potential path traversal detected", err)
+	}
+
 	file, err := fileHeader.Open()
 	if err != nil {
 		return "", err
@@ -73,71 +77,72 @@ func SaveByMultipart(path string, fileHeader *multipart.FileHeader) (string, err
 
 	defer func() { _ = file.Close() }()
 
-	// 创建目标目录
-	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(file, head)
+	head = head[:n]
+
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	r := io.MultiReader(bytes.NewReader(head), file)
+	if err := Default().Put(ctx, k, r, fileHeader.Size, sniffContentType(k, head)); err != nil {
 		return "", err
 	}
 
-	// 创建目标文件
-	dst, err := os.Create(fullPath) //nolint:gosec // G304: reviewed and safe
+	return k, nil
+}
+
+// Delete removes key from the default backend.
+func Delete(key string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return Default().Delete(ctx, key)
+}
+
+// Open reads key from the default backend.
+func Open(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error) {
+	return Default().Open(ctx, key)
+}
+
+// PutFile uploads the file at localPath to key in the default backend.
+func PutFile(ctx context.Context, localPath, key, contentType string) error {
+	f, err := os.Open(localPath) //nolint:gosec // G304: caller-controlled temp/upload file
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	defer func() { _ = dst.Close() }()
+	defer func() { _ = f.Close() }()
 
-	// 复制文件内容
-	if _, err := io.Copy(dst, file); err != nil {
-		return "", err
+	st, err := f.Stat()
+	if err != nil {
+		return err
 	}
 
-	return path, nil
-}
-
-// Delete 删除文件（兼容旧 API）.
-func Delete(path string) error {
-	// 如果云存储启用，先尝试从云端删除
-	storage := GetStorage()
-	if storage.IsEnabled() {
-		return storage.Delete(path)
+	if contentType == "" {
+		contentType = getContentType(localPath)
 	}
 
-	// 本地存储删除（带路径遍历防护）
-	root, sep := uploadsRoot()
+	return Default().Put(ctx, key, f, st.Size(), contentType)
+}
 
-	fullPath := filepath.Clean(filepath.Join(root, path))
-	if !isPathInsideRoot(fullPath, root, sep) {
-		return fmt.Errorf("invalid file path: potential path traversal detected")
+func sniffContentType(key string, head []byte) string {
+	if ct := getContentType(key); ct != "application/octet-stream" {
+		return ct
 	}
 
-	return os.Remove(fullPath)
+	if len(head) > 0 {
+		return http.DetectContentType(head)
+	}
+
+	return "application/octet-stream"
 }
 
-// CloudStorage 云存储管理器.
-type CloudStorage struct {
-	provider StorageProvider
-	enabled  bool
-}
+// CloudStorage adapts Default() to the legacy StorageProvider API.
+type CloudStorage struct{}
 
-var (
-	cloudStorage     *CloudStorage
-	cloudStorageOnce sync.Once
-)
-
-// GetStorage 获取存储管理器单例.
-func GetStorage() *CloudStorage {
-	cloudStorageOnce.Do(func() {
-		cloudStorage = &CloudStorage{
-			enabled: isCloudStorageEnabled(),
-		}
-		if cloudStorage.enabled {
-			cloudStorage.provider = createProvider()
-		}
-	})
-
-	return cloudStorage
-}
+// GetStorage returns the legacy adapter.
+func GetStorage() *CloudStorage { return &CloudStorage{} }
 
 func isCloudStorageEnabled() bool {
 	storageType := getStorageType()
@@ -146,10 +151,8 @@ func isCloudStorageEnabled() bool {
 }
 
 func getStorageType() string {
-	// STORAGE_TYPE 是 Config 结构体的标准配置项（带 env:"STORAGE_TYPE" tag），
-	// 因此其值会被加载到 config.C.StorageType，而不会出现在 config.C.Other 中
-	// （loadMapToConfig 只会把非标准键放入 Other）。此前这里错误地从 Other 读取，
-	// 导致 STORAGE_TYPE 配置永远不生效、始终回退为 "local"。
+	// STORAGE_TYPE is a standard Config field, so it lives in
+	// config.C.StorageType rather than config.C.Other.
 	storageType := config.C.StorageType
 	if storageType == "" {
 		return "local"
@@ -158,272 +161,77 @@ func getStorageType() string {
 	return strings.ToLower(storageType)
 }
 
-func createProvider() StorageProvider {
-	storageType := getStorageType()
-	switch storageType {
-	case "s3", "minio":
-		return NewS3Provider()
-	default:
-		return nil
-	}
-}
+// IsEnabled reports whether object storage (S3) is the active backend.
+func (s *CloudStorage) IsEnabled() bool { return IsRemote() }
 
-// IsEnabled 检查是否启用.
-func (s *CloudStorage) IsEnabled() bool {
-	return s.enabled && s.provider != nil && s.provider.IsEnabled()
-}
-
-// Upload 上传文件.
+// Upload uploads a local file to objectKey and returns the key.
 func (s *CloudStorage) Upload(filePath string, objectKey string) (string, error) {
-	if !s.IsEnabled() {
-		// 本地存储，返回相对路径
-		return filePath, nil
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	if err := PutFile(ctx, filePath, objectKey, ""); err != nil {
+		return "", err
 	}
 
-	return s.provider.Upload(filePath, objectKey)
+	return objectKey, nil
 }
 
-// UploadReader 上传 Reader.
+// UploadReader uploads reader to objectKey and returns the key.
 func (s *CloudStorage) UploadReader(reader io.Reader, objectKey string, size int64) (string, error) {
-	if !s.IsEnabled() {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	if err := Default().Put(ctx, objectKey, reader, size, getContentType(objectKey)); err != nil {
+		return "", err
+	}
+
+	return objectKey, nil
+}
+
+// Download opens objectKey (legacy references are normalised first).
+func (s *CloudStorage) Download(objectKey string) (io.ReadCloser, error) {
+	key, _ := NormalizeKey(objectKey)
+	rc, _, err := Default().Open(context.Background(), key)
+
+	return rc, err
+}
+
+// Delete removes objectKey (legacy references are normalised first).
+func (s *CloudStorage) Delete(objectKey string) error {
+	key, _ := NormalizeKey(objectKey)
+
+	return Delete(key)
+}
+
+// GetURL returns a URL for objectKey: the public object URL when one is
+// configured, otherwise APP_BASE_URL/<key>.
+func (s *CloudStorage) GetURL(objectKey string) string {
+	if u := Default().PublicURL(objectKey); u != "" {
+		return u
+	}
+
+	return config.C.AppBaseURL + "/" + strings.TrimPrefix(objectKey, "/")
+}
+
+// GeneratePresignedURL returns a temporary URL (S3 only).
+func (s *CloudStorage) GeneratePresignedURL(objectKey string, expiry time.Duration) (string, error) {
+	b, ok := Default().(*S3Backend)
+	if !ok {
 		return "", errors.New("storage not enabled")
 	}
 
-	return s.provider.UploadReader(reader, objectKey, size)
-}
-
-// Download 下载文件.
-func (s *CloudStorage) Download(objectKey string) (io.ReadCloser, error) {
-	if !s.IsEnabled() {
-		// 本地存储（路径遍历防护）
-		root, sep := uploadsRoot()
-		fullPath := filepath.Clean(filepath.Join(root, objectKey))
-		if !isPathInsideRoot(fullPath, root, sep) {
-			return nil, fmt.Errorf("invalid file path: potential path traversal detected")
-		}
-
-		return os.Open(fullPath) //nolint:gosec // G304: reviewed and safe
-	}
-
-	return s.provider.Download(objectKey)
-}
-
-// Delete 删除文件.
-func (s *CloudStorage) Delete(objectKey string) error {
-	if !s.IsEnabled() {
-		// 本地存储（路径遍历防护）
-		root, sep := uploadsRoot()
-		fullPath := filepath.Clean(filepath.Join(root, objectKey))
-		if !isPathInsideRoot(fullPath, root, sep) {
-			return fmt.Errorf("invalid file path: potential path traversal detected")
-		}
-
-		return os.Remove(fullPath)
-	}
-
-	return s.provider.Delete(objectKey)
-}
-
-// GetURL 获取文件 URL.
-func (s *CloudStorage) GetURL(objectKey string) string {
-	if !s.IsEnabled() {
-		return config.C.AppBaseURL + "/" + objectKey
-	}
-
-	return s.provider.GetURL(objectKey)
-}
-
-// S3Provider S3/MinIO 存储提供者.
-type S3Provider struct {
-	client        *minio.Client
-	bucket        string
-	endpoint      string
-	region        string
-	useSSL        bool
-	publicBaseURL string
-}
-
-// NewS3Provider 创建 S3 提供者.
-func NewS3Provider() *S3Provider {
-	p := &S3Provider{
-		bucket:        getEnvOrDefault("S3_BUCKET", "community"),
-		endpoint:      getEnvOrDefault("S3_ENDPOINT", "localhost:9000"),
-		region:        getEnvOrDefault("S3_REGION", "us-east-1"),
-		useSSL:        getEnvOrDefault("S3_USE_SSL", "false") == "true",
-		publicBaseURL: getEnvOrDefault("S3_PUBLIC_URL", ""),
-	}
-
-	accessKey := getEnvOrDefault("S3_ACCESS_KEY", "")
-	secretKey := getEnvOrDefault("S3_SECRET_KEY", "")
-
-	if accessKey == "" || secretKey == "" {
-		log.Warn("S3 credentials not configured, storage disabled")
-
-		return p
-	}
-
-	client, err := minio.New(p.endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: p.useSSL,
-		Region: p.region,
-	})
-	if err != nil {
-		log.Error("Failed to create S3 client: %v", err)
-
-		return p
-	}
-
-	// Verify an existing bucket without creating it or changing its policy.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	exists, err := client.BucketExists(ctx, p.bucket)
-	if err != nil {
-		log.Error("Failed to check bucket existence: %v", err)
-
-		return p
-	}
-
-	if !exists {
-		log.Error("Configured S3 bucket does not exist")
-		return p
-	}
-	p.client = client
-	// Bucket access policies belong to the storage administrator. Never make
-	// the entire bucket public merely because Community was configured to use it.
-
-	log.Info("S3 storage configured successfully")
-
-	return p
+	return b.PresignedURL(ctx, objectKey, expiry)
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if val, ok := config.C.Other[key]; ok {
-		return val
-	}
-
-	return defaultValue
+// HealthCheck reports whether the default backend passes its probe.
+func (s *CloudStorage) HealthCheck() bool {
+	return CheckHealth(context.Background()).Healthy
 }
 
-// IsEnabled 检查是否启用.
-func (p *S3Provider) IsEnabled() bool {
-	return p.client != nil
-}
-
-// Upload 上传文件.
-func (p *S3Provider) Upload(filePath string, objectKey string) (string, error) {
-	if !p.IsEnabled() {
-		return "", errors.New("s3 client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	// 获取文件信息
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	// 打开文件
-	file, err := os.Open(filePath) //nolint:gosec // G304: reviewed and safe
-	if err != nil {
-		return "", err
-	}
-
-	defer func() { _ = file.Close() }()
-
-	// 上传
-	_, err = p.client.PutObject(ctx, p.bucket, objectKey, file, fileInfo.Size(), minio.PutObjectOptions{
-		ContentType: getContentType(filePath),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return p.GetURL(objectKey), nil
-}
-
-// UploadReader 上传 Reader.
-func (p *S3Provider) UploadReader(reader io.Reader, objectKey string, size int64) (string, error) {
-	if !p.IsEnabled() {
-		return "", errors.New("s3 client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	_, err := p.client.PutObject(ctx, p.bucket, objectKey, reader, size, minio.PutObjectOptions{
-		ContentType: getContentType(objectKey),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return p.GetURL(objectKey), nil
-}
-
-// Download 下载文件.
-func (p *S3Provider) Download(objectKey string) (io.ReadCloser, error) {
-	if !p.IsEnabled() {
-		return nil, errors.New("s3 client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-	object, err := p.client.GetObject(ctx, p.bucket, objectKey, minio.GetObjectOptions{})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	// Return a wrapper that cancels the context when the reader is closed
-	return &s3ReadCloser{object: object, cancel: cancel}, nil
-}
-
-type s3ReadCloser struct {
-	object *minio.Object
-	cancel context.CancelFunc
-}
-
-func (s *s3ReadCloser) Read(p []byte) (int, error) {
-	return s.object.Read(p)
-}
-
-func (s *s3ReadCloser) Close() error {
-	err := s.object.Close()
-	s.cancel()
-	return err
-}
-
-// Delete 删除文件.
-func (p *S3Provider) Delete(objectKey string) error {
-	if !p.IsEnabled() {
-		return errors.New("s3 client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	return p.client.RemoveObject(ctx, p.bucket, objectKey, minio.RemoveObjectOptions{})
-}
-
-// GetURL 获取文件 URL.
-func (p *S3Provider) GetURL(objectKey string) string {
-	if p.publicBaseURL != "" {
-		return p.publicBaseURL + "/" + p.bucket + "/" + objectKey
-	}
-
-	// 构建 URL
-	scheme := "http"
-	if p.useSSL {
-		scheme = "https"
-	}
-
-	return fmt.Sprintf("%s://%s/%s/%s", scheme, p.endpoint, p.bucket, objectKey)
-}
-
-// getContentType 获取内容类型.
+// getContentType maps a file extension to a MIME type.
 func getContentType(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
@@ -435,10 +243,14 @@ func getContentType(filename string) string {
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
+	case ".avif":
+		return "image/avif"
 	case ".mp4":
 		return "video/mp4"
 	case ".webm":
 		return "video/webm"
+	case ".mov":
+		return "video/quicktime"
 	case ".mp3":
 		return "audio/mpeg"
 	case ".ogg":
@@ -448,45 +260,4 @@ func getContentType(filename string) string {
 	default:
 		return "application/octet-stream" //nolint:goconst
 	}
-}
-
-// GeneratePresignedURL 生成预签名 URL（用于临时访问）.
-func (s *CloudStorage) GeneratePresignedURL(objectKey string, expiry time.Duration) (string, error) {
-	if !s.IsEnabled() {
-		return "", errors.New("storage not enabled")
-	}
-
-	if provider, ok := s.provider.(*S3Provider); ok && provider.client != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		reqParams := make(url.Values)
-
-		presignedURL, err := provider.client.PresignedGetObject(ctx, provider.bucket, objectKey, expiry, reqParams)
-		if err != nil {
-			return "", err
-		}
-
-		return presignedURL.String(), nil
-	}
-
-	return "", errors.New("presigned URL not supported")
-}
-
-// HealthCheck 健康检查.
-func (s *CloudStorage) HealthCheck() bool {
-	if !s.IsEnabled() {
-		return false
-	}
-
-	if provider, ok := s.provider.(*S3Provider); ok && provider.client != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, err := provider.client.BucketExists(ctx, provider.bucket)
-
-		return err == nil
-	}
-
-	return true
 }

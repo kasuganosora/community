@@ -12,15 +12,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/storage"
 	"gorm.io/gorm"
 )
 
 func stageImportMedia(ctx context.Context, b *Bundle, o Options) (map[string]string, func(), error) {
 	paths := map[string]string{}
-	var created []string
+	var created, uploaded []string
 	cleanup := func() {
 		for _, p := range created {
 			_ = os.Remove(p)
+		}
+		for _, k := range uploaded {
+			_ = storage.Delete(k)
 		}
 	}
 	root := o.StorageDir
@@ -72,6 +76,17 @@ func stageImportMedia(ctx context.Context, b *Bundle, o Options) (map[string]str
 			cleanup()
 			return nil, cleanup, errors.New("media checksum verification failed")
 		}
+		// With object storage the verified file is moved to the bucket
+		// (key media/<relative>) so serving never depends on a local copy.
+		if storage.IsRemote() {
+			key := models.MediaKeyPrefix + relative
+			if err = storage.PutFile(ctx, target, key, m.ContentType); err != nil {
+				cleanup()
+				return nil, cleanup, errors.New("cannot store media file")
+			}
+			uploaded = append(uploaded, key)
+			_ = os.Remove(target)
+		}
 		paths[m.ID] = relative
 	}
 	return paths, cleanup, nil
@@ -119,6 +134,9 @@ func (i *importer) importMedia() error {
 				root = filepath.Join("uploads", "media")
 			}
 			_ = os.Remove(filepath.Join(root, filepath.FromSlash(i.mediaPaths[m.ID])))
+			if storage.IsRemote() {
+				_ = storage.Delete(models.MediaKeyPrefix + i.mediaPaths[m.ID])
+			}
 		}
 		if err = i.preserve("media_metadata", m.ID, m); err != nil {
 			return err

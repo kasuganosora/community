@@ -162,33 +162,6 @@ func TestReadAllFromFileHeader_OpenError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// cleanupUploadedFiles - removal-error log branch
-// ---------------------------------------------------------------------------
-
-func TestCleanupUploadedFiles_RemovalErrorLogged(t *testing.T) {
-	// Create a file, but point the thumbnail to a directory (Remove on a dir
-	// fails with "directory not empty" / "is a directory"), exercising the
-	// non-NotExist error-log branch.
-	dir := t.TempDir()
-
-	filePath := filepath.Join(dir, "img.png")
-	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0600))
-
-	// Create a subdirectory and use its name as the "thumbnail"; Remove on a
-	// non-empty directory errors.
-	sub := filepath.Join(dir, "thumb_sub")
-	require.NoError(t, os.Mkdir(sub, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "nested"), []byte("x"), 0600))
-	thumbName := "thumb_sub"
-
-	// On most platforms removing a non-empty dir errors, but to be robust we
-	// just assert it does not panic.
-	assert.NotPanics(t, func() {
-		cleanupUploadedFiles(dir, "img.png", &thumbName)
-	})
-}
-
-// ---------------------------------------------------------------------------
 // Get handler - DB error path
 // ---------------------------------------------------------------------------
 
@@ -292,11 +265,13 @@ func TestDelete_WithThumbnail(t *testing.T) {
 	dir := withTempWorkDir(t)
 	gdb := setupMediaTestDB(t)
 
-	// Create the physical thumbnail file under uploads/.
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "uploads"), 0o755))
+	// The original and thumbnail live under uploads/media/ (key media/<file_path>).
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "uploads", "media"), 0o755))
 	thumb := "thumb_test.png"
-	thumbPath := filepath.Join(dir, "uploads", thumb)
+	thumbPath := filepath.Join(dir, "uploads", "media", thumb)
 	require.NoError(t, os.WriteFile(thumbPath, []byte("thumb"), 0600))
+	origPath := filepath.Join(dir, "uploads", "media", "test.png")
+	require.NoError(t, os.WriteFile(origPath, []byte("orig"), 0600))
 
 	media := &models.MediaAttachment{
 		AccountId:     1,
@@ -317,6 +292,8 @@ func TestDelete_WithThumbnail(t *testing.T) {
 	// The thumbnail file should have been removed.
 	_, err := os.Stat(thumbPath)
 	assert.True(t, os.IsNotExist(err), "thumbnail file should be removed")
+	_, err = os.Stat(origPath)
+	assert.True(t, os.IsNotExist(err), "original file should be removed")
 }
 
 func TestDelete_DBErrorOnLookup(t *testing.T) {
@@ -570,7 +547,7 @@ func TestUpdateMediaError_DBDeleteError(t *testing.T) {
 	// must not panic; it logs the error. We pass an empty mediaDir so no file
 	// cleanup is attempted.
 	assert.NotPanics(t, func() {
-		updateMediaError(9999, "", "", nil)
+		updateMediaError(9999, nil)
 	})
 }
 

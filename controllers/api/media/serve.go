@@ -1,21 +1,21 @@
 package media
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"mime"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/storage"
 )
-
-// mediaRootDir is where Upload/UploadAsync store files (relative to the
-// working directory, see upload.go).
-var mediaRootDir = filepath.Join("uploads", "media")
 
 // Serve handles GET /media/:id/*file, the URLs produced by
 // serializer.ToMediaAttachment:
@@ -23,8 +23,10 @@ var mediaRootDir = filepath.Join("uploads", "media")
 //	/media/<id>/<file_name>
 //	/media/<id>/thumbnail/<thumbnail_path>
 //
-// Previously no route served these URLs, so every uploaded image/video URL
-// fell through to the SPA index.html.
+// The object is read through the configured storage backend (local
+// uploads/ or S3). When S3_PUBLIC_URL is configured, inline-safe media is
+// answered with a redirect to the public object URL (CDN / public bucket);
+// otherwise the bytes are streamed by the app. Range requests are supported.
 func Serve(c *gin.Context) {
 	requested := strings.TrimPrefix(c.Param("file"), "/")
 
@@ -35,46 +37,72 @@ func Serve(c *gin.Context) {
 		return
 	}
 
-	// media.FilePath is "<yyyy>/<mm>/<dd>/<file_name>"; the thumbnail lives
-	// next to it. Only these two exact names are served, so the request
-	// path can never be used to reach other files.
-	dir := path.Dir(filepath.ToSlash(media.FilePath))
-
+	// Only these two exact names are served, so the request path can never
+	// be used to reach other objects.
 	var (
-		rel         string
+		key         string
 		contentType string
+		thumbnail   bool
 	)
 
 	switch {
 	case media.FileName != "" && media.FileName != "processing" && requested == media.FileName:
-		rel = path.Join(dir, media.FileName)
+		key = media.StorageKey()
 		contentType = media.ContentType
-	case media.ThumbnailPath != nil && *media.ThumbnailPath != "" && requested == "thumbnail/"+*media.ThumbnailPath:
-		rel = path.Join(dir, *media.ThumbnailPath)
-		contentType = "" // Sniff bytes below, never trust an imported thumbnail extension.
-	default:
+	case media.ThumbPath() != "" && requested == "thumbnail/"+media.ThumbPath():
+		key = media.ThumbnailStorageKey()
+		thumbnail = true
+	}
+
+	if key == "" || strings.Contains(media.FilePath, "..") || strings.Contains(media.ThumbPath(), "..") {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 
 		return
 	}
 
-	if strings.Contains(rel, "..") {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+	backend := storage.Default()
+
+	if u := backend.PublicURL(key); u != "" && redirectable(contentType, key, thumbnail) {
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Redirect(http.StatusFound, u)
 
 		return
 	}
 
-	if contentType == "" {
-		file, err := os.Open(filepath.Join(mediaRootDir, filepath.FromSlash(rel)))
-		if err != nil {
-			c.Status(http.StatusNotFound)
+	rc, info, err := backend.Open(c.Request.Context(), key)
+	if err != nil {
+		if !errors.Is(err, storage.ErrNotFound) {
+			log.Warn("media %d: storage read failed: %v", media.Id, err)
+			c.Status(http.StatusServiceUnavailable)
+
 			return
 		}
-		sample := make([]byte, 512)
-		n, _ := file.Read(sample)
-		_ = file.Close()
-		contentType = http.DetectContentType(sample[:n])
+
+		c.Status(http.StatusNotFound)
+
+		return
 	}
+	defer func() { _ = rc.Close() }()
+
+	var body io.Reader = rc
+
+	if contentType == "" {
+		// Sniff bytes, never trust an imported thumbnail extension.
+		sample := make([]byte, 512)
+		n, _ := io.ReadFull(rc, sample)
+		contentType = http.DetectContentType(sample[:n])
+
+		if s, ok := rc.(io.Seeker); ok {
+			if _, err := s.Seek(0, io.SeekStart); err != nil {
+				c.Status(http.StatusServiceUnavailable)
+
+				return
+			}
+		} else {
+			body = io.MultiReader(bytes.NewReader(sample[:n]), rc)
+		}
+	}
+
 	parsed, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		parsed = "application/octet-stream"
@@ -83,12 +111,44 @@ func Serve(c *gin.Context) {
 	// metadata/extensions from turning downloaded HTML into an active document.
 	c.Header("Content-Type", parsed)
 	if !safeInlineMediaType(parsed) {
-		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(rel)}))
+		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(key)}))
 	}
 
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.File(filepath.Join(mediaRootDir, filepath.FromSlash(rel)))
+
+	if rs, ok := body.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, "", info.ModTime, rs)
+
+		return
+	}
+
+	if info.Size > 0 {
+		c.Header("Content-Length", strconv.FormatInt(info.Size, 10))
+	}
+
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, body)
+}
+
+// redirectable reports whether an object may be handed to the public bucket
+// URL. The bucket serves the Content-Type recorded at upload without our
+// nosniff/attachment hardening, so only inline-safe media qualifies:
+// originals by their validated type, thumbnails (generated by the image
+// processor) by their image extension.
+func redirectable(contentType, key string, thumbnail bool) bool {
+	if thumbnail {
+		switch strings.ToLower(path.Ext(key)) {
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+			return true
+		}
+
+		return false
+	}
+
+	parsed, _, err := mime.ParseMediaType(contentType)
+
+	return err == nil && safeInlineMediaType(parsed)
 }
 
 func safeInlineMediaType(contentType string) bool {

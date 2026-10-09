@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (a *Account) SaveAvatar(avatarFilePath string) (err error) {
 		return
 	}
 	// 保存头像
-	avatarSavePath, err := storage.Save(avatarFilePath, avatarData)
+	avatarSavePath, err := storage.Save("avatars/"+filepath.Base(avatarFilePath), avatarData)
 	if err != nil {
 		err = errors.Wrap(err, "save avatar file error")
 

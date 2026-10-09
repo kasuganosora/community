@@ -16,8 +16,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	emailsmtp "github.com/kasuganosora/community/email/smtp"
 	"github.com/kasuganosora/community/runtimeconfig"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/kasuganosora/community/storage"
 )
 
 // TestEmailSettings checks saved effective settings; it never accepts a URL or
@@ -133,22 +132,23 @@ func TestStorageSettings(c *gin.Context) {
 		c.JSON(422, gin.H{"success": false, "message": "请先保存 Endpoint、Access Key 与 Secret Key"})
 		return
 	}
-	secure := cfg.Other["S3_USE_SSL"] == "true"
 	var transport http.RoundTripper = activitypub.NewAuthenticatedMediaHTTPClient(nil).Transport
 	if config.IsExplicitlyConfigured("S3_ENDPOINT") {
 		t := http.DefaultTransport.(*http.Transport).Clone()
 		t.Proxy = nil
 		transport = t
 	}
-	client, err := minio.New(endpoint, &minio.Options{Creds: credentials.NewStaticV4(cfg.Other["S3_ACCESS_KEY"], cfg.Other["S3_SECRET_KEY"], ""), Secure: secure, Region: cfg.Other["S3_REGION"], Transport: diagnosticTransport{next: transport}})
-	if err != nil {
-		c.JSON(422, gin.H{"success": false, "message": "对象存储配置无效"})
-		return
-	}
+	// Same client construction as the running backend (scheme in endpoint,
+	// region, path style), probed with a HeadBucket request.
+	backend := storage.NewS3Backend(storage.S3Config{
+		Endpoint: endpoint, Region: cfg.Other["S3_REGION"], Bucket: bucket,
+		AccessKey: cfg.Other["S3_ACCESS_KEY"], SecretKey: cfg.Other["S3_SECRET_KEY"],
+		UseSSL: cfg.Other["S3_USE_SSL"] == "true", PathStyle: strings.ToLower(cfg.Other["S3_FORCE_PATH_STYLE"]),
+		Transport: diagnosticTransport{next: transport},
+	})
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
-	exists, err := client.BucketExists(ctx, bucket)
-	if err != nil || !exists {
+	if err := backend.Check(ctx); err != nil {
 		c.JSON(422, gin.H{"success": false, "message": "无法访问已配置的存储桶，请检查名称、权限、TLS 与网络。未创建或修改存储桶。"})
 		return
 	}

@@ -1,7 +1,14 @@
 package models
 
 import (
+	"context"
+	"errors"
+	"path"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/kasuganosora/community/storage"
 )
 
 // MediaType 媒体类型.
@@ -80,4 +87,82 @@ func (m *MediaAttachment) ThumbPath() string {
 	}
 
 	return *m.ThumbnailPath
+}
+
+// MediaKeyPrefix is the storage key namespace of media attachments. The
+// FilePath column holds the part of the object key below this prefix
+// ("2026/10/09/<file>"), so the object key is "media/2026/10/09/<file>" for
+// both the local backend (uploads/media/...) and S3.
+const MediaKeyPrefix = "media/"
+
+// MediaStorageKey maps a stored file_path to its object key. Besides the
+// canonical relative form it accepts legacy values: full bucket URLs written
+// by older S3 uploads, "uploads/..." host paths, and tootctl's top-level
+// "refreshed/..." keys.
+func MediaStorageKey(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+
+	trimmed := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(filePath)), "/")
+	key, isURL := storage.NormalizeKey(filePath)
+
+	switch {
+	case key == "":
+		return ""
+	case isURL, strings.HasPrefix(trimmed, "uploads/"), strings.HasPrefix(key, "refreshed/"):
+		return key
+	default:
+		return MediaKeyPrefix + key
+	}
+}
+
+// NormalizeMediaFilePath converts a legacy file_path (e.g. a bucket URL) to
+// the canonical form stored in the column (key without "media/").
+func NormalizeMediaFilePath(filePath string) string {
+	key := MediaStorageKey(filePath)
+	if strings.HasPrefix(key, MediaKeyPrefix) {
+		return strings.TrimPrefix(key, MediaKeyPrefix)
+	}
+
+	return key
+}
+
+// StorageKey returns the object key of the original file ("" if none).
+func (m *MediaAttachment) StorageKey() string {
+	return MediaStorageKey(m.FilePath)
+}
+
+// ThumbnailStorageKey returns the object key of the thumbnail ("" if none).
+// Thumbnails live next to the original file.
+func (m *MediaAttachment) ThumbnailStorageKey() string {
+	thumb := m.ThumbPath()
+	if thumb == "" {
+		return ""
+	}
+
+	key := m.StorageKey()
+	if key == "" {
+		return ""
+	}
+
+	return path.Join(path.Dir(key), thumb)
+}
+
+// DeleteStoredFiles removes the original and thumbnail objects through the
+// configured storage backend (local or S3). Missing objects are ignored.
+func (m *MediaAttachment) DeleteStoredFiles(ctx context.Context) error {
+	var errs []error
+
+	for _, key := range []string{m.StorageKey(), m.ThumbnailStorageKey()} {
+		if key == "" {
+			continue
+		}
+
+		if err := storage.Default().Delete(ctx, key); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }

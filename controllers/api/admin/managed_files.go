@@ -3,14 +3,13 @@ package admin
 import (
 	"errors"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/dialect"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -136,18 +135,11 @@ func DeleteManagedFile(c *gin.Context) {
 		assetError(c, err)
 		return
 	}
-	// Cleanup is restricted to the uploaded-media root and never follows a path
-	// supplied in this request. Shared or attached files never reach this point.
-	remove := func(rel string) {
-		clean := filepath.Clean(filepath.FromSlash(rel))
-		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return
-		}
-		_ = os.Remove(filepath.Join("uploads", "media", clean))
-	}
-	remove(row.FilePath)
-	if row.ThumbnailPath != nil {
-		remove(filepath.Join(filepath.Dir(row.FilePath), *row.ThumbnailPath))
+	// Shared or attached files never reach this point. Objects are removed
+	// through the storage backend (local uploads/media or S3), addressed
+	// only by the row's stored key, never by request input.
+	if err := row.DeleteStoredFiles(c.Request.Context()); err != nil {
+		log.Warn("managed file %d: failed to delete stored files: %v", row.Id, err)
 	}
 	c.Status(204)
 }

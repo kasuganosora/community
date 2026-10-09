@@ -51,7 +51,7 @@ func EffectiveConfig() config.Config {
 	}
 	for key, env := range map[string]string{
 		"endpoint": "S3_ENDPOINT", "region": "S3_REGION", "bucket": "S3_BUCKET",
-		"access_key": "S3_ACCESS_KEY", "secret_key": "S3_SECRET_KEY", "use_ssl": "S3_USE_SSL", "base_url": "S3_PUBLIC_URL",
+		"access_key": "S3_ACCESS_KEY", "secret_key": "S3_SECRET_KEY", "use_ssl": "S3_USE_SSL", "base_url": "S3_PUBLIC_URL", "path_style": "S3_FORCE_PATH_STYLE",
 	} {
 		if !config.IsExplicitlyConfigured(env) {
 			if value := systemsettings.Get("config.storage."+key, nil); value != nil {

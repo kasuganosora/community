@@ -40,8 +40,12 @@ func storageSettingsFields() []SettingsField {
 		deploymentField("storage", "secret_key", "访问密钥 Secret", "secret", "S3_SECRET_KEY", ""),
 		deploymentField("storage", "use_ssl", "使用 HTTPS", "boolean", "S3_USE_SSL", true),
 		deploymentField("storage", "base_url", "公开媒体基础 URL", "url", "S3_PUBLIC_URL", ""),
+		deploymentField("storage", "path_style", "路径风格请求", "text", "S3_FORCE_PATH_STYLE", "auto"),
 	}
 	fields[0].Options = []string{"local", "s3", "minio"}
+	fields[7].Description = "可选。指向存储桶根目录的公开地址（如 R2 公开桶 https://pub-xxxx.r2.dev 或自定义域名）；对象 media/a.jpg 将从 <该地址>/media/a.jpg 访问。留空则由本站直接从存储桶读取并返回文件。"
+	fields[8].Options = []string{"auto", "true", "false"}
+	fields[8].Description = "true 使用 https://端点/桶名/对象 形式（R2、MinIO 推荐）；false 使用虚拟主机风格；auto 由客户端判断。"
 	return fields
 }
 func databaseSettingsFields() []SettingsField {

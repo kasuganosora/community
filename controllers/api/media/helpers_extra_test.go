@@ -1,13 +1,16 @@
 package media
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/h2non/filetype"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,55 +36,26 @@ func TestReadAllFromFileHeader_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// cleanupUploadedFiles
+// storedMedia.cleanup
 // ---------------------------------------------------------------------------
 
-func TestCleanupUploadedFiles_BothExist(t *testing.T) {
-	dir := t.TempDir()
+func TestStoredMediaCleanup(t *testing.T) {
+	root := t.TempDir()
+	defer storage.SetDefault(&storage.LocalBackend{Root: root})()
 
-	// Create a file and a thumbnail.
-	filePath := filepath.Join(dir, "img.png")
-	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0600))
-
-	thumbName := "thumb_img.png"
-	thumbPath := filepath.Join(dir, thumbName)
-	require.NoError(t, os.WriteFile(thumbPath, []byte("thumb"), 0600))
-
-	cleanupUploadedFiles(dir, "img.png", &thumbName)
-
-	_, err := os.Stat(filePath)
-	assert.True(t, os.IsNotExist(err), "file should be removed")
-	_, err = os.Stat(thumbPath)
-	assert.True(t, os.IsNotExist(err), "thumbnail should be removed")
-}
-
-func TestCleanupUploadedFiles_NoThumbnail(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "img.png")
-	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0600))
-
-	// nil thumbnail path - should not panic and should remove the file.
-	cleanupUploadedFiles(dir, "img.png", nil)
-
-	_, err := os.Stat(filePath)
-	assert.True(t, os.IsNotExist(err), "file should be removed")
-}
-
-func TestCleanupUploadedFiles_FileMissingNoError(t *testing.T) {
-	dir := t.TempDir()
-	// Neither file nor thumbnail exist; cleanup should be a no-op without error.
-	thumbName := "thumb_img.png"
-	assert.NotPanics(t, func() {
-		cleanupUploadedFiles(dir, "missing.png", &thumbName)
-	})
-}
-
-func TestCleanupUploadedFiles_EmptyFileName(t *testing.T) {
-	dir := t.TempDir()
-	// Empty fileName - should skip file removal entirely (no panic).
-	assert.NotPanics(t, func() {
-		cleanupUploadedFiles(dir, "", nil)
-	})
+	thumb := "thumb_img.png"
+	s := &storedMedia{FileName: "img.png", FilePath: "2026/01/01/img.png", ThumbnailPath: &thumb}
+	assert.Equal(t, []string{"media/2026/01/01/img.png", "media/2026/01/01/thumb_img.png"}, s.keys())
+	for _, k := range s.keys() {
+		require.NoError(t, storage.Default().Put(context.Background(), k, strings.NewReader("x"), 1, ""))
+	}
+	s.cleanup()
+	for _, k := range s.keys() {
+		_, err := os.Stat(filepath.Join(root, k))
+		assert.True(t, os.IsNotExist(err), k)
+	}
+	// Missing objects, nil and empty values are no-ops.
+	assert.NotPanics(t, func() { s.cleanup(); (*storedMedia)(nil).cleanup(); (&storedMedia{}).cleanup() })
 }
 
 // ---------------------------------------------------------------------------
@@ -98,23 +72,26 @@ func TestUpdateMediaError_DeletesRecordAndCleansFiles(t *testing.T) {
 	}
 	require.NoError(t, gdb.Create(media).Error)
 
-	// Create the physical files that updateMediaError should remove.
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "img.png"), []byte("d"), 0600))
+	// Store objects through the backend that updateMediaError should remove.
+	root := t.TempDir()
+	defer storage.SetDefault(&storage.LocalBackend{Root: root})()
 	thumb := "thumb_img.png"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, thumb), []byte("t"), 0600))
+	stored := &storedMedia{FileName: "img.png", FilePath: "2026/01/01/img.png", ThumbnailPath: &thumb}
+	for _, k := range stored.keys() {
+		require.NoError(t, storage.Default().Put(context.Background(), k, strings.NewReader("d"), 1, ""))
+	}
 
-	updateMediaError(media.Id, dir, "img.png", &thumb)
+	updateMediaError(media.Id, stored)
 
 	// The media record must have been deleted.
 	var got models.MediaAttachment
 	err := gdb.First(&got, media.Id).Error
 	assert.Error(t, err, "media record should be deleted")
 
-	// The physical files must have been removed.
-	_, err = os.Stat(filepath.Join(dir, "img.png"))
+	// The stored objects must have been removed.
+	_, err = os.Stat(filepath.Join(root, "media/2026/01/01/img.png"))
 	assert.True(t, os.IsNotExist(err))
-	_, err = os.Stat(filepath.Join(dir, thumb))
+	_, err = os.Stat(filepath.Join(root, "media/2026/01/01", thumb))
 	assert.True(t, os.IsNotExist(err))
 }
 
@@ -128,7 +105,7 @@ func TestUpdateMediaError_NoMediaDir(t *testing.T) {
 	require.NoError(t, gdb.Create(media).Error)
 
 	// Empty mediaDir => only the DB record is deleted, no file cleanup attempted.
-	updateMediaError(media.Id, "", "", nil)
+	updateMediaError(media.Id, nil)
 
 	var got models.MediaAttachment
 	err := gdb.First(&got, media.Id).Error

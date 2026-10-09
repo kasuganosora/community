@@ -3,10 +3,10 @@ package account
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/cache"
+	mediactl "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/kasuganosora/community/storage"
 	"github.com/monoculum/formam/v3"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -130,9 +130,7 @@ func UpdateAccount(c *gin.Context) {
 
 	// 如果有头像，就更新头像
 	if req.Avatar != nil {
-		saveFilePath := "public/avatars/" + user.UUID
-
-		saveFilePath, err = storage.SaveByMultipart(saveFilePath, req.Avatar)
+		imageURL, err := mediactl.StoreAccountImage(c.Request.Context(), account.Id, req.Avatar)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "upload avatar failed"})
 
@@ -142,16 +140,14 @@ func UpdateAccount(c *gin.Context) {
 			return
 		}
 
-		account.Avatar = saveFilePath
+		account.Avatar = imageURL
 
 		updateFields = append(updateFields, "avatar")
 	}
 
 	// 如果有头图，就更新头图
 	if req.Header != nil {
-		saveFilePath := "public/headers/" + user.UUID
-
-		saveFilePath, err = storage.SaveByMultipart(saveFilePath, req.Header)
+		imageURL, err := mediactl.StoreAccountImage(c.Request.Context(), account.Id, req.Header)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "upload header failed"})
 
@@ -161,7 +157,7 @@ func UpdateAccount(c *gin.Context) {
 			return
 		}
 
-		account.Header = saveFilePath
+		account.Header = imageURL
 
 		updateFields = append(updateFields, "header")
 	}

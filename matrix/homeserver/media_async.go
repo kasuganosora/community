@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/storage"
 	"gorm.io/gorm"
 )
 
@@ -180,19 +181,20 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 			ext = exts[0]
 		}
 	}
-	dir := filepath.Join("uploads", "matrix", time.Now().Format("2006/01/02"))
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-	file, err := os.CreateTemp(dir, "async-*"+ext)
+	// Stage in a private temp file, then store through the storage backend
+	// under the key "matrix/<date>/<name>" (local uploads/ or S3).
+	file, err := os.CreateTemp("", "async-*"+ext)
 	if err != nil {
 		return nil, err
 	}
 	path := file.Name()
+	key := "matrix/" + time.Now().Format("2006/01/02") + "/" + filepath.Base(path)
+	stored := false
 	defer func() {
 		_ = file.Close()
-		if !committed {
-			_ = os.Remove(path)
+		_ = os.Remove(path)
+		if stored && !committed {
+			_ = storage.Delete(key)
 		}
 	}()
 	hash := sha256.New()
@@ -209,8 +211,12 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
+	if err = storage.PutFile(context.Background(), path, key, contentType); err != nil {
+		return nil, err
+	}
+	stored = true
 	uri := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
-	record := &MatrixMedia{MediaID: mediaID, ServerName: ams.hs.Config.ServerName, FileName: originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, mediaID+ext), ContentType: contentType, FileSize: size, FilePath: path, UploaderID: uploader, CreatedAt: time.Now()}
+	record := &MatrixMedia{MediaID: mediaID, ServerName: ams.hs.Config.ServerName, FileName: originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, mediaID+ext), ContentType: contentType, FileSize: size, FilePath: key, UploaderID: uploader, CreatedAt: time.Now()}
 	err = conn.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(record).Error; err != nil {
 			return err

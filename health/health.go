@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/storage"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -364,25 +365,49 @@ func StorageChecker(storageType string) HealthCheckerFunc {
 	return func(ctx context.Context) ServiceHealth {
 		start := time.Now()
 
-		// 简单的存储检查
-		switch storageType {
-		case "local":
+		switch strings.ToLower(storageType) {
+		case "", "local":
 			return checkLocalStorage(ctx, start)
-		case "s3", "oss", "cos":
-			// 云存储健康检查需要具体的客户端配置
-			return ServiceHealth{
-				Status:  StatusHealthy,
-				Latency: time.Since(start).String(),
-				Message: storageType + " storage health check requires client configuration",
-			}
+		case "s3", "minio":
+			return checkObjectStorage(ctx, start)
 		default:
+			// Only local and s3/minio are implemented; anything else silently
+			// stores files locally, which operators must be told about.
 			return ServiceHealth{
-				Status:  StatusHealthy,
+				Status:  StatusDegraded,
 				Latency: time.Since(start).String(),
-				Message: "unknown storage type",
+				Message: fmt.Sprintf("unsupported storage type %q (supported: local, s3); files are stored locally", storageType),
 			}
 		}
 	}
+}
+
+// checkObjectStorage probes the configured S3 bucket (HeadBucket with a
+// short timeout, cached by the storage package to avoid hammering the
+// provider). Errors are reported without credentials or endpoint host.
+func checkObjectStorage(ctx context.Context, start time.Time) ServiceHealth {
+	report := storage.CheckHealth(ctx)
+	meta := map[string]any{
+		"backend":    report.Backend,
+		"bucket":     report.Bucket,
+		"checked_at": report.CheckedAt.UTC(),
+		"cached":     report.Cached,
+	}
+
+	if report.Backend != storage.KindS3 {
+		return ServiceHealth{Status: StatusUnhealthy, Latency: time.Since(start).String(), Message: "STORAGE_TYPE is s3 but the active storage backend is " + report.Backend, Metadata: meta}
+	}
+
+	if report.Healthy {
+		return ServiceHealth{Status: StatusHealthy, Latency: report.Latency.String(), Message: "s3 bucket reachable", Metadata: meta}
+	}
+
+	status := StatusUnhealthy
+	if report.TimedOut {
+		status = StatusDegraded
+	}
+
+	return ServiceHealth{Status: status, Latency: report.Latency.String(), Message: "s3 storage check failed: " + report.Error, Metadata: meta}
 }
 
 // checkLocalStorage 检查本地存储健康状态.

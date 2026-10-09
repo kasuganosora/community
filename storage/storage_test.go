@@ -1,125 +1,133 @@
 package storage
 
 import (
+	"bytes"
+	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/kasuganosora/community/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// MockStorageProvider implements StorageProvider for testing.
-type MockStorageProvider struct{}
-
-func (m *MockStorageProvider) Upload(filePath string, objectKey string) (string, error) {
-	return objectKey, nil
+func TestCloudStorageImplementsStorageProvider(t *testing.T) {
+	var _ StorageProvider = &CloudStorage{}
 }
 
-func (m *MockStorageProvider) UploadReader(reader io.Reader, objectKey string, size int64) (string, error) {
-	return objectKey, nil
+func TestDefaultIsLocalInTests(t *testing.T) {
+	assert.Equal(t, KindLocal, Default().Kind())
+	assert.False(t, GetStorage().IsEnabled())
 }
 
-func (m *MockStorageProvider) Download(objectKey string) (io.ReadCloser, error) {
-	return nil, nil //nolint:nilnil // mock implementation
+func TestCloudStorage_GetURL_Local(t *testing.T) {
+	assert.NotEmpty(t, GetStorage().GetURL("test/file.txt"))
 }
 
-func (m *MockStorageProvider) Delete(objectKey string) error {
-	return nil
-}
+func TestCloudKeyRoundTripLocal(t *testing.T) {
+	root := t.TempDir()
+	defer SetDefault(&LocalBackend{Root: root})()
 
-func (m *MockStorageProvider) GetURL(objectKey string) string {
-	return "http://example.com/" + objectKey
-}
+	src := filepath.Join(t.TempDir(), "a.png")
+	require.NoError(t, os.WriteFile(src, []byte("png-bytes"), 0o600))
 
-func (m *MockStorageProvider) IsEnabled() bool {
-	return true
-}
-
-func TestStorageProviderInterface(t *testing.T) {
-	// Create a mock implementation
-	mockProvider := &MockStorageProvider{}
-
-	var _ StorageProvider = mockProvider
-
-	assert.NotNil(t, mockProvider)
-}
-
-func TestGetStorage(t *testing.T) {
-	storage := GetStorage()
-	assert.NotNil(t, storage)
-}
-
-func TestCloudStorage_IsEnabled(t *testing.T) {
-	storage := GetStorage()
-	// In test environment, cloud storage is typically disabled
-	enabled := storage.IsEnabled()
-	assert.False(t, enabled) // Should be false in test environment
-}
-
-func TestCloudStorage_GetURL(t *testing.T) {
-	storage := GetStorage()
-	url := storage.GetURL("test/file.txt")
-	assert.NotEmpty(t, url)
-}
-
-func TestCloudStorage_Upload_Disabled(t *testing.T) {
-	storage := GetStorage()
-	// When cloud storage is disabled, it returns the original path
-	result, err := storage.Upload("/local/path", "remote/key")
+	key, err := GetStorage().Upload(src, "media/2026/01/01/a.png")
 	require.NoError(t, err)
-	assert.Equal(t, "/local/path", result)
+	assert.Equal(t, "media/2026/01/01/a.png", key)
+	assert.FileExists(t, filepath.Join(root, "media/2026/01/01/a.png"))
+
+	rc, info, err := Open(context.Background(), key)
+	require.NoError(t, err)
+	data, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	assert.Equal(t, "png-bytes", string(data))
+	assert.Equal(t, int64(9), info.Size)
+
+	require.NoError(t, Delete(key))
+	_, _, err = Open(context.Background(), key)
+	require.ErrorIs(t, err, ErrNotFound)
+	// Deleting twice is fine.
+	require.NoError(t, Delete(key))
 }
 
-func TestS3Provider_IsEnabled(t *testing.T) {
-	provider := &S3Provider{}
-	// Without client, should be disabled
-	assert.False(t, provider.IsEnabled())
+func TestCleanKey(t *testing.T) {
+	for _, bad := range []string{"", "/etc/passwd", "../x", "a/../../x", "a\\b", "..", "a/..", "x\x00"} {
+		_, err := CleanKey(bad)
+		assert.Error(t, err, bad)
+	}
+
+	k, err := CleanKey("media//2026/./a.jpg")
+	require.NoError(t, err)
+	assert.Equal(t, "media/2026/a.jpg", k)
 }
 
-func TestS3Provider_GetURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		provider    *S3Provider
-		objectKey   string
-		expectedURL string
-	}{
-		{
-			name: "with public base URL",
-			provider: &S3Provider{
-				publicBaseURL: "https://cdn.example.com",
-				bucket:        "test-bucket", //nolint:goconst
-			},
-			objectKey:   "file.txt", //nolint:goconst
-			expectedURL: "https://cdn.example.com/test-bucket/file.txt",
-		},
-		{
-			name: "without public base URL HTTP",
-			provider: &S3Provider{
-				endpoint: "localhost:9000",
-				bucket:   "test-bucket",
-				useSSL:   false,
-			},
-			objectKey:   "file.txt",
-			expectedURL: "http://localhost:9000/test-bucket/file.txt",
-		},
-		{
-			name: "without public base URL HTTPS",
-			provider: &S3Provider{
-				endpoint: "s3.amazonaws.com",
-				bucket:   "test-bucket",
-				useSSL:   true,
-			},
-			objectKey:   "file.txt",
-			expectedURL: "https://s3.amazonaws.com/test-bucket/file.txt",
-		},
+func TestNormalizeKey(t *testing.T) {
+	cases := map[string]string{
+		"media/2026/a.jpg":                                  "media/2026/a.jpg",
+		"uploads/matrix/2026/a.jpg":                         "matrix/2026/a.jpg",
+		"/uploads/media/a.jpg":                              "media/a.jpg",
+		"https://acct.r2.cloudflarestorage.com/media/a.jpg": "media/a.jpg",
+	}
+	for in, want := range cases {
+		got, _ := NormalizeKey(in)
+		assert.Equal(t, want, got, in)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			url := tt.provider.GetURL(tt.objectKey)
-			assert.Equal(t, tt.expectedURL, url)
-		})
+	got, _ := NormalizeKey("https://acct.r2.cloudflarestorage.com/some-bucket/media/2026/a.jpg")
+	assert.Equal(t, "media/2026/a.jpg", got, "unknown bucket segment is dropped")
+
+	_, isURL := NormalizeKey("https://x/y")
+	assert.True(t, isURL)
+}
+
+func TestNormalizeKey_BucketURL(t *testing.T) {
+	defer SetDefault(NewS3Backend(S3Config{Endpoint: "acct.r2.cloudflarestorage.com", Bucket: "community-file", AccessKey: "AKIAEXAMPLE", SecretKey: "secretexample", UseSSL: true, PublicURL: "https://media.example.com"}))()
+
+	got, isURL := NormalizeKey("https://acct.r2.cloudflarestorage.com/community-file/media/2026/10/09/x.jpg")
+	assert.True(t, isURL)
+	assert.Equal(t, "media/2026/10/09/x.jpg", got)
+
+	got, _ = NormalizeKey("https://media.example.com/community-file/media/a%20b.jpg")
+	assert.Equal(t, "media/a b.jpg", got, "legacy <public>/<bucket>/<key> form")
+
+	got, _ = NormalizeKey("https://media.example.com/media/a.jpg")
+	assert.Equal(t, "media/a.jpg", got)
+}
+
+func TestS3Backend_PublicURL(t *testing.T) {
+	b := NewS3Backend(S3Config{Endpoint: "https://acct.r2.cloudflarestorage.com", Bucket: "b", AccessKey: "a", SecretKey: "s", PublicURL: "https://pub.r2.dev/"})
+	assert.True(t, b.cfg.UseSSL)
+	assert.Equal(t, "acct.r2.cloudflarestorage.com", b.cfg.Endpoint)
+	assert.Equal(t, "https://pub.r2.dev/media/a%20b.jpg", b.PublicURL("media/a b.jpg"))
+	assert.Empty(t, b.PublicURL("../x"))
+
+	b2 := NewS3Backend(S3Config{Endpoint: "x", Bucket: "b", AccessKey: "a", SecretKey: "s"})
+	assert.Empty(t, b2.PublicURL("media/a.jpg"))
+}
+
+func TestS3Backend_MisconfiguredNeverFallsBackToLocal(t *testing.T) {
+	b := NewS3Backend(S3Config{Endpoint: "localhost:1", Bucket: "b"})
+	assert.Equal(t, KindS3, b.Kind())
+	err := b.Put(context.Background(), "media/a.jpg", bytes.NewReader([]byte("x")), 1, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "S3_ACCESS_KEY")
+	require.Error(t, b.Check(context.Background()))
+}
+
+func TestLoadS3Config(t *testing.T) {
+	old := config.C.Other
+	defer func() { config.C.Other = old }()
+	config.C.Other = map[string]string{
+		"S3_ENDPOINT": "https://acct.r2.cloudflarestorage.com", "S3_REGION": "auto", "S3_BUCKET": "community-file",
+		"S3_ACCESS_KEY": "k", "S3_SECRET_KEY": "s", "S3_FORCE_PATH_STYLE": "true", "S3_PUBLIC_URL": "https://media.example.com/",
 	}
+	cfg := LoadS3Config()
+	assert.Equal(t, "auto", cfg.Region)
+	assert.Equal(t, "true", cfg.PathStyle)
+	assert.Equal(t, "https://media.example.com", cfg.PublicURL)
+	assert.Equal(t, "uploads", cfg.LegacyLocalRoot)
 }
 
 func TestGetContentType(t *testing.T) {
@@ -144,43 +152,24 @@ func TestGetContentType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.filename, func(t *testing.T) {
-			result := getContentType(tt.filename)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, getContentType(tt.filename))
 		})
 	}
 }
 
-func TestCloudStorageStruct(t *testing.T) {
-	storage := &CloudStorage{
-		enabled:  false,
-		provider: nil,
-	}
+func TestHealthCacheAndLocalCheck(t *testing.T) {
+	root := t.TempDir()
+	restore := SetDefault(&LocalBackend{Root: root})
+	defer restore()
 
-	assert.False(t, storage.IsEnabled())
-}
+	r := CheckHealth(context.Background())
+	assert.True(t, r.Healthy)
+	assert.False(t, r.Cached)
+	r = CheckHealth(context.Background())
+	assert.True(t, r.Cached)
 
-func TestS3Provider_Struct(t *testing.T) {
-	provider := &S3Provider{
-		bucket:        "test-bucket",
-		endpoint:      "localhost:9000",
-		region:        "us-east-1",
-		useSSL:        false,
-		publicBaseURL: "https://cdn.example.com",
-	}
-
-	assert.Equal(t, "test-bucket", provider.bucket)
-	assert.Equal(t, "localhost:9000", provider.endpoint)
-	assert.Equal(t, "us-east-1", provider.region)
-	assert.False(t, provider.useSSL)
-	assert.Equal(t, "https://cdn.example.com", provider.publicBaseURL)
-}
-
-func TestDelete(t *testing.T) {
-	// Test the Delete function signature
-	assert.NotNil(t, Delete)
-}
-
-func TestSaveByMultipart(t *testing.T) {
-	// Test the SaveByMultipart function signature
-	assert.NotNil(t, SaveByMultipart)
+	SetDefault(&LocalBackend{Root: filepath.Join(root, "missing")})
+	r = CheckHealth(context.Background())
+	assert.False(t, r.Healthy)
+	assert.NotEmpty(t, r.Error)
 }

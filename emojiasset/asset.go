@@ -21,7 +21,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -82,14 +81,16 @@ func StoreEmojiImage(ctx context.Context, reader io.Reader, declaredType string)
 	name := uuid.NewString()
 	key := "emojis/" + name + "." + ext
 	staticKey := "emojis/" + name + "-static.png"
-	local := &storage.LocalStorage{Root: "uploads"}
-	if _, err = local.Save(key, data); err != nil {
-		_ = local.Delete(key)
+	// Emoji images go through the configured storage backend (local
+	// uploads/emojis or S3 "emojis/" keys) and are always served by Serve.
+	backend := storage.Default()
+	if err = backend.Put(ctx, key, bytes.NewReader(data), int64(len(data)), "image/"+format); err != nil {
+		_ = backend.Delete(context.Background(), key)
 		return nil, err
 	}
-	if _, err = local.Save(staticKey, static.Bytes()); err != nil {
-		_ = local.Delete(key)
-		_ = local.Delete(staticKey)
+	if err = backend.Put(ctx, staticKey, bytes.NewReader(static.Bytes()), int64(static.Len()), "image/png"); err != nil {
+		_ = backend.Delete(context.Background(), key)
+		_ = backend.Delete(context.Background(), staticKey)
 		return nil, err
 	}
 	asset := &Asset{URL: systemsettings.GetBaseURL() + "/emoji-assets/" + path.Base(key), StaticURL: systemsettings.GetBaseURL() + "/emoji-assets/" + path.Base(staticKey), ContentType: "image/" + format, Width: width, Height: height, Size: int64(len(data))}
@@ -268,7 +269,7 @@ func DeleteAsset(asset *Asset) error {
 			errs = append(errs, errors.New("not a local emoji asset"))
 			continue
 		}
-		err = (&storage.LocalStorage{Root: "uploads"}).Delete("emojis/" + path.Base(u.Path))
+		err = storage.Default().Delete(context.Background(), "emojis/"+path.Base(u.Path))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}
@@ -283,14 +284,32 @@ func Serve(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	reader, err := (&storage.LocalStorage{Root: "uploads"}).Open("emojis/" + name)
+	kind := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[path.Ext(name)]
+	ServeObject(c, "emojis/"+name, name, kind, "public, max-age=31536000, immutable")
+}
+
+// ServeObject streams a stored emoji object with fixed headers. Missing
+// objects answer 404, backend failures 503.
+func ServeObject(c *gin.Context, key, name, contentType, cacheControl string) {
+	rc, info, err := storage.Default().Open(c.Request.Context(), key)
 	if err != nil {
-		c.Status(http.StatusNotFound)
+		if errors.Is(err, storage.ErrNotFound) {
+			c.Status(http.StatusNotFound)
+		} else {
+			c.Status(http.StatusServiceUnavailable)
+		}
 		return
 	}
-	kind := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[path.Ext(name)]
-	c.Header("Content-Type", kind)
+	defer func() { _ = rc.Close() }()
+	c.Header("Content-Type", contentType)
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	http.ServeContent(c.Writer, c.Request, name, time.Time{}, reader)
+	if cacheControl != "" {
+		c.Header("Cache-Control", cacheControl)
+	}
+	if rs, ok := rc.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, name, info.ModTime, rs)
+		return
+	}
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, rc)
 }

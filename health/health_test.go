@@ -15,6 +15,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
+	"github.com/kasuganosora/community/storage"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -551,32 +552,31 @@ func TestStorageChecker_Local(t *testing.T) {
 	assert.Contains(t, []HealthStatus{StatusHealthy, StatusDegraded}, health.Status)
 }
 
-func TestStorageChecker_S3(t *testing.T) {
-	checker := StorageChecker("s3")
-	health := checker(context.Background())
-	assert.Equal(t, StatusHealthy, health.Status)
-	assert.Contains(t, health.Message, "s3")
+func TestStorageChecker_S3_ProbesBackend(t *testing.T) {
+	// Misconfigured S3 (no credentials) must not be reported healthy.
+	restore := storage.SetDefault(storage.NewS3Backend(storage.S3Config{Endpoint: "s3.invalid.example:9000", Bucket: "b"}))
+	defer restore()
+
+	health := StorageChecker("s3")(context.Background())
+	assert.Equal(t, StatusUnhealthy, health.Status)
+	assert.Contains(t, health.Message, "S3_ACCESS_KEY")
+	assert.NotContains(t, health.Message, "s3.invalid.example")
 }
 
-func TestStorageChecker_OSS(t *testing.T) {
-	checker := StorageChecker("oss")
-	health := checker(context.Background())
-	assert.Equal(t, StatusHealthy, health.Status)
-	assert.Contains(t, health.Message, "oss")
+func TestStorageChecker_S3_LocalBackendMismatch(t *testing.T) {
+	restore := storage.SetDefault(&storage.LocalBackend{Root: t.TempDir()})
+	defer restore()
+
+	health := StorageChecker("s3")(context.Background())
+	assert.Equal(t, StatusUnhealthy, health.Status)
 }
 
-func TestStorageChecker_COS(t *testing.T) {
-	checker := StorageChecker("cos")
-	health := checker(context.Background())
-	assert.Equal(t, StatusHealthy, health.Status)
-	assert.Contains(t, health.Message, "cos")
-}
-
-func TestStorageChecker_Unknown(t *testing.T) {
-	checker := StorageChecker("unknown_type")
-	health := checker(context.Background())
-	assert.Equal(t, StatusHealthy, health.Status)
-	assert.Equal(t, "unknown storage type", health.Message)
+func TestStorageChecker_Unsupported(t *testing.T) {
+	for _, kind := range []string{"oss", "cos", "unknown_type"} {
+		health := StorageChecker(kind)(context.Background())
+		assert.Equal(t, StatusDegraded, health.Status, kind)
+		assert.Contains(t, health.Message, kind)
+	}
 }
 
 // ---------------------------------------------------------------------------

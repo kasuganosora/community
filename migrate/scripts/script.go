@@ -37,6 +37,7 @@ var ScripsType = []MigrationScript{
 	FilterActionDefaultScript{},
 	FilterExpiresNullableScript{},
 	AdminManagementScript{},
+	NormalizeStorageKeysScript{},
 }
 
 type MigrationScript interface {

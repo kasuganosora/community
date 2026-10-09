@@ -1,6 +1,8 @@
 package media
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -8,17 +10,13 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"io"
 	"mime"
 	"mime/multipart"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -86,109 +84,31 @@ func Upload(c *gin.Context) {
 		return
 	}
 
-	// 计算时间戳（一次计算，统一使用，避免跨日期边界时路径不一致）
-	now := time.Now()
-	dateDir := now.Format("2006/01/02")
-
-	// 创建媒体目录
-	mediaDir := filepath.Join("uploads", "media", dateDir)
-	if err := os.MkdirAll(mediaDir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
-		err = errors.Wrap(err, "Failed to create media directory")
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "Internal server error"})
-
-		return
-	}
-
-	// 生成文件名（从已验证的 Content-Type 推导扩展名，使用随机字节防冲突）
-	ext := extensionForContentType(validatedContentType)
-	fileName := generateUniqueFileName(now, ext)
-	filePath := filepath.Join(mediaDir, fileName)
-
-	// 创建目标文件
-	dst, err := os.Create(filePath) //nolint:gosec // G304: reviewed and safe
+	// Store the original (and thumbnail) through the storage backend; the
+	// row keeps only the key below "media/", never a URL or host path.
+	stored, err := storeMediaFile(c.Request.Context(), file, validatedContentType)
 	if err != nil {
-		err = errors.Wrap(err, "Failed to create file")
+		err = errors.Wrap(err, "Failed to store media")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
 
 		return
 	}
-
-	// 复制文件内容（流式处理，避免大文件占用内存）
-	written, copyErr := io.Copy(dst, file)
-	closeErr := dst.Close()
-
-	if copyErr != nil {
-		// 写入失败，清理部分写入的文件
-		_ = os.Remove(filePath)
-		err = errors.Wrap(copyErr, "Failed to save file")
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "Internal server error"})
-
-		return
-	}
-
-	if closeErr != nil {
-		// 关闭失败（可能数据未完全刷盘），清理文件
-		_ = os.Remove(filePath)
-		err = errors.Wrap(closeErr, "Failed to close file")
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "Internal server error"})
-
-		return
-	}
-
-	fileSize := written
-
-	// 创建缩略图、获取尺寸和生成 BlurHash（如果是图片）
-	var (
-		thumbnailPath *string
-		blurhash      string
-		width, height *int
-	)
 
 	mediaType := models.GetMediaType(validatedContentType)
-
-	if mediaType == models.MediaTypeImage {
-		processor := media.NewImageProcessor()
-
-		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
-		if procErr == nil {
-			thumbnailPath = &thumbName
-			blurhash = bh
-			width = &w
-			height = &h
-		} else {
-			log.Warn("Failed to process image: %v", procErr)
-		}
-	}
-
-	// 构造存储相对路径
-	recordFilePath := filepath.Join(dateDir, fileName)
-
-	// 上传到云存储（如果启用）
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		if cloudPath, uploadErr := cloudStorage.Upload(filePath, "media/"+recordFilePath); uploadErr == nil {
-			recordFilePath = cloudPath
-		} else {
-			log.Warn("Failed to upload to cloud storage: %v", uploadErr)
-		}
-	}
 
 	// 创建数据库记录
 	mediaRecord := &models.MediaAttachment{
 		AccountId:     account.Id,
-		FileName:      fileName,
-		FilePath:      recordFilePath,
-		FileSize:      fileSize,
+		FileName:      stored.FileName,
+		FilePath:      stored.FilePath,
+		FileSize:      stored.Size,
 		ContentType:   validatedContentType,
 		Type:          mediaType,
-		Width:         width,
-		Height:        height,
-		ThumbnailPath: thumbnailPath,
-		Blurhash:      blurhash,
+		Width:         stored.Width,
+		Height:        stored.Height,
+		ThumbnailPath: stored.ThumbnailPath,
+		Blurhash:      stored.Blurhash,
 		Description:   description,
 		FocusX:        focusX,
 		FocusY:        focusY,
@@ -196,7 +116,7 @@ func Upload(c *gin.Context) {
 
 	if err := db.GetDB().Create(mediaRecord).Error; err != nil {
 		// 数据库写入失败，清理已保存的文件和缩略图
-		cleanupUploadedFiles(mediaDir, fileName, thumbnailPath)
+		stored.cleanup()
 		err = errors.Wrap(err, "Failed to create media record")
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
@@ -392,23 +312,6 @@ func generateUniqueFileName(now time.Time, ext string) string {
 	return fmt.Sprintf("%d_%x%s", now.UnixNano(), b[:], ext)
 }
 
-// cleanupUploadedFiles 删除已上传的文件及其缩略图.
-func cleanupUploadedFiles(mediaDir, fileName string, thumbnailPath *string) {
-	if fileName != "" {
-		filePath := filepath.Join(mediaDir, fileName)
-		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-			log.Warn("Failed to cleanup uploaded file %s: %v", filePath, err)
-		}
-	}
-
-	if thumbnailPath != nil && *thumbnailPath != "" {
-		thumbPath := filepath.Join(mediaDir, *thumbnailPath)
-		if err := os.Remove(thumbPath); err != nil && !os.IsNotExist(err) {
-			log.Warn("Failed to cleanup thumbnail %s: %v", thumbPath, err)
-		}
-	}
-}
-
 // UploadAsync 异步上传媒体文件（返回 202 Accepted）.
 func UploadAsync(c *gin.Context) {
 	// 获取当前用户
@@ -513,113 +416,42 @@ func UploadAsync(c *gin.Context) {
 
 // processUploadAsync 异步处理文件上传.
 func processUploadAsync(mediaId uint64, fileData []byte, validatedContentType string) {
-	// 1. 保存文件
-	now := time.Now()
-	dateDir := now.Format("2006/01/02")
-	mediaDir := filepath.Join("uploads", "media", dateDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
-	if err := os.MkdirAll(mediaDir, 0755); err != nil { //nolint:gosec // G301: reviewed and safe
-		log.Error("Failed to create directory for media %d: %v", mediaId, err)
-		updateMediaError(mediaId, "", "", nil)
-
-		return
-	}
-
-	// 从已验证的 Content-Type 推导扩展名
-	ext := extensionForContentType(validatedContentType)
-	fileName := generateUniqueFileName(now, ext)
-	filePath := filepath.Join(mediaDir, fileName)
-
-	dst, err := os.Create(filePath) //nolint:gosec // G304: reviewed and safe
+	stored, err := storeMediaFile(ctx, bytes.NewReader(fileData), validatedContentType)
 	if err != nil {
-		log.Error("Failed to create file for media %d: %v", mediaId, err)
-		updateMediaError(mediaId, mediaDir, "", nil)
+		log.Error("Failed to store media %d: %v", mediaId, err)
+		updateMediaError(mediaId, nil)
 
 		return
 	}
-
-	written, writeErr := dst.Write(fileData)
-	closeErr := dst.Close()
-
-	if writeErr != nil {
-		log.Error("Failed to save file for media %d: %v", mediaId, writeErr)
-		_ = os.Remove(filePath)
-		updateMediaError(mediaId, mediaDir, fileName, nil)
-
-		return
-	}
-
-	if closeErr != nil {
-		log.Error("Failed to close file for media %d: %v", mediaId, closeErr)
-		_ = os.Remove(filePath)
-		updateMediaError(mediaId, mediaDir, fileName, nil)
-
-		return
-	}
-
-	fileSize := int64(written)
-
-	// 2. 处理图片（缩略图、BlurHash、尺寸）
-	var (
-		thumbnailPath *string
-		blurhash      string
-		width, height *int
-	)
-
-	mediaType := models.GetMediaType(validatedContentType)
-
-	if mediaType == models.MediaTypeImage {
-		processor := media.NewImageProcessor()
-
-		thumbName, bh, w, h, procErr := processor.ProcessImage(filePath)
-		if procErr == nil {
-			thumbnailPath = &thumbName
-			blurhash = bh
-			width = &w
-			height = &h
-		} else {
-			log.Warn("Failed to process image for media %d: %v", mediaId, procErr)
-		}
-	}
-
-	// 3. 更新数据库记录
-	recordFilePath := filepath.Join(dateDir, fileName)
 
 	if err := db.GetDB().Model(&models.MediaAttachment{}).
 		Where("id = ?", mediaId).
 		Updates(map[string]any{
-			"file_name":      fileName,
-			"file_path":      recordFilePath,
-			"file_size":      fileSize,
-			"type":           mediaType,
-			"width":          width,
-			"height":         height,
-			"thumbnail_path": thumbnailPath,
-			"blurhash":       blurhash,
+			"file_name":      stored.FileName,
+			"file_path":      stored.FilePath,
+			"file_size":      stored.Size,
+			"type":           models.GetMediaType(validatedContentType),
+			"width":          stored.Width,
+			"height":         stored.Height,
+			"thumbnail_path": stored.ThumbnailPath,
+			"blurhash":       stored.Blurhash,
 		}).Error; err != nil {
 		log.Error("Failed to update media record %d: %v", mediaId, err)
-		updateMediaError(mediaId, mediaDir, fileName, thumbnailPath)
+		updateMediaError(mediaId, stored)
 
 		return
 	}
-
-	// 4. 上传到云存储（如果启用）
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		if _, uploadErr := cloudStorage.Upload(filePath, "media/"+recordFilePath); uploadErr != nil {
-			log.Warn("Failed to upload media %d to cloud storage: %v", mediaId, uploadErr)
-		}
-	}
 }
 
-// updateMediaError 更新媒体记录为错误状态并清理相关文件.
-func updateMediaError(mediaId uint64, mediaDir, fileName string, thumbnailPath *string) {
-	// 清理物理文件
-	if mediaDir != "" {
-		cleanupUploadedFiles(mediaDir, fileName, thumbnailPath)
+// updateMediaError deletes the failed media record and any stored objects.
+func updateMediaError(mediaId uint64, stored *storedMedia) {
+	if stored != nil {
+		stored.cleanup()
 	}
 
-	// 删除失败的媒体记录
 	if err := db.GetDB().Delete(&models.MediaAttachment{}, mediaId).Error; err != nil {
 		log.Error("Failed to delete failed media record %d: %v", mediaId, err)
 	}

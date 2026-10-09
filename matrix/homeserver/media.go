@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -97,58 +98,65 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 		}
 	}
 
-	// 确定存储路径
-	datePath := time.Now().Format("2006/01/02")
+	// Stage the bytes in a private temp dir (the thumbnailer needs a file),
+	// then write original and thumbnail through the storage backend. Rows
+	// keep storage keys ("matrix/<date>/<file>"), never host paths or URLs.
 	fileName := mediaID + ext
-	relativePath := filepath.Join("matrix", datePath, fileName)
-	fullPath := filepath.Join("uploads", relativePath)
+	key := "matrix/" + time.Now().Format("2006/01/02") + "/" + fileName
 
-	// 创建目录
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil { //nolint:gosec // G301: reviewed and safe
-		return nil, fmt.Errorf("failed to create directory: %w", err)
+	tmpDir, err := os.MkdirTemp("", "community-matrix-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create staging directory: %w", err)
 	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// 创建目标文件
-	dst, err := os.Create(fullPath) //nolint:gosec // G304: path validated
+	tmpPath := filepath.Join(tmpDir, fileName)
+
+	dst, err := os.Create(tmpPath) //nolint:gosec // G304: private temp dir
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
-	defer func() { _ = dst.Close() }()
 
-	// 复制文件内容
 	fileSize, err := io.Copy(dst, file)
-	if err != nil {
-		// Clean up the partially-written file to avoid orphaned files.
-		_ = os.Remove(fullPath)
+	closeErr := dst.Close()
 
+	if err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
-	// 获取文件信息
 	var (
 		width, height *int
 		thumbnailPath string
 	)
 
-	// 处理图片
 	if strings.HasPrefix(contentType, "image/") {
 		processor := media.NewImageProcessor()
 
-		thumbPath, w, h, err := processor.ProcessImageThumbnail(fullPath)
+		thumbName, w, h, err := processor.ProcessImageThumbnail(tmpPath)
 		if err == nil {
 			width = &w
 			height = &h
-			thumbnailPath = filepath.Join(filepath.Dir(fullPath), thumbPath)
+
+			if thumbName != "" {
+				thumbnailPath = path.Join(path.Dir(key), thumbName)
+				if err := storage.PutFile(context.Background(), filepath.Join(tmpDir, thumbName), thumbnailPath, ""); err != nil {
+					log.Warn("Failed to store matrix thumbnail: %v", err)
+					thumbnailPath = ""
+				}
+			}
 		}
 	}
 
-	// 上传到云存储（如果启用）
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		cloudPath, err := cloudStorage.Upload(fullPath, "matrix/"+relativePath)
-		if err == nil {
-			fullPath = cloudPath
+	if err := storage.PutFile(context.Background(), tmpPath, key, contentType); err != nil {
+		if thumbnailPath != "" {
+			_ = storage.Delete(thumbnailPath)
 		}
+
+		return nil, fmt.Errorf("failed to store file: %w", err)
 	}
 
 	// 创建数据库记录
@@ -160,13 +168,16 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 		FileSize:    fileSize,
 		Width:       width,
 		Height:      height,
-		FilePath:    fullPath,
+		FilePath:    key,
 		UploaderID:  uploaderID,
 		CreatedAt:   time.Now(),
 	}
 
 	if err := db.GetDB().Create(matrixMedia).Error; err != nil {
-		_ = os.Remove(fullPath)
+		_ = storage.Delete(key)
+		if thumbnailPath != "" {
+			_ = storage.Delete(thumbnailPath)
+		}
 
 		return nil, fmt.Errorf("failed to create media record: %w", err)
 	}
@@ -197,22 +208,44 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 		return nil, nil, errors.New("media not found")
 	}
 
-	// 尝试从云存储获取
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		reader, err := cloudStorage.Download(matrixMedia.FilePath)
-		if err == nil {
-			return &matrixMedia, reader, nil
-		}
-	}
-
-	// 从本地存储读取
-	file, err := os.Open(matrixMedia.FilePath)
+	reader, err := openMatrixFile(matrixMedia.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	return &matrixMedia, file, nil
+	return &matrixMedia, reader, nil
+}
+
+// openMatrixFile reads a stored matrix media reference through the storage
+// backend. Absolute host paths (written by very old releases and tests) are
+// still read from disk.
+func openMatrixFile(ref string) (io.ReadCloser, error) {
+	if filepath.IsAbs(ref) {
+		return os.Open(ref) //nolint:gosec // G304: legacy DB-provided path
+	}
+
+	key, _ := storage.NormalizeKey(ref)
+	rc, _, err := storage.Default().Open(context.Background(), key)
+
+	return rc, err
+}
+
+// deleteMatrixFile removes a stored matrix media reference.
+func deleteMatrixFile(ref string) {
+	if ref == "" {
+		return
+	}
+
+	if filepath.IsAbs(ref) {
+		_ = os.Remove(ref)
+
+		return
+	}
+
+	key, _ := storage.NormalizeKey(ref)
+	if err := storage.Delete(key); err != nil {
+		log.Warn("Failed to delete matrix media %s: %v", key, err)
+	}
 }
 
 // GetThumbnail 获取缩略图.
@@ -248,17 +281,21 @@ func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height in
 		return synth, reader, nil
 	}
 
-	// 从本地存储读取
 	// Older records stored only the processor's returned basename.
 	thumbPath := thumbnail.FilePath
-	if filepath.Base(thumbPath) == thumbPath {
+	if !strings.Contains(thumbPath, "/") && !strings.Contains(thumbPath, string(filepath.Separator)) {
 		var original MatrixMedia
 		if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&original).Error; err != nil {
 			return nil, nil, errors.New("thumbnail media not found")
 		}
-		thumbPath = filepath.Join(filepath.Dir(original.FilePath), thumbPath)
+		if filepath.IsAbs(original.FilePath) {
+			thumbPath = filepath.Join(filepath.Dir(original.FilePath), thumbPath)
+		} else {
+			key, _ := storage.NormalizeKey(original.FilePath)
+			thumbPath = path.Join(path.Dir(key), thumbPath)
+		}
 	}
-	file, err := os.Open(thumbPath)
+	file, err := openMatrixFile(thumbPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open thumbnail: %w", err)
 	}
@@ -289,6 +326,9 @@ func (s *MediaService) DeleteMedia(serverName, mediaID string) error {
 		return errors.New("media not found")
 	}
 
+	var thumbs []MatrixThumbnail
+	db.GetDB().Where("media_id = ?", mediaID).Find(&thumbs)
+
 	// 删除缩略图
 	db.GetDB().Where("media_id = ?", mediaID).Delete(&MatrixThumbnail{})
 
@@ -298,12 +338,13 @@ func (s *MediaService) DeleteMedia(serverName, mediaID string) error {
 		return err
 	}
 
-	// 删除文件
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		_ = cloudStorage.Delete(matrixMedia.FilePath)
-	} else {
-		_ = os.Remove(matrixMedia.FilePath)
+	// Delete the stored objects (local or S3).
+	deleteMatrixFile(matrixMedia.FilePath)
+
+	for _, t := range thumbs {
+		if t.FilePath != "" && t.FilePath != matrixMedia.FilePath && strings.Contains(t.FilePath, "/") {
+			deleteMatrixFile(t.FilePath)
+		}
 	}
 
 	return nil

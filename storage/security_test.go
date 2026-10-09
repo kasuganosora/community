@@ -108,7 +108,8 @@ func TestLocalStorage_PrefixAttackRejection(t *testing.T) {
 // since the package-level Delete() already guards, but the method must too.
 func TestCloudStorage_DeleteTraversalDefense(t *testing.T) {
 	// A CloudStorage that is NOT enabled (local mode): provider is nil / disabled.
-	s := &CloudStorage{enabled: false, provider: nil}
+	defer SetDefault(&LocalBackend{Root: "uploads"})()
+	s := &CloudStorage{}
 
 	err := s.Delete("../../../etc/passwd")
 	require.Error(t, err)
@@ -123,7 +124,8 @@ func TestCloudStorage_DeleteTraversalDefense(t *testing.T) {
 // TestCloudStorage_DownloadTraversalDefense verifies that the CloudStorage.Download
 // method (local mode) rejects path traversal attempts.
 func TestCloudStorage_DownloadTraversalDefense(t *testing.T) {
-	s := &CloudStorage{enabled: false, provider: nil}
+	defer SetDefault(&LocalBackend{Root: "uploads"})()
+	s := &CloudStorage{}
 
 	_, err := s.Download("../../../etc/passwd")
 	require.Error(t, err)

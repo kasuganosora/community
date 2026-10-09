@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -117,7 +116,7 @@ func ExportPersonal(ctx context.Context, conn *gorm.DB, accountID uint64, baseUR
 		}
 		b.Media = append(b.Media, v)
 		if m.FilePath != "" {
-			files = append(files, exportMediaFile{len(b.Media) - 1, "media/" + m.FilePath})
+			files = append(files, exportMediaFile{len(b.Media) - 1, m.StorageKey()})
 		}
 	}
 	lastID := uint64(0)
@@ -240,7 +239,7 @@ func ExportPersonal(ctx context.Context, conn *gorm.DB, accountID uint64, baseUR
 							m.Name = existing.FileName
 							m.ContentType = existing.ContentType
 							m.RemoteURL = ""
-							files = append(files, exportMediaFile{len(b.Media), "media/" + existing.FilePath})
+							files = append(files, exportMediaFile{len(b.Media), existing.StorageKey()})
 						} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 							return err
 						}
@@ -321,21 +320,15 @@ func ExportPersonal(ctx context.Context, conn *gorm.DB, accountID uint64, baseUR
 	}
 	return zw.Close()
 }
+
+// openExportMedia reads a stored object (local uploads/ or S3) by key.
 func openExportMedia(p string) (io.ReadCloser, error) {
 	p = strings.TrimPrefix(p, "uploads/")
 	if _, err := SafeArchiveName(p); err != nil {
 		return nil, err
 	}
-	provider := storage.GetStorage()
-	if provider.IsEnabled() {
-		return provider.Download(p)
-	}
-	root, err := os.OpenRoot("uploads")
-	if err != nil {
-		return nil, err
-	}
-	defer root.Close()
-	return root.Open(p)
+	rc, _, err := storage.Default().Open(context.Background(), p)
+	return rc, err
 }
 
 type limitedBackupWriter struct {

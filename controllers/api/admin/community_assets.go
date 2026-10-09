@@ -3,7 +3,6 @@ package admin
 import (
 	"errors"
 	"github.com/google/uuid"
-	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/http"
 	"net/url"
@@ -187,14 +186,7 @@ func AvatarDecorationImage(c *gin.Context) {
 		c.Status(404)
 		return
 	}
-	reader, err := (&storage.LocalStorage{Root: "uploads"}).Open("emojis/" + name)
-	if err != nil {
-		c.Status(404)
-		return
-	}
-	c.Header("Content-Type", "image/png")
-	c.Header("X-Content-Type-Options", "nosniff")
-	http.ServeContent(c.Writer, c.Request, name, time.Time{}, reader)
+	emojiasset.ServeObject(c, "emojis/"+name, name, "image/png", "")
 }
 func SelectAvatarDecoration(c *gin.Context) {
 	account := controllers.GetAccount(c)

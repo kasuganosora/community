@@ -6,9 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/kasuganosora/community/storage"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -157,14 +157,10 @@ func Delete(c *gin.Context) {
 		return
 	}
 
-	// 删除物理文件
-	if media.FilePath != "" {
-		_ = storage.Delete(media.FilePath)
-	}
-
-	// 删除缩略图
-	if media.ThumbnailPath != nil && *media.ThumbnailPath != "" {
-		_ = storage.Delete(*media.ThumbnailPath) // Log error but continue with database deletion
+	// Delete the original and thumbnail through the storage backend
+	// (local or S3); a failure is logged but does not block the API call.
+	if err := media.DeleteStoredFiles(c.Request.Context()); err != nil {
+		log.Warn("media %d: failed to delete stored files: %v", media.Id, err)
 	}
 
 	// 删除数据库记录

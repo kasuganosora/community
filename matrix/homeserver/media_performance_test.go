@@ -58,7 +58,7 @@ func TestAsyncMediaOwnershipStreamingAndImmutableBytes(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(hash[:]), stored.Sha256Hash)
 	_, err = service.CompleteAsyncUpload(context.Background(), pending.MediaID, "@alice:local.test", strings.NewReader("overwrite"), "")
 	require.ErrorIs(t, err, ErrCannotOverwriteMedia)
-	original, err := os.ReadFile(row.FilePath)
+	original, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(row.FilePath)))
 	require.NoError(t, err)
 	require.Equal(t, payload, original)
 }
