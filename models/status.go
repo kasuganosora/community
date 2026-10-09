@@ -1112,42 +1112,11 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 		return err
 	}
 
-	tags := make([]*Tag, 0)
-	if err = tx.Where("name IN ?", tagNames).Find(&tags).Error; err != nil {
+	// Tags are matched case-insensitively (TagKey); a new tag keeps the
+	// spelling it was first seen with.
+	tagMap, err := FindOrCreateTags(tx, tagNames)
+	if err != nil {
 		return err
-	}
-
-	tagMap := make(map[string]*Tag)
-	for _, tag := range tags {
-		tagMap[tag.Name] = tag
-	}
-
-	// 找出不存在的tag
-	notExistTagNames := make([]string, 0)
-
-	for _, tagName := range tagNames {
-		if _, ok := tagMap[tagName]; !ok {
-			notExistTagNames = append(notExistTagNames, tagName)
-		}
-	}
-
-	// 创建不存在的tag（批量插入，GORM 会回填每个 tag 的自增 ID）
-	if len(notExistTagNames) > 0 {
-		newTags := make([]*Tag, 0, len(notExistTagNames))
-		for _, tagName := range notExistTagNames {
-			newTags = append(newTags, &Tag{
-				Name: tagName,
-			})
-		}
-
-		err = tx.Create(&newTags).Error
-		if err != nil {
-			return err
-		}
-
-		for _, tag := range newTags {
-			tagMap[tag.Name] = tag
-		}
 	}
 
 	// The create hook can run again for an existing row (association
@@ -1333,8 +1302,8 @@ func (sma *StatusMediaAttachment) TableName() string {
 
 type StatusTag struct {
 	Id       uint64 `gorm:"primary_key;autoIncrement" json:"id"`
-	StatusId uint64 `gorm:"not null;index"             json:"status_id"`
-	TagId    uint64 `gorm:"not null;index"             json:"tag_id"`
+	StatusId uint64 `gorm:"not null;index;uniqueIndex:uidx_status_tags_status_tag,priority:1" json:"status_id"`
+	TagId    uint64 `gorm:"not null;index;uniqueIndex:uidx_status_tags_status_tag,priority:2" json:"tag_id"`
 }
 
 func (st *StatusTag) TableName() string {

@@ -90,7 +90,9 @@ func (timeline *TagTimeline) GetTimelineId() string {
 		strs = append(strs, "media")
 	}
 
-	strs = append(strs, timeline.Tag)
+	// Case-insensitive like the tag itself: #OSINT and #osint share a
+	// timeline cache and streaming channel.
+	strs = append(strs, models.TagKey(timeline.Tag))
 
 	return strings.Join(strs, ":")
 }
@@ -98,9 +100,7 @@ func (timeline *TagTimeline) GetTimelineId() string {
 func (timeline *TagTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
 func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 	statuses := make(models.Statuses, 0)
-	tag := &models.Tag{}
-
-	err = db.GetDB().WithContext(ctx).Model(&models.Tag{}).Where("name = ?", timeline.Tag).First(tag).Error
+	tag, err := models.FindTagByName(db.GetDB().WithContext(ctx), timeline.Tag)
 	if err != nil {
 		return err
 	}
@@ -280,8 +280,8 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 	}
 	// Resolve once per request, including requests which cross several cache
 	// batches after filtering. This identifier is not an authorization cache.
-	tagModel := &models.Tag{}
-	if err := db.GetDB().WithContext(contextForParams(params)).Where("name = ?", tag).First(tagModel).Error; err != nil {
+	tagModel, err := models.FindTagByName(db.GetDB().WithContext(contextForParams(params)), tag)
+	if err != nil {
 		return nil, err
 	}
 

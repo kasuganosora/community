@@ -141,39 +141,28 @@ func CreateFeaturedTag(c *gin.Context) {
 	// Get current account
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Check if already featured
+	// Find or create the tag case-insensitively; the tag keeps its
+	// first-seen spelling.
+	tag, err := models.FindOrCreateTag(db.GetDB(), name)
+	if err != nil {
+		_ = c.Error(errors.Wrap(err, "create tag error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+
+		return
+	}
+	name = tag.Name
+
+	// Check if already featured (by tag, so case variants count as one)
 	var count int64
 
 	db.GetDB().Table("featured_tags").
-		Where("account_id = ? AND name = ?", account.Id, name).
+		Where("account_id = ? AND tag_id = ?", account.Id, tag.Id).
 		Count(&count)
 
 	if count > 0 {
 		c.AbortWithStatusJSON(422, gin.H{"error": "Tag is already featured"})
 
 		return
-	}
-
-	// Find or create tag
-	tag := &models.Tag{}
-
-	err := db.GetDB().Where("name = ?", name).First(tag).Error
-	if err != nil {
-		// Create tag if not exists
-		now := time.Now()
-
-		tag = &models.Tag{
-			Name:      name,
-			CreatedAt: &now,
-			UpdatedAt: &now,
-		}
-		err := db.GetDB().Create(tag).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "create tag error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-			return
-		}
 	}
 
 	// Create featured tag
@@ -240,13 +229,18 @@ func SuggestFeaturedTags(c *gin.Context) {
 		Limit(100).
 		Pluck("status_contents.content", &contentStrings)
 
-	// Count tag usage
+	// Count tag usage case-insensitively; show the first-seen spelling.
 	tagCounts := make(map[string]int64)
+	tagDisplay := make(map[string]string)
 
 	for _, content := range contentStrings {
 		tags := models.MatchTags(content)
 		for _, tag := range tags {
-			tagCounts[tag]++
+			key := models.TagKey(tag)
+			if _, ok := tagDisplay[key]; !ok {
+				tagDisplay[key] = tag
+			}
+			tagCounts[key]++
 		}
 	}
 
@@ -256,18 +250,18 @@ func SuggestFeaturedTags(c *gin.Context) {
 
 	featuredSet := make(map[string]bool)
 	for _, ft := range featuredTags {
-		featuredSet["#"+ft.Name] = true
+		featuredSet[models.TagKey(ft.Name)] = true
 	}
 
 	// Build suggestions (exclude already featured)
 	result := make([]gin.H, 0)
 
-	for name, count := range tagCounts {
-		if featuredSet[name] {
+	for key, count := range tagCounts {
+		if featuredSet[key] {
 			continue
 		}
 		// Remove # prefix for display
-		displayName := name
+		displayName := tagDisplay[key]
 		if len(displayName) > 0 && displayName[0] == '#' {
 			displayName = displayName[1:]
 		}

@@ -39,6 +39,7 @@ var ScripsType = []MigrationScript{
 	AdminManagementScript{},
 	NormalizeStorageKeysScript{},
 	CleanInvalidTagsScript{},
+	TagCaseInsensitiveScript{},
 }
 
 type MigrationScript interface {

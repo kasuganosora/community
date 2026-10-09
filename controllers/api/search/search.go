@@ -563,21 +563,17 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		if err != nil {
 			meiliClient.NoteFailure()
 		} else if len(names) > 0 {
-			// Fetch full tag data from database
-			err := db.GetDB().Model(&models.Tag{}).
-				Where("name IN (?)", names).
-				Find(&tags).Error
+			// Fetch full tag data from database (case-insensitive key;
+			// stale documents of merged case variants collapse into one).
+			tagMap, err := models.FindTagsByNames(db.GetDB(), names)
 			if err == nil {
 				// Sort by Meilisearch result order
-				tagMap := make(map[string]*models.Tag)
-				for _, t := range tags {
-					tagMap[t.Name] = t
-				}
-
 				sortedTags := make([]*models.Tag, 0, len(names))
+				seen := make(map[uint64]bool, len(names))
 
 				for _, name := range names {
-					if t, ok := tagMap[name]; ok {
+					if t, ok := tagMap[models.TagKey(name)]; ok && !seen[t.Id] {
+						seen[t.Id] = true
 						sortedTags = append(sortedTags, t)
 					}
 				}
@@ -588,14 +584,13 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 	}
 
 	// Fallback to database search
-	escaped := escapeLike(keyword)
+	// name_key is the lowercased name, so a plain prefix LIKE on the
+	// lowercased keyword is case-insensitive on every database.
+	escaped := escapeLike(models.TagKey(keyword))
 	conn := db.GetDB()
-	like, esc := dialect.ILike(conn), dialect.LikeEscape(conn)
 	query := conn.Model(&models.Tag{}).
-		// Tags parsed from statuses are stored without the leading '#'
-		// (featured tags are stored with it), so match both forms.
-		Where("(name "+like+" ? "+esc+" OR name "+like+" ? "+esc+")", escaped+"%", "#"+escaped+"%").
-		Order("status_count DESC, name ASC")
+		Where("name_key LIKE ? "+dialect.LikeEscape(conn), escaped+"%").
+		Order("status_count DESC, name_key ASC")
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error
 	if err != nil {

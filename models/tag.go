@@ -14,11 +14,15 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/text/unicode/norm"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Tag struct {
-	Id               uint64     `gorm:"primary_key;autoIncrement"      json:"id"`
-	Name             string     `gorm:"type:varchar(64);not null;index" json:"name"`
+	Id   uint64 `gorm:"primary_key;autoIncrement"      json:"id"`
+	Name string `gorm:"type:varchar(64);not null;index" json:"name"`
+	// NameKey is TagKey(Name): the case-insensitive identity of the tag.
+	// Name keeps the first-seen spelling for display, like Mastodon.
+	NameKey          string     `gorm:"type:varchar(64);not null;default:'';uniqueIndex:uidx_tags_name_key" json:"-"`
 	StatusCount      uint64     `gorm:"not null;default:0"              json:"status_count"`
 	AccountCount     uint64     `gorm:"not null;default:0"              json:"account_count"`
 	LastStatusUsedAt *time.Time `gorm:"index"                           json:"last_status_used_at"`
@@ -40,7 +44,96 @@ func (t *Tag) BeforeCreate(*gorm.DB) error {
 	if !ValidTagName(t.Name) {
 		return fmt.Errorf("%w: %q", ErrInvalidTagName, t.Name)
 	}
+	t.NameKey = TagKey(t.Name)
 	return nil
+}
+
+// TagKey is the case-insensitive identity of a tag name: normalized (no
+// '#', trimmed, NFC) and lowercased with Go's Unicode case mapping. It is
+// computed in Go and compared exactly in SQL, so SQLite, MySQL and
+// PostgreSQL agree regardless of their collations.
+func TagKey(name string) string {
+	return norm.NFC.String(strings.ToLower(NormalizeTagName(name)))
+}
+
+// FindTagByName returns the tag whose name matches name case-insensitively.
+func FindTagByName(conn *gorm.DB, name string) (*Tag, error) {
+	key := TagKey(name)
+	if key == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var tag Tag
+	if err := conn.Where("name_key = ?", key).First(&tag).Error; err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// FindTagsByNames returns the existing tags matching names, keyed by TagKey.
+func FindTagsByNames(conn *gorm.DB, names []string) (map[string]*Tag, error) {
+	keys := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		if key := TagKey(name); key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	ret := make(map[string]*Tag, len(keys))
+	if len(keys) == 0 {
+		return ret, nil
+	}
+	var tags []*Tag
+	if err := conn.Where("name_key IN ?", keys).Find(&tags).Error; err != nil {
+		return nil, err
+	}
+	for _, tag := range tags {
+		ret[tag.NameKey] = tag
+	}
+	return ret, nil
+}
+
+// FindOrCreateTags returns one tag per distinct valid name, keyed by
+// TagKey, creating the missing ones with the given spelling. Creation is
+// race-safe: a concurrent insert of the same key is absorbed by the unique
+// index and the existing row is returned.
+func FindOrCreateTags(conn *gorm.DB, names []string) (map[string]*Tag, error) {
+	names = CleanTagNames(names)
+	tags, err := FindTagsByNames(conn, names)
+	if err != nil {
+		return nil, err
+	}
+	missing := make([]*Tag, 0)
+	for _, name := range names {
+		key := TagKey(name)
+		if _, ok := tags[key]; ok {
+			continue
+		}
+		tag := &Tag{Name: name}
+		tags[key] = tag
+		missing = append(missing, tag)
+	}
+	if len(missing) == 0 {
+		return tags, nil
+	}
+	if err := conn.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "name_key"}}, DoNothing: true}).Create(&missing).Error; err != nil {
+		return nil, err
+	}
+	// Re-read: ids of rows skipped on conflict are not filled in.
+	return FindTagsByNames(conn, names)
+}
+
+// FindOrCreateTag is FindOrCreateTags for one name.
+func FindOrCreateTag(conn *gorm.DB, name string) (*Tag, error) {
+	tags, err := FindOrCreateTags(conn, []string{name})
+	if err != nil {
+		return nil, err
+	}
+	tag, ok := tags[TagKey(name)]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidTagName, name)
+	}
+	return tag, nil
 }
 
 type Tags []*Tag
@@ -75,6 +168,11 @@ func NormalizeTagName(raw string) string {
 // whitespace is rejected.
 func ValidTagName(name string) bool {
 	if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > MaxTagNameLength {
+		return false
+	}
+	// The lowercased key must fit tags.name_key too (a few runes, e.g.
+	// 'İ', grow when lowercased).
+	if utf8.RuneCountInString(strings.ToLower(name)) > MaxTagNameLength {
 		return false
 	}
 	numeric := true
@@ -177,24 +275,11 @@ func MatchTags(str string) []string {
 	return utils.FilterDuplicateAndEmptyString(tags)
 }
 
-// GetTagsFromText returns the existing tags used in text, keyed by name.
+// GetTagsFromText returns the existing tags used in text, keyed by name key.
 func GetTagsFromText(dbConn *gorm.DB, text string) (ret map[string]*Tag, err error) {
 	names := ExtractTagNames(text)
 	if len(names) == 0 {
 		return
 	}
-
-	tags := make([]*Tag, 0, len(names))
-
-	err = dbConn.Where("name IN ?", names).Find(&tags).Error
-	if err != nil {
-		return
-	}
-
-	ret = make(map[string]*Tag, len(tags))
-	for _, tag := range tags {
-		ret[tag.Name] = tag
-	}
-
-	return
+	return FindTagsByNames(dbConn, names)
 }

@@ -110,9 +110,7 @@ func GetTag(c *gin.Context) {
 	}
 
 	// Find tag
-	tag := &models.Tag{}
-
-	err := db.GetDB().Where("name = ?", tagName).First(tag).Error
+	tag, err := models.FindTagByName(db.GetDB(), tagName)
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "tag not found"})
 
@@ -172,27 +170,13 @@ func FollowTag(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Find or create tag
-	tag := &models.Tag{}
-
-	err := db.GetDB().Where("name = ?", tagName).First(tag).Error
+	// Case-insensitive: following #OSINT follows the existing #osint.
+	tag, err := models.FindOrCreateTag(db.GetDB(), tagName)
 	if err != nil {
-		// Create tag if not exists
-		now := time.Now()
+		_ = c.Error(errors.Wrap(err, "create tag error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
-		tag = &models.Tag{
-			Name:         tagName,
-			StatusCount:  0,
-			AccountCount: 0,
-			CreatedAt:    &now,
-			UpdatedAt:    &now,
-		}
-		err := db.GetDB().Create(tag).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "create tag error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-			return
-		}
+		return
 	}
 
 	// Check if already following
@@ -248,9 +232,7 @@ func UnfollowTag(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Find tag
-	tag := &models.Tag{}
-
-	err := db.GetDB().Where("name = ?", tagName).First(tag).Error
+	tag, err := models.FindTagByName(db.GetDB(), tagName)
 	if err != nil {
 		c.AbortWithStatusJSON(404, gin.H{"error": "tag not found"})
 

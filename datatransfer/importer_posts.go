@@ -203,24 +203,24 @@ func (i *importer) importPost(p Post) error {
 				return 0, err
 			}
 		}
-		seenTags := map[string]bool{}
+		seenTags := map[uint64]bool{}
 		for _, tag := range p.Tags {
-			if seenTags[tag] {
+			if !models.ValidTagName(models.NormalizeTagName(tag)) {
 				continue
 			}
-			seenTags[tag] = true
-			var model models.Tag
-			if err = tx.Where("name = ?", tag).First(&model).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-				model.Name = tag
-				err = tx.Create(&model).Error
-			}
-			if err != nil {
+			// Case-insensitive find-or-create: #OSINT and #osint are one tag.
+			var model *models.Tag
+			if model, err = models.FindOrCreateTag(tx, models.NormalizeTagName(tag)); err != nil {
 				return 0, err
 			}
+			if seenTags[model.Id] {
+				continue
+			}
+			seenTags[model.Id] = true
 			if err = tx.Create(&models.StatusTag{StatusId: target.Id, TagId: model.Id}).Error; err != nil {
 				return 0, err
 			}
-			if err = tx.Model(&model).UpdateColumn("status_count", gorm.Expr("status_count + 1")).Error; err != nil {
+			if err = tx.Model(model).UpdateColumn("status_count", gorm.Expr("status_count + 1")).Error; err != nil {
 				return 0, err
 			}
 		}

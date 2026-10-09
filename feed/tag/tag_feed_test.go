@@ -1,6 +1,7 @@
 package tag
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -895,4 +896,38 @@ func TestTagTimeline_RebuildReturnsFeedError(t *testing.T) {
 	assert.Panics(t, func() {
 		_ = timeline.Rebuild()
 	})
+}
+
+// Hashtags are case-insensitive: #GoLang, #golang and #GOLANG resolve to the
+// same tag, timeline cache and streaming channel.
+func TestTagTimeline_CaseInsensitive(t *testing.T) {
+	globalStateMu.Lock()
+	defer globalStateMu.Unlock()
+
+	gdb := setupTestDB(t)
+	mockRedis := setupMockFeedService(t)
+
+	tag := &models.Tag{Name: "GoLang"}
+	require.NoError(t, gdb.Create(tag).Error)
+	status := &models.Status{AccountId: 1, Visibility: models.StatusVisibilityPublic}
+	require.NoError(t, gdb.Session(&gorm.Session{SkipHooks: true}).Create(status).Error)
+	require.NoError(t, gdb.Exec("INSERT INTO status_tags (status_id, tag_id) VALUES (?, ?)", status.Id, tag.Id).Error)
+
+	for _, name := range []string{"golang", "GOLANG", "GoLang"} {
+		timeline := &TagTimeline{Tag: name}
+		assert.Equal(t, "golang", timeline.GetTimelineId())
+		assert.Equal(t, (&TagTimeline{Tag: "golang", OnlyLocal: true}).GetTimelineId(),
+			(&TagTimeline{Tag: name, OnlyLocal: true}).GetTimelineId())
+		require.NoError(t, timeline.Rebuild(), name)
+	}
+
+	// A status tagged with the display spelling lands in the shared timeline.
+	mockRedis.SetChannel("subscribed:feed:hashtag:golang", true)
+	pushed := &models.Status{
+		Id: 900, AccountId: 1, Visibility: models.StatusVisibilityPublic,
+		Tags: models.Tags{{Name: "GoLang"}}, Account: &models.Account{Id: 1},
+	}
+	require.NoError(t, Push(pushed, false, true))
+	assert.Contains(t, mockRedis.GetZSet("feed:hashtag:golang"), strconv.FormatUint(pushed.Id, 10))
+	assert.Empty(t, mockRedis.GetZSet("feed:hashtag:GoLang"))
 }

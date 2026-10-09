@@ -347,7 +347,9 @@ func tagDoc(tag *models.Tag) *search.HashtagSearchDocument {
 		created = tag.CreatedAt.Unix()
 	}
 	return &search.HashtagSearchDocument{
-		ID:          search.HashtagDocumentID(name),
+		// Keyed by the case-insensitive tag key so case variants map to
+		// one document; Name keeps the display spelling.
+		ID:          search.HashtagDocumentID(models.TagKey(name)),
 		Name:        name,
 		StatusCount: int64(tag.StatusCount),
 		CreatedAt:   created,

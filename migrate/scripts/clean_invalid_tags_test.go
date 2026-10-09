@@ -45,7 +45,7 @@ func TestCleanInvalidTags(t *testing.T) {
 		5: "#travel",                       // recoverable, renamed
 		6: "你好",                            // valid
 	} {
-		require.NoError(t, raw.Create(&models.Tag{Id: id, Name: name, StatusCount: 1, CreatedAt: &now, UpdatedAt: &now}).Error)
+		require.NoError(t, raw.Create(&models.Tag{Id: id, Name: name, NameKey: models.TagKey(name), StatusCount: 1, CreatedAt: &now, UpdatedAt: &now}).Error)
 	}
 	links := []models.StatusTag{
 		{StatusId: 10, TagId: 1}, {StatusId: 10, TagId: 2}, // duplicate after merge
