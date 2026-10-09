@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
+import { AdminAlert, AdminBadge, AdminButton, AdminEmpty, AdminInlineForm, AdminPageHeader, AdminRow } from "../components/ui";
 import { operationsAdminApi as api, type Relay } from "../../infrastructure/operationsAdminApi";
 const items = ref<Relay[]>([]);
 const loading = ref(true);
@@ -9,6 +10,8 @@ const notice = ref("");
 const inbox = ref("");
 let alive = true;
 const states: Record<string, string> = { idle: "未启用", pending: "等待对方接受", accepted: "已连接", rejected: "已拒绝" };
+const tones: Record<string, "neutral" | "success" | "warning" | "danger"> = { idle: "neutral", pending: "warning", accepted: "success", rejected: "danger" };
+const active = (relay: Relay) => ["pending", "accepted"].includes(relay.state);
 async function load() {
     loading.value = true;
     error.value = "";
@@ -71,39 +74,29 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="admin-page">
-    <header>
-      <h1>联邦中继</h1>
-      <p>管理 ActivityPub 中继，用于与其他服务器交换公开帖子。</p>
-    </header>
-    <p v-if="error" class="admin-error" role="alert">
-      {{ error }} <button class="admin-button" :disabled="busy || loading" @click="load">重试加载</button>
-    </p>
-    <p v-if="notice" role="status">{{ notice }}</p>
-    <form class="admin-card admin-toolbar" @submit.prevent="add">
-      <label class="admin-field">中继收件箱地址<input v-model="inbox" type="url" required placeholder="https://relay.example/inbox" :disabled="busy" />
-      </label>
-      <button class="admin-button admin-button--primary" :disabled="busy || loading">{{ busy ? '处理中…' : '添加中继' }}</button>
-    </form>
+    <AdminPageHeader title="联邦中继" description="通过中继与其他服务器交换公开帖子。" />
+    <AdminAlert v-if="error" tone="danger">
+      {{ error }}
+      <template #action><AdminButton size="sm" :disabled="busy || loading" @click="load">重试加载</AdminButton></template>
+    </AdminAlert>
+    <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <section class="admin-card" aria-label="添加中继">
+      <AdminInlineForm v-model="inbox" label="中继收件箱地址" type="url" placeholder="https://relay.example/inbox" button-label="添加中继" :busy="busy" :disabled="loading" @submit="add" />
+    </section>
     <section class="admin-card" aria-label="中继列表" :aria-busy="loading">
-      <div class="admin-toolbar">
+      <div class="admin-card__header">
         <h2>已配置的中继</h2>
-        <button class="admin-button" :disabled="busy || loading" @click="load">刷新</button>
+        <AdminButton size="sm" :disabled="busy || loading" @click="load">刷新</AdminButton>
       </div>
-      <p v-if="loading" role="status">正在加载中继…</p>
-      <p v-else-if="!items.length && !error" class="admin-empty">尚未添加中继。</p>
-      <ul v-else class="relay-list">
-        <li v-for="relay in items" :key="relay.id">
-          <strong>{{ relay.inbox_url }}</strong>
-          <span class="admin-badge">{{ states[relay.state] || relay.state }}</span>
-          <div class="admin-toolbar">
-            <button class="admin-button" :disabled="busy" @click="act(relay, ['pending', 'accepted'].includes(relay.state) ? 'disable' : 'enable')">{{ ['pending', 'accepted'].includes(relay.state) ? '停用' : '启用' }}</button>
-            <button class="admin-button admin-button--danger" :disabled="busy" @click="act(relay, 'delete')">删除</button>
-          </div>
-        </li>
+      <p v-if="loading" class="admin-empty" role="status">正在加载中继…</p>
+      <AdminEmpty v-else-if="!items.length && !error">尚未添加中继。</AdminEmpty>
+      <ul v-else class="admin-list">
+        <AdminRow v-for="relay in items" :key="relay.id" :title="relay.inbox_url" mono>
+          <template #meta><AdminBadge :tone="tones[relay.state] || 'neutral'">{{ states[relay.state] || relay.state }}</AdminBadge></template>
+          <AdminButton size="sm" :disabled="busy" @click="act(relay, active(relay) ? 'disable' : 'enable')">{{ active(relay) ? '停用' : '启用' }}</AdminButton>
+          <AdminButton size="sm" variant="danger" :disabled="busy" @click="act(relay, 'delete')">删除</AdminButton>
+        </AdminRow>
       </ul>
     </section>
   </div>
 </template>
-<style scoped>
-.relay-list { list-style: none; padding: 0; } .relay-list li { display: grid; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--color-separator); } .relay-list strong { overflow-wrap: anywhere; }
-</style>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed,onMounted,ref } from 'vue'
+import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader } from '../components/ui'
 import { communityAssetsApi,type Advertisement,type AvatarDecoration } from '../../infrastructure/communityAssetsApi'
 const props=defineProps<{kind:'avatar_decorations'|'advertisements'}>()
 const ads=computed(()=>props.kind==='advertisements'),heading=computed(()=>ads.value?'广告':'头像挂件')
@@ -16,10 +17,45 @@ async function remove(item:AvatarDecoration&Advertisement){if(!window.confirm(ad
 onMounted(load)
 </script>
 <template>
-<section class="admin-page">
-<header class="admin-page-header"><div><h1>{{ heading }}管理</h1><p>{{ ads?'图片广告在社区右侧展示，明确标注广告；支持定时上下线，不记录点击与曝光。':'上传安全图片，成员可在个人设置选择，头像会实际叠加显示。' }}</p></div></header><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
- <form class="admin-card asset-editor" @submit.prevent="save"><h2>{{ editing?'编辑':'新增' }}{{ heading }}</h2><label>名称<input v-model="name" class="admin-input" required :maxlength="ads?120:80" /></label><label v-if="!editing">图片（PNG / JPEG / GIF / WebP，最多 2 MiB）<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" required @change="choose" /></label><p v-if="!ads&&!editing">建议使用透明 PNG；挂件以头像尺寸居中覆盖，不改变原头像。</p><template v-if="ads"><label>目标链接<input v-model="target" type="url" class="admin-input" placeholder="https://…" required /></label><label>开始时间（本地时间，留空立即）<input v-model="start" type="datetime-local" class="admin-input" /></label><label>结束时间（本地时间，留空不限）<input v-model="end" type="datetime-local" class="admin-input" /></label></template><label><input v-model="enabled" type="checkbox" />启用</label><div><button class="admin-button" :disabled="busy">{{ busy?'处理中…':'保存' }}</button><button v-if="editing" type="button" class="admin-button" @click="reset">取消编辑</button></div></form>
- <div class="asset-grid"><article v-for="item in items" :key="item.id" class="admin-card"><img :src="item.image_url" :alt="ads?item.title:item.name" class="asset-preview" loading="lazy" /><h2>{{ ads?item.title:item.name }}</h2><p>{{ item.enabled?'已启用':'已停用' }}</p><template v-if="ads"><p>{{ item.target_url }}</p><p>{{ item.starts_at?new Date(item.starts_at).toLocaleString():'立即' }} — {{ item.ends_at?new Date(item.ends_at).toLocaleString():'不限' }}</p></template><div class="admin-toolbar"><button class="admin-button" :disabled="busy" @click="edit(item)">编辑</button><button class="admin-button" :disabled="busy" @click="toggle(item)">{{ item.enabled?'停用':'启用' }}</button><button class="admin-button" :disabled="busy" @click="remove(item)">删除</button></div></article></div><p v-if="!items.length">暂无{{ heading }}</p>
-</section>
+  <section class="admin-page">
+    <AdminPageHeader :title="`${heading}管理`" :description="ads?'图片广告在社区右侧展示，支持定时上下线。':'成员可在个人设置中选用，叠加显示在头像上。'" />
+    <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
+    <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <form class="admin-card" @submit.prevent="save">
+      <h2>{{ editing?'编辑':'新增' }}{{ heading }}</h2>
+      <div class="admin-form">
+        <AdminField label="名称"><template #default="{ id }"><input :id="id" v-model="name" required :maxlength="ads?120:80" /></template></AdminField>
+        <AdminField v-if="!editing" label="图片" :hint="ads ? 'PNG / JPEG / GIF / WebP，最多 2 MiB' : '透明 PNG 效果最佳，最多 2 MiB'"><template #default="{ id }"><input :id="id" type="file" accept="image/png,image/jpeg,image/gif,image/webp" required @change="choose" /></template></AdminField>
+        <template v-if="ads">
+          <AdminField label="目标链接"><template #default="{ id }"><input :id="id" v-model="target" type="url" placeholder="https://…" required /></template></AdminField>
+          <AdminField label="开始时间" hint="留空表示立即"><template #default="{ id }"><input :id="id" v-model="start" type="datetime-local" /></template></AdminField>
+          <AdminField label="结束时间" hint="留空表示不限"><template #default="{ id }"><input :id="id" v-model="end" type="datetime-local" /></template></AdminField>
+        </template>
+        <AdminCheck v-model="enabled" label="启用" />
+      </div>
+      <div class="admin-form-actions">
+        <AdminButton type="submit" variant="primary" :loading="busy">{{ busy?'处理中…':'保存' }}</AdminButton>
+        <AdminButton v-if="editing" @click="reset">取消编辑</AdminButton>
+      </div>
+    </form>
+    <div class="asset-grid">
+      <article v-for="item in items" :key="item.id" class="admin-card">
+        <img :src="item.image_url" :alt="ads?item.title:item.name" class="asset-preview" loading="lazy" />
+        <div class="admin-card__header"><h2>{{ ads?item.title:item.name }}</h2><AdminBadge :tone="item.enabled ? 'success' : 'neutral'">{{ item.enabled?'已启用':'已停用' }}</AdminBadge></div>
+        <template v-if="ads"><p>{{ item.target_url }}</p><p>{{ item.starts_at?new Date(item.starts_at).toLocaleString():'立即' }} — {{ item.ends_at?new Date(item.ends_at).toLocaleString():'不限' }}</p></template>
+        <div class="admin-actions">
+          <AdminButton size="sm" :disabled="busy" @click="edit(item)">编辑</AdminButton>
+          <AdminButton size="sm" :disabled="busy" @click="toggle(item)">{{ item.enabled?'停用':'启用' }}</AdminButton>
+          <AdminButton size="sm" variant="danger" :disabled="busy" @click="remove(item)">删除</AdminButton>
+        </div>
+      </article>
+    </div>
+    <AdminEmpty v-if="!items.length">暂无{{ heading }}</AdminEmpty>
+  </section>
 </template>
-<style scoped>.asset-editor{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;max-width:640px;margin-bottom:24px}.asset-editor label{display:grid;gap:8px;min-width:0}.asset-editor>*,.asset-grid>*{min-width:0}.asset-editor input{min-width:0;max-width:100%;box-sizing:border-box}.asset-editor input[type=checkbox]{justify-self:start}.asset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px}.asset-preview{width:100%;height:160px;object-fit:contain;background:var(--color-bg-secondary)}.asset-grid p{overflow-wrap:anywhere}</style>
+<style scoped>
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 16px; }
+.asset-grid > * { min-width: 0; }
+.asset-preview { width: 100%; height: 150px; object-fit: contain; border-radius: 10px; background: var(--color-bg-grouped); }
+.asset-grid p { overflow-wrap: anywhere; }
+</style>

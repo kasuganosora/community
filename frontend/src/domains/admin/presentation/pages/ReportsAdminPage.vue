@@ -69,7 +69,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
   <section class="admin-page">
     <header>
       <h1>举报管理</h1>
-      <p>认领并核查举报内容，处理完成后更新状态。标记已处理不会自动删除内容或封禁账号。</p>
+      <p>认领并核查举报；标记已处理不会自动删除内容或封禁账号。</p>
     </header>
     <form class="admin-toolbar" aria-label="搜索举报" @submit.prevent="!busy && load(true)">
       <label class="admin-field">处理状态<select v-model="filters.resolved"><option value="">全部</option><option value="false">未处理</option><option value="true">已处理</option></select></label>
@@ -78,7 +78,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <button class="admin-button admin-button--primary" :disabled="loading || busy">搜索</button>
     </form>
     <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
-    <p v-if="loading" role="status">正在加载举报…</p>
+    <p v-if="loading" class="admin-empty" role="status">正在加载举报…</p>
     <div class="admin-card admin-table-wrap" role="region" aria-label="举报列表，可横向滚动" tabindex="0">
       <table class="admin-table">
         <thead><tr><th>举报</th><th>被举报账号</th><th>类别</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead>
@@ -87,7 +87,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <p v-if="!loading && !items.length" class="admin-empty">没有符合条件的举报</p>
     </div>
     <nav class="admin-pagination" aria-label="举报分页"><button class="admin-button" :disabled="loading || busy || cursors.length === 1" @click="page(false)">上一页</button><span>第 {{ cursors.length }} 页</span><button class="admin-button" :disabled="loading || busy || items.length < limit" @click="page(true)">下一页</button></nav>
-    <p v-if="detailLoading" role="status">正在加载详情…</p>
+    <p v-if="detailLoading" class="admin-empty" role="status">正在加载详情…</p>
     <section v-if="selected" class="admin-card" aria-label="举报详情">
       <h2>举报 #{{ selected.id }} · {{ selected.action_taken ? '已处理' : '未处理' }}</h2>
       <dl><dt>举报人</dt><dd>{{ selected.account?.acct || '账号已不可用' }}</dd><dt>被举报账号</dt><dd>{{ selected.target_account?.acct || '账号已不可用' }}</dd><dt>负责人</dt><dd>{{ selected.assigned_account?.acct || '未认领' }}</dd></dl>

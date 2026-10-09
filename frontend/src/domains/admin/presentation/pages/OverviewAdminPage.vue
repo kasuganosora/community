@@ -33,7 +33,7 @@ onMounted(load)
 
 <template>
   <div class="admin-page" :aria-busy="loading">
-    <header class="admin-page-header"><div><div class="overview-eyebrow">COMMUNITY / OVERVIEW</div><h1>社区概览</h1><p>每一个连接，都从这里开始。</p></div><button type="button" class="admin-button" :disabled="loading" @click="load"><t-icon name="refresh" aria-hidden="true" />{{ loading ? '正在更新…' : '刷新数据' }}</button></header>
+    <header class="admin-page-header"><div><div class="overview-eyebrow">COMMUNITY / OVERVIEW</div><h1>社区概览</h1><p>社区近况与待办。</p></div><button type="button" class="admin-button" :disabled="loading" @click="load"><t-icon name="refresh" aria-hidden="true" />{{ loading ? '正在更新…' : '刷新数据' }}</button></header>
     <p v-if="error" role="alert" class="admin-error">{{ error }} <button type="button" class="admin-button" :disabled="loading" @click="load">重试</button></p>
     <section class="overview-metrics" aria-label="社区统计">
       <article v-for="card in cards" :key="card.title" class="admin-card overview-metric"><div class="overview-metric-top"><h2>{{ card.title }}</h2><span class="overview-metric-icon" :class="`overview-metric-icon--${card.color}`"><t-icon :name="card.icon" :size="20" aria-hidden="true" /></span></div><strong>{{ loading ? '—' : card.value }}</strong><p>{{ card.hint }}</p></article>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader } from '../components/ui'
 import { onMounted, reactive, ref } from 'vue'
 import { announcementsAuditApi as api, type Announcement } from '../../infrastructure/announcementsAuditApi'
 const rows = ref<Announcement[]>([])
@@ -28,33 +29,44 @@ onMounted(() => load())
 </script>
 <template>
   <section class="admin-page">
-    <header><h1>公告管理</h1><p>公告内容为纯文本。先保存草稿，再发布；开始、结束与定时发布时间均按本地时区输入。修改后用户会重新看到未读标记。</p></header>
-    <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
-    <form class="admin-card announcement-form" @submit.prevent="save">
+    <AdminPageHeader title="公告管理" description="纯文本公告，先存草稿再发布；时间按本地时区。" />
+    <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
+    <form class="admin-card" @submit.prevent="save">
       <h2>{{ selected ? `编辑公告 #${selected}` : '新建公告' }}</h2>
-      <label class="admin-field">内容<textarea v-model="draft.content" required maxlength="10000" rows="6" :disabled="busy" /></label>
+      <AdminField label="内容"><template #default="{ id }"><textarea :id="id" v-model="draft.content" required maxlength="10000" rows="6" :disabled="busy" /></template></AdminField>
       <div class="admin-toolbar">
-        <label class="admin-field">定时发布时间<input v-model="draft.scheduled_at" type="datetime-local" :disabled="busy" /></label>
-        <label class="admin-field">展示开始<input v-model="draft.starts_at" type="datetime-local" :disabled="busy" /></label>
-        <label class="admin-field">展示结束<input v-model="draft.ends_at" type="datetime-local" :disabled="busy" /></label>
-        <label><input v-model="draft.all_day" type="checkbox" :disabled="busy" />全天</label>
+        <AdminField label="定时发布时间"><template #default="{ id }"><input :id="id" v-model="draft.scheduled_at" type="datetime-local" :disabled="busy" /></template></AdminField>
+        <AdminField label="展示开始"><template #default="{ id }"><input :id="id" v-model="draft.starts_at" type="datetime-local" :disabled="busy" /></template></AdminField>
+        <AdminField label="展示结束"><template #default="{ id }"><input :id="id" v-model="draft.ends_at" type="datetime-local" :disabled="busy" /></template></AdminField>
       </div>
-      <div class="admin-toolbar"><button class="admin-button admin-button--primary" :disabled="busy">{{ selected ? '保存修改' : '保存草稿' }}</button><button v-if="selected" type="button" class="admin-button" :disabled="busy" @click="edit()">取消编辑</button></div>
+      <AdminCheck v-model="draft.all_day" label="全天" :disabled="busy" />
+      <div class="admin-form-actions">
+        <AdminButton type="submit" variant="primary" :loading="busy">{{ selected ? '保存修改' : '保存草稿' }}</AdminButton>
+        <AdminButton v-if="selected" :disabled="busy" @click="edit()">取消编辑</AdminButton>
+      </div>
     </form>
-    <form class="admin-toolbar" @submit.prevent="load(true)"><label class="admin-field">状态<select v-model="published"><option value="">全部</option><option value="false">草稿 / 已撤回</option><option value="true">已发布（含定时）</option></select></label><button class="admin-button" :disabled="busy">筛选</button></form>
-    <p v-if="busy" role="status">正在处理…</p>
+    <form class="admin-toolbar" @submit.prevent="load(true)">
+      <AdminField label="状态"><template #default="{ id }"><select :id="id" v-model="published"><option value="">全部</option><option value="false">草稿 / 已撤回</option><option value="true">已发布（含定时）</option></select></template></AdminField>
+      <AdminButton type="submit" :disabled="busy">筛选</AdminButton>
+    </form>
+    <p v-if="busy" class="admin-empty" role="status">正在处理…</p>
     <article v-for="row in rows" :key="row.id" class="admin-card">
-      <h2>公告 #{{ row.id }} <span class="admin-badge">{{ row.published ? '已发布（受时间窗限制）' : '草稿 / 已撤回' }}</span></h2>
+      <div class="admin-card__header"><h2>公告 #{{ row.id }}</h2><AdminBadge :tone="row.published ? 'success' : 'neutral'">{{ row.published ? '已发布（受时间窗限制）' : '草稿 / 已撤回' }}</AdminBadge></div>
       <p class="announcement-content">{{ row.content }}</p>
       <p>定时：{{ row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : '立即' }} · 开始：{{ row.starts_at ? new Date(row.starts_at).toLocaleString() : '不限' }} · 结束：{{ row.ends_at ? new Date(row.ends_at).toLocaleString() : '不限' }}</p>
-      <div class="admin-toolbar"><button class="admin-button" :disabled="busy" @click="edit(row)">编辑</button><button class="admin-button" :disabled="busy" @click="toggle(row)">{{ row.published ? '撤回' : '发布' }}</button><button class="admin-button admin-button--danger" :disabled="busy" @click="remove(row)">删除</button></div>
+      <div class="admin-actions">
+        <AdminButton size="sm" :disabled="busy" @click="edit(row)">编辑</AdminButton>
+        <AdminButton size="sm" :disabled="busy" @click="toggle(row)">{{ row.published ? '撤回' : '发布' }}</AdminButton>
+        <AdminButton size="sm" variant="danger" :disabled="busy" @click="remove(row)">删除</AdminButton>
+      </div>
     </article>
-    <p v-if="!busy && !rows.length" class="admin-empty">暂无公告</p>
-    <nav class="admin-pagination" aria-label="公告分页"><button class="admin-button" :disabled="busy || cursors.length === 1" @click="page(false)">上一页</button><button class="admin-button" :disabled="busy || rows.length < 40" @click="page(true)">下一页</button></nav>
+    <AdminEmpty v-if="!busy && !rows.length">暂无公告</AdminEmpty>
+    <nav class="admin-pagination" aria-label="公告分页">
+      <AdminButton size="sm" :disabled="busy || cursors.length === 1" @click="page(false)">上一页</AdminButton>
+      <AdminButton size="sm" :disabled="busy || rows.length < 40" @click="page(true)">下一页</AdminButton>
+    </nav>
   </section>
 </template>
 <style scoped>
-.announcement-form { display: grid; gap: 16px; }
 .announcement-content { white-space: pre-wrap; overflow-wrap: anywhere; }
-textarea { width: 100%; box-sizing: border-box; }
 </style>

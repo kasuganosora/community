@@ -65,7 +65,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
   <section class="admin-page">
     <header>
       <h1>用户管理</h1>
-      <p>查看本地与远程账号，处理注册审核与封禁。锁定账号表示关注需要审核，不表示停用。</p>
+      <p>查看账号，处理注册审核与封禁。</p>
     </header>
     <form class="admin-toolbar" aria-label="搜索账号" @submit.prevent="!busy && load(true)">
       <label class="admin-field">用户名<input v-model="filters.username" /></label>
@@ -75,7 +75,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <button class="admin-button admin-button--primary" :disabled="loading || busy">搜索</button>
     </form>
     <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
-    <p v-if="loading" role="status">正在加载账号…</p>
+    <p v-if="loading" class="admin-empty" role="status">正在加载账号…</p>
     <div class="admin-table-wrap admin-card" role="region" aria-label="账号列表，可横向滚动" tabindex="0">
       <table class="admin-table">
         <thead><tr><th>账号</th><th>来源</th><th>状态</th><th>角色</th><th>操作</th></tr></thead>
@@ -88,7 +88,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <span>第 {{ Math.floor(offset / limit) + 1 }} 页{{ total !== null ? ` · 共 ${total} 个账号` : '' }}</span>
       <button class="admin-button" :disabled="loading || busy || (total !== null ? offset + limit >= total : items.length < limit)" @click="page(1)">下一页</button>
     </nav>
-    <p v-if="detailLoading" role="status">正在加载详情…</p>
+    <p v-if="detailLoading" class="admin-empty" role="status">正在加载详情…</p>
     <section v-if="selected" class="admin-card" aria-label="账号详情">
       <h2>@{{ selected.username }}{{ selected.domain ? `@${selected.domain}` : '' }}</h2>
       <dl><dt>账号 ID</dt><dd>{{ selected.id }}</dd><dt>显示名称</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>状态</dt><dd>{{ state(selected) }}</dd><dt>角色</dt><dd>{{ selected.role === 'admin' ? '管理员' : selected.role === 'user' ? '用户' : '—' }}</dd><dt>创建时间</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>关注审核</dt><dd>{{ selected.locked ? '已开启' : '未开启' }}</dd></dl>

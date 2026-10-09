@@ -2,6 +2,7 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { settingsAdminApi as api, type SettingsSection } from '../../infrastructure/settingsAdminApi'
 import { tokenService } from '@/shared/api/client'
+import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 import SettingsAdminPage from './SettingsAdminPage.vue'
 
 const props = defineProps<{ section: string }>()
@@ -95,52 +96,48 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 <template>
   <SettingsAdminPage v-if="section === 'security'" mode="security" />
   <div v-else class="admin-page">
-    <header><h1>{{ data?.title || '设置' }}</h1><p v-if="data">{{ data.description }}</p></header>
-    <p v-if="loading" role="status">正在读取设置…</p>
-    <p v-if="error" class="admin-error" role="alert">{{ error }} <button v-if="!data" class="admin-button" :disabled="loading" @click="load">重试</button></p>
-    <p v-if="notice" role="status">{{ notice }}</p>
-    <form v-if="data" class="admin-card settings-center" @submit.prevent="save">
-      <div v-for="field in data.fields" :key="field.key" class="settings-center__field">
-        <label class="admin-field" :for="`setting-${field.key}`">{{ field.label }}</label>
-        <template v-if="field.read_only">
-          <p v-if="field.type === 'secret'">{{ field.secret_set ? '已配置密钥' : '未配置密钥' }}</p>
-          <p v-else class="settings-center__value">{{ typeof field.value === 'boolean' ? (field.value ? '开启' : '关闭') : field.value ?? '未配置' }}</p>
-          <small>{{ field.source === 'environment' ? '由部署环境管理，请修改服务器配置。' : '当前运行状态，只读。' }}</small>
+    <AdminPageHeader :title="data?.title || '设置'" :description="data?.description" />
+    <p v-if="loading" class="admin-empty" role="status">正在读取设置…</p>
+    <AdminAlert v-if="error" tone="danger">
+      {{ error }}
+      <template v-if="!data" #action><AdminButton size="sm" :disabled="loading" @click="load">重试</AdminButton></template>
+    </AdminAlert>
+    <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <form v-if="data" class="admin-card" @submit.prevent="save">
+      <div class="admin-form">
+        <template v-for="field in data.fields" :key="field.key">
+          <AdminCheck v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
+          <AdminField v-else :label="field.label" :hint="field.read_only ? (field.source === 'environment' ? '由部署环境管理，请修改服务器配置。' : '当前运行状态，只读。') : field.restart_required ? '保存后需要重启服务。' : field.description">
+            <template #default="{ id }">
+              <template v-if="field.read_only">
+                <p v-if="field.type === 'secret'" :id="id" class="settings-center__value">{{ field.secret_set ? '已配置密钥' : '未配置密钥' }}</p>
+                <p v-else :id="id" class="settings-center__value">{{ typeof field.value === 'boolean' ? (field.value ? '开启' : '关闭') : field.value ?? '未配置' }}</p>
+              </template>
+              <select v-else-if="field.options?.length" :id="id" v-model="draft[field.key]" :disabled="busy || testing"><option v-for="option in field.options" :key="option" :value="option">{{ option }}</option></select>
+              <textarea v-else-if="field.type === 'textarea'" :id="id" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="5" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
+              <input v-else-if="field.type === 'number'" :id="id" v-model.number="draft[field.key]" type="number" required :min="field.min" :max="field.max" :disabled="busy || testing" />
+              <template v-else-if="field.type === 'secret'">
+                <input :id="id" v-model="draft[field.key]" type="password" autocomplete="new-password" placeholder="留空保留现有密钥" :disabled="busy || testing || clearSecrets[field.key]" />
+                <AdminCheck v-if="field.secret_set" v-model="clearSecrets[field.key]" :label="`明确清除已保存的${field.label}`" :disabled="busy || testing" />
+              </template>
+              <input v-else :id="id" v-model="draft[field.key]" :type="field.type" :maxlength="field.max" :disabled="busy || testing" />
+            </template>
+          </AdminField>
         </template>
-        <template v-else>
-          <select v-if="field.options?.length" :id="`setting-${field.key}`" v-model="draft[field.key]" :disabled="busy || testing"><option v-for="option in field.options" :key="option" :value="option">{{ option }}</option></select>
-          <textarea v-else-if="field.type === 'textarea'" :id="`setting-${field.key}`" :value="String(draft[field.key] ?? '')" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" :maxlength="field.max" :disabled="busy || testing" rows="5" />
-          <input v-else-if="field.type === 'boolean'" :id="`setting-${field.key}`" v-model="draft[field.key]" type="checkbox" :disabled="busy || testing" />
-          <input v-else-if="field.type === 'number'" :id="`setting-${field.key}`" v-model.number="draft[field.key]" type="number" required :min="field.min" :max="field.max" :disabled="busy || testing" />
-          <template v-else-if="field.type === 'secret'">
-            <input :id="`setting-${field.key}`" v-model="draft[field.key]" type="password" autocomplete="new-password" placeholder="留空保留现有密钥" :disabled="busy || testing || clearSecrets[field.key]" />
-            <small>{{ field.secret_set ? '已保存密钥，不回显。' : '尚未保存密钥。' }}</small>
-            <label v-if="field.secret_set" class="settings-center__clear"><input v-model="clearSecrets[field.key]" type="checkbox" :disabled="busy || testing" />明确清除已保存的{{ field.label }}</label>
-          </template>
-          <input v-else :id="`setting-${field.key}`" v-model="draft[field.key]" :type="field.type" :maxlength="field.max" :disabled="busy || testing" />
-          <small v-if="field.restart_required">保存后需要重启服务。</small>
-        </template>
-        <p v-if="field.description">{{ field.description }}</p>
       </div>
-      <div class="admin-toolbar">
-        <button v-if="editable" class="admin-button admin-button--primary" :disabled="busy || testing || !dirty">{{ busy ? '保存中…' : '保存设置' }}</button>
-        <button class="admin-button" type="button" :disabled="busy || testing || dirty" @click="load">刷新</button>
+      <div class="admin-form-actions">
+        <AdminButton v-if="editable" type="submit" variant="primary" :loading="busy" :disabled="testing || !dirty">{{ busy ? '保存中…' : '保存设置' }}</AdminButton>
+        <AdminButton :disabled="busy || testing || dirty" @click="load">刷新</AdminButton>
       </div>
     </form>
     <section v-if="connectionSection && data" class="admin-card">
       <h2>连接测试</h2>
-      <p>仅在点击后检查已保存的连接配置。请先保存表单；邮件测试不发送邮件，存储测试不上传或删除文件。</p>
-      <button class="admin-button" :disabled="busy || testing || dirty" @click="testConnection">{{ testing ? '正在测试…' : '测试已保存配置' }}</button>
+      <p>测试已保存的配置；不会发送邮件，也不会上传或删除文件。</p>
+      <div class="admin-form-actions"><AdminButton :loading="testing" :disabled="busy || dirty" @click="testConnection">{{ testing ? '正在测试…' : '测试已保存配置' }}</AdminButton></div>
       <p v-if="testNotice" role="status">{{ testNotice }}</p>
     </section>
   </div>
 </template>
 <style scoped>
-.settings-center { display: grid; gap: 24px; }
-.settings-center__field { display: grid; gap: 8px; min-width: 0; }
-.settings-center__field input:not([type=checkbox]), .settings-center__field select, .settings-center__field textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--color-separator); border-radius: 8px; color: var(--color-label); background: var(--color-bg); }
-.settings-center__field input[type=checkbox] { width: 18px; height: 18px; }
-.settings-center__field small { color: var(--color-label-secondary); }
-.settings-center__clear { display: flex; align-items: center; gap: 8px; }
-.settings-center__value { overflow-wrap: anywhere; }
+.settings-center__value { margin: 0; min-height: 38px; display: flex; align-items: center; overflow-wrap: anywhere; color: var(--color-label); font-weight: 400; font-size: 14px; }
 </style>

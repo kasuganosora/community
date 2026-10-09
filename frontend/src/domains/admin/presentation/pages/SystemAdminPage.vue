@@ -88,17 +88,17 @@ onUnmounted(() => {
   <div class="admin-page">
     <header>
       <h1>Matrix 服务</h1>
-      <p>查看 Community 内置 Matrix 客户端接口、系统依赖及可选的外部桥接。</p>
+      <p>查看内置 Matrix 接口、系统依赖与桥接状态。</p>
     </header>
     <section class="admin-card" aria-label="内置 Matrix 服务">
-      <div class="admin-toolbar"><h2>内置 Matrix 服务</h2><button class="admin-button" :disabled="nativeLoading" @click="loadNative">检查客户端接口</button></div>
+      <div class="admin-card__header"><h2>内置 Matrix 服务</h2><button class="admin-button" :disabled="nativeLoading" @click="loadNative">检查客户端接口</button></div>
       <p v-if="nativeLoading" role="status">正在检查 Matrix 客户端接口…</p>
       <p v-else-if="nativeError" role="alert" class="admin-error">{{ nativeError }}</p>
       <template v-else><p role="status">客户端接口可访问</p><p>支持的协议版本：{{ versions.join('、') }}</p></template>
       <p>此检查读取本站 Matrix 协议版本，不能代替消息投递和联邦连通性测试。</p>
     </section>
     <section class="admin-card" aria-label="系统依赖">
-      <div class="admin-toolbar"><h2>系统依赖</h2><button class="admin-button" :disabled="healthLoading" @click="loadHealth">刷新健康检查</button></div>
+      <div class="admin-card__header"><h2>系统依赖</h2><button class="admin-button" :disabled="healthLoading" @click="loadHealth">刷新健康检查</button></div>
       <p v-if="healthLoading" role="status">正在检查数据库与存储…</p>
       <p v-else-if="healthError" role="alert" class="admin-error">{{ healthError }}</p>
       <template v-else-if="health">
@@ -107,10 +107,10 @@ onUnmounted(() => {
         <p>检查时间：{{ health.timestamp }}</p>
       </template>
     </section>
-    <div class="admin-toolbar">
+    <div class="admin-actions">
       <button class="admin-button" :disabled="loading || busy" @click="load">刷新状态</button>
     </div>
-    <p v-if="loading" role="status">正在检查服务连接…</p>
+    <p v-if="loading" class="admin-empty" role="status">正在检查服务连接…</p>
     <p v-if="error" class="admin-error" role="alert">
       {{ error }} <button class="admin-button" :disabled="loading" @click="load">重试</button>
     </p>
@@ -137,11 +137,11 @@ onUnmounted(() => {
         <p>通过已配置的桥接服务读取指定 Matrix 用户资料。</p>
         <label class="admin-field">Matrix 用户地址<input v-model="user" required pattern="@[^:]+:.+" placeholder="@user:example.org" :disabled="busy || !status.enabled" />
         </label>
-        <button class="admin-button admin-button--primary" :disabled="busy || loading || !status.enabled">{{ busy ? '正在测试…' : '测试连接' }}</button>
+        <div class="admin-form-actions"><button class="admin-button admin-button--primary" :disabled="busy || loading || !status.enabled">{{ busy ? '正在测试…' : '测试连接' }}</button></div>
         <p v-if="result" role="status">{{ result }}</p>
         <p v-if="testError" class="admin-error" role="alert">{{ testError }}</p>
       </form>
     </template>
   </div>
 </template>
-<style scoped>dd { margin: 4px 0 16px; overflow-wrap: anywhere; } dt { font-weight: 600; }</style>
+

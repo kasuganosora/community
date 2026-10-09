@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AdminAlert, AdminBadge, AdminButton, AdminEmpty, AdminField, AdminPageHeader, AdminRow } from "../components/ui"
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { accessAdminApi as api, type AdminInvite } from '../../infrastructure/accessAdminApi'
 const rows = ref<AdminInvite[]>([]), total = ref(0), offset = ref(0), state = ref('')
@@ -16,18 +17,45 @@ onMounted(() => load())
 </script>
 
 <template>
-  <section class="invites-page">
-<header><h1>邀请管理</h1><button :disabled="busy || loading" @click="load()">刷新</button></header>
-    <p>邀请码可用于现有注册流程。注册成功时原子扣减次数；停用不会影响已经注册的账号。</p>
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-    <form aria-label="生成邀请" @submit.prevent="create"><h2>生成邀请码</h2><label>数量<input v-model.number="draft.count" type="number" min="1" max="100" required></label><label>每个邀请码最多使用次数<input v-model.number="draft.max_uses" type="number" min="0" max="10000" required><span>0 表示不限次数</span></label><label>有效期<select v-model.number="draft.expires_in"><option :value="3600">1 小时</option><option :value="86400">1 天</option><option :value="604800">7 天</option><option :value="2592000">30 天</option><option :value="0">永不过期</option></select></label><button :disabled="busy || loading" type="submit">生成邀请</button></form>
-    <form aria-label="邀请筛选" @submit.prevent="load(true)"><label>状态<select v-model="state"><option value="">全部</option><option value="active">可使用</option><option value="disabled">已停用</option><option value="expired">已过期</option><option value="exhausted">次数用尽</option></select></label><button :disabled="busy || loading">筛选</button></form>
-    <p v-if="loading">正在加载…</p><p v-else-if="!rows.length">暂无符合条件的邀请码。</p>
-    <article v-for="invite in rows" :key="invite.id"><header><code>{{ invite.code }}</code><span>{{ status(invite) }}</span></header><p>已使用 {{ invite.uses }} / {{ invite.max_uses === 0 ? '不限' : invite.max_uses }} 次 · 到期：{{ invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '永不过期' }}</p><p>创建者账号 #{{ invite.account_id }}</p><div><button @click="copy(invite.code)">复制邀请码</button><button :disabled="busy" @click="toggle(invite)">{{ invite.disabled ? '启用' : '停用' }}</button></div></article>
-    <nav aria-label="邀请分页"><button :disabled="offset === 0 || busy || loading" @click="page(-1)">上一页</button><span>共 {{ total }} 个邀请码</span><button :disabled="offset + 40 >= total || busy || loading" @click="page(1)">下一页</button></nav>
+  <section class="admin-page">
+    <AdminPageHeader title="邀请管理" description="生成邀请码，控制注册入口。">
+      <AdminButton size="sm" :disabled="busy || loading" @click="load()">刷新</AdminButton>
+    </AdminPageHeader>
+    <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
+    <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <form class="admin-card" aria-label="生成邀请" @submit.prevent="create">
+      <h2>生成邀请码</h2>
+      <div class="admin-toolbar">
+        <AdminField label="数量"><template #default="{ id }"><input :id="id" v-model.number="draft.count" type="number" min="1" max="100" required></template></AdminField>
+        <AdminField label="最多使用次数" hint="0 表示不限次数"><template #default="{ id }"><input :id="id" v-model.number="draft.max_uses" type="number" min="0" max="10000" required></template></AdminField>
+        <AdminField label="有效期"><template #default="{ id }"><select :id="id" v-model.number="draft.expires_in"><option :value="3600">1 小时</option><option :value="86400">1 天</option><option :value="604800">7 天</option><option :value="2592000">30 天</option><option :value="0">永不过期</option></select></template></AdminField>
+      </div>
+      <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :disabled="busy || loading">生成邀请</AdminButton></div>
+    </form>
+    <form class="admin-toolbar" aria-label="邀请筛选" @submit.prevent="load(true)">
+      <AdminField label="状态"><template #default="{ id }"><select :id="id" v-model="state"><option value="">全部</option><option value="active">可使用</option><option value="disabled">已停用</option><option value="expired">已过期</option><option value="exhausted">次数用尽</option></select></template></AdminField>
+      <AdminButton type="submit" :disabled="busy || loading">筛选</AdminButton>
+    </form>
+    <section class="admin-card" :aria-busy="loading">
+      <p v-if="loading" class="admin-empty" role="status">正在加载…</p>
+      <AdminEmpty v-else-if="!rows.length">暂无符合条件的邀请码。</AdminEmpty>
+      <ul v-else class="admin-list">
+        <AdminRow v-for="invite in rows" :key="invite.id" :title="invite.code" mono>
+          <template #meta>
+            <AdminBadge :tone="status(invite) === '可使用' ? 'success' : 'neutral'">{{ status(invite) }}</AdminBadge>
+            <span>已使用 {{ invite.uses }} / {{ invite.max_uses === 0 ? '不限' : invite.max_uses }} 次</span>
+            <span>到期：{{ invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '永不过期' }}</span>
+            <span>创建者 #{{ invite.account_id }}</span>
+          </template>
+          <AdminButton size="sm" @click="copy(invite.code)">复制邀请码</AdminButton>
+          <AdminButton size="sm" :variant="invite.disabled ? 'secondary' : 'danger'" :disabled="busy" @click="toggle(invite)">{{ invite.disabled ? '启用' : '停用' }}</AdminButton>
+        </AdminRow>
+      </ul>
+    </section>
+    <nav class="admin-pagination" aria-label="邀请分页">
+      <AdminButton size="sm" :disabled="offset === 0 || busy || loading" @click="page(-1)">上一页</AdminButton>
+      <span>共 {{ total }} 个邀请码</span>
+      <AdminButton size="sm" :disabled="offset + 40 >= total || busy || loading" @click="page(1)">下一页</AdminButton>
+    </nav>
   </section>
 </template>
-
-<style scoped>
-.invites-page{display:grid;gap:1rem;max-width:1100px;margin:auto;padding:1rem;overflow-wrap:anywhere}header,nav,article>div{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}form,article{display:grid;gap:.8rem;border:1px solid var(--color-border,#d7dce3);border-radius:12px;padding:1rem}label{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}input,select{min-width:0;max-width:100%;padding:.5rem;border:1px solid #aab3c0;border-radius:6px}button{padding:.5rem .8rem;border:1px solid #aab3c0;border-radius:6px;cursor:pointer}button:disabled{opacity:.5;cursor:default}code{white-space:normal;word-break:break-all;user-select:all}[role=alert]{color:#b42318}[role=status]{color:#167047}h1,h2,p{margin:0}h2{font-size:1.1rem}
-</style>

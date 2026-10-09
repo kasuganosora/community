@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminInlineForm, AdminEmpty, AdminField, AdminPageHeader, AdminRow } from "../components/ui"
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { accessAdminApi as api, permissionLabels, type AdminRole, type RoleDraft, type RoleMember } from '../../infrastructure/accessAdminApi'
 const roles = ref<AdminRole[]>([]), permissions = ref<string[]>([]), members = ref<RoleMember[]>([])
@@ -22,24 +23,53 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="access-page">
-    <header><div><h1>角色与权限</h1><p>分配实际管理能力。普通角色不能修改超级管理员身份或授予自己没有的权限。</p></div><button :disabled="loading || busy" @click="load">刷新</button></header>
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-    <form aria-label="角色编辑" @submit.prevent="save">
+  <section class="admin-page">
+    <AdminPageHeader title="角色与权限" description="分配管理能力；不能授予自己没有的权限。">
+      <AdminButton size="sm" :disabled="loading || busy" @click="load">刷新</AdminButton>
+    </AdminPageHeader>
+    <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
+    <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <form class="admin-card" aria-label="角色编辑" @submit.prevent="save">
       <h2>{{ editing ? '编辑角色' : '创建角色' }}</h2>
-      <label>名称<input v-model="draft.name" required maxlength="20"></label>
-      <label>颜色（可选）<input v-model="draft.color" placeholder="#2463eb" pattern="#[0-9a-fA-F]{6}"></label>
-      <label><input v-model="draft.highlighted" type="checkbox">在资料中突出显示</label>
-      <fieldset><legend>授权能力</legend><label v-for="permission in permissions" :key="permission"><input v-model="draft.permissions" type="checkbox" :value="permission">{{ permissionLabels[permission] || permission }}</label></fieldset>
-      <div><button :disabled="busy || loading || !draft.name.trim()" type="submit">保存角色</button><button v-if="editing" :disabled="busy" type="button" @click="edit()">取消编辑</button></div>
+      <div class="admin-form">
+        <AdminField label="名称"><template #default="{ id }"><input :id="id" v-model="draft.name" required maxlength="20"></template></AdminField>
+        <AdminField label="颜色（可选）"><template #default="{ id }"><input :id="id" v-model="draft.color" placeholder="#2463eb" pattern="#[0-9a-fA-F]{6}"></template></AdminField>
+        <AdminCheck v-model="draft.highlighted" label="在资料中突出显示" />
+        <fieldset class="admin-check-group"><legend>授权能力</legend><label v-for="permission in permissions" :key="permission" class="admin-check"><input v-model="draft.permissions" type="checkbox" :value="permission"><span class="admin-check__text">{{ permissionLabels[permission] || permission }}</span></label></fieldset>
+      </div>
+      <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :disabled="busy || loading || !draft.name.trim()">保存角色</AdminButton><AdminButton v-if="editing" :disabled="busy" @click="edit()">取消编辑</AdminButton></div>
     </form>
-    <p v-if="loading">正在加载…</p><p v-else-if="!roles.length">暂无角色。</p>
-    <article v-for="role in roles" :key="role.id"><h2>{{ role.name }}</h2><p>{{ role.protected ? '保留系统角色，仅展示已有配置' : permissionText(role) }}</p><div><button :disabled="busy" @click="select(role)">查看成员</button><button :disabled="busy || role.protected" @click="edit(role)">编辑</button><button :disabled="busy || role.protected" @click="remove(role)">删除</button></div></article>
-    <nav aria-label="角色分页"><button :disabled="offset === 0 || loading || busy" @click="page(-1)">上一页</button><span>共 {{ total }} 个角色</span><button :disabled="offset + 40 >= total || loading || busy" @click="page(1)">下一页</button></nav>
-    <section v-if="selected" aria-label="角色成员"><h2>{{ selected.name }} · 成员</h2><form v-if="!selected.protected" @submit.prevent="changeMember(accountID, true)"><label>本地账号 ID<input v-model="accountID" required inputmode="numeric" pattern="[0-9]+"></label><button :disabled="busy || !accountID">添加成员</button></form><p v-if="!members.length">暂无成员。</p><article v-for="member in members" :key="member.account_id"><span>{{ member.username }} · #{{ member.account_id }}</span><button :disabled="busy || selected.protected" @click="changeMember(member.account_id, false)">移除成员</button></article><nav aria-label="成员分页"><button :disabled="memberOffset === 0 || busy" @click="memberPage(-1)">上一页</button><span>共 {{ memberTotal }} 人</span><button :disabled="memberOffset + 40 >= memberTotal || busy" @click="memberPage(1)">下一页</button></nav></section>
+    <section class="admin-card" :aria-busy="loading">
+      <p v-if="loading" class="admin-empty" role="status">正在加载…</p>
+      <AdminEmpty v-else-if="!roles.length">暂无角色。</AdminEmpty>
+      <ul v-else class="admin-list">
+        <AdminRow v-for="role in roles" :key="role.id" :title="role.name">
+          <template #meta><AdminBadge v-if="role.protected" tone="info">系统角色</AdminBadge><span>{{ role.protected ? '保留系统角色，仅展示已有配置' : permissionText(role) }}</span></template>
+          <AdminButton size="sm" :disabled="busy" @click="select(role)">查看成员</AdminButton>
+          <AdminButton size="sm" :disabled="busy || role.protected" @click="edit(role)">编辑</AdminButton>
+          <AdminButton size="sm" variant="danger" :disabled="busy || role.protected" @click="remove(role)">删除</AdminButton>
+        </AdminRow>
+      </ul>
+    </section>
+    <nav class="admin-pagination" aria-label="角色分页">
+      <AdminButton size="sm" :disabled="offset === 0 || loading || busy" @click="page(-1)">上一页</AdminButton>
+      <span>共 {{ total }} 个角色</span>
+      <AdminButton size="sm" :disabled="offset + 40 >= total || loading || busy" @click="page(1)">下一页</AdminButton>
+    </nav>
+    <section v-if="selected" class="admin-card" aria-label="角色成员">
+      <h2>{{ selected.name }} · 成员</h2>
+      <AdminInlineForm v-if="!selected.protected" v-model="accountID" label="本地账号 ID" button-label="添加成员" inputmode="numeric" pattern="[0-9]+" :busy="busy" @submit="changeMember(accountID, true)" />
+      <AdminEmpty v-if="!members.length">暂无成员。</AdminEmpty>
+      <ul v-else class="admin-list">
+        <AdminRow v-for="member in members" :key="member.account_id" :title="`${member.username} · #${member.account_id}`">
+          <AdminButton size="sm" variant="danger" :disabled="busy || selected.protected" @click="changeMember(member.account_id, false)">移除成员</AdminButton>
+        </AdminRow>
+      </ul>
+      <nav class="admin-pagination" aria-label="成员分页">
+        <AdminButton size="sm" :disabled="memberOffset === 0 || busy" @click="memberPage(-1)">上一页</AdminButton>
+        <span>共 {{ memberTotal }} 人</span>
+        <AdminButton size="sm" :disabled="memberOffset + 40 >= memberTotal || busy" @click="memberPage(1)">下一页</AdminButton>
+      </nav>
+    </section>
   </section>
 </template>
-
-<style scoped>
-.access-page{display:grid;gap:1rem;max-width:1100px;margin:auto;padding:1rem;overflow-wrap:anywhere}header,nav,article>div{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}form,article,section[aria-label]{border:1px solid var(--color-border,#d7dce3);padding:1rem;border-radius:12px;display:grid;gap:.75rem}label{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}input:not([type=checkbox]){min-width:0;max-width:100%;padding:.55rem;border:1px solid #aab3c0;border-radius:6px}fieldset{display:flex;gap:.8rem;flex-wrap:wrap;border:1px solid #aab3c0}button{padding:.5rem .8rem;border:1px solid #aab3c0;border-radius:6px;cursor:pointer}button:disabled{opacity:.5;cursor:default}[role=alert]{color:#b42318}[role=status]{color:#167047}h1,h2,p{margin:0}h2{font-size:1.1rem}
-</style>
