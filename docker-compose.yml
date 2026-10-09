@@ -32,6 +32,10 @@ services:
     env_file:
       - .env
     # Container-specific settings override the values from .env.
+    # Client addresses: forwarding headers are only trusted from TRUSTED_PROXIES
+    # (default: loopback and private ranges, which covers the nginx hop on a
+    # Docker bridge). nginx must set X-Real-IP $remote_addr; if the proxy is on
+    # a public address, list it in TRUSTED_PROXIES.
     environment:
       # Database settings (DB_CONNECTION, DB_PORT, DB_DATABASE, DB_USERNAME,
       # DB_PASSWORD, DB_SSLMODE, DB_DSN) come from .env as-is.

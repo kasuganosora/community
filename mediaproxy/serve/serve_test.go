@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/clientip"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/stretchr/testify/require"
@@ -380,4 +381,42 @@ func TestPerIPConcurrencyLimit(t *testing.T) {
 	for _, rel := range releases[1:] {
 		rel()
 	}
+}
+
+func TestPerIPLimitKeysOnTheRealAddressBehindAProxy(t *testing.T) {
+	srv, r := pngServer(t)
+	require.NoError(t, clientip.Configure(r))
+	p := proxyPath("avatar", srv.URL+"/a.png")
+	reset := func() { limiters.Range(func(k, _ any) bool { limiters.Delete(k); return true }) }
+	get := func(peer, realIP, xff string) int {
+		reset()
+		req := httptest.NewRequest("GET", p, nil)
+		req.RemoteAddr = peer
+		if realIP != "" {
+			req.Header.Set("X-Real-IP", realIP)
+		}
+		req.Header.Set("X-Forwarded-For", xff)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	// nginx at 172.26.0.1 reports the real client in X-Real-IP; the client
+	// rotates a forged leading X-Forwarded-For to dodge the limit.
+	limited := false
+	for i := 0; i < ipBurst+20; i++ {
+		forged := "10." + strconv.Itoa(i/250) + "." + strconv.Itoa(i%250) + ".1"
+		if get("172.26.0.1:4000", "198.51.100.7", forged+", 198.51.100.7") == 429 {
+			limited = true
+			break
+		}
+	}
+	require.True(t, limited, "forged XFF values must not create new buckets")
+	require.Equal(t, 200, get("172.26.0.1:4000", "198.51.100.8", "198.51.100.8"), "another real client has its own bucket")
+	// Direct, untrusted peers cannot choose a bucket either.
+	for i := 0; i < ipBurst+20; i++ {
+		if get("203.0.113.50:1", "", "7."+strconv.Itoa(i)+".0.1") == 429 {
+			return
+		}
+	}
+	t.Fatal("untrusted peer escaped its limit with forged headers")
 }

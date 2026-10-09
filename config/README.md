@@ -36,6 +36,8 @@ init() → loadConfig()
 | `EncryptedKey` | `ENCRYPTED_KEY` | _(无)_ | 加密密钥，必须通过环境变量配置，至少 16 位 |
 | `DevMode` | `DEV_MODE` | `false` | 开发模式，`true` 时从本地加载内嵌静态文件 |
 | `SessionExpire` | `SESSION_EXPIRE` | `1382400` | Session 过期时间（秒），默认 16 天 |
+| `TrustedProxies` | `TRUSTED_PROXIES` | `127.0.0.1,::1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16` | 逗号分隔的可信反向代理 IP/CIDR。仅当直连对端在此列表内时才采信转发头；否则忽略 `X-Real-IP`/`X-Forwarded-For`，客户端无法伪造 `c.ClientIP()`（限流、日志、注册/登录 IP 均使用它） |
+| `TrustedProxyHeaders` | `TRUSTED_PROXY_HEADERS` | `X-Real-IP,X-Forwarded-For` | 可信代理下按顺序采用的转发头。`X-Real-IP`（nginx 的 `$remote_addr`）优先；`X-Forwarded-For` 取最右侧不可信地址 |
 | `CORSAllowedOrigins` | `CORS_ALLOWED_ORIGINS` | _(无)_ | 逗号分隔的允许来源列表，为空则允许所有（仅开发模式） |
 | `MediaProxyEnabled` | `MEDIA_PROXY_ENABLED` | `true` | 远程头像/附件/表情/卡片图经 `/proxy/media` 流式转发（不落盘、不缓存） |
 | `MediaProxyKey` | `MEDIA_PROXY_KEY` | _(服务端加密密钥)_ | 代理令牌（AES-256-GCM，HKDF 派生）的密钥。令牌内含过期时间（API 生成的链接有效 3000–3600 秒，按 600 秒分桶保持稳定），过期返回 410；任何站点均可使用有效令牌（CORP: cross-origin），以令牌本身作为授权；每个 IP 限速/限并发 |

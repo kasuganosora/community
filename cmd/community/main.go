@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/kasuganosora/community/clientip"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -149,6 +150,12 @@ func initLogger() {
 func setupServer() *gin.Engine {
 	// 创建 Gin 引擎
 	app := gin.New()
+
+	// Believe X-Real-IP / X-Forwarded-For only from trusted reverse proxies,
+	// so clients cannot forge the address used by rate limits and logs.
+	if err := clientip.Configure(app); err != nil {
+		log.Fatal("%v", err)
+	}
 
 	// 启用 405 Method Not Allowed 处理。
 	// Gin 默认对方法不匹配的路径返回 404，这会误导 API 客户端。
