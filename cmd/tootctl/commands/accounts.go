@@ -84,6 +84,7 @@ func AccountsCommand() *cli.Command {
 				}, passwordFlags...),
 				Action: modifyAccount,
 			},
+			accountsRefreshCommand(),
 		},
 	}
 }
@@ -640,6 +641,8 @@ func NormalizeAccountArgs(args []string) []string {
 
 		switch args[i+1] {
 		case "create", "modify", "delete":
+		case "refresh":
+			return normalizeRefreshArgs(args, i+2)
 		default:
 			return args
 		}

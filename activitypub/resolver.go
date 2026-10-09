@@ -350,35 +350,8 @@ func (r *Resolver) refreshAccount(uri string) {
 		return
 	}
 
-	// Update account fields
-	updates := map[string]any{
-		"display_name":     actor.Name,
-		"note":             htmlsafe.Sanitize(actor.Summary),
-		"updated_at":       time.Now(), //nolint:goconst
-		"last_activity_at": time.Now(),
-	}
-
-	if actor.Icon != nil && actor.Icon.URL != "" {
-		updates["avatar"] = actor.Icon.URL
-		updates["avatar_static"] = actor.Icon.URL
-	}
-
-	if actor.Image != nil && actor.Image.URL != "" {
-		updates["header"] = actor.Image.URL
-		updates["header_static"] = actor.Image.URL
-	}
-
 	if err := db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&account).Updates(updates).Error; err != nil {
-			return err
-		}
-		if err := tx.First(&account, account.Id).Error; err != nil {
-			return err
-		}
-		if err := applyRemoteProfileFields(tx, account.Id, actor); err != nil {
-			return err
-		}
-		return importAccountEmojiTags(tx, &account, actor.Tag)
+		return applyActorProfile(tx, &account, actor)
 	}); err != nil {
 		log.Error("Failed to update account %s: %v", uri, err)
 	} else {
