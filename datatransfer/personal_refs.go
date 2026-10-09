@@ -18,13 +18,13 @@ import (
 func ResolvePersonalReferences(ctx context.Context, conn *gorm.DB, bundle *Bundle) error {
 	return resolvePersonalReferences(ctx, conn, bundle, func(ctx context.Context, a Account) (*activitypub.Actor, error) {
 		if a.ActorURI != "" {
-			return activitypub.NewClient(nil, "").FetchActor(ctx, a.ActorURI)
+			return activitypub.NewFetchClient().FetchActor(ctx, a.ActorURI)
 		}
 		actor, err := activitypub.DiscoverActorContext(ctx, a.Username+"@"+a.Domain)
 		if err != nil {
 			return nil, err
 		}
-		canonical, err := activitypub.NewClient(nil, "").FetchActor(ctx, actor.ID)
+		canonical, err := activitypub.NewFetchClient().FetchActor(ctx, actor.ID)
 		if err == nil && canonical.ID != actor.ID {
 			return nil, errors.New("actor identity mismatch")
 		}

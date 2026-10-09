@@ -74,7 +74,7 @@ func cacheProxyAccount(account *models.Account, key *models.AccountKey) {
 }
 
 // resetProxyCache drops the cached identity (tests swap databases).
-func resetProxyCache() { cacheProxyAccount(nil, nil) }
+func resetProxyCache() { cacheProxyAccount(nil, nil); resetSystemSigner() }
 
 func (s *ProxyService) getOrCreateProxyAccountInternal() (*models.Account, *models.AccountKey, error) {
 	return ensureProxyAccount(context.Background(), s.db)

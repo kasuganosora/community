@@ -80,6 +80,18 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
+	activityActor, _ := activity["actor"].(string)
+	activityType, _ := activity["type"].(string)
+	activityID, _ := activity["id"].(string)
+	// Log every refusal with enough context to tell the reasons apart; the
+	// sender only sees the status code.
+	signer := ""
+	defer func() {
+		if status := c.Writer.Status(); status >= 400 {
+			log.Warn("Inbox %s refused %s %s (actor %s, signer %s): HTTP %d", c.Request.URL.Path, activityType, activityID, activityActor, signer, status)
+		}
+	}()
+
 	// Verify HTTP signature
 	actor, err := VerifyActivitySignature(c, body)
 	if err != nil {
@@ -88,10 +100,8 @@ func Inbox(c *gin.Context) {
 
 		return
 	}
+	signer = actor
 
-	activityActor, _ := activity["actor"].(string)
-	activityType, _ := activity["type"].(string)
-	activityID, _ := activity["id"].(string)
 	// A subscribed relay signs posts it forwards (actor = original author) and
 	// its own Announces; both are re-fetched from their origin below.
 	var relay *models.Relay
@@ -224,7 +234,8 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Extract Note properties
 	objectID, _ := object["id"].(string)
 	content, _ := object["content"].(string)
-	attributedTo, _ := object["attributedTo"].(string)
+	// attributedTo may be a string, an embedded actor or a one-element array.
+	attributedTo := attributedToURI(object)
 	publishedStr, _ := object["published"].(string)
 	summary, _ := object["summary"].(string)
 	inReplyTo, _ := object["inReplyTo"].(string)
@@ -260,9 +271,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck // will be refactored
 	if err != nil {
-		log.Error("Failed to get/create remote account: %v", err)
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -440,8 +449,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		// Update remote account info
 		remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 		if err != nil {
-			c.JSON(500, gin.H{"error": "failed to update account"})
-
+			respondRemoteAccountError(c, actor, err)
 			return
 		}
 
@@ -674,8 +682,7 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -781,8 +788,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -792,7 +798,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	err = activityDB(ctx).Scopes(statusByObjectRef(object)).First(&originalStatus).Error
 	if err != nil {
 		// Try to fetch the remote status
-		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(ctx, object, remoteAccount) //nolint:contextcheck
+		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(ctx, object) //nolint:contextcheck
 		if fetchErr != nil {
 			log.Warn("Could not find or fetch original status for announce: %s, error: %v", object, fetchErr)
 			c.JSON(200, gin.H{"status": "accepted"})
@@ -870,8 +876,7 @@ func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -946,8 +951,7 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 	// Get remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -1028,8 +1032,7 @@ func handleBlockActivity(ctx context.Context, c *gin.Context, activity map[strin
 	// Get remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -1064,8 +1067,7 @@ func handleFlagActivity(ctx context.Context, c *gin.Context, activity map[string
 	// Get or create remote account (the reporter)
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process reporter account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -1176,8 +1178,7 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 	// Get or create the new account
 	newAccount, err := getOrCreateRemoteAccountContext(ctx, newActorURI) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process new account"})
-
+		respondRemoteAccountError(c, newActorURI, err)
 		return
 	}
 
@@ -1242,17 +1243,54 @@ func getOrCreateRemoteAccountContext(ctx context.Context, actorURI string) (*mod
 		return nil, err
 	}
 	if err := validateFederationURI(actorURI); err != nil {
-		return nil, err
+		return nil, &actorFetchError{actorURI: actorURI, err: err}
 	}
-	actor, err := NewClient(nil, "").FetchActor(ctx, actorURI)
+	actor, err := NewFetchClient().FetchActor(ctx, actorURI)
 	if err != nil {
-		return nil, err
+		return nil, &actorFetchError{actorURI: actorURI, err: err}
 	}
 	if actor.ID != actorURI {
-		return nil, errors.New("actor ID does not match requested URI")
+		return nil, &actorFetchError{actorURI: actorURI, err: errors.New("actor ID does not match requested URI")}
 	}
 	account, err = createRemoteAccount(activityDB(ctx), actor)
 	return &account, err
+}
+
+// actorFetchError means a remote actor could not be dereferenced, as
+// opposed to a local database failure.
+type actorFetchError struct {
+	actorURI string
+	err      error
+}
+
+func (e *actorFetchError) Error() string {
+	return fmt.Sprintf("fetching actor %s: %v", e.actorURI, e.err)
+}
+func (e *actorFetchError) Unwrap() error { return e.err }
+
+// respondRemoteAccountError answers an inbox delivery whose actor could not
+// be resolved. A 5xx makes Mastodon, Misskey and relays redeliver, so it is
+// reserved for failures a retry can fix: local database errors (500) and
+// transient remote failures such as timeouts, 429 or 5xx (503 + Retry-After;
+// the sender's backoff bounds the retries). A permanent failure (the actor
+// is gone, refuses us even with a signed fetch, or serves a mismatching
+// document) is acknowledged with 202 and dropped, because redelivering it
+// can never succeed.
+func respondRemoteAccountError(c *gin.Context, actorURI string, err error) {
+	var fetchErr *actorFetchError
+	if !errors.As(err, &fetchErr) {
+		log.Error("Failed to get/create remote account %s: %v", actorURI, err)
+		c.JSON(500, gin.H{"error": "failed to process account"})
+		return
+	}
+	if isTransientFetchError(err) {
+		log.Warn("Deferring activity from %s: actor temporarily unavailable: %v", actorURI, err)
+		c.Header("Retry-After", "300")
+		c.JSON(503, gin.H{"error": "actor temporarily unavailable"})
+		return
+	}
+	log.Warn("Dropping activity: cannot resolve remote actor: %v", err)
+	c.JSON(202, gin.H{"status": "ignored", "reason": "actor unavailable"})
 }
 
 // ImportRemoteActor resolves and persists a verified remote actor identity.
@@ -1326,7 +1364,7 @@ func queueAcceptActivity(ctx context.Context, localAccount *models.Account, remo
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		client := NewClient(nil, "")
+		client := NewFetchClient()
 		if actor, err := client.FetchActor(ctx, remoteAccount.OriginId); err == nil {
 			inboxURL = actor.Inbox
 		}
@@ -1382,8 +1420,7 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -1433,8 +1470,7 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	// Get or create remote account
 	remoteAccount, err := getOrCreateRemoteAccountContext(ctx, actor) //nolint:contextcheck
 	if err != nil {
-		c.JSON(500, gin.H{"error": "failed to process account"})
-
+		respondRemoteAccountError(c, actor, err)
 		return
 	}
 
@@ -1567,16 +1603,21 @@ func createAccountMoveNotification(ctx context.Context, oldAccountId, newAccount
 }
 
 // fetchAndCreateRemoteStatus fetches a remote status and creates a local copy.
-func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string, attributedTo *models.Account) (*models.Status, error) {
-	client := NewClient(nil, "")
-
+func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Fetch the status
-	statusData, err := client.FetchObject(ctx, statusURI)
+	// Fetch the status from its canonical id (signed retry on 401/403).
+	statusData, canonical, err := NewResolver(nil, "").fetchCanonicalObject(ctx, statusURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch remote status: %w", err)
+	}
+	if canonical != statusURI {
+		var existing models.Status
+		if activityDB(ctx).Where("origin_uri = ?", canonical).First(&existing).Error == nil {
+			return &existing, nil
+		}
+		statusURI = canonical
 	}
 
 	// Parse the status data
@@ -1590,18 +1631,17 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string, attribute
 	content = htmlsafe.Sanitize(content)
 	summary = htmlsafe.StripTags(summary)
 	publishedStr, _ := statusData["published"].(string)
-	attributedToURI, _ := statusData["attributedTo"].(string)
+	authorURI := attributedToURI(statusData)
 	inReplyTo, _ := statusData["inReplyTo"].(string)
 
-	// Get or create the author account
-	var authorAccount *models.Account
-	if attributedToURI != "" {
-		authorAccount, err = getOrCreateRemoteAccountContext(ctx, attributedToURI)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get author account: %w", err)
-		}
-	} else {
-		authorAccount = attributedTo
+	// The author must be hosted where the object is: otherwise any server
+	// could publish a note "by" someone else and have it boosted in.
+	if authorURI == "" || !sameURIOrigin(statusURI, authorURI) {
+		return nil, fmt.Errorf("remote status %s is not hosted by its author %q", statusURI, authorURI)
+	}
+	authorAccount, err := getOrCreateRemoteAccountContext(ctx, authorURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get author account: %w", err)
 	}
 
 	// Parse visibility from to/cc fields

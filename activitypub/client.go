@@ -7,11 +7,18 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
+
+	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 )
 
 // sharedHTTPClient is a package-level shared HTTP client with proper connection
@@ -30,7 +37,7 @@ type Client struct {
 	// rejected with 401/403 (Mastodon "authorized fetch" / secure mode, GoToSocial,
 	// Misskey with signed-fetch enforcement) is retried once with an HTTP
 	// signature from that client.
-	signedFallback func() (*Client, error)
+	signedFallback func(context.Context) (*Client, error)
 }
 
 // NewClient creates a new ActivityPub client.
@@ -47,15 +54,80 @@ func NewClient(privateKey *rsa.PrivateKey, actorID string) *Client {
 // client has a key; unsigned clients created by NewFetchClient retry once with
 // a signature when the remote requires authorized fetch.
 func (c *Client) Get(ctx context.Context, uri string) ([]byte, error) {
-	data, status, err := c.get(ctx, uri)
-	if err != nil && (status == http.StatusUnauthorized || status == http.StatusForbidden) && c.privateKey == nil && c.signedFallback != nil {
-		signer, signerErr := c.signedFallback()
-		if signerErr != nil || signer == nil || signer.privateKey == nil {
-			return nil, err
-		}
-		data, _, err = signer.get(ctx, uri)
-	}
+	data, _, err := c.getWithStatus(ctx, uri)
 	return data, err
+}
+
+// getWithStatus is Get that also reports the final HTTP status (0 when no
+// response was received).
+func (c *Client) getWithStatus(ctx context.Context, uri string) ([]byte, int, error) {
+	data, status, err := c.get(ctx, uri)
+	if err != nil && requiresSignedFetch(status) && c.privateKey == nil && c.signedFallback != nil {
+		signer, signerErr := c.signedFallback(ctx)
+		if signerErr != nil || signer == nil || signer.privateKey == nil {
+			if signerErr != nil {
+				log.Warn("Signed fetch of %s unavailable: %v", uri, signerErr)
+			}
+			return nil, status, err
+		}
+		data, status, err = signer.get(ctx, uri)
+	}
+	return data, status, err
+}
+
+// requiresSignedFetch reports whether an unsigned GET was refused because
+// the remote enforces authorized fetch (Mastodon secure mode answers 401,
+// some servers answer 403).
+func requiresSignedFetch(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
+// FetchError is a non-200 answer to a federation GET.
+type FetchError struct {
+	StatusCode int
+}
+
+func (e *FetchError) Error() string {
+	return fmt.Sprintf("unexpected status code: %d", e.StatusCode)
+}
+
+// fetchStatusCode returns the HTTP status of a failed fetch, or 0.
+func fetchStatusCode(err error) int {
+	var fetchErr *FetchError
+	if errors.As(err, &fetchErr) {
+		return fetchErr.StatusCode
+	}
+	return 0
+}
+
+// isTransientFetchError reports whether a failed federation fetch is worth
+// retrying later: timeouts, connection failures, rate limiting and 5xx.
+// Everything else (404/410, 401/403 even with a signature, malformed or
+// mismatched documents, SSRF rejections) will fail the same way again.
+func isTransientFetchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if status := fetchStatusCode(err); status != 0 {
+		switch status {
+		case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
+			return true
+		}
+		return status >= 500
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsTimeout || dnsErr.IsTemporary
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr) && urlErr.Timeout()
 }
 
 func (c *Client) get(ctx context.Context, uri string) ([]byte, int, error) {
@@ -87,7 +159,7 @@ func (c *Client) get(ctx context.Context, uri string) ([]byte, int, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, resp.StatusCode, &FetchError{StatusCode: resp.StatusCode}
 	}
 
 	// Limit response body size to prevent OOM attacks
@@ -289,19 +361,69 @@ func (c *Client) signingKeyID() string {
 
 // NewFetchClient returns an unsigned client for fetching remote objects that
 // transparently retries with the instance's system proxy actor signature when
-// the remote server enforces authorized fetch.
+// the remote server enforces authorized fetch. Every remote ActivityPub GET
+// (actors, objects, keys, collections) that is not already made on behalf of
+// a specific local actor must use it: NewClient(nil, "") has no fallback.
 func NewFetchClient() *Client {
 	client := NewClient(nil, "")
 	client.signedFallback = systemSigningClient
 	return client
 }
 
-// systemSigningClient is a variable so tests can substitute a signer.
-var systemSigningClient = func() (*Client, error) {
-	service := NewProxyService()
+// systemSignerTTL bounds how long the parsed system signing key is reused,
+// so a rotated key is picked up without a restart.
+const systemSignerTTL = 10 * time.Minute
+
+var systemSignerCache struct {
+	sync.Mutex
+	client  *Client
+	expires time.Time
+}
+
+func resetSystemSigner() {
+	systemSignerCache.Lock()
+	systemSignerCache.client = nil
+	systemSignerCache.Unlock()
+}
+
+// systemSigningClient returns a client signing as the instance's system
+// proxy actor (users/system.proxy, the instance-wide fetch key). It is a
+// variable so tests can substitute a signer.
+//
+// Signed fetches also run inside inbox transactions (resolving the author of
+// an incoming post), so the key is looked up on the transaction's own
+// connection: a second connection would deadlock SQLite (one connection) and
+// could exhaust the pool elsewhere. The parsed client is cached, but only
+// when it was read outside a transaction that might still roll back.
+var systemSigningClient = func(ctx context.Context) (*Client, error) {
+	systemSignerCache.Lock()
+	if cached := systemSignerCache.client; cached != nil && time.Now().Before(systemSignerCache.expires) {
+		systemSignerCache.Unlock()
+		return cached, nil
+	}
+	systemSignerCache.Unlock()
+
+	conn := activityDB(ctx)
+	service := &ProxyService{db: conn}
 	account, _, err := service.GetOrCreateProxyAccount()
 	if err != nil {
 		return nil, err
 	}
-	return localAccountClient(account, service.getProxyActorURI())
+	actorURI := service.getProxyActorURI()
+	key, err := localAccountKeyWith(conn, account)
+	if err != nil {
+		return nil, err
+	}
+	private, err := models.ParseAccountPrivateKey(key.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	client := NewClient(private, actorURI)
+	client.keyID = key.SigningKeyID(actorURI)
+	if _, inTransaction := ctx.Value(inboxTransactionKey{}).(*gorm.DB); !inTransaction {
+		systemSignerCache.Lock()
+		systemSignerCache.client, systemSignerCache.expires = client, time.Now().Add(systemSignerTTL)
+		systemSignerCache.Unlock()
+	}
+	return client, nil
 }

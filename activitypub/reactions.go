@@ -78,7 +78,7 @@ func handleEmojiReaction(ctx context.Context, c *gin.Context, activity map[strin
 	}
 	actor, err := getOrCreateRemoteAccountContext(ctx, actorURI)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "actor resolution failed"})
+		respondRemoteAccountError(c, actorURI, err)
 		return
 	}
 	s, err := reactionStatus(activityDB(ctx), object)

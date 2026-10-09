@@ -191,13 +191,7 @@ func attributedToURI(object map[string]any) string {
 // relayFetch fetches uri unsigned, retrying with a signature on 401/403,
 // and reports the final HTTP status (0 on transport errors).
 func relayFetch(ctx context.Context, uri string) (map[string]any, int, error) {
-	client := NewFetchClient()
-	data, status, err := client.get(ctx, uri)
-	if err != nil && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
-		if signer, signerErr := client.signedFallback(); signerErr == nil && signer != nil {
-			data, status, err = signer.get(ctx, uri)
-		}
-	}
+	data, status, err := NewFetchClient().getWithStatus(ctx, uri)
 	if err != nil {
 		return nil, status, err
 	}
@@ -230,13 +224,17 @@ func handleRelayedActivity(ctx context.Context, c *gin.Context, activity map[str
 		c.JSON(202, gin.H{"status": "ignored"})
 		return
 	}
-	author := attributedToURI(obj)
-	if author == "" || !sameURIOrigin(canonical, author) {
-		c.JSON(403, gin.H{"error": "object origin does not match its author"})
-		return
-	}
+	// Only Notes are imported from relays. Check the type before the author:
+	// relays also forward Update{Person}, Question, Video..., which have no
+	// single attributedTo and must be ignored rather than refused with 403.
 	if objectType, _ := obj["type"].(string); objectType != "Note" {
 		c.JSON(202, gin.H{"status": "ignored"})
+		return
+	}
+	author := attributedToURI(obj)
+	if author == "" || !sameURIOrigin(canonical, author) {
+		log.Warn("Relay %s: %s is not hosted by its author %q", relay.InboxURL, canonical, author)
+		c.JSON(403, gin.H{"error": "object origin does not match its author"})
 		return
 	}
 	if getVisibilityFromActivity(obj) != models.StatusVisibilityPublic {

@@ -436,7 +436,7 @@ func remoteActorInbox(ctx context.Context, account *models.Account) (string, err
 	if account.OriginId == "" {
 		return "", errors.New("remote account has no actor URI")
 	}
-	actor, err := NewClient(nil, "").FetchActor(ctx, account.OriginId)
+	actor, err := NewFetchClient().FetchActor(ctx, account.OriginId)
 	if err != nil {
 		return "", err
 	}

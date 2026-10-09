@@ -138,7 +138,7 @@ func setupSearchFederation(t *testing.T) (*gorm.DB, *fakeFediverse) {
 	oldClient, oldSigner := sharedHTTPClient, systemSigningClient
 	t.Cleanup(func() { sharedHTTPClient, systemSigningClient = oldClient, oldSigner })
 	sharedHTTPClient = &http.Client{Transport: outboundTransport(fake.serve(t))}
-	systemSigningClient = func() (*Client, error) {
+	systemSigningClient = func(context.Context) (*Client, error) {
 		return NewClient(key, "https://local.example/users/system.proxy"), nil
 	}
 	return conn, fake
