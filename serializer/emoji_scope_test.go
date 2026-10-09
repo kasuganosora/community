@@ -1,6 +1,7 @@
 package serializer
 
 import (
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -19,7 +20,7 @@ func TestStatusEmojiScopeIncludesCWAndRejectsOtherDomainAndHTMLAttributes(t *tes
 	result, err := ToStatusBase(status)
 	require.NoError(t, err)
 	require.Len(t, result.Emojis, 2)
-	require.Equal(t, "https://remote.example/right.png", result.Emojis[0].Url)
+	require.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, "https://remote.example/right.png"), result.Emojis[0].Url)
 	require.Equal(t, "warning", result.Emojis[1].Shortcode)
 }
 func TestAccountEmojisOnlyUsedInProfile(t *testing.T) {

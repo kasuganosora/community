@@ -1,0 +1,337 @@
+// Package serve implements GET/HEAD /proxy/media/:sig/:encoded, which relays
+// remote media to browsers (see package mediaproxy). It is a pure
+// stream-through proxy: nothing is stored on this server.
+package serve
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/mediaproxy"
+	"github.com/kasuganosora/community/systemsettings"
+	"golang.org/x/time/rate"
+)
+
+const (
+	headerTimeout  = 10 * time.Second
+	maxRedirects   = 3
+	maxConcurrent  = 32
+	acquireWait    = 3 * time.Second
+	failureTTL     = 2 * time.Minute
+	hostRate       = rate.Limit(20)
+	hostBurst      = 40
+	cacheControl   = "public, max-age=86400"
+	sandboxPolicy  = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+	maxFailureKeys = 5000
+)
+
+// Overridable in tests.
+var (
+	// NewClient builds the outbound client; it must pin dialing to public
+	// addresses, bound redirects and check every redirect target.
+	NewClient = func() *http.Client { return activitypub.NewSafeHTTPClient(0, maxRedirects) }
+	// Validate is the SSRF pre-check of a source URL.
+	Validate = activitypub.ValidateURI
+	now      = time.Now
+)
+
+var (
+	slots    = make(chan struct{}, maxConcurrent)
+	failures sync.Map // cache key -> time.Time (expiry)
+	failN    int64
+	failMu   sync.Mutex
+	limiters sync.Map // host -> *rate.Limiter
+	flights  sync.Map // cache key -> *sync.Mutex
+)
+
+func hostAllowed(host string) bool {
+	l, _ := limiters.LoadOrStore(host, rate.NewLimiter(hostRate, hostBurst))
+	return l.(*rate.Limiter).Allow()
+}
+
+func markFailed(key string) {
+	failMu.Lock()
+	defer failMu.Unlock()
+	if failN >= maxFailureKeys {
+		failures.Range(func(k, v any) bool {
+			if now().After(v.(time.Time)) {
+				failures.Delete(k)
+				failN--
+			}
+			return true
+		})
+		if failN >= maxFailureKeys {
+			return
+		}
+	}
+	if _, loaded := failures.LoadOrStore(key, now().Add(failureTTL)); !loaded {
+		failN++
+	}
+}
+
+func recentlyFailed(key string) bool {
+	v, ok := failures.Load(key)
+	if !ok {
+		return false
+	}
+	if now().After(v.(time.Time)) {
+		failMu.Lock()
+		if _, ok := failures.LoadAndDelete(key); ok {
+			failN--
+		}
+		failMu.Unlock()
+		return false
+	}
+	return true
+}
+
+// failureKey identifies a source URL in the in-memory failure memo.
+func failureKey(rawURL string) string {
+	sum := sha256.Sum256([]byte(rawURL))
+	return hex.EncodeToString(sum[:])
+}
+
+// Serve handles GET and HEAD /proxy/media/:sig/:encoded.
+func Serve(c *gin.Context) {
+	if !mediaproxy.Enabled() {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	kind := c.Query("kind")
+	rawURL, ok := mediaproxy.Decode(c.Param("encoded"))
+	if !ok || !mediaproxy.ValidKind(kind) || !mediaproxy.Verify(kind, rawURL, c.Param("sig")) {
+		c.Status(http.StatusForbidden)
+		return
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		c.Header("Allow", "GET, HEAD")
+		c.Status(http.StatusMethodNotAllowed)
+		return
+	}
+	key := failureKey(rawURL)
+	if recentlyFailed(key) {
+		c.Status(http.StatusBadGateway)
+		return
+	}
+	if err := Validate(rawURL); err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if !hostAllowed(strings.ToLower(u.Host)) {
+		c.Header("Retry-After", "5")
+		c.Status(http.StatusTooManyRequests)
+		return
+	}
+	release, ok := acquire(c.Request.Context())
+	if !ok {
+		c.Header("Retry-After", "2")
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	defer release()
+
+	relay(c, key, rawURL, kind)
+}
+
+func acquire(ctx context.Context) (func(), bool) {
+	t := time.NewTimer(acquireWait)
+	defer t.Stop()
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, true
+	case <-t.C:
+		return nil, false
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+func setCommonHeaders(c *gin.Context, ctype string) {
+	c.Header("Content-Type", ctype)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", sandboxPolicy)
+	c.Header("Content-Disposition", "inline")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+	c.Header("Access-Control-Allow-Origin", "*")
+}
+
+// sniffImage returns the content type of an image header, or "" when the
+// bytes are not a raster image the browser can display safely. SVG, HTML and
+// other text types never pass.
+func sniffImage(head []byte) string {
+	t := http.DetectContentType(head)
+	if i := strings.Index(t, ";"); i >= 0 {
+		t = t[:i]
+	}
+	switch t {
+	case "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/x-icon":
+		return t
+	}
+	// DetectContentType does not know AVIF/HEIC/JXL: ISO-BMFF "ftyp" brands.
+	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
+		switch string(head[8:12]) {
+		case "avif", "avis":
+			return "image/avif"
+		case "heic", "heix", "mif1":
+			return "image/heic"
+		}
+	}
+	if len(head) >= 2 && head[0] == 0xFF && head[1] == 0x0A {
+		return "image/jxl"
+	}
+	return ""
+}
+
+func upstreamType(h http.Header) string {
+	t, _, err := mime.ParseMediaType(h.Get("Content-Type"))
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(t)
+}
+
+// relay fetches the source and streams it to the client.
+func relay(c *gin.Context, key, rawURL, kind string) {
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	timer := time.AfterFunc(headerTimeout, cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		timer.Stop()
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	// Nothing about the visitor is forwarded except cache validators and
+	// Range: no cookies, referrer, auth or client address.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; CommunityMediaProxy/1.0; +"+strings.TrimRight(systemsettings.GetBaseURL(), "/")+")")
+	req.Header.Set("Accept", "image/*,video/*,audio/*;q=0.9,*/*;q=0.1")
+	for _, h := range []string{"If-None-Match", "If-Modified-Since", "If-Range"} {
+		if v := c.GetHeader(h); v != "" {
+			req.Header.Set(h, v)
+		}
+	}
+	if rng := c.GetHeader("Range"); rng != "" {
+		req.Header.Set("Range", rng)
+	}
+	resp, err := NewClient().Do(req)
+	timer.Stop()
+	if err != nil {
+		markFailed(key)
+		c.Status(http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch {
+	case resp.StatusCode == http.StatusNotModified:
+		for _, h := range []string{"Etag", "Last-Modified"} {
+			if v := resp.Header.Get(h); v != "" {
+				c.Header(h, v)
+			}
+		}
+		c.Header("Cache-Control", cacheControl)
+		c.Status(http.StatusNotModified)
+		return
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
+		markFailed(key)
+		c.Status(http.StatusNotFound)
+		return
+	case resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+		c.Header("Content-Range", resp.Header.Get("Content-Range"))
+		c.Status(http.StatusRequestedRangeNotSatisfiable)
+		return
+	case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent:
+		markFailed(key)
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	declared := upstreamType(resp.Header)
+	var src io.Reader = resp.Body
+	if strings.HasPrefix(declared, "image/") && resp.ContentLength < 0 && resp.StatusCode == http.StatusOK {
+		// Without a length the cap cannot be enforced after the headers are
+		// sent, so such (rare) images are read in full, bounded, first.
+		data, err := io.ReadAll(io.LimitReader(resp.Body, mediaproxy.MaxBytes()+1))
+		if err != nil || int64(len(data)) > mediaproxy.MaxBytes() {
+			markFailed(key)
+			c.Status(http.StatusRequestEntityTooLarge)
+			return
+		}
+		src = bytes.NewReader(data)
+		resp.ContentLength = int64(len(data))
+	}
+	body := bufio.NewReaderSize(src, 1024)
+	limit := mediaproxy.MaxStreamBytes()
+	ctype := declared
+	switch {
+	case strings.HasPrefix(declared, "image/"):
+		limit = mediaproxy.MaxBytes()
+		if strings.Contains(declared, "svg") {
+			markFailed(key)
+			c.Status(http.StatusUnsupportedMediaType)
+			return
+		}
+		// The first bytes must be a raster image; a body that merely claims
+		// to be one (HTML, SVG, scripts) is refused. A range that does not
+		// start at the beginning has no header to check.
+		if resp.StatusCode == http.StatusOK || strings.HasPrefix(resp.Header.Get("Content-Range"), "bytes 0-") {
+			head, _ := body.Peek(512)
+			if ctype = sniffImage(head); ctype == "" {
+				markFailed(key)
+				c.Status(http.StatusUnsupportedMediaType)
+				return
+			}
+		}
+	case strings.HasPrefix(declared, "video/") || strings.HasPrefix(declared, "audio/"):
+	default:
+		markFailed(key)
+		c.Status(http.StatusUnsupportedMediaType)
+		return
+	}
+	if resp.ContentLength > limit {
+		markFailed(key)
+		c.Status(http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	setCommonHeaders(c, ctype)
+	c.Header("Cache-Control", cacheControl)
+	c.Header("Accept-Ranges", "bytes")
+	for _, h := range []string{"Content-Range", "Etag", "Last-Modified"} {
+		if v := resp.Header.Get(h); v != "" {
+			c.Header(h, v)
+		}
+	}
+	if resp.ContentLength >= 0 {
+		c.Header("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	c.Status(resp.StatusCode)
+	if c.Request.Method == http.MethodHead {
+		return
+	}
+	n, err := io.Copy(c.Writer, io.LimitReader(body, limit))
+	if err != nil && !errors.Is(err, context.Canceled) {
+		log.Debug("media proxy: stream aborted after %d bytes: %v", n, err)
+	}
+}

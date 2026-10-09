@@ -1,6 +1,7 @@
 package timelines // "error" and similar strings are standard JSON keys, not worth constants
 
 import (
+	"github.com/kasuganosora/community/mediaproxy"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -233,11 +234,19 @@ func buildNotificationResponse(notification *models.Notification, c *gin.Context
 			"id":            strconv.FormatUint(notification.Account.Id, 10),
 			"username":      notification.Account.Username,
 			"display_name":  notification.Account.DisplayName,
-			"avatar":        notification.Account.Avatar,
-			"avatar_static": notification.Account.Avatar,
+			"avatar":        notificationAvatar(notification.Account),
+			"avatar_static": notificationAvatar(notification.Account),
 			"url":           "https://" + c.Request.Host + "/@" + notification.Account.Username,
 		}
 	}
 
 	return response
+}
+
+func notificationAvatar(account *models.Account) string {
+	if account.IsLocal() {
+		return account.Avatar
+	}
+
+	return mediaproxy.URL(mediaproxy.KindAvatar, account.Avatar)
 }

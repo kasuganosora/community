@@ -1,6 +1,9 @@
 package serializer
 
-import "github.com/kasuganosora/community/models"
+import (
+	"github.com/kasuganosora/community/mediaproxy"
+	"github.com/kasuganosora/community/models"
+)
 
 type Emoji struct {
 	Shortcode       string   `json:"shortcode"`
@@ -20,8 +23,8 @@ func ToEmoji(emoji *models.Emoji) *Emoji {
 	}
 	return &Emoji{
 		Shortcode:       emoji.Shortcode,
-		Url:             emoji.Url,
-		StaticUrl:       emoji.StaticUrl,
+		Url:             mediaproxy.URL(mediaproxy.KindEmoji, emoji.Url),
+		StaticUrl:       mediaproxy.URL(mediaproxy.KindEmoji, emoji.StaticUrl),
 		VisibleInPicker: emoji.VisibleInPicker,
 		Category:        emoji.Category,
 		Aliases:         append([]string{}, emoji.Aliases...), License: emoji.License, LocalOnly: emoji.LocalOnly, IsSensitive: emoji.IsSensitive,

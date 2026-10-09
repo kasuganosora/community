@@ -2,6 +2,7 @@ package serializer
 
 import (
 	"context"
+	"github.com/kasuganosora/community/mediaproxy"
 	"testing"
 	"time"
 
@@ -63,9 +64,9 @@ func TestTimelineBatchQueryBudgetAndEmojiRefresh(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, out, size)
 		require.Len(t, out[0].Account.Emoji, 1)
-		require.Equal(t, localEmoji.Url, out[0].Account.Emoji[0].Url)
+		require.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, localEmoji.Url), out[0].Account.Emoji[0].Url)
 		require.Len(t, out[1].Account.Emoji, 1)
-		require.Equal(t, remoteEmoji.Url, out[1].Account.Emoji[0].Url)
+		require.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, remoteEmoji.Url), out[1].Account.Emoji[0].Url)
 		counts = append(counts, len(counter.queries))
 		require.LessOrEqual(t, len(counter.queries), 10, "whole-page database round trips must remain bounded")
 	}

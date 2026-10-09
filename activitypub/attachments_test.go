@@ -3,6 +3,7 @@ package activitypub
 import (
 	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/stretchr/testify/require"
@@ -27,8 +28,10 @@ func TestIncomingAttachmentsMetadataAndSafety(t *testing.T) {
 	require.Empty(t, got[0].FilePath)
 	serialized, err := serializer.ToMediaAttachment(got[0])
 	require.NoError(t, err)
-	require.Equal(t, got[0].RemoteUrl, serialized.Url)
-	require.Equal(t, got[0].RemoteUrl, serialized.PreviewUrl)
+	// Browsers load remote files through the media proxy; remote_url is the origin.
+	require.Equal(t, mediaproxy.URL(mediaproxy.KindMedia, got[0].RemoteUrl), serialized.Url)
+	require.Equal(t, mediaproxy.URL(mediaproxy.KindPreview, got[0].RemoteUrl), serialized.PreviewUrl)
+	require.Equal(t, got[0].RemoteUrl, *serialized.RemoteUrl)
 	require.Equal(t, models.MediaTypeUnknown, got[1].Type)
 	many := make([]any, 30)
 	for i := range many {

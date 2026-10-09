@@ -3,6 +3,7 @@ package serializer
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/htmlsafe"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/url"
@@ -98,10 +99,10 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		Note:                account.NoteHTML(options),
 		Url:                 profileURL,
 		Uri:                 actorURI,
-		Avatar:              account.Avatar,
-		AvatarStatic:        account.AvatarStatic,
-		Header:              account.Header,
-		HeaderStatic:        account.HeaderStatic,
+		Avatar:              proxiedAccountMedia(account, mediaproxy.KindAvatar, account.Avatar),
+		AvatarStatic:        proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic),
+		Header:              proxiedAccountMedia(account, mediaproxy.KindHeader, account.Header),
+		HeaderStatic:        proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic),
 		LastStatusAt:        account.LastStatusAt,
 		HideCollections:     account.HideCollections,
 		NoIndex:             account.NoIndex,
@@ -190,4 +191,14 @@ func avatarDecorationURL(account *models.Account) string {
 		return ""
 	}
 	return "/api/v1/avatar_decorations/" + strconv.FormatUint(account.AvatarDecorationID, 10) + "/image"
+}
+
+// proxiedAccountMedia routes a remote account's avatar or header through the
+// media proxy; local accounts' files are served by this server already.
+func proxiedAccountMedia(account *models.Account, kind, raw string) string {
+	if account.IsLocal() {
+		return raw
+	}
+
+	return mediaproxy.URL(kind, raw)
 }

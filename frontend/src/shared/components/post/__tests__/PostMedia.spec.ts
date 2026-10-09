@@ -46,4 +46,13 @@ describe('original attachment access', () => {
     const wrapper = mount(PostMedia, { props: { attachments: ['javascript:alert(1)', 'data:text/html,hello', 'https://name:password@remote.test/file', ''].map((url, i) => file({ id: String(i), url })) } })
     expect(wrapper.find('a').exists()).toBe(false)
   })
+  it('loads proxied media from this site and, only if that fails too, links the original', async () => {
+    const proxied = 'https://other.host/proxy/media/SIG/ENC?kind=media'
+    const wrapper = mount(PostMedia, { props: { attachments: [file({ type: 'image', url: proxied, preview_url: 'https://other.host/proxy/media/SIG2/ENC2?kind=preview', remote_url: 'https://wxw.moe/a.png' })] } })
+    expect(wrapper.get('img').attributes('src')).toBe('/proxy/media/SIG2/ENC2?kind=preview')
+    expect(wrapper.find('.media-file-links').exists()).toBe(false)
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.findAll('.media-file-links a')).toHaveLength(1)
+    expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://wxw.moe/a.png')
+  })
 })

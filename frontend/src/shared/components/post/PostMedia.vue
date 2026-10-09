@@ -56,14 +56,17 @@ const shownInline = computed(() => {
   return ids
 })
 
+// The fallback link opens the original file: remote_url when the API proxies
+// the media, so a broken proxy never links back to itself.
 const fileLinks = computed(() => props.attachments.flatMap((attachment, index) => {
   if (shownInline.value.has(attachment.id)) return []
   try {
-    const url = new URL(attachment.url, window.location.origin)
-    if (!attachment.url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
+    const target = attachment.remote_url || attachment.url
+    const url = new URL(target, window.location.origin)
+    if (!target || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
     let filename = url.pathname.split('/').pop() || '文件'
     try { filename = decodeURIComponent(filename) } catch { /* Keep the original filename if malformed. */ }
-    return [{ id: attachment.id, url: sameOriginMediaUrl(attachment.url) || url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
+    return [{ id: attachment.id, url: sameOriginMediaUrl(target) || url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
   } catch { return [] }
 }))
 const hasMedia = computed(() => props.attachments.length > 0)

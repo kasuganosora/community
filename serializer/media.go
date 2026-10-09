@@ -3,6 +3,7 @@ package serializer
 import (
 	"fmt"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"strconv"
 )
@@ -69,7 +70,8 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 
 	// Remote attachments have no local cache file. Return their validated origin
 	// URL instead of a nonexistent local /media path.
-	if media.RemoteUrl != "" && media.FilePath == "" {
+	remoteOnly := media.RemoteUrl != "" && media.FilePath == ""
+	if remoteOnly {
 		url = media.RemoteUrl
 	}
 
@@ -79,6 +81,12 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		previewUrl = fmt.Sprintf("%s/media/%s/thumbnail/%s", baseURL, strconv.FormatUint(media.Id, 10), *media.ThumbnailPath)
 	} else {
 		previewUrl = url // 如果没有缩略图，使用原图
+	}
+	if remoteOnly {
+		// Browsers load remote files through the media proxy; remote_url
+		// keeps the original address.
+		url = mediaproxy.URL(mediaproxy.KindMedia, url)
+		previewUrl = mediaproxy.URL(mediaproxy.KindPreview, previewUrl)
 	}
 
 	// 构建元数据

@@ -3,6 +3,7 @@ package serializer
 import (
 	"errors"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
@@ -326,8 +327,8 @@ func notificationReaction(n *models.Notification) (*Reaction, error) {
 	if row.EmojiID != 0 {
 		var e models.Emoji
 		if db.GetDB().First(&e, row.EmojiID).Error == nil && !e.Disabled {
-			r.URL = e.Url
-			r.StaticURL = e.StaticUrl
+			r.URL = mediaproxy.URL(mediaproxy.KindEmoji, e.Url)
+			r.StaticURL = mediaproxy.URL(mediaproxy.KindEmoji, e.StaticUrl)
 			r.IsSensitive = e.IsSensitive
 		}
 	}

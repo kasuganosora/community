@@ -3,6 +3,7 @@ package serializer
 import (
 	"errors"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
@@ -117,8 +118,8 @@ func statusReactionsBatchWithDB(conn *gorm.DB, statusIDs []uint64, viewer *model
 		}
 		r := &Reaction{Name: g.Name, Count: g.Count, Me: mine[g.StatusID] == g.Name}
 		if e := emojis[g.EmojiID]; e != nil {
-			r.URL = e.Url
-			r.StaticURL = e.StaticUrl
+			r.URL = mediaproxy.URL(mediaproxy.KindEmoji, e.Url)
+			r.StaticURL = mediaproxy.URL(mediaproxy.KindEmoji, e.StaticUrl)
 			r.IsSensitive = e.IsSensitive
 		}
 		result[g.StatusID] = append(result[g.StatusID], r)

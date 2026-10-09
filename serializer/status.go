@@ -3,6 +3,7 @@ package serializer
 import (
 	"context"
 	"fmt"
+	"github.com/kasuganosora/community/mediaproxy"
 	"gorm.io/gorm"
 	"strconv"
 	"time"
@@ -117,7 +118,7 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 		emojiDomain = *status.Domain
 	}
 	ret.Emojis = ToEmojis(models.EmojisInText(status.Emojis, ret.Content+" "+ret.SpoilerText, emojiDomain, false))
-	ret.Card = status.Content.Card
+	ret.Card = proxiedCard(status.Content.Card)
 	if accounts == nil {
 		ret.Account = ToAccount(status.Account)
 	} else {
@@ -394,4 +395,24 @@ func clearHiddenQuote(conn *gorm.DB, src *models.Status, out *Status, viewer *mo
 		out.Quote = nil
 	}
 	return nil
+}
+
+// proxiedCard returns the link card with a remote preview image routed
+// through the media proxy. The stored map is not modified.
+func proxiedCard(card map[string]any) Card {
+	image, _ := card["image"].(string)
+	if image == "" {
+		return card
+	}
+	proxied := mediaproxy.URL(mediaproxy.KindPreview, image)
+	if proxied == image {
+		return card
+	}
+	out := make(Card, len(card))
+	for k, v := range card {
+		out[k] = v
+	}
+	out["image"] = proxied
+
+	return out
 }

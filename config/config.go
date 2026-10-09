@@ -42,6 +42,12 @@ type Config struct {
 	WebSocketAllowedOrigins string `env:"WEBSOCKET_ALLOWED_ORIGINS"`
 	CORSAllowedOrigins      string `env:"CORS_ALLOWED_ORIGINS"` // 逗号分隔的允许来源列表，为空则允许所有（仅开发模式）
 
+	// Remote media proxy: browsers load remote avatars, headers, media, emoji
+	// and card images through /proxy/media instead of the remote server.
+	MediaProxyEnabled        string `default:"true"     env:"MEDIA_PROXY_ENABLED"`
+	MediaProxyMaxBytes       string `default:"20971520" env:"MEDIA_PROXY_MAX_BYTES"`         // largest image that is relayed
+	MediaProxyMaxStreamBytes string `default:"536870912" env:"MEDIA_PROXY_MAX_STREAM_BYTES"` // largest video/audio that is streamed through
+
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
 }

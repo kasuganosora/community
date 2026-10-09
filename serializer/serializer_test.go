@@ -1,6 +1,7 @@
 package serializer
 
 import (
+	"github.com/kasuganosora/community/mediaproxy"
 	"testing"
 	"time"
 
@@ -21,8 +22,8 @@ func TestToEmoji(t *testing.T) {
 
 	result := ToEmoji(emoji)
 	assert.Equal(t, "smile", result.Shortcode)
-	assert.Equal(t, "https://example.com/smile.png", result.Url)
-	assert.Equal(t, "https://example.com/smile_static.png", result.StaticUrl)
+	assert.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, "https://example.com/smile.png"), result.Url)
+	assert.Equal(t, mediaproxy.URL(mediaproxy.KindEmoji, "https://example.com/smile_static.png"), result.StaticUrl)
 	assert.True(t, result.VisibleInPicker)
 	assert.Equal(t, "people", result.Category)
 }

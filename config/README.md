@@ -37,6 +37,9 @@ init() → loadConfig()
 | `DevMode` | `DEV_MODE` | `false` | 开发模式，`true` 时从本地加载内嵌静态文件 |
 | `SessionExpire` | `SESSION_EXPIRE` | `1382400` | Session 过期时间（秒），默认 16 天 |
 | `CORSAllowedOrigins` | `CORS_ALLOWED_ORIGINS` | _(无)_ | 逗号分隔的允许来源列表，为空则允许所有（仅开发模式） |
+| `MediaProxyEnabled` | `MEDIA_PROXY_ENABLED` | `true` | 远程头像/附件/表情/卡片图经 `/proxy/media` 流式转发（不落盘、不缓存） |
+| `MediaProxyMaxBytes` | `MEDIA_PROXY_MAX_BYTES` | `20971520` | 转发图片的大小上限 |
+| `MediaProxyMaxStreamBytes` | `MEDIA_PROXY_MAX_STREAM_BYTES` | `536870912` | 转发视频/音频的大小上限 |
 | `WebSocketAllowedOrigins` | `WEBSOCKET_ALLOWED_ORIGINS` | _(无)_ | WebSocket 允许的来源 |
 | `HttpProxy` | `HTTP_PROXY` | _(无)_ | HTTP 代理地址 |
 
