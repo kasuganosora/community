@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -121,6 +122,7 @@ func List(c *gin.Context) {
 		return
 	}
 
+	common.SetListLinks(c, ret, func(v serializer.Conversation) string { return v.Id })
 	c.JSON(200, ret)
 }
 

@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers/api/common"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -95,6 +96,10 @@ func ListFollowedTags(c *gin.Context) {
 			"history":   history,
 			"following": true, //nolint:goconst
 		})
+	}
+
+	if len(followedTags) > 0 {
+		common.SetPageLinksUint(c, followedTags[0].Id, followedTags[len(followedTags)-1].Id, true)
 	}
 
 	c.JSON(200, result)

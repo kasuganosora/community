@@ -67,9 +67,13 @@ func Favourites(c *gin.Context) {
 		return
 	}
 
-	if len(favoriteStatuses) > req.Limit {
+	hasMore := len(favoriteStatuses) > req.Limit
+	if hasMore {
 		favoriteStatuses = favoriteStatuses[:req.Limit]
-		common.SetNextPage(c, favoriteStatuses[len(favoriteStatuses)-1].Id)
+	}
+
+	if len(favoriteStatuses) > 0 {
+		common.SetPageLinksUint(c, favoriteStatuses[0].Id, favoriteStatuses[len(favoriteStatuses)-1].Id, hasMore)
 	}
 
 	// Get status IDs
@@ -168,9 +172,13 @@ func Bookmarks(c *gin.Context) {
 		return
 	}
 
-	if len(bookmarkStatuses) > req.Limit {
+	hasMore := len(bookmarkStatuses) > req.Limit
+	if hasMore {
 		bookmarkStatuses = bookmarkStatuses[:req.Limit]
-		common.SetNextPage(c, bookmarkStatuses[len(bookmarkStatuses)-1].Id)
+	}
+
+	if len(bookmarkStatuses) > 0 {
+		common.SetPageLinksUint(c, bookmarkStatuses[0].Id, bookmarkStatuses[len(bookmarkStatuses)-1].Id, hasMore)
 	}
 
 	// Get status IDs

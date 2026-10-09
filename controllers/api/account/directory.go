@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -88,6 +89,7 @@ func GetDirectory(c *gin.Context) {
 		return
 	}
 
+	common.SetOffsetLinks(c, offset, len(accounts), limit)
 	c.JSON(200, serializer.ToAccounts(accounts))
 }
 

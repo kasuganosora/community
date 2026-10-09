@@ -1,6 +1,7 @@
 package list
 
 import (
+	"github.com/kasuganosora/community/controllers/api/common"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -69,11 +70,11 @@ func GetListAccounts(c *gin.Context) {
 		Select("accounts.*")
 
 	if req.MaxId != nil {
-		query = query.Where("list_accounts.id <= ?", *req.MaxId)
+		query = query.Where("list_accounts.id < ?", *req.MaxId)
 	}
 
 	if req.MinId != nil {
-		query = query.Where("list_accounts.id >= ?", *req.MinId)
+		query = query.Where("list_accounts.id > ?", *req.MinId)
 	}
 
 	if req.Limit != nil {
@@ -90,7 +91,32 @@ func GetListAccounts(c *gin.Context) {
 		return
 	}
 
+	setListAccountLinks(c, list.Id, accounts)
+
 	c.JSON(200, serializer.ToAccounts(accounts))
+}
+
+// setListAccountLinks paginates by the list_accounts row id, which is not the
+// account id, so look the cursors up for the returned page.
+func setListAccountLinks(c *gin.Context, listID uint64, accounts []*models.Account) {
+	if len(accounts) == 0 {
+		return
+	}
+
+	ids := make([]uint64, 0, len(accounts))
+	for _, a := range accounts {
+		ids = append(ids, a.Id)
+	}
+
+	var rows []uint64
+
+	err := db.GetDB().Table("list_accounts").Where("list_id = ? AND account_id IN ?", listID, ids).
+		Order("id DESC").Pluck("id", &rows).Error
+	if err != nil || len(rows) == 0 {
+		return
+	}
+
+	common.SetPageLinksUint(c, rows[0], rows[len(rows)-1], true)
 }
 
 type AddAccountsToListRequest struct {

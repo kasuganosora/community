@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -170,5 +171,6 @@ func AccountStatuses(c *gin.Context) {
 		cursor = statuses[len(statuses)-1].Id
 	}
 
+	common.SetListLinks(c, serializedStatuses, func(s *serializer.Status) string { return s.Id })
 	c.JSON(200, serializedStatuses)
 }

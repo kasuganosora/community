@@ -79,7 +79,7 @@ func TestCollectionPaginationUsesRelationIDs(t *testing.T) {
 			require.Equal(t, "12", next.Query().Get("max_id"))
 			ids, link = request(next.String())
 			require.Equal(t, []string{"100"}, ids)
-			require.Empty(t, link)
+			require.NotContains(t, link, `rel="next"`)
 		})
 	}
 }

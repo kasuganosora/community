@@ -67,7 +67,7 @@ func TestRelationshipPaginationUsesFollowIDs(t *testing.T) {
 			next := strings.Split(strings.TrimPrefix(link, "<"), ">")[0]
 			ids, link = request(next)
 			require.Equal(t, []string{"100"}, ids)
-			require.Empty(t, link)
+			require.NotContains(t, link, `rel="next"`)
 		})
 	}
 }

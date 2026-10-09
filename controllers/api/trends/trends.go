@@ -2,6 +2,7 @@ package trends
 
 import (
 	"fmt"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"strconv"
 	"time"
 
@@ -35,6 +36,7 @@ func ListTags(c *gin.Context) {
 	tagsCacheKey := fmt.Sprintf("%s:tags:%d:%d", cache.KeyTrendingTags, limit, offset)
 	var cachedResult []gin.H
 	if err := cache.GetCache().Get(c.Request.Context(), tagsCacheKey, &cachedResult); err == nil {
+		common.SetOffsetLinks(c, offset, len(cachedResult), limit)
 		c.JSON(200, cachedResult)
 
 		return
@@ -85,6 +87,7 @@ func ListTags(c *gin.Context) {
 	// 写入缓存
 	_ = cache.GetCache().Set(c.Request.Context(), tagsCacheKey, result, cache.ShortExpiration)
 
+	common.SetOffsetLinks(c, offset, len(result), limit)
 	c.JSON(200, result)
 }
 func ListStatuses(c *gin.Context) {
@@ -127,6 +130,7 @@ func ListStatuses(c *gin.Context) {
 	// Serialize statuses
 	serializedStatuses, _ := serializer.ToStatuses(models.Statuses(statuses), nil)
 
+	common.SetOffsetLinks(c, offset, len(serializedStatuses), limit)
 	c.JSON(200, serializedStatuses)
 }
 
@@ -217,6 +221,7 @@ func ListLinks(c *gin.Context) {
 		})
 	}
 
+	common.SetOffsetLinks(c, offset, len(result), limit)
 	c.JSON(200, result)
 }
 

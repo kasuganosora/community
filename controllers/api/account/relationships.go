@@ -92,9 +92,13 @@ func Followers(c *gin.Context) {
 		return
 	}
 
-	if len(follows) > req.Limit {
+	hasMore := len(follows) > req.Limit
+	if hasMore {
 		follows = follows[:req.Limit]
-		common.SetNextPage(c, follows[len(follows)-1].Id)
+	}
+
+	if len(follows) > 0 {
+		common.SetPageLinksUint(c, follows[0].Id, follows[len(follows)-1].Id, hasMore)
 	}
 
 	// Extract accounts
@@ -181,9 +185,13 @@ func Following(c *gin.Context) {
 		return
 	}
 
-	if len(follows) > req.Limit {
+	hasMore := len(follows) > req.Limit
+	if hasMore {
 		follows = follows[:req.Limit]
-		common.SetNextPage(c, follows[len(follows)-1].Id)
+	}
+
+	if len(follows) > 0 {
+		common.SetPageLinksUint(c, follows[0].Id, follows[len(follows)-1].Id, hasMore)
 	}
 
 	// Load follow accounts separately

@@ -2,6 +2,7 @@ package follow_request
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -75,6 +76,10 @@ func List(c *gin.Context) {
 		if fr.Account != nil {
 			accounts = append(accounts, fr.Account)
 		}
+	}
+
+	if len(followRequests) > 0 {
+		common.SetPageLinksUint(c, followRequests[0].Id, followRequests[len(followRequests)-1].Id, true)
 	}
 
 	c.JSON(200, serializer.ToAccounts(accounts))

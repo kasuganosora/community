@@ -903,6 +903,12 @@ func TestNotificationTimeline_WithMaxId(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Len(t, result, 5)
+
+	link := w.Header().Get("Link")
+	assert.Contains(t, link, `max_id=`+result[4]["id"].(string)+`>; rel="next"`)
+	assert.Contains(t, link, `min_id=`+result[0]["id"].(string)+`>; rel="prev"`)
+	assert.Contains(t, link, "limit=10")
+	assert.NotContains(t, link, "max_id=9999")
 }
 
 func TestNotificationTimeline_LimitCapping(t *testing.T) {

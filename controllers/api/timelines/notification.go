@@ -3,6 +3,7 @@ package timelines
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -112,5 +113,6 @@ func NotificationTimeline(c *gin.Context) {
 			break
 		}
 	}
+	common.SetListLinks(c, ret, func(n *serializer.Notification) string { return n.Id })
 	c.JSON(200, ret)
 }

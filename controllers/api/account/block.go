@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers/api/common"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -356,6 +357,10 @@ func BlocksList(c *gin.Context) {
 		}
 	}
 
+	if len(blocks) > 0 {
+		common.SetPageLinksUint(c, blocks[0].Id, blocks[len(blocks)-1].Id, true)
+	}
+
 	c.JSON(200, result)
 }
 
@@ -424,6 +429,10 @@ func MutesList(c *gin.Context) {
 		if acc, ok := accountMap[m.TargetId]; ok {
 			result = append(result, serializer.ToAccount(acc))
 		}
+	}
+
+	if len(mutes) > 0 {
+		common.SetPageLinksUint(c, mutes[0].Id, mutes[len(mutes)-1].Id, true)
 	}
 
 	c.JSON(200, result)

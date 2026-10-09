@@ -3,6 +3,7 @@ package timelines
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/public"
 	"github.com/kasuganosora/community/models"
@@ -57,5 +58,6 @@ func Public(c *gin.Context) {
 	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
 	controllers.AbortIfError(c, err)
 
+	common.SetListLinks(c, ret, func(s *serializer.Status) string { return s.Id })
 	c.JSON(http.StatusOK, ret)
 }
