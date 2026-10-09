@@ -170,6 +170,7 @@ func SetRouter(app gin.IRouter) {
 	// AuthMiddleware 在无 token 时放行，由各 handler 决定是否需要登录。
 	maybeAuthGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware())
 	maybeAuthGroupV1.GET("/accounts/search", account.Search)
+	maybeAuthGroupV1.GET("/accounts/lookup", account.Lookup)
 	maybeAuthGroupV1.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroupV1.GET("/accounts/:id/statuses", account.AccountStatuses)
 	maybeAuthGroupV1.GET("/accounts/:id/followers", account.Followers)

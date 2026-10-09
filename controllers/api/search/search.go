@@ -5,9 +5,12 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/dialect"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
+	"gorm.io/gorm/clause"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -79,15 +82,40 @@ func Search(c *gin.Context) {
 		searchType = "all"
 	}
 
-	if req.Resolve && currentAccount != nil && (searchType == "accounts" || searchType == "all") {
-		resolved, resolveErr := activitypub.ResolveSearchAccount(c.Request.Context(), req.Q)
-		if resolveErr != nil {
-			c.AbortWithStatusJSON(422, gin.H{"error": "remote account could not be resolved"})
-			return
+	wantAccounts := searchType == "accounts" || searchType == "all"
+	wantStatuses := searchType == "statuses" || searchType == "all"
+
+	// Pasted URLs (profile pages, actor ids, note URLs) are looked up exactly,
+	// never full-text searched. Like Mastodon, only signed-in users may make
+	// the server fetch unknown remote objects.
+	if activitypub.IsURLQuery(req.Q) {
+		if req.Offset == 0 {
+			accounts, statuses := searchByURL(c, req, currentAccount)
+			if wantAccounts {
+				result.Accounts = accounts
+			}
+			if wantStatuses {
+				result.Statuses = statuses
+			}
 		}
-		if resolved != nil && resolved.Domain != nil {
-			req.Q = resolved.Username + "@" + *resolved.Domain
+		c.JSON(200, result)
+		return
+	}
+
+	// Full account addresses (@user@domain) match username AND domain. The
+	// full-text status and hashtag searches are skipped for them, as in
+	// Mastodon, because "@" terms are not meaningful there.
+	if acct, ok := activitypub.ParseAcctQuery(req.Q); ok {
+		if wantAccounts {
+			if req.Resolve && currentAccount != nil && acct.Domain != "" && req.Offset == 0 {
+				if _, err := activitypub.ResolveSearchAccount(c.Request.Context(), req.Q); err != nil {
+					log.Warn("search: resolving %q failed: %v", req.Q, err)
+				}
+			}
+			result.Accounts = searchAccountsByAcct(req, acct, currentAccount)
 		}
+		c.JSON(200, result)
+		return
 	}
 
 	switch searchType {
@@ -105,6 +133,136 @@ func Search(c *gin.Context) {
 	}
 
 	c.JSON(200, result)
+}
+
+// searchAccountsByAcct returns accounts whose username starts with
+// acct.Username on exactly acct.Domain (local when empty), exact names first.
+// It deliberately bypasses Meilisearch, whose fuzzy matching ignores the
+// domain and returned a local "luna" for "@luna@maid.lat".
+func searchAccountsByAcct(req SearchRequest, acct activitypub.AcctQuery, currentAccount *models.Account) []*serializer.Account {
+	accounts := make([]*models.Account, 0)
+	query := models.WhereAcct(db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra"), acct.Username, acct.Domain, true)
+	if req.Following && currentAccount != nil {
+		query = query.Where("accounts.id IN (?)",
+			db.GetDB().Model(&models.Follow{}).Select("follow_id").Where("account_id = ?", currentAccount.Id))
+	}
+	if req.AccountId != "" {
+		query = query.Where("accounts.id = ?", req.AccountId)
+	}
+	query = models.OrderAcctExactFirst(query, acct.Username)
+	if err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error; err != nil {
+		return []*serializer.Account{}
+	}
+	kept, err := models.FilterAccountsByDomainPolicy(db.GetDB(), currentAccount, accounts)
+	if err != nil {
+		return []*serializer.Account{}
+	}
+	return serializer.ToAccounts(kept)
+}
+
+// searchByURL finds the account or status a URL names in the local cache and,
+// for signed-in users with resolve=true, fetches it from the remote server.
+func searchByURL(c *gin.Context, req SearchRequest, currentAccount *models.Account) ([]*serializer.Account, []*serializer.Status) {
+	account, status := lookupCachedURL(req.Q)
+	if account == nil && status == nil && req.Resolve && currentAccount != nil {
+		var err error
+		account, status, err = activitypub.ResolveSearchURL(c.Request.Context(), req.Q)
+		if err != nil {
+			log.Warn("search: resolving URL %q failed: %v", req.Q, err)
+		}
+	}
+
+	accounts := []*serializer.Account{}
+	statuses := []*serializer.Status{}
+	if account != nil {
+		var loaded models.Account
+		if err := db.GetDB().Preload("Emojis").Preload("Extra").First(&loaded, account.Id).Error; err == nil {
+			if kept, err := models.FilterAccountsByDomainPolicy(db.GetDB(), currentAccount, []*models.Account{&loaded}); err == nil {
+				accounts = serializer.ToAccounts(kept)
+			}
+		}
+	}
+	if status != nil {
+		var loaded models.Status
+		if err := models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{})).Where("statuses.id = ?", status.Id).First(&loaded).Error; err == nil {
+			if ok, err := loaded.CanViewEx(db.GetDB(), currentAccount); err == nil && ok {
+				if serialized, err := serializer.ToStatuses(models.Statuses{&loaded}, currentAccount); err == nil {
+					statuses = serialized
+				}
+			}
+		}
+	}
+	return accounts, statuses
+}
+
+// lookupCachedURL matches a URL against stored accounts and statuses: remote
+// actor ids, note ids/URLs, local profile/status URLs and the common
+// https://host/@user profile URL form.
+func lookupCachedURL(rawURL string) (*models.Account, *models.Status) {
+	conn := db.GetDB()
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" {
+		return nil, nil
+	}
+	uri := strings.TrimSpace(rawURL)
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+
+	if activitypub.IsLocalDomain(parsed.Host) {
+		// /@user, /users/user, /@user/123, /users/user/statuses/123
+		var username, statusID string
+		switch {
+		case len(segments) >= 1 && strings.HasPrefix(segments[0], "@") && !strings.Contains(segments[0][1:], "@"):
+			username = segments[0][1:]
+			if len(segments) == 2 {
+				statusID = segments[1]
+			}
+		case len(segments) >= 2 && segments[0] == "users":
+			username = segments[1]
+			if len(segments) == 4 && segments[2] == "statuses" {
+				statusID = segments[3]
+			}
+		}
+		if statusID != "" {
+			if id, err := strconv.ParseUint(statusID, 10, 64); err == nil {
+				var status models.Status
+				if conn.Where("id = ? AND domain IS NULL", id).First(&status).Error == nil {
+					return nil, &status
+				}
+			}
+			return nil, nil
+		}
+		if username != "" {
+			var account models.Account
+			if models.WhereAcct(conn.Model(&models.Account{}), username, "", false).First(&account).Error == nil {
+				return &account, nil
+			}
+		}
+		return nil, nil
+	}
+
+	var status models.Status
+	if conn.Where("origin_uri = ? OR origin_url = ?", uri, uri).First(&status).Error == nil {
+		return nil, &status
+	}
+	var account models.Account
+	if conn.Where("origin_id = ? AND domain IS NOT NULL", uri).First(&account).Error == nil {
+		return &account, nil
+	}
+	// https://host/@user is the profile page of user@host on Mastodon and
+	// Misskey; the stored actor id is a different URL.
+	if len(segments) == 1 && strings.HasPrefix(segments[0], "@") && len(segments[0]) > 1 {
+		name := segments[0][1:]
+		domain := parsed.Host
+		if user, host, ok := strings.Cut(name, "@"); ok {
+			name, domain = user, host
+		}
+		if !activitypub.IsLocalDomain(domain) {
+			if models.WhereAcct(conn.Model(&models.Account{}), name, domain, false).First(&account).Error == nil {
+				return &account, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // searchAccounts searches for accounts by username or display name.
@@ -206,10 +364,11 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 
 	// Order by relevance (exact match first, then partial match)
 	// Use parameterized query to prevent SQL injection
-	query = query.Order(db.GetDB().Raw(
-		"CASE WHEN username = ? THEN 0 WHEN username "+like+" ? "+esc+" THEN 1 ELSE 2 END",
-		usernameKeyword, escapeLike(usernameKeyword)+"%",
-	))
+	query = query.Order(clause.OrderBy{Expression: clause.Expr{
+		SQL:                "CASE WHEN LOWER(username) = ? THEN 0 WHEN username " + like + " ? " + esc + " THEN 1 ELSE 2 END, id ASC",
+		Vars:               []any{strings.ToLower(usernameKeyword), escapeLike(usernameKeyword) + "%"},
+		WithoutParentheses: true,
+	}})
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error
 	if err != nil {

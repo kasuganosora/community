@@ -5,9 +5,11 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/dialect"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 	"strings"
 )
 
@@ -33,50 +35,55 @@ func Search(c *gin.Context) {
 		req.Limit = 4
 	}
 
-	if req.Resolve && c.GetBool("authenticated") {
-		resolved, err := activitypub.ResolveSearchAccount(c.Request.Context(), req.Keyword)
-		if err != nil {
-			c.AbortWithStatusJSON(422, gin.H{"error": "remote account could not be resolved"})
+	authenticated := c.GetBool("authenticated")
+	keyword := strings.TrimSpace(req.Keyword)
+	conn := db.GetDB()
+	accounts := make([]*models.Account, 0)
+	var query *gorm.DB
+
+	if activitypub.IsURLQuery(keyword) {
+		// Only remote actor ids are matched exactly; a signed-in resolve fetches
+		// unknown ones (profile URLs are followed to the canonical actor).
+		var resolved *models.Account
+		if req.Resolve && authenticated {
+			account, err := activitypub.ResolveSearchAccount(c.Request.Context(), keyword)
+			if err != nil {
+				log.Warn("accounts/search: resolving %q failed: %v", keyword, err)
+			}
+			resolved = account
+		}
+		query = conn.Model(&models.Account{}).Where("accounts.origin_id = ? AND accounts.domain IS NOT NULL", keyword)
+		if resolved != nil {
+			query = conn.Model(&models.Account{}).Where("accounts.id = ?", resolved.Id)
+		}
+	} else if acct, ok := activitypub.ParseAcctQuery(keyword); ok {
+		// user@domain matches username AND domain; our own domain means local.
+		if req.Resolve && authenticated && acct.Domain != "" {
+			if _, err := activitypub.ResolveSearchAccount(c.Request.Context(), keyword); err != nil {
+				// Mastodon answers with the cached matches instead of an error.
+				log.Warn("accounts/search: resolving %q failed: %v", keyword, err)
+			}
+		}
+		query = models.OrderAcctExactFirst(models.WhereAcct(conn.Model(&models.Account{}), acct.Username, acct.Domain, true), acct.Username)
+	} else {
+		usernameKeyword := strings.Trim(keyword, " \t\n@")
+		if usernameKeyword == "" || strings.Contains(usernameKeyword, "@") {
+			c.AbortWithStatusJSON(422, gin.H{
+				"error": "invalid keyword",
+			})
+
 			return
 		}
-		if resolved != nil && resolved.Domain != nil {
-			req.Keyword = resolved.Username + "@" + *resolved.Domain
-		}
+		query = conn.Model(&models.Account{}).Where("accounts.username "+dialect.ILike(conn)+" ? "+dialect.LikeEscape(conn), escapeLike(usernameKeyword)+"%")
+		query = models.OrderAcctExactFirst(query, usernameKeyword)
 	}
-	accounts := make([]*models.Account, 0)
-	req.Keyword = strings.Trim(req.Keyword, " \t\n@")
-	keywordParts := strings.Split(req.Keyword, "@")
-
-	var usernameKeyword, domain string
-
-	if len(keywordParts) == 1 {
-		usernameKeyword = keywordParts[0]
-	} else {
-		usernameKeyword = keywordParts[0]
-		domain = keywordParts[1]
-	}
-
-	if usernameKeyword == "" {
-		c.AbortWithStatusJSON(422, gin.H{
-			"error": "invalid keyword",
-		})
-
-		return
-	}
-
-	conn := db.GetDB()
-	query := conn.Model(&models.Account{}).Where("username "+dialect.ILike(conn)+" ? "+dialect.LikeEscape(conn), escapeLike(usernameKeyword)+"%")
 
 	query = query.Preload("Emojis").Preload("Extra")
 
-	if domain != "" {
-		query = query.Where("domain = ?", domain)
-	}
-
 	// 只搜索关注的账号
-	if req.Following && c.GetBool("authenticated") {
+	if req.Following && authenticated {
 		selfAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-		query = query.Where("id IN (?)", db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Select("follow_id").Where("account_id = ?", selfAccount.Id))
+		query = query.Where("accounts.id IN (?)", db.GetDB().Model(&models.Follow{}).Scopes(models.Followed).Select("follow_id").Where("account_id = ?", selfAccount.Id))
 	}
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&accounts).Error
@@ -106,4 +113,55 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, "%", `\%`)
 	s = strings.ReplaceAll(s, "_", `\_`)
 	return s
+}
+
+// LookupRequest is the query for GET /api/v1/accounts/lookup.
+type LookupRequest struct {
+	Acct string `binding:"required,min=1,max=500" form:"acct"`
+}
+
+// Lookup handles GET /api/v1/accounts/lookup?acct=user[@domain]: an exact,
+// case-insensitive match on username and domain without remote resolution
+// (Mastodon semantics). A bare username, or our own domain, means a local
+// account. It never falls back to a different domain.
+func Lookup(c *gin.Context) {
+	var req LookupRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	value := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(req.Acct), "acct:"), "@")
+	username, domain := value, ""
+	if acct, ok := activitypub.ParseAcctQuery(value); ok {
+		username, domain = acct.Username, acct.Domain
+	} else if value == "" || strings.ContainsAny(value, "@/ \t\r\n?#") {
+		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+		return
+	}
+
+	var account models.Account
+	err := models.WhereAcct(db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra"), username, domain, false).
+		Order("accounts.id ASC").First(&account).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+			return
+		}
+		_ = c.Error(errors.Wrap(err, "lookup account"))
+		return
+	}
+	var viewer *models.Account
+	if c.GetBool("authenticated") {
+		viewer = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	}
+	kept, err := models.FilterAccountsByDomainPolicy(db.GetDB(), viewer, []*models.Account{&account})
+	if err != nil {
+		_ = c.Error(errors.Wrap(err, "filter blocked domains"))
+		return
+	}
+	if len(kept) == 0 {
+		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+		return
+	}
+	c.JSON(200, serializer.ToAccounts(kept)[0])
 }
