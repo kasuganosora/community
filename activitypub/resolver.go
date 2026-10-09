@@ -375,9 +375,14 @@ func (r *Resolver) refreshAccount(uri string) {
 		if err := tx.First(&account, account.Id).Error; err != nil {
 			return err
 		}
+		if err := applyRemoteProfileFields(tx, account.Id, actor); err != nil {
+			return err
+		}
 		return importAccountEmojiTags(tx, &account, actor.Tag)
 	}); err != nil {
 		log.Error("Failed to update account %s: %v", uri, err)
+	} else {
+		scheduleRemoteCollectionCounts(account.Id, actor)
 	}
 
 	log.Info("Refreshed remote account %s", uri)
@@ -451,11 +456,15 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 		if err := tx.Model(&identity).Update("account_id", account.Id).Error; err != nil {
 			return err
 		}
+		if err := applyRemoteProfileFields(tx, account.Id, actor); err != nil {
+			return err
+		}
 		return importAccountEmojiTags(tx, &account, actor.Tag)
 	})
 	if err != nil {
 		return models.Account{}, fmt.Errorf("creating account in database: %w", err)
 	}
+	scheduleRemoteCollectionCounts(account.Id, actor)
 
 	return account, nil
 }
@@ -532,6 +541,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 		OriginUri:          &uri,
 		InReplyToId:        inReplyToID,
 		InReplyToAccountId: inReplyToAccountID,
+		QuoteId:            knownQuoteID(ctx, obj),
 		Domain:             &domain,
 		CreatedAt:          publishedAt,
 		UpdatedAt:          &now,

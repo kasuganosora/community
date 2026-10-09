@@ -46,6 +46,18 @@ func AccountStatuses(c *gin.Context) {
 		return
 	}
 
+	var exists int64
+	if err := db.GetDB().WithContext(c.Request.Context()).Model(&models.Account{}).Where("id = ?", authorID).Limit(1).Count(&exists).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "AccountStatuses"))
+
+		return
+	}
+	if exists == 0 {
+		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+
+		return
+	}
+
 	// Get current account if authenticated
 	var currentAccount *models.Account
 	if c.GetBool("authenticated") {

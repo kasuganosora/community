@@ -116,7 +116,7 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		acc.FollowingCount = account.Extra.FollowingCount
 		acc.StatusesCount = account.Extra.StatusesCount
 
-		acc.Fields = ToFields(account.Extra.Fields)
+		acc.Fields = toAPIFields(account.Extra.Fields, account.IsLocal(), options)
 	}
 
 	return acc

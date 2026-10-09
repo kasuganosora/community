@@ -97,7 +97,7 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 			actor.Attachments = append(actor.Attachments, Attachment{
 				Type:  "PropertyValue",
 				Name:  field.Name,
-				Value: field.Val,
+				Value: field.Value,
 			})
 		}
 	}

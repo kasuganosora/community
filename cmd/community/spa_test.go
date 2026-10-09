@@ -39,7 +39,7 @@ func TestSPAFallbackServesFrontendRoutes(t *testing.T) {
 	for _, p := range []string{
 		"/", "/login", "/about", "/explore", "/notifications", "/settings", "/settings/data",
 		"/@alice", "/@alice@remote.example", "/@alice/status/123", "/@alice@mastodon.social/followers",
-		"/tags/golang", "/lists/7", "/admin", "/admin/settings/storage", "/notes/abc123", "/some/unknown-page",
+		"/tags/golang", "/lists/7", "/admin", "/admin/settings/storage", "/notes/abc123", "/public", "/public/local",
 	} {
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
@@ -53,6 +53,15 @@ func TestSPAFallbackServesFrontendRoutes(t *testing.T) {
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
 		if w.Code != http.StatusOK || w.Body.String() != want {
 			t.Errorf("%s: got %d %q, want the built file", p, w.Code, w.Body.String())
+		}
+	}
+
+	// Unknown pages render the app's not-found page with a real 404.
+	for _, p := range []string{"/some/unknown-page", "/web/timelines", "/publicx"} {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+			t.Errorf("%s: got %d %q, want SPA shell with 404", p, w.Code, w.Header().Get("Content-Type"))
 		}
 	}
 

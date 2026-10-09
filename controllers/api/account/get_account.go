@@ -2,6 +2,7 @@ package account
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/cache"
@@ -33,21 +34,32 @@ func GetAccount(c *gin.Context) {
 
 	// 尝试从缓存读取（仅对非 "me" 的数字 ID）
 	if account == nil {
+		id, parseErr := strconv.ParseUint(accountId, 10, 64)
+		if parseErr != nil || id == 0 {
+			c.JSON(404, gin.H{"error": "Record not found"})
+
+			return
+		}
+
 		var cached models.Account
 		cacheKey := fmt.Sprintf(cache.KeyAccountByAcct, accountId)
-		if err := cache.GetCache().Get(c.Request.Context(), cacheKey, &cached); err == nil {
+		if cacheErr := cache.GetCache().Get(c.Request.Context(), cacheKey, &cached); cacheErr == nil && cached.Id == id {
 			// Extra and Emojis use json:"-" and are not present in cached
 			// Account JSON. Always hydrate these associations below; returning
 			// the cache directly silently reset counters and fields to zero.
 			account = &cached
 		} else {
-			err = db.GetDB().Where("id = ?", accountId).First(&account).Error
+			// The cache error used to shadow this one, so a missing row
+			// answered 200 with a blank account instead of 404.
+			found := models.Account{}
+			err = db.GetDB().Where("id = ?", id).First(&found).Error
+			account = &found
 		}
 	}
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "Not Found"})
+			c.JSON(404, gin.H{"error": "Record not found"})
 
 			return
 		}

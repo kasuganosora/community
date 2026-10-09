@@ -83,7 +83,7 @@ func TestToFields(t *testing.T) {
 	result := ToFields(fields)
 	assert.Len(t, result, 2)
 	assert.Equal(t, "Website", result[0].Name)
-	assert.Equal(t, "https://example.com", result[0].Val)
+	assert.Equal(t, "https://example.com", result[0].Value)
 	assert.NotNil(t, result[0].VerifiedAt)
 	assert.Equal(t, "Location", result[1].Name)
 	assert.Nil(t, result[1].VerifiedAt)

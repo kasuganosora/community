@@ -837,7 +837,7 @@ func TestField_JSONMarshal(t *testing.T) {
 	data, err := json.Marshal(fields)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"name":"Site"`)
-	assert.Contains(t, string(data), `"val":"https://e.com"`)
+	assert.Contains(t, string(data), `"value":"https://e.com"`)
 	assert.Contains(t, string(data), `"name":"Loc"`)
 	// second field has nil verified_at
 	assert.Contains(t, string(data), `"verified_at":null`)

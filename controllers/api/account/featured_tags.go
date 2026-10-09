@@ -84,6 +84,14 @@ func AccountFeaturedTags(c *gin.Context) {
 		return
 	}
 
+	// Get account for URL; an unknown account is a 404 like Mastodon.
+	account := &models.Account{}
+	if err := db.GetDB().First(account, accId).Error; err != nil {
+		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+
+		return
+	}
+
 	// Query featured tags
 	featuredTags := make([]FeaturedTag, 0)
 	if err := db.GetDB().Where("account_id = ?", accId).Order("id DESC").Find(&featuredTags).Error; err != nil {
@@ -91,10 +99,6 @@ func AccountFeaturedTags(c *gin.Context) {
 
 		return
 	}
-
-	// Get account for URL
-	account := &models.Account{}
-	db.GetDB().First(account, accId)
 
 	// Build response
 	result := make([]gin.H, 0, len(featuredTags))

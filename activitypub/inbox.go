@@ -364,6 +364,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		OriginUri:          &objectID,
 		InReplyToId:        inReplyToID,
 		InReplyToAccountId: inReplyToAccountID,
+		QuoteId:            knownQuoteID(ctx, object),
 		CreatedAt:          publishedAt,
 		UpdatedAt:          &now,
 	}
