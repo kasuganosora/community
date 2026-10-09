@@ -247,3 +247,30 @@ func TestRedirectLimit(t *testing.T) {
 	require.NotEqual(t, 200, w.Code)
 	require.LessOrEqual(t, n.Load(), int32(maxRedirects+1))
 }
+
+func TestGuestsOnOwnSiteAreServedAndOtherSitesAreNot(t *testing.T) {
+	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes())
+	}))
+	p := proxyPath("avatar", srv.URL+"/a.png")
+	// Logged-out visitor: no cookies, no Authorization, from our own pages.
+	for name, hdr := range map[string]map[string]string{
+		"no referrer or origin": nil,
+		"own referrer":          {"Referer": "https://c.test/"},
+		"own origin":            {"Origin": "https://c.test"},
+		"same-origin fetch":     {"Sec-Fetch-Site": "same-origin", "Referer": "https://c.test/explore"},
+		"same-site fetch":       {"Sec-Fetch-Site": "same-site"},
+		"direct navigation":     {"Sec-Fetch-Site": "none"},
+		"referrer stripped":     {"Referer": "null"},
+	} {
+		require.Equal(t, 200, do(r, "GET", p, hdr).Code, name)
+	}
+	for name, hdr := range map[string]map[string]string{
+		"foreign referrer": {"Referer": "https://evil.example/page"},
+		"foreign origin":   {"Origin": "https://evil.example"},
+		"cross-site fetch": {"Sec-Fetch-Site": "cross-site"},
+	} {
+		require.Equal(t, 403, do(r, "GET", p, hdr).Code, name)
+	}
+}

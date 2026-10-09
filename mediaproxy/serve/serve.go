@@ -118,6 +118,10 @@ func Serve(c *gin.Context) {
 		c.Status(http.StatusForbidden)
 		return
 	}
+	if !ownSiteRequest(c) {
+		c.Status(http.StatusForbidden)
+		return
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		c.Status(http.StatusBadRequest)
@@ -334,4 +338,30 @@ func relay(c *gin.Context, key, rawURL, kind string) {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Debug("media proxy: stream aborted after %d bytes: %v", n, err)
 	}
+}
+
+// ownSiteRequest keeps other sites from embedding the proxy. It never needs a
+// login or cookie: visitors who send no Referer, Origin or Fetch Metadata
+// (privacy settings, direct visits, curl) are allowed, and only a request that
+// declares a foreign origin is refused.
+func ownSiteRequest(c *gin.Context) bool {
+	if c.GetHeader("Sec-Fetch-Site") == "cross-site" {
+		return false
+	}
+	own := map[string]bool{strings.ToLower(c.Request.Host): true}
+	if b, err := url.Parse(systemsettings.GetBaseURL()); err == nil && b.Host != "" {
+		own[strings.ToLower(b.Host)] = true
+	}
+	for _, h := range []string{"Origin", "Referer"} {
+		v := c.GetHeader(h)
+		if v == "" || v == "null" {
+			continue
+		}
+		u, err := url.Parse(v)
+		if err != nil || !own[strings.ToLower(u.Host)] {
+			return false
+		}
+	}
+
+	return true
 }
