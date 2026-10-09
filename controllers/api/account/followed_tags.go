@@ -156,9 +156,14 @@ func GetTag(c *gin.Context) {
 
 // FollowTag handles POST /api/v1/tags/:id/follow.
 func FollowTag(c *gin.Context) {
-	tagName := c.Param("id")
+	tagName := models.NormalizeTagName(c.Param("id"))
 	if tagName == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "tag name required"})
+
+		return
+	}
+	if !models.ValidTagName(tagName) {
+		c.AbortWithStatusJSON(422, gin.H{"error": "invalid tag name"})
 
 		return
 	}

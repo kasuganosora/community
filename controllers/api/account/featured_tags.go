@@ -126,13 +126,14 @@ func CreateFeaturedTag(c *gin.Context) {
 	}
 
 	// Normalize tag name (remove # prefix if present)
-	name := req.Name
-	if len(name) > 0 && name[0] == '#' {
-		name = name[1:]
-	}
-
+	name := models.NormalizeTagName(req.Name)
 	if name == "" {
 		c.AbortWithStatusJSON(400, gin.H{"error": "name cannot be empty"})
+
+		return
+	}
+	if !models.ValidTagName(name) {
+		c.AbortWithStatusJSON(422, gin.H{"error": "invalid tag name"})
 
 		return
 	}
@@ -156,13 +157,13 @@ func CreateFeaturedTag(c *gin.Context) {
 	// Find or create tag
 	tag := &models.Tag{}
 
-	err := db.GetDB().Where("name = ?", "#"+name).First(tag).Error
+	err := db.GetDB().Where("name = ?", name).First(tag).Error
 	if err != nil {
 		// Create tag if not exists
 		now := time.Now()
 
 		tag = &models.Tag{
-			Name:      "#" + name,
+			Name:      name,
 			CreatedAt: &now,
 			UpdatedAt: &now,
 		}

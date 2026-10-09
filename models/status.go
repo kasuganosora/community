@@ -16,7 +16,6 @@ import (
 // 预编译正则表达式，避免每次请求时重复编译.
 var (
 	statusEmojiRegex   = regexp.MustCompile(`:[a-zA-Z0-9_]+:`)
-	statusTagRegex     = regexp.MustCompile(`#\S+`)
 	statusMentionRegex = regexp.MustCompile(`@\S+`)
 )
 
@@ -1101,23 +1100,16 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 		}
 	}
 
-	// tag format: #tag_name
-	// example: #abc #def #ghi #你好
-	reg := statusTagRegex
-	tagNames := reg.FindAllString(sc.Content, -1)
+	// Federated statuses pass their ActivityPub Hashtag tags; otherwise the
+	// names are parsed from the visible text (HTML stripped, entities
+	// decoded), so markup can never become part of a tag name.
+	tagNames, structured := StructuredTagNames(tx.Statement.Context)
+	if !structured {
+		tagNames = ExtractTagNames(sc.Content)
+	}
 
 	if len(tagNames) == 0 {
 		return err
-	}
-
-	tagNames = utils.FilterDuplicateAndEmptyString(tagNames)
-
-	if len(tagNames) == 0 {
-		return err
-	}
-
-	for i, tagName := range tagNames {
-		tagNames[i] = strings.Trim(tagName, "# \t\n\r")
 	}
 
 	tags := make([]*Tag, 0)
@@ -1158,23 +1150,43 @@ func (sc *StatusContent) bindTagsByStatusContent(tx *gorm.DB, refresh bool) (err
 		}
 	}
 
+	// The create hook can run again for an existing row (association
+	// upserts); never link a tag twice or count it twice.
+	linked := map[uint64]bool{}
+	if !refresh && sc.StatusId != 0 {
+		var existing []uint64
+		if err = tx.Model(&StatusTag{}).Where("status_id = ?", sc.StatusId).Pluck("tag_id", &existing).Error; err != nil {
+			return err
+		}
+		for _, id := range existing {
+			linked[id] = true
+		}
+	}
+
 	statusTags := make([]*StatusTag, 0)
+	tagIds := make([]uint64, 0, len(tagMap))
 	for _, tag := range tagMap {
+		if linked[tag.Id] {
+			continue
+		}
+		linked[tag.Id] = true
+		tagIds = append(tagIds, tag.Id)
 		statusTags = append(statusTags, &StatusTag{
 			StatusId: sc.StatusId,
 			TagId:    tag.Id,
 		})
 	}
+	if len(statusTags) == 0 {
+		return nil
+	}
 
 	err = tx.Create(&statusTags).Error
+	if err != nil {
+		return err
+	}
 
 	// 批量刷新 tag 的使用次数，避免对每个 tag 单独 UPDATE 造成的 N+1 查询。
-	if len(tagMap) > 0 {
-		tagIds := make([]uint64, 0, len(tagMap))
-		for _, tag := range tagMap {
-			tagIds = append(tagIds, tag.Id)
-		}
-
+	if len(tagIds) > 0 {
 		err = tx.Model(&Tag{}).Where("id IN ?", tagIds).
 			UpdateColumn("status_count", gorm.Expr("status_count + ?", 1)).Error
 		if err != nil {

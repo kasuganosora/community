@@ -241,7 +241,11 @@ func indexStatusTags(client *search.MeilisearchClient, statusID uint64) {
 		return
 	}
 	for _, tag := range tags {
-		if err = client.IndexHashtag(tagDoc(tag)); err != nil {
+		doc := tagDoc(tag)
+		if doc == nil {
+			continue
+		}
+		if err = client.IndexHashtag(doc); err != nil {
 			log.Warn("search index tag %s: %v", tag.Name, err)
 		}
 	}
@@ -334,16 +338,16 @@ func tagDoc(tag *models.Tag) *search.HashtagSearchDocument {
 	if tag == nil {
 		return nil
 	}
-	name := strings.TrimPrefix(strings.TrimSpace(tag.Name), "#")
-	if name == "" {
-		return nil
+	name := models.NormalizeTagName(tag.Name)
+	if !models.ValidTagName(name) {
+		return nil // never index garbage names (they are not valid ids either)
 	}
 	created := int64(0)
 	if tag.CreatedAt != nil {
 		created = tag.CreatedAt.Unix()
 	}
 	return &search.HashtagSearchDocument{
-		ID:          name,
+		ID:          search.HashtagDocumentID(name),
 		Name:        name,
 		StatusCount: int64(tag.StatusCount),
 		CreatedAt:   created,

@@ -105,12 +105,20 @@ func Inbox(c *gin.Context) {
 	// A subscribed relay signs posts it forwards (actor = original author) and
 	// its own Announces; both are re-fetched from their origin below.
 	var relay *models.Relay
-	if isRelayForwardType(activityType) && (activityActor != actor || activityType == "Announce") {
+	if activityActor != actor || activityType == "Announce" {
 		relay, err = acceptedRelayForSigner(c.Request.Context(), db.GetDB(), actor)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "internal error"})
 			return
 		}
+	}
+	// Relays also forward activities we cannot verify or use from them
+	// (Undo{Announce}, Like, Follow... signed by the relay, not the actor).
+	// Acknowledge and drop them: a 401 only makes the relay retry.
+	if relay != nil && !isRelayForwardType(activityType) {
+		log.Info("Relay %s: ignoring forwarded %s %s by %s", relay.InboxURL, activityType, activityID, activityActor)
+		c.JSON(202, gin.H{"status": "ignored"})
+		return
 	}
 	// Otherwise an authenticated HTTP key must identify the activity's declared actor.
 	if relay == nil && activityActor != actor {
@@ -559,11 +567,13 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			// Save the complete content value so association hooks see the new text.
 			status.Content.Content = content
 			status.Content.SpoilerText = summary
-			writeCtx := models.WithStructuredEmojiIDs(models.WithStructuredMentions(ctx), emojis.GetIds())
+			writeCtx := withObjectHashtags(models.WithStructuredEmojiIDs(models.WithStructuredMentions(ctx), emojis.GetIds()), object["tag"])
 			if err := tx.WithContext(writeCtx).Save(&status.Content).Error; err != nil {
 				return err
 			}
-			return tx.Model(&status).Update("updated_at", now).Error
+			// Not Model(&status): its loaded Content association would be
+			// upserted again and re-run the tag/emoji hooks.
+			return tx.Model(&models.Status{}).Where("id = ?", status.Id).Update("updated_at", now).Error
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": "failed content update"})
@@ -1724,7 +1734,7 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 			SpoilerText: summary,
 		}
 
-		if err := tx.Create(statusContent).Error; err != nil {
+		if err := tx.WithContext(withObjectHashtags(ctx, statusData["tag"])).Create(statusContent).Error; err != nil {
 			return fmt.Errorf("failed to create status content: %w", err)
 		}
 

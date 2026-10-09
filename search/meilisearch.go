@@ -2,6 +2,8 @@ package search
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +92,23 @@ type HashtagSearchDocument struct {
 	Name        string `json:"name"`
 	StatusCount int64  `json:"status_count"`
 	CreatedAt   int64  `json:"created_at"`
+}
+
+// HashtagDocumentID returns the Meilisearch document id for a tag name.
+// Meilisearch ids may only contain [A-Za-z0-9_-] (max 511 bytes), so names
+// such as "你好" or "café" get a stable hash-based id instead; ASCII names
+// keep the name itself, matching documents indexed before.
+func HashtagDocumentID(name string) string {
+	safe := name != "" && len(name) <= 511
+	for i := 0; safe && i < len(name); i++ {
+		c := name[i]
+		safe = c == '_' || c == '-' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	if safe {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	return "h_" + hex.EncodeToString(sum[:])
 }
 
 func (d *HashtagSearchDocument) GetID() string {

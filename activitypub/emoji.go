@@ -160,6 +160,6 @@ func persistIncomingStatusWithEmoji(ctx context.Context, conn *gorm.DB, status *
 			return err
 		}
 		status.Emojis = emojis
-		return persistIncomingStatus(models.WithStructuredEmojiIDs(ctx, emojis.GetIds()), tx, status)
+		return persistIncomingStatus(withObjectHashtags(models.WithStructuredEmojiIDs(ctx, emojis.GetIds()), tags), tx, status)
 	})
 }
