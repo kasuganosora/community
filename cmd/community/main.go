@@ -225,7 +225,7 @@ func setupFrontend(app *gin.Engine) {
 		app.Static("/assets", filepath.Join(frontendDir, "assets"))
 		app.StaticFile("/logo.svg", filepath.Join(frontendDir, "logo.svg"))
 
-		// SPA fallback: serve index.html for all non-API routes
+		// SPA fallback: index.html for frontend routes only (see spa.go)
 		indexPath := filepath.Join(frontendDir, "index.html")
 
 		indexHTML, err := os.ReadFile(indexPath) //nolint:gosec // G304: reviewed and safe
@@ -235,34 +235,7 @@ func setupFrontend(app *gin.Engine) {
 			return
 		}
 
-		app.NoRoute(func(c *gin.Context) {
-			path := c.Request.URL.Path
-			// Don't serve frontend for API, OAuth, ActivityPub, Matrix routes
-			if strings.HasPrefix(path, "/api/") ||
-				strings.HasPrefix(path, "/oauth/") ||
-				strings.HasPrefix(path, "/miauth/") ||
-				strings.HasPrefix(path, "/auth/") ||
-				strings.HasPrefix(path, "/.well-known/") ||
-				strings.HasPrefix(path, "/users/") ||
-				strings.HasPrefix(path, "/inbox") ||
-				strings.HasPrefix(path, "/_matrix/") ||
-				strings.HasPrefix(path, "/health") ||
-				strings.HasPrefix(path, "/live") ||
-				strings.HasPrefix(path, "/ready") ||
-				strings.HasPrefix(path, "/metrics") {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-
-				return
-			}
-
-			if file, ok := frontendAsset(frontendDir, path); ok {
-				c.File(file)
-
-				return
-			}
-
-			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
-		})
+		app.NoRoute(spaFallback(frontendDir, indexHTML))
 		log.Info("Serving frontend from %s", frontendDir)
 	} else {
 		log.Info("Frontend directory not found at %s, skipping static file serving", frontendDir)
