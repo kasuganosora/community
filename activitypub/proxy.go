@@ -207,16 +207,21 @@ const (
 	proxyLockID   = int64(0x636f6d6d7072) // "commpr"
 )
 
-// withProxyCreationLock runs fn in a transaction that holds a cross-process
+// withProxyCreationLock serialises system.proxy creation across processes.
+func withProxyCreationLock(ctx context.Context, conn *gorm.DB, fn func(tx *gorm.DB) error) error {
+	return withNamedCreationLock(ctx, conn, proxyLockName, proxyLockID, fn)
+}
+
+// withNamedCreationLock runs fn in a transaction that holds a cross-process
 // lock: a transaction-scoped advisory lock on PostgreSQL, a named lock held
 // on the transaction's own connection on MySQL. SQLite already serialises
 // writers per database file.
-func withProxyCreationLock(ctx context.Context, conn *gorm.DB, fn func(tx *gorm.DB) error) error {
+func withNamedCreationLock(ctx context.Context, conn *gorm.DB, lockName string, lockID int64, fn func(tx *gorm.DB) error) error {
 	switch conn.Dialector.Name() {
 	case "postgres":
 		return conn.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", proxyLockID).Error; err != nil {
-				return fmt.Errorf("locking proxy account creation: %w", err)
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockID).Error; err != nil {
+				return fmt.Errorf("locking %s: %w", lockName, err)
 			}
 
 			return fn(tx)
@@ -234,16 +239,16 @@ func withProxyCreationLock(ctx context.Context, conn *gorm.DB, fn func(tx *gorm.
 		defer func() { _ = c.Close() }()
 
 		var got sql.NullInt64
-		if err := c.QueryRowContext(ctx, "SELECT GET_LOCK(?, 30)", proxyLockName).Scan(&got); err != nil {
-			return fmt.Errorf("locking proxy account creation: %w", err)
+		if err := c.QueryRowContext(ctx, "SELECT GET_LOCK(?, 30)", lockName).Scan(&got); err != nil {
+			return fmt.Errorf("locking %s: %w", lockName, err)
 		}
 
 		if !got.Valid || got.Int64 != 1 {
-			return errors.New("timed out waiting for the proxy account creation lock")
+			return fmt.Errorf("timed out waiting for lock %s", lockName)
 		}
 
 		// Released after the transaction committed, on the same session.
-		defer func() { _, _ = c.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", proxyLockName) }()
+		defer func() { _, _ = c.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName) }()
 
 		session := conn.WithContext(ctx)
 		session.Statement.ConnPool = c

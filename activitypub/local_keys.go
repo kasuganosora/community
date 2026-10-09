@@ -81,18 +81,27 @@ func localAccountKeyWith(conn *gorm.DB, account *models.Account) (*models.Accoun
 		if owner.LocalActorURI != "" {
 			return errors.New("imported actor has no preserved signing key")
 		}
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		generated, err := newAccountKey(account.Id)
 		if err != nil {
 			return err
 		}
-		public, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-		if err != nil {
-			return err
-		}
-		stored = models.AccountKey{AccountID: account.Id, PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})), PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
+		stored = *generated
 		return tx.Create(&stored).Error
 	})
 	return &stored, err
+}
+
+// newAccountKey generates a fresh RSA signing keypair for a local account.
+func newAccountKey(accountID uint64) (*models.AccountKey, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	public, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	return &models.AccountKey{AccountID: accountID, PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})), PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}, nil
 }
 func localAccountClient(account *models.Account, actorURL string) (*Client, error) {
 	key, err := localAccountKey(account)

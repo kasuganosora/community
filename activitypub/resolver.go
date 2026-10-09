@@ -17,7 +17,6 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 )
@@ -695,8 +694,8 @@ var resolverOnce sync.Once
 
 func getDefaultResolver() *Resolver {
 	resolverOnce.Do(func() {
-		actorID := systemsettings.GetBaseURL() + "/actor"
-		defaultResolver = NewResolver(nil, actorID)
+		// Unsigned fetches fall back to a signed one (NewFetchClient).
+		defaultResolver = NewResolver(nil, InstanceActorURI())
 	})
 
 	return defaultResolver

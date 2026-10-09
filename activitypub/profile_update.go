@@ -84,6 +84,12 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 	if account.Bot {
 		actor.Type = "Service" //nolint:goconst
 	}
+	// The instance actor (<base>/actor) is the server itself, as on Mastodon.
+	if isInstanceActor(account) {
+		actor.Type = "Application"
+		actor.URL = baseURL + "/about"
+		actor.ManuallyApprovesFollowers = true
+	}
 
 	// Add profile fields
 	if account.Extra != nil {

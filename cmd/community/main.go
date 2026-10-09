@@ -89,6 +89,11 @@ func main() {
 	if _, _, err := activitypub.EnsureProxyAccount(ensureCtx); err != nil {
 		log.Warn("Failed to ensure system proxy actor: %v", err)
 	}
+	// The instance actor (<base>/actor) subscribes to relays and receives
+	// their Accepts; create it the same way.
+	if _, _, err := activitypub.EnsureInstanceActor(ensureCtx); err != nil {
+		log.Warn("Failed to ensure instance actor: %v", err)
+	}
 	cancelEnsure()
 	transferContext, stopTransfers := context.WithCancel(context.Background())
 	defer stopTransfers()

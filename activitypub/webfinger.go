@@ -25,6 +25,16 @@ func WebFinger(c *gin.Context) {
 		return
 	}
 
+	// The instance actor may also be looked up by its actor URL.
+	if resource == InstanceActorURI() {
+		account, err := findInstanceActor(db.GetDB())
+		if err != nil {
+			c.JSON(404, gin.H{"error": "user not found"})
+			return
+		}
+		resource = "acct:" + account.Username + "@" + systemsettings.GetDomain()
+	}
+
 	// Parse the resource (should be acct:username@domain)
 	if !strings.HasPrefix(resource, "acct:") {
 		c.JSON(400, gin.H{"error": "invalid resource format"})
@@ -64,6 +74,18 @@ func WebFinger(c *gin.Context) {
 	// Build response
 	baseURL := systemsettings.GetBaseURL()
 	actorURL := account.ActorURI(baseURL)
+	if isInstanceActor(&account) {
+		c.Header("Content-Type", "application/jrd+json")
+		c.JSON(200, WebFingerResponse{
+			Subject: resource,
+			Aliases: []string{actorURL},
+			Links: []WebFingerLink{
+				{Rel: "self", Type: "application/activity+json", Href: actorURL},
+				{Rel: "http://webfinger.net/rel/profile-page", Type: "text/html", Href: baseURL + "/about"},
+			},
+		})
+		return
+	}
 
 	response := WebFingerResponse{
 		Subject: resource,
