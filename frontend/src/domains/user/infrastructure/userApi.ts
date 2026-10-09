@@ -4,6 +4,10 @@ import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/sh
 import type { PaginationParams } from '@/shared/types/pagination'
 import { pickAccountByAcct } from '../domain/acct'
 
+function isNotFound(e: unknown): boolean {
+  return (e as { response?: { status?: number } } | null)?.response?.status === 404
+}
+
 export const userApi = {
   async getAccount(id: string): Promise<MastodonAccount> {
     const { data } = await client.get<MastodonAccount>(`/api/v1/accounts/${encodeURIComponent(id)}`)
@@ -17,24 +21,32 @@ export const userApi = {
     return data
   },
 
+  /**
+   * Resolve a profile route (/@user or /@user@domain) to exactly that account.
+   *
+   * Uses /api/v1/accounts/lookup, an exact username + domain match, so a
+   * remote "luna@maid.lat" can never land on the local "luna". When a remote
+   * account is not cached yet, a signed-in user asks the server to fetch it
+   * (accounts/search with resolve=true, which only resolves for signed-in
+   * users) and still only accepts the exact acct.
+   */
   async lookupAccount(acct: string): Promise<MastodonAccount> {
-    // Backend has no /accounts/lookup; /accounts/search is a prefix search,
-    // so pick the exact match instead of the first hit. Local accounts
-    // currently come back as "user@domain", which the search does not
-    // match, so retry with the bare username.
-    const q = acct.replace(/^@/, '')
-    const search = async (term: string) => {
-      const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
-        params: { q: term, limit: 40, resolve: !!tokenService.get() },
-      })
+    const q = acct.trim().replace(/^@/, '')
+    if (!q) throw new Error('用户不存在')
+    try {
+      const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct: q } })
       return data
+    } catch (e) {
+      if (!isNotFound(e)) throw e
     }
-    let match = pickAccountByAcct(await search(q), q, window.location.hostname)
-    if (!match && q.includes('@')) {
-      match = pickAccountByAcct(await search(q.split('@')[0] ?? q), q, window.location.hostname)
+    if (q.includes('@') && tokenService.get()) {
+      const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
+        params: { q, limit: 5, resolve: true },
+      })
+      const match = pickAccountByAcct(data, q, window.location.hostname)
+      if (match) return match
     }
-    if (!match) throw new Error('用户不存在')
-    return match
+    throw new Error('用户不存在')
   },
 
   async getStatuses(id: string, params?: {

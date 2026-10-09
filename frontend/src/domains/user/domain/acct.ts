@@ -9,11 +9,10 @@ export function normalizeAcct(acct: string): string {
  * Pick the account that a profile URL (/@user or /@user@domain) refers to
  * from account-search results.
  *
- * The backend has no /accounts/lookup; /accounts/search is a prefix match
- * that returns e.g. both "al" and "alice" for "al", and local accounts
- * currently carry "user@domain" as their acct. So never just take the first
- * hit: prefer an exact acct match, then (for a bare username) an exact
- * username match.
+ * /accounts/search is a prefix match that returns e.g. both "al" and "alice"
+ * for "al". So never just take the first hit: prefer an exact acct match,
+ * then (for a bare username, or our own domain) an exact local username
+ * match. A remote acct never matches an account on another domain.
  */
 export function pickAccountByAcct(
   accounts: MastodonAccount[],
