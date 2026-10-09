@@ -8,6 +8,7 @@ import (
 type Rule struct {
 	Id    string `json:"id"`
 	Text  string `json:"text"`
+	Hint  string `json:"hint"`
 	intId uint64
 }
 

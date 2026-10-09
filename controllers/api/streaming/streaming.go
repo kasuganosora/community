@@ -127,7 +127,9 @@ func Streaming(c *gin.Context) {
 			}
 
 		case msg := <-redisMsgChan:
-			_ = processRedisMsg(ws, account, msg)
+			if err := processRedisMsg(ws, account, msg); err != nil {
+				logEventError(err)
+			}
 		}
 	}
 }

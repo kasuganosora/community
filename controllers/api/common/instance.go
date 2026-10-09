@@ -1,6 +1,8 @@
 package common
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 )
 
+// InstanceResponse is the Mastodon v2 instance document (GET /api/v2/instance).
 type InstanceResponse struct {
 	Domain      string `json:"domain"`
 	Title       string `json:"title"`
@@ -24,43 +27,29 @@ type InstanceResponse struct {
 			ActiveMonth int `json:"active_month"`
 		} `json:"users"`
 	} `json:"usage"`
-	// Stats is the Mastodon v1 instance field (user/status/domain counts);
-	// the web landing page shows it. Extra on v2, which clients ignore.
+
+	// Stats is a v1 field kept on v2 for the web frontend; clients ignore it.
 	Stats InstanceStats `json:"stats"`
 
-	Thumbnail struct {
-		Url string `json:"url"`
-	} `json:"thumbnail"`
+	Thumbnail InstanceThumbnail `json:"thumbnail"`
+	Icon      []InstanceIcon    `json:"icon"`
 
 	Languages     []string `json:"languages"`
 	Configuration struct {
 		Urls struct {
-			Streaming string `json:"streaming"`
-			Status    string `json:"status"`
+			Streaming string  `json:"streaming"`
+			Status    *string `json:"status"`
 		} `json:"urls"`
+		Vapid struct {
+			PublicKey string `json:"public_key"`
+		} `json:"vapid"`
 		Accounts struct {
 			MaxFeaturedTags int `json:"max_featured_tags"`
 		} `json:"accounts"`
 
-		Statuses struct {
-			MaxCharacters            int `json:"max_characters"`
-			MaxMediaAttachments      int `json:"max_media_attachments"`
-			CharactersReservedPerUrl int `json:"characters_reserved_per_url"`
-		} `json:"statuses"`
-		MediaAttachments struct {
-			SupportedMimeTypes  []string `json:"supported_mime_types"`
-			ImageSizeLimit      int      `json:"image_size_limit"`
-			ImageMatrixLimit    int      `json:"image_matrix_limit"`
-			VideoSizeLimit      int      `json:"video_size_limit"`
-			VideoFrameRateLimit int      `json:"video_frame_rate_limit"`
-			VideoMatrixLimit    int      `json:"video_matrix_limit"`
-		} `json:"media_attachments"`
-		Polls struct {
-			MaxOptions             int `json:"max_options"`
-			MaxCharactersPerOption int `json:"max_characters_per_option"`
-			MinExpiration          int `json:"min_expiration"`
-			MaxExpiration          int `json:"max_expiration"`
-		} `json:"polls"`
+		Statuses         InstanceStatusesConfig `json:"statuses"`
+		MediaAttachments InstanceMediaConfig    `json:"media_attachments"`
+		Polls            InstancePollsConfig    `json:"polls"`
 
 		Translation struct {
 			Enabled bool `json:"enabled"`
@@ -68,58 +57,256 @@ type InstanceResponse struct {
 	} `json:"configuration"`
 
 	Registrations struct {
-		Enabled          bool   `json:"enabled"`
-		ApprovalRequired bool   `json:"approval_required"`
-		InviteRequired   bool   `json:"invite_required"`
-		Message          string `json:"message"`
+		Enabled          bool    `json:"enabled"`
+		ApprovalRequired bool    `json:"approval_required"`
+		InviteRequired   bool    `json:"invite_required"`
+		Message          *string `json:"message"`
+		Url              *string `json:"url"`
 	} `json:"registrations"`
+
+	APIVersions struct {
+		Mastodon int `json:"mastodon"`
+	} `json:"api_versions"`
 
 	Contact struct {
 		Email   string              `json:"email"`
-		Account *serializer.Account `json:"account,omitempty"`
+		Account *serializer.Account `json:"account"`
 	} `json:"contact"`
 
-	Rules []ServerRuleResponseItem `json:"rule"`
+	Rules []InstanceRule `json:"rules"`
 }
 
-type ServerRuleResponseItem struct {
+// InstanceThumbnail is the v2 thumbnail object.
+type InstanceThumbnail struct {
+	Url      string `json:"url"`
+	Blurhash string `json:"blurhash,omitempty"`
+}
+
+// InstanceIcon is one entry of the v2 icon array.
+type InstanceIcon struct {
+	Src  string `json:"src"`
+	Size string `json:"size"`
+}
+
+type InstanceStatusesConfig struct {
+	MaxCharacters            int `json:"max_characters"`
+	MaxMediaAttachments      int `json:"max_media_attachments"`
+	CharactersReservedPerUrl int `json:"characters_reserved_per_url"`
+}
+
+type InstanceMediaConfig struct {
+	SupportedMimeTypes  []string `json:"supported_mime_types"`
+	ImageSizeLimit      int      `json:"image_size_limit"`
+	ImageMatrixLimit    int      `json:"image_matrix_limit"`
+	VideoSizeLimit      int      `json:"video_size_limit"`
+	VideoFrameRateLimit int      `json:"video_frame_rate_limit"`
+	VideoMatrixLimit    int      `json:"video_matrix_limit"`
+}
+
+type InstancePollsConfig struct {
+	MaxOptions             int `json:"max_options"`
+	MaxCharactersPerOption int `json:"max_characters_per_option"`
+	MinExpiration          int `json:"min_expiration"`
+	MaxExpiration          int `json:"max_expiration"`
+}
+
+// InstanceRule is a server rule; ids are strings like every Mastodon id.
+type InstanceRule struct {
 	Id   string `json:"id"`
 	Text string `json:"text"`
+	Hint string `json:"hint"`
 }
 
+// InstanceV1Response is the legacy Mastodon v1 instance document
+// (GET /api/v1/instance) that older clients (Toot!, Tusky, ...) still use to
+// validate a server.
+type InstanceV1Response struct {
+	Uri              string `json:"uri"`
+	Title            string `json:"title"`
+	ShortDescription string `json:"short_description"`
+	Description      string `json:"description"`
+	Email            string `json:"email"`
+	Version          string `json:"version"`
+	Urls             struct {
+		StreamingApi string `json:"streaming_api"`
+	} `json:"urls"`
+	Stats         InstanceStats `json:"stats"`
+	Thumbnail     *string       `json:"thumbnail"`
+	Languages     []string      `json:"languages"`
+	Registrations bool          `json:"registrations"`
+	// ApprovalRequired and InvitesEnabled follow Mastodon v1 naming.
+	ApprovalRequired bool `json:"approval_required"`
+	InvitesEnabled   bool `json:"invites_enabled"`
+	Configuration    struct {
+		Accounts struct {
+			MaxFeaturedTags int `json:"max_featured_tags"`
+		} `json:"accounts"`
+		Statuses         InstanceStatusesConfig `json:"statuses"`
+		MediaAttachments InstanceMediaConfig    `json:"media_attachments"`
+		Polls            InstancePollsConfig    `json:"polls"`
+	} `json:"configuration"`
+	ContactAccount *serializer.Account `json:"contact_account"`
+	Rules          []InstanceRule      `json:"rules"`
+}
+
+// StreamingURL derives the public websocket base URL (ws/wss) from the
+// site's public base URL. It never returns an empty string.
+func StreamingURL() string {
+	base := strings.TrimRight(systemsettings.GetBaseURL(), "/")
+
+	switch {
+	case strings.HasPrefix(base, "https://"):
+		return "wss://" + strings.TrimPrefix(base, "https://")
+	case strings.HasPrefix(base, "http://"):
+		return "ws://" + strings.TrimPrefix(base, "http://")
+	default:
+		return "wss://" + systemsettings.GetDomain()
+	}
+}
+
+func loadInstanceRules() []InstanceRule {
+	out := make([]InstanceRule, 0)
+
+	var rules []*models.Rule
+
+	err := db.GetDB().Model(&models.Rule{}).Order("priority desc, created_at asc").Find(&rules).Error
+	if err != nil {
+		return out
+	}
+
+	for _, r := range rules {
+		out = append(out, InstanceRule{Id: strconv.FormatUint(r.Id, 10), Text: r.Text})
+	}
+
+	return out
+}
+
+// loadContactAccount returns the first local admin account, or nil.
+func loadContactAccount() *serializer.Account {
+	var found []*models.Account
+
+	err := db.GetDB().Joins("JOIN users ON users.id = accounts.user_id").
+		Where("accounts.domain IS NULL AND users.is_admin = ?", true).
+		Order("accounts.id asc").Limit(1).Find(&found).Error
+	if err != nil || len(found) == 0 {
+		return nil
+	}
+
+	acc := found[0]
+
+	acc.Extra = &models.AccountExtra{}
+	_ = db.GetDB().Model(acc).Association("Extra").Find(acc.Extra)
+
+	return serializer.ToAccount(acc)
+}
+
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+
+	return in
+}
+
+func fillStatuses(c *InstanceStatusesConfig) {
+	c.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
+	c.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
+	c.CharactersReservedPerUrl = systemsettings.GetInt(systemsettings.KeyStatusCharactersPerURL, nil)
+}
+
+func fillMedia(c *InstanceMediaConfig) {
+	c.SupportedMimeTypes = nonNilStrings(mediamanagement.SupportedMimeTypes())
+	c.ImageSizeLimit = int(systemsettings.MediaImageSizeLimit())
+	c.ImageMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, nil)
+	c.VideoSizeLimit = int(systemsettings.MediaVideoSizeLimit())
+	c.VideoFrameRateLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoFrameRate, nil)
+	c.VideoMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoMatrixLimit, nil)
+}
+
+func fillPolls(c *InstancePollsConfig) {
+	c.MaxOptions = systemsettings.GetInt(systemsettings.KeyPollMaxOptions, nil)
+	c.MaxCharactersPerOption = systemsettings.GetInt(systemsettings.KeyPollMaxCharactersPerOption, nil)
+	c.MinExpiration = systemsettings.GetInt(systemsettings.KeyPollMinExpiration, nil)
+	c.MaxExpiration = systemsettings.GetInt(systemsettings.KeyPollMaxExpiration, nil)
+}
+
+// thumbnailURL returns the configured thumbnail or the bundled logo, always
+// an absolute URL (Swift clients decode this field as URL).
+func thumbnailURL() string {
+	if t := systemsettings.GetString(systemsettings.KeyThumbnail, ""); t != "" {
+		return t
+	}
+
+	return strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/logo.svg"
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
+}
+
+func contactEmail() string {
+	return systemsettings.GetString(systemsettings.KeySiteContactEmail, "admin@admin.com")
+}
+
+// GetInstanceDetail handles GET /api/v2/instance.
 func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
 	resp.Domain = systemsettings.GetDomain()
 	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
-	resp.Version = config.GetVersion()
+	resp.Version = config.GetInstanceVersion()
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
 	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
 	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
 	resp.Stats = getInstanceStats()
-	resp.Thumbnail.Url = systemsettings.GetString(systemsettings.KeyThumbnail, "")
-	resp.Languages = systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"})
-	// resp.Configuration.Urls.Streaming = systemsettings.GetString("config.urls.streaming", nil)
-	// resp.Configuration.Urls.Status = systemsettings.GetString("config.urls.status", nil)
+	resp.Thumbnail.Url = thumbnailURL()
+	resp.Icon = []InstanceIcon{{Src: strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/logo.svg", Size: "any"}}
+	resp.Languages = nonNilStrings(systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"}))
+	resp.Configuration.Urls.Streaming = StreamingURL()
+	resp.Configuration.Urls.Status = nil
+	resp.Configuration.Vapid.PublicKey = ""
 	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
-	resp.Configuration.Statuses.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
-	resp.Configuration.Statuses.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
-	resp.Configuration.Statuses.CharactersReservedPerUrl = systemsettings.GetInt(systemsettings.KeyStatusCharactersPerURL, nil)
-	resp.Configuration.MediaAttachments.SupportedMimeTypes = mediamanagement.SupportedMimeTypes()
-	resp.Configuration.MediaAttachments.ImageSizeLimit = int(systemsettings.MediaImageSizeLimit())
-	resp.Configuration.MediaAttachments.ImageMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, nil)
-	resp.Configuration.MediaAttachments.VideoSizeLimit = int(systemsettings.MediaVideoSizeLimit())
-	resp.Configuration.MediaAttachments.VideoFrameRateLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoFrameRate, nil)
-	resp.Configuration.MediaAttachments.VideoMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaVideoMatrixLimit, nil)
-	resp.Configuration.Polls.MaxOptions = systemsettings.GetInt(systemsettings.KeyPollMaxOptions, nil)
-	resp.Configuration.Polls.MaxCharactersPerOption = systemsettings.GetInt(systemsettings.KeyPollMaxCharactersPerOption, nil)
-	resp.Configuration.Polls.MinExpiration = systemsettings.GetInt(systemsettings.KeyPollMinExpiration, nil)
-	resp.Configuration.Polls.MaxExpiration = systemsettings.GetInt(systemsettings.KeyPollMaxExpiration, nil)
+	fillStatuses(&resp.Configuration.Statuses)
+	fillMedia(&resp.Configuration.MediaAttachments)
+	fillPolls(&resp.Configuration.Polls)
 	resp.Configuration.Translation.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, nil)
 	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
 	resp.Registrations.InviteRequired = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)
-	resp.Registrations.Message = systemsettings.GetString(systemsettings.KeyRegistrationMessage, "")
-	resp.Contact.Email = systemsettings.GetString(systemsettings.KeySiteContactEmail, "admin@admin.com")
+	resp.Registrations.Message = strPtr(systemsettings.GetString(systemsettings.KeyRegistrationMessage, ""))
+	resp.APIVersions.Mastodon = config.MastodonAPIVersionNumber
+	resp.Contact.Email = contactEmail()
+	resp.Contact.Account = loadContactAccount()
+	resp.Rules = loadInstanceRules()
+
+	c.JSON(200, resp)
+}
+
+// GetInstanceV1 handles GET /api/v1/instance.
+func GetInstanceV1(c *gin.Context) {
+	resp := InstanceV1Response{}
+	resp.Uri = systemsettings.GetDomain()
+	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
+	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
+	resp.ShortDescription = resp.Description
+	resp.Email = contactEmail()
+	resp.Version = config.GetInstanceVersion()
+	resp.Urls.StreamingApi = StreamingURL()
+	resp.Stats = getInstanceStats()
+	resp.Thumbnail = strPtr(thumbnailURL())
+	resp.Languages = nonNilStrings(systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"}))
+	resp.Registrations = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
+	resp.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
+	resp.InvitesEnabled = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)
+	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
+	fillStatuses(&resp.Configuration.Statuses)
+	fillMedia(&resp.Configuration.MediaAttachments)
+	fillPolls(&resp.Configuration.Polls)
+	resp.ContactAccount = loadContactAccount()
+	resp.Rules = loadInstanceRules()
 
 	c.JSON(200, resp)
 }

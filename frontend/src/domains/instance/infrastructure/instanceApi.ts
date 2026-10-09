@@ -24,7 +24,7 @@ export interface InstanceInfo {
 
 export const instanceApi = {
   async getInstance(): Promise<InstanceInfo> {
-    const { data } = await client.get<InstanceInfo>('/api/v1/instance')
+    const { data } = await client.get<InstanceInfo>('/api/v2/instance')
     return data
   },
 

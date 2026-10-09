@@ -30,9 +30,12 @@ type CreateAppResponse struct {
 	Website      string   `json:"website,omitempty"`
 	RedirectUri  string   `json:"redirect_uri"`
 	RedirectUris []string `json:"redirect_uris"`
+	Scopes       []string `json:"scopes"`
 	ClientId     string   `json:"client_id"`
 	ClientSecret string   `json:"client_secret"`
-	VapidKey     string   `json:"vapid_key"`
+	// ClientSecretExpiresAt is always 0 (never expires), as in Mastodon.
+	ClientSecretExpiresAt int    `json:"client_secret_expires_at"`
+	VapidKey              string `json:"vapid_key"`
 }
 
 // AuthorizeRequest represents the request for OAuth authorization.
@@ -158,6 +161,7 @@ func CreateApp(c *gin.Context) {
 		Website:      app.Website,
 		RedirectUri:  app.RedirectUri,
 		RedirectUris: splitRedirects(app.RedirectUri),
+		Scopes:       responseScopes(req.Scopes),
 		ClientId:     app.ClientId,
 		ClientSecret: app.ClientSecret,
 		VapidKey:     "", // VAPID key for push notifications (optional)
@@ -379,4 +383,15 @@ func parseScopes(scopesStr string) models.ApplicationScope {
 	}
 
 	return scopes
+}
+
+// responseScopes returns the registered scopes as an array; Mastodon
+// defaults to ["read"] when the client sent none.
+func responseScopes(raw string) []string {
+	out := strings.Fields(raw)
+	if len(out) == 0 {
+		return []string{"read"}
+	}
+
+	return out
 }

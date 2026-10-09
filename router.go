@@ -80,8 +80,8 @@ func SetRouter(app gin.IRouter) {
 
 	// ===== 公开接口（无需认证）=====
 
-	// Instance 信息（v1 与 v2 共用同一处理函数）
-	v1ApiGroup.GET("/instance", common.GetInstanceDetail) // v2 也支持
+	// Instance 信息（v1 为旧版文档，v2 为新版文档）
+	v1ApiGroup.GET("/instance", common.GetInstanceV1)
 	// Mastodon serves the rules under v1; they were only registered on v2.
 	v1ApiGroup.GET("/instance/rules", rule.List)
 
@@ -186,6 +186,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/timelines/public", timelines.Public)
 	maybeAuthGroupV1.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroupV1.GET("/timelines/tag/:tag", timelines.Tag)
+	maybeAuthGroupV1.GET("/streaming", streaming.Streaming)
 	maybeAuthGroupV1.GET("/streaming/list", streaming.ListStreaming)
 	maybeAuthGroupV1.GET("/streaming/hashtag/local", streaming.HashtagStreamingLocal)
 	maybeAuthGroupV1.GET("/streaming/hashtag/remote", streaming.HashtagStreamingRemote)
@@ -198,6 +199,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/custom_emojis", account.GetCustomEmojis)
 	maybeAuthGroupV1.GET("/accounts/:id/featured_tags", account.AccountFeaturedTags)
 	maybeAuthGroupV1.GET("/instance/peers", instance.Peers)
+	maybeAuthGroupV1.GET("/instance/activity", instance.Activity)
 
 	// 状态翻译（公开/可选认证）
 	maybeAuthGroupV1.POST("/statuses/:id/translate/:lang", status.Translate)

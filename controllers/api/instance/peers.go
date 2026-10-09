@@ -22,7 +22,7 @@ func Peers(c *gin.Context) {
 	}
 
 	// 缓存未命中，查询数据库
-	var domains []string
+	domains := make([]string, 0)
 	err = db.GetDB().Model(&models.Account{}).
 		Where("domain IS NOT NULL AND domain != ''").
 		Distinct("domain").

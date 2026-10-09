@@ -49,6 +49,8 @@ func setupTest(t *testing.T) {
 		&models.SystemSetting{},
 		&models.Account{},
 		&models.AccountExtra{},
+		&models.Rule{},
+		&models.User{},
 	)
 	require.NoError(t, err)
 
@@ -366,7 +368,7 @@ func TestGetInstanceDetail(t *testing.T) {
 	assert.Equal(t, "Test Instance", resp.Title)
 	assert.Equal(t, "A test instance", resp.Description)
 	assert.Equal(t, "https://example.com/thumb.jpg", resp.Thumbnail.Url)
-	assert.Equal(t, config.GetVersion(), resp.Version)
+	assert.Equal(t, config.GetInstanceVersion(), resp.Version)
 	assert.Equal(t, "https://github.com/kasuganosora/community", resp.SourceUrl)
 }
 
@@ -398,7 +400,7 @@ func TestGetInstanceDetail_DefaultValues(t *testing.T) {
 	assert.Equal(t, systemsettings.GetDomain(), resp.Domain)
 	assert.NotEmpty(t, resp.Domain)
 	assert.Empty(t, resp.Title)
-	assert.Equal(t, config.GetVersion(), resp.Version)
+	assert.Equal(t, config.GetInstanceVersion(), resp.Version)
 	assert.Equal(t, "https://github.com/kasuganosora/community", resp.SourceUrl)
 
 	// Default registrations
@@ -460,7 +462,7 @@ func TestGetInstanceDetail_WithRegistrationSettings(t *testing.T) {
 	assert.False(t, resp.Registrations.Enabled)
 	assert.True(t, resp.Registrations.ApprovalRequired)
 	assert.True(t, resp.Registrations.InviteRequired)
-	assert.Equal(t, "Registration is closed", resp.Registrations.Message)
+	assert.Equal(t, "Registration is closed", *resp.Registrations.Message)
 }
 
 func TestGetInstanceDetail_WithContactEmail(t *testing.T) {
@@ -507,7 +509,7 @@ func TestGetInstanceDetail_ResponseStructure(t *testing.T) {
 	assert.Contains(t, raw, "configuration")
 	assert.Contains(t, raw, "registrations")
 	assert.Contains(t, raw, "contact")
-	assert.Contains(t, raw, "rule")
+	assert.Contains(t, raw, "rules")
 
 	// Check configuration sub-fields
 	config, ok := raw["configuration"].(map[string]any)
@@ -595,8 +597,8 @@ func TestVerifyCaptchaResponse_JSONTags(t *testing.T) {
 	assert.Equal(t, "ok", raw["message"])
 }
 
-func TestServerRuleResponseItem_JSONTags(t *testing.T) {
-	item := ServerRuleResponseItem{
+func TestInstanceRule_JSONTags(t *testing.T) {
+	item := InstanceRule{
 		Id:   "rule-1",
 		Text: "Be nice",
 	}

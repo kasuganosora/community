@@ -153,3 +153,30 @@ func TestPeers_NilDomain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"remote.example"}, domains)
 }
+
+func TestPeers_EmptyIsArrayNotNull(t *testing.T) {
+	setupTestDB(t)
+
+	w := httptest.NewRecorder()
+	Peers(newTestContext(t, w, http.MethodGet, "/api/v1/instance/peers"))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, "[]", w.Body.String())
+}
+
+func TestActivity_ReturnsTwelveStringWeeks(t *testing.T) {
+	setupTestDB(t)
+	require.NoError(t, testDB.AutoMigrate(&models.Status{}))
+
+	w := httptest.NewRecorder()
+	Activity(newTestContext(t, w, http.MethodGet, "/api/v1/instance/activity"))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var weeks []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &weeks))
+	require.Len(t, weeks, 12)
+
+	for _, k := range []string{"week", "statuses", "logins", "registrations"} {
+		assert.IsType(t, "", weeks[0][k])
+	}
+}

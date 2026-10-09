@@ -182,7 +182,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			// 处理数据
 			event, payload, err := procDataHandle(msg.Payload)
 			if err != nil {
-				log.ErrorV(errors.Wrap(err, "streaming: procDataHandle error"))
+				logEventError(err)
 
 				continue
 			}
@@ -220,3 +220,18 @@ func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType str
 }
 
 var errEventAccountMissing = errors.New("streaming: status event account missing")
+
+// logEventError logs a failed event serialization. A status whose author (or
+// reblogged author) row no longer exists is expected: accounts are
+// soft-deleted (models.Account.DeletedAt) or purged while their statuses are
+// still queued in redis feeds, so such events are skipped at debug level
+// (the message carries the status id) instead of flooding the error log.
+func logEventError(err error) {
+	if errors.Is(err, errEventAccountMissing) {
+		log.Debug("streaming: skipping event: %v", err)
+
+		return
+	}
+
+	log.ErrorV(errors.Wrap(err, "streaming: event error"))
+}
