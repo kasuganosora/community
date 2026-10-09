@@ -444,22 +444,6 @@ func SetRouter(app gin.IRouter) {
 		PUT("/filters/keywords/:id", filter.KeywordUpdate).
 		DELETE("/filters/keywords/:id", filter.KeywordDelete)
 
-	// Mastodon v2 filters API (clients such as Ivory/Toot! call /api/v2/filters).
-	// The v1 routes above already speak the v2 entity shape.
-	v2Auth := v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
-	v2Auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
-		GET("/filters", filter.List).
-		GET("/filters/:id", filter.Show).
-		GET("/filters/:id/keywords", filter.KeywordsList).
-		GET("/filters/keywords/:id", filter.KeywordView)
-	v2Auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
-		POST("/filters", filter.Create).
-		PUT("/filters/:id", filter.Update).
-		DELETE("/filters/:id", filter.Delete).
-		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
-		PUT("/filters/keywords/:id", filter.KeywordUpdate).
-		DELETE("/filters/keywords/:id", filter.KeywordDelete)
-
 	// 举报（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
 		POST("/reports", report2.Create)
