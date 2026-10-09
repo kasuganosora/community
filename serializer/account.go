@@ -2,45 +2,48 @@ package serializer
 
 import (
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/defaultassets"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/url"
 	"strconv"
-	"time"
+	"strings"
 )
 
 type Account struct {
-	AvatarDecorationURL string     `json:"avatar_decoration_url,omitempty"`
-	AvatarDecorationID  string     `json:"avatar_decoration_id,omitempty"`
-	Id                  string     `json:"id"`
-	Username            string     `json:"username"`
-	Acct                string     `json:"acct"`
-	DisplayName         string     `json:"display_name"`
-	Locked              bool       `json:"locked"`
-	Bot                 bool       `json:"bot"`
-	Discoverable        bool       `json:"discoverable"`
-	Indexable           bool       `json:"indexable"`
-	Group               bool       `json:"group"`
-	CreatedAt           *time.Time `json:"created_at"`
-	Note                string     `json:"note"`
-	Url                 string     `json:"url"`
-	Uri                 string     `json:"uri"`
-	Avatar              string     `json:"avatar"`
-	AvatarStatic        string     `json:"avatar_static"`
-	AvatarDescription   string     `json:"avatar_description"`
-	Header              string     `json:"header"`
-	HeaderStatic        string     `json:"header_static"`
-	HeaderDescription   string     `json:"header_description"`
-	FollowersCount      int        `json:"followers_count"`
-	FollowingCount      int        `json:"following_count"`
-	StatusesCount       int        `json:"statuses_count"`
-	LastStatusAt        *time.Time `json:"last_status_at"`
-	HideCollections     bool       `json:"hide_collections"`
-	Emoji               []*Emoji   `json:"emojis"`
-	Fields              []Field    `json:"fields"`
-	NoIndex             bool       `json:"noindex,omitempty"`
+	AvatarDecorationURL string   `json:"avatar_decoration_url,omitempty"`
+	AvatarDecorationID  string   `json:"avatar_decoration_id,omitempty"`
+	Id                  string   `json:"id"`
+	Username            string   `json:"username"`
+	Acct                string   `json:"acct"`
+	DisplayName         string   `json:"display_name"`
+	Locked              bool     `json:"locked"`
+	Bot                 bool     `json:"bot"`
+	Discoverable        bool     `json:"discoverable"`
+	Indexable           bool     `json:"indexable"`
+	Group               bool     `json:"group"`
+	CreatedAt           *APITime `json:"created_at"`
+	Note                string   `json:"note"`
+	Url                 string   `json:"url"`
+	Uri                 string   `json:"uri"`
+	Avatar              string   `json:"avatar"`
+	AvatarStatic        string   `json:"avatar_static"`
+	AvatarDescription   string   `json:"avatar_description"`
+	Header              string   `json:"header"`
+	HeaderStatic        string   `json:"header_static"`
+	HeaderDescription   string   `json:"header_description"`
+	FollowersCount      int      `json:"followers_count"`
+	FollowingCount      int      `json:"following_count"`
+	StatusesCount       int      `json:"statuses_count"`
+	LastStatusAt        *APIDate `json:"last_status_at"`
+	HideCollections     bool     `json:"hide_collections"`
+	Emoji               []*Emoji `json:"emojis"`
+	Fields              []Field  `json:"fields"`
+	NoIndex             bool     `json:"noindex,omitempty"`
+	// Roles is always an array in Mastodon >= 4.3 (empty for plain users).
+	Roles []any `json:"roles"`
 
 	intId uint64 `json:"-"`
 }
@@ -95,15 +98,16 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		Discoverable:        account.Discoverable,
 		Indexable:           !account.NoIndex,
 		Group:               account.Group,
-		CreatedAt:           account.CreatedAt,
+		CreatedAt:           newAPIDayTime(account.CreatedAt),
 		Note:                account.NoteHTML(options),
 		Url:                 profileURL,
 		Uri:                 actorURI,
-		Avatar:              proxiedAccountMedia(account, mediaproxy.KindAvatar, account.Avatar),
-		AvatarStatic:        proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic),
-		Header:              proxiedAccountMedia(account, mediaproxy.KindHeader, account.Header),
-		HeaderStatic:        proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic),
-		LastStatusAt:        account.LastStatusAt,
+		Avatar:              mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindAvatar, account.Avatar), "avatar.png"),
+		AvatarStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic), "avatar.png"),
+		Header:              mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.Header), "header.png"),
+		HeaderStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic), "header.png"),
+		LastStatusAt:        newAPIDate(account.LastStatusAt),
+		Roles:               []any{},
 		HideCollections:     account.HideCollections,
 		NoIndex:             account.NoIndex,
 		Emoji:               emojis,
@@ -111,6 +115,18 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 	}
 
 	acc.Id = strconv.FormatUint(account.Id, 10)
+
+	if account.AvatarDecorationID == 0 {
+		acc.AvatarDecorationID = ""
+	}
+
+	if acc.Fields == nil {
+		acc.Fields = []Field{}
+	}
+
+	if acc.Emoji == nil {
+		acc.Emoji = []*Emoji{}
+	}
 
 	if account.Extra != nil {
 		acc.FollowersCount = account.Extra.FollowersCount
@@ -201,4 +217,19 @@ func proxiedAccountMedia(account *models.Account, kind, raw string) string {
 	}
 
 	return mediaproxy.URL(kind, raw)
+}
+
+// mediaOrDefault never lets an avatar/header URL be empty: Mastodon clients
+// decode these as non-optional URLs, so fall back to the bundled PNG.
+func mediaOrDefault(raw, asset string) string {
+	if raw != "" {
+		return raw
+	}
+
+	return DefaultAssetURL(asset)
+}
+
+// DefaultAssetURL returns the absolute URL of a bundled default asset.
+func DefaultAssetURL(name string) string {
+	return strings.TrimRight(systemsettings.GetBaseURL(), "/") + defaultassets.Path(name)
 }

@@ -92,7 +92,8 @@ func TestToAccount_LocalBasic(t *testing.T) {
 	assert.True(t, result.Indexable) // Indexable == !NoIndex
 	assert.True(t, result.Group)
 	require.NotNil(t, result.CreatedAt)
-	assert.Equal(t, created, *result.CreatedAt)
+	// Mastodon rounds created_at down to midnight UTC.
+	assert.Equal(t, time.Date(created.Year(), created.Month(), created.Day(), 0, 0, 0, 0, time.UTC), result.CreatedAt.Time)
 	assert.Equal(t, "<p>Hello</p>", result.Note)
 	assert.Equal(t, "https://example.com/avatar.png", result.Avatar)
 	assert.Equal(t, "https://example.com/header.png", result.Header)
@@ -159,7 +160,8 @@ func TestToAccount_NilExtra(t *testing.T) {
 	result := ToAccount(acc)
 	require.NotNil(t, result)
 	assert.Equal(t, 0, result.FollowersCount)
-	assert.Nil(t, result.Fields)
+	assert.NotNil(t, result.Fields)
+	assert.Empty(t, result.Fields)
 }
 
 func TestToAccount_EmptyUsername(t *testing.T) {

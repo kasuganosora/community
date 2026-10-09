@@ -44,7 +44,8 @@ type InstanceResponse struct {
 			PublicKey string `json:"public_key"`
 		} `json:"vapid"`
 		Accounts struct {
-			MaxFeaturedTags int `json:"max_featured_tags"`
+			MaxFeaturedTags   int `json:"max_featured_tags"`
+			MaxPinnedStatuses int `json:"max_pinned_statuses"`
 		} `json:"accounts"`
 
 		Statuses         InstanceStatusesConfig `json:"statuses"`
@@ -54,9 +55,11 @@ type InstanceResponse struct {
 		Translation struct {
 			Enabled bool `json:"enabled"`
 		} `json:"translation"`
+		TimelinesAccess map[string]map[string]string `json:"timelines_access"`
 	} `json:"configuration"`
 
 	Registrations struct {
+		MinAge           *int    `json:"min_age"`
 		Enabled          bool    `json:"enabled"`
 		ApprovalRequired bool    `json:"approval_required"`
 		InviteRequired   bool    `json:"invite_required"`
@@ -78,8 +81,9 @@ type InstanceResponse struct {
 
 // InstanceThumbnail is the v2 thumbnail object.
 type InstanceThumbnail struct {
-	Url      string `json:"url"`
-	Blurhash string `json:"blurhash,omitempty"`
+	Url      string            `json:"url"`
+	Blurhash string            `json:"blurhash,omitempty"`
+	Versions map[string]string `json:"versions,omitempty"`
 }
 
 // InstanceIcon is one entry of the v2 icon array.
@@ -89,12 +93,14 @@ type InstanceIcon struct {
 }
 
 type InstanceStatusesConfig struct {
-	MaxCharacters            int `json:"max_characters"`
-	MaxMediaAttachments      int `json:"max_media_attachments"`
-	CharactersReservedPerUrl int `json:"characters_reserved_per_url"`
+	MaxCharacters            int      `json:"max_characters"`
+	MaxMediaAttachments      int      `json:"max_media_attachments"`
+	CharactersReservedPerUrl int      `json:"characters_reserved_per_url"`
+	SupportedMimeTypes       []string `json:"supported_mime_types"`
 }
 
 type InstanceMediaConfig struct {
+	DescriptionLimit    int      `json:"description_limit"`
 	SupportedMimeTypes  []string `json:"supported_mime_types"`
 	ImageSizeLimit      int      `json:"image_size_limit"`
 	ImageMatrixLimit    int      `json:"image_matrix_limit"`
@@ -139,7 +145,8 @@ type InstanceV1Response struct {
 	InvitesEnabled   bool `json:"invites_enabled"`
 	Configuration    struct {
 		Accounts struct {
-			MaxFeaturedTags int `json:"max_featured_tags"`
+			MaxFeaturedTags   int `json:"max_featured_tags"`
+			MaxPinnedStatuses int `json:"max_pinned_statuses"`
 		} `json:"accounts"`
 		Statuses         InstanceStatusesConfig `json:"statuses"`
 		MediaAttachments InstanceMediaConfig    `json:"media_attachments"`
@@ -212,9 +219,11 @@ func fillStatuses(c *InstanceStatusesConfig) {
 	c.MaxCharacters = systemsettings.GetInt(systemsettings.KeyStatusMaxCharacters, nil)
 	c.MaxMediaAttachments = systemsettings.GetInt(systemsettings.KeyStatusMaxMedia, nil)
 	c.CharactersReservedPerUrl = systemsettings.GetInt(systemsettings.KeyStatusCharactersPerURL, nil)
+	c.SupportedMimeTypes = []string{"text/plain"}
 }
 
 func fillMedia(c *InstanceMediaConfig) {
+	c.DescriptionLimit = 1500
 	c.SupportedMimeTypes = nonNilStrings(mediamanagement.SupportedMimeTypes())
 	c.ImageSizeLimit = int(systemsettings.MediaImageSizeLimit())
 	c.ImageMatrixLimit = systemsettings.GetInt(systemsettings.KeyMediaImageMatrixLimit, nil)
@@ -230,14 +239,55 @@ func fillPolls(c *InstancePollsConfig) {
 	c.MaxExpiration = systemsettings.GetInt(systemsettings.KeyPollMaxExpiration, nil)
 }
 
-// thumbnailURL returns the configured thumbnail or the bundled logo, always
+// customThumbnail returns the admin-configured thumbnail when it is a
+// raster image (iOS clients cannot render SVG), else "".
+func customThumbnail() string {
+	t := strings.TrimSpace(systemsettings.GetString(systemsettings.KeyThumbnail, ""))
+	if t == "" || strings.HasSuffix(strings.ToLower(strings.SplitN(t, "?", 2)[0]), ".svg") {
+		return ""
+	}
+
+	return t
+}
+
+// thumbnailURL returns the configured thumbnail or the bundled PNG; always
 // an absolute URL (Swift clients decode this field as URL).
 func thumbnailURL() string {
-	if t := systemsettings.GetString(systemsettings.KeyThumbnail, ""); t != "" {
+	if t := customThumbnail(); t != "" {
 		return t
 	}
 
-	return strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/logo.svg"
+	return serializer.DefaultAssetURL("thumbnail@2x.png")
+}
+
+func instanceThumbnail() InstanceThumbnail {
+	if t := customThumbnail(); t != "" {
+		return InstanceThumbnail{Url: t}
+	}
+
+	return InstanceThumbnail{
+		Url: serializer.DefaultAssetURL("thumbnail@2x.png"),
+		Versions: map[string]string{
+			"@1x": serializer.DefaultAssetURL("thumbnail.png"),
+			"@2x": serializer.DefaultAssetURL("thumbnail@2x.png"),
+		},
+	}
+}
+
+func instanceIcons() []InstanceIcon {
+	return []InstanceIcon{
+		{Src: serializer.DefaultAssetURL("icon-64.png"), Size: "64x64"},
+		{Src: serializer.DefaultAssetURL("icon-192.png"), Size: "192x192"},
+		{Src: serializer.DefaultAssetURL("icon-512.png"), Size: "512x512"},
+	}
+}
+
+// cleanText trims and normalises exotic whitespace (U+3000, NBSP) that
+// admins paste into the title/description.
+func cleanText(s string) string {
+	s = strings.NewReplacer("\u3000", " ", "\u00a0", " ").Replace(s)
+
+	return strings.TrimSpace(s)
 }
 
 func strPtr(s string) *string {
@@ -256,22 +306,24 @@ func contactEmail() string {
 func GetInstanceDetail(c *gin.Context) {
 	resp := InstanceResponse{}
 	resp.Domain = systemsettings.GetDomain()
-	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
+	resp.Title = cleanText(systemsettings.GetString(systemsettings.KeyTitle, ""))
 	resp.Version = config.GetInstanceVersion()
 	resp.SourceUrl = "https://github.com/kasuganosora/community"
-	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
+	resp.Description = cleanText(systemsettings.GetString(systemsettings.KeyDescription, ""))
 	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
 	resp.Stats = getInstanceStats()
-	resp.Thumbnail.Url = thumbnailURL()
-	resp.Icon = []InstanceIcon{{Src: strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/logo.svg", Size: "any"}}
+	resp.Thumbnail = instanceThumbnail()
+	resp.Icon = instanceIcons()
 	resp.Languages = nonNilStrings(systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"}))
 	resp.Configuration.Urls.Streaming = StreamingURL()
 	resp.Configuration.Urls.Status = nil
 	resp.Configuration.Vapid.PublicKey = ""
 	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
+	resp.Configuration.Accounts.MaxPinnedStatuses = 5
 	fillStatuses(&resp.Configuration.Statuses)
 	fillMedia(&resp.Configuration.MediaAttachments)
 	fillPolls(&resp.Configuration.Polls)
+	resp.Configuration.TimelinesAccess = timelinesAccess()
 	resp.Configuration.Translation.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, nil)
 	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
@@ -289,8 +341,8 @@ func GetInstanceDetail(c *gin.Context) {
 func GetInstanceV1(c *gin.Context) {
 	resp := InstanceV1Response{}
 	resp.Uri = systemsettings.GetDomain()
-	resp.Title = systemsettings.GetString(systemsettings.KeyTitle, "")
-	resp.Description = systemsettings.GetString(systemsettings.KeyDescription, "")
+	resp.Title = cleanText(systemsettings.GetString(systemsettings.KeyTitle, ""))
+	resp.Description = cleanText(systemsettings.GetString(systemsettings.KeyDescription, ""))
 	resp.ShortDescription = resp.Description
 	resp.Email = contactEmail()
 	resp.Version = config.GetInstanceVersion()
@@ -302,6 +354,7 @@ func GetInstanceV1(c *gin.Context) {
 	resp.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
 	resp.InvitesEnabled = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)
 	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
+	resp.Configuration.Accounts.MaxPinnedStatuses = 5
 	fillStatuses(&resp.Configuration.Statuses)
 	fillMedia(&resp.Configuration.MediaAttachments)
 	fillPolls(&resp.Configuration.Polls)
@@ -365,4 +418,14 @@ func getInstanceStats() InstanceStats {
 	instanceStatsCache.at = time.Now()
 
 	return stats
+}
+
+func timelinesAccess() map[string]map[string]string {
+	pub := map[string]string{"local": "public", "remote": "public"}
+
+	return map[string]map[string]string{
+		"live_feeds":     pub,
+		"hashtag_feeds":  pub,
+		"trending_links": pub,
+	}
 }

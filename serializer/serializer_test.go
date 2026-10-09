@@ -1,7 +1,9 @@
 package serializer
 
 import (
+	"encoding/json"
 	"github.com/kasuganosora/community/mediaproxy"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -197,4 +199,22 @@ func TestToTag_Nil(t *testing.T) {
 func TestToTagWithHistory_Nil(t *testing.T) {
 	result := ToTagWithHistory(nil)
 	assert.Nil(t, result)
+}
+
+func TestToAccount_MastodonStrictShape(t *testing.T) {
+	created := time.Date(2026, 10, 9, 0, 16, 37, 131129000, time.UTC)
+	raw, err := json.Marshal(ToAccount(&models.Account{Id: 1, Username: "luna", CreatedAt: &created, LastStatusAt: &created}))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(raw, &m))
+
+	assert.Equal(t, "2026-10-09T00:00:00.000Z", m["created_at"])
+	assert.Equal(t, "2026-10-09", m["last_status_at"])
+	assert.Regexp(t, `^https?://.+/default-assets/avatar\.png$`, m["avatar"])
+	assert.Regexp(t, `^https?://.+/default-assets/header\.png$`, m["header"])
+	assert.NotContains(t, m, "avatar_decoration_id")
+	assert.Equal(t, []any{}, m["roles"])
+	assert.Equal(t, []any{}, m["fields"])
+	assert.Equal(t, []any{}, m["emojis"])
 }

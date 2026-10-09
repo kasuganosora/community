@@ -27,7 +27,7 @@ type CreateAppRequest struct {
 type CreateAppResponse struct {
 	Id           string   `json:"id"`
 	Name         string   `json:"name"`
-	Website      string   `json:"website,omitempty"`
+	Website      *string  `json:"website"`
 	RedirectUri  string   `json:"redirect_uri"`
 	RedirectUris []string `json:"redirect_uris"`
 	Scopes       []string `json:"scopes"`
@@ -158,7 +158,7 @@ func CreateApp(c *gin.Context) {
 	c.JSON(200, CreateAppResponse{
 		Id:           strconv.FormatUint(app.Id, 10),
 		Name:         app.Name,
-		Website:      app.Website,
+		Website:      websitePtr(app.Website),
 		RedirectUri:  app.RedirectUri,
 		RedirectUris: splitRedirects(app.RedirectUri),
 		Scopes:       responseScopes(req.Scopes),
@@ -394,4 +394,12 @@ func responseScopes(raw string) []string {
 	}
 
 	return out
+}
+
+func websitePtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
 }

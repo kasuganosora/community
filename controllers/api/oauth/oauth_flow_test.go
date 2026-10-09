@@ -89,7 +89,9 @@ func TestCreateApp_Success(t *testing.T) {
 	var resp CreateAppResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "TestApp", resp.Name)
-	assert.Equal(t, "https://example.com", resp.Website)
+	require.NotNil(t, resp.Website)
+	assert.Equal(t, "https://example.com", *resp.Website)
+	assert.Equal(t, []string{"read", "write"}, resp.Scopes)
 	assert.Equal(t, "https://example.com/callback", resp.RedirectUri)
 	assert.NotEmpty(t, resp.ClientId, "client_id should not be empty")
 	assert.NotEmpty(t, resp.ClientSecret, "client_secret should not be empty")
@@ -517,4 +519,25 @@ func TestCreateApp_FormEncoded(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "FormApp", resp.Name)
 	assert.NotEmpty(t, resp.ClientId)
+}
+
+// The Mastodon CredentialApplication keys must all be present.
+func TestCreateApp_ResponseKeys(t *testing.T) {
+	newOAuthTestEnv(t)
+
+	c, w := newJSONContext(t, http.MethodPost, CreateAppRequest{ClientName: "Toot", RedirectUris: "toot://oauth"})
+	CreateApp(c)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+
+	for _, k := range []string{"id", "name", "website", "scopes", "redirect_uri", "redirect_uris", "client_id", "client_secret", "client_secret_expires_at", "vapid_key"} {
+		assert.Contains(t, raw, k)
+	}
+
+	assert.IsType(t, "", raw["id"])
+	assert.Nil(t, raw["website"])
+	assert.Equal(t, []any{"read"}, raw["scopes"])
+	assert.Equal(t, []any{"toot://oauth"}, raw["redirect_uris"])
 }

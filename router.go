@@ -27,6 +27,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/timelines"
 	transferapi "github.com/kasuganosora/community/controllers/api/transfer"
 	"github.com/kasuganosora/community/controllers/api/trends"
+	"github.com/kasuganosora/community/defaultassets"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/linkcard"
 	"github.com/kasuganosora/community/matrix"
@@ -124,6 +125,7 @@ func SetRouter(app gin.IRouter) {
 	// WebFinger / NodeInfo
 	app.GET("/.well-known/webfinger", activitypub.WebFinger)
 	app.GET("/.well-known/host-meta", activitypub.HostMeta)
+	app.GET(defaultassets.Prefix+":name", defaultassets.Handler)
 	app.GET("/.well-known/nodeinfo", activitypub.NodeInfo)
 	app.GET("/nodeinfo/2.0", activitypub.NodeInfo20)
 	app.GET("/nodeinfo/2.1", activitypub.NodeInfo21)

@@ -43,21 +43,58 @@ func VerifyCredentials(c *gin.Context) {
 		IsAdmin:          currentUser != nil && currentUser.IsAdmin,
 		AdminPermissions: models.AdminCapabilities(permissions),
 		Source: AccountSource{
-			Privacy:   "public",
-			Sensitive: false,
-			Note:      account.Note,
-			Fields:    []models.AccountField{},
+			Privacy:             "public",
+			Sensitive:           false,
+			Note:                account.Note,
+			Fields:              sourceFields(account),
+			Language:            "",
+			FollowRequestsCount: 0,
+			HideCollections:     account.HideCollections,
+			Discoverable:        account.Discoverable,
+			Indexable:           !account.NoIndex,
 		},
+		Role: roleFor(currentUser),
 	})
 }
 
 // AccountSource represents the source field in account credentials.
 type AccountSource struct {
-	Privacy   string                `json:"privacy"`
-	Sensitive bool                  `json:"sensitive"`
-	Language  string                `json:"language"`
-	Note      string                `json:"note"`
-	Fields    []models.AccountField `json:"fields"`
+	Privacy   string             `json:"privacy"`
+	Sensitive bool               `json:"sensitive"`
+	Language  string             `json:"language"`
+	Note      string             `json:"note"`
+	Fields    []serializer.Field `json:"fields"`
+
+	FollowRequestsCount int  `json:"follow_requests_count"`
+	HideCollections     bool `json:"hide_collections"`
+	Discoverable        bool `json:"discoverable"`
+	Indexable           bool `json:"indexable"`
+}
+
+// AccountRole mirrors Mastodon's Role entity (CredentialAccount#role).
+type AccountRole struct {
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Permissions string `json:"permissions"`
+	Color       string `json:"color"`
+	Highlighted bool   `json:"highlighted"`
+}
+
+func roleFor(u *models.User) AccountRole {
+	if u != nil && u.IsAdmin {
+		return AccountRole{Id: "3", Name: "Admin", Permissions: "1", Color: "", Highlighted: true}
+	}
+
+	// Mastodon's implicit "everyone" role.
+	return AccountRole{Id: "-99", Name: "", Permissions: "0", Color: "", Highlighted: false}
+}
+
+func sourceFields(a *models.Account) []serializer.Field {
+	if a.Extra != nil && a.Extra.Fields != nil {
+		return serializer.ToFields(a.Extra.Fields)
+	}
+
+	return []serializer.Field{}
 }
 
 // AccountWithSource extends Account with source field.
@@ -65,6 +102,7 @@ type AccountWithSource struct {
 	*serializer.Account
 
 	Source           AccountSource `json:"source"`
+	Role             AccountRole   `json:"role"`
 	IsAdmin          bool          `json:"is_admin"`
 	AdminPermissions []string      `json:"admin_permissions"`
 }

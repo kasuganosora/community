@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -140,4 +141,78 @@ func TestStreamingURLFromBaseURL(t *testing.T) {
 	setupInstanceShape(t)
 
 	assert.Equal(t, "wss://social.example.org", StreamingURL())
+}
+
+func TestInstanceDefaultImagesArePNG(t *testing.T) {
+	setupInstanceShape(t)
+
+	v2 := fetchInstance(t, false)
+	thumb := sub(t, v2, "thumbnail")
+	assert.Regexp(t, `\.png$`, thumb["url"])
+	versions := sub(t, thumb, "versions")
+	assert.Regexp(t, `\.png$`, versions["@1x"])
+	assert.Regexp(t, `\.png$`, versions["@2x"])
+
+	icons := arr(t, v2, "icon")
+	require.NotEmpty(t, icons)
+
+	for _, i := range icons {
+		m, _ := i.(map[string]any)
+		assert.Regexp(t, `\.png$`, m["src"])
+		assert.Regexp(t, `^\d+x\d+$`, m["size"])
+	}
+
+	assert.Regexp(t, `\.png$`, fetchInstance(t, true)["thumbnail"])
+
+	// An SVG thumbnail configured by the admin is ignored (iOS cannot render it).
+	systemsettings.Set(systemsettings.KeyThumbnail, "https://x.example/t.svg")
+	assert.Regexp(t, `\.png$`, sub(t, fetchInstance(t, false), "thumbnail")["url"])
+}
+
+func TestInstanceTextIsTrimmed(t *testing.T) {
+	setupInstanceShape(t)
+	systemsettings.Set(systemsettings.KeyTitle, "Community \u3000")
+	systemsettings.Set(systemsettings.KeyDescription, "\u3000hello ")
+
+	for _, v1 := range []bool{true, false} {
+		raw := fetchInstance(t, v1)
+		assert.Equal(t, "Community", raw["title"])
+		assert.Equal(t, "hello", raw["description"])
+	}
+}
+
+func TestInstanceContactAccountIsFullAccount(t *testing.T) {
+	setupInstanceShape(t)
+
+	gdb := db.GetDB()
+	user := &models.User{UUID: "u-1", UserName: "luna", EmailHash: "h1", IsAdmin: true}
+	require.NoError(t, gdb.Create(user).Error)
+
+	created := time.Date(2026, 10, 9, 0, 16, 37, 131129000, time.UTC)
+	acc := &models.Account{Username: "luna", UserId: user.Id, CreatedAt: &created, LastStatusAt: &created}
+	require.NoError(t, gdb.Create(acc).Error)
+
+	for _, v1 := range []bool{true, false} {
+		raw := fetchInstance(t, v1)
+
+		var a map[string]any
+		if v1 {
+			a = sub(t, raw, "contact_account")
+		} else {
+			a = sub(t, sub(t, raw, "contact"), "account")
+		}
+
+		requireKeys(t, a, "id", "username", "acct", "url", "uri", "display_name", "note", "avatar", "avatar_static",
+			"header", "header_static", "locked", "fields", "emojis", "bot", "group", "discoverable", "indexable",
+			"created_at", "last_status_at", "statuses_count", "followers_count", "following_count", "roles")
+		assert.Equal(t, "2026-10-09T00:00:00.000Z", a["created_at"])
+		assert.Equal(t, "2026-10-09", a["last_status_at"])
+		assert.Regexp(t, `^https?://.+\.png$`, a["avatar"])
+		assert.Regexp(t, `^https?://.+\.png$`, a["header_static"])
+		assert.NotContains(t, a, "avatar_decoration_id")
+		assert.IsType(t, "", a["id"])
+		arr(t, a, "fields")
+		arr(t, a, "emojis")
+		arr(t, a, "roles")
+	}
 }
