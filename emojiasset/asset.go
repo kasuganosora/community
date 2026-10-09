@@ -252,6 +252,44 @@ func validateGIFBudgetWithLimits(data []byte, limits DecodeLimits) error {
 
 var assetName = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(-static)?\.(png|jpg|gif|webp)$`)
 
+// StorageKey returns the storage key ("emojis/<name>") of an asset URL that
+// StoreEmojiImage generated on this instance, or "" for anything else
+// (remote emoji, foreign hosts, unexpected names).
+func StorageKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if u.Scheme+"://"+u.Host != systemsettings.GetBaseURL() || u.RawQuery != "" || u.Fragment != "" || u.User != nil || !strings.HasPrefix(u.Path, "/emoji-assets/") || !assetName.MatchString(strings.TrimPrefix(u.Path, "/emoji-assets/")) {
+		return ""
+	}
+	return "emojis/" + path.Base(u.Path)
+}
+
+// ReferencedKey maps any stored emoji/brand image reference (a local or
+// foreign "/emoji-assets/<name>" URL or path, or a bare "emojis/<name>" key)
+// to the storage key it may point at. It is deliberately lenient and is
+// meant for building "is this object referenced" sets, never for deleting.
+func ReferencedKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	p := raw
+	if u, err := url.Parse(raw); err == nil && u.Path != "" {
+		p = u.Path
+	}
+	p = strings.TrimPrefix(p, "/")
+	p = strings.TrimPrefix(p, "uploads/")
+	switch {
+	case strings.HasPrefix(p, "emoji-assets/"):
+		return "emojis/" + path.Base(p)
+	case strings.HasPrefix(p, "emojis/"):
+		return p
+	}
+	return ""
+}
+
 // DeleteAsset removes only this instance's generated emoji filenames. It is
 // intended for rolling back a newly uploaded asset, not deleting shared assets.
 func DeleteAsset(asset *Asset) error {
@@ -260,16 +298,12 @@ func DeleteAsset(asset *Asset) error {
 	}
 	var errs []error
 	for _, raw := range []string{asset.URL, asset.StaticURL} {
-		u, err := url.Parse(raw)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if u.Scheme+"://"+u.Host != systemsettings.GetBaseURL() || u.RawQuery != "" || u.Fragment != "" || u.User != nil || !strings.HasPrefix(u.Path, "/emoji-assets/") || !assetName.MatchString(strings.TrimPrefix(u.Path, "/emoji-assets/")) {
+		key := StorageKey(raw)
+		if key == "" {
 			errs = append(errs, errors.New("not a local emoji asset"))
 			continue
 		}
-		err = storage.Default().Delete(context.Background(), "emojis/"+path.Base(u.Path))
+		err := storage.Default().Delete(context.Background(), key)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}

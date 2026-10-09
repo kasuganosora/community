@@ -6,11 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/storage"
 	"github.com/urfave/cli/v2"
+	"gorm.io/gorm"
 )
 
 // MediaCommand implements tootctl media subcommands.
@@ -84,171 +84,250 @@ func MediaRemoveCommand() *cli.Command {
 
 func removeMedia(c *cli.Context) error {
 	days := c.Int("days")
-	concurrency := c.Int("concurrency")
+	concurrency := max(c.Int("concurrency"), 1)
 	pruneProfiles := c.Bool("prune-profiles")
 	removeHeaders := c.Bool("remove-headers")
 	includeFollows := c.Bool("include-follows")
 	verbose := c.Bool("verbose")
 	dryRun := c.Bool("dry-run")
+	out := c.App.Writer
 
 	if pruneProfiles && removeHeaders {
 		return errors.New("--prune-profiles and --remove-headers cannot be combined")
 	}
 
+	if days < 1 {
+		return errors.New("--days must be at least 1")
+	}
+
 	cutoff := time.Now().AddDate(0, 0, -days)
-	fmt.Printf("Removing media older than %d days (cutoff: %s)\n", days, cutoff.Format("2006-01-02"))
+	_, _ = fmt.Fprintf(out, "Removing cached remote media older than %d days (cutoff: %s)\n", days, cutoff.Format("2006-01-02"))
 
 	if dryRun {
-		fmt.Println("Dry run mode - no changes will be made")
+		_, _ = fmt.Fprintln(out, "Dry run mode - no changes will be made")
 	}
 
 	if pruneProfiles || removeHeaders {
-		return removeProfileMedia(cutoff, includeFollows, removeHeaders, verbose, dryRun)
+		return removeProfileMedia(c.Context, out, cutoff, includeFollows, removeHeaders, verbose, dryRun)
 	}
 
-	// Remove regular media attachments
-	return removeMediaAttachments(cutoff, concurrency, verbose, dryRun)
+	return removeMediaAttachments(c.Context, out, cutoff, concurrency, verbose, dryRun)
 }
 
-func removeMediaAttachments(cutoff time.Time, concurrency int, verbose bool, dryRun bool) error {
+// remoteCachedMedia selects attachments of remote accounts that have a
+// locally stored copy (file_path set, e.g. by "media refresh") and were
+// created before cutoff. Local users' media is never selected.
+func remoteCachedMedia(gdb *gorm.DB, cutoff time.Time) *gorm.DB {
+	return gdb.Model(&models.MediaAttachment{}).
+		Where("remote_url IS NOT NULL AND remote_url <> '' AND file_path <> '' AND created_at < ?", cutoff).
+		Where("account_id IN (?)", gdb.Model(&models.Account{}).Select("id").Where("domain IS NOT NULL AND domain <> ''"))
+}
+
+// removeMediaAttachments drops the cached copies of old remote attachments
+// (Mastodon semantics): stored objects are deleted through the storage
+// backend and the row falls back to its remote_url. Rows are kept.
+func removeMediaAttachments(ctx context.Context, out io.Writer, cutoff time.Time, concurrency int, verbose bool, dryRun bool) error {
+	gdb := db.GetDB().WithContext(ctx)
+
 	var count int64
+	if err := remoteCachedMedia(gdb, cutoff).Count(&count).Error; err != nil {
+		return fmt.Errorf("count cached remote media: %w", err)
+	}
 
-	db.GetDB().Model(&models.Attachment{}).
-		Where("created_at < ?", cutoff).
-		Count(&count)
-
-	fmt.Printf("Found %d media attachments to process\n", count)
+	_, _ = fmt.Fprintf(out, "Found %d cached remote media attachments to process\n", count)
 
 	if dryRun || count == 0 {
 		return nil
 	}
 
-	// Process in batches
-	batchSize := 100
-	jobs := make(chan []uint64, 10)
+	jobs := make(chan models.MediaAttachment, 100)
 
-	var wg sync.WaitGroup
-
-	removed := 0
-
-	var mu sync.Mutex
+	var (
+		wg                      sync.WaitGroup
+		mu                      sync.Mutex
+		removed, shared, failed int
+	)
 
 	for range concurrency {
 		wg.Go(func() {
-			for ids := range jobs {
-				for _, id := range ids {
-					var attachment models.Attachment
-					err := db.GetDB().First(&attachment, id).Error
-					if err != nil {
-						continue
-					}
+			for attachment := range jobs {
+				result := uncacheAttachment(ctx, gdb, &attachment)
 
-					// Delete from storage
-					if attachment.FilePath != "" {
-						_ = storage.Delete(attachment.FilePath)
-					}
-
-					if attachment.ThumbPath() != "" && attachment.ThumbPath() != attachment.FilePath {
-						_ = storage.Delete(attachment.ThumbPath())
-					}
-
-					// Delete from database
-					db.GetDB().Delete(&attachment)
-
-					mu.Lock()
-
+				mu.Lock()
+				switch result {
+				case uncacheRemoved:
 					removed++
-					if verbose && removed%100 == 0 {
-						fmt.Printf("Removed %d attachments...\n", removed)
-					}
-					mu.Unlock()
+				case uncacheShared:
+					shared++
+				default:
+					failed++
 				}
+				if verbose && (removed+shared)%100 == 0 {
+					_, _ = fmt.Fprintf(out, "Processed %d attachments...\n", removed+shared)
+				}
+				mu.Unlock()
 			}
 		})
 	}
 
-	// Feed jobs
-	var lastID uint64 = 0
+	var (
+		lastID  uint64
+		feedErr error
+	)
 
 	for {
-		var attachments []models.Attachment
+		var batch []models.MediaAttachment
 
-		err := db.GetDB().Where("created_at < ? AND id > ?", cutoff, lastID).
-			Order("id ASC").
-			Limit(batchSize).
-			Find(&attachments).Error
-
-		if err != nil || len(attachments) == 0 {
+		feedErr = remoteCachedMedia(gdb, cutoff).Where("id > ?", lastID).Order("id ASC").Limit(100).Find(&batch).Error
+		if feedErr != nil || len(batch) == 0 {
 			break
 		}
 
-		ids := make([]uint64, len(attachments))
-		for i, a := range attachments {
-			ids[i] = a.Id
+		lastID = batch[len(batch)-1].Id
+		for _, a := range batch {
+			jobs <- a
 		}
-
-		lastID = attachments[len(attachments)-1].Id
-
-		jobs <- ids
 	}
 
 	close(jobs)
-
 	wg.Wait()
-	fmt.Printf("Removed %d media attachments\n", removed)
 
-	return nil //nolint:nilerr
+	_, _ = fmt.Fprintf(out, "Removed cached copies of %d attachments (%d shared files kept, %d failed)\n", removed, shared, failed)
+
+	if feedErr != nil {
+		return fmt.Errorf("query cached remote media: %w", feedErr)
+	}
+
+	return nil
 }
 
-func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool, verbose bool, dryRun bool) error { //nolint:unparam // param reserved for future use
-	query := db.GetDB().Model(&models.Account{}).
-		Where("domain IS NOT NULL AND domain != ''")
+type uncacheResult int
+
+const (
+	uncacheRemoved uncacheResult = iota
+	uncacheShared
+	uncacheFailed
+)
+
+// uncacheAttachment deletes the stored files of one remote attachment and
+// clears its file columns. Files another row still points at are kept.
+func uncacheAttachment(ctx context.Context, gdb *gorm.DB, a *models.MediaAttachment) uncacheResult {
+	var others int64
+	if err := gdb.Model(&models.MediaAttachment{}).Where("id <> ? AND file_path = ?", a.Id, a.FilePath).Count(&others).Error; err != nil {
+		return uncacheFailed
+	}
+
+	result := uncacheShared
+	if others == 0 {
+		if err := a.DeleteStoredFiles(ctx); err != nil {
+			return uncacheFailed
+		}
+
+		result = uncacheRemoved
+	}
+
+	err := gdb.Model(&models.MediaAttachment{}).Where("id = ?", a.Id).
+		Updates(map[string]any{"file_path": "", "thumbnail_path": nil}).Error
+	if err != nil {
+		return uncacheFailed
+	}
+
+	return result
+}
+
+// removeProfileMedia handles --prune-profiles / --remove-headers. Remote
+// avatars and headers are hot-linked (stored as their remote URLs), so only
+// legacy references to locally stored copies (plain storage keys below
+// avatars/) are deleted and cleared; URLs are never touched.
+func removeProfileMedia(ctx context.Context, out io.Writer, _ time.Time, includeFollows bool, headersOnly bool, verbose bool, dryRun bool) error {
+	gdb := db.GetDB().WithContext(ctx)
+	query := gdb.Model(&models.Account{}).Where("domain IS NOT NULL AND domain <> ''")
 
 	if !includeFollows {
-		// Only remove from accounts not followed locally
-		query = query.Where("id NOT IN (SELECT DISTINCT follow_id FROM follows)")
+		query = query.Where("id NOT IN (?)", gdb.Model(&models.Follow{}).Select("follow_id"))
 	}
 
 	var accounts []*models.Account
-	err := query.Find(&accounts).Error
-	if err != nil {
+	if err := query.Find(&accounts).Error; err != nil {
 		return err
 	}
 
-	fmt.Printf("Processing %d remote accounts...\n", len(accounts))
+	_, _ = fmt.Fprintf(out, "Processing %d remote accounts...\n", len(accounts))
 
 	removed := 0
 
 	for _, account := range accounts {
-		if dryRun {
-			if verbose {
-				fmt.Printf("[DRY-RUN] Would remove media for: %s\n", account.Username)
+		fields := map[string]*string{"header": &account.Header, "header_static": &account.HeaderStatic}
+		if !headersOnly {
+			fields["avatar"] = &account.Avatar
+			fields["avatar_static"] = &account.AvatarStatic
+		}
+
+		updates := map[string]any{}
+
+		for column, value := range fields {
+			key := cachedProfileKey(*value)
+			if key == "" {
+				continue
 			}
 
-			continue
-		}
+			if dryRun {
+				if verbose {
+					_, _ = fmt.Fprintf(out, "[DRY-RUN] Would remove %s %s of %s\n", column, key, account.Username)
+				}
 
-		if !headersOnly && account.Avatar != "" {
-			_ = storage.Delete(account.Avatar)
-			account.Avatar = ""
+				removed++
+
+				continue
+			}
+
+			var others int64
+			if err := gdb.Model(&models.Account{}).Where("id <> ? AND (avatar = ? OR avatar_static = ? OR header = ? OR header_static = ?)", account.Id, *value, *value, *value, *value).Count(&others).Error; err != nil {
+				return err
+			}
+
+			if others == 0 {
+				if err := storage.Default().Delete(ctx, key); err != nil {
+					_, _ = fmt.Fprintf(out, "Failed to delete %s: %v\n", key, err)
+
+					continue
+				}
+			}
+
+			updates[column] = ""
 			removed++
 		}
 
-		if account.Header != "" {
-			_ = storage.Delete(account.Header)
-			account.Header = ""
-			removed++
+		if len(updates) > 0 {
+			if err := gdb.Model(&models.Account{}).Where("id = ?", account.Id).Updates(updates).Error; err != nil {
+				return err
+			}
 		}
-
-		db.GetDB().Model(account).Updates(map[string]any{
-			"avatar": account.Avatar,
-			"header": account.Header,
-		})
 	}
 
-	fmt.Printf("Removed %d profile images\n", removed)
+	_, _ = fmt.Fprintf(out, "Removed %d cached profile images (remote URLs are hot-linked and left untouched)\n", removed)
 
 	return nil
+}
+
+// cachedProfileKey returns the storage key of a locally cached profile image
+// reference, or "" for URLs and anything outside avatars/.
+func cachedProfileKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "://") || filepath.IsAbs(raw) {
+		return ""
+	}
+
+	key, _ := storage.NormalizeKey(raw)
+	if !strings.HasPrefix(key, "avatars/") {
+		return ""
+	}
+
+	if k, err := storage.CleanKey(key); err == nil {
+		return k
+	}
+
+	return ""
 }
 
 // MediaRemoveOrphansCommand implements tootctl media remove-orphans
@@ -256,23 +335,28 @@ func removeProfileMedia(cutoff time.Time, includeFollows bool, headersOnly bool,
 func MediaRemoveOrphansCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "remove-orphans",
-		Usage: "Scan for and remove orphaned media files",
+		Usage: "Scan for media files no database row references (dry run unless --confirm)",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "start-after",
-				Usage: "Attachment key where to start",
+				Usage: "Storage key after which to resume scanning",
 			},
 			&cli.BoolFlag{
 				Name:  "dry-run",
-				Usage: "Print expected results only",
+				Usage: "Only report orphans (the default; wins over --confirm)",
+			},
+			&cli.BoolFlag{
+				Name:  "confirm",
+				Usage: "Actually delete the orphaned objects",
 			},
 			&cli.StringFlag{
 				Name:  "prefix",
-				Usage: "Traverse only a specific prefix",
+				Usage: "Scan only keys below this prefix (must be inside media/, matrix/ or refreshed/)",
 			},
-			&cli.BoolFlag{
-				Name:  "fix-permissions",
-				Usage: "Fix S3 ACL permissions",
+			&cli.DurationFlag{
+				Name:  "min-age",
+				Value: 24 * time.Hour,
+				Usage: "Grace period: ignore objects modified more recently than this (minimum 1h)",
 			},
 		},
 		Action: removeOrphanedMedia,
@@ -280,78 +364,76 @@ func MediaRemoveOrphansCommand() *cli.Command {
 }
 
 func removeOrphanedMedia(c *cli.Context) error {
-	startAfter := c.String("start-after")
-	dryRun := c.Bool("dry-run")
-	prefix := c.String("prefix")
+	out := c.App.Writer
+	deleteOrphans := c.Bool("confirm") && !c.Bool("dry-run")
+	minAge := c.Duration("min-age")
 
-	fmt.Println("Scanning for orphaned media files...")
-
-	if dryRun {
-		fmt.Println("Dry run mode - no changes will be made")
+	if minAge < minOrphanAge {
+		return fmt.Errorf("--min-age must be at least %s", minOrphanAge)
 	}
 
-	// Get all media URLs from database
-	var attachmentURLs []string
-
-	db.GetDB().Model(&models.Attachment{}).Pluck("file_path", &attachmentURLs)
-	db.GetDB().Model(&models.Attachment{}).Pluck("thumbnail_path", &attachmentURLs)
-
-	var avatarURLs []string
-
-	db.GetDB().Model(&models.Account{}).Where("avatar IS NOT NULL AND avatar != ''").Pluck("avatar", &avatarURLs)
-
-	var headerURLs []string
-
-	db.GetDB().Model(&models.Account{}).Where("header IS NOT NULL AND header != ''").Pluck("header", &headerURLs)
-
-	// Combine all valid URLs
-	validURLs := make(map[string]bool)
-	for _, url := range attachmentURLs {
-		validURLs[url] = true
-	}
-
-	for _, url := range avatarURLs {
-		validURLs[url] = true
-	}
-
-	for _, url := range headerURLs {
-		validURLs[url] = true
-	}
-
-	fmt.Printf("Found %d valid URLs in database\n", len(validURLs))
-
-	// List files in storage
-	files, err := listStorageFiles(prefix)
+	prefixes, err := resolveOrphanPrefixes(c.String("prefix"))
 	if err != nil {
-		return fmt.Errorf("failed to list storage files: %w", err)
+		return err
 	}
 
-	orphans := 0
+	backend := storage.Default()
+	if err := backend.Check(c.Context); err != nil {
+		return fmt.Errorf("storage backend unavailable: %w", err)
+	}
 
-	for _, file := range files {
-		if startAfter != "" && file < startAfter {
-			continue
-		}
+	return runOrphanScan(c.Context, out, backend, db.GetDB(), orphanScanOptions{
+		Prefixes:   prefixes,
+		StartAfter: strings.TrimLeft(c.String("start-after"), "/"),
+		MinAge:     minAge,
+		Delete:     deleteOrphans,
+	})
+}
 
-		if !validURLs[file] {
-			orphans++
+func runOrphanScan(ctx context.Context, out io.Writer, backend storage.Backend, gdb *gorm.DB, opts orphanScanOptions) error {
+	opts.Out = out
 
-			if dryRun {
-				fmt.Printf("[ORPHAN] %s\n", file)
-			} else {
-				err := storage.Delete(file)
-				if err != nil {
-					log.Printf("Failed to delete orphaned file %s: %v", file, err)
-				}
+	mode := "DRY RUN (pass --confirm to delete)"
+	if opts.Delete {
+		mode = "DELETING orphaned objects"
+	}
 
-				fmt.Printf("[DELETED] %s\n", file)
+	_, _ = fmt.Fprintf(out, "Scanning %s storage under %s for orphaned objects older than %s - %s\n", backend.Kind(), strings.Join(opts.Prefixes, ", "), opts.MinAge, mode)
+
+	refs, err := collectReferencedKeys(ctx, gdb)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(out, "Loaded %d referenced storage keys from the database\n", refs.Len())
+
+	if refs.owned == 0 {
+		found := false
+		for _, prefix := range opts.Prefixes {
+			if err := backend.List(ctx, prefix, func(storage.ObjectInfo) error {
+				found = true
+
+				return storage.ErrStopList
+			}); err != nil {
+				return fmt.Errorf("list %s: %w", prefix, err)
 			}
 		}
+
+		if found {
+			return errNoReferences
+		}
 	}
 
-	fmt.Printf("Found %d orphaned files\n", orphans)
+	res, err := scanOrphans(ctx, backend, gdb, refs, opts)
 
-	return nil
+	_, _ = fmt.Fprintf(out, "Scanned %d objects: %d referenced, %d within the grace period, %d orphaned (%s)", res.Scanned, res.Referenced, res.TooYoung, res.Orphans, humanBytes(res.OrphanBytes))
+	if opts.Delete {
+		_, _ = fmt.Fprintf(out, ", %d deleted, %d failed", res.Deleted, res.Failed)
+	}
+
+	_, _ = fmt.Fprintln(out)
+
+	return err
 }
 
 // MediaRefreshCommand implements tootctl media refresh
@@ -412,8 +494,11 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 	}
 
 	// Build query for attachments
+	// Only media of remote accounts; local users' files (including
+	// imported ones that still carry their old remote_url) are never touched.
 	query := db.GetDB().Model(&models.Attachment{}).
-		Where("remote_url IS NOT NULL AND remote_url != ''")
+		Where("remote_url IS NOT NULL AND remote_url != ''").
+		Where("account_id IN (?)", db.GetDB().Model(&models.Account{}).Select("id").Where("domain IS NOT NULL AND domain <> ''"))
 
 	// Filter by account
 	if account != "" {
@@ -541,9 +626,14 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 		query = query.Where("created_at < ?", cutoff)
 	}
 
-	var count int64
+	// Reusable base: every chained call below starts from these filters.
+	query = query.Session(&gorm.Session{})
 
-	query.Count(&count)
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return fmt.Errorf("count attachments: %w", err)
+	}
+
 	fmt.Printf("Found %d attachments to refresh\n", count)
 
 	if count == 0 || dryRun {
@@ -597,26 +687,17 @@ func refreshMedia(c *cli.Context) error { //nolint:gocyclo // complex filter com
 						continue
 					}
 
-					// Save to storage
-					objectKey := fmt.Sprintf("refreshed/%d_%s", attachment.Id, filepath.Base(attachment.RemoteUrl))
-					if cloudStorage := storage.GetStorage(); cloudStorage.IsEnabled() {
-						_, err = cloudStorage.UploadReader(bytes.NewReader(data), objectKey, int64(len(data)))
-					} else {
-						_, err = storage.Save(objectKey, data)
-					}
-
-					if err != nil {
+					if err := storeRefreshedMedia(context.Background(), &attachment, data); err != nil {
 						mu.Lock()
 						failed++
+
+						if verbose {
+							fmt.Printf("Failed to store %s: %v\n", attachment.RemoteUrl, err)
+						}
 						mu.Unlock()
 
 						continue
 					}
-
-					// Update attachment record
-					db.GetDB().Model(&attachment).Updates(map[string]any{
-						"file_path": objectKey,
-					})
 
 					mu.Lock()
 
@@ -815,39 +896,67 @@ func MediaUsageCommand() *cli.Command {
 }
 
 func mediaUsage(c *cli.Context) error {
-	fmt.Println("Calculating disk usage...")
+	return printMediaUsage(c.Context, c.App.Writer, storage.Default(), db.GetDB())
+}
 
-	// Count attachments
-	var attachmentCount int64
+func printMediaUsage(ctx context.Context, out io.Writer, backend storage.Backend, gdb *gorm.DB) error {
+	gdb = gdb.WithContext(ctx)
+	_, _ = fmt.Fprintln(out, "Calculating storage usage...")
 
-	db.GetDB().Model(&models.Attachment{}).Count(&attachmentCount)
-
-	// Count accounts with avatars/headers
-	var avatarCount int64
-
-	db.GetDB().Model(&models.Account{}).Where("avatar IS NOT NULL AND avatar != ''").Count(&avatarCount)
-
-	var headerCount int64
-
-	db.GetDB().Model(&models.Account{}).Where("header IS NOT NULL AND header != ''").Count(&headerCount)
-
-	// Count custom emojis
-	var emojiCount int64
-
-	db.GetDB().Model(&models.Emoji{}).Count(&emojiCount)
-
-	fmt.Printf("\nMedia Usage Summary:\n")
-	fmt.Printf("====================\n")
-	fmt.Printf("Media attachments: %d\n", attachmentCount)
-	fmt.Printf("Account avatars:   %d\n", avatarCount)
-	fmt.Printf("Account headers:   %d\n", headerCount)
-	fmt.Printf("Custom emojis:     %d\n", emojiCount)
-
-	// Get storage info
-	storageInfo := getStorageInfo()
-	if storageInfo != "" {
-		fmt.Printf("\nStorage: %s\n", storageInfo)
+	counts := []struct {
+		label string
+		query *gorm.DB
+	}{
+		{"Media attachments", gdb.Model(&models.MediaAttachment{})},
+		{"  stored locally / in bucket", gdb.Model(&models.MediaAttachment{}).Where("file_path <> ''")},
+		{"  remote (hot-linked)", gdb.Model(&models.MediaAttachment{}).Where("file_path = '' AND remote_url <> ''")},
+		{"Custom emojis", gdb.Model(&models.Emoji{})},
 	}
+
+	_, _ = fmt.Fprintf(out, "\nDatabase:\n")
+
+	for _, q := range counts {
+		var n int64
+		if err := q.query.Count(&n).Error; err != nil {
+			return fmt.Errorf("count %s: %w", strings.TrimSpace(q.label), err)
+		}
+
+		_, _ = fmt.Fprintf(out, "  %-30s %d\n", q.label+":", n)
+	}
+
+	if err := writeBackendUsage(ctx, out, backend, fmt.Sprintf("Storage (%s backend)", backend.Kind())); err != nil {
+		return err
+	}
+
+	// Files that predate the switch to S3 and are still served from the
+	// legacy local directory.
+	if s3, ok := backend.(*storage.S3Backend); ok && s3.Config().LegacyLocalRoot != "" {
+		legacy := &storage.LocalBackend{Root: s3.Config().LegacyLocalRoot}
+		if err := writeBackendUsage(ctx, out, legacy, "Legacy local fallback ("+s3.Config().LegacyLocalRoot+"/)"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeBackendUsage(ctx context.Context, out io.Writer, backend storage.Backend, title string) error {
+	usage, err := storageUsage(ctx, backend)
+	if err != nil {
+		return fmt.Errorf("list storage: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(out, "\n%s:\n", title)
+
+	var objects, total int64
+
+	for _, u := range usage {
+		_, _ = fmt.Fprintf(out, "  %-14s %8d objects  %12s\n", u.Namespace+"/", u.Objects, humanBytes(u.Bytes))
+		objects += u.Objects
+		total += u.Bytes
+	}
+
+	_, _ = fmt.Fprintf(out, "  %-14s %8d objects  %12s (%d bytes)\n", "total", objects, humanBytes(total), total)
 
 	return nil
 }
@@ -982,58 +1091,65 @@ func removeStatuses(c *cli.Context) error {
 	return nil
 }
 
-// listStorageFiles lists files in storage with a given prefix.
-func listStorageFiles(prefix string) ([]string, error) {
-	// For local storage, list files in the uploads directory
-	dir := "uploads"
-	if prefix != "" {
-		dir = filepath.Join(dir, prefix)
+// refreshedMediaExt keeps a short, safe extension from a remote URL.
+func refreshedMediaExt(remoteURL string) string {
+	u, err := url.Parse(remoteURL)
+	if err != nil {
+		return ""
 	}
 
-	var files []string
+	ext := strings.ToLower(path.Ext(u.Path))
+	if len(ext) < 2 || len(ext) > 6 {
+		return ""
+	}
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // skip errors
+	for _, r := range ext[1:] {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return ""
 		}
+	}
 
-		if !info.IsDir() {
-			relPath, _ := filepath.Rel("uploads", path)
-			files = append(files, relPath)
-		}
-
-		return nil
-	})
-
-	return files, err
+	return ext
 }
 
-// getStorageInfo returns storage information.
-func getStorageInfo() string {
-	// Check if cloud storage is enabled
-	cloudStorage := storage.GetStorage()
-	if cloudStorage.IsEnabled() {
-		return "Cloud storage enabled"
+// storeRefreshedMedia writes re-fetched remote media below media/ (the same
+// layout uploads use) and points the row at it. A previous cached copy is
+// deleted afterwards unless another row shares it.
+func storeRefreshedMedia(ctx context.Context, attachment *models.MediaAttachment, data []byte) error {
+	now := time.Now()
+	rel := fmt.Sprintf("%s/%d_%d%s", now.Format("2006/01/02"), now.UnixNano(), attachment.Id, refreshedMediaExt(attachment.RemoteUrl))
+	key := models.MediaStorageKey(rel)
+
+	contentType := attachment.ContentType
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
 	}
 
-	// Check local storage
-	dir := "uploads"
+	if err := storage.Default().Put(ctx, key, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
+		return err
+	}
 
-	var size int64
+	previous := *attachment
+	gdb := db.GetDB().WithContext(ctx)
 
-	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-		// A missing uploads directory (or an unreadable entry) reports an
-		// error with a nil info; skip it instead of dereferencing nil.
-		if err != nil || info == nil {
-			return nil
+	err := gdb.Model(&models.MediaAttachment{}).Where("id = ?", attachment.Id).
+		Updates(map[string]any{"file_path": rel, "thumbnail_path": nil, "file_size": int64(len(data))}).Error
+	if err != nil {
+		_ = storage.Default().Delete(context.Background(), key)
+
+		return err
+	}
+
+	if previous.FilePath != "" {
+		var others int64
+		if gdb.Model(&models.MediaAttachment{}).Where("id <> ? AND file_path = ?", previous.Id, previous.FilePath).Count(&others).Error == nil && others == 0 {
+			_ = previous.DeleteStoredFiles(ctx)
 		}
+	}
 
-		if !info.IsDir() {
-			size += info.Size()
-		}
+	attachment.FilePath = rel
+	attachment.ThumbnailPath = nil
+	attachment.FileSize = int64(len(data))
 
-		return nil
-	})
-
-	return fmt.Sprintf("Local storage: %d bytes (%.2f MB)", size, float64(size)/1024/1024)
+	return nil
 }

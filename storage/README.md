@@ -38,6 +38,13 @@ err := b.Put(ctx, "media/a.jpg", r, size, "image/jpeg")
 rc, info, err := b.Open(ctx, "media/a.jpg") // 不存在时返回 storage.ErrNotFound；rc 支持 Seek
 err = b.Delete(ctx, "media/a.jpg")          // 对象不存在不报错
 url := b.PublicURL("media/a.jpg")           // 无公开地址时为 ""
+// 按前缀遍历对象（本地遍历 uploads/ 并跳过 .upload-*/.health-* 临时文件；
+// S3 递归 ListObjects，只列桶内对象、不含旧本地回退目录）。返回
+// storage.ErrStopList 可提前结束。tootctl media usage / remove-orphans 基于此。
+err = b.List(ctx, "media/", func(o storage.ObjectInfo) error {
+	fmt.Println(o.Key, o.Size, o.ModTime)
+	return nil
+})
 report := storage.CheckHealth(ctx)          // HeadBucket 探测，超时 4 秒，结果缓存 30 秒
 ```
 

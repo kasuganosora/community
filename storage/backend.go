@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"path"
@@ -34,6 +35,8 @@ var (
 
 // ObjectInfo describes a stored object.
 type ObjectInfo struct {
+	// Key is set by List; Open and Stat leave it empty.
+	Key         string
 	Size        int64
 	ContentType string
 	ModTime     time.Time
@@ -59,6 +62,37 @@ type Backend interface {
 	PublicURL(key string) string
 	// Check verifies that the backend is reachable and usable.
 	Check(ctx context.Context) error
+	// List calls fn for every stored object whose key starts with prefix
+	// ("" lists everything). Returning ErrStopList from fn stops the walk
+	// without error; any other error aborts it and is returned.
+	List(ctx context.Context, prefix string, fn func(ObjectInfo) error) error
+}
+
+// ErrStopList can be returned by a List callback to stop listing early.
+var ErrStopList = errors.New("storage: stop listing")
+
+// listPrefixDir returns the directory part of a key prefix ("media/2026/0"
+// -> "media/2026"), validating it like a key.
+func listPrefixDir(prefix string) (string, error) {
+	prefix = strings.TrimLeft(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(prefix, "\\\x00") {
+		return "", ErrInvalidKey
+	}
+	for seg := range strings.SplitSeq(prefix, "/") {
+		if seg == ".." {
+			return "", ErrInvalidKey
+		}
+	}
+	dir := prefix
+	if i := strings.LastIndex(dir, "/"); i >= 0 {
+		dir = dir[:i]
+	} else {
+		dir = ""
+	}
+	return dir, nil
 }
 
 // CleanKey validates and canonicalises an object key.
@@ -313,6 +347,60 @@ func (l *LocalBackend) Delete(_ context.Context, key string) error {
 	}
 
 	return nil
+}
+
+// List implements Backend. Temporary files written by Put and Check are
+// skipped.
+func (l *LocalBackend) List(ctx context.Context, prefix string, fn func(ObjectInfo) error) error {
+	prefix = strings.TrimLeft(strings.TrimSpace(prefix), "/")
+	dir, err := listPrefixDir(prefix)
+	if err != nil {
+		return err
+	}
+
+	root := filepath.Clean(l.Root)
+	start := filepath.Join(root, filepath.FromSlash(dir))
+
+	if _, err := os.Stat(start); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	err = filepath.WalkDir(start, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".upload-") || strings.HasPrefix(name, ".health-") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(rel)
+		if !strings.HasPrefix(key, prefix) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		return fn(ObjectInfo{Key: key, Size: info.Size(), ModTime: info.ModTime(), ContentType: getContentType(p)})
+	})
+	if errors.Is(err, ErrStopList) {
+		return nil
+	}
+
+	return err
 }
 
 // PublicURL implements Backend: local files are always served by the app.

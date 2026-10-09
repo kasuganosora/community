@@ -6,6 +6,7 @@ package storagetest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -119,6 +120,46 @@ func (m *Memory) PublicURL(key string) string {
 
 // Check implements storage.Backend.
 func (m *Memory) Check(context.Context) error { return m.Fail }
+
+// List implements storage.Backend.
+func (m *Memory) List(_ context.Context, prefix string, fn func(storage.ObjectInfo) error) error {
+	if m.Fail != nil {
+		return m.Fail
+	}
+	for seg := range strings.SplitSeq(prefix, "/") {
+		if seg == ".." {
+			return storage.ErrInvalidKey
+		}
+	}
+	m.mu.Lock()
+	infos := make([]storage.ObjectInfo, 0, len(m.objects))
+	for k, o := range m.objects {
+		if strings.HasPrefix(k, prefix) {
+			infos = append(infos, storage.ObjectInfo{Key: k, Size: int64(len(o.data)), ContentType: o.contentType, ModTime: o.modTime})
+		}
+	}
+	m.mu.Unlock()
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Key < infos[j].Key })
+	for _, info := range infos {
+		if err := fn(info); err != nil {
+			if errors.Is(err, storage.ErrStopList) {
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// SetModTime backdates (or forwards) an object's modification time.
+func (m *Memory) SetModTime(key string, t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if o, ok := m.objects[key]; ok {
+		o.modTime = t
+		m.objects[key] = o
+	}
+}
 
 // Keys lists stored keys (sorted).
 func (m *Memory) Keys() []string {

@@ -19,6 +19,8 @@ cmd/
         ├── emoji.go
         ├── feeds.go
         ├── media.go
+        ├── media_storage.go    # 孤立文件扫描、引用集合、按前缀统计用量
+        ├── media_orphans_test.go
         ├── media_security_test.go
         ├── self_destruct.go
         └── self_destruct_test.go
@@ -162,8 +164,8 @@ flag.Parse()
 | 子命令 | 说明 | 常用 Flag |
 |--------|------|-----------|
 | `emoji export PATH` | 导出自定义表情为 `.tar.gz` | `--overwrite`, `--category` |
-| `emoji import PATH` | 从 `.tar.gz` 导入自定义表情 | `--prefix`, `--suffix`, `--overwrite`, `--category`, `--unlisted` |
-| `emoji purge` | 删除自定义表情 | `--remote-only` |
+| `emoji import PATH` | 从 `.tar.gz` 导入自定义表情（经 emojiasset 校验后写入 `emojis/<uuid>.<ext>` 键，`--overwrite` 时删除不再被引用的旧图） | `--prefix`, `--suffix`, `--overwrite`, `--category`, `--unlisted` |
+| `emoji purge` | 软删除自定义表情（保留图片，以便恢复） | `--remote-only` |
 
 #### feeds
 
@@ -176,10 +178,10 @@ flag.Parse()
 
 | 子命令 | 说明 | 常用 Flag |
 |--------|------|-----------|
-| `media remove` | 删除本地缓存的媒体附件 | `--days`, `--concurrency`, `--prune-profiles`, `--remove-headers`, `--dry-run` |
-| `media remove-orphans` | 扫描并删除孤立媒体文件 | `--start-after`, `--prefix`, `--dry-run` |
-| `media refresh` | 重新拉取远程媒体附件 | `--account`, `--domain`, `--status`, `--days`, `--force` |
-| `media usage` | 统计磁盘空间占用 | — |
+| `media remove` | 删除**远程账号**附件的本地缓存副本（经存储后端删除原图与缩略图，清空 `file_path`/`thumbnail_path`，行保留并回落到 `remote_url`）；本地用户媒体永不触碰；被其他行共享的文件保留 | `--days`, `--concurrency`, `--prune-profiles`, `--remove-headers`, `--dry-run` |
+| `media remove-orphans` | 扫描孤立对象。**默认只报告（dry run）**，必须加 `--confirm` 才删除（同时给 `--dry-run` 时 dry run 优先）。只扫描 `media/`、`matrix/`、`refreshed/`，`emojis/`、`avatars/` 等永不删除；比较规范化后的存储键；跳过宽限期内的对象；数据库查询失败即中止；数据库无任何媒体引用而存储有对象时拒绝执行；删除前逐个回查数据库 | `--confirm`, `--min-age`（默认 24h，最少 1h）, `--prefix`, `--start-after`, `--dry-run` |
+| `media refresh` | 重新拉取远程账号的媒体附件，写入 `media/<yyyy/mm/dd>/...` 键 | `--account`, `--domain`, `--status`, `--days`, `--force` |
+| `media usage` | 按命名空间（`media/`、`matrix/`、`emojis/`…）统计真实对象数与字节数（本地目录或 S3 桶，S3 下另列旧本地回退目录） | — |
 | `media lookup` | 通过媒体 URL 查找关联帖子 | — |
 
 #### accounts
@@ -272,8 +274,12 @@ docker compose exec community tootctl accounts modify admin --reset-password
 # 封锁邮箱域名
 ./tootctl email-domain-blocks add spam.com --with-dns-records
 
-# 查看媒体占用
+# 查看媒体占用（本地或 S3 桶的真实字节数）
 ./tootctl media usage
+
+# 孤立文件：先预览，确认后再删除
+./tootctl media remove-orphans
+./tootctl media remove-orphans --confirm
 
 # 爬取联邦统计（JSON 格式输出）
 ./tootctl domains crawl --format json --concurrency 50

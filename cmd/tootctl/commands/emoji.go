@@ -4,19 +4,23 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/storage"
 	"github.com/urfave/cli/v2"
+	"gorm.io/gorm"
 )
 
 // EmojiCommand implements tootctl emoji subcommands.
@@ -110,19 +114,23 @@ func exportEmoji(c *cli.Context) error {
 			continue
 		}
 
-		// Read the image data from storage using Download
-		reader, err := storage.GetStorage().Download(emoji.Url)
+		// Only this instance's stored assets can be exported; remote
+		// emoji are hot-linked and have no stored file.
+		key := emojiasset.StorageKey(emoji.Url)
+		if key == "" {
+			fmt.Printf("Skipping %s: image is not stored on this instance\n", emoji.Shortcode)
+
+			continue
+		}
+
+		reader, _, err := storage.Default().Open(c.Context, key)
 		if err != nil {
 			fmt.Printf("Warning: failed to read emoji %s: %v\n", emoji.Shortcode, err)
 
 			continue
 		}
 
-		// Determine file extension
-		ext := ".png"
-		if strings.Contains(emoji.Url, ".gif") {
-			ext = ".gif"
-		}
+		ext := path.Ext(key)
 
 		// Read all data
 		data, err := io.ReadAll(reader)
@@ -258,12 +266,13 @@ func importEmoji(c *cli.Context) error {
 		}
 
 		// Validate extension
-		if ext != ".png" && ext != ".gif" {
+		switch strings.ToLower(ext) {
+		case ".png", ".gif", ".webp", ".jpg", ".jpeg":
+		default:
 			continue
 		}
 
-		// Check file size (max 50KB)
-		if header.Size > 50*1024 {
+		if header.Size > emojiasset.MaxSize {
 			fmt.Printf("Skipping %s: file too large (%d bytes)\n", shortcode, header.Size)
 
 			continue
@@ -277,59 +286,19 @@ func importEmoji(c *cli.Context) error {
 			continue
 		}
 
-		// Check if emoji exists
-		var existing models.Emoji
+		result, err := importEmojiData(c.Context, shortcode, data, category, unlisted, overwrite)
+		if err != nil {
+			fmt.Printf("Warning: failed to import %s: %v\n", shortcode, err)
 
-		err = db.GetDB().Where("shortcode = ?", shortcode).First(&existing).Error
-		if err == nil {
-			if !overwrite {
-				fmt.Printf("Skipping %s: already exists\n", shortcode)
-
-				skipped++
-
-				continue
-			}
-			// Update existing
-			existing.Url = "imported/" + shortcode + ext
-			existing.Category = category
-
-			existing.VisibleInPicker = !unlisted
-			err := db.GetDB().Save(&existing).Error
-			if err != nil {
-				fmt.Printf("Warning: failed to update %s: %v\n", shortcode, err)
-
-				continue
-			}
-		} else {
-			// Create new
-			emoji := &models.Emoji{
-				Shortcode:       shortcode,
-				Url:             "imported/" + shortcode + ext,
-				Category:        category,
-				VisibleInPicker: !unlisted,
-			}
-			err := db.GetDB().Create(emoji).Error
-			if err != nil {
-				fmt.Printf("Warning: failed to create %s: %v\n", shortcode, err)
-
-				continue
-			}
+			continue
 		}
 
-		// Save to storage (support both local and cloud storage)
-		objectKey := shortcode + ext
-		if cloudStorage := storage.GetStorage(); cloudStorage.IsEnabled() {
-			if _, err := cloudStorage.UploadReader(bytes.NewReader(data), objectKey, int64(len(data))); err != nil {
-				fmt.Printf("Warning: failed to save %s to cloud: %v\n", shortcode, err)
+		if result == emojiSkipped {
+			fmt.Printf("Skipping %s: already exists\n", shortcode)
 
-				continue
-			}
-		} else {
-			if _, err := storage.Save(objectKey, data); err != nil {
-				fmt.Printf("Warning: failed to save %s: %v\n", shortcode, err)
+			skipped++
 
-				continue
-			}
+			continue
 		}
 
 		imported++
@@ -401,12 +370,14 @@ func purgeEmoji(c *cli.Context) error {
 		wg.Go(func() {
 			for batch := range jobs {
 				for _, emoji := range batch {
-					// Delete from storage
-					if emoji.Url != "" {
-						_ = storage.Delete(emoji.Url)
+					// Soft delete (like the admin API): the row can be
+					// restored, so its stored image is kept. Remote emoji
+					// images are hot-linked and have no stored file.
+					if err := db.GetDB().Delete(emoji).Error; err != nil {
+						fmt.Printf("Warning: failed to delete %s: %v\n", emoji.Shortcode, err)
+
+						continue
 					}
-					// Delete from database
-					db.GetDB().Delete(emoji)
 					mu.Lock()
 					deleted++
 					mu.Unlock()
@@ -429,6 +400,132 @@ func purgeEmoji(c *cli.Context) error {
 	fmt.Printf("Purged %d emojis\n", deleted)
 
 	return nil
+}
+
+type emojiImportResult int
+
+const (
+	emojiCreated emojiImportResult = iota
+	emojiUpdated
+	emojiSkipped
+)
+
+// importEmojiData validates and stores one emoji image under "emojis/" via
+// emojiasset (the same path the admin API uses) and creates or updates the
+// local emoji row.
+func importEmojiData(ctx context.Context, shortcode string, data []byte, category string, unlisted, overwrite bool) (emojiImportResult, error) {
+	gdb := db.GetDB().WithContext(ctx)
+
+	var existing models.Emoji
+
+	err := gdb.Where("shortcode = ? AND (domain = '' OR domain IS NULL)", shortcode).First(&existing).Error
+	found := err == nil
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+
+	if found && !overwrite {
+		return emojiSkipped, nil
+	}
+
+	asset, err := emojiasset.StoreEmojiImage(ctx, bytes.NewReader(data), "")
+	if err != nil {
+		return 0, err
+	}
+
+	if !found {
+		emoji := &models.Emoji{
+			Shortcode:       shortcode,
+			Url:             asset.URL,
+			StaticUrl:       asset.StaticURL,
+			Category:        category,
+			VisibleInPicker: !unlisted,
+			ContentType:     asset.ContentType,
+			FileSize:        asset.Size,
+			Width:           asset.Width,
+			Height:          asset.Height,
+		}
+		if err := gdb.Create(emoji).Error; err != nil {
+			_ = emojiasset.DeleteAsset(asset)
+
+			return 0, err
+		}
+
+		return emojiCreated, nil
+	}
+
+	oldURL, oldStatic := existing.Url, existing.StaticUrl
+
+	err = gdb.Model(&existing).Updates(map[string]any{
+		"url":               asset.URL,
+		"static_url":        asset.StaticURL,
+		"category":          category,
+		"visible_in_picker": !unlisted,
+		"content_type":      asset.ContentType,
+		"file_size":         asset.Size,
+		"width":             asset.Width,
+		"height":            asset.Height,
+	}).Error
+	if err != nil {
+		_ = emojiasset.DeleteAsset(asset)
+
+		return 0, err
+	}
+
+	deleteUnreferencedEmojiAssets(ctx, oldURL, oldStatic)
+
+	return emojiUpdated, nil
+}
+
+// deleteUnreferencedEmojiAssets removes this instance's stored emoji files
+// for the given URLs unless any emoji (including soft-deleted ones), pending
+// emoji upload, avatar decoration or advertisement still points at them.
+// Remote URLs are ignored.
+func deleteUnreferencedEmojiAssets(ctx context.Context, urls ...string) {
+	gdb := db.GetDB().WithContext(ctx)
+
+	for _, u := range urls {
+		key := emojiasset.StorageKey(u)
+		if key == "" {
+			continue
+		}
+
+		if emojiURLReferenced(gdb, u) {
+			continue
+		}
+
+		if err := storage.Default().Delete(ctx, key); err != nil {
+			fmt.Printf("Warning: failed to delete %s: %v\n", key, err)
+		}
+	}
+}
+
+func emojiURLReferenced(gdb *gorm.DB, u string) bool {
+	checks := []struct {
+		model any
+		where string
+		args  []any
+	}{
+		{&models.Emoji{}, "url = ? OR static_url = ?", []any{u, u}},
+		{&models.EmojiUpload{}, "url = ? OR static_url = ?", []any{u, u}},
+		{&models.AvatarDecoration{}, "image_url = ?", []any{u}},
+		{&models.Advertisement{}, "image_url = ?", []any{u}},
+	}
+
+	for _, ch := range checks {
+		if !gdb.Migrator().HasTable(ch.model) {
+			continue
+		}
+
+		var n int64
+		// Soft-deleted emoji keep their files so they can be restored.
+		if err := gdb.Unscoped().Model(ch.model).Where(ch.where, ch.args...).Count(&n).Error; err != nil || n > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetEmojiStats returns emoji statistics.

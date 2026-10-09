@@ -286,6 +286,39 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// List implements Backend. Only bucket objects are listed; files that
+// still live in the legacy local directory are not included.
+func (b *S3Backend) List(ctx context.Context, prefix string, fn func(ObjectInfo) error) error {
+	prefix = strings.TrimLeft(strings.TrimSpace(prefix), "/")
+	if _, err := listPrefixDir(prefix); err != nil {
+		return err
+	}
+
+	if err := b.ready(); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for obj := range b.client.ListObjects(ctx, b.cfg.Bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if obj.Err != nil {
+			return errors.New("s3 list failed: " + b.sanitize(obj.Err))
+		}
+		if strings.HasSuffix(obj.Key, "/") {
+			continue // directory marker
+		}
+		if err := fn(ObjectInfo{Key: obj.Key, Size: obj.Size, ContentType: obj.ContentType, ModTime: obj.LastModified}); err != nil {
+			if errors.Is(err, ErrStopList) {
+				return nil
+			}
+			return err
+		}
+	}
+
+	return ctx.Err()
+}
+
 // PublicURL implements Backend.
 func (b *S3Backend) PublicURL(key string) string {
 	if b.cfg.PublicURL == "" {
