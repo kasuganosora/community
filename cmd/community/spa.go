@@ -16,14 +16,14 @@ var nonSPAPrefixes = []string{
 	"/api/", "/oauth/", "/miauth/", "/auth/",
 	"/.well-known/", "/nodeinfo/", "/users/", "/ap/", "/actor/", "/inbox", "/outbox",
 	"/_matrix/", "/_synapse/",
-	"/media/", "/emoji-assets/", "/system/", "/assets/", "/proxy/",
+	"/media/", "/emoji-assets/", "/card-images/", "/system/", "/assets/", "/proxy/",
 	"/health", "/live", "/ready", "/metrics", "/admin/logs/",
 }
 
 // nonSPAExact are exact server-side paths without a trailing segment.
 var nonSPAExact = map[string]bool{
 	"/api": true, "/oauth": true, "/nodeinfo": true, "/actor": true, "/media": true, "/users": true,
-	"/_matrix": true, "/emoji-assets": true, "/assets": true,
+	"/_matrix": true, "/emoji-assets": true, "/card-images": true, "/assets": true,
 }
 
 // staticExtensions mark requests for files: a missing one must not be

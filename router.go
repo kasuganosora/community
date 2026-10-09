@@ -28,6 +28,7 @@ import (
 	transferapi "github.com/kasuganosora/community/controllers/api/transfer"
 	"github.com/kasuganosora/community/controllers/api/trends"
 	"github.com/kasuganosora/community/emojiasset"
+	"github.com/kasuganosora/community/linkcard"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/matrix/homeserver"
 	"github.com/kasuganosora/community/middleware"
@@ -61,6 +62,7 @@ func SetRouter(app gin.IRouter) {
 	// Uploaded media files (URLs built by serializer.ToMediaAttachment).
 	app.GET("/media/:id/*file", media.Serve)
 	app.GET("/emoji-assets/:file", emojiasset.Serve)
+	app.GET("/card-images/:file", linkcard.ServeImage)
 	app.GET("/system/*file", transferapi.ServeMediaAlias)
 	app.GET("/files/*file", transferapi.ServeMediaAlias)
 
@@ -180,6 +182,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/accounts/:id/following", account.Following)
 	maybeAuthGroupV1.GET("/statuses/:id", status.Show)
 	maybeAuthGroupV1.GET("/statuses/:id/context", status.Context)
+	maybeAuthGroupV1.GET("/statuses/:id/card", status.Card)
 	maybeAuthGroupV1.GET("/statuses/:id/reactions", status.Reactions)
 	maybeAuthGroupV1.GET("/timelines/public", timelines.Public)
 	maybeAuthGroupV1.GET("/timelines/list/:id", timelines.List)

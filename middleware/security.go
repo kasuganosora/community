@@ -38,7 +38,7 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		publicEmoji := c.Request.Method == http.MethodGet && emojiAsset &&
 			emojiFile != "" && emojiFile != "." && emojiFile != ".." &&
 			!strings.ContainsAny(emojiFile, "/\\")
-		if publicEmoji || strings.HasPrefix(path, "/media/") ||
+		if publicEmoji || strings.HasPrefix(path, "/media/") || strings.HasPrefix(path, "/card-images/") ||
 			strings.HasPrefix(path, "/_matrix/client/v1/media/download/") ||
 			strings.HasPrefix(path, "/_matrix/client/v1/media/thumbnail/") {
 			c.Header("Cross-Origin-Resource-Policy", "cross-origin")

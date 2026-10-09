@@ -141,9 +141,9 @@ func ListLinks(c *gin.Context) {
 		}
 	}
 
-	// Link trends come from a status_cards table that nothing in this
-	// server writes yet, so it is not created by the migrations: without
-	// it there are no trending links. Any other database error is a 500.
+	// Link trends come from status_cards (written by the linkcard fetcher).
+	// Without the table there are no trending links; any other database
+	// error is a 500.
 	if !db.GetDB().Migrator().HasTable("status_cards") {
 		c.JSON(200, []any{})
 
@@ -185,7 +185,7 @@ func ListLinks(c *gin.Context) {
 			"url":           link.URL,
 			"title":         link.Title,
 			"description":   link.Description,
-			"image":         link.ImageURL,
+			"image":         imageOrNil(link.ImageURL),
 			"provider_name": link.ProviderName,
 			"published_at":  nil,
 			"history": []gin.H{
@@ -199,4 +199,12 @@ func ListLinks(c *gin.Context) {
 	}
 
 	c.JSON(200, result)
+}
+
+func imageOrNil(u string) any {
+	if u == "" {
+		return nil
+	}
+
+	return u
 }

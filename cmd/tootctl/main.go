@@ -72,6 +72,7 @@ func newApp(version string, prepare func()) *cli.App {
 			commands.EmailDomainBlocksCommand(),
 			commands.EmojiCommand(),
 			commands.FeedsCommand(),
+			commands.LinkCardsCommand(),
 			commands.MediaCommand(),
 			commands.RelaysCommand(),
 			commands.StatusesCommand(),

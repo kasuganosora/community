@@ -240,3 +240,24 @@ func containsSubstr(s, sub string) bool {
 	}
 	return false
 }
+
+// NewSafeHTTPClient returns an SSRF-protected client for fetching arbitrary
+// public web pages (link previews): connections are pinned to a resolved
+// public address (also across redirects), at most maxRedirects redirects
+// are followed, only http(s) is allowed and the whole request is bounded
+// by timeout.
+func NewSafeHTTPClient(timeout time.Duration, maxRedirects int) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: ssrfSafeHTTPClient.Transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > maxRedirects {
+				return fmt.Errorf("ssrf: stopped after %d redirects", maxRedirects)
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("ssrf: blocked redirect to non-HTTP scheme %q", req.URL.Scheme)
+			}
+			return validateLabURL(req.URL)
+		},
+	}
+}

@@ -22,6 +22,7 @@ var appModels = []any{
 	&adminwebhook.Delivery{},
 	&adminwebhook.Subscription{},
 	&models.EmailDomainBlock{},
+	&models.StatusCard{},
 	&accountapi.Endorsement{},
 	&accountapi.FeaturedTag{},
 	&accountapi.FollowedTag{},
