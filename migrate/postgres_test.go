@@ -49,6 +49,7 @@ func TestUp_PostgresFreshDatabase(t *testing.T) {
 		scripts.StatusReactionsScript{},
 		scripts.FollowedTagsScript{},
 		scripts.AddDeliveryAuthorizationScript{},
+		scripts.MissingAppTablesScript{},
 	} {
 		require.NoError(t, script.Up(recording))
 	}

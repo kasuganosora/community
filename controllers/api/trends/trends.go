@@ -141,10 +141,19 @@ func ListLinks(c *gin.Context) {
 		}
 	}
 
-	// Query trending links from status cards
-	// This is a simplified implementation - in production you'd track link usage separately
+	// Link trends come from a status_cards table that nothing in this
+	// server writes yet, so it is not created by the migrations: without
+	// it there are no trending links. Any other database error is a 500.
+	if !db.GetDB().Migrator().HasTable("status_cards") {
+		c.JSON(200, []any{})
+
+		return
+	}
+
+	// Aggregate every non-grouped column so the query is valid on
+	// PostgreSQL and MySQL ONLY_FULL_GROUP_BY as well as SQLite.
 	query := db.GetDB().Table("status_cards").
-		Select("url, title, description, image_url, provider_name, COUNT(*) as shares_count").
+		Select("url, MAX(title) AS title, MAX(description) AS description, MAX(image_url) AS image_url, MAX(provider_name) AS provider_name, COUNT(*) AS shares_count").
 		Where("created_at > ?", time.Now().AddDate(0, 0, -7)).
 		Group("url").
 		Order("shares_count DESC").
@@ -163,8 +172,8 @@ func ListLinks(c *gin.Context) {
 	links := make([]LinkResult, 0)
 	err := query.Find(&links).Error
 	if err != nil {
-		// If the table doesn't exist, return empty array
-		c.JSON(200, []any{})
+		_ = c.Error(errors.Wrap(err, "get trending links error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
 		return
 	}

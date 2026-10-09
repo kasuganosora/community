@@ -40,6 +40,7 @@ var ScripsType = []MigrationScript{
 	NormalizeStorageKeysScript{},
 	CleanInvalidTagsScript{},
 	TagCaseInsensitiveScript{},
+	MissingAppTablesScript{},
 }
 
 type MigrationScript interface {

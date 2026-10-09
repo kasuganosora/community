@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/urfave/cli/v2"
@@ -13,9 +14,9 @@ import (
 
 // EmailDomainBlock represents an email domain block.
 type EmailDomainBlock struct {
-	ID        uint64 `gorm:"primaryKey;autoIncrement"          json:"id"`
-	Domain    string `gorm:"unique;not null;type:varchar(255)" json:"domain"`
-	CreatedAt string `json:"created_at"`
+	ID        uint64     `gorm:"primaryKey;autoIncrement"          json:"id"`
+	Domain    string     `gorm:"unique;not null;type:varchar(255)" json:"domain"`
+	CreatedAt *time.Time `gorm:"autoCreateTime"                    json:"created_at"`
 }
 
 func (EmailDomainBlock) TableName() string {
@@ -62,7 +63,11 @@ func listEmailDomainBlocks(c *cli.Context) error {
 	fmt.Println(strings.Repeat("-", 70))
 
 	for _, block := range blocks {
-		fmt.Printf("%-6d %-40s %s\n", block.ID, block.Domain, block.CreatedAt)
+		created := ""
+		if block.CreatedAt != nil {
+			created = block.CreatedAt.Format(time.RFC3339)
+		}
+		fmt.Printf("%-6d %-40s %s\n", block.ID, block.Domain, created)
 	}
 
 	fmt.Printf("\nTotal: %d blocked email domains\n", len(blocks))
@@ -112,8 +117,7 @@ func addEmailDomainBlocks(c *cli.Context) error {
 
 		// Add block
 		block := EmailDomainBlock{
-			Domain:    domain,
-			CreatedAt: "now()",
+			Domain: domain,
 		}
 		err = db.GetDB().Create(&block).Error
 		if err != nil {
@@ -133,8 +137,7 @@ func addEmailDomainBlocks(c *cli.Context) error {
 				err := db.GetDB().Where("domain = ?", relatedDomain).First(&existing).Error
 				if err != nil {
 					block := EmailDomainBlock{
-						Domain:    relatedDomain,
-						CreatedAt: "now()",
+						Domain: relatedDomain,
 					}
 					err := db.GetDB().Create(&block).Error
 					if err == nil {

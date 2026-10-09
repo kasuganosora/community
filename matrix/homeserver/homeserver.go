@@ -152,9 +152,11 @@ func loadHSConfig() *HSConfig {
 	return cfg
 }
 
-// autoMigrate 自动迁移数据库.
-func autoMigrate() error {
-	return db.GetDB().AutoMigrate(
+// Models returns every table model owned by the Matrix homeserver. These
+// tables are created by autoMigrate when the homeserver starts, not by the
+// application migrations (see migrate/scripts.MigrateMatrixHSScript).
+func Models() []any {
+	return []any{
 		&MatrixEvent{},
 		&MatrixRoom{},
 		&MatrixRoomState{},
@@ -196,7 +198,13 @@ func autoMigrate() error {
 		&MatrixRoomAlias{},
 		&MatrixMedia{},
 		&MatrixThumbnail{},
-	)
+		&MatrixRoomMapping{},
+	}
+}
+
+// autoMigrate 自动迁移数据库.
+func autoMigrate() error {
+	return db.GetDB().AutoMigrate(Models()...)
 }
 
 // GetHomeServer 获取 Homeserver 实例.

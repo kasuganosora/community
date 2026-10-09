@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
 
@@ -24,7 +25,7 @@ func (MigrateGroupTablesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(ddlFor(db, groupTablesSQL, groupTablesPostgresSQL)).Error
+	err = execTableDDL(db, groupTablesSQL, groupTablesPostgresSQL, &models.Group{}, &models.GroupMember{}, &models.GroupMessage{}, &models.Contact{}, &models.ContactRequest{})
 	if err != nil {
 		log.Error("Failed to migrate Group tables: %v", err)
 
@@ -63,7 +64,7 @@ func MigrateGroupTables() error {
 	}
 
 	conn := db.GetDB()
-	err := conn.Exec(ddlFor(conn, groupTablesSQL, groupTablesPostgresSQL)).Error
+	err := execTableDDL(conn, groupTablesSQL, groupTablesPostgresSQL, &models.Group{}, &models.GroupMember{}, &models.GroupMessage{}, &models.Contact{}, &models.ContactRequest{})
 	if err != nil {
 		log.Error("Failed to migrate Group tables: %v", err)
 

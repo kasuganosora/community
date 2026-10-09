@@ -77,7 +77,8 @@ func ListSuggestions(c *gin.Context) {
 		popularAccounts := make([]*models.Account, 0)
 		err := popularQuery.Find(&popularAccounts).Error
 		if err != nil {
-			c.JSON(200, []any{})
+			_ = c.Error(errors.Wrap(err, "get popular accounts error"))
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
 			return
 		}

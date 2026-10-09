@@ -15,6 +15,19 @@ import (
 //   - no ON UPDATE CURRENT_TIMESTAMP (GORM's autoUpdateTime sets updated_at);
 //   - index names are unique per schema, not per table, so every index is
 //     created separately with a table-prefixed name.
+//
+// execTableDDL creates the tables of a hand-written DDL script. SQLite
+// cannot run either the MySQL or the PostgreSQL text (COMMENT, ENGINE,
+// BIGSERIAL, ...), so on SQLite the same tables are created from their GORM
+// models instead; a fresh SQLite install used to stop at the first of these
+// scripts.
+func execTableDDL(conn *gorm.DB, mysqlSQL, postgresSQL string, sqliteModels ...any) error {
+	if dialect.IsSQLite(conn) {
+		return conn.AutoMigrate(sqliteModels...)
+	}
+	return conn.Exec(ddlFor(conn, mysqlSQL, postgresSQL)).Error
+}
+
 func ddlFor(conn *gorm.DB, mysqlSQL, postgresSQL string) string {
 	if dialect.IsPostgres(conn) {
 		return postgresSQL

@@ -12,9 +12,9 @@ import (
 
 // Endorsement represents an account endorsement.
 type Endorsement struct {
-	Id        uint64 `gorm:"primary_key;autoIncrement" json:"id"`
-	AccountId uint64 `gorm:"not null;index"             json:"account_id"`
-	TargetId  uint64 `gorm:"not null;index"             json:"target_id"`
+	Id        uint64 `gorm:"primary_key;autoIncrement"                                                  json:"id"`
+	AccountId uint64 `gorm:"not null;index;uniqueIndex:uidx_endorsements_account_target,priority:1" json:"account_id"`
+	TargetId  uint64 `gorm:"not null;index;uniqueIndex:uidx_endorsements_account_target,priority:2" json:"target_id"`
 }
 
 func (e *Endorsement) TableName() string {
@@ -34,52 +34,44 @@ func ListEndorsements(c *gin.Context) {
 	// Get current account
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Query endorsements
-	query := db.GetDB().Table("endorsements").
-		Select("endorsements.*, accounts.*").
-		Joins("LEFT JOIN accounts ON accounts.id = endorsements.target_id").
-		Where("endorsements.account_id = ?", account.Id).
-		Preload("Emojis", "account_id = endorsements.target_id").
-		Preload("Extra", "account_id = endorsements.target_id").
-		Order("endorsements.id DESC")
+	// Query endorsed account ids, newest first.
+	query := db.GetDB().Model(&Endorsement{}).
+		Where("account_id = ?", account.Id).
+		Order("id DESC")
 
 	// Pagination
 	if maxId := c.Query("max_id"); maxId != "" {
 		if id, err := strconv.ParseUint(maxId, 10, 64); err == nil {
-			query = query.Where("endorsements.id < ?", id)
+			query = query.Where("id < ?", id)
 		}
 	}
 
-	type EndorsementResult struct {
-		EndorsementId uint64 `json:"endorsement_id"`
-		AccountId     uint64 `json:"account_id"`
-		TargetId      uint64 `json:"target_id"`
-		models.Account
-	}
-
-	results := make([]EndorsementResult, 0)
-	err := query.Limit(limit).Find(&results).Error
-	if err != nil {
-		// If table doesn't exist, return empty array
-		c.JSON(200, []any{})
+	targetIds := make([]uint64, 0)
+	if err := query.Limit(limit).Pluck("target_id", &targetIds).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "get endorsements error"))
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
 
 		return
 	}
 
-	// Load accounts separately
-	accountIds := make([]uint64, 0, len(results))
-	for _, r := range results {
-		accountIds = append(accountIds, r.TargetId)
-	}
-
-	accounts := make([]*models.Account, 0)
-	if len(accountIds) > 0 {
-		err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", accountIds).Find(&accounts).Error
+	accounts := make([]*models.Account, 0, len(targetIds))
+	if len(targetIds) > 0 {
+		found := make([]*models.Account, 0, len(targetIds))
+		err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", targetIds).Find(&found).Error
 		if err != nil {
 			_ = c.Error(errors.Wrap(err, "get accounts error"))
 			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
 
 			return
+		}
+		byID := make(map[uint64]*models.Account, len(found))
+		for _, acc := range found {
+			byID[acc.Id] = acc
+		}
+		for _, id := range targetIds {
+			if acc, ok := byID[id]; ok {
+				accounts = append(accounts, acc)
+			}
 		}
 	}
 

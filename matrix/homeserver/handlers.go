@@ -3,6 +3,7 @@ package homeserver
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -18,6 +19,7 @@ import (
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 )
 
 // RegisterRoutes 注册 Matrix Client-Server API 路由.
@@ -762,6 +764,12 @@ func handleForgetRoom(c *gin.Context) {
 	var member MatrixRoomMember
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
 	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Error("forget room %s: %v", roomID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_UNKNOWN", "error": "Internal server error"})
+
+			return
+		}
 		// 如果找不到成员记录，已经遗忘了
 		c.JSON(http.StatusOK, gin.H{})
 
@@ -2647,6 +2655,12 @@ func handleGetPresence(c *gin.Context) {
 
 	var presence MatrixPresence
 	err := db.GetDB().Where("user_id = ?", userID).First(&presence).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Error("get presence %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"errcode": "M_UNKNOWN", "error": "Internal server error"})
+
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"presence":        "offline",

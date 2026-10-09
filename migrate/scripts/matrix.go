@@ -4,6 +4,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
 
@@ -23,7 +24,7 @@ func (MigrateMatrixTablesScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(ddlFor(db, matrixTablesSQL, matrixTablesPostgresSQL)).Error
+	err = execTableDDL(db, matrixTablesSQL, matrixTablesPostgresSQL, &models.MatrixUser{}, &models.MatrixRoom{}, &models.MatrixMessage{})
 	if err != nil {
 		log.Error("Failed to run Matrix tables migration: %v", err)
 
@@ -60,7 +61,7 @@ func MigrateMatrixTables() error {
 	}
 
 	conn := db.GetDB()
-	err := conn.Exec(ddlFor(conn, matrixTablesSQL, matrixTablesPostgresSQL)).Error
+	err := execTableDDL(conn, matrixTablesSQL, matrixTablesPostgresSQL, &models.MatrixUser{}, &models.MatrixRoom{}, &models.MatrixMessage{})
 	if err != nil {
 		log.Error("Failed to run Matrix tables migration: %v", err)
 

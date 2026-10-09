@@ -4,6 +4,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
 
@@ -23,7 +24,7 @@ func (MigrateRelayTableScript) Up(db *gorm.DB) (err error) {
 		return nil
 	}
 
-	err = db.Exec(ddlFor(db, relayTableSQL, relayTablePostgresSQL)).Error
+	err = execTableDDL(db, relayTableSQL, relayTablePostgresSQL, &models.Relay{})
 	if err != nil {
 		log.Error("Failed to create relays table: %v", err)
 
@@ -55,7 +56,7 @@ func MigrateRelayTable() error {
 	}
 
 	conn := db.GetDB()
-	err := conn.Exec(ddlFor(conn, relayTableSQL, relayTablePostgresSQL)).Error
+	err := execTableDDL(conn, relayTableSQL, relayTablePostgresSQL, &models.Relay{})
 	if err != nil {
 		log.Error("Failed to create relays table: %v", err)
 
