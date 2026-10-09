@@ -420,3 +420,37 @@ func TestPerIPLimitKeysOnTheRealAddressBehindAProxy(t *testing.T) {
 	}
 	t.Fatal("untrusted peer escaped its limit with forged headers")
 }
+
+// Object stores often label every file application/octet-stream; the bytes
+// decide, and only safe raster images and audio/video pass.
+func TestOctetStreamIsSniffed(t *testing.T) {
+	mp4 := append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 2, 0}, make([]byte, 32)...)
+	webp := append([]byte("RIFF\x24\x00\x00\x00WEBPVP8 "), make([]byte, 32)...)
+	avif := append([]byte{0, 0, 0, 0x1c, 'f', 't', 'y', 'p', 'a', 'v', 'i', 'f', 0, 0, 0, 0}, make([]byte, 32)...)
+	for name, tc := range map[string]struct {
+		ctype string
+		body  []byte
+		want  int
+		out   string
+	}{
+		"png":          {"application/octet-stream", pngBytes(), 200, "image/png"},
+		"png binary":   {"binary/octet-stream", pngBytes(), 200, "image/png"},
+		"webp":         {"application/octet-stream", webp, 200, "image/webp"},
+		"avif":         {"application/octet-stream", avif, 200, "image/avif"},
+		"mp4":          {"application/octet-stream", mp4, 200, "video/mp4"},
+		"html":         {"application/octet-stream", []byte("<html><script>alert(1)</script></html>"), 415, ""},
+		"svg":          {"binary/octet-stream", []byte("<?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'/>"), 415, ""},
+		"png as plain": {"text/plain", pngBytes(), 415, ""},
+	} {
+		srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", tc.ctype)
+			_, _ = w.Write(tc.body)
+		}))
+		w := do(r, "GET", proxyPath("media", srv.URL+"/x"), nil)
+		require.Equal(t, tc.want, w.Code, name)
+		if tc.want == 200 {
+			require.Equal(t, tc.out, w.Header().Get("Content-Type"), name)
+			require.Equal(t, tc.body, w.Body.Bytes(), name)
+		}
+	}
+}

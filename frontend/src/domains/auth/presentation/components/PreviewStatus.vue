@@ -28,6 +28,8 @@ const booster = computed(() => props.status.reblog?.id ? props.status.account : 
 const hasCw = computed(() => !!shown.value.spoiler_text)
 const cwOpen = ref(false)
 const mediaRevealed = ref(false)
+// A file the proxy cannot serve (e.g. 415) just leaves an empty box.
+const brokenThumbs = ref(new Set<string>())
 const expanded = ref(false)
 const overflowing = ref(false)
 const textEl = ref<HTMLElement>()
@@ -139,9 +141,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 
       <div v-if="media.length" class="preview-status__media" :class="{ 'is-blurred': mediaBlurred }">
         <div v-if="thumbs.length" class="preview-status__thumbs" :data-count="thumbs.length">
-          <span v-for="m in thumbs" :key="m.id" class="preview-status__thumb">
-            <BlurPlaceholder v-if="mediaBlurred" :blurhash="m.blurhash" :aspect="thumbs.length === 1 ? attachmentAspect(m) || 16 / 9 : 1" />
-            <img v-else :src="thumbUrl(m)" :alt="m.description || ''" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+          <span v-for="m in thumbs" :key="m.id" class="preview-status__thumb" :style="thumbs.length === 1 ? { '--media-aspect': String(attachmentAspect(m) || 16 / 9) } : undefined">
+            <BlurPlaceholder v-if="mediaBlurred" :blurhash="m.blurhash" />
+            <img v-else-if="!brokenThumbs.has(m.id)" :src="thumbUrl(m)" :alt="m.description || ''" loading="lazy" decoding="async" referrerpolicy="no-referrer" @error="brokenThumbs = new Set(brokenThumbs).add(m.id)" />
             <span v-if="m.type !== 'image' && !mediaBlurred" class="preview-status__play" aria-hidden="true">▶</span>
           </span>
         </div>
@@ -308,6 +310,20 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--color-fill);
+}
+
+/* A single thumbnail keeps the file's own proportions (capped in height);
+   the placeholder and the revealed image fill the same box. */
+.preview-status__thumbs[data-count="1"] .preview-status__thumb {
+  aspect-ratio: var(--media-aspect, 16 / 9);
+  width: min(100%, calc(16rem * var(--media-aspect, 16 / 9)));
+  max-width: 100%;
+}
+
+.preview-status__thumb > .blur-ph {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
 }
 
 .preview-status__thumbs:not([data-count="1"]) .preview-status__thumb {

@@ -230,6 +230,43 @@ func sniffImage(head []byte) string {
 	return ""
 }
 
+// octetLike reports generic types some object stores (S3, R2, MinIO and
+// servers behind them) send for every file; the real type is in the bytes.
+func octetLike(t string) bool {
+	switch t {
+	case "", "application/octet-stream", "binary/octet-stream", "application/x-octet-stream", "application/unknown":
+		return true
+	}
+	return false
+}
+
+// sniffMedia names the video or audio type of a file's first bytes.
+func sniffMedia(head []byte) string {
+	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
+		switch brand := string(head[8:12]); brand {
+		case "qt  ":
+			return "video/quicktime"
+		case "M4A ", "M4B ":
+			return "audio/mp4"
+		case "avif", "avis", "heic", "heix", "mif1":
+			return "" // images, handled by sniffImage
+		default:
+			return "video/mp4" // isom, mp41, mp42, 3gp*, ...
+		}
+	}
+	t := http.DetectContentType(head)
+	if i := strings.Index(t, ";"); i >= 0 {
+		t = t[:i]
+	}
+	switch {
+	case t == "application/ogg":
+		return "audio/ogg"
+	case strings.HasPrefix(t, "video/"), strings.HasPrefix(t, "audio/"):
+		return t
+	}
+	return ""
+}
+
 func upstreamType(h http.Header) string {
 	t, _, err := mime.ParseMediaType(h.Get("Content-Type"))
 	if err != nil {
@@ -309,6 +346,14 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 		resp.ContentLength = int64(len(data))
 	}
 	body := bufio.NewReaderSize(src, 1024)
+	if octetLike(declared) && (resp.StatusCode == http.StatusOK || strings.HasPrefix(resp.Header.Get("Content-Range"), "bytes 0-")) {
+		head, _ := body.Peek(512)
+		if t := sniffImage(head); t != "" {
+			declared = t
+		} else if t := sniffMedia(head); t != "" {
+			declared = t
+		}
+	}
 	limit := mediaproxy.MaxStreamBytes()
 	ctype := declared
 	switch {
