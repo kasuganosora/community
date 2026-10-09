@@ -9,6 +9,7 @@ import type { MastodonPoll, MastodonStatus } from '@/shared/types/mastodon'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
+import { mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 import PostPoll from './PostPoll.vue'
 import { stripHtml } from '@/shared/utils/sanitize'
 import { markBidiNumbers } from '@/shared/utils/bidi'
@@ -43,7 +44,12 @@ const hasCw = computed(() => !!props.status.spoiler_text)
 const bodyVisible = computed(() => !hasCw.value || cwOpen.value)
 const poll = computed(() => pollOverride.value ?? props.status.poll)
 // Media marked sensitive without a CW still needs a click to reveal.
-const mediaHidden = computed(() => props.status.sensitive && !hasCw.value && !mediaRevealed.value)
+const { mode: mediaMode } = useMediaMode()
+// Gated media is shown as a BlurHash placeholder and is not requested at all
+// until the viewer clicks. A CW already hides the whole body behind its own
+// button, but the files still wait for their own click.
+const gated = computed(() => mediaGated(props.status, mediaMode.value))
+const mediaHidden = computed(() => gated.value && !mediaRevealed.value)
 const contentId = ref(`status-content-${props.status.id}-${Math.random().toString(36).slice(2, 6)}`)
 const quoted = computed(() => props.status.quote?.id ? props.status.quote : null)
 const quoteText = computed(() => {
@@ -73,7 +79,7 @@ function safeHttp(raw: string | null | undefined): string | null {
 }
 
 const cardUrl = computed(() => safeHttp(props.status.card?.url))
-const cardImage = computed(() => safeHttp(props.status.card?.image))
+const cardImage = computed(() => (mediaHidden.value ? null : safeHttp(props.status.card?.image)))
 
 async function measure() {
   await nextTick()
@@ -119,8 +125,8 @@ onMounted(measure)
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? '收起' : '展开全文' }}
       </button>
-      <div v-if="status.media_attachments?.length" class="post-content__media" :class="{ 'is-blurred': mediaHidden }">
-        <PostMedia :attachments="status.media_attachments" :status-id="status.id" :inert="mediaHidden || undefined" :aria-hidden="mediaHidden || undefined" />
+      <div v-if="status.media_attachments?.length" class="post-content__media">
+        <PostMedia :attachments="status.media_attachments" :status-id="status.id" :hidden="mediaHidden" />
         <button
           v-if="mediaHidden"
           type="button"
@@ -128,6 +134,14 @@ onMounted(measure)
           @click.stop="mediaRevealed = true"
         >
           敏感内容，点击查看
+        </button>
+        <button
+          v-else-if="gated"
+          type="button"
+          class="post-content__rehide"
+          @click.stop="mediaRevealed = false"
+        >
+          再次隐藏
         </button>
       </div>
       <article v-if="quoted" class="post-quote" role="link" tabindex="0" @click.stop="openQuote" @keydown.enter.stop="openQuote">
@@ -289,16 +303,16 @@ onMounted(measure)
   position: relative;
 }
 
-/* Sensitive media stays in place but blurred until revealed. */
-.post-content__media.is-blurred > :first-child {
-  filter: blur(24px);
-  pointer-events: none;
-  user-select: none;
-}
-
-.post-content__media.is-blurred {
-  overflow: hidden;
-  border-radius: var(--radius-lg);
+/* Hidden media is a BlurHash placeholder (see PostMedia); the button covers it. */
+.post-content__rehide {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: var(--text-footnote);
 }
 
 .post-content__sensitive {
@@ -323,6 +337,7 @@ onMounted(measure)
 @media (max-width: 43.74rem) {
   .post-content__cw-toggle,
   .post-content__sensitive,
+  .post-content__rehide,
   .post-content__more {
     min-height: 2.75rem;
   }

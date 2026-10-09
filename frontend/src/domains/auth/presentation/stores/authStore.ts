@@ -5,6 +5,7 @@ import type { MastodonAccount } from '@/shared/types/mastodon'
 import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
 import { tokenService } from '@/shared/api/client'
+import { useMediaMode } from '@/shared/composables/useMediaMode'
 import { getPasskey } from '@/shared/utils/webauthn'
 
 
@@ -96,6 +97,7 @@ export const useAuthStore = defineStore('auth', () => {
       const user = await authApi.verifyCredentials()
       if (myVersion !== fetchUserVersion) return true
       currentUser.value = user
+      void useMediaMode().loadMode() // adopt the saved media display mode
       return true
     } catch (e) {
       console.error('Failed to verify credentials:', e)

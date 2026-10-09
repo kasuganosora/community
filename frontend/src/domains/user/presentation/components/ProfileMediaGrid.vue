@@ -4,6 +4,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
+import BlurPlaceholder from '@/shared/components/post/BlurPlaceholder.vue'
+import { mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 
 const props = defineProps<{
   statuses: MastodonStatus[]
@@ -16,6 +18,7 @@ const emit = defineEmits<{ loadMore: []; retry: [] }>()
 const router = useRouter()
 const sentinel = ref<HTMLElement>()
 const revealed = ref(new Set<string>())
+const { mode: mediaMode } = useMediaMode()
 
 interface Tile { key: string; status: MastodonStatus; media: MastodonAttachment; src: string; videoSrc: string; hidden: boolean }
 
@@ -32,14 +35,19 @@ function markFailed(key: string) {
 
 const tiles = computed<Tile[]>(() => props.statuses.flatMap((item) => {
   const status = item.reblog?.id ? item.reblog : item
-  return (status.media_attachments ?? []).map(media => ({
-    key: `${item.id}-${media.id}`,
-    status,
-    media,
-    src: failed.value.has(`${item.id}-${media.id}`) ? '' : thumbnail(media),
-    videoSrc: media.type === 'video' || media.type === 'gifv' ? sameOriginMediaUrl(media.url || '') : '',
-    hidden: (status.sensitive || !!status.spoiler_text) && !revealed.value.has(status.id),
-  }))
+  const hidden = (mediaGated(status, mediaMode.value) || (mediaMode.value !== 'show_all' && !!status.spoiler_text)) && !revealed.value.has(status.id)
+  return (status.media_attachments ?? []).map((media) => {
+    const key = `${item.id}-${media.id}`
+    return {
+      key,
+      status,
+      media,
+      // Hidden tiles carry no file URL at all, so nothing is requested.
+      src: hidden || failed.value.has(key) ? '' : thumbnail(media),
+      videoSrc: !hidden && (media.type === 'video' || media.type === 'gifv') ? sameOriginMediaUrl(media.url || '') : '',
+      hidden,
+    }
+  })
 }))
 
 function open(tile: Tile) {
@@ -81,7 +89,8 @@ onUnmounted(() => observer?.disconnect())
         :aria-label="tile.hidden ? '敏感内容，点击查看' : (tile.media.description || '查看帖子')"
         @click="open(tile)"
       >
-        <img v-if="tile.src" :src="tile.src" :alt="tile.media.description || ''" loading="lazy" decoding="async" @error="markFailed(tile.key)" />
+        <BlurPlaceholder v-if="tile.hidden" :blurhash="tile.media.blurhash" :aspect="1" />
+        <img v-else-if="tile.src" :src="tile.src" :alt="tile.media.description || ''" loading="lazy" decoding="async" @error="markFailed(tile.key)" />
         <video v-else-if="tile.videoSrc && !failed.has(tile.key + ':video')" :src="`${tile.videoSrc}#t=0.1`" preload="metadata" muted playsinline tabindex="-1" aria-hidden="true" @error="markFailed(tile.key + ':video')" />
         <span v-else class="media-tab__placeholder"><t-icon name="file" :size="24" /></span>
         <span v-if="tile.media.type === 'video' || tile.media.type === 'gifv'" class="media-tab__badge" aria-hidden="true">▶</span>
@@ -127,10 +136,9 @@ onUnmounted(() => observer?.disconnect())
   transition: transform var(--duration-release) var(--ease-out);
 }
 
-.media-tab__tile.is-hidden img,
-.media-tab__tile.is-hidden video {
-  filter: blur(18px);
-  transform: scale(1.1);
+.media-tab__tile > .blur-ph {
+  position: absolute;
+  inset: 0;
 }
 
 .media-tab__placeholder,

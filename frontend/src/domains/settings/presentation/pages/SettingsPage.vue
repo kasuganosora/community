@@ -14,11 +14,22 @@ import AuthorizedApps from '../components/AuthorizedApps.vue'
 import FilterSettings from '../components/FilterSettings.vue'
 import DomainBlockSettings from '../components/DomainBlockSettings.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { useMediaMode, type MediaMode } from '@/shared/composables/useMediaMode'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const { preference, setPreference } = useTheme()
+const { mode: mediaMode, setMode: setMediaMode } = useMediaMode()
+const mediaDisplay = computed<MediaMode>({
+  get: () => mediaMode.value,
+  set: (v) => { void setMediaMode(v) },
+})
+const mediaOptions: { value: MediaMode; label: string }[] = [
+  { value: 'default', label: '默认' },
+  { value: 'show_all', label: '总是显示' },
+  { value: 'hide_all', label: '总是隐藏' },
+]
 
 const appearance = computed<ThemePreference>({
   get: () => preference.value,
@@ -62,6 +73,14 @@ async function logout() {
         <p class="settings__footer">
           “自动”会跟随设备的浅色 / 深色外观切换。动效和半透明材质同时遵循系统的“减弱动态效果”与“降低透明度”设置。
         </p>
+      </section>
+
+      <section class="settings__section" aria-labelledby="settings-media">
+        <h2 id="settings-media" class="settings__heading">媒体显示</h2>
+        <div class="settings__group settings__group--padded">
+          <SegmentedControl v-model="mediaDisplay" :options="mediaOptions" label="媒体显示" />
+        </div>
+        <p class="settings__footer">“默认”按帖子的敏感标记隐藏，点击后才加载原图。</p>
       </section>
 
       <section v-if="authStore.currentUser" class="settings__section" aria-labelledby="settings-account">

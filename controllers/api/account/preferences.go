@@ -62,7 +62,6 @@ func UpdatePreferences(c *gin.Context) {
 
 		return
 	}
-	account.User.Settings = &setting
 	GetPreferences(c)
 }
 
@@ -79,11 +78,19 @@ func GetPreferences(c *gin.Context) {
 	defaultExpandSpoilers := false
 	defaultExpandMedia := "default"
 
+	// The media display mode lives in user_setting; the account usually
+	// arrives without that association loaded.
+	if account.User != nil {
+		var setting models.UserSetting
+		if err := db.GetDB().WithContext(c.Request.Context()).Where("user_id = ?", account.User.Id).First(&setting).Error; err == nil {
+			if v, ok := setting.Data[expandMediaKey].(string); ok && validExpandMedia(v) {
+				defaultExpandMedia = v
+			}
+		}
+	}
+
 	// Check account settings
 	if account.User != nil && account.User.Settings != nil {
-		if v, ok := account.User.Settings.Data[expandMediaKey].(string); ok && validExpandMedia(v) {
-			defaultExpandMedia = v
-		}
 
 		// Check if user has privacy settings for posts
 		if postProtect, ok := account.User.Settings.Data["post_protect"]; ok {

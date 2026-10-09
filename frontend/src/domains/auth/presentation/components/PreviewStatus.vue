@@ -10,6 +10,8 @@ import RichText from '@/shared/components/common/RichText.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
+import BlurPlaceholder from '@/shared/components/post/BlurPlaceholder.vue'
+import { attachmentAspect, mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 
 const props = withDefaults(defineProps<{
   status: MastodonStatus
@@ -31,9 +33,11 @@ const overflowing = ref(false)
 const textEl = ref<HTMLElement>()
 
 const media = computed(() => shown.value.media_attachments ?? [])
-const thumbs = computed(() => media.value.filter(m => ['image', 'video', 'gifv'].includes(m.type) && thumbUrl(m)).slice(0, 4))
+const { mode: mediaMode } = useMediaMode()
+// Gated media is a BlurHash placeholder; the real files are not requested.
+const mediaBlurred = computed(() => mediaGated(shown.value, mediaMode.value) && !mediaRevealed.value)
+const thumbs = computed(() => media.value.filter(m => ['image', 'video', 'gifv'].includes(m.type) && (mediaBlurred.value || thumbUrl(m))).slice(0, 4))
 const otherMedia = computed(() => media.value.length - thumbs.value.length)
-const mediaBlurred = computed(() => shown.value.sensitive && !mediaRevealed.value)
 const quoteUrl = computed(() => safeHttp(shown.value.quote?.url || shown.value.quote?.uri))
 const cardUrl = computed(() => safeHttp(shown.value.card?.url))
 const pollCount = computed(() => shown.value.poll?.options.length ?? 0)
@@ -136,8 +140,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <div v-if="media.length" class="preview-status__media" :class="{ 'is-blurred': mediaBlurred }">
         <div v-if="thumbs.length" class="preview-status__thumbs" :data-count="thumbs.length">
           <span v-for="m in thumbs" :key="m.id" class="preview-status__thumb">
-            <img :src="thumbUrl(m)" :alt="m.description || ''" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
-            <span v-if="m.type !== 'image'" class="preview-status__play" aria-hidden="true">▶</span>
+            <BlurPlaceholder v-if="mediaBlurred" :blurhash="m.blurhash" :aspect="thumbs.length === 1 ? attachmentAspect(m) || 16 / 9 : 1" />
+            <img v-else :src="thumbUrl(m)" :alt="m.description || ''" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+            <span v-if="m.type !== 'image' && !mediaBlurred" class="preview-status__play" aria-hidden="true">▶</span>
           </span>
         </div>
         <span v-if="otherMedia > 0 || !thumbs.length" class="preview-status__meta">
@@ -326,7 +331,6 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 }
 
 .preview-status__media.is-blurred .preview-status__thumbs {
-  filter: blur(18px);
   pointer-events: none;
 }
 

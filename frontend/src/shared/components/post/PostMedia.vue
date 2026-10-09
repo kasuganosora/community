@@ -2,12 +2,16 @@
 import { ref, computed } from 'vue'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl, isProxiedMediaUrl } from '@/shared/utils/mediaUrl'
+import BlurPlaceholder from './BlurPlaceholder.vue'
+import { attachmentAspect } from '@/shared/composables/useMediaMode'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 
 const props = defineProps<{
   attachments: MastodonAttachment[]
   /** Status the media belongs to; lets expired proxy links be renewed. */
   statusId?: string
+  /** Show BlurHash placeholders only; the real files are not requested. */
+  hidden?: boolean
 }>()
 
 // Proxied links stop working after about an hour. A page that stays open
@@ -95,6 +99,7 @@ const shownInline = computed(() => {
 // The fallback link opens the original file: remote_url when the API proxies
 // the media, so a broken proxy never links back to itself.
 const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
+  if (props.hidden) return []
   if (shownInline.value.has(attachment.id)) return []
   try {
     const target = attachment.remote_url || attachment.url
@@ -124,7 +129,12 @@ const gridClass = computed(() => {
       <li v-for="file in fileLinks" :key="file.id"><a :href="file.url" target="_blank" rel="noopener noreferrer" @click.stop>{{ file.label }}</a></li>
     </ul>
     <!-- Images -->
-    <div :class="gridClass" v-if="images.length">
+    <div :class="gridClass" v-if="images.length && hidden">
+      <div v-for="img in images.slice(0, 4)" :key="img.id" class="media-item media-item--hidden">
+        <BlurPlaceholder :blurhash="img.blurhash" :aspect="images.length === 1 ? attachmentAspect(img) || 16 / 9 : null" />
+      </div>
+    </div>
+    <div :class="gridClass" v-else-if="images.length">
       <button
         v-for="(img, index) in images.slice(0, 4)"
         :key="img.id"
@@ -155,7 +165,7 @@ const gridClass = computed(() => {
     </div>
 
     <div
-      v-if="viewer !== null && images[viewer]"
+      v-if="!hidden && viewer !== null && images[viewer]"
       class="media-viewer"
       role="dialog"
       aria-modal="true"
@@ -182,8 +192,9 @@ const gridClass = computed(() => {
 
     <!-- Videos / GIFs -->
     <div v-for="vid in videos" :key="vid.id" class="media-video-wrap">
+      <BlurPlaceholder v-if="hidden" :blurhash="vid.blurhash" :aspect="attachmentAspect(vid) || 16 / 9" play />
       <video
-        v-if="!failedMedia.has(vid.id)"
+        v-else-if="!failedMedia.has(vid.id)"
         :src="sameOriginMediaUrl(vid.url)"
         :poster="sameOriginMediaUrl(vid.preview_url) || undefined"
         controls
@@ -203,8 +214,9 @@ const gridClass = computed(() => {
 
     <!-- Audio -->
     <div v-for="aud in audios" :key="aud.id" class="media-audio-wrap">
+      <BlurPlaceholder v-if="hidden" :blurhash="aud.blurhash" :aspect="8" />
       <audio
-        v-if="!failedMedia.has(aud.id)"
+        v-else-if="!failedMedia.has(aud.id)"
         :src="sameOriginMediaUrl(aud.url)"
         controls
         preload="none"
@@ -253,7 +265,11 @@ const gridClass = computed(() => {
   aspect-ratio: auto;
 }
 
-.media-grid--single .media-img {
+.media-grid--single .media-item--hidden {
+  cursor: default;
+}
+
+.media-img {
   max-height: 32rem;
   height: auto;
 }
