@@ -3,10 +3,13 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"sync/atomic"
+	"runtime/debug"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/log"
 )
 
 // MatrixSyncHandlerTimeout leaves query and serialization time around a bounded
@@ -33,11 +36,27 @@ func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.D
 	return fallback
 }
 
+// timeoutGrace is how long, after the timeout response has been sent, the
+// middleware waits for the handler goroutine to notice the cancelled context
+// and return. gin recycles a Context once the request ends, so a goroutine
+// that is still running on it would corrupt the next request.
+const timeoutGrace = 10 * time.Second
+
+type handlerPanic struct {
+	value any
+	stack []byte
+}
+
 // TimeoutMiddleware 请求超时中间件
-// 使用 goroutine + select 模式实现真正的超时控制：
-// - 超时后立即返回 504 响应
-// - 通过 context 取消通知下游处理器终止
-// - 使用 responseWriterWrapper 防止超时后 goroutine 继续写入响应.
+//
+// The handler chain runs in a goroutine so a timeout response can be sent
+// while it is still busy. On timeout the 504 is written straight to the real
+// connection; from then on the handler's own writes are discarded (the
+// handler keeps seeing the wrapper as c.Writer, never the real writer, so
+// nothing it writes later can reach the finished response). The middleware
+// then waits for the goroutine before returning, so the gin Context is never
+// used after it has been recycled. A panic in the handler is re-raised on the
+// request goroutine, with the original stack logged, for gin.Recovery.
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if isDataTransferRequest(c.Request) {
@@ -53,90 +72,147 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), requestHandlerTimeout(c.Request, timeout))
 		defer cancel()
 
-		// 用 wrapper 包装 writer，超时后禁止写入
-		wrapper := &timeoutResponseWriter{
-			ResponseWriter: c.Writer,
-			ctx:            ctx,
-		}
+		original := c.Writer
+		wrapper := &timeoutResponseWriter{ResponseWriter: original}
 		c.Writer = wrapper
-
 		c.Request = c.Request.WithContext(ctx)
 
 		finished := make(chan struct{})
-		panicChan := make(chan any, 1)
+		panicChan := make(chan handlerPanic, 1)
 
 		go func() {
 			defer func() {
 				if p := recover(); p != nil {
-					panicChan <- p
+					panicChan <- handlerPanic{value: p, stack: debug.Stack()}
 				}
 			}()
 
 			c.Next()
 
-			// 仅在未发生 panic 时关闭 finished，确保 panic 能被 select 正确处理
 			close(finished)
 		}()
 
 		select {
 		case <-finished:
-			// 正常完成
+			c.Writer = original
 		case p := <-panicChan:
-			// handler 中发生 panic，立即重新抛出
-			panic(p)
+			c.Writer = original
+			log.Error("panic in handler: %v\n%s", p.value, p.stack)
+			panic(p.value)
 		case <-ctx.Done():
-			// 超时：标记 writer 为已超时，阻止 goroutine 继续写入
-			wrapper.timedOut.Store(1)
+			wrapper.expire()
 
-			if wrapper.written.Load() == 0 {
-				// Restore the original writer so the timeout response isn't blocked
-				// by the wrapper's timedOut check
-				c.Writer = wrapper.ResponseWriter
-				c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
-					"error":   "request timeout",
-					"message": "The request took too long to process",
-				})
+			grace := time.NewTimer(timeoutGrace)
+			defer grace.Stop()
+			select {
+			case <-finished:
+			case p := <-panicChan:
+				log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+			case <-grace.C:
+				// Last resort: the chain index must still be closed so the
+				// engine does not run the remaining handlers a second time.
+				log.Warn("handler still running %s after its timeout: %s %s", timeoutGrace, c.Request.Method, c.Request.URL.Path)
+				c.Abort()
+
+				return
 			}
+			c.Abort()
+			c.Writer = original
 		}
 	}
 }
 
-// timeoutResponseWriter 包装 gin ResponseWriter，超时后阻止写入.
+// timeoutResponseWriter is the c.Writer of the handler chain. Writes go
+// straight through until the timeout; expire then sends the 504 itself (if the
+// handler had not started answering) and turns every later write into a no-op.
 type timeoutResponseWriter struct {
 	gin.ResponseWriter
 
-	//nolint:containedctx // legitimately needs context for timeout coordination
-	ctx      context.Context
-	timedOut atomic.Int32 // atomic: 0=正常, 1=已超时
-	written  atomic.Int32 // atomic: 0=未写入, 1=已写入
+	mu       sync.Mutex
+	timedOut bool
+	written  bool
+	scratch  http.Header
+}
+
+// expire marks the request as timed out and answers 504 unless the handler
+// already began its own response.
+func (w *timeoutResponseWriter) expire() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.timedOut = true
+	if w.written {
+		return
+	}
+	h := w.ResponseWriter.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Del("Content-Encoding")
+	body := []byte(`{"error":"request timeout","message":"The request took too long to process"}`)
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.ResponseWriter.WriteHeader(http.StatusGatewayTimeout)
+	_, _ = w.ResponseWriter.Write(body)
+	w.ResponseWriter.WriteHeaderNow()
+	w.ResponseWriter.Flush()
+}
+
+// Header hands the handler a throw-away map once the real one belongs to the
+// finished response.
+func (w *timeoutResponseWriter) Header() http.Header {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timedOut {
+		if w.scratch == nil {
+			w.scratch = http.Header{}
+		}
+
+		return w.scratch
+	}
+
+	return w.ResponseWriter.Header()
 }
 
 func (w *timeoutResponseWriter) Write(data []byte) (int, error) {
-	if w.timedOut.Load() == 1 {
-		return 0, nil // 超时后丢弃写入
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timedOut {
+		return len(data), nil
 	}
-
-	w.written.Store(1)
+	w.written = true
 
 	return w.ResponseWriter.Write(data)
 }
 
+func (w *timeoutResponseWriter) WriteString(s string) (int, error) {
+	return w.Write([]byte(s))
+}
+
 func (w *timeoutResponseWriter) WriteHeader(code int) {
-	if w.timedOut.Load() == 1 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timedOut {
 		return
 	}
-
-	w.written.Store(1)
+	w.written = true
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *timeoutResponseWriter) WriteHeaderNow() {
-	if w.timedOut.Load() == 1 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timedOut {
 		return
 	}
-
-	w.written.Store(1)
+	w.written = true
 	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *timeoutResponseWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timedOut {
+		return
+	}
+	w.written = true
+	w.ResponseWriter.Flush()
 }
 
 // TimeoutConfig 超时配置.

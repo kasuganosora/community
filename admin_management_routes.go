@@ -40,6 +40,8 @@ func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	read.GET("/federation/instances", admin.FederationInstances)
 	read.GET("/federation/jobs", admin.FederationJobs)
 	write.POST("/federation/jobs/:kind/:id/action", admin.FederationJobAction)
+	read.GET("/oauth_applications", admin.ListOAuthApplications)
+	write.DELETE("/oauth_applications/:id", admin.DeleteOAuthApplication)
 	read.GET("/webhooks", admin.Webhooks)
 	write.POST("/webhooks", admin.CreateWebhook)
 	write.PUT("/webhooks/:id", admin.UpdateWebhook)

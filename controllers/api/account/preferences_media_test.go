@@ -74,6 +74,19 @@ func TestMediaDisplayPreference(t *testing.T) {
 		require.Equal(t, 200, code)
 		assert.Equal(t, mode, out["reading:expand:media"], "GET reads back the stored value")
 	}
+	// post_protect sits in the same unloaded user_setting row.
+	code, out = do(http.MethodGet, "", true)
+	require.Equal(t, 200, code)
+	assert.Equal(t, "public", out["posting:default:visibility"])
+	var setting models.UserSetting
+	require.NoError(t, conn.Where("user_id = ?", user.Id).First(&setting).Error)
+	setting.Data["post_protect"] = true
+	require.NoError(t, conn.Save(&setting).Error)
+	code, out = do(http.MethodGet, "", true)
+	require.Equal(t, 200, code)
+	assert.Equal(t, "private", out["posting:default:visibility"])
+	assert.Equal(t, "default", out["reading:expand:media"])
+
 	code, _ = do(http.MethodPatch, `{"reading:expand:media":"sometimes"}`, true)
 	assert.Equal(t, 422, code)
 	code, _ = do(http.MethodPatch, `{"reading:expand:media":"hide_all"}`, false)
