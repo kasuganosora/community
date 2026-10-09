@@ -71,6 +71,9 @@ func TestServiceAndBackfill(t *testing.T) {
 	domain := "remote.example"
 	mk := func(sens bool, created time.Time) uint64 {
 		st := models.Status{AccountId: 1, Domain: &domain, Sensitive: sens, CreatedAt: &created}
+		if sens {
+			st.Domain = nil // imported without a domain (boosted-unknown fetch): still picked up
+		}
 		require.NoError(t, conn.Omit("Content", "Attachments").Create(&st).Error)
 		return st.Id
 	}

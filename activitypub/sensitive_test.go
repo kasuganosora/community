@@ -86,6 +86,8 @@ func TestSensitiveFlagOnBoostedUnknownFetch(t *testing.T) {
 		var saved models.Status
 		require.NoError(t, conn.First(&saved, st.Id).Error)
 		assert.Equal(t, tc.want, saved.Sensitive, name)
+		require.NotNil(t, saved.Domain, name+": remote status domain is set")
+		assert.Equal(t, "remote.example", *saved.Domain, name)
 	}
 	_ = n
 }

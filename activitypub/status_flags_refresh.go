@@ -30,7 +30,7 @@ var errNotNote = errors.New("object is not a note")
 // written.
 func RefreshStatusFlags(ctx context.Context, conn *gorm.DB, client ActorFetcher, status *models.Status, dryRun bool) (StatusFlagsResult, error) {
 	var res StatusFlagsResult
-	if status.OriginUri == nil || *status.OriginUri == "" || status.Domain == nil {
+	if status.OriginUri == nil || *status.OriginUri == "" {
 		return res, ErrNotRemoteAccount
 	}
 	uri := *status.OriginUri
@@ -122,4 +122,22 @@ func stripQuery(raw string) string {
 	u.RawQuery, u.Fragment = "", ""
 
 	return strings.TrimSpace(u.String())
+}
+
+// FixRemoteStatusDomains sets statuses.domain on remote statuses that lack it
+// (imported by the boosted-unknown fetch before it recorded the host), from
+// the author's account domain. It returns how many rows are (or, with dryRun,
+// would be) fixed. Reblogs are left alone.
+func FixRemoteStatusDomains(conn *gorm.DB, dryRun bool) (int64, error) {
+	const where = "domain IS NULL AND origin_uri IS NOT NULL AND origin_uri <> '' AND reblog_id IS NULL AND " +
+		"EXISTS (SELECT 1 FROM accounts WHERE accounts.id = statuses.account_id AND accounts.domain IS NOT NULL AND accounts.domain <> '')"
+	if dryRun {
+		var n int64
+		err := conn.Model(&models.Status{}).Unscoped().Where(where).Count(&n).Error
+
+		return n, err
+	}
+	res := conn.Exec("UPDATE statuses SET domain = (SELECT accounts.domain FROM accounts WHERE accounts.id = statuses.account_id) WHERE " + where)
+
+	return res.RowsAffected, res.Error
 }

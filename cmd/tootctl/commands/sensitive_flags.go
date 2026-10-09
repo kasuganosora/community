@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +29,7 @@ func statusesRefreshSensitiveCommand() *cli.Command {
 			&cli.IntFlag{Name: "limit", Value: 5000, Usage: "maximum statuses to check (0 = no limit)"},
 			&cli.IntFlag{Name: "concurrency", Aliases: []string{"c"}, Value: 4, Usage: "objects fetched in parallel"},
 			&cli.Float64Flag{Name: "rate", Value: 4, Usage: "maximum fetches started per second (0 = unlimited)"},
+			&cli.BoolFlag{Name: "fix-domain", Value: true, Usage: "first set the missing domain of remote statuses from their author (--fix-domain=false to skip)"},
 			&cli.BoolFlag{Name: "dry-run", Usage: "report what would change without writing"},
 			&cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "print every status"},
 		},
@@ -41,8 +44,16 @@ type sensitiveSummary struct {
 
 func refreshSensitive(c *cli.Context) error {
 	conn := db.GetDB().WithContext(c.Context)
+	if c.Bool("fix-domain") {
+		n, err := activitypub.FixRemoteStatusDomains(conn, c.Bool("dry-run"))
+		if err != nil {
+			return fmt.Errorf("fixing status domains: %w", err)
+		}
+		_, _ = fmt.Fprintf(c.App.Writer, "statuses with a missing domain %s: %d\n", map[bool]string{true: "that would be fixed", false: "fixed"}[c.Bool("dry-run")], n)
+	}
+	// Select by origin_uri, not statuses.domain: some imports left it NULL.
 	q := conn.Model(&models.Status{}).
-		Where("deleted_at IS NULL AND domain IS NOT NULL AND origin_uri IS NOT NULL AND reblog_id IS NULL").
+		Where("deleted_at IS NULL AND origin_uri IS NOT NULL AND origin_uri <> '' AND reblog_id IS NULL").
 		Order("id DESC")
 	if d := c.Int("days"); d > 0 {
 		q = q.Where("created_at >= ?", time.Now().AddDate(0, 0, -d))
@@ -83,7 +94,13 @@ func refreshSensitive(c *cli.Context) error {
 		}()
 	}
 	for _, st := range statuses {
-		if suspended[*st.Domain] {
+		host := ""
+		if st.Domain != nil {
+			host = *st.Domain
+		} else if u, err := url.Parse(*st.OriginUri); err == nil {
+			host = u.Hostname()
+		}
+		if suspended[strings.ToLower(host)] {
 			sum.mu.Lock()
 			sum.suspended++
 			sum.mu.Unlock()

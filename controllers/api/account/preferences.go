@@ -18,6 +18,21 @@ func validExpandMedia(v string) bool {
 	return v == "default" || v == "show_all" || v == "hide_all"
 }
 
+// preferenceUserID is the signed-in user's id. AuthMiddleware sets "user"
+// (the Account it loads has no User association), so use that first.
+func preferenceUserID(c *gin.Context, account *models.Account) uint64 {
+	if v, ok := c.Get("user"); ok {
+		if u, ok := v.(*models.User); ok && u != nil {
+			return u.Id
+		}
+	}
+	if account.User != nil {
+		return account.User.Id
+	}
+
+	return account.UserId
+}
+
 // UpdatePreferences handles PATCH /api/v1/preferences. Only
 // "reading:expand:media" can be changed.
 func UpdatePreferences(c *gin.Context) {
@@ -34,16 +49,17 @@ func UpdatePreferences(c *gin.Context) {
 
 		return
 	}
-	if account.User == nil {
-		c.JSON(422, gin.H{"error": "no user"})
+	userID := preferenceUserID(c, account)
+	if userID == 0 {
+		c.JSON(401, gin.H{"error": "unauthorized"})
 
 		return
 	}
 	conn := db.GetDB().WithContext(c.Request.Context())
 	var setting models.UserSetting
-	err := conn.Where("user_id = ?", account.User.Id).First(&setting).Error
+	err := conn.Where("user_id = ?", userID).First(&setting).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		setting = models.UserSetting{ID: uuid.NewString(), UserID: int64(account.User.Id), Data: map[string]any{}}
+		setting = models.UserSetting{ID: uuid.NewString(), UserID: int64(userID), Data: map[string]any{}}
 		err = nil
 	}
 	if err != nil {
@@ -80,9 +96,9 @@ func GetPreferences(c *gin.Context) {
 
 	// The media display mode lives in user_setting; the account usually
 	// arrives without that association loaded.
-	if account.User != nil {
+	if userID := preferenceUserID(c, account); userID != 0 {
 		var setting models.UserSetting
-		if err := db.GetDB().WithContext(c.Request.Context()).Where("user_id = ?", account.User.Id).First(&setting).Error; err == nil {
+		if err := db.GetDB().WithContext(c.Request.Context()).Where("user_id = ?", userID).First(&setting).Error; err == nil {
 			if v, ok := setting.Data[expandMediaKey].(string); ok && validExpandMedia(v) {
 				defaultExpandMedia = v
 			}

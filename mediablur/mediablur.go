@@ -214,7 +214,7 @@ func startQueue(svc *Service, workers, size int, limit rate.Limit) chan uint64 {
 func init() {
 	event.Register("status", "*", &event.Handler{Exec: func(e event.Event) bool {
 		st, ok := e.Data.(*models.Status)
-		if !ok || st == nil || (e.Name != "after_create" && e.Name != "after_update") || st.Domain == nil {
+		if !ok || st == nil || (e.Name != "after_create" && e.Name != "after_update") || st.OriginUri == nil {
 			return true
 		}
 		id := st.Id

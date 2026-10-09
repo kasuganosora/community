@@ -1735,6 +1735,14 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 		UpdatedAt:   publishedAt,
 	}
 
+	// Remote statuses carry their host in statuses.domain (suspension, link
+	// cards, refresh jobs and local-post counts all key on it).
+	if authorAccount.Domain != nil && *authorAccount.Domain != "" {
+		status.Domain = authorAccount.Domain
+	} else if host := utils.ExtractDomainFromURI(statusURI); host != "" {
+		status.Domain = &host
+	}
+
 	// Set in-reply-to if present
 	if inReplyTo != "" {
 		var parentStatus models.Status
