@@ -552,6 +552,7 @@ func TestToStatusBase_EditedAt(t *testing.T) {
 		Content:   models.StatusContent{Content: "x"},
 		CreatedAt: &created,
 		UpdatedAt: &updated,
+		Edited:    true,
 		Account:   &models.Account{Id: 7, Username: "u"},
 	}
 
@@ -560,6 +561,13 @@ func TestToStatusBase_EditedAt(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.EditedAt)
 	assert.Equal(t, updated, *result.EditedAt)
+
+	// updated_at after created_at alone (remote receive time, counter
+	// saves) is not an edit.
+	status.Edited = false
+	result, err = ToStatusBase(status)
+	require.NoError(t, err)
+	assert.Nil(t, result.EditedAt)
 }
 
 func TestToStatusBase_NotEditedWhenUpdatedEarlier(t *testing.T) {

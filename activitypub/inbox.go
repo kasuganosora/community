@@ -565,6 +565,15 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			if err != nil {
 				return err
 			}
+			// Keep the previous version so the post shows as edited and its
+			// history is available. Updates that only refresh counters (poll
+			// tallies, Misskey reactions) leave the text alone and are not edits.
+			if status.Content.Content != content || status.Content.SpoilerText != summary {
+				if err := recordStatusEdit(tx, &status); err != nil {
+					return err
+				}
+				now = editTime(object, now)
+			}
 			// Save the complete content value so association hooks see the new text.
 			status.Content.Content = content
 			status.Content.SpoilerText = summary

@@ -90,7 +90,7 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	ret.ReblogsCount = status.ReblogsCount
 	ret.FavouritesCount = status.FavouritesCount
 
-	if status.UpdatedAt != nil && status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
+	if status.Edited && status.UpdatedAt != nil && status.CreatedAt != nil && status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
 		ret.EditedAt = status.UpdatedAt
 	}
 
@@ -131,6 +131,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 	if err = models.AttachQuotes(db.GetDB(), []*models.Status{status}); err != nil {
 		return nil, err
 	}
+	models.AttachEditFlags(db.GetDB(), []*models.Status{status})
 	ret, err = ToStatusBase(status)
 	if err != nil {
 		return ret, err
@@ -255,6 +256,7 @@ func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *m
 	if err = models.AttachQuotes(conn, statuses); err != nil {
 		return nil, err
 	}
+	models.AttachEditFlags(conn, statuses)
 	ids := make([]uint64, 0, len(flat))
 	authors := make([]*models.Account, 0, len(flat))
 	polls := make([]*models.Poll, 0)

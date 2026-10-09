@@ -73,7 +73,10 @@ type Status struct { //nolint:recvcheck
 	// Quote is loaded on demand. It is not a foreign key: deleting the
 	// quoted post must not fail, and the quote simply disappears.
 	Quote *Status `gorm:"-"                                    json:"-"`
-	Tags  Tags    `gorm:"many2many:status_tags;"              json:"tags"`
+	// Edited is set by AttachEditFlags when status_histories holds an
+	// earlier version; only then is updated_at an edit time.
+	Edited bool `gorm:"-" json:"-"`
+	Tags   Tags `gorm:"many2many:status_tags;"              json:"tags"`
 
 	isLoadAllExtendFields bool    `gorm:"-"`
 	conversationIdChanged bool    `gorm:"-"`
@@ -904,6 +907,49 @@ func StatusLoadAllQuery(query *gorm.DB) *gorm.DB {
 		Preload("Reblog.Poll").
 		Preload("Reblog.Poll.Options").
 		Preload("Reblog.Tags")
+}
+
+// AttachEditFlags marks statuses (and their reblogged and quoted posts)
+// that have a stored earlier version. updated_at alone is not an edit
+// signal: it is the receive time for remote posts and bumps on any save.
+func AttachEditFlags(tx *gorm.DB, statuses []*Status) {
+	if tx == nil || len(statuses) == 0 {
+		return
+	}
+	byID := map[uint64][]*Status{}
+	add := func(s *Status) {
+		if s != nil && s.Id > 0 {
+			byID[s.Id] = append(byID[s.Id], s)
+		}
+	}
+	for _, s := range statuses {
+		if s == nil {
+			continue
+		}
+		add(s)
+		add(s.Reblog)
+		add(s.Quote)
+		if s.Reblog != nil {
+			add(s.Reblog.Quote)
+		}
+	}
+	if len(byID) == 0 {
+		return
+	}
+	ids := make([]uint64, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	var edited []uint64
+	// A missing table (minimal schemas) just means nothing was edited.
+	if err := tx.Model(&StatusHistory{}).Where("status_id IN ?", ids).Distinct("status_id").Pluck("status_id", &edited).Error; err != nil {
+		return
+	}
+	for _, id := range edited {
+		for _, s := range byID[id] {
+			s.Edited = true
+		}
+	}
 }
 
 // AttachQuotes fills one level of Quote for statuses that have QuoteId set.
