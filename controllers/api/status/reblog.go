@@ -93,7 +93,17 @@ func Unreblog(c *gin.Context) {
 
 	// 删除转发的 status， 并把原来的 status 的转发数减一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {
-		err = tx.Delete(&models.Status{}, "reblog_id = ? AND account_id = ?", status.Id, currentAccount.Id).Error
+		// Delete each boost row by value so the delete hooks see it (the
+		// federation outbox queues the Undo Announce from there).
+		var reblogs []models.Status
+		if err = tx.Where("reblog_id = ? AND account_id = ?", status.Id, currentAccount.Id).Find(&reblogs).Error; err != nil {
+			return errors.Wrap(err, "load reblog")
+		}
+		for i := range reblogs {
+			if err = tx.Delete(&reblogs[i]).Error; err != nil {
+				break
+			}
+		}
 		if err != nil {
 			err = errors.Wrap(err, "delete reblog")
 

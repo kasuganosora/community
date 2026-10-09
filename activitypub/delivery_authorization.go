@@ -18,6 +18,9 @@ type DeliveryAuthorization struct {
 	StatusID     uint64   `json:"status_id,omitempty"`
 	Visibility   uint8    `json:"visibility"`
 	Kind         string   `json:"kind"`
+	// RelayID marks a delivery to a subscribed relay's inbox; it is only
+	// sent while the relay is accepted and the status is still public.
+	RelayID uint64 `json:"relay_id,omitempty"`
 }
 
 func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[string]any, bool, error) {
@@ -30,7 +33,7 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	}
 	// Revocation messages contain identifiers, never old note content, and
 	// must be delivered even after an unfollow/block removed access.
-	if auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" {
+	if auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" || auth.Kind == "AnnounceUndo" {
 		return activity, true, nil
 	}
 	if auth.Kind == "Reaction" {
@@ -76,6 +79,17 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 		if status.Visibility > auth.Visibility {
 			return activity, false, nil
 		}
+	}
+	if auth.RelayID != 0 {
+		var relay models.Relay
+		err := db.GetDB().Where("id = ? AND state = ?", auth.RelayID, models.RelayStateAccepted).First(&relay).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return activity, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		return activity, status != nil && status.Visibility == models.StatusVisibilityPublic, nil
 	}
 	var recipients []models.Account
 	if err := db.GetDB().Where("id IN ?", auth.RecipientIDs).Find(&recipients).Error; err != nil {

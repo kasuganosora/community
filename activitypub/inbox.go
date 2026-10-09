@@ -89,13 +89,25 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
-	// An authenticated HTTP key must identify the activity's declared actor.
-	if activityActor, ok := activity["actor"].(string); !ok || activityActor != actor {
+	activityActor, _ := activity["actor"].(string)
+	activityType, _ := activity["type"].(string)
+	activityID, _ := activity["id"].(string)
+	// A subscribed relay signs posts it forwards (actor = original author) and
+	// its own Announces; both are re-fetched from their origin below.
+	var relay *models.Relay
+	if isRelayForwardType(activityType) && (activityActor != actor || activityType == "Announce") {
+		relay, err = acceptedRelayForSigner(c.Request.Context(), db.GetDB(), actor)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "internal error"})
+			return
+		}
+	}
+	// Otherwise an authenticated HTTP key must identify the activity's declared actor.
+	if relay == nil && activityActor != actor {
 		c.JSON(401, gin.H{"error": "actor mismatch between signature and activity"})
 		return
 	}
-	activityID, _ := activity["id"].(string)
-	if activityID == "" || !sameURIOrigin(activityID, actor) {
+	if activityID == "" || (relay == nil && !sameURIOrigin(activityID, actor)) || (relay != nil && validateFederationURI(activityID) != nil) {
 		c.JSON(400, gin.H{"error": "invalid activity identity"})
 		return
 	}
@@ -110,11 +122,12 @@ func Inbox(c *gin.Context) {
 			return
 		}
 	}
-	// Route based on activity type
-	activityType, _ := activity["type"].(string)
-
 	// Create context with verified actor info
 	ctx := context.WithValue(c.Request.Context(), actorKey, actor)
+	if relay != nil {
+		handleRelayedActivity(ctx, c, activity, activityID, relay)
+		return
+	}
 
 	processInboxTransaction(ctx, c, activityID, func(ctx context.Context) {
 		switch activityType {
@@ -776,7 +789,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 	// Find the original status (might be local or remote)
 	var originalStatus models.Status
 
-	err = activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&originalStatus).Error
+	err = activityDB(ctx).Scopes(statusByObjectRef(object)).First(&originalStatus).Error
 	if err != nil {
 		// Try to fetch the remote status
 		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(ctx, object, remoteAccount) //nolint:contextcheck
@@ -1380,7 +1393,7 @@ func handleAddActivity(ctx context.Context, c *gin.Context, activity map[string]
 	if strings.Contains(target, "/collections/featured") {
 		// Adding to featured/pinned statuses collection
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&status).Error
+		err := activityDB(ctx).Scopes(statusByObjectRef(object)).First(&status).Error
 		if err == nil {
 			// Mark as featured (pinned)
 			if status.AccountId == remoteAccount.Id {
@@ -1431,7 +1444,7 @@ func handleRemoveActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if strings.Contains(target, "/collections/featured") {
 		// Removing from featured/pinned statuses collection
 		var status models.Status
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, object).First(&status).Error
+		err := activityDB(ctx).Scopes(statusByObjectRef(object)).First(&status).Error
 		if err == nil {
 			// Unmark as featured (unpin)
 			if status.AccountId == remoteAccount.Id {
@@ -1687,4 +1700,17 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string, attribute
 	log.Info("Created remote status %d from %s", status.Id, statusURI)
 
 	return &status, nil
+}
+
+// statusByObjectRef matches a status by its object URI (remote origin or
+// preserved local URI), or by numeric id. The id comparison is only added
+// for numeric references: on PostgreSQL comparing the bigint id with a URL
+// is an error that aborts the surrounding inbox transaction.
+func statusByObjectRef(object string) func(*gorm.DB) *gorm.DB {
+	return func(q *gorm.DB) *gorm.DB {
+		if id, err := strconv.ParseUint(object, 10, 64); err == nil {
+			return q.Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ? OR id = ?", object, object, object, id)
+		}
+		return q.Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", object, object, object)
+	}
 }

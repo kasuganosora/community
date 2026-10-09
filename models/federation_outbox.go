@@ -59,8 +59,14 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 	if kind == "Create" && tx.Statement.Context.Value(deferredFederationCreateKey{}) == true {
 		return nil
 	}
-	if s.LocalOnly || s.Id == 0 || s.AccountId == 0 || !s.IsLocal() || s.ScheduledAt != nil || s.ReblogId != nil || !hasFederationOutbox(tx) {
+	if s.LocalOnly || s.Id == 0 || s.AccountId == 0 || !s.IsLocal() || s.ScheduledAt != nil || !hasFederationOutbox(tx) {
 		return nil
+	}
+	if s.ReblogId != nil {
+		if *s.ReblogId == 0 {
+			return nil
+		}
+		return queueFederationReblog(tx, kind, s)
 	}
 	var snapshot Status
 	if err := StatusLoadAllQuery(tx.Session(&gorm.Session{NewDB: true})).First(&snapshot, s.Id).Error; err != nil {
@@ -170,4 +176,51 @@ func QueueFederationFollowDecision(tx *gorm.DB, kind string, f *Follow) error {
 		return err
 	}
 	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{AccountID: owner.Id, ObjectID: f.Id, Kind: kind, Payload: string(payload), RecipientIDs: []uint64{requester.Id}}).Error
+}
+
+// queueFederationReblog records an Announce (or its Undo) for a local boost
+// of a public or unlisted post. Private boosts are never federated.
+func queueFederationReblog(tx *gorm.DB, kind string, s *Status) error {
+	switch kind {
+	case "Create":
+		kind = "Announce"
+	case "Delete":
+		kind = "AnnounceUndo"
+	default:
+		return nil
+	}
+	var snapshot Status
+	if err := StatusLoadAllQuery(tx.Session(&gorm.Session{NewDB: true})).First(&snapshot, s.Id).Error; err != nil {
+		return err
+	}
+	original := snapshot.Reblog
+	if snapshot.Account == nil || snapshot.Account.Domain != nil || original == nil || original.Account == nil || original.LocalOnly {
+		return nil
+	}
+	federated := func(v uint8) bool { return v == StatusVisibilityPublic || v == StatusVisibilityUnlisted }
+	if !federated(snapshot.Visibility) || !federated(original.Visibility) {
+		return nil
+	}
+	recipients := make(map[uint64]bool)
+	if original.Account.Domain != nil {
+		recipients[original.AccountId] = true
+	}
+	var followers []Follow
+	if err := tx.Session(&gorm.Session{NewDB: true}).Where("follow_id = ? AND status = ?", snapshot.AccountId, FollowStatusFollowed).Preload("Account").Find(&followers).Error; err != nil {
+		return err
+	}
+	for _, f := range followers {
+		if f.Account != nil && f.Account.Domain != nil {
+			recipients[f.AccountId] = true
+		}
+	}
+	ids := make([]uint64, 0, len(recipients))
+	for id := range recipients {
+		ids = append(ids, id)
+	}
+	payload, err := json.Marshal(&snapshot)
+	if err != nil {
+		return err
+	}
+	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{ObjectID: snapshot.Id, AccountID: snapshot.AccountId, Kind: kind, Payload: string(payload), RecipientIDs: ids}).Error
 }

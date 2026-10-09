@@ -19,9 +19,12 @@ func setupRelayServiceDB(t *testing.T) *testutil.TestDB {
 		&models.Relay{},
 		&Delivery{},
 		&models.SystemSetting{},
+		&models.Account{}, &models.AccountKey{}, &models.AccountExtra{}, &models.AccountFederationKey{},
 	)
 	database.SetTestDB(testDB.GormDB)
 	t.Cleanup(database.ResetTestDB)
+	resetInstanceActorCache()
+	t.Cleanup(resetInstanceActorCache)
 	return testDB
 }
 

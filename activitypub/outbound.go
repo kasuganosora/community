@@ -202,6 +202,15 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 			}
 			payload = map[string]any{"id": activityID, "type": e.Kind, "actor": actorURI, "to": note["to"], "cc": note["cc"], "object": note}
 		}
+	case "Announce", "AnnounceUndo":
+		snapshot = &models.Status{}
+		if err := json.Unmarshal([]byte(e.Payload), snapshot); err != nil {
+			return nil, err
+		}
+		if snapshot.Account == nil || snapshot.Account.Domain != nil || !snapshot.IsLocal() || snapshot.Reblog == nil || snapshot.Reblog.Account == nil {
+			return nil, errors.New("outbox boost must be local and reference its original")
+		}
+		payload, activityID = announcePayload(snapshot, &author, actorURI, activityID, e.Kind == "AnnounceUndo")
 	default:
 		return nil, fmt.Errorf("unknown federation event %q", e.Kind)
 	}
@@ -224,7 +233,7 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		if e.Kind == "ProfileUpdate" {
 			allowed, err = profileRecipientAllowed(&author, &target)
 		}
-		if e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" {
+		if e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" || e.Kind == "AnnounceUndo" {
 			allowed = true
 			err = nil
 		}
@@ -272,7 +281,67 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		}
 		deliveries = append(deliveries, revoked...)
 	}
+	relayed, err := relayDeliveries(e, snapshot, &author, activityID, string(encoded), seen)
+	if err != nil {
+		return nil, err
+	}
+	return append(deliveries, relayed...), nil
+}
+
+// relayDeliveries adds the inbox of every accepted relay for activities about
+// a PUBLIC local status (never unlisted, private or direct). Inboxes already
+// receiving the activity (e.g. a follower shared inbox) are not repeated.
+func relayDeliveries(e *models.FederationOutbox, snapshot *models.Status, author *models.Account, activityID, payload string, seen map[string]bool) ([]Delivery, error) {
+	switch e.Kind {
+	case "Create", "Update", "Delete", "Announce", "AnnounceUndo":
+	default:
+		return nil, nil
+	}
+	if snapshot == nil || snapshot.Visibility != models.StatusVisibilityPublic || snapshot.LocalOnly {
+		return nil, nil
+	}
+	if snapshot.Reblog != nil && (snapshot.Reblog.Visibility != models.StatusVisibilityPublic || snapshot.Reblog.LocalOnly) {
+		return nil, nil
+	}
+	relays, err := models.GetEnabledRelays(db.GetDB())
+	if err != nil {
+		return nil, err
+	}
+	var deliveries []Delivery
+	for _, relay := range relays {
+		if seen[relay.InboxURL] || validateFederationURI(relay.InboxURL) != nil {
+			continue
+		}
+		seen[relay.InboxURL] = true
+		auth, err := json.Marshal(DeliveryAuthorization{AccountID: author.Id, StatusID: snapshot.Id, Visibility: snapshot.Visibility, Kind: e.Kind, RelayID: relay.ID})
+		if err != nil {
+			return nil, err
+		}
+		deliveries = append(deliveries, Delivery{ActivityID: activityID, TargetInbox: relay.InboxURL, Payload: payload, Authorization: string(auth), Status: DeliveryStatusPending})
+	}
 	return deliveries, nil
+}
+
+// announcePayload builds the Announce for a local boost, or its Undo. The
+// Announce id is stable (<boost uri>/activity) so the Undo can name it.
+func announcePayload(boost *models.Status, author *models.Account, actorURI, undoID string, undo bool) (map[string]any, string) {
+	base := systemsettings.GetBaseURL()
+	original := boost.Reblog
+	objectURI := statusObjectURI(original, original.Account, base)
+	announceID := statusObjectURI(boost, author, base) + "/activity"
+	to := []string{"https://www.w3.org/ns/activitystreams#Public"}
+	cc := []string{accountActorURI(original.Account, base), actorURI + "/followers"}
+	if boost.Visibility == models.StatusVisibilityUnlisted {
+		to, cc = []string{actorURI + "/followers"}, []string{"https://www.w3.org/ns/activitystreams#Public", accountActorURI(original.Account, base)}
+	}
+	announce := map[string]any{"id": announceID, "type": "Announce", "actor": actorURI, "to": to, "cc": cc, "object": objectURI}
+	if boost.CreatedAt != nil {
+		announce["published"] = boost.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if !undo {
+		return announce, announceID
+	}
+	return map[string]any{"id": undoID, "type": "Undo", "actor": actorURI, "to": to, "cc": cc, "object": announce}, undoID
 }
 
 // When an edit removes a remote audience, send only a Tombstone to those

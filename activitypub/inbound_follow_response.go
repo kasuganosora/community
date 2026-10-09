@@ -25,6 +25,11 @@ func handleFollowResponse(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 	}
+	// Relay subscriptions are matched by our Follow id first: the relay
+	// actor is normally not a cached account.
+	if handleRelayFollowResponse(ctx, c, id, object, actor, accepted) {
+		return
+	}
 	var remote models.Account
 	if err := activityDB(ctx).Where("origin_id = ? AND domain IS NOT NULL", actor).First(&remote).Error; err != nil {
 		c.JSON(403, gin.H{"error": "unknown follow actor"})
@@ -110,35 +115,6 @@ func handleSpecialFollowResponse(ctx context.Context, c *gin.Context, id, actor 
 		return
 	}
 	tx := activityDB(ctx)
-	// Relay acknowledgements must come from the actor advertising that exact
-	// configured inbox, not any peer that happens to know an activity ID.
-	var relay models.Relay
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("follow_activity_id = ?", id).First(&relay).Error
-	if err == nil {
-		remote, fetchErr := NewClient(nil, "").FetchActor(ctx, actor)
-		if fetchErr != nil {
-			c.JSON(502, gin.H{"error": "cannot verify relay actor"})
-			return
-		}
-		if remote.ID != actor || remote.Inbox != relay.InboxURL {
-			c.JSON(403, gin.H{"error": "wrong relay actor"})
-			return
-		}
-		state := models.RelayStateRejected
-		if accepted {
-			state = models.RelayStateAccepted
-		}
-		if tx.Model(&relay).Update("state", state).Error != nil {
-			c.JSON(500, gin.H{"error": "failed relay update"})
-			return
-		}
-		c.JSON(200, gin.H{"status": "accepted"})
-		return
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(500, gin.H{"error": "failed to locate follow"})
-		return
-	}
 	var proxy models.ProxyFollow
 	if tx.Where("follow_activity_id = ?", id).First(&proxy).Error == nil {
 		var remote models.Account
@@ -146,6 +122,7 @@ func handleSpecialFollowResponse(ctx context.Context, c *gin.Context, id, actor 
 			c.JSON(403, gin.H{"error": "wrong proxy actor"})
 			return
 		}
+		var err error
 		if accepted {
 			err = (&ProxyService{db: tx}).HandleAccept(id)
 		} else {

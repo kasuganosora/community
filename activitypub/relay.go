@@ -1,9 +1,12 @@
 package activitypub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/kasuganosora/community/db"
@@ -34,7 +37,7 @@ func (s *RelayService) getDomain() string {
 
 // GetInstanceActorURI 获取实例 Actor URI.
 func (s *RelayService) GetInstanceActorURI() string {
-	return systemsettings.GetBaseURL() + "/actor"
+	return InstanceActorURI()
 }
 
 // GetPublicCollectionURI 获取公共集合 URI.
@@ -49,10 +52,22 @@ func (s *RelayService) GenerateActivityID(activityType string) string {
 
 // CreateRelay 创建中继.
 func (s *RelayService) CreateRelay(inboxURL string) (*models.Relay, error) {
+	inboxURL = strings.TrimSpace(inboxURL)
+	if err := validateRelayInboxURL(inboxURL); err != nil {
+		return nil, err
+	}
 	// 检查是否已存在
 	existing, err := models.GetRelayByInboxURL(s.db, inboxURL)
 	if err == nil && existing != nil {
 		return nil, errors.New("relay already exists")
+	}
+	// A removed relay keeps its (unique) inbox row soft-deleted; reuse it.
+	var removed models.Relay
+	if err := s.db.Unscoped().Where("inbox_url = ? AND deleted_at IS NOT NULL", inboxURL).First(&removed).Error; err == nil {
+		if err := s.db.Unscoped().Model(&removed).Updates(map[string]any{"deleted_at": nil, "state": models.RelayStateIdle, "follow_activity_id": ""}).Error; err != nil {
+			return nil, fmt.Errorf("restoring relay: %w", err)
+		}
+		return models.GetRelayByID(s.db, removed.ID)
 	}
 
 	relay, err := models.CreateRelay(s.db, inboxURL)
@@ -61,6 +76,15 @@ func (s *RelayService) CreateRelay(inboxURL string) (*models.Relay, error) {
 	}
 
 	return relay, nil
+}
+
+// validateRelayInboxURL requires an absolute https (or http, for labs) URL.
+func validateRelayInboxURL(inboxURL string) error {
+	u, err := url.Parse(inboxURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return errors.New("relay inbox must be an absolute https URL, e.g. https://relay.example/inbox")
+	}
+	return validateFederationURI(inboxURL)
 }
 
 // EnableRelay 启用中继（发送 Follow 活动到中继服务器）.
@@ -74,7 +98,15 @@ func (s *RelayService) EnableRelay(relayID uint64) error {
 		return errors.New("relay is already enabled")
 	}
 
-	// 生成 Follow 活动
+	// The Follow is sent and signed by the instance actor; make sure it
+	// exists (with its key) before the delivery is queued.
+	if _, err := getInstanceActor(context.Background()); err != nil {
+		return fmt.Errorf("instance actor unavailable: %w", err)
+	}
+
+	// 生成 Follow 活动. Mastodon-style relays expect exactly this shape:
+	// object as:Public and no "to" (Activity-Relay ignores a Follow
+	// addressed to as:Public as if it were a post to relay).
 	activityID := s.GenerateActivityID("follow")
 	activity := map[string]any{
 		"@context": RelayContext, //nolint:goconst
@@ -82,7 +114,6 @@ func (s *RelayService) EnableRelay(relayID uint64) error {
 		"type":     "Follow",                                       //nolint:goconst
 		"actor":    s.GetInstanceActorURI(),                        //nolint:goconst
 		"object":   "https://www.w3.org/ns/activitystreams#Public", //nolint:goconst
-		"to":       []string{"https://www.w3.org/ns/activitystreams#Public"},
 	}
 
 	payload, err := json.Marshal(activity)
@@ -95,23 +126,31 @@ func (s *RelayService) EnableRelay(relayID uint64) error {
 
 	relay.State = models.RelayStatePending
 
-	if err := s.db.Save(relay).Error; err != nil {
-		return fmt.Errorf("updating relay state: %w", err)
-	}
+	return s.saveAndDeliver(relay, activityID, payload)
+}
 
-	// 创建投递任务
-	delivery := Delivery{
-		ActivityID:  activityID,
-		TargetInbox: relay.InboxURL,
-		Payload:     string(payload),
-		Status:      DeliveryStatusPending,
-		Retries:     0,
-	}
-	if err := s.db.Create(&delivery).Error; err != nil {
-		return fmt.Errorf("creating delivery: %w", err)
-	}
-
-	return nil
+// saveAndDeliver stores the relay state and queues the activity on the
+// persistent delivery queue (retries/backoff) in one transaction.
+func (s *RelayService) saveAndDeliver(relay *models.Relay, activityID string, payload []byte) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(relay).Error; err != nil {
+			return fmt.Errorf("updating relay state: %w", err)
+		}
+		if activityID == "" {
+			return nil
+		}
+		delivery := Delivery{
+			ActivityID:  activityID,
+			TargetInbox: relay.InboxURL,
+			Payload:     string(payload),
+			Status:      DeliveryStatusPending,
+			Retries:     0,
+		}
+		if err := tx.Create(&delivery).Error; err != nil {
+			return fmt.Errorf("creating delivery: %w", err)
+		}
+		return nil
+	})
 }
 
 // DisableRelay 禁用中继（发送 Undo Follow 活动）.
@@ -121,7 +160,15 @@ func (s *RelayService) DisableRelay(relayID uint64) error {
 		return fmt.Errorf("relay not found: %w", err)
 	}
 
-	// 生成 Undo Follow 活动
+	followID := relay.FollowActivityID
+	relay.State = models.RelayStateIdle
+	relay.FollowActivityID = ""
+	if followID == "" {
+		// Never subscribed: nothing to undo.
+		return s.saveAndDeliver(relay, "", nil)
+	}
+
+	// 生成 Undo Follow 活动 (no "to", like the Follow it undoes).
 	activityID := s.GenerateActivityID("undo")
 	activity := map[string]any{
 		"@context": RelayContext,
@@ -129,12 +176,11 @@ func (s *RelayService) DisableRelay(relayID uint64) error {
 		"type":     "Undo", //nolint:goconst
 		"actor":    s.GetInstanceActorURI(),
 		"object": map[string]any{
-			"id":     relay.FollowActivityID,
+			"id":     followID,
 			"type":   "Follow",
 			"actor":  s.GetInstanceActorURI(),
 			"object": "https://www.w3.org/ns/activitystreams#Public",
 		},
-		"to": []string{"https://www.w3.org/ns/activitystreams#Public"},
 	}
 
 	payload, err := json.Marshal(activity)
@@ -142,28 +188,7 @@ func (s *RelayService) DisableRelay(relayID uint64) error {
 		return fmt.Errorf("marshaling activity: %w", err)
 	}
 
-	// 更新中继状态
-	relay.State = models.RelayStateIdle
-
-	relay.FollowActivityID = ""
-
-	if err := s.db.Save(relay).Error; err != nil {
-		return fmt.Errorf("updating relay state: %w", err)
-	}
-
-	// 创建投递任务
-	delivery := Delivery{
-		ActivityID:  activityID,
-		TargetInbox: relay.InboxURL,
-		Payload:     string(payload),
-		Status:      DeliveryStatusPending,
-		Retries:     0,
-	}
-	if err := s.db.Create(&delivery).Error; err != nil {
-		return fmt.Errorf("creating delivery: %w", err)
-	}
-
-	return nil
+	return s.saveAndDeliver(relay, activityID, payload)
 }
 
 // DeleteRelay 删除中继.
@@ -178,7 +203,8 @@ func (s *RelayService) DeleteRelay(relayID uint64) error {
 		_ = s.DisableRelay(relayID)
 	}
 
-	return models.DeleteRelay(s.db, relayID)
+	// Hard delete so the inbox can be added again later.
+	return s.db.Unscoped().Delete(&models.Relay{}, relayID).Error
 }
 
 // AcceptRelay 接受中继（处理来自中继服务器的 Accept 活动）.
