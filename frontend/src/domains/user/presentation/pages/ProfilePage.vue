@@ -200,6 +200,13 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 
+      <dl v-if="account.fields?.length" class="profile-fields">
+        <div v-for="(field, i) in account.fields" :key="i" class="profile-field" :class="{ 'profile-field--verified': field.verified_at }">
+          <dt dir="auto"><EmojiText :text="field.name" :emojis="account.emojis" /></dt>
+          <dd><RichText :html="field.value" :emojis="account.emojis" /></dd>
+        </div>
+      </dl>
+
       <div class="profile-stats">
         <router-link :to="`${profileBase}/following`" class="stat-item">
           <strong>{{ formatCount(account.following_count) }}</strong>
@@ -361,6 +368,42 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
 
 .profile-bio:lang(zh) {
   line-height: var(--leading-cjk);
+}
+
+.profile-fields {
+  display: grid;
+  margin-top: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  overflow: hidden;
+}
+
+.profile-field {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-subhead);
+  line-height: var(--leading-subhead);
+}
+
+.profile-field + .profile-field {
+  border-top: var(--hairline) solid var(--color-separator);
+}
+
+.profile-field dt {
+  color: var(--color-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.profile-field dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--color-label);
+}
+
+.profile-field--verified dd {
+  color: var(--color-success, var(--color-label));
 }
 
 .profile-stats {

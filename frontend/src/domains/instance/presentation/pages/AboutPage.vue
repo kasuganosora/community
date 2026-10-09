@@ -38,7 +38,7 @@ onMounted(async () => {
       <p class="about-meta">
         {{ instance.domain || instance.uri }}
         <template v-if="instance.stats">
-          · {{ formatCount(instance.stats.user_count ?? 0) }} 位用户 · {{ formatCount(instance.stats.status_count ?? 0) }} 条帖子
+          · {{ formatCount(instance.stats.user_count ?? 0) }} 位本站用户 · {{ formatCount(instance.stats.status_count ?? 0) }} 条本站帖子
         </template>
       </p>
     </section>

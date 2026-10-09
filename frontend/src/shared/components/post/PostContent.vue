@@ -119,10 +119,10 @@ onMounted(measure)
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? '收起' : '展开全文' }}
       </button>
-      <div v-if="status.media_attachments?.length" class="post-content__media">
-        <PostMedia v-if="!mediaHidden" :attachments="status.media_attachments" />
+      <div v-if="status.media_attachments?.length" class="post-content__media" :class="{ 'is-blurred': mediaHidden }">
+        <PostMedia :attachments="status.media_attachments" :inert="mediaHidden || undefined" :aria-hidden="mediaHidden || undefined" />
         <button
-          v-else
+          v-if="mediaHidden"
           type="button"
           class="post-content__sensitive"
           @click.stop="mediaRevealed = true"
@@ -285,20 +285,38 @@ onMounted(measure)
   background: var(--color-bg-row);
 }
 
-.post-content__sensitive {
-  width: 100%;
-  margin-top: var(--space-2);
-  padding: var(--space-8) var(--space-4);
+.post-content__media {
+  position: relative;
+}
+
+/* Sensitive media stays in place but blurred until revealed. */
+.post-content__media.is-blurred > :first-child {
+  filter: blur(24px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.post-content__media.is-blurred {
+  overflow: hidden;
   border-radius: var(--radius-lg);
-  background: var(--color-fill);
-  color: var(--color-label-secondary);
+}
+
+.post-content__sensitive {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 6rem;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: rgb(0 0 0 / 30%);
+  color: #fff;
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
   transition: background-color var(--duration-release) var(--ease-out);
 }
 
 .post-content__sensitive:active {
-  background: var(--color-fill-strong);
+  background: rgb(0 0 0 / 40%);
   transition-duration: 0s;
 }
 

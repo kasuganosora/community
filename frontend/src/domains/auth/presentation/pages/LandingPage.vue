@@ -3,9 +3,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
-import { formatCount, formatRelativeTime } from '@/shared/utils/format'
-import { stripHtml as stripHtmlUtil } from '@/shared/utils/sanitize'
+import { formatCount } from '@/shared/utils/format'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
+import PreviewStatus from '../components/PreviewStatus.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -74,11 +74,6 @@ function authQuery() {
 function goLogin() {
   router.push({ name: 'login', query: authQuery() }).catch(() => {})
 }
-
-function stripHtml(html: string | null | undefined): string {
-  if (!html) return ''
-  return stripHtmlUtil(html)
-}
 </script>
 
 <template>
@@ -125,11 +120,11 @@ function stripHtml(html: string | null | undefined): string {
 
           <div class="instance-card__stats">
             <div class="stat">
-              <span class="stat__label">用户</span>
+              <span class="stat__label">本站用户</span>
               <span class="stat__value">{{ formatCount(instanceInfo.userCount) }}</span>
             </div>
             <div class="stat">
-              <span class="stat__label">帖子</span>
+              <span class="stat__label">本站帖子</span>
               <span class="stat__value">{{ formatCount(instanceInfo.statusCount) }}</span>
             </div>
           </div>
@@ -140,42 +135,13 @@ function stripHtml(html: string | null | undefined): string {
           <h2 class="timeline-preview__title">公开时间线</h2>
           <p v-if="!previewStatuses.length" class="timeline-preview__empty">还没有公开帖子。</p>
           <div class="timeline-preview__list">
-            <div
+            <PreviewStatus
               v-for="status in previewStatuses"
               :key="status.id"
+              :status="status"
+              :lines="3"
               class="preview-post"
-            >
-              <t-avatar
-                size="36"
-                :image="status.account.avatar || undefined"
-                shape="circle"
-                class="preview-post__avatar"
-              >
-                {{ status.account.display_name?.charAt(0) ?? status.account.username?.charAt(0) ?? 'U' }}
-              </t-avatar>
-              <div class="preview-post__content">
-                <div class="preview-post__header">
-                  <span class="preview-post__name">{{ status.account.display_name }}</span>
-                  <span class="preview-post__acct">@{{ status.account.acct }}</span>
-                  <span class="preview-post__time">{{ formatRelativeTime(status.created_at) }}</span>
-                </div>
-                <div class="preview-post__text">{{ stripHtml(status.content) }}</div>
-                <div class="preview-post__actions">
-                  <span class="preview-action">
-                    <t-icon name="chat" :size="14" />
-                    {{ status.replies_count || '' }}
-                  </span>
-                  <span class="preview-action">
-                    <t-icon name="swap" :size="14" />
-                    {{ status.reblogs_count || '' }}
-                  </span>
-                  <span class="preview-action">
-                    <t-icon name="heart" :size="14" />
-                    {{ status.favourites_count || '' }}
-                  </span>
-                </div>
-              </div>
-            </div>
+            />
           </div>
         </div>
       </div>
@@ -183,29 +149,13 @@ function stripHtml(html: string | null | undefined): string {
       <!-- Right column: Scrolling feed -->
       <div class="landing__right">
         <div class="feed-column">
-          <div
+          <PreviewStatus
             v-for="status in publicTimeline"
             :key="'feed-' + status.id"
+            :status="status"
+            :lines="8"
             class="feed-note"
-          >
-            <div class="feed-note__text">{{ stripHtml(status.content) }}</div>
-            <div class="feed-note__reactions">
-              <span
-                v-if="status.favourites_count > 0"
-                class="reaction"
-              >
-                <span class="reaction__emoji">❤️</span>
-                <span class="reaction__count">{{ status.favourites_count }}</span>
-              </span>
-              <span
-                v-if="status.reblogs_count > 0"
-                class="reaction"
-              >
-                <span class="reaction__emoji">🔁</span>
-                <span class="reaction__count">{{ status.reblogs_count }}</span>
-              </span>
-            </div>
-          </div>
+          />
         </div>
       </div>
     </div>
@@ -376,87 +326,11 @@ function stripHtml(html: string | null | undefined): string {
 }
 
 .preview-post {
-  position: relative;
-  display: flex;
-  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
 }
 
-.preview-post + .preview-post::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: calc(var(--space-4) + 36px + var(--space-3));
-  right: 0;
-  height: var(--hairline);
-  background: var(--color-separator);
-}
-
-.preview-post__avatar {
-  flex-shrink: 0;
-}
-
-.preview-post__content {
-  flex: 1;
-  min-width: 0;
-}
-
-.preview-post__header {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-1);
-  margin-bottom: var(--space-0);
-  overflow: hidden;
-}
-
-.preview-post__name {
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-subhead);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--color-label);
-}
-
-.preview-post__acct {
-  color: var(--color-label-secondary);
-  font-size: var(--text-footnote);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preview-post__time {
-  margin-left: auto;
-  color: var(--color-label-secondary);
-  font-size: var(--text-footnote);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.preview-post__text {
-  font-size: var(--text-subhead);
-  line-height: var(--leading-subhead);
-  color: var(--color-label);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.preview-post__actions {
-  display: flex;
-  gap: var(--space-5);
-  margin-top: var(--space-2);
-}
-
-.preview-action {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-label-secondary);
-  font-size: var(--text-caption);
-  font-variant-numeric: tabular-nums;
+.preview-post + .preview-post {
+  border-top: var(--hairline) solid var(--color-separator);
 }
 
 /* ---- Right column feed ------------------------------------------------- */
@@ -472,46 +346,6 @@ function stripHtml(html: string | null | undefined): string {
   border-radius: var(--radius-lg);
   background: var(--color-bg-row);
   box-shadow: var(--shadow-1);
-}
-
-.feed-note__text {
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
-  color: var(--color-label);
-  margin-bottom: var(--space-2);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-}
-
-.feed-note__text:lang(zh) {
-  line-height: var(--leading-cjk);
-}
-
-.feed-note__reactions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.reaction {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-0) var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--color-fill);
-  font-size: var(--text-caption);
-}
-
-.reaction__emoji {
-  font-size: 0.8125rem;
-}
-
-.reaction__count {
-  color: var(--color-label-secondary);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Responsive -------------------------------------------------------- */

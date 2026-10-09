@@ -181,7 +181,10 @@ watch(filter, () => feed.refresh())
                 <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
               <div v-if="notification.status" class="notification-preview">
-                {{ getPreview(notification.status.content) }}
+                <EmojiText
+                  :text="notification.status.spoiler_text ? `内容警告：${notification.status.spoiler_text}` : getPreview(notification.status.content)"
+                  :emojis="notification.status.emojis"
+                />
               </div>
             </div>
             <button

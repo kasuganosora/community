@@ -5,6 +5,7 @@ import type { MastodonPoll } from '@/shared/types/mastodon'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { pollOptionPercent, pollShowsResults } from '@/domains/post/domain/poll'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 
 const props = defineProps<{
   poll: MastodonPoll
@@ -55,7 +56,7 @@ async function vote() {
       >
         <div class="post-poll__bar" :style="{ width: pollOptionPercent(opt.votes_count, total) + '%' }" />
         <span class="post-poll__pct">{{ pollOptionPercent(opt.votes_count, total) }}%</span>
-        <span class="post-poll__title">{{ opt.title }}</span>
+        <span class="post-poll__title"><EmojiText :text="opt.title" :emojis="poll.emojis" /></span>
         <t-icon v-if="poll.own_votes?.includes(i)" name="check-circle" :size="14" />
       </li>
     </ul>
@@ -67,7 +68,7 @@ async function vote() {
           :name="name"
           :checked="selected.includes(i)"
         />
-        <span>{{ opt.title }}</span>
+        <span><EmojiText :text="opt.title" :emojis="poll.emojis" /></span>
       </label>
     </fieldset>
     <div class="post-poll__footer">

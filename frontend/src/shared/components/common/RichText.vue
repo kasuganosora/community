@@ -43,7 +43,8 @@ function onClick(e: MouseEvent) {
 .rich-text :deep(.custom-emoji) { width: 1.3em; height: 1.3em; object-fit: contain; vertical-align: -0.25em; }
 .emoji-reveal { color: var(--color-accent-text); font-size: var(--text-footnote); }
 .rich-text {
-  overflow-wrap: break-word;
+  /* Long unbroken words and URLs wrap instead of widening the column. */
+  overflow-wrap: anywhere;
   line-height: inherit;
   letter-spacing: 0;
 }

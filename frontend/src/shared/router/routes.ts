@@ -202,6 +202,9 @@ export const routes: RouteRecordRaw[] = [
       { path: 'migrations', name: RouteNames.ADMIN_MIGRATIONS, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'site' }, meta: { adminRootOnly: true } },
     ],
   },
+  // Mastodon web paths.
+  { path: '/public', redirect: { name: RouteNames.EXPLORE, query: { tab: 'federated' } } },
+  { path: '/public/local', redirect: { name: RouteNames.EXPLORE, query: { tab: 'local' } } },
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

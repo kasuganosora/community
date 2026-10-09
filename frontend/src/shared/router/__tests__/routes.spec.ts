@@ -47,4 +47,21 @@ describe('routes', () => {
       expect(main).toContain(p)
     }
   })
+  it('maps Mastodon web timeline paths to explore', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    expect(router.resolve('/public').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'federated' } })
+    expect(router.resolve('/public/local').matched[0]?.redirect).toEqual({ name: 'explore', query: { tab: 'local' } })
+    expect(router.resolve('/public/nope').name).toBe('not-found')
+  })
+  it('round-trips a login redirect that carries an encoded query', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const target = router.resolve('/search?q=%23test')
+    expect(target.query.q).toBe('#test')
+    const landing = router.resolve({ name: 'landing', query: { redirect: target.fullPath } })
+    // One level of encoding for the embedded "%": decoding once gives the target back.
+    expect(landing.fullPath).toBe('/?redirect=/search?q%3D%2523test'.replace('%3D', '='))
+    const back = router.resolve(landing.fullPath).query.redirect as string
+    expect(back).toBe('/search?q=%23test')
+    expect(router.resolve(back).query.q).toBe('#test')
+  })
 })
