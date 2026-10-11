@@ -2,10 +2,11 @@ package homeserver
 
 import (
 	"context"
-	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/defaultavatar"
 	"strings"
 	"time"
+
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/defaultavatar"
 )
 
 // Cosmetic recovery is independent of message delivery: transient failures
@@ -14,13 +15,14 @@ func (hs *HomeServer) startBridgeAvatarRetry(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		var cursor uint64
+		var cursor, roomCursor uint64
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				cursor = hs.retryBridgeAvatarBatch(ctx, cursor)
+				roomCursor = hs.refreshBridgeRoomAvatarBatch(ctx, roomCursor)
 			}
 		}
 	}()

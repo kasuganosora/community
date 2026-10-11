@@ -64,6 +64,9 @@ func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomI
 	if state.Content["membership"] != "join" {
 		return nil
 	}
+	if account.Domain != nil {
+		defer func() { _ = hs.syncBridgeRoomAvatar(ctx, roomID) }()
+	}
 	display := account.DisplayName
 	if display == "" {
 		display = account.Username

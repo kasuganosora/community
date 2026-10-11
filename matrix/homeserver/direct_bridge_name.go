@@ -67,6 +67,7 @@ func bridgeParticipantTitle(members []bridgeNameMember) string {
 // Only bridge-owned names are maintained. A human-selected room name remains
 // authoritative, even when the participants or their profile names change.
 func (hs *HomeServer) syncBridgeRoomName(ctx context.Context, roomID string) error {
+	defer func() { _ = hs.syncBridgeRoomAvatar(ctx, roomID) }()
 	conn := db.GetDB().WithContext(ctx)
 	var room MatrixRoom
 	if err := conn.First(&room, "room_id = ?", roomID).Error; err != nil {
