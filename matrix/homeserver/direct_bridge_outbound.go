@@ -24,17 +24,23 @@ import (
 // client send transaction, never by backfill, federation or the inbound bridge.
 // Locking the row through status/outbox creation makes commit/retry atomic.
 type MatrixDMOutbound struct {
-	EventID         string    `gorm:"primaryKey;size:255"`
-	RoomID          string    `gorm:"index;size:255;not null"`
-	SourceStatusID  uint64    `gorm:"not null"`
-	SenderAccountID uint64    `gorm:"not null"`
-	StatusID        uint64    `gorm:"index"`
-	State           string    `gorm:"size:16;index;not null"`
-	NextAttemptAt   time.Time `gorm:"index;not null"`
-	Attempts        int
-	LastError       string `gorm:"size:96"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	EventID               string     `gorm:"primaryKey;size:255"`
+	RoomID                string     `gorm:"index;size:255;not null"`
+	SourceStatusID        uint64     `gorm:"not null"`
+	SenderAccountID       uint64     `gorm:"not null"`
+	ConversationID        string     `gorm:"size:36;index"`
+	RecipientIDs          []uint64   `gorm:"type:json;serializer:json"`
+	MemberIDs             []uint64   `gorm:"type:json;serializer:json"`
+	DeliveryNoticeState   string     `gorm:"size:16"`
+	DeliveryFeedbackState string     `gorm:"size:16"`
+	DeliveryFeedbackAt    *time.Time `gorm:"index"`
+	StatusID              uint64     `gorm:"index"`
+	State                 string     `gorm:"size:16;index;not null"`
+	NextAttemptAt         time.Time  `gorm:"index;not null"`
+	Attempts              int
+	LastError             string `gorm:"size:96"`
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 func (MatrixDMOutbound) TableName() string { return "matrix_dm_outbound" }
@@ -55,6 +61,20 @@ func (e *EventService) sendBridgeRoomEvent(roomID, sender, eventType string, txn
 // Internal bridge events call SendRoomEvent, not the client-only enqueue path;
 // a client-supplied marker or transaction ID can therefore never impersonate it.
 func (hs *HomeServer) queueOutboundDirect(tx *gorm.DB, event *MatrixEvent) error {
+	if handled, err := hs.queueDirectBridgeReaction(tx, event); handled || err != nil {
+		return err
+	}
+	if !strings.HasPrefix(event.RoomID, "!apdm_") && !strings.HasPrefix(event.RoomID, "!apchat_") {
+		return nil
+	}
+	normalized, _, err := hs.normalizeBridgeReplacement(tx, event)
+	if err != nil {
+		return err
+	}
+	event = normalized
+	if handled, err := hs.queueConversationMessage(tx, event); handled || err != nil {
+		return err
+	}
 	if event.EventType != EventTypeRoomMessage || event.StateKey != nil || !strings.HasPrefix(event.RoomID, "!apdm_") {
 		return nil
 	}
@@ -63,7 +83,7 @@ func (hs *HomeServer) queueOutboundDirect(tx *gorm.DB, event *MatrixEvent) error
 		return nil
 	}
 	var source models.MatrixDMDelivery
-	err := tx.Joins("JOIN statuses ON statuses.id = matrix_dm_deliveries.status_id").Where("matrix_dm_deliveries.room_id = ? AND matrix_dm_deliveries.state = ? AND matrix_dm_deliveries.event_id <> '' AND statuses.deleted_at IS NULL AND statuses.visibility = ? AND statuses.scheduled_at IS NULL", event.RoomID, "delivered", models.StatusVisibilityDirect).Order("matrix_dm_deliveries.status_id DESC").First(&source).Error
+	err = tx.Joins("JOIN statuses ON statuses.id = matrix_dm_deliveries.status_id").Where("matrix_dm_deliveries.room_id = ? AND matrix_dm_deliveries.state = ? AND matrix_dm_deliveries.event_id <> '' AND statuses.deleted_at IS NULL AND statuses.visibility = ? AND statuses.scheduled_at IS NULL", event.RoomID, "delivered", models.StatusVisibilityDirect).Order("matrix_dm_deliveries.status_id DESC").First(&source).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// A freshly committed inbound event may already be visible while its
 		// encompassing delivery is still processing further attachments.
@@ -97,7 +117,7 @@ func (hs *HomeServer) queueOutboundDirect(tx *gorm.DB, event *MatrixEvent) error
 	switch event.Content["msgtype"] {
 	case "m.text", "m.notice", "m.emote":
 	case "m.image", "m.video", "m.audio", "m.file":
-		if _, err := hs.outboundMediaRecord(tx, event); err != nil {
+		if err := hs.admitBridgeMedia(tx, event); err != nil {
 			return err
 		}
 	default:
@@ -113,6 +133,9 @@ func (hs *HomeServer) queueOutboundDirect(tx *gorm.DB, event *MatrixEvent) error
 // changed audience, redaction or block makes queued delivery fail closed; it
 // never inherits a conversation's union of historical participants.
 func (hs *HomeServer) outboundDirectAudience(tx *gorm.DB, job *MatrixDMOutbound, event *MatrixEvent) (*models.Status, []models.Account, error) {
+	if job.ConversationID != "" {
+		return hs.conversationOutboundAudience(tx, job, event)
+	}
 	var source models.Status
 	if err := tx.Preload("ToAccounts").Preload("Account").Where("id = ? AND deleted_at IS NULL", job.SourceStatusID).First(&source).Error; err != nil {
 		return nil, nil, err
@@ -216,7 +239,32 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	ctx, publish := models.BeginDeferredStatusEvents(ctx)
+	var notifyRoom string
+	var remoteMedia *MatrixMedia
+	var prefetchErr error
+	var initialJob MatrixDMOutbound
+	var initialEvent MatrixEvent
+	readConn := db.GetDB().WithContext(ctx)
+	if readConn.Where("event_id = ? AND state = ?", eventID, "pending").First(&initialJob).Error == nil && !initialJob.NextAttemptAt.After(time.Now()) && readConn.First(&initialEvent, "event_id = ?", eventID).Error == nil {
+		if raw, ok := initialEvent.Content["url"].(string); ok && !strings.HasPrefix(raw, "mxc://"+hs.Config.ServerName+"/") {
+			if _, _, prefetchErr = hs.outboundDirectAudience(readConn, &initialJob, &initialEvent); prefetchErr == nil {
+				remoteMedia, prefetchErr = hs.importBridgeRemoteMedia(ctx, &initialEvent)
+			}
+		}
+	}
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if prefetchErr != nil {
+			return prefetchErr
+		}
+		// Match client PDU persistence: room -> conversation. Replacement
+		// creates its notice in this transaction, so taking the room first
+		// avoids a conv->room cycle with a concurrent client send.
+		if initialJob.RoomID != "" {
+			var room MatrixRoom
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, "room_id = ?", initialJob.RoomID).Error; err != nil {
+				return err
+			}
+		}
 		var job MatrixDMOutbound
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("event_id = ?", eventID).First(&job).Error; err != nil {
 			return err
@@ -235,9 +283,24 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 		if event.EventType != EventTypeRoomMessage {
 			return errDirectMessageSkipped
 		}
-		relation, _ := event.Content["m.relates_to"].(map[string]any)
-		if relation["rel_type"] == "m.replace" {
-			return errDirectMessageSkipped
+		originalEvent := event
+		normalized, replaced, err := hs.normalizeBridgeReplacement(tx, &event)
+		if err != nil {
+			return err
+		}
+		event = *normalized
+		if replaced != nil {
+			allowed := map[uint64]bool{}
+			for _, a := range recipients {
+				allowed[a.Id] = true
+			}
+			recipients = nil
+			for _, a := range replaced.ToAccounts {
+				if !allowed[a.Id] {
+					return errDirectMessageSkipped
+				}
+				recipients = append(recipients, *a)
+			}
 		}
 		parent, body, err := hs.outboundReplyContent(tx, &job, &event, source, recipients, false)
 		if err != nil {
@@ -247,11 +310,29 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 		for _, a := range recipients {
 			ids = append(ids, a.Id)
 		}
-		status := models.Status{AccountId: job.SenderAccountID, Visibility: models.StatusVisibilityDirect, Content: models.StatusContent{Content: body}, InReplyToId: &parent.Id, InReplyToAccountId: &parent.AccountId}
+		text, format, err := bridgeOutboundText(event.Content, parent != nil && parent.Id != 0)
+		if err != nil {
+			return err
+		}
+		if format != "html" {
+			text = body
+		}
+		status := models.Status{AccountId: job.SenderAccountID, Visibility: models.StatusVisibilityDirect, Content: models.StatusContent{Content: text, ContentFormat: format}}
+		if parent != nil && parent.Id != 0 {
+			status.InReplyToId = &parent.Id
+			status.InReplyToAccountId = &parent.AccountId
+		}
+		if replaced != nil {
+			relation, _ := event.Content["m.relates_to"].(map[string]any)
+			if relation["m.in_reply_to"] == nil {
+				status.InReplyToId = replaced.InReplyToId
+				status.InReplyToAccountId = replaced.InReplyToAccountId
+			}
+		}
 		switch event.Content["msgtype"] {
 		case "m.text", "m.notice", "m.emote":
 		case "m.image", "m.video", "m.audio", "m.file":
-			attachment, err := hs.outboundDirectAttachment(tx, &job, &event)
+			attachment, err := hs.outboundDirectAttachmentWithMedia(tx, &job, &event, remoteMedia)
 			if err != nil {
 				return err
 			}
@@ -259,9 +340,22 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 		default:
 			return errDirectMessageSkipped
 		}
-		scoped := tx.WithContext(models.WithStructuredRecipientIDs(ctx, ids))
+		writeCtx := models.WithStructuredRecipientIDs(ctx, ids)
+		if replaced != nil {
+			writeCtx = models.WithDeferredFederationCreate(writeCtx)
+		}
+		scoped := tx.WithContext(writeCtx)
 		if err := scoped.Create(&status).Error; err != nil {
 			return err
+		}
+		if replaced != nil {
+			if err := hs.finalizeBridgeReplacement(scoped, &originalEvent, replaced, &status); err != nil {
+				return err
+			}
+			if err := models.QueueFederationReplacement(scoped, &status); err != nil {
+				return err
+			}
+			notifyRoom = job.RoomID
 		}
 		// Map both directions atomically. This pre-completes the inbound job, so its
 		// startup reconciliation can never echo this new Status back into Matrix.
@@ -272,17 +366,22 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 	})
 	if err == nil {
 		publish()
+		if notifyRoom != "" {
+			hs.NotifyRoomEvent(notifyRoom)
+		}
 		return nil
 	}
 	state := "pending"
 	if errors.Is(err, errDirectMessageSkipped) || errors.Is(err, gorm.ErrRecordNotFound) {
 		state = "skipped"
 	}
+	attemptIncrement := 1
 	next := time.Now().Add(time.Minute)
 	if errors.Is(err, errOutboundParentPending) {
 		next = time.Now().Add(2 * time.Second)
+		attemptIncrement = 0
 	}
-	update := db.GetDB().WithContext(ctx).Model(&MatrixDMOutbound{}).Where("event_id = ? AND state = ?", eventID, "pending").Updates(map[string]any{"state": state, "last_error": "direct_bridge_unavailable", "next_attempt_at": next, "attempts": gorm.Expr("attempts + 1")})
+	update := db.GetDB().WithContext(ctx).Model(&MatrixDMOutbound{}).Where("event_id = ? AND state = ?", eventID, "pending").Updates(map[string]any{"state": gorm.Expr("CASE WHEN ? = ? AND ? > 0 AND attempts >= 4 THEN ? ELSE ? END", state, "pending", attemptIncrement, "failed", state), "last_error": "direct_bridge_unavailable", "next_attempt_at": next, "attempts": gorm.Expr("attempts + ?", attemptIncrement)})
 	if update.Error != nil {
 		return update.Error
 	}
@@ -290,9 +389,15 @@ func (hs *HomeServer) ProcessOutboundDirect(ctx context.Context, eventID string)
 }
 
 func (hs *HomeServer) outboundDirectAttachment(tx *gorm.DB, job *MatrixDMOutbound, event *MatrixEvent) (*models.MediaAttachment, error) {
-	media, err := hs.outboundMediaRecord(tx, event)
-	if err != nil {
-		return nil, err
+	return hs.outboundDirectAttachmentWithMedia(tx, job, event, nil)
+}
+func (hs *HomeServer) outboundDirectAttachmentWithMedia(tx *gorm.DB, job *MatrixDMOutbound, event *MatrixEvent, media *MatrixMedia) (*models.MediaAttachment, error) {
+	var err error
+	if media == nil {
+		media, err = hs.outboundMediaRecord(tx, event)
+		if err != nil {
+			return nil, err
+		}
 	}
 	reader, info, err := storage.Open(tx.Statement.Context, media.FilePath)
 	if err != nil {
@@ -307,7 +412,7 @@ func (hs *HomeServer) outboundDirectAttachment(tx *gorm.DB, job *MatrixDMOutboun
 	if err := storage.Default().Put(tx.Statement.Context, key, io.LimitReader(reader, media.FileSize), media.FileSize, media.ContentType); err != nil {
 		return nil, err
 	}
-	return &models.MediaAttachment{AccountId: job.SenderAccountID, FileName: path.Base(key), Description: media.FileName, FilePath: strings.TrimPrefix(key, models.MediaKeyPrefix), FileSize: media.FileSize, ContentType: media.ContentType, Type: models.GetMediaType(media.ContentType), Width: media.Width, Height: media.Height}, nil
+	return &models.MediaAttachment{AccountId: job.SenderAccountID, FileName: path.Base(key), Description: safeBridgeFilename(media.FileName), FilePath: strings.TrimPrefix(key, models.MediaKeyPrefix), FileSize: media.FileSize, ContentType: media.ContentType, Type: models.GetMediaType(media.ContentType), Width: media.Width, Height: media.Height}, nil
 }
 
 func (hs *HomeServer) outboundReplyContent(tx *gorm.DB, job *MatrixDMOutbound, event *MatrixEvent, source *models.Status, recipients []models.Account, admission bool) (*models.Status, string, error) {
@@ -398,7 +503,7 @@ func (hs *HomeServer) outboundMediaRecord(tx *gorm.DB, event *MatrixEvent) (*Mat
 
 var errOutboundParentPending = errors.New("direct reply parent pending")
 
-const directBridgeTopic = "ActivityPub messages are not end-to-end encrypted. New replies and attachments in this room are delivered to these ActivityPub participants. Edits and Matrix redactions are not federated."
+const directBridgeTopic = "This conversation is not end-to-end encrypted. New messages, replies and attachments are delivered to its explicitly addressed ActivityPub and Matrix participants. Editing your message withdraws the previous ActivityPub post and sends a new one; deleting your own message propagates its withdrawal. Remote delivery does not mean it has been read."
 
 // Update the old, Matrix-only notice without scanning or exporting any past
 // messages. Only a recorded bridge room with its deterministic owner qualifies.
@@ -450,4 +555,14 @@ func resolveDirectEventStatus(tx *gorm.DB, roomID, eventID string, mapping *mode
 	}
 	mapping.StatusID = reference.StatusID
 	return nil
+}
+
+func (hs *HomeServer) admitBridgeMedia(tx *gorm.DB, event *MatrixEvent) error {
+	raw, _ := event.Content["url"].(string)
+	if strings.HasPrefix(raw, "mxc://"+hs.Config.ServerName+"/") {
+		_, err := hs.outboundMediaRecord(tx, event)
+		return err
+	}
+	_, _, err := hs.validateBridgeRemoteMXC(event)
+	return err
 }

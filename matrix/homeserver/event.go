@@ -14,8 +14,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // EventService 事件服务.
@@ -216,7 +218,22 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 		}
 	}
 
+	if event.EventType == EventTypeRoomMember && event.StateKey != nil {
+		if err = e.HS.syncBridgeMembershipDeparture(tx, event); err != nil {
+			tx.Rollback()
+			return nil, ErrForbidden
+		}
+	}
 	if bridgeStatusID != 0 {
+		if err = e.HS.validateExplicitBridgeEvent(tx, roomID, bridgeStatusID); err != nil {
+			tx.Rollback()
+			return nil, ErrForbidden
+		}
+		var source models.Status
+		if err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND deleted_at IS NULL", bridgeStatusID).First(&source).Error; err != nil {
+			tx.Rollback()
+			return nil, ErrForbidden
+		}
 		if err = tx.Create(&MatrixDMEventReference{EventID: event.EventID, RoomID: event.RoomID, StatusID: bridgeStatusID}).Error; err != nil {
 			tx.Rollback()
 			return nil, ErrInternal
@@ -228,6 +245,17 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 			if errors.Is(err, errDirectMessageSkipped) {
 				return nil, ErrForbidden
 			}
+			if errors.Is(err, errOutboundParentPending) {
+				return nil, &MatrixError{ErrCode: "M_NOT_YET_READY", Error: "The original message is still being delivered; retry shortly"}
+			}
+			return nil, ErrInternal
+		}
+	}
+
+	bridgeFederation := bridgeStatusID != 0 || strings.HasPrefix(roomID, "!apchat_") || strings.HasPrefix(roomID, "!apdm_")
+	if bridgeFederation {
+		if err = e.HS.queueBridgeFederation(tx, event); err != nil {
+			tx.Rollback()
 			return nil, ErrInternal
 		}
 	}
@@ -256,7 +284,9 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 	}()
 
 	// 联邦事件传播：将事件发送给房间内其他服务器（异步）
-	go e.federateEvent(event)
+	if !bridgeFederation {
+		go e.federateEvent(event)
+	}
 
 	return &SendMessageResponse{EventID: event.EventID}, nil
 }
@@ -878,7 +908,11 @@ type EventContextResponse struct {
 func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID *string) (*SendMessageResponse, *MatrixError) {
 	// 检查权限
 	if !e.canUserRedact(roomID, userID) {
-		return nil, ErrForbidden
+		var target MatrixEvent
+		membership, _ := e.HS.Room.GetUserMembership(roomID, userID)
+		if membership != MembershipJoin || db.GetDB().Where("room_id = ? AND event_id = ? AND sender = ?", roomID, eventID, userID).First(&target).Error != nil {
+			return nil, ErrForbidden
+		}
 	}
 
 	// 创建删除事件 (Matrix spec: redaction should succeed even if target event is unknown,
@@ -903,6 +937,9 @@ func (e *EventService) RedactEvent(roomID, eventID, userID, reason string, txnID
 
 	err := db.GetDB().Set("matrix:signer", e.HS).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(redactEvent).Error; err != nil {
+			return err
+		}
+		if err := e.HS.queueDirectBridgeRedaction(tx, redactEvent); err != nil {
 			return err
 		}
 		return applyStoredRedactionTx(tx, roomID, eventID)

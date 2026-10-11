@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/kasuganosora/community/activitypub"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/storage"
 	"gorm.io/gorm"
@@ -26,9 +26,12 @@ import (
 )
 
 // StartDirectMessageBridge runs a separate durable queue. AP is plaintext;
-// these private, non-federating rooms never pretend to provide E2EE.
+// these private conversations never pretend to provide E2EE.
 func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
 	go hs.refreshDirectBridgeTopics(ctx)
+	hs.StartDirectDeliveryFeedback(ctx)
+	hs.StartBridgeConversationReconciler(ctx)
+	hs.StartBridgeFederation(ctx)
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -40,6 +43,7 @@ func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
 				return
 			case <-ticker.C:
 				hs.processOutboundDirectJobs(ctx)
+				hs.processDirectBridgeEventJobs(ctx)
 				conn := db.GetDB().WithContext(ctx)
 				// Bounded startup reconciliation also covers messages received before this feature.
 				var statuses []models.Status
@@ -172,17 +176,29 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 	if localRecipients == 0 {
 		return "", "", errDirectMessageSkipped
 	}
+	roomID, creator, remapped, explicit, routeErr := hs.explicitBridgeRoomForStatus(ctx, &status, participants)
+	if routeErr != nil {
+		return roomID, "", routeErr
+	}
+	if explicit {
+		participants = remapped
+	}
 	ids := make([]string, 0, len(participants))
 	for id := range participants {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	digest := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
-	roomID := "!apdm_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
-	creator := "@_ap_bridge_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
+	if !explicit {
+		roomID = "!apdm_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
+		creator = "@_ap_bridge_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
+	}
 	var room MatrixRoom
 	err := conn.Where("room_id = ?", roomID).First(&room).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if explicit {
+			return roomID, "", errors.New("conversation room unavailable")
+		}
 		name := "Fediverse private messages"
 		topic := directBridgeTopic
 		_, me := hs.Room.CreateRoom(creator, &CreateRoomRequest{bridgeRoomID: roomID, Visibility: "private", Preset: "private_chat", IsDirect: len(ids) == 2, Name: &name, Topic: &topic, Invite: ids, CreationContent: map[string]any{"m.federate": false}, PowerLevelContentOverride: &PowerLevelContent{Users: map[string]int64{creator: 100}, EventsDefault: 0, StateDefault: 100, Invite: 100, Kick: 100, Ban: 100, Redact: 100}})
@@ -204,7 +220,8 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		if membershipErr != nil {
 			return roomID, "", membershipErr
 		}
-		if member == MembershipInvite {
+		_, memberServer, _ := ParseMatrixUserID(id)
+		if member == MembershipInvite && memberServer == hs.Config.ServerName {
 			if _, me := hs.Room.JoinRoom(id, roomID, &JoinRoomRequest{}); me != nil {
 				return roomID, "", errors.New(me.Error)
 			}
@@ -230,11 +247,21 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		}
 	}
 	senderID := hs.bridgeAccountID(sender)
+	for mxid, account := range participants {
+		if account.Id == sender.Id {
+			senderID = mxid
+			break
+		}
+	}
 	avatarBudget, cancelAvatars := context.WithTimeout(ctx, 3*time.Second)
 	defer cancelAvatars()
 	// Refresh existing memberships on each new message as well as first use.
 	// The room identity stays stable; recipients need not recreate old rooms.
 	for _, member := range members {
+		_, memberServer, _ := ParseMatrixUserID(member.UserID)
+		if memberServer != hs.Config.ServerName {
+			continue
+		}
 		account, ok := participants[member.UserID]
 		if !ok {
 			continue
@@ -245,18 +272,14 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 	}
 
 	txn := fmt.Sprintf("ap-status-%d", statusID)
-	body := htmlsafe.StripTags(status.ContentHTML(htmlsafe.RenderOptions{}))
-	if status.Content.SpoilerText != "" {
-		body = status.SpoilerTextPlain() + "\n\n" + body
-	}
-	if body == "" {
-		body = "Attachment"
-	}
 	actorName := sender.Username
 	if sender.Domain != nil {
 		actorName += "@" + *sender.Domain
 	}
-	content := map[string]any{"msgtype": "m.text", "body": body, "org.community.activitypub": map[string]any{"account": actorName, "transport": "activitypub", "encrypted": false}}
+	content := bridgeStatusContent(&status, actorName)
+	if err := bridgeReplyRelation(conn, roomID, &status, content); err != nil {
+		return roomID, "", err
+	}
 	resp, me := hs.Event.sendBridgeRoomEvent(roomID, senderID, "m.room.message", &txn, content, statusID)
 	if me != nil {
 		return roomID, "", errors.New(me.Error)
@@ -271,14 +294,14 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		if err := ctx.Err(); err != nil {
 			return roomID, resp.EventID, err
 		}
-		if err = hs.bridgeDirectAttachment(ctx, roomID, senderID, statusID, a); err != nil {
+		if err = hs.bridgeDirectAttachment(ctx, roomID, senderID, statusID, a, status.Sensitive || status.Content.SpoilerText != ""); err != nil {
 			return roomID, resp.EventID, err
 		}
 	}
 	return roomID, resp.EventID, nil
 }
 
-func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender string, statusID uint64, a models.MediaAttachment) error {
+func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender string, statusID uint64, a models.MediaAttachment, sensitive bool) error {
 	txn := fmt.Sprintf("ap-status-%d-media-%d", statusID, a.Id)
 	hash := sha256.Sum256([]byte(roomID + ":" + sender + ":" + txn))
 	var existing int64
@@ -292,15 +315,18 @@ func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender
 		if a.RemoteUrl == "" {
 			return errors.New("attachment bytes unavailable")
 		}
-		data, contentType, err := fetchDirectAttachment(ctx, a.RemoteUrl)
+		data, contentType, filename, err := fetchDirectAttachmentNamed(ctx, a.RemoteUrl)
 		if err != nil {
 			return err
 		}
-		media, err := NewMediaService(hs).UploadMedia(bytes.NewReader(data), &multipart.FileHeader{Filename: a.FileName}, contentType, sender)
+		if a.Description == "" && filename != "" {
+			a.Description = filename
+		}
+		media, err := NewMediaService(hs).UploadMedia(bytes.NewReader(data), &multipart.FileHeader{Filename: bridgeAttachmentFilename(a)}, contentType, sender)
 		if err != nil {
 			return err
 		}
-		return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, *media)
+		return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, *media, sensitive)
 	}
 	key := a.StorageKey()
 	reader, _, err := storage.Open(ctx, key)
@@ -312,25 +338,16 @@ func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender
 	var media MatrixMedia
 	err = conn.Where("server_name = ? AND uploader_id = ? AND file_path = ?", hs.Config.ServerName, sender, key).First(&media).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		media = MatrixMedia{MediaID: generateMediaID(), ServerName: hs.Config.ServerName, UploaderID: sender, FilePath: key, FileName: a.FileName, ContentType: a.ContentType, FileSize: a.FileSize, Width: a.Width, Height: a.Height}
+		media = MatrixMedia{MediaID: generateMediaID(), ServerName: hs.Config.ServerName, UploaderID: sender, FilePath: key, FileName: bridgeAttachmentFilename(a), ContentType: a.ContentType, FileSize: a.FileSize, Width: a.Width, Height: a.Height}
 		err = conn.Clauses(clause.OnConflict{DoNothing: true}).Create(&media).Error
 	}
 	if err != nil {
 		return err
 	}
-	return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, media)
+	return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, media, sensitive)
 }
-func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, statusID uint64, a models.MediaAttachment, media MatrixMedia) error {
-	kind := "m.file"
-	switch a.Type {
-	case models.MediaTypeImage:
-		kind = "m.image"
-	case models.MediaTypeVideo:
-		kind = "m.video"
-	case models.MediaTypeAudio:
-		kind = "m.audio"
-	}
-	_, me := hs.Event.sendBridgeRoomEvent(roomID, sender, "m.room.message", &txn, map[string]any{"msgtype": kind, "body": a.FileName, "filename": a.FileName, "url": "mxc://" + hs.Config.ServerName + "/" + media.MediaID, "info": map[string]any{"mimetype": media.ContentType, "size": media.FileSize}}, statusID)
+func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, statusID uint64, a models.MediaAttachment, media MatrixMedia, sensitive ...bool) error {
+	_, me := hs.Event.sendBridgeRoomEvent(roomID, sender, "m.room.message", &txn, bridgeAttachmentContent(hs.Config.ServerName, a, media, len(sensitive) > 0 && sensitive[0]), statusID)
 	if me != nil {
 		return errors.New(me.Error)
 	}
@@ -340,37 +357,50 @@ func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, statusID 
 // Use the same DNS-pinned transport as authenticated federation media, but a
 // generic attachment Accept header and a bounded 64 MiB body (not emoji limits).
 func fetchDirectAttachment(ctx context.Context, raw string) ([]byte, string, error) {
+	data, contentType, _, err := fetchDirectAttachmentNamed(ctx, raw)
+	return data, contentType, err
+}
+
+func bridgeDownloadFilename(disposition string) string {
+	_, params, err := mime.ParseMediaType(disposition)
+	if err != nil || params["filename"] == "" {
+		return ""
+	}
+	return safeBridgeFilename(params["filename"])
+}
+
+func fetchDirectAttachmentNamed(ctx context.Context, raw string) ([]byte, string, string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
-		return nil, "", errors.New("invalid private attachment URL")
+		return nil, "", "", errors.New("invalid private attachment URL")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	req.Header.Set("Accept", "*/*")
 	client := activitypub.NewAuthenticatedMediaHTTPClient(nil)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	defer resp.Body.Close()
 	const max = 64 << 20
 	if resp.StatusCode != http.StatusOK || resp.ContentLength > max {
-		return nil, "", errors.New("attachment unavailable or too large")
+		return nil, "", "", errors.New("attachment unavailable or too large")
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if len(data) > max {
-		return nil, "", errors.New("attachment too large")
+		return nil, "", "", errors.New("attachment too large")
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	return data, contentType, nil
+	return data, contentType, bridgeDownloadFilename(resp.Header.Get("Content-Disposition")), nil
 }

@@ -14,7 +14,7 @@ type Source struct {
 func ToSource(sc *models.StatusContent) (source *Source) {
 	source = &Source{
 		Id:          strconv.FormatUint(sc.StatusId, 10),
-		Text:        sc.Content,
+		Text:        sc.EditableText(),
 		SpoilerText: sc.SpoilerText,
 	}
 

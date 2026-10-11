@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
-import { onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, nextTick, ref, watch, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonConversation } from '@/shared/types/mastodon'
 import { conversationApi } from '../../infrastructure/conversationApi'
+import { chatApi } from '../../infrastructure/chatApi'
+import type { ChatConversation, ChatMemberInput } from '../../domain/chat'
+import ConversationMembersForm from '../components/ConversationMembersForm.vue'
 import { conversationImage, conversationMediaLabel, conversationPreview, conversationTitle, conversationTarget } from '../../domain/conversation'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -16,9 +20,70 @@ import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 const LAST_CONVERSATION = 'dm-opened'
 
 const router = useRouter()
+const route = useRoute()
+const initialRecipient = computed(() => typeof route.query.to === 'string' ? route.query.to.slice(0, 500) : '')
 const authStore = useAuthStore()
 const feed = usePaginatedList<MastodonConversation>((maxId, limit) => conversationApi.list({ max_id: maxId, limit }), 20)
 const { items: conversations, loading, error, hasMore } = feed
+const chats = ref<ChatConversation[]>([])
+const legacyConversations = computed(() => {
+  const linked = new Set(chats.value.map(chat => chat.legacy_conversation_id).filter(Boolean))
+  return conversations.value.filter(conversation => !linked.has(conversation.id))
+})
+const chatLoading = ref(false)
+const chatError = ref('')
+const chatCursor = ref<string | null>(null)
+const creating = ref(!!initialRecipient.value)
+const createPending = ref(false)
+const createError = ref('')
+const quickCompose = ref(false)
+let createTransaction = crypto.randomUUID()
+let createSignature = ''
+let version = 0
+async function loadChats(more = false) {
+  if (chatLoading.value || (more && !chatCursor.value)) return
+  const request = version
+  chatLoading.value = true
+  try {
+    const result = await chatApi.list(more ? chatCursor.value! : undefined)
+    if (request !== version) return
+    chats.value = more ? [...new Map([...chats.value, ...result.conversations].map(chat => [chat.id, chat])).values()] : result.conversations
+    chatCursor.value = result.next_cursor
+    chatError.value = ''
+  } catch { if (request === version) chatError.value = '会话加载失败，请重试。' }
+  finally { if (request === version) chatLoading.value = false }
+}
+async function create(members: ChatMemberInput[]) {
+  if (createPending.value) return
+  const signature = JSON.stringify(members)
+  if (signature !== createSignature) { createSignature = signature; createTransaction = crypto.randomUUID() }
+  const request = version
+  createPending.value = true
+  createError.value = ''
+  try {
+    const chat = await chatApi.create(createTransaction, members)
+    if (request !== version) return
+    creating.value = false
+    createTransaction = crypto.randomUUID()
+    await router.push(`/messages/${encodeURIComponent(chat.id)}`)
+  } catch (e) { if (request === version) createError.value = e instanceof Error ? e.message : '创建失败，请重试。' }
+  finally { if (request === version) createPending.value = false }
+}
+watch(() => sessionEpoch.value, () => {
+  version++; chats.value = []; chatCursor.value = null; chatLoading.value = false; chatError.value = ''
+  creating.value = false; createPending.value = false; createError.value = ''; quickCompose.value = false
+  createTransaction = crypto.randomUUID()
+}, { flush: 'sync' })
+onBeforeUnmount(() => { version++ })
+
+
+function markLegacyRead(chat: ChatConversation) {
+  const item = conversations.value.find(c => c.id === chat.legacy_conversation_id)
+  if (!item?.unread) return
+  const epoch = sessionEpoch.value
+  item.unread = false
+  conversationApi.markRead(item.id).catch(() => { if (epoch === sessionEpoch.value) item.unread = true })
+}
 
 function avatarOf(c: MastodonConversation) {
   return c.accounts.find(a => a.id !== authStore.currentUser?.id) ?? c.last_status?.account ?? null
@@ -31,6 +96,7 @@ async function open(c: MastodonConversation, e?: MouseEvent) {
     MessagePlugin.warning('这条会话没有可打开的消息')
     return
   }
+  const epoch = sessionEpoch.value
   const wasUnread = c.unread
   try {
     sessionStorage.setItem(LAST_CONVERSATION, c.id)
@@ -40,20 +106,23 @@ async function open(c: MastodonConversation, e?: MouseEvent) {
   } catch {
     return
   }
-  if (!wasUnread) return
+  if (!wasUnread || epoch !== sessionEpoch.value) return
   c.unread = false
-  conversationApi.markRead(c.id).catch(() => { c.unread = true })
+  conversationApi.markRead(c.id).catch(() => { if (epoch === sessionEpoch.value) c.unread = true })
 }
 
 function remove(c: MastodonConversation) {
+  const epoch = sessionEpoch.value
   const dialog = DialogPlugin.confirm({
     header: '删除此会话？',
     body: '会话会从列表中移除，已经发出的私信仍保留在对方那里。',
     confirmBtn: { content: '删除', theme: 'danger' },
     cancelBtn: '取消',
     onConfirm: async () => {
+      if (epoch !== sessionEpoch.value) { dialog.destroy(); return }
       try {
         await conversationApi.remove(c.id)
+        if (epoch !== sessionEpoch.value) return
         conversations.value = conversations.value.filter(x => x.id !== c.id)
       } catch (e) {
         MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
@@ -71,6 +140,7 @@ function onPosted() {
 }
 
 onMounted(async () => {
+  void loadChats()
   await feed.refresh()
   await nextTick()
   let id = ''
@@ -89,30 +159,41 @@ onMounted(async () => {
       <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ conversations.filter(c => c.unread).length }} 个未读会话</p>
     </div>
 
-    <!-- Messages are direct-visibility statuses (Mastodon "private mentions"). -->
-    <PostComposer initial-visibility="direct" placeholder="@用户名 写一条私信…" @posted="onPosted" />
+    <div class="messages-toolbar">
+      <button class="btn btn--primary btn--sm" :disabled="createPending" @click="creating = !creating; quickCompose = false">新建会话</button>
+      <button class="btn btn--ghost btn--sm" :aria-expanded="quickCompose" :disabled="createPending" @click="quickCompose = !quickCompose; creating = false">发送私信</button>
+    </div>
+    <ConversationMembersForm v-if="creating" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />
+    <PostComposer v-if="quickCompose" initial-visibility="direct" placeholder="@用户名 写一条私信…" @posted="onPosted" />
+    <p v-if="chatError" class="messages-banner" role="alert">{{ chatError }} <button class="btn btn--ghost btn--sm" @click="loadChats()">重试</button></p>
 
-    <p v-if="error && conversations.length > 0" class="messages-banner" role="alert">
+    <p v-if="error && (conversations.length > 0 || chats.length > 0)" class="messages-banner" role="alert">
       {{ error }}
       <button type="button" class="btn btn--ghost btn--sm" @click="feed.refresh">重试</button>
     </p>
 
-    <div v-if="error && conversations.length === 0 && !loading" class="empty-state" role="alert">
+    <div v-if="error && conversations.length === 0 && chats.length === 0 && !loading" class="empty-state" role="alert">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
       <h2 class="empty-state__title">加载失败</h2>
       <p class="empty-state__text">{{ error }}</p>
       <button type="button" class="btn btn--secondary btn--sm" @click="feed.refresh">重试</button>
     </div>
 
-    <div v-else-if="!loading && conversations.length === 0" class="empty-state">
+    <div v-else-if="!loading && !chatLoading && conversations.length === 0 && chats.length === 0" class="empty-state">
       <div class="empty-state__icon"><t-icon name="mail" :size="48" /></div>
       <h2 class="empty-state__title">还没有私信</h2>
-      <p class="empty-state__text">在上方写给某人。私信只会发给被 @ 的人。</p>
+      <p class="empty-state__text">创建会话，或发送一条仅提及的人可见的私信。</p>
     </div>
 
-    <ul v-else-if="conversations.length > 0" class="conversation-list" aria-label="私信会话">
+    <ul v-else-if="conversations.length > 0 || chats.length > 0" class="conversation-list" aria-label="私信会话">
+      <li v-for="chat in chats" :key="`chat-${chat.id}`" class="conversation">
+        <router-link class="conversation__chat-link" :to="`/messages/${encodeURIComponent(chat.id)}`" @click="markLegacyRead(chat)">
+          <span class="conversation__fallback" aria-hidden="true"><t-icon name="chat" :size="20" /></span>
+          <span class="conversation__body"><span class="conversation__title">{{ chat.title || '会话' }}</span><span class="conversation__scope">{{ chat.members.filter(member => member.active !== false).length }} 位成员 · 非端到端加密</span></span>
+        </router-link>
+      </li>
       <li
-        v-for="c in conversations"
+        v-for="c in legacyConversations"
         :key="c.id"
         :id="`conversation-${c.id}`"
         class="conversation"
@@ -147,7 +228,8 @@ onMounted(async () => {
       </li>
     </ul>
 
-    <div v-if="loading" class="page-loading"><t-loading /></div>
+    <div v-if="chatCursor" class="conversation-more"><button class="btn btn--ghost btn--sm" :disabled="chatLoading" @click="loadChats(true)">更多会话</button></div>
+    <div v-if="loading || chatLoading" class="page-loading"><t-loading /></div>
     <div v-else-if="hasMore && conversations.length > 0" class="conversation-more">
       <button type="button" class="btn btn--ghost btn--sm" @click="feed.loadMore">加载更多</button>
     </div>
@@ -155,6 +237,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.messages-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--gutter, var(--space-4)); }
+.conversation__chat-link { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; color: inherit; text-decoration: none; }
+.conversation__chat-link .conversation__scope { display: block; }
 .messages-page {
   min-height: 100dvh;
 }

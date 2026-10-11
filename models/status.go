@@ -282,6 +282,9 @@ func (s *Status) IsLocal() bool {
 // ContentHTML returns the status content as safe HTML: local plain text is
 // escaped and linkified, remote HTML is sanitized.
 func (s *Status) ContentHTML(opts htmlsafe.RenderOptions) string {
+	if s.Content.ContentFormat == "html" {
+		return htmlsafe.Sanitize(s.Content.Content)
+	}
 	if original, ok := s.Properties["import_original_html"].(string); ok && s.IsLocal() {
 		return htmlsafe.Sanitize(original)
 	}
@@ -419,6 +422,9 @@ func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
+	if err = QueueMatrixDirectDeletion(tx, s); err != nil {
+		return err
+	}
 	if s.Id == 0 && !skipFeedHooks(tx) {
 		if _, ok := tx.Statement.Clauses["WHERE"]; !ok {
 			return errors.New("feed requires an explicit status deletion scope")
@@ -428,6 +434,9 @@ func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
 			return err
 		}
 		for i := range rows {
+			if err = QueueMatrixDirectDeletion(tx, &rows[i]); err != nil {
+				return err
+			}
 			if err = QueueFeedStatus(tx, FeedStatusDelete, &rows[i]); err != nil {
 				return err
 			}
@@ -1124,10 +1133,19 @@ func (ss *Statuses) Filter(filter func(s *Status) bool) (ret Statuses) {
 }
 
 type StatusContent struct {
-	StatusId    uint64         `gorm:"primary_key;autoIncrement" json:"status_id"`
-	Content     string         `gorm:"type:text;not null"         json:"content"`
-	SpoilerText string         `gorm:"type:text;"                 json:"spoiler_text"`
-	Card        map[string]any `gorm:"type:json;serializer:json"  json:"card"`
+	ContentFormat string         `gorm:"type:varchar(16);not null;default:plain" json:"content_format"`
+	StatusId      uint64         `gorm:"primary_key;autoIncrement" json:"status_id"`
+	Content       string         `gorm:"type:text;not null"         json:"content"`
+	SpoilerText   string         `gorm:"type:text;"                 json:"spoiler_text"`
+	Card          map[string]any `gorm:"type:json;serializer:json"  json:"card"`
+}
+
+// EditableText returns safe plain source for the plain-text compose API.
+func (sc *StatusContent) EditableText() string {
+	if sc.ContentFormat == "html" {
+		return htmlsafe.PlainText(htmlsafe.Sanitize(sc.Content))
+	}
+	return sc.Content
 }
 
 func (sc *StatusContent) TableName() string {
@@ -1465,6 +1483,9 @@ func (fs *FavoriteStatus) TableName() string {
 }
 
 func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
+	if err = QueueMatrixDirectFavourite(tx, "Favorite", fs); err != nil {
+		return err
+	}
 	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("favourites_count + ?", 1)).Error; err != nil {
 		return
 	}
@@ -1478,6 +1499,9 @@ func (fs *FavoriteStatus) AfterCreate(tx *gorm.DB) (err error) {
 }
 
 func (fs *FavoriteStatus) AfterDelete(tx *gorm.DB) (err error) {
+	if err = QueueMatrixDirectFavourite(tx, "FavoriteUndo", fs); err != nil {
+		return err
+	}
 	// 使用 if(...) 防止 favorites_count 无符号下溢（uint64 减到负数会回绕成巨大值）。
 	if err = tx.Model(&Status{}).Where("id = ?", fs.StatusId).UpdateColumn("favourites_count", gorm.Expr("CASE WHEN favourites_count > 0 THEN favourites_count - ? ELSE 0 END", 1)).Error; err != nil {
 		return

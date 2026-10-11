@@ -164,6 +164,7 @@ func TestOutboundDirectAdmissionBoundaries(t *testing.T) {
 				eventType = "m.room.encrypted"
 				content = map[string]any{"algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "opaque"}
 			case "replace":
+				denied = true // Editing another sender's event must fail, not silently discard.
 				content["m.relates_to"] = map[string]any{"rel_type": "m.replace", "event_id": source.EventID}
 			case "bad_reply":
 				content["m.relates_to"] = map[string]any{"m.in_reply_to": map[string]any{"event_id": "$not-this-room"}}

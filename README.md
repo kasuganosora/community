@@ -19,7 +19,7 @@ Community 是一个使用 Go 和 Vue 构建的自托管社交平台，提供时�
 
 没有自定义头像的账号按完整账号名（含域名）生成稳定的几何头像，网页、ActivityPub 和 Matrix 使用相同规则。默认图片在内存中生成，无需文件存储；已有自定义头像保持优先。
 
-发送到本站账号的 Fediverse 私信会通过独立持久任务送达其内置 Matrix 账号，首次登录也可同步。对应桥接房间中新发送的消息、回复和附件会投递给明确的 ActivityPub 参与者；不会自动外发历史 Matrix 消息。房间按明确收件人隔离，ActivityPub 私信不是端到端加密。收件范围、重试及限制见 [Matrix 与 ActivityPub 私信](docs/matrix-activitypub-direct.md)。
+网页消息页与 Matrix 共用联邦会话，可主动联系 Fediverse 账号，并在明确同意非加密的混合群中邀请外部 Matrix 用户。新消息、回复、附件与作者撤回通过持久任务投递给明确参与者；失败状态可见并可安全重试，不会自动外发历史 Matrix 消息。房间按明确收件人隔离，ActivityPub 私信不是端到端加密。收件范围、重试及限制见 [Matrix 与 ActivityPub 私信](docs/matrix-activitypub-direct.md)。
 
 ### 整站迁移与个人备份
 

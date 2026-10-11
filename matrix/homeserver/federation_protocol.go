@@ -291,6 +291,11 @@ func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applySta
 	if err := tx.Create(event).Error; err != nil {
 		return err
 	}
+	if event.StateKey == nil {
+		if err := hs.queueOutboundDirect(tx, event); err != nil {
+			return err
+		}
+	}
 	if err := applyAuthorizedFederationRedaction(tx, hs, p); err != nil {
 		return err
 	}
@@ -316,6 +321,9 @@ func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applySta
 		if event.EventType == EventTypeRoomMember {
 			membership, _ := event.Content["membership"].(string)
 			hs.Room.updateRoomMember(tx, event.RoomID, *event.StateKey, MembershipState(membership), event.EventID)
+			if err := hs.syncBridgeMembershipDeparture(tx, event); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -368,6 +376,13 @@ func applyAuthorizedFederationRedaction(tx *gorm.DB, hs *HomeServer, p gmsl.PDU)
 	}
 	// Valid redaction events can enter the DAG without permission to redact this target.
 	if allowed {
+		if target.Sender == string(p.SenderID()) {
+			targetID := pduRedactionTarget(p)
+			redaction := MatrixEvent{EventID: p.EventID(), RoomID: p.RoomID().String(), Sender: string(p.SenderID()), EventType: EventTypeRoomRedaction, Redacts: &targetID}
+			if err := hs.queueDirectBridgeRedaction(tx, &redaction); err != nil {
+				return err
+			}
+		}
 		return applyStoredRedactionTx(tx, p.RoomID().String(), pduRedactionTarget(p))
 	}
 	return nil

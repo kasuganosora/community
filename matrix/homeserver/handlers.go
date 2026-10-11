@@ -68,6 +68,7 @@ func RegisterRoutes(r gin.IRouter) {
 	// 需要 token 的 API
 	api := r.Group("/_matrix/client/v3")
 	api.Use(matrixAuthMiddleware())
+	RegisterCommunityConversationRoutes(api.Group("/community"))
 	{
 		// 登出（需要有效 token）
 		api.POST("/logout", handleLogout)

@@ -1017,6 +1017,17 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 			status = *statusPtr
 		}
 		if err == nil {
+			var favorites []models.FavoriteStatus
+			if err := activityDB(ctx).Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Find(&favorites).Error; err != nil {
+				c.JSON(500, gin.H{"error": "failed to read favourite"})
+				return
+			}
+			for i := range favorites {
+				if err := models.QueueMatrixDirectFavourite(activityDB(ctx), "FavoriteUndo", &favorites[i]); err != nil {
+					c.JSON(500, gin.H{"error": "failed to queue favourite withdrawal"})
+					return
+				}
+			}
 			result := activityDB(ctx).Session(&gorm.Session{SkipHooks: true}).Where("account_id = ? AND status_id = ?", remoteAccount.Id, status.Id).Delete(&models.FavoriteStatus{})
 			if result.Error != nil {
 				c.JSON(500, gin.H{"error": "failed to undo favourite"})

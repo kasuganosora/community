@@ -156,6 +156,9 @@ func FederationJobs(c *gin.Context) {
 	items := []gin.H{}
 	var total int64
 	switch kind {
+	case "matrix-direct":
+		DirectDeliveryJobs(c)
+		return
 	case "feed-event", "feed-batch":
 		feedJobs(c, conn, kind, state, page, limit)
 		return

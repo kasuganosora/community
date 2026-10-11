@@ -226,6 +226,7 @@ func SetRouter(app gin.IRouter) {
 	// ===== 需要登录的路由（v1）=====
 	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
 	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	registerChatRoutes(authGroupV1)
 	registerAdminManagementRoutes(v1ApiGroup, authGroupV1)
 	transfers := authGroupV1.Group("", transferapi.AuthorizeTransfer)
 	for _, scope := range []string{"personal", "site"} {

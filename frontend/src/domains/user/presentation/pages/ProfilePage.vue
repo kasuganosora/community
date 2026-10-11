@@ -194,6 +194,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
       </div>
       <AddToListButton v-if="!isOwnProfile && followState === 'following'" :account-id="account.id" />
       <div v-if="!isOwnProfile && followState !== 'unknown'" class="profile-relations">
+        <router-link v-if="!relationship?.blocking && !relationship?.blocked_by" class="btn btn--ghost btn--sm" :to="{ path: '/messages', query: { to: account.acct } }">发消息</router-link>
         <button type="button" class="btn btn--ghost btn--sm" @click="toggleMute">{{ relationship?.muting ? '取消静音' : '静音' }}</button>
         <button type="button" class="btn btn--ghost btn--sm" @click="toggleBlock">{{ relationship?.blocking ? '取消屏蔽' : '屏蔽' }}</button>
         <button type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>

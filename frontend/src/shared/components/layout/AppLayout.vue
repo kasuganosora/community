@@ -22,7 +22,8 @@ onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 watch(() => route.fullPath, () => { onScroll() })
 const fabHidden = computed(() => {
-  return PROFILE_ROUTES.has(String(route.name)) && scrollY.value < 600
+  const name = String(route.name)
+  return name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
 })
 </script>
 

@@ -181,6 +181,9 @@ type ReactionSnapshot struct {
 }
 
 func queueReactionEvent(tx *gorm.DB, kind string, reaction *StatusReaction, status *Status, actor *Account, emoji *Emoji) error {
+	if err := QueueMatrixDirectReaction(tx, kind, reaction, status); err != nil {
+		return err
+	}
 	if status.LocalOnly || actor.Domain != nil || !hasFederationOutbox(tx) {
 		return nil
 	}

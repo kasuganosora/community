@@ -26,3 +26,13 @@ it('labels expired feed repair clearly and confirms cancelling the whole depende
  expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('全部尚未完成的依赖批次'))
  w.unmount()
 })
+it('keeps private-message bridge jobs read-only for administrators', async () => {
+ vi.spyOn(api, 'jobs').mockResolvedValue({ total: 1, items: [{ id: '$event', kind: 'matrix-direct', state: 'failed', can_retry: true, attempts: 3, last_error: 'bridge_failed', next_attempt_at: null, created_at: '' }] })
+ const action = vi.spyOn(api, 'jobAction')
+ const w = mount(JobsAdminPage); await flushPromises()
+ await w.findAll('select')[0]!.setValue('matrix-direct')
+ expect(w.text()).toContain('不代表远端服务器已经收到消息')
+ expect(w.findAll('button').some(b => ['立即重试', '取消任务'].includes(b.text()))).toBe(false)
+ expect(action).not.toHaveBeenCalled()
+ w.unmount()
+})

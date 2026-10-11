@@ -2,6 +2,10 @@ package activitypub
 
 import (
 	"fmt"
+	"html"
+	"mime"
+	urlpkg "net/url"
+	"strings"
 
 	"github.com/kasuganosora/community/htmlsafe"
 
@@ -138,6 +142,19 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 				attachment["blurhash"] = att.Blurhash
 			}
 
+			// Some peers retain unknown Documents without a working download
+			// widget. Preserve a safe link to the exact opaque attachment URL
+			// in the same audience-scoped Note; never derive a URL from name.
+			kind, _, _ := mime.ParseMediaType(mediaType)
+			if !strings.HasPrefix(kind, "image/") && !strings.HasPrefix(kind, "audio/") && !strings.HasPrefix(kind, "video/") {
+				if u, err := urlpkg.Parse(url); err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil {
+					name := att.Description
+					if strings.TrimSpace(name) == "" {
+						name = "Download attachment"
+					}
+					note["content"] = note["content"].(string) + "<p><a href=\"" + html.EscapeString(url) + "\" rel=\"nofollow noopener noreferrer\">" + html.EscapeString(name) + "</a></p>"
+				}
+			}
 			attachments = append(attachments, attachment)
 		}
 

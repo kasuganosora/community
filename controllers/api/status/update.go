@@ -114,9 +114,10 @@ func Replace(c *gin.Context) {
 		if original.ReblogId != nil || original.ScheduledAt != nil {
 			return invalidReplacement("Only published original posts can be deleted and reposted")
 		}
-		next := &models.Status{LocalOnly: original.LocalOnly, AccountId: owner.Id, ApplicationId: original.ApplicationId, Content: models.StatusContent{Content: original.Content.Content, SpoilerText: original.Content.SpoilerText}, Sensitive: original.Sensitive, Language: original.Language, Visibility: original.Visibility, InReplyToId: original.InReplyToId, InReplyToAccountId: original.InReplyToAccountId}
+		next := &models.Status{LocalOnly: original.LocalOnly, AccountId: owner.Id, ApplicationId: original.ApplicationId, Content: models.StatusContent{Content: original.Content.Content, ContentFormat: original.Content.ContentFormat, SpoilerText: original.Content.SpoilerText}, Sensitive: original.Sensitive, Language: original.Language, Visibility: original.Visibility, InReplyToId: original.InReplyToId, InReplyToAccountId: original.InReplyToAccountId}
 		if req.Status != nil {
 			next.Content.Content = *req.Status
+			next.Content.ContentFormat = "plain"
 		}
 		if req.SpoilerText != nil {
 			next.Content.SpoilerText = *req.SpoilerText

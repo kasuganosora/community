@@ -10,6 +10,7 @@ export const RouteNames = {
   EXPLORE: 'explore',
   NOTIFICATIONS: 'notifications',
   MESSAGES: 'messages',
+  CHAT_CONVERSATION: 'chat-conversation',
   BOOKMARKS: 'bookmarks',
   SEARCH: 'search',
   PROFILE: 'profile',
@@ -100,6 +101,11 @@ const MainRoutes: RouteRecordRaw[] = [
     path: 'messages',
     name: RouteNames.MESSAGES,
     component: () => import('@/domains/message/presentation/pages/MessagesPage.vue'),
+  },
+  {
+    path: 'messages/:conversationId',
+    name: RouteNames.CHAT_CONVERSATION,
+    component: () => import('@/domains/message/presentation/pages/ChatThreadPage.vue'),
   },
   {
     path: 'bookmarks',
@@ -223,6 +229,7 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.EXPLORE]: { title: '探索' },
   [RouteNames.NOTIFICATIONS]: { title: '通知' },
   [RouteNames.MESSAGES]: { title: '私信' },
+  [RouteNames.CHAT_CONVERSATION]: { title: '会话' },
   [RouteNames.BOOKMARKS]: { title: '收藏' },
   [RouteNames.SEARCH]: { title: '搜索' },
   [RouteNames.PROFILE]: { title: '个人主页' },

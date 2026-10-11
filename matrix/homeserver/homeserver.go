@@ -159,7 +159,14 @@ func loadHSConfig() *HSConfig {
 func Models() []any {
 	return []any{
 		&models.MatrixDMDelivery{},
+		&models.MatrixDMEventJob{},
+		&MatrixDMReactionReference{},
+		&MatrixDMFavoriteReference{},
+		&BridgeFederationDelivery{},
 		&MatrixDMOutbound{},
+		&BridgeConversation{},
+		&BridgeConversationMember{},
+		&MatrixExternalActor{},
 		&MatrixDMEventReference{},
 		&MatrixEvent{},
 		&MatrixRoom{},

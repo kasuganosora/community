@@ -34,7 +34,23 @@ const bridgeAvatarMaxBytes = 2 << 20
 
 // Kept separate from attachment import: only public profile images are accepted.
 // The production transport pins DNS and rejects private-address redirects.
-var newBridgeAvatarHTTPClient = func() *http.Client { return activitypub.NewAuthenticatedMediaHTTPClient(nil) }
+var newBridgeAvatarHTTPClient = func() *http.Client {
+	client := activitypub.NewAuthenticatedMediaHTTPClient(nil)
+	// Public unsigned profile images may redirect to a CDN. Every hop still
+	// uses the DNS-pinned transport; never relax TLS or allow HTTP downgrade.
+	client.CheckRedirect = bridgeAvatarRedirect
+	return client
+}
+
+func bridgeAvatarRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("too many avatar redirects")
+	}
+	if req.URL.Scheme != "https" || req.URL.Hostname() == "" || req.URL.User != nil || req.URL.Fragment != "" {
+		return errors.New("unsafe avatar redirect")
+	}
+	return nil
+}
 
 func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomID, userID string, account models.Account) error {
 	conn := db.GetDB().WithContext(ctx)

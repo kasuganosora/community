@@ -3,6 +3,7 @@ package homeserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -13,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RoomService 房间服务.
@@ -244,6 +246,13 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 
 	if plContent.Users == nil {
 		plContent.Users = make(map[string]int64)
+	}
+
+	// Matrix power-level maps must be JSON objects, never null. A partial
+	// override commonly supplies only users; federated homeservers validate
+	// events as an integer-valued map even when there are no overrides.
+	if plContent.Events == nil {
+		plContent.Events = make(map[string]int64)
 	}
 
 	plContent.Users[creatorID] = 100 // 创建者拥有最高权限
@@ -956,18 +965,13 @@ func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *M
 		SenderDomain:   r.HS.Config.ServerName,
 	}
 
-	if err := db.GetDB().Create(event).Error; err != nil {
+	if err := r.persistMembershipDeparture(event); err != nil {
 		return ErrInternal
 	}
-
-	r.updateRoomState(db.GetDB(), roomID, event)
-
-	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipLeave, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil {
+	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
 		go r.HS.Event.federateEvent(event)
 	}
-
 	return nil
 }
 
@@ -1076,11 +1080,11 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 		return ErrForbidden
 	}
 
-	// 检查被踢者是否在房间中且是 joined 状态
+	// Kicking an invited user revokes the invitation with a normal leave event.
 	var member MatrixRoomMember
 
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, req.UserID).First(&member).Error
-	if err != nil || member.Membership != MembershipJoin {
+	if err != nil || (member.Membership != MembershipJoin && member.Membership != MembershipInvite) {
 		return ErrForbidden
 	}
 
@@ -1100,18 +1104,13 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 		SenderDomain:   r.HS.Config.ServerName,
 	}
 
-	if err := db.GetDB().Create(event).Error; err != nil {
+	if err := r.persistMembershipDeparture(event); err != nil {
 		return ErrInternal
 	}
-
-	r.updateRoomState(db.GetDB(), roomID, event)
-
-	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipLeave, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil {
+	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
 		go r.HS.Event.federateEvent(event)
 	}
-
 	return nil
 }
 
@@ -1144,19 +1143,13 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 		SenderDomain:   r.HS.Config.ServerName,
 	}
 
-	err := db.GetDB().Create(event).Error
-	if err != nil {
+	if err := r.persistMembershipDeparture(event); err != nil {
 		return ErrInternal
 	}
-
-	r.updateRoomState(db.GetDB(), roomID, event)
-
-	r.updateRoomMember(db.GetDB(), roomID, req.UserID, MembershipBan, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil {
+	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
 		go r.HS.Event.federateEvent(event)
 	}
-
 	return nil
 }
 
@@ -1529,4 +1522,54 @@ func (r *RoomService) GetJoinedRooms(userID string) ([]string, error) {
 	}
 
 	return roomIDs, nil
+}
+
+func isBridgeDepartureRoom(roomID string) bool {
+	return strings.HasPrefix(roomID, "!apchat_") || strings.HasPrefix(roomID, "!apdm_")
+}
+
+// Persist the event, current membership and bridge generation together. The
+// federation recipients are captured before departure, including the departing
+// server, so removing its last member does not lose its leave notification.
+func (r *RoomService) persistMembershipDeparture(event *MatrixEvent) error {
+	return db.GetDB().Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error {
+		var room MatrixRoom
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, "room_id = ?", event.RoomID).Error; err != nil {
+			return err
+		}
+		var depth int64
+		if err := tx.Model(&MatrixEvent{}).Where("room_id = ?", event.RoomID).Select("COALESCE(MAX(depth), 0)").Scan(&depth).Error; err != nil {
+			return err
+		}
+		event.Depth = depth + 1
+		if err := tx.Create(event).Error; err != nil {
+			return err
+		}
+		if isBridgeDepartureRoom(event.RoomID) {
+			if err := r.HS.queueBridgeFederation(tx, event); err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("room_id = ? AND event_type = ? AND state_key = ?", event.RoomID, event.EventType, *event.StateKey).Delete(&MatrixRoomState{}).Error; err != nil {
+			return err
+		}
+		state := MatrixRoomState{RoomID: event.RoomID, EventType: event.EventType, StateKey: *event.StateKey, Content: event.Content, EventID: event.EventID}
+		if err := tx.Create(&state).Error; err != nil {
+			return err
+		}
+		var member MatrixRoomMember
+		err := tx.Where("room_id = ? AND user_id = ?", event.RoomID, *event.StateKey).First(&member).Error
+		membership := MembershipState(event.Content["membership"].(string))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			member = MatrixRoomMember{RoomID: event.RoomID, UserID: *event.StateKey, Membership: membership, EventID: event.EventID}
+			if err = tx.Create(&member).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if err = tx.Model(&member).Updates(map[string]any{"membership": membership, "event_id": event.EventID}).Error; err != nil {
+			return err
+		}
+		return r.HS.syncBridgeMembershipDeparture(tx, event)
+	})
 }
