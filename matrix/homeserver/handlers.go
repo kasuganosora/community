@@ -623,7 +623,7 @@ func handleRegisterAvailability(c *gin.Context) {
 func handleUsernameAvailable(c *gin.Context) {
 	username := strings.ToLower(strings.TrimSpace(c.Query("username")))
 
-	if username == "" || len(username) > 20 || !validLocalpartRe.MatchString(username) {
+	if username == "" || len(username) > 20 || !validLocalpartRe.MatchString(username) || models.IsReservedBridgeUsername(username) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"errcode": "M_INVALID_USERNAME",
 			"error":   "Invalid username",

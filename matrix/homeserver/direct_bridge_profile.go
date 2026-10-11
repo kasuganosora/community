@@ -221,19 +221,19 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 }
 
 // Ghost profile data is the already-published member profile, never a login
-// account or a private room identifier. The reserved 64-hex localpart cannot
-// collide with an ordinary registered Community username.
+// account or a private room identifier. Resolve the reserved ID against its
+// actual remote account before exposing a profile.
 func (hs *HomeServer) bridgeGhostProfile(ctx context.Context, userID string) (map[string]any, bool) {
-	local, server, ok := ParseMatrixUserID(userID)
-	if !ok || server != hs.Config.ServerName || !strings.HasPrefix(local, "_ap_") || len(local) != 68 {
-		return nil, false
-	}
-	if _, err := hex.DecodeString(strings.TrimPrefix(local, "_ap_")); err != nil {
+	account, err := hs.resolveBridgeAccount(db.GetDB().WithContext(ctx), userID)
+	if err != nil || account == nil {
 		return nil, false
 	}
 	var member MatrixRoomMember
 	if err := db.GetDB().WithContext(ctx).Where("user_id = ? AND membership = ?", userID, MembershipJoin).Order("updated_at DESC, id DESC").First(&member).Error; err != nil {
-		return nil, false
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false
+		}
+		return map[string]any{"displayname": bridgePublicDisplayName(*account), "avatar_url": hs.defaultBridgeAvatar(*account)}, true
 	}
 	profile := map[string]any{"displayname": "", "avatar_url": ""}
 	if member.DisplayName != nil {

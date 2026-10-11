@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -288,7 +289,7 @@ func (s *SearchService) convertStatusToMatrixEvents(statusID uint64, query strin
 }
 
 // SearchUserDirectory 搜索用户目录.
-func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirectorySearchResult, error) {
+func (s *SearchService) SearchUserDirectory(query string, limit int, viewerIDs ...string) (*UserDirectorySearchResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -300,6 +301,43 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 	results := &UserDirectorySearchResult{
 		Results: []UserDirectoryResult{},
 		Limited: false,
+	}
+
+	// Exact remote handles are already public ActivityPub identities. Make
+	// them discoverable for a first Matrix DM without enumerating private rooms.
+	if account, err := s.directoryRemoteAccount(query); err != nil {
+		return nil, err
+	} else if account != nil {
+		if len(viewerIDs) > 0 && viewerIDs[0] != "" {
+			local, server, ok := ParseMatrixUserID(viewerIDs[0])
+			if !ok || server != s.hs.Config.ServerName {
+				return results, nil
+			}
+			var viewer models.Account
+			if err := db.GetDB().Where("username = ? AND domain IS NULL", local).First(&viewer).Error; err != nil {
+				return results, nil
+			}
+			blocked, err := models.AccountsBlocked(db.GetDB(), &viewer, account)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				return results, nil
+			}
+		}
+		userID := s.hs.bridgeAccountID(*account)
+		avatar := s.hs.defaultBridgeAvatar(*account)
+		if profile, ok := s.hs.bridgeGhostProfile(context.Background(), userID); ok {
+			if published, ok := profile["avatar_url"].(string); ok && validBridgeMXC(published) {
+				avatar = published
+			}
+		}
+		results.Results = append(results.Results, UserDirectoryResult{
+			UserID:      userID,
+			DisplayName: bridgePublicDisplayName(*account),
+			AvatarURL:   avatar,
+		})
+		return results, nil
 	}
 
 	// Build search terms: strip @ prefix and :domain suffix for localpart matching
@@ -336,7 +374,7 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 
 		seen[m.UserID] = true
 
-		if lp, _, ok := ParseMatrixUserID(m.UserID); ok {
+		if lp, server, ok := ParseMatrixUserID(m.UserID); ok && server == s.hs.Config.ServerName && !models.IsReservedBridgeUsername(lp) {
 			localparts = append(localparts, lp)
 		}
 	}
@@ -348,7 +386,7 @@ func (s *SearchService) SearchUserDirectory(query string, limit int) (*UserDirec
 	// Find accounts for visible users that match the search query
 	var accounts []models.Account
 
-	db.GetDB().Where("username IN ?", localparts).
+	db.GetDB().Where("username IN ? AND domain IS NULL AND is_ban = ?", localparts, false).
 		Where("username "+dialect.ILike(db.GetDB())+" ? OR display_name "+dialect.ILike(db.GetDB())+" ?",
 			"%"+searchQuery+"%", "%"+searchQuery+"%").
 		Limit(limit).
@@ -491,7 +529,7 @@ func handleSearch(c *gin.Context) {
 			limit = 10
 		}
 
-		results, err := searchService.SearchUserDirectory(userSearch.SearchTerm, limit)
+		results, err := searchService.SearchUserDirectory(userSearch.SearchTerm, limit, userID)
 		if err == nil {
 			result.SearchCategories.UserDirectory = results
 		}
@@ -550,7 +588,7 @@ func handleUserDirectory(c *gin.Context) {
 	hs := GetHomeServer()
 	searchService := NewSearchService(hs)
 
-	results, err := searchService.SearchUserDirectory(req.SearchTerm, req.Limit)
+	results, err := searchService.SearchUserDirectory(req.SearchTerm, req.Limit, getUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL", //nolint:goconst

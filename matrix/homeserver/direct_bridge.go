@@ -121,9 +121,7 @@ func (hs *HomeServer) bridgeAccountID(a models.Account) string {
 	if a.Domain == nil {
 		return fmt.Sprintf("@%s:%s", a.Username, hs.Config.ServerName)
 	}
-	// Longer than the allowed local username: cannot collide with a login account.
-	sum := sha256.Sum256([]byte(fmt.Sprintf("activitypub-account:%d", a.Id)))
-	return "@_ap_" + hex.EncodeToString(sum[:]) + ":" + hs.Config.ServerName
+	return hs.readableBridgeAccountID(a)
 }
 func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) (string, string, error) {
 	conn := db.GetDB().WithContext(ctx)

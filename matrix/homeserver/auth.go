@@ -364,7 +364,7 @@ func (a *AuthService) Register(req *RegisterRequest, isAdmin bool) (*RegisterRes
 	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
 
 	// Validate localpart per Matrix spec: [a-z0-9._=/-]+
-	if len(req.Username) > 20 || !validLocalpartRe.MatchString(req.Username) {
+	if len(req.Username) > 20 || !validLocalpartRe.MatchString(req.Username) || models.IsReservedBridgeUsername(req.Username) {
 		return nil, ErrInvalidUsername
 	}
 

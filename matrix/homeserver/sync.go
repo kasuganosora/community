@@ -394,8 +394,10 @@ func (s *SyncService) sync(userID, deviceID string, req *SyncRequest) (*SyncResp
 	}
 
 	// 获取已离开的房间
-	// include_leave defaults to false; only include left rooms if filter says so or no filter
-	includeLeave := filter == nil || filter.Room == nil || filter.Room.IncludeLeave
+	// include_leave controls historical rooms in an initial sync. Departures
+	// since the previous token must always be sent, including with Element's
+	// usual room filter, so clients can remove rooms from their joined lists.
+	includeLeave := since > 0 || filter == nil || filter.Room == nil || filter.Room.IncludeLeave
 	if includeLeave {
 		leftRooms := s.getLeftRooms(userID, since)
 		for _, roomID := range leftRooms {

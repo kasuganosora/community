@@ -83,6 +83,9 @@ type CreateRoomResponse struct {
 
 // CreateRoom 创建房间.
 func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*CreateRoomResponse, *MatrixError) { //nolint:gocyclo // Matrix room creation protocol requires sequential event creation
+	if response, matrixErr, handled := r.HS.createNativeAPConversation(creatorID, req); handled {
+		return response, matrixErr
+	}
 	// 生成房间 ID
 	roomID := "!" + uuid.New().String() + ":" + r.HS.Config.ServerName
 	if req.bridgeRoomID != "" {
@@ -1532,7 +1535,7 @@ func isBridgeDepartureRoom(roomID string) bool {
 // federation recipients are captured before departure, including the departing
 // server, so removing its last member does not lose its leave notification.
 func (r *RoomService) persistMembershipDeparture(event *MatrixEvent) error {
-	return db.GetDB().Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error {
+	err := db.GetDB().Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error {
 		var room MatrixRoom
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, "room_id = ?", event.RoomID).Error; err != nil {
 			return err
@@ -1572,4 +1575,10 @@ func (r *RoomService) persistMembershipDeparture(event *MatrixEvent) error {
 		}
 		return r.HS.syncBridgeMembershipDeparture(tx, event)
 	})
+	if err == nil {
+		// Room notifications target joined members; the departing user is no
+		// longer among them. Wake all of their devices after the commit too.
+		r.HS.NotifyUser(*event.StateKey)
+	}
+	return err
 }

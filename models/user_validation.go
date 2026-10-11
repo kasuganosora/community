@@ -29,7 +29,7 @@ var (
 
 // ValidateUsername checks a local username.
 func ValidateUsername(username string) error {
-	if n := utf8.RuneCountInString(username); n == 0 || n > MaxUsernameLength || !usernameRegexp.MatchString(username) {
+	if n := utf8.RuneCountInString(username); n == 0 || n > MaxUsernameLength || !usernameRegexp.MatchString(username) || IsReservedBridgeUsername(username) {
 		return ErrInvalidUsername
 	}
 
@@ -53,4 +53,9 @@ func ValidatePassword(password string) error {
 	}
 
 	return nil
+}
+
+// IsReservedBridgeUsername keeps synthetic ActivityPub users separate from login accounts.
+func IsReservedBridgeUsername(username string) bool {
+	return strings.HasPrefix(strings.ToLower(username), "_ap_")
 }
