@@ -8,7 +8,10 @@ RUN apk add --no-cache gcc musl-dev
 WORKDIR /src
 
 # Cache dependencies
+# go.mod has a local replace (gomatrixserverlib => ./third_party/gomatrixserverlib),
+# so the replaced module must be present before go mod download.
 COPY go.mod go.sum ./
+COPY third_party/ ./third_party/
 RUN go mod download
 
 # Copy source
