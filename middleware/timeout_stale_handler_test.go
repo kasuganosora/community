@@ -22,9 +22,10 @@ import (
 // shows up as "wrote more than the declared Content-Length" (the 504 declares
 // a length) or as a foreign body on an unrelated endpoint.
 func TestStaleHandlerCannotWriteIntoReusedContext(t *testing.T) {
-	oldGrace, oldHard := timeoutGrace, timeoutHardLimit
-	timeoutGrace, timeoutHardLimit = 80*time.Millisecond, 5*time.Second
-	defer func() { timeoutGrace, timeoutHardLimit = oldGrace, oldHard }()
+	oldGrace, oldWarning := timeoutGrace, timeoutWarningInterval
+	// Outlive both timers: extending the deadline alone does not fix reuse.
+	timeoutGrace, timeoutWarningInterval = 40*time.Millisecond, 40*time.Millisecond
+	defer func() { timeoutGrace, timeoutWarningInterval = oldGrace, oldWarning }()
 
 	gin.SetMode(gin.TestMode)
 	var lateWriteDone atomic.Bool

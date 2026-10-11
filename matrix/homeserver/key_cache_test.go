@@ -127,10 +127,11 @@ func TestKeyCache_LoadFromDB(t *testing.T) {
 
 	// Insert a key directly into DB
 	rec := MatrixServerKey{
-		ServerName: "dbloaded.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  encodePubKey(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "dbloaded.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          encodePubKey(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.Create(&rec).Error)
 

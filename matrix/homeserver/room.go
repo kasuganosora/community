@@ -539,6 +539,12 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 // make_join/send_join, validation) stops when ctx is done and is additionally
 // limited by MATRIX_JOIN_TOTAL_TIMEOUT.
 func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias string, req *JoinRoomRequest) (string, *MatrixError) {
+	settings := joinSettingsSource()
+	ctx, cancelJoin := context.WithTimeout(ctx, settings.Total)
+	defer cancelJoin()
+	if ctx.Err() != nil {
+		return "", joinContextError(ctx, 0, settings.Total)
+	}
 	if req == nil {
 		req = &JoinRoomRequest{}
 	}
@@ -548,13 +554,11 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 	roomID := roomIDOrAlias
 	var directoryServers []string
 	if strings.HasPrefix(roomIDOrAlias, "#") {
-		aliasCtx, cancel := context.WithTimeout(ctx, joinSettingsSource().Total)
-		resolved, matrixErr := NewAliasService(r.HS).ResolveAliasContext(aliasCtx, roomIDOrAlias)
-		aliasExpired := aliasCtx.Err() != nil
-		cancel()
+		resolved, matrixErr := NewAliasService(r.HS).ResolveAliasContext(ctx, roomIDOrAlias)
+		aliasExpired := ctx.Err() != nil
 		if matrixErr != nil {
 			if aliasExpired {
-				return "", joinTimeoutError(0, joinSettingsSource().Total)
+				return "", joinContextError(ctx, 0, settings.Total)
 			}
 			return "", matrixErr
 		}
@@ -563,9 +567,9 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 	}
 	inviter := ""
 	var invitation MatrixRoomMember
-	if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
+	if db.GetDB().WithContext(ctx).Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
 		var event MatrixEvent
-		if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
+		if db.GetDB().WithContext(ctx).Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
 			inviter = extractServerName(event.Sender)
 		}
 	}
@@ -575,7 +579,10 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 	// 检查房间是否存在
 	var room MatrixRoom
 
-	err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error
+	err := db.GetDB().WithContext(ctx).Where("room_id = ?", roomID).First(&room).Error
+	if ctx.Err() != nil {
+		return "", joinContextError(ctx, 0, settings.Total)
+	}
 	if err != nil {
 		// Room not found locally; attempt federation join if server hints provided
 		if len(req.Servers) > 0 {

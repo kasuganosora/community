@@ -64,7 +64,7 @@ func TestKeyCacheMissDoesNotOverwriteVerifiedRefresh(t *testing.T) {
 	db := setupKeyCacheTestDB(t)
 	cache := NewKeyCache()
 	old := bytes.Repeat([]byte{1}, ed25519.PublicKeySize)
-	require.NoError(t, db.Create(&MatrixServerKey{ServerName: "refresh.test", KeyID: "ed25519:key", PublicKey: encodePubKey(old), ValidUntil: time.Now().Add(time.Hour)}).Error)
+	require.NoError(t, db.Create(&MatrixServerKey{VerificationPolicy: currentKeyVerificationPolicy, ServerName: "refresh.test", KeyID: "ed25519:key", PublicKey: encodePubKey(old), ValidUntil: time.Now().Add(time.Hour)}).Error)
 	fresh := &KeyCacheEntry{PublicKey: bytes.Repeat([]byte{2}, ed25519.PublicKeySize), ValidUntil: time.Now().Add(2 * time.Hour)}
 	cache.cache["refresh.test:ed25519:key"] = fresh
 	require.Same(t, fresh, cache.loadFromDB("refresh.test", "ed25519:key"))

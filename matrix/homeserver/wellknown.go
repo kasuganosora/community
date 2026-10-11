@@ -1,8 +1,10 @@
 package homeserver
 
 import (
-	"fmt"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,7 +50,11 @@ func (ws *WellKnownService) GetServerInfo() *ServerInfo {
 	if port <= 0 {
 		port = 443
 	}
-	server := fmt.Sprintf("%s:%d", ws.hs.Config.ServerName, port)
+	host := ws.hs.Config.ServerName
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	}
+	server := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
 
 	return &ServerInfo{
 		ServerName: server,

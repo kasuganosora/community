@@ -636,15 +636,13 @@ func TestFederationClient_VerifySignature_RemoteFetchThenVerify(t *testing.T) {
 	pubB64 := base64.RawStdEncoding.EncodeToString(pub)
 	validUntil := time.Now().Add(24 * time.Hour).UnixMilli()
 
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(server.URL, "https://")
+		doc := map[string]any{"server_name": name, "valid_until_ts": validUntil, "verify_keys": map[string]any{"ed25519:1": map[string]any{"key": pubB64}}}
+		NewFederationService(&HomeServer{Config: &HSConfig{ServerName: name}, keyID: "ed25519:1", privateKey: priv}).signEvent(doc)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(ServerKeyResponse{
-			ServerName: "remote.test",
-			ValidUntil: validUntil,
-			VerifyKeys: map[string]KeyInfo{
-				"ed25519:1": {Key: pubB64},
-			},
-		})
+		_ = json.NewEncoder(w).Encode(doc)
 	}))
 	defer server.Close()
 

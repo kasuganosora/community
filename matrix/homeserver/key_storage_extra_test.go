@@ -309,10 +309,11 @@ func TestKeyCache_LoadFromDB_InvalidBase64(t *testing.T) {
 	kc := NewKeyCache()
 
 	rec := MatrixServerKey{
-		ServerName: "badkey.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  "!!!invalid-base64!!!",
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "badkey.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          "!!!invalid-base64!!!",
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 

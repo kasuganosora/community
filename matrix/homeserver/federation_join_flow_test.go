@@ -338,6 +338,7 @@ func TestJoinNotaryFallbackProvidesDeadServerKey(t *testing.T) {
 	dead := newFakeFed(t)
 	dead.kill()
 	hs := joinTestEnv(t, live)
+	t.Setenv("MATRIX_TRUSTED_KEY_SERVERS", live.name) // explicitly trusted by the administrator
 	room := newFakeRoom(t, live, live)
 	old := room.add("@old:"+dead.name, "m.room.member", new("@old:"+dead.name), map[string]any{"membership": "join"}, dead)
 	room.serve(live)
@@ -373,6 +374,7 @@ func TestJoinRejectsNotaryAnswerWithBadSignature(t *testing.T) {
 	dead := newFakeFed(t)
 	dead.kill()
 	hs := joinTestEnv(t, live)
+	t.Setenv("MATRIX_TRUSTED_KEY_SERVERS", live.name) // explicitly trusted by the administrator
 	room := newFakeRoom(t, live, live)
 	old := room.add("@old:"+dead.name, "m.room.member", new("@old:"+dead.name), map[string]any{"membership": "join"}, dead)
 	room.serve(live)

@@ -45,6 +45,24 @@ func TestWellKnownService_GetServerInfo_NonDefaultPort(t *testing.T) {
 	assert.Equal(t, "matrix.example.com:8448", info.ServerName)
 }
 
+func TestWellKnownService_GetServerInfo_ServerNameAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		port int
+		want string
+	}{
+		{"matrix.example.com", 0, "matrix.example.com:443"},
+		{"matrix.example.com:8448", 443, "matrix.example.com:443"},
+		{"[2001:db8::1]", 443, "[2001:db8::1]:443"},
+		{"[2001:db8::1]:8448", 443, "[2001:db8::1]:443"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := NewWellKnownService(newTestWellKnownHS(tc.name, tc.port, true)).GetServerInfo()
+			assert.Equal(t, tc.want, info.ServerName)
+		})
+	}
+}
+
 func TestWellKnownService_GetClientInfo(t *testing.T) {
 	hs := newTestWellKnownHS("matrix.example.com", 8448, true)
 	ws := NewWellKnownService(hs)

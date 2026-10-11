@@ -42,6 +42,10 @@ func NewAliasService(hs *HomeServer) *AliasService {
 
 // GetRoomIDByAlias 通过别名获取房间 ID.
 func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
+	return s.getRoomIDByAliasContext(context.Background(), alias)
+}
+
+func (s *AliasService) getRoomIDByAliasContext(ctx context.Context, alias string) (string, error) {
 	// 标准化别名格式
 	if !strings.HasPrefix(alias, "#") {
 		alias = "#" + alias
@@ -53,7 +57,7 @@ func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
 
 	var roomAlias MatrixRoomAlias
 
-	err := db.GetDB().Where("room_alias = ?", alias).First(&roomAlias).Error
+	err := db.GetDB().WithContext(ctx).Where("room_alias = ?", alias).First(&roomAlias).Error
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +73,7 @@ func (s *AliasService) ResolveAlias(alias string) (*QueryDirectoryResponse, *Mat
 
 // ResolveAliasContext is ResolveAlias bound to ctx.
 func (s *AliasService) ResolveAliasContext(ctx context.Context, alias string) (*QueryDirectoryResponse, *MatrixError) {
-	roomID, err := s.GetRoomIDByAlias(alias)
+	roomID, err := s.getRoomIDByAliasContext(ctx, alias)
 	if err == nil {
 		return &QueryDirectoryResponse{RoomID: roomID, Servers: []string{s.hs.Config.ServerName}}, nil
 	}
@@ -80,7 +84,7 @@ func (s *AliasService) ResolveAliasContext(ctx context.Context, alias string) (*
 	if server == "" || server == s.hs.Config.ServerName {
 		return nil, ErrNotFound
 	}
-	resolved, err := NewFederationClient(s.hs).QueryDirectoryContext(ctx, server, alias)
+	resolved, err := newFederationClient(s.hs).QueryDirectoryContext(ctx, server, alias)
 	if err != nil {
 		var remoteErr *federationHTTPError
 		if errors.As(err, &remoteErr) {

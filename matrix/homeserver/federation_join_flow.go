@@ -265,8 +265,11 @@ loop:
 	wg.Wait()
 
 	if winner != nil && ctx.Err() == nil {
-		if err := r.persistFederationJoin(winner.prepared); err != nil {
+		if err := r.persistFederationJoinContext(ctx, winner.prepared); err != nil {
 			log.Warn("matrix join %s via %s: storing validated join failed: %v", roomID, winner.server, err)
+			if ctx.Err() != nil {
+				return "", joinContextError(ctx, next, s.Total)
+			}
 			return "", &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"}
 		}
 		log.Info("matrix join %s via %s ok in %s (dropped %d unverifiable events, tried %d of %d candidates)",

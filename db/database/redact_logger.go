@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ const sensitiveColumn = `(?:access_token|refresh_token|token|password|passwd|sec
 
 var (
 	// col = 'value' | col IN ('a','b') | col LIKE 'x' | col = ?
-	sqlSensitiveCondition = regexp.MustCompile("(?i)([`\"]?\\w*" + sensitiveColumn + "\\w*[`\"]?\\s*(?:=|!=|<>|<=|>=|\\bLIKE|\\bILIKE|\\bIN)\\s*)('(?:[^']|'')*'|\\([^)]*\\)|[^\\s,;)]+)")
+	sqlSensitiveCondition = regexp.MustCompile("(?i)([`\"]?\\w*" + sensitiveColumn + "\\w*[`\"]?\\s*(?:=|!=|<>|<=|>=|\\bLIKE|\\bILIKE|\\bIN)\\s*)" + `('(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|\([^)]*\)|[^\s,;)]+)`)
 	// INSERT INTO t (a, access_token) VALUES (...): positions are not tracked,
 	// the whole VALUES list is dropped when any column is sensitive.
 	sqlInsert = regexp.MustCompile(`(?is)^(\s*INSERT\s+(?:IGNORE\s+)?INTO\s+\S+\s*\()([^)]*)(\)\s*VALUES\s*)(.*?)(\s+ON\s+(?:CONFLICT|DUPLICATE)\b.*|\s+RETURNING\b.*)?$`)
@@ -65,6 +66,16 @@ func (e redactedError) Unwrap() error { return e.err }
 
 type redactingLogger struct{ inner logger.Interface }
 
+func init() {
+	// GORM's Scan temporarily substitutes its own recorder for the configured
+	// logger. Protect that path too, before it formats parameters as SQL.
+	logger.RecorderParamsFilter = omitLoggedParams
+}
+
+func omitLoggedParams(_ context.Context, sql string, _ ...any) (string, []any) {
+	return sql, nil
+}
+
 // NewRedactingLogger wraps a GORM logger so bound credentials never reach it.
 // Failed lookups of Matrix sessions (an unknown/expired bearer token is a
 // normal 401, not a database fault) are not logged at all.
@@ -79,31 +90,23 @@ func (l *redactingLogger) LogMode(level logger.LogLevel) logger.Interface {
 	return &redactingLogger{inner: l.inner.LogMode(level)}
 }
 
+// ParamsFilter prevents the ORM from interpolating bound values in the first
+// place. SQL-shaped regexes cannot safely parse every dialect's string, JSON,
+// binary or array literal. Keep placeholders for diagnostics instead.
+func (l *redactingLogger) ParamsFilter(ctx context.Context, sql string, params ...any) (string, []any) {
+	return omitLoggedParams(ctx, sql, params...)
+}
+
 func (l *redactingLogger) Info(ctx context.Context, msg string, args ...any) {
-	l.inner.Info(ctx, RedactSensitive(msg), redactArgs(args)...)
+	l.inner.Info(ctx, "%s", RedactSensitive(fmt.Sprintf(msg, args...)))
 }
 
 func (l *redactingLogger) Warn(ctx context.Context, msg string, args ...any) {
-	l.inner.Warn(ctx, RedactSensitive(msg), redactArgs(args)...)
+	l.inner.Warn(ctx, "%s", RedactSensitive(fmt.Sprintf(msg, args...)))
 }
 
 func (l *redactingLogger) Error(ctx context.Context, msg string, args ...any) {
-	l.inner.Error(ctx, RedactSensitive(msg), redactArgs(args)...)
-}
-
-func redactArgs(args []any) []any {
-	out := make([]any, len(args))
-	for i, a := range args {
-		switch v := a.(type) {
-		case string:
-			out[i] = RedactSensitive(v)
-		case error:
-			out[i] = redactedError{v}
-		default:
-			out[i] = a
-		}
-	}
-	return out
+	l.inner.Error(ctx, "%s", RedactSensitive(fmt.Sprintf(msg, args...)))
 }
 
 func (l *redactingLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {

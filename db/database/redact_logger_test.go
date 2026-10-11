@@ -3,23 +3,32 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type captureLogger struct {
-	traces []string
-	errs   []string
+	traces   []string
+	errs     []string
+	messages []string
 }
 
 func (c *captureLogger) LogMode(logger.LogLevel) logger.Interface { return c }
-func (c *captureLogger) Info(context.Context, string, ...any)     {}
-func (c *captureLogger) Warn(context.Context, string, ...any)     {}
-func (c *captureLogger) Error(context.Context, string, ...any)    {}
+func (c *captureLogger) Info(_ context.Context, msg string, args ...any) {
+	c.messages = append(c.messages, fmt.Sprintf(msg, args...))
+}
+func (c *captureLogger) Warn(_ context.Context, msg string, args ...any) {
+	c.messages = append(c.messages, fmt.Sprintf(msg, args...))
+}
+func (c *captureLogger) Error(_ context.Context, msg string, args ...any) {
+	c.messages = append(c.messages, fmt.Sprintf(msg, args...))
+}
 func (c *captureLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), err error) {
 	sql, _ := fc()
 	c.traces = append(c.traces, sql)
@@ -38,6 +47,8 @@ func TestRedactSensitiveStatements(t *testing.T) {
 		"UPDATE `matrix_user_sessions` SET `access_token`='syt_SUPERSECRET_abc123',`last_active_ts`=5 WHERE id = 3",
 		"INSERT INTO `matrix_user_sessions` (`user_id`,`access_token`,`device_id`) VALUES ('@a:b','syt_SUPERSECRET_abc123','D1') RETURNING `id`",
 		`UPDATE accounts SET password_hash = 'syt_SUPERSECRET_abc123' WHERE id = 1`,
+		`UPDATE accounts SET password_hash = "spaces before syt_SUPERSECRET_abc123" WHERE id = 1`,
+		`UPDATE accounts SET password_hash = 'escaped\' syt_SUPERSECRET_abc123' WHERE id = 1`,
 		`INSERT INTO t (content) VALUES ('{"access_token":"syt_SUPERSECRET_abc123"}')`,
 		"SELECT 1 -- Authorization: Bearer syt_SUPERSECRET_abc123",
 		"Error 1062: Duplicate entry 'syt_SUPERSECRET_abc123' for key 'access_token'",
@@ -58,6 +69,47 @@ func TestRedactSensitiveStatements(t *testing.T) {
 	}
 	if got := RedactSensitive("UPDATE t SET last_active_ts=5 WHERE user_id = '@u:x'"); strings.Contains(got, redacted) {
 		t.Errorf("unexpected redaction: %s", got)
+	}
+}
+
+func TestRedactingLoggerKeepsBoundValuesOutOfSQL(t *testing.T) {
+	inner := &captureLogger{}
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: NewRedactingLogger(inner)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	// Neither the column name nor an SQL-literal parser can identify a secret
+	// inside every arbitrary bound expression. Verify GORM's actual callback.
+	var got string
+	if err := database.Raw("SELECT ?", secretToken+" ' \" spaces").Scan(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, secretToken) {
+		t.Fatal("logging filter must not change query parameters")
+	}
+	if len(inner.traces) == 0 || strings.Contains(strings.Join(inner.traces, " "), secretToken) {
+		t.Fatal("bound values reached SQL logging")
+	}
+}
+
+func TestRedactingLoggerRedactsFormattedMessages(t *testing.T) {
+	inner := &captureLogger{}
+	l := NewRedactingLogger(inner)
+	l.Info(context.Background(), "Authorization: Bearer %s", secretToken)
+	l.Warn(context.Background(), "password = '%s'", secretToken)
+	l.Error(context.Background(), "refresh_token = '%s'", secretToken)
+	if len(inner.messages) != 3 {
+		t.Fatal("expected all log levels to retain messages")
+	}
+	for _, message := range inner.messages {
+		if strings.Contains(message, secretToken) || !strings.Contains(message, redacted) {
+			t.Fatal("formatted message was not redacted")
+		}
 	}
 }
 

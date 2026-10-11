@@ -580,32 +580,14 @@ func (c *FederationClient) VerifySignature(event map[string]any, serverName stri
 			return false
 		}
 
-		// 查找对应的公钥
-		keyInfo, ok := keyResp.VerifyKeys[keyID]
-		if !ok {
-			log.Error("Key %s not found for server %s", keyID, serverName)
-
+		if err := verifyDirectKeyDocument(keyResp, serverName); err != nil {
 			return false
 		}
-
-		// 解码公钥
-		publicKeyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
-		if err != nil {
-			log.Error("Failed to decode public key for %s:%s: %v", serverName, keyID, err)
-
+		cacheKeyDocument(serverName, keyResp)
+		publicKey, found = c.keyCache.Get(serverName, keyID)
+		if !found {
 			return false
 		}
-
-		publicKey = ed25519.PublicKey(publicKeyBytes)
-
-		// 解析过期时间
-		validUntil := time.Now().Add(24 * time.Hour)
-		if keyResp.ValidUntil > 0 {
-			validUntil = time.UnixMilli(keyResp.ValidUntil)
-		}
-
-		// 缓存公钥
-		c.keyCache.Set(serverName, keyID, publicKey, validUntil)
 	}
 
 	// 解码签名

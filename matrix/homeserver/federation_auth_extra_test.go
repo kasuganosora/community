@@ -227,10 +227,11 @@ func TestEventAuthVerifier_GetServerPublicKey_DBCacheHit(t *testing.T) {
 
 	// Insert a valid (non-expired) server key into DB
 	rec := MatrixServerKey{
-		ServerName: "cached.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "cached.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -248,10 +249,11 @@ func TestEventAuthVerifier_GetServerPublicKey_DBExpiredThenFetchFails(t *testing
 	// Insert an EXPIRED server key into DB (should be ignored by the
 	// valid_until filter, forcing a remote fetch).
 	rec := MatrixServerKey{
-		ServerName: "expired.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(-1 * time.Hour), // expired
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "expired.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(-1 * time.Hour), // expired
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -281,10 +283,11 @@ func TestEventAuthVerifier_VerifyEventSignature_WithCachedKey(t *testing.T) {
 
 	// Seed the DB cache with a valid key for "signer.test"
 	rec := MatrixServerKey{
-		ServerName: "signer.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "signer.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -317,10 +320,11 @@ func TestEventAuthVerifier_VerifyEventSignature_BadSignature(t *testing.T) {
 	v := NewEventAuthVerifier(hs)
 
 	rec := MatrixServerKey{
-		ServerName: "bad signer.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "bad signer.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -362,10 +366,11 @@ func TestEventAuthVerifier_VerifyEventSignature_SigValueNotString(t *testing.T) 
 	v := NewEventAuthVerifier(hs)
 
 	rec := MatrixServerKey{
-		ServerName: "nonstr.test",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "nonstr.test",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -501,10 +506,11 @@ func TestFederationAuthMiddleware_ValidSignature_PassesThrough(t *testing.T) {
 	hs := minimalHS("test.local")
 	// Seed DB cache so getServerPublicKey returns the key without fetching.
 	rec := MatrixServerKey{
-		ServerName: "origin.hs",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "origin.hs",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 
@@ -556,10 +562,11 @@ func TestFederationAuthMiddleware_InvalidSignature_Rejected(t *testing.T) {
 	pub, _ := ed25519Key()
 	hs := minimalHS("test.local")
 	rec := MatrixServerKey{
-		ServerName: "origin.hs",
-		KeyID:      "ed25519:1",
-		PublicKey:  base64.RawStdEncoding.EncodeToString(pub),
-		ValidUntil: time.Now().Add(24 * time.Hour),
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ServerName:         "origin.hs",
+		KeyID:              "ed25519:1",
+		PublicKey:          base64.RawStdEncoding.EncodeToString(pub),
+		ValidUntil:         time.Now().Add(24 * time.Hour),
 	}
 	require.NoError(t, db.GetDB().Create(&rec).Error)
 

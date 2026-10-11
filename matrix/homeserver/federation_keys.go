@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +28,9 @@ import (
 //     the shared federation discovery transport (.well-known with caching, SRV,
 //     8448 fallback), the same path every other federation request uses.
 //  3. If the origin is unreachable, or its document lacks a usable key, ask
-//     notaries via /_matrix/key/v2/query/{server}/{key_id}: first the server the
-//     room is being joined through (it is in the room and already vouches for
-//     its state), then matrix.org. A notary response is accepted only if it is
+//     administrator-trusted notaries via /_matrix/key/v2/query/{server}/{key_id}.
+//     MATRIX_TRUSTED_KEY_SERVERS defaults to matrix.org; an empty value disables
+//     fallback. A join target is not automatically trusted. A notary response is accepted only if it is
 //     signed by the notary's own key (fetched directly from the notary) and
 //     names the right server_name.
 //  4. All keys of an accepted document are cached with their validity; keys in
@@ -51,41 +52,98 @@ const keyDocumentLimit int64 = 4 << 20
 // signature that was checked and found wrong).
 var errKeyUnavailable = errors.New("signing key unavailable")
 
+type cachedKeysOnlyCtxKey struct{}
+
+func withCachedKeysOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, cachedKeysOnlyCtxKey{}, true)
+}
+
 type keyNotaryCtxKey struct{}
 
 // withKeyNotaries makes key lookups under ctx consult these servers (in order)
-// before the defaults. The join flow passes the server it is joining through.
+// before other trusted servers. These hints never grant notary trust.
 func withKeyNotaries(ctx context.Context, servers ...string) context.Context {
 	return context.WithValue(ctx, keyNotaryCtxKey{}, servers)
 }
 
+// trustedKeyNotaries is an administrator-controlled trust boundary. Join targets
+// and client-provided via hints may reorder this list, never extend it.
+func trustedKeyNotaries() []string {
+	if configured, ok := os.LookupEnv("MATRIX_TRUSTED_KEY_SERVERS"); ok {
+		return strings.FieldsFunc(configured, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' })
+	}
+	return defaultKeyNotaries
+}
+
 func keyNotaries(ctx context.Context, hs *HomeServer, target string) []string {
+	trusted := map[string]bool{}
+	for _, server := range trustedKeyNotaries() {
+		if _, _, valid := spec.ParseAndValidateServerName(spec.ServerName(server)); valid {
+			trusted[server] = true
+		}
+	}
 	var list []string
 	seen := map[string]bool{target: true, hs.Config.ServerName: true}
 	add := func(s string) {
-		if s != "" && !seen[s] {
+		if trusted[s] && !seen[s] {
 			seen[s] = true
 			list = append(list, s)
 		}
 	}
-	if v, ok := ctx.Value(keyNotaryCtxKey{}).([]string); ok {
-		for _, s := range v {
-			add(s)
+	if hints, ok := ctx.Value(keyNotaryCtxKey{}).([]string); ok {
+		for _, server := range hints {
+			add(server)
 		}
 	}
-	for _, s := range defaultKeyNotaries {
-		add(s)
+	for _, server := range trustedKeyNotaries() {
+		add(server)
 	}
 	return list
 }
 
-var serverKeyLocks sync.Map // server -> *sync.Mutex
+type serverKeyLock struct {
+	gate chan struct{}
+	refs int // holder and every waiting lookup
+}
 
-func lockServerKeys(server string) func() {
-	m, _ := serverKeyLocks.LoadOrStore(server, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+var serverKeyLocks = struct {
+	sync.Mutex
+	entries map[string]*serverKeyLock
+}{entries: make(map[string]*serverKeyLock)}
+
+func lockServerKeys(ctx context.Context, server string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	serverKeyLocks.Lock()
+	entry := serverKeyLocks.entries[server]
+	if entry == nil {
+		entry = &serverKeyLock{gate: make(chan struct{}, 1)}
+		serverKeyLocks.entries[server] = entry
+	}
+	entry.refs++
+	serverKeyLocks.Unlock()
+	releaseReference := func() {
+		serverKeyLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(serverKeyLocks.entries, server)
+		}
+		serverKeyLocks.Unlock()
+	}
+	select {
+	case entry.gate <- struct{}{}:
+		var once sync.Once
+		unlock := func() { once.Do(func() { <-entry.gate; releaseReference() }) }
+		if err := ctx.Err(); err != nil {
+			unlock()
+			return nil, err
+		}
+		return unlock, nil
+	case <-ctx.Done():
+		releaseReference()
+		return nil, ctx.Err()
+	}
 }
 
 // serverKey is the strict "valid right now" lookup used for request signatures.
@@ -105,8 +163,11 @@ func (v federationJSONVerifier) lookupKey(ctx context.Context, server, keyID str
 		return v.hs.publicKey, nil
 	}
 	cache := GetKeyCache()
-	if key, ok := cache.GetFor(server, keyID, at, check); ok {
+	if key, ok := cache.GetForContext(ctx, server, keyID, at, check); ok {
 		return key, nil
+	}
+	if only, _ := ctx.Value(cachedKeysOnlyCtxKey{}).(bool); only {
+		return nil, fmt.Errorf("%w for %s:%s (cache-only verification)", errKeyUnavailable, server, keyID)
 	}
 	if reason, dead := keyFetchFailures.active(server); dead {
 		return nil, fmt.Errorf("%w for %s (recent failure: %s)", errKeyUnavailable, server, reason)
@@ -114,10 +175,13 @@ func (v federationJSONVerifier) lookupKey(ctx context.Context, server, keyID str
 	if reason, missing := keyFetchFailures.active(server + "|" + keyID); missing {
 		return nil, fmt.Errorf("%w for %s:%s (recent failure: %s)", errKeyUnavailable, server, keyID, reason)
 	}
-	unlock := lockServerKeys(server)
+	unlock, lockErr := lockServerKeys(ctx, server)
+	if lockErr != nil {
+		return nil, lockErr
+	}
 	defer unlock()
 	// Another goroutine may have fetched while we waited for the lock.
-	if key, ok := cache.GetFor(server, keyID, at, check); ok {
+	if key, ok := cache.GetForContext(ctx, server, keyID, at, check); ok {
 		return key, nil
 	}
 
@@ -135,8 +199,8 @@ func (v federationJSONVerifier) lookupKey(ctx context.Context, server, keyID str
 		if label == "direct" {
 			unreachable = false
 		}
-		cacheKeyDocument(server, doc)
-		if key, ok := cache.GetFor(server, keyID, at, check); ok {
+		cacheKeyDocumentContext(ctx, server, doc)
+		if key, ok := cache.GetForContext(ctx, server, keyID, at, check); ok {
 			return key, true
 		}
 		errs = append(errs, label+": requested signing key missing or expired")
@@ -147,9 +211,12 @@ func (v federationJSONVerifier) lookupKey(ctx context.Context, server, keyID str
 	if key, ok := try("direct", doc, err); ok {
 		return key, nil
 	}
+	// Never hold an origin lock while recursively fetching a notary's key.
+	// Two concurrent requests may otherwise wait on one another indefinitely.
+	unlock()
 	if useNotaries && ctx.Err() == nil {
 		for _, notary := range keyNotaries(ctx, v.hs, server) {
-			doc, err = v.fetchNotaryKeyDocument(ctx, notary, server, keyID, at)
+			doc, err = v.fetchNotaryKeyDocumentFor(ctx, notary, server, keyID, at, check)
 			if key, ok := try("notary "+notary, doc, err); ok {
 				log.Debug("signing key %s:%s obtained from notary %s", server, keyID, notary)
 				return key, nil
@@ -179,8 +246,12 @@ func (v federationJSONVerifier) fetchDirectKeyDocument(ctx context.Context, serv
 	if err != nil {
 		return nil, err
 	}
-	if err = verifyKeyDocument(doc, server); err != nil {
-		return nil, err
+	return doc, verifyDirectKeyDocument(doc, server)
+}
+
+func verifyDirectKeyDocument(doc *ServerKeyResponse, server string) error {
+	if err := verifyKeyDocument(doc, server); err != nil {
+		return err
 	}
 	// A server signs its own document with one of the keys it lists.
 	selfSigned := false
@@ -195,9 +266,9 @@ func (v federationJSONVerifier) fetchDirectKeyDocument(ctx context.Context, serv
 		}
 	}
 	if !selfSigned {
-		return nil, fmt.Errorf("%w: invalid key document self-signature", errBadKeyDocument)
+		return fmt.Errorf("%w: invalid key document self-signature", errBadKeyDocument)
 	}
-	return doc, nil
+	return nil
 }
 
 func verifyKeyDocument(doc *ServerKeyResponse, server string) error {
@@ -216,6 +287,20 @@ func verifyKeyDocument(doc *ServerKeyResponse, server string) error {
 // fetchNotaryKeyDocument asks `notary` for server's keys. The notary's
 // signature is verified against the notary's own directly fetched key.
 func (v federationJSONVerifier) fetchNotaryKeyDocument(ctx context.Context, notary, server, keyID string, at spec.Timestamp) (*ServerKeyResponse, error) {
+	return v.fetchNotaryKeyDocumentFor(ctx, notary, server, keyID, at, gmsl.StrictValiditySignatureCheck)
+}
+
+func (v federationJSONVerifier) fetchNotaryKeyDocumentFor(ctx context.Context, notary, server, keyID string, at spec.Timestamp, check gmsl.SignatureValidityCheckFunc) (*ServerKeyResponse, error) {
+	allowed := false
+	for _, trusted := range keyNotaries(context.Background(), v.hs, server) {
+		if trusted == notary {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("%w: untrusted key notary", errBadKeyDocument)
+	}
 	ctx, cancel := context.WithTimeout(ctx, keyFetchTimeout)
 	defer cancel()
 	client := newFederationClient(v.hs)
@@ -238,6 +323,10 @@ func (v federationJSONVerifier) fetchNotaryKeyDocument(ctx context.Context, nota
 		return nil, fmt.Errorf("%w: %v", errBadKeyDocument, err)
 	}
 	var best *ServerKeyResponse
+	var bestValidity int64
+	if check == nil {
+		check = gmsl.StrictValiditySignatureCheck
+	}
 	for _, docRaw := range envelope.ServerKeys {
 		var doc ServerKeyResponse
 		if json.Unmarshal(docRaw, &doc) != nil || doc.ServerName != server || doc.ValidUntil <= 0 {
@@ -258,9 +347,14 @@ func (v federationJSONVerifier) fetchNotaryKeyDocument(ctx context.Context, nota
 		if !trusted {
 			continue
 		}
-		if best == nil || doc.ValidUntil > best.ValidUntil {
+		validity, usable := keyDocumentUsableAt(&doc, keyID, at, check)
+		if !usable {
+			continue
+		}
+		if best == nil || validity > bestValidity {
 			d := doc
 			best = &d
+			bestValidity = validity
 		}
 	}
 	if best == nil {
@@ -269,12 +363,31 @@ func (v federationJSONVerifier) fetchNotaryKeyDocument(ctx context.Context, nota
 	return best, nil
 }
 
+func keyDocumentUsableAt(doc *ServerKeyResponse, keyID string, at spec.Timestamp, check gmsl.SignatureValidityCheckFunc) (int64, bool) {
+	info, exists := doc.VerifyKeys[keyID]
+	validity := doc.ValidUntil
+	if old, retired := doc.OldVerifyKeys[keyID]; retired {
+		info, exists, validity = old, true, old.ExpiredTS
+		if validity <= 0 || int64(at) >= validity {
+			return 0, false
+		}
+	} else if !check(at, spec.Timestamp(validity)) {
+		return 0, false
+	}
+	key, err := base64.RawStdEncoding.DecodeString(info.Key)
+	return validity, exists && err == nil && len(key) == ed25519.PublicKeySize
+}
+
 // cacheKeyDocument stores every key of a verified document.
 func cacheKeyDocument(server string, doc *ServerKeyResponse) {
+	cacheKeyDocumentContext(context.Background(), server, doc)
+}
+
+func cacheKeyDocumentContext(ctx context.Context, server string, doc *ServerKeyResponse) {
 	cache := GetKeyCache()
 	for id, info := range doc.VerifyKeys {
 		if key, err := base64.RawStdEncoding.DecodeString(info.Key); err == nil && len(key) == ed25519.PublicKeySize {
-			cache.Set(server, id, key, time.UnixMilli(doc.ValidUntil))
+			cache.setContext(ctx, server, id, key, time.UnixMilli(doc.ValidUntil), 0)
 		}
 	}
 	for id, info := range doc.OldVerifyKeys {
@@ -283,7 +396,7 @@ func cacheKeyDocument(server string, doc *ServerKeyResponse) {
 		}
 		if key, err := base64.RawStdEncoding.DecodeString(info.Key); err == nil && len(key) == ed25519.PublicKeySize {
 			// An old key is only good for events before it expired.
-			cache.Set(server, id, key, time.UnixMilli(info.ExpiredTS))
+			cache.setContext(ctx, server, id, key, time.UnixMilli(info.ExpiredTS), info.ExpiredTS)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
@@ -16,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Join response validation policy (modelled on Synapse and Dendrite)
+// Join response validation policy
 //
 // A send_join answer carries the room's current state and the auth chain of
 // that state, signed by whichever servers sent those events - often long dead.
@@ -29,6 +30,8 @@ import (
 //	  - exactly one m.room.create event, signed and authorised;
 //	  - every event in the transitive auth chain of the join event, each with a
 //	    valid signature and passing the auth rules against its own auth events;
+//	  - current join-auth state and security policy (ACL, history visibility,
+//	    encryption), with their transitive auth ancestors;
 //	  - the join event being allowed by the resulting state.
 //
 //	BEST EFFORT (older state and history; failures only drop the event):
@@ -58,6 +61,9 @@ func rawIsNull(raw json.RawMessage) bool {
 }
 
 func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joiningUserID, version string, localJoin json.RawMessage, resp *sendJoinResponse) (*preparedFederationJoin, error) {
+	if resp == nil || resp.MembersOmitted {
+		return nil, fmt.Errorf("partial-state join responses are not supported")
+	}
 	var returned any
 	if !rawIsNull(resp.Event) {
 		returned = resp.Event
@@ -67,6 +73,17 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 		return nil, fmt.Errorf("join event: %w", err)
 	}
 
+	neededState := map[string]bool{}
+	needed := gmsl.StateNeededForAuth([]gmsl.PDU{join})
+	for _, tuple := range needed.Tuples() {
+		neededState[tuple.EventType+"\x00"+tuple.StateKey] = true
+	}
+	// Dropping these changes federation access, history disclosure or the
+	// encryption policy even though they are not membership auth events.
+	for _, kind := range []string{"m.room.server_acl", "m.room.history_visibility", "m.room.encryption"} {
+		neededState[kind+"\x00"] = true
+	}
+	criticalState := []string{}
 	events := make(map[string]gmsl.PDU)
 	stateIDs := make(map[string]bool)
 	tuples := map[string]bool{}
@@ -83,9 +100,26 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			requiredState := false
+			if field.state {
+				var header struct {
+					Type     string  `json:"type"`
+					StateKey *string `json:"state_key"`
+				}
+				if err := json.Unmarshal(raw, &header); err != nil {
+					return nil, fmt.Errorf("invalid state event envelope: %w", err)
+				}
+				if header.StateKey == nil || header.Type == "" {
+					return nil, fmt.Errorf("state event has no type or state_key")
+				}
+				requiredState = neededState[header.Type+"\x00"+*header.StateKey]
+			}
 			p, err := parseAndValidatePDU(version, raw)
 			(*field.list)[i] = nil // release the raw copy as soon as it is parsed
 			if err != nil {
+				if field.state {
+					return nil, fmt.Errorf("invalid current state event: %w", err)
+				}
 				undecodable++
 				log.Debug("federation join %s: skipping undecodable %s event: %v", roomID, field.name, err)
 				continue
@@ -98,6 +132,9 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 				continue
 			}
 			events[p.EventID()] = p
+			if requiredState {
+				criticalState = append(criticalState, p.EventID())
+			}
 			if field.state {
 				tuple := p.Type() + "\x00" + *p.StateKey()
 				if tuples[tuple] {
@@ -111,25 +148,19 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 
 	// Required set: the create event plus the join event's auth chain.
 	critical := map[string]bool{}
-	var walk func(id string)
-	walk = func(id string) {
+	todo := append(criticalState, join.AuthEventIDs()...)
+	for len(todo) > 0 {
+		id := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
 		if critical[id] {
-			return
+			continue
 		}
-		e, ok := events[id]
+		event, ok := events[id]
 		if !ok {
-			return
-		}
-		critical[id] = true
-		for _, a := range e.AuthEventIDs() {
-			walk(a)
-		}
-	}
-	for _, id := range join.AuthEventIDs() {
-		if _, ok := events[id]; !ok {
 			return nil, fmt.Errorf("join auth event %s missing from the response", id)
 		}
-		walk(id)
+		critical[id] = true
+		todo = append(todo, event.AuthEventIDs()...)
 	}
 	creates := 0
 	for id, e := range events {
@@ -142,20 +173,41 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 		return nil, fmt.Errorf("expected exactly one m.room.create event, found %d", creates)
 	}
 
-	r.prefetchSigningKeys(ctx, events)
-
-	// Signatures.
-	droppedIDs := map[string]bool{}
+	// Verify the mandatory auth/security state first. Optional history must
+	// never consume the network budget needed to establish that trust.
 	verifier := federationJSONVerifier{r.HS}
-	var unverifiable, badSig int
+	optional := make(map[string]gmsl.PDU)
 	for id, p := range events {
+		if !critical[id] {
+			optional[id] = p
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if err := gmsl.VerifyEventSignatures(ctx, p, verifier, federationUserID); err != nil {
-			if critical[id] {
-				return nil, fmt.Errorf("required event %s (%s): %w", id, p.Type(), err)
-			}
+			return nil, fmt.Errorf("required event %s (%s): %w", id, p.Type(), err)
+		}
+	}
+	budget := 2 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline) / 4; remaining < budget {
+			budget = remaining
+		}
+	}
+	prefetchCtx, cancel := context.WithTimeout(ctx, budget)
+	r.prefetchSigningKeys(prefetchCtx, optional)
+	cancel()
+	// Do not restart failed/unfinished network fetches serially for each old
+	// event. Missing optional keys are dropped; signatures are still checked.
+	cachedCtx := withCachedKeysOnly(ctx)
+	droppedIDs := map[string]bool{}
+	var unverifiable, badSig int
+	for id, p := range optional {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := gmsl.VerifyEventSignatures(cachedCtx, p, verifier, federationUserID); err != nil {
 			if errors.Is(err, errKeyUnavailable) {
 				unverifiable++
 			} else {
@@ -170,35 +222,11 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 		delete(stateIDs, id)
 	}
 
-	// Authorisation against the surviving events. Required events must pass;
-	// others are dropped, repeating a few rounds because dropping an event can
-	// orphan events that cite it.
-	for id := range critical {
-		if err := checkPDUAuthorization(events[id], events); err != nil {
-			return nil, fmt.Errorf("remote state authorization (%s): %w", id, err)
-		}
-	}
-	unauthorised := 0
-	for round := 0; round < 3; round++ {
-		changed := false
-		for id, p := range events {
-			if critical[id] {
-				continue
-			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			if err := checkPDUAuthorization(p, events); err != nil {
-				log.Debug("federation join %s: dropping unauthorised %s %s: %v", roomID, p.Type(), id, err)
-				delete(events, id)
-				delete(stateIDs, id)
-				unauthorised++
-				changed = true
-			}
-		}
-		if !changed {
-			break
-		}
+	// Validate in dependency order. A failed dependency invalidates every
+	// descendant, regardless of chain length or Go map iteration order.
+	unauthorised, err := pruneInvalidJoinAuth(ctx, events, stateIDs, critical)
+	if err != nil {
+		return nil, err
 	}
 
 	state := make([]gmsl.PDU, 0, len(stateIDs))
@@ -234,6 +262,79 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 	return &preparedFederationJoin{roomID: roomID, version: version, events: events, state: state, join: join, creator: creator, dropped: dropped}, nil
 }
 
+// pruneInvalidJoinAuth checks each auth DAG node once and propagates rejection
+// through its dependants. Cycles and missing ancestors never become trusted state.
+func pruneInvalidJoinAuth(ctx context.Context, events map[string]gmsl.PDU, stateIDs, critical map[string]bool) (int, error) {
+	pending := make(map[string]int, len(events))
+	dependants := make(map[string][]string, len(events))
+	invalid := make(map[string]bool)
+	queue := make([]string, 0, len(events))
+	for id, event := range events {
+		refs := make(map[string]bool)
+		for _, parent := range event.AuthEventIDs() {
+			if refs[parent] {
+				continue
+			}
+			refs[parent] = true
+			if _, found := events[parent]; !found {
+				invalid[id] = true
+				continue
+			}
+			pending[id]++
+			dependants[parent] = append(dependants[parent], id)
+		}
+		if pending[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+	processed := make(map[string]bool, len(events))
+	for cursor := 0; cursor < len(queue); cursor++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		id := queue[cursor]
+		processed[id] = true
+		if !invalid[id] {
+			if err := checkPDUAuthorization(events[id], events); err != nil {
+				invalid[id] = true
+			}
+		}
+		for _, child := range dependants[id] {
+			if invalid[id] {
+				invalid[child] = true
+			}
+			pending[child]--
+			if pending[child] == 0 {
+				queue = append(queue, child)
+			}
+		}
+	}
+	for id := range events {
+		if !processed[id] {
+			invalid[id] = true
+		}
+	}
+	for id := range invalid {
+		if critical[id] {
+			return 0, fmt.Errorf("required event %s has invalid or incomplete auth ancestry", id)
+		}
+	}
+	for id := range invalid {
+		delete(events, id)
+		delete(stateIDs, id)
+	}
+	return len(invalid), nil
+}
+
+// This collector only discovers signing requirements for bounded prefetch.
+// Its result is never used as signature verification or as an authorization decision.
+type joinSignatureRequests struct{ requests []gmsl.VerifyJSONRequest }
+
+func (c *joinSignatureRequests) VerifyJSONs(_ context.Context, requests []gmsl.VerifyJSONRequest) ([]gmsl.VerifyJSONResult, error) {
+	c.requests = append(c.requests, requests...)
+	return make([]gmsl.VerifyJSONResult, len(requests)), nil
+}
+
 // prefetchSigningKeys warms the key cache for every signing server in the
 // response with a few concurrent fetches, so verification itself never
 // serialises on slow or dead servers (each costs at most one failure).
@@ -245,25 +346,31 @@ func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string
 	}
 	wanted := map[string]want{}
 	for _, p := range events {
-		var env struct {
-			Signatures map[string]map[string]json.RawMessage `json:"signatures"`
+		if ctx.Err() != nil {
+			return
 		}
-		if json.Unmarshal(p.JSON(), &env) != nil {
+		// Let gomatrixserverlib identify required signers. Arbitrary additional
+		// signatures supplied by a remote must not trigger outbound key requests.
+		collector := &joinSignatureRequests{}
+		if gmsl.VerifyEventSignatures(ctx, p, collector, federationUserID) != nil {
 			continue
 		}
-		impl, err := gmsl.GetRoomVersion(p.Version())
-		if err != nil {
-			continue
-		}
-		for server, keys := range env.Signatures {
+		for _, request := range collector.requests {
+			server := string(request.ServerName)
 			if server == r.HS.Config.ServerName {
 				continue
 			}
-			if _, ok := wanted[server]; ok {
+			if _, exists := wanted[server]; exists {
 				continue
 			}
-			for keyID := range keys {
-				wanted[server] = want{keyID: keyID, at: p.OriginServerTS(), check: impl.SignatureValidityCheck}
+			var env struct {
+				Signatures map[string]map[string]json.RawMessage `json:"signatures"`
+			}
+			if json.Unmarshal(request.Message, &env) != nil {
+				continue
+			}
+			for keyID := range env.Signatures[server] {
+				wanted[server] = want{keyID: keyID, at: request.AtTS, check: request.ValidityCheckingFunc}
 				break
 			}
 		}
@@ -288,10 +395,12 @@ func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string
 			}
 		}()
 	}
+sendJobs:
 	for _, s := range servers {
 		select {
 		case jobs <- s:
 		case <-ctx.Done():
+			break sendJobs
 		}
 	}
 	close(jobs)
@@ -299,18 +408,28 @@ func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string
 }
 
 func (r *RoomService) persistFederationJoin(pj *preparedFederationJoin) error {
+	return r.persistFederationJoinContext(context.Background(), pj)
+}
+
+func (r *RoomService) persistFederationJoinContext(ctx context.Context, pj *preparedFederationJoin) error {
 	room := MatrixRoom{RoomID: pj.roomID, RoomVersion: pj.version, Creator: pj.creator}
-	return db.GetDB().Transaction(func(tx *gorm.DB) error {
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("room_id = ?", pj.roomID).FirstOrCreate(&room).Error; err != nil {
 			return err
 		}
 		for _, p := range pj.events {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := persistVerifiedPDU(tx, r.HS, p, false); err != nil {
 				return err
 			}
 		}
 		// Auth-chain events are historical, not current state. Apply only the snapshot.
 		for _, p := range pj.state {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			e := pduToMatrixEvent(p)
 			r.updateRoomState(tx, pj.roomID, e)
 			if e.EventType == EventTypeRoomMember {
@@ -346,6 +465,13 @@ func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string
 		return out, nil
 	}
 	typed := &sendJoinResponse{}
+	if value, exists := resp["members_omitted"]; exists {
+		var ok bool
+		typed.MembersOmitted, ok = value.(bool)
+		if !ok {
+			return fmt.Errorf("invalid members_omitted flag")
+		}
+	}
 	var err error
 	if typed.State, err = toRaw("state"); err != nil {
 		return err

@@ -259,13 +259,13 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 
 	// 先查询数据库中的缓存
 	var serverKey MatrixServerKey
-	if err := db.GetDB().Where("server_name = ? AND valid_until > ?", serverName, time.Now()).
+	if err := db.GetDB().Where("server_name = ? AND valid_until > ? AND verification_policy = ?", serverName, time.Now(), currentKeyVerificationPolicy).
 		Order("valid_until DESC").
 		First(&serverKey).Error; err == nil {
 		// 使用缓存的密钥
 		keyBytes, err := base64.RawStdEncoding.DecodeString(serverKey.PublicKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode cached key: %w", err)
+		if err != nil || len(keyBytes) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("invalid cached signing key")
 		}
 
 		// 更新内存缓存
@@ -283,10 +283,16 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 		return nil, fmt.Errorf("failed to fetch server keys: %w", err)
 	}
 
+	if err := verifyDirectKeyDocument(keyResp, serverName); err != nil {
+		return nil, err
+	}
+	if time.Now().After(time.UnixMilli(keyResp.ValidUntil)) {
+		return nil, fmt.Errorf("expired signing key document")
+	}
 	// 提取公钥
 	for keyID, keyInfo := range keyResp.VerifyKeys {
 		keyBytes, err := base64.RawStdEncoding.DecodeString(keyInfo.Key)
-		if err != nil {
+		if err != nil || len(keyBytes) != ed25519.PublicKeySize {
 			continue
 		}
 
@@ -297,11 +303,7 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 		}
 
 		// 保存到数据库
-		keyCache.saveToDB(serverName, keyID, &KeyCacheEntry{
-			PublicKey:   ed25519.PublicKey(keyBytes),
-			ValidUntil:  validUntil,
-			LastUpdated: time.Now(),
-		})
+		keyCache.Set(serverName, keyID, ed25519.PublicKey(keyBytes), validUntil)
 
 		return keyBytes, nil
 	}

@@ -45,14 +45,10 @@ func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.D
 // Both are variables so tests can shorten them.
 var (
 	timeoutGrace = 10 * time.Second
-	// timeoutHardLimit is how long the middleware keeps holding the request
-	// after the grace period before abandoning a handler that still runs.
-	// Abandoning is unsafe: gin hands the Context to the next request and the
-	// stale goroutine would then write its late response into that request's
-	// writer (surfacing as "wrote more than the declared Content-Length" or a
-	// garbled body on an unrelated endpoint such as POST /inbox). The 504 has
-	// already been flushed, so waiting only keeps this one connection busy.
-	timeoutHardLimit = 3 * time.Minute
+	// Escalate the warning after this additional interval, but never abandon
+	// a handler still using c: gin would recycle it into another request.
+	// Downstream operations must honor cancellation to bound their work.
+	timeoutWarningInterval = 3 * time.Minute
 )
 
 type handlerPanic struct {
@@ -130,19 +126,19 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 				log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
 			case <-grace.C:
 				log.Warn("handler still running %s after its timeout, holding the request until it returns: %s %s", timeoutGrace, c.Request.Method, c.Request.URL.Path)
-				hard := time.NewTimer(timeoutHardLimit)
+				hard := time.NewTimer(timeoutWarningInterval)
 				defer hard.Stop()
 				select {
 				case <-finished:
 				case p := <-panicChan:
 					log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
 				case <-hard.C:
-					// Last resort: the chain index must still be closed so the
-					// engine does not run the remaining handlers a second time.
-					log.Error("handler still running %s after its timeout, abandoning the gin.Context: %s %s", timeoutGrace+timeoutHardLimit, c.Request.Method, c.Request.URL.Path)
-					c.Abort()
-
-					return
+					log.Error("handler still running %s after its timeout, waiting for cancellation to finish: %s %s", timeoutGrace+timeoutWarningInterval, c.Request.Method, c.Request.URL.Path)
+					select {
+					case <-finished:
+					case p := <-panicChan:
+						log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+					}
 				}
 			}
 			c.Abort()

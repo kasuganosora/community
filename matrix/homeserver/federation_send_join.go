@@ -32,17 +32,24 @@ func sendJoinBodyLimit() int64 {
 	return mb << 20
 }
 
+const maxSendJoinEvents = 250000
+
 func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 	dec := json.NewDecoder(bufio.NewReaderSize(r, 64<<10))
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
+	wrapped := false
 	if d, ok := tok.(json.Delim); ok && d == '[' {
+		wrapped = true
 		// v1 envelope: [200, {...}]
-		var status json.RawMessage
+		var status int
 		if err = dec.Decode(&status); err != nil {
 			return nil, err
+		}
+		if status != 200 {
+			return nil, errors.New("send_join v1 envelope reports failure")
 		}
 		if tok, err = dec.Token(); err != nil {
 			return nil, err
@@ -52,12 +59,17 @@ func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 		return nil, errors.New("send_join response is not a JSON object")
 	}
 	res := &sendJoinResponse{}
+	seen := map[string]bool{}
 	for dec.More() {
 		keyTok, err := dec.Token()
 		if err != nil {
 			return nil, err
 		}
 		key, _ := keyTok.(string)
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate send_join field %s", key)
+		}
+		seen[key] = true
 		switch key {
 		case "state", "auth_chain":
 			list, err := decodeRawArray(dec)
@@ -68,6 +80,9 @@ func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 				res.State = list
 			} else {
 				res.AuthChain = list
+			}
+			if len(res.State)+len(res.AuthChain) > maxSendJoinEvents {
+				return nil, errors.New("too many send_join events")
 			}
 		case "event":
 			if err = dec.Decode(&res.Event); err != nil {
@@ -91,6 +106,22 @@ func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 	if _, err = dec.Token(); err != nil { // closing '}'
 		return nil, err
 	}
+	if wrapped {
+		end, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		if end != json.Delim(']') {
+			return nil, errors.New("invalid send_join v1 envelope")
+		}
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("trailing data after send_join response")
+	}
 	return res, nil
 }
 
@@ -107,9 +138,15 @@ func decodeRawArray(dec *json.Decoder) ([]json.RawMessage, error) {
 	}
 	out := []json.RawMessage{}
 	for dec.More() {
+		if len(out) >= maxSendJoinEvents {
+			return nil, errors.New("too many send_join events")
+		}
 		var raw json.RawMessage
 		if err = dec.Decode(&raw); err != nil {
 			return nil, err
+		}
+		if len(raw) > 65536 {
+			return nil, errors.New("send_join event exceeds Matrix event size limit")
 		}
 		out = append(out, raw)
 	}
