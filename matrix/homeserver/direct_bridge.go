@@ -199,6 +199,7 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		roomID = "!apdm_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
 		creator = "@_ap_bridge_" + hex.EncodeToString(digest[:]) + ":" + hs.Config.ServerName
 	}
+	createdRoom := false
 	var room MatrixRoom
 	err := conn.Where("room_id = ?", roomID).First(&room).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -211,27 +212,11 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		if me != nil {
 			return roomID, "", errors.New(me.Error)
 		}
+		createdRoom = true
 	} else if err != nil {
 		return roomID, "", err
 	} else if room.Creator != creator {
 		return roomID, "", errors.New("bridge room owner mismatch")
-	}
-	// Only recipients invited by this bridge are joined. A deliberate leave/ban
-	// is respected; future messages must not silently force them back in.
-	for _, id := range ids {
-		if err := ctx.Err(); err != nil {
-			return roomID, "", err
-		}
-		member, membershipErr := hs.Room.GetUserMembership(roomID, id)
-		if membershipErr != nil {
-			return roomID, "", membershipErr
-		}
-		_, memberServer, _ := ParseMatrixUserID(id)
-		if member == MembershipInvite && memberServer == hs.Config.ServerName {
-			if _, me := hs.Room.JoinRoom(id, roomID, &JoinRoomRequest{}); me != nil {
-				return roomID, "", errors.New(me.Error)
-			}
-		}
 	}
 	// Reject altered/encrypted rooms and any unexpected joined members.
 	var encryption int64
@@ -251,6 +236,47 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 				return roomID, "", errors.New("unexpected private room member")
 			}
 		}
+	}
+	// New direct messages re-invite voluntary departures from implicit DM rooms.
+	// Re-invitations remain pending until accepted; explicit group membership is unchanged.
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return roomID, "", err
+		}
+		member, membershipErr := hs.Room.GetUserMembership(roomID, id)
+		if membershipErr != nil {
+			return roomID, "", membershipErr
+		}
+		var memberState MatrixRoomState
+		if member == MembershipLeave {
+			if err := conn.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, id).First(&memberState).Error; err != nil {
+				return roomID, "", err
+			}
+		}
+		if !explicit && member == MembershipLeave && participants[id].Domain == nil && participants[id].Id != sender.Id {
+			var departure MatrixEvent
+			if err := conn.Where("event_id = ?", memberState.EventID).First(&departure).Error; err != nil {
+				return roomID, "", err
+			}
+			// A kick also uses leave, but must not be reversed by incoming mail.
+			if departure.Sender == id {
+				if me := hs.Room.InviteUser(roomID, creator, &InviteUserRequest{UserID: id}); me != nil {
+					return roomID, "", errors.New(me.Error)
+				}
+			}
+			continue
+		}
+		_, memberServer, _ := ParseMatrixUserID(id)
+		if member == MembershipInvite && memberServer == hs.Config.ServerName && (createdRoom || participants[id].Domain != nil) {
+			if _, me := hs.Room.JoinRoom(id, roomID, &JoinRoomRequest{}); me != nil {
+				return roomID, "", errors.New(me.Error)
+			}
+		}
+	}
+	// Refresh after initial joins so profiles are synced on the first message.
+	members = nil
+	if err = conn.Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members).Error; err != nil {
+		return roomID, "", err
 	}
 	senderID := hs.bridgeAccountID(sender)
 	for mxid, account := range participants {

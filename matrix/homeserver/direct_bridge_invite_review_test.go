@@ -70,3 +70,61 @@ func TestMembershipDepartureRollsBackEventAndStateOnWriteFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestDirectBridgeNewMessageReinvitesWithoutAutoJoining(t *testing.T) {
+	hs, conn := directBridgeDB(t)
+	ctx := context.Background()
+	seedDirectBridge(t, conn, 601, 2)
+	require.NoError(t, hs.ProcessDirectMessage(ctx, 601))
+	var delivery models.MatrixDMDelivery
+	require.NoError(t, conn.First(&delivery, "status_id = ?", 601).Error)
+	roomID := delivery.RoomID
+	require.Nil(t, hs.Room.LeaveRoom("@alice:test.local", roomID, &LeaveRoomRequest{}))
+	// Reprocessing an old message must not reopen the conversation.
+	require.NoError(t, hs.ProcessDirectMessage(ctx, 601))
+	membership, err := hs.Room.GetUserMembership(roomID, "@alice:test.local")
+	require.NoError(t, err)
+	require.Equal(t, MembershipLeave, membership)
+	for _, id := range []uint64{602, 603} {
+		seedDirectBridge(t, conn, id, 2)
+		require.NoError(t, hs.ProcessDirectMessage(ctx, id))
+		membership, err = hs.Room.GetUserMembership(roomID, "@alice:test.local")
+		require.NoError(t, err)
+		require.Equal(t, MembershipInvite, membership)
+	}
+	_, me := hs.Room.JoinRoom("@alice:test.local", roomID, &JoinRoomRequest{})
+	require.Nil(t, me)
+	membership, err = hs.Room.GetUserMembership(roomID, "@alice:test.local")
+	require.NoError(t, err)
+	require.Equal(t, MembershipJoin, membership)
+}
+
+func TestDirectBridgeDoesNotReinviteKickedBannedOrBlockedRecipient(t *testing.T) {
+	for _, action := range []string{"kick", "ban", "block"} {
+		t.Run(action, func(t *testing.T) {
+			hs, conn := directBridgeDB(t)
+			seedDirectBridge(t, conn, 611, 2)
+			require.NoError(t, hs.ProcessDirectMessage(context.Background(), 611))
+			var delivery models.MatrixDMDelivery
+			require.NoError(t, conn.First(&delivery, "status_id = ?", 611).Error)
+			var room MatrixRoom
+			require.NoError(t, conn.First(&room, "room_id = ?", delivery.RoomID).Error)
+			expected := MembershipLeave
+			switch action {
+			case "kick":
+				require.Nil(t, hs.Room.KickUser(room.RoomID, room.Creator, &KickUserRequest{UserID: "@alice:test.local"}))
+			case "ban":
+				require.Nil(t, hs.Room.BanUser(room.RoomID, room.Creator, &BanUserRequest{UserID: "@alice:test.local"}))
+				expected = MembershipBan
+			case "block":
+				require.Nil(t, hs.Room.LeaveRoom("@alice:test.local", room.RoomID, &LeaveRoomRequest{}))
+				require.NoError(t, conn.Create(&models.Block{AccountId: 2, TargetAccountId: 1}).Error)
+			}
+			seedDirectBridge(t, conn, 612, 2)
+			_ = hs.ProcessDirectMessage(context.Background(), 612)
+			membership, err := hs.Room.GetUserMembership(room.RoomID, "@alice:test.local")
+			require.NoError(t, err)
+			require.Equal(t, expected, membership)
+		})
+	}
+}

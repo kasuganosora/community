@@ -238,7 +238,7 @@ func TestDirectBridgeMySQLConcurrentLease(t *testing.T) {
 	TestDirectBridgeConcurrentLeaseDoesNotDuplicate(t)
 }
 
-func TestDirectBridgeRespectsLeaveAndFailsClosedOnAlteredRoom(t *testing.T) {
+func TestDirectBridgeReinvitesLeaveAndFailsClosedOnAlteredRoom(t *testing.T) {
 	hs, conn := directBridgeDB(t)
 	ctx := context.Background()
 	seedDirectBridge(t, conn, 61, 2, 3)
@@ -250,7 +250,7 @@ func TestDirectBridgeRespectsLeaveAndFailsClosedOnAlteredRoom(t *testing.T) {
 	require.NoError(t, hs.ProcessDirectMessage(ctx, 62))
 	membership, e := hs.Room.GetUserMembership(job.RoomID, "@bob:test.local")
 	require.NoError(t, e)
-	require.Equal(t, MembershipLeave, membership)
+	require.Equal(t, MembershipInvite, membership)
 	// Only the inaccessible bridge creator can invite or alter encryption state.
 	_, me := hs.Event.SendRoomEvent(job.RoomID, "@alice:test.local", string(EventTypeRoomEncryption), nil, map[string]any{"algorithm": "m.megolm.v1.aes-sha2"}, new(""))
 	require.NotNil(t, me)
