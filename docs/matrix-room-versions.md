@@ -26,6 +26,16 @@ Community 支持稳定房间版本 1–12。客户端可以在 `POST /_matrix/cl
 
 `send_join` 响应默认限制为 64 MiB，可用 `MATRIX_FEDERATION_SEND_JOIN_MAX_MB` 调整（1–200 MiB）；状态与认证链合计最多 250,000 个事件。字节和事件数量上限并不等于进程 RSS 上限，解析后的事件、验证索引和并发加入仍会占用额外内存。
 
+状态与认证链事件数上限可用 `MATRIX_MAX_JOIN_STATE_EVENTS` 调整（默认 250000）；超过时在读取响应过程中立即拒绝加入，返回 `M_TOO_LARGE`（HTTP 413）和可读说明，不会写入任何数据。
+
+### 分阶段持久化（partial state）
+
+加入响应验证通过后分两步写入：第一步在同一个事务、同一个 `MATRIX_JOIN_TOTAL_TIMEOUT` 预算内写入房间记录、本地用户的 join 事件、create/power_levels/join_rules/名称/主题等关键状态、本地用户自己的成员关系及其认证祖先，然后立即响应客户端；其余事件（主要是其他成员）由后台按批写入。剩余事件不超过 `MATRIX_JOIN_SYNC_STATE_EVENTS`（默认 2000）时直接在第一步内写完，不产生 partial 状态。
+
+后台写入全部是“不存在才插入”，可安全重试和重入，不会覆盖更新的本地状态。设置：`MATRIX_JOIN_BG_WORKERS`（并发房间数，默认 2）、`MATRIX_JOIN_BG_MAX_HELD`（同时在内存中保留剩余事件的房间数，默认 4，超出则之后从远端重新拉取）、`MATRIX_JOIN_BG_BATCH`（每批事件数，默认 500，另有约 4 MiB 字节上限）、`MATRIX_JOIN_BG_RETRIES`（整体重试次数，默认 5）、`MATRIX_JOIN_BG_RETRY_DELAY`（首次重试间隔，默认 5s，指数增长，上限 5 分钟）、`MATRIX_JOIN_BG_FETCH_TIMEOUT`（恢复时拉取并验证 /state 的超时，默认 10m）、`MATRIX_JOIN_BG_MAX_PENDING_PDUS`（partial 房间内存中暂存的入站 PDU 数，默认 1000）。
+
+partial 标记复用 `matrix_rooms_hs.current_state_id`（形如 `partial|<join 事件 ID>|<服务器>`），无需数据库迁移，崩溃后仍保留。标记存在期间：federation 的 state、state_ids、event、make_join、send_join、make_leave、send_leave 返回 404 `M_NOT_FOUND`；收到的 PDU 暂存并在完成后重放；本地发送的事件同时发给提供加入的服务器；客户端读取基于已有数据（成员列表可能暂时不全）。启动时以及用户再次加入该房间时，会通过 federation `/state`（以 join 事件为基准）从记录的服务器重新拉取并继续写入。
+
 离线服务器的公钥只通过管理员信任的密钥服务器补取。`MATRIX_TRUSTED_KEY_SERVERS` 默认是 `matrix.org`；可用逗号分隔的列表覆盖，显式设为空则关闭备用查询。加入目标和客户端的 `via` 参数不会自动获得公钥担保权限。
 
 升级后，缺少当前验证策略标记的旧密钥缓存不再被信任，会重新获取验证。历史退役密钥仍保存在数据库，仅接受严格早于 `expired_ts` 的事件（包括房间版本 1–4）。锁等待、HTTP 与数据库操作均使用调用方的取消期限。

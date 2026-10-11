@@ -745,6 +745,20 @@ func handleFederationSend(c *gin.Context) {
 		// Signature and auth checks precede persistence; unknown auth chains are rejected.
 		// A rejected PDU is reported per-PDU and never fails the whole transaction.
 
+		if roomID, rerr := federationEventRoomID(event); rerr == nil {
+			if _, _, partial := roomPartialState(db.GetDB(), roomID); partial {
+				// The room's state is still being stored: keep the PDU and
+				// replay it when the room is complete.
+				key := federationRejectedPDUKey(event, len(pduResults))
+				if queuePartialPDU(roomID, event) {
+					pduResults[key] = gin.H{}
+				} else {
+					pduResults[key] = gin.H{"error": errRoomPartialState.Error()}
+				}
+				continue
+			}
+		}
+
 		eventID, err := storeFederationPDU(hs, event)
 		if err != nil {
 			if eventID == "" {

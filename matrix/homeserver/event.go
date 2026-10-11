@@ -309,6 +309,12 @@ func (e *EventService) federateEvent(event *MatrixEvent) {
 		remoteServers[domain] = true
 	}
 
+	// While the room's member list is still being stored it is incomplete:
+	// the server that served our join always gets the event.
+	if _, server, partial := roomPartialState(db.GetDB(), event.RoomID); partial && server != "" && server != e.HS.Config.ServerName {
+		remoteServers[server] = true
+	}
+
 	if len(remoteServers) == 0 {
 		return
 	}

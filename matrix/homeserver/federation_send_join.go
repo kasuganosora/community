@@ -32,7 +32,33 @@ func sendJoinBodyLimit() int64 {
 	return mb << 20
 }
 
-const maxSendJoinEvents = 250000
+const defaultMaxJoinStateEvents = 250000
+
+const maxSendJoinEvents = defaultMaxJoinStateEvents
+
+// sendJoinEventCap is the most state + auth chain events a join response may
+// carry (MATRIX_MAX_JOIN_STATE_EVENTS, default 250000). It is enforced while
+// the response is being read, so an oversized room is refused up front instead
+// of failing halfway through persistence. Replaceable in tests.
+var sendJoinEventCap = func() int {
+	return envInt("MATRIX_MAX_JOIN_STATE_EVENTS", defaultMaxJoinStateEvents, 1, 5_000_000)
+}
+
+// sendJoinTooManyEventsError reports a join response beyond the configured cap.
+// It matches errFederationResponseTooLarge so callers never retry it on another
+// protocol version.
+type sendJoinTooManyEventsError struct{ limit int }
+
+func (e *sendJoinTooManyEventsError) Error() string {
+	return fmt.Sprintf("too many send_join events: more than %d", e.limit)
+}
+func (e *sendJoinTooManyEventsError) Is(target error) bool {
+	return target == errFederationResponseTooLarge
+}
+
+func joinStateTooLargeError(limit int) *MatrixError {
+	return &MatrixError{ErrCode: "M_TOO_LARGE", Error: fmt.Sprintf("This room is too large to join through this server: its state has more than %d events (limit set by MATRIX_MAX_JOIN_STATE_EVENTS).", limit)}
+}
 
 func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 	dec := json.NewDecoder(bufio.NewReaderSize(r, 64<<10))
@@ -71,18 +97,18 @@ func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 		}
 		seen[key] = true
 		switch key {
-		case "state", "auth_chain":
+		case "state", "auth_chain", "pdus":
 			list, err := decodeRawArray(dec)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", key, err)
 			}
-			if key == "state" {
+			if key == "state" || key == "pdus" { // "pdus" is the /state spelling
 				res.State = list
 			} else {
 				res.AuthChain = list
 			}
-			if len(res.State)+len(res.AuthChain) > maxSendJoinEvents {
-				return nil, errors.New("too many send_join events")
+			if limit := sendJoinEventCap(); len(res.State)+len(res.AuthChain) > limit {
+				return nil, &sendJoinTooManyEventsError{limit: limit}
 			}
 		case "event":
 			if err = dec.Decode(&res.Event); err != nil {
@@ -138,8 +164,8 @@ func decodeRawArray(dec *json.Decoder) ([]json.RawMessage, error) {
 	}
 	out := []json.RawMessage{}
 	for dec.More() {
-		if len(out) >= maxSendJoinEvents {
-			return nil, errors.New("too many send_join events")
+		if limit := sendJoinEventCap(); len(out) >= limit {
+			return nil, &sendJoinTooManyEventsError{limit: limit}
 		}
 		var raw json.RawMessage
 		if err = dec.Decode(&raw); err != nil {

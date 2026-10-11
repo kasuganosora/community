@@ -265,15 +265,23 @@ loop:
 	wg.Wait()
 
 	if winner != nil && ctx.Err() == nil {
-		if err := r.persistFederationJoinContext(ctx, winner.prepared); err != nil {
+		rem, err := r.persistFederationJoinStaged(ctx, winner.prepared, winner.server)
+		if err != nil {
 			log.Warn("matrix join %s via %s: storing validated join failed: %v", roomID, winner.server, err)
 			if ctx.Err() != nil {
 				return "", joinContextError(ctx, next, s.Total)
 			}
 			return "", &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"}
 		}
-		log.Info("matrix join %s via %s ok in %s (dropped %d unverifiable events, tried %d of %d candidates)",
-			roomID, winner.server, time.Since(started).Round(time.Millisecond), winner.prepared.dropped, next, len(candidates))
+		dropped := winner.prepared.dropped
+		// Only the remainder (if any) may outlive this call; release the rest.
+		winner.prepared.events, winner.prepared.state, winner.prepared.critical = nil, nil, nil
+		deferred := 0
+		if rem != nil {
+			deferred = r.finishOrDeferJoinRemainder(ctx, rem)
+		}
+		log.Info("matrix join %s via %s ok in %s (dropped %d unverifiable events, %d state events completing in background, tried %d of %d candidates)",
+			roomID, winner.server, time.Since(started).Round(time.Millisecond), dropped, deferred, next, len(candidates))
 		go r.HS.NotifyRoomEvent(roomID)
 		return roomID, nil
 	}
@@ -299,7 +307,7 @@ func joinContextError(ctx context.Context, tried int, total time.Duration) *Matr
 
 func joinFailureRank(e *MatrixError) int {
 	switch e.ErrCode {
-	case "M_FORBIDDEN", "M_UNABLE_TO_AUTHORISE_JOIN", "M_UNABLE_TO_GRANT_JOIN", "M_INCOMPATIBLE_ROOM_VERSION", "M_UNSUPPORTED_ROOM_VERSION", "M_LIMIT_EXCEEDED":
+	case "M_FORBIDDEN", "M_UNABLE_TO_AUTHORISE_JOIN", "M_UNABLE_TO_GRANT_JOIN", "M_INCOMPATIBLE_ROOM_VERSION", "M_UNSUPPORTED_ROOM_VERSION", "M_LIMIT_EXCEEDED", "M_TOO_LARGE":
 		return 3
 	case "M_NOT_FOUND":
 		return 2
@@ -389,6 +397,11 @@ func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings,
 	joined, err := client.SendJoinContext(sjCtx, server, roomID, wire, s.MaxBodyBytes)
 	cancelSJ()
 	if err != nil {
+		var tooMany *sendJoinTooManyEventsError
+		if errors.As(err, &tooMany) {
+			log.Warn("matrix join %s via %s refused: %v", roomID, server, err)
+			return fail(err, joinStateTooLargeError(tooMany.limit))
+		}
 		if errors.Is(err, errFederationResponseTooLarge) {
 			return fail(err, &MatrixError{ErrCode: "M_TOO_LARGE", Error: "The room's join state is larger than this server accepts"})
 		}

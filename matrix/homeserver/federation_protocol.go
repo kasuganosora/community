@@ -57,6 +57,9 @@ func federationRoomVersion(roomID string) (string, error) {
 	if err := db.GetDB().Where("room_id = ?", roomID).First(&room).Error; err != nil {
 		return "", err
 	}
+	if _, _, partial := parsePartialStateMarker(room.CurrentStateID); partial {
+		return "", errRoomPartialState
+	}
 	if room.RoomVersion == "" {
 		return "10", nil
 	}
@@ -241,6 +244,10 @@ func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applySta
 }
 
 func requireFederationRoomAccess(c *gin.Context, roomID string) bool {
+	if _, _, partial := roomPartialState(db.GetDB(), roomID); partial {
+		federationFailure(c, 404, errRoomPartialState)
+		return false
+	}
 	origin := c.GetString("origin")
 	var members []MatrixRoomMember
 	if origin != "" && db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members).Error == nil {

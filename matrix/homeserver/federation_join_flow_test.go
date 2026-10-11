@@ -38,6 +38,7 @@ type fakeFed struct {
 	makeJoinHook func(w http.ResponseWriter, r *http.Request) bool
 	template     func(user string) any           // make_join event template
 	sendJoin     func(event json.RawMessage) any // send_join response body
+	stateResp    func() any                      // federation /state response body
 }
 
 func newFakeFed(t *testing.T) *fakeFed {
@@ -103,6 +104,9 @@ func (f *fakeFed) serve(w http.ResponseWriter, r *http.Request) {
 		f.hit("send_join")
 		body, _ := io.ReadAll(r.Body)
 		_ = json.NewEncoder(w).Encode(f.sendJoin(body))
+	case strings.Contains(path, "/federation/v1/state/") && f.stateResp != nil:
+		f.hit("state")
+		_ = json.NewEncoder(w).Encode(f.stateResp())
 	default:
 		w.WriteHeader(404)
 	}

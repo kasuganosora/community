@@ -53,6 +53,9 @@ type preparedFederationJoin struct {
 	join    gmsl.PDU
 	creator string
 	dropped int
+	// critical is the set of event IDs the join's own authorisation depends on
+	// (create, join auth chain, security policy and their ancestors).
+	critical map[string]bool
 }
 
 func rawIsNull(raw json.RawMessage) bool {
@@ -72,7 +75,17 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 	if err != nil {
 		return nil, fmt.Errorf("join event: %w", err)
 	}
+	return r.validateFederationStateSet(ctx, roomID, joiningUserID, version, join, resp, false)
+}
 
+// validateFederationStateSet validates the state/auth chain of a join response
+// against the (already verified) join event. With resume set, the join event
+// is the one stored from an earlier join and the state is a later /state
+// answer that no longer contains the pre-join state of the joining user, so
+// the join-specific requirements (join auth events present, join allowed by
+// the returned state) are not demanded again; every event is still signature-
+// and auth-checked before it can be stored.
+func (r *RoomService) validateFederationStateSet(ctx context.Context, roomID, joiningUserID, version string, join gmsl.PDU, resp *sendJoinResponse, resume bool) (*preparedFederationJoin, error) {
 	neededState := map[string]bool{}
 	needed := gmsl.StateNeededForAuth([]gmsl.PDU{join})
 	for _, tuple := range needed.Tuples() {
@@ -148,7 +161,10 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 
 	// Required set: the create event plus the join event's auth chain.
 	critical := map[string]bool{}
-	todo := append(criticalState, join.AuthEventIDs()...)
+	todo := append([]string(nil), criticalState...)
+	if !resume {
+		todo = append(todo, join.AuthEventIDs()...)
+	}
 	for len(todo) > 0 {
 		id := todo[len(todo)-1]
 		todo = todo[:len(todo)-1]
@@ -239,8 +255,10 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 	if err != nil {
 		return nil, err
 	}
-	if err = gmsl.Allowed(join, provider, federationUserID); err != nil {
-		return nil, err
+	if !resume {
+		if err = gmsl.Allowed(join, provider, federationUserID); err != nil {
+			return nil, err
+		}
 	}
 	if join.RoomID().String() != roomID || string(join.SenderID()) != joiningUserID {
 		return nil, fmt.Errorf("join identity mismatch")
@@ -259,7 +277,7 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 		log.Info("federation join %s: kept %d events, skipped %d (unverifiable key: %d, bad signature: %d, unauthorised: %d, undecodable: %d)",
 			roomID, len(events), dropped, unverifiable, badSig, unauthorised, undecodable)
 	}
-	return &preparedFederationJoin{roomID: roomID, version: version, events: events, state: state, join: join, creator: creator, dropped: dropped}, nil
+	return &preparedFederationJoin{roomID: roomID, version: version, events: events, state: state, join: join, creator: creator, dropped: dropped, critical: critical}, nil
 }
 
 // pruneInvalidJoinAuth checks each auth DAG node once and propagates rejection

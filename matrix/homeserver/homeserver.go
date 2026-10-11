@@ -119,6 +119,9 @@ func InitHomeServer() error {
 
 	GlobalHS = hs
 
+	// Finish any room join whose state was still being stored at last shutdown.
+	go hs.Room.ResumePartialStateJoins()
+
 	return nil
 }
 

@@ -508,6 +508,42 @@ func (c *FederationClient) SendJoinContext(ctx context.Context, destServer, room
 	return result, nil
 }
 
+// GetStateContext fetches the room state (and its auth chain) at eventID:
+// GET /_matrix/federation/v1/state/{roomId}?event_id=... The answer is read
+// with the same event-count cap as send_join. The "pdus" list is returned in
+// the State field.
+func (c *FederationClient) GetStateContext(ctx context.Context, destServer, roomID, eventID string, maxBytes int64) (*sendJoinResponse, error) {
+	if maxBytes <= 0 {
+		maxBytes = sendJoinBodyLimit()
+	}
+	stateURL := fmt.Sprintf("%s/_matrix/federation/v1/state/%s?event_id=%s",
+		c.federationBaseURL(destServer), url.PathEscape(roomID), url.QueryEscape(eventID))
+	var result *sendJoinResponse
+	status := 0
+	var errBody string
+	_, err := c.doFederationStream(ctx, "GET", stateURL, destServer, nil, maxBytes, func(resp *http.Response, r io.Reader) error {
+		status = resp.StatusCode
+		if resp.StatusCode != http.StatusOK {
+			b, err := io.ReadAll(io.LimitReader(r, 64<<10))
+			errBody = string(b)
+			return err
+		}
+		var err error
+		result, err = decodeSendJoinResponse(r)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("state request failed: %w", err)
+	}
+	if status != http.StatusOK {
+		return nil, &federationHTTPError{Status: status, Message: errBody}
+	}
+	if result == nil {
+		return nil, errors.New("empty state response")
+	}
+	return result, nil
+}
+
 // GetMissingEvents fetches missing events from a remote server.
 // POST /_matrix/federation/v1/get_missing_events/{roomId}.
 func (c *FederationClient) GetMissingEvents(destServer, roomID string, earliestEvents, latestEvents []string, limit int) ([]json.RawMessage, error) {

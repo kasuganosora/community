@@ -592,6 +592,9 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 		return "", ErrNotFound
 	}
 
+	// A known room whose state sync was interrupted gets its writer back.
+	r.resumePartialJoinIfNeeded(roomID)
+
 	// 检查用户是否已在房间中
 	var member MatrixRoomMember
 	// Build member event content, merging any extra content from request
