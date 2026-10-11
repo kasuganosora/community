@@ -41,20 +41,20 @@ func TestTimelineSnapshotPreservesReblogFalloff(t *testing.T) {
 			}
 			counter := &pipelineCounter{}
 			client.AddHook(counter)
-			require.NoError(t, service.RebuildTimeline(next, statuses, aggregate))
-			require.Equal(t, int64(1), counter.calls.Load(), "a rebuild uses one Redis pipeline round trip")
+			require.NoError(t, rebuildFixture(service, next, statuses, aggregate))
+			require.Equal(t, int64(2), counter.calls.Load(), "claim before SQL and CAS publication use two bounded round trips")
 			ctx := context.Background()
 			for _, suffix := range []string{"", ":reblogs"} {
 				want, err := client.ZRevRangeWithScores(ctx, "old:1"+suffix, 0, -1).Result()
 				require.NoError(t, err)
-				got, err := client.ZRevRangeWithScores(ctx, "new:1"+suffix, 0, -1).Result()
+				got, err := client.ZRevRangeWithScores(ctx, TimelineKey(next)+suffix, 0, -1).Result()
 				require.NoError(t, err)
 				require.Equal(t, want, got)
 			}
 			for origin := 10; origin < 17; origin++ {
 				want, err := client.SMembers(ctx, fmt.Sprintf("old:1:reblogs:%d", origin)).Result()
 				require.NoError(t, err)
-				got, err := client.SMembers(ctx, fmt.Sprintf("new:1:reblogs:%d", origin)).Result()
+				got, err := client.SMembers(ctx, fmt.Sprintf("%s:reblogs:%d", TimelineKey(next), origin)).Result()
 				require.NoError(t, err)
 				require.ElementsMatch(t, want, got)
 			}
@@ -94,25 +94,31 @@ func TestTimelineSnapshotPreservesConcurrentPush(t *testing.T) {
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "live:%s", TimelineId: "1"}
 	snapshot := models.Statuses{&models.Status{Id: 100}, &models.Status{Id: 90}}
-	// The SQL snapshot was read before this post was published.
-	require.NoError(t, service.AddToTimelineItem(timeline, &models.Status{Id: 101}, false))
+	ctx := context.Background()
+	lease, err := service.BeginRebuild(ctx, timeline)
+	require.NoError(t, err)
+	push := func(id uint64) error {
+		return service.ApplyProjection(ctx, timeline, Projection{Epoch: lease.Epoch, BatchID: id, LeaseGeneration: 1, LeaseToken: "token", RemainingLease: time.Second, StatusID: id, ObjectVersion: 1})
+	}
+	// Capture the lease before SQL, then publish a low-ID delayed commit as well
+	// as concurrent higher IDs. Neither may be overwritten by the snapshot.
+	require.NoError(t, push(2))
+	require.NoError(t, push(101))
 	var wg sync.WaitGroup
 	for id := uint64(102); id < 118; id++ {
 		wg.Add(1)
-		go func(id uint64) {
-			defer wg.Done()
-			require.NoError(t, service.AddToTimelineItem(timeline, &models.Status{Id: id}, false))
-		}(id)
+		go func(id uint64) { defer wg.Done(); require.NoError(t, push(id)) }(id)
 	}
-	require.NoError(t, service.RebuildTimeline(timeline, snapshot, true))
+	require.ErrorIs(t, service.PublishRebuild(ctx, timeline, lease, snapshot, true), ErrFeedRegenerating)
 	wg.Wait()
-	members, err := client.ZRange(context.Background(), "live:1", 0, -1).Result()
+	members, err := client.ZRange(ctx, TimelineKey(timeline), 0, -1).Result()
 	require.NoError(t, err)
+	require.Contains(t, members, "2")
 	for id := uint64(101); id < 118; id++ {
 		require.Contains(t, members, strconv.FormatUint(id, 10))
 	}
-	require.Contains(t, members, "100")
-	require.Contains(t, members, "90")
+	require.NotContains(t, members, "100", "rejected stale SQL snapshot must not publish any rows")
+
 }
 func TestTimelineSnapshotKeepsDecimalMemberIDs(t *testing.T) {
 	server := miniredis.RunT(t)
@@ -120,8 +126,8 @@ func TestTimelineSnapshotKeepsDecimalMemberIDs(t *testing.T) {
 	defer client.Close()
 	service := NewFeedService(NewRedisClient(client))
 	timeline := &TestMockTimeline{KeyFormat: "decimal:%s", TimelineId: "1"}
-	require.NoError(t, service.RebuildTimeline(timeline, models.Statuses{&models.Status{Id: 117375256454983075}}, false))
-	members, err := client.ZRange(context.Background(), "decimal:1", 0, -1).Result()
+	require.NoError(t, rebuildFixture(service, timeline, models.Statuses{&models.Status{Id: 117375256454983075}}, false))
+	members, err := client.ZRange(context.Background(), TimelineKey(timeline), 0, -1).Result()
 	require.NoError(t, err)
 	require.Equal(t, []string{"117375256454983075"}, members)
 }
@@ -175,4 +181,13 @@ func TestTimelineCanceledBeforeAnyStorageAccess(t *testing.T) {
 	cancel()
 	_, err := GetStatusTimelineContent(&TestMockTimeline{}, &ListParam{Context: ctx}, func(tx *gorm.DB) (*gorm.DB, error) { t.Fatal("canceled request queried database"); return tx, nil }, nil)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// Fixtures are static; production must claim before executing its SQL query.
+func rebuildFixture(service *FeedService, timeline Timeline, statuses models.Statuses, aggregate bool) error {
+	lease, err := service.BeginRebuild(context.Background(), timeline)
+	if err != nil {
+		return err
+	}
+	return service.PublishRebuild(context.Background(), timeline, lease, statuses, aggregate)
 }

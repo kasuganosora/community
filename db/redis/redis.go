@@ -2,7 +2,10 @@ package redis
 
 import (
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/redis/go-redis/v9"
@@ -12,6 +15,9 @@ var redises []*redis.Client
 
 func init() {
 	redises = make([]*redis.Client, 0)
+	if addresses := feedClusterAddresses(); len(addresses) > 0 {
+		universal = redis.NewClusterClient(&redis.ClusterOptions{ContextTimeoutEnabled: true, Addrs: addresses, Password: config.C.Redis0Password, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, DialTimeout: 3 * time.Second, MaxRetries: 1})
+	}
 
 	// 从配置文件中读取 redis 配置
 	// 配置格式为:
@@ -58,9 +64,10 @@ func init() {
 		}
 
 		redises = append(redises, redis.NewClient(&redis.Options{
-			Addr:     fmt.Sprintf("%s:%s", host, port),
-			Password: password,
-			DB:       db,
+			ContextTimeoutEnabled: true,
+			Addr:                  fmt.Sprintf("%s:%s", host, port),
+			Password:              password,
+			DB:                    db,
 		}))
 	}
 }
@@ -85,4 +92,34 @@ func GetRedis(connNum ...int) *redis.Client {
 
 func GetRedises() []*redis.Client {
 	return redises
+}
+
+// Universal client is shared by v3 feed workers, readers and stream subscribers.
+// Legacy consumers retain GetRedis until migrated independently.
+var universal redis.UniversalClient
+
+func GetUniversalRedis() redis.UniversalClient {
+	if universal != nil {
+		return universal
+	}
+	return GetRedis()
+}
+func SetUniversalRedis(client redis.UniversalClient) { universal = client }
+
+func HasUniversalRedis() bool { return universal != nil }
+
+// Environment overrides the parsed .env configuration, including an explicit
+// empty value used to disable the optional Cluster connection.
+func feedClusterAddresses() []string {
+	raw, exists := os.LookupEnv("REDIS_FEED_CLUSTER_ADDRS")
+	if !exists {
+		raw = config.C.Other["REDIS_FEED_CLUSTER_ADDRS"]
+	}
+	var addresses []string
+	for _, value := range strings.Split(raw, ",") {
+		if address := strings.TrimSpace(value); address != "" {
+			addresses = append(addresses, address)
+		}
+	}
+	return addresses
 }

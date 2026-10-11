@@ -32,6 +32,9 @@ func (Follow) TableName() string {
 }
 
 func (f *Follow) AfterCreate(tx *gorm.DB) (err error) {
+	if err = queueFeedFollowChange(tx, f); err != nil {
+		return err
+	}
 	if err = queueFederationFollow(tx, "Follow", f); err != nil {
 		return err
 	}

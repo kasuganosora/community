@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -97,7 +98,7 @@ func Replace(c *gin.Context) {
 		return
 	}
 	var replacement *models.Status
-	transactionContext, publishStatusEvents := models.BeginDeferredStatusEvents(c.Request.Context())
+	transactionContext, publishStatusEvents := models.BeginDeferredStatusEvents(models.WithFeedOperation(c.Request.Context(), uuid.NewString()))
 	err = db.GetDB().WithContext(transactionContext).Transaction(func(tx *gorm.DB) error {
 		original := &models.Status{}
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)

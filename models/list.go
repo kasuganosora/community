@@ -86,6 +86,9 @@ func (la *ListAccount) TableName() string {
 }
 
 func (la *ListAccount) AfterCreate(tx *gorm.DB) (err error) {
+	if err = queueFeedListAccount(tx, la); err != nil {
+		return err
+	}
 	event.Trigger("list", event.Event{
 		Name: "add-to-list",
 		Data: la,
@@ -115,6 +118,9 @@ func (lfa *ListFollowAccount) TableName() string {
 }
 
 func (lfa *ListFollowAccount) AfterCreate(tx *gorm.DB) (err error) {
+	if err = QueueFeedInvalidation(tx, FeedEventMetadata{ActorID: lfa.AccountId, RecipientIDs: []uint64{lfa.AccountId}, ListIDs: []uint64{lfa.ListId}, Reason: "list_subscription_changed"}); err != nil {
+		return err
+	}
 	event.Trigger("list", event.Event{
 		Name: "follow-list",
 		Data: lfa,

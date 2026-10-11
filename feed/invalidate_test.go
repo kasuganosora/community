@@ -14,7 +14,7 @@ func TestInvalidateTimelineClearsAggregationAndNegativeCache(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer client.Close()
 	ctx := context.Background()
-	key := "feed:home:91"
+	key := "feed:v3:{home:91}:items"
 	require.NoError(t, client.ZAdd(ctx, key, redis.Z{Score: 1, Member: "1"}).Err())
 	require.NoError(t, client.ZAdd(ctx, key+":reblogs", redis.Z{Score: 1, Member: "2"}).Err())
 	require.NoError(t, client.SAdd(ctx, key+":reblogs:2", "3").Err())
@@ -29,29 +29,15 @@ func TestInvalidateTimelineClearsAggregationAndNegativeCache(t *testing.T) {
 	require.True(t, server.Exists("unrelated"))
 }
 
-func TestInvalidateWaitsForRebuildAndHonorsCancellation(t *testing.T) {
-	server := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer client.Close()
-	service := NewFeedService(NewRedisClient(client))
-	key := "feed:home:92"
-	timeline := &TestMockTimeline{KeyFormat: "feed:home:%s", TimelineId: "92"}
-	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
-	go func() {
-		finished <- coalesceRebuildContext(context.Background(), key, func() error {
-			close(started)
-			<-release
-			return client.Set(context.Background(), key+":empty", "1", 0).Err()
-		})
-	}()
-	<-started
-	canceled, cancel := context.WithCancel(context.Background())
+func TestInvalidateFencesRebuildAndHonorsCancellation(t *testing.T) {
+	_, client, service, timeline := protocolFixture(t)
+	ctx := context.Background()
+	lease, err := service.BeginRebuild(ctx, timeline)
+	require.NoError(t, err)
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	require.ErrorIs(t, service.InvalidateTimelineContext(canceled, timeline), context.Canceled)
-	cleaned := make(chan error, 1)
-	go func() { cleaned <- service.InvalidateTimelineContext(context.Background(), timeline) }()
-	close(release)
-	require.NoError(t, <-finished)
-	require.NoError(t, <-cleaned)
-	require.False(t, server.Exists(key+":empty"))
+	require.NoError(t, service.InvalidateTimelineContext(ctx, timeline))
+	require.ErrorIs(t, service.PublishRebuild(ctx, timeline, lease, nil, false), ErrFeedRegenerating)
+	require.Equal(t, "0", client.HGet(ctx, TimelineKey(timeline)+":meta", "ready").Val())
 }

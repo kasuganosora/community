@@ -207,7 +207,7 @@ func performAdminAccountAction(c *gin.Context, action string) {
 				}
 				account.User.IsBan = banned
 			}
-			return nil
+			return models.QueueFeedInvalidation(tx, models.FeedEventMetadata{ActorID: account.Id, TargetAccountID: account.Id, Reason: "account_policy_changed"})
 		}
 		if account.Domain != nil || account.User == nil {
 			code, message = 422, "action requires a local login account"
@@ -238,7 +238,7 @@ func performAdminAccountAction(c *gin.Context, action string) {
 			return err
 		}
 		account.User.Status = state
-		return nil
+		return models.QueueFeedInvalidation(tx, models.FeedEventMetadata{ActorID: account.Id, TargetAccountID: account.Id, Reason: "account_policy_changed"})
 	})
 	if err != nil {
 		adminAccountError(c, err)

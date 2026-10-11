@@ -16,7 +16,7 @@ import (
 )
 
 type SettingsField struct {
-	Env       string   `json:"-"`
+	Env       string   `json:"deployment_key,omitempty"`
 	SecretSet bool     `json:"secret_set,omitempty"`
 	Options   []string `json:"options,omitempty"`
 
@@ -60,7 +60,7 @@ func settingsSections() map[string]SettingsSection {
 		}},
 	}
 	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "持久化配置将在服务器重启后用于新的邮件连接；环境变量优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}
-	sections["storage"] = SettingsSection{Title: "对象存储", Description: "修改存储连接需要重启服务器；不会自动迁移已有文件。保存前请先测试目标存储。", Fields: storageSettingsFields()}
+	sections["storage"] = SettingsSection{Title: "对象存储", Description: "修改存储连接需要重启服务器；不会自动迁移已有文件。保存后可测试已保存的目标配置，重启后才切换实际存储。", Fields: storageSettingsFields()}
 	sections["database"] = SettingsSection{Title: "数据库", Description: "数据库连接由部署环境管理，这里仅展示当前连接池诊断，不提供 SQL 执行或凭据。", Fields: databaseSettingsFields()}
 	sections["external"] = SettingsSection{Title: "外部服务", Description: "管理实际使用的搜索集成，查看翻译服务部署配置。", Fields: externalSettingsFields()}
 	return sections

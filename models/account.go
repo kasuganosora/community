@@ -17,6 +17,7 @@ import (
 )
 
 type Account struct { //nolint:recvcheck
+	FeedLastSeenAt     *time.Time `gorm:"index" json:"-"`
 	AvatarDecorationID uint64     `gorm:"not null;default:0" json:"avatar_decoration_id"`
 	ImportedNoteHTML   string     `gorm:"type:text" json:"imported_note_html,omitempty"`
 	LocalActorURI      string     `gorm:"type:varchar(2048);index:idx_local_actor_uri,length:191" json:"local_actor_uri,omitempty"`

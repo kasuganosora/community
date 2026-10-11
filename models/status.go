@@ -35,17 +35,21 @@ const (
 )
 
 type Status struct { //nolint:recvcheck
-	LocalOnly      bool          `gorm:"not null;default:false" json:"local_only"`
-	LocalObjectURI string        `gorm:"type:varchar(2048);index:idx_local_object_uri,length:191" json:"local_object_uri,omitempty"`
-	Id             uint64        `gorm:"primary_key;autoIncrement" json:"id"`
-	Content        StatusContent `json:"content"`
-	AccountId      uint64        `gorm:"not null;index"            json:"account_id"`
-	ApplicationId  *uint64       `json:"application_id"`
-	Visibility     uint8         `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
-	ReblogId       *uint64       `json:"reblog_id"`
-	QuoteId        *uint64       `gorm:"index" json:"quote_id"`
-	ReblogsCount   uint64        `gorm:"not null;default:0"        json:"reblogs_count"`
-	RepliesCount   uint64        `gorm:"not null;default:0"        json:"replies_count"`
+	feedPreviousMetadata *FeedEventMetadata `gorm:"-"`
+	feedAffectedIDs      []uint64           `gorm:"-"`
+	FeedRevision         uint64             `gorm:"not null;default:0" json:"-"`
+	feedEventKind        string             `gorm:"-"`
+	LocalOnly            bool               `gorm:"not null;default:false" json:"local_only"`
+	LocalObjectURI       string             `gorm:"type:varchar(2048);index:idx_local_object_uri,length:191" json:"local_object_uri,omitempty"`
+	Id                   uint64             `gorm:"primary_key;autoIncrement" json:"id"`
+	Content              StatusContent      `json:"content"`
+	AccountId            uint64             `gorm:"not null;index"            json:"account_id"`
+	ApplicationId        *uint64            `json:"application_id"`
+	Visibility           uint8              `gorm:"type:tinyint;not null;default:0"        json:"visibility"`
+	ReblogId             *uint64            `json:"reblog_id"`
+	QuoteId              *uint64            `gorm:"index" json:"quote_id"`
+	ReblogsCount         uint64             `gorm:"not null;default:0"        json:"reblogs_count"`
+	RepliesCount         uint64             `gorm:"not null;default:0"        json:"replies_count"`
 
 	InReplyToId        *uint64        `json:"in_reply_to_id"`
 	InReplyToAccountId *uint64        `json:"in_reply_to_account_id"`
@@ -316,6 +320,25 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 		s.conversationIdChanged = false
 	}
 
+	if s.feedEventKind != "" {
+		kind := s.feedEventKind
+		s.feedEventKind = ""
+		if s.Id == 0 && len(s.feedAffectedIDs) > 0 {
+			for _, id := range s.feedAffectedIDs {
+				if err = QueueFeedStatus(tx, kind, &Status{Id: id}); err != nil {
+					return err
+				}
+			}
+			s.feedAffectedIDs = nil
+		} else if err = QueueFeedStatus(tx, kind, s); err != nil {
+			return err
+		}
+		if kind == FeedStatusCreate {
+			if err = QueueMatrixDirectMessage(tx, s); err != nil {
+				return err
+			}
+		}
+	}
 	triggerStatusEvent(tx, event.Event{
 		Name: "after_save",
 		Data: s,
@@ -325,6 +348,7 @@ func (s *Status) AfterSave(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
+	s.feedEventKind = FeedStatusCreate
 	if err = queueFederationStatus(tx, "Create", s); err != nil {
 		return err
 	}
@@ -357,6 +381,25 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 // 注意：BeforeSave 会在 create+update 都触发，因此不能把 before_update 语义
 // 放进 BeforeSave，否则新建时也会误触发清理逻辑。
 func (s *Status) BeforeUpdate(tx *gorm.DB) (err error) {
+	if s.Id > 0 && !skipFeedHooks(tx) {
+		s.feedPreviousMetadata = &FeedEventMetadata{}
+		if err = captureFeedAudience(tx.Session(&gorm.Session{NewDB: true}), s.Id, s.feedPreviousMetadata); err != nil {
+			return err
+		}
+	}
+	tx.Statement.Omits = append(tx.Statement.Omits, "feed_revision")
+	if s.Id == 0 && !skipFeedHooks(tx) {
+		q := tx.Session(&gorm.Session{NewDB: true}).Model(&Status{}).Select("id").Clauses(clause.Locking{Strength: "UPDATE"})
+		if where, ok := tx.Statement.Clauses["WHERE"]; ok {
+			q = q.Where(where.Expression)
+		} else {
+			return errors.New("feed requires an explicit status mutation scope")
+		}
+		if err = q.Pluck("id", &s.feedAffectedIDs).Error; err != nil {
+			return err
+		}
+	}
+
 	triggerStatusEvent(tx, event.Event{
 		Name: "before_update",
 		Data: s,
@@ -366,6 +409,7 @@ func (s *Status) BeforeUpdate(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
+	s.feedEventKind = FeedStatusRefresh
 	triggerStatusEvent(tx, event.Event{
 		Name: "after_update", //nolint:goconst
 		Data: s,
@@ -375,6 +419,23 @@ func (s *Status) AfterUpdate(tx *gorm.DB) (err error) {
 }
 
 func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
+	if s.Id == 0 && !skipFeedHooks(tx) {
+		if _, ok := tx.Statement.Clauses["WHERE"]; !ok {
+			return errors.New("feed requires an explicit status deletion scope")
+		}
+		var rows []Status
+		if err = feedAffectedRows(tx, &Status{}, 0, &rows); err != nil {
+			return err
+		}
+		for i := range rows {
+			if err = QueueFeedStatus(tx, FeedStatusDelete, &rows[i]); err != nil {
+				return err
+			}
+		}
+	}
+	if err = QueueFeedStatus(tx, FeedStatusDelete, s); err != nil {
+		return err
+	}
 	if err = queueFederationStatus(tx, "Delete", s); err != nil {
 		return err
 	}

@@ -82,6 +82,7 @@ func TestPutEditingIsExplicitlyUnsupported(t *testing.T) {
 }
 func TestReplacementPreservesMediaReplyVisibilityAndQueuesDeleteThenCreate(t *testing.T) {
 	conn, fix, owner := replacementDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.FeedEvent{}, &models.FeedBatch{}))
 	parent := fix.CreateStatus(owner, func(s *models.Status) { s.Content.Content = "parent" })
 	original := fix.CreateStatus(owner, func(s *models.Status) {
 		s.Content.Content = "original"
@@ -117,6 +118,14 @@ func TestReplacementPreservesMediaReplyVisibilityAndQueuesDeleteThenCreate(t *te
 	require.Equal(t, original.Id, events[0].ObjectID)
 	require.Equal(t, "Create", events[1].Kind)
 	require.Equal(t, nextID, events[1].ObjectID)
+	var feedEvents []models.FeedEvent
+	require.NoError(t, conn.Where("operation_id <> ?", "").Order("id").Find(&feedEvents).Error)
+	require.Len(t, feedEvents, 2, "replace is one durable operation spanning old and new objects")
+	require.NotEmpty(t, feedEvents[0].OperationID)
+	require.Equal(t, feedEvents[0].OperationID, feedEvents[1].OperationID)
+	require.ElementsMatch(t, []uint64{original.Id, nextID}, []uint64{feedEvents[0].ObjectID, feedEvents[1].ObjectID})
+	require.ElementsMatch(t, []string{models.FeedStatusCreate, models.FeedStatusDelete}, []string{feedEvents[0].Kind, feedEvents[1].Kind})
+
 	var refreshedParent models.Status
 	require.NoError(t, conn.First(&refreshedParent, parent.Id).Error)
 	require.EqualValues(t, 1, refreshedParent.RepliesCount)

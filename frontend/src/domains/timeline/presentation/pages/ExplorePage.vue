@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { tagApi, type TagInfo } from '../../infrastructure/tagApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
@@ -28,8 +30,11 @@ const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
   max_id: maxId,
   limit,
   ...(activeTab.value === 'local' ? { local: true } : {}),
-}), TIMELINE_PAGE_SIZE)
-const { items: statuses, loading, error, hasMore } = feed
+}), TIMELINE_PAGE_SIZE, 8)
+const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
+const streamTarget = computed(() => activeTab.value === 'local' ? 'stream=public:local' : 'stream=public')
+useFeedStream(streamTarget, feed.revalidate)
+async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
@@ -37,7 +42,7 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
 
 function selectTab(tab: ExploreTab) {
   if (tab === activeTab.value) return
-  saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value)
+  saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState())
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } }).catch(() => {})
 }
@@ -45,7 +50,7 @@ function selectTab(tab: ExploreTab) {
 watch(activeTab, () => {
   const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
   if (snap?.items.length) {
-    feed.hydrate(snap.items, snap.hasMore)
+    feed.hydrate(snap.items, snap.hasMore, snap.window)
     nextTick(() => restoreListScroll(snap.scroll))
     return
   }
@@ -53,20 +58,34 @@ watch(activeTab, () => {
   feed.refresh()
 })
 
+let tagVersion = 0
+async function loadFollowedTags() {
+  const version = ++tagVersion, epoch = sessionEpoch.value
+  followedTags.value = []
+  if (!authStore.currentUser) return
+  try {
+    const rows = await tagApi.followed()
+    if (version === tagVersion && epoch === sessionEpoch.value) followedTags.value = rows
+  } catch { /* Keep the current session's empty state on failure. */ }
+}
+watch(sessionEpoch, () => {
+  ++tagVersion; followedTags.value = []
+  const epoch = sessionEpoch.value
+  void nextTick(() => { if (epoch === sessionEpoch.value) void loadFollowedTags() })
+}, { flush: 'sync' })
+onBeforeUnmount(() => { ++tagVersion })
 onMounted(() => {
-  if (authStore.currentUser) {
-    tagApi.followed().then((rows) => { followedTags.value = rows }).catch(() => { followedTags.value = [] })
-  }
+  void loadFollowedTags()
   const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
   if (snap?.items.length) {
-    feed.hydrate(snap.items, snap.hasMore)
+    feed.hydrate(snap.items, snap.hasMore, snap.window)
     nextTick(() => restoreListScroll(snap.scroll))
     return
   }
   feed.refresh()
 })
 
-onBeforeRouteLeave(() => saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value))
+onBeforeRouteLeave(() => saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState()))
 
 function retryFeed() {
   if (statuses.value.length && hasMore.value) void feed.loadMore()
@@ -94,8 +113,14 @@ function retryFeed() {
       label="时间线"
       @update:model-value="selectTab"
     />
+    <button v-if="newer.length" type="button" class="btn btn--secondary" @click="reloadHead">有新帖子，点击查看</button>
     <TimelineFeed
       :statuses="statuses"
+      :scope-key="streamTarget"
+      :has-previous="hasPrevious"
+      @reload-head="reloadHead"
+      @load-previous="feed.loadPrevious"
+      @pinned-ids="feed.setPinnedIds"
       :loading="loading"
       :has-more="hasMore"
       :error="error"

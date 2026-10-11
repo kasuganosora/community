@@ -50,7 +50,7 @@ func TestFilteredRebuildExcludesIneligibleCandidatesBeforeLimit(t *testing.T) {
 		{PublicTimeline{OnlyMedia: true, OnlyRemote: true}, []string{"3"}},
 	} {
 		require.NoError(t, tc.timeline.RebuildContext(context.Background()))
-		ids, err := client.ZRevRange(context.Background(), "feed:public:"+tc.timeline.GetTimelineId(), 0, -1).Result()
+		ids, err := client.ZRevRange(context.Background(), feed.TimelineKey(&tc.timeline), 0, -1).Result()
 		require.NoError(t, err)
 		require.Equal(t, tc.want, ids)
 		var candidates models.Statuses

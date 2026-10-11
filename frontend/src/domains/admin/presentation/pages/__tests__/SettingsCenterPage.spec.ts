@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { invalidateSessionData } from '@/shared/api/sessionScope'
 import SettingsCenterPage from '../SettingsCenterPage.vue'
 import { settingsAdminApi as api, type SettingsSection } from '../../../infrastructure/settingsAdminApi'
 const section: SettingsSection = { section: 'email', title: '邮件服务器', description: '配置', fields: [
@@ -50,8 +51,59 @@ describe('settings center', () => {
     await w.setProps({ section: 'database' }); await flushPromises()
     resolve(section); await flushPromises()
     expect(w.get('h1').text()).toBe('数据库')
-    expect(w.text()).toContain('0')
+    expect(w.get('input[readonly]').element).toHaveProperty('value', '0')
     expect(w.find('input[type=password]').exists()).toBe(false)
     w.unmount()
   })
+})
+
+it('renders deployed settings as labelled read-only controls and never submits their values', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({ ...section, fields: [
+    { key: 'config.storage.endpoint', deployment_key: 'S3_ENDPOINT', label: '存储端点', type: 'text', value: 's3.example.org', read_only: true, source: 'environment', restart_required: true, description: '兼容 S3 的地址' },
+    { key: 'config.storage.secret_key', deployment_key: 'S3_SECRET_KEY', label: '密钥', type: 'secret', secret_set: true, read_only: true, source: 'environment', restart_required: true },
+  ] })
+  const save = vi.spyOn(api, 'save')
+  const w = mount(SettingsCenterPage, { props: { section: 'storage' } }); await flushPromises()
+  const inputs = w.findAll('input[readonly]')
+  expect(inputs).toHaveLength(2)
+  expect(inputs[0]!.element).toHaveProperty('value', 's3.example.org')
+  expect(inputs[0]!.attributes('aria-describedby')).toBeTruthy()
+  expect(inputs[1]!.element).toHaveProperty('value', '已配置 · 密钥已隐藏')
+  expect(w.text()).toContain('S3_ENDPOINT')
+  expect(w.text()).toContain('兼容 S3 的地址')
+  expect(w.find('button[type=submit]').exists()).toBe(false)
+  await w.get('form').trigger('submit')
+  expect(save).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('clears credential drafts and ignores a late connection result when the session changes', async () => {
+  let resolve!: (result: { success: boolean; message: string }) => void
+  vi.spyOn(api, 'test').mockImplementation(() => new Promise(r => { resolve = r }))
+  const w = mount(SettingsCenterPage, { props: { section: 'email' } }); await flushPromises()
+  await w.findAll('button').find(b => b.text() === '测试已保存配置')!.trigger('click')
+  invalidateSessionData(); await flushPromises()
+  resolve({ success: true, message: 'old-account-result' }); await flushPromises()
+  expect(w.find('form').exists()).toBe(false)
+  expect(w.text()).not.toContain('old-account-result')
+  w.unmount()
+})
+
+it('submits editable select, numeric, boolean and textarea values with their original types', async () => {
+  const editable = { read_only: false, source: 'database' as const, restart_required: false }
+  const fields: SettingsSection['fields'] = [
+    { ...editable, key: 'mode', label: '模式', type: 'text', value: 'local', options: ['local', 's3'] },
+    { ...editable, key: 'limit', label: '限制', type: 'number', value: 20, min: 1, max: 80 },
+    { ...editable, key: 'enabled', label: '开启', type: 'boolean', value: false },
+    { ...editable, key: 'description', label: '介绍', type: 'textarea', value: '' },
+  ]
+  vi.mocked(api.get).mockResolvedValueOnce({ ...section, fields })
+  const save = vi.spyOn(api, 'save').mockResolvedValue({ ...section, fields })
+  const w = mount(SettingsCenterPage, { props: { section: 'general' } }); await flushPromises()
+  await w.get('select').setValue('s3'); await w.get('input[type=number]').setValue('30')
+  await w.get('input[type=checkbox]').setValue(true); await w.get('textarea').setValue('A site description')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(save).toHaveBeenCalledWith('general', { mode: 's3', limit: 30, enabled: true, description: 'A site description' }, [])
+  expect(w.text()).toContain('新请求立即生效')
+  w.unmount()
 })

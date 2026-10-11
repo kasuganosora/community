@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/home"
 	"github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/models"
@@ -186,7 +189,7 @@ func buildAccountFeedsContext(ctx context.Context, account *models.Account) (int
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	redisClient := db.GetRedis()
+	redisClient := db.GetUniversalRedis()
 	if redisClient == nil {
 		return 0, errors.New("redis not available")
 	}
@@ -195,19 +198,14 @@ func buildAccountFeedsContext(ctx context.Context, account *models.Account) (int
 		return 0, fmt.Errorf("failed to query account lists: %w", err)
 	}
 	homeTimeline := &home.HomeTimeline{Account: account}
-	key := fmt.Sprintf(homeTimeline.GetKeyFormat(), homeTimeline.GetTimelineId())
-	if err := repairLegacyFeedScores(ctx, key); err != nil {
-		return 0, fmt.Errorf("failed to repair home timeline scores: %w", err)
-	}
+	key := feed.TimelineKey(homeTimeline)
+
 	if err := homeTimeline.RebuildContext(ctx); err != nil {
 		return 0, fmt.Errorf("failed to rebuild home timeline: %w", err)
 	}
 	for _, userList := range userLists {
 		listTimeline := &list.ListTimeline{List: userList}
-		listKey := fmt.Sprintf(listTimeline.GetKeyFormat(), listTimeline.GetTimelineId())
-		if err := repairLegacyFeedScores(ctx, listKey); err != nil {
-			return 0, fmt.Errorf("failed to repair list %d scores: %w", userList.Id, err)
-		}
+
 		if err := listTimeline.RebuildContext(ctx); err != nil {
 			return 0, fmt.Errorf("failed to rebuild list %d: %w", userList.Id, err)
 		}
@@ -217,24 +215,6 @@ func buildAccountFeedsContext(ctx context.Context, account *models.Account) (int
 		return 0, fmt.Errorf("failed to count home timeline: %w", err)
 	}
 	return int(count), nil
-}
-
-// Correct only malformed scores in the exact canonical feed. The atomic script
-// preserves valid concurrent pushes; it does not delete/recreate the whole key.
-func repairLegacyFeedScores(ctx context.Context, key string) error {
-	const script = `
-local rows=redis.call('ZRANGE',KEYS[1],0,-1,'WITHSCORES')
-for i=1,#rows,2 do
- local id=tonumber(rows[i])
- if not id then
-  redis.call('ZREM',KEYS[1],rows[i])
- elseif id~=tonumber(rows[i+1]) then
-  redis.call('ZADD',KEYS[1],id,rows[i])
- end
-end
-return 1
-`
-	return db.GetRedis().Eval(ctx, script, []string{key}).Err()
 }
 
 // FeedsClearCommand implements tootctl feeds clear
@@ -248,117 +228,46 @@ func FeedsClearCommand() *cli.Command {
 	}
 }
 
+// scanFeedMetadata visits each cluster primary independently. A SCAN cursor
+// belongs to its node; no multi-key command crosses timeline hash slots.
+func scanFeedMetadata(ctx context.Context, pattern string, visit func(string) error) error {
+	return feed.ScanTimelineMetadata(ctx, db.GetUniversalRedis(), pattern, visit)
+}
+
+type feedKeyTimeline string
+
+func (t feedKeyTimeline) GetKeyFormat() string  { return "%s" }
+func (t feedKeyTimeline) GetTimelineId() string { return string(t) }
+func (t feedKeyTimeline) Rebuild() error        { return feed.ErrNeedsRebuild }
+
 func clearFeeds(c *cli.Context) error {
-	redis := db.GetRedis()
-	if redis == nil {
-		return errors.New("redis is not available")
-	}
-
-	ctx := context.Background()
-	startTime := time.Now()
-
-	// Clear home feeds
-	var (
-		cursor uint64
-		err    error
-	)
-
-	totalCleared := 0
-
-	patterns := []string{
-		"feed:home:*",
-		"feed:list:*",
-	}
-
-	for _, pattern := range patterns {
-		cursor = 0
-
-		for {
-			var keys []string
-
-			keys, cursor, err = redis.Scan(ctx, cursor, pattern, 1000).Result()
-			if err != nil {
-				return fmt.Errorf("failed to scan keys: %w", err)
+	start := time.Now()
+	var cleared atomic.Int64
+	for _, pattern := range []string{"feed:v3:{home:*}:items:meta", "feed:v3:{list:*}:items:meta"} {
+		if err := scanFeedMetadata(c.Context, pattern, func(key string) error {
+			if err := feed.InvalidateTimelineContext(c.Context, feedKeyTimeline(strings.TrimSuffix(key, ":meta"))); err != nil {
+				return err
 			}
-
-			if len(keys) > 0 {
-				deleted, err := redis.Del(ctx, keys...).Result()
-				if err != nil {
-					return fmt.Errorf("failed to delete keys: %w", err)
-				}
-
-				totalCleared += int(deleted)
-			}
-
-			if cursor == 0 {
-				break
-			}
+			cleared.Add(1)
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to invalidate feeds: %w", err)
 		}
 	}
-
-	elapsed := time.Since(startTime)
-	fmt.Printf("Feeds cleared. %d keys removed in %s\n", totalCleared, elapsed)
-
+	fmt.Printf("Feeds cleared. %d timelines invalidated in %s\n", cleared.Load(), time.Since(start))
 	return nil
 }
 
-// GetFeedStats returns feed statistics.
+// GetFeedStats counts v3 timeline metadata, including complete empty feeds.
 func GetFeedStats() (map[string]any, error) {
-	redis := db.GetRedis()
-	if redis == nil {
-		return map[string]any{
-			"redis_available": false,
-		}, nil
-	}
-
-	ctx := context.Background()
-	stats := map[string]any{
-		"redis_available": true,
-	}
-
-	// Count home feeds
-	var (
-		cursor uint64
-		keys   []string
-		err    error
-	)
-
-	homeCount := 0
-
-	cursor = 0
-	for {
-		keys, cursor, err = redis.Scan(ctx, cursor, "feed:home:*", 1000).Result()
+	stats := map[string]any{"redis_available": true}
+	for _, kind := range []string{"home", "list"} {
+		var count atomic.Int64
+		err := scanFeedMetadata(context.Background(), "feed:v3:{"+kind+":*}:items:meta", func(string) error { count.Add(1); return nil })
 		if err != nil {
-			break
+			return nil, fmt.Errorf("failed to count feed metadata: %w", err)
 		}
-
-		homeCount += len(keys)
-
-		if cursor == 0 {
-			break
-		}
+		stats[kind+"_feeds"] = int(count.Load())
 	}
-
-	stats["home_feeds"] = homeCount
-
-	// Count list feeds
-	listCount := 0
-
-	cursor = 0
-	for {
-		keys, cursor, err = redis.Scan(ctx, cursor, "feed:list:*", 1000).Result()
-		if err != nil {
-			break
-		}
-
-		listCount += len(keys)
-
-		if cursor == 0 {
-			break
-		}
-	}
-
-	stats["list_feeds"] = listCount
-
-	return stats, nil //nolint:nilerr // may return partial results on redis scan error
+	return stats, nil
 }

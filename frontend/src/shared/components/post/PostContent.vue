@@ -4,6 +4,7 @@
  * timeline card and the status detail page.
  */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { useTimelineRowFlag } from '@/shared/composables/useTimelineRow'
 import { useRouter } from 'vue-router'
 import type { MastodonPoll, MastodonStatus } from '@/shared/types/mastodon'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
@@ -20,10 +21,10 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const cwOpen = ref(false)
-const mediaRevealed = ref(false)
+const cwOpen = useTimelineRowFlag('cwOpen')
+const mediaRevealed = useTimelineRowFlag('mediaRevealed')
 const pollOverride = ref<MastodonPoll | null>(null)
-const expanded = ref(false)
+const expanded = useTimelineRowFlag('expanded')
 const long = ref(false)
 const textEl = ref<HTMLElement>()
 

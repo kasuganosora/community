@@ -12,11 +12,15 @@ import (
 	"github.com/redis/go-redis/v9"
 	"log"
 	"strconv"
+	"time"
 )
 
 func init() {
 	// 监听 所有关于notification表的创建事件
 	event.Register("notification", "after_create", &event.Handler{Exec: func(event event.Event) bool {
+		if feed.DurableFanoutEnabled() {
+			return true
+		}
 		if event.Data == nil {
 			return false
 		}
@@ -50,35 +54,27 @@ func (timeline *NotificationTimeline) GetTimelineId() string {
 	return strconv.FormatUint(timeline.Account.Id, 10)
 }
 
-func (timeline *NotificationTimeline) Rebuild() (err error) {
-	notificationIds := make([]uint64, 0)
+func (timeline *NotificationTimeline) Rebuild() error {
+	return timeline.RebuildContext(context.Background())
+}
+func (timeline *NotificationTimeline) RebuildContext(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-	err = db.GetDB().Model(&models.Notification{}).Where("account_id = ?", timeline.Account.Id).
-		Order("id desc").
-		Limit(feed.MAX_ITEMS/2).
-		Pluck("id", &notificationIds).Error
+	lease, err := feed.BeginRebuild(ctx, timeline)
 	if err != nil {
-		return
+		return err
 	}
-
-	ctx := context.Background()
-	timelineKey := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
-
-	// 清理旧的 timeline 数据
-	if delErr := db.GetRedis().Del(ctx, timelineKey).Err(); delErr != nil {
-		err = delErr
-		return
+	defer feed.ReleaseRebuild(ctx, timeline, lease)
+	var ids []uint64
+	if err = db.GetDB().WithContext(ctx).Model(&models.Notification{}).Where("account_id = ?", timeline.Account.Id).Order("id desc").Limit(feed.MAX_ITEMS).Pluck("id", &ids).Error; err != nil {
+		return err
 	}
-
-	for _, nId := range notificationIds {
-		n := &models.Notification{Id: nId}
-		err = timeline.push(n, false, false)
-		if err != nil {
-			return
-		}
+	entries := make(models.Statuses, 0, len(ids))
+	for _, id := range ids {
+		entries = append(entries, &models.Status{Id: id})
 	}
-
-	return
+	return feed.PublishRebuild(ctx, timeline, lease, entries, false)
 }
 
 func (timeline *NotificationTimeline) push(notification *models.Notification, pushToClient bool, trim bool) (err error) {

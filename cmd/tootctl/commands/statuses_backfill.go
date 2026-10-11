@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/feed"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/activitypub"
@@ -100,31 +103,18 @@ func markBackfilled(c *cli.Context) error {
 		return nil
 	}
 
-	redis := db.GetRedis()
-	if redis == nil {
-		return nil
-	}
-	cleared := 0
-	for _, pattern := range []string{"feed:public:*", "feed:tag:*", "feed:home:*", "feed:list:*"} {
-		var next uint64
-		for {
-			keys, n, err := redis.Scan(ctx, next, pattern, 1000).Result()
-			if err != nil {
-				return fmt.Errorf("scan %s: %w", pattern, err)
+	var cleared atomic.Int64
+	for _, kind := range []string{"public", "hashtag", "home", "list", "mention"} {
+		if err := scanFeedMetadata(ctx, "feed:v3:{"+kind+":*}:items:meta", func(key string) error {
+			if err := feed.InvalidateTimelineContext(ctx, feedKeyTimeline(strings.TrimSuffix(key, ":meta"))); err != nil {
+				return err
 			}
-			if len(keys) > 0 {
-				d, err := redis.Del(ctx, keys...).Result()
-				if err != nil {
-					return err
-				}
-				cleared += int(d)
-			}
-			next = n
-			if next == 0 {
-				break
-			}
+			cleared.Add(1)
+			return nil
+		}); err != nil {
+			return fmt.Errorf("invalidate %s: %w", kind, err)
 		}
 	}
-	fmt.Printf("Cleared %d timeline cache keys; they rebuild on next read\n", cleared)
+	fmt.Printf("Invalidated %d timeline caches; they rebuild on next read\n", cleared.Load())
 	return nil
 }

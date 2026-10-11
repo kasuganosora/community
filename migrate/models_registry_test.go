@@ -57,6 +57,8 @@ var appModels = []any{
 	&models.EmojiUpload{},
 	&models.FavoriteStatus{},
 	&models.FederationOutbox{},
+	&models.FeedEvent{},
+	&models.FeedBatch{},
 	&models.Filter{},
 	&models.Follow{},
 	&models.Group{},

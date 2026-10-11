@@ -56,6 +56,7 @@ func allModels() []any {
 		&models.FavoriteStatus{},
 		&models.Follow{},
 		&models.Block{},
+		&models.DomainBlock{},
 		&models.Notification{},
 		&models.Report{},
 		&models.Poll{},

@@ -1,6 +1,8 @@
 package httpclient
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +20,9 @@ func TestNewClient(t *testing.T) {
 func TestNewNoProxyClient(t *testing.T) {
 	client := NewNoProxyClient()
 	assert.NotNil(t, client)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Nil(t, transport.Proxy, "explicit direct client must not inherit environment proxies")
 }
 
 func TestRequest_SetHeader(t *testing.T) {
@@ -221,6 +226,9 @@ func TestResponse_StatusOk(t *testing.T) {
 
 func TestRequest_Do_InvalidURL(t *testing.T) {
 	client := NewNoProxyClient()
+	client.Transport.(*http.Transport).DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: "missing.invalid", IsNotFound: true}
+	}
 	req := client.NewRequest("GET", "http://invalid.host.that.does.not.exist.example:1")
 	req.SetTimeout(2)
 

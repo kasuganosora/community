@@ -3,7 +3,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"github.com/urfave/cli/v2"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/glebarez/sqlite"
@@ -64,11 +68,11 @@ func TestBuildAccountFeedsUsesCanonicalIDsAndMembership(t *testing.T) {
 			require.NoError(t, conn.Create(&[]models.ListAccount{{ListId: 21, AccountId: 2}, {ListId: 22, AccountId: 4}}).Error)
 			ctx := context.Background()
 			ht := &home.HomeTimeline{Account: accounts[0]}
-			key := fmt.Sprintf(ht.GetKeyFormat(), ht.GetTimelineId())
+			key := feed.TimelineKey(ht)
 			require.NoError(t, client.ZAdd(ctx, key, redis.Z{Score: 1700000000, Member: "10"}, redis.Z{Score: 1700000001, Member: "50"}, redis.Z{Score: 123, Member: "malformed"}).Err())
 			for _, entry := range lists {
 				lt := &list.ListTimeline{List: entry}
-				lk := fmt.Sprintf(lt.GetKeyFormat(), lt.GetTimelineId())
+				lk := feed.TimelineKey(lt)
 				require.NoError(t, client.ZAdd(ctx, lk, redis.Z{Score: 1700000000, Member: "70"}, redis.Z{Score: 123, Member: "malformed"}).Err())
 			}
 			count, err := buildAccountFeeds(accounts[0])
@@ -90,7 +94,7 @@ func TestBuildAccountFeedsUsesCanonicalIDsAndMembership(t *testing.T) {
 			require.NoError(t, err)
 			for i, want := range [][]string{{"90"}, {"70"}} {
 				lt := &list.ListTimeline{List: lists[i]}
-				listKey := fmt.Sprintf(lt.GetKeyFormat(), lt.GetTimelineId())
+				listKey := feed.TimelineKey(lt)
 				got, err := client.ZRevRange(ctx, listKey, 0, -1).Result()
 				require.NoError(t, err)
 				require.Equal(t, want, got)
@@ -113,9 +117,9 @@ func TestBuildAccountFeedsPropagatesFailures(t *testing.T) {
 	})
 	t.Run("redis", func(t *testing.T) {
 		_, client := setupBuildFeedsTest(t)
-		require.NoError(t, client.Set(context.Background(), "feed:home:1", "wrong-type", 0).Err())
+		require.NoError(t, client.Close())
 		_, err := buildAccountFeeds(&models.Account{Id: 1})
-		require.ErrorContains(t, err, "failed to repair home timeline scores")
+		require.ErrorContains(t, err, "failed to rebuild home timeline")
 	})
 	t.Run("cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -123,4 +127,56 @@ func TestBuildAccountFeedsPropagatesFailures(t *testing.T) {
 		_, err := buildAccountFeedsContext(ctx, &models.Account{Id: 1})
 		require.ErrorIs(t, err, context.Canceled)
 	})
+}
+
+func TestClearV3FeedsInvalidatesWithoutLosingTombstone(t *testing.T) {
+	_, client := setupBuildFeedsTest(t)
+	ctx := context.Background()
+	timeline := &home.HomeTimeline{Account: &models.Account{Id: 91}}
+	lease, err := feed.BeginRebuild(ctx, timeline)
+	require.NoError(t, err)
+	require.NoError(t, feed.PublishRebuild(ctx, timeline, lease, models.Statuses{{Id: 10}}, false))
+	require.NoError(t, feed.ApplyProjection(ctx, timeline, feed.Projection{Epoch: lease.Epoch, BatchID: 1, LeaseGeneration: 1, LeaseToken: "delete", RemainingLease: time.Second, StatusID: 9, ObjectVersion: 2, Remove: true}))
+	require.NoError(t, client.Set(ctx, "unrelated:fixture", "keep", 0).Err())
+	commandContext := cli.NewContext(cli.NewApp(), nil, nil)
+	commandContext.Context = ctx
+	require.NoError(t, clearFeeds(commandContext))
+	key := feed.TimelineKey(timeline)
+	require.Zero(t, client.ZCard(ctx, key).Val())
+	require.Equal(t, "0", client.HGet(ctx, key+":meta", "ready").Val())
+	require.Equal(t, "2:1", client.HGet(ctx, key+":versions", "9").Val())
+	require.Equal(t, "keep", client.Get(ctx, "unrelated:fixture").Val())
+	stats, err := GetFeedStats()
+	require.NoError(t, err)
+	require.Equal(t, 1, stats["home_feeds"])
+}
+
+func TestFeedStatsRealCluster(t *testing.T) {
+	addresses := os.Getenv("FEED_CLUSTER_TEST_ADDRS")
+	if addresses == "" {
+		t.Skip("requires the isolated real Redis Cluster")
+	}
+	client := redis.NewClusterClient(&redis.ClusterOptions{Addrs: strings.Split(addresses, ","), ContextTimeoutEnabled: true, DialTimeout: time.Second, ReadTimeout: time.Second, WriteTimeout: time.Second, MaxRetries: 1})
+	defer client.Close()
+	var prior redis.UniversalClient
+	if cRedis.HasUniversalRedis() {
+		prior = cRedis.GetUniversalRedis()
+	}
+	cRedis.SetUniversalRedis(client)
+	defer cRedis.SetUniversalRedis(prior)
+	before, err := GetFeedStats()
+	require.NoError(t, err)
+	service := feed.NewFeedService(feed.NewRedisClient(client))
+	ctx := context.Background()
+	id := uint64(time.Now().UnixNano())
+	for _, timeline := range []feed.Timeline{&home.HomeTimeline{Account: &models.Account{Id: id}}, &list.ListTimeline{List: &models.List{Id: id}}} {
+		lease, err := service.BeginRebuild(ctx, timeline)
+		require.NoError(t, err)
+		require.NoError(t, service.PublishRebuild(ctx, timeline, lease, models.Statuses{{Id: 1}}, false))
+	}
+	after, err := GetFeedStats()
+	require.NoError(t, err)
+	require.Equal(t, before["home_feeds"].(int)+1, after["home_feeds"])
+	require.Equal(t, before["list_feeds"].(int)+1, after["list_feeds"])
+	t.Logf("actual CLI stats scanned Cluster primaries: home=%v list=%v", after["home_feeds"], after["list_feeds"])
 }

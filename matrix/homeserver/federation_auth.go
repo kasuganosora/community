@@ -16,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/httpclient"
 )
 
 // ===== 事件签名验证增强 =====
@@ -323,7 +322,7 @@ func fetchServerKeys(client *FederationClient, baseURL, serverName string) (*Ser
 	urlStr := baseURL + "/_matrix/key/v2/server"
 
 	// 使用 httpclient 发送请求
-	httpReq := httpclient.NewClient().NewRequest("GET", urlStr)
+	httpReq := client.httpClient.NewRequest("GET", urlStr)
 	httpReq.SetTimeout(30)
 
 	resp, err := httpReq.Do()

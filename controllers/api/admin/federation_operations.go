@@ -156,6 +156,9 @@ func FederationJobs(c *gin.Context) {
 	items := []gin.H{}
 	var total int64
 	switch kind {
+	case "feed-event", "feed-batch":
+		feedJobs(c, conn, kind, state, page, limit)
+		return
 	case "delivery":
 		q := conn.Model(&activitypub.Delivery{})
 		if state != "" {
@@ -212,6 +215,9 @@ func FederationJobAction(c *gin.Context) {
 	var q *gorm.DB
 	updates := map[string]any{}
 	switch c.Param("kind") {
+	case "feed-event", "feed-batch":
+		feedJobAction(c, conn, c.Param("kind"), id, body.Action)
+		return
 	case "delivery":
 		q = conn.Model(&activitypub.Delivery{}).Where("id = ? AND status IN ?", id, []string{"failed", "pending"})
 		updates["status"] = "pending"

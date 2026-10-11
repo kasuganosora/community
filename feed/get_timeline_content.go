@@ -2,14 +2,17 @@ package feed
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
-	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"time"
 )
+
+// One shared budget bounds all optional cache work, including activation and
+// a cold rebuild. SQL fallback retains the original request context.
+const cacheReadBudget = 500 * time.Millisecond
 
 type FilterCondition func(tx *gorm.DB) (query *gorm.DB, err error)
 type AfterFilter func(statuses models.Statuses) models.Statuses
@@ -35,10 +38,26 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	cacheCtx, cancelCache := context.WithTimeout(ctx, cacheReadBudget)
+	defer cancelCache()
+	var activationErr error
+	if params.Viewer != nil {
+		activationErr = RecordActivity(cacheCtx, params.Viewer)
+	}
 	conn := db.GetDB().WithContext(ctx)
-	redisConn := db.GetRedis()
-	key := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
+	key := TimelineKey(timeline)
 	databaseOnly, _ := params.Other["database_only"].(bool)
+	databaseOnly = databaseOnly || ForceDatabaseReads() || activationErr != nil
+	fallbackAcquired := false
+	var fallbackCancel context.CancelFunc
+	defer func() {
+		if fallbackAcquired {
+			<-fallbackSlots
+		}
+		if fallbackCancel != nil {
+			fallbackCancel()
+		}
+	}()
 	output := make(models.Statuses, 0, limit)
 	aggregate := false
 	if policy, ok := timeline.(interface{ AggregateReblogs() bool }); ok {
@@ -63,61 +82,62 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		fromDatabase := databaseOnly
 		if !databaseOnly {
 			readIDs := func() ([]uint64, error) {
-				args := redis.ZRangeArgs{Key: key, Start: 0, Stop: candidateLimit - 1, Rev: true}
-				if params.MaxId > 0 || params.MinId > 0 || params.SinceId > 0 {
-					min, max := params.GetRedisRangeMinMax()
-					args = redis.ZRangeArgs{Key: key, Start: min, Stop: max, ByScore: true, Rev: true, Count: int64(candidateLimit)}
-				}
-				raw, err := redisConn.ZRangeArgs(ctx, args).Result()
-				return utils.StringNumberArrayConvertUint64(raw), err
-			}
-			var err error
-			ids, err = readIDs()
-			if err != nil {
-				return nil, err
-			}
-			if len(ids) == 0 {
-				exists, err := redisConn.Exists(ctx, key, key+":empty").Result()
+				min, max := params.GetRedisRangeMinMax()
+				value, err := getDefaultService().eval(cacheCtx, readCandidatesScript, []string{key}, min, max, candidateLimit)
 				if err != nil {
 					return nil, err
 				}
-				if exists == 0 {
-					err = coalesceRebuildContext(ctx, key, func() error {
-						exists, err := redisConn.Exists(ctx, key, key+":empty").Result()
-						if err != nil || exists > 0 {
-							return err
-						}
-						rebuild := timeline.Rebuild
-						if contextual, ok := timeline.(interface{ RebuildContext(context.Context) error }); ok {
-							rebuild = func() error { return contextual.RebuildContext(ctx) }
-						}
-						if err := rebuild(); err != nil {
-							return err
-						}
-						size, err := redisConn.ZCard(ctx, key).Result()
-						if err != nil {
-							return err
-						}
-						if size == 0 {
-							return redisConn.Set(ctx, key+":empty", "1", 5*time.Second).Err()
-						}
-						return nil
-					})
-					if err != nil {
-						return nil, err
+				values, ok := value.([]interface{})
+				if !ok || len(values) == 0 || values[0] != "ready" {
+					return nil, ErrNeedsRebuild
+				}
+				raw := make([]string, 0, len(values)-1)
+				for _, id := range values[1:] {
+					raw = append(raw, id.(string))
+				}
+				return utils.StringNumberArrayConvertUint64(raw), nil
+			}
+			var cacheErr error
+			ids, cacheErr = readIDs()
+			switch {
+			case errors.Is(cacheErr, ErrNeedsRebuild):
+				cacheReads.WithLabelValues("incomplete").Inc()
+			case cacheErr != nil:
+				cacheReads.WithLabelValues("error").Inc()
+			case len(ids) == 0:
+				cacheReads.WithLabelValues("empty").Inc()
+			default:
+				cacheReads.WithLabelValues("ready").Inc()
+			}
+			if cacheErr == ErrNeedsRebuild {
+				cacheErr = coalesceRebuildContext(cacheCtx, key, func() error {
+					if contextual, ok := timeline.(interface{ RebuildContext(context.Context) error }); ok {
+						return contextual.RebuildContext(cacheCtx)
 					}
-					ids, err = readIDs()
-					if err != nil {
-						return nil, err
-					}
+					return ErrNeedsRebuild
+				})
+				if cacheErr == nil {
+					ids, cacheErr = readIDs()
 				}
 			}
-			if len(ids) == 0 {
+			if cacheErr != nil || len(ids) == 0 {
 				databaseOnly = true
 				fromDatabase = true
 			}
 		}
 		if fromDatabase {
+			if !fallbackAcquired {
+				select {
+				case fallbackSlots <- struct{}{}:
+					fallbackAcquired = true
+					sqlFallbacks.WithLabelValues("accepted").Inc()
+				default:
+					sqlFallbacks.WithLabelValues("busy").Inc()
+					return nil, ErrFeedUnavailable
+				}
+				ctx, fallbackCancel = context.WithTimeout(ctx, 5*time.Second)
+				conn = conn.WithContext(ctx)
+			}
 			query, err := newFilterCondition(conn.Model(&models.Status{}))
 			if err != nil {
 				return nil, err
@@ -171,6 +191,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		if err != nil {
 			return nil, err
 		}
+		filteredCandidates.Add(float64(max(0, len(ids)-len(statuses))))
 		for _, status := range statuses {
 			if len(output) == limit {
 				break
@@ -320,3 +341,16 @@ func loadTimelineCandidates(conn *gorm.DB, ids []uint64, filter FilterCondition,
 	err := query.Preload("Reblog").Where("statuses.id IN ?", ids).Order("statuses.id DESC").Find(&statuses).Error
 	return statuses, err
 }
+
+// A Redis outage cannot produce an unbounded number of concurrent SQL scans.
+var fallbackSlots = make(chan struct{}, 16)
+var ErrFeedUnavailable = errors.New("feed database fallback is at capacity")
+
+const readCandidatesScript = `
+local k=KEYS[1];local m=k..':meta'
+if redis.call('HGET',m,'ready')~='1' or redis.call('HEXISTS',m,'epoch')==0 or redis.call('HEXISTS',m,'generation')==0 or redis.call('HGET',k..':versions','_epoch')~=redis.call('HGET',m,'epoch') then return {} end
+if tonumber(redis.call('HGET',m,'count') or '0')>0 and redis.call('EXISTS',k)==0 then return {} end
+local result={'ready'}
+for _,id in ipairs(redis.call('ZREVRANGEBYSCORE',k,ARGV[2],ARGV[1],'LIMIT',0,ARGV[3])) do table.insert(result,id) end
+return result
+`

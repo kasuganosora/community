@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kasuganosora/community/httpclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,8 @@ func newTestFederationClient() (*FederationClient, *HomeServer, ed25519.PublicKe
 		publicKey:  pub,
 	}
 	c := NewFederationClient(hs)
+	// HTTP mocks use an explicit transport, independent of deployment proxy settings.
+	c.httpClient = httpclient.NewNoProxyClient()
 	return c, hs, pub, priv
 }
 

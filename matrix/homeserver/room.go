@@ -29,6 +29,9 @@ func NewRoomService(hs *HomeServer) *RoomService {
 
 // CreateRoomRequest 创建房间请求.
 type CreateRoomRequest struct {
+	// Internal deterministic ID for the trusted local ActivityPub DM bridge; never decoded from client JSON.
+	bridgeRoomID string
+
 	Visibility                string                 `json:"visibility"` // public, private
 	RoomAliasName             *string                `json:"room_alias_name"`
 	Name                      *string                `json:"name"`
@@ -80,6 +83,9 @@ type CreateRoomResponse struct {
 func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*CreateRoomResponse, *MatrixError) { //nolint:gocyclo // Matrix room creation protocol requires sequential event creation
 	// 生成房间 ID
 	roomID := "!" + uuid.New().String() + ":" + r.HS.Config.ServerName
+	if req.bridgeRoomID != "" {
+		roomID = req.bridgeRoomID
+	}
 
 	// 默认房间版本
 	roomVersion := req.RoomVersion

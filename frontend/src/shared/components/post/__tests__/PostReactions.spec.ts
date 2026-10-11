@@ -65,6 +65,28 @@ describe('post emoji reactions', () => {
     expect(wrapper.findAll('img[src="https://remote.test/sensitive.png"]')).toHaveLength(0)
     wrapper.unmount()
   })
+  it('mounts responder UI only when opened and refreshes access after closing and reopening', async () => {
+    const account = { id: 'alice', username: 'alice', acct: 'alice', display_name: 'Alice' } as MastodonAccount
+    const request = vi.spyOn(postApi, 'reactions')
+      .mockResolvedValueOnce([{ name: '👍', count: 1, me: false, accounts: [account] }])
+      .mockRejectedValueOnce(new Error('403'))
+    const wrapper = mountReaction()
+    expect(wrapper.find('t-dialog-stub').exists()).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.responders__handle').text()).toBe('@alice')
+    wrapper.findComponent({ name: 'TDialog' }).vm.$emit('update:visible', false)
+    await flushPromises()
+    expect(wrapper.find('t-dialog-stub').exists()).toBe(false)
+    expect(wrapper.find('.responders__account').exists()).toBe(false)
+    await wrapper.find('.post-reactions__details').trigger('click')
+    await flushPromises()
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('无法读取回应者')
+    expect(wrapper.find('.responders__account').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('discards responder identities when the session changes during a request', async () => {
     let resolve!: (rows: Awaited<ReturnType<typeof postApi.reactions>>) => void
     vi.spyOn(postApi, 'reactions').mockImplementation(() => new Promise(done => { resolve = done }))
@@ -77,4 +99,98 @@ describe('post emoji reactions', () => {
     wrapper.unmount()
   })
 
+})
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+describe('reaction request lifetime isolation', () => {
+  it.each([
+    ['account', 'success'], ['account', 'failure'], ['post', 'success'], ['post', 'failure'],
+  ] as const)('ignores an old reaction %s/%s while the new request is pending', async (scope, outcome) => {
+    const old = deferred<MastodonStatus>(), current = deferred<MastodonStatus>()
+    const request = vi.spyOn(postApi, 'react').mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    editedStatuses.delete(status.id)
+    const wrapper = mountReaction()
+    await byLabel(wrapper, '🎉 2 个回应').trigger('click')
+    if (scope === 'account') sessionEpoch.value++
+    else await wrapper.setProps({ status: { ...status, id: 'new-reaction-post' } })
+    await flushPromises()
+    expect(byLabel(wrapper, '添加表情回应').attributes('disabled')).toBeUndefined()
+    await byLabel(wrapper, '🎉 2 个回应').trigger('click')
+    expect(request).toHaveBeenCalledTimes(2)
+    if (outcome === 'success') old.resolve({ ...status, emoji_reactions: [] })
+    else old.reject(new Error('old access denied'))
+    await flushPromises()
+    expect(editedStatuses.has(status.id)).toBe(false)
+    expect(wrapper.find('[role=alert]').exists()).toBe(false)
+    expect(byLabel(wrapper, '🎉 3 个回应，撤销我的回应').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.post-reactions__row').attributes('aria-busy')).toBe('true')
+    current.reject(new Error('current access denied')); await flushPromises()
+    expect(wrapper.text()).toContain('已恢复原状态')
+    expect(wrapper.find('.post-reactions__row').attributes('aria-busy')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it.each(['success', 'failure'] as const)('does not let an old responder %s end the reopened dialog loading state', async outcome => {
+    type Rows = Awaited<ReturnType<typeof postApi.reactions>>
+    const old = deferred<Rows>(), current = deferred<Rows>()
+    vi.spyOn(postApi, 'reactions').mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const wrapper = mountReaction()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    wrapper.findComponent({ name: 'TDialog' }).vm.$emit('update:visible', false)
+    await flushPromises()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    if (outcome === 'success') old.resolve([{ name: '👍', count: 1, me: false, accounts: [{ id: 'old', acct: 'old' } as MastodonAccount] }])
+    else old.reject(new Error('old failure'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('正在加载回应者')
+    expect(wrapper.find('[role=alert]').exists()).toBe(false)
+    expect(wrapper.find('.responders__account').exists()).toBe(false)
+    current.resolve([{ name: '🎉', count: 1, me: false, accounts: [{ id: 'current', acct: 'current' } as MastodonAccount] }])
+    await flushPromises()
+    expect(wrapper.find('.responders__handle').text()).toBe('@current')
+    expect(wrapper.text()).not.toContain('正在加载回应者')
+    wrapper.unmount()
+  })
+
+  it.each(['success', 'failure'] as const)('does not overwrite the newer completed responder request with old %s', async outcome => {
+    type Rows = Awaited<ReturnType<typeof postApi.reactions>>
+    const old = deferred<Rows>(), current = deferred<Rows>()
+    vi.spyOn(postApi, 'reactions').mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const wrapper = mountReaction()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    wrapper.findComponent({ name: 'TDialog' }).vm.$emit('update:visible', false); await flushPromises()
+    await wrapper.find('.post-reactions__details').trigger('click')
+    current.resolve([{ name: '🎉', count: 1, me: false, accounts: [{ id: 'current', acct: 'current' } as MastodonAccount] }]); await flushPromises()
+    if (outcome === 'success') old.resolve([{ name: '👍', count: 1, me: false, accounts: [{ id: 'old', acct: 'old' } as MastodonAccount] }])
+    else old.reject(new Error('old failure'))
+    await flushPromises()
+    expect(wrapper.find('.responders__handle').text()).toBe('@current')
+    expect(wrapper.find('[role=alert]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+it.each(['account', 'post'] as const)('resets responder loading on %s switch and ignores the old error/finally', async scope => {
+  type Rows = Awaited<ReturnType<typeof postApi.reactions>>
+  const old = deferred<Rows>(), current = deferred<Rows>()
+  vi.spyOn(postApi, 'reactions').mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+  const wrapper = mountReaction()
+  await wrapper.find('.post-reactions__details').trigger('click')
+  if (scope === 'account') sessionEpoch.value++
+  else await wrapper.setProps({ status: { ...status, id: 'new-details-post' } })
+  await flushPromises()
+  expect(wrapper.find('t-dialog-stub').exists()).toBe(false)
+  await wrapper.find('.post-reactions__details').trigger('click')
+  old.reject(new Error('old permission failure')); await flushPromises()
+  expect(wrapper.text()).toContain('正在加载回应者')
+  expect(wrapper.find('[role=alert]').exists()).toBe(false)
+  current.resolve([]); await flushPromises()
+  expect(wrapper.text()).toContain('还没有回应')
+  wrapper.unmount()
 })

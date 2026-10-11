@@ -34,7 +34,7 @@ func getDefaultService() *FeedService {
 
 	defaultServiceOnce.Do(func() {
 		if defaultService == nil {
-			defaultService = NewFeedService(NewRedisClient(db.GetRedis()))
+			defaultService = NewFeedService(NewRedisClient(db.GetUniversalRedis()))
 		}
 	})
 

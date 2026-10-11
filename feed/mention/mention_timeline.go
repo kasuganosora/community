@@ -9,11 +9,15 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"strconv"
+	"time"
 )
 
 func init() {
 	// 监听 所有关于status的事件
 	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
+		if feed.DurableFanoutEnabled() {
+			return true
+		}
 		if event.Data == nil {
 			return false
 		}
@@ -76,12 +80,21 @@ func (timeline *MentionTimeline) Rebuild() error {
 }
 
 func (timeline *MentionTimeline) RebuildContext(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	lease, leaseErr := feed.BeginRebuild(ctx, timeline)
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer feed.ReleaseRebuild(ctx, timeline, lease)
+
 	statuses := make(models.Statuses, 0)
 	if err := mentionCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).
 		Order("statuses.id DESC").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error; err != nil {
 		return err
 	}
-	return feed.RebuildTimelineContext(ctx, timeline, statuses, timeline.AggregateReblogs())
+	return feed.PublishRebuild(ctx, timeline, lease, statuses, timeline.AggregateReblogs())
 }
 
 func (timeline *MentionTimeline) AggregateReblogs() bool {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { useTimelineStore } from '../stores/timelineStore'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import type { ManagedTimelineType } from '../../domain/entities'
@@ -17,7 +18,10 @@ const HOME_TABS: { value: TabType; label: string }[] = [
   { value: 'for-you', label: '推荐' },
   { value: 'following', label: '关注' },
 ]
-const activeTab = ref<TabType>('for-you')
+const activeTab = computed({
+  get: () => timelineStore.homeTab,
+  set: (tab: TabType) => { timelineStore.homeTab = tab },
+})
 
 const currentTimeline = computed(() => activeTab.value === 'for-you'
   ? timelineStore.publicTimeline
@@ -40,7 +44,7 @@ function timelineType(tab: TabType = activeTab.value): ManagedTimelineType {
 
 function rememberPosition(tab: TabType = activeTab.value) {
   const timeline = tab === 'for-you' ? timelineStore.publicTimeline : timelineStore.homeTimeline
-  saveListSnapshot(`home:${tab}`, timeline.statuses, timeline.hasMore)
+  saveListSnapshot(`home:${tab}`, [], timeline.hasMore)
 }
 
 function restorePosition(tab: TabType = activeTab.value) {
@@ -55,15 +59,16 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
 
 function onTabChange(val: TabType) {
   rememberPosition()
+  timelineStore.cancelRevalidation()
   activeTab.value = val
   openTimeline(false)
 }
 
-function loadTimeline() {
+async function loadTimeline() {
   if (activeTab.value === 'for-you') {
-    timelineStore.fetchPublicTimeline()
+    await timelineStore.fetchPublicTimeline()
   } else {
-    timelineStore.fetchHomeTimeline()
+    await timelineStore.fetchHomeTimeline()
   }
 }
 
@@ -73,8 +78,10 @@ function openTimeline(restore: boolean) {
     return
   }
   if (restore) nextTick(() => restorePosition())
-  void timelineStore.checkNewer(timelineType())
+  void timelineStore.checkNewer(timelineType()).catch(() => {})
 }
+
+async function reloadHead() { await loadTimeline(); if (!currentTimeline.value.error) window.scrollTo(0, 0) }
 
 async function handleLoadMore() {
   if (activeTab.value === 'for-you') {
@@ -89,9 +96,9 @@ function retryTimeline() {
   else loadTimeline()
 }
 
-function revealNew() {
-  timelineStore.revealNewer(timelineType())
-  window.scrollTo(0, 0)
+async function revealNew() {
+  await timelineStore.revealNewer(timelineType())
+  if (!currentTimeline.value.error) window.scrollTo(0, 0)
   rememberPosition()
 }
 
@@ -99,17 +106,11 @@ function handlePosted(status: MastodonStatus) {
   timelineStore.prependStatus(status)
 }
 
-let pollTimer = 0
-onMounted(() => {
-  openTimeline(true)
-  pollTimer = window.setInterval(() => {
-    if (document.hidden || statuses.value.length === 0 || currentTimeline.value.isLoading) return
-    void timelineStore.checkNewer(timelineType())
-  }, 45_000)
-})
-
+useFeedStream(computed(() => `stream=${timelineType() === 'home' ? 'user' : 'public'}`),
+  () => timelineStore.checkNewer(timelineType()))
+onMounted(() => openTimeline(true))
 onBeforeRouteLeave(() => rememberPosition())
-onBeforeUnmount(() => window.clearInterval(pollTimer))
+onBeforeUnmount(() => timelineStore.cancelRevalidation())
 </script>
 
 <template>
@@ -135,6 +136,11 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
     <!-- Timeline -->
     <TimelineFeed
       :statuses="statuses"
+      :scope-key="timelineType()"
+      :has-previous="currentTimeline.hasPrevious"
+      @pinned-ids="ids => timelineStore.setPinnedIds(timelineType(), ids)"
+      @reload-head="reloadHead"
+      @load-previous="timelineStore.loadPrevious(timelineType())"
       :loading="currentTimeline.isLoading"
       :has-more="currentTimeline.hasMore"
       :error="currentTimeline.error"

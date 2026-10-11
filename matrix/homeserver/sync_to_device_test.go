@@ -3,6 +3,7 @@ package homeserver
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 
 func syncInboxTestDB(t *testing.T) (*gorm.DB, *SyncService) {
 	t.Helper()
-	conn, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	conn, err := pgtest.GormOpen(t, sqlite.Open(filepath.Join(t.TempDir(), "sync-inbox.sqlite")), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, err)
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)
@@ -189,7 +190,8 @@ func TestToDeviceCanceledBatchTransactionRetainsKeys(t *testing.T) {
 	_, _, err := canceled.getToDeviceMessages("@rollback:test", "D", "")
 	require.ErrorIs(t, err, context.Canceled)
 	deferred()
-	// SQLite can discard the canceled transaction connection; the regular
+	// A file-backed fixture survives SQLite discarding a canceled connection.
+	// The regular
 	// cancellation test already covers a completed pending batch. This case
 	// specifically requires the DB transaction to retain the original payload.
 	messages, batch, err := service.getToDeviceMessages("@rollback:test", "D", "")

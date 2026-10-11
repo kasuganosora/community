@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +60,13 @@ type handlerPanic struct {
 // request goroutine, with the original stack logged, for gin.Recovery.
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Streaming handlers own cancellation, heartbeats and per-write
+		// deadlines. A normal request timeout would disconnect every feed
+		// after 30 seconds and corrupt an upgraded WebSocket connection.
+		if c.Request.Method == http.MethodGet && (strings.HasPrefix(c.Request.URL.Path, "/api/v1/streaming") || strings.HasPrefix(c.Request.URL.Path, "/api/v2/streaming")) {
+			c.Next()
+			return
+		}
 		if isDataTransferRequest(c.Request) {
 			// Socket deadlines otherwise remain the normal 10s read / 65s
 			// write budgets, which would truncate legitimate large backups.

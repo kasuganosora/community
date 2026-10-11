@@ -5,6 +5,8 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { tagApi } from '../../infrastructure/tagApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
@@ -23,12 +25,13 @@ const displayTag = computed(() =>
 
 async function loadFollow() {
   const requested = tag.value
+  const epoch = sessionEpoch.value
   canonicalName.value = ''
   following.value = false
   if (!requested) return
   try {
     const info = await tagApi.get(requested)
-    if (requested !== tag.value) return
+    if (requested !== tag.value || epoch !== sessionEpoch.value) return
     canonicalName.value = info.name || ''
     following.value = !!authStore.currentUser && !!info.following
   } catch {
@@ -53,13 +56,18 @@ async function toggleFollow() {
 const feed = usePaginatedList(
   (maxId, limit) => timelineApi.getTagTimeline(tag.value, { max_id: maxId, limit }),
   TIMELINE_PAGE_SIZE,
+  8,
 )
-const { items: statuses, loading, error, hasMore } = feed
+const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
+const streamTarget = computed(() => `stream=hashtag&tag=${encodeURIComponent(tag.value)}`)
+useFeedStream(streamTarget, feed.revalidate)
+async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
+watch(sessionEpoch, () => { following.value = false; canonicalName.value = '' }, { flush: 'sync' })
 watch(tag, () => { feed.reset(); feed.refresh(); void loadFollow() })
 onMounted(() => { feed.refresh(); void loadFollow() })
 </script>
@@ -75,8 +83,14 @@ onMounted(() => { feed.refresh(); void loadFollow() })
         {{ following ? '已关注话题' : '关注话题' }}
       </button>
     </div>
+    <button v-if="newer.length" class="btn btn--secondary" type="button" @click="reloadHead">有新帖子，点击查看</button>
     <TimelineFeed
       :statuses="statuses"
+      :scope-key="streamTarget"
+      :has-previous="hasPrevious"
+      @reload-head="reloadHead"
+      @load-previous="feed.loadPrevious"
+      @pinned-ids="feed.setPinnedIds"
       :loading="loading"
       :has-more="hasMore"
       :error="error"

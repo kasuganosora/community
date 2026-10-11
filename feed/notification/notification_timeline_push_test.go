@@ -1,8 +1,10 @@
 package notification
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/alicebob/miniredis/v2"
 	"sync"
 	"testing"
 	"time"
@@ -280,11 +282,11 @@ func TestRebuild_EmptyAccount(t *testing.T) {
 	tl := &NotificationTimeline{Account: account}
 
 	// Rebuild 先 Del 旧 key，由于没有 notification，Pluck 返回空，循环不执行 push.
-	env.mock.ExpectDel("feed:notification:5001").SetVal(1)
+	client := setupRebuildRedis(t)
 
 	err := tl.Rebuild()
 	require.NoError(t, err)
-	require.NoError(t, env.mock.ExpectationsWereMet())
+	require.Equal(t, "1", client.HGet(context.Background(), feed.TimelineKey(tl)+":meta", "ready").Val())
 }
 
 // Rebuild 有数据场景：先 Del，再为每条 notification 调用 push -> ZAdd.
@@ -310,33 +312,29 @@ func TestRebuild_WithNotifications(t *testing.T) {
 
 	tl := &NotificationTimeline{Account: account}
 
-	// Rebuild 先 Del.
-	env.mock.ExpectDel("feed:notification:5002").SetVal(1)
-	// 然后为每条 notification push（ZAdd）.
-	for i := uint64(1); i <= 3; i++ {
-		env.mock.ExpectZAdd("feed:notification:5002", redis.Z{
-			Score: float64(i), Member: uint64(i),
-		}).SetVal(1)
-	}
+	client := setupRebuildRedis(t)
 
 	err := tl.Rebuild()
 	require.NoError(t, err)
-	require.NoError(t, env.mock.ExpectationsWereMet())
+	require.Equal(t, []string{"3", "2", "1"}, client.ZRevRange(context.Background(), feed.TimelineKey(tl), 0, -1).Val())
 }
 
 // Rebuild 在 Del 失败时应返回 error.
-func TestRebuild_DelFails(t *testing.T) {
-	env := setupNotifEnv(t)
+func TestRebuild_RedisUnavailable(t *testing.T) {
+	setupNotifEnv(t)
+	client := setupRebuildRedis(t)
+	require.NoError(t, client.Close())
+	timeline := &NotificationTimeline{Account: &models.Account{Id: 5003}}
+	require.Error(t, timeline.Rebuild())
+}
 
-	account := &models.Account{Id: 5003}
-	tl := &NotificationTimeline{Account: account}
-
-	env.mock.ExpectDel("feed:notification:5003").SetErr(errors.New("del failed"))
-
-	err := tl.Rebuild()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "del failed")
-	require.NoError(t, env.mock.ExpectationsWereMet())
+func setupRebuildRedis(t *testing.T) *redis.Client {
+	t.Helper()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	feed.SetDefaultService(feed.NewFeedService(feed.NewRedisClient(client)))
+	return client
 }
 
 // --- init 注册的 event handler --------------------------------------------

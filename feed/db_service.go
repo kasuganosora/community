@@ -36,7 +36,8 @@ func (s *DBService) GetAccountRecentActiveLocalFollowersId(accountId uint64) (fo
 	err = s.db.Model(&models.Account{}).
 		Joins("JOIN follows ON follows.account_id = accounts.id").
 		Where("follows.status = ?", models.FollowStatusFollowed).
-		Where("follows.follow_id = ? AND accounts.last_activity_at > ? AND accounts.domain IS NULL", accountId, activeThreshold).
+		Where("follows.follow_id = ? AND accounts.domain IS NULL", accountId).
+		Where("accounts.feed_last_seen_at > ? OR accounts.last_activity_at > ? OR accounts.created_at > ?", activeThreshold, activeThreshold, activeThreshold).
 		Pluck("accounts.id", &followers).Error
 
 	return

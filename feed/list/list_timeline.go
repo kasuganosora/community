@@ -2,7 +2,6 @@ package list
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +17,9 @@ import (
 func init() {
 	// 监听 所有关于status的事件
 	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
+		if feed.DurableFanoutEnabled() {
+			return true
+		}
 		if event.Data == nil {
 			return false
 		}
@@ -104,12 +106,13 @@ func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
 // DropCache forgets a list feed so the next read rebuilds it from the current
 // members. Adding or removing someone otherwise leaves the previous snapshot.
 func DropCache(listID uint64) {
-	if listID == 0 || len(appredis.GetRedises()) == 0 {
+	if listID == 0 || (len(appredis.GetRedises()) == 0 && !appredis.HasUniversalRedis()) {
 		return
 	}
 	timeline := &ListTimeline{List: &models.List{Id: listID}}
-	key := fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId())
-	_ = db.GetRedis().Del(context.Background(), key, key+":empty").Err()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = feed.InvalidateTimelineContext(ctx, timeline)
 }
 
 func (timeline *ListTimeline) GetTimelineId() string {
@@ -133,6 +136,15 @@ func (timeline *ListTimeline) GetTimelineId() string {
 
 func (timeline *ListTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
 func (timeline *ListTimeline) RebuildContext(ctx context.Context) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	lease, leaseErr := feed.BeginRebuild(ctx, timeline)
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer feed.ReleaseRebuild(ctx, timeline, lease)
+
 	statuses := make(models.Statuses, 0)
 	err = timeline.candidates(db.GetDB().WithContext(ctx).Model(&models.Status{})).
 		Order("statuses.id desc").Limit(feed.MAX_ITEMS / 4).Find(&statuses).Error
@@ -140,7 +152,7 @@ func (timeline *ListTimeline) RebuildContext(ctx context.Context) (err error) {
 		return err
 	}
 
-	return feed.RebuildTimelineContext(ctx, timeline, statuses, true)
+	return feed.PublishRebuild(ctx, timeline, lease, statuses, true)
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {

@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import PostCard from '@/shared/components/post/PostCard.vue'
+import TimelineRow from './TimelineRow.vue'
+import { useTimelineWindow } from '../composables/useTimelineWindow'
 
 const props = defineProps<{
   statuses: MastodonStatus[]
+  scopeKey?: string
+  hasPrevious?: boolean
   loading?: boolean
   hasMore?: boolean
   error?: string | null
@@ -14,6 +18,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   loadMore: []
+  loadPrevious: []
+  reloadHead: []
+  pinnedIds: [ids: string[]]
   retry: []
   reblog: [status: MastodonStatus]
   favourite: [status: MastodonStatus]
@@ -21,6 +28,20 @@ const emit = defineEmits<{
 }>()
 
 const sentinel = ref<HTMLElement>()
+const region = ref<HTMLElement>()
+const windowed = useTimelineWindow(
+  () => props.statuses,
+  () => props.scopeKey ?? window.location.pathname,
+  () => !!props.hasPrevious,
+  region,
+  ids => emit('pinnedIds', ids),
+)
+const { visible, tail, prefix, scrollTop, renderVersion } = windowed
+const distantHistory = computed(() => !!props.hasPrevious && scrollTop.value < prefix.value - 6000)
+// Re-read an evicted page using its API cursor, never a pixel-derived ID.
+watch([scrollTop, () => props.loading, () => props.hasPrevious], () => {
+  if (props.hasPrevious && !distantHistory.value && !props.loading && !props.error && scrollTop.value <= prefix.value + 600) emit('loadPrevious')
+}, { flush: 'post' })
 
 let observer: IntersectionObserver | null = null
 // Start the next page well before the end so scrolling does not stall; the
@@ -48,14 +69,26 @@ onUnmounted(() => {
 
 <template>
   <div class="timeline-feed">
-    <PostCard
-      v-for="status in statuses"
-      :key="status.id"
-      :status="status"
-      @reblog="emit('reblog', $event)"
-      @favourite="emit('favourite', $event)"
-      @bookmark="emit('bookmark', $event)"
-    />
+    <button v-if="hasPrevious" type="button" class="timeline-previous btn btn--secondary btn--sm" :disabled="loading" @click="emit('loadPrevious')">加载前面的帖子</button>
+    <div ref="region" class="timeline-window" role="feed" aria-label="时间线" :aria-busy="loading">
+      <div v-if="distantHistory" class="timeline-released" role="status">
+        <div><p>较早页面已释放，可重新加载最新帖子。</p><button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('reloadHead')">重新加载最新帖子</button></div>
+      </div>
+      <template v-for="row in visible" :key="`${renderVersion}:${row.status.id}`">
+        <div v-if="row.gap" :style="{ height: `${row.gap}px` }" aria-hidden="true" />
+        <TimelineRow :id="row.status.id" :ref="element => windowed.bind(row.status.id, element)" :flags="windowed.rowFlags(row.status.id)" :request-pin="windowed.pin">
+          <PostCard
+            :status="row.status"
+            :aria-posinset="hasPrevious ? undefined : row.index + 1"
+            :aria-setsize="hasMore || hasPrevious ? -1 : statuses.length"
+            @reblog="emit('reblog', $event)"
+            @favourite="emit('favourite', $event)"
+            @bookmark="emit('bookmark', $event)"
+          />
+        </TimelineRow>
+      </template>
+      <div v-if="tail" :style="{ height: `${tail}px` }" aria-hidden="true" />
+    </div>
 
     <div ref="sentinel" class="timeline-sentinel" />
 
@@ -95,6 +128,17 @@ onUnmounted(() => {
 .timeline-feed {
   min-height: 12.5rem;
 }
+
+.timeline-window {
+  /* ResizeObserver compensates once, including late media/CW changes. */
+  overflow-anchor: none;
+}
+
+.timeline-released { position: sticky; top: 5rem; height: 0; z-index: 1; }
+.timeline-released > div { margin: 0 var(--gutter); padding: var(--space-4); background: var(--color-bg); border: 1px solid var(--color-separator); border-radius: var(--radius-lg); text-align: center; }
+.timeline-released p { margin-bottom: var(--space-3); color: var(--color-label-secondary); }
+
+.timeline-previous { margin: var(--space-3) var(--gutter); }
 
 .timeline-sentinel {
   height: 1px;

@@ -1,5 +1,6 @@
 import client from '@/shared/api/client'
 export interface SettingField {
+  deployment_key?: string
   key: string
   label: string
   type: 'text' | 'textarea' | 'email' | 'url' | 'number' | 'boolean' | 'secret'

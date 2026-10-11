@@ -3,6 +3,7 @@ package controllers
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers/apierrors"
+	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -65,6 +66,11 @@ func MustGetAccount(c *gin.Context) *models.Account {
 
 func AbortIfError(c *gin.Context, err error) {
 	if err != nil {
+		if errors.Is(err, feed.ErrFeedUnavailable) {
+			c.Header("Retry-After", "2")
+			c.AbortWithStatusJSON(503, gin.H{"error": "timeline temporarily unavailable"})
+			AbortPanic()
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
 			AbortPanic()

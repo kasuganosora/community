@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/dialect"
@@ -19,6 +20,9 @@ import (
 func init() {
 	// 监听 所有关于status的事件
 	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
+		if feed.DurableFanoutEnabled() {
+			return true
+		}
 		if event.Data == nil {
 			return false
 		}
@@ -78,6 +82,15 @@ func (timeline *HomeTimeline) GetTimelineId() string {
 
 func (timeline *HomeTimeline) Rebuild() error { return timeline.RebuildContext(context.Background()) }
 func (timeline *HomeTimeline) RebuildContext(ctx context.Context) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	lease, leaseErr := feed.BeginRebuild(ctx, timeline)
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer feed.ReleaseRebuild(ctx, timeline, lease)
+
 	statuses := make(models.Statuses, 0)
 
 	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Preload("ToAccounts").Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
@@ -98,7 +111,7 @@ func (timeline *HomeTimeline) RebuildContext(ctx context.Context) (err error) {
 	if timeline.Account.User != nil && timeline.Account.User.Settings != nil {
 		aggregate = timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
-	return feed.RebuildTimelineContext(ctx, timeline, statuses, aggregate)
+	return feed.PublishRebuild(ctx, timeline, lease, statuses, aggregate)
 }
 
 // ClearMentionsPushStatus 清除提及的推送状态.

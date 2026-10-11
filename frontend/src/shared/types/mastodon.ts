@@ -215,7 +215,11 @@ export interface MastodonStatus {
   quote?: MastodonStatus | null
   quotes_count?: number
   /** Filter actions that matched this status: "warn" and/or "hide". */
-  filtered?: string[]
+  filtered?: Array<string | {
+    filter: { filter_action: 'warn' | 'hide'; id?: string; title?: string; context?: string[] }
+    keyword_matches?: string[] | null
+    status_matches?: string[] | null
+  }>
 }
 
 /** Notification that always carries a status (mention, reblog, favourite, poll, update, status) */

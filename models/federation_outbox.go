@@ -82,14 +82,8 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 		}
 	}
 	if snapshot.Visibility != StatusVisibilityDirect {
-		var followers []Follow
-		if err := tx.Session(&gorm.Session{NewDB: true}).Where("follow_id = ? AND status = ?", snapshot.AccountId, FollowStatusFollowed).Preload("Account").Find(&followers).Error; err != nil {
+		if err := collectFederationFollowers(tx, snapshot.AccountId, recipients); err != nil {
 			return err
-		}
-		for _, f := range followers {
-			if f.Account != nil && f.Account.Domain != nil {
-				recipients[f.AccountId] = true
-			}
 		}
 		if (snapshot.Visibility == StatusVisibilityPublic || snapshot.Visibility == StatusVisibilityUnlisted) && snapshot.ReplyAccount != nil && snapshot.ReplyAccount.Domain != nil {
 			recipients[snapshot.ReplyAccount.Id] = true
@@ -205,14 +199,8 @@ func queueFederationReblog(tx *gorm.DB, kind string, s *Status) error {
 	if original.Account.Domain != nil {
 		recipients[original.AccountId] = true
 	}
-	var followers []Follow
-	if err := tx.Session(&gorm.Session{NewDB: true}).Where("follow_id = ? AND status = ?", snapshot.AccountId, FollowStatusFollowed).Preload("Account").Find(&followers).Error; err != nil {
+	if err := collectFederationFollowers(tx, snapshot.AccountId, recipients); err != nil {
 		return err
-	}
-	for _, f := range followers {
-		if f.Account != nil && f.Account.Domain != nil {
-			recipients[f.AccountId] = true
-		}
 	}
 	ids := make([]uint64, 0, len(recipients))
 	for id := range recipients {
@@ -223,4 +211,31 @@ func queueFederationReblog(tx *gorm.DB, kind string, s *Status) error {
 		return err
 	}
 	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{ObjectID: snapshot.Id, AccountID: snapshot.AccountId, Kind: kind, Payload: string(payload), RecipientIDs: ids}).Error
+}
+
+// Filter in SQL before loading recipients: local followers need no federation
+// delivery, and hydrating every account creates an unbounded IN parameter list.
+func collectFederationFollowers(tx *gorm.DB, actorID uint64, recipients map[uint64]bool) error {
+	var cursor uint64
+	for {
+		var rows []struct {
+			ID        uint64
+			AccountID uint64
+		}
+		err := tx.Session(&gorm.Session{NewDB: true}).Table("follows").
+			Select("follows.id, follows.account_id").
+			Joins("JOIN accounts ON accounts.id = follows.account_id AND accounts.deleted_at IS NULL AND accounts.domain IS NOT NULL").
+			Where("follows.follow_id = ? AND follows.status = ? AND follows.id > ?", actorID, FollowStatusFollowed, cursor).
+			Order("follows.id ASC").Limit(512).Scan(&rows).Error
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			recipients[row.AccountID] = true
+			cursor = row.ID
+		}
+		if len(rows) < 512 {
+			return nil
+		}
+	}
 }

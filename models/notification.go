@@ -60,6 +60,9 @@ func (n *Notification) BeforeCreate(tx *gorm.DB) (err error) {
 }
 
 func (n *Notification) AfterCreate(tx *gorm.DB) (err error) {
+	if err = QueueFeedNotification(tx, n); err != nil {
+		return err
+	}
 	event.Trigger("notification", event.Event{
 		Name: `after_create`, //nolint:goconst
 		Data: n,

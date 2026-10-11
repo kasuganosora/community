@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,28 @@ func TestUploadAsync_Accepted(t *testing.T) {
 	withTempWorkDir(t)
 	gdb := setupMediaTestDB(t)
 
+	// Fence the worker's final publication before it opens a transaction. The
+	// initial "processing" assertion must not race a scheduler-fast MP3 upload.
+	publishing := make(chan struct{})
+	release := make(chan struct{})
+	var publishingOnce, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	const barrier = "test:async_upload_publication"
+	require.NoError(t, gdb.Callback().Update().Before("*").Register(barrier, func(tx *gorm.DB) {
+		if tx.Statement.Table != "media_attachments" {
+			return
+		}
+		publishingOnce.Do(func() { close(publishing) })
+		<-release
+	}))
+	t.Cleanup(func() {
+		unblock()
+		// Join the worker before its database and temporary directory are removed,
+		// including when a preceding assertion failed.
+		assert.Eventually(t, func() bool { return len(asyncUploadSem) == 0 }, 30*time.Second, time.Millisecond, "async upload worker did not release its slot")
+		_ = gdb.Callback().Update().Remove(barrier)
+	})
+
 	mp3Data := []byte{
 		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
@@ -151,6 +175,12 @@ func TestUploadAsync_Accepted(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, w.Code, "body: %s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "async clip")
 
+	// The worker has reached final publication but cannot commit it yet.
+	select {
+	case <-publishing:
+	case <-time.After(30 * time.Second):
+		t.Fatal("async upload did not reach publication barrier")
+	}
 	// A "processing" record must have been created.
 	var got models.MediaAttachment
 	require.NoError(t, gdb.First(&got).Error)
@@ -158,6 +188,8 @@ func TestUploadAsync_Accepted(t *testing.T) {
 	assert.Equal(t, "audio/mpeg", got.ContentType)
 	assert.InDelta(t, 0.1, got.FocusX, 0.0001)
 	assert.InDelta(t, 0.2, got.FocusY, 0.0001)
+
+	unblock()
 
 	// Wait for the background goroutine to finish processing the file, so the
 	// record ends up updated and the semaphore is released (and so coverage of

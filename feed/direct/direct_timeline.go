@@ -13,6 +13,9 @@ import (
 func init() {
 	// 监听 所有关于status的事件
 	event.Register("status", "*", &event.Handler{Exec: func(event event.Event) bool {
+		if feed.DurableFanoutEnabled() {
+			return true
+		}
 		if event.Data == nil {
 			return false
 		}

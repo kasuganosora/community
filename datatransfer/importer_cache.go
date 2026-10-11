@@ -2,6 +2,7 @@ package datatransfer
 
 import (
 	"context"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -21,27 +22,14 @@ func (k importedTimelineKey) Rebuild() error        { return nil }
 // Invalidate existing caches only: historical data never becomes an event
 // broadcast. Permission decisions remain request-local in the feed reader.
 func (i *importer) invalidateCaches(ctx context.Context, conn *gorm.DB) error {
-	clients := redisdb.GetRedises()
-	if len(clients) == 0 {
+	if len(redisdb.GetRedises()) == 0 && !redisdb.HasUniversalRedis() {
 		return nil
 	}
 	affected, err := i.cacheSelector(ctx, conn)
 	if err != nil {
 		return err
 	}
-	for _, client := range clients {
-		// Honor the post-commit deadline even when the application's pooled
-		// Redis client was configured to ignore context deadlines for I/O.
-		options := *client.Options()
-		options.ContextTimeoutEnabled = true
-		bounded := redis.NewClient(&options)
-		err := invalidateImportedKeys(ctx, bounded, affected)
-		_ = bounded.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return invalidateImportedKeys(ctx, redisdb.GetUniversalRedis(), affected)
 }
 func (i *importer) cacheSelector(ctx context.Context, conn *gorm.DB) (func(string) bool, error) {
 	if !i.personal() {
@@ -66,7 +54,7 @@ func (i *importer) cacheSelector(ctx context.Context, conn *gorm.DB) (func(strin
 		if p.Visibility == "public" {
 			public = true
 			for _, tag := range p.Tags {
-				tags[strings.TrimPrefix(tag, "#")] = true
+				tags[models.TagKey(tag)] = true
 			}
 		}
 	}
@@ -91,55 +79,35 @@ func (i *importer) cacheSelector(ctx context.Context, conn *gorm.DB) (func(strin
 		}
 	}
 	return func(key string) bool {
+		if strings.HasPrefix(key, "feed:v3:{") && strings.HasSuffix(key, "}:items") {
+			body := strings.TrimSuffix(strings.TrimPrefix(key, "feed:v3:{"), "}:items")
+			decoded, err := url.PathUnescape(body)
+			if err != nil {
+				return false
+			}
+			key = "feed:" + decoded
+		}
 		last := key[strings.LastIndex(key, ":")+1:]
 		switch {
 		case strings.HasPrefix(key, "feed:home:"), strings.HasPrefix(key, "feed:mention:"):
 			return accounts[last]
 		case strings.HasPrefix(key, "feed:public:"):
 			return public
-		case strings.HasPrefix(key, "feed:list:v2:"):
+		case strings.HasPrefix(key, "feed:list:"):
 			return lists[last]
 		case strings.HasPrefix(key, "feed:hashtag:"):
-			return tags[last]
+			return tags[models.TagKey(last)]
 		}
 		return false
 	}, nil
 }
-func invalidateImportedKeys(ctx context.Context, client *redis.Client, affected func(string) bool) error {
-	// Collect before mutating so SCAN's cursor isn't disrupted by our deletion.
-	keys := map[string]bool{}
-	var cursor uint64
-	for {
-		page, next, err := client.Scan(ctx, cursor, "feed:*", 128).Result()
-		if err != nil {
-			return err
-		}
-		for _, key := range page {
-			key = strings.TrimSuffix(key, ":empty")
-			if at := strings.Index(key, ":reblogs"); at >= 0 {
-				key = key[:at]
-			}
-			known := false
-			for _, prefix := range []string{"feed:home:", "feed:mention:", "feed:public:", "feed:list:v2:", "feed:hashtag:"} {
-				if strings.HasPrefix(key, prefix) {
-					known = true
-					break
-				}
-			}
-			if known && affected(key) {
-				keys[key] = true
-			}
-		}
-		cursor = next
-		if cursor == 0 {
-			break
-		}
-	}
+func invalidateImportedKeys(ctx context.Context, client redis.UniversalClient, affected func(string) bool) error {
 	service := feed.NewFeedService(feed.NewRedisClient(client))
-	for key := range keys {
-		if err := service.InvalidateTimelineContext(ctx, importedTimelineKey(key)); err != nil {
-			return err
+	return feed.ScanTimelineMetadata(ctx, client, "feed:v3:{*}:items:meta", func(meta string) error {
+		key := strings.TrimSuffix(meta, ":meta")
+		if !affected(key) {
+			return nil
 		}
-	}
-	return nil
+		return service.InvalidateTimelineContext(ctx, importedTimelineKey(key))
+	})
 }

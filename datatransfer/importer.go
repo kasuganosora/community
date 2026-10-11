@@ -8,6 +8,7 @@ import (
 	"time"
 
 	mysql "github.com/go-sql-driver/mysql"
+	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -85,6 +86,9 @@ func Import(ctx context.Context, conn *gorm.DB, b *Bundle, o Options, onProgress
 				if err := p.run(); err != nil {
 					return fmt.Errorf("%s import failed: %w", p.name, err)
 				}
+			}
+			if err := models.QueueFeedInvalidation(tx, models.FeedEventMetadata{Reason: "import_boundary"}); err != nil {
+				return err
 			}
 			if o.LeaseCheck != nil {
 				return o.LeaseCheck(tx)

@@ -1,310 +1,100 @@
-# feed (Feed 时间线系统)
+# Feed 时间线
 
-社交平台 Feed 时间线与消息分发系统，基于 Redis Sorted Set 实现高性能的时间线缓存、转发聚合、分页查询与实时推送（Pub/Sub）。
+SQL 是状态、关系和可见性的权威来源。Redis v3 缓存保存最多 512 个候选状态 ID；读取仍检查当前权限、过滤条件和转发聚合，深分页通过 SQL 补足。缓存不是授权依据，也不能用空结果掩盖 Redis 故障。
 
-支持 home（主页）、public（公共）、mention（提及）、direct（私信）、list（列表）、tag（话题）、notification（通知）等多种时间线类型，每个子模块通过 `init()` 自动监听 status/notification 事件，实现时间线的自动维护。
+运行配置、部署与回滚步骤见 [Feed 运行指南](../docs/feed-runtime.md)。
 
-## 核心功能
+## 运行模式
 
-- **多类型时间线**：home、public、mention、direct、list、tag、notification 七种时间线，覆盖主流社交场景
-- **Redis Sorted Set 缓存**：以 status ID 作为 score，天然支持基于 `max_id` / `min_id` / `since_id` 的分页
-- **转发聚合（Reblog Aggregation）**：同一原始状态在 `REBLOG_FALLOFF`（40）条范围内的多次转发自动聚合，避免时间线被刷屏
-- **批量写入优化**：非转发状态使用 Redis Pipeline 批量写入多个时间线，显著降低网络开销
-- **自动重建（Rebuild）**：时间线缓存缺失时自动从数据库重建，支持深度翻页回源数据库
-- **实时推送**：基于 Redis Pub/Sub，仅在有客户端订阅时才推送（`PushUpdateRequired`），带 5 秒 TTL 订阅缓存
-- **垃圾回收（GC）**：`GcTimelines()` 自动清理超过 `MAX_AGE_DAYS`（7 天）未更新的时间线键
-- **事件驱动**：各子模块通过 `event.Register` 自动监听 `after_create` / `before_update` / `after_update` / `after_delete` 事件，无需手动调用
+`ConfigureRuntime` 支持三种模式：
 
-## 架构 / 结构
+- `durable`：使用持久事件及投递 worker 维护 v3 投影，读取可使用 v3 缓存。
+- `shadow`：用于投影验证；用户读取强制走 SQL。
+- `legacy`：回滚模式，保留旧事件监听路径；用户读取同样强制走 SQL，避免读取旧缓存遗留数据。
 
-```
-feed/
-├── feed.go                  # 核心接口、类型、包级函数（向后兼容代理）
-├── service.go               # FeedService - 封装 Redis 时间线操作
-├── get_timeline_content.go  # GetStatusTimelineContent - 统一的分页读取入口
-├── redis.go                 # RedisClient 接口定义
-├── db_service.go            # DBService - 封装数据库查询（粉丝、关注等）
-├── home/                    # 主页时间线
-├── public/                  # 公共时间线
-├── mention/                 # 提及时间线
-├── direct/                  # 私信时间线
-├── list/                    # 列表时间线
-├── tag/                     # 话题时间线
-└── notification/            # 通知时间线
-```
+旧 `AddToTimelineItem`、事件监听及 Pub/Sub 辅助代码仅供兼容路径使用。新 worker 必须使用下述投影协议；不能直接写 Sorted Set。v3 不依赖旧全局 `timelines` 集合做正确性判断或垃圾回收。
 
-### 子模块说明
+## 文件与职责
 
-| 子模块 | 包路径 | Redis Key 前缀 | Timeline ID | 说明 |
-|--------|--------|---------------|-------------|------|
-| `home` | `feed/home` | `feed:home:%s` | 账号 ID | 关注的人 + 自己 + 提及自己的状态 |
-| `public` | `feed/public` | `feed:public:%s` | `all` / `media` / `local` / `remote` 等组合 | 公开可见的状态，支持 media/local/remote 过滤 |
-| `mention` | `feed/mention` | `feed:mention:%s` | 账号 ID | 提及当前用户的状态（仅本地用户） |
-| `direct` | `feed/direct` | `direct:%s` | 账号 ID | 私信通知，不缓存内容，仅推送 conversation 事件 |
-| `list` | `feed/list` | `feed:list:v2:%s` | 过滤条件 + 列表 ID | 自定义列表，同名列表分别缓存，仅含 30 天内有访问记录的列表 |
-| `tag` | `feed/tag` | `feed:hashtag:%s` | 过滤条件 + 话题名 | 话题时间线，支持 local/remote/media 过滤 |
-| `notification` | `feed/notification` | `feed:notification:%s` | 账号 ID | 通知列表，监听 `notification` 表的 `after_create` 事件 |
+| 文件或目录 | 职责 |
+| --- | --- |
+| `protocol.go` | key、epoch、投递版本、子批次 fencing、批量 Lua 投影 |
+| `rebuild.go` | SQL 快照发布的 CAS 与聚合索引构建 |
+| `invalidate.go` | 原子失效；保留版本与投递 fence |
+| `get_timeline_content.go` | 当前权限过滤、分页、有限 SQL 回源 |
+| `redis.go`、`metadata.go` | UniversalClient 适配、逐主节点元数据扫描 |
+| `runtime.go`、`activity.go` | 模式切换、活跃用户记录 |
+| `worker/` | 持久队列消费、领取子批次、加载当前 SQL 状态并投递 |
+| `home/`、`public/`、`mention/`、`list/`、`tag/` | 各类时间线的候选 SQL 与重建 |
+| `direct/`、`notification/` | 私信与通知入口；HTTP 读取另有直接 SQL 路径 |
 
-> 每个子模块均实现 `feed.Timeline` 接口，并在 `init()` 中注册事件监听器，自动维护对应的时间线缓存。
+## v3 key 与生命周期
 
-## 用法示例
+使用 `TimelineKey(t)` 取得规范 key。例如主页为：
 
-### 读取时间线内容
-
-所有时间线的读取统一通过子模块的 `GetTimelineContent` / `GetTimeLineContent` 函数，内部调用 `feed.GetStatusTimelineContent`：
-
-```go
-import (
-    "github.com/kasuganosora/community/feed"
-    "github.com/kasuganosora/community/feed/home"
-    "github.com/kasuganosora/community/feed/public"
-    "github.com/kasuganosora/community/feed/tag"
-)
-
-// 1. 读取主页时间线（分页）
-params := &feed.ListParam{Context: ctx, Viewer: account}
-params.SetLimit(20)
-params.SetMaxId(1000) // 向下翻页：取 id < 1000 的状态，边界不重复
-
-statuses, err := home.GetTimeLineContent(account, params)
-
-// 2. 读取公共时间线（全部）
-statuses, err = public.GetTimelineContentAll(&feed.ListParam{Limit: 20})
-
-// 3. 读取公共时间线（仅含媒体）
-statuses, err = public.GetTimelineContentMedia(&feed.ListParam{Limit: 20})
-
-// 4. 读取话题时间线（带 local/media 过滤）
-tagParams := &feed.ListParam{
-    Limit: 20,
-    Other: map[string]any{
-        "local":      true,
-        "only_media": true,
-    },
-}
-statuses, err = tag.GetTimelineContent("golang", account, tagParams)
+```text
+feed:v3:{home:123}:items
+feed:v3:{home:123}:items:meta
+feed:v3:{home:123}:items:versions
+feed:v3:{home:123}:items:version_expiry
+feed:v3:{home:123}:items:rebuild
+feed:v3:{home:123}:items:fence:<batch-id>
 ```
 
-HTTP 调用应传入请求的 `Context`；公共时间线登录访问时也应传入 `Viewer`，以执行当前账号的屏蔽与可见性检查。`max_id`、`min_id`、`since_id` 均不包含边界，同时指定两个下界时取较大值。缓存记录候选 ID；读取时仍复核列表成员、关注、屏蔽和转发原帖权限，不缓存授权结论。
+同一时间线的 key 共用 Redis Cluster hash tag。列表按 ID 标识，旧 `feed:list:v2:<id>` 会规范化为 `{list:<id>}`，不再使用可重名的标题。状态 ID 同时作为成员与 score；转发聚合保留 `REBLOG_FALLOFF` 范围内的既有语义。
 
-压测方法、工作负载和测量限制见 [时间线性能记录](../docs/timeline-performance.md)。
+元数据包含随机 `epoch`、递增 `generation` 与 `ready`。缺失或不完整的元数据不能视为有效空缓存。缓存、对象版本和删除 tombstone 使用七天保留期限；活跃版本表按有界批次清理过期对象。Redis 必须使用 `noeviction`，不能把正确性元数据当可任意淘汰的缓存。
 
-### 手动向时间线添加 / 移除状态
+## 重建与投递协议
 
-通常事件监听器会自动处理，但也可以手动调用：
+重建必须先调用 `BeginRebuild`，再执行候选 SQL，最后 `PublishRebuild`，并始终 `defer ReleaseRebuild`。发布仅在 epoch、generation 和重建 token 都未变化时成功。因此重建期间的低 ID 迟到事件、删除或失效不会被旧 SQL 快照覆盖。各时间线的 `RebuildContext` 已封装该流程。
 
-```go
-import (
-    "github.com/kasuganosora/community/feed"
-    "github.com/kasuganosora/community/feed/home"
-)
+worker 对缺少元数据的冷时间线调用 `PrepareProjectionEpochs`：它只创建 `ready=false` 的元数据，不发布空快照，也不为每个受众查询完整时间线。取得 epoch 后必须重新加载当前 SQL 对象与版本，再执行投递。旧尝试不能改用新 epoch 继续投递旧快照。
 
-// 手动推送状态到主页时间线（并推送到订阅的客户端）
-err := home.PushToHome(account, status, false /* update */, true /* pushToClient */)
+| API | 用途 |
+| --- | --- |
+| `ReadTimelineEpoch` / `ReadTimelineEpochs` | 只读检查，不创建元数据 |
+| `PrepareProjectionEpochs` | 批量初始化冷时间线，随后必须重新查询 SQL |
+| `ApplyProjection` / `BatchApplyProjections` | 受 epoch、对象版本和子批次租约保护的投递 |
+| `InvalidateTimelineContext` | 管理、导入等维护路径的原子失效 |
+| `ScanTimelineMetadata` | 单实例或 Cluster 各主节点扫描；回调可能并发执行 |
 
-// 手动从主页时间线移除状态
-err = home.UnPushFromHome(account, status, true)
+`Projection` 携带子批次 ID、领取 generation/token、剩余租期、对象版本与目标 epoch。批量接口用 pipeline 执行每个时间线的同槽 Lua，逐项返回错误，不使用跨槽事务。相同领取 generation 的重放不会延长原截止时间。
 
-// 手动触发主页时间线重建
-homeTimeline := &home.HomeTimeline{Account: account}
-err = homeTimeline.Rebuild()
+删除记录 tombstone，较旧的创建不能复活对象。聚合投递需要权威重建时标记 `ready=false`。`Invalidate=true` 也遵守租约 fencing；同批次同 epoch 的失效重放不会再次清除其后已重建的快照。
+
+错误必须区分处理：
+
+- `ErrSuperseded`：已有更新对象版本覆盖当前旧事件，可以确认旧投递。
+- `ErrStaleProjection`：子批次租约、token 或 generation 无效，不能确认投递。
+- `ErrNeedsRebuild`：元数据缺失或 epoch 不匹配，不能给旧 SQL 快照换 epoch 后重试。
+- Redis 传输错误：不能确认成功，按持久队列重试。
+
+## 读取与故障边界
+
+读取使用请求 context，只有元数据完整且 `ready=true` 才使用候选缓存。冷缓存重建限制为进程内最多 8 个并发；竞争或 Redis 故障走有界 SQL 回源，最多 16 个并发、每次最多 5 秒。容量不足返回 `ErrFeedUnavailable`，不会返回假空页。取消会传递给 Redis 与 SQL。
+
+`ForceDatabaseReads()` 使 legacy/shadow 模式跳过候选缓存。`RecordActivity` 在已登录读取及新实时连接路径记录活跃状态；其失败不直接阻止用户读请求。
+
+## Redis 与 Cluster
+
+Feed 使用同一个 `redis.UniversalClient`。`REDIS_FEED_CLUSTER_ADDRS` 非空时选择 Cluster，使用逗号分隔节点地址、数据库 0 和 `REDIS_0_PASSWORD`；未设置时复用单实例客户端。具体运行约束以运行指南为准。
+
+Cluster 元数据扫描必须使用 `ScanTimelineMetadata`，不能把单节点 SCAN 游标当全 Cluster 游标。pipeline 遇到传输故障时请求刷新 Cluster 拓扑，仍将原错误返回上层；刷新不是成功投递的证明。
+
+## 验证
+
+常规定向回归：
+
+```sh
+go test -p 1 ./feed/... ./cmd/tootctl/commands
 ```
 
-### 直接操作 feed 核心服务
+真实 Cluster 集成测试默认跳过，设置 `FEED_CLUSTER_TEST_ADDRS` 后运行：
 
-```go
-import (
-    "github.com/kasuganosora/community/feed"
-    "github.com/kasuganosora/community/feed/mention"
-)
-
-// 向提及时间线添加状态（aggregateReblogs = true 启用转发聚合）
-mentionTimeline := &mention.MentionTimeline{Account: account}
-err := feed.AddToTimelineItem(mentionTimeline, status, true)
-
-// 裁剪时间线到 MAX_ITEMS 上限
-err = feed.TrimTimeline(mentionTimeline)
-
-// 检查是否有客户端正在订阅该时间线
-if feed.PushUpdateRequired(mentionTimeline) {
-    // 推送实时更新到订阅的客户端
-    err = feed.PushToClient(mentionTimeline, "update", status)
-}
-
-// 获取该时间线的 Redis Pub/Sub channel 名称
-channel := feed.GetRedisChannelName(mentionTimeline)
-
-// 清理指定 feed ID 列表的时间线缓存
-err = feed.CleanFeeds(mentionTimeline, []string{"123", "456"})
-
-// 回收超过 MAX_AGE_DAYS 的过期时间线
-err = feed.GcTimelines()
+```sh
+go test -p 1 ./feed -run TestFeedRealClusterProtocol -v
+go test -p 1 ./cmd/tootctl/commands -run TestFeedStatsRealCluster -v
 ```
 
-### 自定义 FeedService 实例（测试场景）
-
-```go
-import (
-    "github.com/kasuganosora/community/feed"
-)
-
-// 创建自定义 FeedService（注入 mock Redis）
-service := feed.NewFeedService(mockRedisClient)
-
-// 设置为全局默认实例（用于测试，覆盖延迟初始化）
-feed.SetDefaultService(service)
-
-// 创建自定义 DBService
-dbService := feed.NewDBService(testDB)
-feed.SetDefaultDBService(dbService)
-
-// 重置订阅缓存（用于测试）
-feed.ResetSubscriptionCache()
-```
-
-## 核心类型与函数
-
-### 接口
-
-#### `Timeline`（核心接口）
-
-所有时间线类型的基础接口：
-
-```go
-type Timeline interface {
-    GetKeyFormat() string   // 返回 Redis key 格式模板，如 "feed:home:%s"
-    GetTimelineId() string  // 返回时间线唯一标识，如账号 ID
-    Rebuild() error         // 从数据库重建时间线缓存
-}
-```
-
-#### `RedisClient`
-
-feed 模块所需的 Redis 操作接口，封装了 ZSet / Set / Pub/Sub / Pipeline / Scan 等命令：
-
-```go
-type RedisClient interface {
-    ZAdd(ctx, key, members) *redis.IntCmd
-    ZRem(ctx, key, members) *redis.IntCmd
-    ZRange(ctx, key, start, stop) *redis.StringSliceCmd
-    // ... 共 24 个方法，覆盖 ZSet/Set/Pub/Sub/Scan/Pipeline
-}
-```
-
-#### `DBClient`
-
-数据库操作接口，封装 GORM 链式调用方法（`Model` / `Where` / `Find` / `Preload` / `Order` / `Limit` / `Offset` / `Association`）。
-
-### 类型
-
-#### `FeedService`
-
-封装 feed 相关的 Redis 操作，线程安全。
-
-| 方法 | 说明 |
-|------|------|
-| `AddToTimelineItem(timeline, status, aggregateReblogs)` | 将状态添加到时间线，支持转发聚合 |
-| `BatchAddToTimelineItems(timelines, status, aggregateReblogs)` | 批量向多个时间线添加状态（Pipeline 优化） |
-| `RemoveTimelineItem(timeline, status, aggregateReblogs)` | 从时间线移除状态 |
-| `TrimTimeline(timeline)` | 裁剪时间线到 `MAX_ITEMS`（512）上限，清理过期 reblog 集合 |
-| `CleanFeeds(timeline, feedIds)` | 清理指定 feed ID 列表的所有 Redis 键 |
-| `PushToClient(timeline, eventType, eventPayload)` | 向时间线的 Redis channel 推送消息 |
-| `PushUpdateRequired(timeline)` | 检查是否有客户端订阅（带 5 秒 TTL 缓存） |
-| `GcTimelines()` | 回收超过 `MAX_AGE_DAYS`（7 天）未更新的时间线 |
-
-#### `DBService`
-
-封装 feed 相关的数据库查询操作。
-
-| 方法 | 说明 |
-|------|------|
-| `GetAccountFollowersId(accountId)` | 获取账号的粉丝 ID 列表 |
-| `GetAccountRecentActiveLocalFollowersId(accountId)` | 获取账号最近 10 天活跃的本地粉丝 ID |
-| `GetAccountFollowingAccounts(accountId)` | 获取账号关注的所有账号 |
-| `GetAccountRemoteFollowers(accountId)` | 获取账号的远程粉丝 |
-
-#### `ListParam`
-
-分页查询参数：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `MaxId` | `uint64` | 返回 ID <= 此值的状态（向下翻页） |
-| `MinId` | `uint64` | 返回 ID >= 此值的状态（向上翻页） |
-| `SinceId` | `uint64` | 返回 ID > 此值的状态（获取新增） |
-| `Limit` | `uint64` | 返回数量上限 |
-| `Other` | `map[string]any` | 额外参数（如 `local` / `remote` / `only_media`） |
-
-> 链式 Setter：`SetMaxId()` / `SetMinId()` / `SetSinceId()` / `SetLimit()`
-
-#### `FilterCondition` / `AfterFilter`
-
-`GetStatusTimelineContent` 的过滤回调类型：
-
-```go
-type FilterCondition func(tx *gorm.DB) (query *gorm.DB, err error)  // 数据库查询过滤（回源时使用）
-type AfterFilter func(statuses models.Statuses) models.Statuses     // 内存后置过滤（读取后使用）
-```
-
-### 常量
-
-| 常量 | 值 | 说明 |
-|------|----|------|
-| `MAX_ITEMS` | `512` | 每条时间线最大缓存条数 |
-| `REBLOG_FALLOFF` | `40` | 转发聚合范围（前 40 条内同源转发自动聚合） |
-| `MAX_AGE_DAYS` | `7` | 时间线过期天数（GC 清理阈值） |
-
-### 包级函数
-
-以下函数为向后兼容的代理函数，内部委托给全局默认的 `FeedService` / `DBService` 实例（延迟初始化，使用 `sync.Once`）：
-
-| 函数 | 说明 |
-|------|------|
-| `AddToTimelineItem(timeline, status, aggregateReblogs)` | 代理 `FeedService.AddToTimelineItem` |
-| `BatchAddToTimelineItems(timelines, status, aggregateReblogs)` | 代理 `FeedService.BatchAddToTimelineItems` |
-| `RemoveTimelineItem(timeline, status, aggregateReblogs)` | 代理 `FeedService.RemoveTimelineItem` |
-| `TrimTimeline(timeline)` | 代理 `FeedService.TrimTimeline` |
-| `CleanFeeds(timeline, feedIds)` | 代理 `FeedService.CleanFeeds` |
-| `PushToClient(timeline, eventType, eventPayload)` | 代理 `FeedService.PushToClient` |
-| `PushUpdateRequired(timeline)` | 代理 `FeedService.PushUpdateRequired` |
-| `GcTimelines()` | 代理 `FeedService.GcTimelines` |
-| `GetRedisChannelName(timeline)` | 生成 `subscribed:<key>` 格式的 channel 名称 |
-| `GetStatusTimelineContent(timeline, params, filter, afterFilter)` | 统一的时间线分页读取入口 |
-| `GetAccountFollowersId(accountId)` | 代理 `DBService.GetAccountFollowersId` |
-| `GetAccountRecentActiveLocalFollowersId(accountId)` | 代理 `DBService.GetAccountRecentActiveLocalFollowersId` |
-| `GetAccountFollowingAccounts(accountId)` | 代理 `DBService.GetAccountFollowingAccounts` |
-| `GetAccountRemoteFollowers(accountId)` | 代理 `DBService.GetAccountRemoteFollowers` |
-| `SetDefaultService(service)` | 设置全局默认 `FeedService`（用于测试） |
-| `SetDefaultDBService(service)` | 设置全局默认 `DBService`（用于测试） |
-| `ResetSubscriptionCache()` | 重置订阅状态缓存（用于测试） |
-
-## 依赖关系
-
-### 内部依赖
-
-| 包 | 用途 |
-|----|------|
-| `github.com/kasuganosora/community/db` | 数据库与 Redis 连接（`GetDB()` / `GetRedis()`） |
-| `github.com/kasuganosora/community/models` | 数据模型（`Status` / `Account` / `Notification` / `Follow` 等） |
-| `github.com/kasuganosora/community/event` | 事件总线，子模块通过 `event.Register` 自动监听 status / notification 事件 |
-| `github.com/kasuganosora/community/log` | 日志输出 |
-| `github.com/kasuganosora/community/utils` | 工具函数（`UniqueSlice` / `Min` / `GetExistsMap` 等） |
-| `github.com/kasuganosora/community/serializer` | 通知序列化（`serializer.ToNotification`，仅 `notification` 子模块） |
-
-### 外部依赖
-
-| 包 | 用途 |
-|----|------|
-| `github.com/redis/go-redis/v9` | Redis 客户端，Sorted Set / Set / Pub/Sub / Pipeline / Scan |
-| `gorm.io/gorm` | ORM，数据库查询与关联预加载 |
-| `github.com/pkg/errors` | 错误包装（`errors.Wrap`） |
-
-### Redis 数据结构
-
-| Key 模式 | 类型 | 说明 |
-|----------|------|------|
-| `feed:<type>:<id>` | Sorted Set | 时间线主集合，member = status ID，score = status ID（天然按时间排序） |
-| `feed:<type>:<id>:reblogs` | Sorted Set | 转发聚合集合，member = 原始 status ID |
-| `feed:<type>:<id>:reblogs:<reblogId>` | Set | 同源转发详情集合 |
-| `timelines` | Sorted Set | 全局时间线索引，用于 GC，member = key，score = 更新时间戳 |
-| `subscribed:feed:<type>:<id>` | Pub/Sub Channel | 实时推送通道 |
+额外设置 `FEED_CLUSTER_TEST_FAILOVER=1` 会主动关闭一个主节点，仅可用于专门的可丢弃测试 Cluster。测试覆盖跨槽批量投递、版本与删除 tombstone、重建 CAS、实际 CLI 扫描及有界故障转移重试；不代表大规模容量验收。

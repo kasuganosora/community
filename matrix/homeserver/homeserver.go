@@ -8,6 +8,7 @@ import (
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -157,6 +158,7 @@ func loadHSConfig() *HSConfig {
 // application migrations (see migrate/scripts.MigrateMatrixHSScript).
 func Models() []any {
 	return []any{
+		&models.MatrixDMDelivery{},
 		&MatrixEvent{},
 		&MatrixRoom{},
 		&MatrixRoomState{},

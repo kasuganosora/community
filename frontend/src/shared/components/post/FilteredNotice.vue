@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type { MastodonStatus } from '@/shared/types/mastodon'
 
 const props = defineProps<{
-  marks?: string[]
+  marks?: MastodonStatus['filtered']
 }>()
 
 const revealed = ref(false)
 const level = computed(() => {
-  const marks = props.marks ?? []
+  const marks = (props.marks ?? []).map(mark => typeof mark === 'string' ? mark : mark?.filter?.filter_action)
   if (marks.includes('hide')) return 'hide'
   if (marks.includes('warn')) return 'warn'
   return ''

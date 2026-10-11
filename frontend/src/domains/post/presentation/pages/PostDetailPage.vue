@@ -49,7 +49,7 @@ const visibility = computed(() => {
   return v && v !== 'public' ? visibilityOption(v) : null
 })
 const filterMarks = computed(() => {
-  const marks = new Set<string>()
+  const marks = new Set<NonNullable<MastodonStatus['filtered']>[number]>()
   for (const item of [status.value, mainStatus.value]) {
     for (const mark of item?.filtered ?? []) marks.add(mark)
   }

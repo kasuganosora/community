@@ -2,6 +2,7 @@ package tag
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -329,7 +330,7 @@ func TestRebuild_SeededStatusesRebuildOK(t *testing.T) {
 
 	require.NoError(t, (&TagTimeline{Tag: "rebuilt"}).Rebuild())
 	// Rebuild should have written the statuses into the timeline zset.
-	zset, err := mockRedis.ZMembers("feed:hashtag:rebuilt")
+	zset, err := mockRedis.ZMembers(feed.TimelineKey(&TagTimeline{Tag: "rebuilt"}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, zset)
 }
@@ -384,6 +385,9 @@ func setupRedismockRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 }
 func seedTimelineCache(t *testing.T, server *miniredis.Miniredis, key string, ids []string) {
 	t.Helper()
+	key = "feed:v3:{" + strings.TrimPrefix(key, "feed:") + "}:items"
+	server.HSet(key+":meta", "epoch", "test", "generation", "0", "ready", "1", "count", strconv.Itoa(len(ids)))
+	server.HSet(key+":versions", "_epoch", "test")
 	for _, id := range ids {
 		score, err := strconv.ParseFloat(id, 64)
 		require.NoError(t, err)
@@ -763,7 +767,7 @@ func TestGetTimelineContent_DuplicateAssociationsKeepPagesDistinct(t *testing.T)
 		require.Equal(t, uint64(1), second[0].Id)
 	}
 	require.NoError(t, (&TagTimeline{Tag: "duplicates", OnlyMedia: true}).Rebuild())
-	ids, err := cache.ZMembers("feed:hashtag:media:duplicates")
+	ids, err := cache.ZMembers(feed.TimelineKey(&TagTimeline{Tag: "duplicates", OnlyMedia: true}))
 	require.NoError(t, err)
 	require.Len(t, ids, 3)
 }

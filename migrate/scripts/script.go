@@ -43,6 +43,7 @@ var ScripsType = []MigrationScript{
 	MissingAppTablesScript{},
 	StatusCardsScript{},
 	AttachmentSensitiveScript{},
+	FeedOutboxScript{},
 }
 
 type MigrationScript interface {

@@ -248,17 +248,18 @@ func TestProcessRedisMsg_InvalidPayload(t *testing.T) {
 }
 
 func TestProcessRedisMsg_NotificationChannel(t *testing.T) {
+	viewer := seedStreamNotification(t)
 	ws := newTestWSConn(t)
 	defer func() { _ = ws.Close() }()
 
 	// Valid notification payload
 	notifPayload := `{"payload":{"id":"42","type":"mention","account":{"id":"1","username":"a"}}}`
 	msg := &redis.Message{
-		Channel: "feed:notification:123",
+		Channel: "subscribed:feed:notification:123",
 		Payload: notifPayload,
 	}
 
-	err := processRedisMsg(ws, nil, msg)
+	err := processRedisMsg(ws, viewer, msg)
 	require.NoError(t, err)
 
 	// Read the response

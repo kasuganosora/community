@@ -10,7 +10,6 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/db/database"
 	cRedis "github.com/kasuganosora/community/db/redis"
-	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/pgtest"
@@ -26,7 +25,7 @@ func setupMentionRead(t *testing.T) (*gorm.DB, *models.Account) {
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, conn.AutoMigrate(append(append([]any{}, integrationModels...), &models.Block{}, &models.MuteAccount{}, &models.Application{}, &models.Attachment{}, &models.Emoji{}, &models.Poll{}, &models.PollOption{})...))
+	require.NoError(t, conn.AutoMigrate(append(append([]any{}, integrationModels...), &models.Block{}, &models.DomainBlock{}, &models.MuteAccount{}, &models.Application{}, &models.Attachment{}, &models.Emoji{}, &models.Poll{}, &models.PollOption{})...))
 	database.SetTestDB(conn)
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -65,10 +64,12 @@ func TestMentionReadPrivateDirectAndHotPush(t *testing.T) {
 	}
 	direct := &models.Status{Id: 4, AccountId: 2, Visibility: models.StatusVisibilityDirect}
 	insertMentionRows(t, conn, models.Statuses{direct})
-	event.Trigger("status", event.Event{Name: "after_create", Data: direct})
-	require.Eventually(t, func() bool {
-		return cRedis.GetRedis().ZScore(context.Background(), "feed:mention:1", "4").Err() == nil
-	}, 2*time.Second, 5*time.Millisecond, "direct events must reach the authorized recipient hot cache")
+	timeline := &MentionTimeline{Account: viewer}
+	epoch, err := feed.ReadTimelineEpoch(context.Background(), timeline)
+	require.NoError(t, err)
+	require.NoError(t, feed.ApplyProjection(context.Background(), timeline, feed.Projection{Epoch: epoch, BatchID: 4, LeaseGeneration: 1, LeaseToken: "mention-test", RemainingLease: time.Second, StatusID: 4, ObjectVersion: 1}))
+	require.NoError(t, cRedis.GetRedis().ZScore(context.Background(), feed.TimelineKey(timeline), "4").Err())
+
 	statuses, err := GetTimelineContent(viewer, &feed.ListParam{Limit: 1})
 	require.NoError(t, err)
 	require.Equal(t, []uint64{4}, statuses.GetIds())

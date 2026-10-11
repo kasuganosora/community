@@ -3,6 +3,7 @@ import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed, ref } from 'vue'
+import { useTimelineRowPin } from '@/shared/composables/useTimelineRow'
 import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonStatus } from '@/shared/types/mastodon'
@@ -36,6 +37,11 @@ const router = useRouter()
 const authStore = useAuthStore()
 const editing = ref(false)
 const reporting = ref(false)
+const menuOpen = ref(false)
+useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value, () => {
+  editing.value = false; reporting.value = false; menuOpen.value = false
+  MessagePlugin.info('请先关闭其他帖子的编辑器或菜单，再打开新的操作。')
+})
 const { openQuote } = useUiChrome()
 
 const baseStatus = computed(() => props.status.reblog?.id ? props.status.reblog : props.status)
@@ -46,7 +52,7 @@ const displayStatus = computed(() => {
 })
 const isReblog = computed(() => !!props.status.reblog)
 const filterMarks = computed(() => {
-  const marks = new Set<string>()
+  const marks = new Set<NonNullable<MastodonStatus['filtered']>[number]>()
   for (const item of [props.status, displayStatus.value]) {
     for (const mark of item.filtered ?? []) marks.add(mark)
   }
@@ -194,6 +200,7 @@ function onMenuClick(data: { value?: unknown }) {
             v-if="authStore.currentUser"
             trigger="click"
             :options="menuOptions"
+            :popup-props="{ visible: menuOpen, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
             @click="onMenuClick"
           >
             <button type="button" class="post-card__menu" aria-label="更多操作" @click.stop>

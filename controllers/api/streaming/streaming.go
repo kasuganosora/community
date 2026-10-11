@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"strconv"
 	"strings"
 )
 
@@ -126,7 +127,10 @@ func Streaming(c *gin.Context) {
 				redisMsgChan = redisPubSub.Channel()
 			}
 
-		case msg := <-redisMsgChan:
+		case msg, open := <-redisMsgChan:
+			if !open || msg == nil {
+				return
+			}
 			if err := processRedisMsg(ws, account, msg); err != nil {
 				logEventError(err)
 			}
@@ -225,9 +229,9 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 
 		channelName = feed.GetRedisChannelName(&home.HomeTimeline{Account: account})
 	case strings.HasPrefix(s.Stream, "public"): // 公开时间线
-		isLocal := strings.Contains(s.Type, ":local")
-		isRemote := strings.Contains(s.Type, ":remote")
-		isMedia := strings.Contains(s.Type, ":media")
+		isLocal := strings.Contains(s.Stream, ":local")
+		isRemote := strings.Contains(s.Stream, ":remote")
+		isMedia := strings.Contains(s.Stream, ":media")
 		timeline := &public.PublicTimeline{OnlyLocal: isLocal, OnlyRemote: isRemote, OnlyMedia: isMedia}
 		channelName = feed.GetRedisChannelName(timeline)
 
@@ -238,9 +242,9 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 			return channelName, err
 		}
 
-		isLocal := strings.Contains(s.Type, ":local")
-		isRemote := strings.Contains(s.Type, ":remote")
-		isMedia := strings.Contains(s.Type, ":media")
+		isLocal := strings.Contains(s.Stream, ":local")
+		isRemote := strings.Contains(s.Stream, ":remote")
+		isMedia := strings.Contains(s.Stream, ":media")
 		timeline := &tag.TagTimeline{Tag: s.Tag, OnlyLocal: isLocal, OnlyRemote: isRemote, OnlyMedia: isMedia}
 		channelName = feed.GetRedisChannelName(timeline)
 	case s.Stream == "user:notification": //nolint:goconst
@@ -260,7 +264,7 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 
 		ls := &models.List{}
 
-		err = db.GetDB().Where("name = ?", s.List).First(ls).Error
+		err = db.GetDB().Where("id = ?", s.List).First(ls).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				err = &StreamingErrorResponse{Err: "list not found"} //nolint:goconst
@@ -282,16 +286,12 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 			return channelName, err
 		}
 
-		if ls.AccountId != account.Id {
-			var followCount int64
-			db.GetDB().Model(&models.ListFollowAccount{}).
-				Where("list_id = ? AND account_id = ?", ls.Id, account.Id).
-				Count(&followCount)
-			if followCount == 0 {
-				err = &StreamingErrorResponse{Err: "forbidden"}
-
-				return channelName, err
-			}
+		allowed, permissionErr := models.ListCanView(ls, account)
+		if permissionErr != nil {
+			return "", permissionErr
+		}
+		if !allowed {
+			return "", &StreamingErrorResponse{Err: "forbidden"}
 		}
 
 		channelName = feed.GetRedisChannelName(&list.ListTimeline{List: ls})
@@ -311,48 +311,90 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 	return channelName, err
 }
 
-func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Message) (err error) {
-	var (
-		payload   string
-		eventType string
-	)
-
-	switch {
-	case strings.HasPrefix(msg.Channel, "feed:home:") || strings.HasPrefix(msg.Channel, "feed:public") || strings.HasPrefix(msg.Channel, "feed:hashtag") || strings.HasPrefix(msg.Channel, "feed:list") || strings.HasPrefix(msg.Channel, "feed:direct"):
-		eventType, payload, err = serializerStatusEvent(account, msg.Payload)
-	case strings.HasPrefix(msg.Channel, "feed:notification"):
-		eventType, payload, err = serializerNotificationEvent(account, msg.Payload)
+// streamForChannel converts internal (including versioned) Redis keys back to
+// Mastodon's public stream tuple and revalidates list subscriptions on delivery.
+func streamForChannel(account *models.Account, raw string) ([]string, string, error) {
+	channel := strings.TrimPrefix(raw, "subscribed:")
+	parts := strings.Split(channel, ":")
+	if len(parts) < 2 {
+		return nil, "", &StreamingErrorResponse{Err: "unknown channel"}
+	}
+	if parts[0] == "direct" {
+		parts = append([]string{"feed"}, parts...)
+	}
+	if parts[0] != "feed" || len(parts) < 3 {
+		return nil, "", &StreamingErrorResponse{Err: "unknown channel"}
+	}
+	kind := parts[1]
+	last := parts[len(parts)-1]
+	switch kind {
+	case "home", "notification", "direct":
+		id, err := strconv.ParseUint(last, 10, 64)
+		if err != nil || account == nil || account.Id != id {
+			return nil, "", errEventNotVisible
+		}
+		name := map[string]string{"home": "user", "notification": "user:notification", "direct": "direct"}[kind]
+		return []string{name}, kind, nil
+	case "public":
+		name := "public"
+		for _, scope := range []string{"local", "remote", "media"} {
+			for _, value := range parts[2:] {
+				if value == scope {
+					name += ":" + scope
+				}
+			}
+		}
+		return []string{name}, kind, nil
+	case "hashtag":
+		name := "hashtag"
+		if len(parts) > 3 {
+			name += ":" + strings.Join(parts[2:len(parts)-1], ":")
+		}
+		return []string{name, last}, kind, nil
+	case "list":
+		if account == nil {
+			return nil, "", errEventNotVisible
+		}
+		id, err := strconv.ParseUint(last, 10, 64)
+		if err != nil || id == 0 {
+			return nil, "", errEventNotVisible
+		}
+		var current models.List
+		if err := db.GetDB().First(&current, id).Error; err != nil {
+			return nil, "", errEventNotVisible
+		}
+		allowed, err := models.ListCanView(&current, account)
+		if err != nil {
+			return nil, "", err
+		}
+		if !allowed {
+			return nil, "", errEventNotVisible
+		}
+		return []string{"list", last}, kind, nil
 	default:
-		err = &StreamingErrorResponse{Err: "unknown channel"}
+		return nil, "", &StreamingErrorResponse{Err: "unknown channel"}
 	}
+}
 
+func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Message) error {
+	if msg == nil {
+		return errEventNotVisible
+	}
+	stream, kind, err := streamForChannel(account, msg.Channel)
 	if err != nil {
 		return err
 	}
-
-	ret := map[string]any{
-		"event":   eventType,
-		"payload": payload,
-		"stream":  make([]string, 1),
+	var eventType, payload string
+	switch kind {
+	case "notification":
+		eventType, payload, err = serializerNotificationEvent(account, msg.Payload)
+	case "direct":
+		eventType, payload, err = serializerConversationEvent(account, msg.Payload)
+	default:
+		eventType, payload, err = serializerStatusEvent(account, msg.Payload, msg.Channel)
 	}
-
-	// 通过redis的channel来区分不同的stream
-	lastIndex := strings.LastIndex(msg.Channel, ":")
-	ret["stream"].([]string)[0] = strings.Replace(msg.Channel[:lastIndex], "feed:", "", 1) //nolint:forcetypeassert
-
-	// 如果是列表则需要返回列表名
-	// example:
-	// ["hashtag", "ブルアカ"]
-	if ret["stream"].([]string)[0] == "list" { //nolint:forcetypeassert
-		ret["stream"] = append(ret["stream"].([]string), msg.Channel[lastIndex+1:]) //nolint:forcetypeassert
-	}
-
-	retPayload, err := json.Marshal(ret)
 	if err != nil {
 		return err
 	}
-
-	err = ws.WriteMessage(websocket.TextMessage, retPayload)
-
-	return err
+	return ws.WriteJSON(StreamingResponse{Stream: stream, Event: eventType, Payload: payload})
 }

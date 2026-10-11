@@ -55,7 +55,11 @@ func NewClient() *Client {
 }
 
 func NewNoProxyClient() *Client {
-	return &Client{}
+	// A nil Transport uses http.DefaultTransport, including HTTP(S)_PROXY.
+	// Callers selecting this client explicitly require a direct connection.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &Client{Client: http.Client{Transport: transport}}
 }
 
 func (c *Client) NewRequest(method, urlStr string) *Request {

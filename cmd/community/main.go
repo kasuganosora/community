@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"github.com/kasuganosora/community/clientip"
+	"github.com/kasuganosora/community/controllers/api/streaming"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -66,6 +67,19 @@ func main() {
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
 	runtimeconfig.ApplyStored()
+	role, feedMode, feedOptions, err := feedRuntimeOptions()
+	log.FatalIf(err)
+	serviceContext, stopServices := context.WithCancel(context.Background())
+	defer stopServices()
+	feedWorker := startFeedRuntime(serviceContext, role, feedMode, feedOptions)
+	if role == "feed-worker" {
+		metricsServer, metricsErr := startWorkerMetrics(runtimeValue("FEED_METRICS_LISTEN", ""))
+		log.FatalIf(metricsErr)
+		defer stopWorkerMetrics(metricsServer)
+		log.Info("Feed worker started (scan=%d, delivery=%d)", feedOptions.ScanConcurrency, feedOptions.DeliveryConcurrency)
+		waitFeedWorker(stopServices, feedWorker)
+		return
+	}
 	if err = models.ReconcileFollowCounts(db.GetDB()); err != nil {
 		log.Warn("Failed to reconcile follow counts: %v", err)
 	}
@@ -96,7 +110,7 @@ func main() {
 		log.Warn("Failed to ensure instance actor: %v", err)
 	}
 	cancelEnsure()
-	transferContext, stopTransfers := context.WithCancel(context.Background())
+	transferContext, stopTransfers := context.WithCancel(serviceContext)
 	defer stopTransfers()
 	datatransfer.ResumeJobs(transferContext, db.GetDB())
 	adminwebhook.Start(transferContext, db.GetDB())
@@ -115,12 +129,22 @@ func main() {
 	if err := homeserver.InitHomeServer(); err != nil {
 		log.Warn("Matrix Homeserver initialization failed: %v", err)
 	}
+	if homeserver.GlobalHS != nil {
+		homeserver.GlobalHS.StartDirectMessageBridge(serviceContext)
+	}
 
 	// 创建 Gin 引擎
 	app := setupServer()
 
 	// 启动服务器（带优雅关闭）
-	startServer(app, stopTransfers)
+	startServer(app, func() {
+		stopTransfers()
+		stopServices()
+		streaming.CloseFeedTopics()
+		if feedWorker != nil {
+			feedWorker.Wait()
+		}
+	})
 }
 
 // initLogger 初始化日志配置.
@@ -179,6 +203,7 @@ func setupServer() *gin.Engine {
 
 	// 超时控制中间件
 	app.Use(middleware.TimeoutMiddleware(30 * time.Second))
+	app.Use(middleware.FeedAdmissionMiddleware())
 
 	// 请求日志中间件
 	app.Use(middleware.RequestLogMiddleware())

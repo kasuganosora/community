@@ -142,6 +142,12 @@ func setupTestDB(t *testing.T) {
 		&models.Tag{},
 		&models.Poll{},
 		&models.PollOption{},
+		&models.AccountExtra{}, &models.Block{}, &models.Follow{}, &models.DomainBlock{},
+		&models.Filter{}, &models.MuteAccount{}, &models.MuteStatus{}, &models.PinStatus{},
+		&models.FavoriteStatus{}, &models.BookmarkStatus{}, &models.StatusReaction{},
+		&models.PollOptionVote{}, &models.AccountEmoji{}, &models.SystemSetting{}, &models.StatusHistory{},
+		&models.StatusToAccount{}, &models.Notification{}, &models.Conversation{}, &models.AccountConversation{},
+		&models.List{}, &models.ListFollowAccount{},
 	))
 
 	database.SetTestDB(gdb)
@@ -206,6 +212,7 @@ func TestSerializerStatusEvent_LoadedStatus(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSerializerNotificationEvent_Valid(t *testing.T) {
+	viewer := seedStreamNotification(t)
 	now := time.Now()
 	notif := &serializer.Notification{
 		Id:        "42",
@@ -217,11 +224,11 @@ func TestSerializerNotificationEvent_Valid(t *testing.T) {
 	payloadBytes, err := json.Marshal(map[string]any{"payload": notif})
 	require.NoError(t, err)
 
-	eventType, payloadStr, err := serializerNotificationEvent(nil, string(payloadBytes))
+	eventType, payloadStr, err := serializerNotificationEvent(viewer, string(payloadBytes))
 	require.NoError(t, err)
 	assert.Equal(t, "notification", eventType)
 	assert.Contains(t, payloadStr, "42")
-	assert.Contains(t, payloadStr, "mention")
+	assert.Contains(t, payloadStr, "follow")
 }
 
 func TestSerializerNotificationEvent_InvalidJSON(t *testing.T) {
@@ -514,4 +521,15 @@ func TestDirectStreaming_ProcHandle(t *testing.T) {
 	assert.NotPanics(t, func() {
 		_, _, _ = procHandle("data")
 	})
+}
+
+func seedStreamNotification(t *testing.T) *models.Account {
+	t.Helper()
+	setupTestDB(t)
+	conn := database.GetDB().Session(&gorm.Session{SkipHooks: true})
+	viewer := &models.Account{Id: 123, Username: "notification-viewer"}
+	require.NoError(t, conn.Create(viewer).Error)
+	require.NoError(t, conn.Create(&models.Account{Id: 1, Username: "current-sender"}).Error)
+	require.NoError(t, conn.Create(&models.Notification{Id: 42, AccountId: viewer.Id, FromAccountId: 1, Type: models.NotificationTypeFollow}).Error)
+	return viewer
 }

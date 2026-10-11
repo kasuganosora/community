@@ -76,7 +76,7 @@ func TestSerializerStatusEvent_ReblogTargetMissing(t *testing.T) {
 
 	require.NotPanics(t, func() {
 		_, _, err := serializerStatusEvent(nil, payload)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, errEventNotVisible)
 	})
 }
 
@@ -89,7 +89,7 @@ func TestSerializerStatusEvent_AccountMissingSkipped(t *testing.T) {
 
 	require.NotPanics(t, func() {
 		_, _, err := serializerStatusEvent(nil, payload)
-		require.ErrorIs(t, err, errEventAccountMissing)
+		require.ErrorIs(t, err, errEventNotVisible)
 	})
 }
 

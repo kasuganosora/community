@@ -575,10 +575,13 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	require.NoError(t, setup.DB.Create(activeUser).Error)
 
 	now := time.Now()
+	oldTime := now.Add(-30 * 24 * time.Hour)
 	activeFollower := &models.Account{
 		UserId:         activeUser.Id,
 		Username:       "active_follower",
-		LastActivityAt: &now,
+		LastActivityAt: &oldTime,
+		FeedLastSeenAt: &now,
+		CreatedAt:      &oldTime,
 	}
 	require.NoError(t, setup.DB.Create(activeFollower).Error)
 
@@ -586,11 +589,12 @@ func TestDBService_GetAccountRecentActiveLocalFollowersId(t *testing.T) {
 	inactiveUser := &models.User{UserName: "inactive_follower", EmailHash: "inactive_follower@example.com"}
 	require.NoError(t, setup.DB.Create(inactiveUser).Error)
 
-	oldTime := time.Now().Add(-30 * 24 * time.Hour) // 30天前
 	inactiveFollower := &models.Account{
 		UserId:         inactiveUser.Id,
 		Username:       "inactive_follower",
 		LastActivityAt: &oldTime,
+		FeedLastSeenAt: &oldTime,
+		CreatedAt:      &oldTime,
 	}
 	require.NoError(t, setup.DB.Create(inactiveFollower).Error)
 

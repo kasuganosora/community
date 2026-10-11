@@ -551,6 +551,11 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 		err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+			var preserveErr error
+			tx, preserveErr = models.PreserveFeedStatusAudience(tx, status.Id)
+			if preserveErr != nil {
+				return preserveErr
+			}
 			if _, present := object["attachment"]; present {
 				if err := tx.Where("status_id = ?", status.Id).Delete(&models.MediaAttachment{}).Error; err != nil {
 					return err

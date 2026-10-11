@@ -38,6 +38,14 @@ describe('new posts in timelines', () => {
 
 describe('timeline account and cursor isolation', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+  it('retains the home tab across navigation and resets it synchronously for another session', () => {
+    const store = useTimelineStore()
+    store.homeTab = 'following'
+    expect(useTimelineStore().homeTab).toBe('following')
+    invalidateSessionData()
+    expect(store.homeTab).toBe('for-you')
+    expect(useTimelineStore().homeTab).toBe('for-you')
+  })
   it('deduplicates overlapping pages by wrapper ID while preserving distinct reblogs', async () => {
     const first = Array.from({ length: 20 }, (_, i) => ({ id: String(100 - i) } as MastodonStatus))
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce(first).mockResolvedValueOnce([first[19]!, { id: '80', reblog: { id: '81' } }, { id: '79', reblog: { id: '81' } }] as MastodonStatus[])
@@ -60,11 +68,12 @@ describe('timeline account and cursor isolation', () => {
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '20' }] as MastodonStatus[])
     const store = useTimelineStore()
     await store.fetchHomeTimeline()
-    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '30' }, { id: '20' }] as MastodonStatus[])
+    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '30' }, { id: '20' }] as MastodonStatus[]).mockResolvedValueOnce([{ id: '20' }] as MastodonStatus[])
     await store.checkNewer('home')
     expect(store.homeTimeline.newer.map(status => status.id)).toEqual(['30'])
     expect(store.homeStatuses.map(status => status.id)).toEqual(['20'])
-    store.revealNewer('home')
+    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '30' }, { id: '20' }] as MastodonStatus[])
+    await store.revealNewer('home')
     expect(store.homeStatuses.map(status => status.id)).toEqual(['30', '20'])
     expect(store.homeTimeline.newer).toEqual([])
   })

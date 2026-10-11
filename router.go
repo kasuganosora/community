@@ -386,6 +386,7 @@ func SetRouter(app gin.IRouter) {
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
 		GET("/scheduled_statuses", status.ListScheduledStatuses).
 		GET("/timelines/home", timelines.Home).
+		GET("/streaming/feed", streaming.FeedStreaming).
 		GET("/timelines/mention", timelines.Mention).
 		GET("/favourites", favourite.Favourites).
 		GET("/bookmarks", favourite.Bookmarks)

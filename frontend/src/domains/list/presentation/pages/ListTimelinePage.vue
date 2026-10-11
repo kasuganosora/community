@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonAccount, MastodonList } from '@/shared/types/mastodon'
 import { listApi, type RepliesPolicy } from '../../infrastructure/listApi'
 import { validateListTitle, REPLIES_POLICY_OPTIONS, MAX_LIST_TITLE_LENGTH } from '../../domain/list'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -23,8 +25,12 @@ const listError = ref<string | null>(null)
 const feed = usePaginatedList(
   (maxId, limit) => listApi.getTimeline(listId.value, { max_id: maxId, limit }),
   TIMELINE_PAGE_SIZE,
+  8,
 )
-const { items: statuses, loading, error, hasMore } = feed
+const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
+const streamTarget = computed(() => `stream=list&list=${encodeURIComponent(listId.value)}`)
+useFeedStream(streamTarget, feed.revalidate)
+async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
@@ -67,6 +73,7 @@ const filteredCandidates = computed(() => {
 })
 
 async function openManage() {
+  const version = loadVersion
   if (!list.value) return
   editTitle.value = list.value.title
   editPolicy.value = list.value.replies_policy ?? 'list'
@@ -81,52 +88,70 @@ async function openManage() {
       // Lists can only contain accounts you follow.
       me ? userApi.getAllFollowing(me.id) : Promise.resolve([]),
     ])
+    if (version !== loadVersion) return
     members.value = m
     candidates.value = following
   } catch (e) {
-    manageError.value = e instanceof Error ? e.message : '加载成员失败'
+    if (version === loadVersion) manageError.value = e instanceof Error ? e.message : '加载成员失败'
   } finally {
-    membersLoading.value = false
+    if (version === loadVersion) membersLoading.value = false
   }
+}
+
+function mutationScope() {
+  const version = loadVersion, id = listId.value, epoch = sessionEpoch.value
+  return { id, current: () => version === loadVersion && id === listId.value && epoch === sessionEpoch.value }
+}
+function resetManage() {
+  manageOpen.value = false; confirmDelete.value = false
+  members.value = []; candidates.value = []; editTitle.value = ''; editPolicy.value = 'list'
+  memberQuery.value = ''; manageError.value = null; busy.value = false; membersLoading.value = false
 }
 
 async function saveSettings() {
   manageError.value = validateListTitle(editTitle.value)
   if (manageError.value || !list.value) return
+  const operation = mutationScope()
   busy.value = true
   try {
-    list.value = await listApi.updateList(listId.value, editTitle.value.trim(), editPolicy.value)
+    const updated = await listApi.updateList(operation.id, editTitle.value.trim(), editPolicy.value)
+    if (!operation.current()) return
+    list.value = updated
     MessagePlugin.success('已保存')
   } catch (e) {
-    manageError.value = e instanceof Error ? e.message : '保存失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '保存失败'
   } finally {
-    busy.value = false
+    if (operation.current()) busy.value = false
   }
 }
 
 async function addMember(a: MastodonAccount) {
+  const operation = mutationScope()
   busy.value = true
   manageError.value = null
   try {
-    await listApi.addAccounts(listId.value, [a.id])
+    await listApi.addAccounts(operation.id, [a.id])
+    if (!operation.current()) return
     members.value = [...members.value, a]
   } catch (e) {
-    manageError.value = e instanceof Error ? e.message : '添加失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '添加失败'
   } finally {
-    busy.value = false
+    if (operation.current()) busy.value = false
   }
 }
 
 async function removeMember(a: MastodonAccount) {
+  const operation = mutationScope()
   busy.value = true
   manageError.value = null
   try {
-    await listApi.removeAccounts(listId.value, [a.id])
+    await listApi.removeAccounts(operation.id, [a.id])
+    if (!operation.current()) return
     members.value = members.value.filter(m => m.id !== a.id)
   } catch (e) {
-    manageError.value = e instanceof Error ? e.message : '移除失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '移除失败'
   } finally {
-    busy.value = false
+    if (operation.current()) busy.value = false
   }
 }
 
@@ -138,21 +163,29 @@ function closeManage() {
 
 const confirmDelete = ref(false)
 async function deleteList() {
+  const operation = mutationScope()
   busy.value = true
   try {
-    await listApi.deleteList(listId.value)
+    await listApi.deleteList(operation.id)
+    if (!operation.current()) return
     MessagePlugin.success('列表已删除')
     manageOpen.value = false
     confirmDelete.value = false
     router.replace('/lists').catch(() => {})
   } catch (e) {
-    manageError.value = e instanceof Error ? e.message : '删除失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '删除失败'
   } finally {
-    busy.value = false
+    if (operation.current()) busy.value = false
   }
 }
 
-watch(listId, load)
+watch(listId, () => { resetManage(); void load() }, { flush: 'sync' })
+watch(sessionEpoch, () => {
+  ++loadVersion; list.value = null; listError.value = null
+  resetManage()
+  void nextTick(() => load())
+}, { flush: 'sync' })
+onBeforeUnmount(() => { ++loadVersion })
 onMounted(load)
 </script>
 
@@ -173,9 +206,15 @@ onMounted(load)
       <router-link to="/lists" class="btn btn--secondary btn--sm">返回列表</router-link>
     </div>
 
+    <button v-if="newer.length" class="btn btn--secondary" type="button" @click="reloadHead">有新帖子，点击查看</button>
     <TimelineFeed
-      v-else-if="list"
+      v-if="list && !listError"
       :statuses="statuses"
+      :scope-key="streamTarget"
+      :has-previous="hasPrevious"
+      @reload-head="reloadHead"
+      @load-previous="feed.loadPrevious"
+      @pinned-ids="feed.setPinnedIds"
       :loading="loading"
       :has-more="hasMore"
       :error="error"
@@ -187,7 +226,7 @@ onMounted(load)
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
     />
-    <div v-else class="page-loading"><t-loading /></div>
+    <div v-else-if="!listError" class="page-loading"><t-loading /></div>
 
     <t-dialog
       v-model:visible="manageOpen"

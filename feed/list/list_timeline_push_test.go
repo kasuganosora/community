@@ -256,7 +256,7 @@ func TestRebuild_PopulatesTimelineFromDB(t *testing.T) {
 	err := timeline.Rebuild()
 	require.NoError(t, err)
 
-	key := "feed:list:v2:" + strconv.FormatUint(list.Id, 10)
+	key := feed.TimelineKey(timeline)
 	members, err := mr.ZMembers(key)
 	require.NoError(t, err)
 

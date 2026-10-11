@@ -163,3 +163,39 @@ describe('scope transitions and nonadvancing cursors', () => {
     expect(list.hasMore.value).toBe(false)
   })
 })
+
+describe('bounded bidirectional timeline pages', () => {
+  const all = Array.from({ length: 5000 }, (_, i) => ({ id: String(5000 - i) }))
+  const fetchPage = async (cursor: string | undefined, limit: number) => all.filter(row => !cursor || BigInt(row.id) < BigInt(cursor)).slice(0, limit)
+  it('keeps at most eight pages after 5000 rows and can reload an evicted page in order', async () => {
+    const list = usePaginatedList(fetchPage, 20, 8)
+    await list.refresh()
+    for (let i = 1; i < 250; i++) { await list.loadMore(); expect(list.items.value.length).toBeLessThanOrEqual(160) }
+    expect(list.items.value[0]?.id).toBe('160')
+    expect(list.hasPrevious.value).toBe(true)
+    await list.loadPrevious()
+    expect(list.items.value[0]?.id).toBe('180')
+    expect(list.items.value.at(-1)?.id).toBe('21')
+    await list.loadMore()
+    expect(list.items.value[0]?.id).toBe('160')
+    expect(list.items.value.at(-1)?.id).toBe('1')
+  })
+  it('protects an actively edited page until its pin is released', async () => {
+    const list = usePaginatedList(fetchPage, 20, 8)
+    await list.refresh(); for (let i = 1; i < 8; i++) await list.loadMore()
+    list.setPinnedIds(['5000']); await list.loadMore()
+    expect(list.items.value[0]?.id).toBe('5000')
+    expect(list.hasMore.value).toBe(false)
+    expect(list.error.value).toContain('编辑')
+    list.setPinnedIds([]); await list.loadMore()
+    expect(list.items.value[0]?.id).toBe('4980')
+  })
+  it('does not let a late revalidation restore a previous scope', async () => {
+    let finish!: (rows: {id:string}[]) => void
+    const fetcher = vi.fn().mockResolvedValueOnce(page(20, 19)).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const list = usePaginatedList(fetcher, 20, 8)
+    await list.refresh(); const pending = list.revalidate(); list.reset()
+    finish(page(21, 20)); await pending
+    expect(list.items.value).toEqual([]); expect(list.newer.value).toEqual([])
+  })
+})

@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"net/http"
 	"strings"
@@ -61,7 +62,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 每次都验证 token 是否有效（已撤销或已过期）
 		// 优先查 Redis 缓存，减少数据库压力；缓存未命中则查库并写入缓存
-		token, err := getTokenWithCache(authToken)
+		token, err := getTokenWithCacheContext(c.Request.Context(), authToken)
 		if err != nil {
 			returnUnauthorizedAndRemoveCookie(c)
 
@@ -78,7 +79,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 获取用户信息
 		user := &models.User{}
 
-		err = db.GetDB().Where("id = ?", tokenData.UserId).First(user).Error
+		err = db.GetDB().WithContext(c.Request.Context()).Where("id = ?", tokenData.UserId).First(user).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
@@ -92,7 +93,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		account, err := user.GetAccountBase(db.GetDB())
+		account, err := user.GetAccountBase(db.GetDB().WithContext(c.Request.Context()))
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
@@ -115,7 +116,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		if tokenData.ApplicationId > 0 {
 			application := &models.Application{}
 
-			err = db.GetDB().Where("id = ?", tokenData.ApplicationId).First(application).Error
+			err = db.GetDB().WithContext(c.Request.Context()).Where("id = ?", tokenData.ApplicationId).First(application).Error
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					returnUnauthorizedAndRemoveCookie(c)
@@ -215,48 +216,47 @@ func InvalidateTokenCacheHash(hash string) {
 	}
 }
 
-// getTokenWithCache 优先从 Redis 缓存获取 token，缓存未命中则查库并写入缓存
-// 这样在高并发场景下可以将数据库查询量降低 ~97%（30 秒内同一 token 只查一次库）.
+// tokenCacheBudget bounds optional Redis work across both the read and write.
+// SQL authorization retains the original request context, not this cache budget.
+const tokenCacheBudget = 200 * time.Millisecond
+
 func getTokenWithCache(tokenStr string) (*models.AuthToken, error) {
-	// 尝试从 Redis 缓存获取
+	return getTokenWithCacheContext(context.Background(), tokenStr)
+}
+
+func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (*models.AuthToken, error) {
+	if err := requestContext.Err(); err != nil {
+		return nil, err
+	}
+	cacheContext, cancel := context.WithTimeout(requestContext, tokenCacheBudget)
+	defer cancel()
 	redisClient := GetRedisClient()
+	cacheKey := tokenCacheKey(tokenStr)
+	canWriteCache := false
 	if redisClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		cacheKey := tokenCacheKey(tokenStr)
-
-		cached, err := redisClient.Get(ctx, cacheKey).Result()
+		cached, err := redisClient.Get(cacheContext, cacheKey).Result()
 		if err == nil {
 			if cached == "revoked" {
 				return nil, errors.New("token revoked (cached)")
 			}
-			// 缓存命中且有效，返回一个最小化的 token 对象
-			// 实际校验逻辑已通过 JWT 完成，这里只需要确认 token 未被撤销
-			return &models.AuthToken{}, nil
+			if cached == "valid" {
+				return &models.AuthToken{}, nil
+			}
 		}
+		// A Redis outage is not a cache miss. Do not retry it after the SQL fallback.
+		canWriteCache = err == nil || errors.Is(err, redis.Nil)
 	}
-
-	// 缓存未命中，查库
-	token, err := models.GetTokenByTokenStr(tokenStr)
-	if err != nil {
-		return nil, err
+	token := &models.AuthToken{}
+	digest := strings.TrimPrefix(cacheKey, "token_cache:")
+	if err := db.GetDB().WithContext(requestContext).Where("token = ?", digest).First(token).Error; err != nil {
+		return nil, errors.Wrap(err, "get token by token str error")
 	}
-
-	// 写入 Redis 缓存
-	if redisClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		cacheKey := tokenCacheKey(tokenStr)
+	if canWriteCache && cacheContext.Err() == nil {
 		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
-			// 已撤销/过期的 token 缓存为 "revoked"，使用较长 TTL 减少查库
-			_ = redisClient.Set(ctx, cacheKey, "revoked", revokedTokenCacheTTL).Err()
+			_ = redisClient.Set(cacheContext, cacheKey, "revoked", revokedTokenCacheTTL).Err()
 		} else {
-			// 有效 token 缓存为 "valid"，短 TTL 保证撤销后 30 秒内失效
-			_ = redisClient.Set(ctx, cacheKey, "valid", tokenCacheTTL).Err()
+			_ = redisClient.Set(cacheContext, cacheKey, "valid", tokenCacheTTL).Err()
 		}
 	}
-
 	return token, nil
 }

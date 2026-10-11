@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 )
 
@@ -13,6 +14,8 @@ import (
 // then run all tests.
 func TestMain(m *testing.M) {
 	database.SetTestMode()
+	// Local httptest servers must not inherit the developer deployment proxy.
+	config.C.HttpProxy = ""
 	os.Exit(m.Run())
 }
 

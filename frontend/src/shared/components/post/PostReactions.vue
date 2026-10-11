@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useTimelineRowPin } from '@/shared/composables/useTimelineRow'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { markStatusEdited } from '@/domains/post/presentation/composables/useStatusActions'
@@ -17,6 +18,10 @@ const choosing = ref(false)
 const error = ref('')
 const details = ref(false)
 const loadingDetails = ref(false)
+useTimelineRowPin(() => choosing.value || details.value || pending.value, () => {
+  choosing.value = false; details.value = false
+  error.value = '请先关闭其他帖子的编辑器或菜单，再打开新的回应。'
+})
 const responders = ref<MastodonEmojiReaction[]>([])
 const optimistic = ref<MastodonEmojiReaction[] | null>(null)
 const reactions = computed(() => optimistic.value ?? props.status.emoji_reactions ?? [])
@@ -25,8 +30,17 @@ const total = computed(() => reactions.value.reduce((sum, reaction) => sum + rea
 const addButton = ref<HTMLButtonElement>()
 function closePicker() { choosing.value = false; addButton.value?.focus() }
 function remoteReaction(reaction: MastodonEmojiReaction) { return !reaction.me && /^:[^:]+@[^:]+:$/.test(reaction.name) }
-watch(sessionEpoch, () => { choosing.value = false; details.value = false; responders.value = []; optimistic.value = null; error.value = '' })
-watch(() => props.status.id, () => { optimistic.value = null; choosing.value = false; details.value = false; responders.value = []; error.value = '' })
+let reactionGeneration = 0
+let detailsGeneration = 0
+watch([sessionEpoch, () => props.status.id], () => {
+  ++reactionGeneration; ++detailsGeneration
+  choosing.value = false; details.value = false; responders.value = []
+  optimistic.value = null; error.value = ''; pending.value = false; loadingDetails.value = false
+}, { flush: 'sync' })
+watch(details, open => {
+  if (!open) { ++detailsGeneration; responders.value = []; loadingDetails.value = false }
+}, { flush: 'sync' })
+onBeforeUnmount(() => { ++reactionGeneration; ++detailsGeneration })
 function image(reaction: MastodonEmojiReaction) {
   return reaction.url && !reaction.is_sensitive ? emojiUrl({ shortcode: '', url: reaction.url, static_url: reaction.static_url || '', visible_in_picker: true }) : null
 }
@@ -34,6 +48,8 @@ async function toggle(name: string) {
   if (!auth.currentUser || pending.value) return
   const id = props.status.id
   const epoch = sessionEpoch.value
+  const generation = ++reactionGeneration
+  const current = () => generation === reactionGeneration && props.status.id === id && sessionEpoch.value === epoch
   const remove = reactions.value.some(r => r.name === name && r.me)
   const next = reactions.value.map(r => ({ ...r, count: r.count - (r.me ? 1 : 0), me: false })).filter(r => r.count > 0)
   if (!remove) {
@@ -45,21 +61,23 @@ async function toggle(name: string) {
   pending.value = true
   choosing.value = false
   error.value = ''
-  try { const updated = await postApi.react(id, name, remove); if (sessionEpoch.value === epoch) markStatusEdited(updated) }
-  catch { if (props.status.id === id) error.value = '无法回应，已恢复原状态：表情可能不可用或受限制，帖子也可能已不可见。' }
-  finally { optimistic.value = null; pending.value = false }
+  try { const updated = await postApi.react(id, name, remove); if (current()) markStatusEdited(updated) }
+  catch { if (current()) error.value = '无法回应，已恢复原状态：表情可能不可用或受限制，帖子也可能已不可见。' }
+  finally { if (current()) { optimistic.value = null; pending.value = false } }
 }
 function choose(emoji: MastodonEmoji) { toggle(`:${emoji.shortcode}:`) }
 async function showResponders() {
   const id = props.status.id
   const epoch = sessionEpoch.value
+  const generation = ++detailsGeneration
+  const current = () => generation === detailsGeneration && details.value && props.status.id === id && sessionEpoch.value === epoch
   details.value = true
   responders.value = []
   loadingDetails.value = true
   error.value = ''
-  try { const rows = await postApi.reactions(id); if (props.status.id === id && sessionEpoch.value === epoch) responders.value = rows }
-  catch { if (props.status.id === id) error.value = '无法读取回应者，帖子可能不再对你可见。' }
-  finally { loadingDetails.value = false }
+  try { const rows = await postApi.reactions(id); if (current()) responders.value = rows }
+  catch { if (current()) error.value = '无法读取回应者，帖子可能不再对你可见。' }
+  finally { if (current()) loadingDetails.value = false }
 }
 </script>
 <template>
@@ -83,7 +101,7 @@ async function showResponders() {
       <EmojiPicker @select="choose" @close="closePicker" />
     </div>
     <p v-if="error && !details" class="post-reactions__error" role="alert">{{ error }}</p>
-    <t-dialog v-model:visible="details" header="表情回应" :footer="false" width="min(440px, calc(100vw - 32px))">
+    <t-dialog v-if="details" v-model:visible="details" header="表情回应" :footer="false" width="min(440px, calc(100vw - 32px))">
       <div class="responders">
         <p v-if="loadingDetails" class="responders__state" role="status"><span class="responders__spinner" aria-hidden="true" />正在加载回应者</p>
         <p v-else-if="error" class="post-reactions__error" role="alert">{{ error }}</p>

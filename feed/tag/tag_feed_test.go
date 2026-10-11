@@ -54,6 +54,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.Account{},
 		&models.AccountExtra{},
 		&models.Block{},
+		&models.DomainBlock{},
 		&models.MuteAccount{},
 		&models.StatusContent{},
 		&models.StatusToAccount{},
@@ -631,7 +632,7 @@ func TestRebuild_TagNotFoundReturnsError(t *testing.T) {
 	defer globalStateMu.Unlock()
 
 	setupTestDB(t)
-	setupMockFeedService(t)
+	setupRedismockRedis(t)
 
 	timeline := &TagTimeline{Tag: "does-not-exist"}
 	err := timeline.Rebuild()
@@ -643,7 +644,7 @@ func TestRebuild_Success(t *testing.T) {
 	defer globalStateMu.Unlock()
 
 	gdb := setupTestDB(t)
-	setupMockFeedService(t)
+	setupRedismockRedis(t)
 
 	// Seed tag + statuses + status_tags join rows.
 	tag := &models.Tag{Name: "golang"}
@@ -680,7 +681,7 @@ func TestRebuild_NoStatusesStillSucceeds(t *testing.T) {
 	defer globalStateMu.Unlock()
 
 	gdb := setupTestDB(t)
-	setupMockFeedService(t)
+	setupRedismockRedis(t)
 
 	tag := &models.Tag{Name: "empty-tag"}
 	require.NoError(t, gdb.Create(tag).Error)
@@ -892,6 +893,7 @@ func TestTagTimeline_RebuildReturnsFeedError(t *testing.T) {
 	database.ResetTestDB()
 	t.Cleanup(database.ResetTestDB)
 
+	setupRedismockRedis(t)
 	timeline := &TagTimeline{Tag: "panic-tag"}
 	assert.Panics(t, func() {
 		_ = timeline.Rebuild()
@@ -905,7 +907,7 @@ func TestTagTimeline_CaseInsensitive(t *testing.T) {
 	defer globalStateMu.Unlock()
 
 	gdb := setupTestDB(t)
-	mockRedis := setupMockFeedService(t)
+	setupRedismockRedis(t)
 
 	tag := &models.Tag{Name: "GoLang"}
 	require.NoError(t, gdb.Create(tag).Error)
@@ -922,6 +924,7 @@ func TestTagTimeline_CaseInsensitive(t *testing.T) {
 	}
 
 	// A status tagged with the display spelling lands in the shared timeline.
+	mockRedis := setupMockFeedService(t)
 	mockRedis.SetChannel("subscribed:feed:hashtag:golang", true)
 	pushed := &models.Status{
 		Id: 900, AccountId: 1, Visibility: models.StatusVisibilityPublic,

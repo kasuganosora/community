@@ -2,6 +2,8 @@ package feed
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -36,12 +38,33 @@ type RedisClient interface {
 
 // redisClientWrapper 包装 redis.Client 以实现 RedisClient 接口.
 type redisClientWrapper struct {
-	*redis.Client
+	redis.UniversalClient
 }
 
-func NewRedisClient(client *redis.Client) RedisClient {
-	return &redisClientWrapper{Client: client}
+func NewRedisClient(client redis.UniversalClient) RedisClient {
+	return &redisClientWrapper{UniversalClient: client}
 }
 
 // 确保 redisClientWrapper 实现了 RedisClient 接口.
 var _ RedisClient = (*redisClientWrapper)(nil)
+
+// go-redis pipeline acquisition failures mark a node failing but may retain the
+// old slot owner until a MOVED response arrives. A stopped primary cannot send
+// MOVED. Refresh topology after transport failures so the next bounded worker
+// attempt can reach the promoted replica; never treat the failed write as acked.
+func (r *redisClientWrapper) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	started := time.Now()
+	commands, err := r.UniversalClient.Pipelined(ctx, fn)
+	redisBatchDuration.Observe(time.Since(started).Seconds())
+	if err != nil {
+		redisBatchErrors.Inc()
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		if _, serverError := err.(redis.Error); !serverError {
+			if cluster, ok := r.UniversalClient.(*redis.ClusterClient); ok {
+				cluster.ReloadState(ctx)
+			}
+		}
+	}
+	return commands, err
+}

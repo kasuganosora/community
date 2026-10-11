@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 var upgrade = websocket.Upgrader{
@@ -63,7 +65,7 @@ func parseAllowedOrigins(s string) []string {
 	return result
 }
 
-func serializerStatusEvent(account *models.Account, payload string) (eventType string, payloadStr string, err error) {
+func serializerStatusEvent(account *models.Account, payload string, channel ...string) (eventType string, payloadStr string, err error) {
 	type statusEvent struct {
 		Type    string         `json:"type"`
 		Payload *models.Status `json:"payload"`
@@ -80,35 +82,49 @@ func serializerStatusEvent(account *models.Account, payload string) (eventType s
 		return eventType, payloadStr, errors.New("streaming: status event has no payload")
 	}
 
-	// 查看扩展字段是否加载全, 如果没有加载全, 则加载全
-	err = event.Payload.CheckAndLoadAllExtendFields(db.GetDB())
+	if event.Payload.Id == 0 {
+		return "", "", errEventNotVisible
+	}
+	if event.Type == "delete" {
+		// Tombstones carry only an ID; the deleted SQL row need not still exist.
+		return "delete", strconv.FormatUint(event.Payload.Id, 10), nil
+	}
+	if event.Type != "update" && event.Type != "status.update" {
+		return "", "", errors.New("streaming: unsupported status event")
+	}
+	account, err = currentStreamingAccount(account)
 	if err != nil {
-		return eventType, payloadStr, err
+		return "", "", err
 	}
-
-	if event.Type == "delete" { //nolint:goconst
-		// 删除事件, 不需要序列化，只需要返回被删除的status id
-		eventType = event.Type
-		payloadStr = strconv.FormatUint(event.Payload.Id, 10)
-
-		return eventType, payloadStr, err
+	var current models.Status
+	statuses := models.Statuses{}
+	contextName := ""
+	if len(channel) > 0 {
+		statuses, contextName, err = currentTimelineStatus(account, event.Payload.Id, channel[0])
+		if err != nil {
+			return "", "", err
+		}
+	} else {
+		// Non-timeline callers still reload current SQL and authorize embedded objects.
+		if err = models.StatusLoadAllQuery(db.GetDB()).First(&current, event.Payload.Id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", "", errors.Wrap(errEventNotVisible, "status no longer exists")
+			}
+			return "", "", err
+		}
+		if current.Account == nil {
+			return "", "", errors.Wrap(errEventAccountMissing, "status author")
+		}
+		statuses = models.Statuses{&current}
 	}
-
-	// The author is mandatory for clients; skip the event (logged by the
-	// caller) instead of serializing a status without an account.
-	if event.Payload.Account == nil || event.Payload.Account.Id == 0 {
-		return eventType, payloadStr, errors.Wrapf(errEventAccountMissing, "status %d", event.Payload.Id)
-	}
-
-	if event.Payload.Reblog != nil && event.Payload.Reblog.Account == nil {
-		return eventType, payloadStr, errors.Wrapf(errEventAccountMissing, "reblogged status %d", event.Payload.Reblog.Id)
-	}
-
-	// 序列化
-	sStatus, err := serializer.ToStatus(event.Payload, account)
+	rows, err := serializer.ToStatusesContext(models.WithFilterContext(context.Background(), contextName), statuses, account)
 	if err != nil {
-		return eventType, payloadStr, err
+		return "", "", err
 	}
+	if len(rows) != 1 {
+		return "", "", errEventNotVisible
+	}
+	sStatus := rows[0]
 
 	_payloadStr, err := json.Marshal(sStatus)
 	if err != nil {
@@ -120,33 +136,64 @@ func serializerStatusEvent(account *models.Account, payload string) (eventType s
 	return eventType, payloadStr, err
 }
 
-func serializerNotificationEvent(account *models.Account, payload string) (eventType string, payloadStr string, err error) { //nolint:unparam // param reserved for future use
-	type notificationEvent struct {
+// currentStreamingAccount invalidates long-lived streams after account removal
+// or suspension instead of trusting the account snapshot captured at handshake.
+func currentStreamingAccount(account *models.Account) (*models.Account, error) {
+	if account == nil {
+		return nil, nil
+	}
+	var current models.Account
+	if err := db.GetDB().First(&current, account.Id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errEventNotVisible
+		}
+		return nil, err
+	}
+	if current.IsBan {
+		return nil, errEventNotVisible
+	}
+	return &current, nil
+}
+
+func serializerNotificationEvent(account *models.Account, payload string) (string, string, error) {
+	var event struct {
 		Payload *serializer.Notification `json:"payload"`
 	}
-
-	event := &notificationEvent{}
-
-	err = json.Unmarshal([]byte(payload), event)
+	if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		return "", "", err
+	}
+	if event.Payload == nil {
+		return "", "", errEventAccountMissing
+	}
+	account, err := currentStreamingAccount(account)
 	if err != nil {
-		return
+		return "", "", err
 	}
-
-	// Mastodon clients require notification.account; the sender may have
-	// been deleted since the event was queued.
-	if event.Payload == nil || event.Payload.Account == nil {
-		return eventType, payloadStr, errors.Wrap(errEventAccountMissing, "notification")
+	if account == nil {
+		return "", "", errEventNotVisible
 	}
-
-	_payloadStr, err := json.Marshal(event.Payload)
+	id, err := strconv.ParseUint(event.Payload.Id, 10, 64)
+	if err != nil || id == 0 {
+		return "", "", errEventNotVisible
+	}
+	var current models.Notification
+	if err := db.GetDB().Where("id = ? AND account_id = ?", id, account.Id).First(&current).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", "", errEventNotVisible
+		}
+		return "", "", err
+	}
+	// The batch serializer also filters embedded reblogs/quotes and incomplete
+	// notifications, using current SQL rather than queued serialized text.
+	rows, err := serializer.ToNotifications([]*models.Notification{&current}, account)
 	if err != nil {
-		return
+		return "", "", err
 	}
-
-	eventType = "notification" //nolint:goconst
-	payloadStr = string(_payloadStr)
-
-	return
+	if len(rows) != 1 {
+		return "", "", errEventNotVisible
+	}
+	encoded, err := json.Marshal(rows[0])
+	return "notification", string(encoded), err
 }
 
 func startSseService(c *gin.Context, procDataHandle func(data any) (event, payload string, err error), timelines ...feed.Timeline) {
@@ -162,6 +209,8 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 	}
 
 	ctx := c.Request.Context()
+	value, _ := c.Get("account")
+	viewer, _ := value.(*models.Account)
 	topicChan := db.GetRedis().Subscribe(ctx, channelName...)
 
 	defer func() {
@@ -184,9 +233,22 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 		select {
 		case <-ctx.Done():
 			return
-		case msg := <-topicChan.Channel():
-			// 处理数据
-			event, payload, err := procDataHandle(msg.Payload)
+		case msg, open := <-topicChan.Channel():
+			if !open || msg == nil {
+				return
+			}
+			// List ownership/following can be revoked while this SSE connection is open.
+			if _, _, err := streamForChannel(viewer, msg.Channel); err != nil {
+				logEventError(err)
+				continue
+			}
+			var event, payload string
+			var err error
+			if isStatusStreamEvent(msg.Payload) {
+				event, payload, err = serializerStatusEvent(viewer, msg.Payload, msg.Channel)
+			} else {
+				event, payload, err = procDataHandle(msg.Payload)
+			}
 			if err != nil {
 				logEventError(err)
 
@@ -225,6 +287,8 @@ func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType str
 	return "announcement.reaction", string(payload), nil
 }
 
+var errEventNotVisible = errors.New("streaming: event is no longer visible")
+
 var errEventAccountMissing = errors.New("streaming: status event account missing")
 
 // logEventError logs a failed event serialization. A status whose author (or
@@ -233,7 +297,7 @@ var errEventAccountMissing = errors.New("streaming: status event account missing
 // still queued in redis feeds, so such events are skipped at debug level
 // (the message carries the status id) instead of flooding the error log.
 func logEventError(err error) {
-	if errors.Is(err, errEventAccountMissing) {
+	if errors.Is(err, errEventAccountMissing) || errors.Is(err, errEventNotVisible) {
 		log.Debug("streaming: skipping event: %v", err)
 
 		return

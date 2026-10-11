@@ -93,3 +93,39 @@ func TestSettingsRollbackDoesNotPublishAndDiagnosticsCannotWrite(t *testing.T) {
 	UpdateSettings(c)
 	require.Equal(t, 422, w.Code)
 }
+
+func TestSettingsDeploymentMetadataRemainsReadOnlyAndRedacted(t *testing.T) {
+	newAdminTestEnv(t)
+	t.Setenv("S3_SECRET_KEY", "private-fixture-value")
+	old := config.C.Other
+	config.C.Other = map[string]string{"S3_SECRET_KEY": "private-fixture-value"}
+	t.Cleanup(func() { config.C.Other = old })
+	c, w := newJSONContext(t, http.MethodGet, gin.Params{{Key: "section", Value: "storage"}}, nil)
+	GetSettings(c)
+	require.Equal(t, 200, w.Code)
+	require.NotContains(t, w.Body.String(), "private-fixture-value")
+	var result struct {
+		Fields []struct {
+			Key           string `json:"key"`
+			DeploymentKey string `json:"deployment_key"`
+			ReadOnly      bool   `json:"read_only"`
+			SecretSet     bool   `json:"secret_set"`
+			Value         any    `json:"value"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	found := false
+	for _, field := range result.Fields {
+		if field.Key == "config.storage.secret_key" {
+			found = true
+			require.Equal(t, "S3_SECRET_KEY", field.DeploymentKey)
+			require.True(t, field.ReadOnly)
+			require.True(t, field.SecretSet)
+			require.Nil(t, field.Value)
+		}
+	}
+	require.True(t, found)
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{"config.storage.secret_key": "attempted-override"}})
+	UpdateSettings(c)
+	require.Equal(t, 409, w.Code)
+}
