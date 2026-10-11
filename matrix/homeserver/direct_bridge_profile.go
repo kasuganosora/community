@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -22,6 +24,7 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/defaultavatar"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
@@ -73,15 +76,12 @@ func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomI
 			display = acct
 		}
 	}
-	source := account.AvatarStatic
-	if source == "" || strings.HasPrefix(account.Avatar, "mxc://") {
-		source = account.Avatar
-	}
+	sources := bridgeAvatarSources(account)
 	modified := ""
 	if account.UpdatedAt != nil {
 		modified = account.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s", account.Id, source, modified)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("avatar-v2\x00%d\x00%s\x00%s", account.Id, strings.Join(sources, "\x00"), modified)))
 	fingerprint := hex.EncodeToString(sum[:])
 	avatar, _ := state.Content["avatar_url"].(string)
 	oldFingerprint, _ := state.Content[bridgeAvatarSourceKey].(string)
@@ -89,16 +89,21 @@ func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomI
 	if account.Domain == nil && (state.Content[bridgeAvatarManualKey] == true || (strings.HasPrefix(avatar, "mxc://") && !strings.HasPrefix(avatar, "mxc://"+hs.Config.ServerName+"/"+defaultavatar.MediaPrefix) && (oldFingerprint == "" || strings.HasPrefix(account.Avatar, "mxc://")))) {
 		// A user's explicit Matrix avatar remains authoritative over Community defaults.
 		nextFingerprint = oldFingerprint
-	} else if defaultavatar.IsPlaceholder(source, systemsettings.GetBaseURL()) {
+	} else if len(sources) == 0 {
 		avatar = hs.defaultBridgeAvatar(account)
 		nextFingerprint = fingerprint
 	} else if oldFingerprint != fingerprint || !strings.HasPrefix(avatar, "mxc://") {
-		avatarCtx, cancel := context.WithTimeout(avatarBudget, 3*time.Second)
-		imported, err := hs.importBridgeAvatar(avatarCtx, userID, source, account.Domain == nil)
-		cancel()
-		if err == nil {
-			avatar = imported
-			nextFingerprint = fingerprint
+		for _, source := range sources {
+			avatarCtx, cancel := context.WithTimeout(avatarBudget, 3*time.Second)
+			imported, err := hs.importBridgeAvatar(avatarCtx, userID, source, account.Domain == nil)
+			cancel()
+			if err == nil {
+				avatar = imported
+				nextFingerprint = fingerprint
+				break
+			}
+			// Never log the URL or raw transport error: avatar links may be signed.
+			log.Warn("Matrix avatar import failed: account=%d reason=%s", account.Id, bridgeAvatarFailureReason(err))
 		}
 		// An unavailable avatar never delays/rejects the private message. Keep the
 		// prior valid MXC, without marking a failed fetch as synchronized.
@@ -171,7 +176,7 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 		}
 		if response.StatusCode != http.StatusOK || response.ContentLength > bridgeAvatarMaxBytes {
 			response.Body.Close()
-			return "", errors.New("avatar unavailable or too large")
+			return "", fmt.Errorf("avatar HTTP status %d or response too large", response.StatusCode)
 		}
 		reader = response.Body
 	}
@@ -190,6 +195,22 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", err
+	}
+	// Normalize to an avatar-sized image before PNG encoding. Large JPEGs can
+	// be small downloads yet exceed the output limit when encoded losslessly.
+	if dimensions.Width > 512 || dimensions.Height > 512 {
+		width, height := dimensions.Width, dimensions.Height
+		if width >= height {
+			height = max(1, height*512/width)
+			width = 512
+		} else {
+			width = max(1, width*512/height)
+			height = 512
+		}
+		thumbnail := image.NewRGBA(image.Rect(0, 0, width, height))
+		xdraw.CatmullRom.Scale(thumbnail, thumbnail.Bounds(), decoded, decoded.Bounds(), xdraw.Src, nil)
+		decoded = thumbnail
+		dimensions.Width, dimensions.Height = width, height
 	}
 	var normalized bytes.Buffer
 	if err = png.Encode(&normalized, decoded); err != nil {
@@ -273,4 +294,41 @@ func (hs *HomeServer) defaultBridgeAvatar(account models.Account) string {
 		domain = *account.Domain
 	}
 	return "mxc://" + hs.Config.ServerName + "/" + defaultavatar.MediaPrefix + defaultavatar.Seed(account.Username, domain)
+}
+
+// The current avatar is authoritative. A stale static variant must not hide a
+// real image, but remains a fallback if the original format is unavailable.
+func bridgeAvatarSources(account models.Account) []string {
+	sources := []string{}
+	for _, source := range []string{account.Avatar, account.AvatarStatic} {
+		if defaultavatar.IsPlaceholder(source, systemsettings.GetBaseURL()) {
+			continue
+		}
+		if len(sources) == 0 || sources[0] != source {
+			sources = append(sources, source)
+		}
+	}
+	return sources
+}
+
+func bridgeAvatarFailureReason(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "timeout_or_canceled"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return "download_timeout"
+	}
+	// Only errors constructed here are safe to show; arbitrary network/storage
+	// errors may embed credentials, signed URLs or filesystem details.
+	message := err.Error()
+	for _, known := range []string{"avatar too large", "normalized avatar too large", "unsupported avatar image", "invalid avatar URL", "invalid local avatar key", "unsupported avatar MXC", "avatar MXC unavailable", "remote avatar must be an HTTPS profile image"} {
+		if message == known {
+			return message
+		}
+	}
+	if strings.HasPrefix(message, "avatar HTTP status ") && len(message) < 60 {
+		return message
+	}
+	return "download_decode_or_storage_failed"
 }

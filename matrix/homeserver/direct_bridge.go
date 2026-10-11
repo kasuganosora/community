@@ -32,6 +32,7 @@ func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
 		hs.refreshDirectBridgeTopics(ctx)
 		hs.refreshExplicitBridgeRoomNames(ctx)
 	}()
+	hs.startBridgeAvatarRetry(ctx)
 	hs.StartDirectDeliveryFeedback(ctx)
 	hs.StartBridgeConversationReconciler(ctx)
 	hs.StartBridgeFederation(ctx)
