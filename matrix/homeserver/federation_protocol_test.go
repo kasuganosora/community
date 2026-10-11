@@ -164,5 +164,14 @@ func TestFederationTransactionDoesNotAcknowledgeMalformedPDU(t *testing.T) {
 	router.PUT("/send", handleFederationSend)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest("PUT", "/send", bytes.NewReader(payload)))
-	require.Equal(t, 400, w.Code, w.Body.String())
+	// One bad PDU is rejected individually; it must not fail the whole transaction.
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var result struct {
+		PDUs map[string]map[string]any `json:"pdus"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	require.Len(t, result.PDUs, 1)
+	for _, v := range result.PDUs {
+		require.NotEmpty(t, v["error"])
+	}
 }

@@ -338,7 +338,7 @@ func TestHandleMakeJoin_RoomNotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "M_FORBIDDEN")
+	assert.Contains(t, w.Body.String(), "M_NOT_FOUND")
 }
 
 func TestHandleMakeLeave_RoomNotFound(t *testing.T) {
@@ -519,7 +519,7 @@ func TestHandleGetFederationEvent_NotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "M_FORBIDDEN")
+	assert.Contains(t, w.Body.String(), "M_NOT_FOUND")
 }
 
 // ===== handleGetPublicRooms =====

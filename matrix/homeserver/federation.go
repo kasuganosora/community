@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"gorm.io/gorm"
 	"maps"
 	"net/http"
@@ -353,13 +355,25 @@ func handleVerifiedState(c *gin.Context, ids bool) {
 	}
 	event, err := eventPDUFromDB(db.GetDB(), eventID, version)
 	if err != nil || event.RoomID().String() != roomID {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Warn("federation state: cannot load event %s in %s: %v", eventID, roomID, err)
+		}
 		federationFailure(c, 404, fmt.Errorf("event not found in requested room"))
 		return
 	}
 	state, err := stateBeforePDU(db.GetDB(), event)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Warn("federation state: incomplete local DAG for event %s in %s: %v", eventID, roomID, err)
+			federationFailure(c, 404, fmt.Errorf("state at event is not available on this server"))
+			return
+		}
 		federationFailure(c, 500, err)
 		return
+	}
+	// The state "at" an event includes the event itself when it is a state event.
+	if event.StateKey() != nil {
+		state = stateWithEvent(state, event)
 	}
 	auth, err := completeAuthChain(db.GetDB(), state, version)
 	if err != nil {
@@ -388,6 +402,19 @@ func handleVerifiedState(c *gin.Context, ids bool) {
 	}
 	c.JSON(200, gin.H{"pdus": stateWire, "auth_chain": authWire})
 }
+
+// stateWithEvent returns state with ev replacing any entry for its (type, state_key).
+func stateWithEvent(state []gmsl.PDU, ev gmsl.PDU) []gmsl.PDU {
+	out := make([]gmsl.PDU, 0, len(state)+1)
+	for _, p := range state {
+		if p.StateKey() != nil && ev.StateKey() != nil && p.Type() == ev.Type() && *p.StateKey() == *ev.StateKey() {
+			continue
+		}
+		out = append(out, p)
+	}
+	return append(out, ev)
+}
+
 func handleGetFederationEvent(c *gin.Context) {
 	var event MatrixEvent
 	if err := db.GetDB().Where("event_id = ?", c.Param("eventId")).First(&event).Error; err != nil {
@@ -576,6 +603,18 @@ func federationEventRoomID(event map[string]any) (string, error) {
 	return p.RoomID().String(), nil
 }
 
+// federationRejectedPDUKey picks a stable result key for a PDU that could not be
+// decoded far enough to have an event ID.
+func federationRejectedPDUKey(event map[string]any, n int) string {
+	if id, _ := event["event_id"].(string); id != "" {
+		return id
+	}
+	if id := computeReferenceHash(event, fmt.Sprint(event["type"])); id != "" {
+		return id
+	}
+	return fmt.Sprintf("$unparseable-%d", n)
+}
+
 // storeFederationPDU stores a single federation event and updates state/membership.
 // Returns the event ID and any error.
 func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
@@ -698,20 +737,23 @@ func handleFederationSend(c *gin.Context) {
 	for _, pdu := range txn.PDUs {
 		var event map[string]any
 		if err := json.Unmarshal(pdu, &event); err != nil {
-			federationFailure(c, 400, err)
+			log.Warn("federation send: txn %s from %s: unparseable PDU: %v", c.Param("txnId"), txn.Origin, err)
+			c.JSON(http.StatusBadRequest, MatrixError{ErrCode: "M_BAD_JSON", Error: "PDU is not a JSON object"})
 			return
 		}
 
 		// Signature and auth checks precede persistence; unknown auth chains are rejected.
+		// A rejected PDU is reported per-PDU and never fails the whole transaction.
 
 		eventID, err := storeFederationPDU(hs, event)
 		if err != nil {
-			if eventID != "" {
-				pduResults[eventID] = gin.H{"error": err.Error()}
-			} else {
-				federationFailure(c, 400, err)
-				return
+			if eventID == "" {
+				eventID = federationRejectedPDUKey(event, len(pduResults))
 			}
+			evType, _ := event["type"].(string)
+			evRoom, _ := event["room_id"].(string)
+			log.Warn("federation send: txn %s from %s rejected PDU %s (type=%s room=%s): %v", c.Param("txnId"), txn.Origin, eventID, evType, evRoom, err)
+			pduResults[eventID] = gin.H{"error": err.Error()}
 
 			continue
 		}

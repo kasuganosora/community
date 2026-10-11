@@ -2,7 +2,9 @@ package homeserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/log"
 	"io"
 	"net/http"
 	"time"
@@ -22,8 +24,27 @@ type SendJoinResponse struct {
 	MembersOmitted bool           `json:"members_omitted"`
 }
 
+// federationFailure writes a Matrix error. A missing database record is never a
+// server fault: it is reported as 404 M_NOT_FOUND instead of 500.
 func federationFailure(c *gin.Context, status int, err error) {
-	c.JSON(status, MatrixError{ErrCode: "M_FORBIDDEN", Error: err.Error()})
+	if status >= 500 && errors.Is(err, gorm.ErrRecordNotFound) {
+		status = http.StatusNotFound
+	}
+	code := "M_UNKNOWN"
+	switch status {
+	case http.StatusBadRequest:
+		code = "M_BAD_JSON"
+	case http.StatusForbidden:
+		code = "M_FORBIDDEN"
+	case http.StatusNotFound:
+		code = "M_NOT_FOUND"
+	}
+	msg := err.Error()
+	if status >= 500 {
+		log.Warn("federation %s %s failed: %v", c.Request.Method, c.Request.URL.Path, err)
+		msg = "internal server error"
+	}
+	c.JSON(status, MatrixError{ErrCode: code, Error: msg})
 }
 
 func handleMakeJoin(c *gin.Context) {

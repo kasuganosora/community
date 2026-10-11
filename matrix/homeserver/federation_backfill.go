@@ -1,7 +1,9 @@
 package homeserver
 
 import (
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,7 +65,7 @@ func handleBackfill(c *gin.Context) {
 	}
 	pdus, err := federationAncestors(roomID, roots, nil, limit, 0, true)
 	if err != nil {
-		federationFailure(c, 400, err)
+		federationFailure(c, 500, err)
 		return
 	}
 	c.JSON(200, gin.H{"origin": GetHomeServer().Config.ServerName, "origin_server_ts": time.Now().UnixMilli(), "pdus": pdus})
@@ -145,7 +147,7 @@ func handleEventAuth(c *gin.Context) {
 	}
 	chain, err := federationAuthChain(roomID, c.Param("eventId"))
 	if err != nil {
-		federationFailure(c, 404, err)
+		federationFailure(c, 500, err)
 		return
 	}
 	c.JSON(200, gin.H{"auth_chain": chain})
@@ -170,7 +172,7 @@ func handleQueryAuth(c *gin.Context) {
 	}
 	chain, err := federationAuthChain(roomID, c.Param("eventId"))
 	if err != nil {
-		federationFailure(c, 404, err)
+		federationFailure(c, 500, err)
 		return
 	}
 	c.JSON(200, gin.H{"auth_chain": chain, "rejects": []string{}, "missing": []string{}})
@@ -206,7 +208,7 @@ func handleGetMissingEvents(c *gin.Context) {
 	}
 	events, err := federationAncestors(roomID, req.LatestEvents, req.EarliestEvents, req.Limit, req.MinDepth, false)
 	if err != nil {
-		federationFailure(c, 400, err)
+		federationFailure(c, 500, err)
 		return
 	}
 	c.JSON(200, gin.H{"events": events})
@@ -234,7 +236,10 @@ func federationAncestors(roomID string, roots, stops []string, limit, minDepth i
 		seen[id] = true
 		var event MatrixEvent
 		if err := db.GetDB().Where("room_id = ? AND event_id = ?", roomID, id).First(&event).Error; err != nil {
-			return nil, fmt.Errorf("unknown room event %s", id)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("unknown room event %s: %w", id, err)
+			}
+			return nil, err
 		}
 		if event.Depth < int64(minDepth) {
 			continue

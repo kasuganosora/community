@@ -89,7 +89,8 @@ func TestFederationBackfillReturnsSignedDAGAndEnforcesRoomScope(t *testing.T) {
 		require.NotEmpty(t, response.PDUs[i]["hashes"])
 	}
 	w = signedAuxRequest(t, hs, r, "GET", base+"/backfill/"+room+"?v="+url.QueryEscape(foreign), "")
-	require.Equal(t, 400, w.Code)
+	require.Equal(t, 404, w.Code)
+	require.Contains(t, w.Body.String(), "M_NOT_FOUND")
 	w = signedAuxRequest(t, hs, r, "GET", base+"/event_auth/"+room+"/"+foreign, "")
 	require.Equal(t, 404, w.Code)
 	body := fmt.Sprintf(`{"latest_events":[%q],"earliest_events":[%q],"limit":2}`, last, first)
