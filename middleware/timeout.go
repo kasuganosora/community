@@ -41,7 +41,19 @@ func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.D
 // middleware waits for the handler goroutine to notice the cancelled context
 // and return. gin recycles a Context once the request ends, so a goroutine
 // that is still running on it would corrupt the next request.
-const timeoutGrace = 10 * time.Second
+//
+// Both are variables so tests can shorten them.
+var (
+	timeoutGrace = 10 * time.Second
+	// timeoutHardLimit is how long the middleware keeps holding the request
+	// after the grace period before abandoning a handler that still runs.
+	// Abandoning is unsafe: gin hands the Context to the next request and the
+	// stale goroutine would then write its late response into that request's
+	// writer (surfacing as "wrote more than the declared Content-Length" or a
+	// garbled body on an unrelated endpoint such as POST /inbox). The 504 has
+	// already been flushed, so waiting only keeps this one connection busy.
+	timeoutHardLimit = 3 * time.Minute
+)
 
 type handlerPanic struct {
 	value any
@@ -117,12 +129,21 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			case p := <-panicChan:
 				log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
 			case <-grace.C:
-				// Last resort: the chain index must still be closed so the
-				// engine does not run the remaining handlers a second time.
-				log.Warn("handler still running %s after its timeout: %s %s", timeoutGrace, c.Request.Method, c.Request.URL.Path)
-				c.Abort()
+				log.Warn("handler still running %s after its timeout, holding the request until it returns: %s %s", timeoutGrace, c.Request.Method, c.Request.URL.Path)
+				hard := time.NewTimer(timeoutHardLimit)
+				defer hard.Stop()
+				select {
+				case <-finished:
+				case p := <-panicChan:
+					log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+				case <-hard.C:
+					// Last resort: the chain index must still be closed so the
+					// engine does not run the remaining handlers a second time.
+					log.Error("handler still running %s after its timeout, abandoning the gin.Context: %s %s", timeoutGrace+timeoutHardLimit, c.Request.Method, c.Request.URL.Path)
+					c.Abort()
 
-				return
+					return
+				}
 			}
 			c.Abort()
 			c.Writer = original
