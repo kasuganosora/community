@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/sqlexec/pkg/resource/domain"
 	"github.com/kasuganosora/sqlexec/pkg/resource/memory"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
 
@@ -76,7 +77,7 @@ func initSqlexecXmlConnection() error {
 
 	DB, err = gorm.Open(
 		&xmlDialectorWrapper{Dialector: innerDialector, session: sqlexecSession},
-		&gorm.Config{SkipDefaultTransaction: true},
+		&gorm.Config{SkipDefaultTransaction: true, Logger: NewRedactingLogger(logger.Default)},
 	)
 	if err != nil {
 		_ = sqlexecSession.Close()

@@ -479,8 +479,10 @@ type RefreshResponse struct {
 func (a *AuthService) Refresh(req *RefreshRequest) (*RefreshResponse, *MatrixError) {
 	var session MatrixUserSession
 
-	err := db.GetDB().Where("refresh_token = ?", req.RefreshToken).First(&session).Error
-	if err != nil {
+	// Find + RowsAffected: an unknown token is an expected outcome, not a
+	// "record not found" error (which the SQL log would print with the token).
+	result := db.GetDB().Where("refresh_token = ?", req.RefreshToken).Limit(1).Find(&session)
+	if result.Error != nil || result.RowsAffected == 0 {
 		return nil, ErrUnknownToken
 	}
 
@@ -552,8 +554,8 @@ func (a *AuthService) LogoutAll(accessToken string) *MatrixError {
 func (a *AuthService) GetUserIDByToken(accessToken string) (string, *MatrixError) {
 	var session MatrixUserSession
 
-	err := db.GetDB().Where("access_token = ?", accessToken).First(&session).Error
-	if err != nil {
+	result := db.GetDB().Where("access_token = ?", accessToken).Limit(1).Find(&session)
+	if result.Error != nil || result.RowsAffected == 0 {
 		return "", ErrUnknownToken
 	}
 
@@ -567,8 +569,8 @@ func (a *AuthService) GetUserIDByToken(accessToken string) (string, *MatrixError
 func (a *AuthService) GetDeviceByToken(accessToken string) (*MatrixUserSession, *MatrixError) {
 	var session MatrixUserSession
 
-	err := db.GetDB().Where("access_token = ?", accessToken).First(&session).Error
-	if err != nil {
+	result := db.GetDB().Where("access_token = ?", accessToken).Limit(1).Find(&session)
+	if result.Error != nil || result.RowsAffected == 0 {
 		return nil, ErrUnknownToken
 	}
 

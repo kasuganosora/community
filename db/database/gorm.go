@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // dbMu protects concurrent access to DB, isTestMode and the sqlexec handles.
@@ -203,7 +204,7 @@ func initMysqlConnection() (err error) {
 	// It is safe because we never interpolate user input into these statements.
 	dsn += "?charset=utf8mb4&parseTime=True&loc=Local&multiStatements=true"
 
-	DB, err = gorm.Open(mysql.Open(dsn))
+	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{Logger: NewRedactingLogger(logger.Default)})
 	if err != nil {
 		return
 	}
@@ -237,7 +238,7 @@ func initMysqlConnection() (err error) {
 func initPostgresConnection() (err error) {
 	dsn := postgresDSN()
 
-	DB, err = gorm.Open(dialect.OpenPostgres(dsn))
+	DB, err = gorm.Open(dialect.OpenPostgres(dsn), &gorm.Config{Logger: NewRedactingLogger(logger.Default)})
 	if err != nil {
 		return
 	}
@@ -347,7 +348,7 @@ func initSqliteConnection() (err error) {
 		dbPath = "community.db"
 	}
 
-	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{Logger: NewRedactingLogger(logger.Default)})
 	if err != nil {
 		return
 	}
