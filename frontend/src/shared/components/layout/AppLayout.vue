@@ -16,6 +16,7 @@ useScrollEdge()
 // narrow screens; keep the FAB out of the way until the header scrolls off.
 const PROFILE_ROUTES = new Set(['profile', 'followers', 'following'])
 const route = useRoute()
+const isSettings = computed(() => route.path === '/settings' || route.path.startsWith('/settings/'))
 const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
 const onScroll = () => { scrollY.value = window.scrollY }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
@@ -23,12 +24,12 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 watch(() => route.fullPath, () => { onScroll() })
 const fabHidden = computed(() => {
   const name = String(route.name)
-  return name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
+  return isSettings.value || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
 })
 </script>
 
 <template>
-  <div class="app-layout">
+  <div class="app-layout" :class="{ 'app-layout--settings': isSettings }">
     <aside class="app-layout__left">
       <LeftSidebar />
     </aside>
@@ -41,7 +42,7 @@ const fabHidden = computed(() => {
         </Transition>
       </router-view>
     </main>
-    <aside class="app-layout__right">
+    <aside v-if="!isSettings" class="app-layout__right">
       <RightSidebar />
     </aside>
 
@@ -99,6 +100,10 @@ const fabHidden = computed(() => {
   box-shadow:
     calc(-1 * var(--hairline)) 0 0 var(--color-separator),
     var(--hairline) 0 0 var(--color-separator);
+}
+
+.app-layout--settings .app-layout__center {
+  max-width: 64rem;
 }
 
 .app-layout__right {

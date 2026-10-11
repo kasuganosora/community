@@ -4,9 +4,19 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { authApi, type AuthorizedApp } from '@/domains/auth/infrastructure/authApi'
 
 const apps = ref<AuthorizedApp[]>([])
+const loadError = ref('')
+const fetching = ref(true)
 
 async function refresh() {
-  apps.value = await authApi.listAuthorizedApps()
+  fetching.value = true
+  loadError.value = ''
+  try {
+    apps.value = await authApi.listAuthorizedApps()
+  } catch {
+    loadError.value = '加载失败，请重试'
+  } finally {
+    fetching.value = false
+  }
 }
 
 async function revoke(id: string) {
@@ -25,8 +35,10 @@ onMounted(() => {
 
 <template>
   <div class="apps">
-    <p v-if="apps.length === 0" class="hint">还没有已授权的应用。</p>
-    <ul v-else>
+    <p v-if="fetching" class="hint" role="status">正在加载…</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">重试</button></div>
+    <p v-if="!fetching && !loadError && apps.length === 0" class="hint">还没有已授权的应用。</p>
+    <ul v-else-if="!fetching && !loadError && apps.length">
       <li v-for="app in apps" :key="app.id">
         <span>
           <strong>{{ app.name }}</strong>

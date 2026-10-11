@@ -6,11 +6,21 @@ import { createPasskey, passkeySupported } from '@/shared/utils/webauthn'
 
 const supported = passkeySupported()
 const items = ref<PasskeyItem[]>([])
+const loadError = ref('')
+const fetching = ref(true)
 const loading = ref(false)
 const name = ref('')
 
 async function refresh() {
-  items.value = await authApi.listPasskeys()
+  fetching.value = true
+  loadError.value = ''
+  try {
+    items.value = await authApi.listPasskeys()
+  } catch {
+    loadError.value = '加载失败，请重试'
+  } finally {
+    fetching.value = false
+  }
 }
 
 async function add() {
@@ -45,17 +55,22 @@ onMounted(() => {
 
 <template>
   <div class="passkeys">
+    <p v-if="fetching" class="hint" role="status">正在加载…</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">重试</button></div>
     <p v-if="!supported" class="hint">这台设备或浏览器不支持通行密钥。</p>
     <template v-else>
-      <div class="add">
-        <t-input v-model="name" placeholder="名称，例如 这台电脑" />
-        <t-button theme="primary" :loading="loading" @click="add">添加通行密钥</t-button>
-      </div>
-      <p v-if="items.length === 0" class="hint">还没有通行密钥。添加后可以用它代替密码登录。</p>
-      <ul v-else>
+      <form class="settings-form" @submit.prevent="add">
+        <div class="settings-field">
+          <label for="passkey-name" class="settings-field__label">通行密钥名称</label>
+          <input id="passkey-name" v-model="name" class="settings-input" placeholder="例如：这台电脑" autocomplete="off" />
+        </div>
+        <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="loading">{{ loading ? '添加中…' : '添加通行密钥' }}</button></div>
+      </form>
+      <p v-if="!fetching && !loadError && items.length === 0" class="hint">还没有通行密钥。添加后可以用它代替密码登录。</p>
+      <ul v-else-if="!fetching && !loadError && items.length">
         <li v-for="item in items" :key="item.id">
           <span>{{ item.name }}</span>
-          <button type="button" @click="remove(item.id)">删除</button>
+          <button type="button" class="passkey-remove" @click="remove(item.id)">删除</button>
         </li>
       </ul>
     </template>
@@ -69,5 +84,5 @@ onMounted(() => {
 .hint { color: var(--color-label-secondary); font-size: var(--text-footnote); margin: 0; }
 ul { list-style: none; margin: 0; padding: 0; }
 li { display: flex; justify-content: space-between; align-items: center; min-height: var(--hit-target); }
-button { color: var(--color-danger); background: none; border: 0; cursor: pointer; }
+.passkey-remove { color: var(--color-danger); background: none; border: 0; cursor: pointer; }
 </style>

@@ -82,9 +82,11 @@ async function saveProfile() {
 
 onMounted(async () => {
   resetProfile()
+  const initial = JSON.stringify(profile)
   // Make sure we have the latest `source` (plain-text bio) before editing.
   await authStore.fetchCurrentUser()
-  resetProfile()
+  // Do not overwrite edits made while the refresh was in flight.
+  if (JSON.stringify(profile) === initial) resetProfile()
 })
 </script>
 
@@ -125,9 +127,9 @@ onMounted(async () => {
 
     <p v-if="profileError" class="settings-error" role="alert">{{ profileError }}</p>
     <div class="settings-actions">
-      <button type="button" class="btn btn--ghost btn--sm" @click="resetProfile">还原</button>
+      <button type="button" class="btn btn--ghost btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header" @click="resetProfile">还原</button>
       <button type="submit" class="btn btn--primary btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header">
-        {{ savingProfile ? '保存中…' : '保存' }}
+        {{ savingProfile ? '保存中…' : '保存个人资料' }}
       </button>
     </div>
   </form>
