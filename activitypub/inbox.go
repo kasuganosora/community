@@ -474,6 +474,10 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		preferredUsername, _ := object["preferredUsername"].(string)
 
 		updates := map[string]any{}
+		if err := actorImageUpdates(object, updates); err != nil {
+			c.JSON(400, gin.H{"error": "invalid actor image"})
+			return
+		}
 		if hasName && (validName || nameValue == nil) {
 			updates["display_name"] = name
 		}

@@ -28,6 +28,7 @@ import (
 // StartDirectMessageBridge runs a separate durable queue. AP is plaintext;
 // these private, non-federating rooms never pretend to provide E2EE.
 func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
+	go hs.refreshDirectBridgeTopics(ctx)
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -38,6 +39,7 @@ func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				hs.processOutboundDirectJobs(ctx)
 				conn := db.GetDB().WithContext(ctx)
 				// Bounded startup reconciliation also covers messages received before this feature.
 				var statuses []models.Status
@@ -182,7 +184,7 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 	err := conn.Where("room_id = ?", roomID).First(&room).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		name := "Fediverse private messages"
-		topic := "ActivityPub messages are not end-to-end encrypted. Replies in this room remain in Matrix."
+		topic := directBridgeTopic
 		_, me := hs.Room.CreateRoom(creator, &CreateRoomRequest{bridgeRoomID: roomID, Visibility: "private", Preset: "private_chat", IsDirect: len(ids) == 2, Name: &name, Topic: &topic, Invite: ids, CreationContent: map[string]any{"m.federate": false}, PowerLevelContentOverride: &PowerLevelContent{Users: map[string]int64{creator: 100}, EventsDefault: 0, StateDefault: 100, Invite: 100, Kick: 100, Ban: 100, Redact: 100}})
 		if me != nil {
 			return roomID, "", errors.New(me.Error)
@@ -228,15 +230,20 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		}
 	}
 	senderID := hs.bridgeAccountID(sender)
-	if sender.Domain != nil {
-		display := sender.Username + "@" + *sender.Domain
-		if sender.DisplayName != "" {
-			display = sender.DisplayName + " (" + display + ")"
+	avatarBudget, cancelAvatars := context.WithTimeout(ctx, 3*time.Second)
+	defer cancelAvatars()
+	// Refresh existing memberships on each new message as well as first use.
+	// The room identity stays stable; recipients need not recreate old rooms.
+	for _, member := range members {
+		account, ok := participants[member.UserID]
+		if !ok {
+			continue
 		}
-		if _, me := hs.Event.SendRoomEvent(roomID, senderID, string(EventTypeRoomMember), nil, map[string]any{"membership": "join", "displayname": display}, &senderID); me != nil {
-			return roomID, "", errors.New(me.Error)
+		if err := hs.syncBridgeProfile(ctx, avatarBudget, roomID, member.UserID, account); err != nil {
+			return roomID, "", err
 		}
 	}
+
 	txn := fmt.Sprintf("ap-status-%d", statusID)
 	body := htmlsafe.StripTags(status.ContentHTML(htmlsafe.RenderOptions{}))
 	if status.Content.SpoilerText != "" {
@@ -250,7 +257,7 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		actorName += "@" + *sender.Domain
 	}
 	content := map[string]any{"msgtype": "m.text", "body": body, "org.community.activitypub": map[string]any{"account": actorName, "transport": "activitypub", "encrypted": false}}
-	resp, me := hs.Event.SendRoomEvent(roomID, senderID, "m.room.message", &txn, content, nil)
+	resp, me := hs.Event.sendBridgeRoomEvent(roomID, senderID, "m.room.message", &txn, content, statusID)
 	if me != nil {
 		return roomID, "", errors.New(me.Error)
 	}
@@ -293,7 +300,7 @@ func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender
 		if err != nil {
 			return err
 		}
-		return hs.sendDirectAttachment(roomID, sender, txn, a, *media)
+		return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, *media)
 	}
 	key := a.StorageKey()
 	reader, _, err := storage.Open(ctx, key)
@@ -311,9 +318,9 @@ func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender
 	if err != nil {
 		return err
 	}
-	return hs.sendDirectAttachment(roomID, sender, txn, a, media)
+	return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, media)
 }
-func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, a models.MediaAttachment, media MatrixMedia) error {
+func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, statusID uint64, a models.MediaAttachment, media MatrixMedia) error {
 	kind := "m.file"
 	switch a.Type {
 	case models.MediaTypeImage:
@@ -323,7 +330,7 @@ func (hs *HomeServer) sendDirectAttachment(roomID, sender, txn string, a models.
 	case models.MediaTypeAudio:
 		kind = "m.audio"
 	}
-	_, me := hs.Event.SendRoomEvent(roomID, sender, "m.room.message", &txn, map[string]any{"msgtype": kind, "body": a.FileName, "filename": a.FileName, "url": "mxc://" + hs.Config.ServerName + "/" + media.MediaID, "info": map[string]any{"mimetype": media.ContentType, "size": media.FileSize}}, nil)
+	_, me := hs.Event.sendBridgeRoomEvent(roomID, sender, "m.room.message", &txn, map[string]any{"msgtype": kind, "body": a.FileName, "filename": a.FileName, "url": "mxc://" + hs.Config.ServerName + "/" + media.MediaID, "info": map[string]any{"mimetype": media.ContentType, "size": media.FileSize}}, statusID)
 	if me != nil {
 		return errors.New(me.Error)
 	}

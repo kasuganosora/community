@@ -1667,6 +1667,10 @@ func handleGetProfile(c *gin.Context) {
 	userID := c.Param("userId")
 
 	hs := GetHomeServer()
+	if profile, ok := hs.bridgeGhostProfile(c.Request.Context(), userID); ok {
+		c.JSON(http.StatusOK, profile)
+		return
+	}
 	// 获取用户档案
 	accountID, err := hs.Auth.GetLocalAccountID(userID)
 	if err != nil {
@@ -1689,24 +1693,7 @@ func handleGetProfile(c *gin.Context) {
 		return
 	}
 
-	// 构建头像 MXC URL
-	avatarURL := ""
-
-	if account.Avatar != "" {
-		// 将社区头像 URL 转换为 MXC 格式
-		// 如果是本地文件，生成 MXC URI
-		if strings.HasPrefix(account.Avatar, "/uploads/") {
-			// 提取媒体 ID
-			parts := strings.Split(account.Avatar, "/")
-			if len(parts) >= 4 {
-				mediaID := parts[len(parts)-1]
-				avatarURL = fmt.Sprintf("mxc://%s/%s", hs.Config.ServerName, strings.Split(mediaID, ".")[0])
-			}
-		} else {
-			// 外部 URL，保持原样（Matrix 客户端可能不支持）
-			avatarURL = account.Avatar
-		}
-	}
+	avatarURL := hs.bridgeCompatibleProfileAvatar(c.Request.Context(), userID, account)
 
 	c.JSON(http.StatusOK, gin.H{
 		"displayname": account.DisplayName,
@@ -1716,6 +1703,10 @@ func handleGetProfile(c *gin.Context) {
 
 func handleGetDisplayName(c *gin.Context) {
 	targetUserID := c.Param("userId")
+	if profile, ok := GetHomeServer().bridgeGhostProfile(c.Request.Context(), targetUserID); ok {
+		c.JSON(http.StatusOK, gin.H{"displayname": profile["displayname"]})
+		return
+	}
 
 	localpart, _, ok := ParseMatrixUserID(targetUserID)
 
@@ -1772,6 +1763,10 @@ func handleSetDisplayName(c *gin.Context) {
 
 func handleGetAvatarURL(c *gin.Context) {
 	targetUserID := c.Param("userId")
+	if profile, ok := GetHomeServer().bridgeGhostProfile(c.Request.Context(), targetUserID); ok {
+		c.JSON(http.StatusOK, gin.H{"avatar_url": profile["avatar_url"]})
+		return
+	}
 
 	localpart, _, ok := ParseMatrixUserID(targetUserID)
 
@@ -1788,19 +1783,7 @@ func handleGetAvatarURL(c *gin.Context) {
 	}
 
 	hs := GetHomeServer()
-	avatarURL := ""
-
-	if account.Avatar != "" {
-		if strings.HasPrefix(account.Avatar, "/uploads/") {
-			parts := strings.Split(account.Avatar, "/")
-			if len(parts) >= 4 {
-				mediaID := parts[len(parts)-1]
-				avatarURL = fmt.Sprintf("mxc://%s/%s", hs.Config.ServerName, strings.Split(mediaID, ".")[0])
-			}
-		} else {
-			avatarURL = account.Avatar
-		}
-	}
+	avatarURL := hs.bridgeCompatibleProfileAvatar(c.Request.Context(), targetUserID, account)
 
 	c.JSON(http.StatusOK, gin.H{"avatar_url": avatarURL})
 }
@@ -1864,6 +1847,9 @@ func propagateProfileChange(hs *HomeServer, userID, field, value string) {
 		}
 
 		content[field] = value
+		if field == "avatar_url" {
+			content[bridgeAvatarManualKey] = true
+		}
 		// Ensure membership stays join
 		if _, ok := content["membership"]; !ok {
 			content["membership"] = "join" //nolint:goconst

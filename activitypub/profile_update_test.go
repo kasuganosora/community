@@ -172,3 +172,43 @@ func TestInboundSparseProfileUpdatePreservesOmittedFields(t *testing.T) {
 		require.Len(t, saved.Emojis, 1)
 	}
 }
+
+func TestInboundActorImageUpdatePreservesClearsAndRejectsUnsafe(t *testing.T) {
+	conn := emojiDB(t)
+	actor, err := createRemoteAccount(conn, &Actor{ID: "https://remote.example/users/image-update", PreferredUsername: "image-update", Icon: &Image{URL: "https://cdn.example/old.png"}})
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), actorKey, actor.OriginId)
+	invoke := func(patch map[string]any) int {
+		object := map[string]any{"id": actor.OriginId, "type": "Person"}
+		for k, v := range patch {
+			object[k] = v
+		}
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		handleUpdateActivity(ctx, c, map[string]any{"object": object}, nil)
+		return w.Code
+	}
+	read := func() models.Account {
+		var a models.Account
+		require.NoError(t, conn.First(&a, actor.Id).Error)
+		return a
+	}
+	require.Equal(t, 200, invoke(map[string]any{"name": "renamed"}))
+	require.Equal(t, "https://cdn.example/old.png", read().Avatar)
+	require.Equal(t, 200, invoke(map[string]any{"icon": []any{map[string]any{"type": "Image", "url": "https://cdn.example/new.png"}}}))
+	require.Equal(t, "https://cdn.example/new.png", read().Avatar)
+	require.Equal(t, read().Avatar, read().AvatarStatic)
+	for _, bad := range []string{"file:///private.png", "http://127.0.0.1/a.png", "https://localhost/a.png", "https://user:secret@example.com/a.png", "https://example.com/a.png#fragment"} {
+		require.Equal(t, 400, invoke(map[string]any{"icon": map[string]any{"url": bad}}))
+		require.Equal(t, "https://cdn.example/new.png", read().Avatar)
+	}
+	require.Equal(t, 200, invoke(map[string]any{"icon": nil}))
+	require.Empty(t, read().Avatar)
+	require.Empty(t, read().AvatarStatic)
+	wrong := context.WithValue(context.Background(), actorKey, "https://other.example/attacker")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	handleUpdateActivity(wrong, c, map[string]any{"object": map[string]any{"type": "Person", "id": actor.OriginId, "icon": "https://cdn.example/attacker.png"}}, nil)
+	require.Equal(t, 403, w.Code)
+	require.Empty(t, read().Avatar)
+}

@@ -159,6 +159,8 @@ func loadHSConfig() *HSConfig {
 func Models() []any {
 	return []any{
 		&models.MatrixDMDelivery{},
+		&MatrixDMOutbound{},
+		&MatrixDMEventReference{},
 		&MatrixEvent{},
 		&MatrixRoom{},
 		&MatrixRoomState{},

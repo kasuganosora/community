@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/defaultavatar"
 	imagelib "image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -203,6 +204,15 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 
 // GetMedia 获取媒体文件.
 func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.ReadCloser, error) {
+	if serverName == s.hs.Config.ServerName && strings.HasPrefix(mediaID, defaultavatar.MediaPrefix) {
+		data, err := defaultavatar.PNG(strings.TrimPrefix(mediaID, defaultavatar.MediaPrefix))
+		if err != nil {
+			return nil, nil, err
+		}
+		size := defaultavatar.Size
+		return &MatrixMedia{MediaID: mediaID, ServerName: serverName, FileName: "avatar.png", ContentType: "image/png", FileSize: int64(len(data)), Width: &size, Height: &size}, io.NopCloser(bytes.NewReader(data)), nil
+	}
+
 	var matrixMedia MatrixMedia
 	if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
 		return nil, nil, errors.New("media not found")
@@ -253,6 +263,13 @@ func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height in
 	// Thumbnail IDs are local storage identities, never remote MXC identities.
 	if serverName != s.hs.Config.ServerName {
 		return nil, nil, errors.New("remote thumbnail requires federation")
+	}
+	if strings.HasPrefix(mediaID, defaultavatar.MediaPrefix) {
+		media, reader, err := s.GetMedia(serverName, mediaID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &MatrixThumbnail{MediaID: mediaID, Width: *media.Width, Height: *media.Height}, reader, nil
 	}
 	var thumbnail MatrixThumbnail
 

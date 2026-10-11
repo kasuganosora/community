@@ -3,6 +3,7 @@ package serializer
 import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/defaultassets"
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
@@ -29,6 +30,7 @@ type Account struct {
 	Url                 string   `json:"url"`
 	Uri                 string   `json:"uri"`
 	Avatar              string   `json:"avatar"`
+	AvatarDefault       string   `json:"avatar_default"`
 	AvatarStatic        string   `json:"avatar_static"`
 	AvatarDescription   string   `json:"avatar_description,omitempty"`
 	Header              string   `json:"header"`
@@ -86,6 +88,19 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 	}
 
 	acct, profileURL, actorURI := accountAddress(account)
+	domain := systemsettings.GetDomain()
+	if account.Domain != nil && *account.Domain != "" {
+		domain = *account.Domain
+	}
+	fallback := strings.TrimRight(systemsettings.GetBaseURL(), "/") + defaultavatar.Path(defaultavatar.Seed(account.Username, domain))
+	avatar := proxiedAccountMedia(account, mediaproxy.KindAvatar, account.Avatar)
+	if defaultavatar.IsPlaceholder(account.Avatar, systemsettings.GetBaseURL()) {
+		avatar = fallback
+	}
+	static := proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic)
+	if defaultavatar.IsPlaceholder(account.AvatarStatic, systemsettings.GetBaseURL()) {
+		static = avatar
+	}
 
 	acc = &Account{
 		Username:            account.Username,
@@ -102,8 +117,9 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		Note:                account.NoteHTML(options),
 		Url:                 profileURL,
 		Uri:                 actorURI,
-		Avatar:              mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindAvatar, account.Avatar), "avatar.png"),
-		AvatarStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic), "avatar.png"),
+		Avatar:              avatar,
+		AvatarDefault:       fallback,
+		AvatarStatic:        static,
 		Header:              mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.Header), "header.png"),
 		HeaderStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic), "header.png"),
 		LastStatusAt:        newAPIDate(account.LastStatusAt),

@@ -28,6 +28,7 @@ import (
 	transferapi "github.com/kasuganosora/community/controllers/api/transfer"
 	"github.com/kasuganosora/community/controllers/api/trends"
 	"github.com/kasuganosora/community/defaultassets"
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/linkcard"
 	"github.com/kasuganosora/community/matrix"
@@ -811,6 +812,7 @@ func registerPublicFileRoutes(app gin.IRoutes) {
 	both := []string{http.MethodGet, http.MethodHead}
 	app.Match(both, "/media/:id/*file", media.Serve)
 	app.Match(both, "/emoji-assets/:file", emojiasset.Serve)
+	app.Match(both, "/api/v1/avatars/default/:seed", defaultavatar.Serve)
 	app.Match(both, "/card-images/:file", linkcard.ServeImage)
 	app.Match(both, "/proxy/media/:token", mediaproxyserve.Serve)
 	app.Match(both, "/system/*file", transferapi.ServeMediaAlias)

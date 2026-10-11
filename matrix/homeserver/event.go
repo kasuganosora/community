@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -63,7 +64,7 @@ func (e *EventService) SendRoomEventFromDevice(roomID, sender, senderDeviceID, e
 		deviceScopedTxnID = &scoped
 	}
 
-	resp, err := e.SendRoomEvent(roomID, sender, eventType, deviceScopedTxnID, content, stateKey)
+	resp, err := e.sendRoomEvent(roomID, sender, eventType, deviceScopedTxnID, content, stateKey, true, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +82,10 @@ func (e *EventService) SendRoomEventFromDevice(roomID, sender, senderDeviceID, e
 
 // SendRoomEvent 发送房间事件.
 func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *string, content map[string]any, stateKey *string) (*SendMessageResponse, *MatrixError) {
+	return e.sendRoomEvent(roomID, sender, eventType, txnID, content, stateKey, false, 0)
+}
+
+func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *string, content map[string]any, stateKey *string, clientSend bool, bridgeStatusID uint64) (*SendMessageResponse, *MatrixError) {
 	// 检查用户是否在房间中
 	membership, _ := e.HS.Room.GetUserMembership(roomID, sender)
 	if membership != MembershipJoin {
@@ -208,6 +213,22 @@ func (e *EventService) SendRoomEvent(roomID, sender, eventType string, txnID *st
 			if e.HS.RoomUpgrade != nil {
 				e.HS.RoomUpgrade.migratePushRules(roomID, replacementRoom)
 			}
+		}
+	}
+
+	if bridgeStatusID != 0 {
+		if err = tx.Create(&MatrixDMEventReference{EventID: event.EventID, RoomID: event.RoomID, StatusID: bridgeStatusID}).Error; err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
+	}
+	if clientSend {
+		if err = e.HS.queueOutboundDirect(tx, event); err != nil {
+			tx.Rollback()
+			if errors.Is(err, errDirectMessageSkipped) {
+				return nil, ErrForbidden
+			}
+			return nil, ErrInternal
 		}
 	}
 

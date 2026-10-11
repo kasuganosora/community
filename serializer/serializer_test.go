@@ -212,10 +212,24 @@ func TestToAccount_MastodonStrictShape(t *testing.T) {
 
 	assert.Equal(t, "2026-10-09T00:00:00.000Z", m["created_at"])
 	assert.Equal(t, "2026-10-09", m["last_status_at"])
-	assert.Regexp(t, `^https?://.+/default-assets/avatar\.png$`, m["avatar"])
+	assert.Regexp(t, `^https?://.+/api/v1/avatars/default/[0-9a-f]{64}\.png$`, m["avatar"])
 	assert.Regexp(t, `^https?://.+/default-assets/header\.png$`, m["header"])
 	assert.NotContains(t, m, "avatar_decoration_id")
 	assert.Equal(t, []any{}, m["roles"])
 	assert.Equal(t, []any{}, m["fields"])
 	assert.Equal(t, []any{}, m["emojis"])
+}
+
+func TestAccountDefaultAvatarDomainAndCustomPrecedence(t *testing.T) {
+	a := &models.Account{Username: "Alice"}
+	first := ToAccount(a)
+	assert.Equal(t, first.Avatar, first.AvatarDefault)
+	assert.Equal(t, first.Avatar, ToAccount(a).Avatar)
+	domain := "other.example"
+	a.Domain = &domain
+	assert.NotEqual(t, first.Avatar, ToAccount(a).Avatar)
+	a.Avatar = "https://other.example/custom.png"
+	custom := ToAccount(a)
+	assert.NotEqual(t, custom.AvatarDefault, custom.Avatar)
+	assert.Equal(t, custom.Avatar, custom.AvatarStatic)
 }

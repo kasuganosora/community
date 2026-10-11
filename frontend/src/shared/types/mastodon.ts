@@ -62,6 +62,8 @@ export interface MastodonAccount {
   url: string
   uri: string
   avatar: string
+  /** Deterministic default for this full account identity, also used if its uploaded image fails. */
+  avatar_default?: string
   avatar_static: string
   header: string
   header_static: string

@@ -14,8 +14,8 @@ type MatrixDMDelivery struct {
 	NextAttemptAt time.Time `gorm:"index;not null"`
 	LeaseToken    string    `gorm:"size:36"`
 	Attempts      int
-	RoomID        string `gorm:"size:255"`
-	EventID       string `gorm:"size:255"`
+	RoomID        string `gorm:"size:255;index"`
+	EventID       string `gorm:"size:255;index"`
 	LastError     string `gorm:"size:128"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

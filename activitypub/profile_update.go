@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	cRedis "github.com/kasuganosora/community/db/redis"
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -47,10 +48,14 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 		actor.Context = emojiContext()
 	}
 
-	if account.Avatar != "" {
+	avatar := account.Avatar
+	if defaultavatar.IsPlaceholder(avatar, baseURL) {
+		avatar = baseURL + defaultavatar.Path(defaultavatar.Seed(account.Username, systemsettings.GetDomain()))
+	}
+	if avatar != "" {
 		actor.Icon = &Image{
 			Type: "Image", //nolint:goconst
-			URL:  account.Avatar,
+			URL:  avatar,
 		}
 	}
 
@@ -179,4 +184,32 @@ func invalidateProfile(ctx context.Context, account *models.Account) {
 	if len(cRedis.GetRedises()) > 0 {
 		_ = cache.InvalidateAccount(ctx, account.Id)
 	}
+}
+
+// Actor updates may omit a field (preserve), explicitly clear it (null), or
+// supply the same image/link shapes accepted during actor discovery. No DNS or
+// image download happens here; subsequent fetches retain the pinned transport.
+func actorImageUpdates(object map[string]any, updates map[string]any) error {
+	for field, columns := range map[string][]string{"icon": {"avatar", "avatar_static"}, "image": {"header", "header_static"}} {
+		value, present := object[field]
+		if !present {
+			continue
+		}
+		imageURL := ""
+		if value != nil {
+			raw, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			image := firstImage(raw)
+			if image == nil || !safeEmojiURL(image.URL) || remoteMediaURL(image.URL) != nil {
+				return errors.New("invalid actor image")
+			}
+			imageURL = image.URL
+		}
+		for _, column := range columns {
+			updates[column] = imageURL
+		}
+	}
+	return nil
 }
