@@ -238,14 +238,20 @@ func RegisterRoutes(r gin.IRouter) {
 
 	// 媒体 (unstable endpoint)
 	r.POST("/_matrix/media/v1/upload", matrixAuthMiddleware(), handleUploadMedia)
-	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleLegacyMediaDownload)
-	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleLegacyMediaDownload)
+	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
+	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
 	r.GET("/_matrix/media/v1/preview_url", handlePreviewURL)
+
+	// Legacy r0 media paths used by older clients.
+	r.GET("/_matrix/media/r0/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
+	r.GET("/_matrix/media/r0/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
+	r.GET("/_matrix/media/r0/preview_url", handlePreviewURL)
+	r.GET("/_matrix/media/r0/config", handleGetMediaConfig)
 
 	// 媒体 (v3 endpoint)
 	r.POST("/_matrix/media/v3/upload", matrixAuthMiddleware(), handleUploadMedia)
-	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleLegacyMediaDownload)
-	r.GET("/_matrix/media/v3/thumbnail/:serverName/:mediaId", handleLegacyMediaDownload)
+	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
+	r.GET("/_matrix/media/v3/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
 	r.GET("/_matrix/media/v3/preview_url", handlePreviewURL)
 
 	// 媒体 (client/v1 authenticated endpoint - requires auth, returns 401 without token)
@@ -256,6 +262,8 @@ func RegisterRoutes(r gin.IRouter) {
 		clientV1Media.GET("/download/:serverName/*mediaPath", handleDownloadMediaV1)
 		clientV1Media.GET("/thumbnail/:serverName/*mediaPath", handleThumbnailMediaV1)
 		clientV1Media.POST("/upload", handleUploadMedia)
+		clientV1Media.GET("/config", handleGetMediaConfig)
+		clientV1Media.GET("/preview_url", handlePreviewURL)
 	}
 
 	// r0 兼容 - unauthenticated endpoints

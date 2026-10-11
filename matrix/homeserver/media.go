@@ -476,19 +476,9 @@ func handleDownloadMedia(c *gin.Context) {
 	}
 }
 
-// handleRemoteMediaDownload 处理远程媒体下载.
+// handleRemoteMediaDownload streams another server's media through this server.
 func handleRemoteMediaDownload(c *gin.Context, serverName, mediaID string) {
-	hs := GetHomeServer()
-
-	media, err := hs.mediaFederation().fetchAuthenticatedMediaContext(c.Request.Context(), serverName, mediaID, "download", "")
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Remote media not available"})
-		return
-	}
-	c.Header("Content-Type", media.ContentType)
-	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": media.Filename}))
-	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(http.StatusOK, media.ContentType, media.Data)
+	fetchRemoteForClient(c, serverName, mediaID, "download")
 }
 
 // handleThumbnailMedia 处理缩略图请求.
@@ -527,28 +517,9 @@ func handleThumbnailMedia(c *gin.Context) {
 		height = 240
 	}
 
-	// 如果是远程服务器
+	// Other servers' media is fetched here and streamed, never redirected.
 	if serverName != hs.Config.ServerName {
-		// 通过联邦获取远程缩略图
-		fedClient := hs.mediaFederation()
-
-		params := url.Values{"width": {strconv.Itoa(width)}, "height": {strconv.Itoa(height)}, "method": {method}}
-		remote, err := fedClient.fetchAuthenticatedMediaContext(c.Request.Context(), serverName, mediaID, "thumbnail", "?"+params.Encode())
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"errcode": "M_NOT_FOUND",
-				"error":   "Remote thumbnail not available",
-			})
-
-			return
-		}
-
-		data, contentType := remote.Data, remote.ContentType
-		// 返回缩略图
-		c.Header("Content-Type", contentType)
-		c.Header("Cache-Control", "private, max-age=31536000")
-		c.Header("Content-Length", strconv.Itoa(len(data)))
-		_, _ = io.Copy(c.Writer, bytes.NewReader(data))
+		fetchRemoteForClient(c, serverName, mediaID, "thumbnail")
 
 		return
 	}

@@ -79,7 +79,9 @@ func writeFederationMedia(c *gin.Context, r io.Reader, contentType, filename str
 	_, _ = fmt.Fprintf(c.Writer, "\r\n--%s--\r\n", boundary)
 }
 func (c *FederationClient) fetchAuthenticatedMedia(serverName, mediaID, kind, query string) (*federationMedia, error) {
-	return c.fetchAuthenticatedMediaContext(context.Background(), serverName, mediaID, kind, query)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteMediaTimeout())
+	defer cancel()
+	return c.fetchAuthenticatedMediaContext(ctx, serverName, mediaID, kind, query)
 }
 func (c *FederationClient) fetchAuthenticatedMediaContext(ctx context.Context, serverName, mediaID, kind, query string) (*federationMedia, error) {
 	base := c.federationBaseURL(serverName)
