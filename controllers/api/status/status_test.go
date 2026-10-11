@@ -27,6 +27,9 @@ import (
 
 func TestMain(m *testing.M) {
 	database.SetTestMode()
+	// These tests replace/close the database per fixture. Background network
+	// jobs must not survive a fixture; queue behavior is tested in linkcard.
+	_ = os.Setenv("LINK_CARDS_ENABLED", "false")
 	gin.SetMode(gin.TestMode)
 	os.Exit(m.Run())
 }

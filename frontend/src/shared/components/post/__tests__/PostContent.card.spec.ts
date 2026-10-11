@@ -15,7 +15,7 @@ const status = (c: MastodonCard | null) => ({
 describe('link preview card', () => {
   it('renders a compact nofollow link with a lazy image and escaped text', () => {
     const wrapper = mount(PostContent, { props: { status: status(card({ title: '<img src=x onerror=alert(1)>' })) } })
-    const link = wrapper.get('a.post-quote--link')
+    const link = wrapper.get('a.link-preview')
     expect(link.attributes('href')).toBe('https://news.test/a')
     expect(link.attributes('rel')).toBe('nofollow noopener noreferrer')
     expect(link.attributes('target')).toBe('_blank')
@@ -27,11 +27,27 @@ describe('link preview card', () => {
   })
   it('refuses non-http card URLs and images', () => {
     const bad = mount(PostContent, { props: { status: status(card({ url: 'javascript:alert(1)' })) } })
-    expect(bad.find('a.post-quote--link').exists()).toBe(false)
+    expect(bad.find('a.link-preview').exists()).toBe(false)
     const noImage = mount(PostContent, { props: { status: status(card({ image: 'javascript:alert(1)' })) } })
-    expect(noImage.find('a.post-quote--link img').exists()).toBe(false)
+    expect(noImage.find('a.link-preview img').exists()).toBe(false)
+  })
+  it('drops a broken thumbnail, then accepts a new image without losing the domain link', async () => {
+    const wrapper = mount(PostContent, { props: { status: status(card()) } })
+    await wrapper.get('.link-preview img').trigger('error')
+    expect(wrapper.find('.link-preview img').exists()).toBe(false)
+    expect(wrapper.get('.link-preview').text()).toContain('news.test')
+    await wrapper.setProps({ status: status(card({ image: '/card-images/replacement.png' })) })
+    expect(wrapper.get('.link-preview img').attributes('src')).toContain('/card-images/replacement.png')
+    wrapper.unmount()
+  })
+  it('does not request a preview image while its content warning is closed', async () => {
+    const wrapper = mount(PostContent, { props: { status: { ...status(card()), spoiler_text: '内容警告' } } })
+    expect(wrapper.find('.link-preview').exists()).toBe(false)
+    await wrapper.get('.post-content__cw-toggle').trigger('click')
+    expect(wrapper.get('.link-preview img').attributes('src')).toContain('card-images')
+    wrapper.unmount()
   })
   it('renders nothing without a card', () => {
-    expect(mount(PostContent, { props: { status: status(null) } }).find('a.post-quote--link').exists()).toBe(false)
+    expect(mount(PostContent, { props: { status: status(null) } }).find('a.link-preview').exists()).toBe(false)
   })
 })

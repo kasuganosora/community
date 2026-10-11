@@ -12,6 +12,8 @@ import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
 import { mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 import PostPoll from './PostPoll.vue'
+import LinkPreviewCard from './LinkPreviewCard.vue'
+import { useLinkPreview } from '@/shared/composables/useLinkPreview'
 import { stripHtml } from '@/shared/utils/sanitize'
 import { markBidiNumbers } from '@/shared/utils/bidi'
 
@@ -27,6 +29,7 @@ const pollOverride = ref<MastodonPoll | null>(null)
 const expanded = useTimelineRowFlag('expanded')
 const long = ref(false)
 const textEl = ref<HTMLElement>()
+const contentEl = ref<HTMLElement>()
 
 watch(() => props.status.id, () => {
   cwOpen.value = false
@@ -64,23 +67,13 @@ const hiddenSummary = computed(() => {
   const media = props.status.media_attachments?.length ?? 0
   if (media) bits.push(`${media} 个媒体`)
   if (props.status.poll) bits.push('投票')
-  if (quoted.value || props.status.card?.url) bits.push('引用')
+  if (quoted.value) bits.push('引用')
+  else if (props.status.card?.url) bits.push('链接预览')
   return bits.join(' · ')
 })
 
-function safeHttp(raw: string | null | undefined): string | null {
-  if (!raw) return null
-  try {
-    const url = new URL(raw, window.location.origin)
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
-    return url.href
-  } catch {
-    return null
-  }
-}
-
-const cardUrl = computed(() => safeHttp(props.status.card?.url))
-const cardImage = computed(() => (mediaHidden.value ? null : safeHttp(props.status.card?.image)))
+const fetchedCard = useLinkPreview(() => props.status, contentEl, () => bodyVisible.value)
+const previewCard = computed(() => props.status.card ?? fetchedCard.value)
 
 async function measure() {
   await nextTick()
@@ -105,7 +98,7 @@ onMounted(measure)
 </script>
 
 <template>
-  <div class="post-content">
+  <div ref="contentEl" class="post-content">
     <div v-if="hasCw" class="post-content__cw">
       <span class="post-content__cw-text" dir="auto"><EmojiText :text="status.spoiler_text" :emojis="status.emojis" /></span>
       <span v-if="!cwOpen && hiddenSummary" class="post-content__cw-meta">{{ hiddenSummary }}</span>
@@ -152,14 +145,7 @@ onMounted(measure)
         </header>
         <p class="post-quote__text" dir="auto">{{ quoteText || '（这条引用没有文字）' }}</p>
       </article>
-      <a v-else-if="status.card && cardUrl" class="post-quote post-quote--link" :href="cardUrl" target="_blank" rel="nofollow noopener noreferrer" @click.stop>
-        <img v-if="cardImage" class="post-quote__thumb" :src="cardImage" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
-        <span class="post-quote__copy">
-          <strong>{{ status.card.title || status.card.url }}</strong>
-          <span v-if="status.card.description">{{ status.card.description }}</span>
-          <small>{{ status.card.provider_name || '链接' }}</small>
-        </span>
-      </a>
+      <LinkPreviewCard v-else-if="previewCard && bodyVisible" :card="previewCard" :hide-image="mediaHidden" />
       <PostPoll v-if="poll" :poll="poll" @updated="pollOverride = $event" />
     </div>
   </div>
@@ -235,13 +221,6 @@ onMounted(measure)
   min-width: 0;
 }
 
-.post-quote--link {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-3);
-  text-decoration: none;
-}
-
 .post-quote__who {
   display: flex;
   gap: var(--space-2);
@@ -258,8 +237,7 @@ onMounted(measure)
   white-space: nowrap;
 }
 
-.post-quote__text,
-.post-quote__copy span {
+.post-quote__text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
@@ -271,33 +249,6 @@ onMounted(measure)
   overflow-wrap: break-word;
   letter-spacing: 0;
   unicode-bidi: plaintext;
-}
-
-.post-quote__copy {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-1);
-}
-
-.post-quote__copy strong,
-.post-quote__copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.post-quote__copy small {
-  color: var(--color-label-secondary);
-  font-size: var(--text-caption);
-}
-
-.post-quote__thumb {
-  width: 4.5rem;
-  height: 4.5rem;
-  flex-shrink: 0;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-row);
 }
 
 .post-content__media {
@@ -351,8 +302,7 @@ onMounted(measure)
     padding: var(--space-2);
   }
 
-  .post-quote__text,
-  .post-quote__copy span {
+  .post-quote__text {
     -webkit-line-clamp: 3;
   }
 }

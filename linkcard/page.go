@@ -4,6 +4,7 @@
 package linkcard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,8 +40,8 @@ type Meta struct {
 
 var (
 	// ErrNotHTML is returned for responses that are not (X)HTML pages.
-	ErrNotHTML = errors.New("linkcard: not an HTML page")
-	errNoMeta  = errors.New("linkcard: page has no preview metadata")
+	ErrNotHTML      = errors.New("linkcard: not an HTML page")
+	ErrPageTooLarge = errors.New("linkcard: HTML exceeds preview size limit")
 )
 
 // Fetcher downloads pages with the given (SSRF-safe) client.
@@ -96,7 +97,15 @@ func (f *Fetcher) FetchMeta(ctx context.Context, rawURL string) (*Meta, error) {
 	if mt != "text/html" && mt != "application/xhtml+xml" {
 		return nil, ErrNotHTML
 	}
-	body := io.LimitReader(resp.Body, MaxPageBytes)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxPageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	oversized := len(data) > MaxPageBytes
+	if oversized {
+		data = data[:MaxPageBytes]
+	}
+	body := bytes.NewReader(data)
 	reader, err := charset.NewReader(body, ctype)
 	if err != nil {
 		reader = body
@@ -109,7 +118,16 @@ func (f *Fetcher) FetchMeta(ctx context.Context, rawURL string) (*Meta, error) {
 	}
 	meta.clean()
 	if meta.Title == "" {
-		return nil, errNoMeta
+		if oversized {
+			return nil, ErrPageTooLarge
+		}
+		// A successful, bounded HTML document may be JS-only. Keep a
+		// truthful site card instead of inventing a video title or bypassing a
+		// site's access challenge. Failed HTTP/TLS/SSRF checks never reach here.
+		meta.Title = plain(strings.TrimPrefix(final.Hostname(), "www."), maxTitle)
+		meta.ProviderName = meta.Title
+		meta.ProviderURL = final.Scheme + "://" + final.Host
+		meta.Type = "link"
 	}
 	return meta, nil
 }

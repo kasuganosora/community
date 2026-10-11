@@ -417,12 +417,20 @@ func clearHiddenQuote(conn *gorm.DB, src *models.Status, out *Status, viewer *mo
 	return nil
 }
 
+// ToCard normalizes stored previews consistently for status and card endpoints.
+func ToCard(card map[string]any) Card { return proxiedCard(card) }
+
+func cardWebURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && isAbsoluteURL(raw) && u.User == nil && u.Opaque == ""
+}
+
 // proxiedCard returns the strictly typed Mastodon card (nil when the stored
 // card is empty or has no URL), with a remote preview image routed through
 // the media proxy. The stored map is not modified.
 func proxiedCard(card map[string]any) Card {
 	rawURL, _ := card["url"].(string)
-	if !isAbsoluteURL(rawURL) {
+	if !cardWebURL(rawURL) {
 		return nil
 	}
 
@@ -454,7 +462,7 @@ func proxiedCard(card map[string]any) Card {
 		img = strings.TrimRight(systemsettings.GetBaseURL(), "/") + img
 	}
 
-	if isAbsoluteURL(img) {
+	if cardWebURL(img) {
 		image = mediaproxy.URL(mediaproxy.KindPreview, img)
 	}
 

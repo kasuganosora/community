@@ -95,7 +95,7 @@ describe('hidden media never carries the real URL', () => {
     const card = { url: 'https://news.test/a', title: 'T', description: '', type: 'link', image: 'https://home.test/card-images/CARDIMG.png', provider_name: 'N', provider_url: '' }
     const w = mount(PostContent, { props: { status: status({ media_attachments: [], card } as never) } })
     expect(w.html()).not.toContain('CARDIMG')
-    expect(w.find('a.post-quote--link').exists()).toBe(true)
+    expect(w.find('a.link-preview').exists()).toBe(true)
   })
 
   it('ProfileMediaGrid: hidden tiles have no img/video', async () => {

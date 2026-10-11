@@ -111,16 +111,23 @@ type statusRow struct {
 // Process builds the card of one status. It never returns an error for an
 // unpreviewable link; the Outcome says what happened. Errors are DB errors.
 func (s *Service) Process(ctx context.Context, statusID uint64) (Outcome, error) {
-	conn := s.DB().WithContext(ctx)
+	if s == nil || s.DB == nil {
+		return Skipped, errors.New("linkcard: database unavailable")
+	}
+	database := s.DB()
+	if database == nil {
+		return Skipped, errors.New("linkcard: database unavailable")
+	}
+	conn := database.WithContext(ctx)
 	var st models.Status
-	if err := conn.Select("id", "domain", "reblog_id", "visibility", "deleted_at").
+	if err := conn.Select("id", "domain", "reblog_id", "visibility", "deleted_at", "scheduled_at").
 		Where("deleted_at IS NULL").First(&st, statusID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Skipped, nil
 		}
 		return Skipped, err
 	}
-	if st.ReblogId != nil && *st.ReblogId > 0 || st.Visibility == models.StatusVisibilityDirect {
+	if st.ScheduledAt != nil || st.ReblogId != nil && *st.ReblogId > 0 || st.Visibility == models.StatusVisibilityDirect {
 		return Skipped, nil
 	}
 	if st.Domain != nil && *st.Domain != "" {
@@ -233,14 +240,12 @@ func (s *Service) storeImage(ctx context.Context, rawURL string) string {
 }
 
 func (s *Service) store(conn *gorm.DB, card *models.StatusCard) error {
-	err := conn.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "status_id"}},
-		UpdateAll: true,
-	}).Create(card).Error
-	if err != nil {
-		return err
-	}
-	return s.cacheOnContent(conn, card.StatusId, card)
+	return conn.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "status_id"}}, UpdateAll: true}).Create(card).Error; err != nil {
+			return err
+		}
+		return s.cacheOnContent(tx, card.StatusId, card)
+	})
 }
 
 // cacheOnContent mirrors the card into status_contents.card, where the
@@ -258,6 +263,8 @@ type queue struct {
 	svc     *Service
 	jobs    chan uint64
 	limiter *rate.Limiter
+	mu      sync.Mutex
+	pending map[uint64]bool
 }
 
 var (
@@ -292,16 +299,27 @@ func Enqueue(statusID uint64) bool {
 	}
 	cur := q
 	qMu.Unlock()
+	return cur.enqueue(statusID)
+}
+
+func (cur *queue) enqueue(statusID uint64) bool {
+	cur.mu.Lock()
+	defer cur.mu.Unlock()
+	if cur.pending[statusID] {
+		return true
+	}
+	cur.pending[statusID] = true
 	select {
 	case cur.jobs <- statusID:
 		return true
 	default:
+		delete(cur.pending, statusID)
 		return false
 	}
 }
 
 func startQueue(svc *Service, workers, size int, limit rate.Limit) *queue {
-	cur := &queue{svc: svc, jobs: make(chan uint64, size), limiter: rate.NewLimiter(limit, 1)}
+	cur := &queue{svc: svc, jobs: make(chan uint64, size), limiter: rate.NewLimiter(limit, 1), pending: map[uint64]bool{}}
 	for i := 0; i < workers; i++ {
 		go func() {
 			for id := range cur.jobs {
@@ -312,6 +330,9 @@ func startQueue(svc *Service, workers, size int, limit rate.Limit) *queue {
 					}
 				}
 				cancel()
+				cur.mu.Lock()
+				delete(cur.pending, id)
+				cur.mu.Unlock()
 			}
 		}()
 	}
@@ -320,6 +341,9 @@ func startQueue(svc *Service, workers, size int, limit rate.Limit) *queue {
 
 func init() {
 	event.Register("status", "*", &event.Handler{Exec: func(e event.Event) bool {
+		if !Enabled() {
+			return true
+		}
 		st, ok := e.Data.(*models.Status)
 		if !ok || st == nil || (e.Name != "after_create" && e.Name != "after_update") {
 			return true
