@@ -52,7 +52,11 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	var status *models.Status
 	if auth.StatusID > 0 {
 		status = &models.Status{}
-		err := db.GetDB().Preload("ToAccounts").First(status, auth.StatusID).Error
+		query := db.GetDB().Preload("ToAccounts")
+		if auth.Kind == "Announce" {
+			query = query.Preload("Reblog.Account").Preload("Reblog.ToAccounts")
+		}
+		err := query.First(status, auth.StatusID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return activity, false, nil
 		}
@@ -80,6 +84,22 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 			return activity, false, nil
 		}
 	}
+	// An Announce has a public/unlisted envelope even when its referenced
+	// object is later restricted. Recheck the current original before delivery;
+	// checking only the public boost wrapper does not protect that object.
+	if auth.Kind == "Announce" {
+		if status == nil || status.ReblogId == nil || status.Reblog == nil {
+			return activity, false, nil
+		}
+		original := status.Reblog
+		if original.Account == nil || original.Account.IsBan || original.LocalOnly || original.ScheduledAt != nil || original.DeletedAt != nil || original.Visibility > models.StatusVisibilityUnlisted {
+			return activity, false, nil
+		}
+		objectURI, ok := activity["object"].(string)
+		if !ok || objectURI != statusObjectURI(original, original.Account, systemsettings.GetBaseURL()) {
+			return activity, false, nil
+		}
+	}
 	if auth.RelayID != 0 {
 		var relay models.Relay
 		err := db.GetDB().Where("id = ? AND state = ?", auth.RelayID, models.RelayStateAccepted).First(&relay).Error
@@ -99,6 +119,9 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	revoked := make(map[string]bool)
 	for i := range recipients {
 		ok, err := outboundRecipientAllowed(status, &author, &recipients[i])
+		if err == nil && ok && auth.Kind == "Announce" {
+			ok, err = outboundRecipientAllowed(status.Reblog, status.Reblog.Account, &recipients[i])
+		}
 		if auth.Kind == "ProfileUpdate" {
 			ok, err = profileRecipientAllowed(&author, &recipients[i])
 		}

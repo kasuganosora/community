@@ -336,7 +336,7 @@ func announcePayload(boost *models.Status, author *models.Account, actorURI, und
 	}
 	announce := map[string]any{"id": announceID, "type": "Announce", "actor": actorURI, "to": to, "cc": cc, "object": objectURI}
 	if boost.CreatedAt != nil {
-		announce["published"] = boost.CreatedAt.UTC().Format(time.RFC3339)
+		announce["published"] = boost.CreatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	if !undo {
 		return announce, announceID
