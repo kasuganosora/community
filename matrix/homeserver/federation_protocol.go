@@ -365,6 +365,10 @@ func applyAuthorizedFederationRedaction(tx *gorm.DB, hs *HomeServer, p gmsl.PDU)
 			if err != nil {
 				return err
 			}
+			if privilegedEventCreator(p, a) {
+				allowed = true
+				break
+			}
 			if a.Type() == "m.room.power_levels" {
 				pl, err := gmsl.NewPowerLevelContentFromEvent(a)
 				if err != nil {

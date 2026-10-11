@@ -138,7 +138,7 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 	builder.RoomID, event.SenderDomain = event.RoomID, hs.Config.ServerName
 	builder.SenderID, builder.Type, builder.StateKey = event.Sender, string(event.EventType), event.StateKey
 	if event.Redacts != nil {
-		if roomVersion == "11" {
+		if redactionTargetInContent(version) {
 			content := make(map[string]any, len(event.Content)+1)
 			for k, v := range event.Content {
 				content[k] = v
@@ -256,7 +256,8 @@ func preparePersistedLocalPDU(tx *gorm.DB, event *MatrixEvent) error {
 // Room v11 moved the redaction target into content; the library's Redacts
 // accessor still exposes the legacy top-level field.
 func pduRedactionTarget(p gmsl.PDU) string {
-	if string(p.Version()) == "11" {
+	version, err := gmsl.GetRoomVersion(p.Version())
+	if err == nil && redactionTargetInContent(version) {
 		var content struct {
 			Redacts string `json:"redacts"`
 		}
@@ -264,4 +265,19 @@ func pduRedactionTarget(p gmsl.PDU) string {
 		return content.Redacts
 	}
 	return p.Redacts()
+}
+
+// Ask the room version's redaction algorithm which field is protected rather
+// than assuming all later room versions have the legacy top-level field.
+func redactionTargetInContent(version gmsl.IRoomVersion) bool {
+	raw, err := version.RedactEventJSON([]byte(`{"type":"m.room.redaction","content":{"redacts":"$target"}}`))
+	if err != nil {
+		return false
+	}
+	var event struct {
+		Content struct {
+			Redacts string `json:"redacts"`
+		} `json:"content"`
+	}
+	return json.Unmarshal(raw, &event) == nil && event.Content.Redacts == "$target"
 }

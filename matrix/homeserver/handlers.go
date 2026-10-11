@@ -2892,6 +2892,8 @@ func handleGetCapabilities(c *gin.Context) {
 					"8":  "stable",
 					"9":  "stable",
 					"10": "stable",
+					"11": "stable",
+					"12": "stable",
 				},
 			},
 		},

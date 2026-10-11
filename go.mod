@@ -149,3 +149,6 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	modernc.org/sqlite v1.60.1 // indirect
 )
+
+// Upstream HEAD has v12 state-resolution regressions; see third_party/gomatrixserverlib/COMMUNITY_PATCHES.md.
+replace github.com/matrix-org/gomatrixserverlib => ./third_party/gomatrixserverlib

@@ -313,7 +313,7 @@ func (c *FederationClient) prepareSignedFederationRequest(ctx context.Context, m
 
 // MakeJoin 向远程服务器请求加入事件模板.
 func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[string]any, error) {
-	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=1&ver=2&ver=3&ver=4&ver=5&ver=6&ver=7&ver=8&ver=9&ver=10&ver=11",
+	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=1&ver=2&ver=3&ver=4&ver=5&ver=6&ver=7&ver=8&ver=9&ver=10&ver=11&ver=12",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(userID))
 
 	resp, body, err := c.doFederationRequest("GET", makeJoinURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest

@@ -83,7 +83,7 @@ func makeHistoricalBranch(t *testing.T, hs *HomeServer, roomID, version, eventTy
 }
 
 func TestHistoricalStateForkUsesRoomVersionResolution(t *testing.T) {
-	for _, version := range []string{"1", "10", "11"} {
+	for _, version := range []string{"1", "10", "11", "12"} {
 		t.Run(version, func(t *testing.T) {
 			hs := createTestHomeServer(t)
 			room, e := hs.Room.CreateRoom("@alice:test.local", &CreateRoomRequest{Preset: "public_chat", RoomVersion: version})
@@ -104,7 +104,11 @@ func TestHistoricalStateForkUsesRoomVersionResolution(t *testing.T) {
 			branches := [][]gmsl.PDU{append(append([]gmsl.PDU{}, state...), left), append(append([]gmsl.PDU{}, state...), right)}
 			chain, err := completeAuthChain(db.GetDB(), append(append([]gmsl.PDU{}, state...), left, right), version)
 			require.NoError(t, err)
-			expected, err := gmsl.ResolveConflictsNew(gmsl.RoomVersion(version), branches, chain, matrixUserIDForSender, func(string) bool { return false })
+			// v2.1 traverses conflicted state roots using its auth-event index.
+			// Include roots as well as their full transitive auth dependencies.
+			resolutionEvents := append(append([]gmsl.PDU{}, chain...), state...)
+			resolutionEvents = append(resolutionEvents, left, right)
+			expected, err := gmsl.ResolveConflictsNew(gmsl.RoomVersion(version), branches, resolutionEvents, matrixUserIDForSender, func(string) bool { return false })
 			require.NoError(t, err)
 			require.ElementsMatch(t, historicalIDs(expected), historicalIDs(actual))
 			winner := historicalTuple(actual, "m.room.topic", "")

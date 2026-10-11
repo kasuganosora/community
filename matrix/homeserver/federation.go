@@ -558,10 +558,31 @@ func parseFederationPDU(event map[string]any) (eventID, roomID, eventType, sende
 	return
 }
 
+// federationEventRoomID reads the routing identity without modifying the signed
+// event. Version 12 create events omit room_id: their reference ID defines it.
+func federationEventRoomID(event map[string]any) (string, error) {
+	if roomID, _ := event["room_id"].(string); roomID != "" {
+		return roomID, nil
+	}
+	content, _ := event["content"].(map[string]any)
+	stateKey, hasStateKey := event["state_key"].(string)
+	if event["type"] != "m.room.create" || !hasStateKey || stateKey != "" || content["room_version"] != "12" {
+		return "", fmt.Errorf("federation event is missing room_id")
+	}
+	p, err := decodeWirePDU("12", event)
+	if err != nil {
+		return "", err
+	}
+	return p.RoomID().String(), nil
+}
+
 // storeFederationPDU stores a single federation event and updates state/membership.
 // Returns the event ID and any error.
 func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
-	roomID, _ := event["room_id"].(string)
+	roomID, err := federationEventRoomID(event)
+	if err != nil {
+		return "", err
+	}
 	version, err := federationRoomVersion(roomID)
 	if err != nil {
 		return "", err
@@ -569,6 +590,9 @@ func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 	p, err := decodeWirePDU(version, event)
 	if err != nil {
 		return "", err
+	}
+	if p.RoomID().String() != roomID {
+		return p.EventID(), fmt.Errorf("federation event room identity mismatch")
 	}
 	if err = validateIncomingPDU(context.Background(), hs, p, true); err != nil {
 		return p.EventID(), err
@@ -578,7 +602,7 @@ func storeFederationPDU(hs *HomeServer, event map[string]any) (string, error) {
 }
 
 func fetchMissingEvents(hs *HomeServer, event map[string]any, origin string) {
-	roomID, _ := event["room_id"].(string)
+	roomID, _ := federationEventRoomID(event)
 	if roomID == "" || origin == "" || origin == hs.Config.ServerName {
 		return
 	}
@@ -695,7 +719,7 @@ func handleFederationSend(c *gin.Context) {
 		pduResults[eventID] = gin.H{}
 
 		// Notify local users
-		roomID, _ := event["room_id"].(string)
+		roomID, _ := federationEventRoomID(event)
 		if roomID != "" && !notifiedRooms[roomID] {
 			notifiedRooms[roomID] = true
 			go hs.NotifyRoomEvent(roomID)

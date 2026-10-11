@@ -65,15 +65,17 @@ type CreateRoomStateEvent struct {
 
 // PowerLevelContent 权限级别.
 type PowerLevelContent struct {
-	Users         map[string]int64 `json:"users"`
-	UsersDefault  int64            `json:"users_default"`
-	Events        map[string]int64 `json:"events"`
-	EventsDefault int64            `json:"events_default"`
-	StateDefault  int64            `json:"state_default"`
-	Ban           int64            `json:"ban"`
-	Kick          int64            `json:"kick"`
-	Redact        int64            `json:"redact"`
-	Invite        int64            `json:"invite"`
+	// Local derived metadata; never serialized into m.room.power_levels.
+	privilegedCreators map[string]struct{}
+	Users              map[string]int64 `json:"users"`
+	UsersDefault       int64            `json:"users_default"`
+	Events             map[string]int64 `json:"events"`
+	EventsDefault      int64            `json:"events_default"`
+	StateDefault       int64            `json:"state_default"`
+	Ban                int64            `json:"ban"`
+	Kick               int64            `json:"kick"`
+	Redact             int64            `json:"redact"`
+	Invite             int64            `json:"invite"`
 }
 
 // CreateRoomResponse 创建房间响应.
@@ -98,10 +100,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		roomVersion = "10"
 	}
 
-	// 验证房间版本（Matrix spec 仅支持整数版本 1-11）
+	// 验证房间版本（Matrix stable room versions 1-12）
 	validVersions := map[string]bool{
 		"1": true, "2": true, "3": true, "4": true, "5": true,
-		"6": true, "7": true, "8": true, "9": true, "10": true, "11": true,
+		"6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true,
 	}
 	if !validVersions[roomVersion] {
 		return nil, &MatrixError{
@@ -200,6 +202,22 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		}
 	}
 
+	versionImpl, _ := gmsl.GetRoomVersion(gmsl.RoomVersion(roomVersion))
+	if !versionImpl.CreatorInCreateEvent() {
+		delete(createEvent.Content, "creator")
+	}
+	if versionImpl.DomainlessRoomIDs() {
+		if req.bridgeRoomID != "" {
+			tx.Rollback()
+			return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "A version 12 room cannot use a predetermined room ID"}
+		}
+		if err = r.initializeDomainlessRoom(tx, room, createEvent); err != nil {
+			tx.Rollback()
+			return nil, &MatrixError{ErrCode: "M_BAD_JSON", Error: "Invalid version 12 room creation content"}
+		}
+		roomID = room.RoomID
+	}
+
 	err = tx.Create(createEvent).Error
 	if err != nil {
 		tx.Rollback()
@@ -258,7 +276,9 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 		plContent.Events = make(map[string]int64)
 	}
 
-	plContent.Users[creatorID] = 100 // 创建者拥有最高权限
+	if !versionImpl.PrivilegedCreators() {
+		plContent.Users[creatorID] = 100 // Older versions express creator privileges through power levels.
+	}
 
 	plEvent := &MatrixEvent{
 		EventID:   "$" + uuid.New().String(),
@@ -1328,7 +1348,7 @@ func (r *RoomService) getDefaultPowerLevels() *PowerLevelContent {
 }
 
 // getRoomPowerLevels 获取房间权限级别.
-func (r *RoomService) getRoomPowerLevels(roomID string) (*PowerLevelContent, error) { //nolint:unparam // param reserved for future use
+func (r *RoomService) getRoomPowerLevelsContent(roomID string) (*PowerLevelContent, error) { //nolint:unparam // param reserved for future use
 	content, err := r.GetRoomState(roomID, EventTypeRoomPowerLevels, "")
 	if err != nil {
 		return r.getDefaultPowerLevels(), nil
@@ -1397,6 +1417,9 @@ func (r *RoomService) getRoomPowerLevels(roomID string) (*PowerLevelContent, err
 
 // getUserPowerLevel 获取用户权限级别.
 func (r *RoomService) getUserPowerLevel(pl *PowerLevelContent, userID string) int64 {
+	if _, privileged := pl.privilegedCreators[userID]; privileged {
+		return gmsl.CreatorPowerLevel
+	}
 	if level, ok := pl.Users[userID]; ok {
 		return level
 	}

@@ -223,8 +223,10 @@ func validateHistoricalState(state []gmsl.PDU, target gmsl.PDU) ([]gmsl.PDU, err
 	return state, nil
 }
 
-// authChain collects every transitive auth dependency of every branch. Missing
-// or cross-room records and cycles fail closed before state resolution runs.
+// authChain collects branch state roots and every transitive auth dependency.
+// State resolution v2.1 indexes conflicted roots through the same auth-event
+// map while constructing its conflicted subgraph, so roots must be included.
+// Missing or cross-room records and cycles fail closed before resolution.
 func (r *historicalStateReader) authChain(states [][]gmsl.PDU) ([]gmsl.PDU, error) {
 	seen := map[string]bool{}
 	active := map[string]bool{}
@@ -260,6 +262,7 @@ func (r *historicalStateReader) authChain(states [][]gmsl.PDU) ([]gmsl.PDU, erro
 	}
 	for _, state := range states {
 		for _, p := range state {
+			events[p.EventID()] = p
 			if err := walk(p, 0); err != nil {
 				return nil, err
 			}
