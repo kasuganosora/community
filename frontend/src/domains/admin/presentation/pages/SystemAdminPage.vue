@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { operationsAdminApi as api, type MatrixConfig, type MatrixStatus, type DetailedHealth } from "../../infrastructure/operationsAdminApi";
+import { operationsAdminApi as api, type DetailedHealth } from "../../infrastructure/operationsAdminApi";
 const health = ref<DetailedHealth>();
 const versions = ref<string[]>([]);
 const healthLoading = ref(true);
@@ -27,59 +27,8 @@ async function loadNative() {
     catch { if (alive) nativeError.value = "内置 Matrix 客户端接口暂不可访问，请重试。"; }
     finally { if (alive) nativeLoading.value = false; }
 }
-const config = ref<MatrixConfig>();
-const status = ref<MatrixStatus>();
-const loading = ref(true);
-const error = ref("");
-const busy = ref(false);
-const user = ref("");
-const result = ref("");
-const testError = ref("");
 let alive = true;
-async function load() {
-    loading.value = true;
-    error.value = "";
-    try {
-        const [s, c] = await Promise.all([api.matrixStatus(), api.matrixConfig()]);
-        if (alive) {
-            status.value = s;
-            config.value = c;
-        }
-    }
-    catch {
-        if (alive)
-            error.value = "无法读取 Matrix 桥接状态，请重试。";
-    }
-    finally {
-        if (alive)
-            loading.value = false;
-    }
-}
-async function test() {
-    if (busy.value)
-        return;
-    busy.value = true;
-    result.value = "";
-    testError.value = "";
-    try {
-        const r = await api.matrixTest(user.value.trim());
-        if (!alive)
-            return;
-        if (r.success)
-            result.value = `连接测试成功${r.display_name ? `：${r.display_name}` : ""}`;
-        else
-            testError.value = "未能读取该 Matrix 用户，请检查账号地址和服务连接。";
-    }
-    catch {
-        if (alive)
-            testError.value = "连接测试失败，请检查桥接配置后重试。";
-    }
-    finally {
-        if (alive)
-            busy.value = false;
-    }
-}
-onMounted(() => { void load(); void loadHealth(); void loadNative(); });
+onMounted(() => { void loadHealth(); void loadNative(); });
 onUnmounted(() => {
     alive = false;
 });
@@ -88,7 +37,7 @@ onUnmounted(() => {
   <div class="admin-page">
     <header>
       <h1>Matrix 服务</h1>
-      <p>查看内置 Matrix 接口、系统依赖与桥接状态。</p>
+      <p>查看内置 Matrix 客户端接口与系统依赖状态。</p>
     </header>
     <section class="admin-card" aria-label="内置 Matrix 服务">
       <div class="admin-card__header"><h2>内置 Matrix 服务</h2><button class="admin-button" :disabled="nativeLoading" @click="loadNative">检查客户端接口</button></div>
@@ -107,41 +56,6 @@ onUnmounted(() => {
         <p>检查时间：{{ health.timestamp }}</p>
       </template>
     </section>
-    <div class="admin-actions">
-      <button class="admin-button" :disabled="loading || busy" @click="load">刷新状态</button>
-    </div>
-    <p v-if="loading" class="admin-empty" role="status">正在检查服务连接…</p>
-    <p v-if="error" class="admin-error" role="alert">
-      {{ error }} <button class="admin-button" :disabled="loading" @click="load">重试</button>
-    </p>
-    <template v-if="config && status && !error">
-      <section class="admin-card">
-        <h2>Matrix 桥接</h2>
-        <p role="status">{{ !status.enabled ? '未配置或未启用' : status.connected ? '已连接 Homeserver' : '暂时无法连接 Homeserver' }}</p>
-        <dl>
-          <dt>Homeserver</dt>
-          <dd>{{ config.homeserver_url || '未配置' }}</dd>
-          <dt>服务器名称</dt>
-          <dd>{{ config.server_name || '未配置' }}</dd>
-          <dt>桥接账号</dt>
-          <dd>{{ config.bridge_username || '未配置' }}</dd>
-          <dt>用户命名空间</dt>
-          <dd>{{ config.user_namespace || '未配置' }}</dd>
-          <dt>房间命名空间</dt>
-          <dd>{{ config.room_namespace || '未配置' }}</dd>
-        </dl>
-        <p>配置由服务器部署环境管理；此页面仅展示非敏感信息。</p>
-      </section>
-      <form class="admin-card" @submit.prevent="test">
-        <h2>测试用户连接</h2>
-        <p>通过已配置的桥接服务读取指定 Matrix 用户资料。</p>
-        <label class="admin-field">Matrix 用户地址<input v-model="user" required pattern="@[^:]+:.+" placeholder="@user:example.org" :disabled="busy || !status.enabled" />
-        </label>
-        <div class="admin-form-actions"><button class="admin-button admin-button--primary" :disabled="busy || loading || !status.enabled">{{ busy ? '正在测试…' : '测试连接' }}</button></div>
-        <p v-if="result" role="status">{{ result }}</p>
-        <p v-if="testError" class="admin-error" role="alert">{{ testError }}</p>
-      </form>
-    </template>
   </div>
 </template>
 
