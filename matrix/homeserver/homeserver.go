@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/kasuganosora/community/config"
@@ -121,6 +122,23 @@ func InitHomeServer() error {
 	return nil
 }
 
+// federationPortFromEnv returns the port advertised in
+// /.well-known/matrix/server. The application serves federation on its normal
+// HTTPS port (behind the reverse proxy), so the default is 443. Set
+// MATRIX_FEDERATION_PORT when a dedicated federation listener exists; the
+// Complement harness (SERVER_NAME set) listens on 8448.
+func federationPortFromEnv() int {
+	if v := os.Getenv("MATRIX_FEDERATION_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < 65536 {
+			return n
+		}
+	}
+	if os.Getenv("SERVER_NAME") != "" {
+		return 8448
+	}
+	return 443
+}
+
 // loadHSConfig 加载配置.
 func loadHSConfig() *HSConfig {
 	cfg := &HSConfig{
@@ -148,7 +166,7 @@ func loadHSConfig() *HSConfig {
 	} else {
 		cfg.BaseURL = systemsettings.GetBaseURL()
 	}
-	cfg.FederationPort = 8448
+	cfg.FederationPort = federationPortFromEnv()
 
 	return cfg
 }

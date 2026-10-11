@@ -40,10 +40,15 @@ type IdentityServerInfo struct {
 
 // GetServerInfo 获取服务器发现信息.
 func (ws *WellKnownService) GetServerInfo() *ServerInfo {
-	server := ws.hs.Config.ServerName
-	if ws.hs.Config.FederationPort != 443 {
-		server = fmt.Sprintf("%s:%d", server, ws.hs.Config.FederationPort)
+	// Always state the port. A delegated name without one makes remote
+	// servers run SRV discovery and then fall back to :8448, a port this
+	// server does not listen on when it sits behind a reverse proxy; they then
+	// fail to fetch our signing keys ("Failed to fetch signing keys").
+	port := ws.hs.Config.FederationPort
+	if port <= 0 {
+		port = 443
 	}
+	server := fmt.Sprintf("%s:%d", ws.hs.Config.ServerName, port)
 
 	return &ServerInfo{
 		ServerName: server,

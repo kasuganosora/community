@@ -31,8 +31,8 @@ func TestWellKnownService_GetServerInfo_DefaultPort443(t *testing.T) {
 	info := ws.GetServerInfo()
 
 	require.NotNil(t, info)
-	// When port is 443, no port suffix should be appended
-	assert.Equal(t, "matrix.example.com", info.ServerName)
+	// The port is always stated: without it remote servers fall back to :8448.
+	assert.Equal(t, "matrix.example.com:443", info.ServerName)
 }
 
 func TestWellKnownService_GetServerInfo_NonDefaultPort(t *testing.T) {

@@ -213,12 +213,13 @@ func TestLoadHSConfig_SystemSettingsFallback(t *testing.T) {
 	// Without SERVER_NAME env var, loadHSConfig falls back to
 	// systemsettings.GetDomain() then "localhost".
 	t.Setenv("SERVER_NAME", "")
+	t.Setenv("MATRIX_FEDERATION_PORT", "")
 
 	cfg := loadHSConfig()
 	// ServerName and BaseURL follow the instance domain / base URL.
 	assert.Equal(t, systemsettings.GetDomain(), cfg.ServerName)
 	assert.Equal(t, systemsettings.GetBaseURL(), cfg.BaseURL)
-	assert.Equal(t, 8448, cfg.FederationPort)
+	assert.Equal(t, 443, cfg.FederationPort)
 	assert.Equal(t, "10", cfg.RoomVersion)
 	assert.True(t, cfg.Enabled)
 }
@@ -235,4 +236,16 @@ func TestInitHomeServer_DisabledConfig(t *testing.T) {
 	restore := resetGlobalHS(&HomeServer{Config: &HSConfig{Enabled: false}})
 	defer restore()
 	assert.False(t, IsEnabled())
+}
+
+func TestFederationPortFromEnv(t *testing.T) {
+	t.Setenv("SERVER_NAME", "")
+	t.Setenv("MATRIX_FEDERATION_PORT", "")
+	assert.Equal(t, 443, federationPortFromEnv())
+	t.Setenv("SERVER_NAME", "complement.test")
+	assert.Equal(t, 8448, federationPortFromEnv())
+	t.Setenv("MATRIX_FEDERATION_PORT", "9000")
+	assert.Equal(t, 9000, federationPortFromEnv())
+	t.Setenv("MATRIX_FEDERATION_PORT", "junk")
+	assert.Equal(t, 8448, federationPortFromEnv())
 }
