@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { moderationAdminApi as api, type AdminReport, type ReportAction } from '../../infrastructure/moderationAdminApi'
 import RichText from '@/shared/components/common/RichText.vue'
@@ -82,7 +83,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
     <div class="admin-card admin-table-wrap" role="region" aria-label="举报列表，可横向滚动" tabindex="0">
       <table class="admin-table">
         <thead><tr><th>举报</th><th>被举报账号</th><th>类别</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead>
-        <tbody><tr v-for="report in items" :key="report.id"><td>#{{ report.id }}</td><td>{{ report.target_account?.acct || '账号已不可用' }}</td><td>{{ categories[report.category] || report.category }}</td><td><span class="admin-badge">{{ report.action_taken ? '已处理' : '未处理' }}</span></td><td>{{ report.assigned_account?.acct || '未认领' }}</td><td><button class="admin-button" :disabled="loading || busy" @click="detail(report.id)">详情</button></td></tr></tbody>
+        <tbody><tr v-for="report in items" :key="report.id"><td>#{{ report.id }}</td><td>{{ displayAccount(report.target_account?.acct) || '账号已不可用' }}</td><td>{{ categories[report.category] || report.category }}</td><td><span class="admin-badge">{{ report.action_taken ? '已处理' : '未处理' }}</span></td><td>{{ displayAccount(report.assigned_account?.acct) || '未认领' }}</td><td><button class="admin-button" :disabled="loading || busy" @click="detail(report.id)">详情</button></td></tr></tbody>
       </table>
       <p v-if="!loading && !items.length" class="admin-empty">没有符合条件的举报</p>
     </div>
@@ -90,7 +91,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
     <p v-if="detailLoading" class="admin-empty" role="status">正在加载详情…</p>
     <section v-if="selected" class="admin-card" aria-label="举报详情">
       <h2>举报 #{{ selected.id }} · {{ selected.action_taken ? '已处理' : '未处理' }}</h2>
-      <dl><dt>举报人</dt><dd>{{ selected.account?.acct || '账号已不可用' }}</dd><dt>被举报账号</dt><dd>{{ selected.target_account?.acct || '账号已不可用' }}</dd><dt>负责人</dt><dd>{{ selected.assigned_account?.acct || '未认领' }}</dd></dl>
+      <dl><dt>举报人</dt><dd>{{ displayAccount(selected.account?.acct) || '账号已不可用' }}</dd><dt>被举报账号</dt><dd>{{ displayAccount(selected.target_account?.acct) || '账号已不可用' }}</dd><dt>负责人</dt><dd>{{ displayAccount(selected.assigned_account?.acct) || '未认领' }}</dd></dl>
       <h3>举报说明</h3><p class="report-comment">{{ selected.comment || '未提供文字说明' }}</p>
       <div class="admin-toolbar">
         <button class="admin-button" :disabled="busy" @click="act('assign_to_self')">{{ selected.assigned_account ? '转由我处理' : '认领举报' }}</button>
@@ -103,7 +104,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <p v-else-if="!selected.statuses?.length" class="admin-empty">关联帖子已删除或当前不可读取</p>
       <p v-else-if="selected.status_ids.length > (selected.statuses?.length || 0)" class="admin-empty">另有 {{ selected.status_ids.length - (selected.statuses?.length || 0) }} 条关联帖子已删除或不可读取</p>
       <article v-for="status in selected.statuses || []" :key="status.id" class="reported-status">
-        <p><strong>{{ status.account?.acct || '账号已不可用' }}</strong> · #{{ status.id }} · {{ status.visibility }}</p>
+        <p><strong>{{ displayAccount(status.account?.acct) || '账号已不可用' }}</strong> · #{{ status.id }} · {{ status.visibility }}</p>
         <p v-if="status.spoiler_text">内容警告：{{ status.spoiler_text }}</p>
         <button class="admin-button admin-button--danger" :disabled="busy" @click="deleteStatus(status.id)">删除帖子</button>
         <RichText :html="status.content" :emojis="status.emojis" />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
@@ -170,7 +171,7 @@ const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH))
 const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
-  || (props.replyTo ? `回复 @${props.replyTo.account.acct}` : '有什么新鲜事？'))
+  || (props.replyTo ? `回复 @${displayAccount(props.replyTo.account.acct)}` : '有什么新鲜事？'))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
 const submitLabel = computed(() => {
   if (posting.value) return isEdit.value ? '正在删除并重发…' : draft.value.visibility === 'direct' ? '正在发送…' : '正在发布…'
@@ -461,7 +462,7 @@ defineExpose({ focus, reset })
                 <UserAvatar :account="account" :size="28" />
                 <span class="composer__mention-text">
                   <EmojiText class="composer__mention-name" :text="account.display_name || account.username" :emojis="account.emojis" />
-                  <span class="composer__mention-acct">@{{ account.acct }}</span>
+                  <span class="composer__mention-acct">@{{ displayAccount(account.acct) }}</span>
                 </span>
               </button>
             </li>
@@ -529,7 +530,7 @@ defineExpose({ focus, reset })
 
         <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="closeEmojiPicker" />
         <div v-if="quote && !isEdit" class="composer__quote">
-          <span class="composer__quote-who">引用 @{{ quote.account.acct }}</span>
+          <span class="composer__quote-who">引用 @{{ displayAccount(quote.account.acct) }}</span>
           <p>{{ quote.spoiler_text ? `内容警告：${quote.spoiler_text}` : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || '（这条引用没有文字）') }}</p>
           <button type="button" class="composer__link-btn" @click="quote = null">移除引用</button>
         </div>

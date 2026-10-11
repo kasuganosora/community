@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -77,7 +78,7 @@ onMounted(load)
       </button>
       <div>
         <h1 class="page-header__title">{{ title }}</h1>
-        <span v-if="owner" class="follow-list-page__owner"><EmojiText :text="owner.display_name || owner.username" :emojis="owner.emojis" /> · @{{ owner.acct }}</span>
+        <span v-if="owner" class="follow-list-page__owner"><EmojiText :text="owner.display_name || owner.username" :emojis="owner.emojis" /> · @{{ displayAccount(owner.acct) }}</span>
       </div>
     </div>
 

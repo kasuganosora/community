@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 /**
  * Body of a status: content warning, text, media and poll. Shared by the
  * timeline card and the status detail page.
@@ -141,7 +142,7 @@ onMounted(measure)
       <article v-if="quoted" class="post-quote" role="link" tabindex="0" @click.stop="openQuote" @keydown.enter.stop="openQuote">
         <header class="post-quote__who">
           <EmojiText :text="quoted.account.display_name || quoted.account.username" :emojis="quoted.account.emojis" />
-          <span>@{{ quoted.account.acct }}</span>
+          <span>@{{ displayAccount(quoted.account.acct) }}</span>
         </header>
         <p class="post-quote__text" dir="auto">{{ quoteText || '（这条引用没有文字）' }}</p>
       </article>

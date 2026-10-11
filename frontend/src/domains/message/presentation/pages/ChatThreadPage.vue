@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -109,7 +110,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
         <p>新成员不能读取加入前的历史。移除成员不会收回其已保存的消息。</p>
         <ul>
 <li v-for="member in conversation.members.filter(item => item.active !== false)" :key="member.id">
-          <span>{{ member.display_name || member.acct || member.matrix_id || `账号 ${member.account_id}` }} <small v-if="member.acct">@{{ member.acct }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
+          <span>{{ member.display_name || displayAccount(member.acct || member.matrix_id) || `账号 ${member.account_id}` }} <small v-if="member.acct">@{{ displayAccount(member.acct) }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
           <button v-if="member.account_id === auth.currentUser?.id ? conversation.can_leave : conversation.can_manage" class="btn btn--ghost btn--sm" :disabled="busy" @click="removeMember(member)">{{ member.account_id === auth.currentUser?.id ? '离开' : '移除' }}</button>
         </li>
 </ul>

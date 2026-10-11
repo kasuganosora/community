@@ -532,6 +532,7 @@ func (hs *HomeServer) refreshDirectBridgeTopics(ctx context.Context) {
 			if count == 0 {
 				continue
 			}
+			_ = hs.syncBridgeRoomName(ctx, room.RoomID)
 			var current MatrixRoomState
 			if err := conn.Where("room_id = ? AND event_type = ? AND state_key = ?", room.RoomID, "m.room.topic", "").First(&current).Error; err == nil && current.Content["topic"] == directBridgeTopic {
 				continue

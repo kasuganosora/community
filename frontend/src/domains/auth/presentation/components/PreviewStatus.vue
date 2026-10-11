@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 /**
  * Read-only status for the logged-out landing page: author, time, content
  * warning, rich text with custom emoji, media thumbnails and a quote/link hint.
@@ -112,7 +113,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <UserAvatar :account="shown.account" :size="avatarSize" />
       <div class="preview-status__who">
         <span class="preview-status__name" dir="auto"><EmojiText :text="shown.account.display_name || shown.account.username" :emojis="shown.account.emojis" /></span>
-        <span class="preview-status__acct">@{{ shown.account.acct }}</span>
+        <span class="preview-status__acct">@{{ displayAccount(shown.account.acct) }}</span>
       </div>
       <RelativeTime class="preview-status__time" :datetime="shown.created_at" />
     </header>

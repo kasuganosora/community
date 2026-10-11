@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, ref, onBeforeUnmount, watch } from 'vue'
 import { userApi } from '@/domains/user/infrastructure/userApi'
@@ -29,12 +30,12 @@ async function add() {
   try {
     let candidate: (typeof selected.value)[number]
     if (/^@[^@:\s]+:[^\s]+$/.test(value)) {
-      candidate = { key: `matrix:${value}`, label: value, input: { matrix_id: value } }
+      candidate = { key: `matrix:${value}`, label: displayAccount(value), input: { matrix_id: value } }
     } else {
       const account = await userApi.lookupAccount(value)
       if (version !== generation) return
       if (account.id === auth.currentUser?.id) throw new Error('你已经是会话成员，无需重复添加。')
-      candidate = { key: `account:${account.id}`, label: `@${account.acct}`, input: { account_id: account.id }, account }
+      candidate = { key: `account:${account.id}`, label: `@${displayAccount(account.acct)}`, input: { account_id: account.id }, account }
     }
     if (version !== generation) return
     if (!selected.value.some(member => member.key === candidate.key)) selected.value.push(candidate)

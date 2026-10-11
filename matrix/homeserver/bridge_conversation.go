@@ -358,7 +358,7 @@ func (hs *HomeServer) applyBridgeConversationMembers(ctx context.Context, conv *
 			}
 		}
 	}
-	return nil
+	return hs.syncBridgeRoomName(ctx, conv.RoomID)
 }
 func (hs *HomeServer) bridgeConversationAccess(tx *gorm.DB, id, userID string) (*BridgeConversation, *BridgeConversationMember, error) {
 	var conv BridgeConversation

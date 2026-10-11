@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useTimelineRowPin } from '@/shared/composables/useTimelineRow'
@@ -108,7 +109,7 @@ async function showResponders() {
         <p v-else-if="!responders.length" class="responders__state">还没有回应，来留下第一个表情吧。</p>
         <section v-for="reaction in responders" :key="reaction.name" class="responders__group">
           <h3 class="responders__heading"><ReactionLabel :reaction="reaction" /><span class="responders__count">{{ reaction.count }}</span><span v-if="reaction.me" class="responders__you">你也回应了</span></h3>
-          <ul class="responders__accounts"><li v-for="account in reaction.accounts || []" :key="account.id"><router-link :to="`/@${account.acct}`" class="responders__account" @click="details = false"><UserAvatar :account="account" :size="36" /><span class="responders__identity"><span class="responders__name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></span><span class="responders__handle">@{{ account.acct }}</span></span></router-link></li></ul>
+          <ul class="responders__accounts"><li v-for="account in reaction.accounts || []" :key="account.id"><router-link :to="`/@${account.acct}`" class="responders__account" @click="details = false"><UserAvatar :account="account" :size="36" /><span class="responders__identity"><span class="responders__name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></span><span class="responders__handle">@{{ displayAccount(account.acct) }}</span></span></router-link></li></ul>
           <p v-if="reaction.count > (reaction.accounts?.length || 0)" class="responders__more">显示前 {{ reaction.accounts?.length || 0 }} 位回应者</p>
         </section>
       </div>

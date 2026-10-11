@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -189,7 +190,7 @@ watch(activeTab, () => { if (account.value) feed.refresh() })
 
       <h2 class="profile-name" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h2>
       <div class="profile-username">
-        @{{ account.acct }}
+        @{{ displayAccount(account.acct) }}
         <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
       </div>
       <AddToListButton v-if="!isOwnProfile && followState === 'following'" :account-id="account.id" />

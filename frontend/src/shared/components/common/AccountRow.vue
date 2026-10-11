@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -29,13 +30,13 @@ function open(e: MouseEvent | KeyboardEvent) {
 </script>
 
 <template>
-  <div class="user-item" role="link" tabindex="0" :aria-label="`${account.display_name || account.username} @${account.acct}`"
+  <div class="user-item" role="link" tabindex="0" :aria-label="`${account.display_name || account.username} @${displayAccount(account.acct)}`"
     @click="open" @keydown.enter.self="open"
   >
     <UserAvatar :account="account" :size="48" />
     <div class="user-item__info">
       <div class="user-item__name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></div>
-      <div class="user-item__username">@{{ account.acct }}</div>
+      <div class="user-item__username">@{{ displayAccount(account.acct) }}</div>
       <RichText v-if="account.note" class="user-item__bio" :html="account.note" :emojis="account.emojis" />
     </div>
     <slot name="action">

@@ -28,7 +28,10 @@ import (
 // StartDirectMessageBridge runs a separate durable queue. AP is plaintext;
 // these private conversations never pretend to provide E2EE.
 func (hs *HomeServer) StartDirectMessageBridge(ctx context.Context) {
-	go hs.refreshDirectBridgeTopics(ctx)
+	go func() {
+		hs.refreshDirectBridgeTopics(ctx)
+		hs.refreshExplicitBridgeRoomNames(ctx)
+	}()
 	hs.StartDirectDeliveryFeedback(ctx)
 	hs.StartBridgeConversationReconciler(ctx)
 	hs.StartBridgeFederation(ctx)
@@ -105,6 +108,9 @@ func (hs *HomeServer) ProcessDirectMessage(ctx context.Context, statusID uint64)
 	update := conn.Model(&models.MatrixDMDelivery{}).Where("status_id = ? AND lease_token = ?", statusID, lease).Updates(map[string]any{"state": state, "room_id": room, "event_id": event, "last_error": message, "lease_token": "", "next_attempt_at": next, "attempts": gorm.Expr("attempts + 1")})
 	if update.Error != nil {
 		return update.Error
+	}
+	if state == "delivered" && update.RowsAffected > 0 {
+		_ = hs.syncBridgeRoomName(workCtx, room)
 	}
 	return err
 }

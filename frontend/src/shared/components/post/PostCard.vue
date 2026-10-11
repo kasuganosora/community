@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
@@ -187,7 +188,7 @@ function onMenuClick(data: { value?: unknown }) {
             <EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" />
           </span>
           <span class="post-card__username">
-            @{{ displayStatus.account.acct }}
+            @{{ displayAccount(displayStatus.account.acct) }}
           </span>
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />

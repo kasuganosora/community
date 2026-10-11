@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayAccount } from '@/shared/utils/accountDisplay'
 import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
@@ -191,7 +192,7 @@ async function togglePin() {
           </button>
           <div class="detail-main__user">
             <div class="detail-main__name" :title="mainStatus.account.display_name || mainStatus.account.username"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></div>
-            <div class="detail-main__username">@{{ mainStatus.account.acct }}</div>
+            <div class="detail-main__username">@{{ displayAccount(mainStatus.account.acct) }}</div>
           </div>
         </div>
 
