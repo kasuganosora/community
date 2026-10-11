@@ -58,6 +58,9 @@ func (hs *HomeServer) processBridgeFavourite(tx *gorm.DB, job *models.MatrixDMEv
 	if err = tx.Where("status_id = ? AND state = ? AND event_id <> ''", job.StatusID, "delivered").First(&mapping).Error; err != nil {
 		return err
 	}
+	if err := hs.validateBridgeAccountIdentity(tx, actor); err != nil {
+		return errDirectMessageSkipped
+	}
 	sender := hs.bridgeAccountID(actor)
 	var member MatrixRoomMember
 	if err = tx.Where("room_id = ? AND user_id = ? AND membership = ?", mapping.RoomID, sender, MembershipJoin).First(&member).Error; err != nil {

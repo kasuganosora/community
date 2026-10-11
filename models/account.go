@@ -17,6 +17,7 @@ import (
 )
 
 type Account struct { //nolint:recvcheck
+	MatrixAlias        string     `gorm:"type:varchar(2304);index:idx_account_matrix_alias,length:191" json:"-"`
 	FeedLastSeenAt     *time.Time `gorm:"index" json:"-"`
 	AvatarDecorationID uint64     `gorm:"not null;default:0" json:"avatar_decoration_id"`
 	ImportedNoteHTML   string     `gorm:"type:text" json:"imported_note_html,omitempty"`
@@ -65,6 +66,7 @@ func (a *Account) BeforeSave(tx *gorm.DB) (err error) {
 	}
 
 	a.Acct = a.Username + "@" + domain
+	a.MatrixAlias = NormalizedMatrixAlias(*a)
 
 	return
 }

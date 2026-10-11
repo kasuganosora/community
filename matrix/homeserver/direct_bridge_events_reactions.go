@@ -222,6 +222,9 @@ func (hs *HomeServer) processBridgeReaction(tx *gorm.DB, job *models.MatrixDMEve
 	if encrypted > 0 {
 		return errDirectMessageSkipped
 	}
+	if err := hs.validateBridgeAccountIdentity(tx, actor); err != nil {
+		return errDirectMessageSkipped
+	}
 	sender := hs.bridgeAccountID(actor)
 	var member MatrixRoomMember
 	if err = tx.Where("room_id = ? AND user_id = ? AND membership = ?", mapping.RoomID, sender, MembershipJoin).First(&member).Error; err != nil {

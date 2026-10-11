@@ -90,6 +90,9 @@ func (hs *HomeServer) newBridgeMember(tx *gorm.DB, conv *BridgeConversation, inp
 		if blocked || a.IsBan {
 			return m, errDirectMessageSkipped
 		}
+		if err := hs.validateBridgeAccountIdentity(tx, a); err != nil {
+			return m, err
+		}
 		m.MatrixID = hs.bridgeAccountID(a)
 		m.AccountID = a.Id
 		m.Kind = "ap"
@@ -590,6 +593,9 @@ func (hs *HomeServer) conversationOutboundAudience(tx *gorm.DB, job *MatrixDMOut
 		}
 		if a.IsBan || blocked {
 			return nil, nil, errDirectMessageSkipped
+		}
+		if err := hs.validateBridgeAccountIdentity(tx, a); err != nil {
+			return nil, nil, err
 		}
 		recipients = append(recipients, a)
 	}

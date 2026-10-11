@@ -57,5 +57,6 @@ func ValidatePassword(password string) error {
 
 // IsReservedBridgeUsername keeps synthetic ActivityPub users separate from login accounts.
 func IsReservedBridgeUsername(username string) bool {
-	return strings.HasPrefix(strings.ToLower(username), "_ap_")
+	lower := strings.ToLower(username)
+	return strings.HasPrefix(lower, "_ap_") || strings.HasSuffix(lower, "_ap")
 }

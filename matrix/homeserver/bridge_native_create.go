@@ -18,17 +18,28 @@ func (hs *HomeServer) createNativeAPConversation(creator string, req *CreateRoom
 	if req.bridgeRoomID != "" {
 		return nil, nil, false
 	}
+	fail := func(message string) (*CreateRoomResponse, *MatrixError, bool) {
+		return nil, &MatrixError{ErrCode: "M_FORBIDDEN", Error: message}, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn := db.GetDB().WithContext(ctx)
+	inputs := make([]BridgeMemberInput, 0, len(req.Invite))
 	hasAP := false
 	for _, id := range req.Invite {
-		if strings.HasPrefix(id, "@_ap_") && strings.HasSuffix(id, ":"+hs.Config.ServerName) {
+		account, err := hs.resolveBridgeAccount(conn, id)
+		if err != nil {
+			return fail("Ambiguous or unavailable ActivityPub identity")
+		}
+		if account != nil {
 			hasAP = true
+			inputs = append(inputs, BridgeMemberInput{AccountID: strconv.FormatUint(account.Id, 10)})
+		} else {
+			inputs = append(inputs, BridgeMemberInput{MatrixID: id})
 		}
 	}
 	if !hasAP {
 		return nil, nil, false
-	}
-	fail := func(message string) (*CreateRoomResponse, *MatrixError, bool) {
-		return nil, &MatrixError{ErrCode: "M_FORBIDDEN", Error: message}, true
 	}
 	if req.Visibility == "public" || req.Preset == "public_chat" || len(req.Invite3PID) != 0 || req.RoomAliasName != nil {
 		return fail("ActivityPub conversations must be private rooms with explicit participants")
@@ -53,21 +64,6 @@ func (hs *HomeServer) createNativeAPConversation(creator string, req *CreateRoom
 		}
 		if state.Type == "m.room.join_rules" && state.Content["join_rule"] != "invite" {
 			return fail("ActivityPub conversations must use invite-only membership")
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	conn := db.GetDB().WithContext(ctx)
-	inputs := make([]BridgeMemberInput, 0, len(req.Invite))
-	for _, id := range req.Invite {
-		account, err := hs.resolveBridgeAccount(conn, id)
-		if err != nil {
-			return fail("Unknown ActivityPub user")
-		}
-		if account != nil {
-			inputs = append(inputs, BridgeMemberInput{AccountID: strconv.FormatUint(account.Id, 10)})
-		} else {
-			inputs = append(inputs, BridgeMemberInput{MatrixID: id})
 		}
 	}
 	conv, err := hs.CreateBridgeConversation(ctx, creator, BridgeConversationRequest{TransactionID: "matrix-create-" + uuid.NewString(), PlaintextConsent: true, Members: inputs})

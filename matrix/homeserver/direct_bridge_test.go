@@ -68,6 +68,7 @@ func directBridgeDB(t *testing.T) (*HomeServer, *gorm.DB) {
 	t.Cleanup(func() { GlobalHS = prior })
 	domain := "remote.example"
 	for _, a := range []models.Account{{Id: 1, Username: "remote", Domain: &domain}, {Id: 2, Username: "alice"}, {Id: 3, Username: "bob"}, {Id: 4, Username: "outsider"}} {
+		a.MatrixAlias = models.NormalizedMatrixAlias(a)
 		require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Omit("Extra").Create(&a).Error)
 	}
 	return hs, conn
@@ -104,7 +105,7 @@ func TestDirectBridgeExistingAndLaterMatrixLoginPrivateAndIdempotent(t *testing.
 	require.Equal(t, false, create.Content["m.federate"])
 	var msg MatrixEvent
 	require.NoError(t, conn.First(&msg, "event_id = ?", job.EventID).Error)
-	require.True(t, strings.HasPrefix(msg.Sender, "@_ap_"))
+	require.Equal(t, "@remote_remote_example_ap:test.local", msg.Sender)
 	require.Contains(t, msg.Content["body"], "private message")
 	// Simulate process failure after sending but before acknowledging the durable job.
 	require.NoError(t, conn.Model(&job).Updates(map[string]any{"state": "pending", "next_attempt_at": time.Now().Add(-time.Second)}).Error)

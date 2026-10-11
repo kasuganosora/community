@@ -46,6 +46,7 @@ var ScripsType = []MigrationScript{
 	AttachmentSensitiveScript{},
 	FeedOutboxScript{},
 	FeedClaimIndexesScript{},
+	MatrixAliasScript{},
 }
 
 type MigrationScript interface {

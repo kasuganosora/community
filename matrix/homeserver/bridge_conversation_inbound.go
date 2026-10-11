@@ -107,6 +107,9 @@ func (hs *HomeServer) validateExplicitBridgeEvent(tx *gorm.DB, roomID string, st
 	if status.Visibility != models.StatusVisibilityDirect || status.ScheduledAt != nil || status.Account == nil || status.Account.IsBan {
 		return errDirectMessageSkipped
 	}
+	if err := hs.validateBridgeAccountIdentity(tx, *status.Account); err != nil {
+		return errDirectMessageSkipped
+	}
 	participants := map[string]models.Account{hs.bridgeAccountID(*status.Account): *status.Account}
 	for _, account := range status.ToAccounts {
 		if account.IsBan {
@@ -117,6 +120,9 @@ func (hs *HomeServer) validateExplicitBridgeEvent(tx *gorm.DB, roomID string, st
 			return err
 		}
 		if blocked {
+			return errDirectMessageSkipped
+		}
+		if err := hs.validateBridgeAccountIdentity(tx, *account); err != nil {
 			return errDirectMessageSkipped
 		}
 		participants[hs.bridgeAccountID(*account)] = *account

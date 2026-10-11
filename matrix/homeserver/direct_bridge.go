@@ -159,6 +159,9 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 	if err := conn.Joins("JOIN status_to_accounts ON status_to_accounts.account_id = accounts.id").Where("status_to_accounts.status_id = ?", statusID).Find(&targets).Error; err != nil {
 		return "", "", err
 	}
+	if err := hs.validateBridgeAccountIdentity(conn, sender); err != nil {
+		return "", "", errDirectMessageSkipped
+	}
 	participants := map[string]models.Account{hs.bridgeAccountID(sender): sender}
 	localRecipients := 0
 	for _, a := range targets {
@@ -171,6 +174,9 @@ func (hs *HomeServer) bridgeDirectMessage(ctx context.Context, statusID uint64) 
 		}
 		if blocked {
 			continue
+		}
+		if err := hs.validateBridgeAccountIdentity(conn, a); err != nil {
+			return "", "", errDirectMessageSkipped
 		}
 		participants[hs.bridgeAccountID(a)] = a
 		if a.Domain == nil && a.Id != sender.Id {

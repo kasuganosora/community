@@ -12,11 +12,11 @@ import (
 func TestDirectoryExactRemoteHandleEnablesFirstDMWithoutLeakingPrivateUsers(t *testing.T) {
 	hs, conn := directBridgeDB(t)
 	search := NewSearchService(hs)
-	for _, query := range []string{"remote@remote.example", "@remote@remote.example", "@_ap_remote_remote_example=1:test.local"} {
+	for _, query := range []string{"remote@remote.example", "@remote@remote.example", "@remote_remote_example_ap:test.local"} {
 		result, err := search.SearchUserDirectory(query, 10, "@alice:test.local")
 		require.NoError(t, err)
 		require.Len(t, result.Results, 1)
-		require.Equal(t, "@_ap_remote_remote_example=1:test.local", result.Results[0].UserID)
+		require.Equal(t, "@remote_remote_example_ap:test.local", result.Results[0].UserID)
 		profile, ok := hs.bridgeGhostProfile(context.Background(), result.Results[0].UserID)
 		require.True(t, ok, "a first-DM target must have a public profile before any room exists")
 		require.Equal(t, "remote@remote.example", profile["displayname"])
@@ -27,7 +27,7 @@ func TestDirectoryExactRemoteHandleEnablesFirstDMWithoutLeakingPrivateUsers(t *t
 		require.Empty(t, result.Results)
 	}
 	avatar := "mxc://test.local/real-avatar"
-	require.NoError(t, conn.Create(&MatrixRoomMember{RoomID: "!private:test.local", UserID: "@_ap_remote_remote_example=1:test.local", Membership: MembershipJoin, AvatarURL: &avatar}).Error)
+	require.NoError(t, conn.Create(&MatrixRoomMember{RoomID: "!private:test.local", UserID: "@remote_remote_example_ap:test.local", Membership: MembershipJoin, AvatarURL: &avatar}).Error)
 	withAvatar, err := search.SearchUserDirectory("remote@remote.example", 10, "@alice:test.local")
 	require.NoError(t, err)
 	require.Equal(t, avatar, withAvatar.Results[0].AvatarURL)

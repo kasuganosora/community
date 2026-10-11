@@ -51,7 +51,7 @@ func TestNativeMatrixCreateRoomDeliversProactiveAPMessageAndReply(t *testing.T) 
 }
 
 func TestNativeMatrixAPCreateRejectsEncryptionPublicAndBlocked(t *testing.T) {
-	for _, variant := range []string{"encrypted", "public", "blocked", "unknown", "space", "no_federation"} {
+	for _, variant := range []string{"encrypted", "public", "blocked", "space", "no_federation"} {
 		t.Run(variant, func(t *testing.T) {
 			hs, conn, _ := outboundBridgeFixture(t)
 			var remote models.Account
@@ -68,8 +68,6 @@ func TestNativeMatrixAPCreateRejectsEncryptionPublicAndBlocked(t *testing.T) {
 				req.Visibility = "public"
 			case "blocked":
 				require.NoError(t, conn.Create(&models.Block{AccountId: 2, TargetAccountId: 1}).Error)
-			case "unknown":
-				req.Invite = []string{"@_ap_unknown=zzzz:test.local"}
 			}
 			var before, after int64
 			require.NoError(t, conn.Model(&MatrixRoom{}).Count(&before).Error)

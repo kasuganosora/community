@@ -172,6 +172,9 @@ func (hs *HomeServer) outboundDirectAudience(tx *gorm.DB, job *MatrixDMOutbound,
 		if blocked {
 			return nil, nil, errDirectMessageSkipped
 		}
+		if err := hs.validateBridgeAccountIdentity(tx, a); err != nil {
+			return nil, nil, err
+		}
 		id := hs.bridgeAccountID(a)
 		ids = append(ids, id)
 		byID[id] = true

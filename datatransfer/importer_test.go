@@ -82,6 +82,7 @@ func TestImportPersonalDirectRetryAndNoAudienceExpansion(t *testing.T) {
 	require.Len(t, grants, 1)
 	var peer models.Account
 	require.NoError(t, conn.First(&peer, grants[0].AccountId).Error)
+	require.Equal(t, models.NormalizedMatrixAlias(peer), peer.MatrixAlias)
 	require.Equal(t, "bob", peer.Username)
 	var extra models.AccountExtra
 	require.NoError(t, conn.First(&extra, "account_id = ?", o.OwnerAccountID).Error)

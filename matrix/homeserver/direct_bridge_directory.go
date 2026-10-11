@@ -24,7 +24,7 @@ func bridgePublicDisplayName(account models.Account) string {
 
 func (s *SearchService) directoryRemoteAccount(query string) (*models.Account, error) {
 	query = strings.TrimSpace(query)
-	if strings.HasPrefix(query, "@_ap_") && strings.Contains(query, ":") {
+	if strings.HasPrefix(query, "@") && strings.Contains(query, ":") {
 		account, err := s.hs.resolveBridgeAccount(db.GetDB(), query)
 		// Invalid synthetic IDs are ordinary empty search results.
 		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errUnknownBridgeAccount) {
@@ -48,6 +48,9 @@ func (s *SearchService) directoryRemoteAccount(query string) (*models.Account, e
 	}
 	if err != nil {
 		return nil, err
+	}
+	if err := s.hs.validateBridgeAccountIdentity(db.GetDB(), account); err != nil {
+		return nil, nil
 	}
 	return &account, nil
 }
