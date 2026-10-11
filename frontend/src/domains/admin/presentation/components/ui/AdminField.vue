@@ -7,7 +7,7 @@ const id = useId()
 <template>
   <div class="admin-field" :class="{ 'admin-field--error': error }">
     <label class="admin-field__label" :for="id">{{ label }}</label>
-    <slot :id="id" :described-by="`${id}-hint`" />
+    <div class="admin-field__control"><slot :id="id" :described-by="hint || error ? `${id}-hint` : undefined" /></div>
     <p v-if="error" :id="`${id}-hint`" class="admin-field__error" role="alert">{{ error }}</p>
     <p v-else-if="hint" :id="`${id}-hint`" class="admin-field__hint">{{ hint }}</p>
   </div>

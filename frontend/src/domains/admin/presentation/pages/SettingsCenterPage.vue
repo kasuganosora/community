@@ -117,7 +117,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 </script>
 <template>
   <SettingsAdminPage v-if="section === 'security'" mode="security" />
-  <div v-else class="admin-page">
+  <div v-else class="admin-page settings-center">
     <AdminPageHeader :title="data?.title || '设置'" :description="data?.description" />
     <p v-if="loading" class="admin-empty" role="status">正在读取设置…</p>
     <AdminAlert v-if="error" tone="danger">
@@ -129,11 +129,11 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
       <div><h2>部分配置由部署环境管理</h2><p>以下字段来自服务器环境变量或配置文件，后台不能覆盖。只读值仍可选中复制，密钥不会显示。</p></div>
       <details><summary>如何改为后台管理？</summary><p>由部署管理员先备份现有配置，在部署环境中移除对应配置项并重启服务。回到本页填写并保存配置，测试连接，再按页面提示重启使连接设置生效。切换存储不会迁移已有文件；请先安排文件迁移，避免已有附件无法访问。</p><ul><li v-for="field in lockedFields" :key="field.key">{{ field.label }}：<code>{{ field.deployment_key || field.key }}</code></li></ul></details>
     </section>
-    <form v-if="data" class="admin-card" @submit.prevent="save">
-      <div class="settings-center__form-heading"><h2>{{ editable ? '配置选项' : '当前配置' }}</h2><span>{{ editable ? '仅保存已修改的字段' : '当前页面为只读状态' }}</span></div>
-      <div class="admin-form">
+    <form v-if="data" class="admin-card admin-preferences" @submit.prevent="save">
+      <div class="admin-preferences__heading"><h2>{{ editable ? '配置选项' : '当前配置' }}</h2><span>{{ editable ? '仅保存已修改的字段' : '当前页面为只读状态' }}</span></div>
+      <div class="admin-form admin-preferences__fields">
         <template v-for="field in data.fields" :key="field.key">
-          <AdminCheck v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
+          <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
           <AdminField v-else :label="field.label" :error="fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? '部署配置优先，无法在此编辑。' : '当前运行状态，只读。') : field.restart_required ? '保存后需要重启服务。' : '保存后新请求生效。'].filter(Boolean).join(' ')">
             <template #default="{ id, describedBy }">
               <template v-if="field.read_only">
@@ -170,9 +170,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
   </div>
 </template>
 <style scoped>
-.settings-center__form-heading { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between; }
-.settings-center__form-heading h2, .settings-center__deployment h2 { margin: 0; font-size: 16px; }
-.settings-center__form-heading span { font-size: 12px; color: var(--color-label-secondary); }
+.settings-center__deployment h2 { margin: 0; font-size: 16px; }
 .settings-center__readonly { position: relative; min-width: 0; }
 .settings-center__readonly input { padding-right: 88px; background: var(--color-bg-grouped); color: var(--color-label-secondary); cursor: text; }
 .settings-center__source { position: absolute; right: 10px; top: 11px; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--color-fill); color: var(--color-label-secondary); pointer-events: none; }
@@ -181,5 +179,8 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 .settings-center__deployment summary { cursor: pointer; font-size: 13px; color: var(--admin-accent); min-height: 32px; align-content: center; }
 .settings-center__deployment ul { padding-left: 20px; font-size: 12px; line-height: 2; overflow-wrap: anywhere; }
 .settings-center__pending { color: var(--color-label-secondary); font-size: 13px; }
-@media(max-width: 480px) { .settings-center__source { position: static; display: inline-block; margin-top: 5px; } .settings-center__readonly input { padding-right: 12px; } }
+@media(max-width: 760px) {
+  .settings-center__source { position: static; display: inline-block; margin-top: 6px; }
+  .settings-center__readonly input { padding-right: 12px; }
+}
 </style>

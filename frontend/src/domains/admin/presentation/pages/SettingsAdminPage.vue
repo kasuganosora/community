@@ -135,12 +135,12 @@ onUnmounted(() => {
           </div>
         </form>
       </section>
-      <form v-if="config && mode !== 'rules'" class="admin-card" @submit.prevent="saveCaptcha">
-        <h2>验证码</h2>
+      <form v-if="config && mode !== 'rules'" class="admin-card admin-preferences" @submit.prevent="saveCaptcha">
+        <div class="admin-preferences__heading"><h2>验证码</h2></div>
         <AdminAlert v-if="config.environment_override" tone="info">验证码由服务器环境配置，此处仅供查看。</AdminAlert>
         <AdminAlert v-else-if="config.enabled && config.effective_enabled === false" tone="warning">已启用但尚未生效，请检查供应商和密钥配置。</AdminAlert>
-        <div class="admin-form">
-          <AdminCheck v-model="config.enabled" label="启用注册验证码" :disabled="busy || config.environment_override" />
+        <div class="admin-form admin-preferences__fields">
+          <AdminCheck variant="switch" class="admin-preferences__toggle" v-model="config.enabled" label="启用注册验证码" :disabled="busy || config.environment_override" />
           <AdminField label="验证码服务">
             <template #default="{ id }">
               <select :id="id" v-model="config.provider" :disabled="busy || config.environment_override">

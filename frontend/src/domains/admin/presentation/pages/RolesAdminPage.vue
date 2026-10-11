@@ -31,7 +31,7 @@ onMounted(load)
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
     <form class="admin-card" aria-label="角色编辑" @submit.prevent="save">
       <h2>{{ editing ? '编辑角色' : '创建角色' }}</h2>
-      <div class="admin-form">
+      <div class="admin-form admin-form--columns">
         <AdminField label="名称"><template #default="{ id }"><input :id="id" v-model="draft.name" required maxlength="20"></template></AdminField>
         <AdminField label="颜色（可选）"><template #default="{ id }"><input :id="id" v-model="draft.color" placeholder="#2463eb" pattern="#[0-9a-fA-F]{6}"></template></AdminField>
         <AdminCheck v-model="draft.highlighted" label="在资料中突出显示" />
