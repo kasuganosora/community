@@ -55,6 +55,10 @@ func federationJoinError(err error) *MatrixError {
 }
 
 func verifiedFederationJoin(hs *HomeServer, version, roomID, userID string, localRaw, returnedRaw any) (gmsl.PDU, error) {
+	return verifiedFederationJoinContext(context.Background(), hs, version, roomID, userID, localRaw, returnedRaw)
+}
+
+func verifiedFederationJoinContext(ctx context.Context, hs *HomeServer, version, roomID, userID string, localRaw, returnedRaw any) (gmsl.PDU, error) {
 	local, err := decodeWirePDU(version, localRaw)
 	if err != nil {
 		return nil, err
@@ -104,7 +108,7 @@ func verifiedFederationJoin(hs *HomeServer, version, roomID, userID string, loca
 	} else if content["join_authorised_via_users_server"] != nil {
 		return nil, fmt.Errorf("restricted join response lacks countersigned event")
 	}
-	if err = gmsl.VerifyEventSignatures(context.Background(), join, federationJSONVerifier{hs}, federationUserID); err != nil {
+	if err = gmsl.VerifyEventSignatures(ctx, join, federationJSONVerifier{hs}, federationUserID); err != nil {
 		return nil, err
 	}
 	return join, nil

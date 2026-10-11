@@ -330,6 +330,11 @@ func matrixErrorStatus(err *MatrixError) int {
 		return http.StatusUnauthorized
 	case "M_BAD_GATEWAY":
 		return http.StatusBadGateway
+	case "M_UNKNOWN":
+		if strings.HasPrefix(err.Error, joinTimeoutPrefix) {
+			return http.StatusGatewayTimeout
+		}
+		return http.StatusBadRequest
 	case "M_INTERNAL":
 		return http.StatusInternalServerError
 	case "M_LIMIT_EXCEEDED":
@@ -714,7 +719,7 @@ func handleJoinRoom(c *gin.Context) {
 
 	hs := GetHomeServer()
 
-	roomID, err := hs.Room.JoinRoom(userID, roomID, &JoinRoomRequest{AdditionalContent: body, Servers: servers})
+	roomID, err := hs.Room.JoinRoomContext(c.Request.Context(), userID, roomID, &JoinRoomRequest{AdditionalContent: body, Servers: servers})
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 

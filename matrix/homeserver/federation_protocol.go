@@ -2,8 +2,6 @@ package homeserver
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,93 +21,6 @@ import (
 // document is fetched over verified TLS and its self-signature is checked before
 // any of its keys enter the cache. No request can choose a different destination.
 type federationJSONVerifier struct{ hs *HomeServer }
-
-func (v federationJSONVerifier) serverKey(server, keyID string, at time.Time) (ed25519.PublicKey, error) {
-	if server == v.hs.Config.ServerName {
-		if keyID != v.hs.keyID {
-			return nil, errors.New("unknown local signing key")
-		}
-		return v.hs.publicKey, nil
-	}
-	if key, ok := GetKeyCache().GetAt(server, keyID, at); ok {
-		return key, nil
-	}
-	client := NewFederationClient(v.hs)
-	resp, err := client.FetchServerKey(server)
-	if err != nil {
-		return nil, err
-	}
-	if resp.ServerName != server {
-		return nil, errors.New("key document server name mismatch")
-	}
-	if resp.ValidUntil <= 0 || time.UnixMilli(resp.ValidUntil).Before(at) {
-		return nil, errors.New("expired server key document")
-	}
-	raw := resp.RawJSON
-	if len(raw) == 0 {
-		return nil, errors.New("server key original JSON missing")
-	}
-	selfSigned := false
-	for id, info := range resp.VerifyKeys {
-		key, e := base64.RawStdEncoding.DecodeString(info.Key)
-		if e != nil || len(key) != ed25519.PublicKeySize {
-			continue
-		}
-		if gmsl.VerifyJSON(server, gmsl.KeyID(id), ed25519.PublicKey(key), raw) == nil {
-			selfSigned = true
-			break
-		}
-	}
-	if !selfSigned {
-		return nil, errors.New("invalid key document self-signature")
-	}
-	info, ok := resp.VerifyKeys[keyID]
-	validUntil := time.UnixMilli(resp.ValidUntil)
-	if !ok {
-		info, ok = resp.OldVerifyKeys[keyID]
-		if !ok || info.ExpiredTS <= 0 || !at.Before(time.UnixMilli(info.ExpiredTS)) {
-			return nil, errors.New("requested signing key missing or expired")
-		}
-		validUntil = time.UnixMilli(info.ExpiredTS)
-	}
-	key, err := base64.RawStdEncoding.DecodeString(info.Key)
-	if err != nil || len(key) != ed25519.PublicKeySize {
-		return nil, errors.New("invalid signing key")
-	}
-	GetKeyCache().Set(server, keyID, key, validUntil)
-	return key, nil
-}
-
-func (v federationJSONVerifier) VerifyJSONs(ctx context.Context, requests []gmsl.VerifyJSONRequest) ([]gmsl.VerifyJSONResult, error) {
-	out := make([]gmsl.VerifyJSONResult, len(requests))
-	for i, req := range requests {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		var envelope struct {
-			Signatures map[string]map[string]string `json:"signatures"`
-		}
-		if err := json.Unmarshal(req.Message, &envelope); err != nil {
-			out[i].Error = err
-			continue
-		}
-		out[i].Error = errors.New("no valid signature from required server")
-		for keyID := range envelope.Signatures[string(req.ServerName)] {
-			key, err := v.serverKey(string(req.ServerName), keyID, time.UnixMilli(int64(req.AtTS)))
-			if err != nil {
-				out[i].Error = err
-				continue
-			}
-			if err = gmsl.VerifyJSON(string(req.ServerName), gmsl.KeyID(keyID), key, req.Message); err == nil {
-				out[i].Error = nil
-				break
-			} else {
-				out[i].Error = err
-			}
-		}
-	}
-	return out, nil
-}
 
 func federationUserID(_ spec.RoomID, sender spec.SenderID) (*spec.UserID, error) {
 	return spec.NewUserID(string(sender), true)

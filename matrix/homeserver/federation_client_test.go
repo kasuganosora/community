@@ -392,7 +392,8 @@ func TestFederationClient_FederationHTTPClient_NonNilTimeout(t *testing.T) {
 	c.fedHTTPClient = nil // Exercise the production timeout.
 	client := c.federationHTTPClient()
 	require.NotNil(t, client)
-	assert.Equal(t, 30*time.Second, client.Timeout)
+	// Per-request deadlines come from contexts; the client keeps a backstop.
+	assert.Equal(t, federationClientSafetyTimeout, client.Timeout)
 }
 
 // ===== ServerKeyResponse / KeyInfo / QueryDirectoryResponse struct tests =====

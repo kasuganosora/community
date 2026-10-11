@@ -9,6 +9,8 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	gmsl "github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 // KeyCacheEntry 缓存的密钥条目.
@@ -193,6 +195,33 @@ func (kc *KeyCache) GetAt(serverName, keyID string, at time.Time) (ed25519.Publi
 		return nil, false
 	}
 	if at.After(entry.ValidUntil) {
+		return nil, false
+	}
+	return append(ed25519.PublicKey(nil), entry.PublicKey...), true
+}
+
+// GetFor returns a cached key if the room version's validity rule accepts it
+// for a signature made at `at`. Unlike GetAt it does not discard keys merely
+// because their document has since expired: for rooms >= v5 a key whose
+// valid_until_ts (or old-key expired_ts) is not before the event timestamp is
+// still good for that event; for v1-v4 check is NoStrictValidityCheck and any
+// known key is accepted. Requests made "now" (check = strict, at = now) still
+// miss once the key has expired, which triggers a refetch.
+func (kc *KeyCache) GetFor(serverName, keyID string, at spec.Timestamp, check gmsl.SignatureValidityCheckFunc) (ed25519.PublicKey, bool) {
+	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
+	kc.mu.RLock()
+	entry := kc.cache[cacheKey]
+	kc.mu.RUnlock()
+	if entry == nil {
+		entry = kc.loadFromDB(serverName, keyID)
+	}
+	if entry == nil {
+		return nil, false
+	}
+	if check == nil {
+		check = gmsl.StrictValiditySignatureCheck
+	}
+	if !check(at, spec.AsTimestamp(entry.ValidUntil)) {
 		return nil, false
 	}
 	return append(ed25519.PublicKey(nil), entry.PublicKey...), true

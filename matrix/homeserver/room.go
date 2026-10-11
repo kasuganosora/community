@@ -2,11 +2,9 @@ package homeserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
-	"github.com/matrix-org/gomatrixserverlib/spec"
 	"strings"
 	"time"
 
@@ -534,6 +532,13 @@ type JoinRoomRequest struct {
 
 // JoinRoom 加入房间.
 func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomRequest) (string, *MatrixError) {
+	return r.JoinRoomContext(context.Background(), userID, roomIDOrAlias, req)
+}
+
+// JoinRoomContext is JoinRoom bound to ctx. A remote join (alias lookup,
+// make_join/send_join, validation) stops when ctx is done and is additionally
+// limited by MATRIX_JOIN_TOTAL_TIMEOUT.
+func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias string, req *JoinRoomRequest) (string, *MatrixError) {
 	if req == nil {
 		req = &JoinRoomRequest{}
 	}
@@ -541,29 +546,31 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 	clone.Servers = append([]string(nil), req.Servers...)
 	req = &clone
 	roomID := roomIDOrAlias
+	var directoryServers []string
 	if strings.HasPrefix(roomIDOrAlias, "#") {
-		resolved, matrixErr := NewAliasService(r.HS).ResolveAlias(roomIDOrAlias)
+		aliasCtx, cancel := context.WithTimeout(ctx, joinSettingsSource().Total)
+		resolved, matrixErr := NewAliasService(r.HS).ResolveAliasContext(aliasCtx, roomIDOrAlias)
+		aliasExpired := aliasCtx.Err() != nil
+		cancel()
 		if matrixErr != nil {
+			if aliasExpired {
+				return "", joinTimeoutError(0, joinSettingsSource().Total)
+			}
 			return "", matrixErr
 		}
 		roomID = resolved.RoomID
-		req.Servers = append(resolved.Servers, req.Servers...)
+		directoryServers = resolved.Servers
 	}
+	inviter := ""
 	var invitation MatrixRoomMember
 	if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
 		var event MatrixEvent
 		if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
-			req.Servers = append(req.Servers, extractServerName(event.Sender))
+			inviter = extractServerName(event.Sender)
 		}
 	}
-	req.Servers = append(req.Servers, extractServerName(roomID))
-	servers := make([]string, 0, len(req.Servers))
-	for _, server := range req.Servers {
-		if server != "" && server != r.HS.Config.ServerName && !contains(servers, server) {
-			servers = append(servers, server)
-		}
-	}
-	req.Servers = servers
+	// Candidate order: room ID domain, via/server_name hints, directory servers, inviter.
+	req.Servers = orderJoinServers(r.HS.Config.ServerName, roomID, req.Servers, directoryServers, inviter)
 
 	// 检查房间是否存在
 	var room MatrixRoom
@@ -572,7 +579,7 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 	if err != nil {
 		// Room not found locally; attempt federation join if server hints provided
 		if len(req.Servers) > 0 {
-			return r.federationJoin(userID, roomID, req.Servers)
+			return r.federationJoinContext(ctx, userID, roomID, req.Servers)
 		}
 
 		return "", ErrNotFound
@@ -675,159 +682,6 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 }
 
 // ===== 联邦加入 =====
-
-// federationJoin 通过联邦协议加入远程房间.
-func (r *RoomService) federationJoin(userID, roomID string, servers []string) (string, *MatrixError) {
-	client := NewFederationClient(r.HS)
-	failure := &MatrixError{ErrCode: "M_UNKNOWN", Error: "Unable to contact a server for this room"}
-	for _, server := range servers {
-		response, err := client.MakeJoin(server, roomID, userID)
-		if err != nil {
-			log.Warn("federation make_join: %v", err)
-			failure = federationJoinError(err)
-			continue
-		}
-		version, _ := response["room_version"].(string)
-		if version == "" {
-			version = "1"
-		}
-		impl, err := gmsl.GetRoomVersion(gmsl.RoomVersion(version))
-		if err != nil {
-			failure = &MatrixError{ErrCode: "M_INCOMPATIBLE_ROOM_VERSION", Error: "This server does not support room version " + version}
-			continue
-		}
-		raw, err := json.Marshal(response["event"])
-		if err != nil {
-			continue
-		}
-		builder := impl.NewEventBuilder()
-		if json.Unmarshal(raw, builder) != nil {
-			continue
-		}
-		builder.RoomID, builder.SenderID, builder.Type, builder.StateKey = roomID, userID, "m.room.member", &userID
-		content, err := federationJoinContent(builder.Content)
-		if err != nil {
-			failure = federationJoinError(err)
-			continue
-		}
-		if err = builder.SetContent(content); err != nil {
-			failure = federationJoinError(err)
-			continue
-		}
-		p, err := builder.Build(time.Now(), spec.ServerName(r.HS.Config.ServerName), gmsl.KeyID(r.HS.keyID), r.HS.privateKey)
-		if err != nil {
-			log.Warn("build federation join: %v", err)
-			continue
-		}
-		wire, _ := wirePDU(p)
-		wire["event_id"] = p.EventID()
-		joined, err := client.SendJoin(server, roomID, wire)
-		if err != nil {
-			log.Warn("federation send_join: %v", err)
-			failure = federationJoinError(err)
-			continue
-		}
-		if joined == nil {
-			failure = &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an empty room join response"}
-			continue
-		}
-		joined["_verified_room_version"] = version
-		joined["_local_join"] = json.RawMessage(p.JSON())
-		if err = r.processFederationJoinResponse(roomID, userID, joined); err != nil {
-			log.Warn("validate federation join response: %v", err)
-			failure = &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"}
-			continue
-		}
-		go r.HS.NotifyRoomEvent(roomID)
-		return roomID, nil
-	}
-	return "", failure
-}
-
-func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string, resp map[string]any) error {
-	version, _ := resp["_verified_room_version"].(string)
-	if version == "" {
-		return fmt.Errorf("missing negotiated room version")
-	}
-	events := map[string]gmsl.PDU{}
-	state := []gmsl.PDU{}
-	tuples := map[string]bool{}
-	for _, field := range []string{"auth_chain", "state"} {
-		list, ok := resp[field].([]any)
-		if !ok {
-			return fmt.Errorf("missing %s", field)
-		}
-		for _, raw := range list {
-			p, err := decodeWirePDU(version, raw)
-			if err != nil {
-				return err
-			}
-			if p.RoomID().String() != roomID || p.StateKey() == nil {
-				return fmt.Errorf("invalid room state event")
-			}
-			if err = gmsl.VerifyEventSignatures(context.Background(), p, federationJSONVerifier{r.HS}, federationUserID); err != nil {
-				return err
-			}
-			events[p.EventID()] = p
-			if field == "state" {
-				tuple := p.Type() + "\x00" + *p.StateKey()
-				if tuples[tuple] {
-					return fmt.Errorf("duplicate state tuple")
-				}
-				tuples[tuple] = true
-				state = append(state, p)
-			}
-		}
-	}
-	for _, p := range events {
-		if err := checkPDUAuthorization(p, events); err != nil {
-			return fmt.Errorf("remote state authorization: %w", err)
-		}
-	}
-	join, err := verifiedFederationJoin(r.HS, version, roomID, joiningUserID, resp["_local_join"], resp["event"])
-	if err != nil {
-		return err
-	}
-	provider, err := gmsl.NewAuthEvents(state)
-	if err != nil {
-		return err
-	}
-	if err = gmsl.Allowed(join, provider, federationUserID); err != nil {
-		return err
-	}
-	if join.RoomID().String() != roomID || string(join.SenderID()) != joiningUserID {
-		return fmt.Errorf("join identity mismatch")
-	}
-	room := MatrixRoom{RoomID: roomID, RoomVersion: version}
-	for _, p := range state {
-		if p.Type() == "m.room.create" {
-			room.Creator = string(p.SenderID())
-		}
-	}
-	if room.Creator == "" {
-		return fmt.Errorf("missing room create event")
-	}
-	return db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("room_id = ?", roomID).FirstOrCreate(&room).Error; err != nil {
-			return err
-		}
-		for _, p := range events {
-			if err := persistVerifiedPDU(tx, r.HS, p, false); err != nil {
-				return err
-			}
-		}
-		// Auth-chain events are historical, not current state. Apply only the snapshot.
-		for _, p := range state {
-			e := pduToMatrixEvent(p)
-			r.updateRoomState(tx, roomID, e)
-			if e.EventType == EventTypeRoomMember {
-				m, _ := e.Content["membership"].(string)
-				r.updateRoomMember(tx, roomID, *e.StateKey, MembershipState(m), e.EventID)
-			}
-		}
-		return persistVerifiedPDUAtState(tx, r.HS, join, true, state, true)
-	})
-}
 
 func (r *RoomService) processRemoteStateEvent(stateMap map[string]any) {
 	roomID, _ := stateMap["room_id"].(string)

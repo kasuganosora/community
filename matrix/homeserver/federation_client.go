@@ -17,12 +17,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
+	gmsl "github.com/matrix-org/gomatrixserverlib"
 )
 
 // FederationClient 联邦客户端.
@@ -120,9 +123,14 @@ func (c *FederationClient) QueryRemoteKeys(destServer string, deviceKeys map[str
 
 // QueryDirectory 查询远程目录.
 func (c *FederationClient) QueryDirectory(destServer, roomAlias string) (*QueryDirectoryResponse, error) {
+	return c.QueryDirectoryContext(context.Background(), destServer, roomAlias)
+}
+
+// QueryDirectoryContext is QueryDirectory bound to ctx.
+func (c *FederationClient) QueryDirectoryContext(ctx context.Context, destServer, roomAlias string) (*QueryDirectoryResponse, error) {
 	queryURL := fmt.Sprintf("%s/_matrix/federation/v1/query/directory?room_alias=%s",
 		c.federationBaseURL(destServer), url.QueryEscape(roomAlias))
-	resp, body, err := c.doFederationRequest("GET", queryURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest
+	resp, body, err := c.doFederationRequestContext(ctx, "GET", queryURL, destServer, nil, 1<<20) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("failed to query directory: %w", err)
 	}
@@ -191,9 +199,14 @@ func (c *FederationClient) federationHTTPClient() *http.Client {
 
 	tlsConfig := federationTLSConfig("/complement/ca/ca.crt")
 
+	// No client-level Timeout: deadlines come from the request context (see
+	// doFederationRequestContext) so a join can give send_join more time than a
+	// key fetch. The discovery transport is shared by every FederationClient so
+	// its .well-known/SRV resolutions and negative entries are actually reused.
 	c.fedHTTPClient = &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: newFederationDiscoveryTransport(tlsConfig),
+		// Safety net only; real deadlines come from the request context.
+		Timeout:   federationClientSafetyTimeout,
+		Transport: sharedFederationDiscoveryTransport(tlsConfig),
 		// A redirect must not forward a signed request to a different destination.
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -212,11 +225,55 @@ func federationTLSConfig(extraCAPath string) *tls.Config {
 	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 }
 
+// defaultFederationRequestTimeout bounds a federation request whose caller
+// supplied no deadline of its own.
+const defaultFederationRequestTimeout = 30 * time.Second
+
+// federationClientSafetyTimeout is the http.Client-level backstop. Contexts
+// (10s make_join, 20s send_join, 8s key fetches, 30s default) are what
+// normally end a request.
+const federationClientSafetyTimeout = 5 * time.Minute
+
+// defaultFederationBodyLimit caps ordinary federation responses (send_join
+// has its own, larger cap). Before this the whole body was buffered unbounded.
+const defaultFederationBodyLimit int64 = 32 << 20
+
+var errFederationResponseTooLarge = errors.New("federation response too large")
+
 // doFederationRequest 执行联邦 HTTP 请求，允许接受非 2xx 状态码.
 func (c *FederationClient) doFederationRequest(method, targetURL, destServer string, body any) (*http.Response, []byte, error) {
-	httpReq, err := c.prepareSignedFederationRequest(context.Background(), method, targetURL, destServer, body)
+	return c.doFederationRequestContext(context.Background(), method, targetURL, destServer, body, 0)
+}
+
+// doFederationRequestContext is doFederationRequest bound to ctx, with the
+// response body capped at limit bytes (<=0: defaultFederationBodyLimit).
+func (c *FederationClient) doFederationRequestContext(ctx context.Context, method, targetURL, destServer string, body any, limit int64) (*http.Response, []byte, error) {
+	var buf bytes.Buffer
+	resp, err := c.doFederationStream(ctx, method, targetURL, destServer, body, limit, func(_ *http.Response, r io.Reader) error {
+		_, err := buf.ReadFrom(r)
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
+	}
+	return resp, buf.Bytes(), nil
+}
+
+// doFederationStream sends a signed request and hands the (size-limited)
+// response body to consume. A body longer than limit makes consume's reader
+// fail with errFederationResponseTooLarge instead of exhausting memory.
+func (c *FederationClient) doFederationStream(ctx context.Context, method, targetURL, destServer string, body any, limit int64, consume func(*http.Response, io.Reader) error) (*http.Response, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultFederationRequestTimeout)
+		defer cancel()
+	}
+	httpReq, err := c.prepareSignedFederationRequest(ctx, method, targetURL, destServer, body)
+	if err != nil {
+		return nil, err
 	}
 	parsedURL := httpReq.URL
 
@@ -227,21 +284,49 @@ func (c *FederationClient) doFederationRequest(method, targetURL, destServer str
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, nil, fmt.Errorf("request failed: %w", err)
+		return nil, &federationTransportError{err: err}
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
-	var buf bytes.Buffer
-	var responseReader io.Reader = resp.Body
+	if limit <= 0 {
+		limit = defaultFederationBodyLimit
+	}
+	var responseReader io.Reader = &limitedBody{r: resp.Body, remaining: limit}
 	if strings.Contains(parsedURL.Path, "/federation/v1/media/") {
 		responseReader = io.LimitReader(resp.Body, matrixMediaLimit+(1<<20))
 	}
-	if _, err := buf.ReadFrom(responseReader); err != nil {
-		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	if err := consume(resp, responseReader); err != nil {
+		if errors.Is(err, errFederationResponseTooLarge) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return resp, buf.Bytes(), nil
+	return resp, nil
+}
+
+// limitedBody fails (rather than silently truncating) once more than
+// `remaining` bytes have been read, so an oversized response is never parsed
+// as if it were complete.
+type limitedBody struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (l *limitedBody) Read(p []byte) (int, error) {
+	if l.remaining < 0 {
+		return 0, errFederationResponseTooLarge
+	}
+	if int64(len(p)) > l.remaining+1 {
+		p = p[:l.remaining+1]
+	}
+	n, err := l.r.Read(p)
+	l.remaining -= int64(n)
+	if l.remaining < 0 {
+		return n, errFederationResponseTooLarge
+	}
+	return n, err
 }
 
 // prepareSignedFederationRequest centralizes canonical signatures without binding
@@ -311,12 +396,38 @@ func (c *FederationClient) prepareSignedFederationRequest(ctx context.Context, m
 	return httpReq, nil
 }
 
+// makeJoinVersionQuery lists every room version the vendored library can
+// parse and verify (stable, numeric: 1..12 today), so the remote picks the
+// room's real version instead of answering M_INCOMPATIBLE_ROOM_VERSION.
+func makeJoinVersionQuery() string {
+	var versions []int
+	for id, impl := range gmsl.RoomVersions() {
+		if !impl.Stable() {
+			continue
+		}
+		if n, err := strconv.Atoi(string(id)); err == nil {
+			versions = append(versions, n)
+		}
+	}
+	sort.Ints(versions)
+	parts := make([]string, len(versions))
+	for i, v := range versions {
+		parts[i] = "ver=" + strconv.Itoa(v)
+	}
+	return strings.Join(parts, "&")
+}
+
 // MakeJoin 向远程服务器请求加入事件模板.
 func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[string]any, error) {
-	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=1&ver=2&ver=3&ver=4&ver=5&ver=6&ver=7&ver=8&ver=9&ver=10&ver=11&ver=12",
-		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(userID))
+	return c.MakeJoinContext(context.Background(), destServer, roomID, userID)
+}
 
-	resp, body, err := c.doFederationRequest("GET", makeJoinURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest
+// MakeJoinContext is MakeJoin bound to ctx.
+func (c *FederationClient) MakeJoinContext(ctx context.Context, destServer, roomID, userID string) (map[string]any, error) {
+	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?%s",
+		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(userID), makeJoinVersionQuery())
+
+	resp, body, err := c.doFederationRequestContext(ctx, "GET", makeJoinURL, destServer, nil, 1<<20) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("make_join request failed: %w", err)
 	}
@@ -335,9 +446,24 @@ func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[stri
 
 // SendJoin 向远程服务器发送已签名的加入事件.
 func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]any) (map[string]any, error) {
+	res, err := c.SendJoinContext(context.Background(), destServer, roomID, event, 0)
+	if err != nil {
+		return nil, err
+	}
+	return res.asMap()
+}
+
+// SendJoinContext sends the signed join event and decodes the (potentially
+// huge) state response incrementally: only one event's bytes are buffered
+// beyond the retained raw events, and the whole body is capped at maxBytes
+// (<=0: sendJoinBodyLimit()).
+func (c *FederationClient) SendJoinContext(ctx context.Context, destServer, roomID string, event map[string]any, maxBytes int64) (*sendJoinResponse, error) {
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
 		return nil, errors.New("send_join requires a computed event reference ID")
+	}
+	if maxBytes <= 0 {
+		maxBytes = sendJoinBodyLimit()
 	}
 
 	event = maps.Clone(event)
@@ -346,44 +472,39 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	if !strings.Contains(eventID, ":") {
 		delete(event, "event_id")
 	}
-	// Try v2 first (returns object), fall back to v1 (may return [200, {...}])
-	sendJoinURL := fmt.Sprintf("%s/_matrix/federation/v2/send_join/%s/%s",
-		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
-
-	resp, body, err := c.doFederationRequest("PUT", sendJoinURL, destServer, event) //nolint:bodyclose // body closed inside doFederationRequest
-	if err != nil || (resp != nil && resp.StatusCode == http.StatusNotFound) {
-		// Fall back to v1
-		sendJoinURL = fmt.Sprintf("%s/_matrix/federation/v1/send_join/%s/%s",
-			c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
-		resp, body, err = c.doFederationRequest("PUT", sendJoinURL, destServer, event) //nolint:bodyclose // closed in doFederationRequest
+	do := func(version string) (*sendJoinResponse, int, string, error) {
+		sendJoinURL := fmt.Sprintf("%s/_matrix/federation/%s/send_join/%s/%s",
+			c.federationBaseURL(destServer), version, url.PathEscape(roomID), url.PathEscape(eventID))
+		var result *sendJoinResponse
+		status := 0
+		var errBody string
+		_, err := c.doFederationStream(ctx, "PUT", sendJoinURL, destServer, event, maxBytes, func(resp *http.Response, r io.Reader) error {
+			status = resp.StatusCode
+			if resp.StatusCode != http.StatusOK {
+				b, err := io.ReadAll(io.LimitReader(r, 64<<10))
+				errBody = string(b)
+				return err
+			}
+			var err error
+			result, err = decodeSendJoinResponse(r)
+			return err
+		})
+		return result, status, errBody, err
 	}
-
+	// Try v2 first (returns object), fall back to v1 (may return [200, {...}])
+	result, status, errBody, err := do("v2")
+	if err != nil && ctx.Err() == nil && !errors.Is(err, errFederationResponseTooLarge) || status == http.StatusNotFound {
+		result, status, errBody, err = do("v1")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("send_join request failed: %w", err)
 	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(body)}
+	if status != http.StatusOK {
+		return nil, &federationHTTPError{Status: status, Message: errBody}
 	}
-
-	// Handle v1 array format [200, {...}] and v2 object format {...}
-	var result map[string]any
-
-	if len(body) > 0 && body[0] == '[' {
-		// v1 format: [200, {...}]
-		var arr []json.RawMessage
-		err := json.Unmarshal(body, &arr)
-		if err == nil && len(arr) >= 2 {
-			_ = json.Unmarshal(arr[1], &result)
-		}
-	} else {
-		_ = json.Unmarshal(body, &result)
-	}
-
 	if result == nil {
 		return nil, errors.New("empty send_join response")
 	}
-
 	return result, nil
 }
 
@@ -509,8 +630,13 @@ func (c *FederationClient) VerifySignature(event map[string]any, serverName stri
 
 // FetchServerKey 获取远程服务器密钥.
 func (c *FederationClient) FetchServerKey(serverName string) (*ServerKeyResponse, error) {
+	return c.FetchServerKeyContext(context.Background(), serverName)
+}
+
+// FetchServerKeyContext is FetchServerKey bound to ctx (1 MiB response cap).
+func (c *FederationClient) FetchServerKeyContext(ctx context.Context, serverName string) (*ServerKeyResponse, error) {
 	keyURL := c.federationBaseURL(serverName) + "/_matrix/key/v2/server"
-	resp, raw, err := c.doFederationRequest("GET", keyURL, serverName, nil) //nolint:bodyclose // closed in doFederationRequest
+	resp, raw, err := c.doFederationRequestContext(ctx, "GET", keyURL, serverName, nil, 1<<20) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch server key: %w", err)
 	}

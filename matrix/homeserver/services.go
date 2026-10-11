@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,6 +64,11 @@ func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
 // ResolveAlias resolves remote aliases at their authoritative server and retains
 // participating server hints for make_join; aliases themselves are never room IDs.
 func (s *AliasService) ResolveAlias(alias string) (*QueryDirectoryResponse, *MatrixError) {
+	return s.ResolveAliasContext(context.Background(), alias)
+}
+
+// ResolveAliasContext is ResolveAlias bound to ctx.
+func (s *AliasService) ResolveAliasContext(ctx context.Context, alias string) (*QueryDirectoryResponse, *MatrixError) {
 	roomID, err := s.GetRoomIDByAlias(alias)
 	if err == nil {
 		return &QueryDirectoryResponse{RoomID: roomID, Servers: []string{s.hs.Config.ServerName}}, nil
@@ -74,7 +80,7 @@ func (s *AliasService) ResolveAlias(alias string) (*QueryDirectoryResponse, *Mat
 	if server == "" || server == s.hs.Config.ServerName {
 		return nil, ErrNotFound
 	}
-	resolved, err := NewFederationClient(s.hs).QueryDirectory(server, alias)
+	resolved, err := NewFederationClient(s.hs).QueryDirectoryContext(ctx, server, alias)
 	if err != nil {
 		var remoteErr *federationHTTPError
 		if errors.As(err, &remoteErr) {

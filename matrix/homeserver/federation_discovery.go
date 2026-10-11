@@ -12,6 +12,15 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
+// discoveryFailureTTL is how long a failed resolution (no DNS, bad name...) is
+// served from memory instead of repeating the lookups.
+const discoveryFailureTTL = time.Minute
+
+type federationResolutionFailure struct {
+	err     error
+	expires time.Time
+}
+
 type federationResolution struct {
 	results []fclient.ResolutionResult
 	expires time.Time
@@ -26,6 +35,7 @@ type federationDiscoveryTransport struct {
 	resolve     func(context.Context, spec.ServerName) ([]fclient.ResolutionResult, error)
 	mu          sync.Mutex
 	resolutions map[spec.ServerName]federationResolution
+	failures    map[spec.ServerName]federationResolutionFailure
 	transports  map[string]*http.Transport
 }
 
@@ -33,6 +43,7 @@ func newFederationDiscoveryTransport(tlsConfig *tls.Config) *federationDiscovery
 	return &federationDiscoveryTransport{
 		tlsConfig: tlsConfig, resolve: fclient.ResolveServer,
 		resolutions: make(map[spec.ServerName]federationResolution),
+		failures:    make(map[spec.ServerName]federationResolutionFailure),
 		transports:  make(map[string]*http.Transport),
 	}
 }
@@ -44,8 +55,23 @@ func (t *federationDiscoveryTransport) destinations(ctx context.Context, server 
 	if ok && time.Now().Before(cached.expires) {
 		return cached.results, nil
 	}
+	t.mu.Lock()
+	if failed, bad := t.failures[server]; bad && time.Now().Before(failed.expires) {
+		t.mu.Unlock()
+		return nil, failed.err
+	}
+	t.mu.Unlock()
 	results, err := t.resolve(ctx, server)
 	if err != nil {
+		// Do not remember our own cancellation as a property of the server.
+		if ctx.Err() == nil {
+			t.mu.Lock()
+			if len(t.failures) >= 256 {
+				clear(t.failures)
+			}
+			t.failures[server] = federationResolutionFailure{err: err, expires: time.Now().Add(discoveryFailureTTL)}
+			t.mu.Unlock()
+		}
 		return nil, err
 	}
 	if len(results) == 0 {
@@ -127,4 +153,17 @@ func (t *federationDiscoveryTransport) CloseIdleConnections() {
 	for _, transport := range t.transports {
 		transport.CloseIdleConnections()
 	}
+}
+
+var (
+	sharedDiscovery     *federationDiscoveryTransport
+	sharedDiscoveryOnce sync.Once
+)
+
+// sharedFederationDiscoveryTransport returns the process-wide transport so
+// resolutions (.well-known, SRV) and connection pools survive across the
+// short-lived FederationClient values.
+func sharedFederationDiscoveryTransport(tlsConfig *tls.Config) *federationDiscoveryTransport {
+	sharedDiscoveryOnce.Do(func() { sharedDiscovery = newFederationDiscoveryTransport(tlsConfig) })
+	return sharedDiscovery
 }
