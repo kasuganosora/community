@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"time"
@@ -16,7 +17,7 @@ type FeedRecipient struct {
 }
 type FeedBatch struct {
 	ID         uint64          `gorm:"primaryKey;autoIncrement"`
-	EventID    uint64          `gorm:"not null;index;uniqueIndex:idx_feed_batch_identity,priority:1"`
+	EventID    uint64          `gorm:"not null;uniqueIndex:idx_feed_batch_identity,priority:1"`
 	TargetKind string          `gorm:"size:24;not null;uniqueIndex:idx_feed_batch_identity,priority:2"`
 	BatchNo    uint64          `gorm:"not null;uniqueIndex:idx_feed_batch_identity,priority:3"`
 	Recipients []FeedRecipient `gorm:"type:json;serializer:json;not null"`
@@ -28,84 +29,122 @@ func (b FeedBatch) LeaseRef() FeedLeaseRef {
 	return FeedLeaseRef{b.ID, b.LeaseToken, b.LeaseGeneration}
 }
 
+// feedClaimable is the claim predicate. The state list is a literal, not a bind
+// parameter, so PostgreSQL can prove the partial claim index (migration 37)
+// applies in generic plans too.
+const feedClaimable = "state IN ('pending','processing') AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_expires_at IS NULL OR lease_expires_at <= ?)"
+
+// feedClaimRange is added on PostgreSQL only. It is implied by feedClaimable for
+// rows with next_attempt_at (an exact restatement) and merely tolerates up to
+// feedClaimSkew of app/DB clock skew for fresh rows (created_at is written by
+// the application). Its value is that it turns "retry-scheduled in the future"
+// rows into an index range stop instead of rows scanned and filtered on every
+// idle poll. SQLite compares timestamps as text, so it is not used there.
+const feedClaimRange = " AND COALESCE(next_attempt_at, created_at) <= ?"
+const feedClaimSkew = 5 * time.Minute
+
+// feedClaimOrder matches the expression index created by migration 37.
+const feedClaimOrder = "COALESCE(next_attempt_at, created_at) ASC, id ASC"
+
+const feedCASGuard = "id = ? AND lease_generation = ? AND state IN ('pending','processing') AND (lease_expires_at IS NULL OR lease_expires_at <= ?)"
+
 func claimFeed(conn *gorm.DB, model any, limit int, ttl time.Duration, events bool) ([]FeedEvent, []FeedBatch, error) {
 	if limit < 1 || limit > 256 || ttl < time.Second || ttl > 5*time.Minute {
 		return nil, nil, fmt.Errorf("invalid feed claim limits")
 	}
+	now, err := FeedDatabaseTime(conn)
+	if err != nil {
+		return nil, nil, err
+	}
+	postgres := dialect.IsPostgres(conn)
+	claimable := func(db *gorm.DB) *gorm.DB {
+		if postgres {
+			return db.Where(feedClaimable+feedClaimRange, now, now, now.Add(feedClaimSkew))
+		}
+		return db.Where(feedClaimable, now, now)
+	}
+	if postgres {
+		// "No work" is the common case. Detect it with one cheap index probe
+		// outside a transaction: no BEGIN/COMMIT, no row locks, no UPDATE.
+		var probe []uint64
+		if err := claimable(conn.Model(model)).Order(feedClaimOrder).Limit(1).Pluck("id", &probe).Error; err != nil || len(probe) == 0 {
+			return nil, nil, err
+		}
+	}
 	var eventRows []FeedEvent
 	var batchRows []FeedBatch
-	err := conn.Transaction(func(tx *gorm.DB) error {
-		now, err := FeedDatabaseTime(tx)
-		if err != nil {
-			return err
-		}
-		q := tx.Model(model).Select("id, lease_generation").Where("state IN ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_expires_at IS NULL OR lease_expires_at <= ?)", []string{"pending", "processing"}, now, now).Order("COALESCE(next_attempt_at, created_at) ASC, id ASC").Limit(256)
-		if events {
-			err = q.Find(&eventRows).Error
+	err = conn.Transaction(func(tx *gorm.DB) error {
+		// Candidate discovery never reads the recipient/metadata JSON.
+		discover := claimable(tx.Model(model).Select("id, lease_generation")).Order(feedClaimOrder)
+		if postgres {
+			// Lock exactly the rows we are about to claim; rows another
+			// claimer holds are skipped, so concurrent workers never queue on
+			// (or race for) the same head-of-queue row.
+			discover = discover.Limit(limit).Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
 		} else {
-			err = q.Find(&batchRows).Error
+			// MySQL's filesort would lock every scanned row if the ordered
+			// query carried FOR UPDATE, and SQLite has no row locks: read a
+			// small candidate window and lock/CAS each row by primary key.
+			discover = discover.Limit(min(256, max(8, limit*4)))
+		}
+		if events {
+			err = discover.Find(&eventRows).Error
+		} else {
+			err = discover.Find(&batchRows).Error
 		}
 		if err != nil {
 			return err
 		}
-		claimedEvents := []FeedEvent{}
-		claimedBatches := []FeedBatch{}
 		n := len(eventRows)
 		if !events {
 			n = len(batchRows)
 		}
+		claimedEvents := []FeedEvent{}
+		claimedBatches := []FeedBatch{}
 		for i := 0; i < n; i++ {
-			var id uint64
-			var lease *FeedLease
+			var id, generation uint64
 			if events {
-				id = eventRows[i].ID
-				lease = &eventRows[i].FeedLease
+				id, generation = eventRows[i].ID, eventRows[i].LeaseGeneration
 			} else {
-				id = batchRows[i].ID
-				lease = &batchRows[i].FeedLease
+				id, generation = batchRows[i].ID, batchRows[i].LeaseGeneration
 			}
-			// Lock only this primary-key row. Locking the ordered discovery
-			// query makes MySQL filesort lock every scanned row, starving
-			// concurrent claimers even with SKIP LOCKED.
-			if tx.Dialector.Name() != "sqlite" {
-				var locked struct{ ID uint64 }
-				result := tx.Model(model).Select("id").Where("id = ? AND lease_generation = ? AND state IN ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?)", id, lease.LeaseGeneration, []string{"pending", "processing"}, now).Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&locked)
-				if result.Error == gorm.ErrRecordNotFound {
-					continue
-				}
+			if !postgres && tx.Dialector.Name() != "sqlite" {
+				// Losing the race is normal: Find+RowsAffected, never Take/First,
+				// so GORM does not log "record not found".
+				var locked []uint64
+				result := tx.Model(model).Where(feedCASGuard, id, generation, now).Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Limit(1).Pluck("id", &locked)
 				if result.Error != nil {
 					return result.Error
 				}
+				if len(locked) == 0 {
+					continue
+				}
 			}
-
 			token, err := newFeedToken()
 			if err != nil {
 				return err
 			}
-			expires := now.Add(ttl)
-			result := tx.Model(model).Where("id = ? AND lease_generation = ? AND state IN ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?)", id, lease.LeaseGeneration, []string{"pending", "processing"}, now).Updates(map[string]any{"state": "processing", "lease_generation": lease.LeaseGeneration + 1, "lease_token": token, "lease_expires_at": expires, "next_attempt_at": nil})
+			result := tx.Model(model).Where(feedCASGuard, id, generation, now).Updates(map[string]any{"state": "processing", "lease_generation": generation + 1, "lease_token": token, "lease_expires_at": now.Add(ttl), "next_attempt_at": nil})
 			if result.Error != nil {
 				return result.Error
 			}
 			if result.RowsAffected != 1 {
 				continue
 			}
-			// Candidate discovery intentionally excludes recipient/metadata JSON.
-			// Read the complete payload only after winning the row's CAS.
+			// Read the complete payload only after winning the row.
 			if events {
-				var full FeedEvent
-				if err := tx.First(&full, id).Error; err != nil {
+				var full []FeedEvent
+				if err := tx.Where("id = ?", id).Limit(1).Find(&full).Error; err != nil {
 					return err
 				}
-				claimedEvents = append(claimedEvents, full)
+				claimedEvents = append(claimedEvents, full...)
 			} else {
-				var full FeedBatch
-				if err := tx.First(&full, id).Error; err != nil {
+				var full []FeedBatch
+				if err := tx.Where("id = ?", id).Limit(1).Find(&full).Error; err != nil {
 					return err
 				}
-				claimedBatches = append(claimedBatches, full)
+				claimedBatches = append(claimedBatches, full...)
 			}
-
 			if len(claimedEvents)+len(claimedBatches) >= limit {
 				break
 			}

@@ -34,14 +34,17 @@ type Options struct {
 	ScanConcurrency     int
 	DeliveryConcurrency int
 	BatchSize           int
-	PollInterval        time.Duration
-	ActiveWindow        time.Duration
+	// PollInterval is the first sleep after an empty poll; consecutive empty
+	// polls double it up to IdlePollMax, and finding work resets it.
+	PollInterval time.Duration
+	IdlePollMax  time.Duration
+	ActiveWindow time.Duration
 	// Shadow builds the candidate namespace without client-visible hints.
 	Shadow bool
 }
 
 func DefaultOptions() Options {
-	return Options{SQLReserve: 2, ScanConcurrency: 2, DeliveryConcurrency: 4, BatchSize: 256, PollInterval: 100 * time.Millisecond, ActiveWindow: 10 * 24 * time.Hour}
+	return Options{SQLReserve: 2, ScanConcurrency: 2, DeliveryConcurrency: 4, BatchSize: 256, PollInterval: 100 * time.Millisecond, IdlePollMax: 2 * time.Second, ActiveWindow: 10 * 24 * time.Hour}
 }
 
 type Worker struct {
@@ -73,6 +76,10 @@ func New(conn *gorm.DB, options Options) *Worker {
 	if options.PollInterval <= 0 {
 		options.PollInterval = defaults.PollInterval
 	}
+	if options.IdlePollMax <= 0 {
+		options.IdlePollMax = defaults.IdlePollMax
+	}
+	options.IdlePollMax = max(options.IdlePollMax, options.PollInterval)
 	if options.ActiveWindow <= 0 {
 		options.ActiveWindow = defaults.ActiveWindow
 	}
@@ -110,6 +117,7 @@ func (w *Worker) startLoop(ctx context.Context, stage string, operation func(con
 	w.group.Add(1)
 	go func() {
 		defer w.group.Done()
+		idle := time.Duration(0)
 		for ctx.Err() == nil {
 			worked := false
 			var err error
@@ -130,8 +138,11 @@ func (w *Worker) startLoop(ctx context.Context, stage string, operation func(con
 			if err != nil && ctx.Err() == nil {
 				log.Warn("Feed worker operation failed (%T)", err)
 			}
-			if !worked || err != nil {
-				timer := time.NewTimer(w.Options.PollInterval)
+			if worked && err == nil {
+				idle = 0
+			} else {
+				idle = nextIdleDelay(idle, w.Options.PollInterval, w.Options.IdlePollMax)
+				timer := time.NewTimer(jitterDelay(idle))
 				select {
 				case <-ctx.Done():
 					timer.Stop()
@@ -141,6 +152,20 @@ func (w *Worker) startLoop(ctx context.Context, stage string, operation func(con
 			}
 		}
 	}()
+}
+
+// nextIdleDelay grows the sleep after consecutive empty (or failed) polls:
+// base, 2*base, 4*base ... capped at max.
+func nextIdleDelay(current, base, max time.Duration) time.Duration {
+	if current < base {
+		return min(base, max)
+	}
+	return min(current*2, max)
+}
+
+// jitterDelay spreads concurrent loops by +-20% so they do not poll in lockstep.
+func jitterDelay(d time.Duration) time.Duration {
+	return d - d/5 + time.Duration(rand.Int64N(int64(d/5*2)+1))
 }
 
 func retryDelay(attempt uint32) time.Duration {
@@ -253,11 +278,14 @@ func (w *Worker) maintain(ctx context.Context) {
 			}
 		}
 	}
-	var oldest models.FeedEvent
-	if err := conn.Where("state IN ?", []string{"pending", "processing"}).Order("created_at").First(&oldest).Error; err == nil {
-		pendingAge.Set(max(0, time.Since(oldest.CreatedAt).Seconds()))
-	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		pendingAge.Set(0)
+	// An empty queue is normal: Find, not First, so GORM logs no "record not found".
+	var oldest []models.FeedEvent
+	if err := conn.Select("id, created_at").Where("state IN ?", []string{"pending", "processing"}).Order("created_at").Limit(1).Find(&oldest).Error; err == nil {
+		if len(oldest) == 0 {
+			pendingAge.Set(0)
+		} else {
+			pendingAge.Set(max(0, time.Since(oldest[0].CreatedAt).Seconds()))
+		}
 	}
 
 	now, err := models.FeedDatabaseTime(conn)

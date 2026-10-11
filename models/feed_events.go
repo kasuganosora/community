@@ -78,12 +78,12 @@ func (metadata FeedEventMetadata) MarshalJSON() ([]byte, error) {
 }
 
 type FeedLease struct {
-	State           string     `gorm:"size:16;not null;default:pending;index;index:,composite:feed_claim,priority:1"`
+	State           string     `gorm:"size:16;not null;default:pending;index:,composite:feed_claim,priority:1"`
 	LeaseGeneration uint64     `gorm:"not null;default:0"`
 	LeaseToken      string     `gorm:"size:64;not null;default:''"`
-	LeaseExpiresAt  *time.Time `gorm:"index;index:,composite:feed_claim,priority:3"`
+	LeaseExpiresAt  *time.Time `gorm:"index:,composite:feed_claim,priority:3"`
 	Attempts        uint32     `gorm:"not null;default:0"`
-	NextAttemptAt   *time.Time `gorm:"index;index:,composite:feed_claim,priority:2"`
+	NextAttemptAt   *time.Time `gorm:"index:,composite:feed_claim,priority:2"`
 	LastErrorCode   string     `gorm:"size:64;not null;default:''"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time

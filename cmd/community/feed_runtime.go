@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
@@ -49,6 +50,20 @@ func feedRuntimeOptions() (string, string, worker.Options, error) {
 			return "", "", options, fmt.Errorf("invalid %s", entry.name)
 		}
 		*entry.target = value
+	}
+	for _, entry := range []struct {
+		name   string
+		target *time.Duration
+		min    time.Duration
+	}{
+		{"FEED_POLL_INTERVAL_MS", &options.PollInterval, 10 * time.Millisecond},
+		{"FEED_IDLE_POLL_MAX_MS", &options.IdlePollMax, 10 * time.Millisecond},
+	} {
+		value, err := strconv.Atoi(runtimeValue(entry.name, strconv.Itoa(int(entry.target.Milliseconds()))))
+		if err != nil || time.Duration(value)*time.Millisecond < entry.min || value > 60000 {
+			return "", "", options, fmt.Errorf("invalid %s", entry.name)
+		}
+		*entry.target = time.Duration(value) * time.Millisecond
 	}
 	if err := feed.ConfigureRuntime(mode); err != nil {
 		return "", "", options, err

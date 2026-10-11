@@ -433,3 +433,27 @@ func TestFixedRecipientPagesSurviveAccountDeletion(t *testing.T) {
 		})
 	}
 }
+
+func TestIdleBackoffGrowsCapsAndResets(t *testing.T) {
+	base, max := 100*time.Millisecond, 2*time.Second
+	d := time.Duration(0)
+	var got []time.Duration
+	for i := 0; i < 7; i++ {
+		d = nextIdleDelay(d, base, max)
+		got = append(got, d)
+	}
+	require.Equal(t, []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, 1600 * time.Millisecond, 2 * time.Second, 2 * time.Second}, got)
+	require.Equal(t, base, nextIdleDelay(0, base, max), "after work the next idle sleep restarts at the base interval")
+	for i := 0; i < 200; i++ {
+		j := jitterDelay(time.Second)
+		require.GreaterOrEqual(t, j, 800*time.Millisecond)
+		require.LessOrEqual(t, j, 1200*time.Millisecond)
+	}
+}
+
+func TestNewDefaultsIdlePollMax(t *testing.T) {
+	w := New(nil, Options{PollInterval: 5 * time.Second})
+	require.GreaterOrEqual(t, w.Options.IdlePollMax, 5*time.Second)
+	w = New(nil, Options{})
+	require.Equal(t, DefaultOptions().IdlePollMax, w.Options.IdlePollMax)
+}
