@@ -328,10 +328,16 @@ func matrixErrorStatus(err *MatrixError) int {
 		return http.StatusNotFound
 	case "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_MISSING_TOKEN": //nolint:goconst
 		return http.StatusUnauthorized
+	case "M_BAD_GATEWAY":
+		return http.StatusBadGateway
+	case "M_INTERNAL":
+		return http.StatusInternalServerError
 	case "M_LIMIT_EXCEEDED":
 		return http.StatusTooManyRequests
 	case "M_TOO_LARGE": //nolint:goconst
 		return http.StatusRequestEntityTooLarge
+	case "M_INCOMPATIBLE_ROOM_VERSION", "M_UNSUPPORTED_ROOM_VERSION", "M_UNABLE_TO_AUTHORISE_JOIN", "M_UNABLE_TO_GRANT_JOIN":
+		return http.StatusBadRequest
 	case "M_USER_IN_USE", "M_INVALID_USERNAME", "M_EXCLUSIVE": //nolint:goconst
 		return http.StatusBadRequest
 	default:
@@ -703,8 +709,8 @@ func handleJoinRoom(c *gin.Context) {
 
 	_ = c.ShouldBindJSON(&body)
 
-	// Collect server_name hints for federation join (can appear multiple times)
-	servers := c.QueryArray("server_name")
+	// Accept the current via parameter and legacy server_name hints.
+	servers := append(c.QueryArray("via"), c.QueryArray("server_name")...)
 
 	hs := GetHomeServer()
 

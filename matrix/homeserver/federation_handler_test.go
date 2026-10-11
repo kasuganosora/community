@@ -89,6 +89,7 @@ func TestFederationClient_DoFederationRequest_Success(t *testing.T) {
 		privateKey: priv,
 	}
 	c := NewFederationClient(hs)
+	c.fedHTTPClient = server.Client()
 
 	// The httptest server uses http:// not https://. doFederationRequest signs and sends.
 	resp, body, err := c.doFederationRequest("PUT", server.URL+"/_matrix/federation/v1/send/123", "dest.server", map[string]any{"hello": "world"})
@@ -111,6 +112,7 @@ func TestFederationClient_DoFederationRequest_GetNoBody(t *testing.T) {
 		privateKey: priv,
 	}
 	c := NewFederationClient(hs)
+	c.fedHTTPClient = server.Client()
 
 	resp, body, err := c.doFederationRequest("GET", server.URL+"/test", "dest.server", nil)
 	require.NoError(t, err)
@@ -126,6 +128,7 @@ func TestFederationClient_DoFederationRequest_BadURL(t *testing.T) {
 		privateKey: priv,
 	}
 	c := NewFederationClient(hs)
+	c.fedHTTPClient = &http.Client{Transport: &http.Transport{}}
 
 	// Invalid URL should return error
 	_, _, err := c.doFederationRequest("GET", "http://127.0.0.1:1/nonexistent", "dest.server", nil)

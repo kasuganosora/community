@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
+	"gorm.io/gorm"
 )
 
 // ===== 房间别名 =====
@@ -56,6 +58,37 @@ func (s *AliasService) GetRoomIDByAlias(alias string) (string, error) {
 	}
 
 	return roomAlias.RoomID, nil
+}
+
+// ResolveAlias resolves remote aliases at their authoritative server and retains
+// participating server hints for make_join; aliases themselves are never room IDs.
+func (s *AliasService) ResolveAlias(alias string) (*QueryDirectoryResponse, *MatrixError) {
+	roomID, err := s.GetRoomIDByAlias(alias)
+	if err == nil {
+		return &QueryDirectoryResponse{RoomID: roomID, Servers: []string{s.hs.Config.ServerName}}, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrInternal
+	}
+	server := extractServerName(alias)
+	if server == "" || server == s.hs.Config.ServerName {
+		return nil, ErrNotFound
+	}
+	resolved, err := NewFederationClient(s.hs).QueryDirectory(server, alias)
+	if err != nil {
+		var remoteErr *federationHTTPError
+		if errors.As(err, &remoteErr) {
+			switch remoteErr.Status {
+			case http.StatusNotFound:
+				return nil, ErrNotFound
+			case http.StatusForbidden:
+				return nil, ErrForbidden
+			}
+		}
+		return nil, &MatrixError{ErrCode: "M_BAD_GATEWAY", Error: "Unable to resolve room alias at its server"}
+	}
+	resolved.Servers = append(resolved.Servers, server)
+	return resolved, nil
 }
 
 // SetAlias 设置房间别名.
@@ -166,21 +199,12 @@ func handleGetRoomAlias(c *gin.Context) {
 
 	aliasService := NewAliasService(hs)
 
-	roomID, err := aliasService.GetRoomIDByAlias(roomAlias)
+	resolved, err := aliasService.ResolveAlias(roomAlias)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",          //nolint:goconst
-			"error":   "Room alias not found", //nolint:goconst
-		})
-
+		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-
-	// 返回房间 ID 和服务器列表
-	c.JSON(http.StatusOK, gin.H{
-		"room_id": roomID,
-		"servers": []string{hs.Config.ServerName},
-	})
+	c.JSON(http.StatusOK, resolved)
 }
 
 // handleSetRoomAlias 设置房间别名.

@@ -89,6 +89,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
+	github.com/matrix-org/gomatrix v0.0.0-20220926102614-ceba4d9f7530 // indirect
 	github.com/matrix-org/util v0.0.0-20221111132719-399730281e66 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

@@ -277,15 +277,8 @@ func (v *EventAuthVerifier) getServerPublicKey(serverName string) (ed25519.Publi
 	// 获取远程服务器密钥 - 使用 FederationClient
 	client := NewFederationClient(v.HS)
 
-	// 获取 .well-known 信息
-	baseURL, err := client.GetWellKnown(serverName)
-	if err != nil {
-		// 使用默认 URL
-		baseURL = "https://" + serverName
-	}
-
-	// 获取服务器密钥
-	keyResp, err := fetchServerKeys(client, baseURL, serverName)
+	// Share the federation discovery and verified TLS transport with joins.
+	keyResp, err := client.FetchServerKey(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch server keys: %w", err)
 	}

@@ -509,7 +509,7 @@ func (r *RoomService) createDefaultEventTS(tx *gorm.DB, roomID, sender string, e
 type JoinRoomRequest struct {
 	Reason            string         `json:"reason"`
 	AdditionalContent map[string]any `json:"-"` // extra fields from request body
-	Servers           []string       `json:"-"` // via=server_name query params for federation
+	Servers           []string       `json:"-"` // via and legacy server_name query parameters for federation
 }
 
 // JoinRoom 加入房间.
@@ -517,42 +517,33 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 	if req == nil {
 		req = &JoinRoomRequest{}
 	}
+	clone := *req
+	clone.Servers = append([]string(nil), req.Servers...)
+	req = &clone
 	roomID := roomIDOrAlias
-	if len(req.Servers) == 0 {
-		servers := []string{}
-		var invitation MatrixRoomMember
-		if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
-			var event MatrixEvent
-			if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
-				if domain := extractServerName(event.Sender); domain != "" && domain != r.HS.Config.ServerName {
-					servers = append(servers, domain)
-				}
-			}
-		}
-		if domain := extractServerName(roomID); domain != "" && domain != r.HS.Config.ServerName && !contains(servers, domain) {
-			servers = append(servers, domain)
-		}
-		clone := *req
-		clone.Servers = servers
-		req = &clone
-	}
-
-	// 如果是别名，解析为房间ID
 	if strings.HasPrefix(roomIDOrAlias, "#") {
-		aliasService := NewAliasService(r.HS)
-
-		resolvedRoomID, err := aliasService.GetRoomIDByAlias(roomIDOrAlias)
-		if err != nil {
-			// Alias not found locally; try federation servers if provided
-			if len(req.Servers) > 0 {
-				return r.federationJoin(userID, roomIDOrAlias, req.Servers)
-			}
-
-			return "", ErrNotFound
+		resolved, matrixErr := NewAliasService(r.HS).ResolveAlias(roomIDOrAlias)
+		if matrixErr != nil {
+			return "", matrixErr
 		}
-
-		roomID = resolvedRoomID
+		roomID = resolved.RoomID
+		req.Servers = append(resolved.Servers, req.Servers...)
 	}
+	var invitation MatrixRoomMember
+	if db.GetDB().Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipInvite).First(&invitation).Error == nil {
+		var event MatrixEvent
+		if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Order("origin_server_ts DESC").First(&event).Error == nil {
+			req.Servers = append(req.Servers, extractServerName(event.Sender))
+		}
+	}
+	req.Servers = append(req.Servers, extractServerName(roomID))
+	servers := make([]string, 0, len(req.Servers))
+	for _, server := range req.Servers {
+		if server != "" && server != r.HS.Config.ServerName && !contains(servers, server) {
+			servers = append(servers, server)
+		}
+	}
+	req.Servers = servers
 
 	// 检查房间是否存在
 	var room MatrixRoom
@@ -668,14 +659,12 @@ func (r *RoomService) JoinRoom(userID, roomIDOrAlias string, req *JoinRoomReques
 // federationJoin 通过联邦协议加入远程房间.
 func (r *RoomService) federationJoin(userID, roomID string, servers []string) (string, *MatrixError) {
 	client := NewFederationClient(r.HS)
-	failure := ErrNotFound
+	failure := &MatrixError{ErrCode: "M_UNKNOWN", Error: "Unable to contact a server for this room"}
 	for _, server := range servers {
 		response, err := client.MakeJoin(server, roomID, userID)
 		if err != nil {
 			log.Warn("federation make_join: %v", err)
-			if status, ok := err.(*federationHTTPError); ok && status.Status == 403 {
-				failure = ErrForbidden
-			}
+			failure = federationJoinError(err)
 			continue
 		}
 		version, _ := response["room_version"].(string)
@@ -684,6 +673,7 @@ func (r *RoomService) federationJoin(userID, roomID string, servers []string) (s
 		}
 		impl, err := gmsl.GetRoomVersion(gmsl.RoomVersion(version))
 		if err != nil {
+			failure = &MatrixError{ErrCode: "M_INCOMPATIBLE_ROOM_VERSION", Error: "This server does not support room version " + version}
 			continue
 		}
 		raw, err := json.Marshal(response["event"])
@@ -695,7 +685,15 @@ func (r *RoomService) federationJoin(userID, roomID string, servers []string) (s
 			continue
 		}
 		builder.RoomID, builder.SenderID, builder.Type, builder.StateKey = roomID, userID, "m.room.member", &userID
-		_ = builder.SetContent(map[string]any{"membership": "join"})
+		content, err := federationJoinContent(builder.Content)
+		if err != nil {
+			failure = federationJoinError(err)
+			continue
+		}
+		if err = builder.SetContent(content); err != nil {
+			failure = federationJoinError(err)
+			continue
+		}
 		p, err := builder.Build(time.Now(), spec.ServerName(r.HS.Config.ServerName), gmsl.KeyID(r.HS.keyID), r.HS.privateKey)
 		if err != nil {
 			log.Warn("build federation join: %v", err)
@@ -706,15 +704,18 @@ func (r *RoomService) federationJoin(userID, roomID string, servers []string) (s
 		joined, err := client.SendJoin(server, roomID, wire)
 		if err != nil {
 			log.Warn("federation send_join: %v", err)
-			if status, ok := err.(*federationHTTPError); ok && status.Status == 403 {
-				failure = ErrForbidden
-			}
+			failure = federationJoinError(err)
+			continue
+		}
+		if joined == nil {
+			failure = &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an empty room join response"}
 			continue
 		}
 		joined["_verified_room_version"] = version
 		joined["_local_join"] = json.RawMessage(p.JSON())
 		if err = r.processFederationJoinResponse(roomID, userID, joined); err != nil {
 			log.Warn("validate federation join response: %v", err)
+			failure = &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"}
 			continue
 		}
 		go r.HS.NotifyRoomEvent(roomID)
@@ -763,7 +764,7 @@ func (r *RoomService) processFederationJoinResponse(roomID, joiningUserID string
 			return fmt.Errorf("remote state authorization: %w", err)
 		}
 	}
-	join, err := decodeWirePDU(version, resp["_local_join"])
+	join, err := verifiedFederationJoin(r.HS, version, roomID, joiningUserID, resp["_local_join"], resp["event"])
 	if err != nil {
 		return err
 	}

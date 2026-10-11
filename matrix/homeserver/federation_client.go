@@ -120,30 +120,22 @@ func (c *FederationClient) QueryRemoteKeys(destServer string, deviceKeys map[str
 
 // QueryDirectory 查询远程目录.
 func (c *FederationClient) QueryDirectory(destServer, roomAlias string) (*QueryDirectoryResponse, error) {
-	// 构建 URL
 	queryURL := fmt.Sprintf("%s/_matrix/federation/v1/query/directory?room_alias=%s",
 		c.federationBaseURL(destServer), url.QueryEscape(roomAlias))
-
-	// 创建请求
-	req := c.httpClient.NewRequest("GET", queryURL)
-	req.SetHeader("Host", destServer)
-	req.SetTimeout(10)
-
-	// 添加签名
-	c.signRequest(req, destServer)
-
-	// 发送请求
-	resp, err := req.Do()
+	resp, body, err := c.doFederationRequest("GET", queryURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("failed to query directory: %w", err)
 	}
-
-	// 解析响应
+	if resp.StatusCode != http.StatusOK {
+		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(body)}
+	}
 	var result QueryDirectoryResponse
-	if err := resp.Json(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-
+	if !strings.HasPrefix(result.RoomID, "!") || len(result.RoomID) < 2 || strings.ContainsAny(result.RoomID, " \t\r\n") {
+		return nil, fmt.Errorf("directory returned an invalid room ID")
+	}
 	return &result, nil
 }
 
@@ -200,13 +192,10 @@ func (c *FederationClient) federationHTTPClient() *http.Client {
 	tlsConfig := federationTLSConfig("/complement/ca/ca.crt")
 
 	c.fedHTTPClient = &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig:     tlsConfig,
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 20,
-			IdleConnTimeout:     90 * time.Second,
-		},
+		Timeout:   30 * time.Second,
+		Transport: newFederationDiscoveryTransport(tlsConfig),
+		// A redirect must not forward a signed request to a different destination.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	return c.fedHTTPClient
@@ -324,7 +313,7 @@ func (c *FederationClient) prepareSignedFederationRequest(ctx context.Context, m
 
 // MakeJoin 向远程服务器请求加入事件模板.
 func (c *FederationClient) MakeJoin(destServer, roomID, userID string) (map[string]any, error) {
-	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=9&ver=10",
+	makeJoinURL := fmt.Sprintf("%s/_matrix/federation/v1/make_join/%s/%s?ver=1&ver=2&ver=3&ver=4&ver=5&ver=6&ver=7&ver=8&ver=9&ver=10&ver=11",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(userID))
 
 	resp, body, err := c.doFederationRequest("GET", makeJoinURL, destServer, nil) //nolint:bodyclose // closed in doFederationRequest
@@ -352,7 +341,11 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	}
 
 	event = maps.Clone(event)
-	delete(event, "event_id")
+	// Room versions 1 and 2 include the server-qualified event ID in the
+	// signed event. Later versions derive it from a reference hash.
+	if !strings.Contains(eventID, ":") {
+		delete(event, "event_id")
+	}
 	// Try v2 first (returns object), fall back to v1 (may return [200, {...}])
 	sendJoinURL := fmt.Sprintf("%s/_matrix/federation/v2/send_join/%s/%s",
 		c.federationBaseURL(destServer), url.PathEscape(roomID), url.PathEscape(eventID))
@@ -516,26 +509,13 @@ func (c *FederationClient) VerifySignature(event map[string]any, serverName stri
 
 // FetchServerKey 获取远程服务器密钥.
 func (c *FederationClient) FetchServerKey(serverName string) (*ServerKeyResponse, error) {
-	// 构建 URL
 	keyURL := c.federationBaseURL(serverName) + "/_matrix/key/v2/server"
-
-	// 创建请求
-	req := c.httpClient.NewRequest("GET", keyURL)
-	req.SetHeader("Host", serverName)
-	req.SetTimeout(10)
-
-	// 发送请求
-	resp, err := req.Do()
+	resp, raw, err := c.doFederationRequest("GET", keyURL, serverName, nil) //nolint:bodyclose // closed in doFederationRequest
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch server key: %w", err)
 	}
-
-	if !resp.StatusOk() {
-		return nil, errors.New("server key endpoint returned error")
-	}
-	raw, err := resp.GetBodyData()
-	if err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(raw)}
 	}
 	var result ServerKeyResponse
 	if err := json.Unmarshal(raw, &result); err != nil {

@@ -27,6 +27,9 @@ func newTestFederationClient() (*FederationClient, *HomeServer, ed25519.PublicKe
 	c := NewFederationClient(hs)
 	// HTTP mocks use an explicit transport, independent of deployment proxy settings.
 	c.httpClient = httpclient.NewNoProxyClient()
+	// These protocol fixtures address httptest URLs directly. Discovery is
+	// exercised separately with the production transport in federation_discovery_test.go.
+	c.fedHTTPClient = &http.Client{Transport: &http.Transport{}, Timeout: 5 * time.Second}
 	return c, hs, pub, priv
 }
 
@@ -377,6 +380,7 @@ func TestFederationClient_VerifySignature_RemoteKeyFetchFailure(t *testing.T) {
 
 func TestFederationClient_FederationHTTPClient_CachesClient(t *testing.T) {
 	c, _, _, _ := newTestFederationClient()
+	c.fedHTTPClient = nil // Exercise production construction, not the protocol fixture.
 	client1 := c.federationHTTPClient()
 	require.NotNil(t, client1)
 	client2 := c.federationHTTPClient()
@@ -385,6 +389,7 @@ func TestFederationClient_FederationHTTPClient_CachesClient(t *testing.T) {
 
 func TestFederationClient_FederationHTTPClient_NonNilTimeout(t *testing.T) {
 	c, _, _, _ := newTestFederationClient()
+	c.fedHTTPClient = nil // Exercise the production timeout.
 	client := c.federationHTTPClient()
 	require.NotNil(t, client)
 	assert.Equal(t, 30*time.Second, client.Timeout)
