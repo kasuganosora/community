@@ -154,13 +154,23 @@ func wirePDU(p gmsl.PDU) (map[string]any, error) {
 
 // persistVerifiedPDU is called only after signature and room authorization checks.
 func persistVerifiedPDU(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applyState bool) error {
-	state, err := stateBeforePDU(tx, p)
+	return persistVerifiedPDUHinted(tx, hs, p, applyState, nil)
+}
+
+// persistVerifiedPDUHinted is persistVerifiedPDU for callers that already know
+// which event IDs are absent from storage (see persistVerifiedPDUsBulk): those
+// IDs are neither re-checked for existence nor looked up as predecessors.
+func persistVerifiedPDUHinted(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applyState bool, absent map[string]bool) error {
+	state, err := stateBeforePDUHinted(tx, p, absent)
 	if err != nil && applyState {
 		return err
 	}
-	return persistVerifiedPDUAtState(tx, hs, p, applyState, state, err == nil)
+	return persistVerifiedPDUAtStateHinted(tx, hs, p, applyState, state, err == nil, absent)
 }
 func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applyState bool, stateBefore []gmsl.PDU, snapshotKnown bool) error {
+	return persistVerifiedPDUAtStateHinted(tx, hs, p, applyState, stateBefore, snapshotKnown, nil)
+}
+func persistVerifiedPDUAtStateHinted(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applyState bool, stateBefore []gmsl.PDU, snapshotKnown bool, absent map[string]bool) error {
 	event := pduToMatrixEvent(p)
 	event.StateSnapshotKnown = snapshotKnown
 	if snapshotKnown {
@@ -196,11 +206,13 @@ func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applySta
 			return err
 		}
 	}
-	var existing MatrixEvent
-	if err := tx.Where("event_id = ?", event.EventID).First(&existing).Error; err == nil {
-		return nil
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+	if !absent[event.EventID] {
+		var existing MatrixEvent
+		if err := tx.Where("event_id = ?", event.EventID).First(&existing).Error; err == nil {
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
 	}
 	if err := tx.Create(event).Error; err != nil {
 		return err
@@ -308,4 +320,80 @@ func applyAuthorizedFederationRedaction(tx *gorm.DB, hs *HomeServer, p gmsl.PDU)
 		return applyStoredRedactionTx(tx, p.RoomID().String(), pduRedactionTarget(p))
 	}
 	return nil
+}
+
+// bulkExistenceChunk bounds the IN lists of the existence/prev-event lookups.
+const bulkExistenceChunk = 500
+
+// storedEventIDs returns which of ids exist, using one query per chunk.
+func storedEventIDs(tx *gorm.DB, ids []string) (map[string]bool, error) {
+	have := make(map[string]bool, len(ids))
+	for start := 0; start < len(ids); start += bulkExistenceChunk {
+		var found []string
+		chunk := ids[start:min(start+bulkExistenceChunk, len(ids))]
+		if err := tx.Model(&MatrixEvent{}).Where("event_id IN ?", chunk).Pluck("event_id", &found).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range found {
+			have[id] = true
+		}
+	}
+	return have, nil
+}
+
+// persistVerifiedPDUsBulk persists pdus in order like repeated persistVerifiedPDU
+// calls (idempotent: stored events are skipped, order preserved), but it asks the
+// database which events and predecessors exist in chunked IN queries instead of
+// one query per event. wrap runs one persist step (a transaction for callers
+// that tolerate individual failures, or a plain call inside a caller transaction);
+// when tolerate is set a failing event is skipped instead of aborting. It returns
+// the number of newly stored events.
+func persistVerifiedPDUsBulk(conn *gorm.DB, hs *HomeServer, pdus []gmsl.PDU, applyState, tolerate bool, wrap func(func(tx *gorm.DB) error) error) (int, error) {
+	stored := 0
+	for start := 0; start < len(pdus); start += bulkExistenceChunk {
+		chunk := pdus[start:min(start+bulkExistenceChunk, len(pdus))]
+		lookup := make([]string, 0, len(chunk)*2)
+		seen := map[string]bool{}
+		add := func(id string) {
+			if !seen[id] {
+				seen[id] = true
+				lookup = append(lookup, id)
+			}
+		}
+		for _, p := range chunk {
+			add(p.EventID())
+			for _, id := range p.PrevEventIDs() {
+				add(id)
+			}
+		}
+		have, err := storedEventIDs(conn, lookup)
+		if err != nil {
+			return stored, err
+		}
+		// Everything not stored is absent until this loop inserts it; per-event
+		// lookups would answer exactly that, so they are skipped.
+		absent := make(map[string]bool, len(lookup))
+		for _, id := range lookup {
+			if !have[id] {
+				absent[id] = true
+			}
+		}
+		for _, p := range chunk {
+			id := p.EventID()
+			if have[id] {
+				continue
+			}
+			err := wrap(func(tx *gorm.DB) error { return persistVerifiedPDUHinted(tx, hs, p, applyState, absent) })
+			if err != nil {
+				if tolerate {
+					continue
+				}
+				return stored, err
+			}
+			have[id] = true
+			delete(absent, id)
+			stored++
+		}
+	}
+	return stored, nil
 }

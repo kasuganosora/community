@@ -25,6 +25,9 @@ type historicalStateReader struct {
 	records map[string]historicalStateRecord
 	before  map[string][]gmsl.PDU
 	active  map[string]bool
+	// absent lists event IDs a caller already proved are not stored; load
+	// answers them without a query.
+	absent map[string]bool
 }
 
 // stateBeforePDU returns the historical state immediately before p. A persisted
@@ -32,13 +35,17 @@ type historicalStateReader struct {
 // historical state plus its state change. Neither current room state nor wall
 // clock timestamps can substitute for a missing part of the event DAG.
 func stateBeforePDU(tx *gorm.DB, p gmsl.PDU) ([]gmsl.PDU, error) {
+	return stateBeforePDUHinted(tx, p, nil)
+}
+
+func stateBeforePDUHinted(tx *gorm.DB, p gmsl.PDU, absent map[string]bool) ([]gmsl.PDU, error) {
 	if tx == nil || p == nil {
 		return nil, errors.New("historical state requires a transaction and PDU")
 	}
 	if _, err := gmsl.GetRoomVersion(p.Version()); err != nil {
 		return nil, err
 	}
-	r := &historicalStateReader{tx: tx, roomID: p.RoomID().String(), version: p.Version(), records: map[string]historicalStateRecord{}, before: map[string][]gmsl.PDU{}, active: map[string]bool{}}
+	r := &historicalStateReader{tx: tx, roomID: p.RoomID().String(), version: p.Version(), records: map[string]historicalStateRecord{}, before: map[string][]gmsl.PDU{}, active: map[string]bool{}, absent: absent}
 	// Incoming PDUs need not yet exist in storage. Existing rows must describe
 	// the same room and verifiable event identity as the supplied PDU.
 	row, err := r.load(p.EventID())
@@ -62,6 +69,9 @@ func (r *historicalStateReader) load(id string) (historicalStateRecord, error) {
 	}
 	if len(r.records) >= historicalStateMaxEvents {
 		return historicalStateRecord{}, errors.New("historical state exceeds event limit")
+	}
+	if r.absent[id] {
+		return historicalStateRecord{}, fmt.Errorf("historical event %s: %w", id, gorm.ErrRecordNotFound)
 	}
 	var row MatrixEvent
 	if err := r.tx.Where("event_id = ?", id).First(&row).Error; err != nil {

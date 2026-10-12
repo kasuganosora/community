@@ -670,13 +670,15 @@ func (r *RoomService) persistFederationJoinContext(ctx context.Context, pj *prep
 		if err := tx.Where("room_id = ?", pj.roomID).FirstOrCreate(&room).Error; err != nil {
 			return err
 		}
+		all := make([]gmsl.PDU, 0, len(pj.events))
 		for _, p := range pj.events {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := persistVerifiedPDU(tx, r.HS, p, false); err != nil {
-				return err
-			}
+			all = append(all, p)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := persistVerifiedPDUsBulk(tx, r.HS, all, false, false, func(f func(*gorm.DB) error) error { return f(tx) }); err != nil {
+			return err
 		}
 		// Auth-chain events are historical, not current state. Apply only the snapshot.
 		for _, p := range pj.state {

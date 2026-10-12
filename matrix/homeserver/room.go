@@ -780,6 +780,7 @@ func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName,
 			progressAnchor = startEventIDs[0]
 		}
 
+		valid := make([]gmsl.PDU, 0, len(pdus))
 		for _, wire := range pdus {
 			version, err := federationRoomVersion(roomID)
 			if err != nil {
@@ -797,14 +798,16 @@ func (r *RoomService) backfillFromEvent(fedClient *FederationClient, serverName,
 				oldestTS = ts
 				oldestID = p.EventID()
 			}
-			var count int64
-			if db.GetDB().Model(&MatrixEvent{}).Where("event_id = ?", p.EventID()).Count(&count).Error != nil || count > 0 {
-				continue
-			}
-			if err = db.GetDB().Transaction(func(tx *gorm.DB) error { return persistVerifiedPDU(tx, r.HS, p, false) }); err == nil {
-				fetchedCount++
-			}
+			valid = append(valid, p)
 		}
+		// One existence query per chunk instead of one per event; each new event
+		// is still persisted in its own transaction and a failing one is skipped.
+		conn := db.GetDB()
+		stored, err := persistVerifiedPDUsBulk(conn, r.HS, valid, false, true, func(f func(*gorm.DB) error) error { return conn.Transaction(f) })
+		if err != nil {
+			return
+		}
+		fetchedCount += stored
 
 		// 没有更早的事件，或远端又把同一个起点返回来了。
 		if oldestID == "" || oldestID == progressAnchor {

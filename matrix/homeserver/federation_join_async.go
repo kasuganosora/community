@@ -260,16 +260,17 @@ func (r *RoomService) persistFederationJoinStaged(ctx context.Context, pj *prepa
 		if err := tx.Where("room_id = ?", pj.roomID).FirstOrCreate(&room).Error; err != nil {
 			return err
 		}
+		essentialPDUs := make([]gmsl.PDU, 0, len(essential))
 		for id, p := range pj.events {
-			if !essential[id] {
-				continue
+			if essential[id] {
+				essentialPDUs = append(essentialPDUs, p)
 			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := persistVerifiedPDU(tx, r.HS, p, false); err != nil {
-				return err
-			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := persistVerifiedPDUsBulk(tx, r.HS, essentialPDUs, false, false, func(f func(*gorm.DB) error) error { return f(tx) }); err != nil {
+			return err
 		}
 		for _, p := range pj.state {
 			if !essential[p.EventID()] {

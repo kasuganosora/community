@@ -739,10 +739,12 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 
 	if truncated && lastScanned != nil {
 		end = e.generatePaginationTokenForEvent(lastScanned.OriginServerTS, lastScanned.EventID)
-	} else if len(events) > 0 {
+	} else if len(events) > 0 && len(events) >= limit {
 		lastEvt := events[len(events)-1]
 		end = e.generatePaginationTokenForEvent(lastEvt.OriginServerTS, lastEvt.EventID)
 	}
+	// A short page that was not cut by the scan budget means the timeline is
+	// exhausted in this direction: end stays empty so clients stop paginating.
 
 	resp := &RoomMessagesResponse{
 		Chunk: chunk,
