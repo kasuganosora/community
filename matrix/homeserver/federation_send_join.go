@@ -20,7 +20,13 @@ type sendJoinResponse struct {
 	State          []json.RawMessage
 	AuthChain      []json.RawMessage
 	MembersOmitted bool
+	// ServersInRoom is the (untrusted, bounded) list of servers the resident
+	// server says are in the room; MSC3706 sends it with members_omitted.
+	ServersInRoom []string
 }
+
+// maxServersInRoom bounds how much of servers_in_room is kept.
+const maxServersInRoom = 2000
 
 // sendJoinBodyLimit is the largest send_join response accepted, in bytes.
 // MATRIX_FEDERATION_SEND_JOIN_MAX_MB overrides the 64 MiB default (1..200).
@@ -122,6 +128,19 @@ func decodeSendJoinResponse(r io.Reader) (*sendJoinResponse, error) {
 			if err = dec.Decode(&res.MembersOmitted); err != nil {
 				return nil, err
 			}
+		case "servers_in_room":
+			var rawServers json.RawMessage
+			if err = dec.Decode(&rawServers); err != nil {
+				return nil, err
+			}
+			// Only a hint: a malformed list is ignored instead of failing the join.
+			var servers []string
+			if json.Unmarshal(rawServers, &servers) == nil {
+				if len(servers) > maxServersInRoom {
+					servers = servers[:maxServersInRoom]
+				}
+				res.ServersInRoom = servers
+			}
 		default:
 			var skip json.RawMessage
 			if err = dec.Decode(&skip); err != nil {
@@ -186,6 +205,9 @@ func decodeRawArray(dec *json.Decoder) ([]json.RawMessage, error) {
 // callers and tests.
 func (s *sendJoinResponse) asMap() (map[string]any, error) {
 	out := map[string]any{"origin": s.Origin, "members_omitted": s.MembersOmitted}
+	if s.MembersOmitted {
+		out["servers_in_room"] = s.ServersInRoom
+	}
 	conv := func(list []json.RawMessage) ([]any, error) {
 		res := make([]any, 0, len(list))
 		for _, raw := range list {

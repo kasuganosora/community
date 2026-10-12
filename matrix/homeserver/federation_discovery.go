@@ -477,14 +477,19 @@ func (e *federationDialError) Unwrap() error {
 	return e.Attempts[len(e.Attempts)-1].Err
 }
 
+// maxFederationErrLen bounds one dial error's text in logs.
+const maxFederationErrLen = 2000
+
 func shortErr(err error) string {
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
-	msg := err.Error()
-	if len(msg) > 200 {
-		msg = msg[:200] + "..."
+	// Long enough for a full chain of wrapped causes: a short cap here once cut
+	// join errors off mid-word ("context dead...") and hid the actual reason.
+	msg := strings.Join(strings.Fields(err.Error()), " ")
+	if len(msg) > maxFederationErrLen {
+		msg = msg[:maxFederationErrLen] + "...(truncated)"
 	}
 	return msg
 }

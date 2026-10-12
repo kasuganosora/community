@@ -87,22 +87,6 @@ func TestSendJoinDecoderBoundsTinyEventCountAndEventSize(t *testing.T) {
 	require.ErrorContains(t, err, "size limit")
 }
 
-func TestJoinRejectsPartialStateBeforePersistence(t *testing.T) {
-	live := newFakeFed(t)
-	hs := joinTestEnv(t, live)
-	room := newFakeRoom(t, live, live)
-	room.serve(live)
-	original := live.sendJoin
-	live.sendJoin = func(raw json.RawMessage) any {
-		result := original(raw).(map[string]any)
-		result["members_omitted"] = true
-		return result
-	}
-	_, matrixErr := hs.Room.JoinRoomContext(context.Background(), "@alice:test.local", room.roomID, &JoinRoomRequest{Servers: []string{live.name}})
-	require.NotNil(t, matrixErr)
-	require.False(t, joined(t, room.roomID, "@alice:test.local"))
-}
-
 func TestJoinPersistenceHonorsCancelledContext(t *testing.T) {
 	hs := createTestHomeServer(t)
 	ctx, cancel := context.WithCancel(context.Background())

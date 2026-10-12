@@ -191,6 +191,57 @@ type joinRemainder struct {
 	total   int
 	written int
 	refetch bool // items are not in memory: fetch them from the remote first
+	// fullAfter: the join answer omitted members (MSC3706), so once items are
+	// written the complete state must be fetched as well.
+	fullAfter bool
+}
+
+// ---- servers known to be in a partial room ----------------------------------
+
+// partialRoomServers remembers the servers_in_room hint of a members_omitted
+// join answer until the room's state is complete. It is memory only (no schema
+// change): after a restart the join server recorded in the partial marker is
+// used, as before.
+var partialRoomServers = struct {
+	sync.Mutex
+	rooms map[string][]string
+}{rooms: map[string][]string{}}
+
+// maxPartialFanout bounds how many hinted servers an outgoing event is sent to
+// (besides the join server) while the real member list is still incomplete.
+func maxPartialFanout() int { return envInt("MATRIX_JOIN_PARTIAL_FANOUT", 8, 0, 200) }
+
+func rememberPartialRoomServers(roomID string, servers []string) {
+	partialRoomServers.Lock()
+	defer partialRoomServers.Unlock()
+	if len(servers) == 0 {
+		delete(partialRoomServers.rooms, roomID)
+		return
+	}
+	if len(partialRoomServers.rooms) >= 256 { // never grow without bound
+		for k := range partialRoomServers.rooms {
+			delete(partialRoomServers.rooms, k)
+			break
+		}
+	}
+	partialRoomServers.rooms[roomID] = servers
+}
+
+// partialRoomServerHints returns at most limit remembered servers for roomID.
+func partialRoomServerHints(roomID string, limit int) []string {
+	partialRoomServers.Lock()
+	defer partialRoomServers.Unlock()
+	list := partialRoomServers.rooms[roomID]
+	if len(list) > limit {
+		list = list[:limit]
+	}
+	return append([]string(nil), list...)
+}
+
+func forgetPartialRoomServers(roomID string) {
+	partialRoomServers.Lock()
+	delete(partialRoomServers.rooms, roomID)
+	partialRoomServers.Unlock()
 }
 
 // persistFederationJoinStaged runs stage 1. It returns the events left for
@@ -243,15 +294,18 @@ func (r *RoomService) persistFederationJoinStaged(ctx context.Context, pj *prepa
 				items = append(items, joinRemainderItem{p: p, state: stateIDs[id]})
 			}
 		}
-		if len(items) == 0 {
+		if len(items) == 0 && !pj.membersOmitted {
 			return nil
 		}
-		rem = &joinRemainder{roomID: pj.roomID, server: server, items: items, total: len(items)}
+		rem = &joinRemainder{roomID: pj.roomID, server: server, items: items, total: len(items), fullAfter: pj.membersOmitted}
 		return tx.Model(&MatrixRoom{}).Where("room_id = ?", pj.roomID).
 			Update("current_state_id", partialStateMarker(pj.join.EventID(), server)).Error
 	})
 	if err != nil {
 		return nil, err
+	}
+	if rem != nil && pj.membersOmitted {
+		rememberPartialRoomServers(pj.roomID, pj.serversInRoom)
 	}
 	return rem, nil
 }
@@ -405,6 +459,7 @@ func (r *RoomService) finishPartialJoin(roomID string) {
 		log.Warn("matrix join %s: clearing partial-state flag failed: %v", roomID, res.Error)
 		return
 	}
+	forgetPartialRoomServers(roomID)
 	queued := takePartialPDUs(roomID)
 	replayed := 0
 	for _, ev := range queued {
@@ -450,7 +505,7 @@ func takePartialPDUs(roomID string) []map[string]any {
 // returns how many events are still pending when it returns.
 func (r *RoomService) finishOrDeferJoinRemainder(ctx context.Context, rem *joinRemainder) int {
 	st := asyncJoinSettingsSource()
-	if len(rem.items) <= st.SyncThreshold {
+	if len(rem.items) <= st.SyncThreshold && !rem.fullAfter {
 		err := r.runJoinRemainder(ctx, rem, st)
 		if err == nil {
 			r.finishPartialJoin(rem.roomID)
@@ -551,10 +606,22 @@ func (r *RoomService) runJoinJob(ctx context.Context, rem *joinRemainder, st asy
 	for attempt := 0; ; attempt++ {
 		var err error
 		if rem.refetch {
-			err = r.refetchJoinRemainder(ctx, rem, st)
+			if err = r.refetchJoinRemainder(ctx, rem, st); err == nil {
+				rem.fullAfter = false // what was just fetched is the complete state
+			}
 		}
 		if err == nil {
 			err = r.runJoinRemainder(ctx, rem, st)
+		}
+		if err == nil && rem.fullAfter {
+			// Members were omitted from the join answer: fetch the complete
+			// state now. On a retry rem.refetch is still set, so it is not
+			// fetched twice.
+			rem.fullAfter, rem.refetch = false, true
+			rem.items, rem.next, rem.written = nil, 0, 0
+			if err = r.refetchJoinRemainder(ctx, rem, st); err == nil {
+				err = r.runJoinRemainder(ctx, rem, st)
+			}
 		}
 		if err == nil {
 			r.finishPartialJoin(rem.roomID)
@@ -636,8 +703,15 @@ func (r *RoomService) refetchJoinRemainder(ctx context.Context, rem *joinRemaind
 	if server != "" {
 		candidates = append([]string{server}, removeString(candidates, server)...)
 	}
-	if len(candidates) > 5 {
-		candidates = candidates[:5]
+	// servers_in_room from the join answer (memory only) come after the
+	// join server and the room's own domain.
+	for _, hinted := range partialRoomServerHints(rem.roomID, 20) {
+		if !contains(candidates, hinted) {
+			candidates = append(candidates, hinted)
+		}
+	}
+	if len(candidates) > 6 {
+		candidates = candidates[:6]
 	}
 	var lastErr error
 	for _, srv := range candidates {
@@ -680,9 +754,20 @@ func removeString(list []string, drop string) []string {
 	return out
 }
 
+// backgroundStateBodyLimit caps the background /state fetch of a partial room.
+// It equals the send_join cap unless MATRIX_JOIN_BG_FETCH_MAX_MB (1..500) is
+// set: after an omit_members join the full member list is only ever fetched
+// here, and a very large room may need more than the join response did.
+func backgroundStateBodyLimit() int64 {
+	if mb := envInt("MATRIX_JOIN_BG_FETCH_MAX_MB", 0, 0, 500); mb > 0 {
+		return int64(mb) << 20
+	}
+	return sendJoinBodyLimit()
+}
+
 func (r *RoomService) fetchPartialState(ctx context.Context, server, roomID, joinEventID, version string, join gmsl.PDU, userID string) (*preparedFederationJoin, error) {
 	client := newFederationClient(r.HS)
-	resp, err := client.GetStateContext(ctx, server, roomID, joinEventID, sendJoinBodyLimit())
+	resp, err := client.GetStateContext(ctx, server, roomID, joinEventID, backgroundStateBodyLimit())
 	if err != nil {
 		return nil, err
 	}

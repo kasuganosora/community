@@ -314,6 +314,15 @@ func (e *EventService) federateEvent(event *MatrixEvent) {
 	if _, server, partial := roomPartialState(db.GetDB(), event.RoomID); partial && server != "" && server != e.HS.Config.ServerName {
 		remoteServers[server] = true
 	}
+	// A members_omitted join also told us which servers are in the room: send
+	// to a bounded number of them until the member list is complete.
+	if _, _, partial := roomPartialState(db.GetDB(), event.RoomID); partial {
+		for _, hinted := range partialRoomServerHints(event.RoomID, maxPartialFanout()) {
+			if hinted != e.HS.Config.ServerName {
+				remoteServers[hinted] = true
+			}
+		}
+	}
 
 	if len(remoteServers) == 0 {
 		return

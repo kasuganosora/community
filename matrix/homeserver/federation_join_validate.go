@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,10 @@ type preparedFederationJoin struct {
 	// critical is the set of event IDs the join's own authorisation depends on
 	// (create, join auth chain, security policy and their ancestors).
 	critical map[string]bool
+	// membersOmitted: the remote answered with MSC3706 partial state, so the
+	// member list is incomplete and a full state fetch must follow.
+	membersOmitted bool
+	serversInRoom  []string
 }
 
 func rawIsNull(raw json.RawMessage) bool {
@@ -64,8 +69,8 @@ func rawIsNull(raw json.RawMessage) bool {
 }
 
 func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joiningUserID, version string, localJoin json.RawMessage, resp *sendJoinResponse) (*preparedFederationJoin, error) {
-	if resp == nil || resp.MembersOmitted {
-		return nil, fmt.Errorf("partial-state join responses are not supported")
+	if resp == nil {
+		return nil, fmt.Errorf("empty join response")
 	}
 	var returned any
 	if !rawIsNull(resp.Event) {
@@ -75,7 +80,36 @@ func (r *RoomService) validateFederationJoin(ctx context.Context, roomID, joinin
 	if err != nil {
 		return nil, fmt.Errorf("join event: %w", err)
 	}
-	return r.validateFederationStateSet(ctx, roomID, joiningUserID, version, join, resp, false)
+	// A members_omitted (MSC3706) answer carries the same kind of data minus
+	// most m.room.member events: everything provided is validated exactly as
+	// in a full answer (the auth chain of every non-member state event is
+	// included by the remote), and the missing members are fetched, validated
+	// and stored later by the partial-state background sync.
+	pj, err := r.validateFederationStateSet(ctx, roomID, joiningUserID, version, join, resp, false)
+	if err != nil {
+		return nil, err
+	}
+	pj.membersOmitted = resp.MembersOmitted
+	if resp.MembersOmitted {
+		pj.serversInRoom = cleanServersInRoom(resp.ServersInRoom, r.HS.Config.ServerName)
+	}
+	return pj, nil
+}
+
+// cleanServersInRoom keeps the syntactically valid, distinct server names of an
+// untrusted servers_in_room list (never ourselves).
+func cleanServersInRoom(in []string, self string) []string {
+	seen := map[string]bool{"": true, self: true}
+	out := make([]string, 0, min(len(in), maxServersInRoom))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if seen[s] || !usableServerName(s) {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // validateFederationStateSet validates the state/auth chain of a join response

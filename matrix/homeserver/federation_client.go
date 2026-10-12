@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/httpclient"
@@ -461,11 +462,110 @@ func (c *FederationClient) SendJoin(destServer, roomID string, event map[string]
 	return res.asMap()
 }
 
+// sendJoinOptions tunes one send_join exchange.
+type sendJoinOptions struct {
+	// OmitMembers asks the resident server for a partial-state answer
+	// (MSC3706: ?omit_members=true on the v2 endpoint).
+	OmitMembers bool
+	// Stats, when set, is updated live so a caller can report how far the
+	// exchange got even when it fails or times out.
+	Stats *sendJoinStats
+}
+
+// sendJoinStats records the progress of a send_join exchange. Fields are safe
+// to read while the request is still running.
+type sendJoinStats struct {
+	started   atomic.Int64 // unix nanos of the (last) request start
+	headersNS atomic.Int64 // nanos from start until the response headers arrived (0: none yet)
+	bytes     atomic.Int64 // response body bytes received so far, over all requests
+	status    atomic.Int32 // HTTP status of the latest response (0: none yet)
+	addr      atomic.Value // string: host the answer came from, once known
+	version   atomic.Value // string: "v2" or "v1" of the latest request
+	omitSent  atomic.Bool  // the latest request carried omit_members=true
+}
+
+func (st *sendJoinStats) begin(version string, omit bool) {
+	if st == nil {
+		return
+	}
+	st.started.Store(time.Now().UnixNano())
+	st.headersNS.Store(0)
+	st.status.Store(0)
+	st.version.Store(version)
+	st.omitSent.Store(omit)
+}
+
+func (st *sendJoinStats) gotHeaders(resp *http.Response) {
+	if st == nil {
+		return
+	}
+	st.headersNS.Store(time.Now().UnixNano() - st.started.Load())
+	st.status.Store(int32(resp.StatusCode))
+	if resp.Request != nil && resp.Request.URL != nil {
+		st.addr.Store(resp.Request.URL.Host)
+	}
+}
+
+// phase names where the exchange currently is.
+func (st *sendJoinStats) phase() string {
+	if st == nil || st.status.Load() == 0 {
+		return "send_join(waiting for response headers)"
+	}
+	return "send_join(reading response body)"
+}
+
+func (st *sendJoinStats) String() string {
+	if st == nil {
+		return ""
+	}
+	v, _ := st.version.Load().(string)
+	addr, _ := st.addr.Load().(string)
+	if addr == "" {
+		addr = "-"
+	}
+	hdr := "none"
+	if h := st.headersNS.Load(); h > 0 {
+		hdr = (time.Duration(h)).Round(time.Millisecond).String()
+	}
+	return fmt.Sprintf("api=%s omit_members=%t status=%d headers_after=%s bytes=%d addr=%s", v, st.omitSent.Load(), st.status.Load(), hdr, st.bytes.Load(), addr)
+}
+
+// countingReader adds every byte read to st.bytes.
+type countingReader struct {
+	r  io.Reader
+	st *sendJoinStats
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 && c.st != nil {
+		c.st.bytes.Add(int64(n))
+	}
+	return n, err
+}
+
 // SendJoinContext sends the signed join event and decodes the (potentially
 // huge) state response incrementally: only one event's bytes are buffered
 // beyond the retained raw events, and the whole body is capped at maxBytes
 // (<=0: sendJoinBodyLimit()).
 func (c *FederationClient) SendJoinContext(ctx context.Context, destServer, roomID string, event map[string]any, maxBytes int64) (*sendJoinResponse, error) {
+	return c.SendJoinWithOptions(ctx, destServer, roomID, event, maxBytes, sendJoinOptions{})
+}
+
+// omitMembersUnsupportedStatus reports whether a v2 answer to a request that
+// carried omit_members rejects that request itself (as opposed to the join):
+// the remote validates or does not know the parameter. Every such answer is
+// retried once without it. 404 (room unknown / old server) keeps its own path.
+func omitMembersUnsupportedStatus(status int) bool {
+	return status == http.StatusBadRequest || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented || status == http.StatusUnprocessableEntity
+}
+
+// SendJoinWithOptions is SendJoinContext with MSC3706 partial-state support.
+// With opts.OmitMembers the v2 endpoint is asked for omit_members=true; a
+// remote that ignores it simply answers in full (members_omitted false), one
+// that rejects it gets the same request again without it, and v1 (which has no
+// such parameter) never carries it.
+func (c *FederationClient) SendJoinWithOptions(ctx context.Context, destServer, roomID string, event map[string]any, maxBytes int64, opts sendJoinOptions) (*sendJoinResponse, error) {
 	eventID, _ := event["event_id"].(string)
 	if eventID == "" {
 		return nil, errors.New("send_join requires a computed event reference ID")
@@ -480,14 +580,22 @@ func (c *FederationClient) SendJoinContext(ctx context.Context, destServer, room
 	if !strings.Contains(eventID, ":") {
 		delete(event, "event_id")
 	}
-	do := func(version string) (*sendJoinResponse, int, string, error) {
+	do := func(version string, omit bool) (*sendJoinResponse, int, string, error) {
 		sendJoinURL := fmt.Sprintf("%s/_matrix/federation/%s/send_join/%s/%s",
 			c.federationBaseURL(destServer), version, url.PathEscape(roomID), url.PathEscape(eventID))
+		if omit && version == "v2" {
+			sendJoinURL += "?omit_members=true"
+		} else {
+			omit = false
+		}
+		opts.Stats.begin(version, omit)
 		var result *sendJoinResponse
 		status := 0
 		var errBody string
 		_, err := c.doFederationStream(ctx, "PUT", sendJoinURL, destServer, event, maxBytes, func(resp *http.Response, r io.Reader) error {
 			status = resp.StatusCode
+			opts.Stats.gotHeaders(resp)
+			r = &countingReader{r: r, st: opts.Stats}
 			if resp.StatusCode != http.StatusOK {
 				b, err := io.ReadAll(io.LimitReader(r, 64<<10))
 				errBody = string(b)
@@ -500,9 +608,12 @@ func (c *FederationClient) SendJoinContext(ctx context.Context, destServer, room
 		return result, status, errBody, err
 	}
 	// Try v2 first (returns object), fall back to v1 (may return [200, {...}])
-	result, status, errBody, err := do("v2")
+	result, status, errBody, err := do("v2", opts.OmitMembers)
+	if opts.OmitMembers && err == nil && omitMembersUnsupportedStatus(status) {
+		result, status, errBody, err = do("v2", false)
+	}
 	if err != nil && ctx.Err() == nil && !errors.Is(err, errFederationResponseTooLarge) || status == http.StatusNotFound {
-		result, status, errBody, err = do("v1")
+		result, status, errBody, err = do("v1", false)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("send_join request failed: %w", err)

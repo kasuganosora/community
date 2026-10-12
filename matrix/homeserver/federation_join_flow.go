@@ -35,7 +35,17 @@ import (
 //     JoinRoom waits for every attempt goroutine before it returns.
 //   - At most MATRIX_JOIN_MAX_CONCURRENT joins validate/hold state at once.
 //   - send_join responses are capped (MATRIX_FEDERATION_SEND_JOIN_MAX_MB).
+//   - send_join asks for a partial-state answer (MSC3706 omit_members=true,
+//     MATRIX_JOIN_OMIT_MEMBERS=0 disables it): a resident server that supports
+//     it leaves out most member events, which keeps the answer small enough
+//     for the budget in huge rooms. The join then completes with the room
+//     flagged partial and the members are fetched in the background (see
+//     federation_join_async.go). A server that ignores the parameter answers
+//     in full as before; one that rejects it is asked again without it; an
+//     omit_members answer that fails validation is replaced by a full one when
+//     the budget allows.
 type joinSettings struct {
+	OmitMembers     bool
 	Total           time.Duration
 	MakeJoinTimeout time.Duration
 	SendJoinTimeout time.Duration
@@ -60,6 +70,16 @@ func envDuration(name string, def time.Duration) time.Duration {
 	return def
 }
 
+func envBool(name string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	return def
+}
+
 func envInt(name string, def, min, max int) int {
 	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= min && n <= max {
 		return n
@@ -69,6 +89,7 @@ func envInt(name string, def, min, max int) int {
 
 func loadJoinSettings() joinSettings {
 	return joinSettings{
+		OmitMembers:     envBool("MATRIX_JOIN_OMIT_MEMBERS", true),
 		Total:           envDuration("MATRIX_JOIN_TOTAL_TIMEOUT", 25*time.Second),
 		MakeJoinTimeout: envDuration("MATRIX_JOIN_MAKE_TIMEOUT", 10*time.Second),
 		SendJoinTimeout: envDuration("MATRIX_JOIN_SEND_TIMEOUT", 20*time.Second),
@@ -237,6 +258,37 @@ type joinAttemptOutcome struct {
 	prepared *preparedFederationJoin
 	failure  *MatrixError
 	err      error
+	diag     joinAttemptDiag
+}
+
+// joinAttemptDiag says how far one candidate got, for the join log.
+type joinAttemptDiag struct {
+	phase   string // make_join, send_join(...), decode, validate, ...
+	started time.Time
+	// sendJoin is set once the attempt reached send_join.
+	sendJoin  *sendJoinStats
+	sendStart time.Time
+	// omitted: the answer used was a members_omitted one.
+	omitted bool
+	note    string
+}
+
+func (d joinAttemptDiag) String() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "phase=%s elapsed=%dms", d.phase, time.Since(d.started).Milliseconds())
+	if d.sendJoin != nil {
+		fmt.Fprintf(&b, " send_join_elapsed=%dms %s", time.Since(d.sendStart).Milliseconds(), d.sendJoin)
+	}
+	if d.note != "" {
+		b.WriteString(" " + d.note)
+	}
+	return b.String()
+}
+
+// logJoinFailure writes one complete line per failed candidate: class, phase,
+// timing, send_join byte counts and the untruncated error chain.
+func logJoinFailure(roomID string, f joinAttemptOutcome) {
+	log.Warn("matrix join %s via %s failed: class=%s %s error=%q", roomID, f.server, classifyFederationError(f.err), f.diag, fmt.Sprint(f.err))
 }
 
 // federationJoin 通过联邦协议加入远程房间.
@@ -307,25 +359,41 @@ loop:
 	// Nothing may outlive this call: cancel the losers and wait for them.
 	cancelAttempts()
 	wg.Wait()
+	// Attempts that were cut off by the deadline still report why; they must
+	// show up in the log instead of vanishing with the channel.
+	for drained := false; !drained; {
+		select {
+		case out := <-results:
+			if out.prepared != nil {
+				out.prepared, out.err = nil, errors.New("join response was ready only after the join deadline")
+			}
+			failures = append(failures, out)
+		default:
+			drained = true
+		}
+	}
 
 	if winner != nil && ctx.Err() == nil {
+		storeStart := time.Now()
 		rem, err := r.persistFederationJoinStaged(ctx, winner.prepared, winner.server)
 		if err != nil {
-			log.Warn("matrix join %s via %s: storing validated join failed: %v", roomID, winner.server, err)
+			log.Warn("matrix join %s via %s failed: class=%s phase=store elapsed=%dms (%s) error=%q", roomID, winner.server, classifyFederationError(err), time.Since(storeStart).Milliseconds(), winner.diag, fmt.Sprint(err))
 			if ctx.Err() != nil {
 				return "", joinContextError(ctx, next, s.Total)
 			}
 			return "", &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"}
 		}
 		dropped := winner.prepared.dropped
+		omitted := winner.prepared.membersOmitted
+		log.Debug("matrix join %s via %s: stage-1 stored in %dms", roomID, winner.server, time.Since(storeStart).Milliseconds())
 		// Only the remainder (if any) may outlive this call; release the rest.
 		winner.prepared.events, winner.prepared.state, winner.prepared.critical = nil, nil, nil
 		deferred := 0
 		if rem != nil {
 			deferred = r.finishOrDeferJoinRemainder(ctx, rem)
 		}
-		log.Info("matrix join %s via %s ok in %s (dropped %d unverifiable events, %d state events completing in background, tried %d of %d candidates)",
-			roomID, winner.server, time.Since(started).Round(time.Millisecond), dropped, deferred, next, len(candidates))
+		log.Info("matrix join %s via %s ok in %s (members_omitted=%t, dropped %d unverifiable events, %d state events completing in background, tried %d of %d candidates; %s)",
+			roomID, winner.server, time.Since(started).Round(time.Millisecond), omitted, dropped, deferred, next, len(candidates), winner.diag)
 		go r.HS.NotifyRoomEvent(roomID)
 		return roomID, nil
 	}
@@ -333,7 +401,7 @@ loop:
 		expired = true
 	}
 	for _, f := range failures {
-		log.Warn("matrix join %s via %s failed (class=%s): %v", roomID, f.server, classifyFederationError(f.err), f.err)
+		logJoinFailure(roomID, f)
 	}
 	if expired || ctx.Err() != nil {
 		log.Warn("matrix join %s: gave up after %s (%d candidates, %d attempted, %d failed)", roomID, time.Since(started).Round(time.Millisecond), len(candidates), next, len(failures))
@@ -385,6 +453,9 @@ func bestJoinFailure(failures []joinAttemptOutcome) *MatrixError {
 }
 
 func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings, userID, roomID, server string, sendSlot chan struct{}) joinAttemptOutcome {
+	diag := joinAttemptDiag{phase: "make_join", started: time.Now()}
+	// done fills the outcome with the diagnostics collected so far.
+	done := func(o joinAttemptOutcome) joinAttemptOutcome { o.diag = diag; return o }
 	fail := func(err error, m *MatrixError) joinAttemptOutcome {
 		if ctx.Err() == nil && isDeadHostError(err) {
 			deadFederationHosts.mark(server, s.DeadHostTTL, err.Error())
@@ -392,7 +463,7 @@ func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings,
 		if m == nil {
 			m = federationJoinError(err)
 		}
-		return joinAttemptOutcome{server: server, err: err, failure: m}
+		return done(joinAttemptOutcome{server: server, err: err, failure: m})
 	}
 	client := newFederationClient(r.HS)
 
@@ -402,6 +473,8 @@ func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings,
 	if err != nil {
 		return fail(fmt.Errorf("make_join: %w", err), nil)
 	}
+	log.Debug("matrix join %s via %s: make_join ok after %dms", roomID, server, time.Since(diag.started).Milliseconds())
+	diag.phase = "build_join_event"
 	deadFederationHosts.clear(server)
 	version, _ := response["room_version"].(string)
 	if version == "" {
@@ -435,10 +508,11 @@ func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings,
 	wire["event_id"] = p.EventID()
 
 	// One send_join at a time (see policy above).
+	diag.phase = "wait_send_slot"
 	select {
 	case sendSlot <- struct{}{}:
 	case <-ctx.Done():
-		return joinAttemptOutcome{server: server, err: ctx.Err()}
+		return done(joinAttemptOutcome{server: server, err: ctx.Err()})
 	}
 	// The slot stays held on success: a queued attempt must not send a second
 	// join while the winner is being handed back and the others cancelled.
@@ -449,24 +523,73 @@ func (r *RoomService) attemptFederationJoin(ctx context.Context, s joinSettings,
 		}
 	}()
 
-	sjCtx, cancelSJ := context.WithTimeout(ctx, s.SendJoinTimeout)
-	joined, err := client.SendJoinContext(sjCtx, server, roomID, wire, s.MaxBodyBytes)
-	cancelSJ()
-	if err != nil {
-		var tooMany *sendJoinTooManyEventsError
-		if errors.As(err, &tooMany) {
-			log.Warn("matrix join %s via %s refused: %v", roomID, server, err)
-			return fail(err, joinStateTooLargeError(tooMany.limit))
+	// sendJoin runs one send_join exchange (partial-state or full) and
+	// records how it went.
+	sendJoin := func(omit bool) (*sendJoinResponse, *joinAttemptOutcome) {
+		stats := &sendJoinStats{}
+		diag.sendJoin, diag.sendStart, diag.phase = stats, time.Now(), "send_join"
+		remaining := time.Duration(0)
+		if dl, ok := ctx.Deadline(); ok {
+			remaining = time.Until(dl).Round(time.Millisecond)
 		}
-		if errors.Is(err, errFederationResponseTooLarge) {
-			return fail(err, &MatrixError{ErrCode: "M_TOO_LARGE", Error: "The room's join state is larger than this server accepts"})
+		log.Info("matrix join %s via %s: send_join start omit_members=%t (timeout %s, join budget left %s, body cap %d MiB)",
+			roomID, server, omit, s.SendJoinTimeout, remaining, s.MaxBodyBytes>>20)
+		sjCtx, cancelSJ := context.WithTimeout(ctx, s.SendJoinTimeout)
+		joined, err := client.SendJoinWithOptions(sjCtx, server, roomID, wire, s.MaxBodyBytes, sendJoinOptions{OmitMembers: omit, Stats: stats})
+		cancelSJ()
+		if err != nil {
+			diag.phase = stats.phase()
+			var syntax *json.SyntaxError
+			var typeErr *json.UnmarshalTypeError
+			if errors.As(err, &syntax) || errors.As(err, &typeErr) {
+				diag.phase = "decode"
+			}
+			var tooMany *sendJoinTooManyEventsError
+			if errors.As(err, &tooMany) {
+				log.Warn("matrix join %s via %s refused: %v", roomID, server, err)
+				o := fail(err, joinStateTooLargeError(tooMany.limit))
+				return nil, &o
+			}
+			if errors.Is(err, errFederationResponseTooLarge) {
+				o := fail(err, &MatrixError{ErrCode: "M_TOO_LARGE", Error: "The room's join state is larger than this server accepts"})
+				return nil, &o
+			}
+			o := fail(fmt.Errorf("send_join: %w", err), nil)
+			return nil, &o
 		}
-		return fail(fmt.Errorf("send_join: %w", err), nil)
+		diag.phase = "validate"
+		diag.omitted = joined.MembersOmitted
+		log.Info("matrix join %s via %s: send_join answered in %dms: %d state + %d auth chain events, %d bytes, members_omitted=%t, servers_in_room=%d (%s)",
+			roomID, server, time.Since(diag.sendStart).Milliseconds(), len(joined.State), len(joined.AuthChain), stats.bytes.Load(), joined.MembersOmitted, len(joined.ServersInRoom), stats)
+		return joined, nil
 	}
+
+	omit := s.OmitMembers
+	joined, o := sendJoin(omit)
+	if o != nil {
+		return *o
+	}
+	validateStart := time.Now()
 	prepared, err := r.validateFederationJoin(withKeyNotaries(ctx, server), roomID, userID, version, p.JSON(), joined)
+	if err != nil && joined.MembersOmitted && ctx.Err() == nil {
+		// Our partial-state expectations may be stricter than this remote's
+		// answer (e.g. a membership our own join needs was omitted). The same
+		// signed join event can be sent again; ask for the full state.
+		log.Warn("matrix join %s via %s: members_omitted answer failed validation after %dms (%v); retrying send_join without omit_members",
+			roomID, server, time.Since(validateStart).Milliseconds(), err)
+		joined = nil
+		if joined, o = sendJoin(false); o != nil {
+			return *o
+		}
+		validateStart = time.Now()
+		prepared, err = r.validateFederationJoin(withKeyNotaries(ctx, server), roomID, userID, version, p.JSON(), joined)
+	}
 	if err != nil {
+		diag.phase = "validate"
 		return fail(fmt.Errorf("validate join response: %w", err), &MatrixError{ErrCode: "M_UNKNOWN", Error: "Remote server returned an invalid room join response"})
 	}
+	log.Debug("matrix join %s via %s: join response validated in %dms (%d events)", roomID, server, time.Since(validateStart).Milliseconds(), len(prepared.events))
 	succeeded = true
-	return joinAttemptOutcome{server: server, prepared: prepared}
+	diag.phase = "store"
+	return done(joinAttemptOutcome{server: server, prepared: prepared})
 }

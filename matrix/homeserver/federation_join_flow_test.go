@@ -39,6 +39,10 @@ type fakeFed struct {
 	template     func(user string) any           // make_join event template
 	sendJoin     func(event json.RawMessage) any // send_join response body
 	stateResp    func() any                      // federation /state response body
+	// sendJoinQ, when set, answers send_join with its own status and body and
+	// sees the raw query string (omit_members).
+	sendJoinQ func(query string, event json.RawMessage, w http.ResponseWriter, r *http.Request) (status int, body any)
+	queries   []string
 }
 
 func newFakeFed(t *testing.T) *fakeFed {
@@ -103,6 +107,18 @@ func (f *fakeFed) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(path, "/federation/v2/send_join/"):
 		f.hit("send_join")
 		body, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.queries = append(f.queries, r.URL.RawQuery)
+		f.mu.Unlock()
+		if f.sendJoinQ != nil {
+			status, resp := f.sendJoinQ(r.URL.RawQuery, body, w, r)
+			if status == 0 {
+				return
+			}
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(f.sendJoin(body))
 	case strings.Contains(path, "/federation/v1/state/") && f.stateResp != nil:
 		f.hit("state")
