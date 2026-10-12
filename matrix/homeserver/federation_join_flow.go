@@ -132,6 +132,9 @@ func orderJoinServers(self, roomID string, via, directory []string, inviter stri
 	seen := map[string]bool{"": true, self: true}
 	add := func(s string) {
 		s = strings.TrimSpace(s)
+		if s != "" && !usableServerName(s) {
+			return
+		}
 		if !seen[s] {
 			seen[s] = true
 			out = append(out, s)
@@ -141,14 +144,29 @@ func orderJoinServers(self, roomID string, via, directory []string, inviter stri
 	for _, s := range via {
 		add(s)
 	}
-	for _, s := range directory {
+	for i, s := range directory {
+		if i >= maxDirectoryCandidates {
+			break
+		}
 		add(s)
 	}
 	add(inviter)
 	return out
 }
 
+// maxDirectoryCandidates bounds how much of a (remote, untrusted) directory
+// answer is considered; the attempt cap is far smaller anyway.
+const maxDirectoryCandidates = 20
+
+// usableServerName reports whether s is a syntactically valid Matrix server
+// name. Remote directory answers and client hints are untrusted input.
+func usableServerName(s string) bool {
+	_, _, ok := spec.ParseAndValidateServerName(spec.ServerName(strings.TrimSpace(s)))
+	return ok
+}
+
 func selectJoinCandidates(servers []string, s joinSettings) []string {
+	servers = dropDelegationTargets(servers)
 	var live []string
 	for _, server := range servers {
 		if _, dead := deadFederationHosts.active(server); !dead {
@@ -164,6 +182,32 @@ func selectJoinCandidates(servers []string, s joinSettings) []string {
 		live = live[:s.MaxAttempts]
 	}
 	return live
+}
+
+// dropDelegationTargets removes candidates that are only the delegation target
+// of another candidate: matrix.org delegates to matrix-federation.matrix.org:443,
+// and a caller that passes that host as a via/server_name would otherwise make
+// us dial matrix-federation.matrix.org:8448, which does not answer. The
+// delegating server name (already resolved by the alias lookup or an earlier
+// attempt) reaches the very same machine the right way.
+func dropDelegationTargets(servers []string) []string {
+	d := peekSharedDiscovery()
+	if d == nil || len(servers) < 2 {
+		return servers
+	}
+	present := make(map[string]bool, len(servers))
+	for _, s := range servers {
+		present[strings.ToLower(s)] = true
+	}
+	out := make([]string, 0, len(servers))
+	for _, s := range servers {
+		if name, ok := d.delegatedFrom(s); ok && present[strings.ToLower(string(name))] {
+			log.Info("matrix join: not trying %s separately, it is the delegation target of %s", s, name)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // isDeadHostError reports failures that say the host itself is unusable right
@@ -289,7 +333,7 @@ loop:
 		expired = true
 	}
 	for _, f := range failures {
-		log.Warn("matrix join %s via %s failed: %v", roomID, f.server, f.err)
+		log.Warn("matrix join %s via %s failed (class=%s): %v", roomID, f.server, classifyFederationError(f.err), f.err)
 	}
 	if expired || ctx.Err() != nil {
 		log.Warn("matrix join %s: gave up after %s (%d candidates, %d attempted, %d failed)", roomID, time.Since(started).Round(time.Millisecond), len(candidates), next, len(failures))
@@ -320,10 +364,22 @@ func joinFailureRank(e *MatrixError) int {
 func bestJoinFailure(failures []joinAttemptOutcome) *MatrixError {
 	best := &MatrixError{ErrCode: "M_UNKNOWN", Error: "Unable to contact a server for this room"}
 	bestRank := 0
+	unreachable, notActive := 0, 0
 	for _, f := range failures {
+		if isDeadHostError(f.err) {
+			unreachable++
+		}
+		if f.failure != nil && f.failure.ErrCode == "M_NOT_FOUND" {
+			notActive++
+		}
 		if f.failure != nil && joinFailureRank(f.failure) > bestRank {
 			best, bestRank = f.failure, joinFailureRank(f.failure)
 		}
+	}
+	if best.ErrCode == "M_NOT_FOUND" && unreachable > 0 {
+		// A 404 from one server that is not (or no longer) in the room proves
+		// nothing about the room when the others could not even be asked.
+		return &MatrixError{ErrCode: "M_NOT_FOUND", Error: fmt.Sprintf("No reachable server could join this room: %d server(s) did not answer and %d reported it is not an active room on their server", unreachable, notActive)}
 	}
 	return best
 }

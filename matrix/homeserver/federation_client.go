@@ -49,8 +49,10 @@ func NewFederationClient(hs *HomeServer) *FederationClient {
 	}
 }
 
-// federationBaseURL resolves the federation base URL for a server name.
-// Matrix spec: default federation port is 8448, unless .well-known or SRV overrides it.
+// federationBaseURL builds the placeholder base URL for a server name. It is
+// NOT the dial address: the request's Host header carries the logical server
+// name and federationDiscoveryTransport replaces the destination with the
+// result of .well-known / SRV discovery (8448 only as the final fallback).
 func (c *FederationClient) federationBaseURL(serverName string) string {
 	// If serverName already contains a port, use it directly
 	if strings.Contains(serverName, ":") {
@@ -284,6 +286,12 @@ func (c *FederationClient) doFederationStream(ctx context.Context, method, targe
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		// net/http decorates the error with the request URL, whose host:8448 is
+		// only the logical placeholder; the dial error says what was really tried.
+		var dial *federationDialError
+		if errors.As(err, &dial) {
+			err = dial
+		}
 		return nil, &federationTransportError{err: err}
 	}
 

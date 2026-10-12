@@ -97,7 +97,19 @@ func (s *AliasService) ResolveAliasContext(ctx context.Context, alias string) (*
 		}
 		return nil, &MatrixError{ErrCode: "M_BAD_GATEWAY", Error: "Unable to resolve room alias at its server"}
 	}
-	resolved.Servers = append(resolved.Servers, server)
+	// The alias's own server just answered the directory query (through
+	// discovery), so it is a proven-reachable candidate: try it before the
+	// remote-supplied list, which can be long and mostly stale.
+	deadFederationHosts.clear(server)
+	servers := []string{server}
+	seen := map[string]bool{server: true}
+	for _, s := range resolved.Servers {
+		if !seen[s] && usableServerName(s) {
+			seen[s] = true
+			servers = append(servers, s)
+		}
+	}
+	resolved.Servers = servers
 	return resolved, nil
 }
 
