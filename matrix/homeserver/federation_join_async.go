@@ -319,6 +319,7 @@ var joinRemainderBatchHook func() error
 // runJoinRemainder stores the remaining events in bounded batches, resuming at
 // rem.next. Each batch is its own transaction and is idempotent.
 func (r *RoomService) runJoinRemainder(ctx context.Context, rem *joinRemainder, st asyncJoinSettings) error {
+	ctx = withCPUThrottle(ctx)
 	started := time.Now()
 	lastLog := time.Now()
 	for rem.next < len(rem.items) {
@@ -355,6 +356,7 @@ func (r *RoomService) runJoinRemainder(ctx context.Context, rem *joinRemainder, 
 		}
 		rem.written += len(batch)
 		rem.next = end
+		throttleTick(ctx)
 		if time.Since(lastLog) >= 10*time.Second {
 			lastLog = time.Now()
 			log.Info("matrix join %s: stored %d/%d remaining state events", rem.roomID, rem.written, rem.total)
@@ -529,6 +531,28 @@ type joinJobs struct {
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
+	// per-room cancel and completion, so leaving a room can stop its state sync
+	cancels map[string]context.CancelFunc
+	done    map[string]chan struct{}
+}
+
+// cancelRoom stops the background state sync of one room and waits (at most
+// wait) for it to finish. It is how leaving a partial-state room cancels its job.
+func (j *joinJobs) cancelRoom(roomID string, wait time.Duration) {
+	j.mu.Lock()
+	cancel, done := j.cancels[roomID], j.done[roomID]
+	j.mu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(wait):
+			log.Warn("matrix join %s: state sync did not stop within %s of the cancel", roomID, wait)
+		}
+	}
 }
 
 var asyncJoins = &joinJobs{running: map[string]bool{}}
@@ -543,6 +567,7 @@ func (j *joinJobs) shutdown() {
 	j.wg.Wait()
 	j.mu.Lock()
 	j.ctx, j.cancel, j.running, j.held, j.sem, j.semCap = nil, nil, map[string]bool{}, 0, nil, 0
+	j.cancels, j.done = nil, nil
 	j.mu.Unlock()
 }
 
@@ -577,14 +602,24 @@ func (r *RoomService) scheduleJoinRemainder(rem *joinRemainder) {
 		j.sem, j.semCap = make(chan struct{}, st.Workers), st.Workers
 	}
 	j.running[rem.roomID] = true
-	ctx, sem := j.ctx, j.sem
+	roomCtx, roomCancel := context.WithCancel(j.ctx)
+	if j.cancels == nil {
+		j.cancels, j.done = map[string]context.CancelFunc{}, map[string]chan struct{}{}
+	}
+	doneCh := make(chan struct{})
+	j.cancels[rem.roomID], j.done[rem.roomID] = roomCancel, doneCh
+	ctx, sem := roomCtx, j.sem
 	j.wg.Add(1)
 	j.mu.Unlock()
 	go func() {
 		defer j.wg.Done()
+		defer close(doneCh)
+		defer roomCancel()
 		defer func() {
 			j.mu.Lock()
 			delete(j.running, rem.roomID)
+			delete(j.cancels, rem.roomID)
+			delete(j.done, rem.roomID)
 			if holding {
 				j.held--
 			}

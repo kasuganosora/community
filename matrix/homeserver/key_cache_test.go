@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"testing"
@@ -149,6 +150,7 @@ func TestKeyCache_PersistenceRoundTrip(t *testing.T) {
 
 	pub, _, _ := ed25519.GenerateKey(nil)
 	kc.Set("persist.test", "ed25519:1", pub, time.Now().Add(24*time.Hour))
+	require.NoError(t, kc.WaitSaved(context.Background())) // persistence is asynchronous
 
 	// Create a fresh cache (simulates restart) - key should load from DB
 	kc2 := NewKeyCache()

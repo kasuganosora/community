@@ -826,41 +826,7 @@ type LeaveRoomRequest struct {
 
 // LeaveRoom 离开房间.
 func (r *RoomService) LeaveRoom(userID, roomID string, req *LeaveRoomRequest) *MatrixError {
-	// 检查用户是否在房间中
-	var member MatrixRoomMember
-
-	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
-	if err != nil {
-		return ErrNotFound
-	}
-
-	if member.Membership == MembershipLeave || member.Membership == MembershipBan {
-		return nil // 已经离开
-	}
-
-	// 创建成员事件
-	event := &MatrixEvent{
-		EventID:   "$" + uuid.New().String(),
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    userID,
-		StateKey:  new(userID),
-		Content: map[string]any{
-			"membership": "leave", //nolint:goconst
-		},
-		Depth:          r.getNextDepth(db.GetDB(), roomID),
-		OriginServerTS: time.Now().UnixMilli(),
-		SenderDomain:   r.HS.Config.ServerName,
-	}
-
-	if err := r.persistMembershipDeparture(event); err != nil {
-		return ErrInternal
-	}
-	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
-		go r.HS.Event.federateEvent(event)
-	}
-	return nil
+	return r.LeaveRoomContext(context.Background(), userID, roomID, req)
 }
 
 // ===== 邀请 =====
@@ -1060,9 +1026,35 @@ func (r *RoomService) GetRoomStateAll(roomID string) ([]*ClientEvent, *MatrixErr
 	return r.GetRoomStateAllContext(context.Background(), roomID)
 }
 func (r *RoomService) GetRoomStateAllContext(ctx context.Context, roomID string) ([]*ClientEvent, *MatrixError) {
+	return r.getRoomStateContext(ctx, roomID, nil)
+}
+
+// GetRoomStateLazyContext returns the room state with m.room.member events
+// limited to keepMembers (lazy_load_members).
+func (r *RoomService) GetRoomStateLazyContext(ctx context.Context, roomID string, keepMembers map[string]bool) ([]*ClientEvent, *MatrixError) {
+	if keepMembers == nil {
+		keepMembers = map[string]bool{}
+	}
+	return r.getRoomStateContext(ctx, roomID, keepMembers)
+}
+
+func (r *RoomService) getRoomStateContext(ctx context.Context, roomID string, keepMembers map[string]bool) ([]*ClientEvent, *MatrixError) {
 	conn := db.GetDB().WithContext(ctx)
 	var states []MatrixRoomState
-	if err := conn.Where("room_id = ?", roomID).Find(&states).Error; err != nil {
+	query := conn.Where("room_id = ?", roomID)
+	if keepMembers != nil {
+		keys := make([]string, 0, len(keepMembers))
+		for k := range keepMembers {
+			keys = append(keys, k)
+		}
+		if len(keys) == 0 {
+			query = query.Where("event_type <> ?", EventTypeRoomMember)
+		} else {
+			query = query.Where("(event_type <> ? OR state_key IN ?)", EventTypeRoomMember, keys)
+		}
+	}
+	if err := query.Find(&states).Error; err != nil {
+		logHistoryError("state", roomID, "", "state-rows", err)
 		return nil, ErrInternal
 	}
 	ids := make([]string, 0, len(states))
@@ -1071,10 +1063,14 @@ func (r *RoomService) GetRoomStateAllContext(ctx context.Context, roomID string)
 			ids = append(ids, state.EventID)
 		}
 	}
-	metadata := map[string]MatrixEvent{}
-	if len(ids) > 0 {
+	metadata := make(map[string]MatrixEvent, len(ids))
+	// Large rooms have thousands of state events: look them up in bounded chunks
+	// (a single IN list this long exceeds some drivers' parameter limits).
+	const chunk = 1000
+	for start := 0; start < len(ids); start += chunk {
 		var rows []MatrixEvent
-		if err := conn.Select("event_id", "sender", "origin_server_ts").Where("room_id = ? AND event_id IN ?", roomID, ids).Find(&rows).Error; err != nil {
+		if err := conn.Select("event_id", "sender", "origin_server_ts").Where("room_id = ? AND event_id IN ?", roomID, ids[start:min(start+chunk, len(ids))]).Find(&rows).Error; err != nil {
+			logHistoryError("state", roomID, "", "state-metadata", err)
 			return nil, ErrInternal
 		}
 		for _, row := range rows {
@@ -1425,7 +1421,8 @@ func isBridgeDepartureRoom(roomID string) bool {
 func (r *RoomService) persistMembershipDeparture(event *MatrixEvent) error {
 	err := db.GetDB().Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error {
 		var room MatrixRoom
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, "room_id = ?", event.RoomID).Error; err != nil {
+		// An invite to a room we hold no state for has no room row to lock.
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, "room_id = ?", event.RoomID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		var depth int64

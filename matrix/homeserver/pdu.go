@@ -152,7 +152,18 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 	if err = builder.SetContent(event.Content); err != nil {
 		return err
 	}
-	state, err := localStatePDUs(tx, event.RoomID)
+	// Only the state this event is authorised by is loaded and parsed: create,
+	// power levels, join rules and the relevant member events. Loading and parsing
+	// the whole current state made every send in a 16k-event room cost thousands of
+	// queries. The ID list of the full state is still recorded as the event's
+	// pre-event snapshot (IDs only, one query).
+	needed, err := gmsl.StateNeededForProtoEvent(&gmsl.ProtoEvent{
+		Type: builder.Type, StateKey: builder.StateKey, Content: builder.Content, SenderID: builder.SenderID, Version: version,
+	})
+	if err != nil {
+		return err
+	}
+	state, err := localAuthStatePDUs(tx, event.RoomID, roomVersion, needed.Tuples())
 	if err != nil {
 		return err
 	}
@@ -163,29 +174,51 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 	if err = builder.AddAuthEvents(auth); err != nil {
 		return err
 	}
-	// Every event not referenced by another persisted event is a forward
-	// extremity. Referencing all of them merges concurrent branches of the DAG.
+	var stateIDs []string
+	if err = tx.Model(&MatrixRoomState{}).Where("room_id = ?", event.RoomID).Pluck("event_id", &stateIDs).Error; err != nil {
+		return err
+	}
+	// Forward extremities: events no stored event references. The DAG of a room
+	// joined through partial state has thousands of unreferenced stubs (state
+	// events whose prev_events were never stored), and a federated peer rejects
+	// more than 20 prev_events, so only the newest events are considered and at
+	// most 20 extremities (highest depth first) are referenced. This also keeps the
+	// query bounded for big rooms (served by idx_matrix_events_room_ts).
 	var history []MatrixEvent
-	if err = tx.Select("event_id", "prev_events", "depth").Where("room_id = ?", event.RoomID).Find(&history).Error; err != nil {
+	if err = tx.Select("event_id", "prev_events", "depth").Where("room_id = ?", event.RoomID).Order("origin_server_ts DESC, event_id DESC").Limit(recentExtremityWindow).Find(&history).Error; err != nil {
 		return err
 	}
 	leaves := make(map[string]int64, len(history))
 	referenced := make(map[string]bool)
+	var maxDepth int64
 	for _, p := range history {
 		leaves[p.EventID] = p.Depth
+		maxDepth = max(maxDepth, p.Depth)
 		for _, id := range p.PrevEvents {
 			referenced[id] = true
 		}
 	}
 	prev := make([]string, 0)
-	depth := int64(1)
-	for id, d := range leaves {
+	for id := range leaves {
 		if !referenced[id] {
 			prev = append(prev, id)
-			if d >= depth {
-				depth = d + 1
-			}
 		}
+	}
+	if len(prev) == 0 && len(history) > 0 {
+		prev = append(prev, history[0].EventID)
+	}
+	sort.Slice(prev, func(i, j int) bool {
+		if leaves[prev[i]] != leaves[prev[j]] {
+			return leaves[prev[i]] > leaves[prev[j]]
+		}
+		return prev[i] < prev[j]
+	})
+	if len(prev) > maxPrevEvents {
+		prev = prev[:maxPrevEvents]
+	}
+	depth := int64(1)
+	if len(history) > 0 {
+		depth = maxDepth + 1
 	}
 	sort.Strings(prev)
 	builder.PrevEvents, builder.Depth = prev, depth
@@ -201,9 +234,9 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 	}
 	normalized := pduToMatrixEvent(pdu)
 	normalized.StateSnapshotKnown = true
-	normalized.StateBefore = make([]string, 0, len(state))
-	for _, p := range state {
-		normalized.StateBefore = append(normalized.StateBefore, p.EventID())
+	normalized.StateBefore = stateIDs
+	if normalized.StateBefore == nil {
+		normalized.StateBefore = []string{}
 	}
 	sort.Strings(normalized.StateBefore)
 	// Client idempotency metadata is deliberately excluded from the signed PDU.
@@ -280,4 +313,48 @@ func redactionTargetInContent(version gmsl.IRoomVersion) bool {
 		} `json:"content"`
 	}
 	return json.Unmarshal(raw, &event) == nil && event.Content.Redacts == "$target"
+}
+
+// recentExtremityWindow is how many of the newest events are examined to find a
+// new event's prev_events; maxPrevEvents is the federation limit on them.
+const (
+	recentExtremityWindow = 256
+	maxPrevEvents         = 20
+)
+
+// localAuthStatePDUs returns the current-state PDUs for the given (type,
+// state_key) tuples that exist in the room.
+func localAuthStatePDUs(tx *gorm.DB, roomID, version string, tuples []gmsl.StateKeyTuple) ([]gmsl.PDU, error) {
+	if len(tuples) == 0 {
+		return nil, nil
+	}
+	query := tx.Model(&MatrixRoomState{}).Where("room_id = ?", roomID)
+	cond, args := "", []any{}
+	for i, t := range tuples {
+		if i > 0 {
+			cond += " OR "
+		}
+		cond += "(event_type = ? AND state_key = ?)"
+		args = append(args, t.EventType, t.StateKey)
+	}
+	var rows []MatrixRoomState
+	if err := query.Where("("+cond+")", args...).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]gmsl.PDU, 0, len(rows))
+	for _, s := range rows {
+		var row MatrixEvent
+		if err := tx.Where("event_id = ?", s.EventID).First(&row).Error; err != nil {
+			return nil, fmt.Errorf("state event %s (%s/%s): %w", s.EventID, s.EventType, s.StateKey, err)
+		}
+		if row.FederationJSON == "" {
+			return nil, fmt.Errorf("room %s contains legacy event %s without a signed PDU", roomID, row.EventID)
+		}
+		pdu, err := parseAndValidatePDU(version, []byte(row.FederationJSON))
+		if err != nil {
+			return nil, fmt.Errorf("state event %s: %w", row.EventID, err)
+		}
+		out = append(out, pdu)
+	}
+	return out, nil
 }

@@ -27,6 +27,7 @@ type parsedEventFilter struct {
 	NotTypes                  []string `json:"not_types,omitempty"`
 	Limit                     *int     `json:"limit,omitempty"`
 	UnreadThreadNotifications *bool    `json:"unread_thread_notifications,omitempty"`
+	LazyLoadMembers           bool     `json:"lazy_load_members,omitempty"`
 }
 
 // loadFilter loads and parses a sync filter from the request.
@@ -465,9 +466,18 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 	}
 
 	// 获取房间状态
+	// With lazy_load_members the member events of a full state are limited to
+	// the user, the room heroes and the timeline senders, which are only known
+	// once the timeline is read; they are loaded after it (pendingLazyState).
+	lazyState := stateFilter != nil && stateFilter.LazyLoadMembers
+	pendingLazyState := false
 	if fullState || since == 0 {
-		stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
-		room.State.Events = stateEvents
+		if lazyState {
+			pendingLazyState = true
+		} else {
+			stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
+			room.State.Events = stateEvents
+		}
 	} else {
 		// 只获取变更的状态
 		room.State.Events = s.getChangedStateEventsForReader(roomID, userID, since, &historyReader)
@@ -515,8 +525,12 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 				room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
 			}
 			// 刚加入的房间客户端还没有状态。前面按 since 取到的增量状态不完整。
-			stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
-			room.State.Events = stateEvents
+			if lazyState {
+				pendingLazyState = true
+			} else {
+				stateEvents, _ := s.HS.Room.GetRoomStateAllContext(s.syncDB().Statement.Context, roomID)
+				room.State.Events = stateEvents
+			}
 		} else {
 			// 增量同步：用 created_at（本地到达时间）过滤，避免联邦事件的
 			// origin_server_ts 早于 sync token 时被丢掉。
@@ -567,6 +581,21 @@ func (s *SyncService) buildJoinedRoomForDevice(roomID, userID, deviceID string, 
 			// /messages orders by origin timestamp and event ID, including ties.
 			oldest := events[0]
 			room.Timeline.PrevBatch = fmt.Sprintf("t%d_%s", oldest.OriginServerTS, oldest.EventID)
+		}
+	}
+
+	if pendingLazyState {
+		keep := map[string]bool{userID: true}
+		for i := range events {
+			keep[events[i].Sender] = true
+		}
+		for _, hero := range s.roomHeroes(roomID, 5) {
+			keep[hero] = true
+		}
+		stateEvents, _ := s.HS.Room.GetRoomStateLazyContext(s.syncDB().Statement.Context, roomID, keep)
+		room.State.Events = stateEvents
+		if stateFilter != nil {
+			room.State.Events = filterEvents(room.State.Events, stateFilter)
 		}
 	}
 
@@ -1110,8 +1139,37 @@ func (s *SyncService) getChangedStateEventsForReader(roomID, userID string, sinc
 	var events []MatrixEvent
 
 	sinceTime := time.UnixMilli(since)
-	s.syncDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime).
-		Order("origin_server_ts ASC").Find(&events)
+	query := s.syncDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime)
+	// While the background sync of a partial-state room runs, every state event it
+	// stores is "new" for the client. Other users' memberships are historical
+	// state delivered through /members and lazy loading, so they are not part of
+	// the delta; and the delta is capped so a sync never turns into a scan of the
+	// room (MATRIX_SYNC_STATE_DELTA_MAX, default 500).
+	limit := envInt("MATRIX_SYNC_STATE_DELTA_MAX", 500, 10, 100000)
+	if err := query.Order("origin_server_ts ASC, event_id ASC").Limit(limit).Find(&events).Error; err != nil {
+		s.noteReadError(err)
+		return nil
+	}
+	// Only pay for the partial-state lookup when someone else's membership is in
+	// the delta (an empty or quiet room costs no extra query).
+	foreignMember := false
+	for i := range events {
+		if events[i].EventType == EventTypeRoomMember && events[i].StateKey != nil && *events[i].StateKey != userID {
+			foreignMember = true
+			break
+		}
+	}
+	if foreignMember {
+		if _, _, partial := roomPartialState(s.syncDB(), roomID); partial {
+			events = nil
+			q := s.syncDB().Where("room_id = ? AND state_key IS NOT NULL AND created_at > ?", roomID, sinceTime).
+				Where("NOT (event_type = ? AND state_key <> ?)", EventTypeRoomMember, userID)
+			if err := q.Order("origin_server_ts ASC, event_id ASC").Limit(limit).Find(&events).Error; err != nil {
+				s.noteReadError(err)
+				return nil
+			}
+		}
+	}
 
 	visible, err := s.visibleSyncEvents(roomID, userID, events, reader)
 	s.noteReadError(err)
@@ -1612,31 +1670,28 @@ func sharesAnyRoom(userID string, roomIDs []string) bool {
 
 // getRoomSummary 获取房间摘要.
 func (s *SyncService) getRoomSummary(roomID string) *RoomSummary {
-	// 获取成员
-	members, _ := s.HS.Room.GetRoomMembers(roomID, []MembershipState{MembershipJoin, MembershipInvite})
-
-	heroes := make([]string, 0)
-
+	// Counts and a handful of heroes come from the database; a 6000-member room
+	// must not load every member row for each sync.
 	var joinedCount, invitedCount int64
-
-	for _, m := range members {
-		switch m.Membership {
-		case MembershipJoin:
-			joinedCount++
-
-			if len(heroes) < 5 {
-				heroes = append(heroes, m.UserID)
-			}
-		case MembershipInvite:
-			invitedCount++
-		}
-	}
+	s.syncDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Count(&joinedCount)
+	s.syncDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND membership = ?", roomID, MembershipInvite).Count(&invitedCount)
 
 	return &RoomSummary{
-		Heroes:             heroes,
+		Heroes:             s.roomHeroes(roomID, 5),
 		JoinedMemberCount:  joinedCount,
 		InvitedMemberCount: invitedCount,
 	}
+}
+
+// roomHeroes returns up to n joined users of the room (stable order).
+func (s *SyncService) roomHeroes(roomID string, n int) []string {
+	var rows []MatrixRoomMember
+	s.syncDB().Select("user_id", "id").Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Order("id ASC").Limit(n).Find(&rows)
+	heroes := make([]string, 0, len(rows))
+	for _, m := range rows {
+		heroes = append(heroes, m.UserID)
+	}
+	return heroes
 }
 
 // ===== Typing =====

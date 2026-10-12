@@ -328,32 +328,12 @@ func (v federationJSONVerifier) fetchNotaryKeyDocumentFor(ctx context.Context, n
 		check = gmsl.StrictValiditySignatureCheck
 	}
 	for _, docRaw := range envelope.ServerKeys {
-		var doc ServerKeyResponse
-		if json.Unmarshal(docRaw, &doc) != nil || doc.ServerName != server || doc.ValidUntil <= 0 {
-			continue
-		}
-		doc.RawJSON = append([]byte(nil), docRaw...)
-		trusted := false
-		for notaryKeyID := range doc.Signatures[notary] {
-			key, e := v.lookupKey(ctx, notary, notaryKeyID, spec.AsTimestamp(time.Now()), gmsl.StrictValiditySignatureCheck, false)
-			if e != nil {
-				continue
-			}
-			if gmsl.VerifyJSON(notary, gmsl.KeyID(notaryKeyID), key, doc.RawJSON) == nil {
-				trusted = true
-				break
-			}
-		}
-		if !trusted {
-			continue
-		}
-		validity, usable := keyDocumentUsableAt(&doc, keyID, at, check)
+		doc, validity, usable := v.acceptNotaryDocument(ctx, notary, server, keyID, at, check, docRaw)
 		if !usable {
 			continue
 		}
 		if best == nil || validity > bestValidity {
-			d := doc
-			best = &d
+			best = doc
 			bestValidity = validity
 		}
 	}
@@ -361,6 +341,108 @@ func (v federationJSONVerifier) fetchNotaryKeyDocumentFor(ctx context.Context, n
 		return nil, fmt.Errorf("%w: no notary-signed document for %s", errBadKeyDocument, server)
 	}
 	return best, nil
+}
+
+// acceptNotaryDocument parses one notary-supplied key document and accepts it
+// only if it names the wanted server, carries the notary's own valid signature
+// and contains the wanted key usable at `at`. Signature verification is the same
+// for single and bulk queries.
+func (v federationJSONVerifier) acceptNotaryDocument(ctx context.Context, notary, server, keyID string, at spec.Timestamp, check gmsl.SignatureValidityCheckFunc, docRaw json.RawMessage) (*ServerKeyResponse, int64, bool) {
+	var doc ServerKeyResponse
+	if json.Unmarshal(docRaw, &doc) != nil || doc.ServerName != server || doc.ValidUntil <= 0 {
+		return nil, 0, false
+	}
+	doc.RawJSON = append([]byte(nil), docRaw...)
+	trusted := false
+	for notaryKeyID := range doc.Signatures[notary] {
+		key, e := v.lookupKey(ctx, notary, notaryKeyID, spec.AsTimestamp(time.Now()), gmsl.StrictValiditySignatureCheck, false)
+		if e != nil {
+			continue
+		}
+		if gmsl.VerifyJSON(notary, gmsl.KeyID(notaryKeyID), key, doc.RawJSON) == nil {
+			trusted = true
+			break
+		}
+	}
+	if !trusted {
+		return nil, 0, false
+	}
+	if check == nil {
+		check = gmsl.StrictValiditySignatureCheck
+	}
+	validity, usable := keyDocumentUsableAt(&doc, keyID, at, check)
+	if !usable {
+		return nil, 0, false
+	}
+	return &doc, validity, true
+}
+
+// bulkKeyWant names the key a bulk notary query needs for one server.
+type bulkKeyWant struct {
+	keyID string
+	at    spec.Timestamp
+	check gmsl.SignatureValidityCheckFunc
+}
+
+// fetchNotaryKeyDocumentsBulk asks one trusted notary for many servers' keys in
+// a single POST /_matrix/key/v2/query. Each returned document is accepted by the
+// same rules as a single query (notary signature, server name, usable key); the
+// accepted documents are returned by server name. The notary must be an
+// administrator-trusted one (keyNotaries).
+func (v federationJSONVerifier) fetchNotaryKeyDocumentsBulk(ctx context.Context, notary string, wanted map[string]bulkKeyWant) (map[string]*ServerKeyResponse, error) {
+	allowed := false
+	for _, trusted := range keyNotaries(context.Background(), v.hs, "") {
+		if trusted == notary {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("%w: untrusted key notary", errBadKeyDocument)
+	}
+	ctx, cancel := context.WithTimeout(ctx, keyFetchTimeout*2)
+	defer cancel()
+	request := map[string]map[string]map[string]any{}
+	for server, w := range wanted {
+		criteria := map[string]any{}
+		if w.at > 0 {
+			criteria["minimum_valid_until_ts"] = int64(w.at)
+		}
+		request[server] = map[string]map[string]any{w.keyID: criteria}
+	}
+	client := newFederationClient(v.hs)
+	resp, raw, err := client.doFederationRequestContext(ctx, "POST", client.federationBaseURL(notary)+"/_matrix/key/v2/query", notary, map[string]any{"server_keys": request}, keyDocumentLimit*8) //nolint:bodyclose // closed in doFederationRequest
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, &federationHTTPError{Status: resp.StatusCode, Message: string(raw)}
+	}
+	var envelope struct {
+		ServerKeys []json.RawMessage `json:"server_keys"`
+	}
+	if err = json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: %v", errBadKeyDocument, err)
+	}
+	out := map[string]*ServerKeyResponse{}
+	bestValidity := map[string]int64{}
+	for _, docRaw := range envelope.ServerKeys {
+		var head struct {
+			ServerName string `json:"server_name"`
+		}
+		if json.Unmarshal(docRaw, &head) != nil {
+			continue
+		}
+		w, ok := wanted[head.ServerName]
+		if !ok {
+			continue
+		}
+		doc, validity, usable := v.acceptNotaryDocument(ctx, notary, head.ServerName, w.keyID, w.at, w.check, docRaw)
+		if usable && (out[head.ServerName] == nil || validity > bestValidity[head.ServerName]) {
+			out[head.ServerName], bestValidity[head.ServerName] = doc, validity
+		}
+	}
+	return out, nil
 }
 
 func keyDocumentUsableAt(doc *ServerKeyResponse, keyID string, at spec.Timestamp, check gmsl.SignatureValidityCheckFunc) (int64, bool) {

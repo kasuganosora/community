@@ -48,8 +48,12 @@ const (
 
 // MatrixEvent Matrix 事件（核心数据结构）.
 type MatrixEvent struct { //nolint:recvcheck
-	EventID        string         `gorm:"primaryKey;type:varchar(255)"     json:"event_id"`
-	RoomID         string         `gorm:"index;type:varchar(255);not null" json:"room_id"`
+	EventID string `gorm:"primaryKey;type:varchar(255);index:idx_matrix_events_room_ts,priority:3" json:"event_id"`
+	// idx_matrix_events_room_ts (room_id, origin_server_ts, event_id) serves the
+	// timeline order used by /messages, /context and /sync (ORDER BY
+	// origin_server_ts, event_id within one room, either direction) without
+	// sorting every event of a big room. AutoMigrate adds it idempotently.
+	RoomID         string         `gorm:"index;index:idx_matrix_events_room_ts,priority:1;type:varchar(255);not null" json:"room_id"`
 	EventType      EventType      `gorm:"type:varchar(64);not null"        json:"type"`
 	Sender         string         `gorm:"type:varchar(255);not null"       json:"sender"`
 	StateKey       *string        `gorm:"type:varchar(255)"                json:"state_key"`
@@ -57,8 +61,8 @@ type MatrixEvent struct { //nolint:recvcheck
 	PrevEvents     []string       `gorm:"type:json;serializer:json"        json:"prev_events"`
 	AuthEvents     []string       `gorm:"type:json;serializer:json"        json:"auth_events"`
 	Depth          int64          `gorm:"not null"                         json:"depth"`
-	OriginServerTS int64          `gorm:"not null;index"                   json:"origin_server_ts"`
-	Redacts        *string        `gorm:"type:varchar(255)"                json:"redacts"`
+	OriginServerTS int64          `gorm:"not null;index;index:idx_matrix_events_room_ts,priority:2" json:"origin_server_ts"`
+	Redacts        *string        `gorm:"type:varchar(255);index:idx_matrix_events_redacts" json:"redacts"`
 	SenderDomain   string         `gorm:"type:varchar(128)"                json:"sender_domain"`
 
 	// Canonical federation PDU is immutable; client-only metadata is kept separately.
@@ -219,9 +223,9 @@ func (MatrixRoom) TableName() string {
 // MatrixRoomState 房间状态（当前状态表）.
 type MatrixRoomState struct {
 	ID        uint64         `gorm:"primaryKey;autoIncrement"         json:"id"`
-	RoomID    string         `gorm:"index;type:varchar(255);not null" json:"room_id"`
-	EventType EventType      `gorm:"type:varchar(64);not null"        json:"type"`
-	StateKey  string         `gorm:"type:varchar(255);not null"       json:"state_key"`
+	RoomID    string         `gorm:"index;index:idx_matrix_room_state_key,priority:1;type:varchar(255);not null" json:"room_id"`
+	EventType EventType      `gorm:"index:idx_matrix_room_state_key,priority:2;type:varchar(64);not null"        json:"type"`
+	StateKey  string         `gorm:"index:idx_matrix_room_state_key,priority:3;type:varchar(255);not null"       json:"state_key"`
 	Content   map[string]any `gorm:"type:text;serializer:json"        json:"content"`
 	EventID   string         `gorm:"type:varchar(255)"                json:"event_id"`
 

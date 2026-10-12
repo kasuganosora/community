@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -446,21 +447,19 @@ func getStateAtTime(roomID, eventType, stateKey string, ts int64) (*ClientEvent,
 
 // getFullStateAtTime returns all state events for a room as they were at or before the given timestamp.
 func getFullStateAtTime(roomID string, ts int64) []*ClientEvent {
-	var stateEntries []MatrixRoomState
+	// One windowed query replaces one query per state entry (16k+ round trips in
+	// a big room). The newest event per (type, state_key) at or before ts wins;
+	// ties on the timestamp resolve by event ID so the answer is stable.
+	var rows []MatrixEvent
+	err := db.GetDB().Raw(`SELECT * FROM (SELECT matrix_events.*, ROW_NUMBER() OVER (PARTITION BY event_type, state_key ORDER BY origin_server_ts DESC, event_id DESC) AS state_rank FROM matrix_events WHERE room_id = ? AND state_key IS NOT NULL AND origin_server_ts <= ?) AS latest WHERE state_rank = 1`, roomID, ts).Scan(&rows).Error
+	if err != nil {
+		logHistoryError("state", roomID, "", "state-at-time", err)
+		return nil
+	}
 
-	db.GetDB().Where("room_id = ?", roomID).Find(&stateEntries)
-
-	var result []*ClientEvent
-
-	for _, entry := range stateEntries {
-		// Find the version of this state event that was valid at `ts`
-		var event MatrixEvent
-		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ? AND origin_server_ts <= ?",
-			roomID, entry.EventType, entry.StateKey, ts).
-			Order("origin_server_ts DESC").First(&event).Error
-		if err == nil {
-			result = append(result, event.ToClientEvent())
-		}
+	result := make([]*ClientEvent, 0, len(rows))
+	for i := range rows {
+		result = append(result, rows[i].ToClientEvent())
 	}
 
 	return result
@@ -767,7 +766,7 @@ func handleLeaveRoom(c *gin.Context) {
 		}
 	}
 
-	if err := hs.Room.LeaveRoom(userID, roomID, &LeaveRoomRequest{}); err != nil {
+	if err := hs.Room.LeaveRoomContext(c.Request.Context(), userID, roomID, &LeaveRoomRequest{}); err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 
 		return
@@ -1009,20 +1008,21 @@ func handleGetRoomMembers(c *gin.Context) {
 	if cutoffTS == 0 && callerMembership != MembershipJoin {
 		cutoffTS = getUserLeaveTS(roomID, userID)
 	}
+	// The membership events behind the member rows are read in bounded chunks
+	// (one query per 1000 members) instead of one query per member.
+	memberEvents := loadMemberEventMeta(c.Request.Context(), roomID, members)
+
 	// Apply point-in-time filter
 	if cutoffTS > 0 {
 		filtered := members[:0]
 
 		for _, m := range members {
 			if m.EventID != "" {
-				var evt MatrixEvent
-				if db.GetDB().Where("event_id = ?", m.EventID).First(&evt).Error == nil {
+				if evt, ok := memberEvents[m.EventID]; ok {
 					if evt.OriginServerTS <= cutoffTS {
 						filtered = append(filtered, m)
-
-						continue
 					}
-					// Skip members whose event is after the cutoff
+					// Members whose event is after the cutoff are skipped.
 					continue
 				}
 			}
@@ -1056,12 +1056,9 @@ func handleGetRoomMembers(c *gin.Context) {
 			"origin_server_ts": int64(0), //nolint:goconst
 		}
 		// Enrich origin_server_ts from the event record if available
-		if m.EventID != "" {
-			var evt2 MatrixEvent
-			if db.GetDB().Where("event_id = ?", m.EventID).First(&evt2).Error == nil {
-				evt["origin_server_ts"] = evt2.OriginServerTS
-				evt["sender"] = evt2.Sender
-			}
+		if evt2, ok := memberEvents[m.EventID]; ok && m.EventID != "" {
+			evt["origin_server_ts"] = evt2.OriginServerTS
+			evt["sender"] = evt2.Sender
 		}
 
 		chunk = append(chunk, evt)
@@ -1088,7 +1085,32 @@ func handleGetJoinedMembers(c *gin.Context) {
 
 	var members []MatrixRoomMember
 
-	db.GetDB().Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
+	if err := db.GetDB().WithContext(c.Request.Context()).Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members).Error; err != nil {
+		logHistoryError("joined_members", roomID, userID, "members", err)
+		c.JSON(http.StatusInternalServerError, MatrixError{ErrCode: "M_UNKNOWN", Error: "Failed to list joined members"})
+
+		return
+	}
+
+	// Only local users have an account row to enrich from; look those up in
+	// chunks rather than once per member (6000+ in a big federated room).
+	localparts := make([]string, 0)
+	for _, m := range members {
+		if localpart, domain, ok := ParseMatrixUserID(m.UserID); ok && domain == hs.Config.ServerName {
+			localparts = append(localparts, localpart)
+		}
+	}
+	accounts := make(map[string]models.Account, len(localparts))
+	for start := 0; start < len(localparts); start += 500 {
+		var batch []models.Account
+		if err := db.GetDB().WithContext(c.Request.Context()).Where("username IN ?", localparts[start:min(start+500, len(localparts))]).Find(&batch).Error; err != nil {
+			logHistoryError("joined_members", roomID, userID, "accounts", err)
+			break
+		}
+		for _, account := range batch {
+			accounts[account.Username] = account
+		}
+	}
 
 	joined := make(map[string]gin.H, len(members))
 
@@ -1104,11 +1126,9 @@ func handleGetJoinedMembers(c *gin.Context) {
 		if m.AvatarURL != nil {
 			info["avatar_url"] = *m.AvatarURL
 		}
-		// Enrich from account
-		localpart, _, ok := ParseMatrixUserID(m.UserID)
-		if ok {
-			var account models.Account
-			if db.GetDB().Where("username = ?", localpart).First(&account).Error == nil {
+		// Enrich from the local account
+		if localpart, domain, ok := ParseMatrixUserID(m.UserID); ok && domain == hs.Config.ServerName {
+			if account, found := accounts[localpart]; found {
 				if account.DisplayName != "" {
 					info["display_name"] = account.DisplayName
 				}
@@ -1423,7 +1443,17 @@ func handleGetEventContext(c *gin.Context) {
 
 	hs := GetHomeServer()
 
-	resp, err := hs.Event.GetRoomContextContext(c.Request.Context(), roomID, eventID, userID, limit)
+	lazy := false
+	if raw := c.Query("filter"); raw != "" {
+		var f struct {
+			LazyLoadMembers bool `json:"lazy_load_members"`
+		}
+		if json.Unmarshal([]byte(raw), &f) == nil {
+			lazy = f.LazyLoadMembers
+		}
+	}
+
+	resp, err := hs.Event.GetRoomContextLazyContext(c.Request.Context(), roomID, eventID, userID, limit, lazy)
 	if err != nil {
 		c.JSON(matrixErrorStatus(err), err)
 
@@ -1449,7 +1479,7 @@ func handleGetEvent(c *gin.Context) {
 	}
 
 	// Check history visibility access control
-	if !canAccessEvent(hs, roomID, userID, event) {
+	if event.RoomID != roomID || !canReadClientEventContext(c.Request.Context(), roomID, userID, event.EventID) {
 		c.JSON(http.StatusNotFound, gin.H{"errcode": "M_NOT_FOUND", "error": "Event not found"})
 
 		return
@@ -3610,4 +3640,27 @@ func handleGetSpaceSummary(c *gin.Context) {
 // GetSpaceSummaryClient 客户端空间摘要.
 func handleGetSpaceSummaryClient(c *gin.Context) {
 	handleGetSpaceHierarchy(c)
+}
+
+// loadMemberEventMeta returns sender and timestamp of the membership event of
+// each member, read in chunks of 1000 ids.
+func loadMemberEventMeta(ctx context.Context, roomID string, members []*MatrixRoomMember) map[string]MatrixEvent {
+	ids := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.EventID != "" {
+			ids = append(ids, m.EventID)
+		}
+	}
+	out := make(map[string]MatrixEvent, len(ids))
+	for start := 0; start < len(ids); start += 1000 {
+		var rows []MatrixEvent
+		if err := db.GetDB().WithContext(ctx).Select("event_id", "sender", "origin_server_ts").Where("room_id = ? AND event_id IN ?", roomID, ids[start:min(start+1000, len(ids))]).Find(&rows).Error; err != nil {
+			logHistoryError("members", roomID, "", "member-events", err)
+			break
+		}
+		for _, row := range rows {
+			out[row.EventID] = row
+		}
+	}
+	return out
 }

@@ -1,8 +1,11 @@
 package homeserver
 
 import (
-	"gorm.io/gorm"
 	"slices"
+	"time"
+
+	"github.com/kasuganosora/community/log"
+	"gorm.io/gorm"
 )
 
 // One historical reader is reused across candidate pages of a single room.
@@ -34,6 +37,7 @@ func (s *SyncService) readSyncTimeline(query *gorm.DB, roomID, userID string, li
 	}
 	accepted := make([]MatrixEvent, 0)
 	chunk := min(max(limit, 32), 256)
+	scan := newHistoryScan() // a room of unprovable-history state events must not be walked to the end
 	var cursor *MatrixEvent
 	for len(accepted) < limit {
 		page := query.Session(&gorm.Session{})
@@ -61,7 +65,12 @@ func (s *SyncService) readSyncTimeline(query *gorm.DB, roomID, userID string, li
 		}
 		accepted = append(accepted, visible...)
 		cursor = &rows[len(rows)-1]
+		scan.add(len(rows))
 		if len(rows) < chunk {
+			break
+		}
+		if scan.exceeded() {
+			log.Info("matrix sync room=%s user=%s: timeline scan stopped after %d candidates in %s with %d visible", roomID, userID, scan.scanned, scan.elapsed().Round(time.Millisecond), len(accepted))
 			break
 		}
 	}

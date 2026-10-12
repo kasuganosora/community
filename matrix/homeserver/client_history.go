@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/kasuganosora/community/db"
 	"gorm.io/gorm"
@@ -15,6 +16,7 @@ type clientHistoryReader struct {
 	state                     map[string]MatrixEvent
 	sharedChecked, everJoined bool
 	legacy                    *legacyLocalHistory
+	roomVersion               *string // loaded once per request, not once per event
 }
 
 func newClientHistoryReader(conn *gorm.DB, roomID, userID string) (*clientHistoryReader, error) {
@@ -110,11 +112,14 @@ func (r *clientHistoryReader) filter(events []MatrixEvent) ([]MatrixEvent, error
 					continue
 				}
 			} else {
-				var room MatrixRoom
-				if err := r.conn.Where("room_id = ?", r.roomID).First(&room).Error; err != nil {
-					return nil, err
+				if r.roomVersion == nil {
+					var room MatrixRoom
+					if err := r.conn.Select("room_id", "room_version").Where("room_id = ?", r.roomID).First(&room).Error; err != nil {
+						return nil, err
+					}
+					r.roomVersion = &room.RoomVersion
 				}
-				pdu, err := parseAndValidatePDU(room.RoomVersion, []byte(event.FederationJSON))
+				pdu, err := parseAndValidatePDU(*r.roomVersion, []byte(event.FederationJSON))
 				if err != nil {
 					continue
 				}
@@ -202,7 +207,13 @@ func historyVisibilityRank(value string) int {
 	}
 }
 func canReadClientEvent(roomID, userID, eventID string) bool {
-	conn := db.GetDB()
+	return canReadClientEventContext(context.Background(), roomID, userID, eventID)
+}
+
+// canReadClientEventContext honours the request context, so deriving the
+// historical state of one event in a big room stops when the client goes away.
+func canReadClientEventContext(ctx context.Context, roomID, userID, eventID string) bool {
+	conn := db.GetDB().WithContext(ctx)
 	reader, err := newClientHistoryReader(conn, roomID, userID)
 	if err != nil {
 		return false

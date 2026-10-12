@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"gorm.io/gorm"
@@ -626,6 +627,7 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 	var events []MatrixEvent
 
 	if err := query.Limit(limit).Find(&events).Error; err != nil {
+		logHistoryError("messages", roomID, userID, "timeline", err)
 		return nil, ErrInternal
 	}
 
@@ -674,10 +676,20 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 	if memberExists {
 		reader.member = &member
 	}
+	// Visibility is decided per event, and in a room whose stored events are
+	// mostly state events with no verifiable history (partial-state joins) most
+	// candidates are invisible. The scan is therefore bounded: after
+	// historyScanMax candidates or historyScanBudget it returns what it has plus
+	// a token that continues after the last candidate examined.
+	scan := newHistoryScan()
 	visible := make([]MatrixEvent, 0, limit)
+	pageSize := limit
+	var lastScanned *MatrixEvent
+	truncated := false
 	for len(events) > 0 {
 		batch, err := reader.filter(events)
 		if err != nil {
+			logHistoryError("messages", roomID, userID, "visibility", err)
 			return nil, ErrInternal
 		}
 		for _, event := range batch {
@@ -686,20 +698,30 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 				break
 			}
 		}
-		last := events[len(events)-1]
-		if len(visible) == limit || len(events) < limit {
+		scan.add(len(events))
+		lastScanned = &events[len(events)-1]
+		if len(visible) == limit || len(events) < pageSize {
 			break
 		}
+		if scan.exceeded() || ctx.Err() != nil {
+			truncated = true
+			break
+		}
+		pageSize = historyScanPage(limit)
 		next := query.Session(&gorm.Session{})
 		if req.Dir == "b" {
-			next = next.Where("(origin_server_ts < ? OR (origin_server_ts = ? AND event_id < ?))", last.OriginServerTS, last.OriginServerTS, last.EventID)
+			next = next.Where("(origin_server_ts < ? OR (origin_server_ts = ? AND event_id < ?))", lastScanned.OriginServerTS, lastScanned.OriginServerTS, lastScanned.EventID)
 		} else {
-			next = next.Where("(origin_server_ts > ? OR (origin_server_ts = ? AND event_id > ?))", last.OriginServerTS, last.OriginServerTS, last.EventID)
+			next = next.Where("(origin_server_ts > ? OR (origin_server_ts = ? AND event_id > ?))", lastScanned.OriginServerTS, lastScanned.OriginServerTS, lastScanned.EventID)
 		}
 		events = nil
-		if err := next.Limit(limit).Find(&events).Error; err != nil {
+		if err := next.Limit(pageSize).Find(&events).Error; err != nil {
+			logHistoryError("messages", roomID, userID, "page", err)
 			return nil, ErrInternal
 		}
+	}
+	if truncated {
+		log.Info("matrix messages room=%s user=%s: scanned %d events in %s, %d visible; returning a continuation token", roomID, userID, scan.scanned, scan.elapsed().Round(time.Millisecond), len(visible))
 	}
 	events = visible
 	if len(events) == 0 && !memberExists {
@@ -715,7 +737,9 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 
 	var end string
 
-	if len(events) > 0 {
+	if truncated && lastScanned != nil {
+		end = e.generatePaginationTokenForEvent(lastScanned.OriginServerTS, lastScanned.EventID)
+	} else if len(events) > 0 {
 		lastEvt := events[len(events)-1]
 		end = e.generatePaginationTokenForEvent(lastEvt.OriginServerTS, lastEvt.EventID)
 	}
@@ -768,22 +792,9 @@ func (e *EventService) GetRoomMessages(roomID, userID string, req *GetRoomMessag
 // tryBackfillFromRemote attempts to backfill events from a remote server when local history is exhausted.
 // maxEvents is how many additional events this page still needs.
 func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []MatrixEvent, maxEvents int) (attempted bool) {
-	// Find a remote server in the room
-	var members []MatrixRoomMember
-
-	db.GetDB().Select("user_id").Where("room_id = ? AND membership = ?", roomID, MembershipJoin).Find(&members)
-
-	var remoteServer string
-
-	for _, m := range members {
-		_, domain, ok := ParseMatrixUserID(m.UserID)
-		if ok && domain != e.HS.Config.ServerName {
-			remoteServer = domain
-
-			break
-		}
-	}
-
+	// Find one remote server in the room. A big room has thousands of joined
+	// members: ask the database for a single remote one instead of loading all.
+	remoteServer := e.remoteServerForBackfill(roomID)
 	if remoteServer == "" {
 		return
 	}
@@ -804,8 +815,45 @@ func (e *EventService) tryBackfillFromRemote(roomID string, localEvents []Matrix
 	}
 
 	fedClient := NewFederationClient(e.HS)
-	e.HS.Room.backfillFromEvent(fedClient, remoteServer, roomID, maxEvents, startEventID)
+	// Backfill may walk several federation round trips; a client request must not
+	// wait for all of them. Past the budget it keeps running in the background and
+	// the request answers from what is stored.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.HS.Room.backfillFromEvent(fedClient, remoteServer, roomID, maxEvents, startEventID)
+	}()
+	select {
+	case <-done:
+	case <-time.After(envDuration("MATRIX_MESSAGES_BACKFILL_WAIT", 8*time.Second)):
+		log.Info("matrix messages room=%s: backfill via %s still running after the request budget; answering from local history", roomID, remoteServer)
+	}
 	return true
+}
+
+// remoteServerForBackfill returns a server (other than ours) with a joined user
+// in the room, or "" when there is none. Partial-state hints are preferred.
+func (e *EventService) remoteServerForBackfill(roomID string) string {
+	if hints := partialRoomServerHints(roomID, 1); len(hints) > 0 {
+		return hints[0]
+	}
+	if _, server, partial := roomPartialState(db.GetDB(), roomID); partial && server != "" && server != e.HS.Config.ServerName {
+		return server
+	}
+	var members []MatrixRoomMember
+	if err := db.GetDB().Select("user_id").
+		Where("room_id = ? AND membership = ? AND user_id NOT LIKE ?", roomID, MembershipJoin, "%:"+likeEscape(e.HS.Config.ServerName)).
+		Limit(1).Find(&members).Error; err != nil || len(members) == 0 {
+		return ""
+	}
+	if _, domain, ok := ParseMatrixUserID(members[0].UserID); ok && domain != e.HS.Config.ServerName {
+		return domain
+	}
+	return ""
+}
+
+func likeEscape(s string) string {
+	return strings.NewReplacer("%", "", "_", "").Replace(s)
 }
 
 // GetRoomContext 获取事件上下文.
@@ -813,6 +861,13 @@ func (e *EventService) GetRoomContext(roomID, eventID, userID string, limit int)
 	return e.GetRoomContextContext(context.Background(), roomID, eventID, userID, limit)
 }
 func (e *EventService) GetRoomContextContext(ctx context.Context, roomID, eventID, userID string, limit int) (*EventContextResponse, *MatrixError) {
+	return e.GetRoomContextLazyContext(ctx, roomID, eventID, userID, limit, false)
+}
+
+// GetRoomContextLazyContext is GetRoomContextContext with the optional
+// lazy_load_members filter: the returned state then carries only the member
+// events of the senders in the response instead of every member of the room.
+func (e *EventService) GetRoomContextLazyContext(ctx context.Context, roomID, eventID, userID string, limit int, lazyMembers bool) (*EventContextResponse, *MatrixError) {
 	conn := db.GetDB().WithContext(ctx)
 	// 检查权限
 	var member MatrixRoomMember
@@ -847,7 +902,8 @@ func (e *EventService) GetRoomContextContext(ctx context.Context, roomID, eventI
 	for _, direction := range []string{"b", "f"} {
 		collected := []MatrixEvent{}
 		cursor := targetEvent
-		for len(collected) < limit {
+		scan := newHistoryScan()
+		for len(collected) < limit && !scan.exceeded() && ctx.Err() == nil {
 			comparison, order := ">", "origin_server_ts ASC,event_id ASC"
 			if direction == "b" {
 				comparison, order = "<", "origin_server_ts DESC,event_id DESC"
@@ -862,9 +918,11 @@ func (e *EventService) GetRoomContextContext(ctx context.Context, roomID, eventI
 			}
 			allowed, err := reader.filter(rows)
 			if err != nil {
+				logHistoryError("context", roomID, userID, "visibility", err)
 				return nil, ErrInternal
 			}
 			collected = append(collected, allowed...)
+			scan.add(len(rows))
 			cursor = rows[len(rows)-1]
 		}
 		if direction == "b" {
@@ -875,7 +933,19 @@ func (e *EventService) GetRoomContextContext(ctx context.Context, roomID, eventI
 	}
 
 	// 获取房间状态
-	state, stateErr := e.HS.Room.GetRoomStateAllContext(ctx, roomID)
+	var state []*ClientEvent
+	var stateErr *MatrixError
+	if lazyMembers {
+		keep := map[string]bool{targetEvent.Sender: true}
+		for _, list := range [][]MatrixEvent{eventsBefore, eventsAfter} {
+			for i := range list {
+				keep[list[i].Sender] = true
+			}
+		}
+		state, stateErr = e.HS.Room.GetRoomStateLazyContext(ctx, roomID, keep)
+	} else {
+		state, stateErr = e.HS.Room.GetRoomStateAllContext(ctx, roomID)
+	}
 	if stateErr != nil {
 		return nil, stateErr
 	}

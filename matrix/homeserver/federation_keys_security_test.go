@@ -54,6 +54,7 @@ func TestKeyCacheRejectsLegacyUnattributedKeysAfterRestart(t *testing.T) {
 	_, found := cache.GetFor("legacy-origin.example", "ed25519:old", spec.AsTimestamp(time.Now()), gmsl.NoStrictValidityCheck)
 	require.False(t, found, "even v1-4 permissive expiry policy must not trust old unverified provenance")
 	cache.Set("legacy-origin.example", "ed25519:old", public, time.Now().Add(time.Hour))
+	require.NoError(t, cache.WaitSaved(context.Background())) // persistence is asynchronous
 	reloaded := NewKeyCache()
 	key, found := reloaded.GetFor("legacy-origin.example", "ed25519:old", spec.AsTimestamp(time.Now()), gmsl.StrictValiditySignatureCheck)
 	require.True(t, found)
@@ -79,6 +80,7 @@ func TestRetiredKeyExpiryRemainsStrictForEveryRoomVersion(t *testing.T) {
 	key, _ := ed25519Key()
 	expiry := time.Now().Add(-time.Hour).UnixMilli()
 	cacheKeyDocument("retired-origin.example", &ServerKeyResponse{OldVerifyKeys: map[string]KeyInfo{"ed25519:retired": {Key: base64.RawStdEncoding.EncodeToString(key), ExpiredTS: expiry}}})
+	require.NoError(t, GetKeyCache().WaitSaved(context.Background())) // persistence is asynchronous
 	GetKeyCache().Cleanup() // retired keys must remain reloadable for historical verification
 	for _, check := range []gmsl.SignatureValidityCheckFunc{gmsl.StrictValiditySignatureCheck, gmsl.NoStrictValidityCheck} {
 		for _, offset := range []int64{-1, 0, 1} {
@@ -128,17 +130,16 @@ func TestNotaryChoosesDocumentContainingRequestedHistoricalKey(t *testing.T) {
 	require.Contains(t, doc.VerifyKeys, origin.hs.keyID, "newest unrelated key document must not hide usable history")
 }
 
-func TestKeyCacheContextCancelsWhilePersistenceIsBusy(t *testing.T) {
+func TestKeyCacheReadsDoNotWaitForBusyPersistence(t *testing.T) {
 	setupKeyCacheTestDB(t)
 	cache := NewKeyCache()
 	held, err := cache.lockDB(context.Background())
 	require.NoError(t, err)
 	defer held()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	_, found := cache.GetForContext(ctx, "busy.example", "ed25519:key", spec.AsTimestamp(time.Now()), gmsl.StrictValiditySignatureCheck)
+	started := time.Now()
+	_, found := cache.GetForContext(context.Background(), "busy.example", "ed25519:key", spec.AsTimestamp(time.Now()), gmsl.StrictValiditySignatureCheck)
 	require.False(t, found)
-	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+	require.Less(t, time.Since(started), time.Second, "a key lookup must not queue behind batched database writes")
 }
 
 func TestKeyFetchLocksReleaseHostEntriesAndSerializeWaiters(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/db"
@@ -120,6 +121,9 @@ func cleanServersInRoom(in []string, self string) []string {
 // the returned state) are not demanded again; every event is still signature-
 // and auth-checked before it can be stored.
 func (r *RoomService) validateFederationStateSet(ctx context.Context, roomID, joiningUserID, version string, join gmsl.PDU, resp *sendJoinResponse, resume bool) (*preparedFederationJoin, error) {
+	if resume {
+		ctx = withCPUThrottle(ctx) // background work yields to request handling
+	}
 	neededState := map[string]bool{}
 	needed := gmsl.StateNeededForAuth([]gmsl.PDU{join})
 	for _, tuple := range needed.Tuples() {
@@ -147,6 +151,7 @@ func (r *RoomService) validateFederationStateSet(ctx context.Context, roomID, jo
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			throttleTick(ctx)
 			requiredState := false
 			if field.state {
 				var header struct {
@@ -239,27 +244,37 @@ func (r *RoomService) validateFederationStateSet(ctx context.Context, roomID, jo
 			return nil, fmt.Errorf("required event %s (%s): %w", id, p.Type(), err)
 		}
 	}
+	// Inline joins keep a short key budget so a join never waits on old history.
+	// The background completion of a partial-state join (resume) has minutes, and
+	// thousands of origin servers to ask: a 2 s budget there leaves nearly every
+	// old member event "unverifiable" for reasons of our own making.
 	budget := 2 * time.Second
+	if resume {
+		budget = envDuration("MATRIX_JOIN_KEY_BUDGET", 120*time.Second)
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline) / 4; remaining < budget {
 			budget = remaining
 		}
 	}
 	prefetchCtx, cancel := context.WithTimeout(ctx, budget)
-	r.prefetchSigningKeys(prefetchCtx, optional)
+	prefetch := r.prefetchSigningKeys(prefetchCtx, optional, resume)
 	cancel()
 	// Do not restart failed/unfinished network fetches serially for each old
 	// event. Missing optional keys are dropped; signatures are still checked.
 	cachedCtx := withCachedKeysOnly(ctx)
 	droppedIDs := map[string]bool{}
 	var unverifiable, badSig int
+	failingOrigins := map[string]int{}
 	for id, p := range optional {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		throttleTick(ctx)
 		if err := gmsl.VerifyEventSignatures(cachedCtx, p, verifier, federationUserID); err != nil {
 			if errors.Is(err, errKeyUnavailable) {
 				unverifiable++
+				failingOrigins[extractServerName(string(p.SenderID()))]++
 			} else {
 				badSig++
 			}
@@ -311,6 +326,10 @@ func (r *RoomService) validateFederationStateSet(ctx context.Context, roomID, jo
 		log.Info("federation join %s: kept %d events, skipped %d (unverifiable key: %d, bad signature: %d, unauthorised: %d, undecodable: %d)",
 			roomID, len(events), dropped, unverifiable, badSig, unauthorised, undecodable)
 	}
+	if len(optional) > 0 && (unverifiable > 0 || prefetch.servers > 0) {
+		log.Info("federation join %s: signing keys: %s; top origins with unverifiable events: %s",
+			roomID, prefetch.String(), topOrigins(failingOrigins, 10))
+	}
 	return &preparedFederationJoin{roomID: roomID, version: version, events: events, state: state, join: join, creator: creator, dropped: dropped, critical: critical}, nil
 }
 
@@ -344,6 +363,7 @@ func pruneInvalidJoinAuth(ctx context.Context, events map[string]gmsl.PDU, state
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
+		throttleTick(ctx)
 		id := queue[cursor]
 		processed[id] = true
 		if !invalid[id] {
@@ -387,10 +407,68 @@ func (c *joinSignatureRequests) VerifyJSONs(_ context.Context, requests []gmsl.V
 	return make([]gmsl.VerifyJSONResult, len(requests)), nil
 }
 
+// keyPrefetchStats summarises one bulk key prefetch for the join log.
+type keyPrefetchStats struct {
+	servers, cached, direct, notary, failed int
+	elapsed                                 time.Duration
+	budgetExhausted                         bool
+}
+
+func (k keyPrefetchStats) String() string {
+	return fmt.Sprintf("%d origin servers, %d already cached, %d fetched directly, %d via notary, %d unavailable (elapsed %s, budget exhausted: %t)",
+		k.servers, k.cached, k.direct, k.notary, k.failed, k.elapsed.Round(time.Millisecond), k.budgetExhausted)
+}
+
+// topOrigins renders the n origins with the most affected events.
+func topOrigins(counts map[string]int, n int) string {
+	type kv struct {
+		server string
+		n      int
+	}
+	list := make([]kv, 0, len(counts))
+	for server, c := range counts {
+		list = append(list, kv{server, c})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].n != list[j].n {
+			return list[i].n > list[j].n
+		}
+		return list[i].server < list[j].server
+	})
+	if len(list) == 0 {
+		return "none"
+	}
+	var parts []string
+	for i, e := range list {
+		if i == n {
+			parts = append(parts, fmt.Sprintf("... %d more origins", len(list)-n))
+			break
+		}
+		reason := ""
+		if why, dead := keyFetchFailures.active(e.server); dead {
+			reason = " [" + truncateString(why, 80) + "]"
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d%s", e.server, e.n, reason))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func truncateString(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
 // prefetchSigningKeys warms the key cache for every signing server in the
-// response with a few concurrent fetches, so verification itself never
-// serialises on slow or dead servers (each costs at most one failure).
-func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string]gmsl.PDU) {
+// response so verification itself never serialises on slow or dead servers
+// (each costs at most one failure). Servers are asked directly with
+// MATRIX_JOIN_KEY_WORKERS (default 24) concurrent workers; the servers that did
+// not answer are then resolved with bulk queries to the trusted notaries (one
+// POST per 100 servers) instead of one 8 s round trip each. Verification is
+// unchanged: every document is checked exactly as before.
+func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string]gmsl.PDU, resume bool) keyPrefetchStats {
+	started := time.Now()
 	type want struct {
 		keyID string
 		at    spec.Timestamp
@@ -399,7 +477,16 @@ func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string
 	wanted := map[string]want{}
 	for _, p := range events {
 		if ctx.Err() != nil {
-			return
+			return keyPrefetchStats{elapsed: time.Since(started), budgetExhausted: true}
+		}
+		throttleTick(ctx)
+		// Once an origin is known, further ordinary events of the same origin
+		// ask for no new signer. Room v1/v2 event IDs and restricted joins name
+		// extra signers, so those are always examined.
+		if domain := extractServerName(string(p.SenderID())); domain != "" {
+			if _, known := wanted[domain]; known && !strings.Contains(p.EventID(), ":") && !bytes.Contains(p.Content(), []byte("join_authorised_via_users_server")) {
+				continue
+			}
 		}
 		// Let gomatrixserverlib identify required signers. Arbitrary additional
 		// signatures supplied by a remote must not trigger outbound key requests.
@@ -427,22 +514,44 @@ func (r *RoomService) prefetchSigningKeys(ctx context.Context, events map[string
 			}
 		}
 	}
+	stats := keyPrefetchStats{servers: len(wanted)}
 	servers := make([]string, 0, len(wanted))
-	for s := range wanted {
+	cache := GetKeyCache()
+	for s, w := range wanted {
+		if _, ok := cache.GetForContext(ctx, s, w.keyID, w.at, w.check); ok {
+			stats.cached++
+			continue
+		}
 		servers = append(servers, s)
 	}
 	sort.Strings(servers)
+
+	workers := envInt("MATRIX_JOIN_KEY_WORKERS", 24, 1, 128)
+	if !resume {
+		workers = min(workers, 8)
+	}
+	// Direct phase gets most of the remaining time; the rest is kept for the bulk
+	// notary pass, which is what resolves dead servers.
+	directCtx := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancelDirect context.CancelFunc
+		directCtx, cancelDirect = context.WithDeadline(ctx, time.Now().Add(time.Until(deadline)*2/3))
+		defer cancelDirect()
+	}
+	verifier := federationJSONVerifier{r.HS}
+	var direct atomic.Int64
 	jobs := make(chan string)
 	var wg sync.WaitGroup
-	verifier := federationJSONVerifier{r.HS}
-	for i := 0; i < 8; i++ {
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for server := range jobs {
 				w := wanted[server]
-				if _, err := verifier.serverKeyContext(ctx, server, w.keyID, w.at, w.check); err != nil {
+				if _, err := verifier.lookupKey(directCtx, server, w.keyID, w.at, w.check, false); err != nil {
 					log.Debug("federation join: prefetch key %s:%s: %v", server, w.keyID, err)
+				} else {
+					direct.Add(1)
 				}
 			}
 		}()
@@ -451,12 +560,104 @@ sendJobs:
 	for _, s := range servers {
 		select {
 		case jobs <- s:
-		case <-ctx.Done():
+		case <-directCtx.Done():
 			break sendJobs
 		}
 	}
 	close(jobs)
 	wg.Wait()
+	stats.direct = int(direct.Load())
+
+	// Bulk notary pass for everything still missing.
+	missing := map[string]bulkKeyWant{}
+	for _, s := range servers {
+		w := wanted[s]
+		if _, ok := cache.GetForContext(ctx, s, w.keyID, w.at, w.check); !ok {
+			missing[s] = bulkKeyWant{keyID: w.keyID, at: w.at, check: w.check}
+		}
+	}
+	bulkAnswered := false
+	if len(missing) > 0 && ctx.Err() == nil {
+		for _, notary := range keyNotaries(ctx, r.HS, "") {
+			if len(missing) == 0 || ctx.Err() != nil {
+				break
+			}
+			names := make([]string, 0, len(missing))
+			for s := range missing {
+				names = append(names, s)
+			}
+			sort.Strings(names)
+			for start := 0; start < len(names) && ctx.Err() == nil; start += 100 {
+				group := map[string]bulkKeyWant{}
+				for _, s := range names[start:min(start+100, len(names))] {
+					group[s] = missing[s]
+				}
+				docs, err := verifier.fetchNotaryKeyDocumentsBulk(ctx, notary, group)
+				if err != nil {
+					log.Debug("federation join: bulk key query to notary %s failed: %v", notary, err)
+					break
+				}
+				bulkAnswered = true
+				for server, doc := range docs {
+					cacheKeyDocumentContext(ctx, server, doc)
+					w := group[server]
+					if _, ok := cache.GetForContext(ctx, server, w.keyID, w.at, w.check); ok {
+						stats.notary++
+						delete(missing, server)
+					}
+				}
+			}
+		}
+	}
+	// A notary that does not implement the bulk POST gets the classic per-server
+	// GET queries instead, with the same worker pool.
+	if !bulkAnswered && len(missing) > 0 && ctx.Err() == nil {
+		names := make([]string, 0, len(missing))
+		for s := range missing {
+			names = append(names, s)
+		}
+		sort.Strings(names)
+		var viaNotary atomic.Int64
+		jobs := make(chan string)
+		var wg sync.WaitGroup
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for server := range jobs {
+					w := wanted[server]
+					// The direct-only pass above recorded these servers as failed;
+					// that must not stop the notary attempt that is now due.
+					keyFetchFailures.clear(server)
+					keyFetchFailures.clear(server + "|" + w.keyID)
+					if _, err := verifier.serverKeyContext(ctx, server, w.keyID, w.at, w.check); err == nil {
+						viaNotary.Add(1)
+					}
+				}
+			}()
+		}
+	notaryJobs:
+		for _, s := range names {
+			select {
+			case jobs <- s:
+			case <-ctx.Done():
+				break notaryJobs
+			}
+		}
+		close(jobs)
+		wg.Wait()
+		stats.notary += int(viaNotary.Load())
+		for _, s := range names {
+			w := wanted[s]
+			if _, ok := cache.GetForContext(ctx, s, w.keyID, w.at, w.check); ok {
+				delete(missing, s)
+			}
+		}
+	}
+	stats.failed = len(missing)
+	stats.budgetExhausted = ctx.Err() != nil
+	stats.elapsed = time.Since(started)
+	return stats
 }
 
 func (r *RoomService) persistFederationJoin(pj *preparedFederationJoin) error {

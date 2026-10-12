@@ -43,6 +43,14 @@ type fakeFed struct {
 	// sees the raw query string (omit_members).
 	sendJoinQ func(query string, event json.RawMessage, w http.ResponseWriter, r *http.Request) (status int, body any)
 	queries   []string
+	// leave handling: template builds the make_leave event, sendLeaveStatus (0 =
+	// 200) answers send_leave, leaveEvents records the PDUs sent.
+	leaveTemplate   func(user string) any
+	sendLeaveStatus int
+	sendLeaveBody   string
+	leaveEvents     []json.RawMessage
+	// bulkNotary answers POST /key/v2/query; notaryPosts counts them.
+	bulkNotary bool
 }
 
 func newFakeFed(t *testing.T) *fakeFed {
@@ -80,6 +88,50 @@ func (f *fakeFed) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(NewFederationService(f.hs).GetServerKey())
+	case path == "/_matrix/key/v2/query" && r.Method == http.MethodPost:
+		f.hit("bulk_query")
+		var req struct {
+			ServerKeys map[string]map[string]any `json:"server_keys"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if !f.bulkNotary {
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"errcode":"M_UNRECOGNIZED"}`))
+			return
+		}
+		var docs []any
+		for server := range req.ServerKeys {
+			target := f.notaryDocs[server]
+			if target == nil {
+				continue
+			}
+			doc := NewFederationService(target.hs).GetServerKey()
+			NewFederationService(f.hs).signEvent(doc)
+			docs = append(docs, doc)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"server_keys": docs})
+	case strings.Contains(path, "/federation/v1/make_leave/"):
+		f.hit("make_leave")
+		if f.leaveTemplate == nil {
+			w.WriteHeader(404)
+			return
+		}
+		user := path[strings.LastIndex(path, "/")+1:]
+		user = strings.ReplaceAll(strings.Replace(user, "%40", "@", 1), "%3A", ":")
+		_ = json.NewEncoder(w).Encode(map[string]any{"room_version": "10", "event": f.leaveTemplate(user)})
+	case strings.Contains(path, "/federation/v2/send_leave/") || strings.Contains(path, "/federation/v1/send_leave/"):
+		f.hit("send_leave")
+		body, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.leaveEvents = append(f.leaveEvents, body)
+		f.mu.Unlock()
+		if f.sendLeaveStatus != 0 {
+			w.WriteHeader(f.sendLeaveStatus)
+			_, _ = w.Write([]byte(f.sendLeaveBody))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
 	case strings.HasPrefix(path, "/_matrix/key/v2/query/"):
 		f.hit("query")
 		parts := strings.Split(strings.TrimPrefix(path, "/_matrix/key/v2/query/"), "/")

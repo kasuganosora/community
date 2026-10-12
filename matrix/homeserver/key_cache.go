@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
+	"gorm.io/gorm"
 )
 
 const currentKeyVerificationPolicy = "trusted-notaries-v1"
@@ -30,14 +31,60 @@ type KeyCache struct {
 	cache  map[string]*KeyCacheEntry // key: "serverName:keyID"
 	ttl    time.Duration
 	dbGate chan struct{}
+
+	// Persistence is best effort and asynchronous: the in-memory entry is what
+	// verification uses, the database copy only survives restarts. Writes are
+	// deduplicated per key, batched in one transaction and run under their own
+	// timeout, so a slow database never fails (or blocks) a signature check.
+	saveMu      sync.Mutex
+	pending     map[string]pendingKeySave
+	saveWake    chan struct{}
+	saveStarted bool
+	saveBusy    bool
+	warn        keySaveWarner
+}
+
+type pendingKeySave struct {
+	serverName, keyID string
+	entry             *KeyCacheEntry
+}
+
+// keySaveTimeout bounds one batched write; keySaveBatch is keys per transaction;
+// keySaveWarnInterval limits persistence warnings to one per interval.
+var (
+	keySaveTimeout      = 20 * time.Second
+	keySaveBatch        = 200
+	keySaveWarnInterval = time.Minute
+)
+
+// keySaveWarner collapses persistence failures into one warning per interval.
+type keySaveWarner struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+func (w *keySaveWarner) report(failed int, err error) {
+	w.mu.Lock()
+	w.suppressed += failed
+	if time.Since(w.last) < keySaveWarnInterval {
+		w.mu.Unlock()
+		return
+	}
+	n := w.suppressed
+	w.suppressed, w.last = 0, time.Now()
+	w.mu.Unlock()
+	log.Warn("Failed to cache %d server signing key(s) to the database (best effort, kept in memory; further failures within %s are not logged individually): %v", n, keySaveWarnInterval, err)
 }
 
 // NewKeyCache 创建新的密钥缓存.
 func NewKeyCache() *KeyCache {
 	return &KeyCache{
-		cache:  make(map[string]*KeyCacheEntry),
-		dbGate: make(chan struct{}, 1),
-		ttl:    24 * time.Hour, // 默认缓存24小时
+		cache:    make(map[string]*KeyCacheEntry),
+		dbGate:   make(chan struct{}, 1),
+		ttl:      24 * time.Hour, // 默认缓存24小时
+		pending:  make(map[string]pendingKeySave),
+		saveWake: make(chan struct{}, 1),
 	}
 }
 
@@ -64,12 +111,9 @@ func (kc *KeyCache) set(serverName, keyID string, publicKey ed25519.PublicKey, v
 	kc.setContext(context.Background(), serverName, keyID, publicKey, validUntil, expiredTS)
 }
 
-func (kc *KeyCache) setContext(ctx context.Context, serverName, keyID string, publicKey ed25519.PublicKey, validUntil time.Time, expiredTS int64) {
-	unlock, err := kc.lockDB(ctx)
-	if err != nil {
-		return
-	}
-	defer unlock()
+func (kc *KeyCache) setContext(_ context.Context, serverName, keyID string, publicKey ed25519.PublicKey, validUntil time.Time, expiredTS int64) {
+	// The request/job context deliberately does not reach the database write:
+	// a short or cancelled context must not lose the key or fail the write.
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 
 	entry := &KeyCacheEntry{
@@ -83,8 +127,122 @@ func (kc *KeyCache) setContext(ctx context.Context, serverName, keyID string, pu
 	kc.cache[cacheKey] = entry
 	kc.mu.Unlock()
 
-	// Serialize persistence with replacement/invalidation so a delayed write cannot revive an old key.
-	kc.saveToDBContext(ctx, serverName, keyID, entry)
+	kc.enqueueSave(cacheKey, serverName, keyID, entry)
+}
+
+// enqueueSave records the latest entry for a key; an older unsaved entry for the
+// same key is replaced (dedupe), and the writer goroutine is woken.
+func (kc *KeyCache) enqueueSave(cacheKey, serverName, keyID string, entry *KeyCacheEntry) {
+	kc.saveMu.Lock()
+	if kc.pending == nil {
+		kc.pending = make(map[string]pendingKeySave)
+	}
+	if kc.saveWake == nil {
+		kc.saveWake = make(chan struct{}, 1)
+	}
+	kc.pending[cacheKey] = pendingKeySave{serverName: serverName, keyID: keyID, entry: entry}
+	if !kc.saveStarted {
+		kc.saveStarted = true
+		go kc.saveLoop()
+	}
+	kc.saveMu.Unlock()
+	select {
+	case kc.saveWake <- struct{}{}:
+	default:
+	}
+}
+
+func (kc *KeyCache) saveLoop() {
+	for range kc.saveWake {
+		// Let a burst (one key document carries several keys, a bulk join
+		// carries thousands of servers) accumulate into one batch.
+		time.Sleep(50 * time.Millisecond)
+		kc.flushPending()
+	}
+}
+
+// flushPending writes everything queued so far, in batches, under a fresh
+// context. Failures are counted and warned about once per interval; the keys
+// stay valid in memory and are simply re-fetched after a restart.
+func (kc *KeyCache) flushPending() {
+	for {
+		kc.saveMu.Lock()
+		if len(kc.pending) == 0 {
+			kc.saveBusy = false
+			kc.saveMu.Unlock()
+			return
+		}
+		kc.saveBusy = true
+		batch := make([]pendingKeySave, 0, min(len(kc.pending), keySaveBatch))
+		for k, item := range kc.pending {
+			batch = append(batch, item)
+			delete(kc.pending, k)
+			if len(batch) >= keySaveBatch {
+				break
+			}
+		}
+		kc.saveMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), keySaveTimeout)
+		unlock, err := kc.lockDB(ctx)
+		if err == nil {
+			// Skip entries replaced or invalidated while this batch waited.
+			live := batch[:0]
+			kc.mu.RLock()
+			for _, item := range batch {
+				if kc.cache[fmt.Sprintf("%s:%s", item.serverName, item.keyID)] == item.entry {
+					live = append(live, item)
+				}
+			}
+			kc.mu.RUnlock()
+			err = kc.saveBatch(ctx, live)
+			unlock()
+		}
+		cancel()
+		if err != nil {
+			kc.warn.report(len(batch), err)
+		}
+	}
+}
+
+func (kc *KeyCache) saveBatch(ctx context.Context, batch []pendingKeySave) error {
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, item := range batch {
+			record := keyRecord(item.serverName, item.keyID, item.entry)
+			if err := tx.Where("server_name = ? AND key_id = ?", item.serverName, item.keyID).Assign(record).FirstOrCreate(&record).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// WaitSaved blocks until queued key writes finished or ctx ends (tests, shutdown).
+func (kc *KeyCache) WaitSaved(ctx context.Context) error {
+	for {
+		kc.saveMu.Lock()
+		idle := len(kc.pending) == 0 && !kc.saveBusy
+		kc.saveMu.Unlock()
+		if idle {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func keyRecord(serverName, keyID string, entry *KeyCacheEntry) MatrixServerKey {
+	return MatrixServerKey{
+		VerificationPolicy: currentKeyVerificationPolicy,
+		ExpiredTS:          entry.ExpiredTS,
+		ServerName:         serverName,
+		KeyID:              keyID,
+		PublicKey:          base64.RawStdEncoding.EncodeToString(entry.PublicKey),
+		ValidUntil:         entry.ValidUntil,
+	}
 }
 
 // loadFromDB 从数据库加载密钥.
@@ -93,11 +251,11 @@ func (kc *KeyCache) loadFromDB(serverName, keyID string) *KeyCacheEntry {
 }
 
 func (kc *KeyCache) loadFromDBContext(ctx context.Context, serverName, keyID string) *KeyCacheEntry {
-	unlock, err := kc.lockDB(ctx)
-	if err != nil {
+	// Reads are not serialised behind batched writes: a key being saved is
+	// already in memory, which is checked first.
+	if ctx.Err() != nil {
 		return nil
 	}
-	defer unlock()
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
 	kc.mu.RLock()
 	entry := kc.cache[cacheKey]
@@ -147,21 +305,14 @@ func (kc *KeyCache) saveToDB(serverName, keyID string, entry *KeyCacheEntry) {
 }
 
 func (kc *KeyCache) saveToDBContext(ctx context.Context, serverName, keyID string, entry *KeyCacheEntry) {
-	record := MatrixServerKey{
-		VerificationPolicy: currentKeyVerificationPolicy,
-		ExpiredTS:          entry.ExpiredTS,
-		ServerName:         serverName,
-		KeyID:              keyID,
-		PublicKey:          base64.RawStdEncoding.EncodeToString(entry.PublicKey),
-		ValidUntil:         entry.ValidUntil,
-	}
+	record := keyRecord(serverName, keyID, entry)
 
 	// 使用 Upsert 操作
 	err := db.GetDB().WithContext(ctx).Where("server_name = ? AND key_id = ?", serverName, keyID).
 		Assign(record).
 		FirstOrCreate(&record).Error
 	if err != nil {
-		log.Error("Failed to cache server key to DB for %s:%s: %v", serverName, keyID, err)
+		kc.warn.report(1, err)
 	}
 }
 
@@ -170,6 +321,11 @@ func (kc *KeyCache) Invalidate(serverName, keyID string) {
 	unlock, _ := kc.lockDB(context.Background())
 	defer unlock()
 	cacheKey := fmt.Sprintf("%s:%s", serverName, keyID)
+
+	// A queued (not yet written) save must not revive the key afterwards.
+	kc.saveMu.Lock()
+	delete(kc.pending, cacheKey)
+	kc.saveMu.Unlock()
 
 	kc.mu.Lock()
 	delete(kc.cache, cacheKey)
