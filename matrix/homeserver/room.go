@@ -438,6 +438,17 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	var pendingAlias string
 	if req.RoomAliasName != nil && *req.RoomAliasName != "" {
 		pendingAlias = "#" + *req.RoomAliasName + ":" + r.HS.Config.ServerName
+		if !validGroupAlias(pendingAlias) || extractServerName(pendingAlias) != r.HS.Config.ServerName {
+			tx.Rollback()
+			return nil, ErrInvalidParam
+		}
+		if err := claimRoomAlias(tx, pendingAlias, roomID, creatorID); err != nil {
+			tx.Rollback()
+			if errors.Is(err, errRoomAliasTaken) {
+				return nil, &MatrixError{ErrCode: "M_ROOM_IN_USE", Error: "Room alias is already in use"}
+			}
+			return nil, ErrInternal
+		}
 		tsCounter++
 
 		canonicalAliasEvent := &MatrixEvent{
@@ -461,7 +472,10 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			return nil, ErrInternal
 		}
 
-		r.updateRoomState(tx, roomID, canonicalAliasEvent)
+		if err := r.updateRoomState(tx, roomID, canonicalAliasEvent); err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
 	}
 
 	// 8. 处理邀请
@@ -475,12 +489,6 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	err = tx.Commit().Error
 	if err != nil {
 		return nil, ErrInternal
-	}
-
-	// Register room alias AFTER commit to avoid SQLite BUSY deadlock
-	if pendingAlias != "" {
-		aliasService := NewAliasService(r.HS)
-		_ = aliasService.SetAlias(pendingAlias, roomID, creatorID)
 	}
 
 	return &CreateRoomResponse{RoomID: roomID}, nil

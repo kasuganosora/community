@@ -34,8 +34,10 @@ func RegisterCommunityGroupRoutes(parent *gin.RouterGroup) {
 	})
 	group.GET("/groups", handleWebGroupList)
 	group.POST("/groups", handleWebGroupCreate)
+	group.GET("/groups/invitees", handleWebGroupInvitees)
 	group.GET("/groups/:id", handleWebGroupGet)
 	group.PATCH("/groups/:id", handleWebGroupPatch)
+	group.PUT("/groups/:id/address", handleWebGroupAddress)
 	group.GET("/groups/:id/members", handleWebGroupMembers)
 	group.POST("/groups/:id/members", handleWebGroupMemberAction)
 	group.POST("/groups/:id/permissions", handleWebGroupPermissions)
@@ -238,7 +240,7 @@ func webGroupStates(conn *gorm.DB, roomIDs []string) (map[string]map[EventType]M
 		return out, nil
 	}
 	var states []MatrixRoomState
-	if err := conn.Where("room_id IN ? AND state_key = ? AND event_type IN ?", roomIDs, "", []EventType{EventTypeRoomCreate, EventTypeRoomEncryption, EventTypeRoomPowerLevels, "m.room.tombstone"}).Find(&states).Error; err != nil {
+	if err := conn.Where("room_id IN ? AND state_key = ? AND event_type IN ?", roomIDs, "", []EventType{EventTypeRoomCreate, EventTypeRoomEncryption, EventTypeRoomPowerLevels, EventTypeRoomCanonicalAlias, "m.room.tombstone"}).Find(&states).Error; err != nil {
 		return nil, err
 	}
 	for _, s := range states {
@@ -268,7 +270,7 @@ func webGroupLevels(room *MatrixRoom, state map[EventType]MatrixRoomState) *Powe
 	return pl
 }
 func webGroupCapabilities(hs *HomeServer, room *MatrixRoom, member MembershipState, state map[EventType]MatrixRoomState, user string) gin.H {
-	caps := gin.H{"send_message": false, "invite": false, "kick": false, "ban": false, "redact": false, "set_name": false, "set_topic": false, "set_avatar": false, "manage_permissions": false}
+	caps := gin.H{"send_message": false, "invite": false, "kick": false, "ban": false, "redact": false, "set_name": false, "set_topic": false, "set_avatar": false, "manage_permissions": false, "manage_address": false}
 	if _, _, partial := parsePartialStateMarker(room.CurrentStateID); partial {
 		return caps
 	}
@@ -300,6 +302,7 @@ func webGroupCapabilities(hs *HomeServer, room *MatrixRoom, member MembershipSta
 	for key, event := range map[string]string{"set_name": "m.room.name", "set_topic": "m.room.topic", "set_avatar": "m.room.avatar", "manage_permissions": "m.room.power_levels"} {
 		caps[key] = level >= threshold(event, true)
 	}
+	caps["manage_address"] = webGroupLocallyCreated(hs, room) && level >= threshold(string(EventTypeRoomCanonicalAlias), true)
 	return caps
 }
 
@@ -410,6 +413,11 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 			users = []gin.H{}
 		}
 		out := gin.H{"id": webGroupID(room.RoomID), "name": name, "topic": topic, "avatar_url": avatar, "membership": membership, "encryption": encryption, "join_rule": room.JoinRule, "listed": room.Visibility == "public", "member_count": totals[room.RoomID], "unread_count": unread[room.RoomID], "client_url": "https://matrix.to/#/" + url.PathEscape(room.RoomID) + "?via=" + url.QueryEscape(hs.Config.ServerName), "capabilities": webGroupCapabilities(hs, &room, membership, state, user), "muted": muted[room.RoomID], "typing_users": users, "current_user_id": user, "limits": gin.H{"max_upload_bytes": webGroupUploadMaxBytes(), "max_attachments": 8}}
+		out["canonical_alias"], out["address_server"] = "", hs.Config.ServerName
+		if alias, ok := state[EventTypeRoomCanonicalAlias].Content["alias"].(string); ok && validGroupAlias(alias) {
+			out["canonical_alias"] = alias
+			out["client_url"] = "https://matrix.to/#/" + url.PathEscape(alias)
+		}
 		if replacement, ok := state["m.room.tombstone"].Content["replacement_room"].(string); ok && replacement != "" {
 			out["replacement_id"] = webGroupID(replacement)
 		}

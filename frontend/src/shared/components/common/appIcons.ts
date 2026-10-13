@@ -14,7 +14,7 @@ import {
   NotificationFilledIcon, SettingFilledIcon, UserCircleFilledIcon,
 } from 'tdesign-icons-vue-next'
 
-import { SecuredIcon, PaletteIcon, CloudIcon, CodeIcon, ChartIcon, FileIcon, HistoryIcon, BulletpointIcon, UserCheckedIcon } from 'tdesign-icons-vue-next'
+import { SecuredIcon, PaletteIcon, CloudIcon, CodeIcon, ChartIcon, FileIcon, FileAddIcon, HistoryIcon, BulletpointIcon, UserCheckedIcon } from 'tdesign-icons-vue-next'
 
 import { QuoteIcon, DashboardIcon, UsergroupIcon, FlagIcon, HappyIcon, InternetIcon, ServerIcon, DataIcon, MenuIcon, ArrowRightUpIcon, ArrowRightIcon } from 'tdesign-icons-vue-next'
 
@@ -26,6 +26,7 @@ export const ICONS: Record<string, Component> = {
   'code': CodeIcon,
   'chart': ChartIcon,
   'file': FileIcon,
+  'file-add': FileAddIcon,
   'history': HistoryIcon,
   'bulletpoint': BulletpointIcon,
   'user-checked': UserCheckedIcon,

@@ -25,12 +25,14 @@
 | 群列表 | `GET /groups` | `cursor`、`limit`；分页加载本人已加入、邀请及申请状态 |
 | 创建 | `POST /groups` | `transaction_id`、`name`、`topic`、`visibility`、`invite`、`plaintext_consent`；返回群详情 |
 | 详情／修改 | `GET /groups/:id`、`PATCH /groups/:id` | 修改只接受 `name`、`topic`、`avatar_upload_id` |
+| 自定义短地址 | `PUT /groups/:id/address` | `{"alias":"chat"}`；返回群详情，将本站群的主要地址设为 `#chat:本站服务器` |
 | 搜索 | `GET /groups/search` | `q`、`scope=joined\|local\|remote`、`server`、`cursor`、`limit` |
 | 只读解析 | `POST /groups/resolve` | `target`、`via` 或目录 `preview_ref`；返回预览／客户端入口，不自动加入 |
 | 加入／申请 | `POST /groups/join` | `target`／`preview_ref`、`via`、`action=join\|knock`；返回状态及可能的 `operation_id` |
 | 查询加入进度 | `GET /groups/join/:operationID` | 查询远端操作结果；请求超时不等于远端已拒绝 |
 | 退出／拒绝／取消申请 | `POST /groups/:id/leave` | 按当前成员状态执行 |
 | 成员 | `GET /groups/:id/members` | `cursor`、`limit`；分页加载 |
+| 本站邀请候选 | `GET /groups/invitees` | `q`、`limit`（默认 8，最多 20）；返回 `users` 中的用户名、昵称、头像和成员 ID，仅查有效本站账号，不解析远端 |
 | 成员操作 | `POST /groups/:id/members` | `user_id`、`action=invite\|approve\|kick\|ban\|unban`、可选 `reason` |
 | 成员权限 | `POST /groups/:id/permissions` | `user_id`、`power_level`；不能超过操作者自身权限 |
 | 历史 | `GET /groups/:id/messages` | `before`、`limit`；返回 `{messages,next_cursor}` |
@@ -49,6 +51,12 @@
 分页 `limit` 最大 100。各接口的游标不能混用。搜索分“我的群组”、本站公开目录、指定远端公开目录；不是全网搜索。选择远端目录会将查询发到该服务器。精确别名、`matrix.to` 链接和 `matrix:` URI 可独立解析，不能把 `user@domain` 当作 Matrix 成员 ID；邀请支持本站用户名及完整 Matrix ID。
 
 群详情主要字段为 `id`、`name`、`topic`、`avatar_url`、`membership`、`encryption`、`join_rule`、`listed`、`member_count`、`unread_count`、`muted`、`typing_users`、`current_user_id`、`client_url`、`capabilities`、`limits`，可能附有 `replacement_id` 和 `room_type`。`capabilities` 决定界面可展示的操作，服务端仍在提交时重新授权。
+
+群详情还返回 `canonical_alias`（未设置时为空字符串）和 `address_server`。`client_url` 优先使用主要别名，例如 `https://matrix.to/#/%23chat:c.hime.at`；没有别名时保留原有房间 ID 链接。网页始终使用返回的链接，不把不透明群 ID 当作地址。
+
+已加入且有 `m.room.canonical_alias` 状态修改权限的成员，可为本站创建、状态完整且未加密的群设置短地址（`capabilities.manage_address`）；外部服务器创建的群不开放此操作。`alias` 只填短名称，1–64 位 ASCII 字母、数字、下划线或连字符，首尾须为字母或数字；保存时去除前后空格并转为小写。已被其他群占用返回 HTTP 409、`code:alias_taken`；无效名称返回 400、`code:invalid_alias`。更换主要地址不会删除旧别名，旧分享链接继续有效；网页不提供删除地址的操作。
+
+短地址复用原生 Matrix 别名表和 `m.room.canonical_alias` 状态，与状态事件及联邦发件队列在同一事务提交，不改变群的公开目录展示、加入规则或历史权限。仅邀请群有了地址仍需获得邀请；通过地址查询只能解析到房间及服务器，不返回私群名称、介绍或历史。原生客户端创建／设置别名也不能覆盖其他群的映射。
 
 创建示例：
 

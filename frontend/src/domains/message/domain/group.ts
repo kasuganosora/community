@@ -1,6 +1,6 @@
 export interface GroupCapabilities {
   send_message: boolean; invite: boolean; kick: boolean; ban: boolean; redact: boolean
-  set_name: boolean; set_topic?: boolean; set_avatar: boolean; manage_permissions: boolean
+  set_name: boolean; set_topic?: boolean; set_avatar: boolean; manage_permissions: boolean; manage_address?: boolean
 }
 export interface GroupPerson { id: string; display_name: string; avatar_url?: string }
 export interface Group {
@@ -8,10 +8,11 @@ export interface Group {
   membership: 'join' | 'invite' | 'knock' | 'leave' | 'ban' | 'none'
   encryption: 'unknown' | 'unencrypted' | 'encrypted'
   room_type?: string; join_rule: string; listed: boolean; member_count: number | null; unread_count: number
-  client_url: string; capabilities: GroupCapabilities; replacement_id?: string
+  client_url: string; canonical_alias?: string; address_server?: string; capabilities: GroupCapabilities; replacement_id?: string
   limits?: { max_upload_bytes: number; max_attachments: number }; invite_failures?: { user_id: string; error: string; retryable: boolean }[]; muted?: boolean; typing_users?: GroupPerson[]; current_user_id?: string
 }
 export interface GroupMember extends GroupPerson { membership: string; power_level: number }
+export interface GroupInvitee { user_id: string; username: string; display_name: string; avatar_url: string }
 export interface GroupAttachment { id: string; name: string; type: string; size: number; url: string; thumbnail_url?: string }
 export interface GroupEmoji { shortcode: string; url: string; static_url: string }
 export interface GroupReaction { key: string; count: number; own: boolean; url?: string; label?: string; shortcode?: string }

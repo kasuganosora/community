@@ -3,6 +3,7 @@ package homeserver
 import (
 	"testing"
 
+	"github.com/kasuganosora/community/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,18 +94,22 @@ func TestAliasService_GetAliasesForRoom_Empty(t *testing.T) {
 	assert.Empty(t, aliases)
 }
 
-func TestAliasService_SetAlias_UpdatesExisting(t *testing.T) {
+func TestAliasService_SetAlias_DoesNotTransferExisting(t *testing.T) {
 	setupMinimalTestDB(t)
 	hs := minimalHS("test.local")
 	s := NewAliasService(hs)
 
 	require.NoError(t, s.SetAlias("update", "!old:test.local", "@a:test.local"))
-	// Set same alias again with new room → should update
-	require.NoError(t, s.SetAlias("update", "!new:test.local", "@b:test.local"))
+	require.ErrorIs(t, s.SetAlias("update", "!new:test.local", "@b:test.local"), errRoomAliasTaken)
+	require.NoError(t, s.SetAlias("update", "!old:test.local", "@b:test.local"))
 
 	roomID, err := s.GetRoomIDByAlias("update")
 	require.NoError(t, err)
-	assert.Equal(t, "!new:test.local", roomID)
+	assert.Equal(t, "!old:test.local", roomID)
+	var claimed MatrixRoomAlias
+	require.NoError(t, db.GetDB().Where("room_alias = ?", "#update:test.local").Take(&claimed).Error)
+	assert.Equal(t, "@a:test.local", claimed.Creator, "an idempotent request must not steal ownership")
+	require.ErrorIs(t, s.SetAlias("#update:elsewhere.test", "!old:test.local", "@a:test.local"), errRoomAliasInvalid)
 }
 
 // ===== MatrixRoomAlias model tests =====

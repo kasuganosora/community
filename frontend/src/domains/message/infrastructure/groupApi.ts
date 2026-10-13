@@ -1,14 +1,16 @@
 import client from '@/shared/api/client'
-import type { Group, GroupPage, GroupSearchPage, GroupMember, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
+import type { Group, GroupPage, GroupSearchPage, GroupMember, GroupInvitee, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
 const base = '/api/v1/chat/groups'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
 // Outlive the server's 300s transfer budget and its 5s socket-response margin.
 const mediaTimeout = 310000
 export const groupApi = {
+  async invitees(q: string, signal?: AbortSignal): Promise<GroupInvitee[]> { return (await client.get<{ users: GroupInvitee[] }>(`${base}/invitees`, { params: { q, limit: 8 }, signal })).data.users },
   async list(cursor?: string, signal?: AbortSignal): Promise<GroupPage> { return (await client.get(base, { params: { cursor, limit: 40 }, signal })).data },
   async get(id: string, signal?: AbortSignal): Promise<Group> { return (await client.get(path(id), { signal })).data },
   async create(input: { transaction_id: string; name: string; topic?: string; visibility: 'private' | 'public'; invite?: string[]; plaintext_consent: true }): Promise<Group> { return (await client.post(base, input, { timeout: 35000 })).data },
   async update(id: string, input: { name?: string; topic?: string; avatar_upload_id?: string }): Promise<Group> { return (await client.patch(path(id), input)).data },
+  async address(id: string, alias: string): Promise<Group> { return (await client.put(`${path(id)}/address`, { alias })).data },
   async search(params: { q: string; scope: 'joined' | 'local' | 'remote'; server?: string; cursor?: string; limit?: number }, signal?: AbortSignal): Promise<GroupSearchPage> { return (await client.get(`${base}/search`, { params, signal, timeout: 35000 })).data },
   async resolve(target: string, signal?: AbortSignal, via?: string[], preview_ref?: string): Promise<{ group?: Group; target: string; via: string[] }> { return (await client.post(`${base}/resolve`, { target, via, preview_ref }, { signal, timeout: 35000 })).data },
   async join(input: { target: string; via?: string[]; action?: 'join' | 'knock' }): Promise<GroupJoinResult> { return (await client.post(`${base}/join`, input, { timeout: 90000 })).data },

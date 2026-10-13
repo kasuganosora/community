@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ===== 房间别名 =====
@@ -123,28 +124,35 @@ func (s *AliasService) SetAlias(alias, roomID, creator string) error {
 	if !strings.Contains(alias, ":") {
 		alias = alias + ":" + s.hs.Config.ServerName
 	}
-
-	// 检查别名是否已存在
-	var existing MatrixRoomAlias
-
-	err := db.GetDB().Where("room_alias = ?", alias).First(&existing).Error
-	if err == nil {
-		// 别名已存在，更新
-		return db.GetDB().Model(&existing).Updates(map[string]any{
-			"room_id": roomID, //nolint:goconst
-			"creator": creator,
-		}).Error
+	if !validGroupAlias(alias) || extractServerName(alias) != s.hs.Config.ServerName {
+		return errRoomAliasInvalid
 	}
+	return claimRoomAlias(db.GetDB(), alias, roomID, creator)
+}
 
-	// 创建新别名
-	roomAlias := &MatrixRoomAlias{
-		RoomAlias: alias,
-		RoomID:    roomID,
-		Creator:   creator,
-		CreatedAt: time.Now(),
+var (
+	errRoomAliasTaken   = errors.New("room alias is already in use")
+	errRoomAliasInvalid = errors.New("room alias must be a valid local address")
+)
+
+// The unique constraint arbitrates concurrent claims. Never replace another
+// room's mapping or transfer ownership, including through a native client.
+// A matching room is idempotent, which lets address changes reuse an old alias.
+func claimRoomAlias(conn *gorm.DB, alias, roomID, creator string) error {
+	row := MatrixRoomAlias{RoomAlias: alias, RoomID: roomID, Creator: creator, CreatedAt: time.Now()}
+	if err := conn.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "room_alias"}}, DoNothing: true}).Create(&row).Error; err != nil {
+		return err
 	}
-
-	return db.GetDB().Create(roomAlias).Error
+	var claimed MatrixRoomAlias
+	// A locking read also observes the winning concurrent insert under MySQL's
+	// REPEATABLE READ, rather than using the earlier room-state snapshot.
+	if err := conn.Clauses(clause.Locking{Strength: "UPDATE"}).Where("room_alias = ?", alias).Take(&claimed).Error; err != nil {
+		return err
+	}
+	if claimed.RoomID != roomID {
+		return errRoomAliasTaken
+	}
+	return nil
 }
 
 // DeleteAlias 删除房间别名.
@@ -265,6 +273,14 @@ func handleSetRoomAlias(c *gin.Context) {
 
 	aliasService := NewAliasService(hs)
 	if err := aliasService.SetAlias(roomAlias, req.RoomID, userID); err != nil {
+		if errors.Is(err, errRoomAliasTaken) {
+			c.JSON(http.StatusConflict, gin.H{"errcode": "M_ROOM_IN_USE", "error": "Room alias is already in use"})
+			return
+		}
+		if errors.Is(err, errRoomAliasInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_INVALID_PARAM", "error": "Room alias must be a valid local address"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"errcode": "M_INTERNAL", //nolint:goconst
 			"error":   "Failed to set alias",

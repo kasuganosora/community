@@ -15,4 +15,11 @@ describe('group API privacy and long polling', () => {
     await groupApi.media('/api/v1/chat/groups/id/messages/msg/media/file')
     expect(client.get).toHaveBeenCalledWith('/api/v1/chat/groups/id/messages/msg/media/file', expect.objectContaining({ responseType: 'blob' }))
   })
+  it('keeps invite suggestions local and lets superseded input cancel the request', async () => {
+    const signal = new AbortController().signal
+    const users = [{ user_id: '@bob:test.local', username: 'bob', display_name: '小波', avatar_url: '/avatar/bob.png' }]
+    vi.mocked(client.get).mockResolvedValueOnce({ data: { users } })
+    expect(await groupApi.invitees('@bob:test.local', signal)).toEqual(users)
+    expect(client.get).toHaveBeenLastCalledWith('/api/v1/chat/groups/invitees', { params: { q: '@bob:test.local', limit: 8 }, signal })
+  })
 })
