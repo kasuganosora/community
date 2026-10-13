@@ -54,3 +54,29 @@ func TestCommunityChatUsesAuthenticatedIdentityAndWriteScope(t *testing.T) {
 		})
 	}
 }
+
+func TestCommunityGroupReadScopeOnlyAllowsReadOnlyPosts(t *testing.T) {
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{
+		{"/api/v1/chat/group-sync", http.StatusOK},
+		{"/api/v1/chat/groups/resolve", http.StatusOK},
+		{"/api/v1/chat/groups", http.StatusUnauthorized},
+		{"/api/v1/chat/groups/join", http.StatusUnauthorized},
+		{"/api/v1/chat/groups/resolve/extra", http.StatusUnauthorized},
+		{"/api/v1/chat/groups/example/messages", http.StatusUnauthorized},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				c.Set("token_data", &models.AuthTokenData{AuthType: models.AuthTokenTypeOauth, Scopes: &models.ApplicationScope{ReadScope: models.AppScopeReadStatuses}})
+				c.Next()
+			})
+			r.POST(tc.path, communityChatScope, func(c *gin.Context) { c.Status(http.StatusOK) })
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tc.path, nil))
+			require.Equal(t, tc.status, w.Code)
+		})
+	}
+}

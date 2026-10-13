@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -10,6 +11,72 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFederationV12OmittedCreatorStateCompletedBeforeIncomingEvents(t *testing.T) {
+	hs, remote, roomID, state, join := v12RemoteJoinFixture(t)
+	live := newFakeFed(t)
+	oldFactory := newFederationClient
+	newFederationClient = func(h *HomeServer) *FederationClient {
+		client := NewFederationClient(h)
+		client.fedHTTPClient = live.srv.Client()
+		return client
+	}
+	t.Cleanup(func() { newFederationClient = oldFactory })
+	var full, partial []json.RawMessage
+	for _, p := range state {
+		full = append(full, json.RawMessage(p.JSON()))
+		if p.Type() != "m.room.member" {
+			partial = append(partial, json.RawMessage(p.JSON()))
+		}
+	}
+	live.stateResp = func() any {
+		return map[string]any{"pdus": append(append([]json.RawMessage(nil), full...), json.RawMessage(join.JSON())), "auth_chain": full}
+	}
+	prepared, err := hs.Room.validateFederationJoin(context.Background(), roomID, "@alice:test.local", "12", join.JSON(), &sendJoinResponse{
+		State: append([]json.RawMessage(nil), partial...), AuthChain: append([]json.RawMessage(nil), full...), MembersOmitted: true,
+	})
+	require.NoError(t, err)
+	rem, err := hs.Room.persistFederationJoinStaged(context.Background(), prepared, live.name)
+	require.NoError(t, err)
+	require.NotNil(t, rem)
+	var anchor MatrixEvent
+	require.NoError(t, db.GetDB().Where("event_id = ?", join.EventID()).First(&anchor).Error)
+	require.False(t, anchor.StateSnapshotKnown, "an omitted member list cannot be an authoritative DAG snapshot")
+	// Native clients may send while the background state is incomplete. Their
+	// snapshots must be reconstructed from the repaired join anchor later.
+	local, matrixErr := hs.Event.SendRoomEvent(roomID, "@alice:test.local", "m.room.message", nil, map[string]any{"msgtype": "m.text", "body": "during sync"}, nil)
+	require.Nil(t, matrixErr)
+	anchor = MatrixEvent{}
+	require.NoError(t, db.GetDB().Where("event_id = ?", local.EventID).First(&anchor).Error)
+	require.False(t, anchor.StateSnapshotKnown)
+	require.NoError(t, hs.Room.refetchJoinRemainder(context.Background(), rem, loadAsyncJoinSettings()))
+	require.NoError(t, hs.Room.runJoinRemainder(context.Background(), rem, loadAsyncJoinSettings()))
+	require.NoError(t, hs.Room.finishPartialJoin(context.Background(), rem))
+	anchor = MatrixEvent{}
+	require.NoError(t, db.GetDB().Where("event_id = ?", join.EventID()).First(&anchor).Error)
+	require.True(t, anchor.StateSnapshotKnown)
+	require.Contains(t, anchor.StateBefore, state[1].EventID(), "the omitted creator membership must be in the historical anchor")
+	for _, kind := range []EventType{EventTypeRoomMessage, EventTypeRoomEncryption} {
+		content := map[string]any{"msgtype": "m.text", "body": "after partial sync"}
+		var key *string
+		if kind == EventTypeRoomEncryption {
+			key = new("")
+			content = map[string]any{"algorithm": "m.megolm.v1.aes-sha2"}
+		}
+		event := &MatrixEvent{RoomID: roomID, Sender: "@owner:v12-remote.example", EventType: kind, StateKey: key, Content: content}
+		require.NoError(t, buildLocalPDU(db.GetDB(), remote, event, "12"))
+		wire, err := matrixEventToPDU(event)
+		require.NoError(t, err)
+		_, err = storeFederationPDU(hs, wire)
+		require.NoError(t, err, string(kind))
+	}
+	var room MatrixRoom
+	require.NoError(t, db.GetDB().Where("room_id = ?", roomID).First(&room).Error)
+	require.True(t, room.IsEncrypted)
+	denied := webGroupPlaintext(hs, &room)
+	require.NotNil(t, denied)
+	require.Equal(t, "M_GROUP_ENCRYPTED", denied.ErrCode)
+}
 
 // Build a remote v12 auth chain independently of Community's room creation so
 // the join importer must handle the actual wire shape (domainless ID and no

@@ -1,7 +1,6 @@
 package homeserver
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,7 +52,7 @@ func (r *RoomService) signRemoteInvite(tx *gorm.DB, event *MatrixEvent) error {
 	stripped = append(stripped, map[string]any{"type": string(event.EventType), "state_key": *event.StateKey, "sender": event.Sender, "content": event.Content})
 	client := NewFederationClient(r.HS)
 	endpoint := fmt.Sprintf("%s/_matrix/federation/v2/invite/%s/%s", client.federationBaseURL(target), url.PathEscape(event.RoomID), url.PathEscape(event.EventID))
-	response, body, err := client.doFederationRequest(http.MethodPut, endpoint, target, map[string]any{"room_version": room.RoomVersion, "event": wire, "invite_room_state": stripped})
+	response, body, err := client.doFederationRequestContext(tx.Statement.Context, http.MethodPut, endpoint, target, map[string]any{"room_version": room.RoomVersion, "event": wire, "invite_room_state": stripped}, 2<<20)
 	if err != nil {
 		return err
 	}
@@ -81,7 +80,7 @@ func (r *RoomService) signRemoteInvite(tx *gorm.DB, event *MatrixEvent) error {
 	if err != nil {
 		return err
 	}
-	results, err := (federationJSONVerifier{r.HS}).VerifyJSONs(context.Background(), []gmsl.VerifyJSONRequest{{ServerName: spec.ServerName(target), AtTS: signed.OriginServerTS(), Message: redacted, ValidityCheckingFunc: gmsl.StrictValiditySignatureCheck}})
+	results, err := (federationJSONVerifier{r.HS}).VerifyJSONs(tx.Statement.Context, []gmsl.VerifyJSONRequest{{ServerName: spec.ServerName(target), AtTS: signed.OriginServerTS(), Message: redacted, ValidityCheckingFunc: gmsl.StrictValiditySignatureCheck}})
 	if err != nil {
 		return err
 	}

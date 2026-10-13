@@ -173,6 +173,12 @@ func persistVerifiedPDUAtState(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applySta
 func persistVerifiedPDUAtStateHinted(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, applyState bool, stateBefore []gmsl.PDU, snapshotKnown bool, absent map[string]bool) error {
 	event := pduToMatrixEvent(p)
 	event.StateSnapshotKnown = snapshotKnown
+	// An incomplete snapshot can retain the verified subset for a partial
+	// join's later completion, but readers must not use it as full DAG state.
+	event.StateBefore = make([]string, 0, len(stateBefore))
+	for _, e := range stateBefore {
+		event.StateBefore = append(event.StateBefore, e.EventID())
+	}
 	if snapshotKnown {
 		if applyState {
 			auth, err := gmsl.NewAuthEvents(stateBefore)
@@ -182,10 +188,6 @@ func persistVerifiedPDUAtStateHinted(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, ap
 			if err = gmsl.Allowed(p, auth, federationUserID); err != nil {
 				return fmt.Errorf("event authorization against prior state: %w", err)
 			}
-		}
-		event.StateBefore = make([]string, 0, len(stateBefore))
-		for _, e := range stateBefore {
-			event.StateBefore = append(event.StateBefore, e.EventID())
 		}
 	}
 

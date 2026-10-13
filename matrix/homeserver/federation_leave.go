@@ -110,6 +110,9 @@ func (r *RoomService) remoteLeaveCandidates(roomID string, member *MatrixRoomMem
 		seen[s] = true
 		out = append(out, s)
 	}
+	if room != nil {
+		add(knockPreviewServer(room))
+	}
 	if _, server, partial := roomPartialState(db.GetDB(), roomID); partial {
 		add(server)
 		for _, h := range partialRoomServerHints(roomID, maxPartialFanout()) {
@@ -261,7 +264,7 @@ func (r *RoomService) LeaveRoomContext(ctx context.Context, userID, roomID strin
 	var room MatrixRoom
 	roomErr := db.GetDB().Where("room_id = ?", roomID).First(&room).Error
 	_, _, partial := roomPartialState(db.GetDB(), roomID)
-	remoteRoom := partial
+	remoteRoom := partial || knockPreviewServer(&room) != ""
 	if roomErr == nil && room.Creator != "" && extractServerName(room.Creator) != r.HS.Config.ServerName {
 		remoteRoom = true
 	}
@@ -288,9 +291,9 @@ func (r *RoomService) LeaveRoomContext(ctx context.Context, userID, roomID strin
 		switch {
 		case member.Membership == MembershipInvite:
 			return r.leaveRoomLocally(userID, roomID, reason, member, "invite-fallback")
-		case remoteErr.ErrCode == "M_FORBIDDEN" || remoteErr.ErrCode == "M_NOT_FOUND":
+		case (remoteErr.ErrCode == "M_FORBIDDEN" || remoteErr.ErrCode == "M_NOT_FOUND") && member.Membership != MembershipKnock:
 			return r.leaveRoomLocally(userID, roomID, reason, member, "remote-refused")
-		case !partial:
+		case !partial && member.Membership != MembershipKnock:
 			if err := r.leaveRoomLocally(userID, roomID, reason, member, "federation-failed"); err == nil {
 				return nil
 			}

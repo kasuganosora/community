@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func mustEventJSON(t *testing.T, typ string, s *models.Status) string {
@@ -24,7 +25,10 @@ func mustEventJSON(t *testing.T, typ string, s *models.Status) string {
 // toStatusBase dereferences a nil Account.
 func TestSerializerStatusEvent_ReblogWithoutPreloadedAccount(t *testing.T) {
 	setupTestDB(t)
-	gdb := db.GetDB()
+	// Seed serializer fixtures without emitting live status events: those listeners
+	// launch asynchronous feed work that can outlive this test's database.
+	// Serialization still reloads these rows through the normal database handle.
+	gdb := db.GetDB().Session(&gorm.Session{SkipHooks: true})
 	setupRedisForTest(t)
 	sqlDB, dbErr := gdb.DB()
 	require.NoError(t, dbErr)
@@ -62,7 +66,10 @@ func TestSerializerStatusEvent_ReblogWithoutPreloadedAccount(t *testing.T) {
 // Optional relations that point at rows that no longer exist must not panic.
 func TestSerializerStatusEvent_ReblogTargetMissing(t *testing.T) {
 	setupTestDB(t)
-	gdb := db.GetDB()
+	// Seed serializer fixtures without emitting live status events: those listeners
+	// launch asynchronous feed work that can outlive this test's database.
+	// Serialization still reloads these rows through the normal database handle.
+	gdb := db.GetDB().Session(&gorm.Session{SkipHooks: true})
 	setupRedisForTest(t)
 	sqlDB, dbErr := gdb.DB()
 	require.NoError(t, dbErr)

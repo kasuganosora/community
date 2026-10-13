@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,6 +47,17 @@ func asyncJoinEnv(t *testing.T, members int) (*HomeServer, *fakeFed, *fakeRoom, 
 		takePartialPDUs(room.roomID)
 	})
 	return hs, live, room, users
+}
+
+// joinTestGate releases blocked fake federation work even when a require
+// assertion aborts the test before the normal release point. Register this
+// after asyncJoinEnv so its cleanup runs before asyncJoins.shutdown.
+func joinTestGate(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unblock)
+	return release, unblock
 }
 
 func countMembers(t *testing.T, roomID string) int64 {
@@ -89,7 +101,7 @@ func partialFedRouter() *gin.Engine {
 
 func TestAsyncJoinStoresEssentialSynchronouslyAndRestInBackground(t *testing.T) {
 	hs, live, room, users := asyncJoinEnv(t, 60)
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	var batches atomic.Int64
 	joinRemainderBatchHook = func() error { batches.Add(1); <-release; return nil }
 
@@ -117,7 +129,7 @@ func TestAsyncJoinStoresEssentialSynchronouslyAndRestInBackground(t *testing.T) 
 	require.Nil(t, merr, "sending in a partial room must work")
 	require.NotEmpty(t, sent.EventID)
 
-	close(release)
+	unblock()
 	asyncJoins.idle()
 
 	require.False(t, partialFlag(room.roomID), "flag cleared when the background write is done")
@@ -145,7 +157,7 @@ func TestAsyncJoinSmallRoomsAreStoredInline(t *testing.T) {
 
 func TestAsyncJoinFederationEndpointsAnswerNotFoundWhilePartial(t *testing.T) {
 	hs, live, room, _ := asyncJoinEnv(t, 30)
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	joinRemainderBatchHook = func() error { <-release; return nil }
 	joinAlice(t, hs, room, live)
 	require.True(t, partialFlag(room.roomID))
@@ -171,7 +183,7 @@ func TestAsyncJoinFederationEndpointsAnswerNotFoundWhilePartial(t *testing.T) {
 		require.Contains(t, body["error"], "synchronised")
 	}
 
-	close(release)
+	unblock()
 	asyncJoins.idle()
 	require.False(t, partialFlag(room.roomID))
 	w := httptest.NewRecorder()
@@ -181,7 +193,7 @@ func TestAsyncJoinFederationEndpointsAnswerNotFoundWhilePartial(t *testing.T) {
 
 func TestAsyncJoinQueuesInboundPDUsAndReplaysThem(t *testing.T) {
 	hs, live, room, _ := asyncJoinEnv(t, 30)
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	joinRemainderBatchHook = func() error { <-release; return nil }
 	joinAlice(t, hs, room, live)
 
@@ -207,19 +219,19 @@ func TestAsyncJoinQueuesInboundPDUsAndReplaysThem(t *testing.T) {
 	asyncJoinSettingsSource = func() asyncJoinSettings { s := loadAsyncJoinSettings(); s.MaxPending = 1; return s }
 	require.False(t, queuePartialPDU(room.roomID, pdu))
 
-	close(release)
+	unblock()
 	asyncJoins.idle()
 	require.Empty(t, takePartialPDUs(room.roomID), "queue is drained when the room completes")
 }
 
 func TestAsyncJoinWriterIsIdempotentAndNeverOverwritesNewerState(t *testing.T) {
 	hs, live, room, users := asyncJoinEnv(t, 25)
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	joinRemainderBatchHook = func() error { <-release; return nil }
 	joinAlice(t, hs, room, live)
 	// member000 left locally after the snapshot: the late snapshot row must not resurrect it.
 	require.NoError(t, db.GetDB().Create(&MatrixRoomMember{RoomID: room.roomID, UserID: users[0], Membership: MembershipLeave, EventID: "$newer"}).Error)
-	close(release)
+	unblock()
 	asyncJoins.idle()
 
 	var m MatrixRoomMember

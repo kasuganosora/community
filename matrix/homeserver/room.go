@@ -584,6 +584,9 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 		return "", joinContextError(ctx, 0, settings.Total)
 	}
 	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrInternal
+		}
 		// Room not found locally; attempt federation join if server hints provided
 		if len(req.Servers) > 0 {
 			return r.federationJoinContext(ctx, userID, roomID, req.Servers)
@@ -594,100 +597,113 @@ func (r *RoomService) JoinRoomContext(ctx context.Context, userID, roomIDOrAlias
 
 	// A known room whose state sync was interrupted gets its writer back.
 	r.resumePartialJoinIfNeeded(roomID)
-
-	// 检查用户是否已在房间中
 	var member MatrixRoomMember
-	// Build member event content, merging any extra content from request
-	joinContent := map[string]any{"membership": "join"}
-
-	for k, v := range req.AdditionalContent {
-		if k != "membership" {
-			joinContent[k] = v
-		}
+	memberErr := db.GetDB().WithContext(ctx).Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+	if memberErr != nil && !errors.Is(memberErr, gorm.ErrRecordNotFound) {
+		return "", ErrInternal
 	}
-
-	err = db.GetDB().Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
-	if err == nil {
+	if memberErr == nil {
 		if member.Membership == MembershipBan {
 			return "", ErrForbidden
 		}
-		// Forgotten rooms cannot be rejoined unless user has a pending invite
-		if member.Forgotten && member.Membership != MembershipInvite {
-			return "", ErrForbidden
-		}
-		// 如果是 invite 或 leave，更新为 join
-		if member.Membership == MembershipInvite || member.Membership == MembershipLeave {
-			event := &MatrixEvent{
-				EventID:        "$" + uuid.New().String(),
-				RoomID:         roomID,
-				EventType:      EventTypeRoomMember,
-				Sender:         userID,
-				StateKey:       new(userID),
-				Content:        joinContent,
-				Depth:          r.getNextDepth(db.GetDB(), roomID),
-				OriginServerTS: time.Now().UnixMilli(),
-				SenderDomain:   r.HS.Config.ServerName,
-			}
-			err := db.GetDB().Create(event).Error
-			if err != nil {
-				return "", ErrInternal
-			}
-
-			r.updateRoomState(db.GetDB(), roomID, event)
-			r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
-			// Clear forgotten flag on re-join (e.g. after re-invite)
-			if member.Forgotten {
-				db.GetDB().Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Update("forgotten", false)
-			}
-
-			go r.HS.NotifyRoomEvent(roomID)
-			if r.HS.Event != nil {
-				go r.HS.Event.federateEvent(event)
-			}
-		}
-
-		return roomID, nil
-	}
-
-	// 检查加入规则
-	joinRuleContent, _ := r.GetRoomState(roomID, EventTypeRoomJoinRules, "")
-	joinRule := "invite" // default to restrictive
-
-	if m, ok := joinRuleContent.(map[string]any); ok {
-		if jr, ok := m["join_rule"].(string); ok {
-			joinRule = jr
+		if member.Membership == MembershipJoin {
+			return roomID, nil
 		}
 	}
-
-	if joinRule == "invite" || joinRule == "knock" {
-		return "", ErrForbidden
+	// An invitation/knock preview is not a joined room. Obtain authoritative
+	// state through federation, even when a metadata room row already exists.
+	var create MatrixEvent
+	createErr := db.GetDB().WithContext(ctx).Where("room_id = ? AND event_type = ?", roomID, EventTypeRoomCreate).First(&create).Error
+	previewServer := knockPreviewServer(&room)
+	remoteCreator := room.Creator != "" && extractServerName(room.Creator) != r.HS.Config.ServerName
+	needsRemote := previewServer != "" || remoteCreator || errors.Is(createErr, gorm.ErrRecordNotFound) && len(req.Servers) > 0
+	if needsRemote {
+		hints := append(req.Servers, previewServer, extractServerName(room.Creator))
+		hints = append(hints, r.remoteLeaveCandidates(roomID, &member, &room)...)
+		candidates := orderJoinServers(r.HS.Config.ServerName, roomID, hints, directoryServers, inviter)
+		if len(candidates) == 0 {
+			return "", ErrNotFound
+		}
+		return r.federationJoinContext(ctx, userID, roomID, candidates)
 	}
-
-	// 创建成员事件
-	event := &MatrixEvent{
-		EventID:        "$" + uuid.New().String(),
-		RoomID:         roomID,
-		EventType:      EventTypeRoomMember,
-		Sender:         userID,
-		StateKey:       new(userID),
-		Content:        joinContent,
-		Depth:          r.getNextDepth(db.GetDB(), roomID),
-		OriginServerTS: time.Now().UnixMilli(),
-		SenderDomain:   r.HS.Config.ServerName,
-	}
-
-	if err := db.GetDB().Create(event).Error; err != nil {
+	if createErr != nil && !errors.Is(createErr, gorm.ErrRecordNotFound) {
 		return "", ErrInternal
 	}
-
-	r.updateRoomState(db.GetDB(), roomID, event)
-
-	r.updateRoomMember(db.GetDB(), roomID, userID, MembershipJoin, event.EventID)
+	event := &MatrixEvent{RoomID: roomID, EventType: EventTypeRoomMember, Sender: userID, StateKey: &userID, Content: map[string]any{"membership": "join"}, SenderDomain: r.HS.Config.ServerName}
+	for k, v := range req.AdditionalContent {
+		if k != "membership" && k != "join_authorised_via_users_server" {
+			event.Content[k] = v
+		}
+	}
+	var joinDenied *MatrixError
+	// Membership and join rules are rechecked under the room lock. A previous
+	// leave row never grants permission to rejoin an invitation-only room.
+	err = db.GetDB().WithContext(ctx).Set("matrix:signer", r.HS).Transaction(func(tx *gorm.DB) error {
+		if e := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("room_id = ?", roomID).First(&room).Error; e != nil {
+			return e
+		}
+		member = MatrixRoomMember{}
+		e := tx.Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
+		if e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return e
+		}
+		if member.Membership == MembershipBan {
+			joinDenied = ErrForbidden
+			return errors.New("join forbidden")
+		}
+		if member.Membership == MembershipJoin {
+			return nil
+		}
+		rule := room.JoinRule
+		var joinState MatrixRoomState
+		e = tx.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomJoinRules, "").First(&joinState).Error
+		if e == nil {
+			if v, ok := joinState.Content["join_rule"].(string); ok {
+				rule = v
+			}
+		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
+			return e
+		}
+		if member.Membership != MembershipInvite && rule != "public" {
+			if rule == "restricted" || rule == "knock_restricted" {
+				joinDenied = &MatrixError{ErrCode: "M_UNABLE_TO_AUTHORISE_JOIN", Error: "An invitation or eligible room server is required"}
+				return errors.New("join restricted")
+			}
+			joinDenied = ErrForbidden
+			return errors.New("join forbidden")
+		}
+		if e = tx.Create(event).Error; e != nil {
+			return e
+		}
+		if e = tx.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, userID).Delete(&MatrixRoomState{}).Error; e != nil {
+			return e
+		}
+		if e = tx.Create(&MatrixRoomState{RoomID: roomID, EventType: EventTypeRoomMember, StateKey: userID, EventID: event.EventID, Content: event.Content}).Error; e != nil {
+			return e
+		}
+		if member.ID == 0 {
+			e = tx.Create(&MatrixRoomMember{RoomID: roomID, UserID: userID, Membership: MembershipJoin, EventID: event.EventID}).Error
+		} else {
+			e = tx.Model(&member).Updates(map[string]any{"membership": MembershipJoin, "event_id": event.EventID, "forgotten": false}).Error
+		}
+		if e != nil {
+			return e
+		}
+		if !isBridgeDepartureRoom(roomID) && room.ConversationID == nil {
+			return r.HS.queueNativeFederation(tx, event)
+		}
+		return nil
+	})
+	if err != nil {
+		if joinDenied != nil {
+			return "", joinDenied
+		}
+		return "", ErrInternal
+	}
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil {
+	if event.EventID != "" && r.HS.Event != nil && (isBridgeDepartureRoom(roomID) || room.ConversationID != nil) {
 		go r.HS.Event.federateEvent(event)
 	}
-
 	return roomID, nil
 }
 
@@ -873,7 +889,7 @@ func (r *RoomService) InviteUser(roomID, inviterID string, req *InviteUserReques
 		return ErrInternal
 	}
 
-	if r.HS.Event != nil {
+	if r.HS.Event != nil && isBridgeDepartureRoom(roomID) {
 		var state MatrixRoomState
 		if db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, EventTypeRoomMember, req.UserID).First(&state).Error == nil {
 			var event MatrixEvent
@@ -918,7 +934,9 @@ func (r *RoomService) inviteUser(tx *gorm.DB, roomID, inviterID, inviteeID strin
 
 	r.updateRoomMember(tx, roomID, inviteeID, MembershipInvite, event.EventID)
 	go r.HS.NotifyRoomEvent(roomID)
-
+	if !isBridgeDepartureRoom(roomID) {
+		return r.HS.queueNativeFederation(tx, event)
+	}
 	return nil
 }
 
@@ -941,7 +959,7 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 	var member MatrixRoomMember
 
 	err := db.GetDB().Where("room_id = ? AND user_id = ?", roomID, req.UserID).First(&member).Error
-	if err != nil || (member.Membership != MembershipJoin && member.Membership != MembershipInvite) {
+	if err != nil || (member.Membership != MembershipJoin && member.Membership != MembershipInvite && member.Membership != MembershipKnock) {
 		return ErrForbidden
 	}
 
@@ -965,9 +983,6 @@ func (r *RoomService) KickUser(roomID, kickerID string, req *KickUserRequest) *M
 		return ErrInternal
 	}
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
-		go r.HS.Event.federateEvent(event)
-	}
 	return nil
 }
 
@@ -1004,9 +1019,6 @@ func (r *RoomService) BanUser(roomID, bannerID string, req *BanUserRequest) *Mat
 		return ErrInternal
 	}
 	go r.HS.NotifyRoomEvent(roomID)
-	if r.HS.Event != nil && !isBridgeDepartureRoom(roomID) {
-		go r.HS.Event.federateEvent(event)
-	}
 	return nil
 }
 
@@ -1291,9 +1303,9 @@ func (r *RoomService) getUserPowerLevel(pl *PowerLevelContent, userID string) in
 }
 
 // updateRoomState 更新房间状态.
-func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixEvent) {
+func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixEvent) error {
 	if !event.IsStateEvent() {
-		return
+		return nil
 	}
 
 	stateKey := ""
@@ -1302,8 +1314,10 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 	}
 
 	// 删除旧状态
-	tx.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, event.EventType, stateKey).
-		Delete(&MatrixRoomState{})
+	if err := tx.Where("room_id = ? AND event_type = ? AND state_key = ?", roomID, event.EventType, stateKey).
+		Delete(&MatrixRoomState{}).Error; err != nil {
+		return err
+	}
 
 	// 创建新状态
 	state := &MatrixRoomState{
@@ -1313,7 +1327,9 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 		Content:   event.Content,
 		EventID:   event.EventID,
 	}
-	tx.Create(state)
+	if err := tx.Create(state).Error; err != nil {
+		return err
+	}
 
 	// 同步 MatrixRoom 的去正规化字段
 	updates := map[string]any{}
@@ -1348,16 +1364,17 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 	}
 
 	if len(updates) > 0 {
-		tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(updates)
+		return tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(updates).Error
 	}
+	return nil
 }
 
 // updateRoomMember 更新房间成员.
-func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membership MembershipState, eventID string) {
+func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membership MembershipState, eventID string) error {
 	var member MatrixRoomMember
 
 	err := tx.Where("room_id = ? AND user_id = ?", roomID, userID).First(&member).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 创建新成员
 		member = MatrixRoomMember{
 			RoomID:     roomID,
@@ -1365,7 +1382,9 @@ func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membe
 			Membership: membership,
 			EventID:    eventID,
 		}
-		tx.Create(&member)
+		return tx.Create(&member).Error
+	} else if err != nil {
+		return err
 	} else {
 		// 更新成员
 		updates := map[string]any{
@@ -1377,7 +1396,7 @@ func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membe
 			updates["forgotten"] = false
 		}
 
-		tx.Model(&member).Updates(updates)
+		return tx.Model(&member).Updates(updates).Error
 	}
 }
 
@@ -1440,6 +1459,8 @@ func (r *RoomService) persistMembershipDeparture(event *MatrixEvent) error {
 			if err := r.HS.queueBridgeFederation(tx, event); err != nil {
 				return err
 			}
+		} else if err := r.HS.queueNativeFederation(tx, event); err != nil {
+			return err
 		}
 		if err := tx.Where("room_id = ? AND event_type = ? AND state_key = ?", event.RoomID, event.EventType, *event.StateKey).Delete(&MatrixRoomState{}).Error; err != nil {
 			return err

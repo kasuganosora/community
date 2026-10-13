@@ -260,6 +260,12 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 			return nil, ErrInternal
 		}
 	}
+	if !bridgeFederation {
+		if err = e.HS.queueNativeFederation(tx, event); err != nil {
+			tx.Rollback()
+			return nil, ErrInternal
+		}
+	}
 
 	err = tx.Commit().Error
 	if err != nil {
@@ -284,10 +290,7 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 		}
 	}()
 
-	// 联邦事件传播：将事件发送给房间内其他服务器（异步）
-	if !bridgeFederation {
-		go e.federateEvent(event)
-	}
+	// The durable PDU outbox above owns retries for both native and bridge rooms.
 
 	return &SendMessageResponse{EventID: event.EventID}, nil
 }

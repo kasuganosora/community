@@ -15,6 +15,9 @@ import (
 
 // HomeServer Matrix Homeserver.
 type HomeServer struct {
+	federationWorkerOnce  sync.Once
+	federationPeerMu      sync.Mutex
+	federationPeerCursor  string
 	mediaFederationOnce   sync.Once
 	mediaFederationClient *FederationClient
 	Config                *HSConfig
@@ -229,6 +232,8 @@ func Models() []any {
 		&MatrixRoomTag{},
 		&MatrixRoomAlias{},
 		&MatrixMedia{},
+		&WebGroupUpload{},
+		&WebGroupInvitation{},
 		&MatrixThumbnail{},
 		&MatrixRoomMapping{},
 	}
@@ -283,6 +288,7 @@ func (hs *HomeServer) NotifyRoomEvent(roomID string) {
 		if !ok || domain != hs.Config.ServerName {
 			continue
 		}
+		hs.SyncNotifier.Notify(m.UserID, "web_groups")
 		// 通知该用户的所有设备
 		var sessions []MatrixUserSession
 
@@ -299,6 +305,8 @@ func (hs *HomeServer) NotifyUser(userID string) {
 	if hs.SyncNotifier == nil {
 		return
 	}
+
+	hs.SyncNotifier.Notify(userID, "web_groups")
 
 	var sessions []MatrixUserSession
 

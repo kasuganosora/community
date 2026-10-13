@@ -16,6 +16,7 @@ useScrollEdge()
 // narrow screens; keep the FAB out of the way until the header scrolls off.
 const PROFILE_ROUTES = new Set(['profile', 'followers', 'following'])
 const route = useRoute()
+const isGroups = computed(() => route.path === '/messages/groups' || route.path.startsWith('/messages/groups/'))
 const isSettings = computed(() => route.path === '/settings' || route.path.startsWith('/settings/'))
 const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
 const onScroll = () => { scrollY.value = window.scrollY }
@@ -24,12 +25,12 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 watch(() => route.fullPath, () => { onScroll() })
 const fabHidden = computed(() => {
   const name = String(route.name)
-  return isSettings.value || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
+  return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
 })
 </script>
 
 <template>
-  <div class="app-layout" :class="{ 'app-layout--settings': isSettings }">
+  <div class="app-layout" :class="{ 'app-layout--settings': isSettings, 'app-layout--groups': isGroups }">
     <aside class="app-layout__left">
       <LeftSidebar />
     </aside>
@@ -42,7 +43,7 @@ const fabHidden = computed(() => {
         </Transition>
       </router-view>
     </main>
-    <aside v-if="!isSettings" class="app-layout__right">
+    <aside v-if="!isSettings && !isGroups" class="app-layout__right">
       <RightSidebar />
     </aside>
 
@@ -102,6 +103,7 @@ const fabHidden = computed(() => {
     var(--hairline) 0 0 var(--color-separator);
 }
 
+.app-layout--groups .app-layout__center,
 .app-layout--settings .app-layout__center {
   max-width: 64rem;
 }
@@ -148,6 +150,8 @@ const fabHidden = computed(() => {
     /* keep the last post clear of the tab bar + home indicator */
     padding-bottom: calc(var(--tabbar-height) + var(--safe-bottom) + var(--space-4));
   }
+
+  .app-layout--groups .app-layout__center { padding-bottom:0; }
 
   .app-layout__tabbar {
     display: flex;

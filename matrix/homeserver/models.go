@@ -48,12 +48,12 @@ const (
 
 // MatrixEvent Matrix 事件（核心数据结构）.
 type MatrixEvent struct { //nolint:recvcheck
-	EventID string `gorm:"primaryKey;type:varchar(255);index:idx_matrix_events_room_ts,priority:3" json:"event_id"`
+	EventID string `gorm:"primaryKey;type:varchar(255);index:idx_matrix_events_room_ts,priority:3;index:idx_matrix_events_web_history,priority:4" json:"event_id"`
 	// idx_matrix_events_room_ts (room_id, origin_server_ts, event_id) serves the
 	// timeline order used by /messages, /context and /sync (ORDER BY
 	// origin_server_ts, event_id within one room, either direction) without
 	// sorting every event of a big room. AutoMigrate adds it idempotently.
-	RoomID         string         `gorm:"index;index:idx_matrix_events_room_ts,priority:1;type:varchar(255);not null" json:"room_id"`
+	RoomID         string         `gorm:"index;index:idx_matrix_events_web_history,priority:1;index:idx_matrix_events_relation,priority:1;index:idx_matrix_events_room_ts,priority:1;type:varchar(255);not null" json:"room_id"`
 	EventType      EventType      `gorm:"type:varchar(64);not null"        json:"type"`
 	Sender         string         `gorm:"type:varchar(255);not null"       json:"sender"`
 	StateKey       *string        `gorm:"type:varchar(255)"                json:"state_key"`
@@ -86,7 +86,12 @@ type MatrixEvent struct { //nolint:recvcheck
 	// MySQL 8.4 reject the FK (error 6125). Federated events can also arrive before the
 	// room row exists, so events must not be constrained to matrix_rooms_hs.
 
-	CreatedAt *time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+	// Committed per-room order; timestamps supplied by peers never order web history.
+	RelationType   string     `gorm:"type:varchar(32)" json:"-"`
+	RelationTarget string     `gorm:"type:varchar(255);index:idx_matrix_events_relation,priority:2" json:"-"`
+	WebContentHash string     `gorm:"type:varchar(64)" json:"-"`
+	StreamPosition uint64     `gorm:"not null;default:0;index:idx_matrix_events_web_history,priority:2" json:"-"`
+	CreatedAt      *time.Time `gorm:"autoCreateTime;index;index:idx_matrix_events_web_history,priority:3" json:"created_at"`
 }
 
 func (MatrixEvent) TableName() string {
@@ -94,6 +99,9 @@ func (MatrixEvent) TableName() string {
 }
 
 func (e *MatrixEvent) BeforeCreate(tx *gorm.DB) error {
+	if err := assignWebGroupStream(tx, e); err != nil {
+		return err
+	}
 	if e.EventID == "" {
 		e.EventID = "$" + uuid.New().String()
 	}
@@ -200,6 +208,7 @@ type MatrixRoom struct {
 	GuestAccess       string  `gorm:"type:varchar(32);default:'forbidden'" json:"guest_access"`
 	IsDirect          bool    `gorm:"default:false"                        json:"is_direct"`
 	IsEncrypted       bool    `gorm:"default:false"                        json:"is_encrypted"`
+	WebStreamPosition uint64  `gorm:"not null;default:0" json:"-"`
 	CurrentStateID    *string `gorm:"type:varchar(255)"                    json:"current_state_id"`
 
 	// 联邦相关

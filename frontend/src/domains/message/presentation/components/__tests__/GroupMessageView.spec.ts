@@ -1,0 +1,38 @@
+import { mount, flushPromises } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import GroupMessageView from '../GroupMessageView.vue'
+import GroupAttachment from '../GroupAttachment.vue'
+import { groupApi } from '../../../infrastructure/groupApi'
+import type { GroupMessage } from '../../../domain/group'
+vi.mock('../../../infrastructure/groupApi', () => ({ groupApi: { media: vi.fn() } }))
+const emojiURL = '/api/v1/chat/groups/g/messages/m/media/emoji'
+const message: GroupMessage = { id: 'm', sender: { id: 'u', display_name: 'User' }, body: 'hello :wave:', kind: 'text', created_at: 1, own: false, redacted: false, edited: false, reactions: [] }
+const setup = (overrides: Partial<GroupMessage> = {}) => mount(GroupMessageView, { props: { message: { ...message, ...overrides }, canSend: true, canRedact: false }, global: { stubs: { GroupAvatar: true } } })
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(groupApi.media).mockResolvedValue(new Blob(['image'], { type: 'image/png' })); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:trusted-image'), revokeObjectURL: vi.fn() })) })
+describe('private group message rendering', () => {
+  it('loads custom emoji through authenticated media and never renders untrusted remote images', async () => {
+    const wrapper = setup({ formatted_body: 'hello <img src="https://tracker.invalid/pixel" alt=":wave:" onerror="alert(1)">', custom_emojis: [{ shortcode: 'wave', url: emojiURL, static_url: emojiURL }] })
+    await flushPromises()
+    expect(groupApi.media).toHaveBeenCalledWith(emojiURL, expect.any(AbortSignal))
+    expect(wrapper.get('.group-message__body img').attributes('src')).toBe('blob:trusted-image')
+    expect(wrapper.html()).not.toContain('tracker.invalid'); expect(wrapper.html()).not.toContain('onerror')
+    wrapper.unmount(); expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:trusted-image')
+  })
+  it('shows readable custom emoji fallback when media access is revoked', async () => {
+    vi.mocked(groupApi.media).mockRejectedValue(new Error('Forbidden'))
+    const wrapper = setup({ formatted_body: '<p>hello <img alt=":wave:" src="mxc://private/emoji"></p>', custom_emojis: [{ shortcode: 'wave', url: emojiURL, static_url: emojiURL }] })
+    await flushPromises(); expect(wrapper.find('.group-message__body img').exists()).toBe(false); expect(wrapper.text()).toContain(':wave:'); wrapper.unmount()
+  })
+  it('renders audio/video as downloadable files without any player', async () => {
+    const wrapper = setup({ kind: 'file', attachments: [{ id: 'a', name: 'video.mp4', type: 'video/mp4', size: 9, url: '/api/v1/chat/groups/g/messages/m/media/a' }] })
+    expect(wrapper.find('video').exists()).toBe(false); expect(wrapper.find('audio').exists()).toBe(false); expect(wrapper.text()).toContain('下载'); expect(groupApi.media).not.toHaveBeenCalled(); wrapper.unmount()
+  })
+  it('retries a failed download as a download, not an inert preview', async () => {
+    vi.mocked(groupApi.media).mockRejectedValueOnce(new Error('Temporary failure')).mockResolvedValueOnce(new Blob(['file'], { type: 'text/plain' }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const wrapper = mount(GroupAttachment, { props: { attachment: { id: 'f', name: 'notes.txt', type: 'text/plain', size: 4, url: '/api/v1/chat/groups/g/messages/m/media/f' } } })
+    await wrapper.findAll('button').find(b => b.text() === '下载')!.trigger('click'); await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === '重试')!.trigger('click'); await flushPromises()
+    expect(click).toHaveBeenCalledTimes(1); wrapper.unmount(); click.mockRestore()
+  })
+})

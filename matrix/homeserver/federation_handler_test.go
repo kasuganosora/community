@@ -556,7 +556,8 @@ func TestHandleGetPublicRooms_WithLimit(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/publicRooms?limit=5&since=abc", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "M_INVALID_PARAM")
 }
 
 // ===== storeFederationPDU tests =====
@@ -1029,6 +1030,7 @@ func setupMinimalTestDB(t *testing.T) {
 	database.DB = dbConn
 
 	models := []any{
+		&BridgeFederationDelivery{},
 		&MatrixUserSession{},
 		&MatrixToDeviceMessage{},
 		&MatrixSyncToDeviceBatch{},

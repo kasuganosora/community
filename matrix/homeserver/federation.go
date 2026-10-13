@@ -55,6 +55,8 @@ func RegisterFederationRoutes(r gin.IRouter) {
 		fed.GET("/v1/query/directory", handleQueryDirectory)
 		fed.GET("/v1/query/profile", handleQueryProfile)
 		fed.GET("/v1/make_join/:roomId/:userId", handleMakeJoin)
+		fed.GET("/v1/make_knock/:roomId/:userId", handleMakeKnock)
+		fed.PUT("/v1/send_knock/:roomId/:eventId", handleSendKnock)
 		fed.PUT("/v1/send_join/:roomId/:eventId", handleSendJoinV1)
 		fed.PUT("/v2/send_join/:roomId/:eventId", handleSendJoin)
 		fed.GET("/v1/make_leave/:roomId/:userId", handleMakeLeave)
@@ -67,6 +69,7 @@ func RegisterFederationRoutes(r gin.IRouter) {
 		fed.GET("/v1/event/:eventId", handleGetFederationEvent)
 		fed.PUT("/v1/send/:txnId", handleFederationSend)
 		fed.GET("/v1/publicRooms", handleGetPublicRooms)
+		fed.POST("/v1/publicRooms", handleGetPublicRooms)
 		// Note: /v1/user/devices/:userId is registered by RegisterDeviceListRoutes
 		fed.GET("/v1/query/server_key", handleGetServerKey)
 		fed.GET("/v1/3pid/onbind", handleThirdPartyOnBind)
@@ -931,74 +934,7 @@ func handleFederationSend(c *gin.Context) {
 
 // ===== 公共房间 =====
 
-func handleGetPublicRooms(c *gin.Context) {
-	hs := GetHomeServer()
-
-	// 解析分页参数
-	since := c.Query("since")
-
-	limit := 100
-	if l := c.Query("limit"); l != "" {
-		_, _ = fmt.Sscanf(l, "%d", &limit)
-	}
-
-	// 获取公共房间
-	var rooms []MatrixRoom
-	db.GetDB().Where("join_rule = ?", "public").
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&rooms)
-
-	// 构建响应
-	chunk := make([]gin.H, len(rooms))
-	for i, room := range rooms {
-		// 获取成员数
-		var joinedCount int64
-		db.GetDB().Model(&MatrixRoomMember{}).
-			Where("room_id = ? AND membership = ?", room.RoomID, MembershipJoin).
-			Count(&joinedCount)
-
-		// 获取头像 URL
-		avatarURL := ""
-		if room.AvatarURL != nil {
-			avatarURL = *room.AvatarURL
-		}
-
-		// 获取房间名称
-		name := ""
-		if room.Name != nil {
-			name = *room.Name
-		}
-
-		chunk[i] = gin.H{
-			"room_id":        room.RoomID,
-			"name":           name,
-			"topic":          room.Topic,
-			"avatar_url":     avatarURL,
-			"joined_members": joinedCount,
-			"world_readable": room.HistoryVisibility == "world_readable", //nolint:goconst
-			"guest_can_join": room.GuestAccess == "can_join",
-			"join_rule":      room.JoinRule,
-			"room_type":      room.RoomType,
-		}
-	}
-
-	// 生成下一页 token
-	nextBatch := ""
-	if len(rooms) == limit {
-		nextBatch = fmt.Sprintf("s%d", time.Now().UnixMilli())
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"origin":                    hs.Config.ServerName,
-		"chunk":                     chunk,
-		"total_room_count_estimate": len(rooms),
-		"next_batch":                nextBatch,
-		"prev_batch":                since,
-	})
-
-	_ = since
-}
+func handleGetPublicRooms(c *gin.Context) { handlePublicDirectory(c, false) }
 
 // ===== 用户设备 =====
 

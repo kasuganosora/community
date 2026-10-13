@@ -1,0 +1,100 @@
+import { mount, flushPromises } from '@vue/test-utils'
+import { defineComponent, ref } from 'vue'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useGroups } from '../useGroups'
+import { groupApi } from '../../../infrastructure/groupApi'
+import type { Group, GroupMessage, GroupSync } from '../../../domain/group'
+vi.mock('../../../infrastructure/groupApi', () => ({ groupApi: { list: vi.fn(), get: vi.fn(), messages: vi.fn(), sync: vi.fn() } }))
+const group = { id: 'a', name: 'A', membership: 'join', encryption: 'unencrypted', capabilities: { send_message: true } } as Group
+const message = { id: 'm1', body: 'first', created_at: 900, sender: { id: 'u', display_name: 'User' }, kind: 'text', redacted: false, edited: false, own: false, reactions: [] } as GroupMessage
+const snapshot: GroupSync = { next_cursor: 'waterline', groups: [group], changed_group_ids: [], left_group_ids: [], reset: false }
+function setup() { const id = ref('a'); let state!: ReturnType<typeof useGroups>; const wrapper = mount(defineComponent({ setup() { state = useGroups(id); return {} }, template: '<div />' })); return { id, state, wrapper } }
+beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); sessionEpoch.value = 0; vi.mocked(groupApi.list).mockResolvedValue({ groups: [group], next_cursor: null }); vi.mocked(groupApi.get).mockResolvedValue(group); vi.mocked(groupApi.messages).mockResolvedValue({ messages: [message], next_cursor: null }); vi.mocked(groupApi.sync).mockReturnValue(new Promise(() => {})) })
+afterEach(() => vi.useRealTimers())
+describe('group sync consistency and lifecycle', () => {
+  it('establishes the first sync waterline before reading history', async () => {
+    let resolve!: (update: GroupSync) => void
+    vi.mocked(groupApi.sync).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const { state, wrapper } = setup(); await flushPromises()
+    expect(groupApi.messages).not.toHaveBeenCalled()
+    resolve(snapshot); await flushPromises()
+    expect(state.messages.value.map(m => m.id)).toEqual(['m1'])
+    await vi.advanceTimersByTimeAsync(150)
+    expect(groupApi.sync).toHaveBeenLastCalledWith('waterline', expect.any(AbortSignal))
+    wrapper.unmount()
+  })
+  it('applies edits to old messages by ID and never sorts on remote timestamps', async () => {
+    vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, next_cursor: 'next', messages_by_group: { a: [{ ...message, body: 'edited', edited: true }, { ...message, id: 'm2', created_at: 1 }] } })
+    const { state, wrapper } = setup(); await flushPromises(); await vi.advanceTimersByTimeAsync(150); await flushPromises()
+    expect(state.messages.value.map(m => [m.id, m.body])).toEqual([['m1', 'edited'], ['m2', 'first']])
+    wrapper.unmount()
+  })
+  it('switches rooms without carrying messages from the previous room', async () => {
+    vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot)
+    const { id, state, wrapper } = setup(); await flushPromises()
+    vi.mocked(groupApi.get).mockResolvedValue({ ...group, id: 'b' })
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, id: 'other' }], next_cursor: null })
+    id.value = 'b'; await flushPromises()
+    expect(state.messages.value.map(m => m.id)).toEqual(['other']); wrapper.unmount()
+  })
+  it('refreshes old content without overwriting new edits with stale in-memory data', async () => {
+    vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot)
+    const { state, wrapper } = setup(); await flushPromises()
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, body: 'fresh edit', edited: true }], next_cursor: null })
+    await state.openRoom(); expect(state.messages.value[0]?.body).toBe('fresh edit'); wrapper.unmount()
+  })
+  it('removes left groups without autojoining and disables their composer', async () => {
+    vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, groups: [], left_group_ids: ['a'] })
+    const { state, wrapper } = setup(); await flushPromises(); await vi.advanceTimersByTimeAsync(150); await flushPromises()
+    expect(state.groups.value).toEqual([]); expect(state.group.value?.membership).toBe('leave'); expect(state.canSend.value).toBe(false)
+    wrapper.unmount()
+  })
+  it('stops permanent-limit retries while allowing initial history and room switching', async () => {
+    vi.mocked(groupApi.sync).mockRejectedValue({ isAxiosError: true, response: { status: 422, data: { code: 'sync_limit_exceeded', retryable: false, error: '群组过多，请使用 Matrix 客户端' } } })
+    const { state, id, wrapper } = setup(); await flushPromises()
+    expect(state.syncPaused.value).toBe(true)
+    expect(state.syncError.value).toContain('实时同步已暂停')
+    expect(state.loading.value).toBe(false)
+    expect(state.messages.value.map(m => m.id)).toEqual(['m1'])
+    expect(state.groups.value.map(g => g.id)).toEqual(['a'])
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(groupApi.sync).toHaveBeenCalledTimes(1)
+    vi.mocked(groupApi.get).mockResolvedValue({ ...group, id: 'b' })
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, id: 'other' }], next_cursor: null })
+    id.value = 'b'; await flushPromises()
+    expect(state.messages.value.map(m => m.id)).toEqual(['other'])
+    expect(groupApi.sync).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+  it('refreshes history and restarts exactly one sync only after an explicit retry', async () => {
+    const limit = { isAxiosError: true, response: { status: 422, data: { code: 'sync_limit_exceeded', retryable: false } } }
+    vi.mocked(groupApi.sync).mockRejectedValueOnce(limit).mockRejectedValueOnce(limit)
+    const { state, wrapper } = setup(); await flushPromises()
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, body: 'manually refreshed' }], next_cursor: null })
+    const request = state.refreshAfterPause(); const duplicate = state.refreshAfterPause()
+    await Promise.all([request, duplicate]); await flushPromises()
+    expect(groupApi.sync).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(groupApi.sync).mock.calls[1]![0]).toBeUndefined()
+    expect(state.messages.value[0]?.body).toBe('manually refreshed')
+    expect(state.syncPaused.value).toBe(true)
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(groupApi.sync).toHaveBeenCalledTimes(2)
+    vi.mocked(groupApi.sync).mockResolvedValueOnce({ ...snapshot, reset: true })
+    await state.refreshAfterPause(); await flushPromises()
+    expect(state.syncPaused.value).toBe(false)
+    expect(state.syncError.value).toBe('')
+    expect(groupApi.sync).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+  it('cancels the only long poll on unmount and discards delayed prior-session results', async () => {
+    let resolve!: (update: GroupSync) => void
+    vi.mocked(groupApi.sync).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const { state, wrapper } = setup(); await flushPromises(); const signal = vi.mocked(groupApi.sync).mock.calls[0]![1]
+    sessionEpoch.value++; await flushPromises(); expect(signal.aborted).toBe(true)
+    resolve(snapshot); await flushPromises(); expect(state.messages.value).toEqual([])
+    const latestSignal = vi.mocked(groupApi.sync).mock.calls.at(-1)![1]
+    wrapper.unmount(); expect(latestSignal.aborted).toBe(true)
+    const count = vi.mocked(groupApi.sync).mock.calls.length; await vi.advanceTimersByTimeAsync(10000); expect(groupApi.sync).toHaveBeenCalledTimes(count)
+  })
+})

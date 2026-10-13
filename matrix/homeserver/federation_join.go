@@ -133,7 +133,12 @@ func handleVerifiedSendJoin(c *gin.Context, v1 bool) {
 		response.AuthChain = append(response.AuthChain, w)
 	}
 	response.Event, _ = wirePDU(p)
-	if err = db.GetDB().Transaction(func(tx *gorm.DB) error { return persistVerifiedPDU(tx, hs, p, true) }); err != nil {
+	if err = db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := persistVerifiedPDU(tx, hs, p, true); err != nil {
+			return err
+		}
+		return hs.queueNativeFederation(tx, pduToMatrixEvent(p))
+	}); err != nil {
 		federationFailure(c, 500, err)
 		return
 	}
@@ -224,7 +229,12 @@ func handleSendLeave(c *gin.Context) {
 		federationFailure(c, 403, err)
 		return
 	}
-	if err = db.GetDB().Transaction(func(tx *gorm.DB) error { return persistVerifiedPDU(tx, hs, p, true) }); err != nil {
+	if err = db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := persistVerifiedPDU(tx, hs, p, true); err != nil {
+			return err
+		}
+		return hs.queueNativeFederation(tx, pduToMatrixEvent(p))
+	}); err != nil {
 		federationFailure(c, 500, err)
 		return
 	}
@@ -268,6 +278,9 @@ func handleFederationInvite(c *gin.Context) {
 	// Authorization against the complete state is deferred to the join response.
 	p = p.Sign(hs.Config.ServerName, gmsl.KeyID(hs.keyID), hs.privateKey)
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := persistWebInvitePreview(tx, p, request.InviteRoomState); err != nil {
+			return err
+		}
 		if err := persistVerifiedPDU(tx, hs, p, false); err != nil {
 			return err
 		}

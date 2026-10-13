@@ -130,6 +130,7 @@ func main() {
 		log.Warn("Matrix Homeserver initialization failed: %v", err)
 	}
 	if homeserver.GlobalHS != nil {
+		homeserver.GlobalHS.StartNativeFederation(serviceContext)
 		homeserver.GlobalHS.StartDirectMessageBridge(serviceContext)
 	}
 

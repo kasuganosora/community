@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
@@ -2721,132 +2720,7 @@ func handleGetPresence(c *gin.Context) {
 
 // ===== 公共房间 =====
 
-func handleGetPublicRoomsClient(c *gin.Context) {
-	// 解析分页参数
-	limit := 100
-	if l := c.Query("limit"); l != "" {
-		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil {
-			limit = 100
-		}
-
-		if limit < 0 {
-			limit = 0
-		}
-	}
-
-	if limit > 250 {
-		limit = 250
-	}
-
-	since := c.Query("since")
-
-	// POST 请求可能带 filter
-	var filter struct {
-		GenericSearchTerm string `json:"generic_search_term"`
-	}
-
-	if c.Request.Method == http.MethodPost {
-		var body struct {
-			Limit  int    `json:"limit"`
-			Since  string `json:"since"`
-			Filter struct {
-				GenericSearchTerm string `json:"generic_search_term"`
-			} `json:"filter"`
-		}
-
-		if c.ShouldBindJSON(&body) == nil {
-			if body.Limit > 0 {
-				limit = body.Limit
-			}
-
-			if body.Since != "" {
-				since = body.Since
-			}
-
-			filter = body.Filter
-		}
-	}
-
-	// 查询公共房间
-	query := db.GetDB().Where("visibility = ?", "public")
-
-	if filter.GenericSearchTerm != "" {
-		term := "%" + filter.GenericSearchTerm + "%"
-		like := dialect.ILike(query)
-		query = query.Where("name "+like+" ? OR topic "+like+" ?", term, term)
-	}
-
-	var rooms []MatrixRoom
-
-	query.Order("created_at DESC").Limit(limit).Find(&rooms)
-
-	// 构建响应
-	chunk := make([]gin.H, len(rooms))
-
-	for i, room := range rooms {
-		var joinedCount int64
-
-		db.GetDB().Model(&MatrixRoomMember{}).
-			Where("room_id = ? AND membership = ?", room.RoomID, MembershipJoin).
-			Count(&joinedCount)
-
-		entry := gin.H{
-			"room_id":            room.RoomID,
-			"num_joined_members": joinedCount,
-			"world_readable":     room.HistoryVisibility == "world_readable",
-			"guest_can_join":     room.GuestAccess == "can_join",
-		}
-		// Only include optional fields when non-empty (per Matrix spec)
-		if room.Name != nil && *room.Name != "" {
-			entry["name"] = *room.Name
-		}
-
-		if room.Topic != nil && *room.Topic != "" {
-			entry["topic"] = *room.Topic
-		}
-
-		if room.AvatarURL != nil && *room.AvatarURL != "" {
-			entry["avatar_url"] = *room.AvatarURL
-		}
-
-		if room.JoinRule != "" {
-			entry["join_rule"] = room.JoinRule
-		}
-
-		if room.RoomType != nil && *room.RoomType != "" {
-			entry["room_type"] = *room.RoomType
-		}
-		// Fetch canonical alias from room state
-		var canonicalAliasState MatrixRoomState
-		err := db.GetDB().Where("room_id = ? AND event_type = ? AND state_key = ?",
-			room.RoomID, EventTypeRoomCanonicalAlias, "").First(&canonicalAliasState).Error
-		if err == nil {
-			var aliasEvent MatrixEvent
-			err := db.GetDB().Where("event_id = ?", canonicalAliasState.EventID).First(&aliasEvent).Error
-			if err == nil {
-				if alias, ok := aliasEvent.Content["alias"].(string); ok && alias != "" {
-					entry["canonical_alias"] = alias
-				}
-			}
-		}
-
-		chunk[i] = entry
-	}
-
-	resp := gin.H{
-		"chunk":                     chunk,
-		"total_room_count_estimate": len(rooms),
-	}
-	if len(rooms) == limit {
-		resp["next_batch"] = fmt.Sprintf("s%d", time.Now().UnixMilli())
-	}
-
-	if since != "" {
-		resp["prev_batch"] = since
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
+func handleGetPublicRoomsClient(c *gin.Context) { handlePublicDirectory(c, true) }
 
 // handleGetRoomVisibility returns the visibility of a room in the public room directory.
 func handleGetRoomVisibility(c *gin.Context) {
@@ -3519,70 +3393,25 @@ func handleGetRoomSummary(c *gin.Context) {
 
 // KnockRoom 敲门.
 func handleKnockRoom(c *gin.Context) {
-	roomIDOrAlias := c.Param("roomIdOrAlias")
-	userID := getUserID(c)
-
 	var req struct {
 		Reason string `json:"reason"`
 	}
-
-	c.ShouldBindJSON(&req) //nolint:errcheck,gosec // G104: body is optional
-
-	roomID := roomIDOrAlias
-
-	// 检查房间是否存在
-	hs := GetHomeServer()
-
-	room, err := hs.Room.GetRoom(roomID)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(400, MatrixError{ErrCode: "M_BAD_JSON", Error: "Invalid knock request"})
+		return
+	}
+	if len(req.Reason) > 2048 {
+		c.JSON(400, MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Reason too long"})
+		return
+	}
+	servers := append(c.QueryArray("via"), c.QueryArray("server_name")...)
+	roomID, err := GetHomeServer().Room.KnockRoomContext(c.Request.Context(), getUserID(c), c.Param("roomIdOrAlias"), servers, req.Reason)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"errcode": "M_NOT_FOUND",
-			"error":   "Room not found",
-		})
-
+		c.JSON(matrixErrorStatus(err), err)
 		return
 	}
-
-	// 检查是否允许 knock
-	if room.JoinRule != "knock" {
-		c.JSON(http.StatusForbidden, gin.H{
-			"errcode": "M_FORBIDDEN",
-			"error":   "Room does not allow knocking",
-		})
-
-		return
-	}
-
-	// 创建 knock 成员事件
-	event := &MatrixEvent{
-		RoomID:    roomID,
-		EventType: EventTypeRoomMember,
-		Sender:    userID,
-		StateKey:  &userID,
-		Content: map[string]any{
-			"membership": "knock",
-			"reason":     req.Reason,
-		},
-		Depth: hs.Room.getNextDepth(db.GetDB(), roomID),
-	}
-	event.EventID = "$" + uuid.New().String()
-	event.OriginServerTS = time.Now().UnixMilli()
-
-	if err := db.GetDB().Create(event).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"errcode": "M_INTERNAL",
-			"error":   "Internal server error",
-		})
-
-		return
-	}
-
-	hs.Room.updateRoomState(db.GetDB(), roomID, event)
-	hs.Room.updateRoomMember(db.GetDB(), roomID, userID, MembershipKnock, event.EventID)
-
-	c.JSON(http.StatusOK, gin.H{
-		"room_id": roomID,
-	})
+	c.JSON(http.StatusOK, gin.H{"room_id": roomID})
 }
 
 // ===== 空间 API =====

@@ -19,6 +19,40 @@ const MatrixSyncHandlerTimeout = 60 * time.Second
 
 const DataTransferHandlerTimeout = 5 * time.Minute
 
+const GroupMediaHandlerTimeout = 5 * time.Minute
+const GroupSyncHandlerTimeout = 60 * time.Second
+
+// Classify only the actual web-group transfer endpoints. A substring match
+// would let unrelated JSON requests opt into longer deadlines or larger bodies.
+func webGroupTransferKind(request *http.Request) string {
+	const prefix = "/api/v1/chat/groups/"
+	if !strings.HasPrefix(request.URL.Path, prefix) {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(request.URL.Path, prefix), "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || len(part) > 1024 || strings.ContainsAny(part, "\\\r\n\x00") {
+			return ""
+		}
+	}
+	if request.Method == http.MethodPost && len(parts) == 2 && parts[1] == "uploads" {
+		return "upload"
+	}
+	if request.Method != http.MethodGet {
+		return ""
+	}
+	if len(parts) == 1 && parts[0] == "directory-avatar" || len(parts) == 2 && parts[1] == "avatar" ||
+		len(parts) == 4 && parts[1] == "members" && parts[3] == "avatar" ||
+		len(parts) == 5 && parts[1] == "messages" && parts[3] == "media" {
+		return "download"
+	}
+	return ""
+}
+
+func isWebGroupSync(request *http.Request) bool {
+	return request.URL.Path == "/api/v1/chat/group-sync" && (request.Method == http.MethodPost || request.Method == http.MethodGet)
+}
+
 func isDataTransferRequest(request *http.Request) bool {
 	return (request.Method == http.MethodPost && (request.URL.Path == "/api/v1/data/imports" || request.URL.Path == "/api/v1/admin/data/imports")) ||
 		(request.Method == http.MethodGet && request.URL.Path == "/api/v1/data/export")
@@ -27,6 +61,12 @@ func isDataTransferRequest(request *http.Request) bool {
 func requestHandlerTimeout(request *http.Request, fallback time.Duration) time.Duration {
 	if isDataTransferRequest(request) {
 		return DataTransferHandlerTimeout
+	}
+	if webGroupTransferKind(request) != "" {
+		return GroupMediaHandlerTimeout
+	}
+	if isWebGroupSync(request) {
+		return GroupSyncHandlerTimeout
 	}
 	if request.Method == http.MethodGet {
 		switch request.URL.Path {
@@ -75,17 +115,21 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if isDataTransferRequest(c.Request) {
+		budget := requestHandlerTimeout(c.Request, timeout)
+		if isDataTransferRequest(c.Request) || webGroupTransferKind(c.Request) != "" || isWebGroupSync(c.Request) {
 			// Socket deadlines otherwise remain the normal 10s read / 65s
 			// write budgets, which would truncate legitimate large backups.
 			// Gin exposes Unwrap to the controller; net/http resets deadlines
 			// for the next request on this connection.
 			controller := http.NewResponseController(c.Writer)
-			deadline := time.Now().Add(DataTransferHandlerTimeout + 5*time.Second)
+			deadline := time.Now().Add(budget + 5*time.Second)
+			if parent, ok := c.Request.Context().Deadline(); ok && parent.Before(deadline) {
+				deadline = parent
+			}
 			_ = controller.SetReadDeadline(deadline)
 			_ = controller.SetWriteDeadline(deadline)
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), requestHandlerTimeout(c.Request, timeout))
+		ctx, cancel := context.WithTimeout(c.Request.Context(), budget)
 		defer cancel()
 
 		original := c.Writer

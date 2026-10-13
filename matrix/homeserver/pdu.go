@@ -233,7 +233,8 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 		return fmt.Errorf("authorize local %s: %w", event.EventType, err)
 	}
 	normalized := pduToMatrixEvent(pdu)
-	normalized.StateSnapshotKnown = true
+	_, _, partial := roomPartialState(tx, event.RoomID)
+	normalized.StateSnapshotKnown = !partial
 	normalized.StateBefore = stateIDs
 	if normalized.StateBefore == nil {
 		normalized.StateBefore = []string{}
@@ -242,6 +243,8 @@ func buildLocalPDU(tx *gorm.DB, hs *HomeServer, event *MatrixEvent, roomVersion 
 	// Client idempotency metadata is deliberately excluded from the signed PDU.
 	normalized.TxnID, normalized.SenderDeviceID, normalized.CreatedAt = event.TxnID, event.SenderDeviceID, event.CreatedAt
 	normalized.TxnKey = event.TxnKey
+	normalized.StreamPosition, normalized.WebContentHash = event.StreamPosition, event.WebContentHash
+	normalized.RelationTarget, normalized.RelationType = event.RelationTarget, event.RelationType
 	*event = *normalized
 	return nil
 }

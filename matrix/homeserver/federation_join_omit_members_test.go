@@ -95,7 +95,7 @@ func TestOmitMembersJoinReturnsWhilePartialAndBackgroundCompletes(t *testing.T) 
 	hs, live, room, users := asyncJoinEnv(t, 40)
 	withOmit(true)
 	room.serveOmit(live, []string{live.name, "other.example", "bad server!", "third.example"})
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	base := fullStateResp(t, live, room)
 	live.stateResp = func() any { <-release; return base() }
 	logs := captureLogs(t)
@@ -117,7 +117,7 @@ func TestOmitMembersJoinReturnsWhilePartialAndBackgroundCompletes(t *testing.T) 
 	_, merr := hs.Event.SendRoomEvent(room.roomID, "@alice:test.local", "m.room.message", nil, map[string]any{"msgtype": "m.text", "body": "hi"}, nil)
 	require.Nil(t, merr)
 
-	close(release)
+	unblock()
 	asyncJoins.idle()
 	require.False(t, partialFlag(room.roomID))
 	require.Equal(t, int64(len(users)+2), countMembers(t, room.roomID))
@@ -330,13 +330,16 @@ func TestJoinFailureLogShowsPhaseBytesAndFullError(t *testing.T) {
 	room := newFakeRoom(t, hang, hang)
 	room.serve(hang)
 	logs := captureLogs(t)
+	release, _ := joinTestGate(t)
 	hang.sendJoinQ = func(q string, event json.RawMessage, w http.ResponseWriter, r *http.Request) (int, any) {
 		// Headers go out, then the body stalls half-way: the join must report
 		// the bytes received so far and the phase.
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte(`{"origin":"x","state":[`))
 		w.(http.Flusher).Flush()
-		<-r.Context().Done()
+		// Keep the response incomplete until cleanup. Returning as soon as
+		// the peer cancels races an EOF against the client deadline error.
+		<-release
 		return 0, nil
 	}
 	joinSettingsSource = func() joinSettings {

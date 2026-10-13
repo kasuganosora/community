@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { isGroupReference } from '@/domains/trending/domain/groupSearch'
 
 const props = defineProps<{
   /** On Explore, start searching as the query is typed. The rail still waits for submit. */
@@ -34,7 +35,7 @@ function updateEdge() {
 function handleSearch() {
   const trimmedQuery = query.value.trim()
   if (!trimmedQuery) return
-  router.push({ name: 'search', query: { q: trimmedQuery } }).catch(() => {})
+  router.push({ name: 'search', query: { q: trimmedQuery, type: isGroupReference(trimmedQuery) ? 'groups' : undefined } }).catch(() => {})
 }
 
 watch(query, (value) => {
@@ -62,10 +63,9 @@ onBeforeUnmount(() => {
   <form ref="root" class="search-box" :class="{ 'search-box--edge': edged }" role="search" @submit.prevent="handleSearch">
     <t-input
       v-model="query"
-      placeholder="搜索帖子、用户或话题"
+      placeholder="搜索帖子、用户或群组"
       aria-label="搜索"
       clearable
-      @enter="handleSearch"
     >
       <template #prefixIcon>
         <t-icon name="search" />

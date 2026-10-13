@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus, MastodonAccount, MastodonTag, SearchResult } from '@/shared/types/mastodon'
 import client from '@/shared/api/client'
@@ -10,6 +10,8 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import GroupSearchResults from '../components/GroupSearchResults.vue'
+import { isGroupReference } from '../../domain/groupSearch'
 
 // Type-safe route params helper
 function getQueryParam(q: unknown): string {
@@ -26,13 +28,15 @@ function getTagPostCount(tag: MastodonTag): string {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-type TabType = 'posts' | 'people' | 'tags'
+type TabType = 'posts' | 'people' | 'tags' | 'groups'
 const TABS: { value: TabType; label: string }[] = [
   { value: 'posts', label: '帖子' },
   { value: 'people', label: '用户' },
   { value: 'tags', label: '话题' },
+  { value: 'groups', label: '群组' },
 ]
-const activeTab = ref<TabType>('posts')
+const activeTab = ref<TabType>(getQueryParam(route.query.type) === 'groups' || isGroupReference(getQueryParam(route.query.q)) ? 'groups' : 'posts')
+const groupRefreshKey = ref(0)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const searched = ref(false)
@@ -42,7 +46,7 @@ const statuses = ref<MastodonStatus[]>([])
 const accounts = ref<MastodonAccount[]>([])
 const hashtags = ref<MastodonTag[]>([])
 
-const counts = computed<Record<TabType, number>>(() => ({
+const counts = computed<Record<Exclude<TabType, 'groups'>, number>>(() => ({
   posts: statuses.value.length,
   people: accounts.value.length,
   tags: hashtags.value.length,
@@ -50,7 +54,7 @@ const counts = computed<Record<TabType, number>>(() => ({
 
 const tabOptions = computed(() => TABS.map((tab) => ({
   value: tab.value,
-  label: searched.value ? `${tab.label} ${counts.value[tab.value]}` : tab.label,
+  label: searched.value && tab.value !== 'groups' ? `${tab.label} ${counts.value[tab.value]}` : tab.label,
 })))
 
 const SEARCH_LIMIT = 20
@@ -58,6 +62,7 @@ const SEARCH_LIMIT = 20
 // Version guard — prevents stale search results from a previous
 // query from overwriting newer results when the user types fast.
 let searchVersion = 0
+let searchController: AbortController | null = null
 
 // Reuse the shared action handlers — optimistic update on the local array.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -77,8 +82,10 @@ async function toggleFollow(account: MastodonAccount) {
 async function search(q: string) {
   const trimmedQuery = q.trim()
   const myVersion = ++searchVersion
+  searchController?.abort()
+  searchController = new AbortController()
   error.value = null
-  if (!trimmedQuery) {
+  if (!trimmedQuery || activeTab.value === 'groups') {
     statuses.value = []
     accounts.value = []
     hashtags.value = []
@@ -90,6 +97,7 @@ async function search(q: string) {
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
       params: { q: trimmedQuery, limit: SEARCH_LIMIT, resolve: authStore.isAuthenticated },
+      signal: searchController.signal,
     })
     if (myVersion !== searchVersion) return
     statuses.value = data.statuses || []
@@ -98,7 +106,7 @@ async function search(q: string) {
     searched.value = true
     // Land on the first tab that has results.
     if (counts.value[activeTab.value] === 0) {
-      activeTab.value = TABS.find(t => counts.value[t.value] > 0)?.value ?? activeTab.value
+      activeTab.value = TABS.find(t => t.value !== 'groups' && counts.value[t.value] > 0)?.value ?? activeTab.value
     }
     relationships.load(accounts.value.filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
   } catch (e) {
@@ -116,17 +124,32 @@ async function search(q: string) {
 
 function submit() {
   const q = query.value.trim()
-  if (!q) return
-  if (q === getQueryParam(route.query.q)) search(q)
-  else router.push({ name: 'search', query: { q } }).catch(() => {})
+  if (!q && activeTab.value !== 'groups') return
+  const type = activeTab.value === 'groups' || isGroupReference(q) ? 'groups' : undefined
+  if (q === getQueryParam(route.query.q) && type === route.query.type) {
+    if (activeTab.value === 'groups') groupRefreshKey.value++
+    else void search(q)
+  } else void router.push({ name: 'search', query: { q: q || undefined, type } }).catch(() => {})
 }
 
-onMounted(() => search(getQueryParam(route.query.q)))
+watch(() => [route.query.q, route.query.type], () => {
+  query.value = getQueryParam(route.query.q)
+  if (getQueryParam(route.query.type) === 'groups' || isGroupReference(query.value)) activeTab.value = 'groups'
+  else if (activeTab.value === 'groups') activeTab.value = 'posts'
+  void search(query.value)
+}, { immediate: true })
 
-watch(() => route.query.q, (q) => {
-  query.value = getQueryParam(q)
-  search(query.value)
+watch(activeTab, (tab, previous) => {
+  if (tab === 'groups') {
+    searchVersion++
+    searchController?.abort()
+    loading.value = false
+    void router.replace({ query: { ...route.query, type: 'groups' } }).catch(() => {})
+  } else if (previous === 'groups') {
+    void router.replace({ query: { ...route.query, type: undefined } }).catch(() => {})
+  }
 })
+onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
 
 </script>
 
@@ -139,20 +162,22 @@ watch(() => route.query.q, (q) => {
     <form class="search-form" role="search" @submit.prevent="submit">
       <t-input
         v-model="query"
-        placeholder="搜索帖子、用户或话题"
-        aria-label="搜索"
+        :placeholder="activeTab === 'groups' ? '搜索群名、群别名或房间链接' : '搜索帖子、用户、话题或群组'"
+        aria-label="搜索关键词"
         clearable
-        @enter="submit"
       >
         <template #prefixIcon>
           <t-icon name="search" />
         </template>
       </t-input>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="!query.trim() && activeTab !== 'groups'">搜索</button>
     </form>
 
     <TabBar v-model="activeTab" :options="tabOptions" label="搜索结果" />
 
-    <div v-if="loading" class="page-loading">
+    <GroupSearchResults v-if="activeTab === 'groups'" :query="getQueryParam(route.query.q)" :refresh-key="groupRefreshKey" />
+
+    <div v-else-if="loading" class="page-loading">
       <t-loading />
     </div>
 
@@ -165,7 +190,7 @@ watch(() => route.query.q, (q) => {
       <button type="button" class="btn btn--secondary btn--sm" @click="search(query)">重试</button>
     </div>
 
-    <div v-else-if="!searched" class="search-empty">输入关键词搜索帖子、用户或 #话题</div>
+    <div v-else-if="!searched" class="search-empty">输入关键词搜索帖子、用户或 #话题，也可以切换到群组搜索。</div>
 
     <template v-else>
       <!-- Posts tab -->
@@ -227,8 +252,13 @@ watch(() => route.query.q, (q) => {
 }
 
 .search-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
   padding: var(--space-2) var(--gutter);
 }
+.search-form :deep(.t-input__wrap) { min-width: 0; flex: 1; }
+.search-form > button { flex-shrink: 0; min-height: 2.75rem; }
 
 .tag-item {
   display: block;

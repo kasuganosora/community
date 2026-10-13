@@ -14,6 +14,7 @@ import (
 func registerChatRoutes(authenticated *gin.RouterGroup) {
 	group := authenticated.Group("/chat", communityChatIdentity, communityChatScope)
 	homeserver.RegisterCommunityConversationRoutes(group)
+	homeserver.RegisterCommunityGroupRoutes(group)
 }
 
 func communityChatIdentity(c *gin.Context) {
@@ -37,7 +38,8 @@ func communityChatIdentity(c *gin.Context) {
 
 func communityChatScope(c *gin.Context) {
 	scope := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}
-	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+	readPost := c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/chat/group-sync" || c.Request.URL.Path == "/api/v1/chat/groups/resolve")
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && !readPost {
 		scope = middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses}
 	}
 	middleware.CheckScopeMiddleware(scope)(c)

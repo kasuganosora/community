@@ -3,6 +3,8 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -153,6 +155,15 @@ func BodySizeLimitMiddleware(defaultLimit int64, mediaLimit func() int64) gin.Ha
 
 func bodyLimitFor(r *http.Request, defaultLimit int64, mediaLimit func() int64) int64 {
 	isMultipart := strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
+	if isMultipart && webGroupTransferKind(r) == "upload" {
+		// Keep in sync with the Matrix web upload handler/advertised capability.
+		// It may be lowered, never raised above the underlying Matrix 50 MiB cap.
+		limit := int64(50 << 20)
+		if n, err := strconv.ParseInt(os.Getenv("MATRIX_WEB_GROUP_UPLOAD_MAX_BYTES"), 10, 64); err == nil && n > 0 && n <= limit {
+			limit = n
+		}
+		return limit + multipartOverhead
+	}
 	if r.Method == http.MethodPost && isMultipart &&
 		(r.URL.Path == "/api/v1/data/imports" || r.URL.Path == "/api/v1/admin/data/imports") {
 		return 256<<20 + multipartOverhead

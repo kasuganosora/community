@@ -3,6 +3,7 @@ package homeserver
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -59,6 +60,9 @@ func newFakeFed(t *testing.T) *fakeFed {
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(f.serve))
 	f.name = strings.TrimPrefix(f.srv.URL, "https://")
 	f.hs = minimalHS(f.name)
+	// A reused httptest port is a new signing identity, not a key rotation
+	// under the immutable key ID cached for the previous fake server.
+	f.hs.keyID = "ed25519:test_" + hex.EncodeToString(f.hs.publicKey[:16])
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -195,7 +199,9 @@ func newFakeRoom(t *testing.T, host *fakeFed, creator *fakeFed) *fakeRoom {
 	t.Helper()
 	ver, err := gmsl.GetRoomVersion("10")
 	require.NoError(t, err)
-	fr := &fakeRoom{t: t, host: host, roomID: "!room:" + creator.name, ver: ver}
+	// The shared test database can outlive a fake listener. A reused port
+	// must not find another fixture's already-joined room and skip validation.
+	fr := &fakeRoom{t: t, host: host, roomID: "!room_" + hex.EncodeToString(creator.hs.publicKey[:16]) + ":" + creator.name, ver: ver}
 	owner := "@owner:" + creator.name
 	fr.add(owner, "m.room.create", new(""), map[string]any{"creator": owner, "room_version": "10"}, creator)
 	fr.add(owner, "m.room.member", new(owner), map[string]any{"membership": "join"}, creator)
@@ -309,6 +315,23 @@ func TestSelectJoinCandidatesSkipsDeadHostsAndCaps(t *testing.T) {
 	require.Equal(t, []string{"dead.example"}, selectJoinCandidates([]string{"dead.example"}, s))
 	deadFederationHosts.mark("a.example", time.Minute, "x")
 	require.Equal(t, []string{"dead.example", "a.example"}, selectJoinCandidates([]string{"dead.example", "a.example", "c2.example"}[:2], s))
+}
+
+// httptest can reuse a closed server's address. The key cache survives tests,
+// so a previous fake at that address must not impersonate the new fixture key.
+func TestJoinIgnoresCachedKeysFromPreviousFakeServerIdentity(t *testing.T) {
+	previous := newFakeFed(t)
+	live := newFakeFed(t)
+	hs := joinTestEnv(t, live)
+	room := newFakeRoom(t, live, live)
+	room.serve(live)
+	GetKeyCache().Set(live.name, previous.hs.keyID, previous.hs.publicKey, time.Now().Add(time.Hour))
+
+	id, merr := hs.Room.JoinRoomContext(context.Background(), "@alice:test.local", room.roomID, &JoinRoomRequest{Servers: []string{live.name}})
+	require.Nil(t, merr)
+	require.Equal(t, room.roomID, id)
+	require.True(t, joined(t, room.roomID, "@alice:test.local"))
+	require.Positive(t, live.count("key"), "the current fixture key must be fetched and its signatures verified")
 }
 
 func TestJoinSkipsDeadHostAndSucceedsViaNextServer(t *testing.T) {
@@ -495,7 +518,7 @@ func TestJoinConcurrencyIsBounded(t *testing.T) {
 	hang := newFakeFed(t)
 	hs := joinTestEnv(t, hang)
 	started := make(chan struct{}, 1)
-	release := make(chan struct{})
+	release, unblock := joinTestGate(t)
 	hang.makeJoinHook = func(w http.ResponseWriter, r *http.Request) bool {
 		select {
 		case started <- struct{}{}:
@@ -525,7 +548,7 @@ func TestJoinConcurrencyIsBounded(t *testing.T) {
 	_, merr := hs.Room.JoinRoomContext(context.Background(), "@bob:test.local", room.roomID, &JoinRoomRequest{Servers: []string{hang.name}})
 	require.NotNil(t, merr)
 	require.Equal(t, "M_LIMIT_EXCEEDED", merr.ErrCode)
-	close(release)
+	unblock()
 	<-done
 }
 

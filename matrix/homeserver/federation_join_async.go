@@ -194,6 +194,9 @@ type joinRemainder struct {
 	// fullAfter: the join answer omitted members (MSC3706), so once items are
 	// written the complete state must be fetched as well.
 	fullAfter bool
+	// The verified complete pre-join snapshot from /state. Publish it only
+	// once every referenced event is durable, atomically with clearing partial.
+	snapshotBefore []string
 }
 
 // ---- servers known to be in a partial room ----------------------------------
@@ -260,6 +263,10 @@ func (r *RoomService) persistFederationJoinStaged(ctx context.Context, pj *prepa
 		if err := tx.Where("room_id = ?", pj.roomID).FirstOrCreate(&room).Error; err != nil {
 			return err
 		}
+		// Replace invitation/knock preview metadata with verified identity.
+		if err := tx.Model(&MatrixRoom{}).Where("room_id = ?", pj.roomID).Updates(map[string]any{"room_version": pj.version, "creator": pj.creator, "current_state_id": nil}).Error; err != nil {
+			return err
+		}
 		essentialPDUs := make([]gmsl.PDU, 0, len(essential))
 		for id, p := range pj.events {
 			if essential[id] {
@@ -286,7 +293,7 @@ func (r *RoomService) persistFederationJoinStaged(ctx context.Context, pj *prepa
 				r.updateRoomMember(tx, pj.roomID, *e.StateKey, MembershipState(m), e.EventID)
 			}
 		}
-		if err := persistVerifiedPDUAtState(tx, r.HS, pj.join, true, pj.state, true); err != nil {
+		if err := persistVerifiedPDUAtState(tx, r.HS, pj.join, true, pj.state, !pj.membersOmitted); err != nil {
 			return err
 		}
 		items := make([]joinRemainderItem, 0, len(pj.events)-len(essential))
@@ -455,12 +462,28 @@ func toSet(list []string) map[string]bool {
 
 // finishPartialJoin clears the partial flag, replays PDUs queued meanwhile and
 // wakes clients.
-func (r *RoomService) finishPartialJoin(roomID string) {
-	res := db.GetDB().Model(&MatrixRoom{}).Where("room_id = ? AND current_state_id LIKE ?", roomID, partialStatePrefix+"%").
-		Update("current_state_id", nil)
-	if res.Error != nil {
-		log.Warn("matrix join %s: clearing partial-state flag failed: %v", roomID, res.Error)
-		return
+func (r *RoomService) finishPartialJoin(ctx context.Context, rem *joinRemainder) error {
+	roomID := rem.roomID
+	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var room MatrixRoom
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("room_id = ?", roomID).First(&room).Error; err != nil {
+			return err
+		}
+		joinID, _, partial := roomPartialState(tx, roomID)
+		if !partial {
+			return nil
+		}
+		if rem.snapshotBefore != nil {
+			row := MatrixEvent{StateBefore: rem.snapshotBefore, StateSnapshotKnown: true}
+			if err := tx.Model(&MatrixEvent{}).Where("room_id = ? AND event_id = ?", roomID, joinID).
+				Select("state_before", "state_snapshot_known").Updates(&row).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Update("current_state_id", nil).Error
+	})
+	if err != nil {
+		return err
 	}
 	forgetPartialRoomServers(roomID)
 	queued := takePartialPDUs(roomID)
@@ -474,6 +497,7 @@ func (r *RoomService) finishPartialJoin(roomID string) {
 		log.Info("matrix join %s: replayed %d of %d PDUs received during state sync", roomID, replayed, len(queued))
 	}
 	go r.HS.NotifyRoomEvent(roomID)
+	return nil
 }
 
 // ---- inbound PDU queue for partial rooms ------------------------------------
@@ -511,8 +535,10 @@ func (r *RoomService) finishOrDeferJoinRemainder(ctx context.Context, rem *joinR
 	if len(rem.items) <= st.SyncThreshold && !rem.fullAfter {
 		err := r.runJoinRemainder(ctx, rem, st)
 		if err == nil {
-			r.finishPartialJoin(rem.roomID)
-			return 0
+			err = r.finishPartialJoin(ctx, rem)
+			if err == nil {
+				return 0
+			}
 		}
 		log.Warn("matrix join %s: storing remaining state inline failed, continuing in background: %v", rem.roomID, err)
 	}
@@ -660,7 +686,9 @@ func (r *RoomService) runJoinJob(ctx context.Context, rem *joinRemainder, st asy
 			}
 		}
 		if err == nil {
-			r.finishPartialJoin(rem.roomID)
+			err = r.finishPartialJoin(ctx, rem)
+		}
+		if err == nil {
 			log.Info("matrix join %s: state sync complete (%d events, %s)", rem.roomID, rem.written, time.Since(started).Round(time.Millisecond))
 			return
 		}
@@ -771,6 +799,24 @@ func (r *RoomService) refetchJoinRemainder(ctx context.Context, rem *joinRemaind
 				items = append(items, joinRemainderItem{p: p, state: stateIDs[id]})
 			}
 		}
+		// /state at the join describes the post-join state. Remove our own
+		// joined membership (fetchPartialState does this) and restore any
+		// verified invite/leave membership from the original send_join subset.
+		// Never use today's current state as historical state for this anchor.
+		snapshot := make([]string, 0, len(pj.state)+1)
+		for _, p := range pj.state {
+			snapshot = append(snapshot, p.EventID())
+		}
+		var prior []MatrixEvent
+		if len(joinRow.StateBefore) > 0 {
+			if err := db.GetDB().WithContext(ctx).Where("room_id = ? AND event_id IN ? AND event_type = ? AND state_key = ?", rem.roomID, joinRow.StateBefore, EventTypeRoomMember, joinRow.Sender).Find(&prior).Error; err != nil {
+				return err
+			}
+		}
+		for _, p := range prior {
+			snapshot = append(snapshot, p.EventID)
+		}
+		rem.snapshotBefore = snapshot
 		rem.items, rem.next, rem.written, rem.total, rem.refetch = items, 0, 0, len(items), false
 		return nil
 	}

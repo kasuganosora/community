@@ -665,9 +665,16 @@ func (r *RoomService) persistFederationJoin(pj *preparedFederationJoin) error {
 }
 
 func (r *RoomService) persistFederationJoinContext(ctx context.Context, pj *preparedFederationJoin) error {
+	if pj.membersOmitted {
+		return errors.New("partial join state requires staged persistence")
+	}
 	room := MatrixRoom{RoomID: pj.roomID, RoomVersion: pj.version, Creator: pj.creator}
 	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("room_id = ?", pj.roomID).FirstOrCreate(&room).Error; err != nil {
+			return err
+		}
+		// Replace invitation/knock preview metadata with verified identity.
+		if err := tx.Model(&MatrixRoom{}).Where("room_id = ?", pj.roomID).Updates(map[string]any{"room_version": pj.version, "creator": pj.creator, "current_state_id": nil}).Error; err != nil {
 			return err
 		}
 		all := make([]gmsl.PDU, 0, len(pj.events))
