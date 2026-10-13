@@ -40,7 +40,9 @@ func RequestLogMiddleware() gin.HandlerFunc {
 
 		fields := map[string]any{
 			"request_id": requestID,
-			"status":     status, //nolint:goconst
+			"method":     c.Request.Method,
+			"path":       c.FullPath(), // Route pattern only; omit private IDs and query values.
+			"status":     status,       //nolint:goconst
 			"duration":   duration.Milliseconds(),
 			"size":       c.Writer.Size(),
 		}

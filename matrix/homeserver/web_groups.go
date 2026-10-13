@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -91,6 +92,14 @@ func webGroupRoomID(id string) (string, error) {
 func webGroupFailure(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{"error": message, "code": code, "retryable": status >= 500 || status == 429})
 }
+
+// Keep database diagnostics in the existing request-ID-correlated server log,
+// while returning the same safe, stable error contract to the web client.
+func webGroupInternalError(c *gin.Context, operation string, err error) {
+	_ = c.Error(fmt.Errorf("web groups %s: %w", operation, err))
+	webGroupError(c, ErrInternal)
+}
+
 func webGroupError(c *gin.Context, err *MatrixError) {
 	if err == nil {
 		return
@@ -312,11 +321,11 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 	}
 	states, err := webGroupStates(conn, ids)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load room state: %w", err)
 	}
 	var members []MatrixRoomMember
 	if err = conn.Where("room_id IN ? AND user_id = ?", ids, user).Find(&members).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load memberships: %w", err)
 	}
 	memberships := map[string]MembershipState{}
 	for _, m := range members {
@@ -327,7 +336,7 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 		Count  int64
 	}
 	if err = conn.Model(&MatrixRoomMember{}).Select("room_id, COUNT(*) AS count").Where("room_id IN ? AND membership = ?", ids, MembershipJoin).Group("room_id").Scan(&counts).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("count members: %w", err)
 	}
 	totals := map[string]int64{}
 	for _, r := range counts {
@@ -335,7 +344,7 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 	}
 	var mutedRules []PushRule
 	if err = conn.Where("user_id = ? AND scope = ? AND kind IN ? AND rule_id IN ? AND enabled = ?", user, "global", []string{"room", "override"}, ids, true).Find(&mutedRules).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load notification preferences: %w", err)
 	}
 	muted := map[string]bool{}
 	for _, r := range mutedRules {
@@ -350,7 +359,7 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 	}
 	var typing []MatrixTyping
 	if err = conn.Where("room_id IN ? AND expires_at > ? AND user_id <> ?", ids, time.Now(), user).Find(&typing).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load typing state: %w", err)
 	}
 	typingByRoom := map[string][]gin.H{}
 	for _, t := range typing {
@@ -358,7 +367,7 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 	}
 	unread, err := webGroupUnreadCounts(conn, ids, user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("count unread messages: %w", err)
 	}
 
 	for _, room := range rooms {
@@ -434,7 +443,7 @@ func handleWebGroupList(c *gin.Context) {
 	}
 	var rooms []MatrixRoom
 	if err := query.Order("matrix_rooms_hs.room_id ASC").Limit(limit + 1).Find(&rooms).Error; err != nil {
-		webGroupError(c, ErrInternal)
+		webGroupInternalError(c, "list rooms", err)
 		return
 	}
 	var next any
@@ -444,7 +453,7 @@ func handleWebGroupList(c *gin.Context) {
 	}
 	views, err := webGroupDTOs(GetHomeServer(), conn, rooms, user)
 	if err != nil {
-		webGroupError(c, ErrInternal)
+		webGroupInternalError(c, "list room details", err)
 		return
 	}
 	c.JSON(200, gin.H{"groups": views, "next_cursor": next})
@@ -461,7 +470,7 @@ func handleWebGroupGet(c *gin.Context) {
 	}
 	out, err := webGroupDTO(hs, db.GetDB().WithContext(c.Request.Context()), room, user)
 	if err != nil {
-		webGroupError(c, ErrInternal)
+		webGroupInternalError(c, "read room details", err)
 		return
 	}
 	c.JSON(200, out)

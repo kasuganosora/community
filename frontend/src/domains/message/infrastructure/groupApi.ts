@@ -2,10 +2,12 @@ import client from '@/shared/api/client'
 import type { Group, GroupPage, GroupSearchPage, GroupMember, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
 const base = '/api/v1/chat/groups'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
+// Outlive the server's 300s transfer budget and its 5s socket-response margin.
+const mediaTimeout = 310000
 export const groupApi = {
   async list(cursor?: string, signal?: AbortSignal): Promise<GroupPage> { return (await client.get(base, { params: { cursor, limit: 40 }, signal })).data },
   async get(id: string, signal?: AbortSignal): Promise<Group> { return (await client.get(path(id), { signal })).data },
-  async create(input: { transaction_id: string; name: string; topic?: string; visibility: 'private' | 'public'; invite?: string[]; plaintext_consent: true }): Promise<Group> { return (await client.post(base, input)).data },
+  async create(input: { transaction_id: string; name: string; topic?: string; visibility: 'private' | 'public'; invite?: string[]; plaintext_consent: true }): Promise<Group> { return (await client.post(base, input, { timeout: 35000 })).data },
   async update(id: string, input: { name?: string; topic?: string; avatar_upload_id?: string }): Promise<Group> { return (await client.patch(path(id), input)).data },
   async search(params: { q: string; scope: 'joined' | 'local' | 'remote'; server?: string; cursor?: string; limit?: number }, signal?: AbortSignal): Promise<GroupSearchPage> { return (await client.get(`${base}/search`, { params, signal, timeout: 35000 })).data },
   async resolve(target: string, signal?: AbortSignal, via?: string[], preview_ref?: string): Promise<{ group?: Group; target: string; via: string[] }> { return (await client.post(`${base}/resolve`, { target, via, preview_ref }, { signal, timeout: 35000 })).data },
@@ -29,13 +31,13 @@ export const groupApi = {
   async typing(id: string, typing: boolean): Promise<void> { await client.post(`${path(id)}/typing`, { typing }) },
   async upload(id: string, file: File, signal: AbortSignal, onProgress: (percent: number) => void): Promise<GroupUpload> {
     const form = new FormData(); form.append('file', file)
-    return (await client.post(`${path(id)}/uploads`, form, { headers: { 'Content-Type': undefined }, signal, timeout: 120000, onUploadProgress: event => { if (event.total) onProgress(Math.round(event.loaded * 100 / event.total)) } })).data
+    return (await client.post(`${path(id)}/uploads`, form, { headers: { 'Content-Type': undefined }, signal, timeout: mediaTimeout, onUploadProgress: event => { if (event.total) onProgress(Math.round(event.loaded * 100 / event.total)) } })).data
   },
   async sync(since: string | undefined, signal: AbortSignal): Promise<GroupSync> { return (await client.post('/api/v1/chat/group-sync', { since, timeout: 25000 }, { signal, timeout: 35000 })).data },
   async media(url: string, signal?: AbortSignal): Promise<Blob> {
     // Authenticated media must stay on our own group API. Never forward the Community token to a remote URL.
     const parsed = new URL(url, window.location.origin)
     if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith(`${base}/`)) throw new Error('附件地址无效，请在客户端中打开')
-    return (await client.get(parsed.pathname + parsed.search, { responseType: 'blob', signal, timeout: 120000 })).data
+    return (await client.get(parsed.pathname + parsed.search, { responseType: 'blob', signal, timeout: mediaTimeout })).data
   },
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
@@ -144,6 +145,12 @@ func webGroupHistory(conn *gorm.DB, roomID, user string, cursor *webGroupHistory
 	accepted := []MatrixEvent{}
 	current := cursor
 	exhausted := false
+	order := "stream_position DESC, created_at DESC, event_id DESC"
+	if dialect.IsPostgres(conn) {
+		// Legacy rows without a timestamp must follow dated rows, matching the
+		// cursor predicates below. PostgreSQL otherwise puts NULL first in DESC.
+		order = "stream_position DESC, created_at DESC NULLS LAST, event_id DESC"
+	}
 	// Bound work when most history is not visible. A cursor advances past examined
 	// candidates even when a page is empty, so callers can continue safely.
 	for scanned := 0; len(accepted) < limit && scanned < 2000; {
@@ -158,7 +165,7 @@ func webGroupHistory(conn *gorm.DB, roomID, user string, cursor *webGroupHistory
 			}
 		}
 		var rows []MatrixEvent
-		if err := q.Order("stream_position DESC, created_at DESC, event_id DESC").Limit(min(limit-len(accepted), 100)).Find(&rows).Error; err != nil {
+		if err := q.Order(order).Limit(min(limit-len(accepted), 100)).Find(&rows).Error; err != nil {
 			return nil, nil, err
 		}
 		if len(rows) == 0 {

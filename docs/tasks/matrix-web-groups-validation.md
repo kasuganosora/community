@@ -91,3 +91,15 @@
 Matrix 整包回归通过 **1,120 个顶层测试**（计入子测试 1,366 项），6 个顶层测试跳过（计入子测试 7 项），用时 322.98 秒。跳过项为未提供环境的 MySQL 条件测试及既有特定实现测试；本次网页群组的 MySQL 条件用例已另在独立实例通过。随后新增的状态写入失败回滚、投递重试／调度和同步超限恢复使用定向回归补验，不把环境跳过项记为通过。
 
 全部代码与测试隔离修复合并后，最终执行 `GOMAXPROCS=2 go test -p 2 ./...` **整仓通过，退出码 0**，包括 Matrix、既有 ActivityPub／私信、Feed、streaming、迁移和中间件测试包。原始日志为 `backend-regression-clean.log`，退出码为 `backend-clean.exit`。最后的联邦队列 8 项回归还验证了 18 个服务器各积压 100 条时，前 16 个持续失败也不会阻挡后续健康服务器的投递。
+
+## 2026-10-13：群聊入口与 PostgreSQL 读取修复
+
+部署后的群列表／同步 500 定位为 PostgreSQL 的 `SQLSTATE 42883`：`MatrixEvent.Content` 实际为 TEXT，未读统计却直接调用 `content->>'membership'`。此前 MySQL 和 SQLite 回归不能覆盖此差异。本次仅对该 PostgreSQL 分支显式转换为 JSONB，保留成员历史可见性、编辑排除和已读回执规则。
+
+新建独立 PostgreSQL **17.11** 实验实例，全部目录位于 `/tmp/community-groups-qa/postgresql/`，仅监听回环地址的 13317 端口。官方 Debian 包经归档签名、软件包索引 SHA-256 和包 SHA-256 校验。既有实验 PostgreSQL 因根盘满而拒绝连接，未在其数据库写入测试数据。测试使用事务内的会话临时表，完成后回滚，不修改应用数据。
+
+- `TestWebGroupPostgresUnreadTextContent` 验证列类型为 TEXT，以保存点重现旧表达式的 **42883**，再回滚失败语句。修复后的真实查询只计入有入群历史依据的新消息，排除加入前历史及编辑，写入已读回执后归零。
+- 额外修复 PostgreSQL `DESC` 默认将 NULL 排最前的问题：旧消息的 `created_at` 明确采用 `NULLS LAST`。实际 PostgreSQL 回归将两条有日期、两条无日期的旧消息逐页读取，确认全部读齐且不重复。
+- 列表、详情及同步的内部错误进入既有请求关联日志；客户端仍只收到稳定错误文案，不返回表名或 SQL。故障注入分别验证三个入口，完成日志保留请求方法及路由模板，便于区分列表失败与长轮询超时。
+
+执行 `GOMAXPROCS=2 go test -p 2 ./matrix/homeserver -run '^TestWebGroup' -count=1 -json`，提供 `COMMUNITY_GROUPS_POSTGRES_DSN` 和独立 MySQL 条件测试 DSN：**64 项（含子测试）通过，1 项跳过，用时 4.448 秒**。跳过的是 SQLite 不具备行锁的通用并发测试；独立 MySQL 的提交顺序、回滚与幂等并发测试实际通过。原始日志为 `/tmp/community-groups-qa/postgres-groups-all-fix.jsonl`。本轮未将此前观察到的独立 504 自动归因于此 SQL 错误；后续可用带路由信息的请求日志区分。

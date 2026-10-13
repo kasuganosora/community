@@ -16,12 +16,12 @@ const tabs = [
   { value: 'home', label: '首页', icon: 'home', iconActive: 'home-filled', to: '/' },
   { value: 'explore', label: '探索', icon: 'search', iconActive: 'search', to: '/explore' },
   { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', to: '/notifications' },
-  { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', to: '/bookmarks' },
+  { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', to: '/messages' },
 ]
 
 const active = computed(() => {
   const section = activeNavSection(route.path, authStore.currentUser?.username)
-  return section === 'profile' ? 'me' : section
+  return section === 'profile' ? 'me' : section === 'groups' ? 'messages' : section
 })
 
 function go(to: string) {

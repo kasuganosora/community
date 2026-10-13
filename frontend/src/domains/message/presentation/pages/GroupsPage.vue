@@ -42,6 +42,13 @@ async function openPanel(next: 'create' | 'join') { if (!await protectDraft()) r
 onBeforeRouteLeave(protectDraft)
 onBeforeRouteUpdate(async to => to.params.groupId === route.params.groupId || await protectDraft())
 watch(selectedId, () => { reply.value = null; editing.value = null; dirty.value = false; composerLocked.value = false; detailsOpen.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; actionError.value = ''; status.value = ''; lastRead = ''; atBottom.value = true; unseen.value = 0; panel.value = null })
+watch(() => route.query.action, value => {
+  if (value !== 'create' || selectedId.value) return
+  panel.value = 'create'
+  actionError.value = ''
+  // Consume the shortcut so closing and opening it again always works.
+  void router.replace({ query: { ...route.query, action: undefined } }).catch(() => {})
+}, { immediate: true })
 watch(() => route.query.join, value => { if (typeof value === 'string') { joinTarget.value = value.slice(0, 2000); panel.value = 'join'; resolved.value = null } }, { immediate: true })
 watch(detailsOpen, async open => { await nextTick(); if (open) { detailsDialog.value?.showModal(); void loadMembers() } else detailsDialog.value?.close() })
 watch(() => group.value?.membership, value => { if (value === 'join') void loadMembers() })

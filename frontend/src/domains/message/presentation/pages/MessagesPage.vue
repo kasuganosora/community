@@ -162,6 +162,7 @@ onMounted(async () => {
     <nav class="messages-tabs" aria-label="消息类型"><RouterLink to="/messages" aria-current="page">私信</RouterLink><RouterLink to="/messages/groups">群聊</RouterLink></nav>
     <div class="messages-toolbar">
       <button class="btn btn--primary btn--sm" :disabled="createPending" @click="creating = !creating; quickCompose = false">新建会话</button>
+      <RouterLink class="btn btn--secondary btn--sm" to="/messages/groups?action=create"><t-icon name="usergroup" :size="16" />新建群组</RouterLink>
       <button class="btn btn--ghost btn--sm" :aria-expanded="quickCompose" :disabled="createPending" @click="quickCompose = !quickCompose; creating = false">发送私信</button>
     </div>
     <ConversationMembersForm v-if="creating" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />

@@ -16,16 +16,20 @@ func webGroupUnreadCounts(conn *gorm.DB, ids []string, user string) (map[string]
 	}
 	receipts := conn.Table("matrix_receipts r").Select("r.room_id, MAX(e.stream_position) AS position, MAX(e.created_at) AS created_at").Joins("JOIN matrix_events e ON e.event_id = r.event_id").Where("r.user_id = ? AND r.room_id IN ? AND r.receipt_type IN ? AND (r.thread_id = '' OR r.thread_id IS NULL OR r.thread_id = 'main')", user, ids, []string{"m.read", "m.read.private"}).Group("r.room_id")
 	relation := "json_extract(e.content, '$.\"m.relates_to\".rel_type')"
+	membership := dialect.JSONText(conn, "jm.content", "membership")
 	contains := "EXISTS (SELECT 1 FROM json_each(e.state_before) st WHERE st.value = jm.event_id)"
 	switch conn.Dialector.Name() {
 	case "postgres":
 		relation = "(e.content::jsonb -> 'm.relates_to' ->> 'rel_type')"
+		// MatrixEvent.Content is serialized TEXT, unlike StateBefore's JSONB.
+		// PostgreSQL requires an explicit conversion before JSON operators.
+		membership = "(jm.content::jsonb ->> 'membership')"
 		contains = "(e.state_before::jsonb @> jsonb_build_array(jm.event_id))"
 	case "mysql":
 		relation = "JSON_UNQUOTE(JSON_EXTRACT(e.content, '$.\"m.relates_to\".rel_type'))"
 		contains = "JSON_CONTAINS(e.state_before, JSON_QUOTE(jm.event_id))"
 	}
-	joins := conn.Table("matrix_events jm").Select("1").Where("jm.room_id = e.room_id AND jm.event_type = ? AND jm.state_key = ?", EventTypeRoomMember, user).Where(dialect.JSONText(conn, "jm.content", "membership")+" = ?", "join").Where(contains)
+	joins := conn.Table("matrix_events jm").Select("1").Where("jm.room_id = e.room_id AND jm.event_type = ? AND jm.state_key = ?", EventTypeRoomMember, user).Where(membership+" = ?", "join").Where(contains)
 	var rows []struct {
 		RoomID string
 		Count  int64

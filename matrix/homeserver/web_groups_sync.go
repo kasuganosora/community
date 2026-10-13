@@ -101,7 +101,7 @@ func handleWebGroupSync(c *gin.Context) {
 			if errors.Is(err, errWebGroupSyncLimit) {
 				webGroupSyncLimitFailure(c)
 			} else if !errors.Is(err, context.Canceled) {
-				webGroupError(c, ErrInternal)
+				webGroupInternalError(c, "synchronize rooms", err)
 			}
 			return
 		}
