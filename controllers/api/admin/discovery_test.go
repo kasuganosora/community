@@ -10,9 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -108,4 +110,31 @@ func TestApproveDiscoveryIndexWritesActiveVersion(t *testing.T) {
 	var row models.SystemSetting
 	require.NoError(t, conn.Where(map[string]any{"key": "config.recommendation.meili_approved_version"}).Take(&row).Error)
 	require.Equal(t, "discovery-v1-active", row.Val)
+}
+
+func TestApproveDiscoveryIndexCannotOverrideDeployment(t *testing.T) {
+	conn := discoveryAdminDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.SystemSetting{}))
+	require.NoError(t, conn.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.SystemSetting{}).Error)
+	rows := []models.SystemSetting{
+		{Key: systemsettings.KeyRecommendationApprovedVersion, Val: "previous-approval"},
+		{Key: systemsettings.KeyRecommendationPolicyRevision, Val: "previous-policy"},
+	}
+	require.NoError(t, conn.Create(&rows).Error)
+	previousVersion, previousConfig := currentDiscoveryIndexVersion, config.C.Other
+	currentDiscoveryIndexVersion = func() string { return "discovery-v1-active" }
+	config.C.Other = map[string]string{}
+	t.Cleanup(func() { currentDiscoveryIndexVersion, config.C.Other = previousVersion, previousConfig })
+	for _, configured := range []string{"deployment-version", ""} {
+		config.C.Other[systemsettings.KeyRecommendationApprovedVersion] = configured
+		c, w := newJSONContext(t, http.MethodPost, nil, map[string]any{"version": "discovery-v1-active"})
+		ApproveDiscoveryIndex(c)
+		require.Equal(t, 409, w.Code, "even an explicitly empty deployment value is managed")
+		require.Contains(t, w.Body.String(), "managed by deployment")
+		for _, original := range rows {
+			var stored models.SystemSetting
+			require.NoError(t, conn.Where(map[string]any{"key": original.Key}).Take(&stored).Error)
+			require.Equal(t, original.Val, stored.Val, "a rejected approval must not change the version or invalidate feed cursors")
+		}
+	}
 }

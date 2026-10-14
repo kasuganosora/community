@@ -1,6 +1,6 @@
 # 2026-10-14 提交审查与修复
 
-首批范围：`0b99836..87d26be`，共 11 个提交。审查推荐缓存、远端发现偏好、Meili 构建预算、热点统计、群组同步与加入、标签清理命令。
+最终范围：`0b99836..c0df882`，共 13 个上游提交。首批审查到 `87d26be`，推送前又合入并审查了 `584bbbe`、`c0df882`。覆盖推荐缓存、远端发现偏好、Meili 构建预算与自动/人工审核、热点统计、群组同步与加入、标签清理命令。
 
 ## 已修复的问题
 
@@ -17,16 +17,21 @@
 | 标签清理预览与执行的 rename/merge 数不一致 | 只读预览模拟前序变更，覆盖跨 500 行分页与实际执行一致性 |
 | 清理命令忽略位置参数，可能被误认为只清理指定标签 | 在访问数据库前拒绝位置参数，明确命令检查所有标签 |
 | 清理后精选标签仍显示旧名称、旧链接 | 同步 `featured_tags.name`，合并时保留目标标签大小写 |
+| 自动增强模式仍显示批准按钮，批准请求跨会话后留下旧提示 | 仅人工审核显示批准操作；每次等待后检查会话和组件存活；保留 POST 确认版本，刷新失败不重新显示批准按钮 |
 
 当前远端策略沿用本批上游提交：已验证允许可在 24 小时后回退至上次结果，最长 30 天；从未读取偏好的远端作者只参与话题汇总。明确拒绝和无效更新始终排除。[隐私验收矩阵](recommendation-privacy-acceptance.md) 已同步，历史报告与本次复验分开记录。
 
-## 首批整合验证
+保留新增上游的性能优化：Actor 抓取前不写数据库，成功和非法结果在原有写入中记录尝试，失败或已被新隐私状态取代的结果统一批量记录。网络周期最多 20 秒，末尾记录另有最多 5 秒期限；没有重新引入逐账号的抓取前写入。
 
-- 前端：117 个文件、616 项测试通过；完整 ESLint、TypeScript 检查及 Vite 生产构建通过。
-- 后端：`activitypub`、`models`、`discovery`、`controllers/api/trends`、`migrate/scripts`、`cmd/tootctl/commands` 共 1,488 项通过记录（含子用例），16 项环境相关测试跳过。`controllers/api/discovery` 没有独立测试文件。
+## 最终整合验证
+
+- 前端：117 个文件、623 项测试通过；完整 ESLint、TypeScript 检查及 Vite 生产构建通过。
+- 后端：`activitypub`、`models`、`discovery`、`controllers/api/trends`、`migrate/scripts`、`cmd/tootctl/commands`、`controllers/api/admin`、`systemsettings` 包测试，以及根包发现路由和 Matrix 定向回归，合计 1,776 项通过记录（含子用例）、16 项环境相关测试跳过。合入新提交后重跑了受影响的包；没有变动的包沿用首批结果。`controllers/api/discovery` 没有独立测试文件。
+- 审核边界：部署管理批准版本时返回 409，策略不变；人工审核开关主库即时读回、部署配置优先，关闭→开启→关闭不复活旧推荐窗口。
 - 真实本地 Meilisearch：构建/查询/回收、重启和远端隐私撤回、失败诊断、私密文档排除用例通过。未配置真实 Redis 集群、向量质量评估或大型负载，本次不声称覆盖这些范围。
 - PostgreSQL：使用隔离 schema，29 个顶层测试、54 项通过记录，0 跳过；覆盖 Meili 预加载预算、标签清理、推荐授权、热点分页与排序。临时 schema 已回收。
+- PostgreSQL 补充：3 项 smoke 测试通过，验证批量尝试记录、非法 Actor 排除、索引迁移幂等。原 AP 和该迁移测试固定使用 SQLite，因此补充使用临时测试调用现有导出函数，不声称原测试全集在 PostgreSQL 上运行。
 - Matrix：6 项定向回归通过，0 跳过；搜索包测试通过，`search/indexsync` 无独立测试文件。
 - `git diff --check` 通过。没有清理线上标签或修改生产数据。
 
-日志保存在 `/tmp/community-review-{frontend-tests,frontend-lint,frontend-build}.log`、`/tmp/community-review-{backend,postgres,matrix}-tests.jsonl` 和 `/tmp/community-review-search-tests.log`。此轮为代码、组件与隔离服务验证，不等同线上联邦流量或浏览器视觉验收。
+最终前端日志为 `/tmp/community-review-final-frontend-{tests,lint,build}.log`；后端记录为 `/tmp/community-review-{backend,rebased-backend,final-admin,routes,postgres,postgres-rebased,matrix}-tests.jsonl`，搜索记录为 `/tmp/community-review-search-tests.log`。此轮为代码、组件与隔离服务验证，不等同线上联邦流量或浏览器视觉验收。

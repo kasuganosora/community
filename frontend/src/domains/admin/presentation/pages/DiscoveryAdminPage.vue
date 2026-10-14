@@ -6,6 +6,7 @@ import { invalidateDiscovery } from '@/domains/discovery/presentation/composable
 import type { TargetKind } from '@/domains/discovery/infrastructure/discoveryApi'
 const status = ref<DiscoveryAdminStatus | null>(null), rows = ref<DiscoverySuppression[]>([])
 const loading = ref(false), busy = ref(false), error = ref(''), success = ref('')
+const approving = ref(false)
 const kind = ref<TargetKind>('account'), target = ref(''), reason = ref('')
 const kindLabel = { account: '作者', status: '帖子', tag: '话题' }
 const modeLabel: Record<string, string> = { rules: '基础规则', meili_lexical: '内容检索增强', meili_hybrid: '语义检索增强', disabled: '已关闭', chronological_fallback: '近期公开帖降级' }
@@ -20,7 +21,7 @@ const reasonLabel: Record<string, string> = {
 }
 function reasonText(code?: string) { return code ? reasonLabel[code] || '当前状态需要进一步检查服务日志' : '正常' }
 function bytes(value: number) { return value >= 1048576 ? `${(value / 1048576).toFixed(1)} MiB` : `${(value / 1024).toFixed(1)} KiB` }
-let version = 0
+let version = 0, active = true
 function date(value?: string) { return value && !value.startsWith('0001-') ? new Date(value).toLocaleString() : '暂无记录' }
 async function load() {
   const mine = ++version, epoch = sessionEpoch.value
@@ -50,18 +51,23 @@ const approvalText = computed(() => {
   if (!s.approved_version) return '人工审核 · 尚未批准任何版本'
   return s.index.version && s.approved_version === s.index.version ? '人工审核 · 当前版本已批准' : '人工审核 · 已批准的是旧版本'
 })
-const canApprove = computed(() => !!status.value?.index.version && status.value.approved_version !== status.value.index.version)
+const canApprove = computed(() => status.value?.require_manual_approval === true && !!status.value.index.version && status.value.approved_version !== status.value.index.version)
 async function approve() {
   const current = status.value?.index.version
-  if (busy.value || !current) return
-  busy.value = true; error.value = ''; success.value = ''
+  if (busy.value || loading.value || !canApprove.value || !current) return
+  busy.value = true; approving.value = true; error.value = ''; success.value = ''
   const epoch = sessionEpoch.value
+  const isCurrent = () => active && epoch === sessionEpoch.value
   try {
-    await api.approve(current)
-    if (epoch !== sessionEpoch.value) return
-    invalidateDiscovery(); await load(); success.value = '已批准当前索引版本。'
-  } catch (e) { if (epoch === sessionEpoch.value) error.value = e instanceof Error ? e.message : '批准失败' }
-  finally { if (epoch === sessionEpoch.value) busy.value = false }
+    const result = await api.approve(current)
+    if (!isCurrent()) return
+    // Keep the confirmed mutation even if the following status refresh fails.
+    if (status.value) status.value = { ...status.value, approved_version: result.approved_version }
+    invalidateDiscovery()
+    await load()
+    if (isCurrent()) success.value = '已批准当前索引版本。'
+  } catch (e) { if (isCurrent()) error.value = e instanceof Error ? e.message : '批准失败' }
+  finally { if (isCurrent()) { busy.value = false; approving.value = false } }
 }
 async function restore(row: DiscoverySuppression) {
   if (busy.value) return
@@ -74,9 +80,9 @@ async function restore(row: DiscoverySuppression) {
   } catch (e) { if (epoch === sessionEpoch.value) error.value = e instanceof Error ? e.message : '撤销失败' }
   finally { if (epoch === sessionEpoch.value) busy.value = false }
 }
-watch(sessionEpoch, () => { ++version; status.value = null; rows.value = []; busy.value = false; success.value = ''; void load() }, { flush: 'sync' })
+watch(sessionEpoch, () => { ++version; status.value = null; rows.value = []; busy.value = false; approving.value = false; success.value = ''; void load() }, { flush: 'sync' })
 onMounted(load)
-onBeforeUnmount(() => { ++version })
+onBeforeUnmount(() => { active = false; ++version })
 </script>
 
 <template>
@@ -100,8 +106,8 @@ onBeforeUnmount(() => { ++version })
         <div><dt>当前增强版本</dt><dd>{{ status.index.version || '暂无可用版本' }}</dd></div>
         <div><dt>版本审核</dt><dd data-testid="discovery-approval">{{ approvalText }}<small v-if="status.approved_version">已批准：{{ status.approved_version }}</small></dd></div>
       </dl>
-      <p class="admin-hint">{{ status?.require_manual_approval ? '已开启人工审核：新索引版本须批准后才会启用，未批准时保持基础规则。' : '默认自动模式：索引构建完成且健康后自动启用增强推荐，无需填写版本。可在设置中开启人工审核。' }}</p>
-      <button v-if="status && canApprove" type="button" class="admin-button admin-button--primary" data-testid="discovery-approve" :disabled="busy || loading" @click="approve">批准当前版本</button>
+      <p v-if="status" class="admin-hint">{{ status.require_manual_approval ? '已开启人工审核：新索引版本须批准后才会启用，未批准时保持基础规则。' : '默认自动模式：索引构建完成且健康后自动启用增强推荐，无需填写版本。可在设置中开启人工审核。' }}</p>
+      <button v-if="status && canApprove" type="button" class="admin-button admin-button--primary" data-testid="discovery-approve" :disabled="busy || loading" @click="approve">{{ approving ? '批准中…' : '批准当前版本' }}</button>
       <router-link class="admin-button" to="/admin/settings/performance">配置开关与增强模式</router-link>
     </section>
     <section v-if="status?.runtime" class="admin-card">
