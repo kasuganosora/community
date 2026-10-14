@@ -37,8 +37,10 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, 
   discovery.updateStatus(id, updates)
 })
 let opening = 0
-function rememberChronological() {
-  if (!isDiscovery.value) saveListSnapshot(`home:${activeTab.value}`, [], chronologicalTimeline.value.hasMore)
+let discoveryScroll: { generation: string; scroll: number } | undefined
+function rememberTimeline() {
+  if (isDiscovery.value) discoveryScroll = { generation: discovery.generation.value, scroll: window.scrollY }
+  else saveListSnapshot(`home:${activeTab.value}`, [], chronologicalTimeline.value.hasMore)
 }
 function fetchChronological() {
   return chronologicalType.value === 'public' ? timelineStore.fetchPublicTimeline() : timelineStore.fetchHomeTimeline()
@@ -55,7 +57,15 @@ async function openTimeline() {
   if (!isDiscovery.value) { await openChronological(); return }
   // Returning to a recent recommendation window reuses it (and its scroll
   // position) instead of re-requesting and re-rendering the whole feed.
-  if (discovery.isFresh()) return
+  if (discovery.isFresh()) {
+    const snapshot = discoveryScroll
+    await nextTick()
+    if (mine === opening && epoch === sessionEpoch.value && isDiscovery.value && snapshot?.generation === discovery.generation.value) {
+      window.scrollTo(0, snapshot.scroll)
+    }
+    return
+  }
+  discoveryScroll = undefined
   discovery.clear()
   checkingPreference.value = true
   try {
@@ -71,7 +81,7 @@ async function openTimeline() {
 }
 function onTabChange(value: TabType) {
   if (value === activeTab.value) return
-  rememberChronological()
+  rememberTimeline()
   ++opening
   checkingPreference.value = false
   timelineStore.cancelRevalidation()
@@ -111,9 +121,11 @@ useFeedStream(computed(() => chronologicalType.value === 'public' ? 'stream=publ
   if (!isDiscovery.value) await timelineStore.checkNewer(chronologicalType.value)
 })
 // Only rebuild after the window went stale while hidden, not on every app/tab switch.
-function resume() { if (!document.hidden && isDiscovery.value && !discovery.isFresh()) void openTimeline() }
+function resume() {
+  if (!document.hidden && isDiscovery.value && !checkingPreference.value && !discovery.loading.value && !discovery.isFresh()) void openTimeline()
+}
 onMounted(() => { void openTimeline(); document.addEventListener('visibilitychange', resume) })
-onBeforeRouteLeave(rememberChronological)
+onBeforeRouteLeave(rememberTimeline)
 onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.removeEventListener('visibilitychange', resume) })
 </script>
 

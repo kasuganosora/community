@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -58,6 +59,8 @@ func meiliByteLength(conn *gorm.DB, column string) string {
 	return "OCTET_LENGTH(COALESCE(" + column + ", ''))"
 }
 
+var errMeiliPreflightBudget = errors.New("recommendation preload budget exceeded")
+
 // Guard before GORM Preload(Content/Tags), including the bounded quote graph.
 // Byte limits cover raw HTML/CW and tag names as well as normalized JSON later.
 func meiliPreflight(conn *gorm.DB, roots []uint64) error {
@@ -87,7 +90,7 @@ func meiliPreflight(conn *gorm.DB, roots []uint64) error {
 					pending = append(pending, *id)
 					all = append(all, *id)
 					if len(all) > 10000 {
-						return errors.New("recommendation reference budget exceeded")
+						return fmt.Errorf("%w: reference count", errMeiliPreflightBudget)
 					}
 				}
 			}
@@ -103,7 +106,7 @@ func meiliPreflight(conn *gorm.DB, roots []uint64) error {
 		return err
 	}
 	if content.Maximum > 65536 || content.Bytes > meiliDocumentBytes {
-		return errors.New("recommendation raw content budget exceeded")
+		return fmt.Errorf("%w: raw content", errMeiliPreflightBudget)
 	}
 	var tags []struct {
 		StatusID uint64
@@ -118,34 +121,40 @@ func meiliPreflight(conn *gorm.DB, roots []uint64) error {
 	for _, tag := range tags {
 		content.Bytes += tag.Bytes
 		if tag.Count > 16 || tag.Maximum > 1024 || content.Bytes > meiliDocumentBytes {
-			return errors.New("recommendation tag budget exceeded")
+			return fmt.Errorf("%w: tags", errMeiliPreflightBudget)
 		}
 	}
 	return nil
 }
 
-// meiliPreflightChunk runs the preload guard on one candidate chunk. When the
-// chunk as a whole trips a budget (typically one huge post or quote graph),
-// it falls back to per-root checks and keeps only the roots that pass, so a
-// single outlier cannot keep the discovery index from ever being built.
-func meiliPreflightChunk(conn *gorm.DB, ids []uint64) ([]uint64, error) {
+// meiliPreflightChunks splits an over-budget batch before any preloads. Each
+// returned batch passes the collective raw-content, tag and reference limits;
+// individually safe roots must not be merged back into an unsafe batch.
+// Splitting preserves newest-first order and drops only oversized single roots.
+func meiliPreflightChunks(conn *gorm.DB, ids []uint64) ([][]uint64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	err := meiliPreflight(conn, ids)
 	if err == nil {
-		return ids, nil
+		return [][]uint64{ids}, nil
 	}
-	if !strings.Contains(err.Error(), "budget") {
+	if !errors.Is(err, errMeiliPreflightBudget) {
 		return nil, err
 	}
-	kept := make([]uint64, 0, len(ids))
-	for _, id := range ids {
-		single := meiliPreflight(conn, []uint64{id})
-		if single == nil {
-			kept = append(kept, id)
-		} else if !strings.Contains(single.Error(), "budget") {
-			return nil, single
-		}
+	if len(ids) == 1 {
+		return nil, nil
 	}
-	return kept, nil
+	middle := len(ids) / 2
+	left, err := meiliPreflightChunks(conn, ids[:middle])
+	if err != nil {
+		return nil, err
+	}
+	right, err := meiliPreflightChunks(conn, ids[middle:])
+	if err != nil {
+		return nil, err
+	}
+	return append(left, right...), nil
 }
 func meiliSafeBudgetReason(err error) string {
 	if err != nil && strings.Contains(err.Error(), "budget") {

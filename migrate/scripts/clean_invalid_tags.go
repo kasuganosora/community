@@ -88,12 +88,27 @@ func cleanTag(db *gorm.DB, row tagRow) error {
 		if hasKey {
 			updates["name_key"] = models.TagKey(recovered)
 		}
-		return db.Table("tags").Where("id = ?", row.Id).Updates(updates).Error
+		if err := db.Table("tags").Where("id = ?", row.Id).Updates(updates).Error; err != nil {
+			return err
+		}
+		return syncFeaturedTagName(db, row.Id, recovered)
 	}
 	if err := mergeTagInto(db, row.Id, target.Id); err != nil {
 		return err
 	}
+	if err := syncFeaturedTagName(db, target.Id, target.Name); err != nil {
+		return err
+	}
 	return recountTagStatuses(db, target.Id)
+}
+
+// Featured tags render their own cached name in profile labels and URLs.
+// Moving a link or renaming its tag must update that name as well.
+func syncFeaturedTagName(db *gorm.DB, id uint64, name string) error {
+	if !db.Migrator().HasTable("featured_tags") || !db.Migrator().HasColumn("featured_tags", "name") {
+		return nil
+	}
+	return db.Table("featured_tags").Where("tag_id = ?", id).Update("name", name).Error
 }
 
 // mergeTagInto moves every status_tags, followed_tags and featured_tags link
@@ -153,7 +168,7 @@ type InvalidTagAction struct {
 	Action   string // "rename", "merge" or "delete"
 	Target   string // recovered name (rename/merge)
 	TargetId uint64 // existing tag merged into (merge)
-	Links    int64  // status_tags links of the row
+	Links    int64  // original status_tags links of the row
 }
 
 // PlanInvalidTags lists the invalid tag rows and what cleaning would do to
@@ -165,6 +180,12 @@ func PlanInvalidTags(db *gorm.DB) ([]InvalidTagAction, error) {
 	}
 	hasKey := db.Migrator().HasColumn("tags", "name_key")
 	hasLinks := db.Migrator().HasTable("status_tags")
+	// A dry run must also see earlier planned changes: after the first dirty
+	// spelling is renamed, later spellings merge into it. Keep only changed
+	// rows in memory; untouched candidates still use the database's matching
+	// rules, including the exact-name behavior before name_key was added.
+	changed := map[uint64]bool{}
+	renamed := map[string]uint64{}
 	var last uint64
 	for {
 		var rows []tagRow
@@ -187,20 +208,43 @@ func PlanInvalidTags(db *gorm.DB) ([]InvalidTagAction, error) {
 			}
 			if recovered := RecoverTagName(row.Name); recovered != "" {
 				a.Action, a.Target = "rename", recovered
-				var target tagRow
+				key := recovered
+				if hasKey {
+					key = models.TagKey(recovered)
+				}
+				targetID := renamed[key]
 				q := db.Table("tags").Select("id, name").Where("id <> ?", row.Id)
 				if hasKey {
-					q = q.Where("name_key = ?", models.TagKey(recovered))
+					q = q.Where("name_key = ?", key)
 				} else {
 					q = q.Where("name = ?", recovered)
 				}
-				if err := q.Order("id").Limit(1).Scan(&target).Error; err != nil {
-					return nil, err
+				// Ignore the original database versions of changed rows. Read
+				// one candidate at a time so legacy duplicate names stay bounded.
+				var after uint64
+				for {
+					var target tagRow
+					if err := q.Session(&gorm.Session{}).Where("id > ?", after).Order("id").Limit(1).Scan(&target).Error; err != nil {
+						return nil, err
+					}
+					if target.Id == 0 {
+						break
+					}
+					if !changed[target.Id] {
+						if targetID == 0 || target.Id < targetID {
+							targetID = target.Id
+						}
+						break
+					}
+					after = target.Id
 				}
-				if target.Id != 0 {
-					a.Action, a.TargetId = "merge", target.Id
+				if targetID != 0 {
+					a.Action, a.TargetId = "merge", targetID
+				} else {
+					renamed[key] = row.Id
 				}
 			}
+			changed[row.Id] = true
 			plan = append(plan, a)
 		}
 	}

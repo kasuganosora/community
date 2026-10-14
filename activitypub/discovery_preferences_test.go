@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -206,12 +207,15 @@ func TestRemoteDiscoveryRefreshPrioritisesRecentPosters(t *testing.T) {
 }
 
 type domainFailingFetcher struct {
+	mu       sync.Mutex
 	failHost string
 	calls    map[string]int
 	status   int
 }
 
 func (f *domainFailingFetcher) FetchActor(_ context.Context, uri string) (*Actor, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls[uri]++
 	if strings.Contains(uri, f.failHost) {
 		status := f.status
@@ -314,4 +318,109 @@ func TestRemoteDiscoveryRefreshEmitsNarrowAttemptedUpdate(t *testing.T) {
 	var attempted int64
 	require.NoError(t, conn.Model(&models.Account{}).Where("id IN ? AND remote_discovery_attempted_at IS NOT NULL", ids).Count(&attempted).Error)
 	require.EqualValues(t, 3, attempted)
+}
+
+func TestInvalidPartialDiscoveryUpdateIsNotTreatedAsUnread(t *testing.T) {
+	conn := emojiDB(t)
+	account := models.Account{Username: "legacy", Domain: new("remote.test"), OriginId: "https://remote.test/users/legacy"}
+	require.NoError(t, conn.Create(&account).Error)
+	require.True(t, account.AllowsTrendAggregation(time.Now()))
+	updates := actorDiscoveryUpdates(&account, decodeDiscoveryActor(t, `,"discoverable":null`), true, time.Now())
+	require.NoError(t, conn.Model(&account).Updates(updates).Error)
+	var saved models.Account
+	require.NoError(t, conn.First(&saved, account.Id).Error)
+	require.Equal(t, "invalid", saved.RemoteDiscoverySource)
+	require.False(t, saved.RemoteDiscoveryUnknown())
+	require.False(t, saved.AllowsRecommendation(time.Now()))
+	require.False(t, saved.AllowsTrendAggregation(time.Now()))
+}
+
+type discoveryCallbackFetcher struct {
+	fetch func(context.Context, string) (*Actor, error)
+}
+
+func (f discoveryCallbackFetcher) FetchActor(ctx context.Context, uri string) (*Actor, error) {
+	return f.fetch(ctx, uri)
+}
+func (discoveryCallbackFetcher) FetchObject(context.Context, string) (map[string]any, error) {
+	panic("discovery refresh must not fetch collections")
+}
+
+func TestRemoteDiscoveryRefreshDoesNotOverwriteNewerPrivacyUpdate(t *testing.T) {
+	for _, fields := range []string{`,"discoverable":false`, `,"indexable":false`, `,"discoverable":null`} {
+		t.Run(fields, func(t *testing.T) {
+			conn := emojiDB(t)
+			old := time.Now().Add(-25 * time.Hour)
+			account := models.Account{Username: "changing", Domain: new("remote.test"), OriginId: "https://remote.test/users/changing", RemoteDiscoverable: discoveryBool(true), RemoteDiscoveryCheckedAt: &old, RemoteDiscoverySource: "actor"}
+			require.NoError(t, conn.Create(&account).Error)
+			incoming := decodeDiscoveryActor(t, fields)
+			fetcher := discoveryCallbackFetcher{fetch: func(_ context.Context, uri string) (*Actor, error) {
+				// Simulate a verified partial inbox Update completing while the
+				// older HTTP actor response is still pending.
+				updates := actorDiscoveryUpdates(&account, incoming, true, time.Now())
+				if err := conn.Model(&models.Account{}).Where("id = ?", account.Id).Updates(updates).Error; err != nil {
+					return nil, err
+				}
+				return &Actor{ID: uri, Type: "Person", Discoverable: discoveryBool(true), Indexable: discoveryBool(true)}, nil
+			}}
+			n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 1)
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
+			var saved models.Account
+			require.NoError(t, conn.First(&saved, account.Id).Error)
+			require.False(t, saved.AllowsRecommendation(time.Now()), "late fetch must not reinstate consent")
+			require.False(t, saved.AllowsTrendAggregation(time.Now()))
+			if incoming.Discoverable != nil {
+				require.Equal(t, incoming.Discoverable, saved.RemoteDiscoverable)
+			}
+			if incoming.Indexable != nil {
+				require.Equal(t, incoming.Indexable, saved.RemoteIndexable)
+			}
+		})
+	}
+}
+
+func TestRemoteDiscoveryRefreshRefillsBeyondDominantDomain(t *testing.T) {
+	conn := emojiDB(t)
+	for i := range 40 {
+		account := models.Account{Username: fmt.Sprintf("busy%d", i), Domain: new("busy.test"), OriginId: fmt.Sprintf("https://busy.test/users/u%d", i)}
+		require.NoError(t, conn.Create(&account).Error)
+	}
+	other := models.Account{Username: "small", Domain: new("small.test"), OriginId: "https://small.test/users/small"}
+	require.NoError(t, conn.Create(&other).Error)
+	fetcher := &domainFailingFetcher{failHost: "busy.test", calls: map[string]int{}}
+	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 8)
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "one rate-limited big-domain request must not starve the smaller domain beyond the first 32 rows")
+	var saved models.Account
+	require.NoError(t, conn.First(&saved, other.Id).Error)
+	require.True(t, saved.AllowsRecommendation(time.Now()))
+}
+
+func TestRemoteDiscoveryRefreshTimesOutOneDomainWithoutClaimingItsQueue(t *testing.T) {
+	conn := emojiDB(t)
+	for _, name := range []string{"slow1", "slow2"} {
+		account := models.Account{Username: name, Domain: new("slow.test"), OriginId: "https://slow.test/users/" + name}
+		require.NoError(t, conn.Create(&account).Error)
+	}
+	other := models.Account{Username: "fast", Domain: new("fast.test"), OriginId: "https://fast.test/users/fast"}
+	require.NoError(t, conn.Create(&other).Error)
+	oldTimeout := remoteDiscoveryFetchTimeout
+	remoteDiscoveryFetchTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { remoteDiscoveryFetchTimeout = oldTimeout })
+	fetcher := discoveryCallbackFetcher{fetch: func(ctx context.Context, uri string) (*Actor, error) {
+		if strings.Contains(uri, "slow.test") {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &Actor{ID: uri, Type: "Person", Discoverable: discoveryBool(true)}, nil
+	}}
+	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 3)
+	require.NoError(t, err, "an offline domain is an expected maintenance outcome")
+	require.Equal(t, 2, n)
+	var skipped, saved models.Account
+	require.NoError(t, conn.Where("username = ?", "slow2").First(&skipped).Error)
+	require.Nil(t, skipped.RemoteDiscoveryAttemptedAt, "unattempted accounts must remain eligible next cycle")
+	require.NoError(t, conn.First(&saved, other.Id).Error)
+	require.True(t, saved.AllowsRecommendation(time.Now()))
 }

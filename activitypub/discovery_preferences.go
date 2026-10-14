@@ -61,6 +61,7 @@ func actorDiscoveryUpdates(account *models.Account, actor *Actor, partial bool, 
 	if actor.discoveryInvalid {
 		// An invalid/null field must not renew the lifetime of an old allow.
 		updates["remote_discovery_checked_at"] = nil
+		updates["remote_discovery_source"] = "invalid"
 	} else if !partial || complete {
 		updates["remote_discovery_checked_at"] = &now
 		updates["remote_discovery_attempted_at"] = &now
@@ -115,8 +116,7 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 	defer cancel()
 	now := time.Now()
 	recent := "EXISTS (SELECT 1 FROM statuses WHERE statuses.account_id = accounts.id AND statuses.deleted_at IS NULL AND statuses.visibility = ? AND statuses.scheduled_at IS NULL AND statuses.created_at >= ? AND statuses.created_at <= ?)"
-	var accounts []models.Account
-	err := conn.WithContext(ctx).Where("domain IS NOT NULL AND origin_id <> '' AND is_ban = ?", false).
+	query := conn.WithContext(ctx).Where("domain IS NOT NULL AND origin_id <> '' AND is_ban = ?", false).
 		// Keep inactive historical imports from starving authors with content
 		// that can actually enter the bounded recommendation/hotspot windows.
 		Where("accounts.last_activity_at >= ? OR accounts.created_at >= ? OR "+recent, now.Add(-30*24*time.Hour), now.Add(-7*24*time.Hour), models.StatusVisibilityPublic, now.Add(-30*24*time.Hour), now).
@@ -124,12 +124,35 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 		Where("remote_discovery_attempted_at IS NULL OR remote_discovery_attempted_at < ?", now.Add(-remoteDiscoveryRetryAfter)).
 		// One ORDER BY expression: recent posters first, then never attempted,
 		// then oldest attempt. (gorm drops an Expr order when Order() follows.)
-		Clauses(clause.OrderBy{Expression: clause.Expr{SQL: "CASE WHEN " + recent + " THEN 0 ELSE 1 END ASC, CASE WHEN remote_discovery_attempted_at IS NULL THEN 0 ELSE 1 END ASC, remote_discovery_attempted_at ASC, id ASC", Vars: []any{models.StatusVisibilityPublic, now.Add(-7 * 24 * time.Hour), now}, WithoutParentheses: true}}).
-		Limit(limit * 4).Find(&accounts).Error
-	if err != nil {
-		return 0, err
+		Clauses(clause.OrderBy{Expression: clause.Expr{SQL: "CASE WHEN " + recent + " THEN 0 ELSE 1 END ASC, CASE WHEN remote_discovery_attempted_at IS NULL THEN 0 ELSE 1 END ASC, remote_discovery_attempted_at ASC, id ASC", Vars: []any{models.StatusVisibilityPublic, now.Add(-7 * 24 * time.Hour), now}, WithoutParentheses: true}})
+	// The first bounded read can consist entirely of one large instance.
+	// Refill from unseen domains rather than repeatedly starving everything
+	// beyond that prefix. Both rounds and rows stay bounded by the batch size;
+	// every read also shares the overall cycle deadline.
+	perDomain := max(1, remoteDiscoveryPerDomain)
+	var accounts []models.Account
+	var seenDomains []string
+	for range (limit + perDomain - 1) / perDomain {
+		batchQuery := query.Session(&gorm.Session{})
+		if len(seenDomains) != 0 {
+			batchQuery = batchQuery.Where("domain NOT IN ?", seenDomains)
+		}
+		var candidates []models.Account
+		if err := batchQuery.Limit(limit * 4).Find(&candidates).Error; err != nil {
+			return 0, err
+		}
+		accounts = append(accounts, spreadRemoteDiscoveryByDomain(candidates, limit-len(accounts), perDomain)...)
+		if len(accounts) == limit || len(candidates) < limit*4 {
+			break
+		}
+		seen := map[string]bool{}
+		for _, account := range candidates {
+			if account.Domain != nil && !seen[*account.Domain] {
+				seen[*account.Domain] = true
+				seenDomains = append(seenDomains, *account.Domain)
+			}
+		}
 	}
-	accounts = spreadRemoteDiscoveryByDomain(accounts, limit, remoteDiscoveryPerDomain)
 	if len(accounts) == 0 {
 		return 0, nil
 	}
@@ -233,8 +256,8 @@ func spreadRemoteDiscoveryByDomain(accounts []models.Account, limit, perDomain i
 }
 
 type remoteDiscoveryOutcome struct {
-	checked, invalid, transient bool
-	reason                      string
+	checked, invalid, transient, superseded bool
+	reason                                  string
 	// markAttempted: the fetch failed and the row still needs its
 	// attempted_at bumped (successful fetches store it with the result).
 	markAttempted bool
@@ -255,8 +278,8 @@ func markRemoteDiscoveryAttempted(ctx context.Context, conn *gorm.DB, ids []uint
 }
 
 type remoteDiscoveryStats struct {
-	attempted, checked, invalid, failed int
-	failedDomains                       map[string]string
+	attempted, checked, invalid, failed, superseded int
+	failedDomains                                   map[string]string
 }
 
 func (s *remoteDiscoveryStats) add(o remoteDiscoveryOutcome) {
@@ -266,6 +289,8 @@ func (s *remoteDiscoveryStats) add(o remoteDiscoveryOutcome) {
 		s.checked++
 	case o.invalid:
 		s.invalid++
+	case o.superseded:
+		s.superseded++
 	default:
 		s.failed++
 	}
@@ -284,7 +309,7 @@ func (s *remoteDiscoveryStats) log(selected int) {
 		}
 		domains = append(domains, d+"("+reason+")")
 	}
-	log.Info("discovery: remote preference backfill selected=%d attempted=%d checked=%d invalid=%d failed=%d backed_off_domains=%v", selected, s.attempted, s.checked, s.invalid, s.failed, domains)
+	log.Info("discovery: remote preference backfill selected=%d attempted=%d checked=%d invalid=%d failed=%d superseded=%d backed_off_domains=%v", selected, s.attempted, s.checked, s.invalid, s.failed, s.superseded, domains)
 }
 
 // refreshOneRemoteDiscovery fetches one row's actor. It writes nothing before
@@ -313,13 +338,22 @@ func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorF
 	}
 	var outcome remoteDiscoveryOutcome
 	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(account, account.Id).Error; err != nil {
+		var current models.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, account.Id).Error; err != nil {
 			return err
 		}
+		// A verified inbox Update or profile refresh may finish while this
+		// network request is in flight. Its newer privacy choice wins over
+		// the stale document, including partial Updates which do not renew
+		// checked_at. The attempt marker itself must not change updated_at.
+		if !sameRemoteDiscoveryState(account, &current) {
+			outcome.superseded = true
+			outcome.markAttempted = true
+			return nil
+		}
 		now := time.Now()
-		updates := actorDiscoveryUpdates(account, actor, false, now)
-		// Record the attempt in the same row write as the result, also for
-		// invalid documents (which do not set it in actorDiscoveryUpdates).
+		updates := actorDiscoveryUpdates(&current, actor, false, now)
+		// Store the attempt with the result, including invalid documents.
 		updates["remote_discovery_attempted_at"] = &now
 		if actor.discoveryInvalid {
 			// Distinguish a fetched-but-invalid document from a failed fetch.
@@ -328,7 +362,32 @@ func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorF
 		} else {
 			outcome.checked = true
 		}
-		return tx.Model(account).Updates(updates).Error
+		return tx.Model(&current).Updates(updates).Error
 	})
-	return outcome, err
+	if err != nil {
+		return remoteDiscoveryOutcome{reason: "db", markAttempted: true}, err
+	}
+	return outcome, nil
+}
+
+// Compare nullable values rather than pointer identities. Attempt timestamps
+// are deliberately excluded: claiming the row is not a privacy change.
+func sameRemoteDiscoveryState(before, current *models.Account) bool {
+	return before.OriginId == current.OriginId && before.IsBan == current.IsBan &&
+		sameDiscoveryTime(before.UpdatedAt, current.UpdatedAt) &&
+		sameDiscoveryTime(before.RemoteDiscoveryCheckedAt, current.RemoteDiscoveryCheckedAt) &&
+		before.RemoteDiscoverySource == current.RemoteDiscoverySource &&
+		sameDiscoveryBool(before.RemoteDiscoverable, current.RemoteDiscoverable) &&
+		sameDiscoveryBool(before.RemoteIndexable, current.RemoteIndexable) &&
+		sameDiscoveryBool(before.RemoteHideCollections, current.RemoteHideCollections) &&
+		before.Discoverable == current.Discoverable && before.NoIndex == current.NoIndex &&
+		before.HideCollections == current.HideCollections
+}
+
+func sameDiscoveryTime(a, b *time.Time) bool {
+	return a == nil && b == nil || a != nil && b != nil && a.Equal(*b)
+}
+
+func sameDiscoveryBool(a, b *bool) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { groupPath, type Group, type GroupJoinResult } from '@/domains/group/domain/group'
 import { groupApi } from '@/domains/group/infrastructure/groupApi'
+import { isRetryableGroupRequestError } from '@/domains/group/infrastructure/groupErrors'
 import GroupAvatar from '@/domains/group/presentation/components/GroupAvatar.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupClientLink, groupMembershipLabel } from '../../domain/groupSearch'
@@ -96,7 +97,15 @@ async function poll(attempt: number) {
   controller = new AbortController()
   polls++
   try { finish(await groupApi.joinStatus(operationID, controller.signal), attempt) }
-  catch (reason) { fail(reason, attempt) }
+  catch (reason) {
+    if (!valid(attempt)) return
+    if (isRetryableGroupRequestError(reason)) {
+      status.value = '服务器响应较慢，仍在确认加入结果…'
+      timer = setTimeout(() => { void poll(attempt) }, 3000)
+      return
+    }
+    fail(reason, attempt)
+  }
 }
 async function join() {
   if (busy.value || !canJoin.value) return

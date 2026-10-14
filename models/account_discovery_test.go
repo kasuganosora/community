@@ -28,6 +28,7 @@ func TestAccountAllowsRecommendationUsesFreshCheckOrStoredActorFlag(t *testing.T
 		{"remote unchecked stored refusal", &Account{Domain: &domain, RemoteDiscoverable: &no, Discoverable: true}, false},
 		{"remote unchecked noindex", &Account{Domain: &domain, Discoverable: true, NoIndex: true}, false},
 		{"remote invalid document", &Account{Domain: &domain, Discoverable: true, RemoteDiscoverySource: "actor"}, false},
+		{"remote invalid source overrides timestamp", &Account{Domain: &domain, RemoteDiscoverable: &yes, RemoteDiscoveryCheckedAt: &now, RemoteDiscoverySource: "invalid"}, false},
 		{"remote fresh check overrides legacy flag", &Account{Domain: &domain, Discoverable: true, RemoteDiscoverable: &no, RemoteDiscoveryCheckedAt: &now}, false},
 		{"remote very stale", &Account{Domain: &domain, RemoteDiscoverable: &yes, RemoteDiscoveryCheckedAt: &ancient}, false},
 		{"remote unknown discoverable", &Account{Domain: &domain, RemoteIndexable: &yes, RemoteDiscoveryCheckedAt: &now}, false},

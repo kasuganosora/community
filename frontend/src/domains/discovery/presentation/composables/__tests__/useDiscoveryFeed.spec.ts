@@ -14,7 +14,7 @@ const page = (ids: string[], next: string | null = null): DiscoveryPage => ({
 const scopes: ReturnType<typeof effectScope>[] = []
 function setup() { const scope = effectScope(); scopes.push(scope); return scope.run(() => useDiscoveryFeed())! }
 beforeEach(() => { sessionEpoch.value++; discoveryPreference.value = { preference: 'generic', revision: 1 } })
-afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.restoreAllMocks() })
+afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ranked discovery pagination', () => {
   it('retries a load-shedding 503 once and reports freshness', async () => {
@@ -40,6 +40,42 @@ describe('ranked discovery pagination', () => {
     expect(api.mock.calls[1]?.[0]).toBe('opaque-cursor')
     expect(feed.statuses.value.map(row => row.id)).toEqual(['20', '80', '10'])
     expect(feed.hasMore.value).toBe(false)
+  })
+
+  it.each(['cancel', 'dispose'] as const)('does not retry a superseded request after %s during the retry delay', async action => {
+    vi.useFakeTimers()
+    const api = vi.spyOn(discoveryApi, 'statuses')
+      .mockRejectedValueOnce({ response: { status: 503, data: { retryable: true } } })
+      .mockResolvedValueOnce(page(['new']))
+    const old = setup(), request = old.refresh()
+    await vi.advanceTimersByTimeAsync(0)
+    if (action === 'dispose') scopes[0]!.stop()
+    else old.cancel()
+    const current = action === 'dispose' ? setup() : old
+    await current.refresh()
+    await vi.advanceTimersByTimeAsync(1500)
+    await request
+    expect(api).toHaveBeenCalledTimes(2)
+    expect(api.mock.calls[0]![1]!.aborted).toBe(true)
+    expect(current.statuses.value.map(row => row.id)).toEqual(['new'])
+    expect(current.isFresh()).toBe(true)
+  })
+
+  it('invalidates a cached window immediately when account or language preference changes', async () => {
+    vi.spyOn(discoveryApi, 'statuses').mockResolvedValue(page(['1'], 'more'))
+    const feed = setup()
+    await feed.refresh()
+    expect(feed.isFresh()).toBe(true)
+    invalidateDiscovery({ preference: 'generic', revision: 2, languages: ['ja'] })
+    expect(feed.isFresh()).toBe(false)
+    expect(feed.statuses.value).toEqual([])
+    expect(feed.hasMore.value).toBe(false)
+    vi.mocked(discoveryApi.statuses).mockResolvedValue({ ...page(['2']), preference_revision: 2 })
+    await feed.refresh()
+    expect(feed.isFresh()).toBe(true)
+    sessionEpoch.value++
+    expect(feed.isFresh()).toBe(false)
+    expect(feed.statuses.value).toEqual([])
   })
 
   it('bounds automatic traversal of empty blocks and permits explicit continuation', async () => {

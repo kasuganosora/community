@@ -24,6 +24,9 @@ func TagsCommand() *cli.Command {
 					&cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "print every affected tag"},
 				},
 				Action: func(c *cli.Context) error {
+					if c.Args().Len() != 0 {
+						return cli.Exit("clean-invalid takes no positional arguments; it checks all tags", 1)
+					}
 					return cleanInvalidTags(c, db.GetDB().WithContext(c.Context))
 				},
 			},

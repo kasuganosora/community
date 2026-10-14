@@ -185,7 +185,7 @@ func (a *Account) AllowsRecommendation(now time.Time) bool {
 	if a.IsLocal() {
 		return a.Discoverable && !a.NoIndex
 	}
-	if a.NoIndex || (a.RemoteIndexable != nil && !*a.RemoteIndexable) {
+	if a.RemoteDiscoverySource == "invalid" || a.NoIndex || (a.RemoteIndexable != nil && !*a.RemoteIndexable) {
 		return false
 	}
 	checked := a.RemoteDiscoveryCheckedAt

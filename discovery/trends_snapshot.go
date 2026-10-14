@@ -261,7 +261,14 @@ func ReadTagTrends(ctx context.Context, viewer *models.Account, window, scope st
 	}
 	end := min(position+limit, len(snap.Keys))
 	selected := snap.Keys[position:end]
-	rows, partial, err := AggregateTagTrendsPartial(ctx, db.GetDB(), viewer, window, scope, snap.AsOf, selected)
+	// A partial snapshot ranked the newest public roots across all tags. Do
+	// not expand that sample with older roots merely because this page asks
+	// for fewer tags: otherwise counts and eligibility depend on page size.
+	keys := selected
+	if snap.Partial && len(selected) > 0 {
+		keys = nil
+	}
+	rows, partial, err := AggregateTagTrendsPartial(ctx, db.GetDB(), viewer, window, scope, snap.AsOf, keys)
 	if err != nil {
 		return nil, err
 	}

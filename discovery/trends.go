@@ -181,7 +181,7 @@ func AggregateTagTrendsPartial(ctx context.Context, conn *gorm.DB, viewer *model
 		associations := make([]association, 0)
 		for start := 0; start < len(ids); start += 400 {
 			var rows []association
-			q := tx.Table("status_tags st").Select("st.status_id, t.id AS tag_id, t.name, t.name_key").Joins("JOIN tags t ON t.id = st.tag_id").Where("st.status_id IN ?", ids[start:min(start+400, len(ids))])
+			q := tx.Table("status_tags st").Select("st.status_id, t.id AS tag_id, t.name, t.name_key").Joins("JOIN tags t ON t.id = st.tag_id").Joins("JOIN statuses s ON s.id = st.status_id").Where("st.status_id IN ?", ids[start:min(start+400, len(ids))]).Order("s.created_at DESC, s.id DESC, t.id ASC")
 			if keys != nil {
 				q = q.Where("t.name_key IN ?", keys)
 			}

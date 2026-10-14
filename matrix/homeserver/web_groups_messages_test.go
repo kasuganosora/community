@@ -428,7 +428,7 @@ func TestWebGroupSyncLimitHasActionableNonRetryableError(t *testing.T) {
 }
 
 func TestWebGroupSyncReturnsPromptlyWhenSnapshotIsOverBudget(t *testing.T) {
-	_, router, _ := webMessageFixture(t)
+	_, router, room := webMessageFixture(t)
 	post := func(since string) *httptest.ResponseRecorder {
 		raw, err := json.Marshal(gin.H{"since": since, "timeout": 0})
 		require.NoError(t, err)
@@ -444,6 +444,7 @@ func TestWebGroupSyncReturnsPromptlyWhenSnapshotIsOverBudget(t *testing.T) {
 	var first webGroupSyncResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &first))
 	require.NotEmpty(t, first.NextCursor)
+	message := webMessageSend(t, router, room, "during-busy-sync", "must arrive after recovery")
 
 	previous := webGroupSyncSnapshotBudget
 	webGroupSyncSnapshotBudget = time.Nanosecond
@@ -455,8 +456,25 @@ func TestWebGroupSyncReturnsPromptlyWhenSnapshotIsOverBudget(t *testing.T) {
 	require.True(t, degraded.Degraded)
 	require.Equal(t, first.NextCursor, degraded.NextCursor, "cursor is kept so the next poll catches up")
 	require.Positive(t, degraded.RetryAfterMs)
+	require.Empty(t, degraded.Messages)
+	require.Empty(t, degraded.Left)
 	w = post("")
 	require.Equal(t, 503, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"sync_busy"`)
 	require.Contains(t, w.Body.String(), `"retryable":true`)
+	var expired webGroupSyncCursor
+	require.NoError(t, webGroupDecode(first.NextCursor, &expired))
+	expired.Issued = time.Now().Add(-8 * 24 * time.Hour).Unix()
+	w = post(webGroupEncode(expired))
+	require.Equal(t, 503, w.Code, "an expired cursor also needs a complete snapshot")
+	require.Contains(t, w.Body.String(), `"sync_busy"`)
+
+	webGroupSyncSnapshotBudget = previous
+	w = post(degraded.NextCursor)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var recovered webGroupSyncResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &recovered))
+	require.False(t, recovered.Degraded)
+	require.Len(t, recovered.Messages[webGroupID(room)], 1)
+	require.Equal(t, message.ID, recovered.Messages[webGroupID(room)][0].ID, "degradation must not advance past undelivered events")
 }

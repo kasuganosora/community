@@ -433,7 +433,7 @@ func (p *MeiliProvider) documents(ctx context.Context, asOf time.Time) ([]meiliD
 		return nil, ErrUnavailable
 	}
 	rows := []meiliDocument{}
-	used := 0
+	used := 2 // JSON array delimiters; per-document accounting reserves its separator.
 	isolation := sql.LevelRepeatableRead
 	if dialect.IsSQLite(conn) {
 		isolation = sql.LevelSerializable
@@ -451,49 +451,48 @@ func (p *MeiliProvider) documents(ctx context.Context, asOf time.Time) ([]meiliD
 			if end > len(ids) {
 				end = len(ids)
 			}
-			chunk, err := meiliPreflightChunk(tx, ids[offset:end])
+			chunks, err := meiliPreflightChunks(tx, ids[offset:end])
 			if err != nil {
 				return err
 			}
-			if len(chunk) == 0 {
-				continue
-			}
-			stubs := make(models.Statuses, 0, len(chunk))
-			for _, id := range chunk {
-				stubs = append(stubs, &models.Status{Id: id})
-			}
-			eligible, err := models.FilterRecommendableStatuses(tx, nil, stubs, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: CandidateWindow, RootWindow: true})
-			if err != nil {
-				return err
-			}
-			for _, s := range eligible {
-				if s.CreatedAt == nil || s.Account == nil {
-					continue
+			for _, chunk := range chunks {
+				stubs := make(models.Statuses, 0, len(chunk))
+				for _, id := range chunk {
+					stubs = append(stubs, &models.Status{Id: id})
 				}
-				domain := ""
-				if s.Account.Domain != nil {
-					domain = *s.Account.Domain
-				}
-				tags := make([]string, 0, len(s.Tags))
-				for _, tag := range s.Tags {
-					tags = append(tags, models.TagKey(tag.Name))
-				}
-				text := htmlsafe.PlainText(s.Content.SpoilerText + "\n" + s.Content.Content)
-				if len(text) > 16384 {
-					// One oversized post must not block the whole generation.
-					continue
-				}
-				doc := meiliDocument{ID: strconv.FormatUint(s.Id, 10), AuthorID: strconv.FormatUint(s.AccountId, 10), Domain: domain, Text: text, Tags: tags, Language: s.Language, PublishedAt: s.CreatedAt.Unix(), Schema: meiliSchemaVersion}
-				serialized, err := json.Marshal(doc)
+				eligible, err := models.FilterRecommendableStatuses(tx, nil, stubs, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: CandidateWindow, RootWindow: true})
 				if err != nil {
 					return err
 				}
-				if used+len(serialized)+1 > meiliDocumentBytes {
-					// Newest-first: stop at the byte budget and keep what fits.
-					return nil
+				for _, s := range eligible {
+					if s.CreatedAt == nil || s.Account == nil {
+						continue
+					}
+					domain := ""
+					if s.Account.Domain != nil {
+						domain = *s.Account.Domain
+					}
+					tags := make([]string, 0, len(s.Tags))
+					for _, tag := range s.Tags {
+						tags = append(tags, models.TagKey(tag.Name))
+					}
+					text := htmlsafe.PlainText(s.Content.SpoilerText + "\n" + s.Content.Content)
+					if len(text) > 16384 {
+						// One oversized post must not block the whole generation.
+						continue
+					}
+					doc := meiliDocument{ID: strconv.FormatUint(s.Id, 10), AuthorID: strconv.FormatUint(s.AccountId, 10), Domain: domain, Text: text, Tags: tags, Language: s.Language, PublishedAt: s.CreatedAt.Unix(), Schema: meiliSchemaVersion}
+					serialized, err := json.Marshal(doc)
+					if err != nil {
+						return err
+					}
+					if used+len(serialized)+1 > meiliDocumentBytes {
+						// Newest-first: stop at the byte budget and keep what fits.
+						return nil
+					}
+					used += len(serialized) + 1
+					rows = append(rows, doc)
 				}
-				used += len(serialized) + 1
-				rows = append(rows, doc)
 			}
 		}
 		return nil

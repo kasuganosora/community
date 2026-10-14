@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
@@ -87,6 +88,53 @@ describe('group actions in unified search', () => {
     expect(w.get('[role="alert"]').text()).toContain('状态查询超时')
     await button(w, '继续检查加入状态').trigger('click'); await flushPromises()
     expect(groupApi.join).toHaveBeenCalledTimes(1); expect(groupApi.joinStatus).toHaveBeenCalledTimes(2)
+    expect(w.text()).toContain('打开群聊'); w.unmount()
+  })
+  it.each([504, 429, undefined])('keeps checking the existing join after a transient %s response', async status => {
+    vi.useFakeTimers()
+    const failure = new AxiosError('暂时不可用', 'ERR_NETWORK', undefined, undefined, status ? { status, data: {}, statusText: '', headers: {}, config: {} as never } : undefined)
+    vi.mocked(groupApi.join).mockResolvedValue({ status: 'joining', operation_id: 'operation-1' })
+    vi.mocked(groupApi.joinStatus).mockRejectedValueOnce(failure).mockResolvedValueOnce({ status: 'joined', group: group({ membership: 'join' }) })
+    const w = setup()
+    await button(w, '加入群组').trigger('click'); await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    expect(w.get('[role="status"]').text()).toContain('仍在确认加入结果')
+    expect(w.get('button').attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(groupApi.join).toHaveBeenCalledTimes(1)
+    expect(groupApi.joinStatus).toHaveBeenLastCalledWith('operation-1', expect.any(AbortSignal))
+    expect(w.text()).toContain('打开群聊')
+    w.unmount()
+  })
+  it('stops retries for an explicitly non-retryable status error', async () => {
+    vi.useFakeTimers()
+    vi.mocked(groupApi.join).mockResolvedValue({ status: 'joining', operation_id: 'operation-1' })
+    const failure = new AxiosError('加入操作已结束', 'ERR_BAD_RESPONSE', undefined, undefined, { status: 503, data: { retryable: false }, statusText: '', headers: {}, config: {} as never })
+    vi.mocked(groupApi.joinStatus).mockRejectedValue(failure)
+    const w = setup()
+    await button(w, '加入群组').trigger('click'); await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(w.get('[role="alert"]').text()).toBe('加入操作已结束')
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(groupApi.joinStatus).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+  it('bounds repeated transient errors and resumes status without posting another join', async () => {
+    vi.useFakeTimers()
+    vi.mocked(groupApi.join).mockResolvedValue({ status: 'joining', operation_id: 'operation-1' })
+    vi.mocked(groupApi.joinStatus).mockRejectedValue(new AxiosError('offline', 'ERR_NETWORK'))
+    const w = setup()
+    await button(w, '加入群组').trigger('click'); await flushPromises()
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(w.get('[role="alert"]').text()).toContain('继续检查状态')
+    const calls = vi.mocked(groupApi.joinStatus).mock.calls.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(groupApi.joinStatus).toHaveBeenCalledTimes(calls)
+    vi.mocked(groupApi.joinStatus).mockResolvedValueOnce({ status: 'joined', group: group({ membership: 'join' }) })
+    await button(w, '继续检查加入状态').trigger('click'); await flushPromises()
+    expect(groupApi.join).toHaveBeenCalledTimes(1)
+    expect(groupApi.joinStatus).toHaveBeenLastCalledWith('operation-1', expect.any(AbortSignal))
     expect(w.text()).toContain('打开群聊'); w.unmount()
   })
   it('retries a failed join without claiming success', async () => {

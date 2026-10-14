@@ -154,8 +154,8 @@ func TestTrendsSQLFailureDoesNotReturnCachedData(t *testing.T) {
 	require.Equal(t, "5", w.Header().Get("Retry-After"))
 }
 
-func TestTagSnapshotBoundCursorAndCurrentRecheck(t *testing.T) {
-	conn := setupTrendDB(t)
+func setupTrendRedis(t *testing.T) *miniredis.Miniredis {
+	t.Helper()
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	previous := redisdb.GetRedisesForTest()
@@ -171,6 +171,13 @@ func TestTagSnapshotBoundCursorAndCurrentRecheck(t *testing.T) {
 		_ = client.Close()
 	})
 	discovery.Configure(discovery.Config{SigningKeys: [][]byte{[]byte("a-shared-deployment-key-at-least-32-bytes")}})
+	return server
+}
+
+func TestTagSnapshotBoundCursorAndCurrentRecheck(t *testing.T) {
+	conn := setupTrendDB(t)
+	server := setupTrendRedis(t)
+	client := redisdb.GetUniversalRedis()
 	now := time.Now().UTC()
 	tags := []*models.Tag{{Name: "alpha"}, {Name: "beta"}}
 	for _, tag := range tags {
@@ -298,4 +305,61 @@ func TestTagTrendsCountUnknownRemoteAuthorsButNotRefusals(t *testing.T) {
 	got, err := models.FilterRecommendableStatuses(conn, nil, statuses, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, RootWindow: true})
 	require.NoError(t, err)
 	require.Empty(t, got)
+}
+
+func TestPartialTagSnapshotCountsDoNotDependOnPageSize(t *testing.T) {
+	conn := setupTrendDB(t)
+	setupTrendRedis(t)
+	defer discovery.SetTagTrendLimitsForTest(3, 50000)()
+	author := trendAuthor(t, conn, 1)
+	tags := []*models.Tag{{Name: "alpha"}, {Name: "beta"}}
+	for _, tag := range tags {
+		require.NoError(t, conn.Create(tag).Error)
+	}
+	now := time.Now().UTC()
+	for i, tag := range []*models.Tag{tags[0], tags[1], tags[0], tags[0]} {
+		trendPost(t, conn, uint64(i+1), author, now.Add(-time.Duration(i+1)*time.Minute), models.StatusVisibilityPublic, tag)
+	}
+	all, err := discovery.ReadTagTrends(t.Context(), nil, "24h", "local", 20, "")
+	require.NoError(t, err)
+	require.False(t, all.CoverageComplete)
+	require.Len(t, all.Items, 2)
+	page, err := discovery.ReadTagTrends(t.Context(), nil, "24h", "local", 1, "")
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, all.Items[0], page.Items[0], "narrow pages must not backfill older posts outside the ranked sample")
+	require.NotNil(t, page.NextCursor)
+	next, err := discovery.ReadTagTrends(t.Context(), nil, "24h", "local", 1, *page.NextCursor)
+	require.NoError(t, err)
+	require.Len(t, next.Items, 1)
+	require.Equal(t, all.Items[1], next.Items[0])
+	require.False(t, next.CoverageComplete)
+	// Reusing the sample must still recheck current visibility.
+	require.NoError(t, conn.Model(&models.Status{}).Where("id = ?", 1).Update("visibility", models.StatusVisibilityPrivate).Error)
+	current, err := discovery.ReadTagTrends(t.Context(), nil, "24h", "local", 1, "")
+	require.NoError(t, err)
+	require.Len(t, current.Items, 1)
+	require.Equal(t, "alpha", current.Items[0].Name)
+	require.Equal(t, 2, current.Items[0].PostsCount)
+}
+
+func TestTagAssociationBudgetKeepsNewestPosts(t *testing.T) {
+	conn := setupTrendDB(t)
+	defer discovery.SetTagTrendLimitsForTest(100, 2)()
+	author := trendAuthor(t, conn, 1)
+	now := time.Now().UTC()
+	// IDs/insertion order deliberately oppose publication order.
+	for i, name := range []string{"oldest", "middle", "newest"} {
+		tag := &models.Tag{Name: name}
+		require.NoError(t, conn.Create(tag).Error)
+		trendPost(t, conn, uint64(i+1), author, now.Add(-time.Duration(3-i)*time.Minute), models.StatusVisibilityPublic, tag)
+	}
+	rows, partial, err := discovery.AggregateTagTrendsPartial(t.Context(), conn, nil, "24h", "local", now, nil)
+	require.NoError(t, err)
+	require.True(t, partial)
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		names = append(names, row.Name)
+	}
+	require.ElementsMatch(t, []string{"newest", "middle"}, names)
 }

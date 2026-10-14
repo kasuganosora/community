@@ -153,7 +153,9 @@ export function useGroups(selectedId: Ref<string>) {
     } finally { if (active && epoch === sessionEpoch.value) refreshing.value = false }
   }
   function mergeMessages(incoming: GroupMessage[]) { messages.value = mergeGroupMessages(messages.value, incoming) }
-  watch(selectedId, () => { if (initialSyncDone || syncError.value) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
+  // Once initial sync has fallen back to ordinary history, every selected room
+  // must remain readable even when sync_busy is retried without a visible error.
+  watch(selectedId, () => { if (initialSyncDone || initialFallbackStarted) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
   watch(sessionEpoch, () => {
     version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.()
     groups.value = []; group.value = null; messages.value = []; syncCursor = undefined; initialSyncDone = false; initialFallbackStarted = false

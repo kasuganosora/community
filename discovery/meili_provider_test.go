@@ -456,3 +456,32 @@ func TestMeiliAutomaticApprovalUsesHealthyIndexWithoutManualVersion(t *testing.T
 	settings.ApprovedVersion = active.Version
 	require.True(t, p.Status().Ready)
 }
+
+func TestMeiliPreflightSplitsCollectiveBudgetWithoutDroppingSafeRoots(t *testing.T) {
+	conn := meiliSQLFixture(t)
+	tx := conn.Session(&gorm.Session{SkipHooks: true, CreateBatchSize: 100})
+	created := time.Now().UTC().Add(-time.Hour)
+	statuses := make([]*models.Status, 0, 300)
+	contents := make([]*models.StatusContent, 0, 300)
+	ids := make([]uint64, 0, 300)
+	// Every root is below 64 KiB, but together they exceed the 16 MiB
+	// preload limit. HTML normalization must happen after bounded preloads.
+	body := strings.Repeat("<b></b>", 9000)
+	for id := uint64(100); id < 400; id++ {
+		ids = append(ids, id)
+		statuses = append(statuses, &models.Status{Id: id, AccountId: 1, Visibility: models.StatusVisibilityPublic, CreatedAt: &created})
+		contents = append(contents, &models.StatusContent{StatusId: id, Content: body})
+	}
+	require.NoError(t, tx.Omit("Content").Create(&statuses).Error)
+	require.NoError(t, tx.Create(&contents).Error)
+	require.ErrorIs(t, meiliPreflight(conn, ids), errMeiliPreflightBudget)
+	chunks, err := meiliPreflightChunks(conn, ids)
+	require.NoError(t, err)
+	require.Greater(t, len(chunks), 1)
+	var got []uint64
+	for _, chunk := range chunks {
+		require.NoError(t, meiliPreflight(conn, chunk), "every actual preload must fit its collective budget")
+		got = append(got, chunk...)
+	}
+	require.Equal(t, ids, got, "keep every safe root in the input's newest-first order")
+}
