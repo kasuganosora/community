@@ -87,7 +87,10 @@ func Inbox(c *gin.Context) {
 	// sender only sees the status code.
 	signer := ""
 	defer func() {
-		if status := c.Writer.Status(); status >= 400 {
+		if status := c.Writer.Status(); status == 401 {
+			// The cause was already logged at the right level below.
+			log.Debug("Inbox %s refused %s %s (actor %s, signer %s): HTTP %d", c.Request.URL.Path, activityType, activityID, activityActor, signer, status)
+		} else if status >= 400 {
 			log.Warn("Inbox %s refused %s %s (actor %s, signer %s): HTTP %d", c.Request.URL.Path, activityType, activityID, activityActor, signer, status)
 		}
 	}()
@@ -95,7 +98,19 @@ func Inbox(c *gin.Context) {
 	// Verify HTTP signature
 	actor, err := VerifyActivitySignature(c, body)
 	if err != nil {
-		log.Warn("HTTP signature verification failed: %v", err)
+		if isSelfDeleteActivity(activity) {
+			// A deleted remote account's key usually 404/410s, so its final
+			// Delete can never verify. Like Mastodon, acknowledge it without
+			// changing anything: a 401 only makes the sender retry for days.
+			log.Debug("Ignoring unverifiable self-Delete of %s: %v", activityActor, err)
+			c.JSON(202, gin.H{"status": "ignored"})
+			return
+		}
+		if isRoutineSignatureFailure(err) {
+			log.Debug("HTTP signature verification failed: %v", err)
+		} else {
+			log.Warn("HTTP signature verification failed: %v", err)
+		}
 		c.JSON(401, gin.H{"error": "signature verification failed"})
 
 		return
@@ -1837,4 +1852,45 @@ func statusByObjectRef(object string) func(*gorm.DB) *gorm.DB {
 		}
 		return q.Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", object, object, object)
 	}
+}
+
+// isSelfDeleteActivity reports whether activity is an actor deleting itself.
+func isSelfDeleteActivity(activity map[string]any) bool {
+	if t, _ := activity["type"].(string); t != "Delete" {
+		return false
+	}
+	actor, _ := activity["actor"].(string)
+	object, ok := activity["object"].(string)
+	if !ok {
+		if m, isMap := activity["object"].(map[string]any); isMap {
+			object, _ = m["id"].(string)
+		}
+	}
+	return actor != "" && object == actor
+}
+
+// isRoutineSignatureFailure separates the expected background noise of
+// federation (unsigned probes, keys of deleted actors) from failures worth a
+// warning (bad digests, wrong keys).
+func isRoutineSignatureFailure(err error) bool {
+	if code := fetchStatusCode(err); code == http.StatusGone || code == http.StatusNotFound {
+		return true
+	}
+	if errors.Is(err, ErrActorGone) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no signature header") || strings.Contains(msg, "missing required signature") ||
+		strings.Contains(msg, "status 410") || strings.Contains(msg, "status 404") || strings.Contains(msg, "HTTP 410")
+}
+
+func alreadyProcessedActivity(ctx context.Context, id string) bool {
+	if id == "" {
+		return false
+	}
+	var ids []uint64
+	if err := db.GetDB().WithContext(ctx).Model(&ProcessedActivity{}).Where("activity_id = ?", id).Limit(1).Pluck("id", &ids).Error; err != nil {
+		return false
+	}
+	return len(ids) > 0
 }

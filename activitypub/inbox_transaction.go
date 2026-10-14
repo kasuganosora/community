@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -50,6 +52,11 @@ func (w *inboxResponse) Size() int     { return w.body.Len() }
 func (w *inboxResponse) Written() bool { return w.body.Len() > 0 }
 
 func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run func(context.Context)) {
+	// Already processed: acknowledge without opening a write transaction.
+	if alreadyProcessedActivity(ctx, id) {
+		c.JSON(200, gin.H{"status": "accepted"})
+		return
+	}
 	original := c.Writer
 	buffer := &inboxResponse{ResponseWriter: original, header: make(http.Header)}
 	c.Writer = buffer
@@ -57,30 +64,49 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	ctx, publishReactions := models.BeginReactionNotifications(ctx)
 	ctx, invalidateProfiles := beginProfileInvalidations(ctx)
 	handlerFailure := errors.New("activity handler rejected request")
+	duplicate := errors.New("activity already processed")
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if id != "" {
-			marker := ProcessedActivity{ActivityID: id}
-			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&marker)
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected == 0 {
-				c.JSON(200, gin.H{"status": "accepted"})
-				return nil
+		if dialect.IsPostgres(tx) {
+			// Fail fast instead of queueing behind another long transaction
+			// until the HTTP deadline (504). The sender retries a 5xx.
+			if err := tx.Exec("SET LOCAL lock_timeout = '3s'").Error; err != nil {
+				return err
 			}
 		}
 		run(context.WithValue(ctx, inboxTransactionKey{}, tx))
 		if buffer.Status() >= 400 {
 			return handlerFailure
 		}
+		if id != "" {
+			// The marker is inserted after the handler so its unique-index
+			// entry is held only until commit: a concurrent redelivery waits
+			// for that commit alone, sees the conflict and rolls back.
+			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&ProcessedActivity{ActivityID: id})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return duplicate
+			}
+		}
 		return nil
 	})
+	if errors.Is(err, duplicate) {
+		c.Writer = original
+		c.JSON(200, gin.H{"status": "accepted"})
+		return
+	}
 	c.Writer = original
 	if err == nil {
 		publishReactions()
 		invalidateProfiles()
 	}
 	if err != nil && !errors.Is(err, handlerFailure) {
+		if isLockTimeout(err) {
+			c.Header("Retry-After", "60")
+			c.JSON(503, gin.H{"error": "busy, retry later"})
+			return
+		}
 		c.JSON(500, gin.H{"error": "failed to commit activity"})
 		return
 	}
@@ -89,4 +115,9 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	}
 	original.WriteHeader(buffer.Status())
 	_, _ = original.Write(buffer.body.Bytes())
+}
+
+func isLockTimeout(err error) bool {
+	// SQLSTATE 55P03 lock_not_available.
+	return err != nil && (strings.Contains(err.Error(), "55P03") || strings.Contains(err.Error(), "lock timeout"))
 }
