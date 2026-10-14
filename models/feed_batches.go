@@ -74,6 +74,9 @@ func claimFeed(conn *gorm.DB, model any, limit int, ttl time.Duration, events bo
 	var eventRows []FeedEvent
 	var batchRows []FeedBatch
 	err = conn.Transaction(func(tx *gorm.DB) error {
+		if err := feedAsyncCommit(tx); err != nil {
+			return err
+		}
 		// Candidate discovery never reads the recipient/metadata JSON.
 		discover := claimable(tx.Model(model).Select("id, lease_generation")).Order(feedClaimOrder)
 		if postgres {
@@ -166,6 +169,34 @@ func ClaimFeedBatches(conn *gorm.DB, limit int, ttl time.Duration) ([]FeedBatch,
 func feedLeaseQuery(conn *gorm.DB, model any, lease FeedLeaseRef, now time.Time) *gorm.DB {
 	return conn.Model(model).Where("id = ? AND state = ? AND lease_token = ? AND lease_generation = ? AND lease_expires_at > "+feedClockSQL(conn), lease.ID, "processing", lease.Token, lease.Generation)
 }
+
+// feedLeaseUpdateAsync runs one lease update in its own transaction with
+// asynchronous commit (see feedAsyncCommit).
+func feedLeaseUpdateAsync(conn *gorm.DB, model any, lease FeedLeaseRef, values func(now time.Time) map[string]any) error {
+	return conn.Transaction(func(tx *gorm.DB) error {
+		if err := feedAsyncCommit(tx); err != nil {
+			return err
+		}
+		now, err := FeedDatabaseTime(tx)
+		if err != nil {
+			return err
+		}
+		return feedLeaseUpdate(tx, model, lease, values(now))
+	})
+}
+
+// feedAsyncCommit turns off the WAL flush wait for this transaction on
+// PostgreSQL. Feed queue bookkeeping (claims, lease renewals, cursors,
+// completion, retries) is replayable: if a crash loses the last few hundred
+// milliseconds of commits, leases expire and the idempotent work is redone.
+// It must never be used for user-originated data.
+func feedAsyncCommit(tx *gorm.DB) error {
+	if !dialect.IsPostgres(tx) {
+		return nil
+	}
+	return tx.Exec("SET LOCAL synchronous_commit = off").Error
+}
+
 func feedLeaseUpdate(conn *gorm.DB, model any, lease FeedLeaseRef, values map[string]any) error {
 	now, err := FeedDatabaseTime(conn)
 	if err != nil {
@@ -184,11 +215,9 @@ func renewFeed(conn *gorm.DB, model any, lease FeedLeaseRef, ttl time.Duration) 
 	if ttl < time.Second || ttl > 5*time.Minute {
 		return fmt.Errorf("invalid feed lease duration")
 	}
-	now, err := FeedDatabaseTime(conn)
-	if err != nil {
-		return err
-	}
-	return feedLeaseUpdate(conn, model, lease, map[string]any{"lease_expires_at": now.Add(ttl)})
+	return feedLeaseUpdateAsync(conn, model, lease, func(now time.Time) map[string]any {
+		return map[string]any{"lease_expires_at": now.Add(ttl)}
+	})
 }
 func RenewFeedEvent(conn *gorm.DB, lease FeedLeaseRef, ttl time.Duration) error {
 	return renewFeed(conn, &FeedEvent{}, lease, ttl)
@@ -197,13 +226,18 @@ func RenewFeedBatch(conn *gorm.DB, lease FeedLeaseRef, ttl time.Duration) error 
 	return renewFeed(conn, &FeedBatch{}, lease, ttl)
 }
 func CompleteFeedBatch(conn *gorm.DB, lease FeedLeaseRef) error {
-	return feedLeaseUpdate(conn, &FeedBatch{}, lease, map[string]any{"state": "complete", "lease_expires_at": nil, "lease_token": "", "last_error_code": ""})
+	return feedLeaseUpdateAsync(conn, &FeedBatch{}, lease, func(time.Time) map[string]any {
+		return map[string]any{"state": "complete", "lease_expires_at": nil, "lease_token": "", "last_error_code": ""}
+	})
 }
 
 // PersistFeedBatches atomically registers immutable recipient batches and moves
 // the parent's per-audience scan cursor. A stale scanner cannot add child work.
 func PersistFeedBatches(conn *gorm.DB, lease FeedLeaseRef, batches []FeedBatch, cursor, upper map[string]uint64, complete bool) error {
 	return conn.Transaction(func(tx *gorm.DB) error {
+		if err := feedAsyncCommit(tx); err != nil {
+			return err
+		}
 		now, err := FeedDatabaseTime(tx)
 		if err != nil {
 			return err
@@ -256,6 +290,9 @@ func PersistFeedBatches(conn *gorm.DB, lease FeedLeaseRef, batches []FeedBatch, 
 }
 func CompleteFeedEvent(conn *gorm.DB, lease FeedLeaseRef) error {
 	return conn.Transaction(func(tx *gorm.DB) error {
+		if err := feedAsyncCommit(tx); err != nil {
+			return err
+		}
 		now, err := FeedDatabaseTime(tx)
 		if err != nil {
 			return err
@@ -296,15 +333,13 @@ func retryFeed(conn *gorm.DB, model any, lease FeedLeaseRef, code string, delay 
 			return fmt.Errorf("feed errors must be safe fixed codes")
 		}
 	}
-	now, err := FeedDatabaseTime(conn)
-	if err != nil {
-		return err
-	}
 	state := "pending"
 	if terminal {
 		state = "failed"
 	}
-	return feedLeaseUpdate(conn, model, lease, map[string]any{"state": state, "attempts": gorm.Expr("attempts + 1"), "next_attempt_at": now.Add(delay), "lease_expires_at": nil, "lease_token": "", "last_error_code": code})
+	return feedLeaseUpdateAsync(conn, model, lease, func(now time.Time) map[string]any {
+		return map[string]any{"state": state, "attempts": gorm.Expr("attempts + 1"), "next_attempt_at": now.Add(delay), "lease_expires_at": nil, "lease_token": "", "last_error_code": code}
+	})
 }
 func RetryFeedEvent(conn *gorm.DB, lease FeedLeaseRef, code string, delay time.Duration, terminal bool) error {
 	return retryFeed(conn, &FeedEvent{}, lease, code, delay, terminal)
@@ -318,9 +353,7 @@ func YieldFeedEvent(conn *gorm.DB, lease FeedLeaseRef, delay time.Duration) erro
 	if delay < 0 {
 		return fmt.Errorf("invalid yield delay")
 	}
-	now, err := FeedDatabaseTime(conn)
-	if err != nil {
-		return err
-	}
-	return feedLeaseUpdate(conn, &FeedEvent{}, lease, map[string]any{"state": "pending", "lease_token": "", "lease_expires_at": nil, "next_attempt_at": now.Add(delay)})
+	return feedLeaseUpdateAsync(conn, &FeedEvent{}, lease, func(now time.Time) map[string]any {
+		return map[string]any{"state": "pending", "lease_token": "", "lease_expires_at": nil, "next_attempt_at": now.Add(delay)}
+	})
 }
