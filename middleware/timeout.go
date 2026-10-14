@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -160,7 +161,14 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			log.Error("panic in handler: %v\n%s", p.value, p.stack)
 			panic(p.value)
 		case <-ctx.Done():
-			wrapper.expire()
+			if errors.Is(ctx.Err(), context.Canceled) {
+				// The client went away (e.g. a federation sender's own short
+				// timeout); this is not our timeout. Record nginx's 499 rather
+				// than a misleading 504.
+				wrapper.expireWith(StatusClientClosedRequest, nil)
+			} else {
+				wrapper.expire()
+			}
 
 			grace := time.NewTimer(timeoutGrace)
 			defer grace.Stop()
@@ -206,6 +214,14 @@ type timeoutResponseWriter struct {
 // expire marks the request as timed out and answers 504 unless the handler
 // already began its own response.
 func (w *timeoutResponseWriter) expire() {
+	w.expireWith(http.StatusGatewayTimeout, []byte(`{"error":"request timeout","message":"The request took too long to process"}`))
+}
+
+// StatusClientClosedRequest is nginx's non-standard 499 for requests the
+// client abandoned before a response was ready.
+const StatusClientClosedRequest = 499
+
+func (w *timeoutResponseWriter) expireWith(status int, body []byte) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.timedOut = true
@@ -215,9 +231,8 @@ func (w *timeoutResponseWriter) expire() {
 	h := w.ResponseWriter.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Del("Content-Encoding")
-	body := []byte(`{"error":"request timeout","message":"The request took too long to process"}`)
 	h.Set("Content-Length", strconv.Itoa(len(body)))
-	w.ResponseWriter.WriteHeader(http.StatusGatewayTimeout)
+	w.ResponseWriter.WriteHeader(status)
 	_, _ = w.ResponseWriter.Write(body)
 	w.ResponseWriter.WriteHeaderNow()
 	w.ResponseWriter.Flush()
