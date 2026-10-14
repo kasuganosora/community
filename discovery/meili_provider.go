@@ -666,7 +666,7 @@ func (p *MeiliProvider) buildOwned(ctx context.Context, token string) error {
 func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buckets []ContentBucket) (_ ContentBatch, returnErr error) {
 	empty := ContentBatch{Mode: "rules", Lists: []ContentList{}}
 	if !p.connection.Enabled {
-		return empty, ErrUnavailable
+		return empty, unavailableBecause("meilisearch_disabled (MEILISEARCH connection not enabled for discovery)")
 	}
 	// Candidate and index refresh timers may align. Wait within this background
 	// batch's existing deadline rather than starving every candidate generation
@@ -684,6 +684,9 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 			break
 		}
 		if !errors.Is(err, ErrUnavailable) || !time.Now().Before(waitUntil) {
+			if errors.Is(err, ErrUnavailable) {
+				return empty, unavailableBecause("index_lease_busy (another worker held the Meili lease for 20s)")
+			}
 			return empty, err
 		}
 		timer := time.NewTimer(100 * time.Millisecond)
@@ -696,20 +699,36 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 	}
 	defer release()
 	settings, err := p.settings(ctx, p.conn())
-	if err != nil || !settings.Enabled || settings.Mode != "auto" {
-		return empty, ErrUnavailable
+	if err != nil {
+		return empty, unavailableBecause("settings_unavailable: " + err.Error())
+	}
+	if !settings.Enabled {
+		return empty, unavailableBecause("recommendations_disabled (config.recommendation.enabled=false)")
+	}
+	if settings.Mode != "auto" {
+		return empty, unavailableBecause("rules_configured (config.recommendation.mode=" + settings.Mode + ", Meili enhancement needs auto)")
 	}
 	state, err := p.readState(ctx)
-	if err != nil || state.Active == nil {
-		return empty, ErrUnavailable
+	if err != nil {
+		return empty, unavailableBecause("index_state_unreadable: " + err.Error())
+	}
+	if state.Active == nil {
+		return empty, unavailableBecause("no_active_index (Meili discovery index not built yet; reason=" + p.currentReason() + ")")
 	}
 	active := state.Active
 	now := time.Now().UTC()
 	if asOf.IsZero() {
 		asOf = now
 	}
-	if asOf.After(now.Add(time.Second)) || active.Cutoff.After(now) || now.Sub(active.Cutoff) >= PoolMaxAge || active.Version != p.versionForMode(active.ServerVersion, active.Mode) || settings.ApprovedVersion != active.Version {
-		return empty, ErrUnavailable
+	switch {
+	case asOf.After(now.Add(time.Second)) || active.Cutoff.After(now):
+		return empty, unavailableBecause("clock_skew (index cutoff or asOf in the future)")
+	case now.Sub(active.Cutoff) >= PoolMaxAge:
+		return empty, unavailableBecause(fmt.Sprintf("index_expired (cutoff %s ago, max %s)", now.Sub(active.Cutoff).Round(time.Second), PoolMaxAge))
+	case active.Version != p.versionForMode(active.ServerVersion, active.Mode):
+		return empty, unavailableBecause("index_version_mismatch (active " + active.Version + ")")
+	case settings.ApprovedVersion != active.Version:
+		return empty, unavailableBecause("quality_not_approved (active index " + active.Version + " is not the approved version " + strconvQuote(settings.ApprovedVersion) + "; approve it in admin discovery settings)")
 	}
 	if len(buckets) > 128 {
 		return empty, ErrInvalidRequest
@@ -768,18 +787,21 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 	}
 	if err != nil || ctx.Err() != nil || completed != len(unique) {
 		p.setReason("query_unavailable")
-		return empty, ErrUnavailable
+		if err != nil {
+			return empty, unavailableBecause("query_unavailable: " + err.Error())
+		}
+		return empty, unavailableBecause("query_unavailable (deadline or incomplete results)")
 	}
 	// SQL configuration is checked again before publication. A quality or mode
 	// revocation while the remote queries ran must not enable the enhancement.
 	settings, err = p.settings(ctx, p.conn())
 	if err != nil || !settings.Enabled || settings.Mode != "auto" || settings.ApprovedVersion != active.Version {
-		return empty, ErrUnavailable
+		return empty, unavailableBecause("configuration_changed during query")
 	}
 	leaseKey, _ := p.keys()
 	owner, leaseErr := p.redis().Get(ctx, leaseKey).Result()
 	if leaseErr != nil || owner != token || time.Since(active.Cutoff) >= PoolMaxAge {
-		return empty, ErrUnavailable
+		return empty, unavailableBecause("lease_lost_or_expired during query")
 	}
 	batch := ContentBatch{Mode: active.Mode, Generation: active.Generation, DataCutoff: active.Cutoff, Lists: []ContentList{}}
 	for _, lists := range ordered {
@@ -890,3 +912,11 @@ func (p *MeiliProvider) reconcileOwned(ctx context.Context, state meiliState) er
 	}
 	return errors.New("recommendation index inventory budget exceeded")
 }
+
+// unavailableBecause keeps errors.Is(err, ErrUnavailable) while carrying the
+// concrete reason into the "content provider unavailable" warning.
+func unavailableBecause(reason string) error { return fmt.Errorf("%w: %s", ErrUnavailable, reason) }
+
+func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
+
+func (p *MeiliProvider) currentReason() string { p.mu.Lock(); defer p.mu.Unlock(); return p.reason }

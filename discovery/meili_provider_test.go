@@ -61,6 +61,8 @@ func TestMeiliQualityGateAndStaleIndexDoNotQuery(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, int32(0), calls.Load())
 	require.Equal(t, "quality_not_approved", p.Status().Reason)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.Contains(t, err.Error(), "quality_not_approved", "the warning log names the concrete reason")
 	settings.ApprovedVersion = active.Version
 	active.Cutoff = time.Now().Add(-PoolMaxAge - time.Second)
 	ctx, token, release, err := p.lease(context.Background(), time.Second)
@@ -69,6 +71,7 @@ func TestMeiliQualityGateAndStaleIndexDoNotQuery(t *testing.T) {
 	release()
 	_, err = p.BuildBuckets(context.Background(), time.Now(), []ContentBucket{{Key: "摄影", Query: "摄影"}})
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "index_expired")
 	require.Equal(t, int32(0), calls.Load())
 }
 func TestMeiliLexicalWireAndSharedQueryConcurrency(t *testing.T) {
