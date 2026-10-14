@@ -106,6 +106,9 @@ type MeiliProvider struct {
 	lastStatus     string
 	lastWarnAt     time.Time
 	lastWarnReason string
+	suppressed     int
+	lastSuccessLog time.Time
+	budgetWarnAt   time.Time
 }
 
 var currentMeili struct {
@@ -955,24 +958,42 @@ func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
 
 func (p *MeiliProvider) currentReason() string { p.mu.Lock(); defer p.mu.Unlock(); return p.reason }
 
-// logRebuild reports rebuild failures (rate-limited per distinct error) and
-// readiness transitions; the rebuild loop used to discard both.
+// logRebuild reports rebuild failures and readiness transitions; the
+// rebuild loop used to discard both. A repeated identical failure is logged
+// once per 10 minutes together with how many were suppressed meanwhile, and
+// a healthy loop logs its cutoff every 10 minutes.
 func (p *MeiliProvider) logRebuild(err error) {
-	now := time.Now()
+	p.logRebuildAt(err, time.Now())
+}
+
+func (p *MeiliProvider) logRebuildAt(err error, now time.Time) {
 	if err != nil {
 		msg := err.Error()
 		if msg != p.lastWarnReason || now.Sub(p.lastWarnAt) >= 10*time.Minute {
-			log.Warn("Discovery Meili index rebuild failed: %v", err)
-			p.lastWarnAt, p.lastWarnReason = now, msg
+			if p.suppressed > 0 {
+				log.Warn("Discovery Meili index rebuild failed: %v (%d similar failures suppressed since %s)", err, p.suppressed, p.lastWarnAt.UTC().Format(time.RFC3339))
+			} else {
+				log.Warn("Discovery Meili index rebuild failed: %v", err)
+			}
+			p.lastWarnAt, p.lastWarnReason, p.suppressed = now, msg, 0
+		} else {
+			p.suppressed++
 		}
 	} else {
-		p.lastWarnReason = ""
+		if p.lastWarnReason != "" {
+			log.Info("Discovery Meili index rebuild recovered after %d suppressed failures", p.suppressed)
+		}
+		p.lastWarnReason, p.suppressed = "", 0
 	}
 	status := p.Status()
 	current := fmt.Sprintf("ready=%t reason=%s mode=%s", status.Ready, status.Reason, status.Mode)
 	if current != p.lastStatus {
 		log.Info("Discovery Meili index status: %s (was %s; generation=%s documents=%d cutoff=%s)", current, valueOr(p.lastStatus, "unknown"), status.Generation, status.DocumentCount, status.DataCutoff.Format(time.RFC3339))
 		p.lastStatus = current
+		p.lastSuccessLog = now
+	} else if err == nil && status.Ready && now.Sub(p.lastSuccessLog) >= 10*time.Minute {
+		log.Info("Discovery Meili index healthy: generation=%s documents=%d cutoff=%s (age %s)", status.Generation, status.DocumentCount, status.DataCutoff.Format(time.RFC3339), now.Sub(status.DataCutoff).Round(time.Second))
+		p.lastSuccessLog = now
 	}
 }
 

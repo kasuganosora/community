@@ -1,9 +1,12 @@
 package discovery
 
 import (
+	"time"
+
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/log"
 	"net/http"
 	"strings"
 
@@ -34,60 +37,91 @@ func (p *MeiliProvider) reserveEmbedding(ctx context.Context, units int) bool {
 	result, err := meiliEmbeddingBudgetScript.Run(ctx, p.redis(), []string{key + ":embedding-budget"}, units, p.embedding.MaxUnitsPerHour).Int()
 	return err == nil && result == 1
 }
+
+// meiliStats is the subset of GET /stats used for the disk budget. Every size
+// is optional: v1.12 reports only databaseSize (no usedDatabaseSize and no
+// per-index sizes), newer servers add usedDatabaseSize and per-index
+// usedIndexSize/indexSize.
+type meiliStats struct {
+	DatabaseSize     *int64 `json:"databaseSize"`
+	UsedDatabaseSize *int64 `json:"usedDatabaseSize"`
+	Indexes          map[string]struct {
+		IndexSize     *int64 `json:"indexSize"`
+		UsedIndexSize *int64 `json:"usedIndexSize"`
+	} `json:"indexes"`
+}
+
+func positive(v *int64) (int64, bool) {
+	if v != nil && *v > 0 {
+		return *v, true
+	}
+	return 0, false
+}
+
+// meiliBudgetBytes picks the most specific size the server reports:
+// 1. the sum of our own indexes' sizes, when the server reports any;
+// 2. usedDatabaseSize, when positive;
+// 3. databaseSize, when positive.
+// ok is false when no size is readable at all.
+func meiliBudgetBytes(stats meiliStats, prefix string) (used int64, source string, ok bool) {
+	var own int64
+	sized := false
+	for uid, index := range stats.Indexes {
+		if !strings.HasPrefix(uid, prefix) {
+			continue
+		}
+		if n, has := positive(index.UsedIndexSize); has {
+			own, sized = own+n, true
+		} else if n, has := positive(index.IndexSize); has {
+			own, sized = own+n, true
+		}
+	}
+	if sized {
+		return own, "owned_indexes", true
+	}
+	if n, has := positive(stats.UsedDatabaseSize); has {
+		return n, "used_database", true
+	}
+	if n, has := positive(stats.DatabaseSize); has {
+		return n, "database", true
+	}
+	return 0, "", false
+}
+
 func (p *MeiliProvider) checkDiskBudget(ctx context.Context) error {
-	// Budget only the recommendation indexes this provider owns. Meilisearch
-	// is shared with full-text search, whose own backfill can legitimately
-	// grow the whole database far past this budget (that is what silently
-	// stopped every rebuild after a restart-triggered search backfill).
-	// Prefer the "used" sizes: LMDB never shrinks the file after the
-	// generation churn of rebuilds, so databaseSize only ever grows.
 	ceiling := p.maxDatabaseBytes
 	if ceiling <= 0 {
 		ceiling = 512 << 20
 	}
-	var stats struct {
-		DatabaseSize     *int64 `json:"databaseSize"`
-		UsedDatabaseSize *int64 `json:"usedDatabaseSize"`
-		Indexes          map[string]struct {
-			IndexSize     *int64 `json:"indexSize"`
-			UsedIndexSize *int64 `json:"usedIndexSize"`
-		} `json:"indexes"`
-	}
+	var stats meiliStats
 	if err := p.http(ctx, http.MethodGet, "/stats", nil, &stats); err != nil {
 		return err
 	}
-	var used int64
-	if stats.Indexes != nil {
-		prefix := p.connection.Prefix + "discovery_statuses_v1_"
-		for uid, index := range stats.Indexes {
-			if !strings.HasPrefix(uid, prefix) {
-				continue
-			}
-			size := index.UsedIndexSize
-			if size == nil {
-				size = index.IndexSize
-			}
-			if size == nil || *size < 0 {
-				return errors.New("recommendation search disk budget unavailable")
-			}
-			used += *size
-		}
-	} else {
-		// Old servers without per-index stats: fall back to the whole database.
-		size := stats.UsedDatabaseSize
-		if size == nil {
-			size = stats.DatabaseSize
-		}
-		if size == nil || *size < 0 {
-			return errors.New("recommendation search disk budget unavailable")
-		}
-		used = *size
+	used, source, ok := meiliBudgetBytes(stats, p.connection.Prefix+"discovery_statuses_v1_")
+	if !ok {
+		// No readable size must not stop the rebuild (and with it all of
+		// discovery). The build stays bounded by the document row limit.
+		p.warnBudgetUnreadable()
+		return nil
 	}
 	if used > ceiling-(64<<20) {
-		return fmt.Errorf("recommendation search disk budget exceeded (%d MiB used of %d MiB)", used>>20, ceiling>>20)
+		return fmt.Errorf("recommendation search disk budget exceeded (%d MiB %s of %d MiB)", used>>20, source, ceiling>>20)
 	}
 	return nil
 }
+
+func (p *MeiliProvider) warnBudgetUnreadable() {
+	p.mu.Lock()
+	due := time.Since(p.budgetWarnAt) >= time.Hour
+	if due {
+		p.budgetWarnAt = time.Now()
+	}
+	p.mu.Unlock()
+	if due {
+		log.Warn("Discovery Meili /stats reports no usable size; rebuilding without the disk budget (bounded by the document limit)")
+	}
+}
+
 func meiliByteLength(conn *gorm.DB, column string) string {
 	if dialect.IsSQLite(conn) {
 		return "LENGTH(CAST(COALESCE(" + column + ", '') AS BLOB))"
