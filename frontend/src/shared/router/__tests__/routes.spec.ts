@@ -11,6 +11,14 @@ describe('pageTitle', () => {
 })
 
 describe('routes', () => {
+  it('reuses the same page wrapper for routes which previously shared one page instance', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const view = (path: string) => router.resolve(path).matched.at(-1)?.components?.default
+    expect(view('/groups')).toBe(view('/groups/room'))
+    expect(view('/@alice/followers')).toBe(view('/@alice/following'))
+    expect(view('/admin/settings/general')).toBe(view('/admin/settings/storage'))
+    expect(view('/admin/decorations')).toBe(view('/admin/advertisements'))
+  })
   it('gives groups their own authenticated routes and page titles', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     const groups = router.resolve('/groups')

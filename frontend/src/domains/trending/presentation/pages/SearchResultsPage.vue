@@ -157,17 +157,14 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
 
 <template>
   <div class="search-page">
-    <div class="page-header">
-      <h1 class="page-header__title">搜索</h1>
-    </div>
-
+    <div class="page-header"><h1 class="page-header__title">搜索</h1></div>
     <SearchBox v-model="query" class="search-form" embedded :navigate="false" :allow-empty="activeTab === 'groups'" :placeholder="activeTab === 'groups' ? '搜索群名或粘贴群地址' : '搜索帖子、用户、话题或群组'" @search="submit" />
 
     <TabBar v-model="activeTab" :options="tabOptions" label="搜索结果" />
 
     <GroupSearchResults v-if="activeTab === 'groups'" :query="getQueryParam(route.query.q)" :via="groupVia" :preview-ref="getQueryParam(route.query.preview) || undefined" :refresh-key="groupRefreshKey" />
 
-    <div v-else-if="loading" class="page-loading">
+    <div v-else-if="loading" class="page-loading" role="status" aria-label="正在搜索">
       <t-loading />
     </div>
 
@@ -230,9 +227,7 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
 </template>
 
 <style scoped>
-.search-page {
-  min-height: 100dvh;
-}
+.search-page { min-height: 100dvh; }
 
 .search-empty {
   text-align: center;

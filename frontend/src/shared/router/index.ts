@@ -4,6 +4,8 @@ import { routes, pageTitle } from './routes'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { tokenService } from '@/shared/api/client'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
+import { trackNavigation } from './navigationFeedback'
+import { preloadRouteViews } from './lazyRoute'
 
 // Extend RouteMeta interface
 declare module 'vue-router' {
@@ -28,6 +30,8 @@ const router = createRouter({
     })
   },
 })
+
+trackNavigation(router)
 
 /**
  * Validate redirect URL to prevent open redirect attacks.
@@ -68,9 +72,12 @@ router.beforeEach(async (to) => {
   }
 })
 
+router.beforeResolve(preloadRouteViews)
+
 // Keep the document title in step with the page (screen readers announce it,
 // and browser history/tabs were all just "Community").
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
+  if (failure) return
   document.title = pageTitle(to.name)
 })
 
