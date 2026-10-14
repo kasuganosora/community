@@ -160,6 +160,20 @@ func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*A
 			blocked[id] = true
 		}
 	}
+	// The same remote actor can exist as several account rows (refetches,
+	// moved/renamed actors, acct case drift). An author exclusion targets the
+	// person, so it also covers every row sharing the hidden account's acct.
+	hiddenAccts, err := hiddenRecommendationAccts(conn, ownerID, now)
+	if err != nil {
+		return nil, err
+	}
+	if len(hiddenAccts) > 0 {
+		for _, a := range current {
+			if hiddenAccts[strings.ToLower(strings.TrimSpace(a.Acct))] {
+				blocked[a.Id] = true
+			}
+		}
+	}
 	byID := map[uint64]*Account{}
 	for _, a := range current {
 		if a.IsBan || a.DeletedAt.Valid || blocked[a.Id] || (!aggregateOnly && !a.AllowsRecommendation(now)) || (aggregateOnly && !a.AllowsTrendAggregation(now)) {
@@ -177,6 +191,38 @@ func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*A
 	for _, id := range ids {
 		if a := byID[id]; a != nil {
 			result = append(result, a)
+		}
+	}
+	return result, nil
+}
+
+// hiddenRecommendationAccts returns the lower-cased acct of every account
+// hidden by the viewer (hide_author) or by site governance (suppress).
+func hiddenRecommendationAccts(conn *gorm.DB, ownerID uint64, now time.Time) (map[string]bool, error) {
+	var keys []string
+	if err := recommendationFeedbackScope(conn, ownerID, now).Where("target_kind = ? AND action IN ?", "account", []string{"suppress", "hide_author"}).Limit(5000).Pluck("target_key", &keys).Error; err != nil {
+		return nil, err
+	}
+	result := map[string]bool{}
+	if len(keys) == 0 {
+		return result, nil
+	}
+	ids := make([]uint64, 0, len(keys))
+	for _, key := range keys {
+		if id, err := strconv.ParseUint(key, 10, 64); err == nil && id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	var accts []string
+	if err := conn.Model(&Account{}).Where("id IN ?", ids).Pluck("acct", &accts).Error; err != nil {
+		return nil, err
+	}
+	for _, acct := range accts {
+		if acct = strings.ToLower(strings.TrimSpace(acct)); acct != "" {
+			result[acct] = true
 		}
 	}
 	return result, nil

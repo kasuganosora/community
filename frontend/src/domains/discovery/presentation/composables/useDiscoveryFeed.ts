@@ -5,6 +5,12 @@ import { applyStatusUpdate } from '@/domains/post/presentation/composables/useSt
 import { discoveryApi, isDiscoveryReset, type DiscoveryItem, type DiscoveryPage, type FeedbackAction } from '../../infrastructure/discoveryApi'
 import { discoveryInvalidation, discoveryPreference, acceptDiscoveryPreference, invalidateDiscovery } from './discoveryState'
 
+// One remote actor may be stored as several account rows; the server hides
+// every row sharing the acct, so the current list does the same.
+function sameAuthor(a: MastodonStatus, b: MastodonStatus) {
+  return a.account.id === b.account.id || (!!a.account.acct && a.account.acct.toLowerCase() === b.account.acct?.toLowerCase())
+}
+
 function containsHiddenTarget(root: MastodonStatus, target: MastodonStatus, action: 'hide_status' | 'hide_author'): boolean {
   const pending = [{ status: root, depth: 0 }], visited = new Set<string>()
   while (pending.length) {
@@ -13,7 +19,7 @@ function containsHiddenTarget(root: MastodonStatus, target: MastodonStatus, acti
     // screen until the next server request. The server performs full checks.
     if (depth > 4 || visited.size >= 16 || visited.has(status.id)) return true
     visited.add(status.id)
-    if (action === 'hide_author' ? status.account.id === target.account.id : status.id === target.id) return true
+    if (action === 'hide_author' ? sameAuthor(status, target) : status.id === target.id) return true
     for (const child of [status.quote, status.reblog]) if (child) pending.push({ status: child, depth: depth + 1 })
   }
   return false

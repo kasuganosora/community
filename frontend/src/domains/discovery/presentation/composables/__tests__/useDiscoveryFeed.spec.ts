@@ -124,6 +124,21 @@ describe('ranked discovery pagination', () => {
     expect(feed.statuses.value.map(row => row.id)).toEqual(['allowed'])
   })
 
+  it('hides every row of the same remote actor and refetches from the head on the next refresh', async () => {
+    const acct = (id: string, accountId: string, name: string) => ({ id, account: { id: accountId, acct: name } }) as MastodonStatus
+    const first = { ...page([], 'cursor-1'), items: [acct('1', '114', 'kumori@bgme.me'), acct('2', '115', 'Kumori@bgme.me'), acct('3', '9', 'other@example.com')].map(value => ({ status: value })) }
+    const api = vi.spyOn(discoveryApi, 'statuses').mockResolvedValueOnce(first).mockResolvedValueOnce({ ...page(['4']), preference_revision: 2 })
+    vi.spyOn(discoveryApi, 'addFeedback').mockResolvedValue({ preference: 'generic', revision: 2 })
+    const feed = setup()
+    await feed.refresh()
+    await feed.feedback(first.items[0]!.status, 'hide_author')
+    expect(feed.statuses.value.map(row => row.id)).toEqual(['3'])
+    expect(feed.isFresh()).toBe(false)
+    await feed.refresh()
+    expect(api.mock.calls[1]?.[0]).toBeUndefined()
+    expect(feed.statuses.value.map(row => row.id)).toEqual(['4'])
+  })
+
   it('preserves explicit one-page degraded mode and has no fabricated next cursor', async () => {
     vi.spyOn(discoveryApi, 'statuses').mockResolvedValue({ ...page(['1']), mode: 'chronological_fallback' })
     const feed = setup()

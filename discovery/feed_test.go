@@ -396,3 +396,119 @@ func TestFeedModeReportsConsumedEligibleSources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "rules", filtered.Mode, "ineligible Meili sources must not advertise an enhanced window")
 }
+
+func feedAuthorIDs(page Page) map[uint64]bool {
+	authors := map[uint64]bool{}
+	for _, item := range page.Items {
+		authors[item.Status.AccountId] = true
+	}
+	return authors
+}
+
+func TestFeedHideAuthorAppliesImmediatelyToRulesAndMeili(t *testing.T) {
+	for _, mode := range []string{"rules", "meili"} {
+		t.Run(mode, func(t *testing.T) {
+			_, client := feedTestRedis(t)
+			conn, viewer := feedTestDatabase(t)
+			ctx := context.Background()
+			require.NoError(t, RefreshFeedCandidates(ctx))
+			if mode == "meili" {
+				pool, err := loadFeedPool(ctx, time.Now())
+				require.NoError(t, err)
+				pool.Mode = "meili_lexical"
+				pool.ContentDataCutoff = time.Now().UTC()
+				pool.Lists = []ContentList{{BucketKey: "go", Family: "lexical", Generation: "meili-generation", IDs: []uint64{1, 31, 61, 2, 3}}}
+				data, err := json.Marshal(pool)
+				require.NoError(t, err)
+				require.NoError(t, client.Set(ctx, feedPoolKey, data, PoolMaxAge).Err())
+				_, err = models.SetRecommendationPreference(conn, viewer.UserId, "personalized")
+				require.NoError(t, err)
+			}
+			first, err := StatusPage(ctx, viewer, "", 5)
+			require.NoError(t, err)
+			require.NotEmpty(t, first.Items)
+			target := first.Items[0].Status
+			require.NotNil(t, first.NextCursor)
+			_, err = models.PutRecommendationFeedback(conn, viewer.Id, "hide_author", "account", fmt.Sprint(target.AccountId))
+			require.NoError(t, err)
+			_, err = models.PutRecommendationFeedback(conn, viewer.Id, "hide_status", "status", fmt.Sprint(first.Items[1%len(first.Items)].Status.Id))
+			require.NoError(t, err)
+			// Old cursor pages are invalidated by the revision bump.
+			_, err = StatusPage(ctx, viewer, *first.NextCursor, 5)
+			require.ErrorIs(t, err, ErrResetRequired)
+			// Every page of the refreshed window omits the author and status.
+			cursor := ""
+			for i := 0; i < 20; i++ {
+				page, err := StatusPage(ctx, viewer, cursor, 20)
+				require.NoError(t, err)
+				require.False(t, feedAuthorIDs(page)[target.AccountId], "hidden author served on page %d", i)
+				for _, item := range page.Items {
+					require.NotEqual(t, first.Items[1%len(first.Items)].Status.Id, item.Status.Id)
+				}
+				if page.NextCursor == nil {
+					break
+				}
+				cursor = *page.NextCursor
+			}
+		})
+	}
+}
+
+func TestFeedHideRemoteAuthorAcrossPoolsAndQuotes(t *testing.T) {
+	for _, mode := range []string{"rules", "meili"} {
+		t.Run(mode, func(t *testing.T) {
+			_, client := feedTestRedis(t)
+			conn, viewer := feedTestDatabase(t)
+			ctx := context.Background()
+			write := conn.Session(&gorm.Session{SkipHooks: true})
+			domain, yes, checked := "bgme.me", true, time.Now().UTC().Add(-time.Hour)
+			remote := models.Account{Id: 114, Username: "kumori", Acct: "kumori@bgme.me", Domain: &domain, Discoverable: true, RemoteDiscoverable: &yes, RemoteIndexable: &yes, RemoteDiscoveryCheckedAt: &checked}
+			require.NoError(t, write.Omit("Extra", "User").Create(&remote).Error)
+			duplicate := models.Account{Id: 115, Username: "Kumori", Acct: "Kumori@bgme.me", Domain: &domain, Discoverable: true, RemoteDiscoverable: &yes, RemoteIndexable: &yes, RemoteDiscoveryCheckedAt: &checked}
+			require.NoError(t, write.Omit("Extra", "User").Create(&duplicate).Error)
+			require.NoError(t, conn.Model(&models.Status{}).Where("id IN ?", []uint64{1, 2, 3, 4, 5, 6}).UpdateColumn("account_id", 114).Error)
+			require.NoError(t, conn.Model(&models.Status{}).Where("id IN ?", []uint64{8, 9, 10}).UpdateColumn("account_id", 115).Error)
+			quote := uint64(1)
+			require.NoError(t, conn.Model(&models.Status{}).Where("id = ?", 7).UpdateColumn("quote_id", quote).Error)
+			require.NoError(t, RefreshFeedCandidates(ctx))
+			if mode == "meili" {
+				pool, err := loadFeedPool(ctx, time.Now())
+				require.NoError(t, err)
+				pool.Mode = "meili_lexical"
+				pool.ContentDataCutoff = time.Now().UTC()
+				pool.Lists = []ContentList{{BucketKey: "go", Family: "lexical", Generation: "meili-generation", IDs: []uint64{1, 2, 3, 7, 8}}}
+				data, err := json.Marshal(pool)
+				require.NoError(t, err)
+				require.NoError(t, client.Set(ctx, feedPoolKey, data, PoolMaxAge).Err())
+				_, err = models.SetRecommendationPreference(conn, viewer.UserId, "personalized")
+				require.NoError(t, err)
+			}
+			collect := func() (authors map[uint64]bool) {
+				authors = map[uint64]bool{}
+				cursor := ""
+				for i := 0; i < 20; i++ {
+					page, err := StatusPage(ctx, viewer, cursor, 20)
+					require.NoError(t, err)
+					for _, item := range page.Items {
+						authors[item.Status.AccountId] = true
+						if item.Status.Quote != nil {
+							authors[item.Status.Quote.AccountId] = true
+						}
+					}
+					if page.NextCursor == nil {
+						break
+					}
+					cursor = *page.NextCursor
+				}
+				return authors
+			}
+			before := collect()
+			require.True(t, before[114] && before[115], "fixture must surface both rows of the remote author before feedback")
+			_, err := models.PutRecommendationFeedback(conn, viewer.Id, "hide_author", "account", "114")
+			require.NoError(t, err)
+			after := collect()
+			require.False(t, after[114], "hidden remote author must not be served, including as a quote")
+			require.False(t, after[115], "a duplicate row of the same actor (same acct) must be hidden too")
+		})
+	}
+}
