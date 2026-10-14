@@ -87,8 +87,8 @@ func applyInitialActorDiscovery(account *models.Account, actor *Actor, now time.
 
 // Backfill tuning. Variables so tests can shrink them.
 var (
-	remoteDiscoveryMaxBatch     = 32
-	remoteDiscoveryWorkers      = 4
+	remoteDiscoveryMaxBatch     = 48
+	remoteDiscoveryWorkers      = 8
 	remoteDiscoveryFetchTimeout = 3 * time.Second
 	remoteDiscoveryRetryAfter   = 30 * time.Minute
 )

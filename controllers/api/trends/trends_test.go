@@ -265,3 +265,37 @@ func TestTagTrendsOverCapArePartialAndLocalScopeIsIndependent(t *testing.T) {
 	ListTags(c)
 	require.Equal(t, 400, w.Code)
 }
+
+func TestTagTrendsCountUnknownRemoteAuthorsButNotRefusals(t *testing.T) {
+	conn := setupTrendDB(t)
+	asOf := time.Now().UTC()
+	tag := &models.Tag{Name: "Legacy"}
+	require.NoError(t, conn.Create(tag).Error)
+	remote := "legacy.example"
+	for i := uint64(1); i <= 6; i++ {
+		a := trendAuthor(t, conn, i)
+		// Pre-discovery-column remote account: legacy discoverable=false, nothing read.
+		require.NoError(t, conn.Model(&models.Account{}).Where("id = ?", a.Id).Updates(map[string]any{"domain": remote, "discoverable": false, "remote_discoverable": nil, "remote_discovery_checked_at": nil, "remote_discovery_source": ""}).Error)
+		trendPost(t, conn, i, a, asOf.Add(-time.Duration(i)*time.Minute), models.StatusVisibilityPublic, tag)
+		require.NoError(t, conn.Model(&models.Status{}).Where("id = ?", i).Update("domain", remote).Error)
+	}
+	rows, err := discovery.AggregateTagTrends(t.Context(), conn, nil, "24h", "federated", asOf, nil)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, 6, rows[0].AuthorsCount)
+	c, w := trendContext("/api/v1/trends/tags")
+	ListTags(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "Legacy")
+	// An explicit refusal read from the actor removes that author.
+	require.NoError(t, conn.Model(&models.Account{}).Where("id = ?", 1).Updates(map[string]any{"remote_discoverable": false, "remote_discovery_checked_at": asOf, "remote_discovery_source": "actor"}).Error)
+	rows, err = discovery.AggregateTagTrends(t.Context(), conn, nil, "24h", "federated", asOf, nil)
+	require.NoError(t, err)
+	require.Equal(t, 5, rows[0].AuthorsCount)
+	// Individual status recommendations still require an actual opt-in.
+	var statuses models.Statuses
+	require.NoError(t, conn.Where("id IN ?", []uint64{2, 3}).Find(&statuses).Error)
+	got, err := models.FilterRecommendableStatuses(conn, nil, statuses, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, RootWindow: true})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}

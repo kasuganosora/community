@@ -155,22 +155,27 @@ const RemoteDiscoveryMaxAge = 24 * time.Hour
 // still be used as the stored-flag fallback while a re-check is pending.
 const RemoteDiscoveryFallbackMaxAge = 30 * 24 * time.Hour
 
-// AllowsRecommendation checks discovery consent only. Callers must additionally
-// enforce account validity, visibility, moderation and viewer-specific filters.
+// RemoteDiscoveryUnknown reports a remote account whose discovery preference
+// has never been read from its actor document. Accounts fetched before the
+// discovery columns existed (commit 6d3e4f0) carry accounts.discoverable =
+// false only because that was the column default; it is not the author's
+// choice, so it is ignored and the preference is treated as unknown until
+// the background refresher reads the actor.
+func (a *Account) RemoteDiscoveryUnknown() bool {
+	return a != nil && !a.IsLocal() && a.RemoteDiscoverable == nil && a.RemoteDiscoveryCheckedAt == nil && a.RemoteDiscoverySource == ""
+}
+
+// AllowsRecommendation checks discovery consent for surfacing individual
+// posts or authors. Callers must additionally enforce account validity,
+// visibility, moderation and viewer-specific filters.
 //
 // Remote accounts:
-//   - A fresh explicit check (RemoteDiscoveryCheckedAt within
-//     RemoteDiscoveryMaxAge) is authoritative.
-//   - Otherwise the actor's own `discoverable` flag already stored on the
-//     account is used while the background refresher catches up: the nullable
-//     RemoteDiscoverable when known, else the legacy accounts.discoverable
-//     column, which was written from the actor document (false by default,
-//     matching Mastodon where an absent `discoverable` means not discoverable).
-//     Unknown therefore means not allowed.
-//   - A document that was fetched but invalid (checked_at cleared, source set)
-//     gets no fallback, and stale results older than
-//     RemoteDiscoveryFallbackMaxAge are not used either.
-//   - Indexing refusals (noindex / indexable=false) always win.
+//   - A fresh explicit check (within RemoteDiscoveryMaxAge) is authoritative.
+//   - A stale check falls back to the last value read from the actor
+//     (remote_discoverable) for up to RemoteDiscoveryFallbackMaxAge.
+//   - Unknown (never read) is not allowed: individual recommendations need
+//     an actual opt-in, as Mastodon requires discoverable=true.
+//   - Invalid actor documents and indexing refusals are never allowed.
 func (a *Account) AllowsRecommendation(now time.Time) bool {
 	if a == nil {
 		return false
@@ -188,16 +193,28 @@ func (a *Account) AllowsRecommendation(now time.Time) bool {
 	if checked != nil && now.Sub(*checked) <= RemoteDiscoveryMaxAge {
 		return a.RemoteDiscoverable != nil && *a.RemoteDiscoverable
 	}
-	if checked == nil && a.RemoteDiscoverySource != "" {
+	if checked == nil {
+		// Never read (unknown) or the last document was invalid.
 		return false
 	}
-	if checked != nil && now.Sub(*checked) > RemoteDiscoveryFallbackMaxAge {
+	if now.Sub(*checked) > RemoteDiscoveryFallbackMaxAge {
 		return false
 	}
-	if a.RemoteDiscoverable != nil {
-		return *a.RemoteDiscoverable
+	return a.RemoteDiscoverable != nil && *a.RemoteDiscoverable
+}
+
+// AllowsTrendAggregation is the consent check for anonymous aggregate counts
+// (tag trends), which never surface an individual post or author. It allows
+// everything AllowsRecommendation allows, plus remote accounts whose
+// preference is still unknown (never read), like Mastodon, which counts tag
+// usage from all public posts and only uses discoverable to gate featuring
+// individual posts. Any explicit refusal read from the actor
+// (discoverable=false, indexable=false) or a local opt-out still excludes.
+func (a *Account) AllowsTrendAggregation(now time.Time) bool {
+	if a.AllowsRecommendation(now) {
+		return true
 	}
-	return a.Discoverable
+	return a.RemoteDiscoveryUnknown() && !a.NoIndex && (a.RemoteIndexable == nil || *a.RemoteIndexable)
 }
 
 func (a *Account) IsLocal() bool {

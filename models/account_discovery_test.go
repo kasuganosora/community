@@ -22,9 +22,9 @@ func TestAccountAllowsRecommendationUsesFreshCheckOrStoredActorFlag(t *testing.T
 		{"local unknown", &Account{}, false},
 		{"local opt-in", &Account{Discoverable: true}, true},
 		{"local noindex", &Account{Discoverable: true, NoIndex: true}, false},
-		{"remote unchecked stored actor flag", &Account{Domain: &domain, Discoverable: true}, true},
+		{"remote unchecked legacy column ignored", &Account{Domain: &domain, Discoverable: true}, false},
 		{"remote unchecked unknown", &Account{Domain: &domain}, false},
-		{"remote unchecked stored nullable flag", &Account{Domain: &domain, RemoteDiscoverable: &yes}, true},
+		{"remote unchecked stored nullable flag", &Account{Domain: &domain, RemoteDiscoverable: &yes}, false},
 		{"remote unchecked stored refusal", &Account{Domain: &domain, RemoteDiscoverable: &no, Discoverable: true}, false},
 		{"remote unchecked noindex", &Account{Domain: &domain, Discoverable: true, NoIndex: true}, false},
 		{"remote invalid document", &Account{Domain: &domain, Discoverable: true, RemoteDiscoverySource: "actor"}, false},
@@ -41,5 +41,33 @@ func TestAccountAllowsRecommendationUsesFreshCheckOrStoredActorFlag(t *testing.T
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, tc.account.AllowsRecommendation(now)) })
+	}
+}
+
+func TestAccountAllowsTrendAggregationCountsUnknownButNotRefusals(t *testing.T) {
+	now := time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
+	yes, no := true, false
+	domain := "remote.test"
+	cases := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{"never read, legacy default false", &Account{Domain: &domain}, true},
+		{"never read, legacy noindex", &Account{Domain: &domain, NoIndex: true}, false},
+		{"fresh opt-in", &Account{Domain: &domain, RemoteDiscoverable: &yes, RemoteDiscoveryCheckedAt: &now}, true},
+		{"fresh refusal", &Account{Domain: &domain, RemoteDiscoverable: &no, RemoteDiscoveryCheckedAt: &now}, false},
+		{"actor omitted discoverable", &Account{Domain: &domain, RemoteDiscoveryCheckedAt: &now, RemoteDiscoverySource: "actor"}, false},
+		{"invalid document", &Account{Domain: &domain, RemoteDiscoverySource: "actor"}, false},
+		{"indexable false", &Account{Domain: &domain, RemoteIndexable: &no}, false},
+		{"local not discoverable", &Account{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.account.AllowsTrendAggregation(now))
+			if tc.want && tc.name == "never read, legacy default false" {
+				require.False(t, tc.account.AllowsRecommendation(now), "unknown never surfaces individual posts")
+			}
+		})
 	}
 }

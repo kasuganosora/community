@@ -144,7 +144,7 @@ func AggregateTagTrendsPartial(ctx context.Context, conn *gorm.DB, viewer *model
 		}
 		eligible := make(models.Statuses, 0, len(roots))
 		visible := map[uint64]bool{}
-		opts := models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: duration, RootWindow: true}
+		opts := models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: duration, RootWindow: true, AggregateOnly: true}
 		for start := 0; start < len(roots); start += 200 {
 			batch, err := models.FilterRecommendableStatuses(tx, nil, roots[start:min(start+200, len(roots))], opts)
 			if err != nil {

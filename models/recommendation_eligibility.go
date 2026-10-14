@@ -20,6 +20,11 @@ type RecommendationEligibilityOptions struct {
 	// MetadataOnly is for ID candidate selection. It deliberately omits
 	// keyword filtering; every serialized page must call the full check.
 	MetadataOnly bool
+	// AggregateOnly is for anonymous aggregates such as tag trend counts,
+	// where no individual post or author is surfaced. Remote authors whose
+	// discovery preference has never been read are counted there (see
+	// Account.AllowsTrendAggregation); explicit refusals are still excluded.
+	AggregateOnly bool
 }
 
 // RecommendationStatusScope is a bounded caller's initial SQL preselection,
@@ -46,10 +51,10 @@ func RecommendationStatusScope(conn *gorm.DB, asOf time.Time, window time.Durati
 // Redis models cannot grant recommendation eligibility. excludeFollowed is
 // used only for account suggestions, never for authors of recommended posts.
 func FilterRecommendableAccounts(conn *gorm.DB, viewer *Account, accounts []*Account, excludeFollowed bool) ([]*Account, error) {
-	return filterRecommendableAccountsAt(conn, viewer, accounts, excludeFollowed, time.Now().UTC())
+	return filterRecommendableAccountsAt(conn, viewer, accounts, excludeFollowed, time.Now().UTC(), false)
 }
 
-func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*Account, excludeFollowed bool, now time.Time) ([]*Account, error) {
+func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*Account, excludeFollowed bool, now time.Time, aggregateOnly bool) ([]*Account, error) {
 	result := make([]*Account, 0, len(accounts))
 	if len(accounts) == 0 {
 		return result, nil
@@ -157,7 +162,7 @@ func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*A
 	}
 	byID := map[uint64]*Account{}
 	for _, a := range current {
-		if a.IsBan || a.DeletedAt.Valid || blocked[a.Id] || !a.AllowsRecommendation(now) {
+		if a.IsBan || a.DeletedAt.Valid || blocked[a.Id] || (!aggregateOnly && !a.AllowsRecommendation(now)) || (aggregateOnly && !a.AllowsTrendAggregation(now)) {
 			continue
 		}
 		if a.Domain != nil {
@@ -268,7 +273,7 @@ func FilterRecommendableStatuses(conn *gorm.DB, viewer *Account, statuses Status
 	if len(allIDs) == 0 {
 		return result, nil
 	}
-	allowedAuthors, err := filterRecommendableAccountsAt(conn, viewer, authors, false, now)
+	allowedAuthors, err := filterRecommendableAccountsAt(conn, viewer, authors, false, now, opts.AggregateOnly)
 	if err != nil {
 		return nil, err
 	}
