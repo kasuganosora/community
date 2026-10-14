@@ -1,6 +1,7 @@
 package timelines // "error" and similar strings are standard JSON keys, not worth constants
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/mediaproxy"
 	"strconv"
 
@@ -165,7 +166,7 @@ type UpdateNotificationPolicyRequest struct {
 // UpdateNotificationPolicy handles POST /api/v1/notifications/policy.
 func UpdateNotificationPolicy(c *gin.Context) {
 	var req UpdateNotificationPolicyRequest
-	err := c.ShouldBindJSON(&req)
+	err := controllers.BindBody(c, &req)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request body"})
 

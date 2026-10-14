@@ -30,7 +30,7 @@ type VotePollRequest struct {
 
 func VotePoll(c *gin.Context) {
 	req := &VotePollRequest{}
-	err := c.ShouldBindJSON(req)
+	err := controllers.BindBody(c, req)
 
 	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 

@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"strconv"
 	"time"
 
@@ -53,7 +54,7 @@ type CreatePushSubscriptionRequest struct {
 // CreatePushSubscription handles POST /api/v1/push/subscription.
 func CreatePushSubscription(c *gin.Context) {
 	var req CreatePushSubscriptionRequest
-	err := c.ShouldBindJSON(&req)
+	err := controllers.BindBody(c, &req)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request body"}) //nolint:goconst
 
@@ -129,7 +130,7 @@ type UpdatePushSubscriptionRequest struct {
 // UpdatePushSubscription handles PUT /api/v1/push/subscription.
 func UpdatePushSubscription(c *gin.Context) {
 	var req UpdatePushSubscriptionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid request body"})
 
 		return

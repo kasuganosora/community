@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -22,7 +23,7 @@ func bindOptionalBody(c *gin.Context, obj any) error {
 		return nil
 	}
 
-	return c.ShouldBind(obj)
+	return controllers.BindBody(c, obj)
 }
 
 func Follow(c *gin.Context) {

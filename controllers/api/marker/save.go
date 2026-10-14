@@ -2,6 +2,7 @@ package marker
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
@@ -18,7 +19,7 @@ type SaveRequestMarkerItem struct {
 
 func Save(c *gin.Context) {
 	req := make(SaveRequest)
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 
 		return

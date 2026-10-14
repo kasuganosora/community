@@ -22,7 +22,7 @@ type CreateRequest struct {
 
 func Create(c *gin.Context) {
 	req := &CreateRequest{}
-	err := c.ShouldBindJSON(req)
+	err := controllers.BindBody(c, req)
 	controllers.AbortIfError(c, apierrors.WarpToHttpError(err, 422))
 
 	currentAccount := controllers.MustGetAccount(c)

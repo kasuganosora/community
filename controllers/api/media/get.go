@@ -1,6 +1,7 @@
 package media
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"strconv"
 	"strings"
 
@@ -77,7 +78,7 @@ func Update(c *gin.Context) {
 		Focus       string `json:"focus"`
 	}
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := controllers.BindBody(c, &request); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request"})
 
 		return

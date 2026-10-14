@@ -69,7 +69,7 @@ func invalidReplacement(message string) error {
 // transaction. The old post and its media survive any validation/write failure.
 func Replace(c *gin.Context) {
 	var req replaceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}

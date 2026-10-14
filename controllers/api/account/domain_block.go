@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"net/url"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ type DomainBlockRequest struct {
 // BlockDomain handles POST /api/v1/domain_blocks.
 func BlockDomain(c *gin.Context) {
 	var req DomainBlockRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		// Also try form binding
 		req.Domain = c.PostForm("domain")
 		if req.Domain == "" {
@@ -143,7 +144,7 @@ func BlockDomain(c *gin.Context) {
 // UnblockDomain handles DELETE /api/v1/domain_blocks.
 func UnblockDomain(c *gin.Context) {
 	var req DomainBlockRequest
-	err := c.ShouldBindJSON(&req)
+	err := controllers.BindBody(c, &req)
 	if err != nil {
 		// Also try form binding
 		req.Domain = c.PostForm("domain")

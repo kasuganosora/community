@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"time"
@@ -17,17 +18,17 @@ import (
 // UpdateCredentialsRequest represents the request for updating account credentials.
 type UpdateCredentialsRequest struct {
 	DisplayName      *string `form:"display_name" json:"display_name"`
-	Note             *string `form:"note"`
-	Avatar           string  `form:"avatar"`
-	Header           string  `form:"header"`
-	Locked           *bool   `form:"locked"`
-	Bot              *bool   `form:"bot"`
+	Note             *string `form:"note" json:"note"`
+	Avatar           string  `form:"avatar" json:"avatar"`
+	Header           string  `form:"header" json:"header"`
+	Locked           *bool   `form:"locked" json:"locked"`
+	Bot              *bool   `form:"bot" json:"bot"`
 	Discoverable     *bool   `form:"discoverable" json:"discoverable"`
 	HideCollections  *bool   `form:"hide_collections" json:"hide_collections"`
 	Indexable        *bool   `form:"indexable" json:"indexable"`
 	FieldsAttributes []struct {
-		Name  string `form:"name"`
-		Value string `form:"value"`
+		Name  string `form:"name" json:"name"`
+		Value string `form:"value" json:"value"`
 	} `form:"fields_attributes" json:"fields_attributes"`
 }
 
@@ -35,7 +36,7 @@ type UpdateCredentialsRequest struct {
 func UpdateCredentials(c *gin.Context) {
 	var req UpdateCredentialsRequest
 
-	if err := c.ShouldBind(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid profile update"})
 		return
 	}

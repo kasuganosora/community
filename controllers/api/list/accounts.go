@@ -1,6 +1,7 @@
 package list
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/controllers/api/common"
 	"strconv"
 
@@ -125,7 +126,7 @@ type AddAccountsToListRequest struct {
 
 func AddAccountToList(c *gin.Context) {
 	req := AddAccountsToListRequest{}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": err.Error(),
 		})
@@ -344,7 +345,7 @@ func removeAccountIdParam(c *gin.Context) string {
 	}
 
 	var body AddAccountsToListRequest
-	if err := c.ShouldBindJSON(&body); err == nil && len(body.AccountIds) > 0 {
+	if err := controllers.BindBody(c, &body); err == nil && len(body.AccountIds) > 0 {
 		return body.AccountIds[0]
 	}
 

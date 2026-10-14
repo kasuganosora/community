@@ -2,6 +2,7 @@ package list
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -16,7 +17,7 @@ type CreateListRequest struct {
 func CreateList(c *gin.Context) {
 	req := CreateListRequest{}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": err.Error(), //nolint:goconst
 		})

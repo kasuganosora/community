@@ -84,7 +84,7 @@ type UpdateStatusScheduledAtRequest struct {
 
 func UpdateStatusScheduledAt(c *gin.Context) {
 	req := &UpdateStatusScheduledAtRequest{}
-	err := c.ShouldBindJSON(req)
+	err := controllers.BindBody(c, req)
 	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err})
 
 	idStr := c.Param("id")

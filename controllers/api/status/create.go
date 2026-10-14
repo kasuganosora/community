@@ -40,7 +40,7 @@ type CreatePollContent struct {
 
 func Create(c *gin.Context) {
 	var req CreateStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) //nolint:goconst
 
 		return

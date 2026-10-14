@@ -16,7 +16,7 @@ type ReblogRequest struct {
 
 func Reblog(c *gin.Context) {
 	req := &ReblogRequest{}
-	err := c.ShouldBindJSON(req)
+	err := controllers.BindBody(c, req)
 
 	// Allow empty body (use default visibility)
 	if err != nil && err.Error() != "EOF" {

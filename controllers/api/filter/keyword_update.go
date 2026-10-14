@@ -2,6 +2,7 @@ package filter
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -67,7 +68,7 @@ func KeywordUpdate(c *gin.Context) {
 	}
 
 	keywordUpdateRequest := &KeywordUpdateRequest{}
-	if err = c.ShouldBindJSON(keywordUpdateRequest); err != nil {
+	if err = controllers.BindBody(c, keywordUpdateRequest); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 
 		return

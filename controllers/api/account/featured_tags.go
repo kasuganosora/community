@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"strconv"
 	"time"
 
@@ -135,7 +136,7 @@ type CreateFeaturedTagRequest struct {
 // CreateFeaturedTag handles POST /api/v1/featured_tags.
 func CreateFeaturedTag(c *gin.Context) {
 	var req CreateFeaturedTagRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "name parameter required"})
 
 		return

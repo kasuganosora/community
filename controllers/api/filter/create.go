@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"github.com/kasuganosora/community/controllers"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ type CreateFilterRequest struct {
 
 func Create(c *gin.Context) {
 	var req CreateFilterRequest
-	err := c.ShouldBindJSON(&req)
+	err := controllers.BindBody(c, &req)
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
 

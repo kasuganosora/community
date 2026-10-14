@@ -2,6 +2,7 @@ package account
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 )
@@ -34,7 +35,7 @@ func preferenceUserID(c *gin.Context, account *models.Account) uint64 {
 func UpdatePreferences(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	var req map[string]any
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := controllers.BindBody(c, &req); err != nil {
 		c.JSON(422, gin.H{"error": "invalid request body"})
 
 		return
