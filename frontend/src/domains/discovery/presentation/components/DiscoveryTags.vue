@@ -59,7 +59,7 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
 
 <template>
   <section v-if="!compact || !page?.disabled" class="discovery-tags" :class="{ 'discovery-tags--compact': compact }" :aria-busy="loading">
-    <header class="discovery-tags__header"><h2>{{ title }}</h2><p>{{ rangeLabel }}</p></header>
+    <header class="discovery-tags__header"><h2>{{ title }}</h2><p v-if="!compact">{{ rangeLabel }}</p></header>
     <div v-if="!compact" class="discovery-tags__filters">
       <label>统计窗口<select v-model="windowSize"><option value="24h">过去 24 小时</option><option value="7d">过去 7 天</option></select></label>
     </div>

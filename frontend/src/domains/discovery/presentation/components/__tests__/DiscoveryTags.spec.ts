@@ -31,7 +31,7 @@ it('loads global topics in the compact rail without any settings', async () => {
   const wrapper = mount(DiscoveryTags, { ...options, props: { compact: true } })
   await flushPromises()
   expect(api.mock.lastCall?.[0]).toEqual({ window: '24h', scope: 'federated', limit: 5, cursor: undefined })
-  expect(wrapper.text()).toContain('全局（含跨站） · 过去 24 小时')
+  expect(wrapper.text()).not.toContain('全局（含跨站） · 过去 24 小时')
   expect(wrapper.find('select').exists()).toBe(false)
   expect(wrapper.findAll('a').at(-1)?.attributes('href')).toBe('/explore/topics')
   wrapper.unmount()
