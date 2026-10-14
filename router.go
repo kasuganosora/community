@@ -216,9 +216,9 @@ func SetRouter(app gin.IRouter) {
 	authTagGroup.POST("/tags/:id/unfollow", account.UnfollowTag)
 
 	// 热门话题（公开）
-	v1ApiGroup.GET("/trends/tags", trends.ListTags)
-	v1ApiGroup.GET("/trends/statuses", trends.ListStatuses)
-	v1ApiGroup.GET("/trends/links", trends.ListLinks)
+	maybeAuthGroupV1.GET("/trends/tags", trends.ListTags)
+	maybeAuthGroupV1.GET("/trends/statuses", trends.ListStatuses)
+	maybeAuthGroupV1.GET("/trends/links", trends.ListLinks)
 
 	// 公告（公开）
 	maybeAuthGroupV1.GET("/announcements", account.ListAnnouncements)
@@ -227,6 +227,7 @@ func SetRouter(app gin.IRouter) {
 	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
 	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
 	registerChatRoutes(authGroupV1)
+	registerDiscoveryRoutes(maybeAuthGroupV1, authGroupV1)
 	registerAdminManagementRoutes(v1ApiGroup, authGroupV1)
 	transfers := authGroupV1.Group("", transferapi.AuthorizeTransfer)
 	for _, scope := range []string{"personal", "site"} {
@@ -408,8 +409,8 @@ func SetRouter(app gin.IRouter) {
 	authGroupV1.PATCH("/preferences", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), account.UpdatePreferences)
 
 	// 建议与公告（已登录）
-	authGroupV1.GET("/suggestions", account.ListSuggestions)
-	authGroupV1.DELETE("/suggestions/:account_id", account.RemoveSuggestion)
+	authGroupV1.GET("/suggestions", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadAccounts}), account.ListSuggestionsV1)
+	authGroupV1.DELETE("/suggestions/:account_id", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), account.RemoveSuggestion)
 	authGroupV1.POST("/announcements/:id/dismiss", account.DismissAnnouncement)
 	authGroupV1.PUT("/announcements/:id/reactions/:name", account.AddAnnouncementReaction)
 	authGroupV1.DELETE("/announcements/:id/reactions/:name", account.RemoveAnnouncementReaction)
@@ -570,7 +571,7 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.Group("", middleware.AuthMiddleware()).GET("/search", search.Search)
 
 	// Suggestions API v2（需要登录）
-	v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware()).GET("/suggestions", account.ListSuggestions)
+	v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadAccounts})).GET("/suggestions", account.ListSuggestions)
 
 	// 可登录也可不登录的路由（v2 兼容）
 	maybeAuthGroup := v2ApiGroup.Group("", middleware.AuthMiddleware())

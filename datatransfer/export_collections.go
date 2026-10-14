@@ -126,6 +126,15 @@ func exportPersonalCollections(db *gorm.DB, owner *models.Account, b *Bundle, ac
 	for _, v := range muted {
 		preserve("muted_status", exportID(v.Id), v)
 	}
+	// Recommendation feedback is private portable history, not a rule to
+	// replay against unrelated account/status IDs after a cross-site import.
+	var recommendationFeedback []models.RecommendationFeedback
+	if err := db.Where("scope = ? AND owner_id = ?", "user", owner.Id).Order("id ASC").Find(&recommendationFeedback).Error; err != nil {
+		return err
+	}
+	for _, v := range recommendationFeedback {
+		preserve("recommendation_feedback", exportID(v.ID), v)
+	}
 	var settings []models.UserSetting
 	if err := db.Where("user_id = ?", owner.UserId).Find(&settings).Error; err != nil {
 		return err

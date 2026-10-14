@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
@@ -348,7 +347,7 @@ func initSqliteConnection() (err error) {
 		dbPath = "community.db"
 	}
 
-	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{Logger: NewRedactingLogger(logger.Default)})
+	DB, err = gorm.Open(dialect.OpenSQLite(dbPath), &gorm.Config{Logger: NewRedactingLogger(logger.Default)})
 	if err != nil {
 		return
 	}

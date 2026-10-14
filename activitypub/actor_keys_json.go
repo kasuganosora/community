@@ -37,19 +37,47 @@ func (a *Actor) UnmarshalJSON(data []byte) error {
 	type plain Actor
 	var raw struct {
 		*plain
-		PublicKey   json.RawMessage `json:"publicKey"`
-		URL         json.RawMessage `json:"url"`
-		AlsoKnownAs json.RawMessage `json:"alsoKnownAs"`
-		MovedTo     json.RawMessage `json:"movedTo"`
-		Icon        json.RawMessage `json:"icon"`
-		Image       json.RawMessage `json:"image"`
-		Name        json.RawMessage `json:"name"`
-		Summary     json.RawMessage `json:"summary"`
+		Discoverable    json.RawMessage `json:"discoverable"`
+		Indexable       json.RawMessage `json:"indexable"`
+		HideCollections json.RawMessage `json:"hideCollections"`
+		PublicKey       json.RawMessage `json:"publicKey"`
+		URL             json.RawMessage `json:"url"`
+		AlsoKnownAs     json.RawMessage `json:"alsoKnownAs"`
+		MovedTo         json.RawMessage `json:"movedTo"`
+		Icon            json.RawMessage `json:"icon"`
+		Image           json.RawMessage `json:"image"`
+		Name            json.RawMessage `json:"name"`
+		Summary         json.RawMessage `json:"summary"`
 	}
 	*a = Actor{}
 	raw.plain = (*plain)(a)
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
+	}
+	a.discoveryPresent = make(map[string]bool)
+	for _, field := range []struct {
+		key    string
+		raw    json.RawMessage
+		target **bool
+	}{
+		{"discoverable", raw.Discoverable, &a.Discoverable},
+		{"indexable", raw.Indexable, &a.Indexable},
+		{"hideCollections", raw.HideCollections, &a.HideCollections},
+	} {
+		if len(field.raw) == 0 {
+			continue
+		}
+		a.discoveryPresent[field.key] = true
+		var value any
+		if json.Unmarshal(field.raw, &value) != nil {
+			a.discoveryInvalid = true
+			continue
+		}
+		if b, ok := value.(bool); ok {
+			*field.target = &b
+		} else {
+			a.discoveryInvalid = true
+		}
 	}
 	a.URL = firstLinkHref(raw.URL)
 	a.AlsoKnownAs = firstLinkHref(raw.AlsoKnownAs)

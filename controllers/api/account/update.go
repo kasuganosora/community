@@ -6,6 +6,7 @@ import (
 	mediactl "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/monoculum/formam/v3"
 	"github.com/pkg/errors"
@@ -23,6 +24,7 @@ type UpdateAccountRequest struct {
 	Locked          *bool                 `json:"locked"`
 	Bot             *bool                 `json:"bot"`
 	Discoverable    *bool                 `json:"discoverable"`
+	Indexable       *bool                 `json:"indexable"`
 	HideCollections *bool                 `json:"hide_collections"`
 	Fields          []models.AccountField `json:"fields_attributes"`
 }
@@ -194,6 +196,11 @@ func UpdateAccount(c *gin.Context) {
 		updateFields = append(updateFields, "discoverable")
 	}
 
+	if req.Indexable != nil {
+		account.NoIndex = !*req.Indexable
+		updateFields = append(updateFields, "no_index")
+	}
+
 	if req.HideCollections != nil {
 		account.HideCollections = *req.HideCollections
 
@@ -232,6 +239,7 @@ func UpdateAccount(c *gin.Context) {
 	}
 
 	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
+	search.QueueAccountIndex(account.Id)
 	acc := serializer.ToAccount(account)
 
 	c.JSON(200, gin.H{"account": acc}) //nolint:goconst

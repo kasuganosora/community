@@ -16,6 +16,7 @@ export const adminNavigation: AdminNavGroup[] = [
     item('/announcements', '公告', 'notification', 'announcements'),
     item('/advertisements', '广告', 'image', 'branding'),
     item('/reports', '举报与内容', 'flag', 'reports'),
+    item('/discovery', '内容发现', 'browse', 'settings', '查看推荐状态，管理站级禁推规则。'),
     item('/audit-logs', '审查日志', 'history', 'audit'),
     item('/rules', '社区规则', 'bulletpoint', 'rules'),
   ] },

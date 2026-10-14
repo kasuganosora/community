@@ -2,6 +2,7 @@ package systemsettings
 
 import (
 	"errors"
+	"github.com/google/uuid"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -12,6 +13,19 @@ import (
 // SaveChanges publishes new runtime settings only after every database write
 // succeeds. Readers never observe a partially saved settings form.
 func SaveChanges(values map[string]any) error {
+	// Store a new epoch in the same transaction as policy changes. Do not
+	// extend caller-owned maps or publish an uncommitted generation.
+	changes := make(map[string]any, len(values)+1)
+	for key, value := range values {
+		changes[key] = value
+	}
+	for _, key := range []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion} {
+		if _, changed := values[key]; changed {
+			changes[KeyRecommendationPolicyRevision] = uuid.NewString()
+			break
+		}
+	}
+	values = changes
 	Load()
 	database := db.GetDB()
 	if database == nil {

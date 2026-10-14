@@ -1,109 +1,71 @@
 package account
 
 import (
+	"errors"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/discovery"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
-	"github.com/pkg/errors"
-	"strconv"
 )
 
-// ListSuggestions handles GET /api/v2/suggestions.
-func ListSuggestions(c *gin.Context) {
-	limit := 20
+// ListSuggestions preserves Mastodon's v2 Suggestion[] contract.
+func ListSuggestions(c *gin.Context) { listSuggestions(c, false) }
 
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 40 {
-			limit = parsed
-		}
-	}
-
-	// Get current account
-	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-	// Get accounts that are followed by accounts the user follows
-	// (friends of friends) but not followed by the user
-	subquery := db.GetDB().Table("follows").
-		Select("DISTINCT follow_id").
-		Where("account_id = ?", account.Id)
-
-	// Find accounts that are followed by people the user follows
-	// but not by the user themselves
-	// followers_count lives in accounts_extra, not accounts; ordering by the
-	// bare column failed with "Unknown column 'followers_count'" (500 on
-	// every page of the web UI).
-	query := db.GetDB().Model(&models.Account{}).
-		Joins("LEFT JOIN accounts_extra ON accounts_extra.account_id = accounts.id").
-		Where("accounts.id IN (SELECT follow_id FROM follows WHERE account_id IN (?))", subquery).
-		Where("accounts.id NOT IN (SELECT follow_id FROM follows WHERE account_id = ?)", account.Id).
-		Where("accounts.id != ?", account.Id).
-		Where("accounts.locked = ?", false). // Only suggest public accounts
-		Preload("Emojis").
-		Preload("Extra").
-		Order("COALESCE(accounts_extra.followers_count, 0) DESC").
-		Limit(limit)
-
-	accounts := make([]*models.Account, 0)
-	err := query.Find(&accounts).Error
-	if err != nil {
-		_ = c.Error(errors.Wrap(err, "get suggestions error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
-
+// ListSuggestionsV1 returns accounts directly, as Mastodon's v1 requires.
+func ListSuggestionsV1(c *gin.Context) { listSuggestions(c, true) }
+func listSuggestions(c *gin.Context, v1 bool) {
+	c.Header("Cache-Control", "no-store")
+	viewer := directoryViewer(c)
+	if viewer == nil {
+		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-
-	// Build response with source info
-	result := make([]gin.H, 0, len(accounts))
-	for _, acc := range accounts {
-		result = append(result, gin.H{
-			"source":  "past_interactions",
-			"account": serializer.ToAccount(acc), //nolint:goconst
-		})
+	limit := 20
+	if value, err := strconv.Atoi(c.Query("limit")); err == nil && value > 0 {
+		limit = min(value, 40)
 	}
-
-	// If no suggestions from social graph, return popular accounts
-	if len(result) == 0 {
-		popularQuery := db.GetDB().Model(&models.Account{}).
-			Joins("JOIN accounts_extra ON accounts_extra.account_id = accounts.id").
-			Where("accounts.id != ?", account.Id).
-			Where("accounts.locked = ?", false).
-			Where("accounts_extra.followers_count > 0").
-			Preload("Emojis").
-			Preload("Extra").
-			Order("accounts_extra.followers_count DESC").
-			Limit(limit)
-
-		popularAccounts := make([]*models.Account, 0)
-		err := popularQuery.Find(&popularAccounts).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "get popular accounts error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-			return
-		}
-
-		for _, acc := range popularAccounts {
-			result = append(result, gin.H{
-				"source":  "global",
-				"account": serializer.ToAccount(acc),
-			})
-		}
+	suggestions, err := discovery.SuggestAccounts(c.Request.Context(), db.GetDB(), viewer, limit)
+	if err != nil {
+		_ = c.Error(err)
+		c.Header("Retry-After", "5")
+		c.AbortWithStatusJSON(503, gin.H{"error": "suggestions temporarily unavailable"})
+		return
 	}
-
+	accounts := make([]*models.Account, 0, len(suggestions))
+	for _, s := range suggestions {
+		accounts = append(accounts, s.Account)
+	}
+	serialized := serializer.ToAccounts(accounts)
+	if v1 {
+		c.JSON(200, serialized)
+		return
+	}
+	result := make([]gin.H, 0, len(serialized))
+	for i, a := range serialized {
+		result = append(result, gin.H{"source": suggestions[i].Source, "account": a})
+	}
 	c.JSON(200, result)
 }
 
-// RemoveSuggestion handles DELETE /api/v1/suggestions/:account_id.
 func RemoveSuggestion(c *gin.Context) {
-	accid := c.Param("account_id")
-	if accid == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "account id required"})
-
+	c.Header("Cache-Control", "no-store")
+	viewer := directoryViewer(c)
+	if viewer == nil {
+		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-
-	// In Mastodon, this removes the suggestion from the user's view
-	// We could store dismissed suggestions, but for simplicity we just return success
+	_, err := models.PutRecommendationFeedback(db.GetDB().WithContext(c.Request.Context()), viewer.Id, "dismiss_suggestion", "account", c.Param("account_id"))
+	if errors.Is(err, models.ErrInvalidRecommendationFeedback) {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
+		return
+	}
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(500, gin.H{"error": "failed to remove suggestion"})
+		return
+	}
 	c.JSON(200, gin.H{})
 }

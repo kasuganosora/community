@@ -47,6 +47,7 @@ var ScripsType = []MigrationScript{
 	FeedOutboxScript{},
 	FeedClaimIndexesScript{},
 	MatrixAliasScript{},
+	DiscoveryScript{},
 }
 
 type MigrationScript interface {

@@ -103,6 +103,7 @@ function retryFeed() {
     <div class="explore-search">
       <SearchBox live />
     </div>
+    <router-link to="/explore/topics" class="explore-topics">发现热点话题 <t-icon name="chevron-right" :size="16" /></router-link>
     <div v-if="followedTags.length" class="explore-followed">
       <span>关注的话题</span>
       <router-link v-for="item in followedTags" :key="item.name" :to="`/tags/${encodeURIComponent(item.name)}`">#{{ item.name }}</router-link>
@@ -138,6 +139,7 @@ function retryFeed() {
 .explore-page {
   min-height: 100dvh;
 }
+.explore-topics { display: flex; align-items: center; gap: .5rem; min-height: var(--hit-target); margin: var(--space-2) var(--space-4); color: var(--color-accent-text); font-size: var(--text-subhead); }
 
 .explore-search {
   padding: 0 var(--space-4);

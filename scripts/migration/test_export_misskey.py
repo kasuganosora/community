@@ -74,6 +74,15 @@ class ExportTests(unittest.TestCase):
         self.assertNotIn("private@example.test", json.dumps(b["issues"]))
         self.assertTrue(any(r["kind"] == "misskey:user_profile" for r in b["records"]))
 
+    def test_hidden_relationships_survive_profile_export(self):
+        self.tables["user_profile"][0].update(followingVisibility="public", followersVisibility="followers")
+        b = self.converter().convert()
+        self.assertTrue(b["accounts"][0]["hide_collections"])
+        self.assertFalse(b["accounts"][1]["hide_collections"])
+        self.tables["user_profile"][0]["followersVisibility"] = "public"
+        b = self.converter().convert()
+        self.assertFalse(b["accounts"][0]["hide_collections"])
+
     def test_active_mfa_requires_adapter_but_inactive_secret_is_only_raw(self):
         self.tables["user_profile"][0].update(twoFactorEnabled=False, twoFactorSecret="inactive-secret")
         b = self.converter().convert()

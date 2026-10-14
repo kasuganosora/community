@@ -29,7 +29,7 @@ func setupAccountsTest(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, conn.AutoMigrate(
 		&models.User{}, &models.UserSecretData{}, &models.Account{}, &models.AccountExtra{}, &models.Emoji{},
-		&models.Role{}, &models.RoleUser{}, &models.AuthToken{},
+		&models.Role{}, &models.RoleUser{}, &models.AuthToken{}, &models.RecommendationFeedback{},
 	))
 	require.NoError(t, scripts.AddRoles{}.Up(conn))
 	database.SetTestDB(conn)
@@ -292,4 +292,24 @@ func TestNormalizeAccountArgs(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, NormalizeAccountArgs(tc.in), "%v", tc.in)
 	}
+}
+
+func TestAccountsDeleteErasesPrivateFeedbackAndPreservesSiteGovernance(t *testing.T) {
+	conn := setupAccountsTest(t)
+	user := models.User{Id: 991, UserName: "private_owner", EmailHash: "private-owner-hash"}
+	require.NoError(t, conn.Create(&user).Error)
+	account := models.Account{Id: 992, UserId: user.Id, Username: "private_owner"}
+	require.NoError(t, conn.Create(&account).Error)
+	for _, row := range []models.RecommendationFeedback{
+		{Scope: "user", OwnerID: account.Id, Action: "hide_tag", TargetKind: "tag", TargetKey: "private-choice"},
+		{Scope: "site", OwnerID: 0, Action: "suppress", TargetKind: "tag", TargetKey: "site-rule"},
+	} {
+		require.NoError(t, conn.Create(&row).Error)
+	}
+	require.NoError(t, runAccounts("", "delete", "private_owner").err)
+	var rows []models.RecommendationFeedback
+	require.NoError(t, conn.Find(&rows).Error)
+	require.Len(t, rows, 1)
+	require.Equal(t, "site", rows[0].Scope)
+	require.Equal(t, "site-rule", rows[0].TargetKey)
 }

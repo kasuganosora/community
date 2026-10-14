@@ -18,7 +18,7 @@ func parseMastodon(ctx context.Context, a *Archive) (*Bundle, error) {
 		return nil, errors.New("Mastodon actor ID is missing")
 	}
 	b := &Bundle{Schema: Schema, Scope: "personal", OwnerID: owner, Source: Source{Platform: "mastodon", BaseURL: origin(owner)}}
-	profile := Account{ID: owner, ActorURI: owner, Local: true, Username: text(actor["preferredUsername"]), DisplayName: text(actor["name"]), Note: text(actor["summary"]), NoteHTML: true, URL: text(actor["url"]), Locked: boolean(actor["manuallyApprovesFollowers"]), Bot: text(actor["type"]) == "Service", Discoverable: boolean(actor["discoverable"]), NoIndex: !boolean(actor["indexable"]), CreatedAt: timestamp(actor["published"])}
+	profile := Account{ID: owner, ActorURI: owner, Local: true, Username: text(actor["preferredUsername"]), DisplayName: text(actor["name"]), Note: text(actor["summary"]), NoteHTML: true, URL: text(actor["url"]), Locked: boolean(actor["manuallyApprovesFollowers"]), Bot: text(actor["type"]) == "Service", Discoverable: boolean(actor["discoverable"]), NoIndex: !boolean(actor["indexable"]), HideCollections: boolean(actor["hideCollections"]), CreatedAt: timestamp(actor["published"])}
 	for _, field := range arr(actor["attachment"]) {
 		f := obj(field)
 		if text(f["type"]) == "PropertyValue" {

@@ -11,7 +11,7 @@ import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_L
 
 const authStore = useAuthStore()
 
-const profile = reactive({ display_name: '', note: '', locked: false, avatar: '', header: '' })
+const profile = reactive({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '' })
 const profileError = ref<string | null>(null)
 const savingProfile = ref(false)
 const uploading = reactive({ avatar: false, header: false })
@@ -27,6 +27,8 @@ function resetProfile() {
   // Edit the plain-text source, not the rendered HTML note.
   profile.note = me.source?.note ?? stripHtml(me.note ?? '')
   profile.locked = !!me.locked
+  profile.discoverable = !!me.discoverable
+  profile.indexable = !!me.indexable
   profile.avatar = me.avatar ?? ''
   profile.header = me.header ?? ''
 }
@@ -65,6 +67,8 @@ async function saveProfile() {
       display_name: profile.display_name,
       note: profile.note,
       locked: profile.locked,
+      discoverable: profile.discoverable,
+      indexable: profile.indexable,
       ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
       ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
     })
@@ -124,6 +128,15 @@ onMounted(async () => {
       <input v-model="profile.locked" type="checkbox" />
       <span>锁定账号（需要手动批准关注请求）</span>
     </label>
+    <label class="settings-check">
+      <input v-model="profile.discoverable" type="checkbox" />
+      <span>允许在目录和发现内容中推荐我的账号</span>
+    </label>
+    <label class="settings-check">
+      <input v-model="profile.indexable" type="checkbox" />
+      <span>允许索引我的公开帖子，用于搜索和内容发现</span>
+    </label>
+    <p class="settings-field__hint">这些是你对公开内容的发现偏好，与首页阅读模式独立；不会改变帖子可见范围。外部服务器可能无法遵循这些偏好。</p>
 
     <p v-if="profileError" class="settings-error" role="alert">{{ profileError }}</p>
     <div class="settings-actions">

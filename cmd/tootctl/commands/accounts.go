@@ -392,8 +392,14 @@ func deleteAccount(c *cli.Context) error {
 		return err
 	}
 
-	// Delete user (cascade will handle related data)
-	if err := conn.Delete(&models.User{}, user.Id).Error; err != nil {
+	// Private feedback belongs to this account, while site suppressions are
+	// independent of the administrator who created them and must survive.
+	if err := conn.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("scope = ? AND owner_id IN (?)", "user", tx.Model(&models.Account{}).Select("id").Where("user_id = ?", user.Id)).Delete(&models.RecommendationFeedback{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.User{}, user.Id).Error
+	}); err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 

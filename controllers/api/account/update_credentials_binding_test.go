@@ -93,3 +93,44 @@ func TestUpdateCredentialsMalformedPayloadStopsBeforeMutation(t *testing.T) {
 		require.Equal(t, 400, w.Code)
 	}
 }
+
+func TestDiscoveryPreferenceBindingAndCanonicalSettings(t *testing.T) {
+	for _, contentType := range []string{"application/json", "application/x-www-form-urlencoded"} {
+		body := `{"discoverable":false,"indexable":false,"hide_collections":true}`
+		if contentType != "application/json" {
+			body = "discoverable=false&indexable=false&hide_collections=true"
+		}
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("PATCH", "/", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", contentType)
+		var request UpdateCredentialsRequest
+		require.NoError(t, c.ShouldBind(&request))
+		require.NotNil(t, request.Discoverable)
+		require.False(t, *request.Discoverable)
+		require.NotNil(t, request.Indexable)
+		require.False(t, *request.Indexable)
+		require.True(t, *request.HideCollections)
+	}
+	// This extension must use the same canonical field as verify_credentials
+	// and Actor export, not stale historical UserSetting.Data["indexable"].
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("account", &models.Account{Discoverable: true, NoIndex: true, User: &models.User{Settings: &models.UserSetting{Data: map[string]any{"indexable": true}}}})
+	GetAccountSettings(c)
+	var settings map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &settings))
+	require.Equal(t, false, settings["indexable"])
+	require.Equal(t, true, settings["discoverable"])
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("indexable", "false"))
+	require.NoError(t, writer.Close())
+	c, _ = gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("PATCH", "/", &body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	var form UpdateAccountRequest
+	require.NoError(t, form.Bind(c))
+	require.NotNil(t, form.Indexable)
+	require.False(t, *form.Indexable)
+}

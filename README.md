@@ -246,6 +246,8 @@ HTTP_PROXY= http_proxy= go test -p 3 ./...
 
 Feed 可靠分发、多实例扩展与网页虚拟列表的实现细节、阶段和验收标准见 [Feed 扩展实施计划](docs/tasks/feed_scaling_plan.md)，部署参数见 [运行说明](docs/feed-runtime.md)。计划中的性能门槛与验收记录中的测量结果分开列出。
 
+首页推荐现有独立的候选、排序和稳定分页，可选择公开发现或个性化，并支持不感兴趣、隐藏作者/话题与撤销。热门话题提供滚动 24 小时 / 7 天、本地 / 本站已知联邦范围及不同作者计数。首次部署推荐默认关闭；可在后台开启，Meilisearch 增强需通过对应版本的质量审核。配置、隐私边界和资源限制见 [推荐运行说明](docs/recommendations.md)。
+
 Matrix 使用独立的 30 个账号、100 个房间和 50,000 条时间线事件测试同步、历史分页及消息发送，并以真实 Element / Synapse 验证双向普通和加密消息、文件下载。优化包括批量状态及撤回查询、未读计数、请求取消、设备消息确认和媒体连接复用，同时修复历史权限、私有回执和异步上传问题。测量结果和限制见 [Matrix 性能报告](docs/matrix-performance.md)，复测方法见 [Matrix 压测脚本](scripts/benchmark-matrix.md)。
 
 ## 代码与文档导航

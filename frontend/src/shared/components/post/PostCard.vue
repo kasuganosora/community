@@ -23,15 +23,19 @@ import PostContent from './PostContent.vue'
 import PostActions from './PostActions.vue'
 import PostComposer from './PostComposer.vue'
 import FilteredNotice from './FilteredNotice.vue'
+import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
 const props = defineProps<{
   status: MastodonStatus
+  recommendation?: boolean
+  recommendationReason?: DiscoveryReason
 }>()
 
 const emit = defineEmits<{
   reblog: [status: MastodonStatus]
   favourite: [status: MastodonStatus]
   bookmark: [status: MastodonStatus]
+  recommendationFeedback: [status: MastodonStatus, action: 'hide_status' | 'hide_author']
 }>()
 
 const router = useRouter()
@@ -62,13 +66,17 @@ const filterMarks = computed(() => {
 const isDeleted = computed(() => deletedStatusIds.has(props.status.id) || deletedStatusIds.has(displayStatus.value.id))
 const isOwn = computed(() => !!authStore.currentUser && displayStatus.value.account.id === authStore.currentUser.id)
 const visibility = computed(() => displayStatus.value.visibility !== 'public' ? visibilityOption(displayStatus.value.visibility) : null)
-const menuOptions = computed(() => isOwn.value
+const menuOptions = computed(() => [...(isOwn.value
   ? [
       { content: displayStatus.value.pinned ? '取消置顶' : '置顶', value: 'pin' },
       { content: REPLACE_MENU, value: 'edit' },
       { content: '删除', value: 'delete', theme: 'error' as const },
     ]
-  : [{ content: '举报', value: 'report' }])
+  : [{ content: '举报', value: 'report' }]), ...(props.recommendation ? [
+    { content: '为什么显示这条帖子', value: 'recommendation-why' },
+    { content: '不感兴趣', value: 'recommendation-hide' },
+    { content: '不再推荐这个作者', value: 'recommendation-author' },
+  ] : [])])
 
 async function togglePin() {
   try {
@@ -139,6 +147,17 @@ function onMenuClick(data: { value?: unknown }) {
   else if (data.value === 'delete') confirmDelete()
   else if (data.value === 'pin') void togglePin()
   else if (data.value === 'report') reporting.value = true
+  else if (data.value === 'recommendation-hide') emit('recommendationFeedback', displayStatus.value, 'hide_status')
+  else if (data.value === 'recommendation-author') emit('recommendationFeedback', displayStatus.value, 'hide_author')
+  else if (data.value === 'recommendation-why') {
+    const dialog = DialogPlugin.alert({
+      header: '为什么显示这条帖子',
+      body: `${props.recommendationReason?.label || '这是一条符合当前公开发现条件的帖子。'} 不感兴趣或停止推荐作者只影响发现内容，不会屏蔽该账号。可在设置中查看和撤销。`,
+      confirmBtn: '知道了',
+      onConfirm: () => dialog.destroy(),
+      onClose: () => dialog.destroy(),
+    })
+  }
 }
 </script>
 

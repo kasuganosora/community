@@ -4,8 +4,9 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import TimelineRow from './TimelineRow.vue'
 import { useTimelineWindow } from '../composables/useTimelineWindow'
+import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   statuses: MastodonStatus[]
   scopeKey?: string
   hasPrevious?: boolean
@@ -14,7 +15,10 @@ const props = defineProps<{
   error?: string | null
   emptyTitle?: string
   emptyText?: string
-}>()
+  recommendation?: boolean
+  recommendationReasons?: Record<string, DiscoveryReason>
+  autoLoad?: boolean
+}>(), { autoLoad: true })
 
 const emit = defineEmits<{
   loadMore: []
@@ -25,6 +29,7 @@ const emit = defineEmits<{
   reblog: [status: MastodonStatus]
   favourite: [status: MastodonStatus]
   bookmark: [status: MastodonStatus]
+  recommendationFeedback: [status: MastodonStatus, action: 'hide_status' | 'hide_author']
 }>()
 
 const sentinel = ref<HTMLElement>()
@@ -49,7 +54,7 @@ let observer: IntersectionObserver | null = null
 const PREFETCH_PX = 1200
 
 function loadIfVisible() {
-  if (props.loading || props.error || props.hasMore === false || props.statuses.length === 0 || !sentinel.value) return
+  if (props.autoLoad === false || props.loading || props.error || props.hasMore === false || props.statuses.length === 0 || !sentinel.value) return
   const rect = sentinel.value.getBoundingClientRect()
   if (rect.top <= window.innerHeight + PREFETCH_PX && rect.bottom >= -PREFETCH_PX) emit('loadMore')
 }
@@ -79,11 +84,14 @@ onUnmounted(() => {
         <TimelineRow :id="row.status.id" :ref="element => windowed.bind(row.status.id, element)" :flags="windowed.rowFlags(row.status.id)" :request-pin="windowed.pin">
           <PostCard
             :status="row.status"
+            :recommendation="recommendation"
+            :recommendation-reason="recommendationReasons?.[row.status.id]"
             :aria-posinset="hasPrevious ? undefined : row.index + 1"
             :aria-setsize="hasMore || hasPrevious ? -1 : statuses.length"
             @reblog="emit('reblog', $event)"
             @favourite="emit('favourite', $event)"
             @bookmark="emit('bookmark', $event)"
+            @recommendation-feedback="(status, action) => emit('recommendationFeedback', status, action)"
           />
         </TimelineRow>
       </template>

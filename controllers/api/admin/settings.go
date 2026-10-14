@@ -57,6 +57,10 @@ func settingsSections() map[string]SettingsSection {
 		}},
 		"performance": {Title: "性能", Description: "仅提供有范围限制的运行参数；数据库连接池和缓存部署由服务器环境管理。", Fields: []SettingsField{
 			{Key: systemsettings.KeyDefaultPageSize, Label: "默认每页条数", Type: "number", Value: 20, Min: 1, Max: 80, Description: "影响未指定 limit 的分页请求，不改变接口各自的最大上限。"},
+			{Key: systemsettings.KeyRecommendationEnabled, Label: "启用推荐时间线与关注建议", Type: "boolean", Value: false, Description: "默认关闭；开启后按公开资格和用户发现偏好推荐内容。关闭会使已有推荐翻页失效。"},
+			{Key: systemsettings.KeyRecommendationMode, Label: "推荐算法", Type: "select", Value: "auto", Options: []string{"auto", "rules"}, Max: 16, Description: "auto 在索引就绪且版本通过审核后使用 Meilisearch，否则使用规则排序。rules 固定使用规则排序。"},
+			{Key: systemsettings.KeyRecommendationApprovedVersion, Label: "已审核的推荐索引版本", Type: "text", Value: "", Max: 128, Description: "在推荐管理页检查候选质量后，填写对应版本。留空使用规则排序；索引或模型配置变化后需要重新审核。"},
+			{Key: systemsettings.KeyDiscoveryTrendsEnabled, Label: "启用热门话题", Type: "boolean", Value: true, Description: "独立控制公开热点和趋势接口，不受用户推荐偏好影响。"},
 		}},
 	}
 	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "持久化配置将在服务器重启后用于新的邮件连接；环境变量优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}

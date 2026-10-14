@@ -8,6 +8,7 @@ export const RouteNames = {
   REGISTER: 'register',
   HOME: 'home',
   EXPLORE: 'explore',
+  TOPICS: 'topics',
   NOTIFICATIONS: 'notifications',
   MESSAGES: 'messages',
   CHAT_CONVERSATION: 'chat-conversation',
@@ -28,6 +29,7 @@ export const RouteNames = {
   ADMIN_REPORTS: 'admin-reports',
   ADMIN_FEDERATION: 'admin-federation',
   ADMIN_SYSTEM: 'admin-system',
+  ADMIN_DISCOVERY: 'admin-discovery',
   ADMIN_SETTINGS: 'admin-settings',
   ADMIN_EMOJIS: 'admin-emojis',
   ADMIN_MIGRATIONS: 'admin-migrations',
@@ -82,6 +84,7 @@ const PublicRoutes: RouteRecordRaw[] = [
 ]
 
 const MainRoutes: RouteRecordRaw[] = [
+  { path: 'explore/topics', name: RouteNames.TOPICS, component: () => import('@/domains/discovery/presentation/pages/TopicsPage.vue') },
   { path: 'announcements', name: RouteNames.ANNOUNCEMENTS, component: () => import('@/domains/admin/presentation/pages/AnnouncementsPage.vue') },
   { path: 'settings/data', name: RouteNames.PERSONAL_DATA, component: () => import('@/domains/data/presentation/pages/DataTransferPage.vue'), props: { scope: 'personal' } },
   {
@@ -182,6 +185,7 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/domains/admin/presentation/layouts/AdminLayout.vue'),
     meta: { requiresAuth: true, requiresAdmin: true },
     children: [
+      { path: 'discovery', name: RouteNames.ADMIN_DISCOVERY, component: () => import('@/domains/admin/presentation/pages/DiscoveryAdminPage.vue'), meta: { adminPermission: 'settings' } },
       { path: '', name: RouteNames.ADMIN_OVERVIEW, component: () => import('@/domains/admin/presentation/pages/OverviewAdminPage.vue'), meta: { adminPermission: 'dashboard' } },
       { path: 'accounts', name: RouteNames.ADMIN_ACCOUNTS, component: () => import('@/domains/admin/presentation/pages/AccountsAdminPage.vue'), meta: { adminPermission: 'users' } },
       { path: 'reports', name: RouteNames.ADMIN_REPORTS, component: () => import('@/domains/admin/presentation/pages/ReportsAdminPage.vue'), meta: { adminPermission: 'reports' } },
@@ -231,6 +235,7 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.REGISTER]: { title: '注册' },
   [RouteNames.HOME]: { title: '首页' },
   [RouteNames.EXPLORE]: { title: '探索' },
+  [RouteNames.TOPICS]: { title: '发现话题' },
   [RouteNames.NOTIFICATIONS]: { title: '通知' },
   [RouteNames.MESSAGES]: { title: '私信' },
   [RouteNames.CHAT_CONVERSATION]: { title: '会话' },

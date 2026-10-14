@@ -474,6 +474,15 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		preferredUsername, _ := object["preferredUsername"].(string)
 
 		updates := map[string]any{}
+		var profile Actor
+		encodedProfile, marshalErr := json.Marshal(object)
+		if marshalErr == nil {
+			marshalErr = json.Unmarshal(encodedProfile, &profile)
+		}
+		if marshalErr != nil {
+			c.JSON(400, gin.H{"error": "invalid actor profile"})
+			return
+		}
 		if err := actorImageUpdates(object, updates); err != nil {
 			c.JSON(400, gin.H{"error": "invalid actor image"})
 			return
@@ -492,6 +501,12 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 		{
 			err := activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(remoteAccount, remoteAccount.Id).Error; err != nil {
+					return err
+				}
+				for key, value := range actorDiscoveryUpdates(remoteAccount, &profile, true, time.Now()) {
+					updates[key] = value
+				}
 				if err := tx.Model(remoteAccount).Updates(updates).Error; err != nil {
 					return err
 				}

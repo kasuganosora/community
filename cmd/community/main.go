@@ -119,6 +119,7 @@ func main() {
 
 	// 初始化缓存
 	cache.Init()
+	startDiscoveryRuntime(serviceContext)
 
 	// 初始化 Matrix Bridge（如果已配置启用）
 	if err := matrix.Init(); err != nil {

@@ -190,7 +190,7 @@ class CommunityMastodonExport
                 shared_inbox: a.shared_inbox_url, display_name: a.display_name, note: a.note,
                 note_html: !a.local?, fields: fields, emoji_ids: a.emojis.map { |emoji| emoji.id.to_s }, avatar_id: @avatar_ids[a.id], header_id: @header_ids[a.id],
                 locked: a.locked?, bot: a.actor_type == 'Service', discoverable: !!a.discoverable,
-                noindex: !a.indexable, suspended: a.suspended_at.present?, admin: !!a.user&.role&.can?(:administrator),
+                noindex: !a.indexable, hide_collections: !!a.hide_collections, suspended: a.suspended_at.present?, admin: !!a.user&.role&.can?(:administrator),
                 created_at: time(a.created_at), updated_at: time(a.updated_at),
                 settings: { source_id_scheme: a.id_scheme, source_actor_type: a.actor_type, source_without_login: a.local? && a.user.nil?,
                             source_requested_deletion_at: time(a.requested_deletion_at),

@@ -1,13 +1,9 @@
 package account
 
 import (
-	"errors"
-
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"gorm.io/gorm"
 )
 
 const expandMediaKey = "reading_expand_media"
@@ -56,23 +52,7 @@ func UpdatePreferences(c *gin.Context) {
 		return
 	}
 	conn := db.GetDB().WithContext(c.Request.Context())
-	var setting models.UserSetting
-	err := conn.Where("user_id = ?", userID).First(&setting).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		setting = models.UserSetting{ID: uuid.NewString(), UserID: int64(userID), Data: map[string]any{}}
-		err = nil
-	}
-	if err != nil {
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-	if setting.Data == nil {
-		setting.Data = map[string]any{}
-	}
-	setting.Data[expandMediaKey] = v
-	if err := conn.Save(&setting).Error; err != nil {
+	if _, err := models.UpdateUserSettingData(conn, userID, map[string]any{expandMediaKey: v}); err != nil {
 		_ = c.Error(err)
 		c.JSON(500, gin.H{"error": "internal error"})
 

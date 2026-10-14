@@ -13,6 +13,7 @@ import PasskeySettings from '../components/PasskeySettings.vue'
 import AuthorizedApps from '../components/AuthorizedApps.vue'
 import FilterSettings from '../components/FilterSettings.vue'
 import DomainBlockSettings from '../components/DomainBlockSettings.vue'
+import DiscoverySettings from '@/domains/discovery/presentation/components/DiscoverySettings.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useMediaMode, type MediaMode } from '@/shared/composables/useMediaMode'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
@@ -22,6 +23,7 @@ const route = useRoute()
 const sections = [
   { id: 'profile', label: '个人资料' },
   { id: 'display', label: '显示偏好' },
+  { id: 'discovery', label: '内容发现' },
   { id: 'security', label: '账号安全' },
   { id: 'privacy', label: '内容过滤' },
   { id: 'more', label: '更多' },
@@ -78,6 +80,10 @@ async function logout() {
     </nav>
 
     <div class="settings">
+      <section v-if="authStore.currentUser && activeSection === 'discovery'" class="settings__section" aria-labelledby="settings-discovery">
+        <h2 id="settings-discovery" class="settings__heading">内容发现</h2>
+        <div class="settings__group settings__group--padded"><DiscoverySettings /></div>
+      </section>
       <section class="settings__section" v-show="activeSection === 'display'" aria-labelledby="settings-appearance">
         <h2 id="settings-appearance" class="settings__heading">外观</h2>
         <div class="settings__group settings__group--padded">

@@ -4,7 +4,7 @@ import type { PaginationParams } from '@/shared/types/pagination'
 
 export const suggestionApi = {
   async list(params?: Pick<PaginationParams, 'limit'>): Promise<MastodonSuggestion[]> {
-    const { data } = await client.get<MastodonSuggestion[]>('/api/v1/suggestions', { params })
+    const { data } = await client.get<MastodonSuggestion[]>('/api/v2/suggestions', { params })
     return data
   },
 

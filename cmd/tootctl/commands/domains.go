@@ -252,6 +252,11 @@ func deleteAccountsWithDependencies(ids []uint64, verbose bool) error {
 		// Delete account fields
 		// (handled by extra)
 
+		// Keep site-level governance, but erase private preferences of purged accounts.
+		if err := tx.Where("scope = ? AND owner_id IN ?", "user", ids).Delete(&models.RecommendationFeedback{}).Error; err != nil {
+			return err
+		}
+
 		// Finally delete accounts
 		err = tx.Where("id IN ?", ids).Delete(&models.Account{}).Error
 		if err != nil {

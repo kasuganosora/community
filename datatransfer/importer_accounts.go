@@ -52,7 +52,7 @@ func (i *importer) importAccounts() error {
 				}
 			}
 			local := a.Local && !i.personal()
-			target := models.Account{Username: a.Username, DisplayName: a.DisplayName, Note: a.Note, Locked: a.Locked, Bot: a.Bot, Discoverable: a.Discoverable, NoIndex: a.NoIndex, IsBan: a.Suspended, CreatedAt: timePointer(a.CreatedAt), UpdatedAt: timePointer(a.UpdatedAt)}
+			target := models.Account{Username: a.Username, DisplayName: a.DisplayName, Note: a.Note, Locked: a.Locked, Bot: a.Bot, Discoverable: a.Discoverable, NoIndex: a.NoIndex, HideCollections: a.HideCollections, IsBan: a.Suspended, CreatedAt: timePointer(a.CreatedAt), UpdatedAt: timePointer(a.UpdatedAt)}
 			if local {
 				target.LocalActorURI = a.ActorURI
 				target.Acct = a.Username + "@__LOCAL__"
@@ -80,6 +80,32 @@ func (i *importer) importAccounts() error {
 					u, _ := url.Parse(a.ActorURI)
 					domain = u.Host
 				}
+				// Imported remote preferences are hints, never a fresh verification.
+				// Old archives have no three-state consent; retain explicit legacy
+				// opt-ins/refusals but require a canonical actor refresh before use.
+				target.RemoteDiscoverable = a.RemoteDiscoverable
+				target.RemoteIndexable = a.RemoteIndexable
+				target.RemoteHideCollections = a.RemoteHideCollections
+				if target.RemoteDiscoverable == nil && a.Discoverable {
+					target.RemoteDiscoverable = &a.Discoverable
+				}
+				if target.RemoteIndexable == nil && a.NoIndex {
+					denied := false
+					target.RemoteIndexable = &denied
+				}
+				if target.RemoteHideCollections == nil && a.HideCollections {
+					target.RemoteHideCollections = &a.HideCollections
+				}
+				if target.RemoteDiscoverable != nil {
+					target.Discoverable = *target.RemoteDiscoverable
+				}
+				if target.RemoteIndexable != nil {
+					target.NoIndex = !*target.RemoteIndexable
+				}
+				if target.RemoteHideCollections != nil {
+					target.HideCollections = *target.RemoteHideCollections
+				}
+				target.RemoteDiscoverySource = "import"
 				target.Domain = &domain
 				target.OriginId = a.ActorURI
 				target.Acct = a.Username + "@" + domain
@@ -215,6 +241,7 @@ func (i *importer) importAccountImages() error {
 			updates["bot"] = a.Bot
 			updates["discoverable"] = a.Discoverable
 			updates["no_index"] = a.NoIndex
+			updates["hide_collections"] = a.HideCollections
 			if a.NoteHTML {
 				updates["note"] = htmlsafe.StripTags(a.Note)
 				updates["imported_note_html"] = htmlsafe.Sanitize(a.Note)

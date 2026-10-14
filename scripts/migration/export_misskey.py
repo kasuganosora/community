@@ -173,7 +173,8 @@ class Converter:
                  "avatar_url": u.get("avatarUrl") or "", "header_url": u.get("bannerUrl") or "",
                  "emoji_ids": self.note_emoji_ids({"id": id_, "emojis": u.get("emojis") or [], "userHost": u.get("host")}, kind="account"),
                  "locked": bool(u.get("isLocked")), "bot": bool(u.get("isBot")), "discoverable": bool(u.get("isExplorable")),
-                 "suspended": bool(u.get("isSuspended")), "noindex": bool(p.get("noCrawle")), "created_at": self.time(u),
+                 "suspended": bool(u.get("isSuspended")), "noindex": bool(p.get("noCrawle")),
+                 "hide_collections": any(p.get(k) not in (None, "public") for k in ("followingVisibility", "followersVisibility")), "created_at": self.time(u),
                  "settings": {k: v for k, v in u.items() if k in ("isDeleted", "chatScope", "requireSigninToViewContents", "makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore", "movedToUri", "alsoKnownAs", "movedAt")}}
             for src, dst in (("url", "url"), ("inbox", "inbox"), ("sharedInbox", "shared_inbox"), ("updatedAt", "updated_at")):
                 if u.get(src):

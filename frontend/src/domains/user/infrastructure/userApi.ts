@@ -173,4 +173,5 @@ export interface UpdateCredentialsParams {
   locked?: boolean
   bot?: boolean
   discoverable?: boolean
+  indexable?: boolean
 }

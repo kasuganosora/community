@@ -48,6 +48,7 @@ func AdminAuditMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(503, gin.H{"error": "Audit storage unavailable; operation was not performed"})
 			return
 		}
+		c.Set("admin_audit_id", entry.Id)
 		// On panic, keep pending rather than claim successful completion.
 		c.Next()
 		now := time.Now()

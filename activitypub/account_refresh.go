@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ActorFetcher fetches remote actors and collections; *Client from
@@ -43,6 +44,9 @@ func RefreshRemoteAccount(ctx context.Context, conn *gorm.DB, client ActorFetche
 		}
 		return fmt.Errorf("fetching actor: %w", err)
 	}
+	if actor == nil {
+		return errors.New("empty actor response")
+	}
 	if actor.Type == "Tombstone" {
 		return ErrActorGone
 	}
@@ -69,6 +73,9 @@ func RefreshRemoteAccount(ctx context.Context, conn *gorm.DB, client ActorFetche
 
 // applyActorProfile writes actor's profile onto the existing account row.
 func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(account, account.Id).Error; err != nil {
+		return err
+	}
 	now := time.Now()
 	updates := map[string]any{
 		"display_name":     actor.Name,
@@ -77,6 +84,9 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 		"bot":              actor.Type == "Service", //nolint:goconst
 		"updated_at":       now,                     //nolint:goconst
 		"last_activity_at": now,
+	}
+	for key, value := range actorDiscoveryUpdates(account, actor, false, now) {
+		updates[key] = value
 	}
 	if actor.Icon != nil && actor.Icon.URL != "" {
 		updates["avatar"] = actor.Icon.URL

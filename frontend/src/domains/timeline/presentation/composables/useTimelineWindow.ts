@@ -87,8 +87,12 @@ export function useTimelineWindow(
     if (!frame) frame = requestAnimationFrame(() => { frame = 0; readScroll() })
   }
   function anchor(oldIds = ids.value, oldOffsets = offsets.value) {
-    const index = indexAt(Math.max(0, scrollTop.value - prefix.value), oldOffsets)
-    return { id: oldIds[index], top: prefix.value + (oldOffsets[index] ?? 0) - scrollTop.value }
+    // Keep the signed distance before the feed starts. The clamped scrollTop
+    // used for virtualization would otherwise anchor row one at the viewport
+    // top and jump past the page header/composer on its first measurement.
+    const viewportTop = window.scrollY - origin()
+    const index = indexAt(Math.max(0, viewportTop - prefix.value), oldOffsets)
+    return { id: oldIds[index], top: prefix.value + (oldOffsets[index] ?? 0) - viewportTop }
   }
   async function restore(point: ReturnType<typeof anchor>) {
     const expected = generation

@@ -260,6 +260,9 @@ func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *m
 	if len(statuses) == 0 {
 		return ret, nil
 	}
+	if err = models.AttachQuotes(conn, statuses); err != nil {
+		return nil, err
+	}
 	flat := make(models.Statuses, 0, len(statuses))
 	seen := map[*models.Status]bool{}
 	var collect func(*models.Status)
@@ -270,12 +273,30 @@ func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *m
 		seen[s] = true
 		flat = append(flat, s)
 		collect(s.Reblog)
+		collect(s.Quote)
 	}
 	for _, s := range statuses {
 		collect(s)
 	}
-	if err = models.AttachQuotes(conn, statuses); err != nil {
-		return nil, err
+	// Quotes need their own authorization. Validate the flattened objects in
+	// one batch rather than querying CanViewEx once for every quoted card.
+	quotes := make(models.Statuses, 0)
+	quoteSeen := map[*models.Status]bool{}
+	for _, s := range flat {
+		if s.Quote != nil && !quoteSeen[s.Quote] {
+			quoteSeen[s.Quote] = true
+			quotes = append(quotes, s.Quote)
+		}
+	}
+	visibleQuotes := map[*models.Status]bool{}
+	if len(quotes) > 0 {
+		allowed, authErr := models.FilterVisibleStatuses(conn, currentAccount, quotes)
+		if authErr != nil {
+			return nil, authErr
+		}
+		for _, quote := range allowed {
+			visibleQuotes[quote] = true
+		}
 	}
 	models.AttachEditFlags(conn, statuses)
 	ids := make([]uint64, 0, len(flat))
@@ -352,10 +373,12 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		return nil, err
 	}
 	var apply func(*models.Status, *Status)
+	applied := map[*Status]bool{}
 	apply = func(s *models.Status, out *Status) {
-		if s == nil || out == nil {
+		if s == nil || out == nil || applied[out] {
 			return
 		}
+		applied[out] = true
 		out.EmojiReactions = reactions[s.Id]
 		out.Pinned = pinned[s.Id]
 		out.Favourited = favourited[s.Id]
@@ -364,7 +387,11 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		out.Muted = muted[s.Id] || mutedAuthors[s.AccountId] || (s.Reblog != nil && mutedAuthors[s.Reblog.AccountId])
 		out.Filtered = ToFilterResults(filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)))
 		out.Poll = serializedPolls[s.Id]
+		if s.Quote != nil && !visibleQuotes[s.Quote] {
+			out.Quote = nil
+		}
 		apply(s.Reblog, out.Reblog)
+		apply(s.Quote, out.Quote)
 	}
 	for _, s := range statuses {
 		if conn != nil {
@@ -375,14 +402,6 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		out, e := toStatusBase(s, accounts)
 		if e != nil {
 			return nil, e
-		}
-		if err = clearHiddenQuote(conn, s, out, currentAccount); err != nil {
-			return nil, err
-		}
-		if s.Reblog != nil && out.Reblog != nil {
-			if err = clearHiddenQuote(conn, s.Reblog, out.Reblog, currentAccount); err != nil {
-				return nil, err
-			}
 		}
 		apply(s, out)
 		ret = append(ret, out)

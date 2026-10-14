@@ -22,9 +22,9 @@ type UpdateCredentialsRequest struct {
 	Header           string  `form:"header"`
 	Locked           *bool   `form:"locked"`
 	Bot              *bool   `form:"bot"`
-	Discoverable     *bool   `form:"discoverable"`
+	Discoverable     *bool   `form:"discoverable" json:"discoverable"`
 	HideCollections  *bool   `form:"hide_collections" json:"hide_collections"`
-	Indexable        *bool   `form:"indexable"`
+	Indexable        *bool   `form:"indexable" json:"indexable"`
 	FieldsAttributes []struct {
 		Name  string `form:"name"`
 		Value string `form:"value"`
@@ -140,14 +140,7 @@ func GetAccountSettings(c *gin.Context) {
 		"bot":              account.Bot,
 		"discoverable":     account.Discoverable,
 		"hide_collections": account.HideCollections,
-		"indexable":        true,
-	}
-
-	// Add user settings if available
-	if account.User != nil && account.User.Settings != nil && account.User.Settings.Data != nil {
-		if v, ok := account.User.Settings.Data["indexable"].(bool); ok {
-			settings["indexable"] = v
-		}
+		"indexable":        !account.NoIndex,
 	}
 
 	c.JSON(200, settings)

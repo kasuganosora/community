@@ -20,4 +20,15 @@ describe('visible sentinel pagination', () => {
     expect(wrapper.emitted('loadMore')).toHaveLength(1)
     wrapper.unmount()
   })
+  it('pauses automatic discovery paging without disabling the explicit continue button', async () => {
+    let intersect!: () => void
+    vi.stubGlobal('IntersectionObserver', class { constructor(callback: () => void) { intersect = callback } observe() {} disconnect() {} })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 101 } as DOMRect)
+    const wrapper = mount(TimelineFeed, { props: { statuses: [{ id: '1' }] as MastodonStatus[], loading: false, hasMore: true, autoLoad: false }, global: { stubs: { PostCard: true } } })
+    intersect()
+    expect(wrapper.emitted('loadMore')).toBeUndefined()
+    await wrapper.get('.timeline-inline button').trigger('click')
+    expect(wrapper.emitted('loadMore')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })

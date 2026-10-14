@@ -34,6 +34,9 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 		Outbox:                    actorURL + "/outbox",
 		PreferredUsername:         account.Username,
 		ManuallyApprovesFollowers: account.Locked,
+		Discoverable:              discoveryBool(account.Discoverable),
+		Indexable:                 discoveryBool(!account.NoIndex),
+		HideCollections:           discoveryBool(account.HideCollections),
 		Name:                      account.DisplayName,
 		Summary:                   account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
 		URL:                       baseURL + "/@" + username,
@@ -45,8 +48,18 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 	profileEmojiTags := tags
 	if len(profileEmojiTags) > 0 {
 		actor.Tag = profileEmojiTags
-		actor.Context = emojiContext()
 	}
+
+	contextValues := []any{"https://www.w3.org/ns/activitystreams", "https://w3id.org/security/v1"}
+	if len(profileEmojiTags) > 0 {
+		contextValues = emojiContext()
+	}
+	actor.Context = append(contextValues, map[string]any{
+		"toot":            "http://joinmastodon.org/ns#",
+		"discoverable":    "toot:discoverable",
+		"indexable":       "toot:indexable",
+		"hideCollections": "toot:hideCollections",
+	})
 
 	avatar := account.Avatar
 	if defaultavatar.IsPlaceholder(avatar, baseURL) {

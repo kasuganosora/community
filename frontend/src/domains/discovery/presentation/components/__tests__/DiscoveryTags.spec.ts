@@ -1,0 +1,43 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import DiscoveryTags from '../DiscoveryTags.vue'
+import { discoveryApi, type TagsPage } from '../../../infrastructure/discoveryApi'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+vi.mock('@/domains/auth/presentation/stores/authStore', () => ({ useAuthStore: () => ({ currentUser: null }) }))
+afterEach(() => vi.restoreAllMocks())
+const page: TagsPage = { items: [{ name: '摄影', url: '', posts_count: 17, authors_count: 6, growth: null, growth_state: 'unknown', new_entry: false }], next_cursor: null, as_of: '2026-10-14T12:00:00Z', checked_at: '2026-10-14T12:00:01Z', window: '24h', scope: 'local', kind: 'recent', version: '1', coverage_complete: true }
+const options = { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } }
+
+it('renders rolling-window DTO counts, labels recent fallback honestly, and resets on scope change', async () => {
+  const api = vi.spyOn(discoveryApi, 'tags').mockResolvedValue(page)
+  const wrapper = mount(DiscoveryTags, options)
+  await flushPromises()
+  expect(wrapper.text()).toContain('近期话题')
+  expect(wrapper.text()).toContain('17 条公开帖 · 6 位作者')
+  expect(wrapper.find('a').attributes('href')).toBe('/tags/%E6%91%84%E5%BD%B1')
+  const selects = wrapper.findAll('select')
+  await selects[0]!.setValue('7d'); await flushPromises()
+  await selects[1]!.setValue('federated'); await flushPromises()
+  expect(api.mock.lastCall?.[0]).toEqual({ window: '7d', scope: 'federated', limit: 20, cursor: undefined })
+  wrapper.unmount()
+})
+
+it('clears previous-user tags before accepting a new session response', async () => {
+  let finish!: (value: TagsPage) => void
+  vi.spyOn(discoveryApi, 'tags').mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValueOnce({ ...page, items: [] })
+  const wrapper = mount(DiscoveryTags, options)
+  sessionEpoch.value++
+  finish(page)
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('#摄影')
+  wrapper.unmount()
+})
+
+it('hides the compact rail when trends are disabled and stops retries', async () => {
+  const api = vi.spyOn(discoveryApi, 'tags').mockResolvedValue({ ...page, disabled: true, items: [] })
+  const wrapper = mount(DiscoveryTags, { ...options, props: { compact: true } })
+  await flushPromises()
+  expect(wrapper.find('section').exists()).toBe(false)
+  expect(api).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})

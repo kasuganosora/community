@@ -389,6 +389,8 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 		UpdatedAt:   &now,
 	}
 
+	applyInitialActorDiscovery(&account, actor, now)
+
 	// Set avatar
 	if actor.Icon != nil && actor.Icon.URL != "" {
 		account.Avatar = actor.Icon.URL

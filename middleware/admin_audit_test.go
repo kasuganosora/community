@@ -15,7 +15,7 @@ import (
 func TestAdminAuditDurableSafeOutcomeAndStorageFailure(t *testing.T) {
 	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, conn.Exec(`CREATE TABLE admin_audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER,account_id INTEGER,action TEXT,method TEXT,route TEXT,target_id TEXT,outcome TEXT,status INTEGER,duration_ms INTEGER,created_at DATETIME,completed_at DATETIME)`).Error)
+	require.NoError(t, conn.AutoMigrate(&models.AdminAuditLog{}))
 	previous := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previous); raw, _ := conn.DB(); _ = raw.Close() })

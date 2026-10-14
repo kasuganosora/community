@@ -80,7 +80,7 @@ func ExportPersonal(ctx context.Context, conn *gorm.DB, accountID uint64, baseUR
 	}
 	b := &Bundle{Schema: Schema, Scope: "personal", OwnerID: exportID(owner.Id), Source: Source{Platform: "community", BaseURL: strings.TrimRight(baseURL, "/"), ExportedAt: time.Now().UTC()}}
 	accountIDs := map[uint64]bool{owner.Id: true}
-	profile := Account{ID: b.OwnerID, Username: owner.Username, ActorURI: exportActor(&owner, baseURL), URL: strings.TrimRight(baseURL, "/") + "/@" + owner.Username, Local: true, DisplayName: owner.DisplayName, Note: owner.Note, Locked: owner.Locked, Bot: owner.Bot, Discoverable: owner.Discoverable, NoIndex: owner.NoIndex, CreatedAt: exportTime(owner.CreatedAt), UpdatedAt: exportTime(owner.UpdatedAt)}
+	profile := Account{ID: b.OwnerID, Username: owner.Username, ActorURI: exportActor(&owner, baseURL), URL: strings.TrimRight(baseURL, "/") + "/@" + owner.Username, Local: true, DisplayName: owner.DisplayName, Note: owner.Note, Locked: owner.Locked, Bot: owner.Bot, Discoverable: owner.Discoverable, NoIndex: owner.NoIndex, HideCollections: owner.HideCollections, CreatedAt: exportTime(owner.CreatedAt), UpdatedAt: exportTime(owner.UpdatedAt)}
 	if owner.ImportedNoteHTML != "" {
 		profile.Note = owner.ImportedNoteHTML
 		profile.NoteHTML = true

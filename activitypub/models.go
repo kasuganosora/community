@@ -4,6 +4,12 @@ import "time"
 
 // Actor represents an ActivityPub Actor.
 type Actor struct {
+	Discoverable    *bool `json:"discoverable,omitempty"`
+	Indexable       *bool `json:"indexable,omitempty"`
+	HideCollections *bool `json:"hideCollections,omitempty"`
+	// Presence and validity are retained separately for partial actor Updates.
+	discoveryPresent          map[string]bool
+	discoveryInvalid          bool
 	PublicKeys                []*PublicKey `json:"-"`
 	Context                   any          `json:"@context,omitempty"`
 	ID                        string       `json:"id"`

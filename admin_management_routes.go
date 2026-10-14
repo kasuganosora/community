@@ -10,6 +10,10 @@ import (
 func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	read := auth.Group("/admin", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead}))
 	write := auth.Group("/admin", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite}))
+	read.GET("/discovery/status", admin.DiscoveryStatus)
+	read.GET("/discovery/feedback", admin.ListDiscoveryFeedback)
+	write.POST("/discovery/feedback", admin.CreateDiscoveryFeedback)
+	write.DELETE("/discovery/feedback/:id", admin.DeleteDiscoveryFeedback)
 	read.GET("/analytics", admin.GetAnalytics)
 	read.GET("/email_domain_blocks", admin.ListEmailDomainBlocks)
 	read.GET("/email_domain_blocks/:id", admin.GetEmailDomainBlock)
