@@ -177,6 +177,8 @@ func expired(created time.Time, attempts uint32) bool {
 	return attempts >= 11 || time.Since(created) >= 7*24*time.Hour
 }
 
+const parentCompletionPoll = 5 * time.Second
+
 func (w *Worker) ScanOnce(ctx context.Context) (bool, error) {
 	caller := ctx
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -195,7 +197,10 @@ func (w *Worker) ScanOnce(ctx context.Context) (bool, error) {
 			return true, models.RetryFeedEvent(w.DB.WithContext(ctx), event.LeaseRef(), "dependent_failed", 0, true)
 		}
 		if errors.Is(err, models.ErrFeedNotComplete) {
-			err = models.YieldFeedEvent(w.DB.WithContext(ctx), event.LeaseRef(), 500*time.Millisecond)
+			// Completing the parent is bookkeeping only: batches are delivered
+			// independently. Re-polling every 500ms cost three committed writes
+			// per waiting parent and dominated feed_events churn.
+			err = models.YieldFeedEvent(w.DB.WithContext(ctx), event.LeaseRef(), parentCompletionPoll)
 		}
 	} else {
 		err = w.scan(ctx, &event)
