@@ -135,12 +135,12 @@ func TestRemoteDiscoveryRefreshIsBoundedAndFailuresNeverRenewConsent(t *testing.
 	conn := emojiDB(t)
 	old := time.Now().Add(-25 * time.Hour)
 	for _, name := range []string{"one", "two", "three"} {
-		a := models.Account{Username: name, Domain: new("remote.test"), OriginId: "https://remote.test/users/" + name, RemoteDiscoverable: discoveryBool(true), RemoteDiscoveryCheckedAt: &old}
+		a := models.Account{Username: name, Domain: new("remote.test"), OriginId: "https://remote.test/users/" + name, RemoteDiscoveryCheckedAt: &old}
 		require.NoError(t, conn.Create(&a).Error)
 	}
 	fetcher := &discoveryCountingFetcher{fail: true}
 	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 2)
-	require.Error(t, err)
+	require.NoError(t, err, "remote failures are non-fatal and retried later")
 	require.Equal(t, 2, n)
 	require.Equal(t, 2, fetcher.calls)
 	var accounts []models.Account
@@ -177,4 +177,27 @@ func TestLocalActorPublishesExplicitDiscoveryPreferences(t *testing.T) {
 	require.Equal(t, false, object["indexable"])
 	require.Equal(t, true, object["hideCollections"])
 	require.Contains(t, string(encoded), `"discoverable":"toot:discoverable"`)
+}
+
+func TestRemoteDiscoveryRefreshPrioritisesRecentPosters(t *testing.T) {
+	conn := emojiDB(t)
+	recentPost := time.Now().Add(-time.Hour)
+	var poster models.Account
+	for _, name := range []string{"idle1", "idle2", "poster"} {
+		created := time.Now().Add(-2 * time.Hour)
+		a := models.Account{Username: name, Domain: new("remote.test"), OriginId: "https://remote.test/users/" + name, CreatedAt: &created}
+		require.NoError(t, conn.Create(&a).Error)
+		if name == "poster" {
+			poster = a
+		}
+	}
+	require.NoError(t, conn.Create(&models.Status{AccountId: poster.Id, Visibility: models.StatusVisibilityPublic, CreatedAt: &recentPost}).Error)
+	fetcher := &discoveryCountingFetcher{}
+	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	var saved models.Account
+	require.NoError(t, conn.First(&saved, poster.Id).Error)
+	require.NotNil(t, saved.RemoteDiscoveryCheckedAt, "the recent poster is checked first")
+	require.True(t, saved.AllowsRecommendation(time.Now()))
 }

@@ -366,7 +366,7 @@ func TestRecommendationEligibilityRemoteMuteAndFailureClosed(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got, "silenced instances cannot be promoted even when readable")
 	require.NoError(t, conn.Delete(policy).Error)
-	for _, change := range []map[string]any{{"remote_discoverable": nil}, {"remote_indexable": false}, {"remote_discovery_checked_at": now.Add(-25 * time.Hour)}} {
+	for _, change := range []map[string]any{{"remote_discoverable": nil}, {"remote_indexable": false}, {"remote_discovery_checked_at": now.Add(-31 * 24 * time.Hour)}, {"remote_discovery_checked_at": now.Add(-25 * time.Hour), "remote_discoverable": false}} {
 		require.NoError(t, conn.Model(&Account{}).Where("id = ?", author.Id).Updates(change).Error)
 		got, err = FilterRecommendableStatuses(conn, viewer, Statuses{s}, opts)
 		require.NoError(t, err)

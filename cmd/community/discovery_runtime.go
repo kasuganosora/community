@@ -41,7 +41,7 @@ func startDiscoveryRuntime(ctx context.Context) {
 		MaxActiveSnapshots: 512,
 		MaxCacheBytes:      64 << 20,
 		RefreshRemotePreferences: func(refreshCtx context.Context) error {
-			_, err := activitypub.RefreshRemoteDiscoveryPreferences(refreshCtx, db.GetDB(), activitypub.NewFetchClient(), 8)
+			_, err := activitypub.RefreshRemoteDiscoveryPreferences(refreshCtx, db.GetDB(), activitypub.NewFetchClient(), 24)
 			return err
 		},
 	})

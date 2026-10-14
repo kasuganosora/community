@@ -151,8 +151,26 @@ func (a *Account) NoteHTML(opts htmlsafe.RenderOptions) string {
 // RemoteDiscoveryMaxAge is the maximum lifetime of a remotely verified opt-in.
 const RemoteDiscoveryMaxAge = 24 * time.Hour
 
+// RemoteDiscoveryFallbackMaxAge bounds how long a stale verified result may
+// still be used as the stored-flag fallback while a re-check is pending.
+const RemoteDiscoveryFallbackMaxAge = 30 * 24 * time.Hour
+
 // AllowsRecommendation checks discovery consent only. Callers must additionally
 // enforce account validity, visibility, moderation and viewer-specific filters.
+//
+// Remote accounts:
+//   - A fresh explicit check (RemoteDiscoveryCheckedAt within
+//     RemoteDiscoveryMaxAge) is authoritative.
+//   - Otherwise the actor's own `discoverable` flag already stored on the
+//     account is used while the background refresher catches up: the nullable
+//     RemoteDiscoverable when known, else the legacy accounts.discoverable
+//     column, which was written from the actor document (false by default,
+//     matching Mastodon where an absent `discoverable` means not discoverable).
+//     Unknown therefore means not allowed.
+//   - A document that was fetched but invalid (checked_at cleared, source set)
+//     gets no fallback, and stale results older than
+//     RemoteDiscoveryFallbackMaxAge are not used either.
+//   - Indexing refusals (noindex / indexable=false) always win.
 func (a *Account) AllowsRecommendation(now time.Time) bool {
 	if a == nil {
 		return false
@@ -160,10 +178,26 @@ func (a *Account) AllowsRecommendation(now time.Time) bool {
 	if a.IsLocal() {
 		return a.Discoverable && !a.NoIndex
 	}
-	return !a.NoIndex && a.RemoteDiscoverable != nil && *a.RemoteDiscoverable &&
-		(a.RemoteIndexable == nil || *a.RemoteIndexable) &&
-		a.RemoteDiscoveryCheckedAt != nil && !a.RemoteDiscoveryCheckedAt.After(now) &&
-		now.Sub(*a.RemoteDiscoveryCheckedAt) <= RemoteDiscoveryMaxAge
+	if a.NoIndex || (a.RemoteIndexable != nil && !*a.RemoteIndexable) {
+		return false
+	}
+	checked := a.RemoteDiscoveryCheckedAt
+	if checked != nil && checked.After(now) {
+		return false
+	}
+	if checked != nil && now.Sub(*checked) <= RemoteDiscoveryMaxAge {
+		return a.RemoteDiscoverable != nil && *a.RemoteDiscoverable
+	}
+	if checked == nil && a.RemoteDiscoverySource != "" {
+		return false
+	}
+	if checked != nil && now.Sub(*checked) > RemoteDiscoveryFallbackMaxAge {
+		return false
+	}
+	if a.RemoteDiscoverable != nil {
+		return *a.RemoteDiscoverable
+	}
+	return a.Discoverable
 }
 
 func (a *Account) IsLocal() bool {
