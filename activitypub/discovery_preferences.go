@@ -156,6 +156,8 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 		failures []error
 		wg       sync.WaitGroup
 		stats    remoteDiscoveryStats
+		// failed fetches, backed off together after the cycle
+		attemptedIDs []uint64
 	)
 	stats.failedDomains = map[string]string{}
 	jobs := make(chan string)
@@ -171,6 +173,9 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 					outcome, err := refreshOneRemoteDiscovery(ctx, conn, client, account)
 					mu.Lock()
 					stats.add(outcome)
+					if outcome.markAttempted {
+						attemptedIDs = append(attemptedIDs, account.Id)
+					}
 					if err != nil {
 						failures = append(failures, err)
 					}
@@ -196,6 +201,9 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 	}
 	close(jobs)
 	wg.Wait()
+	if err := markRemoteDiscoveryAttempted(ctx, conn, attemptedIDs, time.Now()); err != nil {
+		failures = append(failures, err)
+	}
 	stats.log(len(accounts))
 	return stats.attempted, errors.Join(failures...)
 }
@@ -227,6 +235,23 @@ func spreadRemoteDiscoveryByDomain(accounts []models.Account, limit, perDomain i
 type remoteDiscoveryOutcome struct {
 	checked, invalid, transient bool
 	reason                      string
+	// markAttempted: the fetch failed and the row still needs its
+	// attempted_at bumped (successful fetches store it with the result).
+	markAttempted bool
+}
+
+// markRemoteDiscoveryAttempted backs off every failed row of a cycle with one
+// narrow statement: UPDATE accounts SET remote_discovery_attempted_at = ?
+// WHERE id IN (...). UpdateColumn skips hooks and does not touch updated_at,
+// so only that one (unindexed) column changes and PostgreSQL can use a HOT
+// update. It runs after all network fetches, outside any transaction.
+func markRemoteDiscoveryAttempted(ctx context.Context, conn *gorm.DB, ids []uint64, now time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return conn.WithContext(ctx).Model(&models.Account{}).Where("id IN ?", ids).UpdateColumn("remote_discovery_attempted_at", now).Error
 }
 
 type remoteDiscoveryStats struct {
@@ -262,13 +287,13 @@ func (s *remoteDiscoveryStats) log(selected int) {
 	log.Info("discovery: remote preference backfill selected=%d attempted=%d checked=%d invalid=%d failed=%d backed_off_domains=%v", selected, s.attempted, s.checked, s.invalid, s.failed, domains)
 }
 
-// refreshOneRemoteDiscovery claims one row and fetches its actor. Remote
+// refreshOneRemoteDiscovery fetches one row's actor. It writes nothing before
+// the fetch: a successful fetch records attempted_at together with the result
+// in one UPDATE, and a failed one is reported back (outcome.markAttempted) so
+// the caller backs off all failed rows of the cycle with a single statement. Remote
 // failures are expected (slow or offline instances) and only reported in the
 // outcome; the returned error is for database failures.
 func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorFetcher, account *models.Account) (remoteDiscoveryOutcome, error) {
-	if err := conn.WithContext(ctx).Model(&models.Account{}).Where("id = ?", account.Id).Update("remote_discovery_attempted_at", time.Now()).Error; err != nil {
-		return remoteDiscoveryOutcome{reason: "db"}, err
-	}
 	fetchCtx, cancel := context.WithTimeout(ctx, remoteDiscoveryFetchTimeout)
 	actor, err := client.FetchActor(fetchCtx, account.OriginId)
 	cancel()
@@ -280,18 +305,22 @@ func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorF
 			reason = "timeout"
 		}
 		log.Debug("discovery: actor refresh for account %d failed (%s), will retry later: %v", account.Id, reason, err)
-		return remoteDiscoveryOutcome{transient: isTransientFetchError(err), reason: reason}, nil
+		return remoteDiscoveryOutcome{transient: isTransientFetchError(err), reason: reason, markAttempted: true}, nil
 	}
 	if actor == nil || actor.ID != account.OriginId || !actorTypes[actor.Type] {
 		log.Debug("discovery: actor refresh for account %d returned an invalid identity", account.Id)
-		return remoteDiscoveryOutcome{reason: "identity"}, nil
+		return remoteDiscoveryOutcome{reason: "identity", markAttempted: true}, nil
 	}
 	var outcome remoteDiscoveryOutcome
 	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(account, account.Id).Error; err != nil {
 			return err
 		}
-		updates := actorDiscoveryUpdates(account, actor, false, time.Now())
+		now := time.Now()
+		updates := actorDiscoveryUpdates(account, actor, false, now)
+		// Record the attempt in the same row write as the result, also for
+		// invalid documents (which do not set it in actorDiscoveryUpdates).
+		updates["remote_discovery_attempted_at"] = &now
 		if actor.discoveryInvalid {
 			// Distinguish a fetched-but-invalid document from a failed fetch.
 			updates["remote_discovery_source"] = "invalid"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -207,12 +208,17 @@ func TestRemoteDiscoveryRefreshPrioritisesRecentPosters(t *testing.T) {
 type domainFailingFetcher struct {
 	failHost string
 	calls    map[string]int
+	status   int
 }
 
 func (f *domainFailingFetcher) FetchActor(_ context.Context, uri string) (*Actor, error) {
 	f.calls[uri]++
 	if strings.Contains(uri, f.failHost) {
-		return nil, &FetchError{StatusCode: 429}
+		status := f.status
+		if status == 0 {
+			status = 429
+		}
+		return nil, &FetchError{StatusCode: status}
 	}
 	return &Actor{ID: uri, Type: "Person", Discoverable: discoveryBool(true)}, nil
 }
@@ -268,4 +274,44 @@ func TestRemoteDiscoveryRefreshMarksInvalidDocuments(t *testing.T) {
 	require.Equal(t, "invalid", saved.RemoteDiscoverySource)
 	require.Nil(t, saved.RemoteDiscoveryCheckedAt)
 	require.NotNil(t, saved.RemoteDiscoveryAttemptedAt)
+}
+
+// The backfill must not write accounts before network fetches, and failed rows
+// are backed off in one narrow statement: only attempted_at, by primary key,
+// no updated_at bump and no hook-driven columns (acct, matrix_alias).
+func TestRemoteDiscoveryRefreshEmitsNarrowAttemptedUpdate(t *testing.T) {
+	conn := emojiDB(t)
+	var ids []uint64
+	for i := range 3 {
+		a := models.Account{Username: fmt.Sprintf("u%d", i), Domain: new("down.test"), OriginId: fmt.Sprintf("https://down.test/users/u%d", i)}
+		require.NoError(t, conn.Create(&a).Error)
+		ids = append(ids, a.Id)
+	}
+	var before models.Account
+	require.NoError(t, conn.First(&before, ids[0]).Error)
+	var updates []string
+	require.NoError(t, conn.Callback().Update().After("gorm:update").Register("test:capture_sql", func(db *gorm.DB) {
+		updates = append(updates, db.Statement.SQL.String())
+	}))
+	// 404 is a non-transient failure, so all three rows are tried.
+	fetcher := &domainFailingFetcher{failHost: "down.test", calls: map[string]int{}}
+	fetcher.status = 404
+	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 8)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+	require.Len(t, updates, 1, "one batched UPDATE per cycle, got %v", updates)
+	sql := strings.ToLower(updates[0])
+	require.Contains(t, sql, "remote_discovery_attempted_at")
+	require.Contains(t, sql, " in (")
+	for _, col := range []string{"updated_at", "acct", "matrix_alias", "remote_discovery_checked_at"} {
+		require.NotContains(t, sql, "`"+col+"`", sql)
+	}
+	var after models.Account
+	require.NoError(t, conn.First(&after, ids[0]).Error)
+	require.NotNil(t, after.RemoteDiscoveryAttemptedAt)
+	require.Nil(t, after.RemoteDiscoveryCheckedAt)
+	require.Equal(t, before.UpdatedAt.Unix(), after.UpdatedAt.Unix(), "updated_at untouched")
+	var attempted int64
+	require.NoError(t, conn.Model(&models.Account{}).Where("id IN ? AND remote_discovery_attempted_at IS NOT NULL", ids).Count(&attempted).Error)
+	require.EqualValues(t, 3, attempted)
 }

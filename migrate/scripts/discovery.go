@@ -23,7 +23,7 @@ func (DiscoveryScript) Up(conn *gorm.DB) error {
 			}
 		}
 	}
-	for _, index := range []string{"idx_accounts_remote_discovery_checked_at", "idx_accounts_remote_discovery_attempted_at"} {
+	for _, index := range []string{"idx_accounts_remote_discovery_checked_at"} {
 		if !conn.Migrator().HasIndex(&models.Account{}, index) {
 			if err := conn.Migrator().CreateIndex(&models.Account{}, index); err != nil {
 				return err

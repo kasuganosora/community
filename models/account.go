@@ -19,11 +19,13 @@ import (
 type Account struct { //nolint:recvcheck
 	// Remote discovery consent is nullable: legacy defaults and missing actor fields
 	// must never be mistaken for a remote author's explicit permission.
-	RemoteDiscoverable         *bool      `json:"-"`
-	RemoteIndexable            *bool      `json:"-"`
-	RemoteHideCollections      *bool      `json:"-"`
-	RemoteDiscoveryCheckedAt   *time.Time `gorm:"index" json:"-"`
-	RemoteDiscoveryAttemptedAt *time.Time `gorm:"index" json:"-"`
+	RemoteDiscoverable       *bool      `json:"-"`
+	RemoteIndexable          *bool      `json:"-"`
+	RemoteHideCollections    *bool      `json:"-"`
+	RemoteDiscoveryCheckedAt *time.Time `gorm:"index" json:"-"`
+	// Not indexed on purpose: it is rewritten on every failed backfill
+	// fetch, and an index would block PostgreSQL HOT updates on accounts.
+	RemoteDiscoveryAttemptedAt *time.Time `json:"-"`
 	RemoteDiscoverySource      string     `gorm:"type:varchar(24)" json:"-"`
 	MatrixAlias                string     `gorm:"type:varchar(2304);index:idx_account_matrix_alias,length:191" json:"-"`
 	FeedLastSeenAt             *time.Time `gorm:"index" json:"-"`
