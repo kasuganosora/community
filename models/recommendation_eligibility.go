@@ -163,7 +163,7 @@ func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*A
 	// The same remote actor can exist as several account rows (refetches,
 	// moved/renamed actors, acct case drift). An author exclusion targets the
 	// person, so it also covers every row sharing the hidden account's acct.
-	hiddenAccts, err := hiddenRecommendationAccts(conn, ownerID, now)
+	hiddenAccts, err := hiddenRecommendationAccts(conn, ownerID, now, current)
 	if err != nil {
 		return nil, err
 	}
@@ -196,34 +196,44 @@ func filterRecommendableAccountsAt(conn *gorm.DB, viewer *Account, accounts []*A
 	return result, nil
 }
 
-// hiddenRecommendationAccts returns the lower-cased acct of every account
-// hidden by the viewer (hide_author) or by site governance (suppress).
-func hiddenRecommendationAccts(conn *gorm.DB, ownerID uint64, now time.Time) (map[string]bool, error) {
-	var keys []string
-	if err := recommendationFeedbackScope(conn, ownerID, now).Where("target_kind = ? AND action IN ?", "account", []string{"suppress", "hide_author"}).Limit(5000).Pluck("target_key", &keys).Error; err != nil {
-		return nil, err
-	}
+// hiddenRecommendationAccts checks only the current candidate identities.
+// Keep soft-deleted targets in this lookup: deleting one duplicate row must
+// not revoke the viewer's exclusion of the same author in another row.
+func hiddenRecommendationAccts(conn *gorm.DB, ownerID uint64, now time.Time, candidates []*Account) (map[string]bool, error) {
 	result := map[string]bool{}
+	var keys []string
+	seen := map[string]bool{}
+	for _, account := range candidates {
+		if account == nil {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(account.Acct))
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
 	if len(keys) == 0 {
 		return result, nil
 	}
-	ids := make([]uint64, 0, len(keys))
-	for _, key := range keys {
-		if id, err := strconv.ParseUint(key, 10, 64); err == nil && id != 0 {
-			ids = append(ids, id)
-		}
+	// Cast the trusted numeric ID, never arbitrary feedback target strings:
+	// PostgreSQL rejects invalid numeric casts and MySQL coerces them to 0.
+	idText := "CAST(accounts.id AS TEXT)"
+	if dialect.IsMySQL(conn) {
+		idText = "CAST(accounts.id AS CHAR)"
 	}
-	if len(ids) == 0 {
-		return result, nil
-	}
+	feedback := recommendationFeedbackScope(conn, ownerID, now).Select("1").
+		Where("target_kind = ? AND action IN ?", "account", []string{"suppress", "hide_author"}).
+		Where("target_key = " + idText)
 	var accts []string
-	if err := conn.Model(&Account{}).Where("id IN ?", ids).Pluck("acct", &accts).Error; err != nil {
+	if err := conn.Unscoped().Model(&Account{}).
+		Where("LOWER(TRIM(accounts.acct)) IN ?", keys).
+		Where("EXISTS (?)", feedback).
+		Distinct("LOWER(TRIM(accounts.acct))").Pluck("LOWER(TRIM(accounts.acct))", &accts).Error; err != nil {
 		return nil, err
 	}
 	for _, acct := range accts {
-		if acct = strings.ToLower(strings.TrimSpace(acct)); acct != "" {
-			result[acct] = true
-		}
+		result[acct] = true
 	}
 	return result, nil
 }
