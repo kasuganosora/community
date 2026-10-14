@@ -42,7 +42,7 @@ var releaseFeedLeaseScript = redis.NewScript(`if redis.call('GET',KEYS[1])==ARGV
 var acquireRemotePreferenceScript = redis.NewScript(`
 if redis.call('EXISTS',KEYS[1])==1 or redis.call('EXISTS',KEYS[2])==1 then return 0 end
 redis.call('SET',KEYS[1],ARGV[1],'PX',25000)
-redis.call('SET',KEYS[2],ARGV[1],'PX',120000)
+redis.call('SET',KEYS[2],ARGV[1],'PX',100000)
 return 1`)
 
 func refreshFeedRemotePreferences(parent context.Context, refresh func(context.Context) error) error {

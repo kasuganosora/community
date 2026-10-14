@@ -3,6 +3,7 @@ package activitypub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -124,74 +125,181 @@ func RefreshRemoteDiscoveryPreferences(ctx context.Context, conn *gorm.DB, clien
 		// One ORDER BY expression: recent posters first, then never attempted,
 		// then oldest attempt. (gorm drops an Expr order when Order() follows.)
 		Clauses(clause.OrderBy{Expression: clause.Expr{SQL: "CASE WHEN " + recent + " THEN 0 ELSE 1 END ASC, CASE WHEN remote_discovery_attempted_at IS NULL THEN 0 ELSE 1 END ASC, remote_discovery_attempted_at ASC, id ASC", Vars: []any{models.StatusVisibilityPublic, now.Add(-7 * 24 * time.Hour), now}, WithoutParentheses: true}}).
-		Limit(limit).Find(&accounts).Error
+		Limit(limit * 4).Find(&accounts).Error
 	if err != nil {
 		return 0, err
 	}
-	// Claim the whole batch first so a concurrent or crashed run backs off.
-	ids := make([]uint64, 0, len(accounts))
-	for _, a := range accounts {
-		ids = append(ids, a.Id)
-	}
-	if len(ids) == 0 {
+	accounts = spreadRemoteDiscoveryByDomain(accounts, limit, remoteDiscoveryPerDomain)
+	if len(accounts) == 0 {
 		return 0, nil
 	}
-	if err := conn.WithContext(ctx).Model(&models.Account{}).Where("id IN ?", ids).Update("remote_discovery_attempted_at", time.Now()).Error; err != nil {
-		return 0, err
+	// Each domain is served by one worker, in order, so one slow or
+	// rate-limiting instance cannot occupy every worker or be hit in parallel.
+	// Rows are claimed (attempted_at) only right before their own fetch: rows
+	// left over when the cycle deadline hits, or skipped after their domain
+	// failed transiently, stay eligible for the next cycle instead of being
+	// pushed into the 30-minute backoff.
+	byDomain := map[string][]*models.Account{}
+	domains := []string{}
+	for idx := range accounts {
+		d := ""
+		if accounts[idx].Domain != nil {
+			d = *accounts[idx].Domain
+		}
+		if _, ok := byDomain[d]; !ok {
+			domains = append(domains, d)
+		}
+		byDomain[d] = append(byDomain[d], &accounts[idx])
 	}
 	var (
 		mu       sync.Mutex
 		failures []error
 		wg       sync.WaitGroup
+		stats    remoteDiscoveryStats
 	)
-	jobs := make(chan *models.Account)
+	stats.failedDomains = map[string]string{}
+	jobs := make(chan string)
 	for range max(1, remoteDiscoveryWorkers) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for account := range jobs {
-				if err := refreshOneRemoteDiscovery(ctx, conn, client, account); err != nil {
+			for domain := range jobs {
+				for _, account := range byDomain[domain] {
+					if ctx.Err() != nil {
+						return
+					}
+					outcome, err := refreshOneRemoteDiscovery(ctx, conn, client, account)
 					mu.Lock()
-					failures = append(failures, err)
+					stats.add(outcome)
+					if err != nil {
+						failures = append(failures, err)
+					}
+					if outcome.transient {
+						stats.failedDomains[domain] = outcome.reason
+					}
 					mu.Unlock()
+					if err != nil || outcome.transient {
+						break // leave the rest of this domain unclaimed for later
+					}
 				}
 			}
 		}()
 	}
-	processed := 0
-	for idx := range accounts {
+	for _, domain := range domains {
+		select {
+		case jobs <- domain:
+		case <-ctx.Done():
+		}
 		if ctx.Err() != nil {
 			break
-		}
-		select {
-		case jobs <- &accounts[idx]:
-			processed++
-		case <-ctx.Done():
 		}
 	}
 	close(jobs)
 	wg.Wait()
-	return processed, errors.Join(failures...)
+	stats.log(len(accounts))
+	return stats.attempted, errors.Join(failures...)
 }
 
-// refreshOneRemoteDiscovery returns only database errors; remote failures are
-// expected (slow or offline instances) and are retried on a later run.
-func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorFetcher, account *models.Account) error {
+var remoteDiscoveryPerDomain = 6
+
+// spreadRemoteDiscoveryByDomain keeps the priority order but caps rows per
+// domain so a single large instance cannot fill the whole batch.
+func spreadRemoteDiscoveryByDomain(accounts []models.Account, limit, perDomain int) []models.Account {
+	out := make([]models.Account, 0, min(limit, len(accounts)))
+	counts := map[string]int{}
+	for _, a := range accounts {
+		d := ""
+		if a.Domain != nil {
+			d = *a.Domain
+		}
+		if counts[d] >= perDomain {
+			continue
+		}
+		counts[d]++
+		out = append(out, a)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+type remoteDiscoveryOutcome struct {
+	checked, invalid, transient bool
+	reason                      string
+}
+
+type remoteDiscoveryStats struct {
+	attempted, checked, invalid, failed int
+	failedDomains                       map[string]string
+}
+
+func (s *remoteDiscoveryStats) add(o remoteDiscoveryOutcome) {
+	s.attempted++
+	switch {
+	case o.checked:
+		s.checked++
+	case o.invalid:
+		s.invalid++
+	default:
+		s.failed++
+	}
+}
+
+// log emits one summary per cycle so a stalled backfill is visible without
+// enabling debug logging.
+func (s *remoteDiscoveryStats) log(selected int) {
+	if s.attempted == 0 && selected == 0 {
+		return
+	}
+	domains := make([]string, 0, len(s.failedDomains))
+	for d, reason := range s.failedDomains {
+		if len(domains) == 8 {
+			break
+		}
+		domains = append(domains, d+"("+reason+")")
+	}
+	log.Info("discovery: remote preference backfill selected=%d attempted=%d checked=%d invalid=%d failed=%d backed_off_domains=%v", selected, s.attempted, s.checked, s.invalid, s.failed, domains)
+}
+
+// refreshOneRemoteDiscovery claims one row and fetches its actor. Remote
+// failures are expected (slow or offline instances) and only reported in the
+// outcome; the returned error is for database failures.
+func refreshOneRemoteDiscovery(ctx context.Context, conn *gorm.DB, client ActorFetcher, account *models.Account) (remoteDiscoveryOutcome, error) {
+	if err := conn.WithContext(ctx).Model(&models.Account{}).Where("id = ?", account.Id).Update("remote_discovery_attempted_at", time.Now()).Error; err != nil {
+		return remoteDiscoveryOutcome{reason: "db"}, err
+	}
 	fetchCtx, cancel := context.WithTimeout(ctx, remoteDiscoveryFetchTimeout)
 	actor, err := client.FetchActor(fetchCtx, account.OriginId)
 	cancel()
 	if err != nil {
-		log.Debug("discovery: actor refresh for account %d failed, will retry later: %v", account.Id, err)
-		return nil
+		reason := "error"
+		if status := fetchStatusCode(err); status != 0 {
+			reason = fmt.Sprintf("http_%d", status)
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			reason = "timeout"
+		}
+		log.Debug("discovery: actor refresh for account %d failed (%s), will retry later: %v", account.Id, reason, err)
+		return remoteDiscoveryOutcome{transient: isTransientFetchError(err), reason: reason}, nil
 	}
 	if actor == nil || actor.ID != account.OriginId || !actorTypes[actor.Type] {
 		log.Debug("discovery: actor refresh for account %d returned an invalid identity", account.Id)
-		return nil
+		return remoteDiscoveryOutcome{reason: "identity"}, nil
 	}
-	return conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var outcome remoteDiscoveryOutcome
+	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(account, account.Id).Error; err != nil {
 			return err
 		}
-		return tx.Model(account).Updates(actorDiscoveryUpdates(account, actor, false, time.Now())).Error
+		updates := actorDiscoveryUpdates(account, actor, false, time.Now())
+		if actor.discoveryInvalid {
+			// Distinguish a fetched-but-invalid document from a failed fetch.
+			updates["remote_discovery_source"] = "invalid"
+			outcome.invalid = true
+		} else {
+			outcome.checked = true
+		}
+		return tx.Model(account).Updates(updates).Error
 	})
+	return outcome, err
 }

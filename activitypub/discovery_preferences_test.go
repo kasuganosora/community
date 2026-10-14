@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,4 +202,70 @@ func TestRemoteDiscoveryRefreshPrioritisesRecentPosters(t *testing.T) {
 	require.NoError(t, conn.First(&saved, poster.Id).Error)
 	require.NotNil(t, saved.RemoteDiscoveryCheckedAt, "the recent poster is checked first")
 	require.True(t, saved.AllowsRecommendation(time.Now()))
+}
+
+type domainFailingFetcher struct {
+	failHost string
+	calls    map[string]int
+}
+
+func (f *domainFailingFetcher) FetchActor(_ context.Context, uri string) (*Actor, error) {
+	f.calls[uri]++
+	if strings.Contains(uri, f.failHost) {
+		return nil, &FetchError{StatusCode: 429}
+	}
+	return &Actor{ID: uri, Type: "Person", Discoverable: discoveryBool(true)}, nil
+}
+func (f *domainFailingFetcher) FetchObject(context.Context, string) (map[string]any, error) {
+	panic("unused")
+}
+
+func TestRemoteDiscoveryRefreshDoesNotBlockOnRateLimitedDomain(t *testing.T) {
+	conn := emojiDB(t)
+	for i := range 4 {
+		for _, host := range []string{"busy.test", "ok.test"} {
+			a := models.Account{Username: fmt.Sprintf("u%d", i), Domain: new(host), OriginId: fmt.Sprintf("https://%s/users/u%d", host, i)}
+			require.NoError(t, conn.Create(&a).Error)
+		}
+	}
+	fetcher := &domainFailingFetcher{failHost: "busy.test", calls: map[string]int{}}
+	n, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 8)
+	require.NoError(t, err)
+	require.Equal(t, 5, n, "one 429 on busy.test, then all of ok.test")
+	var busyAttempted, okChecked int64
+	require.NoError(t, conn.Model(&models.Account{}).Where("domain = ? AND remote_discovery_attempted_at IS NOT NULL", "busy.test").Count(&busyAttempted).Error)
+	require.NoError(t, conn.Model(&models.Account{}).Where("domain = ? AND remote_discovery_checked_at IS NOT NULL", "ok.test").Count(&okChecked).Error)
+	require.EqualValues(t, 1, busyAttempted, "the rest of a rate-limited domain stays unclaimed, not backed off")
+	require.EqualValues(t, 4, okChecked)
+	// Next cycle: the unclaimed busy.test rows are picked again.
+	fetcher.failHost = "none"
+	n, err = RefreshRemoteDiscoveryPreferences(context.Background(), conn, fetcher, 8)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+}
+
+func TestSpreadRemoteDiscoveryByDomainCapsEachDomain(t *testing.T) {
+	var in []models.Account
+	for i := range 10 {
+		in = append(in, models.Account{Id: uint64(i), Domain: new("big.test")})
+	}
+	in = append(in, models.Account{Id: 99, Domain: new("small.test")})
+	out := spreadRemoteDiscoveryByDomain(in, 5, 3)
+	require.Len(t, out, 4)
+	require.Equal(t, uint64(99), out[3].Id)
+}
+
+func TestRemoteDiscoveryRefreshMarksInvalidDocuments(t *testing.T) {
+	conn := emojiDB(t)
+	a := models.Account{Username: "bad", Domain: new("remote.test"), OriginId: "https://remote.test/users/bad"}
+	require.NoError(t, conn.Create(&a).Error)
+	actor := decodeDiscoveryActor(t, `,"discoverable":null`)
+	actor.ID = a.OriginId
+	_, err := RefreshRemoteDiscoveryPreferences(context.Background(), conn, staticActorFetcher{actor: actor}, 1)
+	require.NoError(t, err)
+	var saved models.Account
+	require.NoError(t, conn.First(&saved, a.Id).Error)
+	require.Equal(t, "invalid", saved.RemoteDiscoverySource)
+	require.Nil(t, saved.RemoteDiscoveryCheckedAt)
+	require.NotNil(t, saved.RemoteDiscoveryAttemptedAt)
 }
