@@ -144,3 +144,64 @@ func dropTag(db *gorm.DB, id uint64) error {
 }
 
 func (CleanInvalidTagsScript) Down(*gorm.DB) error { return nil }
+
+// InvalidTagAction describes what CleanInvalidTagsScript would do to one
+// tag row whose name is not a valid hashtag.
+type InvalidTagAction struct {
+	Id       uint64
+	Name     string
+	Action   string // "rename", "merge" or "delete"
+	Target   string // recovered name (rename/merge)
+	TargetId uint64 // existing tag merged into (merge)
+	Links    int64  // status_tags links of the row
+}
+
+// PlanInvalidTags lists the invalid tag rows and what cleaning would do to
+// each, without writing anything.
+func PlanInvalidTags(db *gorm.DB) ([]InvalidTagAction, error) {
+	var plan []InvalidTagAction
+	if !db.Migrator().HasTable("tags") {
+		return plan, nil
+	}
+	hasKey := db.Migrator().HasColumn("tags", "name_key")
+	hasLinks := db.Migrator().HasTable("status_tags")
+	var last uint64
+	for {
+		var rows []tagRow
+		if err := db.Table("tags").Select("id, name").Where("id > ?", last).Order("id").Limit(500).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return plan, nil
+		}
+		for _, row := range rows {
+			last = row.Id
+			if models.ValidTagName(row.Name) {
+				continue
+			}
+			a := InvalidTagAction{Id: row.Id, Name: row.Name, Action: "delete"}
+			if hasLinks {
+				if err := db.Table("status_tags").Where("tag_id = ?", row.Id).Count(&a.Links).Error; err != nil {
+					return nil, err
+				}
+			}
+			if recovered := RecoverTagName(row.Name); recovered != "" {
+				a.Action, a.Target = "rename", recovered
+				var target tagRow
+				q := db.Table("tags").Select("id, name").Where("id <> ?", row.Id)
+				if hasKey {
+					q = q.Where("name_key = ?", models.TagKey(recovered))
+				} else {
+					q = q.Where("name = ?", recovered)
+				}
+				if err := q.Order("id").Limit(1).Scan(&target).Error; err != nil {
+					return nil, err
+				}
+				if target.Id != 0 {
+					a.Action, a.TargetId = "merge", target.Id
+				}
+			}
+			plan = append(plan, a)
+		}
+	}
+}

@@ -16,6 +16,7 @@ import (
 func TestRecoverTagName(t *testing.T) {
 	cases := map[string]string{
 		"<span>AirAlert</span></a></p>": "AirAlert",
+		"<span>horror</span></a></p>":   "horror",
 		"#golang":                       "golang",
 		"rust,":                         "rust",
 		"39;ll":                         "",
@@ -88,4 +89,27 @@ func TestCleanInvalidTags(t *testing.T) {
 	require.NoError(t, gdb.Table("featured_tags").Select("id, tag_id").Scan(&featured).Error)
 	require.Len(t, featured, 1)
 	assert.Equal(t, uint64(5), featured[0].TagId)
+}
+
+func TestPlanInvalidTagsIsReadOnly(t *testing.T) {
+	gdb, err := pgtest.GormOpen(t, sqlite.Open("file::memory:"), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
+	require.NoError(t, err)
+	require.NoError(t, gdb.AutoMigrate(&models.Tag{}, &models.StatusTag{}))
+	now := time.Now()
+	raw := gdb.Session(&gorm.Session{SkipHooks: true})
+	for id, name := range map[uint64]string{1: "horror", 2: "<span>horror</span></a></p>", 3: "39;ll", 4: "#travel"} {
+		require.NoError(t, raw.Create(&models.Tag{Id: id, Name: name, NameKey: models.TagKey(name), CreatedAt: &now, UpdatedAt: &now}).Error)
+	}
+	require.NoError(t, gdb.Create(&[]models.StatusTag{{StatusId: 1, TagId: 2}, {StatusId: 2, TagId: 2}}).Error)
+
+	plan, err := PlanInvalidTags(gdb)
+	require.NoError(t, err)
+	require.Len(t, plan, 3)
+	assert.Equal(t, InvalidTagAction{Id: 2, Name: "<span>horror</span></a></p>", Action: "merge", Target: "horror", TargetId: 1, Links: 2}, plan[0])
+	assert.Equal(t, "delete", plan[1].Action)
+	assert.Equal(t, InvalidTagAction{Id: 4, Name: "#travel", Action: "rename", Target: "travel"}, plan[2])
+
+	var count int64
+	require.NoError(t, gdb.Model(&models.Tag{}).Count(&count).Error)
+	assert.EqualValues(t, 4, count, "plan must not write")
 }

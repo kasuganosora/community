@@ -78,6 +78,7 @@ func newApp(version string, prepare func()) *cli.App {
 			commands.OAuthCommand(),
 			commands.RelaysCommand(),
 			commands.StatusesCommand(),
+			commands.TagsCommand(),
 		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{

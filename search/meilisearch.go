@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/log"
@@ -109,6 +111,43 @@ func HashtagDocumentID(name string) string {
 	}
 	sum := sha256.Sum256([]byte(name))
 	return "h_" + hex.EncodeToString(sum[:])
+}
+
+// ValidHashtagDocument reports whether doc can be sent to Meilisearch: its id
+// is a valid Meilisearch document id and its name carries no markup,
+// entities, quotes or whitespace. One bad document fails a whole indexing
+// task, so callers drop such documents instead of sending them.
+func ValidHashtagDocument(doc *HashtagSearchDocument) bool {
+	if doc == nil || doc.ID == "" || len(doc.ID) > 511 || doc.Name == "" || !utf8.ValidString(doc.Name) {
+		return false
+	}
+	for i := 0; i < len(doc.ID); i++ {
+		c := doc.ID[i]
+		if c != '_' && c != '-' && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+	for _, r := range doc.Name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune("<>&;\"'#/\\", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// FilterHashtagDocuments returns docs without the invalid ones (logged).
+func FilterHashtagDocuments(docs []*HashtagSearchDocument) []*HashtagSearchDocument {
+	out := docs[:0:0]
+	for _, d := range docs {
+		if ValidHashtagDocument(d) {
+			out = append(out, d)
+			continue
+		}
+		if d != nil {
+			log.Warn("search: skip hashtag document with invalid id/name %q", d.Name)
+		}
+	}
+	return out
 }
 
 func (d *HashtagSearchDocument) GetID() string {
@@ -540,6 +579,10 @@ func (m *MeilisearchClient) IndexHashtag(doc *HashtagSearchDocument) error {
 	if doc == nil || doc.ID == "" {
 		return errors.New("invalid document: id is required")
 	}
+	if !ValidHashtagDocument(doc) {
+		log.Warn("search: skip hashtag document with invalid id/name %q", doc.Name)
+		return nil
+	}
 
 	index := m.client.Index(m.uid(IndexHashtags))
 	ctx, cancel := context.WithTimeout(context.Background(), indexOpsTimeout)
@@ -828,6 +871,7 @@ func (m *MeilisearchClient) BatchIndexStatuses(docs []*StatusSearchDocument) err
 
 // BatchIndexHashtags 批量索引标签。文档 id 用标签名，搜索直接返回名字。
 func (m *MeilisearchClient) BatchIndexHashtags(docs []*HashtagSearchDocument) error {
+	docs = FilterHashtagDocuments(docs)
 	if !m.IsEnabled() || len(docs) == 0 {
 		return nil
 	}

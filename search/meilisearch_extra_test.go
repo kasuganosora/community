@@ -260,7 +260,7 @@ func TestIndexHashtag_Error(t *testing.T) {
 	svc := &mockServiceManager{idx: idx}
 	client := newEnabledClient(svc)
 
-	err := client.IndexHashtag(&HashtagSearchDocument{ID: "1"})
+	err := client.IndexHashtag(&HashtagSearchDocument{ID: "t1", Name: "t1"})
 	assert.Error(t, err)
 }
 
