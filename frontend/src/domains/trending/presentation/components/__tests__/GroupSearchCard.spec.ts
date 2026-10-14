@@ -38,8 +38,9 @@ describe('group actions in unified search', () => {
   })
   it('joins a resolved address with no metadata without a second preview flow', async () => {
     const w = setup({ target: '!opaque-v12', via: ['example.test'], clientUrl: 'https://matrix.to/#/!opaque-v12?via=example.test', resolved: true })
-    expect(w.text()).toContain('加密状态和加入条件尚未确认')
-    expect(w.get('a[href]').attributes('href')).toContain('matrix.to'); expect(groupApi.join).not.toHaveBeenCalled()
+    expect(w.text()).toContain('若群组已加密')
+    expect(w.findAll('.group-result__actions button')).toHaveLength(1)
+    expect(w.find('a[href]').exists()).toBe(false); expect(groupApi.join).not.toHaveBeenCalled()
     await button(w, '加入群组').trigger('click'); await flushPromises()
     expect(groupApi.resolve).not.toHaveBeenCalled()
     expect(groupApi.join).toHaveBeenCalledWith({ target: '!opaque-v12', via: ['example.test'], action: 'join' }, expect.any(AbortSignal)); w.unmount()
@@ -48,6 +49,7 @@ describe('group actions in unified search', () => {
     ['knock', 'none', '申请加入', 'knock'], ['knock_restricted', 'none', '申请加入', 'knock'], ['invite', 'invite', '接受邀请', 'join'],
   ] as const)('uses the correct explicit action for %s / %s', async (join_rule, membership, label, action) => {
     const w = setup({ group: group({ join_rule, membership }), resolved: true })
+    expect(w.findAll('.group-result__actions button')).toHaveLength(1)
     vi.mocked(groupApi.join).mockResolvedValue(action === 'knock' ? { status: 'knock' } : { status: 'joined', group: group({ membership: 'join' }) })
     await button(w, label).trigger('click'); await flushPromises()
     expect(groupApi.join).toHaveBeenCalledWith(expect.objectContaining({ action }), expect.any(AbortSignal))
@@ -94,6 +96,21 @@ describe('group actions in unified search', () => {
     expect(w.get('[role="alert"]').text()).toContain('暂时无法加入'); expect(w.text()).not.toContain('已加入群组')
     await button(w, '重试').trigger('click'); await flushPromises()
     expect(groupApi.join).toHaveBeenCalledTimes(2); expect(w.text()).toContain('打开群聊'); w.unmount()
+  })
+  it('bounds a stalled status request and resumes its operation without a second join', async () => {
+    vi.useFakeTimers()
+    vi.mocked(groupApi.join).mockResolvedValue({ status: 'joining', operation_id: 'slow-operation' })
+    vi.mocked(groupApi.joinStatus).mockImplementationOnce(() => new Promise(() => {}))
+    const w = setup()
+    await button(w, '加入群组').trigger('click'); await flushPromises()
+    await vi.advanceTimersByTimeAsync(120000); await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('继续检查状态')
+    expect(vi.mocked(groupApi.joinStatus).mock.calls[0]![1]!.aborted).toBe(true)
+    vi.mocked(groupApi.joinStatus).mockResolvedValueOnce({ status: 'joined', group: group({ membership: 'join' }) })
+    await button(w, '继续检查加入状态').trigger('click'); await flushPromises()
+    expect(groupApi.join).toHaveBeenCalledTimes(1)
+    expect(groupApi.joinStatus).toHaveBeenLastCalledWith('slow-operation', expect.any(AbortSignal))
+    expect(w.text()).toContain('打开群聊'); w.unmount()
   })
   it('cancels a pending join and ignores its result when authenticated identity changes', async () => {
     let complete!: (result: GroupJoinResult) => void

@@ -128,7 +128,6 @@ onBeforeUnmount(cancel)
       <router-link class="btn btn--primary" :to="{ path: '/login', query: { redirect: $route.fullPath } }">登录</router-link>
     </div>
     <template v-else-if="precise">
-      <p class="group-search__explanation">正在查看群组地址。搜索和预览不会自动加入群组。</p>
       <p v-if="resolveBusy" role="status">正在获取群组信息…</p>
       <div v-else-if="resolveError" class="group-search__error" role="alert">
         <p>{{ resolveError }}</p>
@@ -181,7 +180,7 @@ onBeforeUnmount(cancel)
 </template>
 
 <style scoped>
-.group-search { padding: 1rem var(--gutter) 2rem; }
+.group-search { padding: 1.25rem var(--gutter) 2rem; }
 .group-search__filters { padding: 1rem; border-radius: var(--radius-lg); background: var(--color-bg-row); border: 1px solid var(--color-separator); }
 .group-search__filters label { display: block; font-size: 0.875rem; line-height: 1.5; font-weight: 600; margin-bottom: 0.375rem; }
 .group-search :is(select, input) { width: 100%; min-width: 0; min-height: 2.75rem; border: 1px solid var(--color-separator); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-label); font: inherit; padding: 0.625rem 0.75rem; }
