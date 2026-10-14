@@ -26,7 +26,7 @@ const navItems = computed(() => [
   { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
   { value: 'announcements', label: '公告', icon: 'notification', iconActive: 'notification-filled', route: '/announcements' },
   { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
-  { value: 'groups', label: '群组', icon: 'usergroup', iconActive: 'usergroup', route: '/messages/groups' },
+  { value: 'groups', label: '群组', icon: 'usergroup', iconActive: 'usergroup', route: '/groups' },
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
   { value: 'lists', label: '列表', icon: 'view-list', iconActive: 'view-list', route: '/lists' },
   { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },

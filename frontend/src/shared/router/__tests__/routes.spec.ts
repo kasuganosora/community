@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createMemoryHistory, createRouter } from 'vue-router'
-import { pageTitle, routes } from '../routes'
+import { createMemoryHistory, createRouter, type RouteRecordRaw } from 'vue-router'
+import { pageTitle, RouteNames, routes } from '../routes'
 
 describe('pageTitle', () => {
   it('uses the Chinese page title with the app name', () => {
@@ -11,6 +11,39 @@ describe('pageTitle', () => {
 })
 
 describe('routes', () => {
+  it('gives groups their own authenticated routes and page titles', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const groups = router.resolve('/groups')
+    expect(groups.name).toBe(RouteNames.GROUPS)
+    expect(groups.meta.requiresAuth).toBe(true)
+    expect(pageTitle(groups.name)).toBe('群组 - Community')
+    const room = router.resolve('/groups/' + encodeURIComponent('!room:example.org'))
+    expect(room.name).toBe(RouteNames.GROUP)
+    expect(room.params.groupId).toBe('!room:example.org')
+    expect(room.meta.requiresAuth).toBe(true)
+    expect(router.resolve('/messages/1').name).toBe(RouteNames.CHAT_CONVERSATION)
+  })
+  it('redirects bookmarked group URLs without losing query, fragment, or opaque room IDs', async () => {
+    const page = { template: '<div />' }
+    const main = routes.find(route => route.children)?.children ?? []
+    const groupRoutes = main
+      .filter(route => route.path === 'groups' || route.path.startsWith('groups/') || route.path.startsWith('messages/groups'))
+      .map<RouteRecordRaw>(route => route.redirect ? route : { path: route.path, name: route.name, component: page })
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: page, children: groupRoutes }] })
+
+    await router.push('/messages/groups?action=create#details')
+    expect(router.currentRoute.value.fullPath).toBe('/groups?action=create#details')
+
+    const groupId = '!opaque/room+%?#:example.org'
+    await router.push(`/messages/groups/${encodeURIComponent(groupId)}?via=example.org&via=other.org#event`)
+    const current = router.currentRoute.value
+    expect(current.name).toBe(RouteNames.GROUP)
+    expect(current.params.groupId).toBe(groupId)
+    expect(current.query.via).toEqual(['example.org', 'other.org'])
+    expect(current.hash).toBe('#event')
+    expect(router.resolve(current.fullPath).params.groupId).toBe(groupId)
+    expect(current.path.startsWith('/groups/')).toBe(true)
+  })
   it('isolates administrator pages and inherits authentication and admin guards', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     for (const path of ['', '/accounts', '/reports', '/emojis', '/federation', '/system', '/settings', '/migrations']) {

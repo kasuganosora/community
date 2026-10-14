@@ -16,6 +16,10 @@ describe('activeNavSection', () => {
     expect(activeNavSection('/search', 'alice')).toBe('explore')
     expect(activeNavSection('/tags/intro', 'alice')).toBe('explore')
     expect(activeNavSection('/messages', 'alice')).toBe('messages')
+    expect(activeNavSection('/groups', 'alice')).toBe('groups')
+    expect(activeNavSection('/groups/room-id', 'alice')).toBe('groups')
+    expect(activeNavSection('/groups-other', 'alice')).toBe('')
+    // Bookmarked legacy URLs retain their section while the router redirects.
     expect(activeNavSection('/messages/groups', 'alice')).toBe('groups')
     expect(activeNavSection('/messages/groups/room-id', 'alice')).toBe('groups')
     expect(activeNavSection('/messages/groups-other', 'alice')).toBe('messages')

@@ -159,10 +159,8 @@ onMounted(async () => {
       <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ conversations.filter(c => c.unread).length }} 个未读会话</p>
     </div>
 
-    <nav class="messages-tabs" aria-label="消息类型"><RouterLink to="/messages" aria-current="page">私信</RouterLink><RouterLink to="/messages/groups">群聊</RouterLink></nav>
     <div class="messages-toolbar">
       <button class="btn btn--primary btn--sm" :disabled="createPending" @click="creating = !creating; quickCompose = false">新建会话</button>
-      <RouterLink class="btn btn--secondary btn--sm" to="/messages/groups?action=create"><t-icon name="usergroup" :size="16" />新建群组</RouterLink>
       <button class="btn btn--ghost btn--sm" :aria-expanded="quickCompose" :disabled="createPending" @click="quickCompose = !quickCompose; creating = false">发送私信</button>
     </div>
     <ConversationMembersForm v-if="creating" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />
@@ -239,7 +237,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.messages-tabs { display:flex; gap:.4rem; padding:.5rem var(--gutter, 1rem); border-bottom:1px solid var(--color-separator); }.messages-tabs a { padding:.6rem 1.25rem; border-radius:10px; color:var(--color-label-secondary); font-weight:600; }.messages-tabs a[aria-current=page] { background:var(--color-accent-soft); color:var(--color-accent-text); }
 .messages-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--gutter, var(--space-4)); }
 .conversation__chat-link { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; color: inherit; text-decoration: none; }
 .conversation__chat-link .conversation__scope { display: block; }

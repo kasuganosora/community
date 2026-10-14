@@ -16,7 +16,7 @@ useScrollEdge()
 // narrow screens; keep the FAB out of the way until the header scrolls off.
 const PROFILE_ROUTES = new Set(['profile', 'followers', 'following'])
 const route = useRoute()
-const isGroups = computed(() => route.path === '/messages/groups' || route.path.startsWith('/messages/groups/'))
+const isGroups = computed(() => route.path === '/groups' || route.path.startsWith('/groups/'))
 const isSettings = computed(() => route.path === '/settings' || route.path.startsWith('/settings/'))
 const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
 const onScroll = () => { scrollY.value = window.scrollY }

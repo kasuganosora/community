@@ -21,7 +21,7 @@ const tabs = [
 
 const active = computed(() => {
   const section = activeNavSection(route.path, authStore.currentUser?.username)
-  return section === 'profile' ? 'me' : section === 'groups' ? 'messages' : section
+  return section === 'profile' ? 'me' : section
 })
 
 function go(to: string) {

@@ -47,7 +47,7 @@ async function logout() {
           <span class="group__label">消息</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
-        <button type="button" class="group__row" @click="go('/messages/groups')">
+        <button type="button" class="group__row" @click="go('/groups')">
           <span class="group__icon" style="--tint: #007aff"><t-icon name="usergroup" :size="18" /></span>
           <span class="group__label">群组</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />

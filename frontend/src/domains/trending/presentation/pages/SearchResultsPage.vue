@@ -10,6 +10,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import GroupSearchResults from '../components/GroupSearchResults.vue'
 import { isGroupReference } from '../../domain/groupSearch'
 
@@ -41,6 +42,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const searched = ref(false)
 const query = ref(getQueryParam(route.query.q))
+const groupVia = computed(() => Array.isArray(route.query.via) ? route.query.via.filter((value): value is string => typeof value === 'string') : typeof route.query.via === 'string' ? [route.query.via] : [])
 
 const statuses = ref<MastodonStatus[]>([])
 const accounts = ref<MastodonAccount[]>([])
@@ -159,23 +161,11 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
       <h1 class="page-header__title">搜索</h1>
     </div>
 
-    <form class="search-form" role="search" @submit.prevent="submit">
-      <t-input
-        v-model="query"
-        :placeholder="activeTab === 'groups' ? '搜索群名、群别名或房间链接' : '搜索帖子、用户、话题或群组'"
-        aria-label="搜索关键词"
-        clearable
-      >
-        <template #prefixIcon>
-          <t-icon name="search" />
-        </template>
-      </t-input>
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="!query.trim() && activeTab !== 'groups'">搜索</button>
-    </form>
+    <SearchBox v-model="query" class="search-form" embedded :navigate="false" :allow-empty="activeTab === 'groups'" :placeholder="activeTab === 'groups' ? '搜索群名或粘贴群地址' : '搜索帖子、用户、话题或群组'" @search="submit" />
 
     <TabBar v-model="activeTab" :options="tabOptions" label="搜索结果" />
 
-    <GroupSearchResults v-if="activeTab === 'groups'" :query="getQueryParam(route.query.q)" :refresh-key="groupRefreshKey" />
+    <GroupSearchResults v-if="activeTab === 'groups'" :query="getQueryParam(route.query.q)" :via="groupVia" :preview-ref="getQueryParam(route.query.preview) || undefined" :refresh-key="groupRefreshKey" />
 
     <div v-else-if="loading" class="page-loading">
       <t-loading />

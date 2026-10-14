@@ -11,8 +11,8 @@ async function setup() {
     { path: '/', name: 'home', component: page },
     { path: '/messages', name: 'messages', component: page },
     { path: '/messages/:conversationId', name: 'chat-conversation', component: page },
-    { path: '/messages/groups', name: 'chat-groups', component: page },
-    { path: '/messages/groups/:groupId', name: 'chat-group', component: page },
+    { path: '/groups', name: 'groups', component: page },
+    { path: '/groups/:groupId', name: 'group', component: page },
     { path: '/settings', name: 'settings', component: page },
     { path: '/search', name: 'search', component: page },
   ] })
@@ -24,7 +24,7 @@ describe('message composer mobile controls', () => {
   it('keeps the global post button out of private and group chat controls and keyboard navigation', async () => {
     const { wrapper, router } = await setup()
     expect(wrapper.get('.app-fab').attributes('aria-hidden')).toBeUndefined()
-    for (const path of ['/messages', '/messages/conversation', '/messages/groups', '/messages/groups/room']) {
+    for (const path of ['/messages', '/messages/conversation', '/groups', '/groups/room']) {
       await router.push(path); await nextTick()
       expect(wrapper.get('.app-fab').classes()).toContain('app-fab--hidden')
       expect(wrapper.get('.app-fab').attributes('tabindex')).toBe('-1')
@@ -47,7 +47,7 @@ describe('message composer mobile controls', () => {
   it('gives group chat and settings the recommendation column space without affecting the home feed', async () => {
     const { wrapper, router } = await setup()
     expect(wrapper.find('.app-layout__right').exists()).toBe(true)
-    for (const path of ['/messages/groups', '/messages/groups/room', '/settings']) {
+    for (const path of ['/groups', '/groups/room', '/settings']) {
       await router.push(path); await nextTick()
       expect(wrapper.find('.app-layout__right').exists()).toBe(false)
     }

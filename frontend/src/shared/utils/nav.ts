@@ -1,5 +1,5 @@
-const SECTIONS = ['explore', 'announcements', 'notifications', 'messages', 'bookmarks', 'lists', 'settings'] as const
-export type NavSection = 'home' | 'profile' | 'groups' | (typeof SECTIONS)[number] | ''
+const SECTIONS = ['explore', 'announcements', 'notifications', 'messages', 'groups', 'bookmarks', 'lists', 'settings'] as const
+export type NavSection = 'home' | 'profile' | (typeof SECTIONS)[number] | ''
 
 /**
  * Which primary nav entry a path belongs to. Matches whole path segments

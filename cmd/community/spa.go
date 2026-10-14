@@ -76,7 +76,7 @@ func isSPARoute(method, p string) bool {
 // web aliases for the explore timelines.
 var spaSections = map[string]bool{
 	"": true, "login": true, "register": true, "about": true, "announcements": true,
-	"settings": true, "explore": true, "notifications": true, "messages": true,
+	"settings": true, "explore": true, "notifications": true, "messages": true, "groups": true,
 	"bookmarks": true, "search": true, "lists": true, "tags": true, "admin": true,
 	"public": true, "notes": true, "federated": true,
 }

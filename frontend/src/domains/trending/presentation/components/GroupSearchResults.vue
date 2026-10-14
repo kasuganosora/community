@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
-import { groupApi } from '@/domains/message/infrastructure/groupApi'
-import type { Group } from '@/domains/message/domain/group'
+import { groupApi } from '@/domains/group/infrastructure/groupApi'
+import type { Group } from '@/domains/group/domain/group'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { isGroupReference } from '../../domain/groupSearch'
 import GroupSearchCard from './GroupSearchCard.vue'
 
-const props = defineProps<{ query: string; refreshKey?: number }>()
+const props = defineProps<{ query: string; refreshKey?: number; via?: string[]; previewRef?: string }>()
 const auth = useAuthStore()
 type Source = 'joined' | 'local' | 'remote'
 const scope = ref<'all' | Source>('all')
@@ -20,7 +20,7 @@ const results = reactive<Record<Source, ResultSet>>({ joined: empty(), local: em
 const sourceNames: Record<Source, string> = { joined: '我的群组', local: '本站公开群', remote: '外部公开群' }
 const visibleSources = computed<Source[]>(() => scope.value === 'all' ? ['joined', 'local'] : [scope.value])
 const precise = computed(() => isGroupReference(props.query))
-const resolved = ref<{ group?: Group; target: string; via: string[] } | null>(null)
+const resolved = ref<Awaited<ReturnType<typeof groupApi.resolve>> | null>(null)
 const resolveBusy = ref(false)
 const resolveError = ref('')
 const controllers = new Map<string, AbortController>()
@@ -74,7 +74,7 @@ async function resolveReference() {
   resolveBusy.value = true
   resolveError.value = ''
   try {
-    const value = await groupApi.resolve(props.query.trim(), controller.signal)
+    const value = await groupApi.resolve(props.query.trim(), controller.signal, props.via, props.previewRef)
     if (current === generation && !controller.signal.aborted) resolved.value = value
   } catch (error) {
     if (current === generation && !controller.signal.aborted) resolveError.value = error instanceof Error ? error.message : '无法获取群组信息，请重试'
@@ -107,7 +107,7 @@ function searchRemote() {
   refresh()
 }
 
-watch(() => [props.query, props.refreshKey, scope.value, auth.isAuthenticated, sessionEpoch.value], refresh, { immediate: true })
+watch(() => [props.query, props.refreshKey, props.via, props.previewRef, scope.value, auth.isAuthenticated, sessionEpoch.value], refresh, { immediate: true })
 watch(serverInput, value => {
   // Editing the server must not keep sending subsequent keywords to the old
   // directory while the field displays a different destination.
@@ -134,12 +134,7 @@ onBeforeUnmount(cancel)
         <p>{{ resolveError }}</p>
         <button class="btn btn--secondary btn--sm" type="button" @click="refresh">重试解析</button>
       </div>
-      <GroupSearchCard v-else-if="resolved?.group" :group="resolved.group" :target="resolved.target" :via="resolved.via" />
-      <div v-else-if="resolved" class="group-search__notice">
-        <h2>已找到群组地址</h2>
-        <p>该群未公开详细信息，加密状态和加入条件尚未确认。你可以继续查看加入选项。</p>
-        <router-link class="btn btn--secondary" :to="{ path: '/messages/groups', query: { join: resolved.target, via: resolved.via } }">查看加入选项</router-link>
-      </div>
+      <GroupSearchCard v-else-if="resolved" :group="resolved.group" :target="resolved.target" :via="resolved.via" :client-url="resolved.client_url" resolved />
     </template>
     <template v-else>
       <div class="group-search__filters">

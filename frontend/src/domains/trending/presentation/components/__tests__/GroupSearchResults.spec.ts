@@ -1,14 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
-import type { Group } from '@/domains/message/domain/group'
-import { groupApi } from '@/domains/message/infrastructure/groupApi'
+import type { Group } from '@/domains/group/domain/group'
+import { groupApi } from '@/domains/group/infrastructure/groupApi'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import GroupSearchResults from '../GroupSearchResults.vue'
 
 const auth = reactive({ isAuthenticated: true })
 vi.mock('@/domains/auth/presentation/stores/authStore', () => ({ useAuthStore: () => auth }))
-vi.mock('@/domains/message/infrastructure/groupApi', () => ({ groupApi: { search: vi.fn(), resolve: vi.fn(), join: vi.fn() } }))
+vi.mock('@/domains/group/infrastructure/groupApi', () => ({ groupApi: { search: vi.fn(), resolve: vi.fn(), join: vi.fn(), joinStatus: vi.fn() } }))
 const linkStub = defineComponent({ props: { to: { type: [String, Object], required: true } }, template: '<a :data-to="JSON.stringify(to)"><slot /></a>' })
 const group = (id: string, extra: Partial<Group> = {}): Group => ({
   id, name: `群组 ${id}`, topic: '一起交流', membership: 'none', encryption: 'unknown', join_rule: 'public', listed: true,
@@ -123,7 +123,7 @@ describe('Matrix group discovery', () => {
     expect(groupApi.join).not.toHaveBeenCalled()
     expect(w.text()).toContain('加密状态待确认')
     expect(w.text()).not.toContain('非端到端加密')
-    expect(JSON.parse(w.get('a').attributes('data-to')!)).toEqual({ path: '/messages/groups', query: { join: '!opaque-v12', via: ['matrix.org'] } })
+    expect(w.get('button').text()).toBe('加入群组')
     w.unmount()
   })
 
@@ -132,7 +132,18 @@ describe('Matrix group discovery', () => {
     const w = setup('#private:test.example')
     await flushPromises()
     expect(w.text()).toContain('加密状态和加入条件尚未确认')
-    expect(w.findAll('article')).toHaveLength(0)
+    expect(w.findAll('article')).toHaveLength(1)
+    expect(groupApi.join).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('retains explicit route hints and signed previews while resolving opaque room addresses', async () => {
+    vi.mocked(groupApi.resolve).mockResolvedValue({ target: '!opaque-v12', via: ['directory.example'], client_url: 'https://matrix.to/#/!opaque-v12?via=directory.example' })
+    const w = setup('!opaque-v12')
+    await w.setProps({ via: ['directory.example'], previewRef: 'signed-preview' })
+    await flushPromises()
+    expect(groupApi.resolve).toHaveBeenLastCalledWith('!opaque-v12', expect.any(AbortSignal), ['directory.example'], 'signed-preview')
+    expect(w.get('a[href]').attributes('href')).toContain('via=directory.example')
     expect(groupApi.join).not.toHaveBeenCalled()
     w.unmount()
   })

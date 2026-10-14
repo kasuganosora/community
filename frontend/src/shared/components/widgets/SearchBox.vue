@@ -3,18 +3,27 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { isGroupReference } from '@/domains/trending/domain/groupSearch'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** On Explore, start searching as the query is typed. The rail still waits for submit. */
   live?: boolean
-}>()
+  searchType?: 'groups'
+  placeholder?: string
+  allowEmpty?: boolean
+  /** Reuse the same field inside a page instead of a sticky sidebar. */
+  embedded?: boolean
+  /** Search results owns refresh/navigation while reusing this input. */
+  navigate?: boolean
+}>(), { navigate: true })
+const emit = defineEmits<{ search: [query: string] }>()
 
 const router = useRouter()
-const query = ref('')
+const query = defineModel<string>({ default: '' })
 const root = ref<HTMLElement | null>(null)
 const edged = ref(false)
 
 let scroller: HTMLElement | Window | null = null
 let liveTimer = 0
+const composing = ref(false)
 
 function scrollParent(el: HTMLElement): HTMLElement | Window {
   let parent = el.parentElement
@@ -33,21 +42,24 @@ function updateEdge() {
 }
 
 function handleSearch() {
+  window.clearTimeout(liveTimer)
+  if (composing.value) return
   const trimmedQuery = query.value.trim()
-  if (!trimmedQuery) return
-  router.push({ name: 'search', query: { q: trimmedQuery, type: isGroupReference(trimmedQuery) ? 'groups' : undefined } }).catch(() => {})
+  if (!trimmedQuery && !props.allowEmpty) return
+  emit('search', trimmedQuery)
+  if (props.navigate === false) return
+  router.push({ name: 'search', query: { q: trimmedQuery || undefined, type: isGroupReference(trimmedQuery) ? 'groups' : props.searchType } }).catch(() => {})
 }
 
-watch(query, (value) => {
+function scheduleSearch() {
   window.clearTimeout(liveTimer)
-  if (!props.live) return
-  const trimmed = value.trim()
-  if (!trimmed) return
+  if (!props.live || composing.value || !query.value.trim()) return
   liveTimer = window.setTimeout(handleSearch, 400)
-})
+}
+watch(query, scheduleSearch)
 
 onMounted(() => {
-  if (!root.value) return
+  if (!root.value || props.embedded) return
   scroller = scrollParent(root.value)
   updateEdge()
   scroller.addEventListener('scroll', updateEdge, { passive: true })
@@ -60,10 +72,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <form ref="root" class="search-box" :class="{ 'search-box--edge': edged }" role="search" @submit.prevent="handleSearch">
+  <form ref="root" class="search-box" :class="{ 'search-box--edge': edged, 'search-box--embedded': embedded }" role="search" @submit.prevent="handleSearch" @compositionstart="composing = true" @compositionend="composing = false; scheduleSearch()">
     <t-input
       v-model="query"
-      placeholder="搜索帖子、用户或群组"
+      :placeholder="placeholder || '搜索帖子、用户、话题或群组'"
       aria-label="搜索"
       clearable
     >
@@ -71,7 +83,7 @@ onBeforeUnmount(() => {
         <t-icon name="search" />
       </template>
     </t-input>
-    <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim()">搜索</button>
+    <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim() && !allowEmpty">搜索</button>
   </form>
 </template>
 
@@ -100,6 +112,17 @@ onBeforeUnmount(() => {
   box-shadow: 0 var(--hairline) 0 var(--material-bar-border);
 }
 
+.search-box--embedded {
+  position: static;
+  z-index: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .search-box :deep(.t-input__wrap) {
   flex: 1;
   min-width: 0;
@@ -113,5 +136,6 @@ onBeforeUnmount(() => {
 
 .search-box__submit {
   flex: 0 0 auto;
+  min-height: var(--hit-target);
 }
 </style>
