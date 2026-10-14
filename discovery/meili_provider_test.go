@@ -485,3 +485,103 @@ func TestMeiliPreflightSplitsCollectiveBudgetWithoutDroppingSafeRoots(t *testing
 	}
 	require.Equal(t, ids, got, "keep every safe root in the input's newest-first order")
 }
+
+// End to end against a real engine: Meili-sourced IDs are re-checked by SQL at
+// serve time, so author/status feedback applies to the very next refresh.
+func TestMeiliRealEngineFeedHonoursFeedbackImmediately(t *testing.T) {
+	host := strings.TrimRight(os.Getenv("DISCOVERY_TEST_MEILI_URL"), "/")
+	if host == "" {
+		t.Skip("set DISCOVERY_TEST_MEILI_URL to an isolated real Meilisearch")
+	}
+	_, client := feedTestRedis(t)
+	conn, viewer := feedTestDatabase(t)
+	write := conn.Session(&gorm.Session{SkipHooks: true})
+	require.NoError(t, write.Create(&models.Tag{Id: 1, Name: "go", NameKey: "go"}).Error)
+	for i := uint64(1); i <= 30; i++ {
+		require.NoError(t, write.Create(&models.StatusTag{StatusId: i, TagId: 1}).Error)
+		require.NoError(t, conn.Model(&models.StatusContent{}).Where("status_id = ?", i).UpdateColumn("content", fmt.Sprintf("golang go post %d", i)).Error)
+	}
+	// Status 31 boosts 1 and status 32 quotes 2: neither may leak the hidden author.
+	require.NoError(t, conn.Model(&models.Status{}).Where("id = ?", 31).UpdateColumn("reblog_id", 1).Error)
+	require.NoError(t, conn.Model(&models.Status{}).Where("id = ?", 32).UpdateColumn("quote_id", 2).Error)
+	require.NoError(t, conn.Exec("INSERT INTO followed_tags (id,account_id,tag_id,created_at) VALUES (?,?,?,?)", 1, viewer.Id, 1, time.Now()).Error)
+	_, err := models.SetRecommendationPreference(conn, viewer.UserId, "personalized")
+	require.NoError(t, err)
+
+	p, settings := meiliTestProvider(t, host)
+	p.conn = func() *gorm.DB { return conn }
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if state, _ := p.readState(cleanup); state.Active != nil {
+			_ = p.retire(cleanup, state.Active.Index)
+		}
+	})
+	require.NoError(t, p.rebuild(ctx))
+	state, err := p.readState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, state.Active)
+	settings.ApprovedVersion = state.Active.Version
+	batch, err := p.BuildBuckets(ctx, time.Now().UTC(), []ContentBucket{{Key: "go", Query: "golang"}})
+	require.NoError(t, err)
+	require.NotEmpty(t, batch.Lists)
+
+	require.NoError(t, RefreshFeedCandidates(ctx))
+	pool, err := loadFeedPool(ctx, time.Now())
+	require.NoError(t, err)
+	pool.Mode = "meili_lexical"
+	pool.ContentDataCutoff = time.Now().UTC()
+	pool.Lists = batch.Lists
+	data, err := json.Marshal(pool)
+	require.NoError(t, err)
+	require.NoError(t, client.Set(ctx, feedPoolKey, data, PoolMaxAge).Err())
+
+	type seen struct{ authors, statuses map[uint64]bool }
+	collect := func() (s seen, mode string, firstCursor *string) {
+		s = seen{map[uint64]bool{}, map[uint64]bool{}}
+		cursor := ""
+		for i := 0; i < 20; i++ {
+			page, err := StatusPage(ctx, viewer, cursor, 20)
+			require.NoError(t, err)
+			if i == 0 {
+				mode, firstCursor = page.Mode, page.NextCursor
+			}
+			for _, item := range page.Items {
+				for _, st := range []*models.Status{item.Status, item.Status.Quote, item.Status.Reblog} {
+					if st != nil {
+						s.authors[st.AccountId] = true
+						s.statuses[st.Id] = true
+					}
+				}
+			}
+			if page.NextCursor == nil {
+				break
+			}
+			cursor = *page.NextCursor
+		}
+		return
+	}
+	before, mode, oldCursor := collect()
+	require.Equal(t, "meili_lexical", mode)
+	var author models.Status
+	require.NoError(t, conn.Take(&author, 2).Error)
+	require.True(t, before.authors[author.AccountId])
+	require.True(t, before.statuses[5])
+	_, err = models.PutRecommendationFeedback(conn, viewer.Id, "hide_author", "account", fmt.Sprint(author.AccountId))
+	require.NoError(t, err)
+	_, err = models.PutRecommendationFeedback(conn, viewer.Id, "hide_status", "status", "5")
+	require.NoError(t, err)
+	if oldCursor != nil {
+		_, err = StatusPage(ctx, viewer, *oldCursor, 20)
+		require.ErrorIs(t, err, ErrResetRequired, "cached Meili window must not be resumed after feedback")
+	}
+	for round := 0; round < 3; round++ {
+		after, mode, _ := collect()
+		require.Equal(t, "meili_lexical", mode)
+		require.False(t, after.authors[author.AccountId], "hidden author leaked on refresh %d", round)
+		require.False(t, after.statuses[5], "hidden status leaked on refresh %d", round)
+		require.False(t, after.statuses[32], "quote of hidden author leaked")
+	}
+}

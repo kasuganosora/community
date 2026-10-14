@@ -175,6 +175,14 @@ describe('ranked discovery pagination', () => {
     expect(feed.statuses.value.map(row => row.id)).toEqual(['4'])
   })
 
+  it('does not reuse a fresh window once feedback elsewhere bumped the preference revision', async () => {
+    vi.spyOn(discoveryApi, 'statuses').mockResolvedValue(page(['1']))
+    const feed = setup()
+    await feed.refresh()
+    expect(feed.isFresh(undefined, 1)).toBe(true)
+    expect(feed.isFresh(undefined, 2)).toBe(false)
+  })
+
   it('preserves explicit one-page degraded mode and has no fabricated next cursor', async () => {
     vi.spyOn(discoveryApi, 'statuses').mockResolvedValue({ ...page(['1']), mode: 'chronological_fallback' })
     const feed = setup()

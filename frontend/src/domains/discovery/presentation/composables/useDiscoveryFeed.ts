@@ -37,7 +37,7 @@ export function useDiscoveryFeed() {
   const disabled = ref(false), autoPaused = ref(false), generation = ref('')
   let requestVersion = 0, controller: AbortController | undefined, ownFeedback = false
   // When the current window was first loaded; the server snapshot lives 10 minutes.
-  let loadedAt = 0
+  let loadedAt = 0, windowRevision: number | undefined
   const statuses = computed(() => items.value.map(item => item.status))
   const reasons = computed(() => Object.fromEntries(items.value.filter(item => item.reason).map(item => [item.status.id, item.reason!])))
   const hasMore = computed(() => cursor.value !== null && !resetRequired.value)
@@ -46,10 +46,12 @@ export function useDiscoveryFeed() {
   function clear() {
     cancel(); items.value = []; cursor.value = null; error.value = null
     resetRequired.value = false; autoPaused.value = false; disabled.value = false; generation.value = ''
-    loadedAt = 0
+    loadedAt = 0; windowRevision = undefined
   }
   /** True when the loaded window can be shown again without refetching. */
-  function isFresh(maxAgeMs = 5 * 60_000) {
+  function isFresh(maxAgeMs = 5 * 60_000, currentRevision?: number) {
+    // Feedback from another tab/device bumps the revision; never reuse then.
+    if (currentRevision !== undefined && currentRevision !== windowRevision) return false
     return loadedAt > 0 && Date.now() - loadedAt < maxAgeMs && items.value.length > 0 && !resetRequired.value && !error.value && !loading.value
   }
   watch(sessionEpoch, clear, { flush: 'sync' })
@@ -98,7 +100,7 @@ export function useDiscoveryFeed() {
           return true
         })
         items.value = [...items.value, ...additions].slice(0, 200)
-        if (refresh && !loadedAt) loadedAt = Date.now()
+        if (refresh && !loadedAt) { loadedAt = Date.now(); windowRevision = page.preference_revision }
         cursor.value = items.value.length >= 200 ? null : page.next_cursor
         if (next && next === page.next_cursor) throw new Error('推荐分页没有前进，请刷新后重试')
         if (additions.length || !cursor.value) break

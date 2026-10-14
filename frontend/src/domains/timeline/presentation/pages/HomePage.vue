@@ -58,12 +58,17 @@ async function openTimeline() {
   // Returning to a recent recommendation window reuses it (and its scroll
   // position) instead of re-requesting and re-rendering the whole feed.
   if (discovery.isFresh()) {
-    const snapshot = discoveryScroll
-    await nextTick()
-    if (mine === opening && epoch === sessionEpoch.value && isDiscovery.value && snapshot?.generation === discovery.generation.value) {
-      window.scrollTo(0, snapshot.scroll)
+    // Cheap revision check so feedback made elsewhere applies on return.
+    const current = await loadDiscoveryPreference(true).catch(() => null)
+    if (mine !== opening || epoch !== sessionEpoch.value) return
+    if (current && discovery.isFresh(undefined, current.revision)) {
+      const snapshot = discoveryScroll
+      await nextTick()
+      if (mine === opening && epoch === sessionEpoch.value && isDiscovery.value && snapshot?.generation === discovery.generation.value) {
+        window.scrollTo(0, snapshot.scroll)
+      }
+      return
     }
-    return
   }
   discoveryScroll = undefined
   discovery.clear()
