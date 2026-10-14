@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, shallowRef, watch, nextTick } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
@@ -7,6 +7,8 @@ import { postApi } from '@/domains/post/infrastructure/postApi'
 import { stripHtml } from '@/shared/utils/sanitize'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import ImageCropDialog from '@/shared/components/common/ImageCropDialog.vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../domain/validation'
 
 const authStore = useAuthStore()
@@ -15,6 +17,19 @@ const profile = reactive({ display_name: '', note: '', locked: false, discoverab
 const profileError = ref<string | null>(null)
 const savingProfile = ref(false)
 const uploading = reactive({ avatar: false, header: false })
+type ImageKind = 'avatar' | 'header'
+const cropRequest = shallowRef<{ kind: ImageKind; file: File; input: HTMLInputElement } | null>(null)
+let alive = true
+let imageEpoch = 0
+
+// A completed upload belongs only to the account/session that selected the image.
+watch([() => authStore.currentUser?.id, sessionEpoch], () => {
+  imageEpoch++
+  cropRequest.value = null
+  uploading.avatar = false
+  uploading.header = false
+})
+onBeforeUnmount(() => { alive = false; imageEpoch++ })
 
 const previewAccount = computed(() => authStore.currentUser
   ? { ...authStore.currentUser, avatar: profile.avatar, avatar_static: profile.avatar }
@@ -33,31 +48,49 @@ function resetProfile() {
   profile.header = me.header ?? ''
 }
 
-async function onPickImage(kind: 'avatar' | 'header', e: Event) {
+function onPickImage(kind: ImageKind, e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
-  if (!file) return
+  if (!file || !authStore.currentUser || savingProfile.value || uploading.avatar || uploading.header) return
   const err = validateImageFile(file)
   if (err) {
     profileError.value = err
     return
   }
   profileError.value = null
+  cropRequest.value = { kind, file, input }
+}
+
+async function applyImage(file: File) {
+  const request = cropRequest.value
+  if (!request || !authStore.currentUser) return
+  const { kind, input } = request
+  const epoch = ++imageEpoch
+  const accountId = authStore.currentUser.id
+  const session = sessionEpoch.value
+  const isCurrent = () => alive && epoch === imageEpoch && accountId === authStore.currentUser?.id && session === sessionEpoch.value
+  cropRequest.value = null
   uploading[kind] = true
   try {
     // update_credentials only accepts an image URL, so upload it as media first.
     const media = await postApi.uploadMedia(file)
+    if (!isCurrent()) return
     if (!media.url) throw new Error('图片上传后没有返回地址')
     profile[kind] = media.url
   } catch (e2) {
-    profileError.value = e2 instanceof Error ? e2.message : '图片上传失败'
+    if (isCurrent()) profileError.value = e2 instanceof Error ? e2.message : '图片上传失败'
   } finally {
-    uploading[kind] = false
+    if (isCurrent()) {
+      uploading[kind] = false
+      await nextTick()
+      if (input.isConnected && document.activeElement === document.body) input.focus({ preventScroll: true })
+    }
   }
 }
 
 async function saveProfile() {
+  if (savingProfile.value || uploading.avatar || uploading.header || cropRequest.value) return
   profileError.value = validateProfile(profile.display_name, profile.note)
   if (profileError.value) return
   const me = authStore.currentUser
@@ -105,11 +138,11 @@ onMounted(async () => {
         <div class="settings-hero__actions">
           <label class="btn btn--secondary btn--sm settings-file">
             {{ uploading.avatar ? '上传中…' : '更换头像' }}
-            <input type="file" accept="image/*" class="sr-only" :disabled="uploading.avatar" @change="onPickImage('avatar', $event)" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp" class="sr-only" :disabled="savingProfile || uploading.avatar || uploading.header" @change="onPickImage('avatar', $event)" />
           </label>
           <label class="btn btn--secondary btn--sm settings-file">
             {{ uploading.header ? '上传中…' : '更换封面' }}
-            <input type="file" accept="image/*" class="sr-only" :disabled="uploading.header" @change="onPickImage('header', $event)" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp" class="sr-only" :disabled="savingProfile || uploading.avatar || uploading.header" @change="onPickImage('header', $event)" />
           </label>
         </div>
       </div>
@@ -146,6 +179,7 @@ onMounted(async () => {
       </button>
     </div>
   </form>
+  <ImageCropDialog v-if="cropRequest" :file="cropRequest.file" :kind="cropRequest.kind" @cancel="cropRequest = null" @apply="applyImage" />
 </template>
 
 <style scoped>
