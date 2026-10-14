@@ -44,6 +44,31 @@ describe('group sync consistency and lifecycle', () => {
     vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, body: 'fresh edit', edited: true }], next_cursor: null })
     await state.openRoom(); expect(state.messages.value[0]?.body).toBe('fresh edit'); wrapper.unmount()
   })
+  it('ignores an older history page after switching away and back to the same room', async () => {
+    vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot)
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [message], next_cursor: 'old-page' })
+    const { state, id, wrapper } = setup(); await flushPromises()
+    let resolve!: (page: { messages: GroupMessage[]; next_cursor: string | null }) => void
+    vi.mocked(groupApi.messages).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const loading = state.loadHistory()
+    vi.mocked(groupApi.get).mockResolvedValueOnce({ ...group, id: 'b' }).mockResolvedValue(group)
+    id.value = 'b'; await flushPromises()
+    id.value = 'a'; await flushPromises()
+    resolve({ messages: [{ ...message, id: 'stale-history' }], next_cursor: 'stale-cursor' }); await loading
+    expect(state.messages.value.map(item => item.id)).toEqual(['m1'])
+    expect(state.historyCursor.value).toBe('old-page')
+    wrapper.unmount()
+  })
+  it('does not merge old-session sync messages after waiting for room history', async () => {
+    let resolve!: (page: { messages: GroupMessage[]; next_cursor: string | null }) => void
+    vi.mocked(groupApi.messages).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    vi.mocked(groupApi.sync).mockResolvedValueOnce({ ...snapshot, messages_by_group: { a: [{ ...message, id: 'old-private-message' }] } })
+    const { state, wrapper } = setup(); await flushPromises()
+    sessionEpoch.value++; await flushPromises()
+    resolve({ messages: [message], next_cursor: null }); await flushPromises()
+    expect(state.messages.value).toEqual([])
+    wrapper.unmount()
+  })
   it('removes left groups without autojoining and disables their composer', async () => {
     vi.mocked(groupApi.sync).mockResolvedValueOnce(snapshot).mockResolvedValueOnce({ ...snapshot, groups: [], left_group_ids: ['a'] })
     const { state, wrapper } = setup(); await flushPromises(); await vi.advanceTimersByTimeAsync(150); await flushPromises()
@@ -65,6 +90,18 @@ describe('group sync consistency and lifecycle', () => {
     id.value = 'b'; await flushPromises()
     expect(state.messages.value.map(m => m.id)).toEqual(['other'])
     expect(groupApi.sync).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+  it('shows readable history after initial live-sync failure, and reconciles after recovery', async () => {
+    vi.mocked(groupApi.sync).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(snapshot)
+    const { state, wrapper } = setup(); await flushPromises()
+    expect(state.loading.value).toBe(false)
+    expect(state.messages.value.map(m => m.id)).toEqual(['m1'])
+    expect(state.syncError.value).toContain('重新连接')
+    vi.mocked(groupApi.messages).mockResolvedValue({ messages: [{ ...message, body: 'updated while offline' }], next_cursor: null })
+    await vi.advanceTimersByTimeAsync(3000); await flushPromises()
+    expect(state.messages.value[0]?.body).toBe('updated while offline')
+    expect(state.syncError.value).toBe('')
     wrapper.unmount()
   })
   it('refreshes history and restarts exactly one sync only after an explicit retry', async () => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { useSettingsScope } from '../composables/useSettingsScope'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import { moderationApi, type MastodonFilter } from '../../infrastructure/moderationApi'
 
@@ -21,6 +22,9 @@ const filters = ref<MastodonFilter[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
+const loadError = ref('')
+const removing = ref('')
+const scope = useSettingsScope(() => { filters.value = []; loading.value = false; saving.value = false; removing.value = ''; error.value = null; loadError.value = ''; draft.title = ''; draft.keyword = '' })
 const draft = reactive({
   title: '',
   keyword: '',
@@ -36,18 +40,22 @@ function toggleContext(id: string) {
 }
 
 async function load() {
+  const current = scope()
   loading.value = true
-  error.value = null
+  loadError.value = ''
   try {
-    filters.value = await moderationApi.listFilters()
+    const result = await moderationApi.listFilters()
+    if (current()) filters.value = result
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '过滤器加载失败'
+    if (current()) loadError.value = e instanceof Error ? e.message : '过滤器加载失败'
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function createFilter() {
+  if (saving.value || loading.value || removing.value || loadError.value) return
+  const current = scope()
   error.value = null
   const title = draft.title.trim()
   const keyword = draft.keyword.trim()
@@ -67,24 +75,31 @@ async function createFilter() {
       filter_action: draft.action,
       keywords: [{ keyword, whole_word: draft.wholeWord }],
     })
+    if (!current()) return
     filters.value = [created, ...filters.value.filter((item) => item.id !== created.id)]
     draft.title = ''
     draft.keyword = ''
     MessagePlugin.success('过滤器已添加')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '添加失败'
+    if (current()) error.value = e instanceof Error ? e.message : '添加失败'
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
 
 async function remove(filter: MastodonFilter) {
+  if (removing.value || saving.value || loading.value) return
+  const current = scope()
+  removing.value = filter.id
   try {
     await moderationApi.deleteFilter(filter.id)
+    if (!current()) return
     filters.value = filters.value.filter((item) => item.id !== filter.id)
     MessagePlugin.success('已删除')
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
+  } finally {
+    if (current()) removing.value = ''
   }
 }
 
@@ -99,14 +114,15 @@ onMounted(load)
 
 <template>
   <form class="settings-form" @submit.prevent="createFilter">
-    <p v-if="loading" class="settings-field__hint">正在加载…</p>
+    <p v-if="loading" class="settings-field__hint" role="status">正在加载…</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost btn--sm" @click="load">重试</button></div>
     <ul v-else-if="filters.length" class="filter-list">
       <li v-for="filter in filters" :key="filter.id" class="filter-list__item">
         <span>
           <strong>{{ filter.title }}</strong>
           <span class="settings-field__hint">{{ summary(filter) }}</span>
         </span>
-        <button type="button" class="btn btn--ghost btn--sm" @click="remove(filter)">删除</button>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="!!removing || saving" :aria-busy="removing === filter.id" @click="remove(filter)">{{ removing === filter.id ? '删除中…' : '删除' }}</button>
       </li>
     </ul>
     <p v-else class="settings-field__hint">还没有过滤器。命中的帖子会先折叠，你可以再点开。</p>
@@ -132,7 +148,7 @@ onMounted(load)
     </div>
     <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
     <div class="settings-actions">
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving">{{ saving ? '添加中…' : '添加过滤器' }}</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving || loading || !!removing || !!loadError">{{ saving ? '添加中…' : '添加过滤器' }}</button>
     </div>
   </form>
 </template>

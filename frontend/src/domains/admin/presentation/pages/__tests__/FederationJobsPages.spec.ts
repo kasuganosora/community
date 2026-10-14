@@ -36,3 +36,16 @@ it('keeps private-message bridge jobs read-only for administrators', async () =>
  expect(action).not.toHaveBeenCalled()
  w.unmount()
 })
+
+it('shows a slow webhook read and an error without false empty subscriptions', async () => {
+ let reject!: (reason: Error) => void
+ vi.spyOn(api, 'hooks').mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+ vi.spyOn(api, 'deliveries').mockResolvedValue({ items: [], total: 0 })
+ const w = mount(WebhooksAdminPage); await flushPromises()
+ expect(w.get('[role=status]').text()).toContain('正在处理')
+ expect(w.text()).not.toContain('共0')
+ reject(new Error('offline')); await flushPromises()
+ expect(w.get('[role=alert]').text()).toContain('无法读取')
+ expect(w.text()).not.toContain('尚未配置订阅'); expect(w.text()).not.toContain('暂无投递记录')
+ w.unmount()
+})

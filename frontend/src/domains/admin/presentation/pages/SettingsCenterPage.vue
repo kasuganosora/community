@@ -172,7 +172,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 <style scoped>
 .settings-center__deployment h2 { margin: 0; font-size: 16px; }
 .settings-center__readonly { position: relative; min-width: 0; }
-.settings-center__readonly input { padding-right: 88px; background: var(--color-bg-grouped); color: var(--color-label-secondary); cursor: text; }
+.settings-center__readonly :is(input, textarea) { padding-right: 88px; background: var(--color-bg-grouped); color: var(--color-label-secondary); cursor: text; }
 .settings-center__source { position: absolute; right: 10px; top: 11px; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--color-fill); color: var(--color-label-secondary); pointer-events: none; }
 .settings-center__deployment { border-inline-start: 3px solid var(--admin-accent); }
 .settings-center__deployment p { line-height: 1.7; margin: 8px 0 0; }
@@ -181,6 +181,6 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 .settings-center__pending { color: var(--color-label-secondary); font-size: 13px; }
 @media(max-width: 760px) {
   .settings-center__source { position: static; display: inline-block; margin-top: 6px; }
-  .settings-center__readonly input { padding-right: 12px; }
+  .settings-center__readonly :is(input, textarea) { padding-right: 12px; }
 }
 </style>

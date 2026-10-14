@@ -4,6 +4,18 @@ import TimelineFeed from '../TimelineFeed.vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 describe('visible sentinel pagination', () => {
+  it('retries a failed refresh even when the retained timeline has no next page', async () => {
+    const wrapper = mount(TimelineFeed, {
+      props: { statuses: [{ id: '1' }] as MastodonStatus[], error: 'offline', hasMore: false },
+      global: { stubs: { PostCard: true, 't-loading': true } },
+    })
+    await wrapper.get('.timeline-inline button').trigger('click')
+    expect(wrapper.emitted('retry')).toHaveLength(1)
+    expect(wrapper.emitted('loadMore')).toBeUndefined()
+    await wrapper.setProps({ loading: true })
+    expect(wrapper.get('.timeline-inline button').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
   it('continues after loading completes without requiring scroll and pauses on errors', async () => {
     let intersect!: () => void
     vi.stubGlobal('IntersectionObserver', class { constructor(callback: () => void) { intersect = callback } observe() {} disconnect() {} })

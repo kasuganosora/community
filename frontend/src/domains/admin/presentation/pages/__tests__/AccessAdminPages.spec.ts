@@ -32,3 +32,26 @@ describe('roles and invitations management', () => {
     await page.findAll('button').find(b => b.text() === '停用')!.trigger('click'); expect(disable).not.toHaveBeenCalled(); page.unmount()
   })
 })
+
+it('shows role member loading, retries errors and ignores a prior role response', async () => {
+  const role = { id: '3', name: 'Role A', color: '', highlighted: false, permissions: ['dashboard'], protected: false }
+  vi.spyOn(api, 'roles').mockResolvedValue({ items: [role, { ...role, id: '4', name: 'Role B' }], total: 2, available_permissions: ['dashboard'] })
+  let reject!: (reason: Error) => void
+  let resolve!: (value: { items: []; total: number }) => void
+  const members = vi.spyOn(api, 'members').mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    .mockImplementationOnce(() => new Promise(done => { resolve = done })).mockResolvedValueOnce({ items: [], total: 0 })
+  const page = mount(RolesAdminPage); await flushPromises()
+  await page.findAll('button').filter(b => b.text() === '查看成员')[0]!.trigger('click')
+  const section = page.get('[aria-label="角色成员"]')
+  expect(section.get('[role=status]').text()).toContain('正在加载成员')
+  expect(section.text()).not.toContain('暂无成员'); expect(section.text()).not.toContain('共 0 人')
+  reject(new Error('offline')); await flushPromises()
+  expect(section.get('[role=alert]').text()).toContain('无法加载成员')
+  expect(section.text()).not.toContain('暂无成员')
+  await section.get('[role=alert] button').trigger('click')
+  await page.findAll('button').filter(b => b.text() === '查看成员')[1]!.trigger('click'); await flushPromises()
+  resolve({ items: [], total: 99 }); await flushPromises()
+  expect(members).toHaveBeenCalledTimes(3)
+  expect(section.text()).toContain('Role B'); expect(section.text()).toContain('共 0 人'); expect(section.text()).not.toContain('99')
+  page.unmount()
+})

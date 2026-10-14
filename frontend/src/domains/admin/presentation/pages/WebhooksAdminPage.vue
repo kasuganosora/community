@@ -15,6 +15,7 @@ onMounted(load)
     <AdminPageHeader title="Webhook" description="仅发送公开本地帖子的创建、更新、删除元数据。" />
     <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
+    <p v-if="busy" class="admin-empty" role="status">正在处理…</p>
     <section v-if="secret" class="admin-card">
       <h2>签名密钥（仅此次显示）</h2>
       <p>请保存到接收方的安全配置，关闭后不可再次查看。</p>
@@ -32,7 +33,7 @@ onMounted(load)
     </form>
     <section class="admin-card">
       <h2>订阅</h2>
-      <AdminEmpty v-if="!hooks.length&&!busy">尚未配置订阅。</AdminEmpty>
+      <AdminEmpty v-if="!hooks.length&&!busy&&!error">尚未配置订阅。</AdminEmpty>
       <article v-for="h in hooks" :key="h.id" class="admin-card">
         <div class="admin-card__header"><strong>{{ h.description||h.url }}</strong><AdminBadge :tone="h.enabled ? 'success' : 'neutral'">{{ h.enabled?'已启用':'已停用' }}</AdminBadge></div>
         <p>{{ h.url }}</p>
@@ -45,7 +46,7 @@ onMounted(load)
       </article>
       <div class="admin-pagination">
         <AdminButton size="sm" :disabled="busy||hookPage===1" @click="hookPage--;load()">上一页订阅</AdminButton>
-        <span>第{{ hookPage }}页，共{{ hookTotal }}个</span>
+        <span v-if="!busy && !error">第{{ hookPage }}页，共{{ hookTotal }}个</span>
         <AdminButton size="sm" :disabled="busy||hookPage*30>=hookTotal" @click="hookPage++;load()">下一页订阅</AdminButton>
       </div>
     </section>
@@ -56,7 +57,7 @@ onMounted(load)
         <AdminField label="状态"><template #default="{ id }"><select :id="id" v-model="state"><option value="">全部</option><option v-for="value in ['pending','processing','delivered','failed','cancelled']" :key="value">{{ value }}</option></select></template></AdminField>
         <AdminButton type="submit" :disabled="busy">查询／刷新</AdminButton>
       </form>
-      <AdminEmpty v-if="!deliveries.length&&!busy">暂无投递记录。</AdminEmpty>
+      <AdminEmpty v-if="!deliveries.length&&!busy&&!error">暂无投递记录。</AdminEmpty>
       <article v-for="d in deliveries" :key="d.id" class="admin-card">
         <div class="admin-card__header"><strong>{{ d.event }}</strong><AdminBadge :tone="d.state==='delivered' ? 'success' : d.state==='failed' ? 'danger' : d.state==='pending' ? 'warning' : 'neutral'">{{ d.state }}</AdminBadge></div>
         <p>Delivery ID：{{ d.id }} · 尝试{{ d.attempts }}次</p>
@@ -68,7 +69,7 @@ onMounted(load)
       </article>
       <div class="admin-pagination">
         <AdminButton size="sm" :disabled="busy||page===1" @click="page--;load()">上一页</AdminButton>
-        <span>第{{ page }}页，共{{ total }}项</span>
+        <span v-if="!busy && !error">第{{ page }}页，共{{ total }}项</span>
         <AdminButton size="sm" :disabled="busy||page*30>=total" @click="page++;load()">下一页</AdminButton>
       </div>
     </section>

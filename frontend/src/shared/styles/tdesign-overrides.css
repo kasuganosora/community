@@ -214,6 +214,12 @@ html .t-input__inner {
   font-size: var(--text-body);
 }
 
+/* The input shell already owns the focus indicator. Page-level native input
+   rules must not draw a second rectangle around its inner editing surface. */
+html .t-input input.t-input__inner:focus-visible {
+  outline: none;
+}
+
 @media (pointer: coarse) {
   html .t-input__inner,
   html .t-textarea__inner,
@@ -250,6 +256,19 @@ html .t-textarea__inner {
 html .t-textarea__inner:focus {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+html .t-textarea textarea.t-textarea__inner:focus-visible {
+  outline: none;
+}
+
+/* Forced colours may suppress shadows; keep a visible keyboard focus boundary. */
+@media (forced-colors: active) {
+  html .t-input:focus-within,
+  html .t-textarea textarea.t-textarea__inner:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 /* ---- Form ------------------------------------------------------------------ */

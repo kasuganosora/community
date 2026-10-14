@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { MastodonList } from '@/shared/types/mastodon'
 import { listApi } from '../../infrastructure/listApi'
 import { validateListTitle, MAX_LIST_TITLE_LENGTH } from '../../domain/list'
+import { sessionEpoch } from '@/shared/api/sessionScope'
 
 const lists = ref<MastodonList[]>([])
 const loading = ref(true)
@@ -11,35 +12,54 @@ const error = ref<string | null>(null)
 const newTitle = ref('')
 const createError = ref<string | null>(null)
 const creating = ref(false)
+let loadVersion = 0
+let createVersion = 0
+let disposed = false
 
 async function load() {
+  const version = ++loadVersion, epoch = sessionEpoch.value
+  const current = () => version === loadVersion && epoch === sessionEpoch.value
   loading.value = true
   error.value = null
   try {
-    lists.value = await listApi.getLists()
+    const result = await listApi.getLists()
+    if (current()) lists.value = result
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
+    if (current()) error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function create() {
+  if (creating.value || loading.value) return
   createError.value = validateListTitle(newTitle.value)
   if (createError.value) return
+  const version = ++createVersion, epoch = sessionEpoch.value
+  const current = () => version === createVersion && epoch === sessionEpoch.value
   creating.value = true
   try {
     const list = await listApi.createList(newTitle.value.trim())
+    if (!current()) return
     lists.value = [...lists.value, list]
+    error.value = null
     newTitle.value = ''
     MessagePlugin.success('列表已创建')
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : '创建失败'
+    if (current()) createError.value = e instanceof Error ? e.message : '创建失败'
   } finally {
-    creating.value = false
+    if (current()) creating.value = false
   }
 }
 
+watch(sessionEpoch, () => {
+  ++loadVersion; ++createVersion
+  lists.value = []; newTitle.value = ''; error.value = null; createError.value = null
+  creating.value = false; loading.value = true
+  const epoch = sessionEpoch.value
+  void nextTick(() => { if (!disposed && epoch === sessionEpoch.value) void load() })
+}, { flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; ++loadVersion; ++createVersion })
 onMounted(load)
 </script>
 
@@ -59,7 +79,7 @@ onMounted(load)
         placeholder="新列表名称"
         :maxlength="MAX_LIST_TITLE_LENGTH"
       />
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="creating || !newTitle.trim()">创建</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="creating || loading || !newTitle.trim()" :aria-busy="creating">{{ creating ? '创建中…' : '创建' }}</button>
     </form>
     <p v-if="createError" class="lists-error" role="alert">{{ createError }}</p>
     <p v-else class="lists-note">点开列表查看成员的帖子。管理成员可以把正在关注的人加进去，他们已经发过的公开帖也会出现。</p>

@@ -4,8 +4,9 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { DialogPlugin } from 'tdesign-vue-next'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupApi } from '../../infrastructure/groupApi'
-import { groupPath, groupMembershipLabel, safeGroupURL, type Group, type GroupJoinResult, type GroupMember, type GroupMessage } from '../../domain/group'
+import { groupPath, groupMembershipLabel, safeGroupURL, type Group, type GroupMember, type GroupMessage } from '../../domain/group'
 import { useGroups } from '../composables/useGroups'
+import { useGroupJoin } from '../composables/useGroupJoin'
 import GroupAvatar from '../components/GroupAvatar.vue'
 import GroupMessageView from '../components/GroupMessageView.vue'
 import GroupComposer from '../components/GroupComposer.vue'
@@ -17,10 +18,10 @@ import type { MastodonEmoji } from '@/shared/types/mastodon'
 const route = useRoute(), router = useRouter()
 const selectedId = computed(() => typeof route.params.groupId === 'string' ? route.params.groupId : '')
 const { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, openRoom, loadHistory, upsertGroup, mergeMessages } = useGroups(selectedId)
-const panel = ref<'create' | null>(null), actionError = ref(''), actionBusy = ref(false), status = ref('')
+const panel = ref<'create' | null>(null), actionError = ref(''), mutationBusy = ref(false), status = ref('')
 const createName = ref(''), createTopic = ref(''), createInvite = ref(''), visibility = ref<'private' | 'public'>('private'), consent = ref(false)
 const externalClientURL = ref('')
-const members = ref<GroupMember[]>([]), membersCursor = ref<string | null>(null), membersLoading = ref(false)
+const members = ref<GroupMember[]>([]), membersCursor = ref<string | null>(null), membersLoading = ref(false), membersError = ref('')
 const composerLocked = ref(false)
 const reply = ref<GroupMessage | null>(null), editing = ref<GroupMessage | null>(null), dirty = ref(false), detailsOpen = ref(false)
 const detailsDialog = ref<HTMLDialogElement>(), reactionDialog = ref<HTMLDialogElement>(), reactionMessage = ref<GroupMessage | null>(null)
@@ -28,20 +29,27 @@ const timeline = ref<HTMLElement>(), atBottom = ref(true), unseen = ref(0)
 const clientURL = computed(() => safeGroupURL(group.value?.client_url))
 const replyById = computed(() => new Map(messages.value.map(message => [message.id, message])))
 const typingNames = computed(() => group.value?.typing_users?.filter(person => person.id !== group.value?.current_user_id).map(person => person.display_name || person.id).join('、') || '')
-let active = true, joinTimer: ReturnType<typeof setTimeout> | undefined, joinController: AbortController | undefined
-let lastRead = '', createTxn = crypto.randomUUID(), createSignature = '', joinVersion = 0
+let active = true, actionVersion = 0
+let lastRead = '', createTxn = crypto.randomUUID(), createSignature = ''
+const { busy: joinBusy, error: joinError, status: joinStatus, operation: joinOperation, join: acceptJoin } = useGroupJoin(selectedId, result => {
+  if (result.client_required) { externalClientURL.value = safeGroupURL(result.client_url); status.value = '已加入，请使用 Matrix 客户端继续操作。' }
+  if (result.group) { upsertGroup(result.group); void openRoom() }
+})
+const actionBusy = computed(() => mutationBusy.value || joinBusy.value)
+const isActionCurrent = (version: number, epoch: number) => active && version === actionVersion && epoch === sessionEpoch.value
 function confirmAction(header: string, body: string, confirm = '继续'): Promise<boolean> {
   const reopenDetails = detailsOpen.value
+  const epoch = sessionEpoch.value, version = actionVersion
   if (reopenDetails) { detailsDialog.value?.close(); detailsOpen.value = false }
   return new Promise(resolve => {
-    const dialog = DialogPlugin.confirm({ header, body, confirmBtn: confirm, cancelBtn: '取消', onConfirm: () => { dialog.destroy(); resolve(true) }, onClose: () => { dialog.destroy(); if (reopenDetails) detailsOpen.value = true; resolve(false) } })
+    const dialog = DialogPlugin.confirm({ header, body, confirmBtn: confirm, cancelBtn: '取消', onConfirm: () => { dialog.destroy(); resolve(isActionCurrent(version, epoch)) }, onClose: () => { dialog.destroy(); if (reopenDetails && isActionCurrent(version, epoch)) detailsOpen.value = true; resolve(false) } })
   })
 }
 async function protectDraft() { return !dirty.value || await confirmAction('离开当前群聊？', '尚未发送的消息和附件将被丢弃。', '离开') }
 async function openPanel() { if (!await protectDraft()) return; dirty.value = false; panel.value = panel.value ? null : 'create'; actionError.value = '' }
 onBeforeRouteLeave(protectDraft)
 onBeforeRouteUpdate(async to => to.params.groupId === route.params.groupId || await protectDraft())
-watch(selectedId, () => { reply.value = null; editing.value = null; dirty.value = false; composerLocked.value = false; detailsOpen.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; actionError.value = ''; status.value = ''; lastRead = ''; atBottom.value = true; unseen.value = 0; panel.value = null })
+watch(selectedId, () => { actionVersion++; mutationBusy.value = false; reply.value = null; editing.value = null; dirty.value = false; composerLocked.value = false; detailsOpen.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; membersError.value = ''; actionError.value = ''; status.value = ''; lastRead = ''; atBottom.value = true; unseen.value = 0; panel.value = null }, { flush: 'sync' })
 watch(() => route.query.action, value => {
   if (value !== 'create' || selectedId.value) return
   panel.value = 'create'
@@ -59,86 +67,72 @@ watch(() => group.value?.membership, value => { if (value === 'join') void loadM
 watch(() => group.value?.encryption, value => { if (value !== 'unencrypted') { reactionMessage.value = null; reactionDialog.value?.close() } })
 watch(() => messages.value.length, async (length, old) => { if (length > old && !historyLoading.value) { if (atBottom.value) await scrollBottom(); else unseen.value += length - old } })
 watch(loading, async value => { if (!value) await scrollBottom() })
-watch(sessionEpoch, () => { joinVersion++; joinController?.abort(); clearTimeout(joinTimer); reply.value = null; editing.value = null; dirty.value = false; members.value = []; detailsOpen.value = false; panel.value = null; actionError.value = ''; status.value = ''; actionBusy.value = false })
+watch(sessionEpoch, () => { actionVersion++; reply.value = null; editing.value = null; dirty.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; membersError.value = ''; detailsOpen.value = false; panel.value = null; actionError.value = ''; status.value = ''; mutationBusy.value = false }, { flush: 'sync' })
 async function scrollBottom() { await nextTick(); if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight; atBottom.value = true; unseen.value = 0; void markRead() }
 function onScroll() { const el = timeline.value; if (!el) return; atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80; if (atBottom.value) { unseen.value = 0; void markRead() } }
 async function markRead() {
-  const latest = messages.value.at(-1), id = selectedId.value
+  const latest = messages.value.at(-1), id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!latest || document.visibilityState !== 'visible' || !atBottom.value || group.value?.membership !== 'join' || lastRead === latest.id) return
   lastRead = latest.id
-  try { await groupApi.read(id, latest.id); if (group.value?.id === id) upsertGroup({ ...group.value, unread_count: 0 }) }
-  catch { if (id === selectedId.value && lastRead === latest.id) lastRead = '' }
+  try { await groupApi.read(id, latest.id); if (isActionCurrent(version, epoch) && group.value?.id === id) upsertGroup({ ...group.value, unread_count: 0 }) }
+  catch { if (isActionCurrent(version, epoch) && lastRead === latest.id) lastRead = '' }
 }
 async function older() { const el = timeline.value, height = el?.scrollHeight ?? 0; await loadHistory(); await nextTick(); if (el) el.scrollTop += el.scrollHeight - height }
 async function loadMembers(more = false) {
-  const id = selectedId.value, epoch = sessionEpoch.value
+  const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!id || group.value?.membership !== 'join' || membersLoading.value || (more && !membersCursor.value)) return
-  membersLoading.value = true
-  try { const page = await groupApi.members(id, more ? membersCursor.value! : undefined); if (!active || id !== selectedId.value || epoch !== sessionEpoch.value) return; members.value = more ? [...new Map([...members.value, ...page.members].map(m => [m.id, m])).values()] : page.members; membersCursor.value = page.next_cursor }
-  catch (e) { if (id === selectedId.value && epoch === sessionEpoch.value) actionError.value = e instanceof Error ? e.message : '成员加载失败' }
-  finally { if (id === selectedId.value && epoch === sessionEpoch.value) membersLoading.value = false }
+  membersLoading.value = true; membersError.value = ''
+  try { const page = await groupApi.members(id, more ? membersCursor.value! : undefined); if (!isActionCurrent(version, epoch)) return; members.value = more ? [...new Map([...members.value, ...page.members].map(m => [m.id, m])).values()] : page.members; membersCursor.value = page.next_cursor }
+  catch (e) { if (isActionCurrent(version, epoch)) membersError.value = e instanceof Error ? e.message : '成员加载失败' }
+  finally { if (isActionCurrent(version, epoch)) membersLoading.value = false }
 }
 async function create() {
   if (actionBusy.value || !consent.value || !createName.value.trim()) return
   const input = { name: createName.value.trim(), topic: createTopic.value, visibility: visibility.value, invite: createInvite.value.split(/[\s,，]+/).filter(Boolean), plaintext_consent: true as const }
   const signature = JSON.stringify(input)
   if (signature !== createSignature) { createTxn = crypto.randomUUID(); createSignature = signature }
-  const epoch = sessionEpoch.value
-  actionBusy.value = true; actionError.value = ''
-  try { const created = await groupApi.create({ ...input, transaction_id: createTxn }); if (!active || epoch !== sessionEpoch.value) return; upsertGroup(created); panel.value = null; createName.value = ''; createTopic.value = ''; createInvite.value = ''; consent.value = false; await router.push(groupPath(created.id)); if (created.invite_failures?.length) actionError.value = `群组已创建，以下成员邀请失败，可在群详情中重试：${created.invite_failures.map(f => f.user_id + '（' + f.error + '）').join('、')}` }
-  catch (e) { if (epoch === sessionEpoch.value) actionError.value = e instanceof Error ? e.message : '创建失败，请重试' }
-  finally { if (epoch === sessionEpoch.value) actionBusy.value = false }
+  const epoch = sessionEpoch.value, version = actionVersion
+  mutationBusy.value = true; actionError.value = ''
+  try { const created = await groupApi.create({ ...input, transaction_id: createTxn }); if (!isActionCurrent(version, epoch)) return; upsertGroup(created); panel.value = null; createName.value = ''; createTopic.value = ''; createInvite.value = ''; consent.value = false; await router.push(groupPath(created.id)); if (active && epoch === sessionEpoch.value && selectedId.value === created.id && created.invite_failures?.length) actionError.value = `群组已创建，以下成员邀请失败，可在群详情中重试：${created.invite_failures.map(f => f.user_id + '（' + f.error + '）').join('、')}` }
+  catch (e) { if (isActionCurrent(version, epoch)) actionError.value = e instanceof Error ? e.message : '创建失败，请重试' }
+  finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
-async function finishJoin(result: GroupJoinResult, version: number) {
-  if (!active || version !== joinVersion) return
-  if (result.client_required) { externalClientURL.value = safeGroupURL(result.client_url); status.value = '已加入。此地址需要使用 Matrix 客户端继续操作。'; actionBusy.value = false; return }
-  if (result.group) { upsertGroup(result.group); if (result.status !== 'joining') { panel.value = null; await router.push(groupPath(result.group.id)); await openRoom() } }
-  status.value = result.status === 'knock' ? '已提交加入申请，正在等待群管理员批准。' : result.status === 'joining' ? '正在加入群组，请稍候…' : result.group?.encryption === 'encrypted' ? '已加入。此群已加密，请使用 Matrix 客户端收发消息。' : '已加入群组'
-  if (result.status === 'joining' && result.operation_id) {
-    const operationID = result.operation_id
-    joinTimer = setTimeout(async () => { try { joinController = new AbortController(); await finishJoin(await groupApi.joinStatus(operationID, joinController.signal), version) } catch (e) { if (active && version === joinVersion) { actionError.value = e instanceof Error ? e.message : '加入状态暂时未知，请刷新列表核实'; actionBusy.value = false } } }, 1500)
-  } else actionBusy.value = false
-}
-async function join(item: Group) {
-  if (actionBusy.value) return
-  const target = item.target || item.id
-  if (!target) return
-  const action = item.membership !== 'invite' && item.join_rule?.startsWith('knock') ? 'knock' : 'join'
-  const version = ++joinVersion
-  actionBusy.value = true; actionError.value = ''
-  try { await finishJoin(await groupApi.join({ target, via: item.via ?? [], action }), version) }
-  catch (e) { if (version === joinVersion) { actionError.value = e instanceof Error ? e.message : '加入失败，请刷新群信息核实状态'; actionBusy.value = false } }
-}
+async function join(item: Group) { if (!actionBusy.value) { actionError.value = ''; await acceptJoin(item) } }
 async function leave() {
   const current = group.value
   if (!current || actionBusy.value) return
+  const epoch = sessionEpoch.value, version = actionVersion
   const verb = current.membership === 'invite' ? '拒绝邀请' : current.membership === 'knock' ? '撤销申请' : '退出群组'
   if (!await confirmAction(`${verb}？`, '退出后不会因新消息自动加入。需要新的邀请或主动加入才能继续参与。', verb)) return
-  actionBusy.value = true; actionError.value = ''
-  try { await groupApi.leave(current.id); if (!active) return; dirty.value = false; detailsOpen.value = false; upsertGroup({ ...current, membership: 'leave' }); await router.push('/groups'); await loadGroups() }
-  catch (e) { actionError.value = e instanceof Error ? e.message : '操作失败' }
-  finally { actionBusy.value = false }
+  if (!isActionCurrent(version, epoch) || actionBusy.value) return
+  mutationBusy.value = true; actionError.value = ''
+  status.value = `${verb}中…`
+  try { await groupApi.leave(current.id); if (!isActionCurrent(version, epoch)) return; dirty.value = false; detailsOpen.value = false; upsertGroup({ ...current, membership: 'leave' }); await router.push('/groups'); if (active && epoch === sessionEpoch.value) void loadGroups() }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '操作失败' } }
+  finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 async function remove(message: GroupMessage) {
+  const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (actionBusy.value || !await confirmAction('删除这条消息？', '删除会同步到群内。无法收回已下载的附件、远端副本或截图。', '删除')) return
-  const id = selectedId.value; actionBusy.value = true; actionError.value = ''
-  try { await groupApi.remove(id, message.id); if (id === selectedId.value) mergeMessages([{ ...message, redacted: true, body: '', attachments: [], reactions: [] }]) }
-  catch (e) { if (id === selectedId.value) actionError.value = e instanceof Error ? e.message : '删除失败' }
-  finally { actionBusy.value = false }
+  if (!isActionCurrent(version, epoch) || actionBusy.value) return
+  mutationBusy.value = true; actionError.value = ''; status.value = '正在删除消息…'
+  try { await groupApi.remove(id, message.id); if (isActionCurrent(version, epoch)) { mergeMessages([{ ...message, redacted: true, body: '', attachments: [], reactions: [] }]); status.value = '消息已删除' } }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '删除失败' } }
+  finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 async function react(message: GroupMessage, key: string, own: boolean) {
   if (!canSend.value || actionBusy.value) return
-  const id = selectedId.value; actionBusy.value = true; actionError.value = ''
-  try { await groupApi.reaction(id, message.id, key, own); reactionDialog.value?.close(); reactionMessage.value = null }
-  catch (e) { if (id === selectedId.value) actionError.value = e instanceof Error ? e.message : '回应失败' }
-  finally { actionBusy.value = false }
+  const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion; mutationBusy.value = true; actionError.value = ''; status.value = '正在发送回应…'
+  try { await groupApi.reaction(id, message.id, key, own); if (isActionCurrent(version, epoch)) { reactionDialog.value?.close(); reactionMessage.value = null; status.value = '回应已更新' } }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '回应失败' } }
+  finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 function reactionPicker(message: GroupMessage) { reactionMessage.value = message; reactionDialog.value?.showModal() }
 function customReaction(emoji: MastodonEmoji) { if (emoji.local_only) { actionError.value = '仅本站表情不能用于群聊回应。'; return } if (reactionMessage.value) void react(reactionMessage.value, `:${emoji.shortcode}:`, false) }
 function receivedSent(incoming: GroupMessage[]) { mergeMessages(incoming); status.value = '消息已发送（本地服务已接受）'; void scrollBottom() }
 async function context(message: GroupMessage, edit = false) { if (composerLocked.value) return; if (edit && dirty.value && !await confirmAction('替换当前草稿？', '编辑消息会用原消息内容替换当前输入框中的草稿。', '替换草稿')) return; if (edit) { editing.value = message; reply.value = null } else { reply.value = message; editing.value = null } }
 onMounted(() => { document.addEventListener('visibilitychange', markRead) })
-onBeforeUnmount(() => { active = false; joinVersion++; joinController?.abort(); clearTimeout(joinTimer); document.removeEventListener('visibilitychange', markRead) })
+onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead) })
 </script>
 <template>
   <div class="groups-page" :class="{ 'groups-page--selected': !!selectedId, 'groups-page--panel': !!panel }">
@@ -162,10 +156,10 @@ onBeforeUnmount(() => { active = false; joinVersion++; joinController?.abort(); 
       </div>
       <template v-else-if="selectedId">
         <header class="group-thread-header"><RouterLink to="/groups" class="group-thread-header__back" aria-label="返回群列表"><t-icon name="chevron-left" :size="24" /></RouterLink><GroupAvatar :name="group?.name || '群组'" :url="group?.avatar_url" :size="36" /><div><h2>{{ group?.name || (loading ? '正在加载…' : '群聊') }}</h2><p>{{ group ? `${groupMembershipLabel[group.membership]} · ${group.member_count ?? '未知'} 位成员` : '' }}</p></div><button v-if="group" class="btn btn--ghost btn--sm" type="button" :aria-expanded="detailsOpen" @click="detailsOpen = true">群详情</button></header>
-        <p v-if="syncError" class="groups-notice" role="status">{{ syncError }} <template v-if="syncPaused"><button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? '刷新中…' : '手动刷新并重试' }}</button><a v-if="clientURL" :href="clientURL" target="_blank" rel="noopener noreferrer">使用客户端打开</a></template></p><p v-if="error || actionError" class="groups-notice groups-notice--error" role="alert">{{ error || actionError }} <button v-if="error" type="button" @click="openRoom">重新加载</button></p>
+        <p v-if="syncError" class="groups-notice" role="status">{{ syncError }} <template v-if="syncPaused"><button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? '刷新中…' : '手动刷新并重试' }}</button><a v-if="clientURL" :href="clientURL" target="_blank" rel="noopener noreferrer">使用客户端打开</a></template></p><p v-if="error || actionError || joinError" class="groups-notice groups-notice--error" role="alert">{{ error || actionError || joinError }} <button v-if="error" type="button" @click="openRoom">重新加载</button></p>
         <div v-if="loading" class="groups-placeholder" role="status"><t-loading /><p>正在打开群聊…</p></div>
         <template v-else-if="group">
-          <div v-if="group.membership !== 'join'" class="groups-state"><h3>{{ groupMembershipLabel[group.membership] }}</h3><p>{{ group.membership === 'invite' ? '有成员邀请你加入此群。接受后即可参与。' : group.membership === 'knock' ? '你的加入申请已提交，等待管理员批准。' : group.membership === 'ban' ? '你目前无法加入此群，请联系群管理员。' : '你已不在此群中，新消息不会自动将你加入。' }}</p><div><button v-if="['invite','leave','none'].includes(group.membership)" class="btn btn--primary btn--sm" type="button" :disabled="actionBusy" @click="join(group)">{{ group.membership === 'invite' ? '接受邀请' : '重新加入' }}</button><button v-if="['invite','knock'].includes(group.membership)" class="btn btn--secondary btn--sm" type="button" :disabled="actionBusy" @click="leave">{{ group.membership === 'invite' ? '拒绝邀请' : '撤销申请' }}</button></div></div>
+          <div v-if="group.membership !== 'join'" class="groups-state"><h3>{{ groupMembershipLabel[group.membership] }}</h3><p>{{ group.membership === 'invite' ? '有成员邀请你加入此群。接受后即可参与。' : group.membership === 'knock' ? '你的加入申请已提交，等待管理员批准。' : group.membership === 'ban' ? '你目前无法加入此群，请联系群管理员。' : '你已不在此群中，新消息不会自动将你加入。' }}</p><div><button v-if="['invite','leave','none'].includes(group.membership)" class="btn btn--primary btn--sm" type="button" :disabled="actionBusy" @click="join(group)">{{ joinBusy ? '加入中…' : joinOperation ? '重试查询' : group.membership === 'invite' ? '接受邀请' : '重新加入' }}</button><button v-if="['invite','knock'].includes(group.membership)" class="btn btn--secondary btn--sm" type="button" :disabled="actionBusy" @click="leave">{{ group.membership === 'invite' ? '拒绝邀请' : '撤销申请' }}</button></div></div>
           <div v-else-if="group.room_type === 'm.space'" class="groups-state"><h3>这是一个空间</h3><p>空间用于组织多个群组，请在 Matrix 客户端中浏览。</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">使用客户端打开</a></div>
           <div v-else-if="group.encryption !== 'unencrypted'" class="groups-state"><t-icon name="lock-on" :size="36" /><h3>{{ group.encryption === 'encrypted' ? '请使用客户端参与加密群聊' : '正在确认加密状态' }}</h3><p>{{ group.encryption === 'encrypted' ? '你已加入此群。网页不支持端到端加密，无法读取或发送加密消息；未发送的草稿可以保留和复制。' : '确认之前，网页暂不发送消息或上传文件。' }}</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">使用 Matrix 客户端打开</a><button v-if="group.encryption === 'unknown'" class="btn btn--secondary btn--sm" type="button" @click="openRoom">重新检查</button></div>
           <template v-else>
@@ -175,12 +169,12 @@ onBeforeUnmount(() => { active = false; joinVersion++; joinController?.abort(); 
           </template>
           <p v-if="typingNames && canSend" class="group-typing" role="status">{{ typingNames }} 正在输入…</p>
           <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" />
-          <p class="groups-announcer" role="status">{{ status }}</p>
+          <p v-if="actionBusy" class="groups-notice" role="status">{{ joinBusy ? joinStatus : status }}</p><p class="groups-announcer" role="status">{{ status || joinStatus }}</p>
         </template>
       </template>
-      <div v-else class="groups-welcome"><span class="groups-welcome__icon"><t-icon name="usergroup" :size="38" /></span><h2>一起聊聊</h2><p>创建群组，或加入其他服务器上的 Matrix 群聊。<br />图片、文件和表情都能在这里分享。</p><button class="btn btn--primary" type="button" @click="openPanel">创建群组</button><p class="groups-subtle">在搜索框中输入群名或粘贴群地址，即可查找并加入。</p></div>
+      <div v-else class="groups-welcome"><span class="groups-welcome__icon"><t-icon name="usergroup" :size="38" /></span><h2>一起聊聊</h2><p>创建群组，或加入其他服务器上的 Matrix 群聊。<br />图片、文件和表情都能在这里分享。</p><button class="btn btn--primary" type="button" :disabled="actionBusy" @click="openPanel">创建群组</button><p class="groups-subtle">在搜索框中输入群名或粘贴群地址，即可查找并加入。</p></div>
     </section>
-    <dialog ref="detailsDialog" class="group-details-dialog" aria-label="群详情" @cancel="detailsOpen = false" @click="($event.target === detailsDialog) && (detailsOpen = false)"><GroupDetails v-if="group && detailsOpen" :group="group" :members="members" :members-cursor="membersCursor" :members-loading="membersLoading" :members-error="actionError" @close="detailsOpen = false" @updated="upsertGroup" @reload-members="loadMembers()" @more-members="loadMembers(true)" @leave="leave" /></dialog>
+    <dialog ref="detailsDialog" class="group-details-dialog" aria-label="群详情" @cancel="detailsOpen = false" @click="($event.target === detailsDialog) && (detailsOpen = false)"><GroupDetails v-if="group && detailsOpen" :group="group" :members="members" :members-cursor="membersCursor" :members-loading="membersLoading" :members-error="membersError" :pending="actionBusy" @close="detailsOpen = false" @updated="upsertGroup" @reload-members="loadMembers()" @more-members="loadMembers(true)" @leave="leave" /></dialog>
     <dialog ref="reactionDialog" class="group-reaction-dialog" aria-label="添加表情回应" @cancel="reactionMessage = null"><header><h2>添加表情回应</h2><button type="button" aria-label="关闭表情选择" @click="reactionDialog?.close(); reactionMessage = null">×</button></header><p v-if="actionError" class="groups-notice groups-notice--error" role="alert">{{ actionError }}</p><div class="group-reaction-unicode"><button v-for="emoji in ['👍','❤️','😂','🎉','🤔','😊','🙏','👀','😢','🚀','✅','✨']" :key="emoji" type="button" :disabled="actionBusy || !canSend" @click="reactionMessage && react(reactionMessage, emoji, false)">{{ emoji }}</button></div><EmojiPicker @select="customReaction" @close="reactionDialog?.close(); reactionMessage = null" /></dialog>
   </div>
 </template>

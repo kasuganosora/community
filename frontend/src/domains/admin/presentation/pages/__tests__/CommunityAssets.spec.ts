@@ -19,3 +19,43 @@ describe('Community assets',()=>{
  it('overlays only a locally validated decoration route without replacing the avatar',()=>{const account={avatar:'/media/3/avatar.png',username:'alice',avatar_decoration_url:'/api/v1/avatar_decorations/5/image'} as MastodonAccount;const w=mount(UserAvatar,{props:{account},global:{}});expect(w.find('.user-avatar__image').attributes('src')).toBe('/media/3/avatar.png');expect(w.find('.avatar-decoration').attributes('src')).toBe('/api/v1/avatar_decorations/5/image');w.unmount();const bad=mount(UserAvatar,{props:{account:{...account,avatar_decoration_url:'https://tracker.test/pixel'}},global:{stubs:{'t-avatar':true}}});expect(bad.find('.avatar-decoration').exists()).toBe(false);bad.unmount()})
  it('labels real ads, rejects script links and stops display after server withdrawal',async()=>{vi.useFakeTimers();api.advertisements.mockResolvedValue([{id:'1',title:'Sponsor',image_url:'/emoji-assets/safe.png',target_url:'https://example.test'},{id:'2',title:'unsafe',image_url:'/emoji-assets/safe.png',target_url:'javascript:alert(1)'}]);const w=mount(AdvertisementCard);await flushPromises();expect(w.text()).toContain('广告');expect(w.findAll('a')).toHaveLength(1);expect(w.find('a').attributes('rel')).toContain('noreferrer');expect(w.find('img').attributes('src')).toBe('/emoji-assets/safe.png');api.advertisements.mockResolvedValue([]);await vi.advanceTimersByTimeAsync(60000);await flushPromises();expect(w.find('aside').exists()).toBe(false);w.unmount()})
 })
+
+it('shows asset loading and retries failure without claiming there are no assets', async () => {
+ let reject!: (reason: Error) => void
+ api.list.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail })).mockResolvedValueOnce([])
+ const w = mount(BrandAssetsAdminPage, { props: { kind: 'advertisements' } })
+ expect(w.get('[role=status]').text()).toContain('正在加载')
+ expect(w.text()).not.toContain('暂无广告')
+ reject(new Error('offline')); await flushPromises()
+ expect(w.text()).not.toContain('暂无广告')
+ await w.get('[role=alert] button').trigger('click'); await flushPromises()
+ expect(w.text()).toContain('暂无广告'); w.unmount()
+})
+
+it('ignores a previous asset category response after switching between decorations and ads', async () => {
+ let resolve!: (items: unknown[]) => void
+ api.list.mockImplementationOnce(() => new Promise(done => { resolve = done })).mockResolvedValueOnce([{ id: 'ad', title: 'Current advertisement', enabled: true, image_url: '/ad.png' }])
+ const w = mount(BrandAssetsAdminPage, { props: { kind: 'avatar_decorations' } })
+ await w.setProps({ kind: 'advertisements' }); await flushPromises()
+ resolve([{ id: 'old', title: 'Previous category', name: 'Previous decoration', enabled: true, image_url: '/old.png' }]); await flushPromises()
+ expect(api.list).toHaveBeenLastCalledWith('advertisements')
+ expect(w.text()).toContain('Current advertisement')
+ expect(w.text()).not.toContain('Previous'); w.unmount()
+})
+
+it('keeps decoration choices loading until ready and prevents repeat save submissions', async () => {
+ let resolve!: (items: unknown[]) => void
+ api.decorations.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+ let saved!: () => void
+ api.selectDecoration.mockImplementationOnce(() => new Promise<void>(done => { saved = done }))
+ const w = mount(AvatarDecorationPicker)
+ expect(w.get('[role=status]').text()).toContain('正在加载挂件')
+ expect(w.find('input[type=radio]').exists()).toBe(false)
+ expect(w.get('button[type=submit]').attributes('disabled')).toBeDefined()
+ resolve([{ id: '5', name: 'Available decoration', image_url: '/decoration.png' }]); await flushPromises()
+ await w.get('input[value="5"]').setValue()
+ await w.get('form').trigger('submit'); await w.get('form').trigger('submit')
+ expect(api.selectDecoration).toHaveBeenCalledTimes(1)
+ expect(w.get('button[type=submit]').text()).toBe('保存中…')
+ saved(); await flushPromises(); w.unmount()
+})

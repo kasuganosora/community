@@ -8,6 +8,8 @@ const site = computed(() => props.scope === 'site')
 const jobs = ref<TransferJob[]>([]), selected = ref<TransferJob | null>(null)
 const source = ref('auto'), kind = ref('archive'), file = ref<File | null>(null)
 const archiveOpen = ref(false)
+const listLoading = ref(false), listError = ref(''), refreshing = ref(false)
+let refreshVersion = 0
 const busy = ref(false), error = ref(''), confirmation = ref(false), notice = ref('')
 let generation = 0, controller = new AbortController(), timer: ReturnType<typeof setTimeout> | undefined
 const states = { validating: '预检中', ready: '等待确认', blocked: '预检未通过', running: '导入中', completed: '已完成', failed: '失败' }
@@ -25,27 +27,47 @@ const reports = computed(() => selected.value?.report ? [
   { title: '检测到', values: selected.value.report.counts }, { title: '已创建', values: selected.value.report.created },
   { title: '重复跳过', values: selected.value.report.skipped }, { title: '仅归档', values: selected.value.report.archived },
 ] : [])
-function reset() { archiveOpen.value = false; generation++; controller.abort(); controller = new AbortController(); clearTimeout(timer); jobs.value = []; selected.value = null; file.value = null; busy.value = false; error.value = ''; confirmation.value = false; notice.value = '' }
+function reset() { listLoading.value = false; listError.value = ''; refreshing.value = false; refreshVersion++; archiveOpen.value = false; generation++; controller.abort(); controller = new AbortController(); clearTimeout(timer); jobs.value = []; selected.value = null; file.value = null; busy.value = false; error.value = ''; confirmation.value = false; notice.value = '' }
 function fail(e: unknown) {
   const status = (e as { response?: { status?: number } } | null)?.response?.status
   if (status === 401 || status === 403) reset()
   error.value = e instanceof Error ? e.message : '操作失败，请稍后重试' }
-function put(job: TransferJob) { selected.value = job; jobs.value = [job, ...jobs.value.filter(j => j.id !== job.id)]; confirmation.value = false; schedule() }
+function put(job: TransferJob) { refreshVersion++; refreshing.value = false; selected.value = job; jobs.value = [job, ...jobs.value.filter(j => j.id !== job.id)]; confirmation.value = false; schedule() }
 function schedule() { clearTimeout(timer); if (selected.value && ['validating', 'running'].includes(selected.value.state)) timer = setTimeout(() => { void refresh() }, 2500) }
 async function refresh() {
   const job = selected.value, version = generation
-  if (!job) return
-  try { const result = await transferApi.get(props.scope, job.id, controller.signal); if (version === generation && selected.value?.id === job.id) put(result) }
-  catch (e) { if (version === generation) { fail(e); notice.value = '连接中断不会取消服务器任务，可点击刷新恢复进度。' } }
+  if (!job || refreshing.value) return
+  const request = ++refreshVersion
+  refreshing.value = true; error.value = ''
+  try {
+    const result = await transferApi.get(props.scope, job.id, controller.signal)
+    if (version === generation && request === refreshVersion && selected.value?.id === job.id) put(result)
+  } catch (e) {
+    if (version === generation && request === refreshVersion) { fail(e); notice.value = '连接中断不会取消服务器任务，可点击刷新恢复进度。' }
+  } finally {
+    if (version === generation && request === refreshVersion) refreshing.value = false
+  }
 }
-async function load() { const version = generation; try { const result = await transferApi.list(props.scope, controller.signal); if (version === generation) jobs.value = result } catch (e) { if (version === generation) fail(e) } }
+async function load() {
+  if (listLoading.value || busy.value) return
+  const version = generation
+  listLoading.value = true; listError.value = ''; error.value = ''
+  try {
+    const result = await transferApi.list(props.scope, controller.signal)
+    if (version === generation) jobs.value = result
+  } catch (e) {
+    if (version === generation) { fail(e); listError.value = error.value }
+  } finally {
+    if (version === generation) listLoading.value = false
+  }
+}
 function choose(event: Event) {
   const input = event.target as HTMLInputElement
   file.value = input.files?.[0] || null; input.value = ''; confirmation.value = false; error.value = ''
   if (file.value && (file.value.size > 256 * 1024 * 1024 || (site.value && !file.value.name.toLowerCase().endsWith('.zip')))) { file.value = null; error.value = site.value ? '请选择不超过 256 MiB 的整站迁移 ZIP 包' : '文件超过 256 MiB，请使用命令行导入' }
 }
 async function action(task: () => Promise<void>) { if (busy.value) return; busy.value = true; error.value = ''; const version = generation; try { await task() } catch (e) { if (version === generation) fail(e) } finally { if (version === generation) busy.value = false } }
-function upload() { const uploadFile = file.value, version = generation; if (!uploadFile) return; void action(async () => { const job = await transferApi.upload(props.scope, uploadFile, source.value, kind.value, controller.signal); if (version === generation) { file.value = null; put(job) } }) }
+function upload() { if (listLoading.value) return; const uploadFile = file.value, version = generation; if (!uploadFile) return; void action(async () => { const job = await transferApi.upload(props.scope, uploadFile, source.value, kind.value, controller.signal); if (version === generation) { file.value = null; put(job) } }) }
 function execute() { const job = selected.value, version = generation; if (!job || !canExecute.value || !confirmation.value) return; void action(async () => {
   try { const result = await transferApi.execute(props.scope, job, controller.signal); if (version === generation) put(result) }
   catch (e) { if (version === generation) { confirmation.value = false; notice.value = '执行请求结果不确定时请刷新此任务，不要重新上传。'; await refresh() } throw e }
@@ -72,10 +94,10 @@ onUnmounted(reset)
         <label>来源<select v-model="source" :disabled="busy"><option value="auto">自动识别</option><option value="community">Community</option><option value="misskey">Misskey</option><option value="mastodon">Mastodon</option></select></label>
         <label v-if="!site">内容类型<select v-model="kind" :disabled="busy"><option value="archive">完整个人备份</option><option value="notes">帖子</option><option value="following">关注</option><option value="blocking">屏蔽</option><option value="muting">静音</option><option value="domain_blocks">域名屏蔽</option><option value="bookmarks">书签</option><option value="lists">列表</option><option value="filters">过滤规则</option></select></label>
         <label>备份文件<input type="file" :accept="site ? '.zip' : '.zip,.gz,.json,.csv'" :disabled="busy" @change="choose" /></label>
-        <p v-if="file">{{ file.name }}</p><button type="submit" :disabled="busy || !file">上传并预检</button>
+        <p v-if="file">{{ file.name }}</p><button type="submit" :disabled="busy || listLoading || !file">上传并预检</button>
       </form>
       <p v-if="busy" role="status">正在处理请求，请稍候…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-      <section aria-label="导入任务"><h2>导入任务</h2><button :disabled="busy" @click="load">刷新任务列表</button><p v-if="!jobs.length">暂无任务</p><ul><li v-for="job in jobs" :key="job.id"><button :disabled="busy" @click="put(job)">{{ job.filename }} · {{ states[job.state] }}</button></li></ul></section>
+      <section aria-label="导入任务" :aria-busy="listLoading"><h2>导入任务</h2><button :disabled="busy || listLoading" @click="load">{{ listLoading ? '读取中…' : '刷新任务列表' }}</button><p v-if="listLoading" role="status">正在读取任务…</p><p v-else-if="!listError && !jobs.length">暂无任务</p><ul><li v-for="job in jobs" :key="job.id"><button :disabled="busy" @click="put(job)">{{ job.filename }} · {{ states[job.state] }}</button></li></ul></section>
       <section v-if="selected" aria-label="预检与执行报告">
         <h2>{{ selected.filename }} · {{ states[selected.state] }}</h2>
         <p role="status">{{ selected.progress.phase }}：{{ selected.progress.completed }}<template v-if="selected.progress.total > 0"> / {{ selected.progress.total }}</template></p>
@@ -89,7 +111,7 @@ onUnmounted(reset)
           <button :disabled="busy" @click="downloadReport">下载报告</button>
         </template>
         <template v-if="canExecute"><label><input v-model="confirmation" type="checkbox" :disabled="busy" />我已核对预检报告，确认按此版本导入</label><button :disabled="busy || !confirmation" @click="execute">{{ selected.state === 'failed' ? '重试此任务' : '确认执行导入' }}</button></template>
-        <button :disabled="busy" @click="refresh">刷新任务状态</button><button :disabled="busy || selected.state === 'running'" @click="remove">删除任务私有包</button>
+        <button :disabled="busy || refreshing" :aria-busy="refreshing" @click="refresh">{{ refreshing ? '刷新中…' : '刷新任务状态' }}</button><button :disabled="busy || selected.state === 'running'" @click="remove">删除任务私有包</button>
       </section>
     </div>
   </div>

@@ -113,19 +113,23 @@ async function open(c: MastodonConversation, e?: MouseEvent) {
 
 function remove(c: MastodonConversation) {
   const epoch = sessionEpoch.value
+  let pending = false
   const dialog = DialogPlugin.confirm({
     header: '删除此会话？',
     body: '会话会从列表中移除，已经发出的私信仍保留在对方那里。',
     confirmBtn: { content: '删除', theme: 'danger' },
     cancelBtn: '取消',
     onConfirm: async () => {
+      if (pending) return
       if (epoch !== sessionEpoch.value) { dialog.destroy(); return }
+      pending = true
+      dialog.setConfirmLoading(true)
       try {
         await conversationApi.remove(c.id)
         if (epoch !== sessionEpoch.value) return
         conversations.value = conversations.value.filter(x => x.id !== c.id)
       } catch (e) {
-        MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
+        if (epoch === sessionEpoch.value) MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
       } finally {
         dialog.destroy()
       }
@@ -165,7 +169,7 @@ onMounted(async () => {
     </div>
     <ConversationMembersForm v-if="creating" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />
     <PostComposer v-if="quickCompose" initial-visibility="direct" placeholder="@用户名 写一条私信…" @posted="onPosted" />
-    <p v-if="chatError" class="messages-banner" role="alert">{{ chatError }} <button class="btn btn--ghost btn--sm" @click="loadChats()">重试</button></p>
+    <p v-if="chatError" class="messages-banner" role="alert">{{ chatError }} <button class="btn btn--ghost btn--sm" :disabled="chatLoading" @click="loadChats()">{{ chatLoading ? '加载中…' : '重试' }}</button></p>
 
     <p v-if="error && (conversations.length > 0 || chats.length > 0)" class="messages-banner" role="alert">
       {{ error }}

@@ -1,30 +1,41 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useSettingsScope } from '../composables/useSettingsScope'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { authApi, type AuthorizedApp } from '@/domains/auth/infrastructure/authApi'
 
 const apps = ref<AuthorizedApp[]>([])
 const loadError = ref('')
 const fetching = ref(true)
+const revoking = ref('')
+const scope = useSettingsScope(() => { apps.value = []; loadError.value = ''; fetching.value = false; revoking.value = '' })
 
 async function refresh() {
+  const current = scope()
   fetching.value = true
   loadError.value = ''
   try {
-    apps.value = await authApi.listAuthorizedApps()
+    const result = await authApi.listAuthorizedApps()
+    if (current()) apps.value = result
   } catch {
-    loadError.value = '加载失败，请重试'
+    if (current()) loadError.value = '加载失败，请重试'
   } finally {
-    fetching.value = false
+    if (current()) fetching.value = false
   }
 }
 
 async function revoke(id: string) {
+  if (revoking.value || fetching.value) return
+  const current = scope()
+  revoking.value = id
   try {
     await authApi.revokeAuthorizedApp(id)
-    await refresh()
+    if (!current()) return
+    apps.value = apps.value.filter(app => app.id !== id)
   } catch {
-    MessagePlugin.error('撤销失败')
+    if (current()) MessagePlugin.error('撤销失败')
+  } finally {
+    if (current()) revoking.value = ''
   }
 }
 
@@ -44,7 +55,7 @@ onMounted(() => {
           <strong>{{ app.name }}</strong>
           <small v-if="app.scopes">{{ app.scopes }}</small>
         </span>
-        <button type="button" @click="revoke(app.id)">撤销</button>
+        <button type="button" :disabled="!!revoking" :aria-busy="revoking === app.id" @click="revoke(app.id)">{{ revoking === app.id ? '撤销中…' : '撤销' }}</button>
       </li>
     </ul>
   </div>

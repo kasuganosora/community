@@ -52,7 +52,7 @@ onMounted(() => load())
     <p v-if="error" role="alert" class="admin-error">{{ error }}</p>
     <p v-if="notice" class="admin-alert admin-alert--success" role="status">{{ notice }}</p>
     <section class="admin-card" :aria-busy="busy">
-      <p v-if="busy">加载中…</p><p v-else-if="!items.length" class="admin-empty">没有匹配的任务。</p>
+      <p v-if="busy">加载中…</p><p v-else-if="!error && !items.length" class="admin-empty">没有匹配的任务。</p>
       <article v-for="job in items" :key="`${job.kind}:${job.id}`" class="admin-card">
         <div class="admin-card__header"><strong>#{{ job.id }}</strong><span class="admin-badge" :class="{ 'admin-badge--success': ['delivered', 'processed', 'complete'].includes(job.state), 'admin-badge--danger': job.state === 'failed', 'admin-badge--warning': job.state === 'pending' }">{{ job.kind === 'matrix-direct' && job.state === 'delivered' ? '桥接处理完成' : labels[job.state] || job.state }}</span></div>
         <p>{{ job.event || job.activity_id }}</p><p v-if="job.parent_id">所属事件：#{{ job.parent_id }} · 批次 {{ job.batch_no }}</p>

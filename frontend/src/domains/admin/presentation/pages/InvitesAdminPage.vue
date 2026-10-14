@@ -38,7 +38,7 @@ onMounted(() => load())
     </form>
     <section class="admin-card" :aria-busy="loading">
       <p v-if="loading" class="admin-empty" role="status">正在加载…</p>
-      <AdminEmpty v-else-if="!rows.length">暂无符合条件的邀请码。</AdminEmpty>
+      <AdminEmpty v-else-if="!error && !rows.length">暂无符合条件的邀请码。</AdminEmpty>
       <ul v-else class="admin-list">
         <AdminRow v-for="invite in rows" :key="invite.id" :title="invite.code" mono>
           <template #meta>

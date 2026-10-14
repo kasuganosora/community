@@ -18,6 +18,7 @@ export function useGroups(selectedId: Ref<string>) {
   let resumeWait: (() => void) | undefined
   let syncCursor: string | undefined
   let initialSyncDone = false
+  let initialFallbackStarted = false
   const isCurrent = (id: string, epoch: number) => active && epoch === sessionEpoch.value && id === selectedId.value
   function upsertGroup(item: Group) {
     const index = groups.value.findIndex(g => g.id === item.id)
@@ -44,10 +45,10 @@ export function useGroups(selectedId: Ref<string>) {
     }
   }
   async function refreshRoom() {
-    const id = selectedId.value, epoch = sessionEpoch.value
+    const id = selectedId.value, epoch = sessionEpoch.value, request = version
     if (!id) return
-    try { const value = await groupApi.get(id); if (isCurrent(id, epoch)) { upsertGroup(value); error.value = '' } }
-    catch (e) { if (isCurrent(id, epoch)) { error.value = e instanceof Error ? e.message : '群信息更新失败'; revokeInaccessible(e) } }
+    try { const value = await groupApi.get(id); if (isCurrent(id, epoch) && request === version) { upsertGroup(value); error.value = '' } }
+    catch (e) { if (isCurrent(id, epoch) && request === version) { error.value = e instanceof Error ? e.message : '群信息更新失败'; revokeInaccessible(e) } }
   }
   async function openRoom() {
     const request = ++version, id = selectedId.value, epoch = sessionEpoch.value
@@ -74,16 +75,16 @@ export function useGroups(selectedId: Ref<string>) {
     finally { if (isCurrent(id, epoch) && request === version) loading.value = false }
   }
   async function loadHistory() {
-    const id = selectedId.value, epoch = sessionEpoch.value
+    const id = selectedId.value, epoch = sessionEpoch.value, request = version
     if (!historyCursor.value || historyLoading.value || !id) return
     historyLoading.value = true
     try {
       const page = await groupApi.messages(id, historyCursor.value)
-      if (!isCurrent(id, epoch)) return
+      if (!isCurrent(id, epoch) || request !== version) return
       messages.value = mergeGroupMessages(messages.value, page.messages, true)
       historyCursor.value = page.next_cursor; error.value = ''
-    } catch (e) { if (isCurrent(id, epoch)) error.value = e instanceof Error ? e.message : '历史加载失败' }
-    finally { if (isCurrent(id, epoch)) historyLoading.value = false }
+    } catch (e) { if (isCurrent(id, epoch) && request === version) error.value = e instanceof Error ? e.message : '历史加载失败' }
+    finally { if (isCurrent(id, epoch) && request === version) historyLoading.value = false }
   }
   async function syncLoop() {
     const epoch = sessionEpoch.value
@@ -95,6 +96,7 @@ export function useGroups(selectedId: Ref<string>) {
         const initial = !initialSyncDone
         syncCursor = update.next_cursor; syncError.value = ''; initialSyncDone = true
         if (update.reset) { await loadGroups() }
+        if (!active || epoch !== sessionEpoch.value) return
         for (const item of update.groups ?? []) upsertGroup(item)
         for (const left of update.left_group_ids ?? []) {
           groups.value = groups.value.filter(item => item.id !== left)
@@ -102,10 +104,12 @@ export function useGroups(selectedId: Ref<string>) {
         }
         if (update.reset) { messages.value = []; historyCursor.value = null }
         if (initial || update.reset) await openRoom()
+        if (!active || epoch !== sessionEpoch.value) return
         const incoming = update.messages_by_group?.[selectedId.value]
         if (incoming) messages.value = mergeGroupMessages(messages.value, incoming)
         if (group.value && update.typing_by_group?.[group.value.id]) group.value.typing_users = update.typing_by_group[group.value.id]
         if (update.changed_group_ids?.includes(selectedId.value) && !update.groups?.some(item => item.id === selectedId.value)) await refreshRoom()
+        if (!active || epoch !== sessionEpoch.value) return
         // Some servers return immediately when the snapshot changes; yield before the next long poll.
         if (!update.has_more) await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, 150) })
       } catch (error) {
@@ -122,6 +126,10 @@ export function useGroups(selectedId: Ref<string>) {
         }
         if (isAxiosError(error) && error.response?.data?.code === 'invalid_cursor') { syncCursor = undefined; initialSyncDone = false }
         syncError.value = '连接暂时中断，正在自动重新连接。草稿会保留。'
+        // A failed live-sync endpoint must not keep a readable room behind an
+        // endless initial spinner. Reconcile history again when sync recovers.
+        if (!initialSyncDone && !initialFallbackStarted) { initialFallbackStarted = true; await openRoom() }
+        if (!active || epoch !== sessionEpoch.value) return
         await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, 3000) })
       }
     }
@@ -142,11 +150,11 @@ export function useGroups(selectedId: Ref<string>) {
     } finally { if (active && epoch === sessionEpoch.value) refreshing.value = false }
   }
   function mergeMessages(incoming: GroupMessage[]) { messages.value = mergeGroupMessages(messages.value, incoming) }
-  watch(selectedId, () => { if (initialSyncDone) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
+  watch(selectedId, () => { if (initialSyncDone || syncError.value) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
   watch(sessionEpoch, () => {
     version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.()
-    groups.value = []; group.value = null; messages.value = []; syncCursor = undefined; initialSyncDone = false
-    listLoading.value = false; loading.value = false; listCursor.value = null; historyCursor.value = null
+    groups.value = []; group.value = null; messages.value = []; syncCursor = undefined; initialSyncDone = false; initialFallbackStarted = false
+    listLoading.value = false; loading.value = false; historyLoading.value = false; listCursor.value = null; historyCursor.value = null
     listError.value = ''; error.value = ''; syncError.value = ''; syncPaused.value = false; refreshing.value = false
     void loadGroups(); void syncLoop()
   })

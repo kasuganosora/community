@@ -42,7 +42,7 @@ onMounted(() => load())
           <tbody><tr v-for="row in rows" :key="row.id"><td>{{ new Date(row.created_at).toLocaleString() }}</td><td>#{{ row.actor_id }} / #{{ row.account_id }}</td><td>{{ row.action }}<br />目标 #{{ row.target_id || '—' }}</td><td><span class="admin-badge" :class="{'admin-badge--success':row.outcome==='success','admin-badge--danger':row.outcome==='failure','admin-badge--warning':row.outcome==='pending'}">{{ names[row.outcome] }}</span></td><td>{{ row.status || '—' }} / {{ row.duration_ms }} ms</td></tr></tbody>
         </table>
       </div>
-      <p v-if="!rows.length" class="admin-empty">没有匹配的审计日志</p>
+      <p v-if="!error && !rows.length" class="admin-empty">没有匹配的审计日志</p>
     </div>
     <nav class="admin-pagination" aria-label="审计日志分页"><button class="admin-button" :disabled="loading || cursors.length === 1" @click="page(false)">上一页</button><button class="admin-button" :disabled="loading || rows.length < 40" @click="page(true)">下一页</button></nav>
   </section>

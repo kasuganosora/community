@@ -15,9 +15,27 @@ function setup() {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  mock.state = { conversation: ref({ title: 'QA', members: [], can_manage: true }), messages: ref([message]), cursor: ref(null), loading: ref(false), loadingOlder: ref(false), pending: ref(''), busy: ref(false), error: ref(''), send: mock.send, refresh: vi.fn() }
+  mock.state = { conversation: ref({ title: 'QA', members: [], can_manage: true }), messages: ref([message]), cursor: ref(null), loading: ref(false), loadingOlder: ref(false), refreshPending: ref(false), pending: ref(''), busy: ref(false), error: ref(''), send: mock.send, refresh: vi.fn(), reload: vi.fn() }
 })
 describe('chat composer failure recovery', () => {
+  it('shows retry feedback without hiding the readable conversation behind a page spinner', async () => {
+    const refreshPending = mock.state.refreshPending as { value: boolean }
+    ;(mock.state.error as { value: string }).value = '请求失败'
+    mock.state.reload = vi.fn(() => { refreshPending.value = true })
+    const w = setup()
+    await w.get('.chat-thread__error button').trigger('click')
+    expect(mock.state.reload).toHaveBeenCalledTimes(1)
+    expect(w.get('.chat-thread__error button').text()).toBe('加载中…')
+    expect(w.get('.chat-thread__error button').attributes('disabled')).toBeDefined()
+    await w.get('.chat-thread__error button').trigger('click')
+    expect(mock.state.reload).toHaveBeenCalledTimes(1)
+    expect(w.find('.page-loading').exists()).toBe(false)
+    expect(w.find('textarea').exists()).toBe(true)
+    refreshPending.value = false; await flushPromises()
+    expect(w.get('.chat-thread__error button').text()).toBe('重试')
+    expect(w.get('.chat-thread__error button').attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
   it('blocks keyboard submit until uploads finish, then sends the actual attachment ID', async () => {
     let resolve!: (file: never) => void
     vi.mocked(postApi.uploadMedia).mockReturnValue(new Promise(done => { resolve = done }))

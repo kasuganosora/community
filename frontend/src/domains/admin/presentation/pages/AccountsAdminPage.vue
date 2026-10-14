@@ -81,7 +81,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
         <thead><tr><th>账号</th><th>来源</th><th>状态</th><th>角色</th><th>操作</th></tr></thead>
         <tbody><tr v-for="a in items" :key="a.id"><td>{{ a.display_name || a.username }}<br /><small>@{{ a.username }}{{ a.domain ? `@${a.domain}` : '' }}</small></td><td>{{ a.domain || '本地' }}</td><td><span class="admin-badge">{{ state(a) }}</span></td><td>{{ a.role === 'admin' ? '管理员' : a.role === 'user' ? '用户' : '—' }}</td><td><button class="admin-button" :disabled="loading || busy" @click="detail(a.id)">详情</button></td></tr></tbody>
       </table>
-      <p v-if="!loading && !items.length" class="admin-empty">没有符合条件的账号</p>
+      <p v-if="!loading && !error && !items.length" class="admin-empty">没有符合条件的账号</p>
     </div>
     <nav class="admin-pagination" aria-label="账号分页">
       <button class="admin-button" :disabled="loading || busy || offset === 0" @click="page(-1)">上一页</button>

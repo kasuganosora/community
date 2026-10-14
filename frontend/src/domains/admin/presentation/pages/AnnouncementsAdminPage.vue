@@ -60,7 +60,7 @@ onMounted(() => load())
         <AdminButton size="sm" variant="danger" :disabled="busy" @click="remove(row)">删除</AdminButton>
       </div>
     </article>
-    <AdminEmpty v-if="!busy && !rows.length">暂无公告</AdminEmpty>
+    <AdminEmpty v-if="!busy && !error && !rows.length">暂无公告</AdminEmpty>
     <nav class="admin-pagination" aria-label="公告分页">
       <AdminButton size="sm" :disabled="busy || cursors.length === 1" @click="page(false)">上一页</AdminButton>
       <AdminButton size="sm" :disabled="busy || rows.length < 40" @click="page(true)">下一页</AdminButton>

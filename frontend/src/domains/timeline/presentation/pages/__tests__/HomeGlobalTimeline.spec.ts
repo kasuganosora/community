@@ -142,3 +142,51 @@ it.each(['following', 'global'] as const)('does not show discovery notices or re
   expect(feed().props('statuses').map((post: MastodonStatus) => post.id)).toEqual([tab === 'global' ? '200' : '100'])
   expect(wrapper.find('.discovery-note').exists()).toBe(false)
 })
+
+it.each([
+  ['following', 1], ['following', 20], ['global', 1], ['global', 20],
+] as const)('retries a failed %s refresh with %i existing rows and immediate loading', async (tab, count) => {
+  const store = useTimelineStore()
+  store.homeTab = tab
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const get = vi.spyOn(client, 'get').mockResolvedValue({ data: rows(100, count) })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  get.mockRejectedValueOnce(new Error('刷新失败'))
+  feed().vm.$emit('reloadHead')
+  await flushPromises()
+  expect(feed().props('error')).toBe('刷新失败')
+  expect(feed().props('statuses')).toHaveLength(count)
+
+  let complete!: (value: { data: MastodonStatus[] }) => void
+  get.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+  feed().vm.$emit('retry')
+  feed().vm.$emit('retry')
+  await flushPromises()
+  expect(get).toHaveBeenCalledTimes(3)
+  expect(get).toHaveBeenLastCalledWith(`/api/v1/timelines/${tab === 'global' ? 'public' : 'home'}`, { params: { limit: 20 } })
+  expect(feed().props('loading')).toBe(true)
+  expect(feed().props('error')).toBeNull()
+  complete({ data: rows(200, 1) })
+  await flushPromises()
+  expect(feed().props('loading')).toBe(false)
+  expect(feed().props('statuses')[0].id).toBe('200')
+})
+
+it('retries a failed page with its original cursor instead of refreshing the head', async () => {
+  const store = useTimelineStore()
+  store.homeTab = 'global'
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const get = vi.spyOn(client, 'get').mockResolvedValueOnce({ data: rows(200) })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  get.mockRejectedValueOnce(new Error('分页失败'))
+  feed().vm.$emit('loadMore')
+  await flushPromises()
+  get.mockResolvedValueOnce({ data: rows(180, 2) })
+  feed().vm.$emit('retry')
+  await flushPromises()
+  expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/public', { params: { max_id: '181', limit: 20 } })
+  expect(feed().props('statuses')).toHaveLength(22)
+  expect(feed().props('error')).toBeNull()
+})

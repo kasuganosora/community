@@ -34,7 +34,7 @@ onMounted(() => { void load() }); onUnmounted(reset)
 <template>
   <section class="private-archive" aria-label="私有备份内容">
     <h2>私有备份内容</h2><p>仅你可见。这些是保留的源记录，未冒充原作者重新发帖，也未向联邦广播。原作者标识不会被当作本站账号。</p>
-    <button :disabled="loading" @click="load()">刷新私有备份</button><p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">读取中…</p><p v-if="!loading && !items.length">暂无私有备份内容</p>
+    <button :disabled="loading" @click="load()">刷新私有备份</button><p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">读取中…</p><p v-if="!loading && !error && !items.length">暂无私有备份内容</p>
     <article v-for="post in items" :key="post.id">
       <p>原作者标识：{{ post.author_id }}</p><p>源记录：{{ post.source_id }} · {{ post.created_at }}</p>
       <details :open="!post.spoiler">

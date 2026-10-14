@@ -28,7 +28,11 @@ watch([() => authStore.currentUser?.id, sessionEpoch], () => {
   cropRequest.value = null
   uploading.avatar = false
   uploading.header = false
-})
+  savingProfile.value = false
+  profileError.value = null
+  if (authStore.currentUser) resetProfile()
+  else Object.assign(profile, { display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '' })
+}, { flush: 'sync' })
 onBeforeUnmount(() => { alive = false; imageEpoch++ })
 
 const previewAccount = computed(() => authStore.currentUser
@@ -94,6 +98,9 @@ async function saveProfile() {
   profileError.value = validateProfile(profile.display_name, profile.note)
   if (profileError.value) return
   const me = authStore.currentUser
+  if (!me) return
+  const session = sessionEpoch.value
+  const isCurrent = () => alive && session === sessionEpoch.value && authStore.currentUser?.id === me.id
   savingProfile.value = true
   try {
     const updated = await userApi.updateCredentials({
@@ -105,25 +112,28 @@ async function saveProfile() {
       ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
       ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
     })
+    if (!isCurrent()) return
     authStore.currentUser = updated
     // update_credentials may omit `source`; refetch so the form and sidebar agree.
     await authStore.fetchCurrentUser()
+    if (!isCurrent()) return
     resetProfile()
     MessagePlugin.success('个人资料已保存')
   } catch (e) {
-    profileError.value = e instanceof Error ? e.message : '保存失败'
+    if (isCurrent()) profileError.value = e instanceof Error ? e.message : '保存失败'
   } finally {
-    savingProfile.value = false
+    if (isCurrent()) savingProfile.value = false
   }
 }
 
 onMounted(async () => {
   resetProfile()
   const initial = JSON.stringify(profile)
+  const session = sessionEpoch.value
   // Make sure we have the latest `source` (plain-text bio) before editing.
   await authStore.fetchCurrentUser()
   // Do not overwrite edits made while the refresh was in flight.
-  if (JSON.stringify(profile) === initial) resetProfile()
+  if (alive && session === sessionEpoch.value && JSON.stringify(profile) === initial) resetProfile()
 })
 </script>
 

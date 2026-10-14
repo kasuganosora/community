@@ -9,6 +9,16 @@ const group: Group = { id: 'group', name: 'Design', topic: '', membership: 'join
 function setup() { return mount(GroupComposer, { props: { group: { ...group }, members: [] }, global: { stubs: { 't-icon': true } } }) }
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(groupApi.typing).mockResolvedValue(); vi.mocked(groupApi.send).mockResolvedValue({ messages: [], event_ids: [], status: 'accepted' }); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() })) })
 describe('group composer failure recovery and encryption', () => {
+  it('does not send while an IME composition is being confirmed', async () => {
+    const wrapper = setup()
+    await wrapper.get('textarea').setValue('正在输入中文')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true, isComposing: true })
+    expect(groupApi.send).not.toHaveBeenCalled()
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true, isComposing: false })
+    expect(groupApi.send).toHaveBeenCalledWith('group', expect.objectContaining({ body: '正在输入中文' }))
+    await flushPromises()
+    wrapper.unmount()
+  })
   it('retains the same transaction and payload on ambiguous network retries', async () => {
     vi.mocked(groupApi.send).mockRejectedValueOnce(new Error('网络失败'))
     const wrapper = setup(); await wrapper.get('textarea').setValue('Keep this message')

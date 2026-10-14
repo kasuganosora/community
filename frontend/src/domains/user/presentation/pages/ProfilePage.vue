@@ -141,7 +141,11 @@ function toggleBlock() {
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
-watch(activeTab, () => { if (account.value) feed.refresh() })
+watch(activeTab, () => {
+  // A different tab is a different query, not a refresh of the visible rows.
+  feed.reset()
+  if (account.value) void feed.refresh()
+}, { flush: 'sync' })
 </script>
 
 <template>

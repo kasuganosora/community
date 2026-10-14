@@ -3,7 +3,7 @@ import { displayAccount } from '@/shared/utils/accountDisplay'
 import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '../../infrastructure/postApi'
@@ -21,6 +21,8 @@ import PostActions from '@/shared/components/post/PostActions.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import FilteredNotice from '@/shared/components/post/FilteredNotice.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
+import { mergeById } from '@/shared/utils/pagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +35,8 @@ const ancestors = ref<MastodonStatus[]>([])
 const descendants = ref<MastodonStatus[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const contextLoading = ref(false)
+const contextError = ref<string | null>(null)
 const replyComposer = ref<InstanceType<typeof PostComposer>>()
 
 // The status actually shown: the reblogged original if the id is a reblog,
@@ -72,21 +76,41 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, 
 // Version guard — prevents a stale response (from navigating between
 // posts quickly) from overwriting newer post data.
 let requestVersion = 0
+let contextVersion = 0
+
+async function loadContext() {
+  if (contextLoading.value) return
+  const version = requestVersion, contextRequest = ++contextVersion
+  const statusId = route.params.statusId as string
+  const current = () => version === requestVersion && contextRequest === contextVersion
+  contextLoading.value = true
+  contextError.value = null
+  try {
+    const data = await postApi.getContext(statusId)
+    if (!current()) return
+    ancestors.value = data.ancestors
+    // A reply sent while the context request was pending is already visible.
+    descendants.value = mergeById(data.descendants, descendants.value)
+  } catch (e) {
+    if (current()) contextError.value = e instanceof Error ? e.message : '回复加载失败，请重试'
+  } finally {
+    if (current()) contextLoading.value = false
+  }
+}
 
 async function loadPost() {
   const myVersion = ++requestVersion
   const statusId = route.params.statusId as string
   loading.value = true
   error.value = null
+  status.value = null
+  ancestors.value = []; descendants.value = []
+  contextLoading.value = false; contextError.value = null
+  void loadContext()
   try {
-    const [statusData, contextData] = await Promise.all([
-      postApi.getStatus(statusId),
-      postApi.getContext(statusId),
-    ])
+    const statusData = await postApi.getStatus(statusId)
     if (myVersion !== requestVersion) return
     status.value = statusData
-    ancestors.value = contextData.ancestors
-    descendants.value = contextData.descendants
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load post:', e)
@@ -105,7 +129,9 @@ async function loadPost() {
 }
 
 onMounted(loadPost)
+onBeforeUnmount(() => { ++requestVersion; ++contextVersion })
 watch(() => route.params.statusId, (id) => { if (id) loadPost() })
+watch(sessionEpoch, () => { void loadPost() }, { flush: 'sync' })
 watch(heading, (title) => { document.title = `${title} - Community` })
 
 // Leave the page when the main post is deleted from its menu.
@@ -171,6 +197,7 @@ async function togglePin() {
       </div>
       <h2 class="empty-state__title">无法显示这条帖子</h2>
       <p class="empty-state__text">{{ error }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="loadPost">重试</button>
     </div>
 
     <template v-else-if="status && mainStatus">
@@ -234,6 +261,12 @@ async function togglePin() {
 
       <PostComposer ref="replyComposer" :reply-to="mainStatus" @posted="onReplied" />
 
+      <div v-if="contextLoading" class="page-loading" role="status" aria-label="正在加载回复"><t-loading /></div>
+      <div v-else-if="contextError" class="detail-context-error" role="alert">
+        <span>回复加载失败：{{ contextError }}</span>
+        <button type="button" class="btn btn--secondary btn--sm" @click="loadContext">重试</button>
+      </div>
+
       <!-- Descendants (replies below) -->
       <PostCard
         v-for="s in descendants"
@@ -251,6 +284,14 @@ async function togglePin() {
 <style scoped>
 .detail-page {
   min-height: 100dvh;
+}
+.detail-context-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--gutter);
+  color: var(--color-label-secondary);
 }
 
 /* The focused post steps up one size and gets more air; the surrounding

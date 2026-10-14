@@ -46,6 +46,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   // Per-timeline request version guard — prevents stale responses from
   // overwriting newer data when fetchTimeline / loadMore race with each other
   const requestVersionMap: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
+  const failedRequest: Record<ManagedTimelineType, 'head' | 'more' | 'previous' | null> = { home: null, public: null }
   const knownHead: Partial<Record<ManagedTimelineType, string[]>> = {}
   const previousCursors: Record<ManagedTimelineType, string[]> = { home: [], public: [] }
   const droppedHistory: Record<ManagedTimelineType, boolean> = { home: false, public: false }
@@ -58,6 +59,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     for (const type of ['home', 'public'] as const) {
       ++requestVersionMap[type]
       ++listGeneration[type]
+      failedRequest[type] = null
       const timeline = getTimeline(type)
       knownHead[type] = undefined; previousCursors[type] = []; droppedHistory[type] = false; timeline.hasPrevious = false; pinned[type].clear(); paused[type] = false
       timeline.statuses = []; timeline.newer = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
@@ -91,6 +93,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     const myVersion = ++requestVersionMap[type]
     timeline.isLoading = true
     timeline.error = null
+    failedRequest[type] = null
     
     try {
       if (USE_MOCK) {
@@ -118,6 +121,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       // Only set error if this is still the latest request
       if (myVersion !== requestVersionMap[type]) return
       timeline.error = e instanceof Error ? e.message : '时间线加载失败'
+      failedRequest[type] = 'head'
       console.error(`Failed to fetch ${type} timeline:`, e)
     } finally {
       // Only clear loading state if this is still the latest request
@@ -149,6 +153,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     
     timeline.isLoading = true
     timeline.error = null
+    failedRequest[type] = null
     
     try {
       const data = type === 'home'
@@ -166,6 +171,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     } catch (e) {
       if (myVersion !== requestVersionMap[type]) return
       timeline.error = e instanceof Error ? e.message : '加载更多失败'
+      failedRequest[type] = 'more'
       console.error(`Failed to load more ${type} timeline:`, e)
     } finally {
       if (myVersion === requestVersionMap[type]) {
@@ -226,6 +232,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     const version = ++requestVersionMap[type]
     ++listGeneration[type]
     timeline.isLoading = true
+    timeline.error = null
+    failedRequest[type] = null
     try {
       const data = type === 'home'
         ? await timelineApi.getHomeTimeline({ max_id: cursor, limit: TIMELINE_PAGE_SIZE })
@@ -235,8 +243,20 @@ export const useTimelineStore = defineStore('timeline', () => {
       timeline.statuses = mergeById(data, timeline.statuses).slice(0, TIMELINE_PAGE_SIZE * 8)
       timeline.hasPrevious = previousCursors[type].length > 0 || droppedHistory[type]
       timeline.hasMore = true
-    } catch (e) { if (version === requestVersionMap[type]) timeline.error = e instanceof Error ? e.message : '加载失败' }
+    } catch (e) {
+      if (version === requestVersionMap[type]) {
+        timeline.error = e instanceof Error ? e.message : '加载失败'
+        failedRequest[type] = 'previous'
+      }
+    }
     finally { if (version === requestVersionMap[type]) timeline.isLoading = false }
+  }
+
+  function retryTimeline(type: ManagedTimelineType) {
+    if (getTimeline(type).isLoading) return
+    if (failedRequest[type] === 'more') return loadMore(type)
+    if (failedRequest[type] === 'previous') return loadPrevious(type)
+    return fetchTimeline(type)
   }
 
   function cancelRevalidation() { ++listGeneration.home; ++listGeneration.public }
@@ -292,6 +312,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     fetchPublicTimeline,
     loadMoreHome, 
     loadMorePublic,
+    retryTimeline,
     checkNewer,
     cancelRevalidation,
     loadPrevious,

@@ -106,7 +106,7 @@ onBeforeUnmount(() => { ++version })
     </section>
     <section class="admin-card" :aria-busy="loading">
       <h2>站级禁推规则</h2>
-      <p v-if="!rows.length && !loading" class="admin-empty">还没有站级禁推规则。</p>
+      <p v-if="!rows.length && !loading && !error" class="admin-empty">还没有站级禁推规则。</p>
       <ul v-else class="discovery-admin-rules"><li v-for="row in rows" :key="row.id"><div><strong>{{ kindLabel[row.target_kind] }} · {{ row.target_key }}</strong><p>{{ row.reason || '未附原因' }}</p><small>{{ date(row.created_at) }}</small></div><button type="button" class="admin-button" :disabled="busy" @click="restore(row)">撤销</button></li></ul>
     </section>
   </div>

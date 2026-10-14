@@ -223,7 +223,7 @@ textarea {
   resize: vertical;
 }
 
-/* One focus treatment everywhere: a soft 3px ring that follows the radius. */
+/* Native controls keep a visible focus outline; composite fields style their shell. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

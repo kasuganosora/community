@@ -41,3 +41,29 @@ describe('data transfer review and account boundaries', () => {
   expect(w.get('[role=alert]').text()).toContain('不接受整站包'); expect(w.find('input[type=password]').exists()).toBe(false); expect(w.text()).toContain('site.zip'); w.unmount()
  })
 })
+
+it('shows pending task reads and a recoverable error without a false empty list', async () => {
+ let reject!: (reason: Error) => void
+ vi.mocked(transferApi.list).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail })).mockResolvedValueOnce([])
+ const w = mount(DataTransferPage)
+ expect(w.get('[aria-label="导入任务"]').text()).toContain('正在读取任务')
+ expect(w.text()).not.toContain('暂无任务')
+ reject(new Error('读取超时')); await flushPromises()
+ expect(w.get('[role=alert]').text()).toBe('读取超时'); expect(w.text()).not.toContain('暂无任务')
+ await button(w, '刷新任务列表').trigger('click'); await flushPromises()
+ expect(w.text()).toContain('暂无任务'); w.unmount()
+})
+
+it('marks task refresh pending and discards an older selected task failure', async () => {
+ const second = { ...makeJob(), id: 'j2', filename: 'second.zip' }
+ vi.mocked(transferApi.list).mockResolvedValue([makeJob(), second])
+ let reject!: (reason: Error) => void
+ const get = vi.spyOn(transferApi, 'get').mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+ const w = mount(DataTransferPage); await flushPromises(); await button(w, 'backup.zip · 等待确认').trigger('click')
+ await button(w, '刷新任务状态').trigger('click')
+ expect(button(w, '刷新中…').attributes('disabled')).toBeDefined()
+ await button(w, '刷新中…').trigger('click'); expect(get).toHaveBeenCalledTimes(1)
+ await button(w, 'second.zip · 等待确认').trigger('click'); reject(new Error('older task failed')); await flushPromises()
+ expect(w.find('[role=alert]').exists()).toBe(false)
+ expect(w.get('[aria-label="预检与执行报告"]').text()).toContain('second.zip'); w.unmount()
+})

@@ -11,11 +11,13 @@ export function useChatThread(id: () => string) {
   const cursor = ref<string | null>(null)
   const loading = ref(false)
   const loadingOlder = ref(false)
+  const refreshPending = ref(false)
   const pending = ref('')
   const error = ref('')
   let disposed = false
   let epoch = 0
   let readVersion = 0
+  let activeRead: { epoch: number; request: number; operationError: string; done: Promise<void> } | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   const busy = computed(() => !!pending.value)
   const current = (version: number) => epoch === version
@@ -32,32 +34,57 @@ export function useChatThread(id: () => string) {
     for (const message of items) byId.set(message.event_id, message)
     messages.value = [...byId.values()].sort((a, b) => a.created_at - b.created_at)
   }
-  async function refresh(initial = false) {
-    if (!id() || (!initial && busy.value)) return
+  function refresh(initial = false, operationError = ''): Promise<void> {
+    if (disposed || !id() || loadingOlder.value || (!initial && busy.value)) return Promise.resolve()
+    if (activeRead?.epoch === epoch && activeRead.request === readVersion) return activeRead.done
     const version = epoch
     const request = ++readVersion
     if (initial) loading.value = true
-    try {
-      const [info, page] = await Promise.all([chatApi.get(id()), chatApi.messages(id())])
-      if (!current(version) || request !== readVersion) return
-      conversation.value = info
-      if (initial) { messages.value = page.messages; cursor.value = page.next_cursor }
-      else merge(page.messages)
-      error.value = ''
-    } catch (e) { if (current(version) && request === readVersion) fail(e) }
-    finally { if (current(version)) loading.value = false }
+    const read = { epoch: version, request, operationError, done: Promise.resolve() }
+    activeRead = read
+    read.done = (async () => {
+      try {
+        const [info, page] = await Promise.all([chatApi.get(id()), chatApi.messages(id())])
+        if (!current(version) || request !== readVersion) return
+        conversation.value = info
+        if (initial) { messages.value = page.messages; cursor.value = page.next_cursor }
+        else merge(page.messages)
+        error.value = read.operationError
+      } catch (e) { if (current(version) && request === readVersion) fail(e) }
+      finally {
+        if (current(version) && request === readVersion) loading.value = false
+        if (activeRead === read) activeRead = undefined
+      }
+    })()
+    return read.done
+  }
+  async function reload() {
+    if (refreshPending.value || loadingOlder.value || busy.value) return
+    const version = epoch
+    refreshPending.value = true
+    // An explicit retry acknowledges the previous operation error. If it reuses
+    // a read-back already in flight, clear that message only when the read succeeds.
+    if (activeRead?.epoch === version && activeRead.request === readVersion) activeRead.operationError = ''
+    try { await refresh(!conversation.value) }
+    finally { if (current(version)) refreshPending.value = false }
   }
   async function older() {
-    if (!cursor.value || loadingOlder.value || busy.value) return
+    if (!cursor.value || loadingOlder.value || refreshPending.value || busy.value) return
     const version = epoch
-    const request = ++readVersion
     loadingOlder.value = true
     try {
-      const page = await chatApi.messages(id(), cursor.value)
-      if (!current(version) || request !== readVersion) return
-      merge(page.messages)
-      cursor.value = page.next_cursor
-    } catch (e) { if (current(version) && request === readVersion) fail(e) }
+      // A background read may already be in flight. Show pagination feedback
+      // immediately, then let that read finish before advancing the cursor.
+      if (activeRead?.epoch === version) await activeRead.done
+      if (!current(version) || busy.value || !cursor.value) return
+      const request = ++readVersion
+      try {
+        const page = await chatApi.messages(id(), cursor.value)
+        if (!current(version) || request !== readVersion) return
+        merge(page.messages)
+        cursor.value = page.next_cursor
+      } catch (e) { if (current(version) && request === readVersion) fail(e) }
+    }
     finally { if (current(version)) loadingOlder.value = false }
   }
   async function mutate<T>(name: string, action: () => Promise<T>, apply?: (result: T) => void): Promise<boolean> {
@@ -71,17 +98,19 @@ export function useChatThread(id: () => string) {
       if (!current(version)) return false
       apply?.(result)
       pending.value = ''
-      await refresh()
+      // The mutation has completed. Clear the composer now; read-back may be
+      // slow and must not leave the same draft available for duplicate submits.
+      void refresh()
       return current(version)
     } catch (e) {
       if (current(version)) {
         // A forbidden mutation does not necessarily revoke access to the thread.
         // Recheck readable history before discarding the user's current context.
         pending.value = ''
-        await refresh()
-        if (current(version) && conversation.value) error.value = denied(e)
+        error.value = denied(e)
           ? '无法完成此操作。消息可能尚未处理完成，或你没有操作权限；草稿已保留。'
           : '操作失败，草稿已保留。请稍后重试。'
+        void refresh(false, error.value)
       }
       return false
     } finally { if (current(version)) pending.value = '' }
@@ -103,16 +132,17 @@ export function useChatThread(id: () => string) {
   function poll() {
     if (disposed) return
     timer = setTimeout(async () => {
-      if (document.visibilityState === 'visible' && conversation.value && !loadingOlder.value) await refresh()
+      if (document.visibilityState === 'visible' && conversation.value && !loadingOlder.value && !refreshPending.value) await refresh()
       poll()
     }, 5000)
   }
   watch([id, () => sessionEpoch.value, () => auth.currentUser?.id], () => {
     epoch++; readVersion++; conversation.value = null; messages.value = []; cursor.value = null
-    pending.value = ''; loading.value = false; loadingOlder.value = false; error.value = ''
+    activeRead = undefined
+    pending.value = ''; loading.value = false; loadingOlder.value = false; refreshPending.value = false; error.value = ''
     if (auth.currentUser && id()) void refresh(true)
   }, { immediate: true, flush: 'sync' })
   poll()
   onBeforeUnmount(() => { disposed = true; epoch++; readVersion++; clearTimeout(timer) })
-  return { conversation, messages, cursor, loading, loadingOlder, pending, busy, error, refresh, older, send, remove, retry, delivery, addMembers, removeMember }
+  return { conversation, messages, cursor, loading, loadingOlder, refreshPending, pending, busy, error, refresh, reload, older, send, remove, retry, delivery, addMembers, removeMember }
 }

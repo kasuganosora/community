@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
+import { useSettingsScope } from '../composables/useSettingsScope'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
@@ -9,20 +10,25 @@ const authStore = useAuthStore()
 const pw = reactive({ old: '', next: '', confirm: '' })
 const pwError = ref<string | null>(null)
 const savingPw = ref(false)
+const scope = useSettingsScope(() => { pw.old = pw.next = pw.confirm = ''; pwError.value = null; savingPw.value = false })
 
 async function savePassword() {
+  if (savingPw.value) return
+  const current = scope()
   pwError.value = validatePasswordChange(pw.old, pw.next, pw.confirm)
   if (pwError.value) return
   savingPw.value = true
   try {
     await userApi.changePassword(pw.old, pw.next)
+    if (!current()) return
     pw.old = pw.next = pw.confirm = ''
     MessagePlugin.success('密码已修改')
   } catch (e) {
+    if (!current()) return
     const msg = e instanceof Error ? e.message : '修改失败'
     pwError.value = msg === 'old password is wrong' ? '当前密码不正确' : msg
   } finally {
-    savingPw.value = false
+    if (current()) savingPw.value = false
   }
 }
 </script>

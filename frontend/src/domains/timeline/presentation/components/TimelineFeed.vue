@@ -106,7 +106,7 @@ onUnmounted(() => {
 
     <div v-if="error && statuses.length" class="timeline-inline" role="alert">
       <span>没能继续加载：{{ error }}</span>
-      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('retry')">重试</button>
     </div>
 
     <div v-else-if="error && !loading" class="empty-state" role="alert">

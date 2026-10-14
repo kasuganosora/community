@@ -84,3 +84,18 @@ it('shows upload failure without replacing the existing image', async () => {
   expect(wrapper.get('[role=alert]').text()).toBe('上传中断')
   expect(wrapper.get('.settings-hero__cover img').attributes('src')).toBe(account.header)
 })
+
+it('does not install an old account profile when a save resolves after an account switch', async () => {
+  const { wrapper, auth } = await setup()
+  let resolve!: (result: MastodonAccount) => void
+  vi.spyOn(userApi, 'updateCredentials').mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  await wrapper.get('#set-display-name').setValue('Old account draft')
+  await wrapper.get('form').trigger('submit')
+  sessionEpoch.value++
+  auth.currentUser = { ...account, id: 'other-user', display_name: 'New account' }
+  await flushPromises()
+  resolve({ ...account, display_name: 'Old account saved' }); await flushPromises()
+  expect(auth.currentUser.id).toBe('other-user')
+  expect(wrapper.get('#set-display-name').element).toHaveProperty('value', 'New account')
+  expect(wrapper.text()).not.toContain('Old account saved')
+})

@@ -10,6 +10,7 @@ import { notificationTarget, notificationText, notificationQuery, type Notificat
 import { stripHtml } from '@/shared/utils/sanitize'
 import { isInteractiveClick } from '@/shared/utils/dom'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
@@ -79,16 +80,26 @@ async function dismissNotification(id: string) {
 }
 
 const confirmClear = ref(false)
+const clearing = ref(false)
+let alive = true
 async function clearAll() {
+  if (clearing.value) return
+  const epoch = sessionEpoch.value
+  const current = () => alive && epoch === sessionEpoch.value
+  clearing.value = true
   try {
     await notificationApi.clear()
-    notifications.value = []
+    if (!current()) return
+    feed.reset()
     confirmClear.value = false
     MessagePlugin.success('已清空通知')
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '清空失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '清空失败')
+  } finally {
+    if (current()) clearing.value = false
   }
 }
+watch(sessionEpoch, () => { clearing.value = false; confirmClear.value = false }, { flush: 'sync' })
 
 // Infinite scroll
 const sentinel = ref<HTMLElement>()
@@ -100,8 +111,11 @@ onMounted(() => {
   }, { rootMargin: '200px' })
   if (sentinel.value) observer.observe(sentinel.value)
 })
-onUnmounted(() => observer?.disconnect())
-watch(filter, () => feed.refresh())
+onUnmounted(() => { alive = false; observer?.disconnect() })
+watch(filter, () => {
+  feed.reset()
+  void feed.refresh()
+}, { flush: 'sync' })
 </script>
 
 <template>
@@ -118,8 +132,8 @@ watch(filter, () => feed.refresh())
 </button>
       <span v-if="confirmClear" class="notifications-confirm">
         <span>清空全部通知？</span>
-        <button type="button" class="btn btn--ghost btn--sm" @click="confirmClear = false">取消</button>
-        <button type="button" class="btn btn--danger btn--sm" @click="clearAll">清空</button>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="clearing" @click="confirmClear = false">取消</button>
+        <button type="button" class="btn btn--danger btn--sm" :disabled="clearing" :aria-busy="clearing" @click="clearAll">{{ clearing ? '清空中…' : '清空' }}</button>
       </span>
     </div>
 

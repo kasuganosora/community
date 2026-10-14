@@ -81,7 +81,10 @@ async function reloadHead() {
   if (!error.value) window.scrollTo(0, 0)
 }
 function loadMore() { return isDiscovery.value ? discovery.continueLoading() : chronologicalType.value === 'public' ? timelineStore.loadMorePublic() : timelineStore.loadMoreHome() }
-function retry() { return statuses.value.length && hasMore.value ? loadMore() : openTimeline() }
+function retry() {
+  if (!isDiscovery.value) return timelineStore.retryTimeline(chronologicalType.value)
+  return statuses.value.length && hasMore.value ? loadMore() : openTimeline()
+}
 async function feedback(status: MastodonStatus, action: 'hide_status' | 'hide_author') {
   try {
     await discovery.feedback(status, action)

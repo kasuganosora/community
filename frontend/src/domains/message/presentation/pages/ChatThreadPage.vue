@@ -17,7 +17,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const id = () => String(route.params.conversationId || '')
 const thread = useChatThread(id)
-const { conversation, messages, cursor, loading, loadingOlder, pending, busy, error } = thread
+const { conversation, messages, cursor, loading, loadingOlder, refreshPending, pending, busy, error } = thread
 const composer = ref<HTMLFormElement>()
 const draft = ref('')
 const reply = ref<ChatMessage | undefined>()
@@ -31,6 +31,11 @@ let uploadGeneration = 0
 let transactionId = crypto.randomUUID()
 onBeforeUnmount(() => { uploadGeneration++ })
 const sendable = computed(() => (!!draft.value.trim() || attachments.value.length > 0) && !busy.value && !uploading.value)
+function onSendKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.isComposing) return
+  event.preventDefault()
+  void send()
+}
 watch([draft, () => attachments.value.map(file => file.id).join(','), () => reply.value?.event_id, () => editing.value?.event_id], () => { transactionId = crypto.randomUUID() }, { flush: 'sync' })
 watch([id, () => sessionEpoch.value], () => {
   uploadGeneration++; draft.value = ''; attachments.value = []; reply.value = undefined; editing.value = undefined
@@ -80,15 +85,17 @@ function edit(message: ChatMessage) {
 }
 function remove(message: ChatMessage) {
   const room = id(), epoch = sessionEpoch.value
+  let confirming = false
   const dialog = DialogPlugin.confirm({ header: '删除这条消息？', body: '将请求删除原消息。对方可能已经阅读或保存了内容。', confirmBtn: '删除', cancelBtn: '取消',
-    onConfirm: async () => { if (room === id() && epoch === sessionEpoch.value) await thread.remove(message); dialog.destroy() }, onClose: () => dialog.destroy(),
+    onConfirm: async () => { if (confirming) return; confirming = true; dialog.setConfirmLoading(true); if (room === id() && epoch === sessionEpoch.value) await thread.remove(message); dialog.destroy() }, onClose: () => dialog.destroy(),
   })
 }
 function removeMember(member: ChatMember) {
   const self = member.account_id === auth.currentUser?.id
   const room = id(), epoch = sessionEpoch.value
+  let confirming = false
   const dialog = DialogPlugin.confirm({ header: self ? '离开此会话？' : '移除此成员？', body: '该成员将不能继续通过此会话接收后续消息。已经收到的内容无法收回。', confirmBtn: self ? '离开' : '移除', cancelBtn: '取消',
-    onConfirm: async () => { if (room === id() && epoch === sessionEpoch.value && await thread.removeMember(member.id) && self) await router.push('/messages'); dialog.destroy() }, onClose: () => dialog.destroy(),
+    onConfirm: async () => { if (confirming) return; confirming = true; dialog.setConfirmLoading(true); if (room === id() && epoch === sessionEpoch.value && await thread.removeMember(member.id) && self) await router.push('/messages'); dialog.destroy() }, onClose: () => dialog.destroy(),
   })
 }
 async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(members)) inviting.value = false }
@@ -102,7 +109,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
       <button v-if="conversation" class="btn btn--ghost btn--sm" :aria-expanded="membersOpen" @click="membersOpen = !membersOpen">成员</button>
     </header>
     <p class="chat-thread__notice">此会话不使用端到端加密，参与站点的服务器可以读取内容。</p>
-    <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" @click="thread.refresh(!conversation)">重试</button></p>
+    <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" :disabled="loading || loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending || loading ? '加载中…' : '重试' }}</button></p>
     <div v-if="loading" class="page-loading"><t-loading /></div>
     <template v-if="conversation">
       <section v-if="membersOpen" class="chat-members" aria-label="会话成员">
@@ -117,7 +124,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
         <button v-if="conversation.can_manage && !inviting" class="btn btn--secondary btn--sm" @click="inviting = true">添加成员</button>
         <ConversationMembersForm v-if="inviting" mode="invite" :pending="busy" :error="error" @submit="invite" @cancel="inviting = false" />
       </section>
-      <div v-if="cursor" class="chat-thread__older"><button class="btn btn--ghost btn--sm" :disabled="loadingOlder || busy" @click="thread.older">{{ loadingOlder ? '加载中…' : '查看更早的消息' }}</button></div>
+      <div v-if="cursor" class="chat-thread__older"><button class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" @click="thread.older">{{ loadingOlder ? '加载中…' : '查看更早的消息' }}</button></div>
       <p v-if="!messages.length" class="chat-thread__empty">会话已创建，发送第一条消息吧。</p>
       <div aria-label="聊天消息">
         <ChatMessageView v-for="message in messages" :key="message.event_id" :message="message" :pending="busy || uploading" :reply="messages.find(item => item.event_id === message.reply_event_id)" @reply="replyTo(message)" @edit="edit(message)" @remove="remove(message)" @retry="thread.retry(message)" @refresh-delivery="thread.delivery(message)" />
@@ -126,7 +133,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
         <p v-if="editing" class="chat-compose__context" role="note">编辑会删除原消息并重新发送，消息链接和回应记录将改变。<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">取消编辑</button></p>
         <p v-else-if="reply" class="chat-compose__context">回复：{{ reply.body }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="reply = undefined">取消回复</button></p>
         <label class="sr-only" for="chat-message-input">消息内容</label>
-        <textarea id="chat-message-input" v-model="draft" rows="3" placeholder="写一条消息…" :disabled="busy" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
+        <textarea id="chat-message-input" v-model="draft" rows="3" placeholder="写一条消息…" :disabled="busy" @keydown="onSendKeydown" />
         <ul v-if="attachments.length" class="chat-compose__attachments"><li v-for="file in attachments" :key="file.id">{{ file.description || file.uploadName || '已上传附件' }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" @click="attachments = attachments.filter(item => item.id !== file.id)">移除</button></li></ul>
         <p v-if="uploadError" class="chat-thread__error" role="alert">{{ uploadError }}</p>
         <div class="chat-compose__actions">
@@ -151,8 +158,14 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 .chat-members li { display: flex; gap: var(--space-2); align-items: center; padding-block: var(--space-2); }
 .chat-members li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .chat-compose { padding: var(--space-4); border-top: 1px solid var(--color-separator); }
-.chat-compose textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; border: 1px solid var(--color-separator); border-radius: var(--radius-sm); background: var(--color-fill); color: var(--color-label); padding: var(--space-3); font: inherit; }
+.chat-compose textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; min-height: 5.25rem; max-height: min(220px, 30dvh); field-sizing: content; resize: none; overflow-y: auto; border: 1px solid var(--color-separator); border-radius: var(--radius-md); background: var(--color-bg-grouped); color: var(--color-label); padding: var(--space-3); font: inherit; font-size: 1rem; line-height: var(--leading-body); }
+.chat-compose textarea:focus-visible { border-color: var(--color-accent); outline: none; box-shadow: none; }
 .chat-compose__context { font-size: var(--text-footnote); color: var(--color-label-secondary); overflow-wrap: anywhere; }
 .chat-compose__actions { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.chat-compose__actions > :is(button,label) { min-height: var(--hit-target); }
+.chat-compose__actions > label:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .chat-compose__attachments { padding-left: var(--space-4); font-size: var(--text-footnote); }
+@media (forced-colors: active) {
+  .chat-compose textarea:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
 </style>
