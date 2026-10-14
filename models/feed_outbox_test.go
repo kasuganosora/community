@@ -66,7 +66,7 @@ func TestFeedLeaseTakeoverAndAtomicCursorRollback(t *testing.T) {
 	first, err := ClaimFeedEvents(conn, 1, 30*time.Second)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
-	require.NoError(t, conn.Model(&FeedEvent{}).Where("id = ?", event.ID).UpdateColumn("lease_expires_at", time.Now().Add(-time.Minute)).Error)
+	require.NoError(t, conn.Model(&FeedEvent{}).Where("id = ?", event.ID).UpdateColumn("lease_expires_at", time.Now().UTC().Add(-time.Minute)).Error)
 	require.ErrorIs(t, RenewFeedEvent(conn, first[0].LeaseRef(), 30*time.Second), ErrFeedLeaseLost)
 	second, err := ClaimFeedEvents(conn, 1, 30*time.Second)
 	require.NoError(t, err)
