@@ -362,6 +362,26 @@ func TestMeiliDiskBudgetAdmission(t *testing.T) {
 	require.NoError(t, p.checkDiskBudget(context.Background()))
 }
 
+// The full-text search indexes share the Meilisearch database. Their size,
+// and free pages left by earlier generations, must not block our rebuild.
+func TestMeiliDiskBudgetCountsOnlyOwnedIndexes(t *testing.T) {
+	var own int64
+	var prefix string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"databaseSize": 4 << 30, "usedDatabaseSize": 3 << 30, "indexes": map[string]any{
+			"statuses":                           map[string]any{"indexSize": 3 << 30, "usedIndexSize": 3 << 30},
+			prefix + "discovery_statuses_v1_gen": map[string]any{"indexSize": 900 << 20, "usedIndexSize": own},
+		}})
+	}))
+	defer server.Close()
+	p, _ := meiliTestProvider(t, server.URL)
+	prefix = p.connection.Prefix
+	own = 40 << 20
+	require.NoError(t, p.checkDiskBudget(context.Background()))
+	own = 500 << 20
+	require.ErrorContains(t, p.checkDiskBudget(context.Background()), "disk budget")
+}
+
 func TestMeiliAlignedIndexAndCandidateRefreshWaitsForWriter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"hits":[{"id":"1"}]}`)) }))
 	defer server.Close()

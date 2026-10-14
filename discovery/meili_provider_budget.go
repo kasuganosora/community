@@ -35,20 +35,56 @@ func (p *MeiliProvider) reserveEmbedding(ctx context.Context, units int) bool {
 	return err == nil && result == 1
 }
 func (p *MeiliProvider) checkDiskBudget(ctx context.Context) error {
-	// The server reports the whole shared Meilisearch database, not just our
-	// indexes. Leave one bounded build's reserve before admitting any new work.
+	// Budget only the recommendation indexes this provider owns. Meilisearch
+	// is shared with full-text search, whose own backfill can legitimately
+	// grow the whole database far past this budget (that is what silently
+	// stopped every rebuild after a restart-triggered search backfill).
+	// Prefer the "used" sizes: LMDB never shrinks the file after the
+	// generation churn of rebuilds, so databaseSize only ever grows.
 	ceiling := p.maxDatabaseBytes
 	if ceiling <= 0 {
 		ceiling = 512 << 20
 	}
 	var stats struct {
-		DatabaseSize *int64 `json:"databaseSize"`
+		DatabaseSize     *int64 `json:"databaseSize"`
+		UsedDatabaseSize *int64 `json:"usedDatabaseSize"`
+		Indexes          map[string]struct {
+			IndexSize     *int64 `json:"indexSize"`
+			UsedIndexSize *int64 `json:"usedIndexSize"`
+		} `json:"indexes"`
 	}
 	if err := p.http(ctx, http.MethodGet, "/stats", nil, &stats); err != nil {
 		return err
 	}
-	if stats.DatabaseSize == nil || *stats.DatabaseSize < 0 || *stats.DatabaseSize > ceiling-(64<<20) {
-		return errors.New("recommendation search disk budget unavailable")
+	var used int64
+	if stats.Indexes != nil {
+		prefix := p.connection.Prefix + "discovery_statuses_v1_"
+		for uid, index := range stats.Indexes {
+			if !strings.HasPrefix(uid, prefix) {
+				continue
+			}
+			size := index.UsedIndexSize
+			if size == nil {
+				size = index.IndexSize
+			}
+			if size == nil || *size < 0 {
+				return errors.New("recommendation search disk budget unavailable")
+			}
+			used += *size
+		}
+	} else {
+		// Old servers without per-index stats: fall back to the whole database.
+		size := stats.UsedDatabaseSize
+		if size == nil {
+			size = stats.DatabaseSize
+		}
+		if size == nil || *size < 0 {
+			return errors.New("recommendation search disk budget unavailable")
+		}
+		used = *size
+	}
+	if used > ceiling-(64<<20) {
+		return fmt.Errorf("recommendation search disk budget exceeded (%d MiB used of %d MiB)", used>>20, ceiling>>20)
 	}
 	return nil
 }

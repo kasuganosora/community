@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/log"
 	"io"
 	"net/http"
 	"net/url"
@@ -101,6 +102,10 @@ type MeiliProvider struct {
 	mu               sync.RWMutex
 	reason           string
 	maxDatabaseBytes int64
+	// Rebuild logging state (Start loop only).
+	lastStatus     string
+	lastWarnAt     time.Time
+	lastWarnReason string
 }
 
 var currentMeili struct {
@@ -230,7 +235,7 @@ func (p *MeiliProvider) Start(ctx context.Context) {
 			ticker := time.NewTicker(time.Minute)
 			defer ticker.Stop()
 			for {
-				_ = p.rebuild(ctx)
+				p.logRebuild(p.rebuild(ctx))
 				select {
 				case <-ctx.Done():
 					return
@@ -515,9 +520,27 @@ func (p *MeiliProvider) rebuild(parent context.Context) error {
 		p.setReason("rules_configured")
 		return nil
 	}
-	ctx, token, release, err := p.lease(parent, 70*time.Second)
-	if err != nil {
-		return err
+	// Candidate refreshes take the same deployment lease every minute. Wait
+	// briefly instead of losing to them on every tick.
+	var ctx context.Context
+	var token string
+	var release func()
+	for waitUntil := time.Now().Add(20 * time.Second); ; {
+		ctx, token, release, err = p.lease(parent, 70*time.Second)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrUnavailable) || !time.Now().Before(waitUntil) {
+			if errors.Is(err, ErrUnavailable) {
+				return unavailableBecause("index_lease_busy")
+			}
+			return err
+		}
+		select {
+		case <-parent.Done():
+			return parent.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
 	defer release()
 	err = p.buildOwned(ctx, token)
@@ -931,3 +954,31 @@ func unavailableBecause(reason string) error { return fmt.Errorf("%w: %s", ErrUn
 func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
 
 func (p *MeiliProvider) currentReason() string { p.mu.Lock(); defer p.mu.Unlock(); return p.reason }
+
+// logRebuild reports rebuild failures (rate-limited per distinct error) and
+// readiness transitions; the rebuild loop used to discard both.
+func (p *MeiliProvider) logRebuild(err error) {
+	now := time.Now()
+	if err != nil {
+		msg := err.Error()
+		if msg != p.lastWarnReason || now.Sub(p.lastWarnAt) >= 10*time.Minute {
+			log.Warn("Discovery Meili index rebuild failed: %v", err)
+			p.lastWarnAt, p.lastWarnReason = now, msg
+		}
+	} else {
+		p.lastWarnReason = ""
+	}
+	status := p.Status()
+	current := fmt.Sprintf("ready=%t reason=%s mode=%s", status.Ready, status.Reason, status.Mode)
+	if current != p.lastStatus {
+		log.Info("Discovery Meili index status: %s (was %s; generation=%s documents=%d cutoff=%s)", current, valueOr(p.lastStatus, "unknown"), status.Generation, status.DocumentCount, status.DataCutoff.Format(time.RFC3339))
+		p.lastStatus = current
+	}
+}
+
+func valueOr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
