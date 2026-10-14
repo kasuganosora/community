@@ -116,11 +116,6 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       <TabBar :model-value="activeTab" :options="tabs" label="时间线" @update:model-value="onTabChange" />
     </div>
     <PostComposer @posted="handlePosted" />
-    <div v-if="isDiscovery" class="discovery-note">
-      <span>{{ discoveryPreference?.preference === 'personalized' ? '根据你关注的话题和公开互动发现内容。' : '发现近期公开内容，不使用个人互动排序。' }}</span>
-      <router-link to="/settings?section=discovery">发现设置</router-link>
-      <button type="button" :disabled="loading" @click="reloadHead">刷新</button>
-    </div>
     <div v-if="isDiscovery && discovery.mode.value === 'chronological_fallback'" class="discovery-note" role="status">
       发现服务暂时降级，本次仅显示一页近期公开帖。
       <button type="button" @click="onTabChange('global')">浏览全局时间线</button>
