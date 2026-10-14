@@ -20,9 +20,9 @@ const discovery = useDiscoveryFeed()
 const checkingPreference = ref(false)
 type TabType = 'for-you' | 'following' | 'global'
 const tabs = computed<{ value: TabType; label: string }[]>(() => [
-  { value: 'for-you', label: discoveryPreference.value?.preference === 'personalized' ? '推荐' : '公开发现' },
   { value: 'following', label: '关注' },
-  { value: 'global', label: '全局时间线' },
+  { value: 'for-you', label: discoveryPreference.value?.preference === 'personalized' ? '推荐' : '公开发现' },
+  { value: 'global', label: '全局' },
 ])
 const activeTab = computed({ get: () => timelineStore.homeTab, set: (tab: TabType) => { timelineStore.homeTab = tab } })
 const isDiscovery = computed(() => activeTab.value === 'for-you')

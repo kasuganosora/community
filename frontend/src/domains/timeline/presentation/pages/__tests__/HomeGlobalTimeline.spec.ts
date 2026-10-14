@@ -47,7 +47,8 @@ it.each([{ preference: 'off' as const, enabled: true }, { preference: 'generic' 
   expect(wrapper.text()).not.toContain('发现设置')
   expect(wrapper.text()).not.toContain('尚未开放内容发现')
   expect(wrapper.text()).not.toContain('关闭内容发现')
-  expect(wrapper.findComponent({ name: 'TabBar' }).props('options')).toContainEqual({ value: 'global', label: '全局时间线' })
+  expect(wrapper.findComponent({ name: 'TabBar' }).props('options')).toContainEqual({ value: 'global', label: '全局' })
+  expect(wrapper.findComponent({ name: 'TabBar' }).props('options').map((o: { value: string }) => o.value)).toEqual(['following', 'for-you', 'global'])
 
   await select('global')
   expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/public', { params: { limit: 20 } })
