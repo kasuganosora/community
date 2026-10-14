@@ -769,7 +769,11 @@ func handleFederationSend(c *gin.Context) {
 			}
 			evType, _ := event["type"].(string)
 			evRoom, _ := event["room_id"].(string)
-			log.Warn("federation send: txn %s from %s rejected PDU %s (type=%s room=%s): %v", c.Param("txnId"), txn.Origin, eventID, evType, evRoom, err)
+			if federationRejectIsRoutine(evType, err) {
+				log.Info("federation send: txn %s from %s rejected PDU %s (type=%s room=%s): %v", c.Param("txnId"), txn.Origin, eventID, evType, evRoom, err)
+			} else {
+				log.Warn("federation send: txn %s from %s rejected PDU %s (type=%s room=%s): %v", c.Param("txnId"), txn.Origin, eventID, evType, evRoom, err)
+			}
 			pduResults[eventID] = gin.H{"error": err.Error()}
 
 			continue
@@ -963,3 +967,14 @@ func handleThirdPartyOnBind(c *gin.Context) {
 
 // ParseMatrixUserID 解析 Matrix 用户 ID
 // 注意：这个函数在 auth.go 中已定义，这里为了避免重复，使用外部定义的版本
+
+// federationRejectIsRoutine reports rejections that are expected while we
+// lack part of a room's auth chain: Synapse's dummy events (sent only to tidy
+// forward extremities) and PDUs whose auth/prev events we never stored. The
+// sender is told per PDU either way; these do not deserve a warning each.
+func federationRejectIsRoutine(eventType string, err error) bool {
+	if eventType == "org.matrix.dummy_event" {
+		return true
+	}
+	return err != nil && (errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(), "record not found"))
+}
