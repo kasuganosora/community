@@ -426,3 +426,37 @@ func TestWebGroupSyncLimitHasActionableNonRetryableError(t *testing.T) {
 	require.ErrorIs(t, err, errWebGroupSyncLimit)
 	request("")
 }
+
+func TestWebGroupSyncReturnsPromptlyWhenSnapshotIsOverBudget(t *testing.T) {
+	_, router, _ := webMessageFixture(t)
+	post := func(since string) *httptest.ResponseRecorder {
+		raw, err := json.Marshal(gin.H{"since": since, "timeout": 0})
+		require.NoError(t, err)
+		req := httptest.NewRequest("POST", "/api/v1/chat/group-sync", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Test-User", "@alice:test.local")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	w := post("")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var first webGroupSyncResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &first))
+	require.NotEmpty(t, first.NextCursor)
+
+	previous := webGroupSyncSnapshotBudget
+	webGroupSyncSnapshotBudget = time.Nanosecond
+	t.Cleanup(func() { webGroupSyncSnapshotBudget = previous })
+	w = post(first.NextCursor)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var degraded webGroupSyncResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &degraded))
+	require.True(t, degraded.Degraded)
+	require.Equal(t, first.NextCursor, degraded.NextCursor, "cursor is kept so the next poll catches up")
+	require.Positive(t, degraded.RetryAfterMs)
+	w = post("")
+	require.Equal(t, 503, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"sync_busy"`)
+	require.Contains(t, w.Body.String(), `"retryable":true`)
+}

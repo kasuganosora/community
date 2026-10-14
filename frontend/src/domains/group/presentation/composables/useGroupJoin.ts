@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios'
 import { onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupApi } from '../../infrastructure/groupApi'
@@ -5,6 +6,12 @@ import type { Group, GroupJoinResult } from '../../domain/group'
 
 // Accepting an invitation uses the same bounded, resumable operation as joining
 // from search. A retry must query an existing operation, not submit another join.
+// A slow or briefly unavailable server (gateway timeout, 5xx, 429, dropped
+// connection) is not a join failure: the operation keeps running server-side.
+function transient(e: unknown) {
+  return isAxiosError(e) && e.code !== 'ERR_CANCELED' && (!e.response || e.response.status >= 500 || e.response.status === 429)
+}
+
 export function useGroupJoin(roomId: Ref<string>, apply: (result: GroupJoinResult) => void) {
   const busy = ref(false), error = ref(''), status = ref(''), operation = ref('')
   let generation = 0, controller: AbortController | undefined
@@ -37,7 +44,11 @@ export function useGroupJoin(roomId: Ref<string>, apply: (result: GroupJoinResul
     async function query() {
       if (version !== generation) return
       try { await handle(await groupApi.joinStatus(operation.value, signal)) }
-      catch (e) { fail(e instanceof Error ? e.message : '加入状态查询失败，请重试查询。') }
+      catch (e) {
+        if (version !== generation) return
+        if (transient(e)) { status.value = '服务器响应较慢，仍在确认加入结果…'; pollTimer = setTimeout(() => { void query() }, 3000); return }
+        fail(e instanceof Error ? e.message : '加入状态查询失败，请重试查询。')
+      }
     }
     if (operation.value) { await query(); return }
     try {

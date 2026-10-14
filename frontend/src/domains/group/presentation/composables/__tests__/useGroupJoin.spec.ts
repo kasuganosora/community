@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
@@ -77,6 +78,19 @@ describe('invitation join feedback and lifecycle', () => {
     expect(joining.busy.value).toBe(false)
     sessionEpoch.value++
     expect(joining.operation.value).toBe('')
+    expect(joining.error.value).toBe('')
+    wrapper.unmount()
+  })
+  it('keeps polling through a gateway timeout instead of reporting join failure', async () => {
+    vi.mocked(groupApi.join).mockResolvedValue({ status: 'joining', operation_id: 'op' })
+    const gateway = new AxiosError('timeout', 'ERR_BAD_RESPONSE', undefined, undefined, { status: 504, data: {}, statusText: '', headers: {}, config: {} as never })
+    vi.mocked(groupApi.joinStatus).mockRejectedValueOnce(gateway).mockResolvedValueOnce({ status: 'joined', group })
+    const { joining, apply, wrapper } = setup()
+    await joining.join(group); await vi.advanceTimersByTimeAsync(1500)
+    expect(joining.error.value).toBe('')
+    expect(joining.busy.value).toBe(true)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(apply).toHaveBeenCalledWith({ status: 'joined', group })
     expect(joining.error.value).toBe('')
     wrapper.unmount()
   })

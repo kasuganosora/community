@@ -32,6 +32,7 @@ export interface GroupUpload { id: string; name: string; type: string; size: num
 export interface GroupSync {
   has_more?: boolean; next_cursor: string; groups: Group[]; changed_group_ids: string[]; left_group_ids: string[]; reset: boolean
   messages_by_group?: Record<string, GroupMessage[]>; typing_by_group?: Record<string, GroupPerson[]>
+  degraded?: boolean; retry_after_ms?: number
 }
 export const groupPath = (id: string) => `/groups/${encodeURIComponent(id)}`
 export const groupMembershipLabel: Record<string, string> = { join: '已加入', invite: '邀请待处理', knock: '等待批准', leave: '已离开', ban: '已被封禁', none: '未加入' }

@@ -33,7 +33,18 @@ type webGroupSyncResponse struct {
 	Messages   map[string][]webGroupMessage `json:"messages_by_group"`
 	Typing     map[string][]webGroupSender  `json:"typing_by_group"`
 	HasMore    bool                         `json:"has_more"`
+	// Degraded marks a response that carries no new state because the local
+	// snapshot exceeded its budget (e.g. the database is busy persisting a
+	// large federated join). The cursor is unchanged; the client re-polls
+	// after RetryAfterMs and picks up the changes then.
+	Degraded     bool `json:"degraded,omitempty"`
+	RetryAfterMs int  `json:"retry_after_ms,omitempty"`
 }
+
+// webGroupSyncSnapshotBudget bounds one snapshot so a busy database (or any
+// lock held by background federation work) cannot hold the long poll until a
+// proxy answers 504. Variable for tests.
+var webGroupSyncSnapshotBudget = 3 * time.Second
 
 var errWebGroupSyncLimit = errors.New("web group sync limit exceeded")
 
@@ -95,7 +106,20 @@ func handleWebGroupSync(c *gin.Context) {
 		if hs.SyncNotifier != nil {
 			wake, cancel = hs.SyncNotifier.Subscribe(user, "web_groups")
 		}
-		response, err := webGroupSyncSnapshot(hs, db.GetDB().WithContext(c.Request.Context()), user, cursor, reset)
+		snapCtx, snapCancel := context.WithTimeout(c.Request.Context(), webGroupSyncSnapshotBudget)
+		response, err := webGroupSyncSnapshot(hs, db.GetDB().WithContext(snapCtx), user, cursor, reset)
+		overBudget := err != nil && snapCtx.Err() != nil && c.Request.Context().Err() == nil
+		snapCancel()
+		if overBudget {
+			cancel()
+			if initial || reset {
+				c.Header("Retry-After", "2")
+				webGroupFailure(c, http.StatusServiceUnavailable, "sync_busy", "群聊同步繁忙，正在重试")
+				return
+			}
+			c.JSON(200, webGroupSyncResponse{NextCursor: since, Groups: []gin.H{}, Changed: []string{}, Left: []string{}, Messages: map[string][]webGroupMessage{}, Typing: map[string][]webGroupSender{}, Degraded: true, RetryAfterMs: 1000})
+			return
+		}
 		if err != nil {
 			cancel()
 			if errors.Is(err, errWebGroupSyncLimit) {

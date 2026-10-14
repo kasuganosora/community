@@ -111,7 +111,8 @@ export function useGroups(selectedId: Ref<string>) {
         if (update.changed_group_ids?.includes(selectedId.value) && !update.groups?.some(item => item.id === selectedId.value)) await refreshRoom()
         if (!active || epoch !== sessionEpoch.value) return
         // Some servers return immediately when the snapshot changes; yield before the next long poll.
-        if (!update.has_more) await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, 150) })
+        // A degraded response means the server was busy; it keeps our cursor, so wait as asked and re-poll.
+        if (!update.has_more) await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, update.degraded ? Math.min(Math.max(update.retry_after_ms ?? 1000, 150), 10000) : 150) })
       } catch (error) {
         if (!active || epoch !== sessionEpoch.value) return
         if (isAxiosError(error) && error.response?.data?.code === 'sync_limit_exceeded') {
@@ -125,12 +126,14 @@ export function useGroups(selectedId: Ref<string>) {
           return
         }
         if (isAxiosError(error) && error.response?.data?.code === 'invalid_cursor') { syncCursor = undefined; initialSyncDone = false }
-        syncError.value = '连接暂时中断，正在自动重新连接。草稿会保留。'
+        const busy = isAxiosError(error) && error.response?.data?.code === 'sync_busy'
+        // A busy initial sync is retried quickly and silently; it is not a failure.
+        if (!busy) syncError.value = '连接暂时中断，正在自动重新连接。草稿会保留。'
         // A failed live-sync endpoint must not keep a readable room behind an
         // endless initial spinner. Reconcile history again when sync recovers.
         if (!initialSyncDone && !initialFallbackStarted) { initialFallbackStarted = true; await openRoom() }
         if (!active || epoch !== sessionEpoch.value) return
-        await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, 3000) })
+        await new Promise<void>(resolve => { resumeWait = resolve; retryTimer = setTimeout(resolve, busy ? 1500 : 3000) })
       }
     }
   }
