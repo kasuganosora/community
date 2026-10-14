@@ -211,8 +211,12 @@ func (p *MeiliProvider) Status() MeiliStatus {
 		result.Reason = "index_expired"
 		return result
 	}
-	if settings.ApprovedVersion != a.Version {
-		result.Reason = "quality_not_approved"
+	if a.Documents <= 0 && !settings.RequireManualApproval {
+		result.Reason = "index_empty"
+		return result
+	}
+	if !settings.ApprovesIndex(a.Version) {
+		result.Reason = "awaiting_manual_approval"
 		return result
 	}
 	result.Ready = true
@@ -733,8 +737,10 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 		return empty, unavailableBecause(fmt.Sprintf("index_expired (cutoff %s ago, max %s)", now.Sub(active.Cutoff).Round(time.Second), PoolMaxAge))
 	case active.Version != p.versionForMode(active.ServerVersion, active.Mode):
 		return empty, unavailableBecause("index_version_mismatch (active " + active.Version + ")")
-	case settings.ApprovedVersion != active.Version:
-		return empty, unavailableBecause("quality_not_approved (active index " + active.Version + " is not the approved version " + strconvQuote(settings.ApprovedVersion) + "; approve it in admin discovery settings)")
+	case active.Documents <= 0 && !settings.RequireManualApproval:
+		return empty, unavailableBecause("index_empty (active index " + active.Version + " has no documents)")
+	case !settings.ApprovesIndex(active.Version):
+		return empty, unavailableBecause("awaiting_manual_approval (manual review is on and active index " + active.Version + " is not the approved version " + strconvQuote(settings.ApprovedVersion) + "; click 批准当前版本 in /admin/discovery)")
 	}
 	if len(buckets) > 128 {
 		return empty, ErrInvalidRequest
@@ -801,7 +807,7 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 	// SQL configuration is checked again before publication. A quality or mode
 	// revocation while the remote queries ran must not enable the enhancement.
 	settings, err = p.settings(ctx, p.conn())
-	if err != nil || !settings.Enabled || settings.Mode != "auto" || settings.ApprovedVersion != active.Version {
+	if err != nil || !settings.Enabled || settings.Mode != "auto" || !settings.ApprovesIndex(active.Version) || (active.Documents <= 0 && !settings.RequireManualApproval) {
 		return empty, unavailableBecause("configuration_changed during query")
 	}
 	leaseKey, _ := p.keys()

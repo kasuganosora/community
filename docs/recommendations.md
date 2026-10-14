@@ -8,7 +8,8 @@ Community 的首页发现页使用独立的推荐接口，关注时间线继续�
 
 - `config.recommendation.enabled`：推荐总开关，默认 `false`。关闭后首页落到关注页、账号建议为空，旧推荐游标不能继续使用。
 - `config.recommendation.mode`：`auto` 或 `rules`，默认 `auto`。`rules` 使用公开热度、新鲜度和探索规则；允许个性化时加入明确兴趣和合格的公开关系信号。
-- `config.recommendation.meili_approved_version`：已审核的增强索引版本，默认空。**安装 Meilisearch 不等于证明推荐质量提高**；未完成对应版本的质量评估时继续使用规则模式。
+- `config.recommendation.require_manual_approval`：是否需要人工审核推荐索引，默认 `false`。关闭时，`mode=auto` 下索引构建完成且健康（非空、未过期、配置一致）即自动启用 Meilisearch 增强；开启时，仅在 `meili_approved_version` 等于当前索引版本时启用，否则原因为 `awaiting_manual_approval`。
+- `config.recommendation.meili_approved_version`：人工审核模式下已批准的索引版本，默认空。通常不需手填：在 `/admin/discovery` 点击“批准当前版本”即写入（`POST /api/v1/admin/discovery/approve`，需设置管理权限）。自动模式下该值被忽略。
 - `config.discovery.trends_enabled`：热点开关，默认 `true`，不随个人退出推荐而关闭。
 
 设置事务同时保存推荐策略版本，跨 API 副本直接读主库。关闭后再开启、改变算法模式或撤销增强审批都不会让旧窗口重新生效。管理员可独立禁止推荐作者、帖子或话题，填写原因并撤销；这些操作保留审计，不删除帖子或封禁账号。

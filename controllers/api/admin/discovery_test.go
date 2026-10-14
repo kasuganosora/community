@@ -84,3 +84,28 @@ func TestDiscoveryGovernanceCannotDeletePersonalFeedback(t *testing.T) {
 	require.NoError(t, env.gdb.Model(&row).Where("id = ?", row.ID).Count(&count).Error)
 	require.EqualValues(t, 1, count)
 }
+
+func TestApproveDiscoveryIndexWritesActiveVersion(t *testing.T) {
+	conn := discoveryAdminDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.SystemSetting{}))
+	require.NoError(t, conn.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.SystemSetting{}).Error)
+	previous := currentDiscoveryIndexVersion
+	t.Cleanup(func() { currentDiscoveryIndexVersion = previous })
+	currentDiscoveryIndexVersion = func() string { return "" }
+	c, w := newJSONContext(t, http.MethodPost, nil, map[string]any{"version": "v1"})
+	ApproveDiscoveryIndex(c)
+	require.Equal(t, 409, w.Code, "no built index means nothing to approve")
+	currentDiscoveryIndexVersion = func() string { return "discovery-v1-active" }
+	c, w = newJSONContext(t, http.MethodPost, nil, map[string]any{"version": "discovery-v1-old"})
+	ApproveDiscoveryIndex(c)
+	require.Equal(t, 409, w.Code, "a rebuilt index is never approved blindly")
+	c, w = newJSONContext(t, http.MethodPost, nil, map[string]any{})
+	ApproveDiscoveryIndex(c)
+	require.Equal(t, 422, w.Code)
+	c, w = newJSONContext(t, http.MethodPost, nil, map[string]any{"version": "discovery-v1-active"})
+	ApproveDiscoveryIndex(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var row models.SystemSetting
+	require.NoError(t, conn.Where(map[string]any{"key": "config.recommendation.meili_approved_version"}).Take(&row).Error)
+	require.Equal(t, "discovery-v1-active", row.Val)
+}

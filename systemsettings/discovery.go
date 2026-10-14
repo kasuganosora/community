@@ -18,6 +18,7 @@ const (
 	KeyRecommendationEnabled         = "config.recommendation.enabled"
 	KeyRecommendationMode            = "config.recommendation.mode"
 	KeyRecommendationApprovedVersion = "config.recommendation.meili_approved_version"
+	KeyRecommendationManualApproval  = "config.recommendation.require_manual_approval"
 	KeyDiscoveryTrendsEnabled        = "config.discovery.trends_enabled"
 	KeyRecommendationPolicyRevision  = "config.recommendation.policy_revision"
 )
@@ -28,8 +29,11 @@ type DiscoveryConfiguration struct {
 	Enabled         bool   `json:"enabled"`
 	Mode            string `json:"configured_mode"`
 	ApprovedVersion string `json:"approved_version"`
-	TrendsEnabled   bool   `json:"trends_enabled"`
-	PolicyRevision  string `json:"-"`
+	// RequireManualApproval keeps the Meili index gated on ApprovedVersion.
+	// When false (default) a healthy active index is used automatically.
+	RequireManualApproval bool   `json:"require_manual_approval"`
+	TrendsEnabled         bool   `json:"trends_enabled"`
+	PolicyRevision        string `json:"-"`
 }
 
 func ReadDiscoveryConfiguration(ctx context.Context, conn *gorm.DB) (DiscoveryConfiguration, error) {
@@ -37,7 +41,7 @@ func ReadDiscoveryConfiguration(ctx context.Context, conn *gorm.DB) (DiscoveryCo
 	if conn == nil {
 		return result, fmt.Errorf("discovery settings database unavailable")
 	}
-	keys := []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion, KeyDiscoveryTrendsEnabled, KeyRecommendationPolicyRevision}
+	keys := []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion, KeyRecommendationManualApproval, KeyDiscoveryTrendsEnabled, KeyRecommendationPolicyRevision}
 	var rows []models.SystemSetting
 	if err := conn.WithContext(ctx).Where(map[string]any{"key": keys}).Find(&rows).Error; err != nil {
 		return result, err
@@ -67,6 +71,9 @@ func ReadDiscoveryConfiguration(ctx context.Context, conn *gorm.DB) (DiscoveryCo
 	if v, ok := values[KeyRecommendationApprovedVersion]; ok {
 		result.ApprovedVersion = strings.TrimSpace(utils.ToString(v))
 	}
+	if v, ok := values[KeyRecommendationManualApproval]; ok {
+		result.RequireManualApproval = utils.ToBool(v)
+	}
 	result.PolicyRevision = utils.ToString(values[KeyRecommendationPolicyRevision])
 	return result, nil
 }
@@ -78,7 +85,7 @@ func DiscoveryPolicyVersion(ctx context.Context, conn *gorm.DB) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	data, _ := json.Marshal([]any{settings.Enabled, settings.Mode, settings.ApprovedVersion, settings.PolicyRevision})
+	data, _ := json.Marshal([]any{settings.Enabled, settings.Mode, settings.ApprovedVersion, settings.RequireManualApproval, settings.PolicyRevision})
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:]), nil
 }
@@ -86,4 +93,14 @@ func DiscoveryPolicyVersion(ctx context.Context, conn *gorm.DB) (string, error) 
 func DiscoveryEnabled(ctx context.Context, conn *gorm.DB) bool {
 	settings, err := ReadDiscoveryConfiguration(ctx, conn)
 	return err == nil && settings.Enabled
+}
+
+// ApprovesIndex reports whether the active Meili index version may serve
+// recommendations. Without manual review every healthy built index is usable;
+// with manual review only the explicitly approved version is.
+func (c DiscoveryConfiguration) ApprovesIndex(version string) bool {
+	if version == "" {
+		return false
+	}
+	return !c.RequireManualApproval || c.ApprovedVersion == version
 }

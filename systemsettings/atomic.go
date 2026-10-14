@@ -19,7 +19,7 @@ func SaveChanges(values map[string]any) error {
 	for key, value := range values {
 		changes[key] = value
 	}
-	for _, key := range []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion} {
+	for _, key := range []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion, KeyRecommendationManualApproval} {
 		if _, changed := values[key]; changed {
 			changes[KeyRecommendationPolicyRevision] = uuid.NewString()
 			break

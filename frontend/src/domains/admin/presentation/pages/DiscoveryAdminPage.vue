@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { discoveryAdminApi as api, type DiscoveryAdminStatus, type DiscoverySuppression } from '../../infrastructure/discoveryAdminApi'
 import { invalidateDiscovery } from '@/domains/discovery/presentation/composables/discoveryState'
@@ -15,7 +15,7 @@ const reasonLabel: Record<string, string> = {
   build_unavailable: '索引构建暂时不可用', query_unavailable: '内容检索暂时不可用', built: '索引已构建，等待就绪检查', ready: '可以使用',
   resource_budget_exceeded: '索引资源用量达到配置上限',
   redis_unavailable: '缓存暂时不可用', configuration_changed: '配置已改变，需要重建并重新验收', index_expired: '索引已过期，等待更新',
-  quality_not_approved: '尚未批准当前版本的质量验收', approval_required: '等待当前版本的质量验收批准',
+  quality_not_approved: '尚未批准当前版本的质量验收', awaiting_manual_approval: '已开启人工审核，等待批准当前索引版本', index_empty: '索引中没有可推荐的公开内容，暂不自动启用', approval_required: '等待当前版本的质量验收批准',
   pool_not_built: '候选池尚未构建', invalid_pool: '候选池无效，等待重建', pool_expired: '候选池已过期，等待更新',
 }
 function reasonText(code?: string) { return code ? reasonLabel[code] || '当前状态需要进一步检查服务日志' : '正常' }
@@ -41,6 +41,26 @@ async function suppress() {
     if (epoch !== sessionEpoch.value) return
     target.value = ''; reason.value = ''; invalidateDiscovery(); await load(); success.value = '已停止主动推荐。原有授权访问不受影响。'
   } catch (e) { if (epoch === sessionEpoch.value) error.value = e instanceof Error ? e.message : '保存禁推规则失败' }
+  finally { if (epoch === sessionEpoch.value) busy.value = false }
+}
+const approvalText = computed(() => {
+  const s = status.value
+  if (!s) return ''
+  if (!s.require_manual_approval) return '自动（索引健康即启用）'
+  if (!s.approved_version) return '人工审核 · 尚未批准任何版本'
+  return s.index.version && s.approved_version === s.index.version ? '人工审核 · 当前版本已批准' : '人工审核 · 已批准的是旧版本'
+})
+const canApprove = computed(() => !!status.value?.index.version && status.value.approved_version !== status.value.index.version)
+async function approve() {
+  const current = status.value?.index.version
+  if (busy.value || !current) return
+  busy.value = true; error.value = ''; success.value = ''
+  const epoch = sessionEpoch.value
+  try {
+    await api.approve(current)
+    if (epoch !== sessionEpoch.value) return
+    invalidateDiscovery(); await load(); success.value = '已批准当前索引版本。'
+  } catch (e) { if (epoch === sessionEpoch.value) error.value = e instanceof Error ? e.message : '批准失败' }
   finally { if (epoch === sessionEpoch.value) busy.value = false }
 }
 async function restore(row: DiscoverySuppression) {
@@ -78,9 +98,10 @@ onBeforeUnmount(() => { ++version })
         <div><dt>索引数据截止</dt><dd>{{ date(status.index.data_cutoff) }}</dd></div>
         <div><dt>最近检查</dt><dd>{{ date(status.index.checked_at) }}</dd></div>
         <div><dt>当前增强版本</dt><dd>{{ status.index.version || '暂无可用版本' }}</dd></div>
-        <div><dt>质量批准版本</dt><dd>{{ status.approved_version || '尚未批准增强模式' }}</dd></div>
+        <div><dt>版本审核</dt><dd data-testid="discovery-approval">{{ approvalText }}<small v-if="status.approved_version">已批准：{{ status.approved_version }}</small></dd></div>
       </dl>
-      <p class="admin-hint">索引就绪不等于质量已通过。增强版本须完成既定验收后批准；未批准时保持基础规则。</p>
+      <p class="admin-hint">{{ status?.require_manual_approval ? '已开启人工审核：新索引版本须批准后才会启用，未批准时保持基础规则。' : '默认自动模式：索引构建完成且健康后自动启用增强推荐，无需填写版本。可在设置中开启人工审核。' }}</p>
+      <button v-if="status && canApprove" type="button" class="admin-button admin-button--primary" data-testid="discovery-approve" :disabled="busy || loading" @click="approve">批准当前版本</button>
       <router-link class="admin-button" to="/admin/settings/performance">配置开关与增强模式</router-link>
     </section>
     <section v-if="status?.runtime" class="admin-card">

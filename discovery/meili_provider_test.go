@@ -33,7 +33,7 @@ func meiliTestProvider(t *testing.T, host string) (*MeiliProvider, *systemsettin
 	t.Cleanup(func() { _ = client.Close() })
 	suffix, err := feedGeneration()
 	require.NoError(t, err)
-	settings := &systemsettings.DiscoveryConfiguration{Enabled: true, Mode: "auto"}
+	settings := &systemsettings.DiscoveryConfiguration{Enabled: true, Mode: "auto", RequireManualApproval: true}
 	p := &MeiliProvider{connection: search.DiscoveryConnection{Enabled: true, Host: host, Prefix: "qa_" + suffix + "_"}, client: &http.Client{Timeout: 3 * time.Second}, conn: func() *gorm.DB { return nil }, redis: func() redis.UniversalClient { return client }, settings: func(context.Context, *gorm.DB) (systemsettings.DiscoveryConfiguration, error) { return *settings, nil }, reason: "not_built"}
 	return p, settings
 }
@@ -60,9 +60,9 @@ func TestMeiliQualityGateAndStaleIndexDoNotQuery(t *testing.T) {
 	_, err := p.BuildBuckets(context.Background(), time.Now(), []ContentBucket{{Key: "摄影", Query: "摄影"}})
 	require.Error(t, err)
 	require.Equal(t, int32(0), calls.Load())
-	require.Equal(t, "quality_not_approved", p.Status().Reason)
+	require.Equal(t, "awaiting_manual_approval", p.Status().Reason)
 	require.ErrorIs(t, err, ErrUnavailable)
-	require.Contains(t, err.Error(), "quality_not_approved", "the warning log names the concrete reason")
+	require.Contains(t, err.Error(), "awaiting_manual_approval", "the warning log names the concrete reason")
 	settings.ApprovedVersion = active.Version
 	active.Cutoff = time.Now().Add(-PoolMaxAge - time.Second)
 	ctx, token, release, err := p.lease(context.Background(), time.Second)
@@ -234,7 +234,7 @@ func TestMeiliRealEngineBuildQueryAndRetire(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, state.Active)
 	require.Equal(t, 1, state.Active.Documents)
-	require.Equal(t, "quality_not_approved", p.Status().Reason)
+	require.Equal(t, "awaiting_manual_approval", p.Status().Reason)
 	settings.ApprovedVersion = state.Active.Version
 	require.True(t, p.Status().Ready)
 	batch, err := p.BuildBuckets(ctx, time.Now().UTC(), []ContentBucket{{Key: "摄影", Query: "摄影"}})
@@ -416,4 +416,43 @@ func TestMeiliExtractionCapsNewestRootsInsteadOfFailingBudget(t *testing.T) {
 	require.True(t, ids[fmt.Sprint(100+total-2)], "newest regular post is indexed")
 	require.False(t, ids["100"], "oldest posts beyond the row cap age out")
 	require.Equal(t, "resource_budget_exceeded", meiliSafeBudgetReason(fmt.Errorf("x budget exceeded")))
+}
+
+func TestMeiliAutomaticApprovalUsesHealthyIndexWithoutManualVersion(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"hits": []any{}})
+	}))
+	defer server.Close()
+	p, settings := meiliTestProvider(t, server.URL)
+	settings.RequireManualApproval = false
+	active := meiliManifest{Index: p.connection.Prefix + "discovery_statuses_v1_test", Generation: "generation", Version: p.version("test-server"), ServerVersion: "test-server", Mode: "meili_lexical", Documents: 3, Cutoff: time.Now().UTC().Add(-time.Second)}
+	write := func() {
+		ctx, token, release, err := p.lease(context.Background(), time.Second)
+		require.NoError(t, err)
+		defer release()
+		require.NoError(t, p.writeState(ctx, token, meiliState{Active: &active}))
+	}
+	write()
+	// A stale explicit approval does not block the automatic default.
+	settings.ApprovedVersion = "stale-version"
+	require.True(t, p.Status().Ready)
+	_, err := p.BuildBuckets(context.Background(), time.Now(), []ContentBucket{{Key: "go", Query: "go"}})
+	require.NoError(t, err)
+	require.Positive(t, calls.Load())
+	// Empty indexes are not promoted automatically.
+	active.Documents = 0
+	write()
+	require.Equal(t, "index_empty", p.Status().Reason)
+	_, err = p.BuildBuckets(context.Background(), time.Now(), []ContentBucket{{Key: "go", Query: "go"}})
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.Contains(t, err.Error(), "index_empty")
+	// Turning manual review on restores the explicit gate.
+	active.Documents = 3
+	write()
+	settings.RequireManualApproval = true
+	require.Equal(t, "awaiting_manual_approval", p.Status().Reason)
+	settings.ApprovedVersion = active.Version
+	require.True(t, p.Status().Ready)
 }

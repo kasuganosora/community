@@ -13,6 +13,7 @@ func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	read.GET("/discovery/status", admin.DiscoveryStatus)
 	read.GET("/discovery/feedback", admin.ListDiscoveryFeedback)
 	write.POST("/discovery/feedback", admin.CreateDiscoveryFeedback)
+	write.POST("/discovery/approve", admin.ApproveDiscoveryIndex)
 	write.DELETE("/discovery/feedback/:id", admin.DeleteDiscoveryFeedback)
 	read.GET("/analytics", admin.GetAnalytics)
 	read.GET("/email_domain_blocks", admin.ListEmailDomainBlocks)

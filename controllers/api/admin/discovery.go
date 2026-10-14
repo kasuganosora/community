@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/discovery"
 	"github.com/kasuganosora/community/models"
@@ -31,7 +32,43 @@ func DiscoveryStatus(c *gin.Context) {
 		discoveryAdminError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"enabled": settings.Enabled, "configured_mode": settings.Mode, "approved_version": settings.ApprovedVersion, "trends_enabled": settings.TrendsEnabled, "algorithm_version": discovery.AlgorithmVersion, "index": discovery.CurrentMeiliStatus(), "runtime": runtime})
+	c.JSON(http.StatusOK, gin.H{"enabled": settings.Enabled, "configured_mode": settings.Mode, "approved_version": settings.ApprovedVersion, "require_manual_approval": settings.RequireManualApproval, "trends_enabled": settings.TrendsEnabled, "algorithm_version": discovery.AlgorithmVersion, "index": discovery.CurrentMeiliStatus(), "runtime": runtime})
+}
+
+// currentDiscoveryIndexVersion is swapped in tests.
+var currentDiscoveryIndexVersion = func() string { return discovery.CurrentMeiliStatus().Version }
+
+// ApproveDiscoveryIndex records the active Meili index version as approved.
+// The client sends the version it saw so an index rebuilt in between is never
+// approved blindly.
+func ApproveDiscoveryIndex(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
+	var input struct {
+		Version string `json:"version"`
+	}
+	if c.ShouldBindJSON(&input) != nil || strings.TrimSpace(input.Version) == "" || len(input.Version) > 128 {
+		c.JSON(422, gin.H{"error": "缺少要批准的索引版本"})
+		return
+	}
+	active := currentDiscoveryIndexVersion()
+	if active == "" {
+		c.JSON(409, gin.H{"error": "推荐索引尚未构建完成，暂时没有可批准的版本"})
+		return
+	}
+	if strings.TrimSpace(input.Version) != active {
+		c.JSON(409, gin.H{"error": "当前索引版本已变化，请刷新页面后重新确认", "version": active})
+		return
+	}
+	if _, managed := config.C.Other[systemsettings.KeyRecommendationApprovedVersion]; managed {
+		c.JSON(http.StatusConflict, gin.H{"error": "setting is managed by deployment"})
+		return
+	}
+	if err := systemsettings.SaveChanges(map[string]any{systemsettings.KeyRecommendationApprovedVersion: active}); err != nil {
+		discoveryAdminError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"approved_version": active})
 }
 
 func ListDiscoveryFeedback(c *gin.Context) {

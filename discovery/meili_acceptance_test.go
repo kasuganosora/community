@@ -126,7 +126,7 @@ func TestMeiliAcceptanceApprovalRevokedDuringSearchDoesNotPublish(t *testing.T) 
 	require.Error(t, err)
 	require.Equal(t, "rules", batch.Mode)
 	require.Empty(t, batch.Lists)
-	require.Equal(t, "quality_not_approved", p.Status().Reason)
+	require.Equal(t, "awaiting_manual_approval", p.Status().Reason)
 }
 
 func TestMeiliAcceptanceBudgetSharedAcrossReplicasAndRedisHour(t *testing.T) {
