@@ -3,7 +3,7 @@ import type { TargetKind } from '@/domains/discovery/infrastructure/discoveryApi
 
 export interface DiscoveryAdminStatus {
   enabled: boolean; trends_enabled: boolean; configured_mode: string; algorithm_version: string; approved_version: string
-  index: { ready: boolean; reason: string; generation: string; version: string; mode: string; document_count: number; data_cutoff: string; checked_at: string }
+  index: { ready: boolean; reason: string; generation: string; version: string; mode: string; document_count: number; data_cutoff: string; checked_at: string; last_build_error?: string; last_build_error_at?: string; last_query_error?: string; last_query_error_at?: string }
   runtime?: {
     enabled: boolean; redis_available: boolean; reason?: string; pool_generation?: string; pool_as_of?: string; pool_mode?: string
     pool_candidates: number; pool_stale: boolean; pool_truncated: boolean; pool_payload_bytes: number; pool_lease_active: boolean

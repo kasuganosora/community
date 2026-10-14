@@ -4,6 +4,8 @@ package discovery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
@@ -80,11 +82,25 @@ func EnabledContext(ctx context.Context) (bool, error) {
 	return config.Enabled != nil && config.Enabled(), nil
 }
 func feedPolicy(ctx context.Context) (string, error) {
-	config := feedConfig()
+	feedRuntime.RLock()
+	config, provider := feedRuntime.config, feedRuntime.provider
+	feedRuntime.RUnlock()
+	var policy string
 	if config.Policy != nil {
-		return config.Policy(ctx)
+		var err error
+		policy, err = config.Policy(ctx)
+		if err != nil {
+			return "", err
+		}
 	}
-	return "", nil
+	// Deployment model/configuration changes must also invalidate windows and
+	// shared pools, even when the SQL approval value has not changed. This is a
+	// local fingerprint only: timeline reads never contact the search service.
+	if versioned, ok := provider.(interface{ PolicyVersion() string }); ok {
+		hash := sha256.Sum256([]byte("discovery-policy-v2\x00" + policy + "\x00" + versioned.PolicyVersion()))
+		return hex.EncodeToString(hash[:]), nil
+	}
+	return policy, nil
 }
 func CursorSigningKeys() [][]byte {
 	config := feedConfig()

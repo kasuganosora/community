@@ -44,15 +44,19 @@ const meiliDocumentBytes = 16 << 20
 const meiliLeaseTTL = 90 * time.Second
 
 type MeiliStatus struct {
-	Ready         bool      `json:"ready"`
-	Mode          string    `json:"mode"`
-	Reason        string    `json:"reason"`
-	Generation    string    `json:"generation,omitempty"`
-	Version       string    `json:"version,omitempty"`
-	ServerVersion string    `json:"server_version,omitempty"`
-	DocumentCount int       `json:"document_count"`
-	DataCutoff    time.Time `json:"data_cutoff,omitempty"`
-	CheckedAt     time.Time `json:"checked_at"`
+	Ready            bool       `json:"ready"`
+	Mode             string     `json:"mode"`
+	Reason           string     `json:"reason"`
+	Generation       string     `json:"generation,omitempty"`
+	Version          string     `json:"version,omitempty"`
+	ServerVersion    string     `json:"server_version,omitempty"`
+	DocumentCount    int        `json:"document_count"`
+	DataCutoff       time.Time  `json:"data_cutoff,omitempty"`
+	CheckedAt        time.Time  `json:"checked_at"`
+	LastBuildError   string     `json:"last_build_error,omitempty"`
+	LastBuildErrorAt *time.Time `json:"last_build_error_at,omitempty"`
+	LastQueryError   string     `json:"last_query_error,omitempty"`
+	LastQueryErrorAt *time.Time `json:"last_query_error_at,omitempty"`
 }
 type meiliManifest struct {
 	Index         string    `json:"index"`
@@ -145,6 +149,13 @@ func (p *MeiliProvider) version(server string) string {
 	}
 	return p.versionForMode(server, mode)
 }
+
+// PolicyVersion binds disposable feed pools/windows to deployment settings.
+// It deliberately performs no network request and exposes no configuration.
+func (p *MeiliProvider) PolicyVersion() string {
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%t\x00%s\x00%s\x00%s", p.connection.Enabled, p.connection.Host, p.connection.Prefix, p.version(""))))
+	return hex.EncodeToString(hash[:])
+}
 func (p *MeiliProvider) versionForMode(server, mode string) string {
 	value := meiliSchemaVersion + "|" + server + "|lexical|rank=default|tokenizer=server|document=public-7d"
 	if p.embedding != nil && mode == "meili_hybrid" {
@@ -182,6 +193,7 @@ func (p *MeiliProvider) Status() MeiliStatus {
 		result.Reason = "redis_unavailable"
 		return result
 	}
+	p.operationErrors(ctx, &result)
 	if state.Active == nil {
 		return result
 	}
@@ -500,6 +512,7 @@ func (p *MeiliProvider) rebuild(parent context.Context) error {
 	}
 	defer release()
 	err = p.buildOwned(ctx, token)
+	p.recordOperation(token, "build", err)
 	if err != nil {
 		p.setReason(meiliSafeBudgetReason(err))
 	}
@@ -650,7 +663,7 @@ func (p *MeiliProvider) buildOwned(ctx context.Context, token string) error {
 
 // BuildBuckets only searches a frozen, ready generation. The shared lease
 // gives this entire batch at most two search slots across all API replicas.
-func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buckets []ContentBucket) (ContentBatch, error) {
+func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buckets []ContentBucket) (_ ContentBatch, returnErr error) {
 	empty := ContentBatch{Mode: "rules", Lists: []ContentList{}}
 	if !p.connection.Enabled {
 		return empty, ErrUnavailable
@@ -714,6 +727,7 @@ func (p *MeiliProvider) BuildBuckets(parent context.Context, asOf time.Time, buc
 		seen[key] = true
 		unique = append(unique, bucket)
 	}
+	defer func() { p.recordOperation(token, "query", returnErr) }()
 	type bucketResult struct {
 		Index int
 		Lists []ContentList

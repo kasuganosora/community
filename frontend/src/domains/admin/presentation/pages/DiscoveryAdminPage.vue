@@ -13,6 +13,7 @@ const reasonLabel: Record<string, string> = {
   not_built: '等待构建公开内容索引', not_initialized: '内容增强尚未初始化', meilisearch_disabled: '未启用 Meilisearch，使用基础规则',
   recommendations_disabled: '内容发现已关闭', settings_unavailable: '暂时无法读取配置', rules_configured: '管理员已选择基础规则',
   build_unavailable: '索引构建暂时不可用', query_unavailable: '内容检索暂时不可用', built: '索引已构建，等待就绪检查', ready: '可以使用',
+  resource_budget_exceeded: '索引资源用量达到配置上限',
   redis_unavailable: '缓存暂时不可用', configuration_changed: '配置已改变，需要重建并重新验收', index_expired: '索引已过期，等待更新',
   quality_not_approved: '尚未批准当前版本的质量验收', approval_required: '等待当前版本的质量验收批准',
   pool_not_built: '候选池尚未构建', invalid_pool: '候选池无效，等待重建', pool_expired: '候选池已过期，等待更新',
@@ -71,6 +72,8 @@ onBeforeUnmount(() => { ++version })
         <div><dt>实际算法</dt><dd>{{ !status.enabled ? '已关闭' : modeLabel[status.index.mode || 'rules'] || status.index.mode }}</dd></div>
         <div><dt>基础规则版本</dt><dd>{{ status.algorithm_version }}</dd></div>
         <div><dt>内容索引</dt><dd>{{ status.index.ready ? '已就绪' : '未就绪' }}<small>{{ reasonText(status.index.reason) }}</small></dd></div>
+        <div v-if="status.index.last_build_error"><dt>最近构建异常</dt><dd>{{ reasonText(status.index.last_build_error) }}<small>{{ date(status.index.last_build_error_at) }}</small></dd></div>
+        <div v-if="status.index.last_query_error"><dt>最近检索异常</dt><dd>{{ reasonText(status.index.last_query_error) }}<small>{{ date(status.index.last_query_error_at) }}</small></dd></div>
         <div><dt>索引公开文档数</dt><dd>{{ status.index.document_count }}</dd></div>
         <div><dt>索引数据截止</dt><dd>{{ date(status.index.data_cutoff) }}</dd></div>
         <div><dt>最近检查</dt><dd>{{ date(status.index.checked_at) }}</dd></div>
