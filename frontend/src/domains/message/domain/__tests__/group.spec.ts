@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupCanSend, mergeGroupMessages, safeGroupURL, type Group, type GroupMessage } from '../group'
+import { groupCanSend, hasNSFWTag, mergeGroupMessages, safeGroupURL, type Group, type GroupMessage } from '../group'
 const group = { id: 'one', membership: 'join', encryption: 'unencrypted', capabilities: { send_message: true } } as Group
 const message = (id: string, created_at: number, body = id): GroupMessage => ({ id, created_at, body, sender: { id: 'a', display_name: 'A' }, kind: 'text', own: false, edited: false, redacted: false, reactions: [] })
 describe('group lifecycle and timeline domain', () => {
@@ -19,5 +19,9 @@ describe('group lifecycle and timeline domain', () => {
     expect(safeGroupURL('javascript:alert(1)')).toBe('')
     expect(safeGroupURL('https://token@matrix.to')).toBe('')
     expect(safeGroupURL('https://matrix.to/#/room')).toBe('https://matrix.to/#/room')
+  })
+  it('recognizes complete NSFW tags case-insensitively with Unicode boundaries', () => {
+    for (const text of ['#NSFW', '群介绍：#nsfw', 'image\n#NsFw。', '(#NSFW)', '#NSFW #art']) expect(hasNSFWTag(text), text).toBe(true)
+    for (const text of ['NSFW', '#nsfwart', '#NSFW_2', '#NSFW中文', '#NSFW\u0301', 'user#NSFW', 'https://example.test/#NSFW', '##NSFW']) expect(hasNSFWTag(text), text).toBe(false)
   })
 })

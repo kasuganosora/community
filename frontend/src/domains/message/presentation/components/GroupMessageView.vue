@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { sanitizeHtml } from '@/shared/utils/sanitize'
-import type { GroupMessage } from '../../domain/group'
+import { sanitizeHtml, stripHtml } from '@/shared/utils/sanitize'
+import { mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
+import { hasNSFWTag, type GroupMessage } from '../../domain/group'
 import { groupApi } from '../../infrastructure/groupApi'
 import GroupAvatar from './GroupAvatar.vue'
 import GroupAttachment from './GroupAttachment.vue'
-const props = defineProps<{ message: GroupMessage; reply?: GroupMessage; canSend: boolean; canRedact: boolean; busy?: boolean }>()
+const props = defineProps<{ message: GroupMessage; groupTopic?: string; reply?: GroupMessage; canSend: boolean; canRedact: boolean; busy?: boolean }>()
 defineEmits<{ reply: []; edit: []; remove: []; reaction: [key: string, own: boolean]; picker: [] }>()
+const { mode: mediaMode } = useMediaMode()
+const sensitiveMedia = computed(() => hasNSFWTag(props.groupTopic || '') || hasNSFWTag(props.message.body) || hasNSFWTag(stripHtml(props.message.formatted_body || '')))
+const mediaHidden = computed(() => mediaGated({ sensitive: sensitiveMedia.value }, mediaMode.value))
 const mediaURLs = ref<Record<string, string>>({})
 const mediaControllers = new Map<string, AbortController>()
 watch(() => JSON.stringify([...(props.message.custom_emojis ?? []).map(emoji => emoji.static_url || emoji.url), ...(props.message.reactions ?? []).map(reaction => reaction.url).filter(Boolean)]), async () => {
@@ -65,7 +69,7 @@ const createdAt = computed(() => {
         <p v-if="message.kind === 'unsupported'" class="group-message__muted">此消息暂不支持在网页显示，请使用客户端查看。</p>
         <div v-else-if="html" class="group-message__body" dir="auto" v-html="html" />
         <p v-else-if="message.body" class="group-message__body" dir="auto">{{ message.body }}</p>
-        <GroupAttachment v-for="attachment in message.attachments" :key="attachment.id" :attachment="attachment" />
+        <GroupAttachment v-for="attachment in message.attachments" :key="`${message.id}:${attachment.id}:${attachment.url}:${mediaMode}`" :attachment="attachment" :hidden="mediaHidden" :sensitive="sensitiveMedia" />
         <div class="group-message__reactions"><button v-for="reaction in message.reactions" :key="reaction.key" type="button" :aria-pressed="reaction.own" :disabled="!canSend || busy" :aria-label="`${reaction.label || reaction.key}，${reaction.count} 个回应${reaction.own ? '，点击撤销' : ''}`" @click="$emit('reaction', reaction.key, reaction.own)"><img v-if="reaction.url && mediaURLs[reaction.url]" :src="mediaURLs[reaction.url!]" :alt="reaction.shortcode" referrerpolicy="no-referrer" /><template v-else>{{ reaction.label || reaction.shortcode || reaction.key }}</template> <span>{{ reaction.count }}</span></button></div>
         <div class="group-message__actions">
           <button type="button" :disabled="!canSend || busy" aria-label="添加表情回应" @click="$emit('picker')">＋</button>

@@ -54,3 +54,8 @@ export function fileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '大小未知'
   return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 }
+
+/** Match the complete tag, not #NSFWart, identifiers or URL fragments. */
+export function hasNSFWTag(text: string): boolean {
+  return /(?:^|[^\p{L}\p{N}\p{M}_/#])#nsfw(?![\p{L}\p{N}\p{M}_])/iu.test(text)
+}

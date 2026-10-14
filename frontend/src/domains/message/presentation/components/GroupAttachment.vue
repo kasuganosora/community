@@ -1,36 +1,74 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { groupApi } from '../../infrastructure/groupApi'
 import { fileSize, type GroupAttachment } from '../../domain/group'
-const props = defineProps<{ attachment: GroupAttachment }>()
-const url = ref(''), loading = ref(false), error = ref('')
-const image = computed(() => /^image\/(png|jpeg|gif|webp)$/.test(props.attachment.type))
+
+const props = defineProps<{ attachment: GroupAttachment; hidden?: boolean; sensitive?: boolean }>()
+const root = ref<HTMLElement>()
+const url = ref(''), loading = ref(false), error = ref(''), revealed = ref(false), inView = ref(false), previewable = ref(false)
+const imageType = /^image\/(png|jpeg|gif|webp)$/
+const image = computed(() => imageType.test(props.attachment.type))
+const visible = computed(() => image.value && previewable.value && !!url.value && (!props.hidden || revealed.value))
+let controller: AbortController | undefined
+let observer: IntersectionObserver | undefined
 let lastDownload = false
-const controller = new AbortController()
+
+function reset() {
+  controller?.abort(); controller = undefined
+  if (url.value) URL.revokeObjectURL(url.value)
+  url.value = ''; loading.value = false; error.value = ''; revealed.value = false; previewable.value = false
+}
+// A reused component or a newly applied sensitive flag must discard prior consent
+// and any in-flight response, even when a mocked/remote transport ignores abort.
+watch(() => [props.attachment.id, props.attachment.url, props.attachment.type, props.hidden], reset, { flush: 'sync' })
+
 async function load(download = false) {
   if (loading.value) return
   lastDownload = download; loading.value = true; error.value = ''
+  const request = new AbortController()
+  controller = request
+  const attachment = props.attachment
   try {
     if (!url.value) {
-      const blob = await groupApi.media(props.attachment.url, controller.signal)
-      if (controller.signal.aborted) return
-      // Only explicitly allow-listed image types can be displayed inline.
-      const safeType = image.value && /^image\/(png|jpeg|gif|webp)$/.test(blob.type) ? blob.type : 'application/octet-stream'
-      url.value = URL.createObjectURL(new Blob([blob], { type: safeType }))
+      const blob = await groupApi.media(attachment.url, request.signal)
+      if (request.signal.aborted || controller !== request) return
+      // Download other types as inert files; only allow-listed image responses
+      // may be rendered. Never put a remote/private URL in an <img> element.
+      previewable.value = imageType.test(attachment.type) && imageType.test(blob.type)
+      url.value = URL.createObjectURL(new Blob([blob], { type: previewable.value ? blob.type : 'application/octet-stream' }))
     }
-    if (download) { const link = document.createElement('a'); link.href = url.value; link.download = props.attachment.name; link.click() }
-  } catch (e) { if (!controller.signal.aborted) error.value = e instanceof Error ? e.message : '附件加载失败' }
-  finally { loading.value = false }
+    if (download) {
+      const link = document.createElement('a'); link.href = url.value; link.download = attachment.name; link.click()
+    } else if (!previewable.value) error.value = '该附件无法预览，请下载查看。'
+  } catch (e) {
+    if (!request.signal.aborted && controller === request) error.value = e instanceof Error ? e.message : '附件加载失败'
+  } finally {
+    if (controller === request) loading.value = false
+  }
 }
-// Fetch images only on demand: remote/private files never leak through a public image URL.
-onBeforeUnmount(() => { controller.abort(); if (url.value) URL.revokeObjectURL(url.value) })
+function reveal() { revealed.value = true; void load() }
+function retry() { if (lastDownload) void load(true); else reveal() }
+
+// Images load automatically near the viewport, through the authenticated API.
+// Hidden attachments never start a request until the viewer explicitly opts in.
+watch(() => [inView.value, props.hidden, props.attachment.id, props.attachment.url, props.attachment.type], () => {
+  if (inView.value && image.value && !props.hidden) void load()
+})
+onMounted(() => {
+  if (typeof IntersectionObserver === 'undefined') { inView.value = true; return }
+  observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) { inView.value = true; observer?.disconnect() }
+  }, { rootMargin: '240px' })
+  if (root.value) observer.observe(root.value)
+})
+onBeforeUnmount(() => { observer?.disconnect(); reset() })
 </script>
 <template>
-  <div class="group-attachment">
-    <button v-if="image && !url" type="button" class="group-attachment__preview" :disabled="loading" @click="load()"><t-icon name="image" :size="28" /><span>{{ loading ? '正在加载图片…' : '查看图片' }}</span></button>
-    <a v-if="image && url" :href="url" target="_blank" rel="noopener noreferrer" aria-label="查看原图"><img :src="url" :alt="attachment.name" /></a>
-    <div class="group-attachment__info"><span><strong>{{ attachment.name }}</strong><small>{{ fileSize(attachment.size) }} · {{ attachment.type || '文件' }}</small></span><button type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load(true)">{{ loading ? '加载中' : '下载' }}</button></div>
-    <p v-if="error" role="alert">{{ error }} <button type="button" @click="load(lastDownload)">重试</button></p>
+  <div ref="root" class="group-attachment">
+    <button v-if="image && !visible" type="button" class="group-attachment__preview" :disabled="loading" @click="reveal"><t-icon :name="hidden ? 'browse-off' : 'image'" :size="28" /><span>{{ loading ? '正在加载图片…' : hidden ? (sensitive ? '敏感图片 · 点击查看' : '图片已隐藏 · 点击查看') : '查看图片' }}</span></button>
+    <a v-if="visible" :href="url" target="_blank" rel="noopener noreferrer" aria-label="查看原图"><img :src="url" :alt="attachment.name" /></a>
+    <div class="group-attachment__info"><span><strong>{{ attachment.name }}</strong><small>{{ fileSize(attachment.size) }} · {{ attachment.type || '文件' }}</small></span><button v-if="visible && hidden" type="button" class="btn btn--ghost btn--sm" @click="reset">隐藏</button><button type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load(true)">{{ loading ? '加载中' : '下载' }}</button></div>
+    <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry">重试</button></p>
   </div>
 </template>
 <style scoped>
