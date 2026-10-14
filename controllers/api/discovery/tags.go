@@ -41,5 +41,8 @@ func ListTags(c *gin.Context) {
 		c.AbortWithStatusJSON(503, gin.H{"code": "unavailable", "error": "话题暂时不可用，请稍后重试", "retryable": true})
 		return
 	}
+	if !page.CoverageComplete && !page.Disabled {
+		c.Header("X-Trends-Partial", "true")
+	}
 	c.JSON(200, page)
 }

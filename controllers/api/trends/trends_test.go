@@ -221,3 +221,47 @@ func TestTagSnapshotBoundCursorAndCurrentRecheck(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 	require.JSONEq(t, "[]", w.Body.String())
 }
+
+func TestTagTrendsOverCapArePartialAndLocalScopeIsIndependent(t *testing.T) {
+	conn := setupTrendDB(t)
+	defer discovery.SetTagTrendLimitsForTest(3, 50000)()
+	asOf := time.Now().UTC()
+	tag := &models.Tag{Name: "Fediverse"}
+	require.NoError(t, conn.Create(tag).Error)
+	for i := uint64(1); i <= 5; i++ {
+		a := trendAuthor(t, conn, i)
+		trendPost(t, conn, i, a, asOf.Add(-time.Duration(i)*time.Minute), models.StatusVisibilityPublic, tag)
+	}
+	// Five statuses with a cap of three: newest three, flagged partial.
+	rows, partial, err := discovery.AggregateTagTrendsPartial(t.Context(), conn, nil, "24h", "federated", asOf, nil)
+	require.NoError(t, err)
+	require.True(t, partial)
+	require.Len(t, rows, 1)
+	require.Equal(t, 3, rows[0].PostsCount)
+	// Make four of them remote: local scope only sees one and is complete.
+	remote := "remote.example"
+	require.NoError(t, conn.Model(&models.Status{}).Where("id IN ?", []uint64{1, 2, 3, 4}).Update("domain", &remote).Error)
+	rows, partial, err = discovery.AggregateTagTrendsPartial(t.Context(), conn, nil, "24h", "local", asOf, nil)
+	require.NoError(t, err)
+	require.False(t, partial)
+	require.Len(t, rows, 1)
+	require.Equal(t, 1, rows[0].PostsCount)
+	// Association cap also degrades to partial rather than failing.
+	discovery.SetTagTrendLimitsForTest(100, 2)
+	rows, partial, err = discovery.AggregateTagTrendsPartial(t.Context(), conn, nil, "24h", "federated", asOf, nil)
+	require.NoError(t, err)
+	require.True(t, partial)
+	require.Equal(t, 2, rows[0].PostsCount)
+	// The compatibility endpoint answers 200 with the partial header.
+	c, w := trendContext("/api/v1/trends/tags?scope=federated&window=24h")
+	ListTags(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, "true", w.Header().Get("X-Trends-Partial"))
+	c, w = trendContext("/api/v1/trends/tags?scope=local")
+	ListTags(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Empty(t, w.Header().Get("X-Trends-Partial"))
+	c, w = trendContext("/api/v1/trends/tags?scope=bogus")
+	ListTags(c)
+	require.Equal(t, 400, w.Code)
+}

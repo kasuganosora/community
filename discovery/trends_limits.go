@@ -25,7 +25,7 @@ func (limiter *tagScanLimiter) acquire(ctx context.Context) (func(), error) {
 	select {
 	case limiter.admitted <- struct{}{}:
 	default:
-		return nil, ErrTrendBudget
+		return nil, ErrTrendBusy
 	}
 	select {
 	case limiter.active <- struct{}{}:

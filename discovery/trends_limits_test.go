@@ -67,7 +67,7 @@ func TestTagScanLimiterBoundedQueueAndCancellation(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool { return len(limiter.admitted) == 2 }, time.Second, time.Millisecond)
 	_, err = limiter.acquire(t.Context())
-	require.ErrorIs(t, err, ErrTrendBudget, "only a full bounded queue is rejected immediately")
+	require.ErrorIs(t, err, ErrTrendBusy, "only a full bounded queue is rejected immediately")
 	cancel()
 	require.ErrorIs(t, <-finished, context.Canceled)
 	require.Len(t, limiter.admitted, 1, "canceled waiters must release admission capacity")

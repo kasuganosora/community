@@ -58,11 +58,19 @@ func ListTags(c *gin.Context) {
 	if !enabled(c) {
 		return
 	}
+	window, scope := c.DefaultQuery("window", "7d"), c.DefaultQuery("scope", "federated")
+	if (window != "24h" && window != "7d") || (scope != "local" && scope != "federated") {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid window or scope", "code": "invalid_request"})
+		return
+	}
 	limit, offset := pagination(c)
-	rows, err := discovery.AggregateTagTrends(c.Request.Context(), db.GetDB(), viewer(c), "7d", "federated", time.Now().UTC(), nil)
+	rows, partial, err := discovery.AggregateTagTrendsPartial(c.Request.Context(), db.GetDB(), viewer(c), window, scope, time.Now().UTC(), nil)
 	if err != nil {
 		unavailable(c, err)
 		return
+	}
+	if partial {
+		c.Header("X-Trends-Partial", "true")
 	}
 	result := []gin.H{}
 	qualified := 0

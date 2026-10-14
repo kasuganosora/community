@@ -11,6 +11,7 @@ import (
 
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -21,7 +22,26 @@ const (
 	tagTrendMaxAssociations = 50000
 )
 
+// ErrTrendBudget is kept for compatibility; scans no longer fail on volume.
 var ErrTrendBudget = errors.New("discovery: trend scan budget exceeded")
+
+// ErrTrendBusy reports that the bounded scan queue or the rebuild lease is
+// held by another worker. It is a transient contention signal, not a volume
+// failure.
+var ErrTrendBusy = errors.New("discovery: trend scan busy")
+
+// Caps are variables only so tests can exercise the partial path cheaply.
+var (
+	tagTrendStatusCap      = TagTrendMaxStatuses
+	tagTrendAssociationCap = tagTrendMaxAssociations
+)
+
+// SetTagTrendLimitsForTest overrides the scan caps and returns a restore func.
+func SetTagTrendLimitsForTest(statuses, associations int) func() {
+	ps, pa := tagTrendStatusCap, tagTrendAssociationCap
+	tagTrendStatusCap, tagTrendAssociationCap = statuses, associations
+	return func() { tagTrendStatusCap, tagTrendAssociationCap = ps, pa }
+}
 
 type TagHistory struct {
 	Day      string `json:"day"`
@@ -71,14 +91,23 @@ func trendWindow(window string) (time.Duration, bool) {
 	return 0, false
 }
 
-// AggregateTagTrends produces exact counts from a bounded, consistent current
-// database snapshot. If the complete window exceeds the cap, it returns an
-// explicit error instead of publishing a partial ranking as complete.
-// Viewer filtering decides inclusion; counts describe the shared public set.
+// AggregateTagTrends is AggregateTagTrendsPartial without the partial flag.
 func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Account, window, scope string, asOf time.Time, keys []string) ([]TagTrend, error) {
+	rows, _, err := AggregateTagTrendsPartial(ctx, conn, viewer, window, scope, asOf, keys)
+	return rows, err
+}
+
+// AggregateTagTrendsPartial produces counts from a bounded, consistent current
+// database snapshot. When the window holds more statuses (or tag
+// associations) than the caps, it aggregates the newest statuses up to the
+// cap and reports partial=true instead of failing. The local scope queries
+// only local statuses (domain IS NULL), so federated volume never affects it.
+// Viewer filtering decides inclusion; counts describe the shared public set.
+func AggregateTagTrendsPartial(ctx context.Context, conn *gorm.DB, viewer *models.Account, window, scope string, asOf time.Time, keys []string) ([]TagTrend, bool, error) {
+	partial := false
 	duration, valid := trendWindow(window)
 	if !valid || (scope != "local" && scope != "federated") {
-		return nil, errors.New("invalid trend window or scope")
+		return nil, false, errors.New("invalid trend window or scope")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -86,7 +115,7 @@ func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Accou
 	// can queue, but cannot create unbounded waiters or extend database work.
 	release, err := tagScans.acquire(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer release()
 	var result []TagTrend
@@ -95,7 +124,7 @@ func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Accou
 		// chunks, including keyword and embedded-object checks, within this tx.
 		query := models.RecommendationStatusScope(tx, asOf, duration).Select("statuses.*")
 		if scope == "local" {
-			query = query.Where("domain IS NULL")
+			query = query.Where("statuses.domain IS NULL")
 		}
 		if keys != nil {
 			if len(keys) == 0 {
@@ -105,11 +134,13 @@ func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Accou
 			query = query.Where("id IN (?)", tx.Table("status_tags st").Select("st.status_id").Joins("JOIN tags t ON t.id = st.tag_id").Where("t.name_key IN ?", keys))
 		}
 		var roots models.Statuses
-		if err := query.Order("created_at DESC, id DESC").Limit(TagTrendMaxStatuses + 1).Find(&roots).Error; err != nil {
+		if err := query.Order("statuses.created_at DESC, statuses.id DESC").Limit(tagTrendStatusCap + 1).Find(&roots).Error; err != nil {
 			return err
 		}
-		if len(roots) > TagTrendMaxStatuses {
-			return ErrTrendBudget
+		if len(roots) > tagTrendStatusCap {
+			// Newest-first order: keep the most recent statuses only.
+			roots = roots[:tagTrendStatusCap]
+			partial = true
 		}
 		eligible := make(models.Statuses, 0, len(roots))
 		visible := map[uint64]bool{}
@@ -154,12 +185,14 @@ func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Accou
 			if keys != nil {
 				q = q.Where("t.name_key IN ?", keys)
 			}
-			if err := q.Limit(tagTrendMaxAssociations - len(associations) + 1).Scan(&rows).Error; err != nil {
+			if err := q.Limit(tagTrendAssociationCap - len(associations) + 1).Scan(&rows).Error; err != nil {
 				return err
 			}
 			associations = append(associations, rows...)
-			if len(associations) > tagTrendMaxAssociations {
-				return ErrTrendBudget
+			if len(associations) > tagTrendAssociationCap {
+				associations = associations[:tagTrendAssociationCap]
+				partial = true
+				break
 			}
 		}
 		filters, err := models.GetFilters(tx, func() uint64 {
@@ -238,7 +271,13 @@ func AggregateTagTrends(ctx context.Context, conn *gorm.DB, viewer *models.Accou
 		})
 		return nil
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
-	return result, err
+	if err != nil {
+		return nil, false, err
+	}
+	if partial {
+		logrus.WithFields(logrus.Fields{"window": window, "scope": scope, "status_cap": tagTrendStatusCap, "association_cap": tagTrendAssociationCap}).Debug("discovery: tag trends computed from newest statuses only (partial)")
+	}
+	return result, partial, nil
 }
 
 func finishTagTrend(key string, a *tagAccumulator, asOf time.Time, duration time.Duration) TagTrend {

@@ -27,6 +27,7 @@ type tagTrendSnapshot struct {
 	Kind       string    `json:"kind"`
 	AsOf       time.Time `json:"as_of"`
 	Keys       []string  `json:"keys"`
+	Partial    bool      `json:"partial,omitempty"`
 }
 type tagTrendCursor struct {
 	Generation string `json:"g"`
@@ -94,7 +95,7 @@ func buildTagSnapshot(ctx context.Context, window, scope string) (*tagTrendSnaps
 		return nil, err
 	}
 	if !locked {
-		return nil, ErrTrendBudget
+		return nil, ErrTrendBusy
 	}
 	defer func() {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -102,11 +103,11 @@ func buildTagSnapshot(ctx context.Context, window, scope string) (*tagTrendSnaps
 		_ = r.Eval(releaseCtx, `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0`, []string{lock}, token).Err()
 	}()
 	asOf := time.Now().UTC()
-	rows, err := AggregateTagTrends(ctx, db.GetDB(), nil, window, scope, asOf, nil)
+	rows, partial, err := AggregateTagTrendsPartial(ctx, db.GetDB(), nil, window, scope, asOf, nil)
 	if err != nil {
 		return nil, err
 	}
-	snap := &tagTrendSnapshot{Generation: token, Window: window, Scope: scope, Kind: "recent", AsOf: asOf, Keys: []string{}}
+	snap := &tagTrendSnapshot{Generation: token, Window: window, Scope: scope, Kind: "recent", AsOf: asOf, Keys: []string{}, Partial: partial}
 	for _, row := range rows {
 		if row.AuthorsCount >= TagTrendMinAuthors {
 			snap.Kind = "trending"
@@ -124,7 +125,7 @@ func buildTagSnapshot(ctx context.Context, window, scope string) (*tagTrendSnaps
 	}
 	current, err := r.Get(ctx, lock).Result()
 	if err != nil || current != token {
-		return nil, ErrTrendBudget
+		return nil, ErrTrendBusy
 	}
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -140,7 +141,7 @@ func buildTagSnapshot(ctx context.Context, window, scope string) (*tagTrendSnaps
 		return nil, err
 	}
 	if published != 1 {
-		return nil, ErrTrendBudget
+		return nil, ErrTrendBusy
 	}
 	return snap, nil
 }
@@ -154,8 +155,11 @@ func RefreshTagTrends(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if _, err := buildTagSnapshot(ctx, window, scope); err != nil {
-				failures = append(failures, err)
+			// Each window/scope bucket is built independently; one bucket
+			// failing never blocks the others. A held lease means another
+			// replica is already rebuilding that bucket.
+			if _, err := buildTagSnapshot(ctx, window, scope); err != nil && !errors.Is(err, ErrTrendBusy) {
+				failures = append(failures, fmt.Errorf("%s/%s: %w", window, scope, err))
 			}
 		}
 	}
@@ -243,6 +247,9 @@ func ReadTagTrends(ctx context.Context, viewer *models.Account, window, scope st
 	} else {
 		if err := readTagSnapshot(ctx, tagLatestKey(window, scope), &snap); err != nil || time.Since(snap.AsOf) > 5*time.Minute {
 			built, err := buildTagSnapshot(ctx, window, scope)
+			if errors.Is(err, ErrTrendBusy) {
+				built, err = awaitTagSnapshot(ctx, window, scope)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -254,15 +261,16 @@ func ReadTagTrends(ctx context.Context, viewer *models.Account, window, scope st
 	}
 	end := min(position+limit, len(snap.Keys))
 	selected := snap.Keys[position:end]
-	rows, err := AggregateTagTrends(ctx, db.GetDB(), viewer, window, scope, snap.AsOf, selected)
+	rows, partial, err := AggregateTagTrendsPartial(ctx, db.GetDB(), viewer, window, scope, snap.AsOf, selected)
 	if err != nil {
 		return nil, err
 	}
+	partial = partial || snap.Partial
 	byKey := map[string]TagTrend{}
 	for _, row := range rows {
 		byKey[row.key] = row
 	}
-	page := &TagTrendPage{Items: []TagTrend{}, AsOf: snap.AsOf, CheckedAt: time.Now().UTC(), Window: window, Scope: scope, Kind: snap.Kind, Version: TagTrendVersion + ":" + snap.Generation, CoverageComplete: true}
+	page := &TagTrendPage{Items: []TagTrend{}, AsOf: snap.AsOf, CheckedAt: time.Now().UTC(), Window: window, Scope: scope, Kind: snap.Kind, Version: TagTrendVersion + ":" + snap.Generation, CoverageComplete: !partial}
 	for _, key := range selected {
 		row, exists := byKey[key]
 		if !exists || snap.Kind == "trending" && row.AuthorsCount < TagTrendMinAuthors {
@@ -278,4 +286,24 @@ func ReadTagTrends(ctx context.Context, viewer *models.Account, window, scope st
 		page.NextCursor = &next
 	}
 	return page, nil
+}
+
+// awaitTagSnapshot waits briefly for a concurrent builder (another request or
+// the background refresh) to publish the bucket instead of failing at once.
+func awaitTagSnapshot(ctx context.Context, window, scope string) (*tagTrendSnapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var snap tagTrendSnapshot
+		if err := readTagSnapshot(ctx, tagLatestKey(window, scope), &snap); err == nil && time.Since(snap.AsOf) <= 5*time.Minute {
+			return &snap, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ErrTrendBusy
+		case <-ticker.C:
+		}
+	}
 }
