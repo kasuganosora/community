@@ -133,6 +133,7 @@ it.each(['following', 'global'] as const)('does not show discovery notices or re
   vi.spyOn(discoveryApi, 'preferences').mockImplementation(() => new Promise(resolve => { resolvePreference = resolve }))
   const discover = vi.spyOn(discoveryApi, 'statuses')
   vi.spyOn(client, 'get').mockImplementation(async url => ({ data: url.endsWith('/public') ? rows(200, 1) : rows(100, 1) }))
+  useTimelineStore().homeTab = 'for-you' // start on discovery so the preference request is pending
   wrapper = mount(HomePage, options)
   await select(tab)
   resolvePreference({ preference: 'off', enabled: false, revision: 1 })

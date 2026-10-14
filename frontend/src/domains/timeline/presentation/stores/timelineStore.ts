@@ -23,7 +23,7 @@ interface TimelineState {
 export const useTimelineStore = defineStore('timeline', () => {
   const auth = useAuthStore()
   // Retain navigation choice within this session, never across account changes.
-  const homeTab = ref<'for-you' | 'following' | 'global'>('for-you')
+  const homeTab = ref<'for-you' | 'following' | 'global'>('following')
   // Separate state for each timeline type to avoid shared state issues
   const homeTimeline = ref<TimelineState>({
     statuses: [],
@@ -55,7 +55,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   const listGeneration: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
   
   watch(sessionEpoch, () => {
-    homeTab.value = 'for-you'
+    homeTab.value = 'following'
     for (const type of ['home', 'public'] as const) {
       ++requestVersionMap[type]
       ++listGeneration[type]

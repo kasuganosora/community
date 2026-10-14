@@ -38,13 +38,16 @@ describe('new posts in timelines', () => {
 
 describe('timeline account and cursor isolation', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
-  it.each(['following', 'global'] as const)('retains the %s tab across navigation and resets it synchronously for another session', tab => {
+  it.each(['for-you', 'global'] as const)('retains the %s tab across navigation and resets it synchronously for another session', tab => {
     const store = useTimelineStore()
     store.homeTab = tab
     expect(useTimelineStore().homeTab).toBe(tab)
     invalidateSessionData()
-    expect(store.homeTab).toBe('for-you')
-    expect(useTimelineStore().homeTab).toBe('for-you')
+    expect(store.homeTab).toBe('following')
+    expect(useTimelineStore().homeTab).toBe('following')
+  })
+  it('defaults the home tab to following', () => {
+    expect(useTimelineStore().homeTab).toBe('following')
   })
   it('deduplicates overlapping pages by wrapper ID while preserving distinct reblogs', async () => {
     const first = Array.from({ length: 20 }, (_, i) => ({ id: String(100 - i) } as MastodonStatus))
