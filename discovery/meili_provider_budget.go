@@ -123,6 +123,30 @@ func meiliPreflight(conn *gorm.DB, roots []uint64) error {
 	}
 	return nil
 }
+
+// meiliPreflightChunk runs the preload guard on one candidate chunk. When the
+// chunk as a whole trips a budget (typically one huge post or quote graph),
+// it falls back to per-root checks and keeps only the roots that pass, so a
+// single outlier cannot keep the discovery index from ever being built.
+func meiliPreflightChunk(conn *gorm.DB, ids []uint64) ([]uint64, error) {
+	err := meiliPreflight(conn, ids)
+	if err == nil {
+		return ids, nil
+	}
+	if !strings.Contains(err.Error(), "budget") {
+		return nil, err
+	}
+	kept := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		single := meiliPreflight(conn, []uint64{id})
+		if single == nil {
+			kept = append(kept, id)
+		} else if !strings.Contains(single.Error(), "budget") {
+			return nil, single
+		}
+	}
+	return kept, nil
+}
 func meiliSafeBudgetReason(err error) string {
 	if err != nil && strings.Contains(err.Error(), "budget") {
 		return "resource_budget_exceeded"

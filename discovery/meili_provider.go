@@ -435,14 +435,11 @@ func (p *MeiliProvider) documents(ctx context.Context, asOf time.Time) ([]meiliD
 		isolation = sql.LevelSerializable
 	}
 	err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Busy instances publish far more public roots per window than one
+		// bounded generation may hold. Index the newest meiliRowLimit roots
+		// instead of refusing to build at all; older roots age out anyway.
 		var ids []uint64
-		if err := models.RecommendationStatusScope(tx, asOf, CandidateWindow).Select("statuses.id").Order("statuses.created_at, statuses.id").Limit(meiliRowLimit + 1).Scan(&ids).Error; err != nil {
-			return err
-		}
-		if len(ids) > meiliRowLimit {
-			return errors.New("recommendation index row budget exceeded")
-		}
-		if err := meiliPreflight(tx, ids); err != nil {
+		if err := models.RecommendationStatusScope(tx, asOf, CandidateWindow).Select("statuses.id").Order("statuses.created_at DESC, statuses.id DESC").Limit(meiliRowLimit).Scan(&ids).Error; err != nil {
 			return err
 		}
 		for offset := 0; offset < len(ids); offset += CandidateLimit {
@@ -450,8 +447,15 @@ func (p *MeiliProvider) documents(ctx context.Context, asOf time.Time) ([]meiliD
 			if end > len(ids) {
 				end = len(ids)
 			}
-			stubs := make(models.Statuses, 0, end-offset)
-			for _, id := range ids[offset:end] {
+			chunk, err := meiliPreflightChunk(tx, ids[offset:end])
+			if err != nil {
+				return err
+			}
+			if len(chunk) == 0 {
+				continue
+			}
+			stubs := make(models.Statuses, 0, len(chunk))
+			for _, id := range chunk {
 				stubs = append(stubs, &models.Status{Id: id})
 			}
 			eligible, err := models.FilterRecommendableStatuses(tx, nil, stubs, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: CandidateWindow, RootWindow: true})
@@ -472,17 +476,19 @@ func (p *MeiliProvider) documents(ctx context.Context, asOf time.Time) ([]meiliD
 				}
 				text := htmlsafe.PlainText(s.Content.SpoilerText + "\n" + s.Content.Content)
 				if len(text) > 16384 {
-					return errors.New("recommendation document text budget exceeded")
+					// One oversized post must not block the whole generation.
+					continue
 				}
 				doc := meiliDocument{ID: strconv.FormatUint(s.Id, 10), AuthorID: strconv.FormatUint(s.AccountId, 10), Domain: domain, Text: text, Tags: tags, Language: s.Language, PublishedAt: s.CreatedAt.Unix(), Schema: meiliSchemaVersion}
 				serialized, err := json.Marshal(doc)
 				if err != nil {
 					return err
 				}
-				used += len(serialized) + 1
-				if used > meiliDocumentBytes {
-					return errors.New("recommendation JSON document budget exceeded")
+				if used+len(serialized)+1 > meiliDocumentBytes {
+					// Newest-first: stop at the byte budget and keep what fits.
+					return nil
 				}
+				used += len(serialized) + 1
 				rows = append(rows, doc)
 			}
 		}

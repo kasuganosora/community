@@ -288,8 +288,10 @@ func TestMeiliRawContentAndTagBudgetsBeforeNormalization(t *testing.T) {
 	conn := meiliSQLFixture(t)
 	p.conn = func() *gorm.DB { return conn }
 	require.NoError(t, conn.Model(&models.StatusContent{}).Where("status_id = ?", 1).UpdateColumns(map[string]any{"content": strings.Repeat("<b></b>", 5000), "spoiler_text": strings.Repeat("<b></b>", 5000)}).Error)
-	_, err := p.documents(context.Background(), time.Now())
-	require.ErrorContains(t, err, "raw content budget")
+	// An oversized root is skipped rather than failing the whole generation.
+	docs, err := p.documents(context.Background(), time.Now())
+	require.NoError(t, err)
+	require.Empty(t, docs)
 	require.NoError(t, conn.Model(&models.StatusContent{}).Where("status_id = ?", 1).UpdateColumns(map[string]any{"content": "small", "spoiler_text": ""}).Error)
 	tx := conn.Session(&gorm.Session{SkipHooks: true})
 	for i := 1; i <= 17; i++ {
@@ -297,8 +299,9 @@ func TestMeiliRawContentAndTagBudgetsBeforeNormalization(t *testing.T) {
 		require.NoError(t, tx.Create(&tag).Error)
 		require.NoError(t, tx.Create(&models.StatusTag{StatusId: 1, TagId: tag.Id}).Error)
 	}
-	_, err = p.documents(context.Background(), time.Now())
-	require.ErrorContains(t, err, "tag budget")
+	docs, err = p.documents(context.Background(), time.Now())
+	require.NoError(t, err)
+	require.Empty(t, docs)
 }
 func TestMeiliEmbeddingHourlyReservationCountsFailures(t *testing.T) {
 	p, _ := meiliTestProvider(t, "http://unused")
@@ -377,4 +380,40 @@ func TestMeiliAlignedIndexAndCandidateRefreshWaitsForWriter(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, active.Generation, batch.Generation)
 	require.Equal(t, "meili_lexical", batch.Mode)
+}
+func TestMeiliExtractionCapsNewestRootsInsteadOfFailingBudget(t *testing.T) {
+	p, _ := meiliTestProvider(t, "http://unused")
+	conn := meiliSQLFixture(t)
+	p.conn = func() *gorm.DB { return conn }
+	tx := conn.Session(&gorm.Session{SkipHooks: true, CreateBatchSize: 500})
+	base := time.Now().UTC().Add(-2 * time.Hour)
+	total := meiliRowLimit + 300
+	statuses := make([]*models.Status, 0, total)
+	contents := make([]*models.StatusContent, 0, total)
+	for i := 0; i < total; i++ {
+		id := uint64(100 + i)
+		created := base.Add(time.Duration(i) * time.Second)
+		statuses = append(statuses, &models.Status{Id: id, AccountId: 1, Visibility: models.StatusVisibilityPublic, CreatedAt: &created, Language: "en"})
+		body := fmt.Sprintf("post %d", i)
+		if i == total-1 {
+			// The newest root is far beyond the per-post raw budget.
+			body = strings.Repeat("x", 70000)
+		}
+		contents = append(contents, &models.StatusContent{StatusId: id, Content: body})
+	}
+	require.NoError(t, tx.Omit("Content").Create(&statuses).Error)
+	require.NoError(t, tx.Create(&contents).Error)
+	started := time.Now()
+	docs, err := p.documents(context.Background(), time.Now().UTC())
+	t.Logf("extracted %d documents in %s", len(docs), time.Since(started))
+	require.NoError(t, err)
+	require.Len(t, docs, meiliRowLimit-1)
+	ids := map[string]bool{}
+	for _, doc := range docs {
+		ids[doc.ID] = true
+	}
+	require.False(t, ids[fmt.Sprint(100+total-1)], "oversized post is skipped")
+	require.True(t, ids[fmt.Sprint(100+total-2)], "newest regular post is indexed")
+	require.False(t, ids["100"], "oldest posts beyond the row cap age out")
+	require.Equal(t, "resource_budget_exceeded", meiliSafeBudgetReason(fmt.Errorf("x budget exceeded")))
 }
