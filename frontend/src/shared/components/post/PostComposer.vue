@@ -121,6 +121,31 @@ onMounted(() => {
 })
 const visibility = ref<Visibility>('public')
 const visibilityOpen = ref(false)
+const visibilityTrigger = ref<HTMLButtonElement>()
+const visibilityMenu = ref<HTMLUListElement>()
+
+async function toggleVisibility() {
+  visibilityOpen.value = !visibilityOpen.value
+  if (!visibilityOpen.value) return
+  await nextTick()
+  visibilityMenu.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()
+}
+
+function chooseVisibility(value: Visibility) {
+  visibility.value = value
+  visibilityOpen.value = false
+  visibilityTrigger.value?.focus()
+}
+
+function onVisibilityKeydown(e: KeyboardEvent) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+  e.preventDefault()
+  const options = Array.from(visibilityMenu.value?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [])
+  const index = options.indexOf(document.activeElement as HTMLButtonElement)
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1
+    : (index + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length
+  options[next]?.focus()
+}
 const quote = ref<MastodonStatus | null>(props.quoteTo ?? null)
 watch(() => props.quoteTo, (value) => { quote.value = value ?? null })
 
@@ -382,6 +407,7 @@ function onMentionKeydown(e: KeyboardEvent) {
   if (visibilityOpen.value && e.key === 'Escape') {
     e.preventDefault()
     visibilityOpen.value = false
+    visibilityTrigger.value?.focus()
     return
   }
   if (!mentions.value.length) return
@@ -419,13 +445,73 @@ defineExpose({ focus, reset })
     <p v-else-if="draft.visibility === 'direct'" class="composer__replace-notice" role="note">
       {{ DIRECT_SCOPE }}
     </p>
-    <div class="composer__body">
+    <div class="composer__header">
       <UserAvatar
         v-if="authStore.currentUser"
         :account="authStore.currentUser"
         :size="40"
         class="composer__avatar"
       />
+      <div class="composer__header-actions">
+        <div v-if="!isEdit && choices.length > 1" class="composer__visibility">
+          <button
+            ref="visibilityTrigger"
+            type="button"
+            class="composer__visibility-btn"
+            :aria-expanded="visibilityOpen"
+            aria-haspopup="listbox"
+            aria-label="可见范围"
+            :title="currentVisibility.label"
+            :disabled="posting || loadingSource"
+            :aria-controls="`composer-visibility-${uid}`"
+            @click="toggleVisibility"
+          >
+            <t-icon :name="currentVisibility.icon" :size="16" />
+            <span>{{ currentVisibility.short }}</span>
+          </button>
+          <ul v-if="visibilityOpen" :id="`composer-visibility-${uid}`" ref="visibilityMenu" class="composer__visibility-menu" role="listbox" aria-label="可见范围" @keydown="onVisibilityKeydown">
+            <li v-for="v in choices" :key="v.value">
+              <button
+                type="button"
+                class="composer__visibility-option"
+                :class="{ 'is-selected': v.value === visibility }"
+                role="option"
+                :aria-selected="v.value === visibility"
+                @click="chooseVisibility(v.value)"
+              >
+                <t-icon :name="v.icon" :size="16" />
+                <span>{{ v.label }}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <span v-else-if="!isEdit" class="composer__visibility composer__visibility--locked" :title="currentVisibility.label">
+          <t-icon :name="currentVisibility.icon" :size="16" />
+          <span>{{ currentVisibility.short }}</span>
+        </span>
+        <t-button
+          v-if="isEdit"
+          variant="text"
+          shape="round"
+          size="small"
+          @click="emit('cancel')"
+        >
+          取消
+        </t-button>
+        <t-button
+          class="composer__submit"
+          theme="primary"
+          shape="round"
+          size="small"
+          :disabled="!canPost"
+          :loading="posting"
+          @click="handlePost"
+        >
+          {{ submitLabel }}
+        </t-button>
+      </div>
+    </div>
+    <div class="composer__body">
       <div class="composer__input-area">
         <input
           v-if="spoilerEnabled"
@@ -443,7 +529,7 @@ defineExpose({ focus, reset })
             v-model="content"
             :placeholder="placeholderText"
             :aria-label="placeholderText"
-            :autosize="{ minRows: 1, maxRows: 12 }"
+            :autosize="{ minRows: 3, maxRows: 12 }"
             class="composer__textarea"
             :disabled="loadingSource || posting"
             @keyup="scheduleMentions"
@@ -541,7 +627,6 @@ defineExpose({ focus, reset })
         </div>
         <div class="composer__toolbar">
           <div class="composer__tools">
-            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" aria-label="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
             <template v-if="!isEdit">
               <input
                 :id="`composer-file-${uid}`"
@@ -558,7 +643,7 @@ defineExpose({ focus, reset })
                 class="tool-btn"
                 aria-label="添加图片或视频"
                 title="添加图片或视频"
-                :disabled="!!poll || media.length >= MAX_MEDIA_ATTACHMENTS"
+                :disabled="posting || loadingSource || !!poll || media.length >= MAX_MEDIA_ATTACHMENTS"
                 @click="pickFiles"
               >
                 <t-icon name="image" :size="18" />
@@ -570,7 +655,7 @@ defineExpose({ focus, reset })
                 :aria-pressed="!!poll"
                 aria-label="投票"
                 title="投票"
-                :disabled="media.length > 0"
+                :disabled="posting || loadingSource || media.length > 0"
                 @click="togglePoll"
               >
                 <t-icon name="chart-bar" :size="18" />
@@ -583,43 +668,11 @@ defineExpose({ focus, reset })
               :aria-pressed="spoilerEnabled"
               aria-label="内容警告"
               title="内容警告"
+              :disabled="posting || loadingSource"
               @click="toggleSpoiler"
             >
               CW
             </button>
-            <div v-if="!isEdit && choices.length > 1" class="composer__visibility">
-              <button
-                type="button"
-                class="composer__visibility-btn"
-                :aria-expanded="visibilityOpen"
-                aria-haspopup="listbox"
-                aria-label="可见范围"
-                :title="currentVisibility.label"
-                @click="visibilityOpen = !visibilityOpen"
-              >
-                <t-icon :name="currentVisibility.icon" :size="16" />
-                <span>{{ currentVisibility.label }}</span>
-              </button>
-              <ul v-if="visibilityOpen" class="composer__visibility-menu" role="listbox" aria-label="可见范围">
-                <li v-for="v in choices" :key="v.value">
-                  <button
-                    type="button"
-                    class="composer__visibility-option"
-                    :class="{ 'is-selected': v.value === visibility }"
-                    role="option"
-                    :aria-selected="v.value === visibility"
-                    @click="visibility = v.value; visibilityOpen = false"
-                  >
-                    <t-icon :name="v.icon" :size="16" />
-                    <span>{{ v.label }}</span>
-                  </button>
-                </li>
-              </ul>
-            </div>
-            <span v-else-if="!isEdit" class="composer__visibility composer__visibility--locked" :title="currentVisibility.label">
-              <t-icon :name="currentVisibility.icon" :size="16" />
-              <span>{{ currentVisibility.short }}</span>
-            </span>
           </div>
           <div class="composer__right">
             <span
@@ -630,25 +683,7 @@ defineExpose({ focus, reset })
             >
               {{ charCount }}/{{ MAX_POST_LENGTH }}
             </span>
-            <t-button
-              v-if="isEdit"
-              variant="text"
-              shape="round"
-              size="small"
-              @click="emit('cancel')"
-            >
-              取消
-            </t-button>
-            <t-button
-              theme="primary"
-              shape="round"
-              size="small"
-              :disabled="!canPost"
-              :loading="posting"
-              @click="handlePost"
-            >
-              {{ submitLabel }}
-            </t-button>
+            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" aria-label="自定义表情" title="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
           </div>
         </div>
       </div>
@@ -658,8 +693,11 @@ defineExpose({ focus, reset })
 
 <style scoped>
 .composer {
-  padding: var(--space-3) var(--gutter);
-  box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--color-separator);
+  margin: var(--space-4) var(--gutter);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--color-separator);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-grouped);
 }
 
 .composer--menu {
@@ -676,9 +714,35 @@ defineExpose({ focus, reset })
   font-size: var(--text-footnote);
 }
 
-.composer__body {
+.composer__header {
+  position: relative;
   display: flex;
-  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.composer__header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.composer__header-actions :deep(.t-button) {
+  min-height: var(--hit-target);
+  font-weight: var(--weight-semibold);
+}
+
+.composer__submit {
+  min-width: 5.5rem;
+}
+
+.composer__body {
+  min-width: 0;
 }
 
 .composer__avatar {
@@ -751,8 +815,7 @@ defineExpose({ focus, reset })
   white-space: nowrap;
 }
 
-/* The text field is the canvas: no box, no focus ring — the caret and the
-   enabled Post button are the feedback. */
+/* A quiet writing surface with a visible keyboard focus boundary. */
 .composer__textarea :deep(.t-textarea__inner),
 .composer__textarea :deep(.t-textarea__inner:hover),
 .composer__textarea :deep(.t-textarea__inner:focus),
@@ -762,16 +825,18 @@ defineExpose({ focus, reset })
   box-shadow: none !important;
   outline: none !important;
   color: var(--color-label) !important;
-  font-size: var(--text-title-3) !important;
-  line-height: var(--leading-title-3) !important;
+  font-size: var(--text-body) !important;
+  line-height: 1.65 !important;
   letter-spacing: 0;
   unicode-bidi: plaintext;
-  padding: var(--space-2) 0 !important;
+  min-height: 6.5rem !important;
+  padding: var(--space-2) !important;
   resize: none !important;
 }
 
-.composer__textarea :deep(.t-textarea__inner:lang(zh)) {
-  line-height: 1.45 !important;
+.composer__textarea :deep(.t-textarea__inner:focus-visible) {
+  outline: 2px solid var(--color-focus-ring) !important;
+  outline-offset: 2px;
 }
 
 .composer__textarea :deep(.t-textarea__inner::placeholder) {
@@ -786,19 +851,19 @@ defineExpose({ focus, reset })
   gap: var(--space-2);
   padding-top: var(--space-2);
   margin-top: var(--space-2);
-  box-shadow: inset 0 var(--hairline) 0 var(--color-separator);
 }
 
 .composer__tools {
   display: flex;
-  margin-left: calc(-1 * var(--space-2));
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .tool-btn {
   display: grid;
   place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: var(--hit-target);
+  height: var(--hit-target);
   border-radius: var(--radius-full);
   color: var(--color-accent-text);
   -webkit-tap-highlight-color: transparent;
@@ -823,7 +888,7 @@ defineExpose({ focus, reset })
   }
 }
 
-.tool-btn:active {
+.tool-btn:active:not(:disabled) {
   background: var(--color-accent-soft);
   transform: scale(var(--press-scale));
   transition-duration: var(--duration-press);
@@ -834,11 +899,6 @@ defineExpose({ focus, reset })
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.composer__right :deep(.t-button) {
-  min-width: 4.5rem;
-  font-weight: var(--weight-semibold);
 }
 
 .composer__count {
@@ -869,11 +929,18 @@ defineExpose({ focus, reset })
   background: var(--color-accent-soft);
 }
 
-/* Phones: the toolbar runs the full width under the avatar so the tools,
-   counter and button never crowd each other. */
 @media (max-width: 43.74rem) {
-  .composer__toolbar {
-    margin-left: calc(-40px - var(--space-3));
+  .composer {
+    margin: var(--space-3) var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .composer__right {
+    gap: var(--space-1);
+  }
+
+  .composer__count {
+    font-size: var(--text-caption);
   }
 }
 
@@ -1050,13 +1117,13 @@ defineExpose({ focus, reset })
 }
 
 .composer__visibility {
-  position: relative;
+  position: static;
   display: inline-flex;
   align-items: center;
 }
 
 .composer__visibility--locked {
-  min-height: 2.5rem;
+  min-height: var(--hit-target);
   padding: 0 var(--space-2);
   gap: var(--space-1);
   border-radius: var(--radius-full);
@@ -1069,8 +1136,8 @@ defineExpose({ focus, reset })
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 2.5rem;
-  padding: 0 var(--space-1);
+  min-height: var(--hit-target);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-full);
   color: var(--color-accent-text);
   font-size: var(--text-subhead);
@@ -1079,6 +1146,11 @@ defineExpose({ focus, reset })
 
 .composer__visibility-btn[aria-expanded='true'] {
   background: var(--color-accent-soft);
+}
+
+.composer__visibility-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .composer__visibility-btn::after {
@@ -1094,8 +1166,10 @@ defineExpose({ focus, reset })
   position: absolute;
   z-index: 5;
   top: calc(100% + 4px);
-  left: 0;
-  min-width: 16rem;
+  right: 0;
+  width: max-content;
+  min-width: min(16rem, 100%);
+  max-width: 100%;
   margin: 0;
   padding: var(--space-1);
   list-style: none;
@@ -1111,7 +1185,7 @@ defineExpose({ focus, reset })
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 2.5rem;
+  min-height: var(--hit-target);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   text-align: left;
@@ -1158,5 +1232,17 @@ defineExpose({ focus, reset })
   background: var(--color-fill);
   color: var(--color-label);
   font-weight: var(--weight-semibold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-btn,
+  .composer__media-remove {
+    transition: none;
+  }
+
+  .tool-btn:active,
+  .composer__media-remove:active {
+    transform: none;
+  }
 }
 </style>

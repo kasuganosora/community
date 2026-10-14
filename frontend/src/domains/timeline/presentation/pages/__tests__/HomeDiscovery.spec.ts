@@ -5,7 +5,7 @@ import HomePage from '../HomePage.vue'
 import { discoveryApi, type DiscoveryPage } from '@/domains/discovery/infrastructure/discoveryApi'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 
-const timeline = reactive({ homeTab: 'for-you' as 'for-you' | 'following', homeStatuses: [], homeTimeline: { newer: [], isLoading: false, error: null, hasMore: false, hasPrevious: false },
+const timeline = reactive({ homeTab: 'for-you' as 'for-you' | 'following' | 'global', homeStatuses: [], homeTimeline: { statuses: [], newer: [], isLoading: false, error: null, hasMore: false, hasPrevious: false },
   fetchPublicTimeline: vi.fn(), fetchHomeTimeline: vi.fn(), checkNewer: vi.fn(), cancelRevalidation: vi.fn(), updateStatus: vi.fn(), prependStatus: vi.fn() })
 vi.mock('../../stores/timelineStore', () => ({ useTimelineStore: () => timeline }))
 vi.mock('@/shared/composables/useFeedStream', () => ({ useFeedStream: vi.fn() }))

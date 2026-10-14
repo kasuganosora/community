@@ -12,7 +12,7 @@ import (
 // ListTags is deliberately separate from Mastodon's calendar-day history DTO.
 func ListTags(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	window, scope := c.DefaultQuery("window", "24h"), c.DefaultQuery("scope", "local")
+	window, scope := c.DefaultQuery("window", "24h"), c.DefaultQuery("scope", "federated")
 	if (window != "24h" && window != "7d") || (scope != "local" && scope != "federated") {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid window or scope", "code": "invalid_request"})
 		return

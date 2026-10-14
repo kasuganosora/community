@@ -5,6 +5,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { useTimelineStore } from '../stores/timelineStore'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import type { ManagedTimelineType } from '../../domain/entities'
 import { useStatusActions } from '@/domains/post/presentation/composables/useStatusActions'
 import { useDiscoveryFeed } from '@/domains/discovery/presentation/composables/useDiscoveryFeed'
 import { discoveryPreference, discoveryInvalidation, loadDiscoveryPreference } from '@/domains/discovery/presentation/composables/discoveryState'
@@ -17,41 +18,48 @@ import TabBar from '@/shared/components/common/TabBar.vue'
 const timelineStore = useTimelineStore()
 const discovery = useDiscoveryFeed()
 const checkingPreference = ref(false)
-type TabType = 'for-you' | 'following'
+type TabType = 'for-you' | 'following' | 'global'
 const tabs = computed<{ value: TabType; label: string }[]>(() => [
   { value: 'for-you', label: discoveryPreference.value?.preference === 'personalized' ? '推荐' : '公开发现' },
   { value: 'following', label: '关注' },
+  { value: 'global', label: '全局时间线' },
 ])
 const activeTab = computed({ get: () => timelineStore.homeTab, set: (tab: TabType) => { timelineStore.homeTab = tab } })
 const isDiscovery = computed(() => activeTab.value === 'for-you')
-const statuses = computed(() => isDiscovery.value ? discovery.statuses.value : timelineStore.homeStatuses)
-const loading = computed(() => isDiscovery.value ? checkingPreference.value || discovery.loading.value : timelineStore.homeTimeline.isLoading)
-const error = computed(() => isDiscovery.value ? discovery.error.value : timelineStore.homeTimeline.error)
-const hasMore = computed(() => isDiscovery.value ? discovery.hasMore.value : timelineStore.homeTimeline.hasMore)
+const chronologicalType = computed<ManagedTimelineType>(() => activeTab.value === 'global' ? 'public' : 'home')
+const chronologicalTimeline = computed(() => chronologicalType.value === 'public' ? timelineStore.publicTimeline : timelineStore.homeTimeline)
+const statuses = computed(() => isDiscovery.value ? discovery.statuses.value : chronologicalType.value === 'public' ? timelineStore.publicStatuses : timelineStore.homeStatuses)
+const loading = computed(() => isDiscovery.value ? checkingPreference.value || discovery.loading.value : chronologicalTimeline.value.isLoading)
+const error = computed(() => isDiscovery.value ? discovery.error.value : chronologicalTimeline.value.error)
+const hasMore = computed(() => isDiscovery.value ? discovery.hasMore.value : chronologicalTimeline.value.hasMore)
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, updates) => {
   timelineStore.updateStatus(id, updates)
   discovery.updateStatus(id, updates)
 })
 let opening = 0
-function rememberFollowing() {
-  if (!isDiscovery.value) saveListSnapshot('home:following', [], timelineStore.homeTimeline.hasMore)
+function rememberChronological() {
+  if (!isDiscovery.value) saveListSnapshot(`home:${activeTab.value}`, [], chronologicalTimeline.value.hasMore)
 }
-async function openFollowing() {
-  if (!timelineStore.homeStatuses.length) { await timelineStore.fetchHomeTimeline(); return }
-  const snapshot = readListSnapshot('home:following')
+function fetchChronological() {
+  return chronologicalType.value === 'public' ? timelineStore.fetchPublicTimeline() : timelineStore.fetchHomeTimeline()
+}
+async function openChronological() {
+  const type = chronologicalType.value
+  if (!chronologicalTimeline.value.statuses.length) { await fetchChronological(); return }
+  const snapshot = readListSnapshot(`home:${activeTab.value}`)
   if (snapshot) await nextTick(() => restoreListScroll(snapshot.scroll))
-  await timelineStore.checkNewer('home')
+  await timelineStore.checkNewer(type)
 }
 async function openTimeline() {
   const mine = ++opening, epoch = sessionEpoch.value
-  if (!isDiscovery.value) { await openFollowing(); return }
+  if (!isDiscovery.value) { await openChronological(); return }
   checkingPreference.value = true
   try {
     const preference = await loadDiscoveryPreference()
     if (mine !== opening || epoch !== sessionEpoch.value || !isDiscovery.value || !preference) return
     if (preference.preference === 'off' || preference.enabled === false) {
       activeTab.value = 'following'
-      await openFollowing()
+      await openChronological()
     } else await discovery.refresh()
   } catch (e) {
     if (mine === opening && epoch === sessionEpoch.value) discovery.error.value = e instanceof Error ? e.message : '无法读取推荐设置，请重试'
@@ -59,7 +67,7 @@ async function openTimeline() {
 }
 function onTabChange(value: TabType) {
   if (value === activeTab.value) return
-  rememberFollowing()
+  rememberChronological()
   ++opening
   checkingPreference.value = false
   timelineStore.cancelRevalidation()
@@ -69,10 +77,10 @@ function onTabChange(value: TabType) {
 }
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
-  else await timelineStore.fetchHomeTimeline()
+  else await fetchChronological()
   if (!error.value) window.scrollTo(0, 0)
 }
-function loadMore() { return isDiscovery.value ? discovery.continueLoading() : timelineStore.loadMoreHome() }
+function loadMore() { return isDiscovery.value ? discovery.continueLoading() : chronologicalType.value === 'public' ? timelineStore.loadMorePublic() : timelineStore.loadMoreHome() }
 function retry() { return statuses.value.length && hasMore.value ? loadMore() : openTimeline() }
 async function feedback(status: MastodonStatus, action: 'hide_status' | 'hide_author') {
   try {
@@ -90,14 +98,14 @@ watch(discoveryInvalidation, () => {
     activeTab.value = 'following'; void timelineStore.fetchHomeTimeline()
   }
 })
-// Ranked feeds only change when explicitly refreshed. SSE remains dedicated
-// to the chronological following timeline; never refill from publicTimeline.
-useFeedStream(computed(() => 'stream=user'), async () => {
-  if (!isDiscovery.value) await timelineStore.checkNewer('home')
+// Ranked feeds only change when explicitly refreshed. Each chronological
+// timeline subscribes to its own invalidations and retains its own cursors.
+useFeedStream(computed(() => chronologicalType.value === 'public' ? 'stream=public' : 'stream=user'), async () => {
+  if (!isDiscovery.value) await timelineStore.checkNewer(chronologicalType.value)
 })
 function resume() { if (!document.hidden && isDiscovery.value) { discovery.clear(); void openTimeline() } }
 onMounted(() => { void openTimeline(); document.addEventListener('visibilitychange', resume) })
-onBeforeRouteLeave(rememberFollowing)
+onBeforeRouteLeave(rememberChronological)
 onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.removeEventListener('visibilitychange', resume) })
 </script>
 
@@ -108,10 +116,6 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       <TabBar :model-value="activeTab" :options="tabs" label="时间线" @update:model-value="onTabChange" />
     </div>
     <PostComposer @posted="handlePosted" />
-    <div v-if="!isDiscovery && (discoveryPreference?.preference === 'off' || discoveryPreference?.enabled === false)" class="discovery-note">
-      {{ discoveryPreference?.enabled === false ? '本站尚未开放内容发现。' : '你已关闭内容发现，首页显示关注时间线。' }}
-      <router-link to="/settings?section=discovery">发现设置</router-link>
-    </div>
     <div v-if="isDiscovery" class="discovery-note">
       <span>{{ discoveryPreference?.preference === 'personalized' ? '根据你关注的话题和公开互动发现内容。' : '发现近期公开内容，不使用个人互动排序。' }}</span>
       <router-link to="/settings?section=discovery">发现设置</router-link>
@@ -119,18 +123,18 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
     </div>
     <div v-if="isDiscovery && discovery.mode.value === 'chronological_fallback'" class="discovery-note" role="status">
       发现服务暂时降级，本次仅显示一页近期公开帖。
-      <router-link to="/explore">浏览公开时间线</router-link>
+      <button type="button" @click="onTabChange('global')">浏览全局时间线</button>
     </div>
-    <button v-if="!isDiscovery && timelineStore.homeTimeline.newer.length" type="button" class="home-new" @click="timelineStore.revealNewer('home')">有新帖子，点击查看</button>
+    <button v-if="!isDiscovery && chronologicalTimeline.newer.length" type="button" class="home-new" @click="timelineStore.revealNewer(chronologicalType)">有新帖子，点击查看</button>
     <TimelineFeed
-      :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : 'home'"
-      :has-previous="!isDiscovery && timelineStore.homeTimeline.hasPrevious"
+      :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"
+      :has-previous="!isDiscovery && chronologicalTimeline.hasPrevious"
       :loading="loading" :has-more="hasMore" :error="error"
       :auto-load="!isDiscovery || !discovery.autoPaused.value"
       :recommendation="isDiscovery" :recommendation-reasons="isDiscovery ? discovery.reasons.value : undefined"
-      :empty-text="isDiscovery ? '暂时没有符合发现条件的内容，可以关注更多话题，或稍后刷新。' : undefined"
-      @pinned-ids="ids => { if (!isDiscovery) timelineStore.setPinnedIds('home', ids) }"
-      @reload-head="reloadHead" @load-previous="timelineStore.loadPrevious('home')"
+      :empty-text="isDiscovery ? '暂时没有符合发现条件的内容，可以关注更多话题，或稍后刷新。' : activeTab === 'global' ? '还没有公开帖子。' : undefined"
+      @pinned-ids="ids => { if (!isDiscovery) timelineStore.setPinnedIds(chronologicalType, ids) }"
+      @reload-head="reloadHead" @load-previous="timelineStore.loadPrevious(chronologicalType)"
       @load-more="loadMore" @retry="retry" @recommendation-feedback="feedback"
       @reblog="toggleReblog" @favourite="toggleFavourite" @bookmark="toggleBookmark"
     />

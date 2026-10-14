@@ -23,7 +23,7 @@ interface TimelineState {
 export const useTimelineStore = defineStore('timeline', () => {
   const auth = useAuthStore()
   // Retain navigation choice within this session, never across account changes.
-  const homeTab = ref<'for-you' | 'following'>('for-you')
+  const homeTab = ref<'for-you' | 'following' | 'global'>('for-you')
   // Separate state for each timeline type to avoid shared state issues
   const homeTimeline = ref<TimelineState>({
     statuses: [],

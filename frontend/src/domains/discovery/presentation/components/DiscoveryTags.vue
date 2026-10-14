@@ -9,11 +9,11 @@ import { discoveryInvalidation, invalidateDiscovery } from '../composables/disco
 
 const props = defineProps<{ compact?: boolean }>()
 const auth = useAuthStore()
-const windowSize = ref<'24h' | '7d'>('24h'), scope = ref<'local' | 'federated'>('local')
+const windowSize = ref<'24h' | '7d'>('24h')
 const items = ref<TagItem[]>([]), page = ref<TagsPage | null>(null)
 const loading = ref(false), error = ref(''), reset = ref(false)
 const title = computed(() => page.value?.kind === 'recent' ? '近期话题' : '热点话题')
-const rangeLabel = computed(() => `${scope.value === 'local' ? '本站' : '本站已收录的跨站内容'} · 过去${windowSize.value === '24h' ? ' 24 小时' : ' 7 天'}`)
+const rangeLabel = computed(() => `全局（含跨站） · 过去${windowSize.value === '24h' ? ' 24 小时' : ' 7 天'}`)
 let version = 0, controller: AbortController | undefined
 async function load(more = false) {
   if (more && (loading.value || !page.value?.next_cursor || reset.value)) return
@@ -23,7 +23,7 @@ async function load(more = false) {
   const cursor = more ? page.value?.next_cursor ?? undefined : undefined
   if (!more) { items.value = []; page.value = null }
   try {
-    const value = await discoveryApi.tags({ window: windowSize.value, scope: scope.value, limit: props.compact ? 5 : 20, cursor }, controller.signal)
+    const value = await discoveryApi.tags({ window: windowSize.value, scope: 'federated', limit: props.compact ? 5 : 20, cursor }, controller.signal)
     if (mine !== version || epoch !== sessionEpoch.value) return
     if (value.disabled) { page.value = value; items.value = []; return }
     if (cursor && value.next_cursor === cursor) throw new Error('话题分页没有前进，请刷新后重试')
@@ -52,7 +52,7 @@ async function hideTag(tag: TagItem) {
   } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : '未能保存，请重试') }
 }
 function resume() { if (!document.hidden) void load() }
-watch([windowSize, scope, sessionEpoch, discoveryInvalidation], () => { void load() }, { flush: 'sync' })
+watch([windowSize, sessionEpoch, discoveryInvalidation], () => { void load() }, { flush: 'sync' })
 onMounted(() => { void load(); document.addEventListener('visibilitychange', resume) })
 onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventListener('visibilitychange', resume) })
 </script>
@@ -62,7 +62,6 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
     <header class="discovery-tags__header"><h2>{{ title }}</h2><p>{{ rangeLabel }}</p></header>
     <div v-if="!compact" class="discovery-tags__filters">
       <label>统计窗口<select v-model="windowSize"><option value="24h">过去 24 小时</option><option value="7d">过去 7 天</option></select></label>
-      <label>内容范围<select v-model="scope"><option value="local">本站</option><option value="federated">跨站（本站已收录）</option></select></label>
     </div>
     <p v-if="page?.disabled" class="discovery-tags__message" role="status">本站暂未开放热点话题。</p>
     <p v-else-if="page?.kind === 'recent' && !compact" class="discovery-tags__message">当前参与人数不足以形成热点榜，以下是窗口内的近期公开话题。</p>
@@ -79,9 +78,10 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
     </ul>
     <p v-if="error" class="discovery-tags__message discovery-tags__error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="load(!!items.length)">重试</button></p>
     <p v-if="loading" class="discovery-tags__message" role="status">正在读取话题…</p>
-    <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">这个范围暂时没有可展示的公开话题。</p>
+    <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">最近暂无可展示的公开话题。</p>
     <p v-if="reset" class="discovery-tags__message" role="status">榜单已更新，请刷新后继续。 <button type="button" @click="load()">刷新榜单</button></p>
     <div v-if="!compact && page && !page.disabled" class="discovery-tags__footer">
+      <p>包含本站及已接收的跨站公开内容。</p>
       <p v-if="!page.coverage_complete">统计受处理预算限制，仅反映本站本轮已观察的内容。</p>
       <p v-if="page.as_of">统计截至 {{ new Date(page.as_of).toLocaleString() }}</p>
       <button v-if="page.next_cursor && !reset" type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="load(true)">继续加载</button>

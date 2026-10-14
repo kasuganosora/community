@@ -38,10 +38,10 @@ describe('new posts in timelines', () => {
 
 describe('timeline account and cursor isolation', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
-  it('retains the home tab across navigation and resets it synchronously for another session', () => {
+  it.each(['following', 'global'] as const)('retains the %s tab across navigation and resets it synchronously for another session', tab => {
     const store = useTimelineStore()
-    store.homeTab = 'following'
-    expect(useTimelineStore().homeTab).toBe('following')
+    store.homeTab = tab
+    expect(useTimelineStore().homeTab).toBe(tab)
     invalidateSessionData()
     expect(store.homeTab).toBe('for-you')
     expect(useTimelineStore().homeTab).toBe('for-you')
