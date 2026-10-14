@@ -17,6 +17,22 @@ beforeEach(() => { sessionEpoch.value++; discoveryPreference.value = { preferenc
 afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.restoreAllMocks() })
 
 describe('ranked discovery pagination', () => {
+  it('retries a load-shedding 503 once and reports freshness', async () => {
+    vi.useFakeTimers()
+    const busy = { response: { status: 503, data: { retryable: true } } }
+    const api = vi.spyOn(discoveryApi, 'statuses').mockRejectedValueOnce(busy).mockResolvedValueOnce(page(['1']))
+    const feed = setup()
+    const done = feed.refresh()
+    await vi.advanceTimersByTimeAsync(1500)
+    await done
+    expect(api).toHaveBeenCalledTimes(2)
+    expect(feed.error.value).toBeNull()
+    expect(feed.isFresh()).toBe(true)
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(feed.isFresh()).toBe(false)
+    vi.useRealTimers()
+  })
+
   it('keeps server ranking and uses the opaque cursor rather than a status ID', async () => {
     const api = vi.spyOn(discoveryApi, 'statuses').mockResolvedValueOnce(page(['20', '80'], 'opaque-cursor')).mockResolvedValueOnce(page(['80', '10']))
     const feed = setup()

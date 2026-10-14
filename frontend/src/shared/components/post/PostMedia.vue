@@ -158,6 +158,7 @@ const gridClass = computed(() => {
           :src="sameOriginMediaUrl(img.preview_url || img.url)"
           :alt="img.description || ''"
           loading="lazy"
+          decoding="async"
           class="media-img"
           @error="handleMediaError(img.id)"
         />

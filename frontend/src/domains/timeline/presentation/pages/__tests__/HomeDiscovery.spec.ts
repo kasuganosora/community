@@ -38,3 +38,18 @@ it.each([{ preference: 'off' as const, enabled: true }, { preference: 'generic' 
   expect(timeline.fetchHomeTimeline).toHaveBeenCalledTimes(1)
   wrapper.unmount()
 })
+
+it('reuses a fresh recommendation window on tab return and on page visibility instead of refetching', async () => {
+  vi.spyOn(discoveryApi, 'preferences').mockResolvedValue({ preference: 'personalized', revision: 1, enabled: true })
+  const filled = { ...result, items: [{ status: { id: '1', account: { id: 'a' } } as never }] }
+  const recommend = vi.spyOn(discoveryApi, 'statuses').mockResolvedValue(filled)
+  const wrapper = mount(HomePage, options)
+  await flushPromises()
+  expect(recommend).toHaveBeenCalledTimes(1)
+  const tabs = wrapper.findComponent({ name: 'TabBar' })
+  tabs.vm.$emit('update:modelValue', 'following'); await flushPromises()
+  tabs.vm.$emit('update:modelValue', 'for-you'); await flushPromises()
+  document.dispatchEvent(new Event('visibilitychange')); await flushPromises()
+  expect(recommend).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})

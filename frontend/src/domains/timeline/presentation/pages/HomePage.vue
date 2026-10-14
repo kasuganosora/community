@@ -53,6 +53,10 @@ async function openChronological() {
 async function openTimeline() {
   const mine = ++opening, epoch = sessionEpoch.value
   if (!isDiscovery.value) { await openChronological(); return }
+  // Returning to a recent recommendation window reuses it (and its scroll
+  // position) instead of re-requesting and re-rendering the whole feed.
+  if (discovery.isFresh()) return
+  discovery.clear()
   checkingPreference.value = true
   try {
     const preference = await loadDiscoveryPreference()
@@ -71,7 +75,7 @@ function onTabChange(value: TabType) {
   ++opening
   checkingPreference.value = false
   timelineStore.cancelRevalidation()
-  discovery.clear()
+  discovery.cancel()
   activeTab.value = value
   void openTimeline()
 }
@@ -106,7 +110,8 @@ watch(discoveryInvalidation, () => {
 useFeedStream(computed(() => chronologicalType.value === 'public' ? 'stream=public' : 'stream=user'), async () => {
   if (!isDiscovery.value) await timelineStore.checkNewer(chronologicalType.value)
 })
-function resume() { if (!document.hidden && isDiscovery.value) { discovery.clear(); void openTimeline() } }
+// Only rebuild after the window went stale while hidden, not on every app/tab switch.
+function resume() { if (!document.hidden && isDiscovery.value && !discovery.isFresh()) void openTimeline() }
 onMounted(() => { void openTimeline(); document.addEventListener('visibilitychange', resume) })
 onBeforeRouteLeave(rememberChronological)
 onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.removeEventListener('visibilitychange', resume) })
@@ -121,7 +126,7 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
     <PostComposer @posted="handlePosted" />
     <div v-if="isDiscovery && discovery.mode.value === 'chronological_fallback'" class="discovery-note" role="status">
       发现服务暂时降级，本次仅显示一页近期公开帖。
-      <button type="button" @click="onTabChange('global')">浏览全局时间线</button>
+      <button type="button" @click="onTabChange('global')">浏览全局</button>
     </div>
     <button v-if="!isDiscovery && chronologicalTimeline.newer.length" type="button" class="home-new" @click="timelineStore.revealNewer(chronologicalType)">有新帖子，点击查看</button>
     <TimelineFeed

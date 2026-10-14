@@ -85,7 +85,7 @@ async function showResponders() {
   <div class="post-reactions" @click.stop @keydown.stop @keydown.esc="closePicker">
     <div class="post-reactions__row" aria-label="表情回应" :aria-busy="pending">
       <button v-for="reaction in reactions" :key="reaction.name" type="button" class="reaction" :class="{ 'reaction--mine': reaction.me, 'reaction--readonly': remoteReaction(reaction) || !auth.currentUser }" :aria-label="`${reaction.name} ${reaction.count} 个回应${reaction.me ? '，撤销我的回应' : ''}`" :title="remoteReaction(reaction) ? '远端表情仅供展示；请管理员复制为本站表情后使用' : reaction.name" :aria-pressed="reaction.me" :disabled="pending || !auth.currentUser || remoteReaction(reaction)" @click="toggle(reaction.name)">
-        <span class="reaction__emoji"><img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" referrerpolicy="no-referrer" /><span v-else :class="{ 'reaction__sensitive': reaction.is_sensitive }">{{ reaction.is_sensitive ? '敏感表情' : reaction.name }}</span></span>
+        <span class="reaction__emoji"><img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" /><span v-else :class="{ 'reaction__sensitive': reaction.is_sensitive }">{{ reaction.is_sensitive ? '敏感表情' : reaction.name }}</span></span>
         <span class="reaction__count">{{ reaction.count }}</span>
         <svg v-if="reaction.me" class="reaction__check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8 3 3 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
