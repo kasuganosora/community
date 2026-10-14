@@ -72,6 +72,13 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 			if err := tx.Exec("SET LOCAL lock_timeout = '3s'").Error; err != nil {
 				return err
 			}
+			// Inbox effects are replayable: a crash that loses the last
+			// commits loses the dedup marker with them, and the sender
+			// redelivers. Do not make the HTTP response wait for a WAL fsync
+			// (2s+ on the production disks).
+			if err := tx.Exec("SET LOCAL synchronous_commit = off").Error; err != nil {
+				return err
+			}
 		}
 		run(context.WithValue(ctx, inboxTransactionKey{}, tx))
 		if buffer.Status() >= 400 {

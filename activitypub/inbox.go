@@ -162,6 +162,16 @@ func Inbox(c *gin.Context) {
 		return
 	}
 
+	if activityType == "Follow" && targetAccount != nil {
+		// The Accept needs the follower's inbox. Resolve it now, outside the
+		// transaction, rather than with the target account row locked and
+		// the new follow's feed events uncommitted.
+		ctx = withFollowerInbox(ctx, actor)
+	}
+	if activityType == "Announce" {
+		// Fetch an unknown boosted object before the transaction opens.
+		ctx = withPrefetchedAnnounceObject(ctx, activity["object"])
+	}
 	processInboxTransaction(ctx, c, activityID, func(ctx context.Context) {
 		switch activityType {
 		case "Create":
@@ -1442,7 +1452,9 @@ func queueAcceptActivity(ctx context.Context, localAccount *models.Account, remo
 	// Get remote inbox
 	var inboxURL string
 
-	if remoteAccount.OriginId != "" {
+	if inbox, ok := ctx.Value(followerInboxKey{}).(followerInbox); ok && inbox.actor == remoteAccount.OriginId {
+		inboxURL = inbox.url
+	} else if remoteAccount.OriginId != "" {
 		// Try to get inbox from remote actor
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -1690,8 +1702,16 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Fetch the status from its canonical id (signed retry on 401/403).
-	statusData, canonical, err := NewResolver(nil, "").fetchCanonicalObject(ctx, statusURI)
+	// Fetch the status from its canonical id (signed retry on 401/403),
+	// unless the inbox already fetched it outside its transaction.
+	var statusData map[string]any
+	var canonical string
+	var err error
+	if pre, ok := ctx.Value(prefetchedObjectKey{}).(prefetchedObject); ok && pre.uri == statusURI {
+		statusData, canonical, err = pre.data, pre.canonical, pre.err
+	} else {
+		statusData, canonical, err = NewResolver(nil, "").fetchCanonicalObject(ctx, statusURI)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch remote status: %w", err)
 	}
@@ -1893,4 +1913,43 @@ func alreadyProcessedActivity(ctx context.Context, id string) bool {
 		return false
 	}
 	return len(ids) > 0
+}
+
+type followerInboxKey struct{}
+
+type followerInbox struct{ actor, url string }
+
+// withFollowerInbox resolves actor's inbox before the inbox transaction opens.
+// An empty result is cached too, so the transaction never fetches again.
+func withFollowerInbox(ctx context.Context, actor string) context.Context {
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	url := ""
+	if remote, err := NewFetchClient().FetchActor(fetchCtx, actor); err == nil && remote.ID == actor && validateFederationURI(remote.Inbox) == nil {
+		url = remote.Inbox
+	}
+	return context.WithValue(ctx, followerInboxKey{}, followerInbox{actor: actor, url: url})
+}
+
+type prefetchedObjectKey struct{}
+
+type prefetchedObject struct {
+	uri, canonical string
+	data           map[string]any
+	err            error
+}
+
+func withPrefetchedAnnounceObject(ctx context.Context, object any) context.Context {
+	uri, ok := object.(string)
+	if !ok || uri == "" {
+		return ctx
+	}
+	var ids []uint64
+	if err := db.GetDB().WithContext(ctx).Model(&models.Status{}).Scopes(statusByObjectRef(uri)).Limit(1).Pluck("statuses.id", &ids).Error; err != nil || len(ids) > 0 {
+		return ctx
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	data, canonical, err := NewResolver(nil, "").fetchCanonicalObject(fetchCtx, uri)
+	return context.WithValue(ctx, prefetchedObjectKey{}, prefetchedObject{uri: uri, canonical: canonical, data: data, err: err})
 }
