@@ -36,9 +36,10 @@ export const authApi = {
     return data
   },
 
-  async logout(): Promise<void> {
+  /** Revoke the active token, or `token` when given (another signed-in account). */
+  async logout(token?: string): Promise<void> {
     try {
-      await client.get('/api/v1/accounts/logout')
+      await client.get('/api/v1/accounts/logout', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
     } catch {
       // Ignore error — we clear the token locally regardless
     }

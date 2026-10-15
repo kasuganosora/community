@@ -10,6 +10,14 @@ import { getPasskey } from '@/shared/utils/webauthn'
 
 
 import { USE_MOCK } from '@/shared/utils/env'
+import * as accountRegistry from '@/shared/api/accounts'
+import type { StoredAccount } from '@/shared/api/accounts'
+
+/** Full reload: drops every per-user store, cache and stream for the old identity. */
+function reloadTo(path?: string) {
+  if (path) window.location.assign(path)
+  else window.location.reload()
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(tokenService.get())
@@ -22,6 +30,8 @@ export const useAuthStore = defineStore('auth', () => {
   let fetchUserVersion = 0
 
   const isAuthenticated = computed(() => !!token.value)
+  const accounts = ref<StoredAccount[]>(accountRegistry.listAccounts())
+  function refreshAccounts() { accounts.value = accountRegistry.listAccounts() }
 
   // Guard against concurrent login attempts — if a second login() is called
   // while the first is still in flight, the second one is rejected.
@@ -97,6 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
       const user = await authApi.verifyCredentials()
       if (myVersion !== fetchUserVersion) return true
       currentUser.value = user
+      if (token.value) { accountRegistry.upsertAccount(user, token.value); refreshAccounts() }
       void useMediaMode().loadMode() // adopt the saved media display mode
       return true
     } catch (e) {
@@ -107,9 +118,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function logout(redirectToLogin = false) {
+  /**
+   * Sign out the active account only. If other accounts are signed in on this
+   * device, the next usable one becomes active (returns true; caller should
+   * reload via the returned promise's side effect when `switchAfter`).
+   */
+  async function logout(redirectToLogin = false, switchAfter = true): Promise<boolean> {
     ++fetchUserVersion
     invalidateSessionData()
+    const leaving = token.value
     // Notify backend to invalidate the token — ignore failures to ensure local cleanup always runs
     if (!USE_MOCK) {
       try {
@@ -119,12 +136,74 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
     invalidateSessionData()
+    const gone = accountRegistry.findByToken(leaving)
+    if (gone) accountRegistry.removeAccount(gone.id)
+    refreshAccounts()
     token.value = null
     currentUser.value = null
     tokenService.clear()
+    const next = switchAfter ? accountRegistry.nextUsableAccount(gone?.id) : null
+    if (next) {
+      tokenService.set(next.token)
+      reloadTo('/')
+      return true
+    }
     if (redirectToLogin) {
       window.location.href = '/login'
     }
+    return false
+  }
+
+  /** Make another signed-in account active. */
+  function switchAccount(id: string): 'switched' | 'relogin' | 'noop' {
+    const acc = accountRegistry.getAccount(id)
+    if (!acc || acc.id === currentUser.value?.id) return 'noop'
+    if (acc.needsRelogin || !acc.token) return 'relogin'
+    invalidateSessionData()
+    tokenService.set(acc.token)
+    token.value = acc.token
+    reloadTo()
+    return 'switched'
+  }
+
+  /** Sign out a signed-in account. For the active one this is logout(). */
+  async function removeAccount(id: string) {
+    if (id === currentUser.value?.id) return logout()
+    const acc = accountRegistry.removeAccount(id)
+    refreshAccounts()
+    if (acc?.token && !USE_MOCK) await authApi.logout(acc.token)
+    return false
+  }
+
+  /**
+   * The active token was rejected (401): keep the account listed as needing
+   * sign-in, and fall back to another usable account if there is one.
+   * Returns true when it switched (the page reloads).
+   */
+  function expireSession(): boolean {
+    ++fetchUserVersion
+    invalidateSessionData()
+    const dead = accountRegistry.markNeedsRelogin(token.value ?? '')
+    refreshAccounts()
+    token.value = null
+    currentUser.value = null
+    tokenService.clear()
+    const next = accountRegistry.nextUsableAccount(dead?.id)
+    if (next) {
+      tokenService.set(next.token)
+      reloadTo('/')
+      return true
+    }
+    return false
+  }
+
+  // Another tab switched or signed out: this tab must not keep acting as the
+  // old identity with a different token underneath.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'auth_token' && e.newValue !== token.value) reloadTo()
+      else if (e.key === accountRegistry.ACCOUNTS_KEY) refreshAccounts()
+    })
   }
 
   async function initialize(): Promise<boolean> {
@@ -146,6 +225,11 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     isAuthenticated,
+    accounts,
+    refreshAccounts,
+    switchAccount,
+    removeAccount,
+    expireSession,
     login,
     loginWithPasskey,
     logout,

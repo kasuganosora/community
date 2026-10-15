@@ -17,6 +17,7 @@ vi.mock('@/shared/ui/feedback', () => ({ MessagePlugin: { success: vi.fn(), erro
 vi.mock('tdesign-vue-next', () => ({
   MessagePlugin: { error: vi.fn() },
   Dropdown: { template: '<div />' },
+  Popup: { template: '<div />' },
   DropdownMenu: { template: '<div />' },
   DropdownItem: { template: '<div />' },
 }))
@@ -34,7 +35,7 @@ async function createTestRouter() {
   return router
 }
 
-const stubs = { TIcon: true, TDropdown: true, TDropdownMenu: true, TDropdownItem: true, UserAvatar: true, LogoIcon: true, EmojiText: true }
+const stubs = { TIcon: true, TDropdown: true, TDropdownMenu: true, TDropdownItem: true, TPopup: true, UserAvatar: true, LogoIcon: true, EmojiText: true }
 
 describe('independent group navigation', () => {
   it('opens the groups module from desktop navigation and highlights it without highlighting messages', async () => {

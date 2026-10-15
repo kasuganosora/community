@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import BottomSheet from './BottomSheet.vue'
-import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
+import AccountSwitchList from '@/shared/components/account/AccountSwitchList.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -19,7 +18,7 @@ function go(to: string) {
 async function logout() {
   accountOpen.value = false
   try {
-    await authStore.logout()
+    if (await authStore.logout()) return
     router.push({ name: 'landing' }).catch(() => {})
   } catch (e) {
     console.error('Logout failed:', e)
@@ -31,14 +30,9 @@ async function logout() {
 <template>
   <BottomSheet v-model="accountOpen" label="账户">
     <div v-if="authStore.currentUser" class="account">
-      <button type="button" class="account__me" @click="go(`/@${authStore.currentUser.username}`)">
-        <UserAvatar :account="authStore.currentUser" :size="52" />
-        <span class="account__text">
-          <span class="account__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></span>
-          <span class="account__handle">@{{ authStore.currentUser.username }}</span>
-        </span>
-        <t-icon name="chevron-right" :size="18" class="account__chevron" />
-      </button>
+      <div class="group group--accounts" data-qa="sheet-accounts">
+        <AccountSwitchList @close="accountOpen = false" />
+      </div>
 
       <!-- Inset grouped list, iOS Settings style -->
       <div class="group">
@@ -79,6 +73,8 @@ async function logout() {
 </template>
 
 <style scoped>
+.group--accounts { padding: var(--space-1); }
+
 .account {
   display: flex;
   flex-direction: column;

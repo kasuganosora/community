@@ -72,7 +72,9 @@ client.interceptors.request.use(
     // Re-evaluated per request: the connection type changes on mobile.
     if (config.timeout === DEFAULT_TIMEOUT_MS) config.timeout = requestTimeout()
     const token = tokenService.get()
-    if (token) {
+    // A caller may target a specific (non-active) account, e.g. revoking a
+    // signed-in account from 管理账户; keep its explicit header.
+    if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`
     }
     return applyStallRetry(config, client.defaults.adapter)

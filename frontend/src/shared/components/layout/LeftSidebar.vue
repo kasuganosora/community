@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { adminEntry } from '@/domains/admin/domain/navigation'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import AccountSwitchList from '@/shared/components/account/AccountSwitchList.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -14,6 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { openCompose } = useUiChrome()
+const menuOpen = ref(false)
 
 function goHome() {
   router.push({ name: 'home' }).catch(() => {})
@@ -52,7 +54,7 @@ function handleCompose() {
 
 async function handleLogout() {
   try {
-    await authStore.logout()
+    if (await authStore.logout()) return // switched to another signed-in account
     router.push({ name: 'landing' }).catch(() => {})
   } catch (e) {
     console.error('Logout failed:', e)
@@ -100,8 +102,8 @@ async function handleLogout() {
 
     <!-- User Info -->
     <div class="sidebar-user" v-if="authStore.currentUser">
-      <t-dropdown :min-column-width="220">
-        <button type="button" class="user-info" aria-haspopup="menu" :aria-label="`账户菜单：@${authStore.currentUser.username}`">
+      <t-popup v-model:visible="menuOpen" trigger="click" placement="top-left" :overlay-inner-style="{ padding: '4px' }">
+        <button type="button" class="user-info" data-qa="sidebar-account" aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="`账户菜单：@${authStore.currentUser.username}`">
           <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
             <div class="user-info__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></div>
@@ -109,19 +111,23 @@ async function handleLogout() {
           </div>
           <t-icon name="more" :size="18" class="user-info__more" />
         </button>
-        <template #dropdown>
-          <t-dropdown-menu>
-            <t-dropdown-item @click="handleLogout">
-              退出 @{{ authStore.currentUser.username }}
-            </t-dropdown-item>
-          </t-dropdown-menu>
+        <template #content>
+          <AccountSwitchList @close="menuOpen = false" />
+          <div class="user-menu__divider" />
+          <button type="button" class="user-menu__logout" data-qa="acct-logout" @click="menuOpen = false; handleLogout()">
+            退出 @{{ authStore.currentUser.username }}
+          </button>
         </template>
-      </t-dropdown>
+      </t-popup>
     </div>
   </div>
 </template>
 
 <style scoped>
+.user-menu__divider { height: 1px; margin: 4px 12px; background: var(--color-separator); }
+.user-menu__logout { width: 100%; min-height: 40px; padding: 0 12px; text-align: left; color: var(--color-danger); border-radius: 8px; }
+.user-menu__logout:hover { background: var(--color-pressed); }
+
 .left-sidebar {
   display: flex;
   flex-direction: column;

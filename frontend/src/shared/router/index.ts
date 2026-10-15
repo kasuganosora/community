@@ -46,7 +46,7 @@ router.beforeEach(async (to) => {
 
   // An already signed-in user opening an OAuth / MiAuth link must land on the
   // server consent page, not be bounced to the home timeline.
-  if (to.meta.guestOnly && token) {
+  if (to.meta.guestOnly && token && !(to.name === 'login' && to.query.add === '1')) {
     const back = safeInternalPath(to.query.redirect)
     if (back && isServerAuthReturn(back)) {
       window.location.assign(back)

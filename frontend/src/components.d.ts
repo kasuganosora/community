@@ -17,13 +17,12 @@ declare module 'vue' {
     TButton: typeof import('@/shared/components/common/AppButton.vue')['default']
     TDialog: typeof import('@/shared/components/common/LazyDialog.vue')['default']
     TDropdown: typeof import('tdesign-vue-next')['Dropdown']
-    TDropdownItem: typeof import('tdesign-vue-next')['DropdownItem']
-    TDropdownMenu: typeof import('tdesign-vue-next')['DropdownMenu']
     TForm: typeof import('tdesign-vue-next')['Form']
     TFormItem: typeof import('tdesign-vue-next')['FormItem']
     TIcon: typeof import('@/shared/components/common/AppIcon.vue')['default']
     TInput: typeof import('tdesign-vue-next')['Input']
     TLoading: typeof import('@/shared/components/common/AppLoading.vue')['default']
+    TPopup: typeof import('tdesign-vue-next')['Popup']
     TTextarea: typeof import('tdesign-vue-next')['Textarea']
   }
 }

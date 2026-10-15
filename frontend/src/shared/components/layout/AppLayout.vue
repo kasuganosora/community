@@ -4,6 +4,7 @@ import RightSidebar from './RightSidebar.vue'
 import MobileTabBar from './MobileTabBar.vue'
 import ComposeSheet from '@/shared/components/sheets/ComposeSheet.vue'
 import AccountSheet from '@/shared/components/sheets/AccountSheet.vue'
+import AccountsManagerDialog from '@/shared/components/account/AccountsManagerDialog.vue'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { useScrollEdge } from '@/shared/composables/useScrollEdge'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -71,6 +72,7 @@ useKeyboardInset()
 
     <ComposeSheet />
     <AccountSheet />
+    <AccountsManagerDialog />
   </div>
 </template>
 

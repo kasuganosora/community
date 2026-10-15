@@ -35,7 +35,8 @@ app.use(router)
 // App.vue's onMounted fires initial API calls that could return 401
 setAuthExpiredCallback(() => {
   const authStore = useAuthStore()
-  authStore.logout()
+  // Mark this account as needing sign-in; fall back to another signed-in account if any.
+  if (authStore.expireSession()) return
   router.push({ name: 'login' }).catch((err) => {
     console.warn('Auth expired: failed to navigate to login page', err)
   })

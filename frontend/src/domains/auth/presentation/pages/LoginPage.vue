@@ -23,6 +23,8 @@ const form = reactive<LoginForm>({
   password: '',
 })
 const justRegistered = route.query.registered === '1'
+// 添加账户: sign in another account while the current one stays signed in.
+const addingAccount = route.query.add === '1' && authStore.isAuthenticated
 const pendingApproval = route.query.pending === '1'
 const emailVerify = route.query.verify === '1'
 const registrationOpen = ref<boolean | null>(null)
@@ -85,6 +87,11 @@ function goRegister() {
 }
 
 function continueAfterLogin() {
+  if (addingAccount) {
+    // Fresh page load so no store keeps the previous account's data.
+    window.location.assign('/')
+    return
+  }
   const target = safeInternalPath(route.query.redirect)
   if (target && isServerAuthReturn(target)) {
     window.location.assign(target)
@@ -96,7 +103,7 @@ function continueAfterLogin() {
 async function handleLogin() {
   if (loginAttempts.value >= MAX_LOGIN_ATTEMPTS) return
   if (captchaNote.value) return
-  if (authStore.isAuthenticated) {
+  if (authStore.isAuthenticated && !addingAccount) {
     continueAfterLogin()
     return
   }
@@ -121,7 +128,7 @@ async function handleLogin() {
     loginAttempts.value = 0
     continueAfterLogin()
   } catch {
-    if (authStore.isAuthenticated) {
+    if (authStore.isAuthenticated && !addingAccount) {
       continueAfterLogin()
       return
     }
@@ -144,7 +151,8 @@ async function handleLogin() {
         <LogoIcon :size="40" />
       </div>
 
-      <h1 class="login-title">登录社区</h1>
+      <h1 class="login-title">{{ addingAccount ? '添加账户' : '登录社区' }}</h1>
+      <p v-if="addingAccount" class="login-add-note">登录另一个本站账号，当前账号会保持登录。<button type="button" class="login-add-cancel" @click="router.back()">取消</button></p>
 
       <t-alert v-if="justRegistered && !authStore.error" theme="success" message="注册成功，请登录。" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="pendingApproval && !authStore.error" theme="info" message="注册已提交，管理员通过后才能登录。" style="margin-bottom: var(--space-4)" />
@@ -249,6 +257,17 @@ async function handleLogin() {
 </template>
 
 <style scoped>
+.login-add-note {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  text-align: center;
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
+}
+.login-add-cancel {
+  margin-left: var(--space-2);
+  color: var(--color-accent);
+}
+
 .password-input :deep(.t-input__suffix-icon) {
   display: none;
 }
