@@ -2,6 +2,7 @@ package account
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -9,64 +10,44 @@ import (
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
-	"gorm.io/gorm"
 )
 
+// Logout handles GET/POST /api/v1/accounts/logout. It revokes the token the
+// caller authenticated with (web session or OAuth access token, plus its
+// paired refresh token), purges the auth cache and clears the cookie.
 func Logout(c *gin.Context) {
-	_, exists := c.Get("user")
-	if !exists {
+	if _, exists := c.Get("user"); !exists {
 		c.JSON(401, gin.H{"error": "Unauthorized"}) //nolint:goconst
 
 		return
 	}
 
-	// 删除token
 	tokenStr := c.GetHeader("Authorization")
-
 	if tokenStr == "" {
 		tokenStr, _ = c.Cookie("app-token")
 	}
 
+	tokenStr = strings.TrimSpace(strings.TrimPrefix(tokenStr, "Bearer "))
 	if tokenStr == "" {
 		c.JSON(401, gin.H{"error": "Unauthorized"})
 
 		return
 	}
 
-	// 如果前缀是 Bearer ，去掉前缀
-	if len(tokenStr) >= 7 && tokenStr[0:7] == "Bearer " {
-		tokenStr = tokenStr[7:]
-	}
-
-	// 删除token
-	token, err := models.GetTokenByTokenStr(tokenStr)
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(500, gin.H{"error": "Internal Server Error"})
-
-			err = errors.Wrap(err, "[Logout] GetTokenByTokenStr error")
-			log.ErrorV(err)
-
-			return
-		}
-	} else {
-		err = db.GetDB().Delete(token).Error
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Internal Server Error"})
-
-			err = errors.Wrap(err, "[Logout] Delete token error")
-			log.ErrorV(err)
-
-			return
-		}
-	}
-
-	// Drop the cached "valid" entry so the token stops working right away.
 	middleware.InvalidateTokenCache(tokenStr)
 
-	// 删除cookie
-	// Secure 标志根据请求是否为 HTTPS 动态判断
-	// SameSite=Lax 与登录时设置 Cookie 保持一致，防止 CSRF
+	pairHash, err := models.RevokeTokenByTokenStr(db.GetDB(), tokenStr)
+	if err != nil {
+		log.ErrorV(errors.Wrap(err, "[Logout] revoke token error"))
+		c.JSON(500, gin.H{"error": "Internal Server Error"})
+
+		return
+	}
+
+	middleware.InvalidateTokenCacheHash(pairHash)
+	middleware.InvalidateTokenCache(tokenStr)
+
+	// SameSite=Lax matches the login cookie.
 	secure := c.Request.TLS != nil
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("app-token", "", -1, "/", "", secure, true)

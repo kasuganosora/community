@@ -279,7 +279,9 @@ func SetRouter(app gin.IRouter) {
 
 	// 内部接口（仅允许 Web 端登录的 token，拒绝 OAuth token）
 	authInternalGroupV1 := authGroupV1.Group("", middleware.InternalApiMiddleware())
-	authInternalGroupV1.GET("/accounts/logout", account.Logout)
+	// Logout revokes the caller's own token, so any valid token (web or OAuth) may use it.
+	authGroupV1.GET("/accounts/logout", account.Logout)
+	authGroupV1.POST("/accounts/logout", account.Logout)
 	authInternalGroupV1.PUT("/accounts/me", account.UpdateAccount)
 	authInternalGroupV1.PUT("/accounts/me/password", account.ChangePassword)
 
@@ -601,7 +603,8 @@ func SetRouter(app gin.IRouter) {
 
 	// 内部接口（仅 Web 端 token）
 	authInternalGroup := authGroup.Group("", middleware.InternalApiMiddleware())
-	authInternalGroup.GET("/accounts/logout", account.Logout)
+	authGroup.GET("/accounts/logout", account.Logout)
+	authGroup.POST("/accounts/logout", account.Logout)
 	authInternalGroup.PUT("/accounts/me", account.UpdateAccount)
 	authInternalGroup.PUT("/accounts/me/password", account.ChangePassword)
 

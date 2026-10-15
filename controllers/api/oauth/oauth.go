@@ -313,7 +313,7 @@ func Revoke(c *gin.Context) {
 	var req RevokeRequest
 	_ = c.ShouldBind(&req)
 
-	tokenStr := strings.TrimSpace(req.Token)
+	tokenStr := normalizeFormToken(req.Token)
 	if tokenStr == "" {
 		if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			tokenStr = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
@@ -342,6 +342,16 @@ func Revoke(c *gin.Context) {
 	middleware.InvalidateTokenCache(tokenStr)
 
 	c.JSON(200, gin.H{})
+}
+
+// normalizeFormToken repairs a token that went through form decoding
+// unencoded. Our tokens embed standard base64 ('+', '/', '='), so a client
+// posting `token=...` without percent-encoding (curl -d, many Mastodon
+// libraries) gets every '+' turned into a space and the digest lookup
+// silently misses. Tokens never contain whitespace, so mapping spaces back
+// to '+' is lossless.
+func normalizeFormToken(raw string) string {
+	return strings.ReplaceAll(strings.TrimSpace(raw), " ", "+")
 }
 
 // VerifyCredentials handles GET /api/v1/apps/verify_credentials.
