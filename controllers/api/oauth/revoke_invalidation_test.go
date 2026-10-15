@@ -10,6 +10,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
@@ -33,8 +34,10 @@ func revokeTestServer() *gin.Engine {
 func issueToken(t *testing.T, env *oauthTestEnv, kind uint8) (string, *models.AuthToken) {
 	t.Helper()
 
-	id := fmt.Sprintf("%s-%d", t.Name(), kind)
-	user := models.User{UUID: "revoke-" + id, UserName: fmt.Sprintf("revoker%d", kind), EmailHash: "revoke-" + id}
+	// Keep the fixture within column limits: PostgreSQL enforces
+	// varchar(36) on users.uuid, SQLite does not.
+	id := uuid.NewString()
+	user := models.User{UUID: id, UserName: fmt.Sprintf("revoker%d", kind), EmailHash: "revoke-" + id}
 	require.NoError(t, env.gdb.Session(&gorm.Session{SkipHooks: true}).Create(&user).Error)
 	account := models.Account{UserId: user.Id, Username: user.UserName}
 	require.NoError(t, env.gdb.Session(&gorm.Session{SkipHooks: true}).Create(&account).Error)
