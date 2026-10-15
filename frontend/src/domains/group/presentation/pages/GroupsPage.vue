@@ -15,6 +15,7 @@ import GroupMemberInput from '../components/GroupMemberInput.vue'
 import EmojiPicker from '@/shared/components/post/EmojiPicker.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
+import { documentNearEnd, isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
 const route = useRoute(), router = useRouter()
 const selectedId = computed(() => typeof route.params.groupId === 'string' ? route.params.groupId : '')
 const { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, openRoom, loadHistory, upsertGroup, mergeMessages } = useGroups(selectedId)
@@ -25,6 +26,8 @@ const members = ref<GroupMember[]>([]), membersCursor = ref<string | null>(null)
 const composerLocked = ref(false)
 const reply = ref<GroupMessage | null>(null), editing = ref<GroupMessage | null>(null), dirty = ref(false), detailsOpen = ref(false)
 const detailsDialog = ref<HTMLDialogElement>(), reactionDialog = ref<HTMLDialogElement>(), reactionMessage = ref<GroupMessage | null>(null)
+const composerDock = ref<HTMLElement>()
+useDockedComposer(composerDock)
 const timeline = ref<HTMLElement>(), atBottom = ref(true), unseen = ref(0)
 const clientURL = computed(() => safeGroupURL(group.value?.client_url))
 const replyById = computed(() => new Map(messages.value.map(message => [message.id, message])))
@@ -68,8 +71,8 @@ watch(() => group.value?.encryption, value => { if (value !== 'unencrypted') { r
 watch(() => messages.value.length, async (length, old) => { if (length > old && !historyLoading.value) { if (atBottom.value) await scrollBottom(); else unseen.value += length - old } })
 watch(loading, async value => { if (!value) await scrollBottom() })
 watch(sessionEpoch, () => { actionVersion++; reply.value = null; editing.value = null; dirty.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; membersError.value = ''; detailsOpen.value = false; panel.value = null; actionError.value = ''; status.value = ''; mutationBusy.value = false }, { flush: 'sync' })
-async function scrollBottom() { await nextTick(); if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight; atBottom.value = true; unseen.value = 0; void markRead() }
-function onScroll() { const el = timeline.value; if (!el) return; atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80; if (atBottom.value) { unseen.value = 0; void markRead() } }
+async function scrollBottom() { await nextTick(); if (isMobileLayout()) scrollDocumentToEnd(); else if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight; atBottom.value = true; unseen.value = 0; void markRead() }
+function onScroll() { const el = timeline.value; if (!el) return; atBottom.value = isMobileLayout() ? documentNearEnd(80) : el.scrollHeight - el.scrollTop - el.clientHeight < 80; if (atBottom.value) { unseen.value = 0; void markRead() } }
 async function markRead() {
   const latest = messages.value.at(-1), id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!latest || document.visibilityState !== 'visible' || !atBottom.value || group.value?.membership !== 'join' || lastRead === latest.id) return
@@ -77,7 +80,16 @@ async function markRead() {
   try { await groupApi.read(id, latest.id); if (isActionCurrent(version, epoch) && group.value?.id === id) upsertGroup({ ...group.value, unread_count: 0 }) }
   catch { if (isActionCurrent(version, epoch) && lastRead === latest.id) lastRead = '' }
 }
-async function older() { const el = timeline.value, height = el?.scrollHeight ?? 0; await loadHistory(); await nextTick(); if (el) el.scrollTop += el.scrollHeight - height }
+async function older() {
+  const el = timeline.value, mobile = isMobileLayout(), doc = document.scrollingElement ?? document.documentElement
+  const height = mobile ? doc.scrollHeight : el?.scrollHeight ?? 0
+  await loadHistory(); await nextTick()
+  if (mobile) window.scrollBy(0, doc.scrollHeight - height)
+  else if (el) el.scrollTop += el.scrollHeight - height
+}
+// Phones scroll the document, so follow window scroll and keep the end in view when the keyboard resizes the viewport.
+function onWindowScroll() { if (isMobileLayout()) onScroll() }
+function onViewportResize() { if (isMobileLayout() && atBottom.value && timeline.value) scrollDocumentToEnd() }
 async function loadMembers(more = false) {
   const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!id || group.value?.membership !== 'join' || membersLoading.value || (more && !membersCursor.value)) return
@@ -131,8 +143,8 @@ function reactionPicker(message: GroupMessage) { reactionMessage.value = message
 function customReaction(emoji: MastodonEmoji) { if (emoji.local_only) { actionError.value = '仅本站表情不能用于群聊回应。'; return } if (reactionMessage.value) void react(reactionMessage.value, `:${emoji.shortcode}:`, false) }
 function receivedSent(incoming: GroupMessage[]) { mergeMessages(incoming); status.value = '消息已发送（本地服务已接受）'; void scrollBottom() }
 async function context(message: GroupMessage, edit = false) { if (composerLocked.value) return; if (edit && dirty.value && !await confirmAction('替换当前草稿？', '编辑消息会用原消息内容替换当前输入框中的草稿。', '替换草稿')) return; if (edit) { editing.value = message; reply.value = null } else { reply.value = message; editing.value = null } }
-onMounted(() => { document.addEventListener('visibilitychange', markRead) })
-onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead) })
+onMounted(() => { document.addEventListener('visibilitychange', markRead); window.addEventListener('scroll', onWindowScroll, { passive: true }); window.visualViewport?.addEventListener('resize', onViewportResize) })
+onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead); window.removeEventListener('scroll', onWindowScroll); window.visualViewport?.removeEventListener('resize', onViewportResize) })
 </script>
 <template>
   <div class="groups-page" :class="{ 'groups-page--selected': !!selectedId, 'groups-page--panel': !!panel }">
@@ -167,8 +179,8 @@ onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventLis
             <div ref="timeline" class="group-timeline" role="log" aria-label="群消息" aria-live="off" @scroll="onScroll"><button v-if="historyCursor" class="group-history" type="button" :disabled="historyLoading" @click="older">{{ historyLoading ? '加载中…' : '查看更早的消息' }}</button><div v-if="!messages.length" class="groups-placeholder"><t-icon name="chat" :size="32" /><h3>开始聊天吧</h3><p>可以发送消息、图片、文件和表情。</p></div><GroupMessageView v-for="message in messages" :key="`${group.id}:${message.id}`" :message="message" :group-topic="group.topic" :reply="message.reply_to ? replyById.get(message.reply_to) : undefined" :can-send="canSend" :can-redact="group.capabilities.redact" :busy="actionBusy || composerLocked" @reply="context(message)" @edit="context(message, true)" @remove="remove(message)" @reaction="(key, own) => react(message, key, own)" @picker="reactionPicker(message)" /></div>
             <button v-if="unseen" class="group-new-messages" type="button" @click="scrollBottom">{{ unseen }} 条新消息 ↓</button>
           </template>
-          <p v-if="typingNames && canSend" class="group-typing" role="status">{{ typingNames }} 正在输入…</p>
-          <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" />
+          <div ref="composerDock" class="group-composer-dock"><p v-if="typingNames && canSend" class="group-typing" role="status">{{ typingNames }} 正在输入…</p>
+          <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" /></div>
           <p v-if="actionBusy" class="groups-notice" role="status">{{ joinBusy ? joinStatus : status }}</p><p class="groups-announcer" role="status">{{ status || joinStatus }}</p>
         </template>
       </template>

@@ -581,12 +581,13 @@ html.has-sheet {
   overflow: hidden;
 }
 
-/* Set by AppLayout while a fixed app shell with inner scrollers is shown
-   (chat): the document itself must never scroll, or mobile browsers move
-   their toolbars and leave a gap below the tab bar. */
-html.app-shell-locked,
-html.app-shell-locked body {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
+/* Phones: the document is the only scroller. The tab bar is fixed at the
+   bottom and every page reserves --tabbar-h of padding, so no height depends
+   on vh/dvh (which disagree with the real viewport while browser toolbars
+   collapse). The root background matches the app so overscroll is not grey. */
+html, body { background-color: var(--color-bg); }
+@media (max-width: 43.74rem) {
+  body, #app { min-height: 0; }
+  html.keyboard-open { --dock-bottom: var(--keyboard-inset, 0px); }
+  html.keyboard-open .tabbar { display: none; }
 }

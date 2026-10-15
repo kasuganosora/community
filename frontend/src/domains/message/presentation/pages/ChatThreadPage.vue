@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { documentNearEnd, isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -19,6 +20,7 @@ const id = () => String(route.params.conversationId || '')
 const thread = useChatThread(id)
 const { conversation, messages, cursor, loading, loadingOlder, refreshPending, pending, busy, error } = thread
 const composer = ref<HTMLFormElement>()
+useDockedComposer(composer)
 const draft = ref('')
 const reply = ref<ChatMessage | undefined>()
 const editing = ref<ChatMessage | undefined>()
@@ -69,10 +71,10 @@ async function upload(event: Event) {
 }
 watch(() => messages.value.at(-1)?.event_id, async (next, previous) => {
   if (!next) return
-  const nearEnd = !previous || window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 180
+  const nearEnd = !previous || documentNearEnd(180)
   const room = id(), epoch = sessionEpoch.value
   await nextTick()
-  if (nearEnd && room === id() && epoch === sessionEpoch.value) composer.value?.scrollIntoView?.({ block: 'end' })
+  if (nearEnd && room === id() && epoch === sessionEpoch.value) { if (isMobileLayout()) scrollDocumentToEnd(); else composer.value?.scrollIntoView?.({ block: 'end' }) }
 })
 function replyTo(message: ChatMessage) {
   reply.value = message; editing.value = undefined
@@ -167,5 +169,11 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 .chat-compose__attachments { padding-left: var(--space-4); font-size: var(--text-footnote); }
 @media (forced-colors: active) {
   .chat-compose textarea:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
+@media (max-width: 43.74rem) {
+  /* Phones: the thread scrolls in the document; the composer docks above the tab bar. */
+  .chat-compose { position: fixed; left: 0; right: 0; bottom: var(--dock-bottom); z-index: var(--z-fab, 20); background: var(--color-bg); }
+  .chat-compose textarea { min-height: 2.75rem; max-height: 9rem; }
+  .chat-thread { padding-bottom: var(--composer-h, 0px); }
 }
 </style>

@@ -55,16 +55,4 @@ describe('message composer mobile controls', () => {
     expect(wrapper.find('.app-layout__right').exists()).toBe(true)
     wrapper.unmount()
   })
-  it('locks document scrolling only while the fixed chat shell is shown', async () => {
-    const { wrapper, router } = await setup()
-    const html = document.documentElement
-    expect(html.classList.contains('app-shell-locked')).toBe(false)
-    await router.push('/groups/room'); await nextTick()
-    expect(html.classList.contains('app-shell-locked')).toBe(true)
-    await router.push('/'); await nextTick()
-    expect(html.classList.contains('app-shell-locked')).toBe(false)
-    await router.push('/groups'); await nextTick()
-    wrapper.unmount()
-    expect(html.classList.contains('app-shell-locked')).toBe(false)
-  })
 })

@@ -148,6 +148,10 @@
   --tabbar-height: 3.25rem;            /* mobile tab bar, excl. safe area */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Space reserved under scrolling content on phones: tab bar + home indicator. */
+  --tabbar-h: calc(var(--tabbar-height) + var(--safe-bottom));
+  /* Where docked bars (chat composer) sit; drops to the keyboard edge while typing. */
+  --dock-bottom: var(--tabbar-h);
   --hit-target: 2.75rem;               /* 44pt minimum */
 
   /* ---- Motion ---------------------------------------------------------------

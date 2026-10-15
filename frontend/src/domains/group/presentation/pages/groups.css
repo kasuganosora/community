@@ -109,7 +109,14 @@
   .groups-list__tools .btn--primary { flex:none; }
 }
 @media(max-width:699px) {
-  .groups-page { height:calc(100% - var(--tabbar-height) - var(--safe-bottom)); }
+  /* The document scrolls on phones: no fixed/dvh heights or inner scrollers. */
+  .groups-page { display:block; height:auto; min-height:0; overflow:visible; }
+  .groups-list,.groups-main,.groups-list__items,.group-timeline { height:auto; min-height:0; max-height:none; overflow:visible; }
+  .group-thread-header { position:sticky; top:0; z-index:2; background:var(--color-bg); }
+  /* Last message stays clear of the docked composer (tab bar is reserved by AppLayout). */
+  .group-timeline { padding-bottom:calc(var(--composer-h, 0px) + var(--space-3)); }
+  .group-composer-dock { position:fixed; left:0; right:0; bottom:var(--dock-bottom); z-index:var(--z-fab, 20); background:var(--color-bg); }
+  .group-new-messages { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(var(--dock-bottom) + var(--composer-h, 0px) + var(--space-2)); margin:0; }
   .groups-list__header,.groups-list__tools { padding-inline:var(--space-4); }
   .groups-list__search-field { margin-inline:var(--space-4); }
   .group-thread-header { min-height:72px; padding-inline:var(--space-2); }

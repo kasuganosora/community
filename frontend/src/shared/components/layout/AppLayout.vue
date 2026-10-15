@@ -8,6 +8,7 @@ import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { useScrollEdge } from '@/shared/composables/useScrollEdge'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useKeyboardInset } from '@/shared/composables/useMobileDock'
 
 const { openCompose } = useUiChrome()
 useScrollEdge()
@@ -23,22 +24,12 @@ const onScroll = () => { scrollY.value = window.scrollY }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 watch(() => route.fullPath, () => { onScroll() })
-// Chat (groups) is a fixed app shell with its own inner scrollers. If the
-// document can scroll too, mobile browsers collapse the address bar and some
-// (Android Chrome forks, in-app WebViews) leave the dvh-sized shell and the
-// bottom-pinned tab bar where they were, exposing an empty band below the
-// tab bar. Lock the document while the shell is shown.
-const lockDocument = (locked: boolean) => {
-  if (typeof document === 'undefined') return
-  document.documentElement.classList.toggle('app-shell-locked', locked)
-  if (locked) window.scrollTo(0, 0)
-}
-watch(isGroups, lockDocument, { immediate: true })
-onBeforeUnmount(() => lockDocument(false))
 const fabHidden = computed(() => {
   const name = String(route.name)
   return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
 })
+
+useKeyboardInset()
 </script>
 
 <template>
@@ -159,25 +150,18 @@ const fabHidden = computed(() => {
   .app-layout__center {
     max-width: none;
     box-shadow: none;
-    /* keep the last post clear of the tab bar + home indicator */
-    padding-bottom: calc(var(--tabbar-height) + var(--safe-bottom) + var(--space-4));
-  }
-
-  .app-layout--groups .app-layout__center { padding-bottom:0; }
-
-  /* Fixed shell: fills exactly the box the fixed tab bar is pinned to, so the
-     bar always sits at the real bottom with nothing below it. */
-  .app-layout--groups {
-    position: fixed;
-    inset: 0;
+    /* the document scrolls; keep the last item clear of the fixed tab bar */
     min-height: 0;
+    padding-bottom: calc(var(--tabbar-h) + var(--space-4));
   }
 
-  .app-layout--groups .app-layout__center {
-    min-height: 0;
-    height: 100%;
-    overflow: hidden;
-  }
+  .app-layout { min-height: 0; }
+
+  /* Pages size to their content on phones: no vh/dvh-based heights. */
+  .app-layout__center > :deep(*) { min-height: 0; }
+
+  /* Chat views add the docked composer on top of the tab bar. */
+  .app-layout--groups .app-layout__center { padding-bottom: var(--tabbar-h); }
 
   .app-layout__tabbar {
     display: flex;
@@ -186,7 +170,7 @@ const fabHidden = computed(() => {
   .app-fab {
     position: fixed;
     right: var(--space-4);
-    bottom: calc(var(--tabbar-height) + var(--safe-bottom) + var(--space-4));
+    bottom: calc(var(--tabbar-h) + var(--space-4));
     z-index: var(--z-fab);
     display: grid;
     place-items: center;
