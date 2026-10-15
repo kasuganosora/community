@@ -20,10 +20,14 @@ const route = useRoute()
 const isGroups = computed(() => route.path === '/groups' || route.path.startsWith('/groups/'))
 const isSettings = computed(() => route.path === '/settings' || route.path.startsWith('/settings/'))
 const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
-const onScroll = () => { scrollY.value = window.scrollY }
+// Only the profile FAB rule needs scrollY, and only whether it is past 600px:
+// rAF-throttle and write the ref only when that answer changes.
+let scrollFrame = 0
+const readScroll = () => { scrollFrame = 0; const y = window.scrollY; if ((y < 600) !== (scrollY.value < 600)) scrollY.value = y }
+const onScroll = () => { if (!scrollFrame) scrollFrame = requestAnimationFrame(readScroll) }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
-onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
-watch(() => route.fullPath, () => { onScroll() })
+onBeforeUnmount(() => { window.removeEventListener('scroll', onScroll); if (scrollFrame) cancelAnimationFrame(scrollFrame) })
+watch(() => route.fullPath, () => { scrollY.value = window.scrollY })
 const fabHidden = computed(() => {
   const name = String(route.name)
   return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)

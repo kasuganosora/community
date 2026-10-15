@@ -15,7 +15,7 @@ import GroupMemberInput from '../components/GroupMemberInput.vue'
 import EmojiPicker from '@/shared/components/post/EmojiPicker.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
-import { documentNearEnd, isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
+import { isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
 const route = useRoute(), router = useRouter()
 const selectedId = computed(() => typeof route.params.groupId === 'string' ? route.params.groupId : '')
 const { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, openRoom, loadHistory, upsertGroup, mergeMessages } = useGroups(selectedId)
@@ -72,7 +72,10 @@ watch(() => messages.value.length, async (length, old) => { if (length > old && 
 watch(loading, async value => { if (!value) await scrollBottom() })
 watch(sessionEpoch, () => { actionVersion++; reply.value = null; editing.value = null; dirty.value = false; members.value = []; membersCursor.value = null; membersLoading.value = false; membersError.value = ''; detailsOpen.value = false; panel.value = null; actionError.value = ''; status.value = ''; mutationBusy.value = false }, { flush: 'sync' })
 async function scrollBottom() { await nextTick(); if (isMobileLayout()) scrollDocumentToEnd(); else if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight; atBottom.value = true; unseen.value = 0; void markRead() }
-function onScroll() { const el = timeline.value; if (!el) return; atBottom.value = isMobileLayout() ? documentNearEnd(80) : el.scrollHeight - el.scrollTop - el.clientHeight < 80; if (atBottom.value) { unseen.value = 0; void markRead() } }
+function setAtBottom(value: boolean) { atBottom.value = value; if (value) { unseen.value = 0; void markRead() } }
+// Desktop: the timeline element scrolls; read its geometry once per frame.
+let scrollFrame = 0
+function onScroll() { if (isMobileLayout() || scrollFrame) return; scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; const el = timeline.value; if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80) }) }
 async function markRead() {
   const latest = messages.value.at(-1), id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!latest || document.visibilityState !== 'visible' || !atBottom.value || group.value?.membership !== 'join' || lastRead === latest.id) return
@@ -87,9 +90,23 @@ async function older() {
   if (mobile) window.scrollBy(0, doc.scrollHeight - height)
   else if (el) el.scrollTop += el.scrollHeight - height
 }
-// Phones scroll the document, so follow window scroll and keep the end in view when the keyboard resizes the viewport.
-function onWindowScroll() { if (isMobileLayout()) onScroll() }
-function onViewportResize() { if (isMobileLayout() && atBottom.value && timeline.value) scrollDocumentToEnd() }
+// Phones scroll the document: an IntersectionObserver on a sentinel after the
+// timeline says whether the end is in view, so no scroll listener reads layout.
+const endSentinel = ref<HTMLElement>()
+let endObserver: IntersectionObserver | undefined
+watch(endSentinel, el => {
+  endObserver?.disconnect(); endObserver = undefined
+  if (!el || typeof IntersectionObserver === 'undefined') return
+  endObserver = new IntersectionObserver(entries => { if (isMobileLayout()) setAtBottom(entries.some(entry => entry.isIntersecting)) }, { rootMargin: '0px 0px 80px 0px' })
+  endObserver.observe(el)
+})
+// Keep the newest message visible when the keyboard opens or closes. Toolbar
+// collapse during a swipe also resizes the viewport; ignore it unless typing in the composer.
+let resizeFrame = 0
+function onViewportResize() {
+  if (resizeFrame || !isMobileLayout() || !composerDock.value?.contains(document.activeElement)) return
+  resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; if (atBottom.value && timeline.value) scrollDocumentToEnd() })
+}
 async function loadMembers(more = false) {
   const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
   if (!id || group.value?.membership !== 'join' || membersLoading.value || (more && !membersCursor.value)) return
@@ -143,8 +160,8 @@ function reactionPicker(message: GroupMessage) { reactionMessage.value = message
 function customReaction(emoji: MastodonEmoji) { if (emoji.local_only) { actionError.value = '仅本站表情不能用于群聊回应。'; return } if (reactionMessage.value) void react(reactionMessage.value, `:${emoji.shortcode}:`, false) }
 function receivedSent(incoming: GroupMessage[]) { mergeMessages(incoming); status.value = '消息已发送（本地服务已接受）'; void scrollBottom() }
 async function context(message: GroupMessage, edit = false) { if (composerLocked.value) return; if (edit && dirty.value && !await confirmAction('替换当前草稿？', '编辑消息会用原消息内容替换当前输入框中的草稿。', '替换草稿')) return; if (edit) { editing.value = message; reply.value = null } else { reply.value = message; editing.value = null } }
-onMounted(() => { document.addEventListener('visibilitychange', markRead); window.addEventListener('scroll', onWindowScroll, { passive: true }); window.visualViewport?.addEventListener('resize', onViewportResize) })
-onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead); window.removeEventListener('scroll', onWindowScroll); window.visualViewport?.removeEventListener('resize', onViewportResize) })
+onMounted(() => { document.addEventListener('visibilitychange', markRead); window.visualViewport?.addEventListener('resize', onViewportResize, { passive: true }) })
+onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead); endObserver?.disconnect(); if (scrollFrame) cancelAnimationFrame(scrollFrame); if (resizeFrame) cancelAnimationFrame(resizeFrame); window.visualViewport?.removeEventListener('resize', onViewportResize) })
 </script>
 <template>
   <div class="groups-page" :class="{ 'groups-page--selected': !!selectedId, 'groups-page--panel': !!panel }">
@@ -176,7 +193,8 @@ onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventLis
           <div v-else-if="group.encryption !== 'unencrypted'" class="groups-state"><t-icon name="lock-on" :size="36" /><h3>{{ group.encryption === 'encrypted' ? '请使用客户端参与加密群聊' : '正在确认加密状态' }}</h3><p>{{ group.encryption === 'encrypted' ? '你已加入此群。网页不支持端到端加密，无法读取或发送加密消息；未发送的草稿可以保留和复制。' : '确认之前，网页暂不发送消息或上传文件。' }}</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">使用 Matrix 客户端打开</a><button v-if="group.encryption === 'unknown'" class="btn btn--secondary btn--sm" type="button" @click="openRoom">重新检查</button></div>
           <template v-else>
             <div v-if="group.replacement_id" class="groups-notice">此群已升级，旧群仅供查看。<RouterLink :to="{ name: 'search', query: { q: group.replacement_id, type: 'groups', via: group.via } }">查看新群</RouterLink></div>
-            <div ref="timeline" class="group-timeline" role="log" aria-label="群消息" aria-live="off" @scroll="onScroll"><button v-if="historyCursor" class="group-history" type="button" :disabled="historyLoading" @click="older">{{ historyLoading ? '加载中…' : '查看更早的消息' }}</button><div v-if="!messages.length" class="groups-placeholder"><t-icon name="chat" :size="32" /><h3>开始聊天吧</h3><p>可以发送消息、图片、文件和表情。</p></div><GroupMessageView v-for="message in messages" :key="`${group.id}:${message.id}`" :message="message" :group-topic="group.topic" :reply="message.reply_to ? replyById.get(message.reply_to) : undefined" :can-send="canSend" :can-redact="group.capabilities.redact" :busy="actionBusy || composerLocked" @reply="context(message)" @edit="context(message, true)" @remove="remove(message)" @reaction="(key, own) => react(message, key, own)" @picker="reactionPicker(message)" /></div>
+            <div ref="timeline" class="group-timeline" role="log" aria-label="群消息" aria-live="off" @scroll.passive="onScroll"><button v-if="historyCursor" class="group-history" type="button" :disabled="historyLoading" @click="older">{{ historyLoading ? '加载中…' : '查看更早的消息' }}</button><div v-if="!messages.length" class="groups-placeholder"><t-icon name="chat" :size="32" /><h3>开始聊天吧</h3><p>可以发送消息、图片、文件和表情。</p></div><GroupMessageView v-for="message in messages" :key="`${group.id}:${message.id}`" :message="message" :group-topic="group.topic" :reply="message.reply_to ? replyById.get(message.reply_to) : undefined" :can-send="canSend" :can-redact="group.capabilities.redact" :busy="actionBusy || composerLocked" @reply="context(message)" @edit="context(message, true)" @remove="remove(message)" @reaction="(key, own) => react(message, key, own)" @picker="reactionPicker(message)" /></div>
+            <div ref="endSentinel" class="group-timeline__end" aria-hidden="true"></div>
             <button v-if="unseen" class="group-new-messages" type="button" @click="scrollBottom">{{ unseen }} 条新消息 ↓</button>
           </template>
           <div ref="composerDock" class="group-composer-dock"><p v-if="typingNames && canSend" class="group-typing" role="status">{{ typingNames }} 正在输入…</p>

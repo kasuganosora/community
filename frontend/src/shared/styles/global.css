@@ -588,6 +588,19 @@ html.has-sheet {
 html, body { background-color: var(--color-bg); }
 @media (max-width: 43.74rem) {
   body, #app { min-height: 0; }
+  /* No rubber-band of the whole page: the fixed bars stay put at the edges. */
+  html, body { overscroll-behavior-y: none; }
+  /* Fixed/sticky bars: own compositor layer, no live backdrop blur (blurring
+     the content scrolling underneath every frame is the main jitter source). */
+  .tabbar, .page-header, .home-header, .group-thread-header, .group-composer-dock, .chat-compose {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    transform: translateZ(0);
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+  .tabbar, .page-header, .home-header { background: var(--color-bg) !important; }
   html.keyboard-open { --dock-bottom: var(--keyboard-inset, 0px); }
   html.keyboard-open .tabbar { display: none; }
 }

@@ -49,6 +49,7 @@
 .groups-notice a,.groups-notice button { color:var(--color-accent-text); text-decoration:underline; padding:.15rem .3rem; }
 .groups-notice--error { color:var(--color-danger); background:var(--color-danger-soft); }
 .group-new-messages { align-self:center; margin:-2.5rem 0 var(--space-2); z-index:1; padding:var(--space-2) var(--space-4); border-radius:var(--radius-full); color:var(--color-on-accent); background:var(--color-accent); font-size:var(--text-footnote); box-shadow:var(--shadow-2); }
+.group-timeline__end { height:1px; flex:none; }
 .group-typing { flex:none; padding:var(--space-1) var(--space-5); font-size:var(--text-caption); color:var(--color-label-secondary); }
 .groups-state { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:var(--space-4); padding:var(--space-8); flex:1; min-height:0; overflow:auto; }
 .groups-state h3 { font-size:var(--text-title-3); }

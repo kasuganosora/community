@@ -23,15 +23,27 @@ export function documentNearEnd(slack = 80): boolean {
 /**
  * Publishes the height of a composer that is docked (position: fixed) above
  * the phone tab bar as --composer-h on <html>, so the message list can keep
- * its last message clear of it.
+ * its last message clear of it. Writes are rAF-batched and skipped when the
+ * rounded height is unchanged; the observed element is position: fixed, so
+ * the padding the variable feeds cannot resize it (no observer loop).
  */
 export function useDockedComposer(element: Ref<HTMLElement | null | undefined>): void {
   let observer: ResizeObserver | undefined
+  let frame = 0, pending = -1, written = -1
   const root = () => document.documentElement
-  const publish = (height: number) => root().style.setProperty('--composer-h', `${Math.ceil(height)}px`)
+  const flush = () => {
+    frame = 0
+    if (pending === written) return
+    written = pending
+    root().style.setProperty('--composer-h', `${written}px`)
+  }
+  const publish = (height: number) => {
+    pending = Math.ceil(height)
+    if (pending !== written && !frame) frame = requestAnimationFrame(flush)
+  }
   const attach = (el: HTMLElement | null | undefined) => {
     observer?.disconnect()
-    if (!el) { root().style.removeProperty('--composer-h'); return }
+    if (!el) { if (frame) cancelAnimationFrame(frame); frame = 0; written = pending = -1; root().style.removeProperty('--composer-h'); return }
     publish(el.getBoundingClientRect().height)
     if (typeof ResizeObserver === 'undefined') return
     observer = new ResizeObserver(entries => {
@@ -44,44 +56,64 @@ export function useDockedComposer(element: Ref<HTMLElement | null | undefined>):
   }
   onMounted(() => attach(element.value))
   watch(element, el => attach(el))
-  onBeforeUnmount(() => { observer?.disconnect(); root().style.removeProperty('--composer-h') })
+  onBeforeUnmount(() => { observer?.disconnect(); if (frame) cancelAnimationFrame(frame); root().style.removeProperty('--composer-h') })
+}
+
+/** How much shorter the visual viewport must be before we treat it as a keyboard. */
+export const KEYBOARD_THRESHOLD = 120
+
+function editableFocused(): boolean {
+  const el = document.activeElement
+  return el instanceof HTMLElement && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select, [contenteditable=""], [contenteditable="true"]')
 }
 
 /**
- * Tracks the on-screen keyboard through visualViewport. While it is open
- * <html> gets .keyboard-open (the tab bar steps aside) and --keyboard-inset is
- * the part of the layout viewport the keyboard covers (iOS overlays the
- * keyboard; Android with interactive-widget=resizes-content shrinks the
- * viewport instead, where the inset stays 0).
+ * Keyboard handling for the docked bars. Outside of typing nothing is
+ * written: the tab bar and composer are plain CSS position: fixed; bottom.
+ * Only while an editable element is focused AND visualViewport is more than
+ * KEYBOARD_THRESHOLD px shorter than innerHeight (iOS overlays the keyboard)
+ * does <html> get .keyboard-open and --keyboard-inset. Viewport scroll is
+ * only listened to while that state is active, and writes are rAF-batched
+ * and skipped when unchanged. Android with interactive-widget=resizes-content
+ * shrinks innerHeight together with the visual viewport, so no inset is ever
+ * needed there and nothing is written.
  */
 export function useKeyboardInset(): void {
   if (typeof window === 'undefined' || !window.visualViewport) return
   const viewport = window.visualViewport
-  let tallest = viewport.height
-  const update = () => {
+  let frame = 0, open = false, inset = -1
+  const write = () => {
+    frame = 0
     const html = document.documentElement
-    tallest = Math.max(tallest, viewport.height, window.innerHeight)
-    const typing = document.activeElement instanceof HTMLElement && document.activeElement.matches('input, textarea, [contenteditable="true"]')
-    const open = typing && viewport.height < tallest - 120
-    const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
-    html.classList.toggle('keyboard-open', open)
-    html.style.setProperty('--keyboard-inset', `${open ? Math.round(inset) : 0}px`)
+    const covered = Math.round(window.innerHeight - viewport.height - viewport.offsetTop)
+    const next = editableFocused() && window.innerHeight - viewport.height > KEYBOARD_THRESHOLD
+    if (next !== open) {
+      open = next
+      html.classList.toggle('keyboard-open', open)
+      if (open) viewport.addEventListener('scroll', schedule, { passive: true })
+      else { viewport.removeEventListener('scroll', schedule); html.style.removeProperty('--keyboard-inset'); inset = -1 }
+    }
+    if (open) {
+      const value = Math.max(0, covered)
+      if (value !== inset) { inset = value; html.style.setProperty('--keyboard-inset', `${value}px`) }
+    }
   }
-  const reset = () => { tallest = viewport.height; update() }
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(write) }
+  // Resize without a focused field (toolbar collapse, rotation) is ignored
+  // unless the keyboard state is currently active and needs clearing.
+  const onResize = () => { if (open || editableFocused()) schedule() }
   onMounted(() => {
-    viewport.addEventListener('resize', update)
-    viewport.addEventListener('scroll', update)
-    window.addEventListener('focusin', update)
-    window.addEventListener('focusout', update)
-    window.addEventListener('orientationchange', reset)
-    update()
+    viewport.addEventListener('resize', onResize, { passive: true })
+    window.addEventListener('focusin', schedule)
+    window.addEventListener('focusout', schedule)
   })
   onBeforeUnmount(() => {
-    viewport.removeEventListener('resize', update)
-    viewport.removeEventListener('scroll', update)
-    window.removeEventListener('focusin', update)
-    window.removeEventListener('focusout', update)
-    window.removeEventListener('orientationchange', reset)
+    viewport.removeEventListener('resize', onResize)
+    viewport.removeEventListener('scroll', schedule)
+    window.removeEventListener('focusin', schedule)
+    window.removeEventListener('focusout', schedule)
+    if (frame) cancelAnimationFrame(frame)
     document.documentElement.classList.remove('keyboard-open')
+    document.documentElement.style.removeProperty('--keyboard-inset')
   })
 }

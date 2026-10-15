@@ -56,7 +56,7 @@ const createdAt = computed(() => new Date(props.message.created_at).toISOString(
 .chat-message__sender { flex: 1; min-width: 0; }
 .chat-message__body { white-space: pre-wrap; margin-block: var(--space-3); }
 .chat-message__reply { margin: var(--space-2) 0; padding-left: var(--space-2); border-left: 2px solid var(--color-separator); color: var(--color-label-secondary); font-size: var(--text-footnote); max-height: 3em; overflow: hidden; }
-.chat-message__image { display: block; max-width: 100%; max-height: 400px; border-radius: var(--radius-sm); }
+.chat-message__image { display: block; width: min(100%, 28rem); max-height: 400px; aspect-ratio: 4 / 3; object-fit: contain; background: var(--color-fill); border-radius: var(--radius-sm); }
 .chat-message audio { max-width: 100%; }
 .chat-message__footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-top: var(--space-2); }
 .chat-message__delivery { margin-right: auto; font-size: var(--text-caption); color: var(--color-label-secondary); }
