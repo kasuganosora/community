@@ -37,7 +37,7 @@ describe('AppIcon', () => {
   })
 
   it('knows every icon name used by the app', () => {
-    for (const n of ['home', 'search', 'notification', 'mail', 'bookmark', 'bookmark-filled', 'user-circle',
+    for (const n of ['home', 'search', 'notification', 'loudspeaker', 'loudspeaker-filled', 'mail', 'bookmark', 'bookmark-filled', 'user-circle',
       'heart', 'heart-filled', 'swap', 'chat', 'share', 'more', 'close', 'chevron-left', 'error-circle',
       'image', 'browse', 'browse-off', 'user-add', 'lock-on', 'link', 'chevron-up']) {
       expect(resolveIcon(n), n).toBeDefined()

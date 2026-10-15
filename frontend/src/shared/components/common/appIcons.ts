@@ -4,14 +4,14 @@ import {
   ChartBarIcon, ChatIcon, CheckIcon, CheckCircleIcon, ChevronDownIcon, ChevronLeftIcon,
   ChevronUpIcon, CloseIcon, DeleteIcon, EarthIcon, EditIcon, ErrorCircleIcon, HeartIcon,
   HeartFilledIcon, HomeIcon, ImageIcon, ImageAddIcon, LinkIcon, LocationIcon, LockOffIcon,
-  LockOnIcon, LogoutIcon, MailIcon, MoreIcon, NotificationIcon, RefreshIcon, SearchIcon,
+  LockOnIcon, LogoutIcon, LoudspeakerIcon, MailIcon, MoreIcon, NotificationIcon, RefreshIcon, SearchIcon,
   SettingIcon, ShareIcon, SmileIcon, SwapIcon, TimeIcon, UserIcon, UserAddIcon,
   UserCircleIcon, UserListIcon, ViewListIcon,
 } from 'tdesign-icons-vue-next'
 // Filled / state variants used by the navigation chrome and appearance settings.
 import {
   ChevronRightIcon, DesktopIcon, HomeFilledIcon, MailFilledIcon, ModeDarkIcon, ModeLightIcon,
-  NotificationFilledIcon, SettingFilledIcon, UserCircleFilledIcon,
+  LoudspeakerFilledIcon, NotificationFilledIcon, SettingFilledIcon, UserCircleFilledIcon,
 } from 'tdesign-icons-vue-next'
 
 import { SecuredIcon, PaletteIcon, CloudIcon, CodeIcon, ChartIcon, FileIcon, FileAddIcon, HistoryIcon, BulletpointIcon, UserCheckedIcon } from 'tdesign-icons-vue-next'
@@ -80,6 +80,8 @@ export const ICONS: Record<string, Component> = {
   'more': MoreIcon,
   'notification': NotificationIcon,
   'notification-filled': NotificationFilledIcon,
+  'loudspeaker': LoudspeakerIcon,
+  'loudspeaker-filled': LoudspeakerFilledIcon,
   'refresh': RefreshIcon,
   'search': SearchIcon,
   'setting': SettingIcon,

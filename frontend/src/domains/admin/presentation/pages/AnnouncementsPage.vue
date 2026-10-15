@@ -39,7 +39,7 @@ onMounted(load)
     <p v-if="error" class="announcements-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="announcements-status" role="status">正在加载公告…</p>
     <div v-else-if="!rows.length" class="empty-state">
-      <div class="empty-state__icon"><t-icon name="notification" /></div>
+      <div class="empty-state__icon"><t-icon name="loudspeaker" /></div>
       <p class="empty-state__title">{{ unreadOnly ? '没有未读公告' : '暂无公告' }}</p>
     </div>
     <article v-for="row in rows" :key="row.id" class="announcement" :class="{ 'announcement--unread': !row.read }">

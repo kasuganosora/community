@@ -13,7 +13,7 @@ export const adminNavigation: AdminNavGroup[] = [
     item('/instances', '联合', 'internet', 'federation'),
     item('/jobs', '作业队列（含联邦投递）', 'time', 'system'),
     item('/files', '文件', 'file', 'media'),
-    item('/announcements', '公告', 'notification', 'announcements'),
+    item('/announcements', '公告', 'loudspeaker', 'announcements'),
     item('/advertisements', '广告', 'image', 'branding'),
     item('/reports', '举报与内容', 'flag', 'reports'),
     item('/discovery', '内容发现', 'browse', 'settings', '查看推荐状态，管理站级禁推规则。'),

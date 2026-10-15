@@ -24,7 +24,7 @@ const navItems = computed(() => [
   { value: 'home', label: '首页', icon: 'home', iconActive: 'home-filled', route: '/' },
   { value: 'explore', label: '探索', icon: 'search', iconActive: 'search', route: '/explore' },
   { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
-  { value: 'announcements', label: '公告', icon: 'notification', iconActive: 'notification-filled', route: '/announcements' },
+  { value: 'announcements', label: '公告', icon: 'loudspeaker', iconActive: 'loudspeaker-filled', route: '/announcements' },
   { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
   { value: 'groups', label: '群组', icon: 'usergroup', iconActive: 'usergroup', route: '/groups' },
   { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
