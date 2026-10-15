@@ -41,39 +41,66 @@ describe('useDockedComposer', () => {
 })
 
 describe('useKeyboardInset', () => {
-  function setup(height: number) {
-    const viewport = Object.assign(new EventTarget(), { height, offsetTop: 0 })
+  const html = document.documentElement
+  function setup(markup: string, { mobile = true, viewportHeight = 844 } = {}) {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: mobile, media: query, addEventListener() {}, removeEventListener() {} }))
+    const viewport = Object.assign(new EventTarget(), { height: viewportHeight, offsetTop: 0 })
     vi.stubGlobal('visualViewport', viewport)
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 })
-    const wrapper = mount(defineComponent({ setup() { useKeyboardInset(); return () => h('textarea') } }), { attachTo: document.body })
-    return { viewport, wrapper }
+    const wrapper = mount(defineComponent({ setup() { useKeyboardInset(); return () => h('div', { innerHTML: markup }) } }), { attachTo: document.body })
+    return { viewport, wrapper, el: (selector: string) => wrapper.element.querySelector(selector) as HTMLElement }
   }
 
-  it('writes nothing while not typing, even when the viewport resizes or scrolls', () => {
-    const { viewport, wrapper } = setup(844)
-    const setProperty = vi.spyOn(document.documentElement.style, 'setProperty')
-    viewport.height = 700
-    viewport.dispatchEvent(new Event('resize')); viewport.dispatchEvent(new Event('scroll')); window.dispatchEvent(new Event('scroll'))
-    flushFrames()
-    expect(frames).toHaveLength(0)
-    expect(setProperty).not.toHaveBeenCalled()
-    expect(document.documentElement.classList.contains('keyboard-open')).toBe(false)
+  it('marks the keyboard open on focus alone (Android resizes the viewport, so no size diff)', () => {
+    const { wrapper, el } = setup('<textarea class="reply"></textarea>')
+    el('.reply').focus()
+    expect(html.classList.contains('keyboard-open')).toBe(true)
+    expect(html.style.getPropertyValue('--keyboard-inset')).toBe('')
+    el('.reply').blur(); flushFrames()
+    expect(html.classList.contains('keyboard-open')).toBe(false)
     wrapper.unmount()
   })
 
-  it('opens only when an input is focused and the viewport is clearly shorter, then clears on blur', async () => {
-    const { viewport, wrapper } = setup(844)
-    const textarea = wrapper.element as HTMLTextAreaElement
-    viewport.height = 760 // focused, but within the threshold (toolbar collapse)
-    textarea.focus(); flushFrames()
-    expect(document.documentElement.classList.contains('keyboard-open')).toBe(false)
-    viewport.height = 500
-    viewport.dispatchEvent(new Event('resize')); flushFrames()
-    expect(document.documentElement.classList.contains('keyboard-open')).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('344px')
-    textarea.blur(); flushFrames()
-    expect(document.documentElement.classList.contains('keyboard-open')).toBe(false)
-    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('')
+  it('counts text-entry fields only, not checkboxes or buttons', () => {
+    const { wrapper, el } = setup('<input class="search" type="search"><input class="plain"><input class="box" type="checkbox"><button class="btn">x</button><div class="ce" contenteditable="true"></div>')
+    for (const selector of ['.search', '.plain', '.ce']) {
+      el(selector).focus(); flushFrames()
+      expect(html.classList.contains('keyboard-open'), selector).toBe(true)
+    }
+    for (const selector of ['.box', '.btn']) {
+      el(selector).focus(); flushFrames()
+      expect(html.classList.contains('keyboard-open'), selector).toBe(false)
+    }
+    wrapper.unmount()
+  })
+
+  it('does not flicker when focus moves between fields', () => {
+    const { wrapper, el } = setup('<input class="a" type="text"><textarea class="b"></textarea>')
+    const toggles = vi.spyOn(html.classList, 'toggle')
+    el('.a').focus(); el('.b').focus(); flushFrames()
+    expect(html.classList.contains('keyboard-open')).toBe(true)
+    expect(toggles).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('does nothing on desktop', () => {
+    const { wrapper, el } = setup('<textarea class="reply"></textarea>', { mobile: false })
+    el('.reply').focus(); flushFrames()
+    expect(html.classList.contains('keyboard-open')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('applies the iOS overlay inset only to chat composers', () => {
+    const { viewport, wrapper, el } = setup('<textarea class="reply"></textarea><form class="chat-compose"><textarea class="chat"></textarea></form>', { viewportHeight: 500 })
+    el('.reply').focus(); flushFrames()
+    expect(html.style.getPropertyValue('--keyboard-inset')).toBe('')
+    el('.chat').focus(); flushFrames()
+    expect(html.style.getPropertyValue('--keyboard-inset')).toBe('344px')
+    viewport.height = 450; viewport.dispatchEvent(new Event('resize')); flushFrames()
+    expect(html.style.getPropertyValue('--keyboard-inset')).toBe('394px')
+    el('.chat').blur(); flushFrames()
+    expect(html.style.getPropertyValue('--keyboard-inset')).toBe('')
+    expect(html.classList.contains('keyboard-open')).toBe(false)
     wrapper.unmount()
   })
 })

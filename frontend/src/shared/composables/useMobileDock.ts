@@ -62,58 +62,92 @@ export function useDockedComposer(element: Ref<HTMLElement | null | undefined>):
 /** How much shorter the visual viewport must be before we treat it as a keyboard. */
 export const KEYBOARD_THRESHOLD = 120
 
-function editableFocused(): boolean {
-  const el = document.activeElement
-  return el instanceof HTMLElement && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select, [contenteditable=""], [contenteditable="true"]')
+/** Elements that bring up the on-screen keyboard (not checkboxes, buttons, selects). */
+export const TEXT_ENTRY_SELECTOR = [
+  'textarea', '[contenteditable=""]', '[contenteditable="true"]', '[contenteditable="plaintext-only"]', 'input:not([type])',
+  ...['text', 'search', 'email', 'url', 'password', 'number', 'tel'].map(type => `input[type="${type}" i]`),
+].join(', ')
+
+/** Chat composers that dock above the tab bar and follow the iOS keyboard. */
+const CHAT_COMPOSER_SELECTOR = '.group-composer-dock, .chat-compose'
+
+export function isTextEntry(el: Element | null | undefined): boolean {
+  return el instanceof HTMLElement && el.matches(TEXT_ENTRY_SELECTOR) && !(el as HTMLInputElement).readOnly && !(el as HTMLInputElement).disabled
 }
 
 /**
- * Keyboard handling for the docked bars. Outside of typing nothing is
- * written: the tab bar and composer are plain CSS position: fixed; bottom.
- * Only while an editable element is focused AND visualViewport is more than
- * KEYBOARD_THRESHOLD px shorter than innerHeight (iOS overlays the keyboard)
- * does <html> get .keyboard-open and --keyboard-inset. Viewport scroll is
- * only listened to while that state is active, and writes are rAF-batched
- * and skipped when unchanged. Android with interactive-widget=resizes-content
- * shrinks innerHeight together with the visual viewport, so no inset is ever
- * needed there and nothing is written.
+ * Keyboard handling on phones.
+ *
+ * 1. Focus-based state (works on Android, where the layout viewport resizes
+ *    and a visualViewport diff never shows up): while a text-entry element is
+ *    focused <html> has .keyboard-open, which hides the tab bar and compose
+ *    FAB and shrinks --tabbar-h to the safe area. focusout is re-checked on
+ *    the next frame so moving between fields does not flicker.
+ * 2. iOS overlay offset, chat composers only: while focus is inside a docked
+ *    chat composer and visualViewport is more than KEYBOARD_THRESHOLD px
+ *    shorter than innerHeight, --keyboard-inset lifts the composer onto the
+ *    keyboard. Viewport listeners exist only during that time; writes are
+ *    rAF-batched and skipped when unchanged.
  */
 export function useKeyboardInset(): void {
-  if (typeof window === 'undefined' || !window.visualViewport) return
+  if (typeof window === 'undefined') return
   const viewport = window.visualViewport
-  let frame = 0, open = false, inset = -1
-  const write = () => {
+  const html = () => document.documentElement
+  let open = false, tracking = false, inset = -1, frame = 0, blurFrame = 0
+
+  const setOpen = (next: boolean) => {
+    if (next === open) return
+    open = next
+    html().classList.toggle('keyboard-open', open)
+  }
+  const writeInset = () => {
     frame = 0
-    const html = document.documentElement
-    const covered = Math.round(window.innerHeight - viewport.height - viewport.offsetTop)
-    const next = editableFocused() && window.innerHeight - viewport.height > KEYBOARD_THRESHOLD
-    if (next !== open) {
-      open = next
-      html.classList.toggle('keyboard-open', open)
-      if (open) viewport.addEventListener('scroll', schedule, { passive: true })
-      else { viewport.removeEventListener('scroll', schedule); html.style.removeProperty('--keyboard-inset'); inset = -1 }
-    }
-    if (open) {
-      const value = Math.max(0, covered)
-      if (value !== inset) { inset = value; html.style.setProperty('--keyboard-inset', `${value}px`) }
+    if (!viewport) return
+    const covered = window.innerHeight - viewport.height > KEYBOARD_THRESHOLD
+      ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop)) : 0
+    if (covered === inset) return
+    inset = covered
+    if (covered) html().style.setProperty('--keyboard-inset', `${covered}px`)
+    else html().style.removeProperty('--keyboard-inset')
+  }
+  const scheduleInset = () => { if (!frame) frame = requestAnimationFrame(writeInset) }
+  const track = (next: boolean) => {
+    if (!viewport || next === tracking) return
+    tracking = next
+    if (next) {
+      viewport.addEventListener('resize', scheduleInset, { passive: true })
+      viewport.addEventListener('scroll', scheduleInset, { passive: true })
+      scheduleInset()
+    } else {
+      viewport.removeEventListener('resize', scheduleInset)
+      viewport.removeEventListener('scroll', scheduleInset)
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0; inset = -1
+      html().style.removeProperty('--keyboard-inset')
     }
   }
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(write) }
-  // Resize without a focused field (toolbar collapse, rotation) is ignored
-  // unless the keyboard state is currently active and needs clearing.
-  const onResize = () => { if (open || editableFocused()) schedule() }
+  const sync = (el: Element | null) => {
+    const typing = isMobileLayout() && isTextEntry(el)
+    setOpen(typing)
+    track(typing && !!el?.closest(CHAT_COMPOSER_SELECTOR))
+  }
+  const onFocusIn = (event: FocusEvent) => {
+    if (blurFrame) { cancelAnimationFrame(blurFrame); blurFrame = 0 }
+    sync(event.target as Element)
+  }
+  const onFocusOut = () => {
+    if (blurFrame) return
+    blurFrame = requestAnimationFrame(() => { blurFrame = 0; sync(document.activeElement) })
+  }
   onMounted(() => {
-    viewport.addEventListener('resize', onResize, { passive: true })
-    window.addEventListener('focusin', schedule)
-    window.addEventListener('focusout', schedule)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
+    sync(document.activeElement)
   })
   onBeforeUnmount(() => {
-    viewport.removeEventListener('resize', onResize)
-    viewport.removeEventListener('scroll', schedule)
-    window.removeEventListener('focusin', schedule)
-    window.removeEventListener('focusout', schedule)
-    if (frame) cancelAnimationFrame(frame)
-    document.documentElement.classList.remove('keyboard-open')
-    document.documentElement.style.removeProperty('--keyboard-inset')
+    document.removeEventListener('focusin', onFocusIn)
+    document.removeEventListener('focusout', onFocusOut)
+    if (blurFrame) cancelAnimationFrame(blurFrame)
+    track(false); setOpen(false)
   })
 }

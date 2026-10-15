@@ -15,6 +15,7 @@ async function setup() {
     { path: '/groups/:groupId', name: 'group', component: page },
     { path: '/settings', name: 'settings', component: page },
     { path: '/search', name: 'search', component: page },
+    { path: '/@:username/:statusId', name: 'post-detail', component: page },
   ] })
   await router.push('/'); await router.isReady()
   const wrapper = mount(AppLayout, { global: { plugins: [router], stubs: { LeftSidebar: true, RightSidebar: true, MobileTabBar: true, ComposeSheet: true, AccountSheet: true, RouterView: true, TIcon: true } } })
@@ -24,7 +25,7 @@ describe('message composer mobile controls', () => {
   it('keeps the global post button out of private and group chat controls and keyboard navigation', async () => {
     const { wrapper, router } = await setup()
     expect(wrapper.get('.app-fab').attributes('aria-hidden')).toBeUndefined()
-    for (const path of ['/messages', '/messages/conversation', '/groups', '/groups/room']) {
+    for (const path of ['/messages', '/messages/conversation', '/groups', '/groups/room', '/@alice/123']) {
       await router.push(path); await nextTick()
       expect(wrapper.get('.app-fab').classes()).toContain('app-fab--hidden')
       expect(wrapper.get('.app-fab').attributes('tabindex')).toBe('-1')

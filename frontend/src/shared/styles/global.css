@@ -601,6 +601,9 @@ html, body { background-color: var(--color-bg); }
     backface-visibility: hidden;
   }
   .tabbar, .page-header, .home-header { background: var(--color-bg) !important; }
-  html.keyboard-open { --dock-bottom: var(--keyboard-inset, 0px); }
-  html.keyboard-open .tabbar { display: none; }
+  /* Typing (set on focus, so it also works on Android where the viewport
+     resizes): tab bar and compose FAB step aside, pages reserve only the
+     safe area, and chat composers sit on the keyboard edge. */
+  html.keyboard-open { --tabbar-h: var(--safe-bottom); --dock-bottom: var(--keyboard-inset, 0px); }
+  html.keyboard-open .tabbar, html.keyboard-open .app-fab { display: none !important; }
 }
