@@ -102,3 +102,35 @@ func TestSPAFallbackReturns404ForServerPaths(t *testing.T) {
 		t.Errorf("POST /@alice: got %d", w.Code)
 	}
 }
+
+func TestFrontendAssetContentTypes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"manifest.webmanifest": "application/manifest+json",
+		"logo.svg":             "image/svg+xml",
+		"assets/app.js":        "text/javascript; charset=utf-8",
+		"assets/worker.mjs":    "text/javascript; charset=utf-8",
+		"assets/data.json":     "application/json",
+		"assets/font.woff2":    "font/woff2",
+	}
+	for name := range want {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := gin.New()
+	app.Static("/assets", filepath.Join(dir, "assets"))
+	app.NoRoute(spaFallback(dir, []byte("<!doctype html>")))
+
+	for name, typ := range want {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/"+name, nil))
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != typ {
+			t.Errorf("/%s: code %d, Content-Type %q, want %q", name, w.Code, w.Header().Get("Content-Type"), typ)
+		}
+	}
+}

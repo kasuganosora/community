@@ -1,6 +1,7 @@
 package main
 
 import (
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -94,6 +95,31 @@ func isKnownSPAPage(p string) bool {
 
 // spaFallback serves built files, the SPA shell for frontend routes and a
 // JSON 404 for everything else.
+// frontendMIMETypes pins Content-Types for frontend assets. Go falls back to
+// the host's mime.types, which lacks .webmanifest (served as text/plain) and
+// varies across images for the rest.
+var frontendMIMETypes = map[string]string{
+	".webmanifest": "application/manifest+json",
+	".js":          "text/javascript; charset=utf-8",
+	".mjs":         "text/javascript; charset=utf-8",
+	".json":        "application/json",
+	".svg":         "image/svg+xml",
+	".woff2":       "font/woff2",
+	".woff":        "font/woff",
+	".css":         "text/css; charset=utf-8",
+	".wasm":        "application/wasm",
+	".png":         "image/png",
+	".ico":         "image/x-icon",
+}
+
+func init() {
+	for ext, typ := range frontendMIMETypes {
+		if err := mime.AddExtensionType(ext, typ); err != nil {
+			panic(err)
+		}
+	}
+}
+
 func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
