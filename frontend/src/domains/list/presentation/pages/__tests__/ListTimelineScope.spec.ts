@@ -15,6 +15,7 @@ let refresh: () => Promise<unknown>
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ replace }) }))
 vi.mock('@/shared/composables/useFeedStream', () => ({ useFeedStream: (_: unknown, callback: () => Promise<unknown>) => { refresh = callback } }))
 vi.mock('@/domains/post/presentation/composables/useStatusActions', () => ({ useStatusActions: () => ({}), applyStatusUpdate: vi.fn(), editedStatuses: new Map() }))
+vi.mock('@/shared/ui/feedback', () => ({ MessagePlugin: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }, DialogPlugin: { confirm: vi.fn(), alert: vi.fn() } }))
 vi.mock('tdesign-vue-next', () => ({ MessagePlugin: { success: vi.fn() }, Loading: { template: '<span />' }, Dialog: { props: ['visible'], template: '<div v-if="visible" data-dialog><slot /></div>' } }))
 const member = { id: 'member', acct: 'member', display_name: 'Member' } as MastodonAccount
 const candidate = { id: 'candidate', acct: 'candidate', display_name: 'Candidate' } as MastodonAccount

@@ -126,7 +126,7 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 
 		if !hasDotSegment(p) && (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) {
 			if file, ok := frontendAsset(frontendDir, p); ok {
-				c.File(file)
+				serveFrontendFile(c, file, p)
 
 				return
 			}
@@ -143,6 +143,8 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 			code = http.StatusNotFound
 		}
 
+		// The shell names the current hashed bundles: never serve a stale one.
+		c.Header("Cache-Control", cacheRevalidate)
 		c.Data(code, "text/html; charset=utf-8", indexHTML)
 	}
 }

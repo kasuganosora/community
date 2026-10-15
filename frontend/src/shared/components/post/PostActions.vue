@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { canBoost, canQuote, canShare } from '@/domains/post/domain/compose'
 import { formatCount } from '@/shared/utils/format'

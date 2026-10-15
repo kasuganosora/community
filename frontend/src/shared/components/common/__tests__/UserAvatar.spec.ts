@@ -6,13 +6,21 @@ import UserAvatar from '../UserAvatar.vue'
 const account = { id: 'a', username: 'alice', display_name: 'Alice', avatar: '/avatar-a.png' } as MastodonAccount
 
 describe('fixed-size account avatars', () => {
+  it('asks the avatar cache for a size bucket matching the rendered size and pixel ratio', () => {
+    const dpr = window.devicePixelRatio
+    Object.defineProperty(window, 'devicePixelRatio', { value: 3, configurable: true })
+    const wrapper = mount(UserAvatar, { props: { account: { ...account, avatar: '/proxy/media/tok' }, size: 40 } })
+    expect(wrapper.get('img').attributes('src')).toBe('/proxy/media/tok?size=96')
+    wrapper.unmount()
+    Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
+  })
   const defaultUrl = '/api/v1/avatars/default/' + 'ab'.repeat(32) + '.png'
   it('keeps the accessible name, size and media URL policy without automatic character measurement', () => {
     const wrapper = mount(UserAvatar, { props: { account: { ...account, avatar: 'https://canonical.test/media/4/a.png' }, size: 48 } })
     expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe("Alice's avatar")
     expect(wrapper.get('.avatar-frame').attributes('style')).toContain('width: 48px')
     expect(wrapper.get('.user-avatar').attributes('style')).toContain('font-size: 24px')
-    expect(wrapper.get('img').attributes('src')).toBe('/media/4/a.png')
+    expect(wrapper.get('img').attributes('src')).toBe('/media/4/a.png?size=48')
     wrapper.unmount()
   })
   it('falls back on image failure and loads a replacement URL without retaining the old error', async () => {

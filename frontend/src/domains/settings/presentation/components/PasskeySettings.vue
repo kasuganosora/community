@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useSettingsScope } from '../composables/useSettingsScope'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { authApi, type PasskeyItem } from '@/domains/auth/infrastructure/authApi'
 import { createPasskey, passkeySupported } from '@/shared/utils/webauthn'
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useSettingsScope } from '../composables/useSettingsScope'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import { moderationApi, type MastodonFilter } from '../../infrastructure/moderationApi'

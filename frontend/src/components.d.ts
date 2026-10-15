@@ -23,7 +23,7 @@ declare module 'vue' {
     TFormItem: typeof import('tdesign-vue-next')['FormItem']
     TIcon: typeof import('@/shared/components/common/AppIcon.vue')['default']
     TInput: typeof import('tdesign-vue-next')['Input']
-    TLoading: typeof import('tdesign-vue-next')['Loading']
+    TLoading: typeof import('@/shared/components/common/AppLoading.vue')['default']
     TTextarea: typeof import('tdesign-vue-next')['Textarea']
   }
 }

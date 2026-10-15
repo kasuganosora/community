@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonAccount, MastodonList } from '@/shared/types/mastodon'
 import { listApi, type RepliesPolicy } from '../../infrastructure/listApi'
 import { validateListTitle, REPLIES_POLICY_OPTIONS, MAX_LIST_TITLE_LENGTH } from '../../domain/list'

@@ -19,7 +19,16 @@ function avatarUrl(raw: string | undefined): string {
     if (url.pathname === '/default-assets/avatar.png') return ''
     if (/^\/api\/v1\/avatars\/default\/[a-f0-9]{64}\.png$/.test(url.pathname)) return url.pathname
   } catch { /* The existing media URL policy handles other values. */ }
-  return sameOriginMediaUrl(raw)
+  return withCacheSize(sameOriginMediaUrl(raw))
+}
+// Ask the server's avatar cache for a rendition matching the rendered size
+// (48/96/192/400 buckets), instead of downloading the full original.
+const SIZE_BUCKETS = [48, 96, 192, 400]
+function withCacheSize(url: string): string {
+  if (!url || !/^\/(proxy\/media|media)\//.test(url)) return url
+  const want = avatarSize.value * Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
+  const bucket = SIZE_BUCKETS.find(s => s >= want) ?? 400
+  return `${url}${url.includes('?') ? '&' : '?'}size=${bucket}`
 }
 const primaryUrl = computed(() => avatarUrl(props.account.avatar))
 const defaultUrl = computed(() => avatarUrl(props.account.avatar_default))

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useSettingsScope } from '../composables/useSettingsScope'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { validatePasswordChange, MIN_PASSWORD_LENGTH } from '../../domain/validation'

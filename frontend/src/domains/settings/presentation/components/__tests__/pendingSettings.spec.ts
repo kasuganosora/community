@@ -10,6 +10,7 @@ import { invalidateSessionData } from '@/shared/api/sessionScope'
 import { createPasskey } from '@/shared/utils/webauthn'
 
 vi.mock('@/shared/utils/webauthn', () => ({ passkeySupported: () => true, createPasskey: vi.fn() }))
+vi.mock('@/shared/ui/feedback', () => ({ MessagePlugin: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }, DialogPlugin: { confirm: vi.fn(), alert: vi.fn() } }))
 vi.mock('tdesign-vue-next', () => ({ MessagePlugin: { error: vi.fn(), success: vi.fn() } }))
 let wrappers: VueWrapper[] = []
 afterEach(() => { wrappers.forEach(w => w.unmount()); wrappers = []; vi.restoreAllMocks(); vi.clearAllMocks() })

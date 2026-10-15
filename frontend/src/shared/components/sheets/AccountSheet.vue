@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import BottomSheet from './BottomSheet.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useSettingsScope } from '../composables/useSettingsScope'
 import { moderationApi } from '../../infrastructure/moderationApi'
 

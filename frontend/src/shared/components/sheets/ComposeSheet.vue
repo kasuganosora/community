@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import BottomSheet from './BottomSheet.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'

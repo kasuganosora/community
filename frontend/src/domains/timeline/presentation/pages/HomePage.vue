@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { useTimelineStore } from '../stores/timelineStore'
 import type { MastodonStatus } from '@/shared/types/mastodon'

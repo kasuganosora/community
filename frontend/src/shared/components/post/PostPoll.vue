@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonPoll } from '@/shared/types/mastodon'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { pollOptionPercent, pollShowsResults } from '@/domains/post/domain/poll'

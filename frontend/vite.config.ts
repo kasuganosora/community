@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { TDesignResolver } from 'unplugin-vue-components/resolvers'
+import { precompress } from './vite-plugins/precompress'
 
 export default defineConfig(({ mode }) => {
   // Dev-server proxy target for the Go backend. Defaults to the backend's
@@ -22,10 +23,16 @@ export default defineConfig(({ mode }) => {
           (name: string) => (name === 'TIcon'
             ? { name: 'default', from: '@/shared/components/common/AppIcon.vue' }
             : undefined),
+          // <t-loading> is the only TDesign component on the first screen;
+          // a local spinner keeps TDesign's shared runtime out of it.
+          (name: string) => (name === 'TLoading'
+            ? { name: 'default', from: '@/shared/components/common/AppLoading.vue' }
+            : undefined),
           TDesignResolver({ library: 'vue-next' }),
         ],
         dts: 'src/components.d.ts', // Generate TypeScript declaration
       }),
+      precompress(),
       AutoImport({
         resolvers: [TDesignResolver({ library: 'vue-next' })],
         imports: ['vue', 'vue-router', 'pinia'],
@@ -61,12 +68,12 @@ export default defineConfig(({ mode }) => {
           // Manual chunk splitting
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) {
+              if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/') || id.includes('/@vue/')) {
                 return 'vendor-vue'
               }
-              if (id.includes('tdesign-vue-next')) {
-                return 'vendor-tdesign'
-              }
+              // tdesign-vue-next is not forced into one chunk: components
+              // are imported on demand by the resolver and the plugins lazily
+              // (shared/ui/feedback.ts), so the first screen loads none of it.
               if (id.includes('axios') || id.includes('dompurify')) {
                 return 'vendor-utils'
               }
@@ -91,6 +98,7 @@ export default defineConfig(({ mode }) => {
 
       // Minification options
       minify: true,
+      cssMinify: true,
 
       // Source maps for production (can be disabled for smaller builds)
       sourcemap: false,

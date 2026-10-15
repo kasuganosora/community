@@ -5,6 +5,7 @@ import { listApi } from '../../../infrastructure/listApi'
 import { invalidateSessionData } from '@/shared/api/sessionScope'
 import type { MastodonList } from '@/shared/types/mastodon'
 
+vi.mock('@/shared/ui/feedback', () => ({ MessagePlugin: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }, DialogPlugin: { confirm: vi.fn(), alert: vi.fn() } }))
 vi.mock('tdesign-vue-next', () => ({ MessagePlugin: { success: vi.fn(), error: vi.fn() }, Loading: { template: '<span />' } }))
 function deferred<T>() {
   let resolve!: (value: T) => void

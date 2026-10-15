@@ -203,6 +203,10 @@ func setupServer() *gin.Engine {
 
 	app.Use(middleware.CORSMiddleware(corsOrigins))
 
+	// Compress API/federation JSON (brotli or gzip); outside the timeout
+	// wrapper so the encoder is closed after the handler finished.
+	app.Use(middleware.APICompression())
+
 	// 超时控制中间件
 	app.Use(middleware.TimeoutMiddleware(30 * time.Second))
 	app.Use(middleware.FeedAdmissionMiddleware())
@@ -261,8 +265,11 @@ func setupServer() *gin.Engine {
 func setupFrontend(app *gin.Engine) {
 	frontendDir := utils.ResolveAppPath("frontend/dist")
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
-		app.Static("/assets", filepath.Join(frontendDir, "assets"))
-		app.StaticFile("/logo.svg", filepath.Join(frontendDir, "logo.svg"))
+		files := frontendFileHandler(frontendDir)
+		app.GET("/assets/*filepath", files)
+		app.HEAD("/assets/*filepath", files)
+		app.GET("/logo.svg", files)
+		app.HEAD("/logo.svg", files)
 
 		// SPA fallback: index.html for frontend routes only (see spa.go)
 		indexPath := filepath.Join(frontendDir, "index.html")

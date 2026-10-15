@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useSettingsScope } from '../composables/useSettingsScope'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { authApi, type AuthorizedApp } from '@/domains/auth/infrastructure/authApi'
 
 const apps = ref<AuthorizedApp[]>([])

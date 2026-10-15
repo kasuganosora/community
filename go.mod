@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/andybalholm/brotli v1.2.6
 	github.com/awnumar/memguard v0.23.0
 	github.com/bbrks/go-blurhash v1.2.0
 	github.com/gin-contrib/cors v1.7.9
@@ -16,6 +17,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/h2non/filetype v1.1.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kasuganosora/sqlexec v0.7.1
@@ -36,6 +38,7 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/text v0.42.0
 	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -46,7 +49,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/awnumar/memcall v0.5.0 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -79,7 +81,6 @@ require (
 	github.com/hashicorp/go-set/v3 v3.0.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.10.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -140,7 +141,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
-	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect

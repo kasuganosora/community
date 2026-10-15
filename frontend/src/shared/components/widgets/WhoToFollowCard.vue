@@ -11,7 +11,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { followButtonLabel } from '@/domains/user/domain/relationship'
 import { SUGGESTIONS_LIMIT } from '@/shared/utils/constants'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 
 const authStore = useAuthStore()
 const suggestions = ref<MastodonAccount[]>([])

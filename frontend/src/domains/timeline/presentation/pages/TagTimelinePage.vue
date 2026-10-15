@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { timelineApi } from '../../infrastructure/timelineApi'
 import { tagApi } from '../../infrastructure/tagApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'

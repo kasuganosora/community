@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonList } from '@/shared/types/mastodon'
 import { listApi } from '../../infrastructure/listApi'
 import { validateListTitle, MAX_LIST_TITLE_LENGTH } from '../../domain/list'

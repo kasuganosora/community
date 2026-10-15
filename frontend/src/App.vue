@@ -32,7 +32,7 @@ onMounted(async () => {
   </div>
   <div v-else-if="initError" class="app-init-error">
     <p>{{ initError }}</p>
-    <t-button theme="primary" @click="retryInit">重试</t-button>
+    <button type="button" class="app-init-error__retry" @click="retryInit">重试</button>
   </div>
   <router-view v-else />
 </template>
@@ -67,6 +67,18 @@ onMounted(async () => {
   background: var(--color-bg);
 }
 
+/* Plain button: the app shell must not pull TDesign into the first screen. */
+.app-init-error__retry {
+  min-height: 36px;
+  padding: 0 20px;
+  border: none;
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-accent, var(--td-brand-color));
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
 .app-init-error {
   display: flex;
   flex-direction: column;

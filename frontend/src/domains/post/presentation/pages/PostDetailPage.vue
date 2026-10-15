@@ -10,7 +10,7 @@ import { postApi } from '../../infrastructure/postApi'
 import { canBoost, visibilityOption, DIRECT_SCOPE } from '../../domain/compose'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vue'
 import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,

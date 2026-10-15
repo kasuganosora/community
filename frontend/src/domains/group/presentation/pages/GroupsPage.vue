@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { DialogPlugin } from 'tdesign-vue-next'
+import { DialogPlugin } from '@/shared/ui/feedback'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupApi } from '../../infrastructure/groupApi'
 import { groupPath, groupMembershipLabel, safeGroupURL, type Group, type GroupMember, type GroupMessage } from '../../domain/group'

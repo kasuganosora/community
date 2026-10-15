@@ -13,6 +13,7 @@ vi.mock('@/shared/composables/useUiChrome', async () => {
   return { useUiChrome: () => ({ openCompose: vi.fn(), openAccount: vi.fn(), accountOpen: ref(true) }) }
 })
 vi.mock('@/domains/admin/domain/navigation', () => ({ adminEntry: () => null }))
+vi.mock('@/shared/ui/feedback', () => ({ MessagePlugin: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }, DialogPlugin: { confirm: vi.fn(), alert: vi.fn() } }))
 vi.mock('tdesign-vue-next', () => ({
   MessagePlugin: { error: vi.fn() },
   Dropdown: { template: '<div />' },

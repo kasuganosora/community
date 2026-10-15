@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, shallowRef, watch, nextTick } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { postApi } from '@/domains/post/infrastructure/postApi'

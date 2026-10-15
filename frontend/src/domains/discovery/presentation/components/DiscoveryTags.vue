@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/shared/ui/feedback'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { formatCount } from '@/shared/utils/format'
