@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl, isProxiedMediaUrl } from '@/shared/utils/mediaUrl'
 import BlurPlaceholder from './BlurPlaceholder.vue'
+import ProgressiveImage from './ProgressiveImage.vue'
 import { attachmentAspect } from '@/shared/composables/useMediaMode'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 
@@ -22,6 +23,20 @@ let renewTried = false
 
 const failedMedia = ref<Set<string>>(new Set())
 const viewer = ref<number | null>(null)
+// Thumbnails that finished loading; the lightbox shows them blurred and
+// upscaled while the full-size file loads (they are already cached).
+const loadedThumbs = ref<Set<string>>(new Set())
+function thumbLoaded(id: string) {
+  if (loadedThumbs.value.has(id)) return
+  loadedThumbs.value = new Set(loadedThumbs.value).add(id)
+}
+function thumbSrc(a: MastodonAttachment) {
+  return sameOriginMediaUrl(a.preview_url || a.url)
+}
+function viewerStandIn(a: MastodonAttachment) {
+  if (!a.preview_url || a.preview_url === a.url || !loadedThumbs.value.has(a.id)) return null
+  return thumbSrc(a)
+}
 
 function markFailed(id: string) {
   const newSet = new Set(failedMedia.value)
@@ -153,20 +168,22 @@ const gridClass = computed(() => {
         :aria-label="img.description ? `查看图片：${img.description}` : `查看第 ${index + 1} 张图片`"
         @click.stop="openViewer(index)"
       >
-        <img
+        <ProgressiveImage
           v-if="!failedMedia.has(img.id)"
-          :src="sameOriginMediaUrl(img.preview_url || img.url)"
+          :src="thumbSrc(img)"
           :alt="img.description || ''"
-          loading="lazy"
-          decoding="async"
+          :blurhash="img.blurhash"
           class="media-img"
+          @load="thumbLoaded(img.id)"
           @error="handleMediaError(img.id)"
         />
-        <div v-else class="media-fallback">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <div v-else class="media-fallback media-fallback--blur">
+          <BlurPlaceholder :blurhash="img.blurhash" />
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="图片加载失败">
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <circle cx="8.5" cy="8.5" r="1.5" />
             <path d="M21 15l-5-5L5 21" />
+            <path d="M3 3l18 18" />
           </svg>
         </div>
         <div v-if="index === 3 && images.length > 4" class="media-overflow">
@@ -189,10 +206,16 @@ const gridClass = computed(() => {
         <span>{{ viewer + 1 }} / {{ images.length }}</span>
         <button type="button" @click="viewer = null">关闭</button>
       </div>
-      <img
+      <ProgressiveImage
+        :key="images[viewer].id + (images[viewer].url || '')"
         class="media-viewer__img"
+        fit="contain"
+        :lazy="false"
+        retryable
         :src="sameOriginMediaUrl(images[viewer].url)"
         :alt="images[viewer].description || ''"
+        :blurhash="images[viewer].blurhash"
+        :placeholder-src="viewerStandIn(images[viewer])"
       />
       <p v-if="images[viewer].description" class="media-viewer__alt">{{ images[viewer].description }}</p>
       <div v-if="images.length > 1" class="media-viewer__nav">
@@ -203,6 +226,7 @@ const gridClass = computed(() => {
 
     <!-- Videos / GIFs -->
     <div v-for="vid in videos" :key="vid.id" class="media-video-wrap" :style="boxStyle(vid)">
+      <BlurPlaceholder v-if="!hidden && !failedMedia.has(vid.id)" class="media-video__ph" :blurhash="vid.blurhash" />
       <BlurPlaceholder v-if="hidden" :blurhash="vid.blurhash" play />
       <video
         v-else-if="!failedMedia.has(vid.id)"
@@ -298,9 +322,18 @@ const gridClass = computed(() => {
   overflow: hidden;
   border-radius: var(--radius-lg);
   background: #000;
+  position: relative;
+}
+
+.media-video-wrap > .media-video__ph {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
 }
 
 .media-video-wrap > .media-video {
+  position: relative;
+  background: transparent;
   height: 100%;
   margin-top: 0;
   object-fit: contain;
@@ -373,6 +406,22 @@ const gridClass = computed(() => {
   min-height: 6rem;
   color: var(--color-label-secondary);
   background: var(--color-fill);
+}
+
+.media-fallback--blur {
+  position: relative;
+  color: #fff;
+}
+
+.media-fallback--blur > .blur-ph {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+}
+
+.media-fallback--blur > svg {
+  position: relative;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 40%));
 }
 
 .media-overflow {

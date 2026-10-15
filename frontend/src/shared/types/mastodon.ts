@@ -170,6 +170,7 @@ export interface MastodonCard {
   provider_url: string
   author_name?: string
   author_url?: string
+  blurhash?: string | null
 }
 
 export interface MastodonEmojiReaction {

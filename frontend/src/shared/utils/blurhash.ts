@@ -74,3 +74,19 @@ export function decodeBlurhash(hash: string, width: number, height: number, punc
   }
   return pixels
 }
+
+// Decoding is pure CPU work; timelines re-render the same hashes often, so the
+// small (32x32) pixel buffers are memoised. Bounded to keep memory flat.
+const decoded = new Map<string, Uint8ClampedArray>()
+const DECODE_CACHE_MAX = 256
+
+/** decodeBlurhash with a bounded memo; callers must not mutate the result. */
+export function decodeBlurhashCached(hash: string, width: number, height: number): Uint8ClampedArray {
+  const key = `${width}x${height}:${hash}`
+  const hit = decoded.get(key)
+  if (hit) return hit
+  const pixels = decodeBlurhash(hash, width, height)
+  if (decoded.size >= DECODE_CACHE_MAX) decoded.delete(decoded.keys().next().value as string)
+  decoded.set(key, pixels)
+  return pixels
+}

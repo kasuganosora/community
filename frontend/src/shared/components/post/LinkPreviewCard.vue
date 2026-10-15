@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { MastodonCard } from '@/shared/types/mastodon'
 import { safeHttpLink } from '@/shared/utils/links'
+import ProgressiveImage from './ProgressiveImage.vue'
 
 const props = defineProps<{ card: MastodonCard; hideImage?: boolean }>()
 const url = computed(() => safeHttpLink(props.card.url))
@@ -32,7 +33,7 @@ function imageFailed(event: Event) {
       <span v-if="card.description" class="link-preview__description" dir="auto">{{ card.description }}</span>
       <span v-if="provider && provider.toLowerCase() !== host.toLowerCase()" class="link-preview__provider" dir="auto">{{ provider }}</span>
     </div>
-    <img v-if="image && !failedImage" :key="image" class="link-preview__image" :src="image" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" @error="imageFailed" />
+    <ProgressiveImage v-if="image && !failedImage" :key="image" class="link-preview__image" :src="image" :blurhash="card.blurhash" referrerpolicy="no-referrer" @error="imageFailed" />
   </a>
 </template>
 
@@ -59,7 +60,7 @@ function imageFailed(event: Event) {
 .link-preview__description { font-size: var(--text-footnote); line-height: 1.5; color: var(--color-label-secondary); }
 .link-preview__title, .link-preview__description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .link-preview__provider { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); color: var(--color-label-tertiary); }
-.link-preview__image { align-self: center; flex-shrink: 0; width: 104px; height: 104px; margin: 12px 12px 12px 0; border-radius: var(--radius-md); object-fit: cover; background: var(--color-fill); }
+.link-preview__image { align-self: center; flex-shrink: 0; width: 104px; height: 104px; margin: 12px 12px 12px 0; border-radius: var(--radius-md); overflow: hidden; background: var(--color-fill); }
 .link-preview:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 3px; }
 .link-preview:active { background: var(--color-fill); }
 @media (hover: hover) and (pointer: fine) { .link-preview:hover { background: var(--color-bg-row); } }

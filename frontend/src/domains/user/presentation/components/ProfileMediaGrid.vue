@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import BlurPlaceholder from '@/shared/components/post/BlurPlaceholder.vue'
+import ProgressiveImage from '@/shared/components/post/ProgressiveImage.vue'
 import { mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 
 const props = defineProps<{
@@ -90,7 +91,7 @@ onUnmounted(() => observer?.disconnect())
         @click="open(tile)"
       >
         <BlurPlaceholder v-if="tile.hidden" :blurhash="tile.media.blurhash" :aspect="1" />
-        <img v-else-if="tile.src" :src="tile.src" :alt="tile.media.description || ''" loading="lazy" decoding="async" @error="markFailed(tile.key)" />
+        <ProgressiveImage v-else-if="tile.src" :src="tile.src" :alt="tile.media.description || ''" :blurhash="tile.media.blurhash" @error="markFailed(tile.key)" />
         <video v-else-if="tile.videoSrc && !failed.has(tile.key + ':video')" :src="`${tile.videoSrc}#t=0.1`" preload="metadata" muted playsinline tabindex="-1" aria-hidden="true" @error="markFailed(tile.key + ':video')" />
         <span v-else class="media-tab__placeholder"><t-icon name="file" :size="24" /></span>
         <span v-if="tile.media.type === 'video' || tile.media.type === 'gifv'" class="media-tab__badge" aria-hidden="true">▶</span>
@@ -128,7 +129,7 @@ onUnmounted(() => observer?.disconnect())
   padding: 0;
 }
 
-.media-tab__tile img,
+.media-tab__tile > .pimg,
 .media-tab__tile video {
   width: 100%;
   height: 100%;

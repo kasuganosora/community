@@ -5,7 +5,7 @@
  * requests anything from the network.
  */
 import { onMounted, ref, watch } from 'vue'
-import { decodeBlurhash, isValidBlurhash } from '@/shared/utils/blurhash'
+import { decodeBlurhashCached, isValidBlurhash } from '@/shared/utils/blurhash'
 
 const props = defineProps<{
   blurhash?: string | null
@@ -26,7 +26,7 @@ function paint() {
   try {
     const ctx = el.getContext('2d')
     if (!ctx) return
-    const pixels = decodeBlurhash(props.blurhash, SIZE, SIZE)
+    const pixels = decodeBlurhashCached(props.blurhash, SIZE, SIZE)
     const image = ctx.createImageData(SIZE, SIZE)
     image.data.set(pixels)
     ctx.putImageData(image, 0, 0)

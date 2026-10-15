@@ -12,6 +12,7 @@ import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import BlurPlaceholder from '@/shared/components/post/BlurPlaceholder.vue'
+import ProgressiveImage from '@/shared/components/post/ProgressiveImage.vue'
 import { attachmentAspect, mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 
 const props = withDefaults(defineProps<{
@@ -144,7 +145,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
         <div v-if="thumbs.length" class="preview-status__thumbs" :data-count="thumbs.length">
           <span v-for="m in thumbs" :key="m.id" class="preview-status__thumb" :style="thumbs.length === 1 ? { '--media-aspect': String(attachmentAspect(m) || 16 / 9) } : undefined">
             <BlurPlaceholder v-if="mediaBlurred" :blurhash="m.blurhash" />
-            <img v-else-if="!brokenThumbs.has(m.id)" :src="thumbUrl(m)" :alt="m.description || ''" loading="lazy" decoding="async" referrerpolicy="no-referrer" @error="brokenThumbs = new Set(brokenThumbs).add(m.id)" />
+            <ProgressiveImage v-else-if="!brokenThumbs.has(m.id)" :src="thumbUrl(m)" :alt="m.description || ''" :blurhash="m.blurhash" referrerpolicy="no-referrer" @error="brokenThumbs = new Set(brokenThumbs).add(m.id)" />
             <span v-if="m.type !== 'image' && !mediaBlurred" class="preview-status__play" aria-hidden="true">▶</span>
           </span>
         </div>
@@ -331,7 +332,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   aspect-ratio: 1;
 }
 
-.preview-status__thumb img {
+.preview-status__thumb > .pimg {
   width: 100%;
   height: 100%;
   object-fit: cover;
