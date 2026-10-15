@@ -13,6 +13,7 @@ import TabBar from '@/shared/components/common/TabBar.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import GroupSearchResults from '../components/GroupSearchResults.vue'
 import { isGroupReference } from '../../domain/groupSearch'
+import { wantsResolve } from '../../domain/searchQuery'
 
 // Type-safe route params helper
 function getQueryParam(q: unknown): string {
@@ -59,7 +60,15 @@ const tabOptions = computed(() => TABS.map((tab) => ({
   label: searched.value && tab.value !== 'groups' ? `${tab.label} ${counts.value[tab.value]}` : tab.label,
 })))
 
-const SEARCH_LIMIT = 20
+// Small first page per type (a 20-per-type answer was ~87 KB of JSON);
+// more results load on demand per tab.
+const SEARCH_LIMIT = 10
+type ResultKind = 'statuses' | 'accounts' | 'hashtags'
+const TAB_KIND: Record<Exclude<TabType, 'groups'>, ResultKind> = { posts: 'statuses', people: 'accounts', tags: 'hashtags' }
+const hasMore = ref<Record<ResultKind, boolean>>({ statuses: false, accounts: false, hashtags: false })
+const loadingMore = ref(false)
+const moreError = ref('')
+
 
 // Version guard — prevents stale search results from a previous
 // query from overwriting newer results when the user types fast.
@@ -98,13 +107,15 @@ async function search(q: string) {
   loading.value = true
   try {
     const { data } = await client.get<SearchResult>('/api/v2/search', {
-      params: { q: trimmedQuery, limit: SEARCH_LIMIT, resolve: authStore.isAuthenticated },
+      params: { q: trimmedQuery, limit: SEARCH_LIMIT, resolve: authStore.isAuthenticated && wantsResolve(trimmedQuery) },
       signal: searchController.signal,
     })
     if (myVersion !== searchVersion) return
     statuses.value = data.statuses || []
     accounts.value = data.accounts || []
     hashtags.value = data.hashtags || []
+    hasMore.value = { statuses: statuses.value.length >= SEARCH_LIMIT, accounts: accounts.value.length >= SEARCH_LIMIT, hashtags: hashtags.value.length >= SEARCH_LIMIT }
+    moreError.value = ''
     searched.value = true
     // Land on the first tab that has results.
     if (counts.value[activeTab.value] === 0) {
@@ -123,6 +134,46 @@ async function search(q: string) {
     }
   }
 }
+
+async function loadMore() {
+  if (activeTab.value === 'groups' || loadingMore.value || loading.value) return
+  const kind = TAB_KIND[activeTab.value]
+  if (!hasMore.value[kind]) return
+  const q = query.value.trim()
+  const myVersion = searchVersion
+  const list = kind === 'statuses' ? statuses : kind === 'accounts' ? accounts : hashtags
+  loadingMore.value = true
+  moreError.value = ''
+  try {
+    const { data } = await client.get<SearchResult>('/api/v2/search', {
+      params: { q, type: kind, limit: SEARCH_LIMIT, offset: list.value.length, resolve: false },
+      signal: searchController?.signal,
+    })
+    if (myVersion !== searchVersion) return
+    const page = (data[kind] || []) as never[]
+    const key = (item: { id?: string, name?: string }) => item.id ?? item.name
+    const seen = new Set((list.value as { id?: string, name?: string }[]).map(key))
+    const fresh = page.filter(item => !seen.has(key(item)))
+    ;(list.value as unknown[]).push(...fresh)
+    hasMore.value[kind] = page.length >= SEARCH_LIMIT && fresh.length > 0
+    if (kind === 'accounts') relationships.load((fresh as MastodonAccount[]).filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
+  } catch (e) {
+    if (myVersion === searchVersion) moreError.value = e instanceof Error ? e.message : '加载失败'
+  } finally {
+    if (myVersion === searchVersion) loadingMore.value = false
+  }
+}
+
+// Auto-load the next page when the end of the list scrolls into view.
+const moreSentinel = ref<HTMLElement | null>(null)
+let moreObserver: IntersectionObserver | null = null
+watch(moreSentinel, (el) => {
+  moreObserver?.disconnect()
+  if (!el || typeof IntersectionObserver === 'undefined') return
+  moreObserver = new IntersectionObserver((entries) => { if (entries.some(e => e.isIntersecting) && !moreError.value) void loadMore() }, { rootMargin: '400px 0px' })
+  moreObserver.observe(el)
+})
+const activeHasMore = computed(() => activeTab.value !== 'groups' && hasMore.value[TAB_KIND[activeTab.value]])
 
 function submit() {
   const q = query.value.trim()
@@ -151,7 +202,7 @@ watch(activeTab, (tab, previous) => {
     void router.replace({ query: { ...route.query, type: undefined } }).catch(() => {})
   }
 })
-onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
+onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver?.disconnect() })
 
 </script>
 
@@ -222,12 +273,18 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort() })
         </router-link>
         <div v-if="hashtags.length === 0" class="search-empty">没有找到相关话题</div>
       </template>
+
+      <div v-if="activeHasMore" ref="moreSentinel" class="search-more">
+        <span v-if="moreError" role="alert">{{ moreError }}</span>
+        <button type="button" class="btn btn--secondary btn--sm" :disabled="loadingMore" :aria-busy="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : moreError ? '重试' : '加载更多' }}</button>
+      </div>
     </template>
   </div>
 </template>
 
 <style scoped>
 .search-page { min-height: 100dvh; }
+.search-more { display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-4) var(--gutter); color: var(--color-danger); font-size: var(--text-footnote); }
 
 .search-empty {
   text-align: center;
