@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func reactionContent(activity map[string]any) string {
@@ -21,8 +23,79 @@ func reactionContent(activity map[string]any) string {
 	if content == "" {
 		content, _ = activity["content"].(string)
 	}
-	return content
+	return strings.TrimSpace(content)
 }
+
+// isReactionLike reports whether a Like carries a Misskey-style emoji reaction.
+// Likes without content, or with the default heart, stay plain favourites.
+func isReactionLike(activity map[string]any) bool {
+	switch reactionContent(activity) {
+	case "", "❤", "❤️", "♥", "♥️":
+		return false
+	}
+	return true
+}
+
+// customReaction matches Misskey reactions: :name:, :name@.: (sender-local) or
+// :name@host: (an emoji the sender's server cached from another host).
+var customReaction = regexp.MustCompile(`^:([a-zA-Z0-9_]{1,36})(?:@([a-zA-Z0-9.\-]{1,253}(?::[0-9]{1,5})?))?:$`)
+
+// foreignReactionEmoji resolves an emoji reaction whose emoji belongs to a host
+// other than the actor's. An existing row for that host is never overwritten;
+// a missing one is created from the Emoji tag, falling back to Misskey's
+// /emoji/<name>@<host>.webp proxy on the sender's server.
+func foreignReactionEmoji(tx *gorm.DB, actorDomain, shortcode, host string, tags any) (*models.Emoji, error) {
+	var e models.Emoji
+	err := tx.Where("shortcode = ? AND domain = ?", shortcode, host).First(&e).Error
+	if err == nil {
+		if e.Disabled {
+			return nil, nil
+		}
+		return &e, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	iconURL, mediaType := "", ""
+	for _, tag := range decodeEmojiTags(tags) {
+		if (tag.Name == ":"+shortcode+":" || tag.Name == ":"+shortcode+"@"+host+":") && tag.Icon != nil && safeEmojiURL(tag.Icon.URL) && (tag.Icon.MediaType == "" || strings.HasPrefix(tag.Icon.MediaType, "image/")) {
+			iconURL, mediaType = tag.Icon.URL, tag.Icon.MediaType
+			break
+		}
+	}
+	if iconURL == "" {
+		iconURL = "https://" + actorDomain + "/emoji/" + shortcode + "@" + host + ".webp"
+		if !safeEmojiURL(iconURL) {
+			return nil, nil
+		}
+	}
+	e = models.Emoji{Shortcode: shortcode, Domain: host, Url: iconURL, StaticUrl: iconURL, ContentType: mediaType}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&e).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Where("shortcode = ? AND domain = ?", shortcode, host).First(&e).Error; err != nil {
+		return nil, err
+	}
+	if e.Disabled {
+		return nil, nil
+	}
+	return &e, nil
+}
+
+// normalizeReactionTags renames an Emoji tag written as :name@.: to :name: so
+// the sender-local import path accepts it.
+func normalizeReactionTags(value any, shortcode string) any {
+	tags := decodeEmojiTags(value)
+	out := make([]Tag, 0, len(tags))
+	for _, t := range tags {
+		if t.Name == ":"+shortcode+"@.:" {
+			t.Name = ":" + shortcode + ":"
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 func reactionStatus(conn *gorm.DB, uri string) (*models.Status, error) {
 	var s models.Status
 	err := conn.Preload("Account").Preload("ToAccounts").Where("origin_uri = ? OR local_object_uri = ?", uri, uri).First(&s).Error
@@ -103,24 +176,41 @@ func handleEmojiReaction(ctx context.Context, c *gin.Context, activity map[strin
 	if strings.HasPrefix(content, ":") {
 		// Misskey serializes local custom reactions with :shortcode:. Never trust
 		// an actor-supplied @domain to overwrite another instance's namespace.
-		match := emojiName.FindStringSubmatch(content)
+		match := customReaction.FindStringSubmatch(content)
 		if match == nil || actor.Domain == nil {
 			c.JSON(422, gin.H{"error": "invalid custom reaction"})
 			return
 		}
-		if !undo {
-			emojis, e := importEmojiTags(activityDB(ctx), *actor.Domain, content, original["tag"])
-			if e != nil {
-				c.JSON(500, gin.H{"error": "emoji import failed"})
-				return
+		host := strings.ToLower(match[2])
+		if host == "" || host == "." || host == strings.ToLower(*actor.Domain) {
+			if !undo {
+				emojis, e := importEmojiTags(activityDB(ctx), *actor.Domain, ":"+match[1]+":", normalizeReactionTags(original["tag"], match[1]))
+				if e != nil {
+					c.JSON(500, gin.H{"error": "emoji import failed"})
+					return
+				}
+				if len(emojis) != 1 {
+					c.JSON(422, gin.H{"error": "missing emoji metadata"})
+					return
+				}
+				emoji = emojis[0]
 			}
-			if len(emojis) != 1 {
-				c.JSON(422, gin.H{"error": "missing emoji metadata"})
-				return
+			content = ":" + match[1] + "@" + *actor.Domain + ":"
+		} else {
+			if !undo {
+				e, err := foreignReactionEmoji(activityDB(ctx), *actor.Domain, match[1], host, original["tag"])
+				if err != nil {
+					c.JSON(500, gin.H{"error": "emoji import failed"})
+					return
+				}
+				if e == nil {
+					c.JSON(422, gin.H{"error": "missing emoji metadata"})
+					return
+				}
+				emoji = e
 			}
-			emoji = emojis[0]
+			content = ":" + match[1] + "@" + host + ":"
 		}
-		content = ":" + match[1] + "@" + *actor.Domain + ":"
 	} else if !models.ValidUnicodeReaction(content) {
 		c.JSON(422, gin.H{"error": "invalid reaction"})
 		return

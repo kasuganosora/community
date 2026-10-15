@@ -942,7 +942,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 
 // handleLikeActivity handles Like activities (favourites).
 func handleLikeActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
-	if reactionContent(activity) != "" {
+	if isReactionLike(activity) {
 		handleEmojiReaction(ctx, c, activity, false)
 		return
 	}
@@ -1023,7 +1023,7 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 	objectType, _ := objectMap["type"].(string)
-	if objectType == "Like" && reactionContent(objectMap) != "" {
+	if objectType == "Like" && isReactionLike(objectMap) {
 		handleEmojiReaction(ctx, c, activity, true)
 		return
 	}

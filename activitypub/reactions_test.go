@@ -140,3 +140,84 @@ func TestReactionPlainLikeKeepsFavouriteCounterAccurate(t *testing.T) {
 	require.NoError(t, conn.First(&loaded, status.Id).Error)
 	require.Zero(t, loaded.FavouritesCount)
 }
+
+func TestMisskeyLikeReactionsInbound(t *testing.T) {
+	conn := outboundDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.FavoriteStatus{}, &models.StatusReaction{}, &models.RemoteReactionActivity{}))
+	author := outboundAccount(t, conn, "author", false)
+	actor := outboundAccount(t, conn, "reactor", true)
+	status := &models.Status{AccountId: author.Id, Content: models.StatusContent{Content: "react"}}
+	require.NoError(t, conn.Create(status).Error)
+	uri := statusObjectURI(status, author, systemsettings.GetBaseURL())
+	ctx := context.WithValue(context.Background(), actorKey, actor.OriginId)
+	domain := *actor.Domain
+	send := func(fn func(context.Context, *gin.Context, map[string]any, *models.Account), a map[string]any) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		fn(ctx, c, a, nil)
+		require.Equal(t, 200, w.Code, w.Body.String())
+	}
+	reactions := func() []models.StatusReaction {
+		var rows []models.StatusReaction
+		require.NoError(t, conn.Where("status_id = ?", status.Id).Find(&rows).Error)
+		return rows
+	}
+	favs := func() int64 {
+		var n int64
+		require.NoError(t, conn.Model(&models.FavoriteStatus{}).Where("status_id = ?", status.Id).Count(&n).Error)
+		return n
+	}
+	likeID := func(s string) string { return "https://" + domain + "/likes/" + s }
+
+	// Sender-local custom emoji with Emoji tag: stored as a reaction, not a favourite.
+	cool := map[string]any{"id": likeID("1"), "type": "Like", "actor": actor.OriginId, "object": uri, "content": ":cool:", "_misskey_reaction": ":cool:",
+		"tag": []any{map[string]any{"type": "Emoji", "name": ":cool:", "icon": map[string]any{"type": "Image", "url": "https://" + domain + "/files/cool.png", "mediaType": "image/png"}}}}
+	send(handleLikeActivity, cool)
+	rows := reactions()
+	require.Len(t, rows, 1)
+	require.Equal(t, ":cool@"+domain+":", rows[0].Name)
+	require.Zero(t, favs())
+	var e models.Emoji
+	require.NoError(t, conn.Where("shortcode = ? AND domain = ?", "cool", domain).First(&e).Error)
+	require.Equal(t, "https://"+domain+"/files/cool.png", e.Url)
+	send(handleUndoActivity, map[string]any{"type": "Undo", "actor": actor.OriginId, "object": cool})
+	require.Empty(t, reactions())
+
+	// Emoji cached by the sender from a third host, without tag: Misskey proxy fallback.
+	foreign := map[string]any{"id": likeID("2"), "type": "Like", "actor": actor.OriginId, "object": uri, "_misskey_reaction": ":blob@other.example:"}
+	send(handleLikeActivity, foreign)
+	rows = reactions()
+	require.Len(t, rows, 1)
+	require.Equal(t, ":blob@other.example:", rows[0].Name)
+	e = models.Emoji{}
+	require.NoError(t, conn.Where("shortcode = ? AND domain = ?", "blob", "other.example").First(&e).Error)
+	require.Equal(t, "https://"+domain+"/emoji/blob@other.example.webp", e.Url)
+	send(handleUndoActivity, map[string]any{"type": "Undo", "actor": actor.OriginId, "object": foreign})
+	require.Empty(t, reactions())
+
+	// An existing foreign emoji row is never overwritten by another actor's tag.
+	evil := map[string]any{"id": likeID("3"), "type": "Like", "actor": actor.OriginId, "object": uri, "content": ":blob@other.example:",
+		"tag": []any{map[string]any{"type": "Emoji", "name": ":blob:", "icon": map[string]any{"url": "https://evil.example/x.png"}}}}
+	send(handleLikeActivity, evil)
+	e = models.Emoji{}
+	require.NoError(t, conn.Where("shortcode = ? AND domain = ?", "blob", "other.example").First(&e).Error)
+	require.Equal(t, "https://"+domain+"/emoji/blob@other.example.webp", e.Url)
+	send(handleUndoActivity, map[string]any{"type": "Undo", "actor": actor.OriginId, "object": evil})
+
+	// Unicode reaction.
+	thumbs := map[string]any{"id": likeID("4"), "type": "Like", "actor": actor.OriginId, "object": uri, "content": "👍"}
+	send(handleLikeActivity, thumbs)
+	rows = reactions()
+	require.Len(t, rows, 1)
+	require.Equal(t, "👍", rows[0].Name)
+	send(handleUndoActivity, map[string]any{"type": "Undo", "actor": actor.OriginId, "object": thumbs})
+	require.Empty(t, reactions())
+
+	// Default heart stays a plain favourite.
+	heart := map[string]any{"id": likeID("5"), "type": "Like", "actor": actor.OriginId, "object": uri, "_misskey_reaction": "❤"}
+	send(handleLikeActivity, heart)
+	require.Empty(t, reactions())
+	require.EqualValues(t, 1, favs())
+	send(handleUndoActivity, map[string]any{"type": "Undo", "actor": actor.OriginId, "object": heart})
+	require.Zero(t, favs())
+}
