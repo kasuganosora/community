@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import RichText from '@/shared/components/common/RichText.vue'
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { moderationAdminApi as api, type AdminAccount, type AccountAction } from '../../infrastructure/moderationAdminApi'
-const filters = reactive({ origin: '', status: '', username: '', display_name: '' })
+function originFromQuery(value: unknown): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (typeof raw !== 'string') return undefined
+  if (raw === 'local' || raw === 'remote' || raw === '') return raw
+  return undefined
+}
+const route = useRoute()
+const queryOrigin = originFromQuery(route.query.origin)
+const filters = reactive({ origin: queryOrigin !== undefined ? queryOrigin : 'local', status: '', username: '', display_name: '' })
 const items = ref<AdminAccount[]>([])
 const selected = ref<AdminAccount | null>(null)
 const offset = ref(0)
