@@ -40,3 +40,4 @@ models_list_snippet.txt
 
 # Redis snapshot written when redis-server runs from the repo
 dump.rdb
+/avatar-cache/

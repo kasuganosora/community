@@ -44,6 +44,10 @@ init() → loadConfig()
 | `MediaProxyPreviousKey` | `MEDIA_PROXY_PREVIOUS_KEY` | _(无)_ | 轮换密钥时仍可解密的旧密钥；新令牌始终用当前密钥 |
 | `MediaProxyMaxBytes` | `MEDIA_PROXY_MAX_BYTES` | `20971520` | 转发图片的大小上限 |
 | `MediaProxyMaxStreamBytes` | `MEDIA_PROXY_MAX_STREAM_BYTES` | `536870912` | 转发视频/音频的大小上限 |
+| `AvatarCacheEnabled` | `AVATAR_CACHE_ENABLED` | `true` | 头像磁盘缓存（本站 `/media/..?size=N` 与远程代理 `/proxy/media/..` 头像）；关闭后按原样转发 |
+| `AvatarCacheDir` | `AVATAR_CACHE_DIR` | `avatar-cache` | 缓存目录（相对路径按工作目录解析），需可写、建议持久化 |
+| `AvatarCacheMaxBytes` | `AVATAR_CACHE_MAX_BYTES` | `5368709120` | 缓存总大小上限（5 GiB），超出时按最近访问时间 LRU 淘汰到 90% |
+| `AvatarCacheRemoteTTL` | `AVATAR_CACHE_REMOTE_TTL` | `24h` | 远程头像过期后重新拉取（失败时继续使用旧图）；本站头像按媒体 ID/更新时间换键，无需 TTL |
 | `WebSocketAllowedOrigins` | `WEBSOCKET_ALLOWED_ORIGINS` | _(无)_ | WebSocket 允许的来源 |
 | `HttpProxy` | `HTTP_PROXY` | _(无)_ | HTTP 代理地址 |
 

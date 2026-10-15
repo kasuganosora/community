@@ -1,6 +1,7 @@
 // Package serve implements GET/HEAD /proxy/media/:token, which relays
 // remote media to browsers (see package mediaproxy). It is a pure
-// stream-through proxy: nothing is stored on this server.
+// stream-through proxy, except avatars, which are resized and cached on
+// disk by package avatarcache.
 package serve
 
 import (
@@ -10,10 +11,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +24,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/avatarcache"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/systemsettings"
@@ -155,6 +159,9 @@ func Serve(c *gin.Context) {
 	if !ipAllowed(ip) {
 		c.Header("Retry-After", "5")
 		c.Status(http.StatusTooManyRequests)
+		return
+	}
+	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, strings.ToLower(u.Host), claims) {
 		return
 	}
 	if !hostAllowed(strings.ToLower(u.Host)) {
@@ -422,6 +429,103 @@ func cacheControlFor(claims mediaproxy.Claims) string {
 	}
 
 	return "public, max-age=" + strconv.FormatInt(age, 10)
+}
+
+// errBusy marks a fetch refused by the local host/concurrency limits.
+var errBusy = errors.New("media proxy busy")
+
+// errUpstreamGone marks a source that answered 404/410.
+var errUpstreamGone = errors.New("media proxy: source gone")
+
+// avatarCache is the cache used for avatars; overridable in tests.
+var avatarCache = avatarcache.Default
+
+// serveCachedAvatar answers an avatar from the resized disk cache (fetching
+// it on a miss). It returns false when the cache is unavailable so the
+// caller relays the original instead.
+func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims) bool {
+	cache := avatarCache()
+	if cache == nil {
+		return false
+	}
+	size := avatarcache.NormalizeSize(c.Query("size"))
+	entry, err := cache.Get(c.Request.Context(), "remote|"+rawURL, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
+		if !hostAllowed(host) {
+			return nil, errBusy
+		}
+		release, ok := acquire(ctx)
+		if !ok {
+			return nil, errBusy
+		}
+		defer release()
+		return fetchImage(ctx, rawURL)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, errBusy):
+			c.Header("Retry-After", "2")
+			c.Status(http.StatusServiceUnavailable)
+		case errors.Is(err, errUpstreamGone):
+			markFailed(key)
+			c.Status(http.StatusNotFound)
+		case errors.Is(err, avatarcache.ErrTooLarge):
+			markFailed(key)
+			c.Status(http.StatusRequestEntityTooLarge)
+		case errors.Is(err, avatarcache.ErrInvalidType):
+			markFailed(key)
+			c.Status(http.StatusUnsupportedMediaType)
+		default:
+			markFailed(key)
+			c.Status(http.StatusBadGateway)
+		}
+		return true
+	}
+	f, err := os.Open(entry.Path)
+	if err != nil {
+		return false // evicted between lookup and open
+	}
+	defer func() { _ = f.Close() }()
+	setCommonHeaders(c, entry.ContentType)
+	c.Header("Cache-Control", cacheControlFor(claims))
+	http.ServeContent(c.Writer, c.Request, "", entry.ModTime, f)
+	return true
+}
+
+// fetchImage downloads a raster image source in full, bounded by
+// MEDIA_PROXY_MAX_BYTES and the avatar cache's own limit.
+func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; CommunityMediaProxy/1.0; +"+strings.TrimRight(systemsettings.GetBaseURL(), "/")+")")
+	req.Header.Set("Accept", "image/*;q=0.9,*/*;q=0.1")
+	resp, err := NewClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, errUpstreamGone
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
+	}
+	limit := min(mediaproxy.MaxBytes(), int64(avatarcache.MaxSourceBytes))
+	if resp.ContentLength > limit {
+		return nil, avatarcache.ErrTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, avatarcache.ErrTooLarge
+	}
+	if sniffImage(data[:min(len(data), 512)]) == "" {
+		return nil, avatarcache.ErrInvalidType
+	}
+	return data, nil
 }
 
 // Per-client limits: the endpoint is open to other sites, so every client

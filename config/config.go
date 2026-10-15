@@ -54,6 +54,13 @@ type Config struct {
 	MediaProxyMaxBytes       string `default:"20971520" env:"MEDIA_PROXY_MAX_BYTES"`         // largest image that is relayed
 	MediaProxyMaxStreamBytes string `default:"536870912" env:"MEDIA_PROXY_MAX_STREAM_BYTES"` // largest video/audio that is streamed through
 
+	// Resized avatar disk cache (package avatarcache) for local and proxied
+	// remote avatars.
+	AvatarCacheEnabled   string `default:"true"          env:"AVATAR_CACHE_ENABLED"`
+	AvatarCacheDir       string `default:"avatar-cache"  env:"AVATAR_CACHE_DIR"`        // relative paths are resolved against the working directory
+	AvatarCacheMaxBytes  string `default:"5368709120"    env:"AVATAR_CACHE_MAX_BYTES"`  // total size cap (5 GiB); LRU eviction above it
+	AvatarCacheRemoteTTL string `default:"24h"           env:"AVATAR_CACHE_REMOTE_TTL"` // remote avatars are refetched after this
+
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
 }

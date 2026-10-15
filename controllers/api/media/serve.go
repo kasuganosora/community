@@ -2,15 +2,18 @@ package media
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/avatarcache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
@@ -61,6 +64,13 @@ func Serve(c *gin.Context) {
 	}
 
 	backend := storage.Default()
+
+	// ?size=N asks for a square avatar rendition from the disk cache. The key
+	// includes the object key, size and update time, so a changed avatar (a
+	// new media row) or a rewritten object never hits an old rendition.
+	if c.Query("size") != "" && serveResized(c, backend, &media, key, contentType, thumbnail) {
+		return
+	}
 
 	if u := backend.PublicURL(key); u != "" && redirectable(contentType, key, thumbnail) {
 		c.Header("Cache-Control", "public, max-age=86400")
@@ -159,4 +169,42 @@ func safeInlineMediaType(contentType string) bool {
 		return true
 	}
 	return false
+}
+
+// serveResized answers from the avatar cache; false means "serve normally".
+func serveResized(c *gin.Context, backend storage.Backend, media *models.MediaAttachment, key, contentType string, thumbnail bool) bool {
+	cache := avatarcache.Default()
+	if cache == nil || (!thumbnail && models.GetMediaType(contentType) != models.MediaTypeImage) {
+		return false
+	}
+	size := avatarcache.NormalizeSize(c.Query("size"))
+	cacheKey := "local|" + strconv.FormatUint(media.Id, 10) + "|" + key + "|" + strconv.FormatInt(media.UpdatedAt.UnixNano(), 10) + "|" + strconv.FormatInt(media.FileSize, 10)
+	entry, err := cache.Get(c.Request.Context(), cacheKey, size, 0, func(ctx context.Context) ([]byte, error) {
+		rc, _, err := backend.Open(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rc.Close() }()
+		data, err := io.ReadAll(io.LimitReader(rc, avatarcache.MaxSourceBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > avatarcache.MaxSourceBytes {
+			return nil, avatarcache.ErrTooLarge
+		}
+		return data, nil
+	})
+	if err != nil {
+		return false // fall back to the original
+	}
+	f, err := os.Open(entry.Path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	c.Header("Content-Type", entry.ContentType)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(c.Writer, c.Request, "", entry.ModTime, f)
+	return true
 }

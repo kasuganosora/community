@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/avatarcache"
 )
 
 var (
@@ -12,3 +13,6 @@ var (
 	realValidate = activitypub.ValidateURI
 	realClient   = func() *http.Client { return activitypub.NewSafeHTTPClient(0, maxRedirects) }
 )
+
+// Relay tests run without the avatar disk cache unless they install one.
+func init() { avatarCache = func() *avatarcache.Cache { return nil } }
