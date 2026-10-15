@@ -288,7 +288,11 @@ func searchAccounts(req SearchRequest, currentAccount *models.Account) []*serial
 		ids, err := meiliClient.SearchAccounts(keyword, int64(req.Limit), int64(req.Offset), followingIDs)
 		if err != nil {
 			meiliClient.NoteFailure()
-		} else if len(ids) > 0 {
+		} else if len(ids) == 0 {
+			// A successful empty answer is final (e.g. offset past the last
+			// hit); falling back would run an unindexed ILIKE scan.
+			return []*serializer.Account{}
+		} else {
 			// Fetch full account data from database
 			err := db.GetDB().Model(&models.Account{}).
 				Preload("Emojis").Preload("Extra").
@@ -444,7 +448,11 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 		ids, err := meiliClient.SearchStatuses(keyword, int64(req.Limit), int64(req.Offset), accountID, visibilities)
 		if err != nil {
 			meiliClient.NoteFailure()
-		} else if len(ids) > 0 {
+		} else if len(ids) == 0 {
+			// A successful empty answer is final (e.g. offset past the last
+			// hit); falling back would run an unindexed ILIKE scan.
+			return []*serializer.Status{}
+		} else {
 			// Fetch full status data from database
 			query := db.GetDB().Model(&models.Status{}).
 				Where("id IN (?)", ids)
@@ -562,7 +570,11 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		names, err := meiliClient.SearchHashtags(keyword, int64(req.Limit), int64(req.Offset))
 		if err != nil {
 			meiliClient.NoteFailure()
-		} else if len(names) > 0 {
+		} else if len(names) == 0 {
+			// A successful empty answer is final (e.g. offset past the last
+			// hit); falling back would run an unindexed ILIKE scan.
+			return []*serializer.Tag{}
+		} else {
 			// Fetch full tag data from database (case-insensitive key;
 			// stale documents of merged case variants collapse into one).
 			tagMap, err := models.FindTagsByNames(db.GetDB(), names)
