@@ -66,7 +66,9 @@ var profileBackfills = struct {
 	hostWait map[string]chan struct{}
 	// local is the cooldown store used when Redis is not configured.
 	local map[uint64]profileBackfillMark
-}{runs: map[uint64]*profileBackfillRun{}, hosts: map[string]int{}, hostWait: map[string]chan struct{}{}, local: map[uint64]profileBackfillMark{}}
+	// pins records pin outcomes when Redis is not configured.
+	pins map[uint64]string
+}{pins: map[uint64]string{}, runs: map[uint64]*profileBackfillRun{}, hosts: map[string]int{}, hostWait: map[string]chan struct{}{}, local: map[uint64]profileBackfillMark{}}
 
 type profileBackfillMark struct {
 	state   string
@@ -127,6 +129,7 @@ func ResetProfileBackfillCooldown() {
 	profileBackfills.Lock()
 	defer profileBackfills.Unlock()
 	profileBackfills.local = map[uint64]profileBackfillMark{}
+	profileBackfills.pins = map[uint64]string{}
 }
 
 // RequestProfileBackfill starts (or joins) a background backfill of a remote
@@ -265,6 +268,139 @@ func acquireProfileBackfillSlot(ctx context.Context, host string) (func(), error
 // errOutboxUnavailable means the remote hides or refuses the outbox.
 var errOutboxUnavailable = errors.New("outbox unavailable")
 
+var (
+	// profileBackfillPinsTimeout bounds the featured (pins) fetch. It runs
+	// on its own context so slow outbox work cannot starve it.
+	profileBackfillPinsTimeout = 30 * time.Second
+	// profileBackfillPinsRetryDelay is when a pins fetch that failed with a
+	// transient error is retried once, independently of the cooldown.
+	profileBackfillPinsRetryDelay = time.Minute
+	// profileBackfillFetchPerHost bounds concurrent object fetches per
+	// remote host within one backfill run.
+	profileBackfillFetchPerHost = 4
+	// scheduleProfilePinsRetry runs f after d; tests replace it.
+	scheduleProfilePinsRetry = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
+)
+
+// Pin outcomes recorded next to the cooldown state.
+const (
+	profilePinsDone   = "done"
+	profilePinsRetry  = "retry"
+	profilePinsFailed = "failed"
+	profilePinsNone   = "none"
+)
+
+func profilePinsKey(id uint64) string { return profileBackfillKey(id) + ":pins" }
+
+// recordProfilePins stores the pins outcome for the cooldown period.
+func recordProfilePins(id uint64, state string) {
+	if clients := dbredis.GetRedises(); len(clients) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := clients[0].Set(ctx, profilePinsKey(id), state, ProfileBackfillCooldown).Err(); err == nil {
+			return
+		}
+	}
+	profileBackfills.Lock()
+	defer profileBackfills.Unlock()
+	if profileBackfills.pins == nil {
+		profileBackfills.pins = map[uint64]string{}
+	}
+	profileBackfills.pins[id] = state
+}
+
+// profilePinsState returns the recorded pins outcome (tests and debugging).
+func profilePinsState(id uint64) string {
+	if clients := dbredis.GetRedises(); len(clients) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if v, err := clients[0].Get(ctx, profilePinsKey(id)).Result(); err == nil {
+			return v
+		}
+	}
+	profileBackfills.Lock()
+	defer profileBackfills.Unlock()
+	return profileBackfills.pins[id]
+}
+
+// hostLimiter bounds concurrent work per host.
+type hostLimiter struct {
+	mu    sync.Mutex
+	limit int
+	sems  map[string]chan struct{}
+}
+
+func newHostLimiter(limit int) *hostLimiter {
+	if limit < 1 {
+		limit = 1
+	}
+	return &hostLimiter{limit: limit, sems: map[string]chan struct{}{}}
+}
+
+func (l *hostLimiter) acquire(ctx context.Context, uri string) (func(), error) {
+	host := strings.ToLower(utils.ExtractDomainFromURI(uri))
+	l.mu.Lock()
+	sem, ok := l.sems[host]
+	if !ok {
+		sem = make(chan struct{}, l.limit)
+		l.sems[host] = sem
+	}
+	l.mu.Unlock()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// fetchResult caches one fetch (or failure) for the run.
+type fetchResult struct {
+	obj map[string]any
+	err error
+}
+
+type announceResult struct {
+	status *models.Status
+	err    error
+}
+
+// backfillCache is shared by the concurrent prefetch and the ordered import
+// phases of one run.
+type backfillCache struct {
+	mu        sync.Mutex
+	objects   map[string]fetchResult
+	originals map[string]announceResult
+	limiter   *hostLimiter
+}
+
+func newBackfillCache() *backfillCache {
+	return &backfillCache{objects: map[string]fetchResult{}, originals: map[string]announceResult{}, limiter: newHostLimiter(profileBackfillFetchPerHost)}
+}
+
+// parallel runs f for every index with the per-host limiter keyed by key(i),
+// waiting for all of them.
+func (c *backfillCache) parallel(ctx context.Context, n int, key func(int) string, f func(int)) {
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		k := key(i)
+		if k == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, k string) {
+			defer wg.Done()
+			release, err := c.limiter.acquire(ctx, k)
+			if err != nil {
+				return
+			}
+			defer release()
+			f(i)
+		}(i, k)
+	}
+	wg.Wait()
+}
+
 // backfillProfile imports the featured collection and the newest outbox
 // items of account. It returns ProfileBackfillUnavailable when the outbox
 // cannot be read.
@@ -282,7 +418,30 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 	if id, _ := actor["id"].(string); id != account.OriginId {
 		return ProfileBackfillUnavailable, errors.New("actor identity mismatch")
 	}
-	b := &profileBackfiller{ctx: ctx, r: r, account: account}
+	cache := newBackfillCache()
+	b := &profileBackfiller{ctx: ctx, r: r, account: account, cache: cache}
+
+	// Pins run concurrently on their own deadline.
+	featuredURI := objectID(actor["featured"])
+	type pinsOutcome struct {
+		items []any
+		err   error
+	}
+	pinsCh := make(chan pinsOutcome, 1)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pinsCh <- pinsOutcome{err: fmt.Errorf("panic: %v", rec)}
+			}
+		}()
+		if featuredURI == "" {
+			pinsCh <- pinsOutcome{}
+			return
+		}
+		items, err := fetchFeatured(r, account, cache, featuredURI)
+		pinsCh <- pinsOutcome{items: items, err: err}
+	}()
+
 	var items []any
 	total := -1
 	outbox := objectID(actor["outbox"])
@@ -294,29 +453,40 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 			outErr = nil
 		}
 	}
+	b.prefetchOutbox(items)
+
+	pins := <-pinsCh
+	pinsOK := pins.err == nil
+	if pins.err != nil {
+		if isTransientFetchError(pins.err) {
+			log.Info("profile backfill: pins of %s: %v (retrying once)", account.OriginId, pins.err)
+			recordProfilePins(account.Id, profilePinsRetry)
+			schedulePinsRetry(account, featuredURI)
+		} else {
+			log.Info("profile backfill: pins of %s: %v", account.OriginId, pins.err)
+			recordProfilePins(account.Id, profilePinsFailed)
+		}
+	}
+
 	// Pinned posts are usually older than the outbox page: import those not
 	// on it first so the profile still reads newest first by id.
-	var featured []any
-	featuredOK := false
-	if uri := objectID(actor["featured"]); uri != "" {
-		if featured, _, err = b.collectionItems(uri, profileBackfillPins); err != nil {
-			log.Info("profile backfill: featured of %s: %v", account.OriginId, err)
-		} else {
-			featuredOK = true
-		}
-	} else {
-		featuredOK = true
-	}
 	onOutbox := map[string]bool{}
 	for _, item := range items {
 		if m, ok := item.(map[string]any); ok && stringField(m, "type") == "Create" {
 			onOutbox[objectID(m["object"])] = true
 		}
 	}
-	for i := len(featured) - 1; i >= 0; i-- {
-		if !onOutbox[objectID(featured[i])] {
-			if _, err := b.importNote(featured[i]); err != nil {
-				log.Debug("profile backfill: skipping featured item: %v", err)
+	// Pin writes get their own deadline as well: a slow outbox must not
+	// leave them with an expired context.
+	pctx, pcancel := context.WithTimeout(context.Background(), profileBackfillPinsTimeout)
+	defer pcancel()
+	pb := &profileBackfiller{ctx: pctx, r: r, account: account, cache: cache}
+	if pinsOK {
+		for i := len(pins.items) - 1; i >= 0; i-- {
+			if !onOutbox[objectID(pins.items[i])] {
+				if _, err := pb.importNote(pins.items[i]); err != nil {
+					log.Debug("profile backfill: skipping featured item: %v", err)
+				}
 			}
 		}
 	}
@@ -330,9 +500,14 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 			log.Debug("profile backfill: skipping outbox item of %s: %v", account.OriginId, err)
 		}
 	}
-	if featuredOK {
-		if err := b.syncPins(featured); err != nil {
+	if pinsOK {
+		if featuredURI == "" {
+			recordProfilePins(account.Id, profilePinsNone)
+		} else if err := pb.syncPins(pins.items); err != nil {
 			log.Info("profile backfill: pins of %s: %v", account.OriginId, err)
+			recordProfilePins(account.Id, profilePinsFailed)
+		} else {
+			recordProfilePins(account.Id, profilePinsDone)
 		}
 	}
 	if outErr != nil {
@@ -345,10 +520,185 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 	return ProfileBackfillDone, nil
 }
 
+// fetchFeatured reads the featured collection and prefetches its notes on
+// an independent deadline. A transient failure of any fetch fails the whole
+// call, so existing pins are never replaced by a partial list.
+func fetchFeatured(r *Resolver, account *models.Account, cache *backfillCache, uri string) ([]any, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), profileBackfillPinsTimeout)
+	defer cancel()
+	pb := &profileBackfiller{ctx: ctx, r: r, account: account, cache: cache}
+	items, _, err := pb.collectionItems(uri, profileBackfillPins)
+	if err != nil {
+		return nil, err
+	}
+	var mu sync.Mutex
+	var transient error
+	cache.parallel(ctx, len(items), func(i int) string { return objectID(items[i]) }, func(i int) {
+		if _, _, err := pb.prefetchNote(items[i]); err != nil && isTransientFetchError(err) {
+			mu.Lock()
+			if transient == nil {
+				transient = err
+			}
+			mu.Unlock()
+		}
+	})
+	if transient == nil && ctx.Err() != nil {
+		transient = ctx.Err()
+	}
+	return items, transient
+}
+
+// schedulePinsRetry retries just the pins once after a transient failure.
+func schedulePinsRetry(account *models.Account, featuredURI string) {
+	acct := *account
+	scheduleProfilePinsRetry(profileBackfillPinsRetryDelay, func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error("panic retrying pins of %d: %v", acct.Id, rec)
+			}
+		}()
+		state := profilePinsFailed
+		defer func() { recordProfilePins(acct.Id, state) }()
+		host := profileBackfillHost(&acct)
+		if suspended, err := hostSuspended(host); err != nil || suspended {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), profileBackfillPinsTimeout+10*time.Second)
+		defer cancel()
+		release, err := acquireProfileBackfillSlot(ctx, host)
+		if err != nil {
+			return
+		}
+		defer release()
+		client, err := profileBackfillClient(ctx)
+		if err != nil || client == nil {
+			client = NewFetchClient()
+		}
+		r := &Resolver{client: client, cacheTTL: defaultCacheTTL, noQuoteFetch: true, profileBackfill: true}
+		cache := newBackfillCache()
+		items, err := fetchFeatured(r, &acct, cache, featuredURI)
+		if err != nil {
+			log.Info("profile backfill: pins retry of %s: %v", acct.OriginId, err)
+			return
+		}
+		b := &profileBackfiller{ctx: ctx, r: r, account: &acct, cache: cache}
+		for i := len(items) - 1; i >= 0; i-- {
+			if _, err := b.importNote(items[i]); err != nil {
+				log.Debug("profile backfill: skipping featured item: %v", err)
+			}
+		}
+		if err := b.syncPins(items); err != nil {
+			log.Info("profile backfill: pins retry of %s: %v", acct.OriginId, err)
+			return
+		}
+		state = profilePinsDone
+	})
+}
+
+// prefetchOutbox fetches what the outbox items refer to (bare activities,
+// referenced notes, boosted posts) concurrently, bounded per host. The
+// ordered import afterwards reads the results from the cache.
+func (b *profileBackfiller) prefetchOutbox(items []any) {
+	// Bare activity references first; they decide what to fetch next.
+	b.cache.parallel(b.ctx, len(items), func(i int) string {
+		if s, ok := items[i].(string); ok {
+			return s
+		}
+		return ""
+	}, func(i int) { _, _ = b.fetchOwn(items[i].(string)) })
+	acts := make([]map[string]any, len(items))
+	for i, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			acts[i] = m
+		} else if s, ok := item.(string); ok {
+			if obj, err := b.fetchOwn(s); err == nil && objectID(obj) == s {
+				acts[i] = obj
+			}
+		}
+	}
+	// Announce targets are deduplicated so one post is fetched once.
+	seen := map[string]bool{}
+	key := func(i int) string {
+		a := acts[i]
+		if a == nil {
+			return ""
+		}
+		switch stringField(a, "type") {
+		case "Create":
+			return objectID(a["object"])
+		case "Announce":
+			t := objectID(a["object"])
+			if t == "" || seen[t] || !sameURIOrigin(objectID(a), b.account.OriginId) ||
+				firstActorID(a["actor"]) != b.account.OriginId || getVisibilityFromActivity(a) > models.StatusVisibilityUnlisted {
+				return ""
+			}
+			seen[t] = true
+			return t
+		}
+		return ""
+	}
+	keys := make([]string, len(acts))
+	for i := range acts {
+		keys[i] = key(i)
+	}
+	b.cache.parallel(b.ctx, len(acts), func(i int) string { return keys[i] }, func(i int) {
+		a := acts[i]
+		switch stringField(a, "type") {
+		case "Create":
+			if firstActorID(a["actor"]) == b.account.OriginId {
+				_, _, _ = b.prefetchNote(a["object"])
+			}
+		case "Announce":
+			_, _ = b.announceTarget(a)
+		}
+	})
+}
+
+// prefetchNote warms the cache for an own note unless it is stored already.
+func (b *profileBackfiller) prefetchNote(item any) (map[string]any, string, error) {
+	if id := objectID(item); id != "" {
+		if existing, err := findInboundParent(b.ctx, id); err == nil && existing != nil && existing.Id != 0 {
+			return nil, id, nil
+		}
+	}
+	return b.ownNote(item)
+}
+
+// announceTarget resolves (and caches) the boosted post of an Announce by
+// the account.
+func (b *profileBackfiller) announceTarget(activity map[string]any) (*models.Status, error) {
+	target := objectID(activity["object"])
+	if target == "" || validateFederationURI(target) != nil {
+		return nil, errors.New("announce without object")
+	}
+	if b.cache != nil {
+		b.cache.mu.Lock()
+		res, ok := b.cache.originals[target]
+		b.cache.mu.Unlock()
+		if ok {
+			return res.status, res.err
+		}
+	}
+	if suspended, err := hostSuspended(utils.ExtractDomainFromURI(target)); err != nil || suspended {
+		return nil, errors.New("announced post is on a suspended domain")
+	}
+	original, err := fetchPublicStatus(b.ctx, b.r, target)
+	// Cache successes and remote answers; local failures (for example two
+	// concurrent imports racing on the same author) are retried by the
+	// ordered import.
+	if b.cache != nil && (err == nil || fetchStatusCode(err) != 0 || errors.Is(err, errStatusNotPublic)) {
+		b.cache.mu.Lock()
+		b.cache.originals[target] = announceResult{status: original, err: err}
+		b.cache.mu.Unlock()
+	}
+	return original, err
+}
+
 type profileBackfiller struct {
 	ctx     context.Context
 	r       *Resolver
 	account *models.Account
+	cache   *backfillCache
 }
 
 // objectID returns the id of an object reference: a string or {"id": ...}.
@@ -368,7 +718,24 @@ func (b *profileBackfiller) fetchOwn(uri string) (map[string]any, error) {
 	if !sameURIOrigin(uri, b.account.OriginId) {
 		return nil, fmt.Errorf("%s is not hosted by the actor's server", uri)
 	}
-	return b.r.client.FetchObject(b.ctx, uri)
+	if b.cache == nil {
+		return b.r.client.FetchObject(b.ctx, uri)
+	}
+	b.cache.mu.Lock()
+	res, ok := b.cache.objects[uri]
+	b.cache.mu.Unlock()
+	if ok {
+		return res.obj, res.err
+	}
+	obj, err := b.r.client.FetchObject(b.ctx, uri)
+	// Do not cache failures caused by this caller's own deadline: another
+	// phase with a live context may still succeed.
+	if err == nil || b.ctx.Err() == nil {
+		b.cache.mu.Lock()
+		b.cache.objects[uri] = fetchResult{obj: obj, err: err}
+		b.cache.mu.Unlock()
+	}
+	return obj, err
 }
 
 // collectionItems reads up to limit items from a collection, following
@@ -525,14 +892,7 @@ func (b *profileBackfiller) importAnnounce(activity map[string]any) error {
 	if err := conn.Model(&models.Status{}).Where("origin_uri = ?", activityID).Count(&existing).Error; err != nil || existing > 0 {
 		return err
 	}
-	target := objectID(activity["object"])
-	if target == "" || validateFederationURI(target) != nil {
-		return errors.New("announce without object")
-	}
-	if suspended, err := hostSuspended(utils.ExtractDomainFromURI(target)); err != nil || suspended {
-		return errors.New("announced post is on a suspended domain")
-	}
-	original, err := fetchPublicStatus(b.ctx, b.r, target)
+	original, err := b.announceTarget(activity)
 	if err != nil {
 		return err
 	}

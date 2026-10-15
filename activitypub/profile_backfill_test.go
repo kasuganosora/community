@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +28,10 @@ type fakeRemote struct {
 	hits     atomic.Int64
 	unsigned atomic.Int64
 	deny     map[string]int
+	// hook, when set, runs before answering and may return a status code.
+	hook     func(key string) int
+	inflight atomic.Int64
+	peak     atomic.Int64
 }
 
 func newFakeRemote(t *testing.T) *fakeRemote {
@@ -41,6 +46,20 @@ func newFakeRemote(t *testing.T) *fakeRemote {
 		key := r.URL.Path
 		if r.URL.RawQuery != "" {
 			key += "?" + r.URL.RawQuery
+		}
+		n := f.inflight.Add(1)
+		defer f.inflight.Add(-1)
+		for {
+			p := f.peak.Load()
+			if n <= p || f.peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		if f.hook != nil {
+			if code := f.hook(key); code != 0 {
+				w.WriteHeader(code)
+				return
+			}
 		}
 		if code := f.deny[key]; code != 0 {
 			w.WriteHeader(code)
@@ -303,4 +322,141 @@ func TestProfileBackfillHostLimit(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("waiter not woken")
 	}
+}
+
+func pinCount(t *testing.T, conn *gorm.DB, accountID uint64) int64 {
+	var n int64
+	require.NoError(t, conn.Model(&models.PinStatus{}).Where("account_id = ?", accountID).Count(&n).Error)
+	return n
+}
+
+func featuredOne(remote *fakeRemote, name string) {
+	remote.docs["/users/"+name+"/collections/featured"] = func(b string) any {
+		return map[string]any{"id": b + "/users/" + name + "/collections/featured", "type": "OrderedCollection", "orderedItems": []any{b + "/users/" + name + "/statuses/1"}}
+	}
+	remote.docs["/users/"+name+"/statuses/1"] = func(b string) any { return note(b, name, "/users/"+name+"/statuses/1", "pinned") }
+}
+
+func TestProfileBackfillSlowOutboxDoesNotStarvePins(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	prev := profileBackfillTimeout
+	profileBackfillTimeout = 800 * time.Millisecond
+	t.Cleanup(func() { profileBackfillTimeout = prev })
+	remote.person("slow", nil)
+	featuredOne(remote, "slow")
+	remote.docs["/users/slow/outbox"] = func(b string) any {
+		return map[string]any{"id": b + "/users/slow/outbox", "type": "OrderedCollection", "orderedItems": []any{}}
+	}
+	remote.hook = func(key string) int {
+		if key == "/users/slow/outbox" {
+			time.Sleep(2 * time.Second)
+		}
+		return 0
+	}
+	account := remoteAccount(t, conn, remote.server.URL, "slow")
+	require.Equal(t, ProfileBackfillUnavailable, runProfileBackfill(t, account))
+	require.EqualValues(t, 1, pinCount(t, conn, account.Id), "pins use their own deadline")
+	require.Equal(t, profilePinsDone, profilePinsState(account.Id))
+}
+
+func TestProfileBackfillPinsTimeoutRetriesOnce(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	prevTimeout, prevSchedule := profileBackfillPinsTimeout, scheduleProfilePinsRetry
+	profileBackfillPinsTimeout = 300 * time.Millisecond
+	var retries []func()
+	scheduleProfilePinsRetry = func(d time.Duration, f func()) { retries = append(retries, f) }
+	t.Cleanup(func() { profileBackfillPinsTimeout, scheduleProfilePinsRetry = prevTimeout, prevSchedule })
+	remote.person("pin", nil)
+	featuredOne(remote, "pin")
+	remote.docs["/users/pin/outbox"] = func(b string) any {
+		return map[string]any{"id": b + "/users/pin/outbox", "type": "OrderedCollection", "orderedItems": []any{}}
+	}
+	var slow atomic.Bool
+	slow.Store(true)
+	remote.hook = func(key string) int {
+		if key == "/users/pin/collections/featured" && slow.Load() {
+			time.Sleep(time.Second)
+		}
+		return 0
+	}
+	account := remoteAccount(t, conn, remote.server.URL, "pin")
+	old := models.Status{AccountId: account.Id, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "<p>old pin</p>"}}
+	old.MarkProfileBackfill()
+	require.NoError(t, conn.Create(&old).Error)
+	require.NoError(t, conn.Create(&models.PinStatus{AccountId: account.Id, StatusId: old.Id}).Error)
+
+	require.Equal(t, ProfileBackfillDone, runProfileBackfill(t, account))
+	require.Len(t, retries, 1, "one retry is scheduled")
+	require.Equal(t, profilePinsRetry, profilePinsState(account.Id))
+	var pins []models.PinStatus
+	require.NoError(t, conn.Where("account_id = ?", account.Id).Find(&pins).Error)
+	require.Len(t, pins, 1)
+	require.Equal(t, old.Id, pins[0].StatusId, "existing pins are kept on timeout")
+
+	slow.Store(false)
+	retries[0]()
+	require.Len(t, retries, 1, "the retry does not schedule another")
+	require.Equal(t, profilePinsDone, profilePinsState(account.Id))
+	require.NoError(t, conn.Where("account_id = ?", account.Id).Find(&pins).Error)
+	require.Len(t, pins, 1)
+	var pinned models.Status
+	require.NoError(t, conn.First(&pinned, pins[0].StatusId).Error)
+	require.Equal(t, remote.server.URL+"/users/pin/statuses/1", *pinned.OriginUri)
+}
+
+func TestProfileBackfillConcurrentFetchKeepsOrder(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	remote.person("many", nil)
+	remote.person("bob", nil)
+	featuredOne(remote, "many")
+	const n = 12
+	var items []any
+	for i := n; i >= 2; i-- { // newest first, like Mastodon
+		i := i
+		path := fmt.Sprintf("/users/many/statuses/%d", i)
+		if i%3 == 0 {
+			target := fmt.Sprintf("/users/bob/statuses/%d", i)
+			remote.docs[target] = func(b string) any { return note(b, "bob", target, fmt.Sprintf("b%d", i)) }
+			items = append(items, func(b string) any {
+				return map[string]any{"id": b + path + "/activity", "type": "Announce", "actor": b + "/users/many", "to": []any{asPublic}, "object": b + target}
+			})
+			continue
+		}
+		remote.docs[path] = func(b string) any { return note(b, "many", path, fmt.Sprintf("n%d", i)) }
+		items = append(items, func(b string) any {
+			return map[string]any{"id": b + path + "/activity", "type": "Create", "actor": b + "/users/many", "to": []any{asPublic}, "object": b + path}
+		})
+	}
+	remote.docs["/users/many/outbox"] = func(b string) any {
+		out := []any{}
+		for _, f := range items {
+			out = append(out, f.(func(string) any)(b))
+		}
+		return map[string]any{"id": b + "/users/many/outbox", "type": "OrderedCollection", "orderedItems": out}
+	}
+	remote.hook = func(key string) int {
+		if strings.Contains(key, "/statuses/") {
+			time.Sleep(150 * time.Millisecond)
+		}
+		return 0
+	}
+	account := remoteAccount(t, conn, remote.server.URL, "many")
+	start := time.Now()
+	require.Equal(t, ProfileBackfillDone, runProfileBackfill(t, account))
+	elapsed := time.Since(start)
+	want := []string{}
+	for i := n; i >= 2; i-- {
+		if i%3 == 0 {
+			want = append(want, fmt.Sprintf("RT <p>b%d</p>", i))
+		} else {
+			want = append(want, fmt.Sprintf("<p>n%d</p>", i))
+		}
+	}
+	want = append(want, "<p>pinned</p>")
+	require.Equal(t, want, profileTexts(t, conn, account.Id), "pins first, then outbox oldest to newest")
+	require.EqualValues(t, 1, pinCount(t, conn, account.Id))
+	peak := remote.peak.Load()
+	require.Greater(t, peak, int64(1), "fetches run concurrently")
+	require.LessOrEqual(t, peak, int64(profileBackfillFetchPerHost+1), "bounded per host (+1 for the pins fetch)")
+	require.Less(t, elapsed, time.Duration(n)*150*time.Millisecond, "faster than sequential")
 }
