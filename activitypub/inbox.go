@@ -190,6 +190,9 @@ func Inbox(c *gin.Context) {
 			handleAnnounceActivity(ctx, c, activity, targetAccount)
 		case "Like":
 			handleLikeActivity(ctx, c, activity, targetAccount)
+		case "EmojiReact":
+			// Pleroma/Akkoma emoji reactions.
+			handleEmojiReaction(ctx, c, activity, false)
 		case "Undo":
 			handleUndoActivity(ctx, c, activity, targetAccount)
 		case "Block":
@@ -1023,7 +1026,7 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 	objectType, _ := objectMap["type"].(string)
-	if objectType == "Like" && isReactionLike(objectMap) {
+	if (objectType == "Like" && isReactionLike(objectMap)) || objectType == "EmojiReact" {
 		handleEmojiReaction(ctx, c, activity, true)
 		return
 	}

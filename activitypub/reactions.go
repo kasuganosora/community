@@ -267,7 +267,18 @@ func reactionPayload(e *models.FederationOutbox, actorURI, activityID string) (m
 		objectURI = statusObjectURI(&status, status.Account, systemsettings.GetBaseURL())
 	}
 	likeID := actorURI + "/reactions/" + strconv.FormatUint(snap.Reaction.ID, 10)
-	like := map[string]any{"id": likeID, "type": "Like", "actor": actorURI, "object": objectURI, "content": snap.Reaction.Name, "_misskey_reaction": snap.Reaction.Name}
+	// Custom emoji travel as :shortcode: plus an Emoji tag; receivers resolve
+	// the shortcode against the tag (Misskey rejects :name@host: from others).
+	wire := snap.Reaction.Name
+	if snap.Emoji != nil {
+		wire = ":" + snap.Emoji.Shortcode + ":"
+	}
+	activityType := "Like"
+	if status.Account != nil && status.Account.Domain != nil && reactionTargetSoftware(*status.Account.Domain) == softwarePleroma {
+		// Pleroma/Akkoma model reactions as EmojiReact, not Like.
+		activityType = "EmojiReact"
+	}
+	like := map[string]any{"id": likeID, "type": activityType, "actor": actorURI, "object": objectURI, "content": wire, "_misskey_reaction": wire}
 	if snap.Emoji != nil && !snap.Emoji.LocalOnly {
 		like["tag"] = []any{map[string]any{"type": "Emoji", "id": systemsettings.GetBaseURL() + "/emojis/" + strconv.FormatUint(snap.Emoji.Id, 10), "name": ":" + snap.Emoji.Shortcode + ":", "icon": map[string]any{"type": "Image", "mediaType": snap.Emoji.ContentType, "url": snap.Emoji.Url}}}
 	}
@@ -294,7 +305,10 @@ func reactionDeliveryCurrent(auth DeliveryAuthorization, activity map[string]any
 	}
 	actor, _ := activity["actor"].(string)
 	id, _ := activity["id"].(string)
-	if actor == "" || id != actor+"/reactions/"+strconv.FormatUint(row.ID, 10) || reactionContent(activity) != row.Name {
+	if actor == "" || id != actor+"/reactions/"+strconv.FormatUint(row.ID, 10) {
+		return false, nil
+	}
+	if row.EmojiID == 0 && reactionContent(activity) != row.Name {
 		return false, nil
 	}
 	if row.EmojiID != 0 {
@@ -306,9 +320,15 @@ func reactionDeliveryCurrent(auth DeliveryAuthorization, activity map[string]any
 		if err != nil {
 			return false, err
 		}
-		if emoji.Disabled || emoji.LocalOnly {
+		if emoji.Disabled || emoji.LocalOnly || reactionContent(activity) != ":"+emoji.Shortcode+":" {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+// reactionTargetSoftware detects the reaction dialect of a remote host for
+// outbound delivery. Overridable in tests.
+var reactionTargetSoftware = func(host string) string {
+	return remoteSoftware(context.Background(), host)
 }
