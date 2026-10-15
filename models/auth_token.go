@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 	"time"
 )
 
@@ -178,6 +179,35 @@ func NewAuthToken(userId uint64, authType uint8, appId uint64, permissions uint6
 	}
 
 	return tokenRow, tokenStr
+}
+
+// RevokeTokenByTokenStr marks the stored row for a raw bearer token revoked.
+// A missing row is not an error (RFC 7009 treats unknown tokens as revoked).
+// The access/refresh partner (PairHash) is revoked too.
+func RevokeTokenByTokenStr(conn *gorm.DB, tokenStr string) (pairHash string, err error) {
+	sum := sha256.Sum256([]byte(tokenStr))
+	hash := hex.EncodeToString(sum[:])
+	now := time.Now()
+
+	var row AuthToken
+	if err := conn.Where("token = ?", hash).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+
+		return "", errors.Wrap(err, "find token")
+	}
+
+	hashes := []string{hash}
+	if row.PairHash != "" {
+		hashes = append(hashes, row.PairHash)
+	}
+
+	if err := conn.Model(&AuthToken{}).Where("token IN ? AND revoke IS NULL", hashes).Update("revoke", now).Error; err != nil {
+		return row.PairHash, errors.Wrap(err, "mark token revoked")
+	}
+
+	return row.PairHash, nil
 }
 
 func GetTokenByTokenStr(tokenStr string) (token *AuthToken, err error) {

@@ -255,8 +255,20 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			_ = redisClient.Set(cacheContext, cacheKey, "revoked", revokedTokenCacheTTL).Err()
 		} else {
-			_ = redisClient.Set(cacheContext, cacheKey, "valid", tokenCacheTTL).Err()
+			// SetNX: never overwrite a "revoked" marker written by a concurrent
+			// logout/revoke between our SQL read and this cache write.
+			_ = redisClient.SetNX(cacheContext, cacheKey, "valid", tokenCacheTTL).Err()
 		}
 	}
 	return token, nil
+}
+
+// SetTokenCacheRedisForTest swaps the Redis client used by the auth token
+// cache and returns a function restoring the previous one. Tests only.
+func SetTokenCacheRedisForTest(client *redis.Client) func() {
+	globalRedisClientOnce.Do(func() {})
+	old := globalRedisClient
+	globalRedisClient = client
+
+	return func() { globalRedisClient = old }
 }

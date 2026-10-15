@@ -82,7 +82,7 @@ type TokenResponse struct {
 type RevokeRequest struct {
 	ClientId     string `form:"client_id"     json:"client_id"`
 	ClientSecret string `form:"client_secret" json:"client_secret"`
-	Token        string `binding:"required"   form:"token"         json:"token"`
+	Token        string `form:"token"         json:"token"`
 }
 
 // OAuthApplication extends Application with OAuth-specific fields.
@@ -302,35 +302,44 @@ func Authorize(c *gin.Context) {
 	finishAuthorize(c, app, info, account, authReq)
 }
 
-// Revoke handles POST /oauth/revoke.
+// Revoke handles POST /oauth/revoke (RFC 7009, Mastodon-compatible).
+//
+// The token comes from the form/JSON body; when the body omits it, the
+// caller's own bearer token is revoked (the web account switcher signs out a
+// background account this way). Client credentials are optional: possession
+// of the token is enough to revoke it. Unknown or already revoked tokens still
+// answer 200 {}.
 func Revoke(c *gin.Context) {
 	var req RevokeRequest
-	if err := c.ShouldBind(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+	_ = c.ShouldBind(&req)
+
+	tokenStr := strings.TrimSpace(req.Token)
+	if tokenStr == "" {
+		if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			tokenStr = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		}
+	}
+
+	if tokenStr == "" {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid_request", "error_description": "token is required"})
 
 		return
 	}
 
-	// Find and revoke the token in database
-	token, err := models.GetTokenByTokenStr(req.Token)
+	// Purge the auth cache first and unconditionally: even when the row lookup
+	// fails, a cached "valid" entry must not keep the token alive.
+	middleware.InvalidateTokenCache(tokenStr)
+
+	pairHash, err := models.RevokeTokenByTokenStr(db.GetDB(), tokenStr)
 	if err != nil {
-		// Token is invalid or already revoked, return success anyway
-		c.JSON(200, gin.H{})
-
-		return
+		_ = c.Error(errors.Wrap(err, "revoke token error"))
 	}
 
-	// Set revoke time
-	now := time.Now()
+	middleware.InvalidateTokenCacheHash(pairHash)
 
-	token.Revoke = &now
-	if err := db.GetDB().Save(token).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "save revoked token error"))
-	}
-
-	// AuthMiddleware caches valid tokens for 30s; make the revoke effective
-	// immediately.
-	middleware.InvalidateTokenCache(req.Token)
+	// Purge again in case a request that read the row before the revoke
+	// re-populated the cache in between.
+	middleware.InvalidateTokenCache(tokenStr)
 
 	c.JSON(200, gin.H{})
 }
