@@ -580,3 +580,13 @@ html[data-scrolled] .home-header {
 html.has-sheet {
   overflow: hidden;
 }
+
+/* Set by AppLayout while a fixed app shell with inner scrollers is shown
+   (chat): the document itself must never scroll, or mobile browsers move
+   their toolbars and leave a gap below the tab bar. */
+html.app-shell-locked,
+html.app-shell-locked body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}

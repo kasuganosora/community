@@ -109,7 +109,7 @@
   .groups-list__tools .btn--primary { flex:none; }
 }
 @media(max-width:699px) {
-  .groups-page { height:calc(100dvh - var(--tabbar-height) - var(--safe-bottom)); }
+  .groups-page { height:calc(100% - var(--tabbar-height) - var(--safe-bottom)); }
   .groups-list__header,.groups-list__tools { padding-inline:var(--space-4); }
   .groups-list__search-field { margin-inline:var(--space-4); }
   .group-thread-header { min-height:72px; padding-inline:var(--space-2); }

@@ -23,6 +23,18 @@ const onScroll = () => { scrollY.value = window.scrollY }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 watch(() => route.fullPath, () => { onScroll() })
+// Chat (groups) is a fixed app shell with its own inner scrollers. If the
+// document can scroll too, mobile browsers collapse the address bar and some
+// (Android Chrome forks, in-app WebViews) leave the dvh-sized shell and the
+// bottom-pinned tab bar where they were, exposing an empty band below the
+// tab bar. Lock the document while the shell is shown.
+const lockDocument = (locked: boolean) => {
+  if (typeof document === 'undefined') return
+  document.documentElement.classList.toggle('app-shell-locked', locked)
+  if (locked) window.scrollTo(0, 0)
+}
+watch(isGroups, lockDocument, { immediate: true })
+onBeforeUnmount(() => lockDocument(false))
 const fabHidden = computed(() => {
   const name = String(route.name)
   return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
@@ -152,6 +164,20 @@ const fabHidden = computed(() => {
   }
 
   .app-layout--groups .app-layout__center { padding-bottom:0; }
+
+  /* Fixed shell: fills exactly the box the fixed tab bar is pinned to, so the
+     bar always sits at the real bottom with nothing below it. */
+  .app-layout--groups {
+    position: fixed;
+    inset: 0;
+    min-height: 0;
+  }
+
+  .app-layout--groups .app-layout__center {
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
 
   .app-layout__tabbar {
     display: flex;
