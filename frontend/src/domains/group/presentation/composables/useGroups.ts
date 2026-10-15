@@ -16,6 +16,12 @@ export function useGroups(selectedId: Ref<string>) {
   let version = 0, active = true, syncController: AbortController | undefined, roomController: AbortController | undefined
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let resumeWait: (() => void) | undefined
+  // Live sync pauses while the page is hidden (battery): the in-flight long
+  // poll finishes, then the loop waits for visibilitychange before polling again.
+  let hiddenWait: (() => void) | undefined
+  const releaseHidden = () => { const resolve = hiddenWait; hiddenWait = undefined; resolve?.() }
+  const onVisibility = () => { if (!document.hidden) releaseHidden() }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
   let syncCursor: string | undefined
   let initialSyncDone = false
   let initialFallbackStarted = false
@@ -89,6 +95,7 @@ export function useGroups(selectedId: Ref<string>) {
   async function syncLoop() {
     const epoch = sessionEpoch.value
     while (active && epoch === sessionEpoch.value) {
+      if (initialSyncDone && typeof document !== 'undefined' && document.hidden) { await new Promise<void>(resolve => { hiddenWait = resolve }); continue }
       syncController = new AbortController()
       try {
         const update = await groupApi.sync(syncCursor, syncController.signal)
@@ -157,13 +164,13 @@ export function useGroups(selectedId: Ref<string>) {
   // must remain readable even when sync_busy is retried without a visible error.
   watch(selectedId, () => { if (initialSyncDone || initialFallbackStarted) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
   watch(sessionEpoch, () => {
-    version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.()
+    version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.(); releaseHidden()
     groups.value = []; group.value = null; messages.value = []; syncCursor = undefined; initialSyncDone = false; initialFallbackStarted = false
     listLoading.value = false; loading.value = false; historyLoading.value = false; listCursor.value = null; historyCursor.value = null
     listError.value = ''; error.value = ''; syncError.value = ''; syncPaused.value = false; refreshing.value = false
     void loadGroups(); void syncLoop()
   })
   void loadGroups(); void syncLoop()
-  onBeforeUnmount(() => { active = false; version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.() })
+  onBeforeUnmount(() => { active = false; version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.(); releaseHidden(); document.removeEventListener('visibilitychange', onVisibility) })
   return { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, refreshRoom, openRoom, loadHistory, upsertGroup, mergeMessages }
 }

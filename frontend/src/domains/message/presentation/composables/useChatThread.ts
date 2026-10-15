@@ -129,13 +129,24 @@ export function useChatThread(id: () => string) {
   const delivery = (message: ChatMessage) => mutate(message.event_id, () => chatApi.delivery(id(), message.event_id), result => { message.delivery = result })
   const addMembers = (members: ChatMemberInput[]) => mutate('members', () => chatApi.addMembers(id(), members), result => { conversation.value = result })
   const removeMember = (memberId: string) => mutate('members', () => chatApi.removeMember(id(), memberId))
+  // Poll every 5s while visible. Hidden pages schedule nothing (battery);
+  // returning to the page refreshes at once and restarts the cycle.
   function poll() {
     if (disposed) return
+    clearTimeout(timer); timer = undefined
+    if (document.visibilityState !== 'visible') return
     timer = setTimeout(async () => {
+      timer = undefined
       if (document.visibilityState === 'visible' && conversation.value && !loadingOlder.value && !refreshPending.value) await refresh()
       poll()
     }, 5000)
   }
+  function onVisibility() {
+    if (disposed || document.visibilityState !== 'visible') return
+    if (conversation.value && !loadingOlder.value && !refreshPending.value) void refresh()
+    poll()
+  }
+  document.addEventListener('visibilitychange', onVisibility)
   watch([id, () => sessionEpoch.value, () => auth.currentUser?.id], () => {
     epoch++; readVersion++; conversation.value = null; messages.value = []; cursor.value = null
     activeRead = undefined
@@ -143,6 +154,6 @@ export function useChatThread(id: () => string) {
     if (auth.currentUser && id()) void refresh(true)
   }, { immediate: true, flush: 'sync' })
   poll()
-  onBeforeUnmount(() => { disposed = true; epoch++; readVersion++; clearTimeout(timer) })
+  onBeforeUnmount(() => { disposed = true; epoch++; readVersion++; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) })
   return { conversation, messages, cursor, loading, loadingOlder, refreshPending, pending, busy, error, refresh, reload, older, send, remove, retry, delivery, addMembers, removeMember }
 }

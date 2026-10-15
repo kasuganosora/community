@@ -169,4 +169,18 @@ describe('group sync consistency and lifecycle', () => {
     wrapper.unmount(); expect(latestSignal.aborted).toBe(true)
     const count = vi.mocked(groupApi.sync).mock.calls.length; await vi.advanceTimersByTimeAsync(10000); expect(groupApi.sync).toHaveBeenCalledTimes(count)
   })
+  it('pauses live sync while the page is hidden and resumes on return', async () => {
+    let hidden = false
+    const spy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden)
+    vi.mocked(groupApi.sync).mockResolvedValue(snapshot)
+    const { wrapper } = setup(); await flushPromises(); await vi.advanceTimersByTimeAsync(150); await flushPromises()
+    hidden = true; document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(300); await flushPromises()
+    vi.mocked(groupApi.sync).mockClear()
+    await vi.advanceTimersByTimeAsync(60_000); await flushPromises()
+    expect(groupApi.sync).not.toHaveBeenCalled()
+    hidden = false; document.dispatchEvent(new Event('visibilitychange')); await flushPromises()
+    expect(groupApi.sync).toHaveBeenCalledTimes(1)
+    wrapper.unmount(); spy.mockRestore()
+  })
 })
