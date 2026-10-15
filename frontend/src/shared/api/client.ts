@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosError } from 'axios'
 import type { ApiErrorData } from '@/shared/types/mastodon'
+import { applyStallRetry } from './stallRetry'
 
 // Constants
 export const AUTH_TOKEN_KEY = 'auth_token'
@@ -74,7 +75,7 @@ client.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
-    return config
+    return applyStallRetry(config, client.defaults.adapter)
   },
   (error) => Promise.reject(error)
 )

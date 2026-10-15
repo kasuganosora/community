@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SlowNetworkHint from '@/shared/components/common/SlowNetworkHint.vue'
 import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { navigationPending } from '@/shared/router/navigationFeedback'
@@ -35,6 +36,7 @@ onMounted(async () => {
     <button type="button" class="app-init-error__retry" @click="retryInit">重试</button>
   </div>
   <router-view v-else />
+  <SlowNetworkHint />
 </template>
 
 
