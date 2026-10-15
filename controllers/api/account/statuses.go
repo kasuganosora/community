@@ -8,7 +8,17 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"strconv"
+	"time"
+
+	"github.com/kasuganosora/community/activitypub"
 )
+
+// ProfileBackfillWait is how long the first page of a remote profile waits
+// for its background backfill before answering with what is stored.
+var ProfileBackfillWait = 3 * time.Second
+
+// profileBackfill starts or joins a remote profile backfill; tests replace it.
+var profileBackfill = activitypub.RequestProfileBackfill
 
 // StatusesRequest represents the request for getting account statuses.
 type StatusesRequest struct {
@@ -47,16 +57,39 @@ func AccountStatuses(c *gin.Context) {
 		return
 	}
 
-	var exists int64
-	if err := db.GetDB().WithContext(c.Request.Context()).Model(&models.Account{}).Where("id = ?", authorID).Limit(1).Count(&exists).Error; err != nil {
+	var author models.Account
+	if err := db.GetDB().WithContext(c.Request.Context()).Select("id", "domain", "origin_id", "is_ban").Where("id = ?", authorID).Limit(1).Find(&author).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "AccountStatuses"))
 
 		return
 	}
-	if exists == 0 {
+	if author.Id == 0 {
 		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
 
 		return
+	}
+
+	// The first page of a remote profile starts a background import of the
+	// actor's outbox and featured collection. Wait briefly so a fast remote
+	// fills this response; otherwise the client polls while pending.
+	if author.Domain != nil && req.MaxId == "" && req.MinId == "" && req.SinceId == "" {
+		state, done := profileBackfill(c.Request.Context(), &author)
+		if done != nil {
+			timer := time.NewTimer(ProfileBackfillWait)
+			select {
+			case <-done:
+				state = activitypub.ProfileBackfillDone
+				if s, _ := profileBackfill(c.Request.Context(), &author); s != "" && s != activitypub.ProfileBackfillPending {
+					state = s
+				}
+			case <-timer.C:
+			case <-c.Request.Context().Done():
+			}
+			timer.Stop()
+		}
+		if state != "" {
+			c.Header("X-Profile-Backfill", state)
+		}
 	}
 
 	// Get current account if authenticated

@@ -150,16 +150,24 @@ func fetchAndLinkQuote(ctx context.Context, statusID uint64, uri string) error {
 // with the signed fetch client first. Only public or unlisted posts hosted on
 // their author's server are imported; the author profile is fetched too.
 func fetchQuotedStatus(ctx context.Context, uri string) (*models.Status, error) {
+	return fetchPublicStatus(ctx, quoteFetcher(), uri)
+}
+
+// errStatusNotPublic rejects followers-only and direct posts.
+var errStatusNotPublic = errors.New("post is not public")
+
+// fetchPublicStatus returns the stored copy of the public or unlisted post at
+// uri, importing it through r when this server does not have it yet.
+func fetchPublicStatus(ctx context.Context, r *Resolver, uri string) (*models.Status, error) {
 	if err := validateFederationURI(uri); err != nil {
 		return nil, err
 	}
 	if existing, err := findInboundParent(ctx, uri); err == nil && existing != nil && existing.Id != 0 {
 		if existing.Visibility > models.StatusVisibilityUnlisted {
-			return nil, errors.New("quoted post is not public")
+			return nil, errStatusNotPublic
 		}
 		return existing, nil
 	}
-	r := quoteFetcher()
 	obj, canonical, err := r.fetchCanonicalObject(ctx, uri)
 	if err != nil {
 		return nil, err
@@ -167,17 +175,17 @@ func fetchQuotedStatus(ctx context.Context, uri string) (*models.Status, error) 
 	if canonical != uri {
 		if existing, err := findInboundParent(ctx, canonical); err == nil && existing != nil && existing.Id != 0 {
 			if existing.Visibility > models.StatusVisibilityUnlisted {
-				return nil, errors.New("quoted post is not public")
+				return nil, errStatusNotPublic
 			}
 			return existing, nil
 		}
 	}
 	if getVisibilityFromActivity(obj) > models.StatusVisibilityUnlisted {
-		return nil, errors.New("quoted post is not public")
+		return nil, errStatusNotPublic
 	}
 	status, err := r.createStatusFromObject(obj, canonical) //nolint:contextcheck
 	if err != nil {
-		return nil, fmt.Errorf("importing quoted post: %w", err)
+		return nil, fmt.Errorf("importing post: %w", err)
 	}
 	return &status, nil
 }

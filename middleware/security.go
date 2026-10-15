@@ -101,6 +101,7 @@ func CORSMiddleware(allowOrigins []string) gin.HandlerFunc {
 	config.ExposeHeaders = []string{
 		"Link",
 		"X-Total-Count",
+		"X-Profile-Backfill",
 		"Content-Length",
 		"Content-Type",
 		"X-Request-ID",

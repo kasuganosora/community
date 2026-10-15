@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from '@/shared/ui/feedback'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
-import { userApi } from '../../infrastructure/userApi'
+import { userApi, type ProfileBackfillState } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import { followButtonLabel } from '../../domain/relationship'
 import { useRelationships } from '../composables/useRelationships'
@@ -42,17 +42,61 @@ const relationship = computed(() => account.value ? relationships.rels.get(accou
 const followState = computed(() => account.value ? relationships.state(account.value.id) : 'unknown')
 const profileBase = computed(() => `/@${route.params.username as string}`)
 
-function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[] | CursorPage<MastodonStatus>> {
+// Remote profiles: the server imports older posts from the remote outbox in
+// the background and reports its progress on the first page. While it is
+// pending the first page is reloaded a couple of times.
+const backfill = ref<ProfileBackfillState>(null)
+const BACKFILL_POLL_MS = 2500
+const BACKFILL_MAX_POLLS = 2
+let backfillPolls = 0
+let backfillTimer: ReturnType<typeof setTimeout> | undefined
+const isRemote = computed(() => !!account.value?.acct.includes('@'))
+const remoteProfileUrl = computed(() => {
+  const url = account.value?.url
+  return url && /^https?:\/\//i.test(url) ? url : ''
+})
+
+const backfillPendingEmpty = computed(() => isRemote.value && activeTab.value !== 'likes' && backfill.value === 'pending' && statuses.value.length === 0)
+
+function clearBackfillPoll() {
+  if (backfillTimer) clearTimeout(backfillTimer)
+  backfillTimer = undefined
+}
+
+function resetBackfill() {
+  clearBackfillPoll()
+  backfill.value = null
+  backfillPolls = 0
+}
+
+async function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[] | CursorPage<MastodonStatus>> {
   const acct = account.value
-  if (!acct) return Promise.resolve([])
+  if (!acct) return []
   // Likes use the relationship cursor supplied by the server's Link header.
   if (activeTab.value === 'likes') return userApi.getFavourites({ max_id: maxId, limit })
-  return userApi.getStatuses(acct.id, {
+  const params = {
     max_id: maxId,
     limit,
     ...(activeTab.value === 'posts' ? { exclude_replies: true } : {}),
     ...(activeTab.value === 'media' ? { only_media: true } : {}),
-  })
+  }
+  if (maxId || !isRemote.value) return userApi.getStatuses(acct.id, params)
+  const { statuses: page, backfill: state } = await userApi.getStatusesWithBackfill(acct.id, params)
+  if (account.value?.id !== acct.id) return page
+  // A cooldown answer ("done"/"unavailable") after polling is final.
+  if (state || backfillPolls === 0) backfill.value = state
+  clearBackfillPoll()
+  if (state === 'pending' && backfillPolls < BACKFILL_MAX_POLLS) {
+    backfillTimer = setTimeout(() => {
+      backfillTimer = undefined
+      if (account.value?.id !== acct.id) return
+      backfillPolls++
+      void feed.refresh()
+    }, BACKFILL_POLL_MS)
+  } else if (state === 'pending') {
+    backfill.value = 'done'
+  }
+  return page
 }
 
 const feed = usePaginatedList(fetchStatuses, TIMELINE_PAGE_SIZE)
@@ -67,6 +111,7 @@ async function loadProfile() {
   loading.value = true
   error.value = null
   account.value = null
+  resetBackfill()
   feed.reset()
   activeTab.value = 'posts'
   const username = route.params.username as string
@@ -141,8 +186,10 @@ function toggleBlock() {
 
 onMounted(loadProfile)
 watch(() => route.params.username, loadProfile)
+onBeforeUnmount(clearBackfillPoll)
 watch(activeTab, () => {
   // A different tab is a different query, not a refresh of the visible rows.
+  clearBackfillPoll()
   feed.reset()
   if (account.value) void feed.refresh()
 }, { flush: 'sync' })
@@ -234,9 +281,30 @@ watch(activeTab, () => {
       style="margin-top: var(--space-4)"
     />
 
+    <!-- Remote profile backfill -->
+    <div
+      v-if="backfillPendingEmpty"
+      class="profile-backfill"
+      role="status"
+      aria-live="polite"
+      data-testid="profile-backfill-pending"
+    >
+      <t-loading size="small" />
+      <span>正在从对方站点获取帖子…</span>
+    </div>
+    <div
+      v-else-if="isRemote && activeTab !== 'likes' && backfill === 'unavailable' && statuses.length === 0 && !feed.loading.value"
+      class="profile-backfill profile-backfill--hint"
+      data-testid="profile-backfill-unavailable"
+    >
+      <span>对方站点未公开帖子列表，这里可能只显示部分帖子。</span>
+      <a v-if="remoteProfileUrl" :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">去对方站点查看</a>
+    </div>
+
     <!-- Posts -->
+    <template v-if="backfillPendingEmpty" />
     <ProfileMediaGrid
-      v-if="activeTab === 'media'"
+      v-else-if="activeTab === 'media'"
       :statuses="statuses"
       :loading="feed.loading.value"
       :has-more="feed.hasMore.value"
@@ -276,6 +344,18 @@ watch(activeTab, () => {
 </template>
 
 <style scoped>
+.profile-backfill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  font-size: var(--text-footnote, 13px);
+  color: var(--color-label-secondary);
+  text-align: center;
+}
+
 .profile-page {
   min-height: 100dvh;
 }

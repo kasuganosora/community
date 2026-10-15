@@ -4,6 +4,18 @@ import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/sh
 import type { PaginationParams } from '@/shared/types/pagination'
 import { pickAccountByAcct } from '../domain/acct'
 
+export type ProfileBackfillState = 'pending' | 'done' | 'unavailable' | null
+
+export type AccountStatusesParams = {
+  exclude_replies?: boolean
+  only_media?: boolean
+  pinned?: boolean
+} & PaginationParams
+
+export function parseBackfillState(value: unknown): ProfileBackfillState {
+  return value === 'pending' || value === 'done' || value === 'unavailable' ? value : null
+}
+
 function isNotFound(e: unknown): boolean {
   return (e as { response?: { status?: number } } | null)?.response?.status === 404
 }
@@ -49,13 +61,18 @@ export const userApi = {
     throw new Error('用户不存在')
   },
 
-  async getStatuses(id: string, params?: {
-    exclude_replies?: boolean
-    only_media?: boolean
-    pinned?: boolean
-  } & PaginationParams): Promise<MastodonStatus[]> {
-    const { data } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${encodeURIComponent(id)}/statuses`, { params })
-    return data
+  async getStatuses(id: string, params?: AccountStatusesParams): Promise<MastodonStatus[]> {
+    return (await this.getStatusesWithBackfill(id, params)).statuses
+  },
+
+  /**
+   * Account statuses plus the server's remote profile backfill state
+   * (X-Profile-Backfill): "pending" while older posts are still being
+   * imported from the remote server, "unavailable" when it hides them.
+   */
+  async getStatusesWithBackfill(id: string, params?: AccountStatusesParams): Promise<{ statuses: MastodonStatus[]; backfill: ProfileBackfillState }> {
+    const { data, headers } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${encodeURIComponent(id)}/statuses`, { params })
+    return { statuses: data, backfill: parseBackfillState(headers?.['x-profile-backfill']) }
   },
 
   async getRelationships(ids: string[]): Promise<MastodonRelationship[]> {

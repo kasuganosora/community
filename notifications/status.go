@@ -24,6 +24,10 @@ func init() {
 		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
+			if status.IsProfileBackfill() {
+				// Old posts imported for a profile view are history, not news.
+				return true
+			}
 			safeGo("creatReblogNotification", func() { creatReblogNotification(status) }) // 创建boost notification
 			dispatchMentionNotification(status, false)
 		case "after_update":

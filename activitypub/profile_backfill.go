@@ -1,0 +1,617 @@
+package activitypub
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/kasuganosora/community/db"
+	dbredis "github.com/kasuganosora/community/db/redis"
+	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils"
+	goredis "github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
+)
+
+// Profile backfill: when someone opens a remote account's profile we usually
+// only know the few posts that were delivered to us. RequestProfileBackfill
+// imports the actor's featured (pinned) collection and the first outbox page
+// in the background, signed as the instance actor. Imported posts carry the
+// profile backfill marker, so they never reach home/public/tag timelines or
+// notifications.
+
+// Profile backfill states reported to API clients (X-Profile-Backfill).
+const (
+	ProfileBackfillPending     = "pending"
+	ProfileBackfillDone        = "done"
+	ProfileBackfillUnavailable = "unavailable"
+)
+
+var (
+	// ProfileBackfillCooldown is how long a backfill attempt (successful or
+	// not) suppresses the next one for the same account.
+	ProfileBackfillCooldown = 30 * time.Minute
+	// profileBackfillItems bounds the outbox items imported per run.
+	profileBackfillItems = 20
+	// profileBackfillPins bounds the featured items imported per run.
+	profileBackfillPins = 10
+	// profileBackfillPerHost bounds concurrent runs against one remote host.
+	profileBackfillPerHost = 2
+	// profileBackfillSlots bounds concurrent runs overall.
+	profileBackfillSlots   = make(chan struct{}, 8)
+	profileBackfillTimeout = 90 * time.Second
+
+	// profileBackfillClient signs every fetch as the instance actor so
+	// servers that enforce authorized fetch answer too.
+	profileBackfillClient = func(ctx context.Context) (*Client, error) { return instanceActorSigningClient(ctx) }
+	// startProfileBackfill runs a backfill; tests replace it.
+	startProfileBackfill = func(f func()) { go f() }
+)
+
+type profileBackfillRun struct {
+	done  chan struct{}
+	state string
+}
+
+var profileBackfills = struct {
+	sync.Mutex
+	runs     map[uint64]*profileBackfillRun
+	hosts    map[string]int
+	hostWait map[string]chan struct{}
+	// local is the cooldown store used when Redis is not configured.
+	local map[uint64]profileBackfillMark
+}{runs: map[uint64]*profileBackfillRun{}, hosts: map[string]int{}, hostWait: map[string]chan struct{}{}, local: map[uint64]profileBackfillMark{}}
+
+type profileBackfillMark struct {
+	state   string
+	expires time.Time
+}
+
+func profileBackfillKey(id uint64) string {
+	return "community:profile_backfill:" + strconv.FormatUint(id, 10)
+}
+
+// claimProfileBackfill takes the cooldown slot for id. When the slot is taken
+// it returns the state recorded by the run that holds it.
+func claimProfileBackfill(ctx context.Context, id uint64) (bool, string) {
+	if clients := dbredis.GetRedises(); len(clients) > 0 {
+		ok, err := clients[0].SetNX(ctx, profileBackfillKey(id), ProfileBackfillPending, ProfileBackfillCooldown).Result()
+		if err == nil {
+			if ok {
+				return true, ""
+			}
+			state, _ := clients[0].Get(ctx, profileBackfillKey(id)).Result()
+			return false, state
+		}
+		log.Warn("profile backfill: redis cooldown unavailable, using local cooldown: %v", err)
+	}
+	profileBackfills.Lock()
+	defer profileBackfills.Unlock()
+	if mark, ok := profileBackfills.local[id]; ok && time.Now().Before(mark.expires) {
+		return false, mark.state
+	}
+	for k, mark := range profileBackfills.local {
+		if time.Now().After(mark.expires) {
+			delete(profileBackfills.local, k)
+		}
+	}
+	profileBackfills.local[id] = profileBackfillMark{state: ProfileBackfillPending, expires: time.Now().Add(ProfileBackfillCooldown)}
+	return true, ""
+}
+
+// recordProfileBackfill stores the outcome without extending the cooldown.
+func recordProfileBackfill(id uint64, state string) {
+	if clients := dbredis.GetRedises(); len(clients) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := clients[0].Set(ctx, profileBackfillKey(id), state, goredis.KeepTTL).Err(); err == nil {
+			return
+		}
+	}
+	profileBackfills.Lock()
+	defer profileBackfills.Unlock()
+	if mark, ok := profileBackfills.local[id]; ok {
+		mark.state = state
+		profileBackfills.local[id] = mark
+	}
+}
+
+// ResetProfileBackfillCooldown forgets the local cooldown state (tests).
+func ResetProfileBackfillCooldown() {
+	profileBackfills.Lock()
+	defer profileBackfills.Unlock()
+	profileBackfills.local = map[uint64]profileBackfillMark{}
+}
+
+// RequestProfileBackfill starts (or joins) a background backfill of a remote
+// account. It returns "" for accounts that are never backfilled, the state of
+// the last run while the cooldown holds, or pending with a channel that is
+// closed when the run started by this process finishes.
+func RequestProfileBackfill(ctx context.Context, account *models.Account) (string, <-chan struct{}) {
+	if account == nil || account.Id == 0 || account.Domain == nil || *account.Domain == "" || account.OriginId == "" || account.IsBan {
+		return "", nil
+	}
+	host := profileBackfillHost(account)
+	if host == "" || validateFederationURI(account.OriginId) != nil {
+		return "", nil
+	}
+	if suspended, err := hostSuspended(host); err != nil || suspended {
+		return "", nil
+	}
+	profileBackfills.Lock()
+	if run, ok := profileBackfills.runs[account.Id]; ok {
+		profileBackfills.Unlock()
+		return ProfileBackfillPending, run.done
+	}
+	profileBackfills.Unlock()
+	claimed, state := claimProfileBackfill(ctx, account.Id)
+	if !claimed {
+		return state, nil
+	}
+	profileBackfills.Lock()
+	if run, ok := profileBackfills.runs[account.Id]; ok {
+		profileBackfills.Unlock()
+		return ProfileBackfillPending, run.done
+	}
+	run := &profileBackfillRun{done: make(chan struct{})}
+	profileBackfills.runs[account.Id] = run
+	profileBackfills.Unlock()
+
+	acct := *account
+	startProfileBackfill(func() {
+		state := ProfileBackfillUnavailable
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error("panic backfilling profile %d: %v", acct.Id, rec)
+			}
+			recordProfileBackfill(acct.Id, state)
+			profileBackfills.Lock()
+			delete(profileBackfills.runs, acct.Id)
+			profileBackfills.Unlock()
+			close(run.done)
+		}()
+		bctx, cancel := context.WithTimeout(context.Background(), profileBackfillTimeout)
+		defer cancel()
+		release, err := acquireProfileBackfillSlot(bctx, host)
+		if err != nil {
+			return
+		}
+		defer release()
+		var berr error
+		state, berr = backfillProfile(bctx, &acct)
+		if berr != nil {
+			log.Info("profile backfill of %s: %v", acct.OriginId, berr)
+		}
+	})
+	return ProfileBackfillPending, run.done
+}
+
+func profileBackfillHost(account *models.Account) string {
+	u, err := url.Parse(account.OriginId)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// hostSuspended reports whether host or one of its parent domains is
+// suspended by an instance domain block.
+func hostSuspended(host string) (bool, error) {
+	suspend, _, err := models.DomainSeverities(db.GetDB())
+	if err != nil {
+		return false, err
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for host != "" {
+		if suspend[host] {
+			return true, nil
+		}
+		i := strings.IndexByte(host, '.')
+		if i < 0 {
+			break
+		}
+		host = host[i+1:]
+	}
+	return false, nil
+}
+
+// acquireProfileBackfillSlot waits for a per-host and a global slot.
+func acquireProfileBackfillSlot(ctx context.Context, host string) (func(), error) {
+	for {
+		profileBackfills.Lock()
+		if profileBackfills.hosts[host] < profileBackfillPerHost {
+			profileBackfills.hosts[host]++
+			profileBackfills.Unlock()
+			break
+		}
+		wait, ok := profileBackfills.hostWait[host]
+		if !ok {
+			wait = make(chan struct{})
+			profileBackfills.hostWait[host] = wait
+		}
+		profileBackfills.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	releaseHost := func() {
+		profileBackfills.Lock()
+		defer profileBackfills.Unlock()
+		if profileBackfills.hosts[host]--; profileBackfills.hosts[host] <= 0 {
+			delete(profileBackfills.hosts, host)
+		}
+		if wait, ok := profileBackfills.hostWait[host]; ok {
+			delete(profileBackfills.hostWait, host)
+			close(wait)
+		}
+	}
+	select {
+	case profileBackfillSlots <- struct{}{}:
+	case <-ctx.Done():
+		releaseHost()
+		return nil, ctx.Err()
+	}
+	return func() { <-profileBackfillSlots; releaseHost() }, nil
+}
+
+// errOutboxUnavailable means the remote hides or refuses the outbox.
+var errOutboxUnavailable = errors.New("outbox unavailable")
+
+// backfillProfile imports the featured collection and the newest outbox
+// items of account. It returns ProfileBackfillUnavailable when the outbox
+// cannot be read.
+func backfillProfile(ctx context.Context, account *models.Account) (string, error) {
+	client, err := profileBackfillClient(ctx)
+	if err != nil || client == nil {
+		log.Warn("profile backfill: instance actor signing unavailable: %v", err)
+		client = NewFetchClient()
+	}
+	r := &Resolver{client: client, cacheTTL: defaultCacheTTL, noQuoteFetch: true, profileBackfill: true}
+	actor, err := client.FetchObject(ctx, account.OriginId)
+	if err != nil {
+		return ProfileBackfillUnavailable, fmt.Errorf("fetching actor: %w", err)
+	}
+	if id, _ := actor["id"].(string); id != account.OriginId {
+		return ProfileBackfillUnavailable, errors.New("actor identity mismatch")
+	}
+	b := &profileBackfiller{ctx: ctx, r: r, account: account}
+	var items []any
+	total := -1
+	outbox := objectID(actor["outbox"])
+	outErr := errOutboxUnavailable
+	if outbox != "" {
+		if items, total, err = b.collectionItems(outbox, profileBackfillItems); err != nil {
+			outErr = fmt.Errorf("%w: %w", errOutboxUnavailable, err)
+		} else {
+			outErr = nil
+		}
+	}
+	// Pinned posts are usually older than the outbox page: import those not
+	// on it first so the profile still reads newest first by id.
+	var featured []any
+	featuredOK := false
+	if uri := objectID(actor["featured"]); uri != "" {
+		if featured, _, err = b.collectionItems(uri, profileBackfillPins); err != nil {
+			log.Info("profile backfill: featured of %s: %v", account.OriginId, err)
+		} else {
+			featuredOK = true
+		}
+	} else {
+		featuredOK = true
+	}
+	onOutbox := map[string]bool{}
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok && stringField(m, "type") == "Create" {
+			onOutbox[objectID(m["object"])] = true
+		}
+	}
+	for i := len(featured) - 1; i >= 0; i-- {
+		if !onOutbox[objectID(featured[i])] {
+			if _, err := b.importNote(featured[i]); err != nil {
+				log.Debug("profile backfill: skipping featured item: %v", err)
+			}
+		}
+	}
+	// Oldest first: statuses sort by id, so the newest import gets the
+	// highest id and the profile reads newest first.
+	for i := len(items) - 1; i >= 0; i-- {
+		if ctx.Err() != nil {
+			break
+		}
+		if err := b.importOutboxItem(items[i]); err != nil {
+			log.Debug("profile backfill: skipping outbox item of %s: %v", account.OriginId, err)
+		}
+	}
+	if featuredOK {
+		if err := b.syncPins(featured); err != nil {
+			log.Info("profile backfill: pins of %s: %v", account.OriginId, err)
+		}
+	}
+	if outErr != nil {
+		return ProfileBackfillUnavailable, outErr
+	}
+	if total >= 0 {
+		// Imports bump statuses_count; the outbox total is authoritative.
+		_ = db.GetDB().WithContext(ctx).Model(&models.AccountExtra{}).Where("account_id = ?", account.Id).UpdateColumn("statuses_count", total).Error
+	}
+	return ProfileBackfillDone, nil
+}
+
+type profileBackfiller struct {
+	ctx     context.Context
+	r       *Resolver
+	account *models.Account
+}
+
+// objectID returns the id of an object reference: a string or {"id": ...}.
+func objectID(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case map[string]any:
+		id, _ := t["id"].(string)
+		return id
+	}
+	return ""
+}
+
+// fetchOwn fetches uri, which must be hosted by the account's server.
+func (b *profileBackfiller) fetchOwn(uri string) (map[string]any, error) {
+	if !sameURIOrigin(uri, b.account.OriginId) {
+		return nil, fmt.Errorf("%s is not hosted by the actor's server", uri)
+	}
+	return b.r.client.FetchObject(b.ctx, uri)
+}
+
+// collectionItems reads up to limit items from a collection, following
+// "first" for paged collections. total is -1 when unknown.
+func (b *profileBackfiller) collectionItems(uri string, limit int) ([]any, int, error) {
+	coll, err := b.fetchOwn(uri)
+	if err != nil {
+		return nil, -1, err
+	}
+	total := -1
+	if n, ok := coll["totalItems"].(float64); ok && n >= 0 && n < 1<<31 {
+		total = int(n)
+	}
+	items := collectionPageItems(coll)
+	if items == nil {
+		switch first := coll["first"].(type) {
+		case map[string]any:
+			items = collectionPageItems(first)
+			if items == nil {
+				if next := objectID(first["next"]); next != "" {
+					page, err := b.fetchOwn(next)
+					if err != nil {
+						return nil, total, err
+					}
+					items = collectionPageItems(page)
+				}
+			}
+		case string:
+			page, err := b.fetchOwn(first)
+			if err != nil {
+				return nil, total, err
+			}
+			items = collectionPageItems(page)
+		}
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, total, nil
+}
+
+func collectionPageItems(page map[string]any) []any {
+	for _, key := range []string{"orderedItems", "items"} {
+		switch v := page[key].(type) {
+		case []any:
+			return v
+		case map[string]any, string:
+			return []any{v}
+		}
+	}
+	return nil
+}
+
+// ownNote returns the Note an item refers to, fetching it when the item is
+// only a reference. The note must be public or unlisted and written by the
+// account.
+func (b *profileBackfiller) ownNote(item any) (map[string]any, string, error) {
+	obj, _ := item.(map[string]any)
+	id := objectID(item)
+	if id == "" || validateFederationURI(id) != nil || !sameURIOrigin(id, b.account.OriginId) {
+		return nil, "", errors.New("note is not hosted by the actor's server")
+	}
+	if obj == nil || !statusObjectTypes[stringField(obj, "type")] || obj["attributedTo"] == nil {
+		fetched, err := b.fetchOwn(id)
+		if err != nil {
+			return nil, "", err
+		}
+		if objectID(fetched) != id {
+			return nil, "", errors.New("note identity mismatch")
+		}
+		obj = fetched
+	}
+	if !statusObjectTypes[stringField(obj, "type")] {
+		return nil, "", fmt.Errorf("unsupported object type %q", stringField(obj, "type"))
+	}
+	if firstActorID(obj["attributedTo"]) != b.account.OriginId {
+		return nil, "", errors.New("note is not written by the actor")
+	}
+	if getVisibilityFromActivity(obj) > models.StatusVisibilityUnlisted {
+		return nil, "", errStatusNotPublic
+	}
+	return obj, id, nil
+}
+
+func stringField(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
+// importNote stores the account's own note unless it is already known.
+func (b *profileBackfiller) importNote(item any) (*models.Status, error) {
+	if id := objectID(item); id != "" {
+		if existing, err := findInboundParent(b.ctx, id); err == nil && existing != nil && existing.Id != 0 {
+			if existing.Visibility > models.StatusVisibilityUnlisted || existing.AccountId != b.account.Id {
+				return nil, errStatusNotPublic
+			}
+			return existing, nil
+		}
+	}
+	obj, id, err := b.ownNote(item)
+	if err != nil {
+		return nil, err
+	}
+	status, err := b.r.createStatusFromObject(obj, id) //nolint:contextcheck
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+func (b *profileBackfiller) importOutboxItem(item any) error {
+	activity, _ := item.(map[string]any)
+	if activity == nil {
+		// A bare reference: fetch the activity from the actor's server.
+		uri, _ := item.(string)
+		fetched, err := b.fetchOwn(uri)
+		if err != nil {
+			return err
+		}
+		if objectID(fetched) != uri {
+			return errors.New("activity identity mismatch")
+		}
+		activity = fetched
+	}
+	switch stringField(activity, "type") {
+	case "Create":
+		if firstActorID(activity["actor"]) != b.account.OriginId {
+			return errors.New("activity actor mismatch")
+		}
+		_, err := b.importNote(activity["object"])
+		return err
+	case "Announce":
+		return b.importAnnounce(activity)
+	default:
+		if statusObjectTypes[stringField(activity, "type")] {
+			_, err := b.importNote(activity)
+			return err
+		}
+		return fmt.Errorf("unsupported activity %q", stringField(activity, "type"))
+	}
+}
+
+// importAnnounce stores a boost by the account of a public post.
+func (b *profileBackfiller) importAnnounce(activity map[string]any) error {
+	activityID := objectID(activity)
+	if activityID == "" || !sameURIOrigin(activityID, b.account.OriginId) || firstActorID(activity["actor"]) != b.account.OriginId {
+		return errors.New("announce is not by the actor")
+	}
+	if getVisibilityFromActivity(activity) > models.StatusVisibilityUnlisted {
+		return errStatusNotPublic
+	}
+	conn := db.GetDB().WithContext(b.ctx)
+	var existing int64
+	if err := conn.Model(&models.Status{}).Where("origin_uri = ?", activityID).Count(&existing).Error; err != nil || existing > 0 {
+		return err
+	}
+	target := objectID(activity["object"])
+	if target == "" || validateFederationURI(target) != nil {
+		return errors.New("announce without object")
+	}
+	if suspended, err := hostSuspended(utils.ExtractDomainFromURI(target)); err != nil || suspended {
+		return errors.New("announced post is on a suspended domain")
+	}
+	original, err := fetchPublicStatus(b.ctx, b.r, target)
+	if err != nil {
+		return err
+	}
+	if original.LocalOnly || original.DeletedAt != nil || (original.ReblogId != nil && *original.ReblogId != 0) {
+		return errors.New("announced post cannot be boosted")
+	}
+	var author models.Account
+	if err := conn.Select("id", "domain", "is_ban").First(&author, original.AccountId).Error; err != nil {
+		return err
+	}
+	if author.IsBan {
+		return errors.New("announced post author is banned")
+	}
+	if author.Domain != nil {
+		if suspended, err := hostSuspended(*author.Domain); err != nil || suspended {
+			return errors.New("announced post author is suspended")
+		}
+	}
+	now := time.Now()
+	published := utils.ParseRFC3339(stringField(activity, "published"))
+	if published == nil {
+		published = &now
+	}
+	reblog := models.Status{
+		AccountId:  b.account.Id,
+		ReblogId:   &original.Id,
+		Visibility: getVisibilityFromActivity(activity),
+		OriginUri:  &activityID,
+		Domain:     b.account.Domain,
+		CreatedAt:  published,
+		UpdatedAt:  &now,
+	}
+	reblog.MarkProfileBackfill()
+	return conn.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&reblog).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Status{}).Where("id = ?", original.Id).UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error
+	})
+}
+
+// syncPins replaces the account's pins with the featured collection items.
+func (b *profileBackfiller) syncPins(items []any) error {
+	ids := make([]uint64, 0, len(items))
+	for _, item := range items {
+		status, err := b.importNote(item)
+		if err != nil {
+			log.Debug("profile backfill: skipping featured item: %v", err)
+			continue
+		}
+		ids = append(ids, status.Id)
+	}
+	return db.GetDB().WithContext(b.ctx).Transaction(func(tx *gorm.DB) error {
+		stale := tx.Where("account_id = ?", b.account.Id)
+		if len(ids) > 0 {
+			stale = stale.Where("status_id NOT IN ?", ids)
+		}
+		if err := stale.Delete(&models.PinStatus{}).Error; err != nil {
+			return err
+		}
+		var have []uint64
+		if err := tx.Model(&models.PinStatus{}).Where("account_id = ?", b.account.Id).Pluck("status_id", &have).Error; err != nil {
+			return err
+		}
+		known := map[uint64]bool{}
+		for _, id := range have {
+			known[id] = true
+		}
+		// Featured lists the newest pin first; create in reverse so
+		// created_at keeps that order.
+		for i := len(ids) - 1; i >= 0; i-- {
+			if known[ids[i]] {
+				continue
+			}
+			known[ids[i]] = true
+			if err := tx.Create(&models.PinStatus{AccountId: b.account.Id, StatusId: ids[i]}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

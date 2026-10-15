@@ -40,6 +40,9 @@ type Resolver struct {
 	cacheTTL     time.Duration
 	// noQuoteFetch stops imported posts from fetching their own quotes.
 	noQuoteFetch bool
+	// profileBackfill marks every status it imports as profile backfill:
+	// kept out of timelines and notifications (see backfillProfile).
+	profileBackfill bool
 }
 
 // Default cache TTL (30 minutes).
@@ -527,7 +530,9 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
 	}
-	if models.ShouldBackfill(*status.CreatedAt, now, true) {
+	if r.profileBackfill {
+		status.MarkProfileBackfill()
+	} else if models.ShouldBackfill(*status.CreatedAt, now, true) {
 		status.MarkBackfilled()
 	}
 

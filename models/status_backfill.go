@@ -47,3 +47,20 @@ func (s *Status) MarkBackfilled() {
 
 	s.Properties[StatusPropBackfilled] = "1"
 }
+
+// StatusPropProfileBackfill marks a status imported while backfilling a
+// remote profile (outbox / featured collection). Besides the timeline
+// exclusion of StatusPropBackfilled it never creates notifications.
+const StatusPropProfileBackfill = "profile_backfill"
+
+// MarkProfileBackfill sets both the backfill and the profile backfill marker.
+func (s *Status) MarkProfileBackfill() {
+	s.MarkBackfilled()
+	s.Properties[StatusPropProfileBackfill] = "1"
+}
+
+// IsProfileBackfill reports whether the status was imported by a profile
+// backfill.
+func (s *Status) IsProfileBackfill() bool {
+	return s != nil && s.Properties[StatusPropProfileBackfill] == "1"
+}

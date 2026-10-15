@@ -30,6 +30,9 @@ func init() {
 		// 如果是新增的事件
 		switch event.Name {
 		case "after_create":
+			if status.IsProfileBackfill() {
+				return true
+			}
 			go func() {
 				err := Push(status, false, true)
 				if err != nil {
