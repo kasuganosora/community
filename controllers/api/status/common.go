@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -39,6 +40,11 @@ func returnFullSingleStatus(c *gin.Context, status *models.Status, currentAccoun
 		_ = c.Error(err)
 
 		controllers.AbortPanic()
+	}
+	// Origin servers (Misskey family, Pleroma, Fedibird) do not push reactions
+	// from third servers to us; show their counts on the detail view.
+	if !status.IsLocal() {
+		ret.EmojiReactions = activitypub.WithRemoteReactions(c.Request.Context(), status, ret.EmojiReactions)
 	}
 
 	c.JSON(200, ret)
