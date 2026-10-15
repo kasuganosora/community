@@ -17,7 +17,7 @@ func adminRoutePermission(path string) uint64 {
 	default:
 		return 0
 	}
-	if rest == "federation/jobs" || strings.HasPrefix(rest, "federation/jobs/") {
+	if rest == "federation/jobs" || strings.HasPrefix(rest, "federation/jobs/") || strings.HasPrefix(rest, "federation/queue-") {
 		return models.PermissionDevops
 	}
 	resource := strings.SplitN(rest, "/", 2)[0]

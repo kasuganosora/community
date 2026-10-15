@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
@@ -142,6 +143,20 @@ func safeInbox(raw string) string {
 	u.Fragment = ""
 	return u.String()
 }
+
+// queueStateScope adds the derived "delayed" (pending, scheduled in the
+// future) and "waiting" (pending, due now) pseudo-states.
+func queueStateScope(q *gorm.DB, stateCol, nextCol, state string) *gorm.DB {
+	switch state {
+	case "":
+		return q
+	case "delayed":
+		return q.Where(stateCol+" = ? AND "+nextCol+" > ?", "pending", time.Now())
+	case "waiting":
+		return q.Where(stateCol+" = ? AND ("+nextCol+" IS NULL OR "+nextCol+" <= ?)", "pending", time.Now())
+	}
+	return q.Where(stateCol+" = ?", state)
+}
 func FederationJobs(c *gin.Context) {
 	if !operationsAuthorized(c, models.PermissionDevops) {
 		return
@@ -163,9 +178,20 @@ func FederationJobs(c *gin.Context) {
 		feedJobs(c, conn, kind, state, page, limit)
 		return
 	case "delivery":
-		q := conn.Model(&activitypub.Delivery{})
-		if state != "" {
-			q = q.Where("status = ?", state)
+		q := queueStateScope(conn.Model(&activitypub.Delivery{}), "status", "next_retry_at", state)
+		if search := strings.TrimSpace(c.Query("q")); search != "" {
+			if len(search) > 255 {
+				c.JSON(422, gin.H{"error": "search too long"})
+				return
+			}
+			q = q.Where("(target_inbox LIKE ? OR activity_id LIKE ?)", "%"+search+"%", "%"+search+"%")
+		}
+		if host := strings.ToLower(strings.TrimSpace(c.Query("host"))); host != "" {
+			if !queueHostPattern.MatchString(host) {
+				c.JSON(422, gin.H{"error": "invalid host"})
+				return
+			}
+			q = hostScope(q, host)
 		}
 		if operationError(c, q.Count(&total).Error) {
 			return
@@ -175,12 +201,16 @@ func FederationJobs(c *gin.Context) {
 			return
 		}
 		for _, r := range rows {
-			items = append(items, gin.H{"id": fmt.Sprint(r.ID), "kind": kind, "state": r.Status, "activity_id": r.ActivityID, "destination": safeInbox(r.TargetInbox), "attempts": r.Retries, "last_error": safeJobError(r.LastError), "next_attempt_at": r.NextRetryAt, "created_at": r.CreatedAt})
+			items = append(items, gin.H{"id": fmt.Sprint(r.ID), "kind": kind, "state": r.Status, "activity_id": r.ActivityID, "activity_type": activityType(r.Payload), "destination": safeInbox(r.TargetInbox), "attempts": r.Retries, "last_error": safeJobError(r.LastError), "next_attempt_at": r.NextRetryAt, "created_at": r.CreatedAt})
 		}
 	case "outbox":
-		q := conn.Model(&models.FederationOutbox{})
-		if state != "" {
-			q = q.Where("state = ?", state)
+		q := queueStateScope(conn.Model(&models.FederationOutbox{}), "state", "next_attempt_at", state)
+		if search := strings.TrimSpace(c.Query("q")); search != "" {
+			if len(search) > 64 {
+				c.JSON(422, gin.H{"error": "search too long"})
+				return
+			}
+			q = q.Where("kind LIKE ?", "%"+search+"%")
 		}
 		if operationError(c, q.Count(&total).Error) {
 			return
@@ -248,4 +278,18 @@ func FederationJobAction(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"updated": true})
+}
+
+// activityType exposes only the top-level ActivityStreams type, never the body.
+func activityType(payload string) string {
+	var v struct {
+		Type any `json:"type"`
+	}
+	if json.Unmarshal([]byte(payload), &v) != nil {
+		return ""
+	}
+	if t, ok := v.Type.(string); ok && len(t) <= 64 {
+		return t
+	}
+	return ""
 }
