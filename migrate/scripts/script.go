@@ -51,6 +51,7 @@ var ScripsType = []MigrationScript{
 	DropDiscoveryAttemptedIndexScript{},
 	ListHashtagsScript{},
 	InstanceMetadataScript{},
+	PasskeyUserHandleScript{},
 }
 
 type MigrationScript interface {

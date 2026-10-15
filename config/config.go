@@ -61,6 +61,14 @@ type Config struct {
 	AvatarCacheMaxBytes  string `default:"5368709120"    env:"AVATAR_CACHE_MAX_BYTES"`  // total size cap (5 GiB); LRU eviction above it
 	AvatarCacheRemoteTTL string `default:"24h"           env:"AVATAR_CACHE_REMOTE_TTL"` // remote avatars are refetched after this
 
+	// WebAuthn (passkey) relying party. Empty values keep the defaults derived
+	// from the site base URL: RP ID = its hostname, display name "Community",
+	// origins = the base URL origin. Set WEBAUTHN_RP_ID when passkeys were
+	// registered under another domain (e.g. migrated from a Misskey server).
+	WebAuthnRPID          string `env:"WEBAUTHN_RP_ID"`
+	WebAuthnRPDisplayName string `env:"WEBAUTHN_RP_DISPLAY_NAME"`
+	WebAuthnRPOrigins     string `env:"WEBAUTHN_RP_ORIGINS"` // comma separated, e.g. https://maid.lat
+
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
 }

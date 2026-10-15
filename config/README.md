@@ -49,6 +49,9 @@ init() → loadConfig()
 | `AvatarCacheMaxBytes` | `AVATAR_CACHE_MAX_BYTES` | `5368709120` | 缓存总大小上限（5 GiB），超出时按最近访问时间 LRU 淘汰到 90% |
 | `AvatarCacheRemoteTTL` | `AVATAR_CACHE_REMOTE_TTL` | `24h` | 远程头像过期后重新拉取（失败时继续使用旧图）；本站头像按媒体 ID/更新时间换键，无需 TTL |
 | `WebSocketAllowedOrigins` | `WEBSOCKET_ALLOWED_ORIGINS` | _(无)_ | WebSocket 允许的来源 |
+| `WebAuthnRPID` | `WEBAUTHN_RP_ID` | _(APP_BASE_URL 主机名)_ | Passkey 的 RP ID；修改后在旧 RP ID 下注册的 passkey 全部失效。迁移 Misskey passkey 时设为原站域名（如 `maid.lat`） |
+| `WebAuthnRPDisplayName` | `WEBAUTHN_RP_DISPLAY_NAME` | `Community` | Passkey 对话框里显示的站点名 |
+| `WebAuthnRPOrigins` | `WEBAUTHN_RP_ORIGINS` | _(APP_BASE_URL 的 origin)_ | 额外允许的 WebAuthn origin，逗号分隔（如 `https://maid.lat`）；APP_BASE_URL 的 origin 始终允许 |
 | `HttpProxy` | `HTTP_PROXY` | _(无)_ | HTTP 代理地址 |
 
 ### 数据库配置

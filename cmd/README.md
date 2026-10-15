@@ -134,6 +134,7 @@ flag.Parse()
 | `feeds` | `FeedsCommand()` | Feed 管理（build / clear） |
 | `media` | `MediaCommand()` | 媒体文件管理（remove / remove-orphans / refresh / usage / lookup） |
 | `statuses` | `StatusesCommand()` | 帖子管理（remove） |
+| `passkeys` | `PasskeysCommand()` | Passkey 管理（import-misskey） |
 
 **子命令详情：**
 
@@ -143,6 +144,14 @@ flag.Parse()
 |--------|------|-----------|
 | `cache clear` | 清空 Redis 缓存（feed、timeline、status、account 等） | — |
 | `cache recount TYPE` | 重新统计硬缓存计数器（`accounts` / `statuses`） | `--concurrency`, `--verbose` |
+
+#### passkeys
+
+| 子命令 | 说明 | 常用 Flag |
+|--------|------|-----------|
+| `passkeys import-misskey` | 从 Misskey PostgreSQL 的 `user_security_key` 导入本地用户的 passkey，按用户名（不区分大小写）匹配本站本地账号；已存在的凭据跳过（可重复执行），输出 imported/skipped/unmatched/invalid 计数，不输出密钥 | `--dsn`（或 `MISSKEY_DSN`）, `--dry-run`, `-v` |
+
+导入的 passkey 只有在 `WEBAUTHN_RP_ID` 等于原 Misskey 站域名（如 `maid.lat`）且浏览器访问的 origin 在 `WEBAUTHN_RP_ORIGINS` / APP_BASE_URL 中时才能登录。
 
 #### domains
 
@@ -264,6 +273,10 @@ docker compose exec community tootctl accounts modify admin --reset-password
 
 # 清理 7 天前的媒体附件（dry-run 预览）
 ./tootctl media remove --days 7 --dry-run
+
+# 从 Misskey 导入 passkey（先 dry-run；DSN 走环境变量避免进入 shell 历史）
+MISSKEY_DSN='postgres://misskey:***@127.0.0.1:5432/misskey' ./tootctl passkeys import-misskey --dry-run
+MISSKEY_DSN='postgres://misskey:***@127.0.0.1:5432/misskey' ./tootctl passkeys import-misskey
 
 # 导入自定义表情
 ./tootctl emoji import /path/to/emojis.tar.gz --category mypack

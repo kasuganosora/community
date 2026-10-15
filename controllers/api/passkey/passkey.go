@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -32,9 +33,18 @@ type waUser struct {
 	user        *models.User
 	account     *models.Account
 	credentials []webauthn.Credential
+	// handle overrides the user handle for a login with an imported passkey
+	// whose authenticator returns a foreign handle (e.g. a Misskey user id).
+	handle []byte
 }
 
-func (u *waUser) WebAuthnID() []byte { return []byte(u.user.UUID) }
+func (u *waUser) WebAuthnID() []byte {
+	if len(u.handle) > 0 {
+		return u.handle
+	}
+
+	return []byte(u.user.UUID)
+}
 func (u *waUser) WebAuthnName() string {
 	if u.account != nil && u.account.Username != "" {
 		return u.account.Username
@@ -271,14 +281,54 @@ func Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func relyingParty(c *gin.Context) (*webauthn.WebAuthn, error) {
-	base := systemsettings.GetBaseURL()
-	parsed, err := url.Parse(base)
+// RPSettings is the effective WebAuthn relying party configuration.
+type RPSettings struct {
+	ID          string
+	DisplayName string
+	Origins     []string
+}
+
+// ConfiguredRP resolves the relying party from WEBAUTHN_RP_ID,
+// WEBAUTHN_RP_DISPLAY_NAME and WEBAUTHN_RP_ORIGINS, falling back to the site
+// base URL (RP ID = its hostname, origin = its scheme://host).
+func ConfiguredRP() (*RPSettings, error) {
+	parsed, err := url.Parse(systemsettings.GetBaseURL())
 	if err != nil || parsed.Hostname() == "" {
 		return nil, errors.New("invalid base url")
 	}
 
-	origins := []string{parsed.Scheme + "://" + parsed.Host}
+	rp := &RPSettings{
+		ID:          strings.ToLower(strings.TrimSpace(config.C.WebAuthnRPID)),
+		DisplayName: strings.TrimSpace(config.C.WebAuthnRPDisplayName),
+		Origins:     []string{parsed.Scheme + "://" + parsed.Host},
+	}
+	if rp.ID == "" {
+		rp.ID = parsed.Hostname()
+	}
+
+	if rp.DisplayName == "" {
+		rp.DisplayName = "Community"
+	}
+
+	for _, origin := range strings.Split(config.C.WebAuthnRPOrigins, ",") {
+		if origin = strings.TrimRight(strings.TrimSpace(origin), "/"); origin != "" {
+			rp.Origins = append(rp.Origins, origin)
+		}
+	}
+
+	rp.Origins = uniqueStrings(rp.Origins)
+
+	return rp, nil
+}
+
+func relyingParty(c *gin.Context) (*webauthn.WebAuthn, error) {
+	rp, err := ConfiguredRP()
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, _ := url.Parse(systemsettings.GetBaseURL())
+	origins := rp.Origins
 	if origin := c.GetHeader("Origin"); origin != "" {
 		ou, oerr := url.Parse(origin)
 		if oerr == nil && (ou.Hostname() == parsed.Hostname() || bothLoopback(ou.Hostname(), parsed.Hostname())) {
@@ -291,8 +341,8 @@ func relyingParty(c *gin.Context) (*webauthn.WebAuthn, error) {
 	}
 
 	return webauthn.New(&webauthn.Config{
-		RPDisplayName: "Community",
-		RPID:          parsed.Hostname(),
+		RPDisplayName: rp.DisplayName,
+		RPID:          rp.ID,
 		RPOrigins:     uniqueStrings(origins),
 	})
 }
@@ -460,8 +510,16 @@ func userByCredential(rawID, userHandle []byte) (webauthn.User, error) {
 		return nil, err
 	}
 
+	var handle []byte
 	if len(userHandle) > 0 && string(userHandle) != user.UUID {
-		return nil, errors.New("user handle mismatch")
+		// Imported passkeys keep the user handle of the server they were
+		// created on; accept exactly that one for this credential.
+		stored, derr := base64.RawURLEncoding.DecodeString(row.UserHandle)
+		if row.UserHandle == "" || derr != nil || string(stored) != string(userHandle) {
+			return nil, errors.New("user handle mismatch")
+		}
+
+		handle = stored
 	}
 
 	account, _ := user.GetAccountBase(db.GetDB())
@@ -470,7 +528,7 @@ func userByCredential(rawID, userHandle []byte) (webauthn.User, error) {
 		return nil, err
 	}
 
-	return &waUser{user: user, account: account, credentials: creds}, nil
+	return &waUser{user: user, account: account, credentials: creds, handle: handle}, nil
 }
 
 func clipRunes(s string, n int) string {
