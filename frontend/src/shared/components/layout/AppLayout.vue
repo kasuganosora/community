@@ -139,11 +139,20 @@ useKeyboardInset()
   }
 }
 
-/* The right rail only appears once it fits beside the full main column
-   (16 + 64 + 22.5 = 102.5rem); below that every page gets the same layout. */
-@media (max-width: 102.49rem) {
+/* The right rail only appears once it fits beside the full main column.
+   Media queries measure the viewport including a classic scrollbar (up to
+   ~17px), so 16 + 64 + 22.5 = 102.5rem is not enough: at 1640px the column
+   would shrink to ~1009px. Require 104rem (1664px) and pin the column to its
+   full width whenever the rail is shown. */
+@media (max-width: 103.99rem) {
   .app-layout__right {
     display: none;
+  }
+}
+
+@media (min-width: 104rem) {
+  .app-layout__center {
+    flex: 0 0 var(--main-column-width);
   }
 }
 
