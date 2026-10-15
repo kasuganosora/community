@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { timelineApi } from '../../infrastructure/timelineApi'
@@ -103,7 +104,6 @@ function retryFeed() {
     <div class="explore-search">
       <SearchBox live />
     </div>
-    <router-link to="/explore/topics" class="explore-topics">发现热点话题 <t-icon name="chevron-right" :size="16" /></router-link>
     <div v-if="followedTags.length" class="explore-followed">
       <span>关注的话题</span>
       <router-link v-for="item in followedTags" :key="item.name" :to="`/tags/${encodeURIComponent(item.name)}`">#{{ item.name }}</router-link>
@@ -114,7 +114,7 @@ function retryFeed() {
       label="时间线"
       @update:model-value="selectTab"
     />
-    <button v-if="newer.length" type="button" class="btn btn--secondary" @click="reloadHead">有新帖子，点击查看</button>
+    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
     <TimelineFeed
       :statuses="statuses"
       :scope-key="streamTarget"
@@ -139,7 +139,6 @@ function retryFeed() {
 .explore-page {
   min-height: 100dvh;
 }
-.explore-topics { display: flex; align-items: center; gap: .5rem; min-height: var(--hit-target); margin: var(--space-2) var(--space-4); color: var(--color-accent-text); font-size: var(--text-subhead); }
 
 .explore-search {
   padding: 0 var(--space-4);

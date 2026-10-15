@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 import {
-  AddIcon, ArrowLeftIcon, BookmarkIcon, BookmarkFilledIcon, BrowseIcon, BrowseOffIcon,
+  AddIcon, ArrowLeftIcon, ArrowUpIcon, BookmarkIcon, BookmarkFilledIcon, BrowseIcon, BrowseOffIcon,
   ChartBarIcon, ChatIcon, CheckIcon, CheckCircleIcon, ChevronDownIcon, ChevronLeftIcon,
   ChevronUpIcon, CloseIcon, DeleteIcon, EarthIcon, EditIcon, ErrorCircleIcon, HeartIcon,
   HeartFilledIcon, HomeIcon, ImageIcon, ImageAddIcon, LinkIcon, LocationIcon, LockOffIcon,
@@ -56,6 +56,7 @@ export const ICONS: Record<string, Component> = {
   'chevron-left': ChevronLeftIcon,
   'chevron-right': ChevronRightIcon,
   'chevron-up': ChevronUpIcon,
+  'arrow-up': ArrowUpIcon,
   'close': CloseIcon,
   'delete': DeleteIcon,
   'desktop': DesktopIcon,

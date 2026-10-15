@@ -45,12 +45,12 @@ describe('message composer mobile controls', () => {
     expect(wrapper.get('.app-fab').attributes('tabindex')).toBeUndefined()
     wrapper.unmount()
   })
-  it('gives group chat and settings the recommendation column space without affecting the home feed', async () => {
+  it('keeps the same column layout on groups, settings and the home feed', async () => {
     const { wrapper, router } = await setup()
     expect(wrapper.find('.app-layout__right').exists()).toBe(true)
     for (const path of ['/groups', '/groups/room', '/settings']) {
       await router.push(path); await nextTick()
-      expect(wrapper.find('.app-layout__right').exists()).toBe(false)
+      expect(wrapper.find('.app-layout__right').exists()).toBe(true)
     }
     await router.push('/'); await nextTick()
     expect(wrapper.find('.app-layout__right').exists()).toBe(true)

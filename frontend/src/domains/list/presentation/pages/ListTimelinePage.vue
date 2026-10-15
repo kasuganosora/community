@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
 import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -268,7 +269,7 @@ onMounted(load)
       <router-link to="/lists" class="btn btn--secondary btn--sm">返回列表</router-link>
     </div>
 
-    <button v-if="newer.length" class="btn btn--secondary" type="button" @click="reloadHead">有新帖子，点击查看</button>
+    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
     <TimelineFeed
       v-if="list && !listError"
       :statuses="statuses"

@@ -143,6 +143,7 @@
   --sidebar-left-width: 16rem;
   --sidebar-left-collapsed: 4.75rem;
   --content-max-width: 37.5rem;        /* 600px */
+  --main-column-width: 64rem;          /* 1024px: shared by every main-column page */
   --sidebar-right-width: 22.5rem;
   --bar-height: 3.25rem;               /* page nav bar */
   --tabbar-height: 3.25rem;            /* mobile tab bar, excl. safe area */

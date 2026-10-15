@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -83,7 +84,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
         {{ following ? '已关注话题' : '关注话题' }}
       </button>
     </div>
-    <button v-if="newer.length" class="btn btn--secondary" type="button" @click="reloadHead">有新帖子，点击查看</button>
+    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
     <TimelineFeed
       :statuses="statuses"
       :scope-key="streamTarget"

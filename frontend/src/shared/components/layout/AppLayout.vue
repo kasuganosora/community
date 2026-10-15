@@ -51,7 +51,7 @@ useKeyboardInset()
         </Transition>
       </router-view>
     </main>
-    <aside v-if="!isSettings && !isGroups" class="app-layout__right">
+    <aside class="app-layout__right">
       <RightSidebar />
     </aside>
 
@@ -82,7 +82,8 @@ useKeyboardInset()
 .app-layout {
   display: flex;
   justify-content: center;
-  max-width: 80rem;
+  /* left rail + shared main column + right rail */
+  max-width: calc(var(--sidebar-left-width) + var(--main-column-width) + var(--sidebar-right-width));
   margin: 0 auto;
   min-height: 100vh;
   min-height: 100dvh;
@@ -103,18 +104,15 @@ useKeyboardInset()
 .app-layout__center {
   flex: 1 1 auto;
   width: 100%;
-  max-width: var(--content-max-width);
+  /* Every main-column page shares one width so switching pages never
+     resizes or shifts the column. */
+  max-width: var(--main-column-width);
   min-width: 0;
   min-height: 100vh;
   min-height: 100dvh;
   box-shadow:
     calc(-1 * var(--hairline)) 0 0 var(--color-separator),
     var(--hairline) 0 0 var(--color-separator);
-}
-
-.app-layout--groups .app-layout__center,
-.app-layout--settings .app-layout__center {
-  max-width: 64rem;
 }
 
 .app-layout__right {
@@ -141,7 +139,9 @@ useKeyboardInset()
   }
 }
 
-@media (max-width: 62.49rem) {
+/* The right rail only appears once it fits beside the full main column
+   (16 + 64 + 22.5 = 102.5rem); below that every page gets the same layout. */
+@media (max-width: 102.49rem) {
   .app-layout__right {
     display: none;
   }

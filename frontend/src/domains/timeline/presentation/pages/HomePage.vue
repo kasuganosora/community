@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
 import { computed, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -94,6 +95,7 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
+function revealNewer() { window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); timelineStore.revealNewer(chronologicalType.value) }
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
   else await fetchChronological()
@@ -145,7 +147,7 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       发现服务暂时降级，本次仅显示一页近期公开帖。
       <button type="button" @click="onTabChange('global')">浏览全局</button>
     </div>
-    <button v-if="!isDiscovery && chronologicalTimeline.newer.length" type="button" class="home-new" @click="timelineStore.revealNewer(chronologicalType)">有新帖子，点击查看</button>
+    <NewPostsPill :show="!isDiscovery && chronologicalTimeline.newer.length > 0" top="6.5rem" @click="revealNewer" />
     <TimelineFeed
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"
       :has-previous="!isDiscovery && chronologicalTimeline.hasPrevious"
@@ -215,21 +217,6 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
   }
 }
 
-.home-new {
-  position: sticky;
-  top: 6.5rem;
-  z-index: calc(var(--z-bar) - 1);
-  display: block;
-  margin: var(--space-3) auto 0;
-  min-height: 2.25rem;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  color: #fff;
-  font-size: var(--text-footnote);
-  font-weight: var(--weight-semibold);
-  box-shadow: var(--shadow-2);
-}
 .discovery-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--gutter); color: var(--color-label-secondary); font-size: var(--text-footnote); border-bottom: 1px solid var(--color-separator); }
 .discovery-note a, .discovery-note button { display: inline-flex; align-items: center; color: var(--color-accent-text); min-height: var(--hit-target); }
 .discovery-note button:active:not(:disabled):not(:focus-visible) { opacity: .7; }
