@@ -98,7 +98,7 @@ func TestAdvertisementsScheduleLinksAndNoTracking(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
 	require.Len(t, list, 1)
 	require.Equal(t, "active", list[0].Title)
-	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.Equal(t, "public, max-age=300", w.Header().Get("Cache-Control"))
 	require.Equal(t, 422, assetRequest(UpdateAdvertisement, "PATCH", "1", `{"target_url":"javascript:alert(1)"}`).Code)
 	require.Equal(t, 422, assetRequest(UpdateAdvertisement, "PATCH", "1", `{"target_url":"https://user:password@example.test"}`).Code)
 }

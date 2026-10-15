@@ -239,7 +239,7 @@ func PublicAdvertisements(c *gin.Context) {
 		assetError(c, err)
 		return
 	}
-	c.Header("Cache-Control", "no-store")
+	c.Header("Cache-Control", "public, max-age=300")
 	c.JSON(200, rows)
 }
 func parseAdDate(s string) (*time.Time, error) {
