@@ -19,7 +19,7 @@ const emit = defineEmits<{ search: [query: string] }>()
 const router = useRouter()
 const query = defineModel<string>({ default: '' })
 const root = ref<HTMLElement | null>(null)
-const inputControl = ref<{ inputRef?: HTMLInputElement; focus: () => void } | null>(null)
+const inputControl = ref<HTMLInputElement | null>(null)
 const edged = ref(false)
 
 let scroller: HTMLElement | Window | null = null
@@ -67,9 +67,6 @@ async function clearSearch() {
 }
 
 onMounted(() => {
-  // TDesign forwards fallthrough ARIA attributes to its wrapper, not the
-  // native input. Name the actual control through its public inputRef API.
-  inputControl.value?.inputRef?.setAttribute('aria-label', '搜索')
   if (!root.value || props.embedded) return
   scroller = scrollParent(root.value)
   updateEdge()
@@ -84,23 +81,29 @@ onBeforeUnmount(() => {
 
 <template>
   <form ref="root" class="search-box" :class="{ 'search-box--edge': edged, 'search-box--embedded': embedded, 'search-box--has-query': !!query }" role="search" @submit.prevent="handleSearch" @compositionstart="composing = true" @compositionend="composing = false; scheduleSearch()">
-    <t-input
-      ref="inputControl"
-      v-model="query"
-      type="search"
-      name="q"
-      autocomplete="off"
-      :placeholder="placeholder || '搜索帖子、用户、话题或群组'"
-    >
-      <template #prefixIcon>
-        <t-icon name="search" />
-      </template>
-      <template v-if="query" #suffixIcon>
-        <button type="button" class="search-box__clear" aria-label="清除搜索" @click.stop="clearSearch">
-          <t-icon name="close" :size="16" />
-        </button>
-      </template>
-    </t-input>
+    <!-- Native input with TDesign's input class names (styled by
+         tdesign-overrides.css): the search box is on most first screens and
+         must not pull in TDesign's Input runtime. -->
+    <div class="t-input__wrap">
+      <div class="t-input t-input--prefix" :class="{ 't-input--suffix': !!query }">
+        <span class="t-input__prefix t-input__prefix-icon" aria-hidden="true"><t-icon name="search" /></span>
+        <input
+          ref="inputControl"
+          v-model="query"
+          class="t-input__inner"
+          type="search"
+          name="q"
+          autocomplete="off"
+          aria-label="搜索"
+          :placeholder="placeholder || '搜索帖子、用户、话题或群组'"
+        />
+        <span v-if="query" class="t-input__suffix t-input__suffix-icon">
+          <button type="button" class="search-box__clear" aria-label="清除搜索" @click.stop="clearSearch">
+            <t-icon name="close" :size="16" />
+          </button>
+        </span>
+      </div>
+    </div>
     <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim() && !allowEmpty">搜索</button>
   </form>
 </template>
@@ -147,6 +150,10 @@ onBeforeUnmount(() => {
 }
 
 .search-box :deep(.t-input) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
   height: var(--hit-target);
   border-radius: var(--radius-full);
   padding: 0 var(--space-4);
@@ -163,6 +170,24 @@ onBeforeUnmount(() => {
 
 .search-box :deep(.t-input__suffix-icon) {
   margin-inline-start: var(--space-1);
+}
+
+/* Base layout formerly supplied by TDesign's input stylesheet. */
+.search-box .t-input__inner {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+}
+
+.search-box .t-input__prefix,
+.search-box .t-input__suffix {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Keep one accessible clear button instead of browser-specific search chrome. */

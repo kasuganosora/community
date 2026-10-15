@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { TDesignResolver } from 'unplugin-vue-components/resolvers'
-import { precompress } from './vite-plugins/precompress'
+import { precompress } from './vite-plugins/precompress.ts'
 
 export default defineConfig(({ mode }) => {
   // Dev-server proxy target for the Go backend. Defaults to the backend's
@@ -27,6 +27,14 @@ export default defineConfig(({ mode }) => {
           // a local spinner keeps TDesign's shared runtime out of it.
           (name: string) => (name === 'TLoading'
             ? { name: 'default', from: '@/shared/components/common/AppLoading.vue' }
+            : undefined),
+          // <t-button> is on nearly every screen; a local button with the
+          // same class names drops TDesign's Button runtime and stylesheet.
+          (name: string) => (name === 'TDialog'
+            ? { name: 'default', from: '@/shared/components/common/LazyDialog.vue' }
+            : undefined),
+          (name: string) => (name === 'TButton'
+            ? { name: 'default', from: '@/shared/components/common/AppButton.vue' }
             : undefined),
           TDesignResolver({ library: 'vue-next' }),
         ],
