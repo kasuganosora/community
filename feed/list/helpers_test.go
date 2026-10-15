@@ -43,6 +43,8 @@ func allListModels() []any {
 		&models.Poll{},
 		&models.PollOption{},
 		&models.Tag{},
+		&models.StatusTag{},
+		&models.ListHashtag{},
 	}
 }
 

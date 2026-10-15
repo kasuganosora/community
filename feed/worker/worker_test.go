@@ -30,7 +30,7 @@ func workerFixture(t *testing.T) (*Worker, *redis.Client) {
 	if dsn := os.Getenv("FEED_WORKER_TEST_MYSQL_DSN"); dsn != "" {
 		conn, err = gorm.Open(mysql.Open(dsn), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 		require.NoError(t, err)
-		for _, table := range []string{"feed_batches", "feed_events", "accounts", "follows", "lists", "list_accounts", "statuses", "status_to_accounts", "tags", "status_tags", "media_attachments"} {
+		for _, table := range []string{"feed_batches", "feed_events", "accounts", "follows", "lists", "list_accounts", "list_hashtags", "blocks", "statuses", "status_to_accounts", "tags", "status_tags", "media_attachments"} {
 			require.NoError(t, conn.Migrator().DropTable(table))
 		}
 	} else {
@@ -45,7 +45,9 @@ func workerFixture(t *testing.T) (*Worker, *redis.Client) {
 	for _, sql := range []string{
 		"CREATE TABLE accounts (id BIGINT PRIMARY KEY, user_id BIGINT, domain TEXT, deleted_at TIMESTAMP, created_at TIMESTAMP, last_activity_at TIMESTAMP, feed_last_seen_at TIMESTAMP)",
 		"CREATE TABLE follows (id BIGINT PRIMARY KEY,account_id BIGINT,follow_id BIGINT,status INT)",
-		"CREATE TABLE lists (id BIGINT PRIMARY KEY,account_id BIGINT,deleted_at TIMESTAMP)",
+		"CREATE TABLE lists (id BIGINT PRIMARY KEY,account_id BIGINT,replies_policy INT DEFAULT 0,deleted_at TIMESTAMP)",
+		"CREATE TABLE list_hashtags (id BIGINT PRIMARY KEY,list_id BIGINT,tag_id BIGINT)",
+		"CREATE TABLE blocks (id BIGINT PRIMARY KEY,account_id BIGINT,type INT,target_account_id BIGINT,target_domain TEXT)",
 		"CREATE TABLE list_accounts (id BIGINT PRIMARY KEY,list_id BIGINT,account_id BIGINT)",
 		"CREATE TABLE statuses (id BIGINT PRIMARY KEY,account_id BIGINT,visibility INT,feed_revision BIGINT,deleted_at TIMESTAMP,scheduled_at TIMESTAMP,domain TEXT,origin_uri TEXT,reblog_id BIGINT,conversation_id BIGINT,properties TEXT)",
 		"CREATE TABLE status_to_accounts (status_id BIGINT,account_id BIGINT)",
@@ -456,4 +458,30 @@ func TestNewDefaultsIdlePollMax(t *testing.T) {
 	require.GreaterOrEqual(t, w.Options.IdlePollMax, 5*time.Second)
 	w = New(nil, Options{})
 	require.Equal(t, DefaultOptions().IdlePollMax, w.Options.IdlePollMax)
+}
+
+func TestListScanAddsListsFollowingThePostHashtags(t *testing.T) {
+	w, _ := workerFixture(t)
+	for _, sql := range []string{
+		"INSERT INTO lists (id,account_id) VALUES (1,2),(2,3),(3,4),(4,2)",
+		"INSERT INTO list_accounts VALUES (1,4,1)",                 // list 4 has the author as member
+		"INSERT INTO list_hashtags VALUES (1,1,7),(2,2,7),(3,3,8)", // lists 1,2 follow tag 7
+		"INSERT INTO blocks VALUES (1,3,0,1,'')",                   // owner of list 2 blocks the author
+	} {
+		require.NoError(t, w.DB.Exec(sql).Error)
+	}
+	e := models.FeedEvent{EventKey: "tagged", Kind: models.FeedStatusCreate, ObjectType: "status", ObjectID: 10, ActorID: 1, ObjectVersion: 1,
+		Metadata: models.FeedEventMetadata{ActorID: 1, Visibility: models.StatusVisibilityPublic, TagIDs: []uint64{7}}}
+	require.NoError(t, w.DB.Create(&e).Error)
+	_, err := w.ScanOnce(context.Background())
+	require.NoError(t, err)
+	var batches []models.FeedBatch
+	require.NoError(t, w.DB.Where("target_kind = ?", "list").Find(&batches).Error)
+	got := []uint64{}
+	for _, b := range batches {
+		for _, r := range b.Recipients {
+			got = append(got, r.ListID)
+		}
+	}
+	require.ElementsMatch(t, []uint64{1, 4}, got)
 }

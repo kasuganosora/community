@@ -331,7 +331,9 @@ func SetRouter(app gin.IRouter) {
 		POST("/lists/:id/followers", list.FollowList).
 		DELETE("/lists/:id/followers", list.UnfollowList).
 		POST("/lists/:id/accounts", list.AddAccountToList).
-		DELETE("/lists/:id/accounts", list.RemoveAccountFromList)
+		DELETE("/lists/:id/accounts", list.RemoveAccountFromList).
+		POST("/lists/:id/tags", list.AddListTags).
+		DELETE("/lists/:id/tags", list.RemoveListTags)
 
 	// 列表（读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
@@ -339,6 +341,7 @@ func SetRouter(app gin.IRouter) {
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
 		GET("/lists/:id/followers", list.GetListFollowers).
+		GET("/lists/:id/tags", list.GetListTags).
 		GET("/accounts/:id/lists", list.ListsContainingAccount)
 
 	// 状态（写入）
@@ -620,7 +623,9 @@ func SetRouter(app gin.IRouter) {
 		POST("/lists/:id/followers", list.FollowList).
 		DELETE("/lists/:id/followers", list.UnfollowList).
 		POST("/lists/:id/accounts", list.AddAccountToList).
-		DELETE("/lists/:id/accounts", list.RemoveAccountFromList)
+		DELETE("/lists/:id/accounts", list.RemoveAccountFromList).
+		POST("/lists/:id/tags", list.AddListTags).
+		DELETE("/lists/:id/tags", list.RemoveListTags)
 
 	// 列表（读取）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadLists})).
@@ -628,6 +633,7 @@ func SetRouter(app gin.IRouter) {
 		GET("/lists/:id", list.GetList).
 		GET("/lists/:id/accounts", list.GetListAccounts).
 		GET("/lists/:id/followers", list.GetListFollowers).
+		GET("/lists/:id/tags", list.GetListTags).
 		GET("/accounts/:id/lists", list.ListsContainingAccount)
 
 	// 状态（写入）

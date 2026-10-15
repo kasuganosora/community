@@ -12,3 +12,12 @@ export const REPLIES_POLICY_OPTIONS = [
   { value: 'followed', label: '显示对我关注的人的回复' },
   { value: 'none', label: '不显示回复' },
 ] as const
+
+/** Matches the server's models.MaxListHashtags. */
+export const MAX_LIST_TAGS = 20
+
+/** "#Godot " -> "Godot"; returns '' for input that cannot be a hashtag. */
+export function normalizeTagInput(raw: string): string {
+  const name = raw.trim().replace(/^#+/, '').trim()
+  return /^[\p{L}\p{N}_\p{M}·・]+$/u.test(name) ? name : ''
+}

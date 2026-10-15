@@ -1,5 +1,5 @@
 import client from '@/shared/api/client'
-import type { MastodonAccount, MastodonList, MastodonStatus } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonList, MastodonStatus, MastodonTag } from '@/shared/types/mastodon'
 import type { PaginationParams } from '@/shared/types/pagination'
 
 export type RepliesPolicy = 'followed' | 'list' | 'none'
@@ -52,6 +52,28 @@ export const listApi = {
     await client.delete(`/api/v1/lists/${encodeURIComponent(id)}/accounts`, {
       params: { 'account_ids[]': accountIds },
     })
+  },
+
+  // Extension (not Mastodon): hashtags a list follows besides its members.
+  async getTags(id: string): Promise<MastodonTag[]> {
+    const { data } = await client.get<MastodonTag[]>(`/api/v1/lists/${encodeURIComponent(id)}/tags`)
+    return data
+  },
+
+  async addTags(id: string, names: string[]): Promise<MastodonTag[]> {
+    const { data } = await client.post<MastodonTag[]>(`/api/v1/lists/${encodeURIComponent(id)}/tags`, { names })
+    return data
+  },
+
+  async removeTags(id: string, names: string[]): Promise<MastodonTag[]> {
+    const { data } = await client.delete<MastodonTag[]>(`/api/v1/lists/${encodeURIComponent(id)}/tags`, { params: { 'names[]': names } })
+    return data
+  },
+
+  /** Hashtag autocomplete via the regular search API. */
+  async searchTags(q: string, signal?: AbortSignal): Promise<MastodonTag[]> {
+    const { data } = await client.get<{ hashtags?: MastodonTag[] }>('/api/v2/search', { params: { q, type: 'hashtags', limit: 8, resolve: false }, signal })
+    return data.hashtags ?? []
   },
 
   async getTimeline(id: string, params?: PaginationParams): Promise<MastodonStatus[]> {

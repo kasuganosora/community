@@ -245,7 +245,20 @@ func (w *Worker) scanLists(conn *gorm.DB, event *models.FeedEvent, cursor, upper
 	for len(*batches) < 4 {
 		query := conn.Model(&models.List{}).Where("id > ? AND id <= ?", cursor[kind], upper[kind])
 		if !all {
-			query = query.Where("id IN (?)", conn.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).Where("account_id = ?", event.ActorID).Select("list_id"))
+			fresh := conn.Session(&gorm.Session{NewDB: true})
+			members := fresh.Model(&models.ListAccount{}).Where("account_id = ?", event.ActorID).Select("list_id")
+			if tags := event.Metadata.TagIDs; len(tags) > 0 && event.Metadata.Visibility != models.StatusVisibilityDirect && event.Metadata.Visibility != models.StatusVisibilityPrivate {
+				// Lists following one of the post's hashtags (tag_id is
+				// indexed), unless the owner and author block each other.
+				byTag := fresh.Model(&models.ListHashtag{}).Where("tag_id IN ?", tags).Select("list_id")
+				blocked := fresh.Model(&models.Block{}).Select("1").Where("(blocks.type = ? AND ((blocks.account_id = lists.account_id AND blocks.target_account_id = ?) OR (blocks.account_id = ? AND blocks.target_account_id = lists.account_id)) OR (blocks.type = ? AND blocks.account_id = lists.account_id AND blocks.target_domain = (SELECT accounts.domain FROM accounts WHERE accounts.id = ?)))", models.BlockTypeAccount, event.ActorID, event.ActorID, models.BlockTypeDomain, event.ActorID)
+				if event.Metadata.ReplyID != 0 {
+					byTag = byTag.Where("list_id NOT IN (?)", fresh.Model(&models.List{}).Where("replies_policy = ?", models.ListRepliesPolicyNone).Select("id"))
+				}
+				query = query.Where("id IN (?) OR (id IN (?) AND NOT EXISTS (?))", members, byTag, blocked)
+			} else {
+				query = query.Where("id IN (?)", members)
+			}
 		}
 		var rows []models.List
 		if err := query.Select("id, account_id").Order("id").Limit(w.Options.BatchSize).Find(&rows).Error; err != nil {

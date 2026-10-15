@@ -179,3 +179,24 @@ func ListCanView(list *List, account *Account) (pass bool, err error) {
 
 	return pass, err
 }
+
+// MaxListHashtags bounds how many hashtags one list may follow.
+const MaxListHashtags = 20
+
+// ListHashtag makes a list also collect public/unlisted posts carrying a tag
+// (like a Misskey antenna). tag_id is indexed for tag -> lists fan-out.
+type ListHashtag struct {
+	Id        uint64     `gorm:"primary_key;autoIncrement"                                   json:"id"`
+	ListId    uint64     `gorm:"not null;uniqueIndex:uidx_list_hashtags_list_tag,priority:1" json:"list_id"`
+	TagId     uint64     `gorm:"not null;index;uniqueIndex:uidx_list_hashtags_list_tag,priority:2" json:"tag_id"`
+	CreatedAt *time.Time `gorm:"autoCreateTime"                                              json:"created_at"`
+}
+
+func (ListHashtag) TableName() string { return "list_hashtags" }
+
+// ListAuthorBlockedSQL is true when the list owner (first and second ?) and
+// the status author have blocked each other, or the owner blocked the
+// author's domain (third ?). Strangers reached through a list hashtag must
+// pass it; members were added by hand.
+const ListAuthorBlockedSQL = `(EXISTS (SELECT 1 FROM blocks WHERE blocks.type = 0 AND ((blocks.account_id = ? AND blocks.target_account_id = statuses.account_id) OR (blocks.account_id = statuses.account_id AND blocks.target_account_id = ?)))` +
+	` OR (statuses.domain IS NOT NULL AND EXISTS (SELECT 1 FROM blocks WHERE blocks.type = 1 AND blocks.account_id = ? AND blocks.target_domain = statuses.domain)))`

@@ -34,6 +34,7 @@ beforeEach(() => {
   vi.spyOn(listApi, 'getTimeline').mockResolvedValue([{id:'10'} as MastodonStatus])
   vi.spyOn(listApi, 'getAccounts').mockResolvedValue([member])
   vi.spyOn(userApi, 'getAllFollowing').mockResolvedValue([candidate])
+  vi.spyOn(listApi, 'getTags').mockResolvedValue([])
 })
 async function open() {
   const w = mount(ListTimelinePage, {global});await flushPromises()

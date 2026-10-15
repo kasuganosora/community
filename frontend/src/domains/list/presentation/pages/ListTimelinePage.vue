@@ -2,9 +2,9 @@
 import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
-import type { MastodonAccount, MastodonList } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonList, MastodonTag } from '@/shared/types/mastodon'
 import { listApi, type RepliesPolicy } from '../../infrastructure/listApi'
-import { validateListTitle, REPLIES_POLICY_OPTIONS, MAX_LIST_TITLE_LENGTH } from '../../domain/list'
+import { validateListTitle, REPLIES_POLICY_OPTIONS, MAX_LIST_TITLE_LENGTH, MAX_LIST_TAGS, normalizeTagInput } from '../../domain/list'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
@@ -83,18 +83,79 @@ async function openManage() {
   membersLoading.value = true
   try {
     const me = authStore.currentUser
-    const [m, following] = await Promise.all([
+    const [m, following, t] = await Promise.all([
       listApi.getAccounts(listId.value),
       // Lists can only contain accounts you follow.
       me ? userApi.getAllFollowing(me.id) : Promise.resolve([]),
+      listApi.getTags(listId.value).catch(() => [] as MastodonTag[]),
     ])
     if (version !== loadVersion) return
     members.value = m
+    tags.value = t
     candidates.value = following
   } catch (e) {
     if (version === loadVersion) manageError.value = e instanceof Error ? e.message : '加载成员失败'
   } finally {
     if (version === loadVersion) membersLoading.value = false
+  }
+}
+
+// ---- Hashtags (extension: posts with these tags also show in the list) ----
+const tags = ref<MastodonTag[]>([])
+const tagQuery = ref('')
+const tagSuggestions = ref<MastodonTag[]>([])
+const tagKeys = computed(() => new Set(tags.value.map(t => t.name.toLowerCase())))
+const visibleSuggestions = computed(() => tagSuggestions.value.filter(t => !tagKeys.value.has(t.name.toLowerCase())))
+let suggestTimer: ReturnType<typeof setTimeout> | undefined
+let suggestController: AbortController | null = null
+watch(tagQuery, (raw) => {
+  clearTimeout(suggestTimer)
+  suggestController?.abort()
+  const q = normalizeTagInput(raw)
+  if (!q) { tagSuggestions.value = []; return }
+  suggestTimer = setTimeout(async () => {
+    const controller = new AbortController()
+    suggestController = controller
+    try {
+      const found = await listApi.searchTags(q, controller.signal)
+      if (suggestController === controller) tagSuggestions.value = found
+    } catch { /* suggestions are optional */ }
+  }, 250)
+})
+
+async function addTag(name = tagQuery.value) {
+  const tag = normalizeTagInput(name)
+  if (!tag) return
+  if (tagKeys.value.has(tag.toLowerCase())) { tagQuery.value = ''; return }
+  if (tags.value.length >= MAX_LIST_TAGS) { manageError.value = `每个列表最多 ${MAX_LIST_TAGS} 个话题`; return }
+  const operation = mutationScope()
+  busy.value = true
+  manageError.value = null
+  try {
+    const updated = await listApi.addTags(operation.id, [tag])
+    if (!operation.current()) return
+    tags.value = updated
+    tagQuery.value = ''
+    tagSuggestions.value = []
+  } catch (e) {
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '添加话题失败'
+  } finally {
+    if (operation.current()) busy.value = false
+  }
+}
+
+async function removeTag(t: MastodonTag) {
+  const operation = mutationScope()
+  busy.value = true
+  manageError.value = null
+  try {
+    const updated = await listApi.removeTags(operation.id, [t.name])
+    if (!operation.current()) return
+    tags.value = updated
+  } catch (e) {
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : '移除话题失败'
+  } finally {
+    if (operation.current()) busy.value = false
   }
 }
 
@@ -106,6 +167,7 @@ function resetManage() {
   manageOpen.value = false; confirmDelete.value = false
   members.value = []; candidates.value = []; editTitle.value = ''; editPolicy.value = 'list'
   memberQuery.value = ''; manageError.value = null; busy.value = false; membersLoading.value = false
+  tags.value = []; tagQuery.value = ''; tagSuggestions.value = []
 }
 
 async function saveSettings() {
@@ -254,13 +316,35 @@ onMounted(load)
 
       <p v-if="manageError" class="manage-error" role="alert">{{ manageError }}</p>
 
+      <h3 class="manage-subtitle">话题（{{ tags.length }}/{{ MAX_LIST_TAGS }}）</h3>
+      <p class="manage-hint manage-hint--tight">带有这些话题的公开帖子也会出现在列表中。</p>
+      <ul v-if="tags.length" class="tag-chips" aria-label="列表话题">
+        <li v-for="t in tags" :key="t.name" class="tag-chip">
+          <span>#{{ t.name }}</span>
+          <button type="button" class="tag-chip__remove" :aria-label="`移除话题 ${t.name}`" :disabled="busy" @click="removeTag(t)">
+            <t-icon name="close" :size="14" />
+          </button>
+        </li>
+      </ul>
+      <form v-if="tags.length < MAX_LIST_TAGS" class="tag-add" @submit.prevent="addTag()">
+        <label for="list-tag-input" class="sr-only">添加话题</label>
+        <input id="list-tag-input" v-model="tagQuery" class="manage-input" type="text" inputmode="text" enterkeyhint="done"
+          autocomplete="off" autocapitalize="off" placeholder="#话题名" maxlength="100" />
+        <button type="submit" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy || !tagQuery.trim()">添加话题</button>
+      </form>
+      <ul v-if="visibleSuggestions.length" class="tag-suggestions" role="listbox" aria-label="话题建议">
+        <li v-for="s in visibleSuggestions" :key="s.name">
+          <button type="button" role="option" :aria-selected="false" :disabled="busy" @click="addTag(s.name)">#{{ s.name }}</button>
+        </li>
+      </ul>
+
       <h3 class="manage-subtitle">成员（{{ members.length }}）</h3>
       <div v-if="membersLoading" class="page-loading"><t-loading /></div>
       <template v-else>
         <p v-if="members.length === 0" class="manage-hint">还没有成员。</p>
         <AccountRow v-for="m in members" :key="m.id" :account="m">
           <template #action>
-            <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click.stop="removeMember(m)">移除</button>
+            <button type="button" class="btn btn--ghost btn--sm manage-row-btn" :disabled="busy" @click.stop="removeMember(m)">移除</button>
           </template>
         </AccountRow>
 
@@ -272,7 +356,7 @@ onMounted(load)
         </p>
         <AccountRow v-for="a in filteredCandidates" :key="a.id" :account="a">
           <template #action>
-            <button type="button" class="btn btn--secondary btn--sm" :disabled="busy" @click.stop="addMember(a)">添加</button>
+            <button type="button" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy" @click.stop="addMember(a)">添加</button>
           </template>
         </AccountRow>
       </template>
@@ -356,6 +440,77 @@ select.manage-input {
   padding: var(--space-2) 0;
   font-size: var(--font-sm);
   color: var(--color-label-secondary, var(--text-secondary));
+}
+
+/* Row actions sit in a flex row that stretches children to the row height
+   (a long bio made "添加" a tall pill); keep them compact and centered. */
+.manage-row-btn {
+  flex: none;
+  align-self: center;
+  height: auto;
+  white-space: nowrap;
+}
+
+.manage-hint--tight {
+  padding: 0 0 var(--space-2);
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: var(--color-fill, rgb(120 120 128 / 12%));
+  font-size: var(--font-sm);
+}
+
+.tag-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-label-secondary, var(--text-secondary));
+  cursor: pointer;
+}
+
+.tag-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-suggestions button {
+  padding: 4px 10px;
+  border: 1px solid var(--color-separator, var(--border-color));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-accent, inherit);
+  font: inherit;
+  font-size: var(--font-sm);
+  cursor: pointer;
 }
 
 .manage-danger {

@@ -49,6 +49,7 @@ var ScripsType = []MigrationScript{
 	MatrixAliasScript{},
 	DiscoveryScript{},
 	DropDiscoveryAttemptedIndexScript{},
+	ListHashtagsScript{},
 }
 
 type MigrationScript interface {

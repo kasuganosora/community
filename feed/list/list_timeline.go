@@ -72,10 +72,17 @@ func (timeline *ListTimeline) memberIDs(tx *gorm.DB) *gorm.DB {
 	return tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).Where("list_id = ?", timeline.List.Id).Select("account_id")
 }
 
+func (timeline *ListTimeline) tagIDs(tx *gorm.DB) *gorm.DB {
+	return tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListHashtag{}).Where("list_id = ?", timeline.List.Id).Select("tag_id")
+}
+
+// candidates are posts by list members (subject to replies_policy) plus
+// posts carrying one of the list's hashtags, both public or unlisted.
+// Tagged posts by strangers skip authors the owner blocks (either way) or
+// whose domain the owner blocked; replies_policy "none" still drops replies.
 func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
 	query := feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(tx)).
-		Where("(statuses.visibility = ? OR statuses.visibility = ?)", models.StatusVisibilityPublic, models.StatusVisibilityUnlisted).
-		Where("statuses.account_id IN (?)", timeline.memberIDs(tx))
+		Where("(statuses.visibility = ? OR statuses.visibility = ?)", models.StatusVisibilityPublic, models.StatusVisibilityUnlisted)
 	if timeline.OnlyLocal {
 		query = query.Where("statuses.domain IS NULL")
 	}
@@ -88,19 +95,28 @@ func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
 	if timeline.List == nil {
 		return query
 	}
+	noReply := "(statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0)"
+	var members *gorm.DB
 	switch timeline.List.RepliesPolicy {
 	case models.ListRepliesPolicyNone:
-		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0")
+		members = tx.Session(&gorm.Session{NewDB: true}).Where("statuses.account_id IN (?) AND "+noReply, timeline.memberIDs(tx))
 	case models.ListRepliesPolicyFollowed:
 		following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).
 			Scopes(models.Followed).
 			Where("account_id = ?", timeline.List.AccountId).
 			Select("follow_id")
-		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0 OR statuses.in_reply_to_account_id IN (?)", following)
+		members = tx.Session(&gorm.Session{NewDB: true}).Where("statuses.account_id IN (?) AND ("+noReply+" OR statuses.in_reply_to_account_id IN (?))", timeline.memberIDs(tx), following)
 	default:
-		query = query.Where("statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0 OR statuses.in_reply_to_account_id IN (?)", timeline.memberIDs(tx))
+		members = tx.Session(&gorm.Session{NewDB: true}).Where("statuses.account_id IN (?) AND ("+noReply+" OR statuses.in_reply_to_account_id IN (?))", timeline.memberIDs(tx), timeline.memberIDs(tx))
 	}
-	return query
+	owner := timeline.List.AccountId
+	tagged := tx.Session(&gorm.Session{NewDB: true}).
+		Where("statuses.id IN (?)", tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusTag{}).Where("tag_id IN (?)", timeline.tagIDs(tx)).Select("status_id")).
+		Where("NOT "+models.ListAuthorBlockedSQL, owner, owner, owner)
+	if timeline.List.RepliesPolicy == models.ListRepliesPolicyNone {
+		tagged = tagged.Where(noReply)
+	}
+	return query.Where(members.Or(tagged))
 }
 
 // DropCache forgets a list feed so the next read rebuilds it from the current
@@ -163,13 +179,7 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
 
-	err = db.GetDB().Model(
-		&models.List{}).
-		Where("id IN (?)", db.GetDB().Model(
-			&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
-		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
-		Find(
-			&lists).Error
+	err = targetLists(status).Find(&lists).Error
 	if err != nil {
 		return err
 	}
@@ -244,13 +254,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	// 查询这个发推人在哪些列表里(找出最后30天有人看过的列表)
 	lists := make([]models.List, 0)
 
-	err = db.GetDB().Model(
-		&models.List{}).
-		Where("id IN (?)", db.GetDB().Model(
-			&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")).
-		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30)).
-		Find(
-			&lists).Error
+	err = targetLists(status).Find(&lists).Error
 	if err != nil {
 		return err
 	}
@@ -306,4 +310,23 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	}
 
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)
+}
+
+// targetLists are the recently viewed lists a status belongs in: lists that
+// contain its author, plus lists following one of its hashtags (tag_id is
+// indexed) whose owner has not blocked the author.
+func targetLists(status *models.Status) *gorm.DB {
+	conn := db.GetDB()
+	members := conn.Model(&models.ListAccount{}).Where("account_id = ?", status.AccountId).Select("list_id")
+	byTag := conn.Model(&models.ListHashtag{}).
+		Where("tag_id IN (?)", conn.Model(&models.StatusTag{}).Where("status_id = ?", status.Id).Select("tag_id")).
+		Select("list_id")
+	notBlocked := conn.Model(&models.Status{}).Select("1").Where("statuses.id = ?", status.Id).
+		Where("NOT " + strings.ReplaceAll(models.ListAuthorBlockedSQL, "?", "lists.account_id"))
+	if status.InReplyToId != nil && *status.InReplyToId != 0 {
+		byTag = byTag.Where("list_id NOT IN (?)", conn.Model(&models.List{}).Where("replies_policy = ?", models.ListRepliesPolicyNone).Select("id"))
+	}
+	return conn.Model(&models.List{}).
+		Where("id IN (?) OR (id IN (?) AND EXISTS (?))", members, byTag, notBlocked).
+		Where("last_viewed_at > ?", time.Now().AddDate(0, 0, -30))
 }
