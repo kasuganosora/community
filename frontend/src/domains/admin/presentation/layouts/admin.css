@@ -121,8 +121,11 @@
   flex: none;
 }
 .admin-nav-link>span {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .admin-sidebar-footer {
   flex: none;

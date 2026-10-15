@@ -11,7 +11,7 @@ export const adminNavigation: AdminNavGroup[] = [
     item('/emojis', '自定义表情', 'happy', 'emojis'),
     item('/decorations', '头像装饰', 'image', 'branding'),
     item('/instances', '联合', 'internet', 'federation'),
-    item('/jobs', '作业队列（含联邦投递）', 'time', 'system'),
+    item('/jobs', '作业队列', 'time', 'system'),
     item('/files', '文件', 'file', 'media'),
     item('/announcements', '公告', 'loudspeaker', 'announcements'),
     item('/advertisements', '广告', 'image', 'branding'),

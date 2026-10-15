@@ -46,7 +46,7 @@ function closeMenu() {
         <section v-for="group in navigation" :key="group.label" class="admin-nav-group" :aria-label="group.label">
           <h2>{{ group.label }}</h2>
           <router-link v-for="item in group.items" :key="item.path" :to="item.path" class="admin-nav-link" :class="{ 'admin-nav-link--active': section.path === item.path }" :aria-current="section.path === item.path ? 'page' : undefined">
-            <t-icon :name="item.icon" :size="20" aria-hidden="true" /><span>{{ item.title }}</span>
+            <t-icon :name="item.icon" :size="20" aria-hidden="true" /><span :title="item.title">{{ item.title }}</span>
           </router-link>
         </section>
       </nav>
