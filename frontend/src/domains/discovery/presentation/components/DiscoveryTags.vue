@@ -13,7 +13,6 @@ const windowSize = ref<'24h' | '7d'>('24h')
 const items = ref<TagItem[]>([]), page = ref<TagsPage | null>(null)
 const loading = ref(false), error = ref(''), reset = ref(false)
 const title = computed(() => page.value?.kind === 'recent' ? '近期话题' : '热点话题')
-const rangeLabel = computed(() => `全局（含跨站） · 过去${windowSize.value === '24h' ? ' 24 小时' : ' 7 天'}`)
 let version = 0, controller: AbortController | undefined
 async function load(more = false) {
   if (more && (loading.value || !page.value?.next_cursor || reset.value)) return
@@ -59,10 +58,10 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
 
 <template>
   <section v-if="!compact || !page?.disabled" class="discovery-tags" :class="{ 'discovery-tags--compact': compact }" :aria-busy="loading">
-    <header class="discovery-tags__header"><h2>{{ title }}</h2><p v-if="!compact">{{ rangeLabel }}</p></header>
-    <div v-if="!compact" class="discovery-tags__filters">
-      <label>统计窗口<select v-model="windowSize"><option value="24h">过去 24 小时</option><option value="7d">过去 7 天</option></select></label>
-    </div>
+    <header class="discovery-tags__header">
+      <h2>{{ title }}</h2>
+      <select v-if="!compact" v-model="windowSize" class="discovery-tags__window" aria-label="统计窗口"><option value="24h">24 小时</option><option value="7d">7 天</option></select>
+    </header>
     <p v-if="page?.disabled" class="discovery-tags__message" role="status">本站暂未开放热点话题。</p>
     <p v-else-if="page?.kind === 'recent' && !compact" class="discovery-tags__message">当前参与人数不足以形成热点榜，以下是窗口内的近期公开话题。</p>
     <ul v-if="items.length" class="discovery-tags__list">
@@ -70,8 +69,6 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
         <router-link :to="`/tags/${encodeURIComponent(tag.name.replace(/^#/, ''))}`">
           <strong>#{{ tag.name }}</strong>
           <span>{{ formatCount(tag.posts_count) }} 条公开帖 · {{ formatCount(tag.authors_count) }} 位作者</span>
-          <small v-if="!compact && tag.growth_state === 'rising'">近期参与上升</small>
-          <small v-else-if="!compact && tag.growth_state === 'no_previous'">上一窗口暂无可比数据</small>
         </router-link>
         <button v-if="auth.currentUser && !compact" type="button" class="discovery-tags__hide" :aria-label="`停止推荐话题 ${tag.name}`" @click="hideTag(tag)"><t-icon name="close" :size="16" /></button>
       </li>
@@ -81,9 +78,7 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
     <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">最近暂无可展示的公开话题。</p>
     <p v-if="reset" class="discovery-tags__message" role="status">榜单已更新，请刷新后继续。 <button type="button" @click="load()">刷新榜单</button></p>
     <div v-if="!compact && page && !page.disabled" class="discovery-tags__footer">
-      <p>包含本站及已接收的跨站公开内容。</p>
       <p v-if="!page.coverage_complete">统计受处理预算限制，仅反映本站本轮已观察的内容。</p>
-      <p v-if="page.as_of">统计截至 {{ new Date(page.as_of).toLocaleString() }}</p>
       <button v-if="page.next_cursor && !reset" type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="load(true)">继续加载</button>
       <button v-else type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load()">刷新话题</button>
     </div>
@@ -94,13 +89,12 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
 <style scoped>
 .discovery-tags { min-width: 0; }
 .discovery-tags--compact { background: var(--color-bg-grouped); border-radius: var(--radius-lg); overflow: hidden; }
-.discovery-tags__header, .discovery-tags__filters, .discovery-tags__message, .discovery-tags__footer { padding: var(--space-3) var(--space-4); }
+.discovery-tags__header, .discovery-tags__message, .discovery-tags__footer { padding: var(--space-3) var(--space-4); }
+.discovery-tags__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .discovery-tags__header h2 { font-size: var(--text-title-3); font-weight: var(--weight-bold); }
-.discovery-tags__header p, .discovery-tags__message, .discovery-tags__footer { color: var(--color-label-secondary); font-size: var(--text-footnote); line-height: 1.6; }
-.discovery-tags__header p { margin-top: var(--space-1); }
-.discovery-tags__filters { display: flex; flex-wrap: wrap; gap: var(--space-3); border-bottom: 1px solid var(--color-separator); }
-.discovery-tags__filters label { flex: 1; min-width: 10rem; display: grid; gap: .5rem; font-size: var(--text-footnote); }
-.discovery-tags__filters select { width: 100%; min-height: var(--hit-target); border: 1px solid var(--color-separator); border-radius: var(--radius-md); background: var(--color-bg-row); color: var(--color-label); padding: .5rem .75rem; font: inherit; font-size: 1rem; }
+.discovery-tags__message, .discovery-tags__footer { color: var(--color-label-secondary); font-size: var(--text-footnote); line-height: 1.6; }
+.discovery-tags__window { flex: none; min-height: 2rem; border: none; border-radius: var(--radius-full); background: var(--color-fill); color: var(--color-label); padding: .25rem 1.75rem .25rem .75rem; font: inherit; font-size: var(--text-footnote); appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - .9rem) 55%, calc(100% - .6rem) 55%; background-size: .3rem .3rem; background-repeat: no-repeat; cursor: pointer; }
+@media (pointer: coarse) { .discovery-tags__window { font-size: 16px; } }
 .discovery-tags__list { list-style: none; padding: 0; }
 .discovery-tags__list li { display: flex; align-items: center; padding: 0 var(--space-4); gap: .5rem; }
 .discovery-tags__list a { display: block; flex: 1; min-width: 0; color: var(--color-label); padding: var(--space-3) 0; text-decoration: none; }

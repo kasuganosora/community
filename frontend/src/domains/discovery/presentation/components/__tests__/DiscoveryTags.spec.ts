@@ -5,7 +5,7 @@ import { discoveryApi, type TagsPage } from '../../../infrastructure/discoveryAp
 import { sessionEpoch } from '@/shared/api/sessionScope'
 vi.mock('@/domains/auth/presentation/stores/authStore', () => ({ useAuthStore: () => ({ currentUser: null }) }))
 afterEach(() => vi.restoreAllMocks())
-const page: TagsPage = { items: [{ name: '摄影', url: '', posts_count: 17, authors_count: 6, growth: null, growth_state: 'unknown', new_entry: false }], next_cursor: null, as_of: '2026-10-14T12:00:00Z', checked_at: '2026-10-14T12:00:01Z', window: '24h', scope: 'federated', kind: 'recent', version: '1', coverage_complete: true }
+const page: TagsPage = { items: [{ name: '摄影', url: '', posts_count: 17, authors_count: 6, growth: null, growth_state: 'no_previous', new_entry: false }], next_cursor: null, as_of: '2026-10-14T12:00:00Z', checked_at: '2026-10-14T12:00:01Z', window: '24h', scope: 'federated', kind: 'recent', version: '1', coverage_complete: true }
 const options = { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } }
 
 it('shows global topics without a scope setting and keeps the global scope when changing time windows', async () => {
@@ -14,9 +14,9 @@ it('shows global topics without a scope setting and keeps the global scope when 
   await flushPromises()
   expect(wrapper.text()).toContain('近期话题')
   expect(wrapper.text()).toContain('17 条公开帖 · 6 位作者')
-  expect(wrapper.text()).toContain('全局（含跨站） · 过去 24 小时')
-  expect(wrapper.text()).not.toContain('内容范围')
-  expect(wrapper.text()).toContain('包含本站及已接收的跨站公开内容。')
+  for (const removed of ['全局（含跨站）', '统计窗口', '内容范围', '包含本站及已接收的跨站公开内容。', '统计截至', '上一窗口暂无可比数据', '近期参与上升']) expect(wrapper.text()).not.toContain(removed)
+  expect(wrapper.text()).toContain('刷新话题')
+  expect(wrapper.get('select').attributes('aria-label')).toBe('统计窗口')
   expect(api.mock.lastCall?.[0]).toEqual({ window: '24h', scope: 'federated', limit: 20, cursor: undefined })
   expect(wrapper.find('a').attributes('href')).toBe('/tags/%E6%91%84%E5%BD%B1')
   const selects = wrapper.findAll('select')
