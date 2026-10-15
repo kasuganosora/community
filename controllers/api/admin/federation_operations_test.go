@@ -26,7 +26,7 @@ func operationsDB(t *testing.T) (*gorm.DB, *models.Account) {
 	old := database.GetDB()
 	database.SetTestDB(db)
 	t.Cleanup(func() { database.SetTestDB(old); raw.Close() })
-	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Account{}, &models.Role{}, &models.RoleUser{}, &models.Follow{}, &models.FederationOutbox{}, &activitypub.Delivery{}, &adminwebhook.Subscription{}, &adminwebhook.Delivery{}))
+	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Account{}, &models.Role{}, &models.RoleUser{}, &models.Follow{}, &models.InstanceMetadata{}, &models.Status{}, &models.FederationOutbox{}, &activitypub.Delivery{}, &adminwebhook.Subscription{}, &adminwebhook.Delivery{}))
 	require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Create(&models.User{Id: 1, UUID: "ops-admin", UserName: "ops-admin", EmailHash: "ops-admin", IsAdmin: true, Status: models.UserStatusNormal}).Error)
 	a := &models.Account{Id: 1, UserId: 1, Username: "ops-admin"}
 	require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Create(a).Error)

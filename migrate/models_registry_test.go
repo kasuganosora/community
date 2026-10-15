@@ -62,6 +62,7 @@ var appModels = []any{
 	&models.FeedBatch{},
 	&models.Filter{},
 	&models.Follow{},
+	&models.InstanceMetadata{},
 	&models.Group{},
 	&models.GroupMember{},
 	&models.GroupMessage{},

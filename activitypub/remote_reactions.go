@@ -124,42 +124,17 @@ func remoteGetJSON(ctx context.Context, method, rawURL string, body any, out any
 }
 
 // remoteSoftware returns the reaction API family of host ("" if unknown),
-// cached so a status detail costs at most one nodeinfo lookup per host.
+// backed by the shared persisted instance_metadata cache (24h, with failure
+// backoff) plus a short in-memory layer.
 func remoteSoftware(ctx context.Context, host string) string {
 	host = strings.ToLower(host)
 	if v, ok := softwareCache.get(host); ok {
 		return v.(string)
 	}
-	base := remoteReactionBase(host)
-	var wk struct {
-		Links []struct {
-			Rel  string `json:"rel"`
-			Href string `json:"href"`
-		} `json:"links"`
-	}
-	family := ""
-	err := remoteGetJSON(ctx, http.MethodGet, base+"/.well-known/nodeinfo", nil, &wk)
-	if err == nil {
-		href := ""
-		for _, l := range wk.Links {
-			if strings.HasPrefix(l.Rel, "http://nodeinfo.diaspora.software/ns/schema/") {
-				href = l.Href
-			}
-		}
-		b, _ := url.Parse(base)
-		if u, perr := url.Parse(href); perr == nil && href != "" && strings.EqualFold(u.Host, b.Host) {
-			var ni struct {
-				Software struct {
-					Name string `json:"name"`
-				} `json:"software"`
-			}
-			if err = remoteGetJSON(ctx, http.MethodGet, href, nil, &ni); err == nil {
-				family = softwareFamily(ni.Software.Name)
-			}
-		}
-	}
+	meta := InstanceMetadataFor(ctx, host)
+	family := softwareFamily(meta.Software)
 	ttl := remoteSoftwareTTL
-	if err != nil {
+	if meta.FailCount > 0 && meta.FetchedAt == nil {
 		ttl = remoteSoftwareFailTTL
 	}
 	softwareCache.set(host, family, ttl)

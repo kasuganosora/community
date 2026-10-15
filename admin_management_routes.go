@@ -43,6 +43,7 @@ func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	write.POST("/settings/email/test", admin.TestEmailSettings)
 	write.POST("/settings/storage/test", admin.TestStorageSettings)
 	read.GET("/federation/instances", admin.FederationInstances)
+	read.GET("/federation/instances/activity", admin.FederationInstanceActivity)
 	read.GET("/federation/jobs", admin.FederationJobs)
 	write.POST("/federation/jobs/:kind/:id/action", admin.FederationJobAction)
 	read.GET("/federation/queue-stats", admin.FederationQueueStats)

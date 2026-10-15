@@ -332,6 +332,8 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	// 注册关闭前钩子
 	srv := server.New(app, opts)
 	srv.RegisterPreShutdown(func() error { stopTransfers(); return nil })
+	instanceMeta := activitypub.StartInstanceMetadataWorker()
+	srv.RegisterPostShutdown(func() error { instanceMeta.Stop(); return nil })
 	outbound, initErr := activitypub.StartOutboundWorker()
 	log.FatalIf(initErr)
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
