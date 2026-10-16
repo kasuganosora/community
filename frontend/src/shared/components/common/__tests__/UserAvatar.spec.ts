@@ -69,4 +69,25 @@ describe('fixed-size account avatars', () => {
     wrapper.unmount()
   })
 
+  it('renders Misskey-style decorations at 200% with angle, flip and offsets', () => {
+    const wrapper = mount(UserAvatar, { props: { account: { ...account, avatar_decorations: [
+      { id: '1', url: '/api/v1/avatar_decorations/1/image', angle: 0.25, flip_h: true, offset_x: 0.1, offset_y: -0.05 },
+      { id: 'r', url: 'https://c.test/proxy/media/AbC_-9' },
+      { id: 'evil', url: 'https://remote.test/deco.png' },
+    ] } } })
+    const imgs = wrapper.findAll('.avatar-decoration')
+    expect(imgs.length).toBe(2)
+    const style = imgs[0].attributes('style') || ''
+    expect(style).toContain('rotate: 90deg')
+    expect(style).toContain('scale: -1 1')
+    expect(style).toContain('translate: 10% -5%')
+    expect(imgs[1].attributes('src')).toBe('/proxy/media/AbC_-9')
+    expect(imgs[1].attributes('style') || '').not.toContain('rotate')
+    wrapper.unmount()
+  })
+  it('lets a preview override the account decorations', () => {
+    const wrapper = mount(UserAvatar, { props: { account: { ...account, avatar_decoration_url: '/api/v1/avatar_decorations/7/image' }, decorations: [] } })
+    expect(wrapper.find('.avatar-decoration').exists()).toBe(false)
+    wrapper.unmount()
+  })
 })

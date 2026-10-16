@@ -1,15 +1,54 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { MastodonAccount } from '@/shared/types/mastodon'
+import type { AvatarDecorationPlacement, MastodonAccount } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { avatarIdentity, identiconPattern } from '@/shared/utils/accountAvatar'
 
 const props = defineProps<{
   account: MastodonAccount
   size?: number
+  /** Overrides the account's decorations (settings preview). */
+  decorations?: AvatarDecorationPlacement[]
 }>()
 
-const decoration = computed(() => /^\/api\/v1\/avatar_decorations\/\d+\/image$/.test(props.account.avatar_decoration_url || '') ? props.account.avatar_decoration_url : '')
+// Only this server's decoration endpoint and the media proxy are trusted:
+// remote decoration images must never be hotlinked.
+const LOCAL_DECORATION = /^\/api\/v1\/avatar_decorations\/\d+\/image$/
+const PROXIED_DECORATION = /^\/proxy\/media\/[A-Za-z0-9_-]+$/
+function decorationUrl(raw: string | undefined): string {
+  if (!raw) return ''
+  if (LOCAL_DECORATION.test(raw)) return raw
+  const proxied = sameOriginMediaUrl(raw)
+  return PROXIED_DECORATION.test(proxied) ? proxied : ''
+}
+function finite(v: number | undefined, limit: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(-limit, Math.min(limit, v)) : 0
+}
+const decorations = computed(() => {
+  const source = props.decorations ?? (props.account.avatar_decorations?.length
+    ? props.account.avatar_decorations
+    : props.account.avatar_decoration_url ? [{ id: props.account.avatar_decoration_id || 'legacy', url: props.account.avatar_decoration_url }] : [])
+  return source.slice(0, 16).map((d, index) => {
+    const url = decorationUrl(d.url)
+    if (!url) return null
+    // Same CSS individual transform properties as Misskey's MkAvatar.vue:
+    // translate is relative to the decoration's own (200%) box.
+    const angle = finite(d.angle, 0.5), x = finite(d.offset_x, 0.25), y = finite(d.offset_y, 0.25)
+    return {
+      key: `${index}:${d.id}:${url}`,
+      url,
+      style: {
+        rotate: angle === 0 ? undefined : `${angle * 360}deg`,
+        scale: d.flip_h ? '-1 1' : undefined,
+        translate: x === 0 && y === 0 ? undefined : `${x * 100}% ${y * 100}%`,
+      } as Record<string, string | undefined>,
+    }
+  }).filter((d): d is NonNullable<typeof d> => d !== null)
+})
+const failedDecorations = ref<string[]>([])
+function decorationFailed(key: string) {
+  if (!failedDecorations.value.includes(key)) failedDecorations.value = [...failedDecorations.value, key]
+}
 const avatarSize = computed(() => props.size || 40)
 function avatarUrl(raw: string | undefined): string {
   if (!raw) return ''
@@ -59,13 +98,24 @@ function imageFailed(event: Event) {
         <rect v-for="cell in pattern.cells" :key="`${cell.x}-${cell.y}`" :x="cell.x" :y="cell.y" width="20" height="20" :fill="pattern.foreground" />
       </svg>
     </span>
-    <img v-if="decoration" :key="decoration" class="avatar-decoration" :src="decoration" alt="" aria-hidden="true" @error="($event.target as HTMLImageElement).style.visibility = 'hidden'" />
+    <img
+      v-for="d in decorations"
+      :key="d.key"
+      class="avatar-decoration"
+      :src="d.url"
+      :style="failedDecorations.includes(d.key) ? { ...d.style, visibility: 'hidden' } : d.style"
+      alt=""
+      aria-hidden="true"
+      draggable="false"
+      @error="decorationFailed(d.key)"
+    />
   </span>
 </template>
 
 <style scoped>
 .avatar-frame { display: inline-flex; position: relative; flex-shrink: 0; vertical-align: middle; }
-.avatar-decoration { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+/* Misskey MkAvatar geometry: 200% of the avatar, centred on it. */
+.avatar-decoration { position: absolute; z-index: 1; top: -50%; left: -50%; width: 200%; max-width: none; pointer-events: none; user-select: none; }
 .user-avatar {
   display: inline-flex;
   align-items: center;

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader } from '../components/ui'
+import AvatarDecorationLimitCard from '../components/AvatarDecorationLimitCard.vue'
 import { communityAssetsApi, type Advertisement, type AvatarDecoration } from '../../infrastructure/communityAssetsApi'
 const props = defineProps<{ kind: 'avatar_decorations' | 'advertisements' }>()
 const ads = computed(() => props.kind === 'advertisements'), heading = computed(() => ads.value ? '广告' : '头像挂件')
@@ -87,6 +88,7 @@ onBeforeUnmount(() => { generation++ })
       </article>
     </div>
     <AdminEmpty v-if="!loading && !error && !items.length">暂无{{ heading }}</AdminEmpty>
+    <AvatarDecorationLimitCard v-if="!ads" />
   </section>
 </template>
 <style scoped>

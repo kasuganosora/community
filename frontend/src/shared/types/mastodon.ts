@@ -42,7 +42,19 @@ export interface MastodonField {
   verified_at: string | null
 }
 
+/** One avatar decoration in Misskey's geometry: angle is a fraction of a
+ * full turn, offsets are fractions of the decoration's own size. */
+export interface AvatarDecorationPlacement {
+  id: string
+  url: string
+  angle?: number
+  flip_h?: boolean
+  offset_x?: number
+  offset_y?: number
+}
+
 export interface MastodonAccount {
+  avatar_decorations?: AvatarDecorationPlacement[]
   avatar_decoration_id?: string
   avatar_decoration_url?: string
   /** Present only on the authenticated account verification response. */
