@@ -1475,7 +1475,8 @@
       "envFileLocked": "Locked by .env",
       "processLocked": "Locked by environment",
       "envFileLockedHint": "Set in .env ({0}). Edit .env and restart the server to change it.",
-      "processLockedHint": "Set by the process environment variable {0}; it can’t be edited here."
+      "processLockedHint": "Set by the process environment variable {0}; it can’t be edited here.",
+      "testEmailLive": "Tests the saved config; no email is sent. Saved SMTP settings are used for new mail connections right away — no restart needed."
     },
     "SystemAdminPage": {
       "s1": "Matrix service",

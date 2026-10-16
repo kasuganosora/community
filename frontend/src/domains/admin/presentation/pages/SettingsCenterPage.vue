@@ -204,7 +204,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
     </form>
     <section v-if="connectionSection && data" class="admin-card">
       <h2>{{ $t('admin.SettingsCenterPage.s31') }}</h2>
-      <p>{{ $t('admin.SettingsCenterPage.s32') }}</p>
+      <p>{{ props.section === 'email' ? $t('admin.SettingsCenterPage.testEmailLive') : $t('admin.SettingsCenterPage.s32') }}</p>
       <p v-if="dirty" class="settings-center__pending" role="status">{{ $t('admin.SettingsCenterPage.s33') }}</p>
       <div class="admin-form-actions"><AdminButton :loading="testing" :disabled="busy || testing || dirty" @click="testConnection">{{ testing ? $t('admin.SettingsCenterPage.s34') : $t('admin.SettingsCenterPage.s35') }}</AdminButton></div>
       <p v-if="testNotice" role="status">{{ testNotice }}</p>

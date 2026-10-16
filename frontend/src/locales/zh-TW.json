@@ -1475,7 +1475,8 @@
       "envFileLocked": "由 .env 鎖定",
       "processLocked": "由環境變數鎖定",
       "envFileLockedHint": "此值寫在 .env 中（{0}），需修改 .env 並重新啟動伺服器。",
-      "processLockedHint": "此值由程序環境變數 {0} 提供，無法在此編輯。"
+      "processLockedHint": "此值由程序環境變數 {0} 提供，無法在此編輯。",
+      "testEmailLive": "測試已儲存的配置，不會發送郵件。儲存的 SMTP 設定會立即用於新的郵件連線，無需重新啟動。"
     },
     "SystemAdminPage": {
       "s1": "Matrix 服務",

@@ -1475,7 +1475,8 @@
       "envFileLocked": ".env で固定",
       "processLocked": "環境変数で固定",
       "envFileLockedHint": "この値は .env（{0}）で設定されています。変更するには .env を編集してサーバーを再起動してください。",
-      "processLockedHint": "この値はプロセスの環境変数 {0} で設定されており、ここでは編集できません。"
+      "processLockedHint": "この値はプロセスの環境変数 {0} で設定されており、ここでは編集できません。",
+      "testEmailLive": "保存済みの設定をテストします。メールは送信されません。保存した SMTP 設定は再起動なしで新しいメール接続にすぐ使われます。"
     },
     "SystemAdminPage": {
       "s1": "Matrix サービス",

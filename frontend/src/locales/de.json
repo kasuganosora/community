@@ -1475,7 +1475,8 @@
       "envFileLocked": "Durch .env gesperrt",
       "processLocked": "Durch Umgebung gesperrt",
       "envFileLockedHint": "In .env gesetzt ({0}). Zum Ändern .env bearbeiten und den Server neu starten.",
-      "processLockedHint": "Durch die Umgebungsvariable {0} gesetzt; hier nicht bearbeitbar."
+      "processLockedHint": "Durch die Umgebungsvariable {0} gesetzt; hier nicht bearbeitbar.",
+      "testEmailLive": "Testet die gespeicherte Konfiguration; es wird keine Mail gesendet. Gespeicherte SMTP-Einstellungen gelten sofort für neue Verbindungen – kein Neustart nötig."
     },
     "SystemAdminPage": {
       "s1": "Matrix-Dienst",

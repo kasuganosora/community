@@ -1475,7 +1475,8 @@
       "envFileLocked": "Verrouillé par .env",
       "processLocked": "Verrouillé par l’environnement",
       "envFileLockedHint": "Défini dans .env ({0}). Modifiez .env puis redémarrez le serveur.",
-      "processLockedHint": "Défini par la variable d’environnement {0} ; non modifiable ici."
+      "processLockedHint": "Défini par la variable d’environnement {0} ; non modifiable ici.",
+      "testEmailLive": "Teste la configuration enregistrée ; aucun e-mail n’est envoyé. Les réglages SMTP enregistrés s’appliquent immédiatement aux nouvelles connexions, sans redémarrage."
     },
     "SystemAdminPage": {
       "s1": "Service Matrix",
