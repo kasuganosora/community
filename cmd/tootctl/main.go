@@ -67,6 +67,7 @@ func newApp(version string, prepare func()) *cli.App {
 			commands.SelfDestructCommand(),
 			commands.VersionCommand(version),
 			commands.AccountsCommand(),
+			commands.AdminCommand(),
 			commands.CacheCommand(),
 			commands.DomainsCommand(),
 			commands.EmailDomainBlocksCommand(),

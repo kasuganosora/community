@@ -144,7 +144,7 @@ func refreshAccounts(c *cli.Context) error {
 		case account.IsBan:
 			sum.add(&sum.skipped)
 			printf("skip  %s: suspended\n", label)
-		case account.Domain != nil && suspended[strings.ToLower(*account.Domain)]:
+		case account.Domain != nil && suspended.Contains(*account.Domain):
 			sum.add(&sum.skipped)
 			printf("skip  %s: domain suspended\n", label)
 		case account.OriginId == "":

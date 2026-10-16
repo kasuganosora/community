@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/moderation"
 	"io"
 	"net"
 	"net/http"
@@ -192,6 +193,9 @@ func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]
 	if err := validateFederationURI(inboxURL); err != nil {
 		return err
 	}
+	if u, err := url.Parse(inboxURL); err == nil && !moderation.DeliveryAllowed(u.Host) {
+		return ErrDeliveryBlocked
+	}
 
 	body, err := json.Marshal(activity)
 	if err != nil {
@@ -319,6 +323,10 @@ func (c *Client) FetchStatus(ctx context.Context, statusURI string) (*Note, erro
 	return &note, nil
 }
 
+// ErrDeliveryBlocked is returned for requests to a blocked host or deliveries
+// to a manually suspended instance. Such deliveries are dropped, not retried.
+var ErrDeliveryBlocked = errors.New("federation with this host is blocked by the instance moderation settings")
+
 // validateFederationURI ensures the URI uses http/https scheme with a non-empty
 // host before any outbound federation request. The SSRF-safe transport handles
 // IP filtering, but we validate the scheme here as an additional defense layer.
@@ -335,6 +343,11 @@ func validateFederationURI(uri string) error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("empty host in federation URI %q", uri)
+	}
+	// Misskey isFederationAllowedHost: no requests to blocked hosts or
+	// their subdomains.
+	if moderation.Current().IsBlockedHost(u.Hostname()) {
+		return ErrDeliveryBlocked
 	}
 	return validateLabURL(u)
 }

@@ -1,7 +1,7 @@
 import client from '@/shared/api/client'
 export interface Page<T> { items:T[]; total:number }
 export type InstanceStatus='federating'|'subscribing'|'publishing'|'failing'|'idle'
-export interface Instance {domain:string;name?:string;software?:string;version?:string;icon_url?:string;status?:InstanceStatus;accounts:number;suspended_accounts:number;following:number;followers:number;last_activity:string|null;first_seen?:string|null;metadata_fetched_at?:string|null;metadata_failed_at?:string|null}
+export interface Instance {domain:string;name?:string;software?:string;version?:string;icon_url?:string;status?:InstanceStatus;accounts:number;suspended_accounts:number;following:number;followers:number;last_activity:string|null;first_seen?:string|null;metadata_fetched_at?:string|null;metadata_failed_at?:string|null;is_blocked?:boolean;is_suspended?:boolean;is_silenced?:boolean;is_media_silenced?:boolean}
 export interface InstanceQuery {q?:string;status?:string;sort?:string}
 export interface Job {parent_id?:string;batch_no?:number;can_retry?:boolean;requires_reconciliation?:boolean;lease_expires_at?:string|null;id:string;kind:string;state:string;event?:string;activity_id?:string;activity_type?:string;destination?:string;attempts:number;last_error:string;next_attempt_at:string|null;created_at:string}
 export interface QueueCounts {active:number;waiting:number;delayed:number;failed:number;completed:number;cancelled:number}

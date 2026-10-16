@@ -328,5 +328,5 @@ func domainSuspended(host string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return suspend[host], nil
+	return suspend.Contains(host), nil
 }

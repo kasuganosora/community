@@ -51,9 +51,23 @@ func queryTolerantOfMissingTable(conn *gorm.DB, query func(tx *gorm.DB) error) e
 // DomainSeverities loads instance blocks. suspend hides the domain everywhere;
 // silence only drops it from public timelines. A missing table is treated as
 // no policy so partial test schemas keep working.
-func DomainSeverities(conn *gorm.DB) (suspend map[string]bool, silence map[string]bool, err error) {
-	suspend = map[string]bool{}
-	silence = map[string]bool{}
+//
+// The instance moderation lists (Misskey's blockedHosts / silencedHosts,
+// registered through ModerationHostLists) are merged in: a blocked host is
+// treated like a suspended domain, a silenced host like a silenced one.
+// Both sets match subdomains (see HostSet.Contains).
+func DomainSeverities(conn *gorm.DB) (suspend HostSet, silence HostSet, err error) {
+	suspend = HostSet{}
+	silence = HostSet{}
+	if hook := ModerationHostLists; hook != nil {
+		blocked, silenced := hook()
+		for _, h := range blocked {
+			suspend[h] = true
+		}
+		for _, h := range silenced {
+			silence[h] = true
+		}
+	}
 	if conn == nil {
 		return suspend, silence, nil
 	}
@@ -83,10 +97,36 @@ func DomainSeverities(conn *gorm.DB) (suspend map[string]bool, silence map[strin
 }
 
 func domainListed(set map[string]bool, domain string) bool {
-	if domain == "" || len(set) == 0 {
+	return HostSet(set).Contains(domain)
+}
+
+// ModerationHostLists returns the normalised (lower-case) blocked and
+// silenced host lists from the instance moderation settings. It is set by
+// the moderation package; nil means no such lists.
+var ModerationHostLists func() (blocked, silenced []string)
+
+// HostSet is a set of lower-case host names. Membership matches the host
+// itself and every subdomain of it, like Misskey's isBlockedHost:
+// ".sub.example.com" ends with ".example.com".
+type HostSet map[string]bool
+
+// Contains reports whether host or one of its parent domains is in the set.
+func (s HostSet) Contains(host string) bool {
+	if len(s) == 0 {
 		return false
 	}
-	return set[domain] || set[strings.ToLower(domain)]
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	for host != "" {
+		if s[host] {
+			return true
+		}
+		i := strings.IndexByte(host, '.')
+		if i < 0 {
+			return false
+		}
+		host = host[i+1:]
+	}
+	return false
 }
 
 // FilterAccountsByDomainPolicy drops accounts on a suspended instance domain

@@ -22,7 +22,7 @@ func adminRoutePermission(path string) uint64 {
 	}
 	resource := strings.SplitN(rest, "/", 2)[0]
 	switch resource {
-	case "discovery":
+	case "discovery", "moderation":
 		return models.PermissionManageSettings
 	case "audit-logs":
 		return models.PermissionViewAuditLog

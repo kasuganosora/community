@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/invitecode"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
@@ -76,6 +77,25 @@ func Register(c *gin.Context) {
 	// 检查是否需要邀请码才能注册, 而当前请求没有邀请码
 	if systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false) && req.InviteCode == "" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "invite code is required"})
+
+		return
+	}
+
+	// Misskey moderation: reserved usernames and prohibited words in names.
+	if err := moderation.Current().CheckLocalNames(req.UserName, req.DisplayName, true); err != nil {
+		field := "username"
+		if errors.Is(err, moderation.ErrProhibitedName) && !moderation.Current().IsProhibitedName(req.UserName) {
+			field = "display_name"
+		}
+		code := "ERR_RESERVED"
+		if errors.Is(err, moderation.ErrProhibitedName) {
+			code = "ERR_PROHIBITED"
+		}
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":   "Validation failed: " + err.Error(),
+			"field":   field,
+			"details": gin.H{field: []gin.H{{"error": code, "description": err.Error()}}},
+		})
 
 		return
 	}

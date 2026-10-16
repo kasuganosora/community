@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm/clause"
@@ -590,7 +591,7 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 					}
 				}
 
-				return serializer.ToTags(sortedTags)
+				return serializer.ToTags(withoutHiddenTags(sortedTags))
 			}
 		}
 	}
@@ -609,7 +610,19 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		return []*serializer.Tag{}
 	}
 
-	return serializer.ToTags(tags)
+	return serializer.ToTags(withoutHiddenTags(tags))
+}
+
+// withoutHiddenTags drops the instance's hidden tags from suggestions.
+func withoutHiddenTags(tags []*models.Tag) []*models.Tag {
+	snap := moderation.Current()
+	out := tags[:0]
+	for _, t := range tags {
+		if t != nil && !snap.IsHiddenTag(t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func escapeLike(s string) string {

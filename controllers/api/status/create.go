@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -63,6 +64,20 @@ func Create(c *gin.Context) {
 
 	err := status.SetVisibilityByString(req.Visibility)
 	controllers.AbortIfError(c, err)
+
+	// Misskey moderation: sensitive words downgrade a public post to
+	// unlisted ("home"); prohibited words reject it.
+	var pollChoices []string
+	if req.Poll != nil {
+		pollChoices = req.Poll.Options
+	}
+	visibility, policyErr := moderation.Current().ApplyNotePolicy(moderation.Note{CW: req.SpoilerText, Text: req.Status, PollChoices: pollChoices}, status.Visibility)
+	if policyErr != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": policyErr.Error(), "code": "PROHIBITED_WORDS"})
+
+		return
+	}
+	status.Visibility = visibility
 
 	if req.InReplyToId != "" {
 		var inReplyToId uint64

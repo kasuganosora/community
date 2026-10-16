@@ -2,12 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { federationJobsApi as api, type Instance } from '../../infrastructure/federationJobsApi'
+import { moderationSettingsApi, type InstanceModerationAction } from '../../infrastructure/moderationSettingsApi'
 import QueueSparkline from '../components/QueueSparkline.vue'
 
 const PAGE = 30
 const STATUSES = [
   { key: '', label: '全部' }, { key: 'federating', label: '联邦通信中' }, { key: 'subscribing', label: '订阅中' },
   { key: 'publishing', label: '发布中' }, { key: 'failing', label: '故障/无响应' },
+  { key: 'suspended', label: '已暂停' }, { key: 'blocked', label: '已屏蔽' }, { key: 'silenced', label: '已静音' }, { key: 'media_silenced', label: '媒体已静音' },
 ]
 const SORTS = [
   { key: 'pubsub_desc', label: 'Pub/Sub 账户（降序）' }, { key: 'pubsub_asc', label: 'Pub/Sub 账户（升序）' },
@@ -54,6 +56,27 @@ function letter(i: Instance) { return (title(i).match(/[\p{L}\p{N}]/u)?.[0] || '
 function hue(d: string) { let h = 0; for (const c of d) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
 function when(v?: string | null) { return v ? new Date(v).toLocaleString() : '尚无记录' }
 function sum(v?: number[]) { return (v || []).reduce((a, b) => a + b, 0) }
+const acting = ref(''), actionError = ref('')
+const ACTION_CONFIRM: Partial<Record<InstanceModerationAction, string>> = {
+  block: '屏蔽后将停止与该实例（含子域名）的全部联邦通信，并对本站隐藏其已有内容。确定屏蔽吗？',
+  suspend: '暂停后将不再向该实例投递活动（仍接收对方的活动）。确定暂停投递吗？',
+  silence: '静音后该实例的公开帖子不再出现在公共时间线，对方关注本站用户需要批准。确定静音吗？',
+}
+async function moderate(i: Instance, action: InstanceModerationAction) {
+  const confirmText = ACTION_CONFIRM[action]
+  if (confirmText && !window.confirm(`${i.domain}\n\n${confirmText}`)) return
+  acting.value = action; actionError.value = ''
+  try {
+    const st = await moderationSettingsApi.instanceAction(i.domain, action)
+    const patch = { is_blocked: st.is_blocked, is_suspended: st.is_suspended, is_silenced: st.is_silenced, is_media_silenced: st.is_media_silenced }
+    items.value = items.value.map(x => x.domain === i.domain ? { ...x, ...patch } : x)
+    if (selected.value?.domain === i.domain) selected.value = { ...selected.value, ...patch }
+  } catch { actionError.value = '操作失败，请确认权限后重试。' }
+  finally { acting.value = '' }
+}
+function flags(i: Instance) {
+  return [i.is_blocked && '已屏蔽', i.is_suspended && '已暂停', i.is_silenced && '已静音', i.is_media_silenced && '媒体已静音'].filter(Boolean) as string[]
+}
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') selected.value = null }
 
 onMounted(() => {
@@ -97,7 +120,7 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
           <span v-else aria-hidden="true">{{ letter(i) }}</span>
         </span>
         <span class="inst-main">
-          <strong class="inst-ellipsis">{{ title(i) }}</strong>
+          <strong class="inst-ellipsis">{{ title(i) }}<span v-for="f in flags(i)" :key="f" class="inst-flag">{{ f }}</span></strong>
           <span class="inst-sub inst-ellipsis">{{ subline(i) }}</span>
         </span>
         <span class="inst-spark"><QueueSparkline :height="28" :label="`${i.domain} 近 14 天收到的帖子 ${sum(activity[i.domain])}`" :series="[{ values: activity[i.domain] || [], tone: i.status === 'failing' ? 'danger' : 'accent' }]" /></span>
@@ -119,7 +142,7 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
           <div class="inst-main"><h2 class="inst-ellipsis">{{ title(selected) }}</h2><span class="inst-sub">{{ subline(selected) }}</span></div>
           <button class="admin-button" aria-label="关闭" @click="selected = null">✕</button>
         </header>
-        <p class="inst-badge" :class="`is-${selected.status || 'idle'}`">{{ STATUS_LABEL[selected.status || 'idle'] }}</p>
+        <p class="inst-badges"><span class="inst-badge" :class="`is-${selected.status || 'idle'}`">{{ STATUS_LABEL[selected.status || 'idle'] }}</span><span v-for="f in flags(selected)" :key="f" class="inst-badge is-moderated">{{ f }}</span></p>
         <figure class="inst-chart"><figcaption>近 14 天收到的帖子：{{ sum(activity[selected.domain]) }}</figcaption>
           <QueueSparkline :height="56" :label="`${selected.domain} 每日帖子`" :series="[{ values: activity[selected.domain] || [], tone: 'accent' }]" /></figure>
         <dl class="inst-stats">
@@ -138,7 +161,17 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
           <a class="admin-button" :href="`https://${selected.domain}`" target="_blank" rel="noopener noreferrer">访问实例</a>
           <RouterLink class="admin-button" :to="{ path: '/admin/jobs' }">查看投递队列</RouterLink>
         </div>
-        <p class="inst-muted">本站尚未支持域名封禁/停用实例，因此这里不提供该操作。</p>
+        <section class="inst-moderation" aria-label="实例管理操作">
+          <h3>管理</h3>
+          <div class="inst-actions">
+            <button class="admin-button" :class="{ 'is-danger': !selected.is_suspended }" :disabled="!!acting" @click="moderate(selected, selected.is_suspended ? 'unsuspend' : 'suspend')">{{ selected.is_suspended ? '恢复投递' : '暂停投递' }}</button>
+            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_silenced ? 'unsilence' : 'silence')">{{ selected.is_silenced ? '取消静音' : '静音' }}</button>
+            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_media_silenced ? 'media_unsilence' : 'media_silence')">{{ selected.is_media_silenced ? '取消媒体静音' : '媒体静音' }}</button>
+            <button class="admin-button" :class="{ 'is-danger': !selected.is_blocked }" :disabled="!!acting" @click="moderate(selected, selected.is_blocked ? 'unblock' : 'block')">{{ selected.is_blocked ? '取消屏蔽' : '屏蔽' }}</button>
+          </div>
+          <p v-if="actionError" class="admin-error" role="alert">{{ actionError }}</p>
+          <p class="inst-muted">屏蔽、静音与媒体静音会写入 <RouterLink to="/admin/moderation">管理</RouterLink> 设置中的实例列表（屏蔽与静音包含子域名）；暂停只停止向该实例投递。通过域名封禁规则屏蔽的实例需在命令行解除。</p>
+        </section>
       </aside>
     </div>
   </div>
@@ -168,6 +201,11 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
 .inst-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 45%); display: flex; justify-content: flex-end; }
 .inst-drawer { width: min(420px, 100%); height: 100%; overflow-y: auto; box-sizing: border-box; padding: 20px; background: var(--color-bg-grouped, var(--color-bg-row)); border-left: 1px solid var(--color-separator); display: flex; flex-direction: column; gap: 14px; }
 .inst-drawer__head { display: flex; align-items: center; gap: 12px; }
+.inst-badges { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.inst-badge.is-moderated { background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }
+.inst-flag { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 500; vertical-align: 1px; background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }
+.inst-moderation h3 { margin: 0 0 8px; font-size: 14px; }
+.inst-moderation .is-danger { color: var(--color-danger); }
 .inst-badge { margin: 0; align-self: flex-start; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: var(--color-fill); color: var(--color-label-secondary); }
 .inst-badge.is-federating, .inst-badge.is-subscribing, .inst-badge.is-publishing { background: color-mix(in srgb, var(--admin-accent) 14%, transparent); color: var(--admin-accent); }
 .inst-badge.is-failing { background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }

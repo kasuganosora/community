@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"sync"
@@ -181,6 +182,10 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	err = client.Post(ctx, delivery.TargetInbox, activity)
+	if errors.Is(err, ErrDeliveryBlocked) {
+		db.GetDB().Model(&delivery).Updates(map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "skipped: blocked or suspended instance", "updated_at": time.Now()})
+		return
+	}
 	if err != nil {
 		q.handleDeliveryError(&delivery, err)
 

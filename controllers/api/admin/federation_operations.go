@@ -11,9 +11,11 @@ import (
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"gorm.io/gorm"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,6 +132,14 @@ func FederationInstances(c *gin.Context) {
 		q = q.Where("t.followers > 0")
 	case "failing":
 		q = q.Where("m.fail_count > 0")
+	case "suspended":
+		q = q.Where("m.suspension_state IS NOT NULL AND m.suspension_state <> ?", models.InstanceSuspensionNone)
+	case "blocked", "silenced", "media_silenced":
+		hosts, err := moderationFilterHosts(c.Query("status"))
+		if operationError(c, err) {
+			return
+		}
+		q = q.Where(hostListCondition(q, "t.domain", hosts, c.Query("status") != "media_silenced"))
 	default:
 		c.JSON(422, gin.H{"error": "invalid status"})
 		return
@@ -154,14 +164,28 @@ func FederationInstances(c *gin.Context) {
 		FetchedAt         flexTime `json:"metadata_fetched_at"`
 		FailedAt          flexTime `json:"metadata_failed_at"`
 		Status            string   `json:"status" gorm:"-"`
+		SuspensionState   string   `json:"-"`
+		IsBlocked         bool     `json:"is_blocked" gorm:"-"`
+		IsSuspended       bool     `json:"is_suspended" gorm:"-"`
+		IsSilenced        bool     `json:"is_silenced" gorm:"-"`
+		IsMediaSilenced   bool     `json:"is_media_silenced" gorm:"-"`
 	}
 	var rows []instance
-	if operationError(c, q.Select(`t.*, t.following + t.followers AS pubsub, COALESCE(m.name, '') AS name, COALESCE(m.software, '') AS software, COALESCE(m.version, '') AS version, COALESCE(m.icon_url, '') AS icon_url, COALESCE(m.fail_count, 0) AS fail_count, m.fetched_at AS fetched_at, m.failed_at AS failed_at`).Order(order).Offset((page-1)*limit).Limit(limit).Scan(&rows).Error) {
+	if operationError(c, q.Select(`t.*, t.following + t.followers AS pubsub, COALESCE(m.name, '') AS name, COALESCE(m.software, '') AS software, COALESCE(m.version, '') AS version, COALESCE(m.icon_url, '') AS icon_url, COALESCE(m.fail_count, 0) AS fail_count, m.fetched_at AS fetched_at, m.failed_at AS failed_at, COALESCE(m.suspension_state, 'none') AS suspension_state`).Order(order).Offset((page-1)*limit).Limit(limit).Scan(&rows).Error) {
+		return
+	}
+	modSnap := moderation.Current()
+	suspendDomains, silenceDomains, err := models.DomainSeverities(conn)
+	if operationError(c, err) {
 		return
 	}
 	for i := range rows {
 		r := &rows[i]
 		r.IconURL = mediaproxy.URL(mediaproxy.KindAvatar, r.IconURL)
+		r.IsBlocked = suspendDomains.Contains(r.Domain)
+		r.IsSilenced = silenceDomains.Contains(r.Domain)
+		r.IsMediaSilenced = modSnap.IsMediaSilencedHost(r.Domain)
+		r.IsSuspended = r.SuspensionState != "" && r.SuspensionState != models.InstanceSuspensionNone
 		switch {
 		case r.FailCount > 0:
 			r.Status = "failing"
@@ -178,7 +202,7 @@ func FederationInstances(c *gin.Context) {
 	if rows == nil {
 		rows = []instance{}
 	}
-	c.JSON(200, gin.H{"items": rows, "total": total, "page": page, "limit": limit, "domain_blocking_supported": false})
+	c.JSON(200, gin.H{"items": rows, "total": total, "page": page, "limit": limit, "domain_blocking_supported": true})
 }
 
 const instanceActivityDays = 14
@@ -503,4 +527,50 @@ func (f flexTime) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return *f.t, nil
+}
+
+// moderationFilterHosts returns the host list behind an instance filter:
+// blocked (moderation list plus suspending domain blocks), silenced, or
+// media-silenced.
+func moderationFilterHosts(kind string) ([]string, error) {
+	var set map[string]bool
+	switch kind {
+	case "media_silenced":
+		return moderation.Current().MediaSilencedHosts, nil
+	case "blocked", "silenced":
+		suspend, silence, err := models.DomainSeverities(db.GetDB())
+		if err != nil {
+			return nil, err
+		}
+		set = suspend
+		if kind == "silenced" {
+			set = silence
+		}
+	}
+	out := make([]string, 0, len(set))
+	for h := range set {
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// hostListCondition matches column against hosts, including subdomains
+// when withSubdomains is set. An empty list matches nothing.
+func hostListCondition(q *gorm.DB, column string, hosts []string, withSubdomains bool) *gorm.DB {
+	cond := q.Session(&gorm.Session{NewDB: true}).Where("1 = 0")
+	if len(hosts) == 0 {
+		return cond
+	}
+	cond = q.Session(&gorm.Session{NewDB: true}).Where("LOWER("+column+") IN ?", hosts)
+	if withSubdomains {
+		for _, h := range hosts {
+			cond = cond.Or("LOWER("+column+") LIKE ? "+dialect.LikeEscape(q), "%."+escapeLikePattern(h))
+		}
+	}
+	return cond
+}
+
+func escapeLikePattern(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
 }

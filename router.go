@@ -86,6 +86,7 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.GET("/instance", common.GetInstanceV1)
 	// Mastodon serves the rules under v1; they were only registered on v2.
 	v1ApiGroup.GET("/instance/rules", rule.List)
+	v1ApiGroup.GET("/instance/visitor_policy", VisitorContentPolicy)
 
 	// OAuth 应用注册
 	v1ApiGroup.POST("/apps", oauth.CreateApp)
@@ -124,6 +125,7 @@ func SetRouter(app gin.IRouter) {
 
 	// ===== ActivityPub 联邦端点 =====
 	// WebFinger / NodeInfo
+	app.GET("/robots.txt", RobotsTxt)
 	app.GET("/.well-known/webfinger", activitypub.WebFinger)
 	app.GET("/.well-known/host-meta", activitypub.HostMeta)
 	app.GET(defaultassets.Prefix+":name", defaultassets.Handler)
@@ -175,7 +177,7 @@ func SetRouter(app gin.IRouter) {
 
 	// ===== 可登录也可不登录的路由（v1）=====
 	// AuthMiddleware 在无 token 时放行，由各 handler 决定是否需要登录。
-	maybeAuthGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware())
+	maybeAuthGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), UGCVisitorGuard())
 	maybeAuthGroupV1.GET("/accounts/search", account.Search)
 	maybeAuthGroupV1.GET("/accounts/lookup", account.Lookup)
 	maybeAuthGroupV1.GET("/accounts/:id", account.GetAccount)
@@ -573,13 +575,13 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.GET("/streaming/health", streaming.Health)
 
 	// Search API v2（Mastodon 标准搜索端点，可选认证）
-	v2ApiGroup.Group("", middleware.AuthMiddleware()).GET("/search", search.Search)
+	v2ApiGroup.Group("", middleware.AuthMiddleware(), UGCVisitorGuard()).GET("/search", search.Search)
 
 	// Suggestions API v2（需要登录）
 	v2ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadAccounts})).GET("/suggestions", account.ListSuggestions)
 
 	// 可登录也可不登录的路由（v2 兼容）
-	maybeAuthGroup := v2ApiGroup.Group("", middleware.AuthMiddleware())
+	maybeAuthGroup := v2ApiGroup.Group("", middleware.AuthMiddleware(), UGCVisitorGuard())
 	maybeAuthGroup.GET("/accounts/search", account.Search)
 	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
 	maybeAuthGroup.GET("/accounts/:id/statuses", account.AccountStatuses)

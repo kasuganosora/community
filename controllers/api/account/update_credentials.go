@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
@@ -48,6 +49,10 @@ func UpdateCredentials(c *gin.Context) {
 	updates := make(map[string]any)
 
 	if req.DisplayName != nil {
+		if *req.DisplayName != account.DisplayName && moderation.Current().IsProhibitedName(*req.DisplayName) {
+			c.AbortWithStatusJSON(422, gin.H{"error": moderation.ErrProhibitedName.Error(), "code": "PROHIBITED_NAME"})
+			return
+		}
 		updates["display_name"] = *req.DisplayName
 	}
 

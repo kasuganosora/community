@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -132,6 +133,11 @@ func Replace(c *gin.Context) {
 			if err := next.SetVisibilityByString(*req.Visibility); err != nil {
 				return invalidReplacement("Invalid visibility value")
 			}
+		}
+		if visibility, err := moderation.Current().ApplyNotePolicy(moderation.Note{CW: next.Content.SpoilerText, Text: next.Content.Content}, next.Visibility); err != nil {
+			return invalidReplacement(err.Error())
+		} else {
+			next.Visibility = visibility
 		}
 		if req.replySet {
 			next.InReplyToId = nil

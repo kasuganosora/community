@@ -14,6 +14,7 @@ import { readListSnapshot, restoreListScroll, saveListSnapshot } from '@/shared/
 import TimelineFeed from '../components/TimelineFeed.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import { useVisitorPolicy } from '@/shared/composables/useVisitorPolicy'
 
 type ExploreTab = 'local' | 'federated'
 const TABS: { value: ExploreTab; label: string }[] = [
@@ -26,6 +27,11 @@ const router = useRouter()
 const authStore = useAuthStore()
 const followedTags = ref<TagInfo[]>([])
 const activeTab = ref<ExploreTab>(route.query.tab === 'federated' ? 'federated' : 'local')
+const { policy: visitorPolicy } = useVisitorPolicy()
+const visitor = computed(() => !authStore.currentUser)
+const visitorBlocked = computed(() => visitor.value && visitorPolicy.value === 'none')
+const tabs = computed(() => visitor.value && visitorPolicy.value === 'local' ? TABS.filter(t => t.value === 'local') : TABS)
+watch(tabs, t => { if (!t.some(x => x.value === activeTab.value)) activeTab.value = 'local' })
 
 const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
   max_id: maxId,
@@ -108,9 +114,12 @@ function retryFeed() {
       <span>关注的话题</span>
       <router-link v-for="item in followedTags" :key="item.name" :to="`/tags/${encodeURIComponent(item.name)}`">#{{ item.name }}</router-link>
     </div>
+    <p v-if="visitorBlocked" class="explore-visitor-note" role="status">本站仅向登录用户展示帖子。<router-link to="/login">登录</router-link>后即可浏览。</p>
+    <p v-else-if="visitor && visitorPolicy === 'local'" class="explore-visitor-note">未登录时仅显示本站内容。<router-link to="/login">登录</router-link>后可浏览跨站帖子。</p>
+    <template v-if="!visitorBlocked">
     <TabBar
       :model-value="activeTab"
-      :options="TABS"
+      :options="tabs"
       label="时间线"
       @update:model-value="selectTab"
     />
@@ -132,10 +141,12 @@ function retryFeed() {
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
     />
+    </template>
   </div>
 </template>
 
 <style scoped>
+.explore-visitor-note { margin: 8px 16px; padding: 10px 12px; border-radius: 10px; background: var(--color-fill); color: var(--color-label-secondary); font-size: 13px; line-height: 1.6; }
 .explore-page {
   min-height: 100dvh;
 }

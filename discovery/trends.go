@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -205,12 +206,17 @@ func AggregateTagTrendsPartial(ctx context.Context, conn *gorm.DB, viewer *model
 			return err
 		}
 		acc := map[string]*tagAccumulator{}
+		hiddenTags := moderation.Current()
 		for _, row := range associations {
 			s := byID[row.StatusID]
 			if s == nil || s.CreatedAt == nil {
 				continue
 			}
 			key := models.TagKey(row.Name)
+			// Misskey hiddenTags never appear in trends.
+			if hiddenTags.IsHiddenTag(row.Name) {
+				continue
+			}
 			// A hidden tag name must not bypass public-context keyword rules
 			// merely because its source's body did not spell out that hashtag.
 			probe := &models.Status{Content: models.StatusContent{Content: row.Name}}

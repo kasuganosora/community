@@ -23,6 +23,7 @@ export const adminNavigation: AdminNavGroup[] = [
   { label: '设置', items: [
     item('/settings/general', '常规', 'setting', 'settings'),
     item('/settings/branding', '品牌', 'palette', 'branding'),
+    item('/moderation', '管理', 'secured', 'settings', '注册、访客可见性、关键词与实例屏蔽等审核设置。'),
     item('/settings/moderation', '注册管理', 'user-checked', 'settings'),
     item('/settings/email', '邮件服务器', 'mail', 'settings'),
     item('/settings/storage', '对象存储', 'cloud', 'settings'),

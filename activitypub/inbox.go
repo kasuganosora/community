@@ -19,6 +19,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
@@ -150,7 +151,7 @@ func Inbox(c *gin.Context) {
 			c.JSON(500, gin.H{"error": "internal error"})
 			return
 		}
-		if suspend[host] {
+		if suspend.Contains(host) {
 			c.JSON(403, gin.H{"error": "domain suspended"})
 			return
 		}
@@ -412,11 +413,18 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	// Content association is saved once by GORM. Its local mention parser is
 	// disabled because authenticated AP addressing is authoritative.
+	if !applyInboundNotePolicy(&status, object, domain) {
+		log.Info("Dropped remote status %s from %s: prohibited words", objectID, actor)
+		c.Status(202)
+		return
+	}
+
 	status.Attachments, err = incomingAttachments(ctx, object["attachment"], remoteAccount.Id)
 	if err != nil {
 		c.JSON(503, gin.H{"error": "attachment address validation temporarily failed"})
 		return
 	}
+	applyMediaSilence(status.Attachments, domain)
 	status.Sensitive = deriveSensitive(sensitive, summary, status.Attachments)
 	err = persistIncomingStatusWithEmoji(ctx, activityDB(ctx), &status, object["tag"])
 
@@ -802,8 +810,9 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 		c.JSON(500, gin.H{"error": "failed to query follow"})
 		return
 	}
-	// If target account is locked, create follow request
-	if targetAccount.Locked {
+	// If target account is locked, create follow request. Like Misskey,
+	// follows from a silenced instance always need approval.
+	if targetAccount.Locked || (remoteAccount.Domain != nil && moderation.Current().IsSilencedHost(*remoteAccount.Domain)) {
 		follow := models.Follow{
 			AccountId:  remoteAccount.Id,
 			FollowId:   targetAccount.Id,
@@ -1827,10 +1836,22 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 		}
 	}
 
+	statusHost := ""
+	if status.Domain != nil {
+		statusHost = *status.Domain
+	}
+	probe := status
+	probe.Content = models.StatusContent{Content: content, SpoilerText: summary}
+	if !applyInboundNotePolicy(&probe, statusData, statusHost) {
+		return nil, fmt.Errorf("remote status %s contains prohibited words", statusURI)
+	}
+	status.Visibility = probe.Visibility
+
 	status.Attachments, err = incomingAttachments(ctx, statusData["attachment"], authorAccount.Id)
 	if err != nil {
 		return nil, err
 	}
+	applyMediaSilence(status.Attachments, statusHost)
 	noteSensitive, _ := statusData["sensitive"].(bool)
 	status.Sensitive = deriveSensitive(noteSensitive, summary, status.Attachments)
 

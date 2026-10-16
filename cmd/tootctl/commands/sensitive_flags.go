@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -100,7 +99,7 @@ func refreshSensitive(c *cli.Context) error {
 		} else if u, err := url.Parse(*st.OriginUri); err == nil {
 			host = u.Hostname()
 		}
-		if suspended[strings.ToLower(host)] {
+		if suspended.Contains(host) {
 			sum.mu.Lock()
 			sum.suspended++
 			sum.mu.Unlock()

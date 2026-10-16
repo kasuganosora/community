@@ -48,6 +48,7 @@ export const RouteNames = {
   ADMIN_AUDIT: 'admin-audit',
   ADMIN_WEBHOOKS: 'admin-webhooks',
   ADMIN_RULES: 'admin-rules',
+  ADMIN_MODERATION: 'admin-moderation',
 } as const
 
 /** Union of all route name string literals */
@@ -217,6 +218,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'audit-logs', name: RouteNames.ADMIN_AUDIT, component: lazyRoute(() => import('@/domains/admin/presentation/pages/AuditLogsAdminPage.vue'), pageHeading), meta: { adminPermission: 'audit' } },
       { path: 'webhooks', name: RouteNames.ADMIN_WEBHOOKS, component: lazyRoute(() => import('@/domains/admin/presentation/pages/WebhooksAdminPage.vue'), pageHeading), meta: { adminPermission: 'webhooks' } },
       { path: 'settings', name: RouteNames.ADMIN_SETTINGS, redirect: '/admin/settings/general', meta: { adminPermission: 'settings' } },
+      { path: 'moderation', name: RouteNames.ADMIN_MODERATION, component: lazyRoute(() => import('@/domains/admin/presentation/pages/ModerationSettingsAdminPage.vue'), pageHeading), meta: { adminPermission: 'settings' } },
       { path: 'rules', name: RouteNames.ADMIN_RULES, component: lazyRoute(() => import('@/domains/admin/presentation/pages/SettingsAdminPage.vue'), pageHeading), props: { mode: 'rules' }, meta: { adminPermission: 'rules' } },
       { path: 'decorations', name: RouteNames.ADMIN_DECORATIONS, component: BrandAssetsAdminPageRoute, props: { kind: 'avatar_decorations' }, meta: { adminPermission: 'branding' } },
       { path: 'advertisements', name: RouteNames.ADMIN_ADVERTISEMENTS, component: BrandAssetsAdminPageRoute, props: { kind: 'advertisements' }, meta: { adminPermission: 'branding' } },

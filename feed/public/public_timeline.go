@@ -281,14 +281,14 @@ func dropSilencedDomains(statuses models.Statuses) models.Statuses {
 	return out
 }
 
-func statusDomainSilenced(silence map[string]bool, status *models.Status) bool {
+func statusDomainSilenced(silence models.HostSet, status *models.Status) bool {
 	if status == nil {
 		return false
 	}
-	if status.Domain != nil && silence[strings.ToLower(*status.Domain)] {
+	if status.Domain != nil && silence.Contains(*status.Domain) {
 		return true
 	}
-	if status.Reblog != nil && status.Reblog.Domain != nil && silence[strings.ToLower(*status.Reblog.Domain)] {
+	if status.Reblog != nil && status.Reblog.Domain != nil && silence.Contains(*status.Reblog.Domain) {
 		return true
 	}
 	return false
