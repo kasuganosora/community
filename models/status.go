@@ -698,7 +698,17 @@ func (s *Status) IsScheduled() bool {
 	return s.ScheduledAt != nil
 }
 
+// ScheduledPublishPolicy, when set (by the moderation package), checks a
+// scheduled status against the current word lists at publish time. It may
+// lower the visibility; an error refuses publication.
+var ScheduledPublishPolicy func(s *Status) error
+
 func (s *Status) Public(db *gorm.DB) (err error) {
+	if ScheduledPublishPolicy != nil {
+		if err = ScheduledPublishPolicy(s); err != nil {
+			return err
+		}
+	}
 	if s.Poll != nil {
 		// 更新 expire_at
 		if s.Poll.Properties != nil {

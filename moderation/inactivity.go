@@ -71,6 +71,13 @@ func ModeratorsInactive(activity []time.Time, now time.Time) bool {
 	return true
 }
 
+// ShouldAutoCloseRegistration decides the automatic close: registration
+// must be open, the admin toggle on (default) and every moderator inactive.
+// With the toggle off registration is never closed automatically.
+func ShouldAutoCloseRegistration(registrationOpen, autoClose bool, activity []time.Time, now time.Time) bool {
+	return registrationOpen && autoClose && ModeratorsInactive(activity, now)
+}
+
 // CheckModeratorInactivity closes registration when it is open, the
 // automatic switch is enabled and all moderators are inactive. It returns
 // true when it closed registration.
@@ -87,7 +94,7 @@ func CheckModeratorInactivity(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	now := time.Now()
-	if !ModeratorsInactive(activity, now) {
+	if !ShouldAutoCloseRegistration(true, Current().AutoCloseRegistration, activity, now) {
 		return false, nil
 	}
 	log.Warn("moderation: no moderator activity for %s; closing registration", ModeratorInactivityLimit)

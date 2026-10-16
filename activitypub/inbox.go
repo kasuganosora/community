@@ -600,12 +600,27 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			return
 		}
 
+		// Edits go through the same moderation policy as new notes: an edit
+		// introducing prohibited words is dropped (the stored version stays),
+		// sensitive words or a silenced host downgrade public to unlisted.
+		authorHost := ""
+		if statusAuthor.Domain != nil {
+			authorHost = *statusAuthor.Domain
+		}
+		probe := models.Status{Visibility: status.Visibility, Content: models.StatusContent{Content: content, SpoilerText: summary}}
+		if !applyInboundNotePolicy(&probe, object, authorHost) {
+			log.Info("Dropped update of remote status %d from %s: prohibited words", status.Id, actor)
+			c.Status(202)
+			return
+		}
+
 		now := time.Now()
 		attachments, err := incomingAttachments(ctx, object["attachment"], status.AccountId)
 		if err != nil {
 			c.JSON(503, gin.H{"error": "attachment address validation temporarily failed"})
 			return
 		}
+		applyMediaSilence(attachments, authorHost)
 		err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
 			var preserveErr error
 			tx, preserveErr = models.PreserveFeedStatusAudience(tx, status.Id)
@@ -650,6 +665,9 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			// Not Model(&status): its loaded Content association would be
 			// upserted again and re-run the tag/emoji hooks.
 			updates := map[string]any{"updated_at": now}
+			if probe.Visibility != status.Visibility {
+				updates["visibility"] = probe.Visibility
+			}
 			_, hasFlag := object["sensitive"]
 			_, hasFiles := object["attachment"]
 			_, hasSummary := object["summary"]

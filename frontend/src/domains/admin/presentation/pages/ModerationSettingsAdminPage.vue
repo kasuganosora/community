@@ -60,7 +60,7 @@ async function save(update: ModerationUpdate, tag: string, ok = '已保存，新
 }
 async function toggleRegistration(value: boolean) {
   if (!data.value) return
-  if (value && !window.confirm('开放注册后任何人都可以注册账号。请确认已准备好审核与应对垃圾注册，并了解若管理员长时间不活跃，注册将被自动关闭。确定开放注册吗？')) return
+  if (value && !window.confirm('开放注册后任何人都可以注册账号。请确认已准备好审核与应对垃圾注册，并了解若启用了自动关闭，管理员长时间不活跃时注册将被自动关闭。确定开放注册吗？')) return
   await save({ enable_registration: value }, 'registration')
 }
 async function saveList(l: ListSection) {
@@ -106,13 +106,15 @@ onMounted(load)
     <template v-if="data">
       <section class="admin-card admin-form mod-basic" aria-label="基本设置">
         <AdminCheck variant="switch" :model-value="data.enable_registration" label="开放注册"
-          :hint="`关闭后仅能通过邀请码注册（取决于注册管理设置）。若所有管理员连续 ${data.moderator_inactivity_limit_days} 天没有活动，此设置将自动关闭。`"
+          :hint="data.auto_close_registration ? `关闭后仅能通过邀请码注册（取决于注册管理设置）。若所有管理员连续 ${data.moderator_inactivity_limit_days} 天没有活动，此设置将自动关闭。` : '关闭后仅能通过邀请码注册（取决于注册管理设置）。'"
           :disabled="!!busy || locked.has('enable_registration')" @update:model-value="toggleRegistration" />
+        <div class="mod-sub" data-testid="auto-close-registration">
+          <AdminCheck variant="switch" :model-value="data.auto_close_registration" label="管理员不活跃时自动关闭注册"
+            :hint="(data.auto_close_registration ? `开启时，若所有管理员连续 ${data.moderator_inactivity_limit_days} 天没有活动，开放注册将被自动关闭。` : '已关闭：无论管理员是否活跃，都不会自动关闭注册。') + (data.moderators_last_active_at ? ` 管理员最近活动：${fmt(data.moderators_last_active_at)}` : ' 尚无管理员活动记录。')"
+            :disabled="!!busy" @update:model-value="v => save({ auto_close_registration: v }, 'auto')" />
+        </div>
         <p v-if="data.enable_registration" class="mod-warn">⚠ 开放注册存在被滥用的风险，建议同时启用邮箱验证、验证码，并保持有人审核。</p>
         <p v-if="data.registration_auto_closed_at && !data.enable_registration" class="mod-warn">注册已于 {{ fmt(data.registration_auto_closed_at) }} 因管理员长时间不活跃而自动关闭。</p>
-        <AdminCheck variant="switch" :model-value="data.auto_close_registration" label="管理员不活跃时自动关闭注册"
-          :hint="data.moderators_last_active_at ? `管理员最近活动：${fmt(data.moderators_last_active_at)}` : '尚无管理员活动记录（无记录时不会自动关闭）。'"
-          :disabled="!!busy" @update:model-value="v => save({ auto_close_registration: v }, 'auto')" />
         <AdminCheck variant="switch" :model-value="data.email_required_for_signup" label="注册时需要验证邮箱（推荐）"
           :disabled="!!busy || locked.has('email_required_for_signup')" @update:model-value="v => save({ email_required_for_signup: v }, 'email')" />
         <AdminField label="访客可见的用户内容" hint="控制未登录访客能看到的帖子与用户资料。“仅本站内容”会隐藏远端实例的帖子和账号；“不公开”时访客无法浏览任何用户内容，搜索引擎也会被要求不收录用户页与帖子页。">
@@ -188,4 +190,5 @@ onMounted(load)
   .mod-rules li { flex-wrap: wrap; }
   .mod-rules li input { flex-basis: 100%; }
 }
+.mod-sub { margin-left: 28px; padding-left: 12px; border-left: 2px solid var(--td-component-stroke, #e5e7eb); }
 </style>

@@ -81,3 +81,21 @@ func DeliveryAllowed(host string) bool {
 	suspend, _, err := models.DomainSeverities(db.GetDB())
 	return err != nil || !suspend.Contains(host)
 }
+
+// LiftLegacyDomainBlock removes Mastodon-style domain_blocks rows for host
+// (exact domain, case-insensitive) so the moderation UI can lift blocks that
+// predate the moderation host lists. severity "suspend" also matches rows
+// with an empty severity (treated as suspend by DomainSeverities). A missing
+// table is not an error.
+func LiftLegacyDomainBlock(conn *gorm.DB, host, severity string) error {
+	host = NormalizeHost(host)
+	if host == "" || conn == nil || !conn.Migrator().HasTable(&models.DomainBlock{}) {
+		return nil
+	}
+	severities := []string{severity}
+	if severity == "suspend" {
+		severities = append(severities, "")
+	}
+	return conn.Where("LOWER(domain) = ? AND LOWER(COALESCE(severity, '')) IN ?", host, severities).
+		Delete(&models.DomainBlock{}).Error
+}

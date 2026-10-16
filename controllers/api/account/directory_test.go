@@ -185,3 +185,21 @@ func TestGetDirectory(t *testing.T) {
 		require.Equal(t, []string{"alice", "lena"}, requestDirectory(t, "", fixture.alice))
 	})
 }
+
+func TestGetDirectoryHidesBlockedSubdomains(t *testing.T) {
+	conn := setupDirectoryDB(t)
+	mk := func(id uint64, user, domain string) {
+		d := domain
+		require.NoError(t, conn.Create(&models.Account{Id: id, Username: user, Domain: &d, DisplayName: user, Discoverable: true}).Error)
+	}
+	mk(1, "sub", "a.Bad.Example")
+	mk(2, "deep", "x.y.bad.example")
+	mk(3, "lookalike", "notbad.example")
+	mk(4, "wild", "a_b.example")
+	mk(5, "ok", "good.example")
+	require.NoError(t, conn.Create(&models.DomainBlock{Domain: "bad.example", Severity: "suspend"}).Error)
+	require.NoError(t, conn.Create(&models.DomainBlock{Domain: "a_b.example", Severity: "silence"}).Error)
+
+	got := requestDirectory(t, "?order=new", nil)
+	require.ElementsMatch(t, []string{"lookalike@notbad.example", "ok@good.example"}, got)
+}

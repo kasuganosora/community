@@ -117,6 +117,9 @@ func serializerStatusEvent(account *models.Account, payload string, channel ...s
 		}
 		statuses = models.Statuses{&current}
 	}
+	if account == nil && !visitorCanSeeStatuses(statuses) {
+		return "", "", errEventNotVisible
+	}
 	rows, err := serializer.ToStatusesContext(models.WithFilterContext(context.Background(), contextName), statuses, account)
 	if err != nil {
 		return "", "", err

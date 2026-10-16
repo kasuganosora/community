@@ -139,8 +139,15 @@ func FederationInstanceModeration(c *gin.Context) {
 	switch strings.TrimSpace(req.Action) {
 	case "block", "unblock":
 		err = moderation.SetHostListed(moderation.KeyBlockedHosts, domain, req.Action == "block")
+		if err == nil && req.Action == "unblock" {
+			// Also lift a legacy (Mastodon admin) suspending domain block.
+			err = moderation.LiftLegacyDomainBlock(db.GetDB().WithContext(c.Request.Context()), domain, "suspend")
+		}
 	case "silence", "unsilence":
 		err = moderation.SetHostListed(moderation.KeySilencedHosts, domain, req.Action == "silence")
+		if err == nil && req.Action == "unsilence" {
+			err = moderation.LiftLegacyDomainBlock(db.GetDB().WithContext(c.Request.Context()), domain, "silence")
+		}
 	case "media_silence", "media_unsilence":
 		err = moderation.SetHostListed(moderation.KeyMediaSilencedHosts, domain, req.Action == "media_silence")
 	case "suspend", "unsuspend":

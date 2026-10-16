@@ -273,3 +273,13 @@ func (s *Snapshot) GuestCanSee(host string) bool {
 	}
 	return true
 }
+
+// SetForTesting installs a snapshot built from s (compiled, fresh) and
+// returns a restore function. Tests only.
+func SetForTesting(s Snapshot) (restore func()) {
+	prev := current.Load()
+	s.compile()
+	s.builtAt = time.Now().Add(24 * time.Hour)
+	current.Store(&s)
+	return func() { current.Store(prev) }
+}

@@ -1,6 +1,7 @@
 package moderation
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -135,4 +136,32 @@ func TestUpdateChangesNormalisesAndValidates(t *testing.T) {
 	bad := "everyone"
 	_, err = Update{UGCVisibilityForVisitor: &bad}.Changes()
 	require.Error(t, err)
+}
+
+func TestAutoCloseRegistrationToggle(t *testing.T) {
+	now := time.Now()
+	stale := []time.Time{now.Add(-8 * 24 * time.Hour)}
+	require.True(t, ShouldAutoCloseRegistration(true, true, stale, now))
+	require.False(t, ShouldAutoCloseRegistration(true, false, stale, now), "toggle off: never auto-close")
+	require.False(t, ShouldAutoCloseRegistration(false, true, stale, now), "already closed")
+	require.False(t, ShouldAutoCloseRegistration(true, true, []time.Time{now.Add(-6 * 24 * time.Hour)}, now))
+}
+
+func TestAutoCloseRegistrationDefaultsOn(t *testing.T) {
+	var u Update
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &u))
+	require.Nil(t, u.AutoCloseRegistration, "absent field leaves the stored value (default on) untouched")
+}
+
+func TestScheduledStatusPolicyAtPublish(t *testing.T) {
+	restore := SetForTesting(Snapshot{SensitiveWords: []string{"spoiler"}, ProhibitedWords: []string{"casino"}})
+	defer restore()
+	require.NotNil(t, models.ScheduledPublishPolicy, "hook installed")
+	s := &models.Status{Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "<p>a spoiler</p>"}}
+	require.NoError(t, CheckScheduledStatus(s))
+	require.EqualValues(t, models.StatusVisibilityUnlisted, s.Visibility)
+	bad := &models.Status{Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "ok"},
+		Poll: &models.Poll{Options: models.PollOptions{{Content: "casino"}}}}
+	require.ErrorIs(t, CheckScheduledStatus(bad), ErrProhibitedWords)
+	require.ErrorIs(t, bad.Public(nil), ErrProhibitedWords, "Public refuses before touching the DB")
 }

@@ -219,6 +219,9 @@ func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest
 }
 
 func getChannelName(account *models.Account, s *StreamingRequest) (channelName string, err error) {
+	if !visitorStreamAllowed(account, s.Stream) {
+		return "", &StreamingErrorResponse{Err: visitorRestrictedError}
+	}
 	switch {
 	case s.Stream == "user": //nolint:goconst
 		if account == nil {
@@ -383,6 +386,10 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 	stream, kind, err := streamForChannel(account, msg.Channel)
 	if err != nil {
 		return err
+	}
+	// Re-check on delivery so a policy change applies to open connections.
+	if len(stream) > 0 && !visitorStreamAllowed(account, stream[0]) {
+		return errEventNotVisible
 	}
 	var eventType, payload string
 	switch kind {

@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
@@ -60,7 +61,7 @@ func GetDirectory(c *gin.Context) {
 		}
 
 		if hidden := domainSetUnion(suspend, silence); len(hidden) > 0 {
-			query = query.Where("(accounts.domain IS NULL OR LOWER(accounts.domain) NOT IN ?)", hidden)
+			query = excludeHostsAndSubdomains(query, hidden)
 		}
 	}
 
@@ -155,4 +156,14 @@ func parseBoolQuery(value string) bool {
 	}
 
 	return false
+}
+
+// excludeHostsAndSubdomains drops accounts whose domain is one of hosts or a
+// subdomain of one (Misskey isBlockedHost / isSilencedHost semantics).
+func excludeHostsAndSubdomains(query *gorm.DB, hosts []string) *gorm.DB {
+	query = query.Where("(accounts.domain IS NULL OR LOWER(accounts.domain) NOT IN ?)", hosts)
+	for _, host := range hosts {
+		query = query.Where("(accounts.domain IS NULL OR LOWER(accounts.domain) NOT LIKE ? "+dialect.LikeEscape(query)+")", "%."+escapeLike(host))
+	}
+	return query
 }
