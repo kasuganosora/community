@@ -62,6 +62,9 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	c.Writer = buffer
 	defer func() { c.Writer = original }()
 	ctx, publishReactions := models.BeginReactionNotifications(ctx)
+	// Status events (live streams reload the row from SQL on receipt) must not
+	// fire before the inbox transaction commits, or remote posts are dropped.
+	ctx, publishStatusEvents := models.BeginDeferredStatusEvents(ctx)
 	ctx, invalidateProfiles := beginProfileInvalidations(ctx)
 	handlerFailure := errors.New("activity handler rejected request")
 	duplicate := errors.New("activity already processed")
@@ -105,6 +108,7 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	}
 	c.Writer = original
 	if err == nil {
+		publishStatusEvents()
 		publishReactions()
 		invalidateProfiles()
 	}

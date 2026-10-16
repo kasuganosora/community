@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 )
 
@@ -24,19 +25,24 @@ func currentFeedStreamingAccount(c *gin.Context, original *models.Account) (*mod
 	if td.ExpiredAt > 0 && td.ExpiredAt < now.Unix() {
 		return nil, errEventNotVisible
 	}
-	raw := c.GetHeader("Authorization")
-	if raw == "" {
-		raw, _ = c.Cookie("app-token")
-	} else {
-		if !strings.HasPrefix(raw, "Bearer ") {
+	// Revalidate exactly the token the middleware accepted, whichever way the
+	// client presented it (Authorization, cookie, access_token, subprotocol).
+	raw, _ := c.Get(middleware.RawAuthTokenKey)
+	token, _ := raw.(string)
+	if token == "" {
+		token = c.GetHeader("Authorization")
+		if token == "" {
+			token, _ = c.Cookie("app-token")
+		} else if !strings.HasPrefix(token, "Bearer ") {
 			return nil, errEventNotVisible
+		} else {
+			token = strings.TrimPrefix(token, "Bearer ")
 		}
-		raw = strings.TrimPrefix(raw, "Bearer ")
 	}
-	if raw == "" {
+	if token == "" {
 		return nil, errEventNotVisible
 	}
-	sum := sha256.Sum256([]byte(raw))
+	sum := sha256.Sum256([]byte(token))
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 	defer cancel()
 	var current models.Account

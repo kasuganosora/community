@@ -332,8 +332,12 @@ func (s *FeedService) PushUpdateRequired(timeline Timeline) (ret bool) {
 	}
 
 	result := len(channels) > 0
-	// 只在成功查询时缓存结果
-	subCache.Set(key, result)
+	// Cache only positives: a cached "no subscriber" would drop events for a
+	// client that subscribed within the TTL (a fresh stream then misses the
+	// next post). A positive answer may at worst publish to nobody.
+	if result {
+		subCache.Set(key, result)
+	}
 
 	return result
 }

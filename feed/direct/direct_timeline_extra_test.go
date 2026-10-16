@@ -713,10 +713,15 @@ func TestDirectTimeline_PushUpdateRequired_Cache(t *testing.T) {
 	// 第一次查询，无订阅者
 	assert.False(t, feed.PushUpdateRequired(timeline))
 
-	// 切换为有订阅者，但缓存仍然保留 false
+	// A subscriber that arrives right after a negative probe must be seen
+	// immediately: negative answers are not cached (they dropped events for
+	// freshly opened streams).
 	mockRedis.SetChannel("subscribed:direct:8890", true)
-	// 缓存内仍是 false
-	assert.False(t, feed.PushUpdateRequired(timeline))
+	assert.True(t, feed.PushUpdateRequired(timeline))
+
+	// Positive answers are cached for the TTL.
+	mockRedis.SetChannel("subscribed:direct:8890", false)
+	assert.True(t, feed.PushUpdateRequired(timeline))
 }
 
 // ---------------------------------------------------------------------------

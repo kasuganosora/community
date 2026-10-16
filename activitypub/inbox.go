@@ -946,9 +946,11 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 		AccountId:  remoteAccount.Id,
 		ReblogId:   &originalStatus.Id,
 		Visibility: models.StatusVisibilityPublic,
-		OriginUri:  &activityID,
-		CreatedAt:  publishedAt,
-		UpdatedAt:  &now,
+		// Timelines classify local/remote by statuses.domain.
+		Domain:    remoteAccount.Domain,
+		OriginUri: &activityID,
+		CreatedAt: publishedAt,
+		UpdatedAt: &now,
 	}
 
 	if reblog.CreatedAt == nil {

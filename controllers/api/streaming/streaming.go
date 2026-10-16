@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // 用户设定要订阅什么主题
@@ -31,6 +32,9 @@ import (
 
 // 收到用户订阅的主题后，返回主题的内容
 // {"stream":["user"],"event":"update","payload":"{\"id\":\"110868746257279010\",\"created_at\":\"2023-08-11T03:00:10.192Z\",\"in_reply_to_id\":null,\"in_reply_to_account_id\":null,\"sensitive\":false,\"spoiler_text\":\"\",\"visibility\":\"public\",\"language\":null,\"uri\":\"https://misskey.io/notes/9i9ke7v4ws\",\"url\":\"https://misskey.io/notes/9i9ke7v4ws\",\"replies_count\":0,\"reblogs_count\":0,\"favourites_count\":0,\"edited_at\":null,\"content\":\"<p>​:ohayoo:​</p>\",\"reblog\":null,\"account\":{\"id\":\"110145337597585017\",\"username\":\"neoki_ohaE\",\"acct\":\"neoki_ohaE@misskey.io\",\"display_name\":\"neoki\",\"locked\":false,\"bot\":false,\"discoverable\":true,\"group\":false,\"created_at\":\"2023-04-05T00:00:00.000Z\",\"note\":\"<p><span>自創作キャラデザ/昼寝が好きです<br>Twitter⇨ </span><a href=\\\"https://twitter.com/neoki_ohae/\\\" rel=\\\"nofollow noopener noreferrer\\\" target=\\\"_blank\\\">https://twitter.com/neoki_ohae/</a><span><br>Instagram⇨ </span><a href=\\\"https://instagram.com/neoki_ohae\\\" rel=\\\"nofollow noopener noreferrer\\\" target=\\\"_blank\\\">https://instagram.com/neoki_ohae</a><span><br>ご依頼⇨ </span><a href=\\\"https://coconala.com/users/3836159\\\" rel=\\\"nofollow noopener noreferrer\\\" target=\\\"_blank\\\">https://coconala.com/users/3836159</a><span><br><br></span>📎<span>  </span><a href=\\\"https://misskey.io/clips/9fnq2pi55d\\\" rel=\\\"nofollow noopener noreferrer\\\" target=\\\"_blank\\\">https://misskey.io/clips/9fnq2pi55d</a><span><br>　　</span><a href=\\\"https://misskey.io/clips/9fnq9r0q5k\\\" rel=\\\"nofollow noopener noreferrer\\\" target=\\\"_blank\\\">https://misskey.io/clips/9fnq9r0q5k</a></p>\",\"url\":\"https://misskey.io/@neoki_ohaE\",\"avatar\":\"https://files.meow.cloud/cache/accounts/avatars/110/145/337/597/585/017/original/fb3c2010a8dbd6e4.gif\",\"avatar_static\":\"https://files.meow.cloud/cache/accounts/avatars/110/145/337/597/585/017/static/fb3c2010a8dbd6e4.png\",\"header\":\"https://files.meow.cloud/cache/accounts/headers/110/145/337/597/585/017/original/0819085a5e4a2ced.png\",\"header_static\":\"https://files.meow.cloud/cache/accounts/headers/110/145/337/597/585/017/original/0819085a5e4a2ced.png\",\"followers_count\":1671,\"following_count\":90,\"statuses_count\":4302,\"last_status_at\":\"2023-08-11\",\"emojis\":[],\"fields\":[]},\"media_attachments\":[],\"mentions\":[],\"tags\":[],\"emojis\":[{\"shortcode\":\"ohayoo\",\"url\":\"https://files.meow.cloud/cache/custom_emojis/images/000/011/476/original/ef1d553b2e9752de.png\",\"static_url\":\"https://files.meow.cloud/cache/custom_emojis/images/000/011/476/static/ef1d553b2e9752de.png\",\"visible_in_picker\":true}],\"card\":null,\"poll\":null,\"favourited\":false,\"reblogged\":false,\"muted\":false,\"bookmarked\":false,\"filtered\":[]}"}
+
+// streamingPingInterval keeps idle WebSocket connections open behind proxies.
+var streamingPingInterval = 30 * time.Second
 
 type StreamingRequest struct {
 	Type   string `json:"type"`
@@ -64,6 +68,34 @@ func Streaming(c *gin.Context) {
 
 	if acc, ok := c.Get("account"); ok {
 		account = acc.(*models.Account) //nolint:forcetypeassert
+	}
+
+	// Mastodon clients choose the stream with ?stream= (plus tag/list) and
+	// expect events without sending a subscribe message. Resolve it before the
+	// upgrade so an unauthorized or unknown stream is an HTTP error, not a
+	// silent socket.
+	var initial *StreamingRequest
+	if stream := strings.TrimSpace(c.Query("stream")); stream != "" {
+		initial = &StreamingRequest{Type: "subscribe", Stream: stream, Tag: c.Query("tag"), List: c.Query("list")}
+		if _, err := getChannelName(account, initial); err != nil {
+			status := http.StatusBadRequest
+			var streamErr *StreamingErrorResponse
+			if errors.As(err, &streamErr) {
+				switch streamErr.Err {
+				case "need login":
+					status = http.StatusUnauthorized
+				case visitorRestrictedError, "forbidden":
+					status = http.StatusForbidden
+				case "list not found", "stream not found":
+					status = http.StatusNotFound
+				}
+			} else {
+				status = http.StatusInternalServerError
+				err = &StreamingErrorResponse{Err: "subscribe failed"}
+			}
+			c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	ws, err := upgrade.Upgrade(c.Writer, c.Request, subprotocolResponseHeader(c.Request))
@@ -109,8 +141,30 @@ func Streaming(c *gin.Context) {
 		}
 	}()
 
+	if initial != nil {
+		redisPubSub, err = subscribe(nil, account, initial)
+		if err != nil {
+			if streamErr, ok := err.(*StreamingErrorResponse); ok { //nolint:errorlint
+				_ = ws.WriteJSON(streamErr)
+			} else {
+				_ = ws.WriteJSON(&StreamingErrorResponse{Err: "subscribe failed"})
+			}
+			return
+		}
+		redisMsgChan = redisPubSub.Channel()
+	}
+
+	// Reverse proxies drop idle upgraded connections; keep them alive.
+	ping := time.NewTicker(streamingPingInterval)
+	defer ping.Stop()
+
 	for {
 		select {
+		case <-ping.C:
+			if ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)) != nil {
+				return
+			}
+
 		case <-closeChan:
 			return
 

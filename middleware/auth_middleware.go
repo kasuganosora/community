@@ -18,6 +18,9 @@ import (
 	"time"
 )
 
+// RawAuthTokenKey is the gin context key holding the authenticated raw token.
+const RawAuthTokenKey = "auth_token_raw"
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 尝试从 middleware header 中获取 token
@@ -141,6 +144,9 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 将 tokenData 保存到 gin.Context 中
 		c.Set("token_data", tokenData)
+		// The raw token as actually presented (header, cookie, or streaming
+		// query/subprotocol) so long-lived streams can revalidate it.
+		c.Set(RawAuthTokenKey, authToken)
 		c.Set("user", user)
 		c.Set("account", account)
 		// Optional-auth routes (search, account statuses, relationships, ...)
@@ -286,7 +292,9 @@ func streamingAccessToken(c *gin.Context) string {
 	if !isStreamingPath(c.Request.URL.Path) {
 		return ""
 	}
-	if token := strings.TrimSpace(c.Query("access_token")); token != "" {
+	// Tokens are standard base64; a client that forgets to URL-encode the
+	// query turns '+' into a space, which can never be part of a token.
+	if token := strings.TrimSpace(strings.ReplaceAll(c.Query("access_token"), " ", "+")); token != "" {
 		return token
 	}
 	if websocket := strings.EqualFold(c.GetHeader("Upgrade"), "websocket"); websocket {

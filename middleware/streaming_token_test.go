@@ -21,6 +21,7 @@ func streamingTokenContext(target string, headers map[string]string) *gin.Contex
 func TestStreamingAccessTokenSources(t *testing.T) {
 	assert.Equal(t, "q1", streamingAccessToken(streamingTokenContext("/api/v1/streaming?stream=user&access_token=q1", nil)))
 	assert.Equal(t, "q2", streamingAccessToken(streamingTokenContext("/api/v1/streaming/user?access_token=q2", nil)))
+	assert.Equal(t, "a+b/c=", streamingAccessToken(streamingTokenContext("/api/v1/streaming/feed?access_token=a+b/c=", nil)))
 	assert.Equal(t, "q3", streamingAccessToken(streamingTokenContext("/api/v2/streaming?access_token=q3", nil)))
 	assert.Equal(t, "p1", streamingAccessToken(streamingTokenContext("/api/v1/streaming", map[string]string{"Upgrade": "websocket", "Sec-WebSocket-Protocol": "p1"})))
 	assert.Equal(t, "p2", streamingAccessToken(streamingTokenContext("/api/v1/streaming", map[string]string{"Upgrade": "websocket", "Sec-WebSocket-Protocol": "p2, other"})))

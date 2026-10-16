@@ -18,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/home"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -143,4 +144,21 @@ func TestFeedInitialSubscriptionRechecksRevokedAuthentication(t *testing.T) {
 	var n int64
 	require.NoError(t, conn.Model(&models.Account{}).Where("id = ? AND feed_last_seen_at IS NOT NULL", viewer.Id).Count(&n).Error)
 	require.Zero(t, n, "revoked initial connection must not record activity")
+}
+
+// SSE clients may authenticate with ?access_token= (no Authorization header,
+// no cookie). Revalidation must use the token the middleware accepted instead
+// of answering 401 right after the subscription is set up.
+func TestFeedCurrentAuthorizationAcceptsQueryToken(t *testing.T) {
+	conn, viewer, auth := feedAuthDB(t)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/api/v1/streaming/feed?stream=user&access_token=stream-private-fixture", nil)
+	auth(c)
+	c.Request.Header.Del("Authorization")
+	c.Set(middleware.RawAuthTokenKey, "stream-private-fixture")
+	_, err := currentFeedStreamingAccount(c, viewer)
+	require.NoError(t, err)
+	require.NoError(t, conn.Exec("UPDATE auth_tokens SET revoke=CURRENT_TIMESTAMP").Error)
+	_, err = currentFeedStreamingAccount(c, viewer)
+	require.Error(t, err, "a revoked query token must still end the stream")
 }
