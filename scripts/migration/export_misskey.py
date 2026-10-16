@@ -114,13 +114,26 @@ def sid(value):
 
 
 class Converter:
-    def __init__(self, tables, base_url, method, source_dir, output, version="", snapshot="", max_media_bytes=8 << 30):
+    def __init__(self, tables, base_url, method, source_dir, output, version="", snapshot="", max_media_bytes=8 << 30,
+                 object_mode="error", object_dir=None, object_base_url=""):
         self.tables = tables
         self.base = origin(base_url)
         if method not in METHODS:
             raise ExportError("unsupported source ID method")
         self.method = method
         self.source_dir = Path(source_dir).resolve(strict=True) if source_dir else None
+        # Object storage (storedInternal=false): "error" (default) refuses a
+        # metadata-only backup; "copy" reads bytes from object_dir, a local
+        # mirror of the bucket keyed by accessKey; "reference" keeps the
+        # original object URLs, for a target that keeps serving the same
+        # bucket (no bytes are copied).
+        if object_mode not in ("error", "copy", "reference"):
+            raise ExportError("unsupported object storage mode")
+        self.object_mode = object_mode
+        self.object_dir = Path(object_dir).resolve(strict=True) if object_dir else None
+        if object_mode == "copy" and not self.object_dir:
+            raise ExportError("object storage copy mode requires a bucket mirror directory")
+        self.object_base = (object_base_url or "").rstrip("/")
         self.output = Path(output)
         self.remaining = max_media_bytes
         self.copied = {}
@@ -206,8 +219,9 @@ class Converter:
         for k in self.tables.get("user_publickey", []):
             self.bundle["keys"].append({"account_id": sid(k["userId"]), "key_id": k.get("keyId") or "", "public_key": k.get("keyPem") or "", "algorithm": "rsa"})
 
-    def copy_asset(self, key, expected_size=None):
-        if not self.source_dir:
+    def copy_asset(self, key, expected_size=None, root=None):
+        root = root or self.source_dir
+        if not root:
             raise ExportError("Local media source directory was not supplied.")
         if not isinstance(key, str) or not key or "\\" in key or "\x00" in key:
             raise ExportError("Invalid local media key.")
@@ -215,7 +229,7 @@ class Converter:
         if key.startswith("/") or any(p in ("..", ".") for p in parts) or not parts:
             raise ExportError("Local media key escapes source directory.")
         # openat + O_NOFOLLOW at EVERY level rejects symlink traversal/races.
-        root_fd = os.open(self.source_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         fd = None
         try:
             for part in parts[:-1]:
@@ -290,6 +304,15 @@ class Converter:
         u = urlsplit(url or "")
         return bool(u.scheme + "://" + u.netloc == self.base and u.path.startswith("/files/") and not u.query and not u.fragment)
 
+    def object_key(self, url):
+        """Bucket key of an object-storage URL under --object-base-url, or None."""
+        if not self.object_base or not url or not url.startswith(self.object_base + "/"):
+            return None
+        rest = urlsplit(url)
+        if rest.query or rest.fragment:
+            return None
+        return unquote(url[len(self.object_base) + 1:])
+
     def local_url_key(self, url):
         u = urlsplit(url or "")
         if u.scheme + "://" + u.netloc != self.base or not u.path.startswith("/files/") or u.query or u.fragment:
@@ -324,6 +347,15 @@ class Converter:
                         except (ExportError, OSError):
                             self.issue("error", "media_variant_unavailable", "media", variant["id"], "Derived asset bytes could not be safely copied from the snapshot.")
                         self.bundle["media"].append(variant)
+            elif not r.get("isLink") and self.object_mode == "reference":
+                self.issue("info", "object_storage_reference", "media", id_, "Object-storage media keeps its original URL; the bucket must stay available to the target.")
+            elif not r.get("isLink") and self.object_mode == "copy":
+                if r.get("url"):
+                    m["original_url"] = r["url"]
+                try:
+                    m.update(self.copy_asset(r.get("accessKey"), int(r.get("size") or 0), root=self.object_dir))
+                except (ExportError, OSError, ValueError):
+                    self.issue("error", "media_bytes_unavailable", "media", id_, "Object-storage media bytes are missing from the bucket mirror or inconsistent with the database snapshot.")
             elif local_owner or not r.get("isLink"):
                 self.issue("error", "external_storage_required", "media", id_, "This asset requires an object-storage/remote byte snapshot; metadata alone is not a complete site backup.")
             else:
@@ -457,7 +489,20 @@ class Converter:
             e = {"id": id_, "shortcode": r.get("name") or "", "domain": r.get("host") or "", "url": r.get("publicUrl") or url,
                  "media_id": self.media_urls.get(url, ""), "category": r.get("category") or "", "aliases": r.get("aliases") or [],
                  "sensitive": bool(r.get("isSensitive")), "license": r.get("license") or ""}
-            if r.get("host") is None and not e["media_id"]:
+            object_key = self.object_key(url)
+            if r.get("host") is None and not e["media_id"] and object_key and self.object_mode == "reference":
+                self.issue("info", "object_storage_reference", "emoji", id_, "Object-storage emoji keeps its original URL.")
+            elif r.get("host") is None and not e["media_id"] and object_key and self.object_mode == "copy":
+                asset_id = "emoji:" + id_
+                m = {"id": asset_id, "owner_id": "", "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream", "remote_url": url}
+                try:
+                    m.update(self.copy_asset(object_key, root=self.object_dir))
+                    m["original_url"] = url
+                    e["media_id"] = asset_id
+                    self.bundle["media"].append(m)
+                except (ExportError, OSError):
+                    self.issue("error", "emoji_bytes_unavailable", "emoji", id_, "Object-storage emoji bytes are missing from the bucket mirror.")
+            elif r.get("host") is None and not e["media_id"]:
                 asset_id = "emoji:" + id_
                 m = {"id": asset_id, "owner_id": "", "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream", "remote_url": url}
                 try:
@@ -489,6 +534,10 @@ def main(argv=None):
     ap.add_argument("--max-records", type=int, default=1000000)
     ap.add_argument("--max-snapshot-bytes", type=int, default=512 << 20)
     ap.add_argument("--max-media-bytes", type=int, default=8 << 30)
+    ap.add_argument("--object-storage-mode", choices=("error", "copy", "reference"), default="error",
+                    help="media stored in object storage: refuse (default), copy from --object-storage-dir, or keep original URLs")
+    ap.add_argument("--object-storage-dir", type=Path, help="local mirror of the source bucket, keyed by object key (copy mode)")
+    ap.add_argument("--object-base-url", default="", help="public URL prefix of the source bucket (Misskey objectStorageBaseUrl)")
     args = ap.parse_args(argv)
     try:
         origin(args.base_url)
@@ -497,7 +546,8 @@ def main(argv=None):
         os.umask(0o077)
         args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
         tables, snapshot = read_snapshot(args.output, args.max_records, args.max_snapshot_bytes)
-        bundle = Converter(tables, args.base_url, args.id_method, args.source_dir, args.output, args.source_version, snapshot, args.max_media_bytes).convert()
+        bundle = Converter(tables, args.base_url, args.id_method, args.source_dir, args.output, args.source_version, snapshot, args.max_media_bytes,
+                           args.object_storage_mode, args.object_storage_dir, args.object_base_url).convert()
         tmp = args.output / "bundle.json.partial"
         with tmp.open("x", encoding="utf-8") as f:
             json.dump(bundle, f, ensure_ascii=False, separators=(",", ":"))

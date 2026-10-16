@@ -134,6 +134,37 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(any(i["code"] == "external_storage_required" and i["severity"] == "error" for i in b["issues"]))
         self.assertTrue(any(i["code"] == "emoji_bytes_unavailable" for i in b["issues"]))
 
+    def test_object_storage_reference_keeps_urls_without_copying(self):
+        self.tables["drive_file"] = [{"id": ident(4), "userId": self.a, "storedInternal": False, "isLink": False, "accessKey": "files/abc.png", "url": "https://r2.test/files/abc.png", "size": 3}]
+        self.tables["emoji"] = [{"id": ident(5), "name": "custom", "host": None, "originalUrl": "https://r2.test/emoji/e.png"}]
+        b = self.converter(object_mode="reference", object_base_url="https://r2.test").convert()
+        self.assertFalse([i for i in b["issues"] if i["severity"] == "error" and i["kind"] in ("media", "emoji")])
+        media = [x for x in b["media"] if x["id"] == ident(4)][0]
+        self.assertEqual(media["remote_url"], "https://r2.test/files/abc.png")
+        self.assertNotIn("path", media)
+        self.assertEqual(b["emojis"][0]["url"], "https://r2.test/emoji/e.png")
+        self.assertEqual(b["emojis"][0]["media_id"], "")
+        self.assertFalse((self.output / "media").exists())
+
+    def test_object_storage_copy_reads_bucket_mirror(self):
+        mirror = self.root / "mirror"
+        (mirror / "files").mkdir(parents=True)
+        (mirror / "files" / "abc.png").write_bytes(b"abc")
+        (mirror / "emoji").mkdir()
+        (mirror / "emoji" / "e.png").write_bytes(b"emoji")
+        self.tables["drive_file"] = [{"id": ident(4), "userId": self.a, "storedInternal": False, "isLink": False, "accessKey": "files/abc.png", "url": "https://r2.test/files/abc.png", "size": 3}]
+        self.tables["emoji"] = [{"id": ident(5), "name": "custom", "host": None, "originalUrl": "https://r2.test/emoji/e.png"}]
+        b = self.converter(object_mode="copy", object_dir=mirror, object_base_url="https://r2.test").convert()
+        self.assertFalse([i for i in b["issues"] if i["severity"] == "error" and i["kind"] in ("media", "emoji")])
+        media = [x for x in b["media"] if x["id"] == ident(4)][0]
+        self.assertEqual(media["size"], 3)
+        self.assertTrue((self.output / media["path"]).exists())
+        self.assertEqual(b["emojis"][0]["media_id"], "emoji:" + ident(5))
+        missing = copy.deepcopy(self.tables)
+        missing["drive_file"][0]["accessKey"] = "files/missing.png"
+        b = self.converter(missing, object_mode="copy", object_dir=mirror, object_base_url="https://r2.test").convert()
+        self.assertTrue(any(i["code"] == "media_bytes_unavailable" for i in b["issues"]))
+
     def test_private_notes_replies_and_chat_pairs_are_operational(self):
         self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "specified", "visibleUserIds": [self.b], "mentions": [self.c], "text": "secret", "fileIds": []},
                                 {"id": ident(5), "userId": self.b, "visibility": "specified", "visibleUserIds": [self.a], "replyId": ident(4), "threadId": ident(4)}]
