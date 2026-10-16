@@ -11,7 +11,7 @@ import { setFormatLocale } from '@/shared/utils/format'
  * runs, so strings computed at module scope are already in the right language.
  * Switching language persists the choice and reloads the page.
  */
-import { LOCALES, SOURCE_LOCALE, DEFAULT_LOCALE, FALLBACK_LOCALES, LOCALE_STORAGE_KEY, matchLocale, isLocale, localeFromLanguages, detectLocale, type Locale } from './locales'
+import { INSTANCE_LOCALE_STORAGE_KEY, browserLocale, LOCALES, SOURCE_LOCALE, DEFAULT_LOCALE, FALLBACK_LOCALES, LOCALE_STORAGE_KEY, matchLocale, isLocale, localeFromLanguages, detectLocale, type Locale } from './locales'
 export { LOCALES, SOURCE_LOCALE, DEFAULT_LOCALE, FALLBACK_LOCALES, LOCALE_STORAGE_KEY, matchLocale, isLocale, localeFromLanguages, detectLocale }
 export type { Locale }
 
@@ -104,4 +104,19 @@ export function setLocale(locale: Locale, opts: { reload?: boolean } = {}): void
   try { localStorage.setItem(LOCALE_STORAGE_KEY, locale) } catch { /* private mode */ }
   if (locale === currentLocale()) return
   if (opts.reload !== false && typeof window !== 'undefined') window.location.reload()
+}
+
+/**
+ * Remember the instance's default language (set by the setup wizard). It is
+ * used only when the visitor chose no language and the browser asks for none
+ * of the supported ones; then the page reloads once to apply it.
+ */
+export function applyInstanceDefaultLocale(value: unknown): void {
+  if (!isLocale(value)) return
+  try {
+    if (localStorage.getItem(INSTANCE_LOCALE_STORAGE_KEY) === value) return
+    localStorage.setItem(INSTANCE_LOCALE_STORAGE_KEY, value)
+    if (isLocale(localStorage.getItem(LOCALE_STORAGE_KEY)) || browserLocale()) return
+  } catch { return }
+  if (value !== currentLocale() && typeof window !== 'undefined') window.location.reload()
 }

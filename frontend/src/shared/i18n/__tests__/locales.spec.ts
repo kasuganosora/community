@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_LOCALE, FALLBACK_LOCALES, LOCALES, localeFromLanguages, matchLocale } from '@/shared/i18n'
 import { API_ERROR_KEYS } from '@/shared/i18n/apiErrors'
 
@@ -76,5 +76,23 @@ describe('default language', () => {
   })
   it('falls back to English before the zh-CN source', () => {
     expect(FALLBACK_LOCALES).toEqual(['en', 'zh-CN'])
+  })
+})
+
+describe('instance default locale fallback', () => {
+  it('is used only when nothing is saved and no browser language matches', async () => {
+    const { detectLocale, INSTANCE_LOCALE_STORAGE_KEY, LOCALE_STORAGE_KEY } = await import('../locales')
+    const langs = vi.spyOn(navigator, 'languages', 'get')
+    localStorage.removeItem(LOCALE_STORAGE_KEY)
+    localStorage.setItem(INSTANCE_LOCALE_STORAGE_KEY, 'ja')
+    langs.mockReturnValue(['ko-KR'])
+    expect(detectLocale()).toBe('ja')
+    langs.mockReturnValue(['fr-FR'])
+    expect(detectLocale()).toBe('fr')
+    localStorage.setItem(LOCALE_STORAGE_KEY, 'de')
+    expect(detectLocale()).toBe('de')
+    localStorage.removeItem(LOCALE_STORAGE_KEY)
+    localStorage.removeItem(INSTANCE_LOCALE_STORAGE_KEY)
+    langs.mockRestore()
   })
 })

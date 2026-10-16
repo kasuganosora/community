@@ -16,6 +16,8 @@ export const DEFAULT_LOCALE: Locale = 'en'
 /** Missing keys resolve in this order. */
 export const FALLBACK_LOCALES: Locale[] = ['en', 'zh-CN']
 export const LOCALE_STORAGE_KEY = 'ui-locale'
+/** The instance's default language (GET /api/v2/instance default_locale), cached for the next load. */
+export const INSTANCE_LOCALE_STORAGE_KEY = 'instance-default-locale'
 
 const CODES = LOCALES.map(l => l.code) as readonly string[]
 
@@ -49,6 +51,22 @@ export function detectLocale(): Locale {
     const saved = localStorage.getItem(LOCALE_STORAGE_KEY)
     if (isLocale(saved)) return saved
   } catch { /* storage unavailable */ }
+  return browserLocale() ?? instanceLocale() ?? DEFAULT_LOCALE
+}
+
+/** First supported browser language, or null when none matches. */
+export function browserLocale(): Locale | null {
   const langs = typeof navigator !== 'undefined' ? (navigator.languages?.length ? navigator.languages : [navigator.language]) : []
-  return localeFromLanguages(langs)
+  for (const l of langs) {
+    const m = matchLocale(l)
+    if (m) return m
+  }
+  return null
+}
+
+function instanceLocale(): Locale | null {
+  try {
+    const v = localStorage.getItem(INSTANCE_LOCALE_STORAGE_KEY)
+    return isLocale(v) ? v : null
+  } catch { return null }
 }

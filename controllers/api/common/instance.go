@@ -35,6 +35,9 @@ type InstanceResponse struct {
 	Icon      []InstanceIcon    `json:"icon"`
 
 	Languages     []string `json:"languages"`
+	// DefaultLocale is the instance UI language chosen in the setup wizard;
+	// the web frontend uses it when the browser matches no supported one.
+	DefaultLocale string `json:"default_locale,omitempty"`
 	Configuration struct {
 		Urls struct {
 			Streaming string  `json:"streaming"`
@@ -332,6 +335,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Thumbnail = instanceThumbnail()
 	resp.Icon = instanceIcons()
 	resp.Languages = nonNilStrings(systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"}))
+	resp.DefaultLocale = systemsettings.GetString(systemsettings.KeyDefaultLocale, "")
 	resp.Configuration.Urls.Streaming = StreamingURL()
 	resp.Configuration.Urls.Status = nil
 	resp.Configuration.Vapid.PublicKey = ""

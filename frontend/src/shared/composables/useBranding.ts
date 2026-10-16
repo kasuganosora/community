@@ -1,3 +1,4 @@
+import { applyInstanceDefaultLocale } from '@/shared/i18n'
 import { readonly, ref } from 'vue'
 import client from '@/shared/api/client'
 import { setBrandThemeColor } from './useTheme'
@@ -74,8 +75,9 @@ export function applyBranding(b: Branding) {
 export function loadBranding(force = false): Promise<Branding> {
   if (loaded.value && !force) return Promise.resolve(branding.value)
   if (!pending) {
-    pending = client.get<{ branding?: Partial<Branding> }>('/api/v2/instance')
+    pending = client.get<{ branding?: Partial<Branding>; default_locale?: string }>('/api/v2/instance')
       .then(({ data }) => {
+        applyInstanceDefaultLocale(data?.default_locale)
         branding.value = { ...DEFAULT_BRANDING, ...(data?.branding ?? {}) }
         loaded.value = true
         applyBranding(branding.value)
