@@ -45,7 +45,7 @@ type LogLine struct {
 // until the installation completes.
 type Job struct {
 	ID        string    `json:"id"`
-	Mode      string    `json:"mode"` // fresh or misskey
+	Mode      string    `json:"mode"` // fresh, misskey or mastodon
 	Status    string    `json:"status"`
 	Locale    string    `json:"locale"`
 	BaseURL   string    `json:"base_url"`
@@ -57,7 +57,8 @@ type Job struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	Misskey *MisskeyParams `json:"misskey,omitempty"` // passwords stripped
+	Misskey  *MisskeyParams  `json:"misskey,omitempty"`  // passwords stripped
+	Mastodon *MastodonParams `json:"mastodon,omitempty"` // passwords stripped
 	// Database parameters without the password, used to rebuild .env on a
 	// retry before the config stage finished.
 	Target DatabaseParams `json:"target"`
@@ -70,7 +71,7 @@ type jobSecrets struct {
 	RedisPassword    string `json:"redis_password,omitempty"`
 	AdminSalt        string `json:"admin_salt"`
 	AdminHash        string `json:"admin_hash"`
-	MisskeyPassword  string `json:"misskey_password,omitempty"`
+	MisskeyPassword  string `json:"misskey_password,omitempty"` // source DB password (Misskey or Mastodon)
 	S3SecretKey      string `json:"s3_secret_key,omitempty"`
 }
 
@@ -215,6 +216,9 @@ type runner struct {
 }
 
 func stageNames(mode string) []string {
+	if mode == "mastodon" {
+		return []string{"config", "schema", "mastodon_media", "mastodon_export", "mastodon_preflight", "mastodon_import", "admin", "finalize"}
+	}
 	if mode == "misskey" {
 		return []string{"config", "schema", "misskey_meta", "misskey_media", "misskey_export", "misskey_preflight", "misskey_import", "passkeys", "admin", "finalize"}
 	}

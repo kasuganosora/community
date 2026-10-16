@@ -38,7 +38,9 @@
     "fresh": "Новая установка",
     "freshHint": "Создать новое пустое сообщество.",
     "misskey": "Перенос с Misskey",
-    "misskeyHint": "Перенести существующий сервер Misskey с сохранением домена, учётных записей, постов, ключей и удалённых подписчиков."
+    "misskeyHint": "Перенести существующий сервер Misskey с сохранением домена, учётных записей, постов, ключей и удалённых подписчиков.",
+    "mastodon": "Перенос с Mastodon",
+    "mastodonHint": "Перенести сюда существующий сервер Mastodon с сохранением домена, аккаунтов, постов, ключей и удалённых подписчиков."
   },
   "domain": {
     "title": "Публичный адрес",
@@ -141,7 +143,11 @@
     "misskey_import": "Импорт учётных записей и постов",
     "passkeys": "Импорт ключей доступа",
     "admin": "Настройка администратора",
-    "finalize": "Завершение"
+    "finalize": "Завершение",
+    "mastodon_media": "Копирование медиа",
+    "mastodon_export": "Экспорт данных Mastodon",
+    "mastodon_preflight": "Проверка экспорта",
+    "mastodon_import": "Импорт аккаунтов и постов"
   },
   "counts": {
     "settings": "настройки",
@@ -184,7 +190,7 @@
     "rate_limited": "Слишком много неверных попыток. Подождите минуту.",
     "invalid_request": "Некорректный запрос.",
     "invalid_domain": "Введите корректный URL https:// (http:// только для localhost).",
-    "domain_mismatch": "Домен должен совпадать с доменом сервера Misskey.",
+    "domain_mismatch": "Домен должен совпадать с доменом исходного сервера.",
     "database_fields_required": "Заполните все поля базы данных.",
     "invalid_database_host": "Некорректный хост базы данных.",
     "invalid_database_port": "Некорректный порт базы данных.",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "Импорт ключей доступа не удался.",
     "stage_failed": "Этот шаг завершился ошибкой.",
     "interrupted": "Сервер остановился во время этого шага.",
-    "setup_mode": "Сервер в режиме установки."
+    "setup_mode": "Сервер в режиме установки.",
+    "mastodon_fields_required": "Заполните поля базы данных Mastodon.",
+    "mastodon_connect_failed": "Не удалось подключиться к базе данных Mastodon.",
+    "mastodon_not_mastodon": "Эта база данных не похожа на базу Mastodon.",
+    "mastodon_files_required": "Укажите каталог public/system Mastodon.",
+    "mastodon_files_missing": "Каталог public/system не существует в контейнере."
+  },
+  "mastodon": {
+    "step": "Источник Mastodon",
+    "title": "База данных Mastodon",
+    "hint": "Подключитесь к базе PostgreSQL Mastodon. Она только читается и не изменяется. Остановите Mastodon (или используйте копию), чтобы данные не менялись во время переноса.",
+    "found": "Найдено локальных аккаунтов: {users}, удалённых: {remote}, постов: {notes}, медиафайлов: {files}.",
+    "filesPath": "Каталог public/system Mastodon",
+    "filesHint": "Каталог, смонтированный в этот контейнер, с загрузками Mastodon (обычно …/mastodon/public/system).",
+    "storageHint": "Укажите значения из .env.production Mastodon (S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID…). Секретный ключ никогда не читается из базы данных.",
+    "detected": "Определён по базе данных Mastodon",
+    "notDetected": "Не удалось определить домен по источнику. Введите точный публичный URL сервера Mastodon (LOCAL_DOMAIN).",
+    "adminHint": "Введите существующего пользователя Mastodon, чтобы сделать его владельцем (его пароль продолжит работать), или новое имя для отдельного администратора."
   }
 }

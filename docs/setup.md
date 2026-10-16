@@ -22,7 +22,7 @@ server.
 2. Read the one-time token from the log:
    `docker compose logs community | grep -i "setup token"`.
 3. Open `https://<your domain>/setup` (any path redirects there).
-4. Steps: language, token, install type, (Misskey source), domain, database
+4. Steps: language, token, install type, (Misskey or Mastodon source), domain, database
    (with a connection test; the target must be empty), Redis (with a test),
    first administrator, review.
 5. The install runs as a background job. Progress, counts and a log are saved,
@@ -53,6 +53,37 @@ interface language. The domain cannot be changed later.
   (`tootctl passkeys import-misskey`), administrator, finish.
 * Existing Misskey users keep their passwords. Naming an existing user as the
   administrator makes them the owner.
+
+### Mastodon migration
+
+* Stop Mastodon (web, streaming and Sidekiq), or point the wizard at a copy of
+  its PostgreSQL database. The source is only read: the wizard connects
+  directly and runs `scripts/migration/export_mastodon_db.py` in one
+  read-only snapshot. The Rails environment is not needed.
+* The domain is detected from local status URIs (`LOCAL_DOMAIN`) and shown
+  read-only. Actor URIs (`/users/<name>`), status URIs
+  (`/users/<name>/statuses/<id>`), the RSA keys (the `keypairs` table, or
+  `accounts.private_key` on older versions) and remote followers are kept, so
+  remote servers see the same identity. Followers-only and direct posts stay
+  private. Point DNS at the new server after the job finishes.
+* Media from a local directory: mount Mastodon's `public/system` directory
+  into the container (e.g. `- /srv/mastodon/public/system:/mastodon/public/system:ro`)
+  and enter that path. Remote media is read from its `cache/` prefix when
+  present; otherwise the remote URL is kept.
+* Media from object storage (S3, R2, MinIO): Mastodon keeps these settings in
+  `.env.production`, not in its database, so enter `S3_ENDPOINT`, `S3_BUCKET`,
+  `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and the public URL
+  (`S3_ALIAS_HOST`, or the bucket URL). **Reference in place** keeps
+  `<public URL>/<key>` URLs and copies nothing. **Copy** downloads only the
+  objects the database references into `SETUP_WORK_DIR` (resumable, with file
+  and byte progress).
+* Stages: write configuration, schema, media, export, preflight, import,
+  administrator, finish. Every stage records progress and counts, and a failed
+  stage can be retried.
+* Existing Mastodon users keep their passwords (bcrypt). Naming an existing
+  user as the administrator makes them the owner. Mastodon users whose role
+  has the Administrator permission (the `Owner` role by default) become
+  administrators.
 
 ## Configuration file
 
@@ -98,7 +129,7 @@ overriding the database. Restart after editing `.env`.
   `COMPOSE_PROFILES`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` in the
   host `.env` for the database container and enter the same values in the
   wizard (host `db`).
-* The image includes `python3` and `psql` for the Misskey exporter.
+* The image includes `python3` and `psql` for the Misskey and Mastodon exporters.
 
 ## Upgrading an existing deployment (ops)
 

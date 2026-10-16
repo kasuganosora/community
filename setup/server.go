@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,13 +23,14 @@ import (
 
 // InstallRequest is the wizard's final submission.
 type InstallRequest struct {
-	Locale   string         `json:"locale"`
-	Mode     string         `json:"mode"` // fresh or misskey
-	Domain   string         `json:"domain"`
-	Database DatabaseParams `json:"database"`
-	Redis    RedisParams    `json:"redis"`
-	Admin    AdminParams    `json:"admin"`
-	Misskey  *MisskeyParams `json:"misskey,omitempty"`
+	Locale   string          `json:"locale"`
+	Mode     string          `json:"mode"` // fresh or misskey
+	Domain   string          `json:"domain"`
+	Database DatabaseParams  `json:"database"`
+	Redis    RedisParams     `json:"redis"`
+	Admin    AdminParams     `json:"admin"`
+	Misskey  *MisskeyParams  `json:"misskey,omitempty"`
+	Mastodon *MastodonParams `json:"mastodon,omitempty"`
 }
 
 // Server is the setup-mode HTTP server.
@@ -134,6 +136,7 @@ func (s *Server) Handler() *gin.Engine {
 	api.POST("/test/database", s.testDatabase)
 	api.POST("/test/redis", s.testRedis)
 	api.POST("/test/misskey", s.testMisskey)
+	api.POST("/test/mastodon", s.testMastodon)
 	api.POST("/test/object-storage", s.testObjectStorage)
 	api.POST("/install", s.install)
 	api.GET("/job", func(c *gin.Context) {
@@ -420,8 +423,11 @@ func (s *Server) start(secrets *jobSecrets) {
 	s.mu.Unlock()
 	job := s.t.snapshot()
 	stages := commonStages()
-	if job.Mode == "misskey" {
+	switch job.Mode {
+	case "misskey":
 		stages = misskeyStages()
+	case "mastodon":
+		stages = mastodonStages()
 	}
 	r := &runner{t: s.t, secrets: secrets, stages: stages, onComplete: func() {
 		go func() {
@@ -445,7 +451,7 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 	if !validLocale(req.Locale) {
 		req.Locale = "en"
 	}
-	if req.Mode != "fresh" && req.Mode != "misskey" {
+	if req.Mode != "fresh" && req.Mode != "misskey" && req.Mode != "mastodon" {
 		return nil, nil, fail("invalid_request")
 	}
 	if err := req.Database.normalize(); err != nil {
@@ -503,33 +509,49 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 		if m.IDMethod == "" {
 			return nil, nil, fail("invalid_id_method")
 		}
-		// The domain is the source's: identities (actor and note URIs,
-		// keys) are preserved, so it cannot be chosen freely.
-		if info.DetectedBaseURL != "" {
-			baseURL = info.DetectedBaseURL
-			if req.Domain != "" {
-				if given, derr := normalizeBaseURL(req.Domain); derr != nil || given != baseURL {
-					return nil, nil, fail("domain_mismatch", baseURL)
-				}
-			}
-		} else {
-			b, derr := normalizeBaseURL(req.Domain)
-			if derr != nil {
-				return nil, nil, derr
-			}
-			if len(info.BaseURLCandidates) > 0 {
-				found := false
-				for _, cand := range info.BaseURLCandidates {
-					found = found || cand == b
-				}
-				if !found {
-					return nil, nil, fail("domain_mismatch", strings.Join(info.BaseURLCandidates, ", "))
-				}
-			}
-			baseURL = b
+		b, derr := sourceBaseURL(req.Domain, info.DetectedBaseURL, info.BaseURLCandidates)
+		if derr != nil {
+			return nil, nil, derr
 		}
+		baseURL = b
 		if m.MediaSource == "s3" && m.MediaMode == "copy" {
 			if err := checkObjectStorage(ctx, m.ObjectStorage, objectSecret); err != nil {
+				return nil, nil, err
+			}
+		}
+		secrets.MisskeyPassword = m.Password
+		secrets.S3SecretKey = m.ObjectStorage.SecretKey
+		m.Password = ""
+		m.ObjectStorage.SecretKey = ""
+	} else if req.Mode == "mastodon" {
+		if req.Mastodon == nil {
+			return nil, nil, fail("mastodon_fields_required")
+		}
+		m := req.Mastodon
+		if err := m.normalize(); err != nil {
+			return nil, nil, err
+		}
+		if m.MediaSource == "local" {
+			if info, err := os.Stat(m.FilesPath); err != nil || !info.IsDir() {
+				return nil, nil, fail("mastodon_files_missing")
+			}
+		}
+		src, err := openMastodon(*m, m.Password)
+		if err != nil {
+			return nil, nil, err
+		}
+		info, ierr := inspectMastodon(src)
+		closeDB(src)
+		if ierr != nil {
+			return nil, nil, ierr
+		}
+		b, derr := sourceBaseURL(req.Domain, info.DetectedBaseURL, info.BaseURLCandidates)
+		if derr != nil {
+			return nil, nil, derr
+		}
+		baseURL = b
+		if m.MediaSource == "s3" && m.MediaMode == "copy" {
+			if err := checkObjectStorage(ctx, m.ObjectStorage, m.ObjectStorage.SecretKey); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -558,6 +580,7 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 	job.Admin = req.Admin.Username
 	job.Email = req.Admin.Email
 	job.Misskey = req.Misskey
+	job.Mastodon = req.Mastodon
 	target := req.Database
 	target.Password = ""
 	job.Target = target
@@ -588,4 +611,54 @@ func Run(listen, frontendDir string) error {
 	srv := &http.Server{Addr: listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	log.Info("Setup wizard listening on %s", listen)
 	return srv.ListenAndServe()
+}
+
+// sourceBaseURL picks the domain of a migration. It is the source's:
+// identities (actor and object URIs, keys) are preserved, so it cannot be
+// chosen freely. When it was detected the input must match (or be empty);
+// otherwise the input is required and must match a candidate if any.
+func sourceBaseURL(input, detected string, candidates []string) (string, *Error) {
+	if detected != "" {
+		if input != "" {
+			if given, derr := normalizeBaseURL(input); derr != nil || given != detected {
+				return "", fail("domain_mismatch", detected)
+			}
+		}
+		return detected, nil
+	}
+	b, derr := normalizeBaseURL(input)
+	if derr != nil {
+		return "", derr
+	}
+	if len(candidates) > 0 && !slices.Contains(candidates, b) {
+		return "", fail("domain_mismatch", strings.Join(candidates, ", "))
+	}
+	return b, nil
+}
+
+func (s *Server) testMastodon(c *gin.Context) {
+	if !s.checkToken(c) {
+		return
+	}
+	var p MastodonParams
+	if c.ShouldBindJSON(&p) != nil {
+		respondErr(c, fail("invalid_request"))
+		return
+	}
+	if err := p.normalizeConnection(); err != nil {
+		respondErr(c, err)
+		return
+	}
+	conn, err := openMastodon(p, p.Password)
+	if err != nil {
+		respondErr(c, err)
+		return
+	}
+	defer closeDB(conn)
+	info, ierr := inspectMastodon(conn)
+	if ierr != nil {
+		respondErr(c, ierr)
+		return
+	}
+	c.JSON(200, gin.H{"ok": true, "inspection": info})
 }

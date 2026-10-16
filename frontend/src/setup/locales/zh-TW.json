@@ -38,7 +38,9 @@
     "fresh": "全新安裝",
     "freshHint": "建立一個全新的空社群。",
     "misskey": "從 Misskey 遷移",
-    "misskeyHint": "把現有 Misskey 伺服器遷移過來，保留域名、賬號、帖子、金鑰和遠端關注者。"
+    "misskeyHint": "把現有 Misskey 伺服器遷移過來，保留域名、賬號、帖子、金鑰和遠端關注者。",
+    "mastodon": "從 Mastodon 遷移",
+    "mastodonHint": "將現有 Mastodon 伺服器遷移到這裡，保留網域、帳號、嘟文、金鑰和遠端追蹤者。"
   },
   "domain": {
     "title": "公開地址",
@@ -141,7 +143,11 @@
     "misskey_import": "匯入賬號和帖子",
     "passkeys": "匯入通行金鑰",
     "admin": "設定管理員",
-    "finalize": "完成"
+    "finalize": "完成",
+    "mastodon_media": "複製媒體",
+    "mastodon_export": "匯出 Mastodon 資料",
+    "mastodon_preflight": "檢查匯出結果",
+    "mastodon_import": "匯入帳號和嘟文"
   },
   "counts": {
     "settings": "項設定",
@@ -184,7 +190,7 @@
     "rate_limited": "錯誤次數過多，請等待一分鐘後重試。",
     "invalid_request": "請求無效。",
     "invalid_domain": "請輸入有效的 https:// 地址（僅 localhost 可用 http://）。",
-    "domain_mismatch": "域名必須與 Misskey 伺服器的域名一致。",
+    "domain_mismatch": "網域必須與來源伺服器的網域一致。",
     "database_fields_required": "請填寫所有資料庫欄位。",
     "invalid_database_host": "資料庫主機無效。",
     "invalid_database_port": "資料庫埠無效。",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "匯入通行金鑰失敗。",
     "stage_failed": "此步驟失敗。",
     "interrupted": "伺服器在此步驟中停止。",
-    "setup_mode": "伺服器處於安裝模式。"
+    "setup_mode": "伺服器處於安裝模式。",
+    "mastodon_fields_required": "請填寫 Mastodon 資料庫欄位。",
+    "mastodon_connect_failed": "無法連線至 Mastodon 資料庫。",
+    "mastodon_not_mastodon": "此資料庫看起來不是 Mastodon 資料庫。",
+    "mastodon_files_required": "請輸入 Mastodon 的 public/system 目錄。",
+    "mastodon_files_missing": "容器內不存在該 public/system 目錄。"
+  },
+  "mastodon": {
+    "step": "Mastodon 來源",
+    "title": "Mastodon 資料庫",
+    "hint": "連線至 Mastodon 的 PostgreSQL 資料庫。只會讀取，不會修改。請先停止 Mastodon（或使用副本），以免遷移期間資料變動。",
+    "found": "找到 {users} 個本地帳號、{remote} 個遠端帳號、{notes} 則嘟文和 {files} 個媒體檔案。",
+    "filesPath": "Mastodon 的 public/system 目錄",
+    "filesHint": "掛載到此容器中、存放 Mastodon 上傳檔案的目錄（通常是 …/mastodon/public/system）。",
+    "storageHint": "請填寫 Mastodon .env.production 中的值（S3_ENDPOINT、S3_BUCKET、AWS_ACCESS_KEY_ID 等）。密鑰不會從資料庫讀取。",
+    "detected": "已從 Mastodon 資料庫偵測到",
+    "notDetected": "無法從來源偵測到網域。請輸入 Mastodon 伺服器確切的公開 URL（LOCAL_DOMAIN）。",
+    "adminHint": "輸入現有的 Mastodon 使用者名稱可將其設為站長（原密碼繼續有效），輸入新名稱則建立獨立的管理員。"
   }
 }

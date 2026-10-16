@@ -38,7 +38,9 @@
     "fresh": "全新安装",
     "freshHint": "创建一个全新的空社区。",
     "misskey": "从 Misskey 迁移",
-    "misskeyHint": "把现有 Misskey 服务器迁移过来，保留域名、账号、帖子、密钥和远程关注者。"
+    "misskeyHint": "把现有 Misskey 服务器迁移过来，保留域名、账号、帖子、密钥和远程关注者。",
+    "mastodon": "从 Mastodon 迁移",
+    "mastodonHint": "将现有 Mastodon 服务器迁移到这里，保留域名、账号、嘟文、密钥和远程关注者。"
   },
   "domain": {
     "title": "公开地址",
@@ -141,7 +143,11 @@
     "misskey_import": "导入账号和帖子",
     "passkeys": "导入通行密钥",
     "admin": "设置管理员",
-    "finalize": "完成"
+    "finalize": "完成",
+    "mastodon_media": "复制媒体",
+    "mastodon_export": "导出 Mastodon 数据",
+    "mastodon_preflight": "检查导出结果",
+    "mastodon_import": "导入账号和嘟文"
   },
   "counts": {
     "settings": "项设置",
@@ -184,7 +190,7 @@
     "rate_limited": "错误次数过多，请等待一分钟后重试。",
     "invalid_request": "请求无效。",
     "invalid_domain": "请输入有效的 https:// 地址（仅 localhost 可用 http://）。",
-    "domain_mismatch": "域名必须与 Misskey 服务器的域名一致。",
+    "domain_mismatch": "域名必须与来源服务器的域名一致。",
     "database_fields_required": "请填写所有数据库字段。",
     "invalid_database_host": "数据库主机无效。",
     "invalid_database_port": "数据库端口无效。",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "导入通行密钥失败。",
     "stage_failed": "此步骤失败。",
     "interrupted": "服务器在此步骤中停止。",
-    "setup_mode": "服务器处于安装模式。"
+    "setup_mode": "服务器处于安装模式。",
+    "mastodon_fields_required": "请填写 Mastodon 数据库字段。",
+    "mastodon_connect_failed": "无法连接 Mastodon 数据库。",
+    "mastodon_not_mastodon": "该数据库看起来不是 Mastodon 数据库。",
+    "mastodon_files_required": "请输入 Mastodon 的 public/system 目录。",
+    "mastodon_files_missing": "容器内不存在该 public/system 目录。"
+  },
+  "mastodon": {
+    "step": "Mastodon 来源",
+    "title": "Mastodon 数据库",
+    "hint": "连接 Mastodon 的 PostgreSQL 数据库。只读取，不会修改。请先停止 Mastodon（或使用副本），以免迁移期间数据变化。",
+    "found": "找到 {users} 个本地账号、{remote} 个远程账号、{notes} 条嘟文和 {files} 个媒体文件。",
+    "filesPath": "Mastodon 的 public/system 目录",
+    "filesHint": "挂载到此容器中、存放 Mastodon 上传文件的目录（通常是 …/mastodon/public/system）。",
+    "storageHint": "请填写 Mastodon .env.production 中的值（S3_ENDPOINT、S3_BUCKET、AWS_ACCESS_KEY_ID 等）。密钥不会从数据库读取。",
+    "detected": "已从 Mastodon 数据库检测到",
+    "notDetected": "无法从来源检测到域名。请输入 Mastodon 服务器准确的公开 URL（LOCAL_DOMAIN）。",
+    "adminHint": "输入现有的 Mastodon 用户名可将其设为站长（原密码继续有效），输入新名称则创建单独的管理员。"
   }
 }

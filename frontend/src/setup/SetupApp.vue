@@ -8,7 +8,7 @@ const { t, te, locale } = useI18n()
 
 type Step = 'language' | 'token' | 'mode' | 'source' | 'domain' | 'database' | 'redis' | 'admin' | 'review'
 const step = ref<Step>('language')
-const mode = ref<'fresh' | 'misskey'>('fresh')
+const mode = ref<'fresh' | 'misskey' | 'mastodon'>('fresh')
 const busy = ref(false)
 const error = ref('')
 const okMessage = ref('')
@@ -28,13 +28,21 @@ const source = reactive({
   media_source: 'local' as 'local' | 's3', files_path: '/misskey/files', media_mode: 'reference' as 'reference' | 'copy',
   object_storage: { endpoint: '', bucket: '', region: '', access_key: '', secret_key: '', public_url: '', path_style: true },
 })
+// Mastodon has no ID method and keeps its storage settings outside the database.
+const mastodonSource = reactive({
+  host: '127.0.0.1', port: 5432, name: 'mastodon_production', user: 'mastodon', password: '', sslmode: 'disable', id_method: '',
+  media_source: 'local' as 'local' | 's3', files_path: '/mastodon/public/system', media_mode: 'reference' as 'reference' | 'copy',
+  object_storage: { endpoint: '', bucket: '', region: '', access_key: '', secret_key: '', public_url: '', path_style: true },
+})
+const src = computed(() => mode.value === 'mastodon' ? mastodonSource : source)
+const migrating = computed(() => mode.value !== 'fresh')
 const tested = reactive({ database: false, redis: false, source: false })
 
-const steps = computed<Step[]>(() => mode.value === 'misskey'
+const steps = computed<Step[]>(() => migrating.value
   ? ['language', 'token', 'mode', 'source', 'domain', 'database', 'redis', 'admin', 'review']
   : ['language', 'token', 'mode', 'domain', 'database', 'redis', 'admin', 'review'])
 const stepIndex = computed(() => steps.value.indexOf(step.value))
-const domainLocked = computed(() => mode.value === 'misskey' && !!inspection.value?.detected_base_url)
+const domainLocked = computed(() => migrating.value && !!inspection.value?.detected_base_url)
 
 function errorText(e: unknown): string {
   const code = e instanceof SetupApiError ? e.code : 'unknown'
@@ -72,6 +80,17 @@ function databaseBody() {
 function misskeyBody() {
   return { ...source, port: Number(source.port), object_storage: { ...source.object_storage } }
 }
+function mastodonBody() {
+  const { id_method: _unused, ...rest } = mastodonSource
+  return { ...rest, port: Number(mastodonSource.port), object_storage: { ...mastodonSource.object_storage } }
+}
+function modeLabel() { return t(`mode.${mode.value}`) }
+function pickMode() {
+  // A different source invalidates the inspection and the detected domain.
+  inspection.value = null
+  tested.source = false
+  domain.value = ''
+}
 
 const verifyToken = () => guarded(async () => {
   setToken(token.value.trim())
@@ -95,6 +114,13 @@ const testRedis = () => guarded(async () => {
   okMessage.value = t('common.ok')
 })
 const inspectSource = () => guarded(async () => {
+  if (mode.value === 'mastodon') {
+    const res = await call<{ inspection: Inspection }>('POST', 'test/mastodon', mastodonBody())
+    inspection.value = res.inspection
+    if (res.inspection.detected_base_url) domain.value = res.inspection.detected_base_url
+    tested.source = true
+    return
+  }
   const res = await call<{ inspection: Inspection }>('POST', 'test/misskey', misskeyBody())
   inspection.value = res.inspection
   source.id_method = res.inspection.id_method
@@ -106,7 +132,9 @@ const inspectSource = () => guarded(async () => {
   tested.source = true
 })
 const testStorage = () => guarded(async () => {
-  await call('POST', 'test/object-storage', { misskey: misskeyBody() })
+  // Mastodon's secret is never stored in its database: test with the typed key only.
+  const body = mode.value === 'mastodon' ? { misskey: { object_storage: { ...mastodonSource.object_storage } } } : { misskey: misskeyBody() }
+  await call('POST', 'test/object-storage', body)
   okMessage.value = t('common.ok')
 })
 const install = () => guarded(async () => {
@@ -115,6 +143,7 @@ const install = () => guarded(async () => {
     database: databaseBody(), redis: { ...redis, db: Number(redis.db) }, admin: { ...admin },
   }
   if (mode.value === 'misskey') body.misskey = misskeyBody()
+  if (mode.value === 'mastodon') body.mastodon = mastodonBody()
   job.value = await call<Job>('POST', 'install', body)
   phase.value = 'progress'
   startPolling()
@@ -223,7 +252,7 @@ onBeforeUnmount(() => clearTimeout(poll))
     <section v-if="phase === 'wizard'" class="card">
       <ol class="steps" :aria-label="t('title')">
         <li v-for="(s, i) in steps" :key="s" :class="{ active: s === step, done: i < stepIndex }">
-          <span class="steps__dot">{{ i + 1 }}</span><span class="steps__label">{{ t(`steps.${s}`) }}</span>
+          <span class="steps__dot">{{ i + 1 }}</span><span class="steps__label">{{ s === 'source' && mode === 'mastodon' ? t('mastodon.step') : t(`steps.${s}`) }}</span>
         </li>
       </ol>
 
@@ -251,53 +280,58 @@ onBeforeUnmount(() => clearTimeout(poll))
           <h2>{{ t('mode.title') }}</h2>
           <div class="choices" role="radiogroup">
             <label class="choice choice--wide" :class="{ selected: mode === 'fresh' }">
-              <input v-model="mode" type="radio" value="fresh"><strong>{{ t('mode.fresh') }}</strong><small>{{ t('mode.freshHint') }}</small>
+              <input v-model="mode" type="radio" value="fresh" @change="pickMode"><strong>{{ t('mode.fresh') }}</strong><small>{{ t('mode.freshHint') }}</small>
             </label>
             <label class="choice choice--wide" :class="{ selected: mode === 'misskey' }">
-              <input v-model="mode" type="radio" value="misskey"><strong>{{ t('mode.misskey') }}</strong><small>{{ t('mode.misskeyHint') }}</small>
+              <input v-model="mode" type="radio" value="misskey" @change="pickMode"><strong>{{ t('mode.misskey') }}</strong><small>{{ t('mode.misskeyHint') }}</small>
+            </label>
+            <label class="choice choice--wide" :class="{ selected: mode === 'mastodon' }">
+              <input v-model="mode" type="radio" value="mastodon" @change="pickMode"><strong>{{ t('mode.mastodon') }}</strong><small>{{ t('mode.mastodonHint') }}</small>
             </label>
           </div>
         </template>
 
         <template v-else-if="step === 'source'">
-          <h2>{{ t('source.title') }}</h2>
-          <p class="muted">{{ t('source.hint') }}</p>
+          <h2>{{ mode === 'mastodon' ? t('mastodon.title') : t('source.title') }}</h2>
+          <p class="muted">{{ mode === 'mastodon' ? t('mastodon.hint') : t('source.hint') }}</p>
           <div class="grid">
-            <label class="field field--wide"><span>{{ t('source.host') }}</span><input v-model="source.host" autocapitalize="off" spellcheck="false"></label>
-            <label class="field"><span>{{ t('source.port') }}</span><input v-model.number="source.port" inputmode="numeric"></label>
-            <label class="field"><span>{{ t('source.name') }}</span><input v-model="source.name" autocapitalize="off"></label>
-            <label class="field"><span>{{ t('source.user') }}</span><input v-model="source.user" autocapitalize="off"></label>
-            <label class="field"><span>{{ t('source.password') }}</span><input v-model="source.password" type="password" autocomplete="off"></label>
+            <label class="field field--wide"><span>{{ t('source.host') }}</span><input v-model="src.host" autocapitalize="off" spellcheck="false"></label>
+            <label class="field"><span>{{ t('source.port') }}</span><input v-model.number="src.port" inputmode="numeric"></label>
+            <label class="field"><span>{{ t('source.name') }}</span><input v-model="src.name" autocapitalize="off"></label>
+            <label class="field"><span>{{ t('source.user') }}</span><input v-model="src.user" autocapitalize="off"></label>
+            <label class="field"><span>{{ t('source.password') }}</span><input v-model="src.password" type="password" autocomplete="off"></label>
             <label class="field"><span>{{ t('source.sslmode') }}</span>
-              <select v-model="source.sslmode"><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
+              <select v-model="src.sslmode"><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
             </label>
           </div>
           <button type="button" class="btn" :disabled="busy" @click="inspectSource">{{ busy ? t('common.testing') : t('source.inspect') }}</button>
-          <p v-if="inspection" class="notice notice--ok">{{ t('source.found', { users: inspection.counts.users ?? 0, notes: inspection.counts.notes ?? 0, files: inspection.counts.files ?? inspection.counts.drive_files ?? 0 }) }}</p>
+          <p v-if="inspection && mode === 'mastodon'" class="notice notice--ok">{{ t('mastodon.found', { users: inspection.counts.local_users ?? 0, remote: inspection.counts.remote_users ?? 0, notes: inspection.counts.notes ?? 0, files: inspection.counts.files ?? 0 }) }}</p>
+          <p v-else-if="inspection" class="notice notice--ok">{{ t('source.found', { users: inspection.counts.users ?? 0, notes: inspection.counts.notes ?? 0, files: inspection.counts.files ?? inspection.counts.drive_files ?? 0 }) }}</p>
 
           <template v-if="tested.source">
             <h3>{{ t('source.mediaTitle') }}</h3>
             <div class="choices">
-              <label class="choice" :class="{ selected: source.media_source === 'local' }"><input v-model="source.media_source" type="radio" value="local">{{ t('source.mediaLocal') }}</label>
-              <label class="choice" :class="{ selected: source.media_source === 's3' }"><input v-model="source.media_source" type="radio" value="s3">{{ t('source.mediaS3') }}</label>
+              <label class="choice" :class="{ selected: src.media_source === 'local' }"><input v-model="src.media_source" type="radio" value="local">{{ t('source.mediaLocal') }}</label>
+              <label class="choice" :class="{ selected: src.media_source === 's3' }"><input v-model="src.media_source" type="radio" value="s3">{{ t('source.mediaS3') }}</label>
             </div>
-            <label v-if="source.media_source === 'local'" class="field"><span>{{ t('source.filesPath') }}</span>
-              <input v-model="source.files_path" autocapitalize="off" spellcheck="false"><small>{{ t('source.filesHint') }}</small>
+            <label v-if="src.media_source === 'local'" class="field"><span>{{ mode === 'mastodon' ? t('mastodon.filesPath') : t('source.filesPath') }}</span>
+              <input v-model="src.files_path" autocapitalize="off" spellcheck="false"><small>{{ mode === 'mastodon' ? t('mastodon.filesHint') : t('source.filesHint') }}</small>
             </label>
             <template v-else>
-              <p v-if="inspection?.object_storage" class="muted">{{ t('source.prefilled') }}</p>
+              <p v-if="mode === 'mastodon'" class="muted">{{ t('mastodon.storageHint') }}</p>
+              <p v-else-if="inspection?.object_storage" class="muted">{{ t('source.prefilled') }}</p>
               <div class="choices">
-                <label class="choice choice--wide" :class="{ selected: source.media_mode === 'reference' }"><input v-model="source.media_mode" type="radio" value="reference"><strong>{{ t('source.modeReference') }}</strong><small>{{ t('source.modeReferenceHint') }}</small></label>
-                <label class="choice choice--wide" :class="{ selected: source.media_mode === 'copy' }"><input v-model="source.media_mode" type="radio" value="copy"><strong>{{ t('source.modeCopy') }}</strong><small>{{ t('source.modeCopyHint') }}</small></label>
+                <label class="choice choice--wide" :class="{ selected: src.media_mode === 'reference' }"><input v-model="src.media_mode" type="radio" value="reference"><strong>{{ t('source.modeReference') }}</strong><small>{{ t('source.modeReferenceHint') }}</small></label>
+                <label class="choice choice--wide" :class="{ selected: src.media_mode === 'copy' }"><input v-model="src.media_mode" type="radio" value="copy"><strong>{{ t('source.modeCopy') }}</strong><small>{{ t('source.modeCopyHint') }}</small></label>
               </div>
               <div class="grid">
-                <label class="field field--wide"><span>{{ t('source.endpoint') }}</span><input v-model="source.object_storage.endpoint" autocapitalize="off" spellcheck="false"></label>
-                <label class="field"><span>{{ t('source.bucket') }}</span><input v-model="source.object_storage.bucket" autocapitalize="off"></label>
-                <label class="field"><span>{{ t('source.region') }}</span><input v-model="source.object_storage.region" autocapitalize="off"></label>
-                <label class="field"><span>{{ t('source.accessKey') }}</span><input v-model="source.object_storage.access_key" autocapitalize="off" spellcheck="false"></label>
-                <label class="field"><span>{{ t('source.secretKey') }}</span><input v-model="source.object_storage.secret_key" type="password" autocomplete="off"><small v-if="inspection?.has_object_secret">{{ t('source.secretKept') }}</small></label>
-                <label class="field field--wide"><span>{{ t('source.publicUrl') }}</span><input v-model="source.object_storage.public_url" autocapitalize="off" spellcheck="false"></label>
-                <label class="check"><input v-model="source.object_storage.path_style" type="checkbox">{{ t('source.pathStyle') }}</label>
+                <label class="field field--wide"><span>{{ t('source.endpoint') }}</span><input v-model="src.object_storage.endpoint" autocapitalize="off" spellcheck="false"></label>
+                <label class="field"><span>{{ t('source.bucket') }}</span><input v-model="src.object_storage.bucket" autocapitalize="off"></label>
+                <label class="field"><span>{{ t('source.region') }}</span><input v-model="src.object_storage.region" autocapitalize="off"></label>
+                <label class="field"><span>{{ t('source.accessKey') }}</span><input v-model="src.object_storage.access_key" autocapitalize="off" spellcheck="false"></label>
+                <label class="field"><span>{{ t('source.secretKey') }}</span><input v-model="src.object_storage.secret_key" type="password" autocomplete="off"><small v-if="inspection?.has_object_secret">{{ t('source.secretKept') }}</small></label>
+                <label class="field field--wide"><span>{{ t('source.publicUrl') }}</span><input v-model="src.object_storage.public_url" autocapitalize="off" spellcheck="false"></label>
+                <label class="check"><input v-model="src.object_storage.path_style" type="checkbox">{{ t('source.pathStyle') }}</label>
               </div>
               <button type="button" class="btn" :disabled="busy" @click="testStorage">{{ busy ? t('common.testing') : t('source.testStorage') }}</button>
             </template>
@@ -310,8 +344,9 @@ onBeforeUnmount(() => clearTimeout(poll))
           <label class="field"><span>{{ t('domain.label') }}</span>
             <input v-model="domain" type="url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://social.example.com" :readonly="domainLocked" :aria-readonly="domainLocked" required>
           </label>
-          <p v-if="domainLocked" class="notice"><strong>{{ t('domain.detected') }}</strong> — {{ t('domain.detectedHint') }}</p>
+          <p v-if="domainLocked" class="notice"><strong>{{ mode === 'mastodon' ? t('mastodon.detected') : t('domain.detected') }}</strong> — {{ t('domain.detectedHint') }}</p>
           <p v-else-if="mode === 'misskey'" class="notice notice--warn">{{ t('domain.notDetected') }}</p>
+          <p v-else-if="mode === 'mastodon'" class="notice notice--warn">{{ t('mastodon.notDetected') }}</p>
           <p class="notice notice--warn">{{ t('domain.permanent') }}</p>
         </template>
 
@@ -351,7 +386,7 @@ onBeforeUnmount(() => clearTimeout(poll))
 
         <template v-else-if="step === 'admin'">
           <h2>{{ t('admin.title') }}</h2>
-          <p class="muted">{{ mode === 'misskey' ? t('admin.hintMisskey') : t('admin.hintFresh') }}</p>
+          <p class="muted">{{ mode === 'mastodon' ? t('mastodon.adminHint') : mode === 'misskey' ? t('admin.hintMisskey') : t('admin.hintFresh') }}</p>
           <label class="field"><span>{{ t('admin.username') }}</span><input v-model="admin.username" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
           <label class="field"><span>{{ t('admin.email') }}</span><input v-model="admin.email" type="email" autocomplete="email"></label>
           <label class="field"><span>{{ t('admin.password') }}</span><input v-model="admin.password" type="password" autocomplete="new-password"><small>{{ t('admin.passwordHint') }}</small></label>
@@ -361,7 +396,7 @@ onBeforeUnmount(() => clearTimeout(poll))
           <h2>{{ t('review.title') }}</h2>
           <dl class="summary">
             <dt>{{ t('steps.language') }}</dt><dd>{{ LOCALES.find(l => l.code === locale)?.name }}</dd>
-            <dt>{{ t('steps.mode') }}</dt><dd>{{ mode === 'misskey' ? t('mode.misskey') : t('mode.fresh') }}</dd>
+            <dt>{{ t('steps.mode') }}</dt><dd>{{ modeLabel() }}</dd>
             <dt>{{ t('steps.domain') }}</dt><dd>{{ domain }}</dd>
             <dt>{{ t('steps.database') }}</dt><dd>{{ db.type === 'sqlite' ? db.path : `${db.type}://${db.user}@${db.host}:${db.port}/${db.name}` }}</dd>
             <dt>{{ t('steps.redis') }}</dt><dd>{{ redis.address }}</dd>
@@ -377,7 +412,7 @@ onBeforeUnmount(() => clearTimeout(poll))
           <button v-if="stepIndex > 0 && step !== 'token'" type="button" class="btn btn--ghost" :disabled="busy" @click="go(-1)">{{ t('common.back') }}</button>
           <span class="spacer" />
           <button v-if="step === 'token'" type="button" class="btn btn--primary" :disabled="busy || !token.trim()" @click="verifyToken">{{ t('token.verify') }}</button>
-          <button v-else-if="step === 'review'" type="button" class="btn btn--primary" :disabled="busy" @click="install">{{ mode === 'misskey' ? t('review.migrate') : t('review.install') }}</button>
+          <button v-else-if="step === 'review'" type="button" class="btn btn--primary" :disabled="busy" @click="install">{{ migrating ? t('review.migrate') : t('review.install') }}</button>
           <button v-else type="button" class="btn btn--primary" :disabled="busy || (step === 'source' && !tested.source) || (step === 'domain' && !domain.trim()) || (step === 'database' && !tested.database) || (step === 'redis' && !tested.redis)" @click="go(1)">{{ t('common.next') }}</button>
         </div>
       </form>

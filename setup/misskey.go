@@ -398,15 +398,22 @@ func stageMisskeyMedia(ctx context.Context, r *runner) error {
 			}
 		}
 	}
+	return mirrorObjects(ctx, r, "misskey_media", client, o.Bucket, objects)
+}
+
+// mirrorObjects downloads objects into workDir()/bucket with 4 workers.
+// Files already present with the expected size are skipped, so a retry
+// resumes where it stopped.
+func mirrorObjects(ctx context.Context, r *runner, stage string, client *minio.Client, bucket string, objects []mirrorObject) error {
 	root := filepath.Join(workDir(), "bucket")
-	if err = os.MkdirAll(root, 0o700); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fail("config_write_failed", "the work directory is not writable")
 	}
 	var totalBytes int64
 	for _, obj := range objects {
 		totalBytes += obj.size
 	}
-	r.t.setCounts("misskey_media", map[string]int64{"files_total": int64(len(objects)), "bytes_total": totalBytes})
+	r.t.setCounts(stage, map[string]int64{"files_total": int64(len(objects)), "bytes_total": totalBytes})
 	var done, doneBytes, missing, skipped atomic.Int64
 	jobs := make(chan mirrorObject)
 	var wg sync.WaitGroup
@@ -416,7 +423,7 @@ func stageMisskeyMedia(ctx context.Context, r *runner) error {
 		go func() {
 			defer wg.Done()
 			for obj := range jobs {
-				n, existed, err := mirrorOne(ctx, client, o.Bucket, root, obj)
+				n, existed, err := mirrorOne(ctx, client, bucket, root, obj)
 				switch {
 				case err == nil && existed:
 					skipped.Add(1)
@@ -435,7 +442,7 @@ func stageMisskeyMedia(ctx context.Context, r *runner) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	report := func() {
-		r.t.setCounts("misskey_media", map[string]int64{"files_done": done.Load(), "bytes_done": doneBytes.Load(), "files_missing": missing.Load(), "files_skipped": skipped.Load()})
+		r.t.setCounts(stage, map[string]int64{"files_done": done.Load(), "bytes_done": doneBytes.Load(), "files_missing": missing.Load(), "files_skipped": skipped.Load()})
 	}
 feed:
 	for _, obj := range objects {
@@ -568,29 +575,15 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 		return nil
 	}
 	script := utils.ResolveAppPath(filepath.Join("scripts", "migration", "export_misskey.py"))
-	python, perr := exec.LookPath("python3")
-	_, qerr := exec.LookPath("psql")
-	if perr != nil || qerr != nil || !exists(script) {
+	if !exporterAvailable(script) {
 		return fail("export_tool_missing")
 	}
-	if err := os.MkdirAll(workDir(), 0o700); err != nil {
-		return fail("config_write_failed", "the work directory is not writable")
-	}
 	_ = os.RemoveAll(out)
-	pass, err := os.CreateTemp(workDir(), ".pgpass-*")
-	if err != nil {
-		return fail("config_write_failed", "the work directory is not writable")
-	}
-	defer func() { _ = os.Remove(pass.Name()) }()
-	_ = pass.Chmod(0o600)
-	_, _ = fmt.Fprintf(pass, "%s:%d:%s:%s:%s\n", pgpassEscape(m.Host), m.Port, pgpassEscape(m.Name), pgpassEscape(m.User), pgpassEscape(r.secrets.MisskeyPassword))
-	_ = pass.Close()
-
 	idMethod := m.IDMethod
 	if idMethod == "" {
 		return fail("invalid_id_method")
 	}
-	args := []string{script, "--base-url", job.BaseURL, "--source-version", "unknown", "--id-method", idMethod, "--output", out,
+	args := []string{"--base-url", job.BaseURL, "--source-version", "unknown", "--id-method", idMethod, "--output", out,
 		"--max-records", "100000000", "--max-snapshot-bytes", strconv.FormatInt(64<<30, 10), "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
 	switch m.MediaSource {
 	case "local":
@@ -604,23 +597,65 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 			args = append(args, "--source-dir", m.FilesPath)
 		}
 	}
-	cmd := exec.CommandContext(ctx, python, args...)
+	r.t.logf("info", "reading the Misskey database in one read-only snapshot…")
+	return runExporter(ctx, r, "misskey_export", script, pgSource{m.Host, m.Port, m.Name, m.User, m.SSLMode, r.secrets.MisskeyPassword}, args, nil)
+}
+
+func exporterAvailable(script string) bool {
+	_, perr := exec.LookPath("python3")
+	_, qerr := exec.LookPath("psql")
+	return perr == nil && qerr == nil && exists(script)
+}
+
+// pgSource is a source PostgreSQL connection for an exporter script.
+type pgSource struct {
+	Host    string
+	Port    int
+	Name    string
+	User    string
+	SSLMode string
+	Pass    string
+}
+
+// runExporter runs a Python exporter with libpq settings in the environment
+// and the password in a private PGPASSFILE. Exit code 2 (blocking issues)
+// is not an error: the preflight stage reports them. onLine, when set,
+// receives every stdout line; otherwise the last JSON line is the summary.
+func runExporter(ctx context.Context, r *runner, stage, script string, src pgSource, args []string, onLine func([]byte)) error {
+	python, _ := exec.LookPath("python3")
+	if err := os.MkdirAll(workDir(), 0o700); err != nil {
+		return fail("config_write_failed", "the work directory is not writable")
+	}
+	pass, err := os.CreateTemp(workDir(), ".pgpass-*")
+	if err != nil {
+		return fail("config_write_failed", "the work directory is not writable")
+	}
+	defer func() { _ = os.Remove(pass.Name()) }()
+	_ = pass.Chmod(0o600)
+	_, _ = fmt.Fprintf(pass, "%s:%d:%s:%s:%s\n", pgpassEscape(src.Host), src.Port, pgpassEscape(src.Name), pgpassEscape(src.User), pgpassEscape(src.Pass))
+	_ = pass.Close()
+
+	cmd := exec.CommandContext(ctx, python, append([]string{script}, args...)...)
 	env := []string{}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "PG") {
 			env = append(env, kv)
 		}
 	}
-	cmd.Env = append(env, "PGHOST="+m.Host, "PGPORT="+strconv.Itoa(m.Port), "PGDATABASE="+m.Name, "PGUSER="+m.User, "PGSSLMODE="+m.SSLMode, "PGPASSFILE="+pass.Name(), "PGCONNECT_TIMEOUT=10")
+	cmd.Env = append(env, "PGHOST="+src.Host, "PGPORT="+strconv.Itoa(src.Port), "PGDATABASE="+src.Name, "PGUSER="+src.User, "PGSSLMODE="+src.SSLMode, "PGPASSFILE="+pass.Name(), "PGCONNECT_TIMEOUT=10")
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Stderr = &lineLogger{r: r}
-	r.t.logf("info", "reading the Misskey database in one read-only snapshot…")
 	if err := cmd.Start(); err != nil {
 		return fail("export_tool_missing")
 	}
 	var summary map[string]any
 	sc := bufio.NewScanner(stdout)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
+		if onLine != nil {
+			onLine(sc.Bytes())
+			continue
+		}
 		_ = json.Unmarshal(sc.Bytes(), &summary)
 	}
 	err = cmd.Wait()
@@ -637,7 +672,7 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 	}
 	for _, k := range []string{"source_records", "errors", "warnings"} {
 		if v, ok := summary[k].(float64); ok {
-			r.t.setCount("misskey_export", k, int64(v))
+			r.t.setCount(stage, k, int64(v))
 		}
 	}
 	if code == 2 {
@@ -704,6 +739,12 @@ func toInt64(m map[string]int, prefix string) map[string]int64 {
 }
 
 func stageMisskeyPreflight(ctx context.Context, r *runner) error {
+	return preflight(ctx, r, "misskey_preflight", "misskey_export")
+}
+
+// preflight dry-runs the import of the export. On blocking issues the
+// export is discarded and its stage reopened so a retry re-reads the source.
+func preflight(ctx context.Context, r *runner, stage, exportStage string) error {
 	conn, err := requireDB()
 	if err != nil {
 		return err
@@ -723,17 +764,17 @@ func stageMisskeyPreflight(ctx context.Context, r *runner) error {
 		r.t.logf("error", "preflight could not finish: %s", sanitize(err.Error()))
 		return fail("preflight_blocked")
 	}
-	r.t.setCounts("misskey_preflight", toInt64(report.Counts, ""))
+	r.t.setCounts(stage, toInt64(report.Counts, ""))
 	warnings := logIssues(r, report, "warning", 20)
-	r.t.setCount("misskey_preflight", "warnings", int64(warnings))
+	r.t.setCount(stage, "warnings", int64(warnings))
 	if !report.CanExecute {
 		errs := logIssues(r, report, "error", 50)
-		r.t.setCount("misskey_preflight", "errors", int64(errs))
+		r.t.setCount(stage, "errors", int64(errs))
 		// A retry must read the (fixed) source again, so the export is
 		// discarded and its stage reopened.
 		_ = os.RemoveAll(exportDir())
 		r.t.update(func(j *Job) {
-			if st := r.t.stage("misskey_export"); st != nil {
+			if st := r.t.stage(exportStage); st != nil {
 				st.Status, st.Counts = StatusPending, nil
 			}
 		})
@@ -746,6 +787,10 @@ func stageMisskeyPreflight(ctx context.Context, r *runner) error {
 // receipts make it idempotent: a retry after a failure (nothing committed)
 // or after success (everything skipped) is safe.
 func stageMisskeyImport(ctx context.Context, r *runner) error {
+	return importBundle(ctx, r, "misskey_import")
+}
+
+func importBundle(ctx context.Context, r *runner, stage string) error {
 	conn, err := requireDB()
 	if err != nil {
 		return err
@@ -770,9 +815,9 @@ func stageMisskeyImport(ctx context.Context, r *runner) error {
 		}
 		return fail("import_failed")
 	}
-	r.t.setCounts("misskey_import", toInt64(report.Created, ""))
-	r.t.setCounts("misskey_import", toInt64(report.Skipped, "skipped_"))
-	r.t.setCounts("misskey_import", toInt64(report.Archived, "archived_"))
+	r.t.setCounts(stage, toInt64(report.Created, ""))
+	r.t.setCounts(stage, toInt64(report.Skipped, "skipped_"))
+	r.t.setCounts(stage, toInt64(report.Archived, "archived_"))
 	return nil
 }
 

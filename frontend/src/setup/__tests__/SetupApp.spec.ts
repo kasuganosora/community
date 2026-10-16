@@ -36,6 +36,39 @@ describe('SetupApp', () => {
     expect(w.find('[role="alert"]').text()).toBe(messages.en.errors.invalid_token)
   })
 
+  it('runs the Mastodon source step against /test/mastodon and locks the detected domain', async () => {
+    const calls: { url: string; body: any }[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (url.endsWith('/status')) return respond(200, { env_file: '/app/config/.env', defaults: {} })
+      if (url.endsWith('/verify')) return respond(200, { ok: true })
+      if (url.endsWith('/test/mastodon')) return respond(200, { inspection: { counts: { local_users: 2, remote_users: 1, notes: 4, files: 3 }, detected_base_url: 'https://masto.example' } })
+      return respond(404, {})
+    }))
+    const w = mount(SetupApp, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await w.find('.btn--primary').trigger('click')
+    await w.find('input[autocomplete="one-time-code"]').setValue('tok')
+    await w.find('.btn--primary').trigger('click')
+    await flushPromises()
+    await w.find('input[value="mastodon"]').setValue(true)
+    await w.find('.actions .btn--primary').trigger('click')
+    expect(w.find('h2').text()).toBe(messages.en.mastodon.title)
+    expect(w.find('.steps .active').text()).toContain(messages.en.mastodon.step)
+    await w.findAll('.form button.btn').find(b => b.text() === messages.en.source.inspect)!.trigger('click')
+    await flushPromises()
+    const req = calls.find(c => c.url.endsWith('/test/mastodon'))!
+    expect(req.body.name).toBe('mastodon_production')
+    expect(req.body).not.toHaveProperty('id_method')
+    expect(w.text()).toContain('2 local accounts, 1 remote accounts, 4 posts and 3 media files')
+    expect(w.text()).toContain(messages.en.mastodon.filesPath)
+    expect(w.findAll('input').some(i => (i.element as HTMLInputElement).value === '/mastodon/public/system')).toBe(true)
+    await w.find('.actions .btn--primary').trigger('click')
+    const domain = w.find('input[type="url"]')
+    expect((domain.element as HTMLInputElement).value).toBe('https://masto.example')
+    expect(domain.attributes('readonly')).toBeDefined()
+  })
+
   it('has every key in every locale', () => {
     const keys = (o: object, p = ''): string[] => Object.entries(o).flatMap(([k, v]) => typeof v === 'object' ? keys(v, `${p}${k}.`) : [`${p}${k}`])
     const base = keys(messages['zh-CN']).sort()

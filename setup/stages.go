@@ -113,7 +113,7 @@ func stageAdmin(_ context.Context, r *runner) error {
 	err = conn.Where("username = ?", job.Admin).First(&user).Error
 	switch {
 	case err == nil:
-		if job.Mode != "misskey" {
+		if job.Mode == "fresh" {
 			return fail("admin_exists")
 		}
 		r.t.logf("warn", "user @%s already exists (imported); it is promoted to owner and keeps its existing password", job.Admin)

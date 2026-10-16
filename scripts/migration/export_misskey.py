@@ -74,7 +74,7 @@ def id_time(value, method):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def read_snapshot(output, max_records=1000000, max_bytes=512 << 20):
+def read_snapshot(output, max_records=1000000, max_bytes=512 << 20, required="user", platform="Misskey"):
     tables = defaultdict(list)
     count = size = 0
     snapshot = None
@@ -104,8 +104,8 @@ def read_snapshot(output, max_records=1000000, max_bytes=512 << 20):
                 proc.kill()
                 proc.wait()
             proc.stdout.close()
-    if not snapshot or not tables.get("user"):
-        raise ExportError("snapshot contains no Misskey user records")
+    if not snapshot or not tables.get(required):
+        raise ExportError("snapshot contains no %s %s records" % (platform, required))
     return dict(tables), snapshot
 
 

@@ -59,6 +59,7 @@ COPY resources ./resources
 
 # Misskey exporter used by the setup wizard's migration mode.
 COPY scripts/migration/export_misskey.py ./scripts/migration/export_misskey.py
+COPY scripts/migration/export_mastodon_db.py ./scripts/migration/export_mastodon_db.py
 
 # Create data directories (uploads are stored relative to the working dir)
 RUN mkdir -p uploads config data

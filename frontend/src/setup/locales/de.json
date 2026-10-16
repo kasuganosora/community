@@ -38,7 +38,9 @@
     "fresh": "Neuinstallation",
     "freshHint": "Eine neue, leere Community anlegen.",
     "misskey": "Von Misskey migrieren",
-    "misskeyHint": "Einen bestehenden Misskey-Server übernehmen – mit Domain, Konten, Beiträgen, Schlüsseln und entfernten Followern."
+    "misskeyHint": "Einen bestehenden Misskey-Server übernehmen – mit Domain, Konten, Beiträgen, Schlüsseln und entfernten Followern.",
+    "mastodon": "Von Mastodon migrieren",
+    "mastodonHint": "Einen bestehenden Mastodon-Server hierher umziehen – Domain, Konten, Beiträge, Schlüssel und entfernte Follower bleiben erhalten."
   },
   "domain": {
     "title": "Öffentliche Adresse",
@@ -141,7 +143,11 @@
     "misskey_import": "Konten und Beiträge importieren",
     "passkeys": "Passkeys importieren",
     "admin": "Administrator einrichten",
-    "finalize": "Abschließen"
+    "finalize": "Abschließen",
+    "mastodon_media": "Medien kopieren",
+    "mastodon_export": "Mastodon-Daten exportieren",
+    "mastodon_preflight": "Export prüfen",
+    "mastodon_import": "Konten und Beiträge importieren"
   },
   "counts": {
     "settings": "Einstellungen",
@@ -184,7 +190,7 @@
     "rate_limited": "Zu viele Fehlversuche. Warte eine Minute.",
     "invalid_request": "Ungültige Anfrage.",
     "invalid_domain": "Gib eine gültige https://-URL ein (http:// nur für localhost).",
-    "domain_mismatch": "Die Domain muss mit der des Misskey-Servers übereinstimmen.",
+    "domain_mismatch": "Die Domain muss mit der Domain des Quellservers übereinstimmen.",
     "database_fields_required": "Fülle alle Datenbankfelder aus.",
     "invalid_database_host": "Ungültiger Datenbank-Host.",
     "invalid_database_port": "Ungültiger Datenbank-Port.",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "Import der Passkeys fehlgeschlagen.",
     "stage_failed": "Dieser Schritt ist fehlgeschlagen.",
     "interrupted": "Der Server wurde während dieses Schritts beendet.",
-    "setup_mode": "Der Server ist im Einrichtungsmodus."
+    "setup_mode": "Der Server ist im Einrichtungsmodus.",
+    "mastodon_fields_required": "Fülle die Felder der Mastodon-Datenbank aus.",
+    "mastodon_connect_failed": "Verbindung zur Mastodon-Datenbank fehlgeschlagen.",
+    "mastodon_not_mastodon": "Diese Datenbank sieht nicht nach einer Mastodon-Datenbank aus.",
+    "mastodon_files_required": "Gib das Mastodon-Verzeichnis public/system an.",
+    "mastodon_files_missing": "Das Verzeichnis public/system existiert im Container nicht."
+  },
+  "mastodon": {
+    "step": "Mastodon-Quelle",
+    "title": "Mastodon-Datenbank",
+    "hint": "Verbinde dich mit der PostgreSQL-Datenbank von Mastodon. Sie wird nur gelesen, nie verändert. Stoppe Mastodon (oder nutze eine Kopie), damit sich während der Migration nichts ändert.",
+    "found": "{users} lokale Konten, {remote} entfernte Konten, {notes} Beiträge und {files} Mediendateien gefunden.",
+    "filesPath": "Mastodon-Verzeichnis public/system",
+    "filesHint": "Das in diesen Container eingebundene Verzeichnis mit den Mastodon-Uploads (meist …/mastodon/public/system).",
+    "storageHint": "Verwende die Werte aus Mastodons .env.production (S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID…). Der geheime Schlüssel wird nie aus der Datenbank gelesen.",
+    "detected": "Aus der Mastodon-Datenbank erkannt",
+    "notDetected": "Die Domain konnte nicht aus der Quelle erkannt werden. Gib die genaue öffentliche URL des Mastodon-Servers ein (LOCAL_DOMAIN).",
+    "adminHint": "Gib einen bestehenden Mastodon-Benutzer ein, um ihn zum Eigentümer zu machen (sein Passwort funktioniert weiter), oder einen neuen Namen für ein separates Administratorkonto."
   }
 }

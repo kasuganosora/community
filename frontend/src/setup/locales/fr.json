@@ -38,7 +38,9 @@
     "fresh": "Nouvelle installation",
     "freshHint": "Créer une nouvelle communauté vide.",
     "misskey": "Migrer depuis Misskey",
-    "misskeyHint": "Déplacer un serveur Misskey existant en conservant son domaine, ses comptes, publications, clés et abonnés distants."
+    "misskeyHint": "Déplacer un serveur Misskey existant en conservant son domaine, ses comptes, publications, clés et abonnés distants.",
+    "mastodon": "Migrer depuis Mastodon",
+    "mastodonHint": "Déplacer ici un serveur Mastodon existant en conservant son domaine, ses comptes, publications, clés et abonnés distants."
   },
   "domain": {
     "title": "Adresse publique",
@@ -141,7 +143,11 @@
     "misskey_import": "Importer comptes et publications",
     "passkeys": "Importer les clés d’accès",
     "admin": "Configurer l’administrateur",
-    "finalize": "Finaliser"
+    "finalize": "Finaliser",
+    "mastodon_media": "Copier les médias",
+    "mastodon_export": "Exporter les données Mastodon",
+    "mastodon_preflight": "Vérifier l’export",
+    "mastodon_import": "Importer comptes et publications"
   },
   "counts": {
     "settings": "réglages",
@@ -184,7 +190,7 @@
     "rate_limited": "Trop d’essais incorrects. Patientez une minute.",
     "invalid_request": "Requête invalide.",
     "invalid_domain": "Saisissez une URL https:// valide (http:// seulement pour localhost).",
-    "domain_mismatch": "Le domaine doit correspondre à celui du serveur Misskey.",
+    "domain_mismatch": "Le domaine doit correspondre à celui du serveur source.",
     "database_fields_required": "Remplissez tous les champs de la base.",
     "invalid_database_host": "Hôte de base de données invalide.",
     "invalid_database_port": "Port de base de données invalide.",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "L’import des clés d’accès a échoué.",
     "stage_failed": "Cette étape a échoué.",
     "interrupted": "Le serveur s’est arrêté pendant cette étape.",
-    "setup_mode": "Le serveur est en mode installation."
+    "setup_mode": "Le serveur est en mode installation.",
+    "mastodon_fields_required": "Remplissez les champs de la base Mastodon.",
+    "mastodon_connect_failed": "Impossible de se connecter à la base Mastodon.",
+    "mastodon_not_mastodon": "Cette base ne ressemble pas à une base Mastodon.",
+    "mastodon_files_required": "Indiquez le répertoire public/system de Mastodon.",
+    "mastodon_files_missing": "Le répertoire public/system n’existe pas dans le conteneur."
+  },
+  "mastodon": {
+    "step": "Source Mastodon",
+    "title": "Base de données Mastodon",
+    "hint": "Connectez-vous à la base PostgreSQL de Mastodon. Elle est seulement lue, jamais modifiée. Arrêtez Mastodon (ou utilisez une copie) pour que rien ne change pendant la migration.",
+    "found": "{users} comptes locaux, {remote} comptes distants, {notes} publications et {files} fichiers média trouvés.",
+    "filesPath": "Répertoire public/system de Mastodon",
+    "filesHint": "Le répertoire monté dans ce conteneur qui contient les fichiers envoyés sur Mastodon (souvent …/mastodon/public/system).",
+    "storageHint": "Utilisez les valeurs du .env.production de Mastodon (S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID…). La clé secrète n’est jamais lue depuis la base.",
+    "detected": "Détecté dans la base Mastodon",
+    "notDetected": "Le domaine n’a pas pu être détecté depuis la source. Saisissez l’URL publique exacte du serveur Mastodon (LOCAL_DOMAIN).",
+    "adminHint": "Saisissez un utilisateur Mastodon existant pour en faire le propriétaire (son mot de passe reste valable), ou un nouveau nom pour créer un administrateur distinct."
   }
 }

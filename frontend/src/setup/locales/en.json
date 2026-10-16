@@ -38,7 +38,9 @@
     "fresh": "Fresh install",
     "freshHint": "Start a new, empty community.",
     "misskey": "Migrate from Misskey",
-    "misskeyHint": "Move an existing Misskey server here, keeping its domain, accounts, posts, keys and remote followers."
+    "misskeyHint": "Move an existing Misskey server here, keeping its domain, accounts, posts, keys and remote followers.",
+    "mastodon": "Migrate from Mastodon",
+    "mastodonHint": "Move an existing Mastodon server here, keeping its domain, accounts, posts, keys and remote followers."
   },
   "domain": {
     "title": "Public address",
@@ -141,7 +143,11 @@
     "misskey_import": "Import accounts and posts",
     "passkeys": "Import passkeys",
     "admin": "Set up administrator",
-    "finalize": "Finish"
+    "finalize": "Finish",
+    "mastodon_media": "Copy media",
+    "mastodon_export": "Export Mastodon data",
+    "mastodon_preflight": "Check the export",
+    "mastodon_import": "Import accounts and posts"
   },
   "counts": {
     "settings": "settings",
@@ -184,7 +190,7 @@
     "rate_limited": "Too many wrong attempts. Wait a minute and try again.",
     "invalid_request": "The request was not valid.",
     "invalid_domain": "Enter a valid https:// URL (http:// only for localhost).",
-    "domain_mismatch": "The domain must match the Misskey server’s domain.",
+    "domain_mismatch": "The domain must match the source server’s domain.",
     "database_fields_required": "Fill in all database fields.",
     "invalid_database_host": "The database host is not valid.",
     "invalid_database_port": "The database port is not valid.",
@@ -223,6 +229,23 @@
     "passkey_import_failed": "Importing passkeys failed.",
     "stage_failed": "This step failed.",
     "interrupted": "The server stopped during this step.",
-    "setup_mode": "The server is in setup mode."
+    "setup_mode": "The server is in setup mode.",
+    "mastodon_fields_required": "Fill in the Mastodon database fields.",
+    "mastodon_connect_failed": "Could not connect to the Mastodon database.",
+    "mastodon_not_mastodon": "That database doesn’t look like a Mastodon database.",
+    "mastodon_files_required": "Enter the Mastodon public/system directory.",
+    "mastodon_files_missing": "The public/system directory doesn’t exist inside the container."
+  },
+  "mastodon": {
+    "step": "Mastodon source",
+    "title": "Mastodon database",
+    "hint": "Connect to the Mastodon PostgreSQL database. It is only read, never changed. Stop Mastodon (or use a copy) so nothing changes during the migration.",
+    "found": "Found {users} local accounts, {remote} remote accounts, {notes} posts and {files} media files.",
+    "filesPath": "Mastodon public/system directory",
+    "filesHint": "The directory mounted into this container that holds Mastodon’s uploads (usually …/mastodon/public/system).",
+    "storageHint": "Use the values from Mastodon’s .env.production (S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID…). The secret key is never read from the database.",
+    "detected": "Detected from the Mastodon database",
+    "notDetected": "The domain could not be detected from the source. Enter the Mastodon server’s exact public URL (LOCAL_DOMAIN).",
+    "adminHint": "Enter an existing Mastodon user to make them owner (their password keeps working), or a new name to create a separate administrator."
   }
 }
