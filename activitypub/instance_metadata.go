@@ -109,19 +109,11 @@ func fetchNodeInfo(ctx context.Context, host string, full bool) (models.Instance
 	if s, ok := ni.Metadata["nodeName"].(string); ok {
 		meta.Name = clip(strings.TrimSpace(s), 255)
 	}
-	meta.IconURL = base + "/favicon.ico"
-	if full && softwareFamily(meta.Software) == softwareMisskey {
-		var m struct {
-			IconURL string `json:"iconUrl"`
-			Name    string `json:"name"`
-		}
-		if remoteGetJSON(ctx, http.MethodPost, base+"/api/meta", map[string]any{"detail": false}, &m) == nil {
-			if iu, e := url.Parse(m.IconURL); e == nil && (iu.Scheme == "https" || iu.Scheme == "http") && len(m.IconURL) <= 1024 {
-				meta.IconURL = m.IconURL
-			}
-			if meta.Name == "" {
-				meta.Name = clip(strings.TrimSpace(m.Name), 255)
-			}
+	if full {
+		icon, name := discoverInstanceIcon(ctx, base, meta.Software, ni.Metadata)
+		meta.IconURL = icon
+		if meta.Name == "" {
+			meta.Name = clip(strings.TrimSpace(name), 255)
 		}
 	}
 	return meta, nil

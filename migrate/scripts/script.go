@@ -54,6 +54,7 @@ var ScripsType = []MigrationScript{
 	PasskeyUserHandleScript{},
 	AvatarDecorationsScript{},
 	InstanceModerationScript{},
+	InstanceIconBackfillScript{},
 }
 
 type MigrationScript interface {

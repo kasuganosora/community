@@ -181,7 +181,13 @@ func FederationInstances(c *gin.Context) {
 	}
 	for i := range rows {
 		r := &rows[i]
-		r.IconURL = mediaproxy.URL(mediaproxy.KindAvatar, r.IconURL)
+		if proxied := mediaproxy.URL(mediaproxy.KindAvatar, r.IconURL); proxied != r.IconURL {
+			// Avatar-kind proxy links are resized server-side; the card
+			// square is small, so ask for the 96px rendition.
+			r.IconURL = proxied + "?size=96"
+		} else {
+			r.IconURL = proxied
+		}
 		r.IsBlocked = suspendDomains.Contains(r.Domain)
 		r.IsSilenced = silenceDomains.Contains(r.Domain)
 		r.IsMediaSilenced = modSnap.IsMediaSilencedHost(r.Domain)

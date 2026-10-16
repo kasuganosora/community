@@ -19,7 +19,7 @@ it('renders instance cards from cached metadata, filters and opens details witho
  const act=vi.spyOn(api,'instanceActivity').mockResolvedValue({days:14,items:{'remote.example':[0,1,2,3,4,5,6,7,8,9,10,11,12,13]}})
  vi.useFakeTimers();const w=mount(InstancesAdminPage,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'}}}});await flushPromises()
  const cards=w.findAll('.inst-card');expect(cards).toHaveLength(2)
- expect(cards[0]!.text()).toContain('Remote Town');expect(cards[0]!.text()).toContain('remote.example / misskey 2025.4.0');expect(cards[0]!.find('img').exists()).toBe(true)
+ expect(cards[0]!.text()).toContain('Remote Town');expect(cards[0]!.text()).toContain('remote.example / misskey 2025.4.0');expect(cards[0]!.find('img').exists()).toBe(true);await cards[0]!.find('img').trigger('error');expect(cards[0]!.find('img').exists()).toBe(false);expect(cards[0]!.find('.inst-icon').text()).toBe('R')
  expect(cards[1]!.text()).toContain('bare.example');expect(cards[1]!.find('.inst-icon').text()).toBe('B')
  expect(act).toHaveBeenCalledWith(['remote.example','bare.example'])
  expect(list).toHaveBeenLastCalledWith(1,expect.objectContaining({sort:'pubsub_desc'}),30)
