@@ -82,9 +82,22 @@ var misskeyListSettings = []struct{ column, key string }{
 // misskeyBrandingSettings maps Misskey meta text columns to settings that
 // exist in this schema. Add entries here when new branding settings land.
 var misskeyBrandingSettings = map[string]string{
-	"name":            systemsettings.KeyTitle,
-	"description":     systemsettings.KeyDescription,
-	"maintainerEmail": systemsettings.KeySiteContactEmail,
+	"name":                systemsettings.KeyTitle,
+	"description":         systemsettings.KeyDescription,
+	"maintainerEmail":     systemsettings.KeySiteContactEmail,
+	"iconUrl":             systemsettings.KeyBrandIconURL,
+	"app192IconUrl":       systemsettings.KeyBrandApp192IconURL,
+	"app512IconUrl":       systemsettings.KeyBrandApp512IconURL,
+	"bannerUrl":           systemsettings.KeyBrandBannerURL,
+	"backgroundImageUrl":  systemsettings.KeyBrandBackgroundImageURL,
+	"notFoundImageUrl":    systemsettings.KeyBrandNotFoundImageURL,
+	"infoImageUrl":        systemsettings.KeyBrandInfoImageURL,
+	"serverErrorImageUrl": systemsettings.KeyBrandServerErrorImageURL,
+	"themeColor":          systemsettings.KeyBrandThemeColor,
+	"defaultLightTheme":   systemsettings.KeyBrandDefaultLightTheme,
+	"defaultDarkTheme":    systemsettings.KeyBrandDefaultDarkTheme,
+	"repositoryUrl":       systemsettings.KeyBrandRepositoryURL,
+	"feedbackUrl":         systemsettings.KeyBrandFeedbackURL,
 }
 
 // misskeyColumns returns the columns of a Misskey table and whether each is
