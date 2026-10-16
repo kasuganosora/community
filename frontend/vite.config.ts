@@ -72,6 +72,11 @@ export default defineConfig(({ mode }) => {
 
       // Code splitting configuration
       rollupOptions: {
+        // The setup wizard is a separate, small entry served only before install.
+        input: {
+          main: path.resolve(import.meta.dirname, 'index.html'),
+          setup: path.resolve(import.meta.dirname, 'setup.html'),
+        },
         output: {
           // Manual chunk splitting
           manualChunks(id) {
