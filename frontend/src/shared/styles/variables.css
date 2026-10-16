@@ -140,11 +140,15 @@
   --radius-full: 9999px;
 
   /* ---- Layout -------------------------------------------------------------- */
-  --sidebar-left-width: 16rem;
-  --sidebar-left-collapsed: 4.75rem;
+  /* X-style three columns: 275 nav | 600 timeline | 30 gap + 350 aside */
+  --sidebar-left-width: 17.1875rem;    /* 275px */
+  --sidebar-left-collapsed: 5.5rem;    /* 88px icon rail */
   --content-max-width: 37.5rem;        /* 600px */
-  --main-column-width: 64rem;          /* 1024px: shared by every main-column page */
-  --sidebar-right-width: 22.5rem;
+  --main-column-width: 37.5rem;        /* 600px: shared by every timeline-style page */
+  --main-column-wide-width: 60rem;     /* 960px: admin, settings, chat (no right rail) */
+  --sidebar-right-gap: 1.875rem;       /* 30px between timeline and aside */
+  --sidebar-right-width: 23.75rem;     /* 380px = 30px gap + 350px aside */
+  --sidebar-right-min-width: 18.5rem;  /* aside may shrink to ~266px just above the hide breakpoint */
   --bar-height: 3.25rem;               /* page nav bar */
   --tabbar-height: 3.25rem;            /* mobile tab bar, excl. safe area */
   --safe-top: env(safe-area-inset-top, 0px);

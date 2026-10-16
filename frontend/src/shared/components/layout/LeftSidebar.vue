@@ -84,7 +84,7 @@ async function handleLogout() {
         :aria-current="activeItem === item.value ? 'page' : undefined"
       >
         <t-icon :name="activeItem === item.value ? item.iconActive : item.icon" :size="26" :aria-hidden="true" />
-        <span class="nav-item__label">{{ item.label }}</span>
+        <span class="nav-item__label" :title="item.label">{{ item.label }}</span>
       </button>
     </nav>
 
@@ -212,7 +212,21 @@ async function handleLogout() {
 }
 
 .nav-item__label {
+  /* Long ru/de labels must not push past the 275px nav. */
+  min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-item { min-width: 0; max-width: 100%; }
+.nav-item > :first-child { flex-shrink: 0; }
+
+.post-btn__label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-post {
@@ -278,7 +292,7 @@ async function handleLogout() {
 }
 
 /* ---- Collapsed rail (tablet / narrow desktop) ---- */
-@media (max-width: 74.99rem) {
+@media (max-width: 79.99rem) {
   .left-sidebar {
     align-items: center;
     padding-left: var(--space-2);

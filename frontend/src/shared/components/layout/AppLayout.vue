@@ -20,6 +20,8 @@ const PROFILE_ROUTES = new Set(['profile', 'followers', 'following'])
 const route = useRoute()
 const isGroups = computed(() => route.path === '/groups' || route.path.startsWith('/groups/'))
 const isSettings = computed(() => route.path === '/settings' || route.path.startsWith('/settings/'))
+// Dense tool pages and two-pane chat get a wider centre column instead of the right rail.
+const isWide = computed(() => isSettings.value || isGroups.value || /^\/(admin|messages)(\/|$)/.test(route.path))
 const scrollY = ref(typeof window === 'undefined' ? 0 : window.scrollY)
 // Only the profile FAB rule needs scrollY, and only whether it is past 600px:
 // rAF-throttle and write the ref only when that answer changes.
@@ -38,7 +40,7 @@ useKeyboardInset()
 </script>
 
 <template>
-  <div class="app-layout" :class="{ 'app-layout--settings': isSettings, 'app-layout--groups': isGroups }">
+  <div class="app-layout" :class="{ 'app-layout--settings': isSettings, 'app-layout--groups': isGroups, 'app-layout--wide': isWide }">
     <aside class="app-layout__left">
       <LeftSidebar />
     </aside>
@@ -77,16 +79,24 @@ useKeyboardInset()
 </template>
 
 <style scoped>
-/* Three columns on wide screens; the rails collapse progressively so the
-   reading column never shrinks below its measure. */
+/* X-style layout: 275px nav | 600px timeline | 30px gap + 350px aside,
+   centred as one block with empty margins on very wide screens.
+   Breakpoints (viewport incl. scrollbar):
+     >= 1280px  full nav labels
+     <  1280px  nav collapses to an 88px icon rail
+     <  1000px  right aside hides
+     <   700px  phone layout (bottom tab bar) */
 .app-layout {
   display: flex;
   justify-content: center;
-  /* left rail + shared main column + right rail */
   max-width: calc(var(--sidebar-left-width) + var(--main-column-width) + var(--sidebar-right-width));
   margin: 0 auto;
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+.app-layout--wide {
+  max-width: calc(var(--sidebar-left-width) + var(--main-column-wide-width));
 }
 
 .app-layout__left {
@@ -97,15 +107,16 @@ useKeyboardInset()
   height: 100vh;
   height: 100dvh;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-width: none;
 }
 
 .app-layout__center {
-  flex: 1 1 auto;
+  /* The timeline keeps its 600px measure; only near the aside breakpoint
+     does it give up a few px. */
+  flex: 0 1 var(--main-column-width);
   width: 100%;
-  /* Every main-column page shares one width so switching pages never
-     resizes or shifts the column. */
   max-width: var(--main-column-width);
   min-width: 0;
   min-height: 100vh;
@@ -115,9 +126,15 @@ useKeyboardInset()
     var(--hairline) 0 0 var(--color-separator);
 }
 
+.app-layout--wide .app-layout__center {
+  flex: 1 1 var(--main-column-wide-width);
+  max-width: var(--main-column-wide-width);
+}
+
 .app-layout__right {
+  flex: 0 1 var(--sidebar-right-width);
   width: var(--sidebar-right-width);
-  flex-shrink: 0;
+  min-width: var(--sidebar-right-min-width);
   position: sticky;
   top: 0;
   height: 100vh;
@@ -125,7 +142,11 @@ useKeyboardInset()
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
-  padding: 0 var(--space-6);
+  padding: var(--space-2) 0 0 var(--sidebar-right-gap);
+}
+
+.app-layout--wide .app-layout__right {
+  display: none;
 }
 
 .app-fab,
@@ -133,26 +154,21 @@ useKeyboardInset()
   display: none;
 }
 
-@media (max-width: 74.99rem) {
+@media (max-width: 79.99rem) {
   .app-layout__left {
     width: var(--sidebar-left-collapsed);
   }
-}
-
-/* The right rail only appears once it fits beside the full main column.
-   Media queries measure the viewport including a classic scrollbar (up to
-   ~17px), so 16 + 64 + 22.5 = 102.5rem is not enough: at 1640px the column
-   would shrink to ~1009px. Require 104rem (1664px) and pin the column to its
-   full width whenever the rail is shown. */
-@media (max-width: 103.99rem) {
-  .app-layout__right {
-    display: none;
+  .app-layout {
+    max-width: calc(var(--sidebar-left-collapsed) + var(--main-column-width) + var(--sidebar-right-width));
+  }
+  .app-layout--wide {
+    max-width: calc(var(--sidebar-left-collapsed) + var(--main-column-wide-width));
   }
 }
 
-@media (min-width: 104rem) {
-  .app-layout__center {
-    flex: 0 0 var(--main-column-width);
+@media (max-width: 62.49rem) {
+  .app-layout__right {
+    display: none;
   }
 }
 
