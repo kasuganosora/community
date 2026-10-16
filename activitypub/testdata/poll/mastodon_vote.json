@@ -1,0 +1,16 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://mastodon.example/users/bob#votes/42/activity",
+  "type": "Create",
+  "actor": "https://mastodon.example/users/bob",
+  "published": "2026-10-16T11:00:00Z",
+  "to": "https://c.example/users/luna",
+  "object": {
+    "id": "https://mastodon.example/users/bob#votes/42",
+    "type": "Note",
+    "name": "Yes",
+    "attributedTo": "https://mastodon.example/users/bob",
+    "to": "https://c.example/users/luna",
+    "inReplyTo": "POLL_URI"
+  }
+}

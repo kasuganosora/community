@@ -40,7 +40,7 @@ func VotePoll(c *gin.Context) {
 	}
 
 	// 判断是否已经过期
-	if poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()) {
+	if poll.IsClosed(time.Now()) {
 		c.JSON(400, gin.H{"error": "poll expired"})
 
 		return
@@ -104,7 +104,20 @@ func VotePoll(c *gin.Context) {
 			}
 		}
 
-		return nil
+		// Federation: a remote poll gets our vote (Create Note per choice);
+		// a local poll sends its new tallies to followers and voters.
+		var status models.Status
+		if err := tx.Preload("Account").First(&status, poll.StatusId).Error; err != nil {
+			return err
+		}
+		if status.Account != nil && status.Account.Domain != nil {
+			names := make([]string, 0, len(req.Choices))
+			for _, choice := range req.Choices {
+				names = append(names, poll.Options[choice].Content)
+			}
+			return models.QueuePollVote(tx, currentAccount, &status, names)
+		}
+		return models.QueuePollUpdate(tx, status.Id, false)
 	})
 
 	controllers.AbortIfError(c, err)

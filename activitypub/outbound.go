@@ -196,11 +196,21 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 			to, cc := statusRecipients(snapshot, &author, systemsettings.GetBaseURL())
 			payload = map[string]any{"id": activityID, "type": "Delete", "actor": actorURI, "to": to, "cc": cc, "object": map[string]any{"id": statusObjectURI(snapshot, &author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
 		} else {
+			if snapshot.Poll != nil && snapshot.Poll.Id != 0 {
+				// Updates are coalesced; always send the current tallies.
+				var current models.Poll
+				if err := db.GetDB().Preload("Options").First(&current, snapshot.Poll.Id).Error; err == nil {
+					snapshot.Poll = &current
+				}
+			}
 			note, err := StatusToNote(snapshot)
 			if err != nil {
 				return nil, err
 			}
 			payload = map[string]any{"id": activityID, "type": e.Kind, "actor": actorURI, "to": note["to"], "cc": note["cc"], "object": note}
+			if ctx, ok := note["@context"]; ok {
+				payload["@context"] = ctx
+			}
 		}
 	case "Announce", "AnnounceUndo":
 		snapshot = &models.Status{}
@@ -211,10 +221,14 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 			return nil, errors.New("outbox boost must be local and reference its original")
 		}
 		payload, activityID = announcePayload(snapshot, &author, actorURI, activityID, e.Kind == "AnnounceUndo")
+	case "PollVote":
+		return pollVoteDeliveries(ctx, e, &author)
 	default:
 		return nil, fmt.Errorf("unknown federation event %q", e.Kind)
 	}
-	payload["@context"] = "https://www.w3.org/ns/activitystreams"
+	if _, ok := payload["@context"]; !ok {
+		payload["@context"] = "https://www.w3.org/ns/activitystreams"
+	}
 	encoded, err := json.Marshal(stripPrivacyFields(payload))
 	if err != nil {
 		return nil, err

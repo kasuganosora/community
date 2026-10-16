@@ -6,6 +6,7 @@ import (
 	"mime"
 	urlpkg "net/url"
 	"strings"
+	"time"
 
 	"github.com/kasuganosora/community/htmlsafe"
 
@@ -194,6 +195,10 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 	if len(tags) > 0 {
 		note["@context"] = emojiContext()
 		note["tag"] = tags
+	}
+
+	if poll := statusPoll(status); poll != nil && len(poll.Options) > 0 {
+		applyQuestionFields(note, poll, time.Now())
 	}
 
 	return note

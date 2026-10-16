@@ -142,13 +142,18 @@ func Create(c *gin.Context) {
 	}
 
 	if req.Poll != nil {
-		expiresAt := time.Now().Add(time.Duration(req.Poll.ExpiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
+		expiresIn := req.Poll.ExpiresIn
+		if expiresIn > models.PollNoDeadlineSeconds {
+			expiresIn = models.PollNoDeadlineSeconds
+		}
+		expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second) //nolint:gosec // G115: reviewed and safe
 		poll := &models.Poll{
 			AccountId: currentAccount.Id,
 			ExpiresAt: &expiresAt,
 			Multiple:  req.Poll.Multiple,
 			Properties: map[string]any{
-				"expires_in":  req.Poll.ExpiresIn,
+				"expires_in":  expiresIn,
+				"no_deadline": expiresIn >= models.PollNoDeadlineSeconds,
 				"hide_totals": req.Poll.HideTotals,
 			},
 		}
@@ -245,7 +250,9 @@ func validateCreateStatusRequest(req *CreateStatusRequest) string {
 		minExp := systemsettings.GetInt64(systemsettings.KeyPollMinExpiration, 300)
 		maxExp := systemsettings.GetInt64(systemsettings.KeyPollMaxExpiration, 2629746)
 
-		if expiresIn := int64(req.Poll.ExpiresIn); expiresIn < minExp || (maxExp > 0 && expiresIn > maxExp) { //nolint:gosec // G115: bounded by the check itself
+		// expires_in >= PollNoDeadlineSeconds is the "no deadline" mode (the
+		// Mastodon API has no open-ended polls); it is stored as ~10 years.
+		if expiresIn := int64(req.Poll.ExpiresIn); expiresIn < models.PollNoDeadlineSeconds && (expiresIn < minExp || (maxExp > 0 && expiresIn > maxExp)) { //nolint:gosec // G115: bounded by the check itself
 			return fmt.Sprintf("Validation failed: Poll expiration must be between %d and %d seconds", minExp, maxExp)
 		}
 	}

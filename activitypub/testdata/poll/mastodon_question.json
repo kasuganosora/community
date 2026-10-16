@@ -1,0 +1,34 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "ostatus": "http://ostatus.org#",
+      "atomUri": "ostatus:atomUri",
+      "inReplyToAtomUri": "ostatus:inReplyToAtomUri",
+      "conversation": "ostatus:conversation",
+      "sensitive": "as:sensitive",
+      "toot": "http://joinmastodon.org/ns#",
+      "votersCount": "toot:votersCount"
+    }
+  ],
+  "id": "https://mastodon.example/users/alice/statuses/113000000000000001",
+  "type": "Question",
+  "summary": null,
+  "inReplyTo": null,
+  "published": "2026-10-16T10:00:00Z",
+  "url": "https://mastodon.example/@alice/113000000000000001",
+  "attributedTo": "https://mastodon.example/users/alice",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://mastodon.example/users/alice/followers"],
+  "sensitive": false,
+  "content": "<p>Tea or coffee?</p>",
+  "contentMap": {"en": "<p>Tea or coffee?</p>"},
+  "endTime": "2026-10-17T10:00:00Z",
+  "votersCount": 7,
+  "attachment": [],
+  "tag": [],
+  "oneOf": [
+    {"type": "Note", "name": "Tea", "replies": {"type": "Collection", "totalItems": 4}},
+    {"type": "Note", "name": "Coffee", "replies": {"type": "Collection", "totalItems": 3}}
+  ]
+}

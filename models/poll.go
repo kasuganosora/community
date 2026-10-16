@@ -15,9 +15,12 @@ type Poll struct { //nolint:recvcheck
 	Multiple   bool           `gorm:"not null;default:false"     json:"multiple"`
 	Options    PollOptions    `json:"options"`
 	Properties map[string]any `gorm:"type:json;serializer:json"  json:"properties"`
-	CreatedAt  *time.Time     `gorm:"not null;autoCreateTime"    json:"created_at"`
-	UpdatedAt  *time.Time     `gorm:"not null;autoUpdateTime"    json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index"                      json:"-"`
+	// ClosedNotifiedAt is set exactly once, when the poll-close worker has
+	// sent the "poll" notifications (and, for local polls, the closing Update).
+	ClosedNotifiedAt *time.Time     `gorm:"index" json:"-"`
+	CreatedAt        *time.Time     `gorm:"not null;autoCreateTime"    json:"created_at"`
+	UpdatedAt        *time.Time     `gorm:"not null;autoUpdateTime"    json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index"                      json:"-"`
 }
 
 func (Poll) TableName() string {
@@ -192,4 +195,45 @@ func (ss PollOptionVotes) ToPollIdMap() (ret map[uint64]PollOptionVotes) {
 	}
 
 	return
+}
+
+// PollNoDeadlineSeconds is the expires_in stored for a "no deadline" poll.
+// The Mastodon API has no open-ended polls, so they close in ~10 years.
+const PollNoDeadlineSeconds = 10 * 365 * 24 * 3600
+
+// IsClosed reports whether voting has ended (expiry passed or the remote
+// author marked it closed).
+func (p *Poll) IsClosed(now time.Time) bool {
+	if p == nil {
+		return false
+	}
+	if p.ExpiresAt != nil && !p.ExpiresAt.After(now) {
+		return true
+	}
+	closed, _ := p.Properties["closed"].(bool)
+	return closed
+}
+
+// RemoteVotersCount is the votersCount a remote server reported, if any.
+func (p *Poll) RemoteVotersCount() uint64 {
+	if p == nil || p.Properties == nil {
+		return 0
+	}
+	switch v := p.Properties["voters_count"].(type) {
+	case float64:
+		if v > 0 {
+			return uint64(v)
+		}
+	case int:
+		if v > 0 {
+			return uint64(v)
+		}
+	case int64:
+		if v > 0 {
+			return uint64(v)
+		}
+	case uint64:
+		return v
+	}
+	return 0
 }

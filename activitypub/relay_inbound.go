@@ -227,7 +227,7 @@ func handleRelayedActivity(ctx context.Context, c *gin.Context, activity map[str
 	// Only Notes are imported from relays. Check the type before the author:
 	// relays also forward Update{Person}, Question, Video..., which have no
 	// single attributedTo and must be ignored rather than refused with 403.
-	if objectType, _ := obj["type"].(string); objectType != "Note" {
+	if objectType, _ := obj["type"].(string); objectType != "Note" && objectType != "Question" {
 		c.JSON(202, gin.H{"status": "ignored"})
 		return
 	}

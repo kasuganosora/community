@@ -534,6 +534,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
 	}
+	status.Poll = questionPoll(obj, account.Id)
 	if r.profileBackfill {
 		status.MarkProfileBackfill()
 	} else if models.ShouldBackfill(*status.CreatedAt, now, true) {

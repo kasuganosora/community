@@ -32,7 +32,7 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 	ret := &Poll{
 		Id:          id,
 		ExpiresAt:   NewAPITime(poll.ExpiresAt),
-		Expired:     poll.ExpiresAt != nil && poll.ExpiresAt.Before(time.Now()),
+		Expired:     poll.IsClosed(time.Now()),
 		Multiple:    poll.Multiple,
 		VotesCount:  votesCount,
 		VotersCount: votersCount,
@@ -114,6 +114,9 @@ func toPollsMapByStatusIdWithDB(conn *gorm.DB, polls []*models.Poll, current *mo
 		}
 		if aggregate > c.VotesCount {
 			c.VotesCount = aggregate
+		}
+		if remote := p.RemoteVotersCount(); remote > c.VotersCount {
+			c.VotersCount = remote
 		}
 		out := ToBasePoll(p, len(own) > 0, c.VotesCount, c.VotersCount)
 		out.Options = toPollOptions(p)

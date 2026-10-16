@@ -262,8 +262,8 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 
 	objectType, _ := object["type"].(string)
-	if objectType != "Note" {
-		// We only handle Note objects for now
+	if objectType != "Note" && objectType != "Question" {
+		// We only handle Note and Question (poll) objects for now
 		c.JSON(200, gin.H{"status": "accepted"})
 
 		return
@@ -311,6 +311,21 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if err != nil {
 		respondRemoteAccountError(c, actor, err)
 		return
+	}
+
+	// A vote on one of our polls is a named Note replying to the Question;
+	// it is counted, never stored as a reply.
+	if objectType == "Note" && isPollVoteNote(object) {
+		voteErr := recordRemoteVote(ctx, remoteAccount, object)
+		if voteErr == nil {
+			c.JSON(200, gin.H{"status": "accepted"})
+			return
+		}
+		if !errors.Is(voteErr, errNotLocalPoll) {
+			log.Error("Failed to record poll vote %s: %v", objectID, voteErr)
+			c.JSON(500, gin.H{"error": "failed to record vote"})
+			return
+		}
 	}
 
 	// Check if status already exists
@@ -403,6 +418,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
 	}
+	status.Poll = questionPoll(object, remoteAccount.Id)
 	if models.ShouldBackfill(*status.CreatedAt, now, false) {
 		status.MarkBackfilled()
 	}
@@ -570,8 +586,8 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		return
 	}
 
-	// Handle Note updates
-	if objectType == "Note" {
+	// Handle Note (and Question/poll) updates
+	if objectType == "Note" || objectType == "Question" {
 		content, _ := object["content"].(string)
 		summary, _ := object["summary"].(string)
 		content = htmlsafe.Sanitize(content)
@@ -676,6 +692,11 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			if hasFlag || hasFiles || hasSummary {
 				noteSensitive, _ := object["sensitive"].(bool)
 				updates["sensitive"] = deriveSensitive(noteSensitive, summary, attachments)
+			}
+			if objectType == "Question" {
+				if err := updateRemotePoll(tx, status.Id, status.AccountId, object); err != nil {
+					return err
+				}
 			}
 			return tx.Model(&models.Status{}).Where("id = ?", status.Id).Updates(updates).Error
 		})
@@ -1766,7 +1787,7 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 	var err error
 	// Parse the status data
 	statusType, _ := statusData["type"].(string)
-	if statusType != "Note" && statusType != "Article" && statusType != "Page" {
+	if !isStatusObjectType(statusType) {
 		return nil, fmt.Errorf("unsupported status type: %s", statusType)
 	}
 
@@ -1839,6 +1860,7 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 		Language:    langdetect.FromContentMap(statusData),
 		CreatedAt:   publishedAt,
 		UpdatedAt:   publishedAt,
+		Poll:        questionPoll(statusData, authorAccount.Id),
 	}
 
 	// Remote statuses carry their host in statuses.domain (suspension, link

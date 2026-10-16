@@ -340,6 +340,8 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	outbound, initErr := activitypub.StartOutboundWorker()
 	log.FatalIf(initErr)
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
+	pollClose := activitypub.StartPollCloseWorker()
+	srv.RegisterPostShutdown(func() error { pollClose.Stop(); return nil })
 
 	log.Info("Server is starting on %s", config.C.Listen)
 

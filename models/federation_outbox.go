@@ -89,6 +89,18 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 			recipients[snapshot.ReplyAccount.Id] = true
 		}
 	}
+	if snapshot.Poll != nil && snapshot.Poll.Id != 0 && kind != "Delete" {
+		// Remote voters need tally/close Updates even when they do not follow.
+		var voterIDs []uint64
+		if err := tx.Session(&gorm.Session{NewDB: true}).Table("poll_option_votes").
+			Joins("JOIN accounts ON accounts.id = poll_option_votes.account_id AND accounts.domain IS NOT NULL").
+			Where("poll_option_votes.poll_id = ?", snapshot.Poll.Id).Distinct().Pluck("poll_option_votes.account_id", &voterIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range voterIDs {
+			recipients[id] = true
+		}
+	}
 	if kind == "Delete" {
 		// A recipient who unfollowed after receiving a private post still needs
 		// its Tombstone; the snapshot contains no content in the sent Delete.
@@ -238,4 +250,48 @@ func collectFederationFollowers(tx *gorm.DB, actorID uint64, recipients map[uint
 			return nil
 		}
 	}
+}
+
+// QueuePollUpdate records an Update of a local poll status so peers refresh
+// its tallies or learn that it closed (Mastodon sends Update(Question) for
+// both). Pending Updates for the same status are coalesced: the worker
+// serializes the current snapshot only once per batch of votes.
+func QueuePollUpdate(tx *gorm.DB, statusID uint64, force bool) error {
+	if statusID == 0 || !hasFederationOutbox(tx) {
+		return nil
+	}
+	if !force {
+		var pending int64
+		if err := tx.Session(&gorm.Session{NewDB: true}).Model(&FederationOutbox{}).
+			Where("object_id = ? AND kind = ? AND state = ?", statusID, "Update", "pending").Count(&pending).Error; err != nil {
+			return err
+		}
+		if pending > 0 {
+			return nil
+		}
+	}
+	var s Status
+	if err := tx.Session(&gorm.Session{NewDB: true}).First(&s, statusID).Error; err != nil {
+		return err
+	}
+	return queueFederationStatus(tx, "Update", &s)
+}
+
+// QueuePollVote records the votes of a local account on a remote poll. The
+// worker sends one Create(Note{name, inReplyTo}) per choice to the author.
+func QueuePollVote(tx *gorm.DB, voter *Account, pollStatus *Status, choices []string) error {
+	if voter == nil || voter.Domain != nil || pollStatus == nil || pollStatus.Account == nil || pollStatus.Account.Domain == nil || len(choices) == 0 || !hasFederationOutbox(tx) {
+		return nil
+	}
+	payload, err := json.Marshal(PollVotePayload{StatusID: pollStatus.Id, Choices: choices})
+	if err != nil {
+		return err
+	}
+	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{ObjectID: pollStatus.Id, AccountID: voter.Id, Kind: "PollVote", Payload: string(payload), RecipientIDs: []uint64{pollStatus.AccountId}}).Error
+}
+
+// PollVotePayload is the outbox payload of a "PollVote" event.
+type PollVotePayload struct {
+	StatusID uint64   `json:"status_id"`
+	Choices  []string `json:"choices"`
 }
