@@ -56,6 +56,7 @@ var ScripsType = []MigrationScript{
 	InstanceModerationScript{},
 	InstanceIconBackfillScript{},
 	RemoteReblogDomainScript{},
+	AccountLanguagesScript{},
 }
 
 type MigrationScript interface {

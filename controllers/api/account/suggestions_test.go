@@ -31,7 +31,7 @@ func suggestionFixture(t *testing.T) (*gorm.DB, []*models.Account) {
 	}
 	conn, err := gorm.Open(driver, &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true, Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	tables := []any{&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Emoji{}, &models.Block{}, &models.MuteAccount{}, &models.DomainBlock{}, &models.Follow{}, &models.RecommendationFeedback{}, &models.UserSetting{}, &models.SystemSetting{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.StatusTag{}, &models.Filter{}, &models.MuteStatus{}, &models.FavoriteStatus{}}
+	tables := []any{&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Emoji{}, &models.Block{}, &models.MuteAccount{}, &models.DomainBlock{}, &models.Follow{}, &models.RecommendationFeedback{}, &models.UserSetting{}, &models.SystemSetting{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.StatusTag{}, &models.Filter{}, &models.MuteStatus{}, &models.FavoriteStatus{}, &models.AccountLanguage{}}
 	require.NoError(t, conn.AutoMigrate(tables...))
 	require.NoError(t, models.EnsureRecommendationFeedbackSchema(conn))
 	for _, table := range tables {

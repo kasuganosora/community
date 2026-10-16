@@ -92,6 +92,7 @@ func StartBackground(ctx context.Context) {
 					logrus.WithError(err).Warn("discovery candidate refresh failed")
 				}
 			}
+			refreshLanguages(ctx, db.GetDB())
 			if trendsEnabled {
 				if err := RefreshTagTrends(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					logrus.WithError(err).Warn("discovery topic refresh failed")

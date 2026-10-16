@@ -24,6 +24,7 @@ var appModels = []any{
 	&models.EmailDomainBlock{},
 	&models.StatusCard{},
 	&models.RecommendationFeedback{},
+	&models.AccountLanguage{},
 	&accountapi.Endorsement{},
 	&accountapi.FeaturedTag{},
 	&accountapi.FollowedTag{},

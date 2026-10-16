@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/langdetect"
 	"io"
 	"net/http"
 	"net/url"
@@ -394,6 +395,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		InReplyToId:        inReplyToID,
 		InReplyToAccountId: inReplyToAccountID,
 		QuoteId:            knownQuoteID(ctx, object),
+		Language:           langdetect.FromContentMap(object),
 		CreatedAt:          publishedAt,
 		UpdatedAt:          &now,
 	}
@@ -1834,6 +1836,7 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 		Visibility:  visibility,
 		OriginUri:   &statusURI,
 		InReplyToId: nil,
+		Language:    langdetect.FromContentMap(statusData),
 		CreatedAt:   publishedAt,
 		UpdatedAt:   publishedAt,
 	}

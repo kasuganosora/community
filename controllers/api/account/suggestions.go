@@ -27,7 +27,7 @@ func listSuggestions(c *gin.Context, v1 bool) {
 	if value, err := strconv.Atoi(c.Query("limit")); err == nil && value > 0 {
 		limit = min(value, 40)
 	}
-	suggestions, err := discovery.SuggestAccounts(c.Request.Context(), db.GetDB(), viewer, limit)
+	suggestions, err := discovery.SuggestAccounts(c.Request.Context(), db.GetDB(), viewer, limit, discovery.SuggestOptions{AcceptLanguage: c.GetHeader("Accept-Language")})
 	if err != nil {
 		_ = c.Error(err)
 		c.Header("Retry-After", "5")

@@ -2,6 +2,7 @@ package models
 
 import (
 	"github.com/kasuganosora/community/htmlsafe"
+	"github.com/kasuganosora/community/langdetect"
 	"regexp"
 	"strings"
 	"time"
@@ -298,6 +299,21 @@ func (s *Status) SpoilerTextPlain() string {
 	}
 
 	return htmlsafe.StripTags(s.Content.SpoilerText)
+}
+
+// BeforeCreate fills a missing language from the text's script, so ranking
+// can match readers to authors even when clients and servers omit it.
+func (s *Status) BeforeCreate(tx *gorm.DB) (err error) {
+	s.FillLanguage()
+	return nil
+}
+
+// FillLanguage normalizes Language and guesses it when empty.
+func (s *Status) FillLanguage() {
+	if s.Language != "" || s.ReblogId != nil {
+		return
+	}
+	s.Language = langdetect.Detect(s.Content.SpoilerText + "\n" + s.Content.Content)
 }
 
 func (s *Status) BeforeSave(tx *gorm.DB) (err error) {

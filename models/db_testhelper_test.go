@@ -109,6 +109,7 @@ func allModels() []any {
 	return []any{
 		&User{}, &UserSecretData{}, &UserMeta{}, &UserSetting{},
 		&Account{}, &AccountExtra{}, &AccountEmoji{},
+		&AccountLanguage{},
 		&Status{}, &StatusContent{}, &StatusMediaAttachment{}, &StatusTag{},
 		&StatusEmoji{}, &StatusToAccount{}, &StatusHistory{},
 		&FavoriteStatus{}, &BookmarkStatus{}, &PinStatus{},

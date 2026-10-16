@@ -18,7 +18,19 @@ type AccountSuggestion struct {
 // SuggestAccounts uses at most 400 candidates and 2,000 public social edges.
 // Generic/off never read the viewer's graph for ranking. Relationship reads
 // in the final eligibility check only exclude follows and pending requests.
-func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account, limit int) ([]AccountSuggestion, error) {
+// SuggestOptions carries request context used only for ranking.
+type SuggestOptions struct {
+	AcceptLanguage string
+}
+
+// Same-language candidates rank first (exact, then the zh/ja CJK group),
+// then everything else; primary languages come from the account_languages
+// cache with a bounded inline refresh.
+func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account, limit int, opts ...SuggestOptions) ([]AccountSuggestion, error) {
+	var opt SuggestOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	result := make([]AccountSuggestion, 0)
 	if viewer == nil {
 		return result, nil
@@ -198,8 +210,23 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 		}
 	}
 
+	viewerLangs := viewerLanguages(conn, viewer, opt.AcceptLanguage)
+	tiers := map[uint64]int{}
+	if len(viewerLangs) > 0 && len(selectedIDs) > 0 {
+		langs, e := models.AccountLanguages(conn, selectedIDs, 100)
+		if e != nil {
+			return nil, e
+		}
+		for _, id := range selectedIDs {
+			tiers[id] = languageTier(langs[id], viewerLangs)
+		}
+	}
+
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
+		if tiers[a.Id] != tiers[b.Id] {
+			return tiers[a.Id] < tiers[b.Id]
+		}
 		if scores[a.Id] != scores[b.Id] {
 			return scores[a.Id] > scores[b.Id]
 		}

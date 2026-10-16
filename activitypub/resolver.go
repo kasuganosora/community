@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/langdetect"
 	"gorm.io/gorm/clause"
 	"strings"
 	"sync"
@@ -524,6 +525,7 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 		InReplyToId:        inReplyToID,
 		InReplyToAccountId: inReplyToAccountID,
 		QuoteId:            knownQuoteID(ctx, obj),
+		Language:           langdetect.FromContentMap(obj),
 		Domain:             &domain,
 		CreatedAt:          publishedAt,
 		UpdatedAt:          &now,
