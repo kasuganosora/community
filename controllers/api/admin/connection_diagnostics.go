@@ -24,16 +24,16 @@ import (
 func TestEmailSettings(c *gin.Context) {
 	cfg := runtimeconfig.EffectiveConfig()
 	if cfg.EmailMode != "smtp" || strings.TrimSpace(cfg.SmtpServer) == "" {
-		c.JSON(422, gin.H{"success": false, "message": "请先保存 SMTP 服务器配置"})
+		c.JSON(422, gin.H{"success": false, "message": "Save the SMTP server configuration first"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 	if err := checkSMTP(ctx, cfg); err != nil {
-		c.JSON(422, gin.H{"success": false, "message": "SMTP 连接、证书或认证检查失败；请检查已保存配置与网络。未发送邮件。"})
+		c.JSON(422, gin.H{"success": false, "message": "SMTP connection, certificate or authentication check failed; check the saved configuration and network. No email was sent."})
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "message": "SMTP 连接与认证检查通过，未发送邮件。新配置在重启后用于发送。"})
+	c.JSON(200, gin.H{"success": true, "message": "SMTP connection and authentication check passed; no email was sent. The new configuration is used for sending after a restart."})
 }
 func checkSMTP(ctx context.Context, cfg config.Config) error {
 	port := cfg.SmtpPort
@@ -120,7 +120,7 @@ func (t diagnosticTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 func TestStorageSettings(c *gin.Context) {
 	cfg := runtimeconfig.EffectiveConfig()
 	if cfg.StorageType != "s3" && cfg.StorageType != "minio" {
-		c.JSON(200, gin.H{"success": true, "message": "当前选择本地存储，无需连接对象存储。"})
+		c.JSON(200, gin.H{"success": true, "message": "Local storage is selected; no object storage connection is needed."})
 		return
 	}
 	endpoint := cfg.Other["S3_ENDPOINT"]
@@ -129,7 +129,7 @@ func TestStorageSettings(c *gin.Context) {
 		bucket = "community"
 	}
 	if endpoint == "" || cfg.Other["S3_ACCESS_KEY"] == "" || cfg.Other["S3_SECRET_KEY"] == "" {
-		c.JSON(422, gin.H{"success": false, "message": "请先保存 Endpoint、Access Key 与 Secret Key"})
+		c.JSON(422, gin.H{"success": false, "message": "Save the endpoint, access key and secret key first"})
 		return
 	}
 	var transport http.RoundTripper = activitypub.NewAuthenticatedMediaHTTPClient(nil).Transport
@@ -149,8 +149,8 @@ func TestStorageSettings(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 	if err := backend.Check(ctx); err != nil {
-		c.JSON(422, gin.H{"success": false, "message": "无法访问已配置的存储桶，请检查名称、权限、TLS 与网络。未创建或修改存储桶。"})
+		c.JSON(422, gin.H{"success": false, "message": "Cannot access the configured bucket; check its name, permissions, TLS and network. No bucket was created or changed."})
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "message": "存储桶访问检查通过，未上传文件或修改访问策略。新配置在重启后生效。"})
+	c.JSON(200, gin.H{"success": true, "message": "Bucket access check passed; no files were uploaded and no access policy was changed. The new configuration takes effect after a restart."})
 }

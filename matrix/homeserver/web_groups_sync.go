@@ -49,7 +49,7 @@ var webGroupSyncSnapshotBudget = 3 * time.Second
 var errWebGroupSyncLimit = errors.New("web group sync limit exceeded")
 
 func webGroupSyncLimitFailure(c *gin.Context) {
-	webGroupFailure(c, http.StatusUnprocessableEntity, "sync_limit_exceeded", "群组数量或同步状态超出网页实时同步上限，请使用 Matrix 客户端；仍可查看群列表和历史，并手动刷新")
+	webGroupFailure(c, http.StatusUnprocessableEntity, "sync_limit_exceeded", "Your groups or sync state exceed the web live-sync limit; use a Matrix client. You can still view the group list and history and refresh manually")
 }
 
 func handleWebGroupSync(c *gin.Context) {
@@ -66,7 +66,7 @@ func handleWebGroupSync(c *gin.Context) {
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 300*1024)
 		if c.ShouldBindJSON(&request) != nil {
-			webGroupFailure(c, 400, "invalid_cursor", "同步请求格式不正确")
+			webGroupFailure(c, 400, "invalid_cursor", "Malformed sync request")
 			return
 		}
 		since = request.Since
@@ -81,7 +81,7 @@ func handleWebGroupSync(c *gin.Context) {
 			return
 		}
 		if webGroupDecode(since, &cursor) != nil || cursor.User != user {
-			webGroupFailure(c, 400, "invalid_cursor", "同步状态已失效，请重新打开群聊")
+			webGroupFailure(c, 400, "invalid_cursor", "The sync state has expired; reopen the group chat")
 			return
 		}
 		if len(cursor.Rooms) > 2000 {
@@ -114,7 +114,7 @@ func handleWebGroupSync(c *gin.Context) {
 			cancel()
 			if initial || reset {
 				c.Header("Retry-After", "2")
-				webGroupFailure(c, http.StatusServiceUnavailable, "sync_busy", "群聊同步繁忙，正在重试")
+				webGroupFailure(c, http.StatusServiceUnavailable, "sync_busy", "Group sync is busy, retrying")
 				return
 			}
 			c.JSON(200, webGroupSyncResponse{NextCursor: since, Groups: []gin.H{}, Changed: []string{}, Left: []string{}, Messages: map[string][]webGroupMessage{}, Typing: map[string][]webGroupSender{}, Degraded: true, RetryAfterMs: 1000})

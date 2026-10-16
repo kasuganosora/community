@@ -48,16 +48,16 @@ func ApproveDiscoveryIndex(c *gin.Context) {
 		Version string `json:"version"`
 	}
 	if c.ShouldBindJSON(&input) != nil || strings.TrimSpace(input.Version) == "" || len(input.Version) > 128 {
-		c.JSON(422, gin.H{"error": "缺少要批准的索引版本"})
+		c.JSON(422, gin.H{"error": "Missing index version to approve"})
 		return
 	}
 	active := currentDiscoveryIndexVersion()
 	if active == "" {
-		c.JSON(409, gin.H{"error": "推荐索引尚未构建完成，暂时没有可批准的版本"})
+		c.JSON(409, gin.H{"error": "The recommendation index has not finished building; there is no version to approve yet"})
 		return
 	}
 	if strings.TrimSpace(input.Version) != active {
-		c.JSON(409, gin.H{"error": "当前索引版本已变化，请刷新页面后重新确认", "version": active})
+		c.JSON(409, gin.H{"error": "The index version has changed; refresh the page and confirm again", "version": active})
 		return
 	}
 	if _, managed := config.C.Other[systemsettings.KeyRecommendationApprovedVersion]; managed {
@@ -92,12 +92,12 @@ func CreateDiscoveryFeedback(c *gin.Context) {
 		Reason     string `json:"reason"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
-		c.JSON(422, gin.H{"error": "无效的推荐管理规则"})
+		c.JSON(422, gin.H{"error": "Invalid recommendation rule"})
 		return
 	}
 	input.Reason = strings.TrimSpace(input.Reason)
 	if input.Reason == "" || utf8.RuneCountInString(input.Reason) > 500 {
-		c.JSON(422, gin.H{"error": "请填写不超过 500 字的管理原因"})
+		c.JSON(422, gin.H{"error": "Enter a moderation reason of at most 500 characters"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
@@ -126,7 +126,7 @@ func DeleteDiscoveryFeedback(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {
-		c.JSON(422, gin.H{"error": "无效的规则编号"})
+		c.JSON(422, gin.H{"error": "Invalid rule ID"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
@@ -170,12 +170,12 @@ func auditDiscoveryFeedback(c *gin.Context, tx *gorm.DB, row *models.Recommendat
 func discoveryAdminError(c *gin.Context, err error) {
 	_ = c.Error(err)
 	if errors.Is(err, models.ErrInvalidRecommendationFeedback) {
-		c.JSON(422, gin.H{"error": "规则目标不存在或格式无效"})
+		c.JSON(422, gin.H{"error": "Rule target does not exist or is malformed"})
 		return
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(404, gin.H{"error": "规则不存在"})
+		c.JSON(404, gin.H{"error": "Rule not found"})
 		return
 	}
-	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "推荐管理暂时不可用，请稍后重试"})
+	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Recommendation management is temporarily unavailable, please try again later"})
 }

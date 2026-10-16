@@ -42,12 +42,12 @@ func validGroupAlias(alias string) bool {
 func parseWebGroupTarget(raw string, via []string) (string, []string, error) {
 	target := strings.TrimSpace(raw)
 	if len(target) > 2048 || len(via) > 20 {
-		return "", nil, errors.New("群组地址过长")
+		return "", nil, errors.New("The group address is too long")
 	}
 	if strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "http://") {
 		u, e := url.Parse(target)
 		if e != nil || u.Scheme != "https" || u.Host != "matrix.to" || u.User != nil || u.Path != "/" && u.Path != "" {
-			return "", nil, errors.New("请输入 Matrix 群链接或完整群别名")
+			return "", nil, errors.New("Enter a Matrix group link or full group alias")
 		}
 		fragment := strings.TrimPrefix(u.Fragment, "/")
 		parts := strings.SplitN(fragment, "?", 2)
@@ -62,7 +62,7 @@ func parseWebGroupTarget(raw string, via []string) (string, []string, error) {
 	} else if strings.HasPrefix(target, "matrix:") {
 		u, e := url.Parse(target)
 		if e != nil || u.Host != "" {
-			return "", nil, errors.New("群链接无效")
+			return "", nil, errors.New("Invalid group link")
 		}
 		opaque := u.Opaque
 		if opaque == "" {
@@ -70,7 +70,7 @@ func parseWebGroupTarget(raw string, via []string) (string, []string, error) {
 		}
 		kind, value, ok := strings.Cut(opaque, "/")
 		if !ok || strings.Contains(value, "/") {
-			return "", nil, errors.New("仅支持群链接，不支持消息或用户链接")
+			return "", nil, errors.New("Only group links are supported, not message or user links")
 		}
 		value, e = url.PathUnescape(value)
 		if e != nil {
@@ -82,7 +82,7 @@ func parseWebGroupTarget(raw string, via []string) (string, []string, error) {
 		case "roomid":
 			target = "!" + value
 		default:
-			return "", nil, errors.New("仅支持群链接")
+			return "", nil, errors.New("Only group links are supported")
 		}
 		via = append(via, u.Query()["via"]...)
 	}
@@ -90,18 +90,18 @@ func parseWebGroupTarget(raw string, via []string) (string, []string, error) {
 		if id, e := webGroupRoomID(target); e == nil && validGroupRoomID(id) {
 			target = id
 		} else {
-			return "", nil, errors.New("请输入完整群别名或 Matrix 群链接")
+			return "", nil, errors.New("Enter a full group alias or Matrix group link")
 		}
 	}
 	if len(via) > 20 {
-		return "", nil, errors.New("群链接包含过多服务器")
+		return "", nil, errors.New("The group link contains too many servers")
 	}
 	seen := map[string]bool{}
 	clean := []string{}
 	for _, s := range via {
 		s = strings.TrimSpace(s)
 		if !usableServerName(s) {
-			return "", nil, errors.New("群链接包含无效服务器")
+			return "", nil, errors.New("The group link contains an invalid server")
 		}
 		if !seen[s] {
 			clean = append(clean, s)
@@ -118,7 +118,7 @@ func resolveWebGroupTarget(ctx context.Context, hs *HomeServer, target string, v
 			return "", nil, err
 		}
 		if !validGroupRoomID(result.RoomID) {
-			return "", nil, &MatrixError{ErrCode: "M_BAD_GATEWAY", Error: "群目录返回了无效群地址"}
+			return "", nil, &MatrixError{ErrCode: "M_BAD_GATEWAY", Error: "The group directory returned an invalid group address"}
 		}
 		seen := map[string]bool{}
 		out := []string{}
@@ -161,7 +161,7 @@ func publicEntryGroup(hs *HomeServer, e publicDirectoryEntry, server, user strin
 		name = e.CanonicalAlias
 	}
 	if name == "" {
-		name = "未命名群组"
+		name = "Unnamed group"
 	}
 	// Keep signed preview URLs bounded even when a remote directory supplies
 	// unreasonable metadata. Preview state never authorizes writes.
@@ -195,7 +195,7 @@ func handleWebGroupDirectoryAvatar(c *gin.Context) {
 	hs := GetHomeServer()
 	mxc, err := decodeDirectoryCursor(hs, c.Query("ref"), directoryBinding("directory-avatar", getUserID(c)))
 	if err != nil || mxc == "" {
-		webGroupFailure(c, 403, "forbidden", "头像访问凭据无效或已过期")
+		webGroupFailure(c, 403, "forbidden", "The avatar access token is invalid or expired")
 		return
 	}
 	serveWebGroupMXC(c, hs, mxc, "group-avatar", true)
@@ -208,24 +208,24 @@ func acquireWebDirectory(c *gin.Context) bool {
 	case webDirectoryGate <- struct{}{}:
 		return true
 	default:
-		webGroupFailure(c, 429, "directory_busy", "群目录查询繁忙，请稍后重试")
+		webGroupFailure(c, 429, "directory_busy", "The group directory is busy, please try again later")
 		return false
 	}
 }
 func webDirectoryError(c *gin.Context, err error) {
-	status, code, msg := 502, "directory_unavailable", "群目录暂时不可用，请稍后重试"
+	status, code, msg := 502, "directory_unavailable", "The group directory is temporarily unavailable, please try again later"
 	var remote *federationHTTPError
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		status, code, msg = 504, "directory_timeout", "群目录查询超时，请稍后重试"
+		status, code, msg = 504, "directory_timeout", "The group directory query timed out, please try again later"
 	} else if errors.As(err, &remote) {
 		switch remote.Status {
 		case 403:
-			status, code, msg = 403, "directory_closed", "对方服务器未开放群目录"
+			status, code, msg = 403, "directory_closed", "The remote server does not publish a group directory"
 		case 429:
-			status, code, msg = 429, "directory_limited", "对方服务器查询过于频繁，请稍后重试"
+			status, code, msg = 429, "directory_limited", "Too many queries to the remote server, please try again later"
 		}
 	} else if strings.Contains(err.Error(), "cursor") {
-		status, code, msg = 400, "invalid_cursor", "分页已过期或不属于当前搜索，请重新搜索"
+		status, code, msg = 400, "invalid_cursor", "The page has expired or belongs to another search; please search again"
 	}
 	webGroupFailure(c, status, code, msg)
 }
@@ -243,21 +243,21 @@ func handleWebGroupSearch(c *gin.Context) {
 	if v := c.Query("limit"); v != "" {
 		n, e := strconv.Atoi(v)
 		if e != nil || n < 1 {
-			webGroupFailure(c, 400, "invalid_limit", "分页大小无效")
+			webGroupFailure(c, 400, "invalid_limit", "Invalid page size")
 			return
 		}
 		limit = min(n, 50)
 	}
 	if len(q) > 256 {
-		webGroupFailure(c, 400, "invalid_query", "搜索内容过长")
+		webGroupFailure(c, 400, "invalid_query", "Search text is too long")
 		return
 	}
 	if scope != "local" && scope != "joined" && scope != "remote" {
-		webGroupFailure(c, 400, "invalid_scope", "搜索范围无效")
+		webGroupFailure(c, 400, "invalid_scope", "Invalid search scope")
 		return
 	}
 	if scope == "remote" && !usableServerName(server) {
-		webGroupFailure(c, 400, "invalid_server", "请输入有效的 Matrix 服务器名称")
+		webGroupFailure(c, 400, "invalid_server", "Enter a valid Matrix server name")
 		return
 	}
 	if scope != "remote" {
@@ -286,7 +286,7 @@ func handleWebGroupSearch(c *gin.Context) {
 		}
 		var rooms []MatrixRoom
 		if err = query.Order("room_id ASC").Limit(limit + 1).Find(&rooms).Error; err != nil {
-			webGroupFailure(c, 500, "internal_error", "无法读取群列表")
+			webGroupFailure(c, 500, "internal_error", "Cannot load the group list")
 			return
 		}
 		if len(rooms) > limit {
@@ -295,7 +295,7 @@ func handleWebGroupSearch(c *gin.Context) {
 		}
 		groups, err = webGroupDTOs(hs, conn, rooms, user)
 		if err != nil {
-			webGroupFailure(c, 500, "internal_error", "无法读取群信息")
+			webGroupFailure(c, 500, "internal_error", "Cannot load group information")
 			return
 		}
 	} else {
@@ -336,12 +336,12 @@ func handleWebGroupSearch(c *gin.Context) {
 		if len(ids) > 0 {
 			var rooms []MatrixRoom
 			if err = webGroupRoomQuery(conn).Where("room_id IN ? AND room_id IN (SELECT room_id FROM matrix_room_members WHERE user_id = ? AND membership IN ?)", ids, user, []MembershipState{MembershipJoin, MembershipInvite, MembershipKnock}).Find(&rooms).Error; err != nil {
-				webGroupFailure(c, 500, "internal_error", "无法读取群状态")
+				webGroupFailure(c, 500, "internal_error", "Cannot load the group state")
 				return
 			}
 			views, e := webGroupDTOs(hs, conn, rooms, user)
 			if e != nil {
-				webGroupFailure(c, 500, "internal_error", "无法读取群信息")
+				webGroupFailure(c, 500, "internal_error", "Cannot load group information")
 				return
 			}
 			for i, view := range views {
@@ -378,7 +378,7 @@ func bindWebGroupTarget(c *gin.Context) (webGroupTargetRequest, bool) {
 	var req webGroupTargetRequest
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 24<<10)
 	if c.ShouldBindJSON(&req) != nil {
-		webGroupFailure(c, 400, "invalid_request", "群地址请求无效")
+		webGroupFailure(c, 400, "invalid_request", "Invalid group address request")
 		return req, false
 	}
 	target, via, err := parseWebGroupTarget(req.Target, req.Via)
@@ -414,7 +414,7 @@ func handleWebGroupResolve(c *gin.Context) {
 		raw, e := decodeDirectoryCursor(hs, req.PreviewRef, directoryBinding("directory-preview", getUserID(c)))
 		var preview webDirectoryPreview
 		if e != nil || json.Unmarshal([]byte(raw), &preview) != nil || preview.Entry.RoomID != target || !usableServerName(preview.Server) {
-			webGroupFailure(c, 400, "invalid_preview", "群预览已失效，请重新搜索")
+			webGroupFailure(c, 400, "invalid_preview", "The group preview has expired; please search again")
 			return
 		}
 		out["group"] = publicEntryGroup(hs, preview.Entry, preview.Server, getUserID(c))
@@ -433,7 +433,7 @@ func handleWebGroupResolve(c *gin.Context) {
 			return
 		}
 		if !allowed || !directoryWebOnly(&room) {
-			webGroupFailure(c, 422, "unsupported_group", "此地址不是支持的原生聊天群，请使用客户端")
+			webGroupFailure(c, 422, "unsupported_group", "This address is not a supported chat group; use a client")
 			return
 		}
 		var member MatrixRoomMember
@@ -442,7 +442,7 @@ func handleWebGroupResolve(c *gin.Context) {
 			if dto, e := webGroupDTO(hs, conn, &room, getUserID(c)); e == nil {
 				out["group"] = dto
 			} else {
-				webGroupFailure(c, 500, "internal_error", "无法读取群信息")
+				webGroupFailure(c, 500, "internal_error", "Cannot load group information")
 				return
 			}
 		} else if room.Visibility == "public" {
@@ -450,7 +450,7 @@ func handleWebGroupResolve(c *gin.Context) {
 			out["group"] = publicEntryGroup(hs, entry, hs.Config.ServerName, getUserID(c))
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		webGroupFailure(c, 500, "internal_error", "无法查询群地址")
+		webGroupFailure(c, 500, "internal_error", "Cannot look up the group address")
 		return
 	}
 	c.JSON(200, out)
@@ -465,7 +465,7 @@ func handleWebGroupJoin(c *gin.Context) {
 		return
 	}
 	if req.Action != "" && req.Action != "join" && req.Action != "knock" {
-		webGroupFailure(c, 400, "invalid_action", "加入方式无效")
+		webGroupFailure(c, 400, "invalid_action", "Invalid join rule")
 		return
 	}
 	hs := GetHomeServer()
@@ -484,7 +484,7 @@ func handleWebGroupJoin(c *gin.Context) {
 			return
 		}
 		if !allowed || !directoryWebOnly(&room) {
-			webGroupFailure(c, 422, "unsupported_group", "此地址不是支持的原生聊天群，请使用客户端")
+			webGroupFailure(c, 422, "unsupported_group", "This address is not a supported chat group; use a client")
 			return
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -501,7 +501,7 @@ func handleWebGroupJoin(c *gin.Context) {
 		return
 	}
 	if db.GetDB().Where("room_id = ?", target).First(&room).Error != nil {
-		webGroupFailure(c, 503, "join_unconfirmed", "操作已提交，但尚未取得群状态，请稍后刷新")
+		webGroupFailure(c, 503, "join_unconfirmed", "The action was submitted but the group state is not available yet; refresh later")
 		return
 	}
 	// Unknown external spaces can only be identified after state is received. Do
@@ -515,7 +515,7 @@ func handleWebGroupJoin(c *gin.Context) {
 func renderWebGroupJoinStatus(c *gin.Context, hs *HomeServer, room *MatrixRoom, user string) {
 	dto, err := webGroupDTO(hs, db.GetDB().WithContext(c.Request.Context()), room, user)
 	if err != nil {
-		webGroupFailure(c, 500, "internal_error", "无法读取群状态")
+		webGroupFailure(c, 500, "internal_error", "Cannot load the group state")
 		return
 	}
 	status := "joined"
@@ -535,18 +535,18 @@ func handleWebGroupJoinStatus(c *gin.Context) {
 	}
 	id, err := webGroupRoomID(c.Param("operationID"))
 	if err != nil {
-		webGroupFailure(c, 404, "not_found", "找不到加入操作")
+		webGroupFailure(c, 404, "not_found", "Join operation not found")
 		return
 	}
 	hs := GetHomeServer()
 	var member MatrixRoomMember
 	if db.GetDB().Where("room_id = ? AND user_id = ? AND membership IN ?", id, getUserID(c), []MembershipState{MembershipJoin, MembershipKnock}).First(&member).Error != nil {
-		webGroupFailure(c, 404, "not_found", "找不到加入操作")
+		webGroupFailure(c, 404, "not_found", "Join operation not found")
 		return
 	}
 	var room MatrixRoom
 	if db.GetDB().Where("room_id = ?", id).First(&room).Error != nil {
-		webGroupFailure(c, 404, "not_found", "找不到群组")
+		webGroupFailure(c, 404, "not_found", "Group not found")
 		return
 	}
 	allowed, e := webGroupRoomAllowed(db.GetDB().WithContext(c.Request.Context()), &room)
@@ -555,7 +555,7 @@ func handleWebGroupJoinStatus(c *gin.Context) {
 		return
 	}
 	if !allowed {
-		webGroupFailure(c, 404, "not_found", "找不到加入操作")
+		webGroupFailure(c, 404, "not_found", "Join operation not found")
 		return
 	}
 	renderWebGroupJoinStatus(c, hs, &room, getUserID(c))

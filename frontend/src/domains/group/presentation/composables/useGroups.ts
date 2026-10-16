@@ -4,6 +4,7 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupApi } from '../../infrastructure/groupApi'
 import { groupCanSend, mergeGroupMessages, type Group, type GroupMessage } from '../../domain/group'
 import { t } from '@/shared/i18n'
+import { translateApiError } from '@/shared/i18n/apiErrors'
 export function useGroups(selectedId: Ref<string>) {
   const groups = ref<Group[]>([])
   const group = ref<Group | null>(null)
@@ -125,7 +126,7 @@ export function useGroups(selectedId: Ref<string>) {
         if (!active || epoch !== sessionEpoch.value) return
         if (isAxiosError(error) && error.response?.data?.code === 'sync_limit_exceeded') {
           syncPaused.value = true
-          syncError.value = typeof error.response.data.error === 'string' ? error.response.data.error : t('group.useGroups.s5')
+          syncError.value = typeof error.response.data.error === 'string' ? (translateApiError(error.response.data.error) ?? error.response.data.error) : t('group.useGroups.s5')
           syncError.value += t('group.useGroups.s6')
           const needsInitialHistory = !initialSyncDone
           // A permanent sync limit must not lock the room/history UI behind a waterline that cannot arrive.

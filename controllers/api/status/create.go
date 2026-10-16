@@ -135,7 +135,7 @@ func Create(c *gin.Context) {
 		switch quoted.Visibility {
 		case models.StatusVisibilityPublic, models.StatusVisibilityUnlisted:
 		default:
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "只能引用公开或不公开的帖子"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Only public or unlisted posts can be quoted"})
 			return
 		}
 		status.QuoteId = &quoteId

@@ -57,7 +57,7 @@ func Update(c *gin.Context) {
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
-			c.AbortWithStatusJSON(422, gin.H{"error": "标题不能为空"})
+			c.AbortWithStatusJSON(422, gin.H{"error": "Title cannot be empty"})
 
 			return
 		}
@@ -67,7 +67,7 @@ func Update(c *gin.Context) {
 	if req.FilterAction != nil {
 		action, ok := models.ParseFilterAction(*req.FilterAction)
 		if !ok || strings.TrimSpace(*req.FilterAction) == "" {
-			c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤动作"})
+			c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter action"})
 
 			return
 		}
@@ -85,7 +85,7 @@ func Update(c *gin.Context) {
 
 	if req.Context != nil {
 		if !models.ValidFilterContexts(*req.Context) {
-			c.AbortWithStatusJSON(422, gin.H{"error": "不支持的过滤范围"})
+			c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter context"})
 
 			return
 		}
@@ -94,13 +94,13 @@ func Update(c *gin.Context) {
 
 	if req.Keywords != nil {
 		if len(*req.Keywords) == 0 {
-			c.AbortWithStatusJSON(422, gin.H{"error": "至少需要一个关键词"})
+			c.AbortWithStatusJSON(422, gin.H{"error": "At least one keyword is required"})
 
 			return
 		}
 		for _, keyword := range *req.Keywords {
 			if keyword == nil || strings.TrimSpace(keyword.Keyword) == "" {
-				c.AbortWithStatusJSON(422, gin.H{"error": "关键词不能为空"})
+				c.AbortWithStatusJSON(422, gin.H{"error": "Keyword cannot be empty"})
 
 				return
 			}

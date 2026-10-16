@@ -40,7 +40,7 @@ var (
 
 const (
 	// Prompt is the task shown to the user. It is not the answer.
-	Prompt  = "一共 5 个字母或数字。只认那块深浅相间、在波动的字。浅色花纹和小字不算。"
+	Prompt  = "5 letters or digits in total. Only read the wavy characters with alternating light and dark shading; ignore pale patterns and small text."
 	powBits = 14
 )
 

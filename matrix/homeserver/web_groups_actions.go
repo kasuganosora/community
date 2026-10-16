@@ -44,7 +44,7 @@ func handleWebGroupPatch(c *gin.Context) {
 			return
 		}
 		if content["msgtype"] != "m.image" {
-			webGroupFailure(c, 400, "invalid_image", "群头像需要图片文件")
+			webGroupFailure(c, 400, "invalid_image", "The group avatar must be an image file")
 			return
 		}
 		changes = append(changes, change{kind: "m.room.avatar", content: map[string]any{"url": content["url"], "info": content["info"]}, upload: *req.AvatarUploadID})
@@ -64,7 +64,7 @@ func handleWebGroupPatch(c *gin.Context) {
 		})
 		if err != nil {
 			if len(applied) > 0 {
-				c.JSON(409, gin.H{"error": "部分设置已保存，请刷新后重试剩余项目", "code": "partial_update", "applied": applied, "retryable": true})
+				c.JSON(409, gin.H{"error": "Some settings were saved; refresh and retry the rest", "code": "partial_update", "applied": applied, "retryable": true})
 			} else {
 				webGroupError(c, err)
 			}
@@ -87,7 +87,7 @@ func handleWebGroupMembers(c *gin.Context) {
 	if cursor := c.Query("cursor"); cursor != "" {
 		n, err := strconv.ParseUint(cursor, 10, 64)
 		if err != nil {
-			webGroupFailure(c, 400, "invalid_cursor", "无效的分页位置")
+			webGroupFailure(c, 400, "invalid_cursor", "Invalid pagination position")
 			return
 		}
 		query = query.Where("id > ?", n)
@@ -149,7 +149,7 @@ func handleWebGroupMemberAction(c *gin.Context) {
 		if req.Action == "approve" {
 			membership, _ := hs.Room.GetUserMembership(room.RoomID, target)
 			if membership != MembershipKnock {
-				webGroupFailure(c, 409, "not_pending", "此成员没有待处理的加入申请")
+				webGroupFailure(c, 409, "not_pending", "This member has no pending join request")
 				return
 			}
 		}

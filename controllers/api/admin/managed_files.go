@@ -32,14 +32,14 @@ func managedMediaURL(m models.MediaAttachment) string {
 }
 func fileReferenceReason(tx *gorm.DB, m models.MediaAttachment) (string, error) {
 	if m.StatusId != nil {
-		return "文件仍被帖子引用，请先处理原帖子；不会连带删除帖子或私信。", nil
+		return "The file is still referenced by posts; handle those posts first. Posts and direct messages are never deleted along with it.", nil
 	}
 	var count int64
 	if err := tx.Model(&models.MediaAttachment{}).Where("file_path = ? AND id <> ?", m.FilePath, m.Id).Count(&count).Error; err != nil {
 		return "", err
 	}
 	if count > 0 {
-		return "文件与其他附件共享存储，无法单独删除。", nil
+		return "The file shares storage with other attachments and cannot be deleted on its own.", nil
 	}
 	// Legacy profile uploads can point at the attachment endpoint.
 	suffix := "%/media/" + strconv.FormatUint(m.Id, 10) + "/%"
@@ -47,7 +47,7 @@ func fileReferenceReason(tx *gorm.DB, m models.MediaAttachment) (string, error) 
 		return "", err
 	}
 	if count > 0 {
-		return "文件仍用作头像或背景图。", nil
+		return "The file is still used as an avatar or header image.", nil
 	}
 	return "", nil
 }

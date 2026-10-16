@@ -1,11 +1,14 @@
 import { createI18n } from 'vue-i18n'
 import zhCN from '@/locales/zh-CN.json'
+import en from '@/locales/en.json'
 import { setFormatLocale } from '@/shared/utils/format'
 
 /**
- * UI localisation. zh-CN is the source language and is always bundled; the
- * active locale (if different) is fetched before any component module runs,
- * so strings computed at module scope are already in the right language.
+ * UI localisation. zh-CN is the source language (the one strings are written
+ * in); English is the default for visitors whose browser asks for none of the
+ * supported languages and the first fallback for a missing key. Both are
+ * bundled; any other active locale is fetched before any component module
+ * runs, so strings computed at module scope are already in the right language.
  * Switching language persists the choice and reloads the page.
  */
 export const LOCALES = [
@@ -19,6 +22,10 @@ export const LOCALES = [
 ] as const
 export type Locale = typeof LOCALES[number]['code']
 export const SOURCE_LOCALE: Locale = 'zh-CN'
+/** Used when nothing is saved and no browser language matches. */
+export const DEFAULT_LOCALE: Locale = 'en'
+/** Missing keys resolve in this order. */
+export const FALLBACK_LOCALES: Locale[] = ['en', 'zh-CN']
 export const LOCALE_STORAGE_KEY = 'ui-locale'
 
 const CODES = LOCALES.map(l => l.code) as readonly string[]
@@ -39,20 +46,25 @@ export function isLocale(v: unknown): v is Locale {
   return typeof v === 'string' && CODES.includes(v)
 }
 
+/** Pick the first supported browser language, else English. */
+export function localeFromLanguages(langs: readonly (string | null | undefined)[]): Locale {
+  for (const l of langs) {
+    const m = matchLocale(l)
+    if (m) return m
+  }
+  return DEFAULT_LOCALE
+}
+
 export function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(LOCALE_STORAGE_KEY)
     if (isLocale(saved)) return saved
   } catch { /* storage unavailable */ }
   const langs = typeof navigator !== 'undefined' ? (navigator.languages?.length ? navigator.languages : [navigator.language]) : []
-  for (const l of langs) {
-    const m = matchLocale(l)
-    if (m) return m
-  }
-  return SOURCE_LOCALE
+  return localeFromLanguages(langs)
 }
 
-const loaders = import.meta.glob<{ default: Record<string, unknown> }>(['@/locales/*.json', '!@/locales/zh-CN.json'])
+const loaders = import.meta.glob<{ default: Record<string, unknown> }>(['@/locales/*.json', '!@/locales/zh-CN.json', '!@/locales/en.json'])
 async function loadMessages(locale: Locale): Promise<Record<string, unknown> | null> {
   const loader = Object.entries(loaders).find(([p]) => p.endsWith(`/${locale}.json`))?.[1]
   return loader ? (await loader()).default : null
@@ -84,24 +96,20 @@ export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
   locale: initial,
-  fallbackLocale: ['zh-CN', 'en'],
-  messages: { 'zh-CN': zhCN } as Record<string, typeof zhCN>,
+  fallbackLocale: FALLBACK_LOCALES,
+  messages: { 'zh-CN': zhCN, en: en as typeof zhCN } as Record<string, typeof zhCN>,
   pluralRules: { ru: ruRule, fr: frRule, en: oneOtherRule, de: oneOtherRule },
   missingWarn: false,
   fallbackWarn: false,
 })
 
-if (initial !== SOURCE_LOCALE) {
+if (initial !== SOURCE_LOCALE && initial !== 'en') {
   try {
     const m = await loadMessages(initial)
     if (m) i18n.global.setLocaleMessage(initial, m as typeof zhCN)
   } catch (e) {
     console.warn('Failed to load locale', initial, e)
   }
-}
-if (initial !== 'en' && initial !== SOURCE_LOCALE) {
-  // Second fallback; loaded lazily, missing keys fall back to zh-CN meanwhile.
-  void loadMessages('en').then(m => { if (m) i18n.global.setLocaleMessage('en', m as typeof zhCN) }).catch(() => {})
 }
 if (typeof document !== 'undefined') document.documentElement.lang = initial
 setFormatLocale(initial)

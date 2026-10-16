@@ -90,45 +90,45 @@ func handleWebGroupUpload(c *gin.Context) {
 		defer func() { <-webGroupUploadSlots }()
 	default:
 		c.Header("Retry-After", "3")
-		webGroupFailure(c, 429, "UPLOAD_BUSY", "正在处理其他上传，请稍后重试")
+		webGroupFailure(c, 429, "UPLOAD_BUSY", "Another upload is in progress, please try again later")
 		return
 	}
 	limit := webGroupUploadMaxBytes()
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit+(64<<10))
 	mr, err := c.Request.MultipartReader()
 	if err != nil {
-		webGroupFailure(c, 400, "INVALID_UPLOAD", "请选择一个文件上传")
+		webGroupFailure(c, 400, "INVALID_UPLOAD", "Choose a file to upload")
 		return
 	}
 	part, err := mr.NextPart()
 	if err != nil || part.FormName() != "file" || part.FileName() == "" {
-		webGroupFailure(c, 400, "INVALID_UPLOAD", "每次上传需要一个 file 文件字段")
+		webGroupFailure(c, 400, "INVALID_UPLOAD", "Each upload needs one \"file\" field")
 		return
 	}
 	defer part.Close()
 	staged, err := os.CreateTemp("", "community-group-upload-*")
 	if err != nil {
-		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "上传暂时不可用")
+		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "Uploads are temporarily unavailable")
 		return
 	}
 	defer os.Remove(staged.Name())
 	defer staged.Close()
 	size, err := io.Copy(staged, io.LimitReader(part, limit+1))
 	if size > limit {
-		webGroupFailure(c, 413, "UPLOAD_TOO_LARGE", "文件超过上传大小限制")
+		webGroupFailure(c, 413, "UPLOAD_TOO_LARGE", "The file exceeds the upload size limit")
 		return
 	}
 	if err != nil || size == 0 || c.Request.Context().Err() != nil {
-		webGroupFailure(c, 400, "UPLOAD_INCOMPLETE", "文件为空或上传中断，请重试")
+		webGroupFailure(c, 400, "UPLOAD_INCOMPLETE", "The file is empty or the upload was interrupted, please retry")
 		return
 	}
 	if _, err = mr.NextPart(); err != io.EOF {
-		webGroupFailure(c, 400, "INVALID_UPLOAD", "每个上传请求只能包含一个文件")
+		webGroupFailure(c, 400, "INVALID_UPLOAD", "Each upload request may contain only one file")
 		return
 	}
 	contentType, err := inspectWebGroupUpload(staged)
 	if err != nil {
-		webGroupFailure(c, 400, "INVALID_IMAGE", "图片格式无效或尺寸超过限制（1600 万像素）")
+		webGroupFailure(c, 400, "INVALID_IMAGE", "Invalid image format or size over the limit (16 megapixels)")
 		return
 	}
 	// State may have changed while bytes were arriving. Do not publish an
@@ -145,14 +145,14 @@ func handleWebGroupUpload(c *gin.Context) {
 	media, err := NewMediaService(hs).UploadMedia(staged, &multipart.FileHeader{Filename: name, Size: size}, contentType, user)
 	if err != nil {
 		log.Warn("web group media storage failed: %v", err)
-		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "文件存储失败，请重试")
+		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "Failed to store the file, please retry")
 		return
 	}
 	upload := WebGroupUpload{ID: uuid.NewString(), RoomID: room.RoomID, UserID: user, MediaID: media.MediaID,
 		ServerName: hs.Config.ServerName, ExpiresAt: time.Now().Add(webGroupUploadTTL)}
 	if err := db.GetDB().WithContext(c.Request.Context()).Create(&upload).Error; err != nil {
 		_ = NewMediaService(hs).DeleteMedia(upload.ServerName, upload.MediaID)
-		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "无法保存上传结果，请重试")
+		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "Cannot save the upload result, please retry")
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"id": upload.ID, "name": media.FileName, "type": media.ContentType, "size": media.FileSize})
@@ -226,17 +226,17 @@ func inspectWebGroupUpload(file *os.File) (string, error) {
 // update races safely with the orphan sweeper; expired/deleting leases fail.
 func webGroupUploadContent(conn *gorm.DB, roomID, userID, uploadID string) (map[string]any, *MatrixError) {
 	if uploadID == "" || len(uploadID) > 64 {
-		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "附件引用无效"}
+		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid attachment reference"}
 	}
 	var upload WebGroupUpload
 	if err := conn.Where("id = ? AND room_id = ? AND user_id = ?", uploadID, roomID, userID).First(&upload).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInternal
 		}
-		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "附件不存在或无权使用"}
+		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "The attachment does not exist or you may not use it"}
 	}
 	if upload.UsedEventID == "deleting" || !upload.ExpiresAt.After(time.Now()) {
-		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "附件已过期，请重新上传"}
+		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "The attachment has expired, please upload it again"}
 	}
 	if upload.UsedEventID == "" {
 		result := conn.Model(&WebGroupUpload{}).Where("id = ? AND used_event_id = '' AND expires_at > ?", upload.ID, time.Now()).Update("expires_at", time.Now().Add(webGroupUploadTTL))
@@ -244,7 +244,7 @@ func webGroupUploadContent(conn *gorm.DB, roomID, userID, uploadID string) (map[
 			return nil, ErrInternal
 		}
 		if result.RowsAffected == 0 {
-			return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "附件已过期，请重新上传"}
+			return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "The attachment has expired, please upload it again"}
 		}
 	}
 	var media MatrixMedia
@@ -252,7 +252,7 @@ func webGroupUploadContent(conn *gorm.DB, roomID, userID, uploadID string) (map[
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInternal
 		}
-		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "附件文件不可用，请重新上传"}
+		return nil, &MatrixError{ErrCode: "M_NOT_FOUND", Error: "The attachment file is unavailable, please upload it again"}
 	}
 	info := map[string]any{"mimetype": media.ContentType, "size": media.FileSize}
 	msgtype := "m.file"

@@ -33,12 +33,12 @@ func ListTags(c *gin.Context) {
 	page, err := service.ReadTagTrends(c.Request.Context(), viewer, window, scope, limit, c.Query("cursor"))
 	if err != nil {
 		if errors.Is(err, service.ErrTagCursor) {
-			c.AbortWithStatusJSON(410, gin.H{"code": "reset_required", "error": "话题榜已更新，请刷新"})
+			c.AbortWithStatusJSON(410, gin.H{"code": "reset_required", "error": "Trending tags have been updated; please refresh"})
 			return
 		}
 		_ = c.Error(err)
 		c.Header("Retry-After", "5")
-		c.AbortWithStatusJSON(503, gin.H{"code": "unavailable", "error": "话题暂时不可用，请稍后重试", "retryable": true})
+		c.AbortWithStatusJSON(503, gin.H{"code": "unavailable", "error": "Trending tags are temporarily unavailable, please try again later", "retryable": true})
 		return
 	}
 	if !page.CoverageComplete && !page.Disabled {

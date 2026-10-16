@@ -38,15 +38,15 @@ func RegisterCommunityConversationRoutes(group *gin.RouterGroup) {
 	group.POST("/conversations/:id/messages/:eventID/retry", handleBridgeMessageDelivery)
 }
 func bridgeAPIError(c *gin.Context, err error) {
-	code, errcode, message := http.StatusInternalServerError, "M_UNKNOWN", "会话操作暂时失败，请稍后重试"
+	code, errcode, message := http.StatusInternalServerError, "M_UNKNOWN", "Conversation operation failed temporarily, please try again later"
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		code, errcode, message = http.StatusNotFound, "M_NOT_FOUND", "会话或消息不存在"
+		code, errcode, message = http.StatusNotFound, "M_NOT_FOUND", "Conversation or message not found"
 	}
 	if errors.Is(err, errDirectMessageSkipped) {
-		code, errcode, message = http.StatusForbidden, "M_FORBIDDEN", "当前成员或消息权限不允许此操作"
+		code, errcode, message = http.StatusForbidden, "M_FORBIDDEN", "Your membership or message permissions do not allow this action"
 	}
 	if errors.Is(err, errOutboundParentPending) {
-		code, errcode, message = http.StatusConflict, "M_NOT_YET_READY", "原消息正在投递，请稍后重试编辑"
+		code, errcode, message = http.StatusConflict, "M_NOT_YET_READY", "The original message is still being delivered; try editing again later"
 	}
 	c.JSON(code, gin.H{"error": message, "errcode": errcode})
 }

@@ -94,7 +94,7 @@ async function start() {
     if (gen !== generation) return
     challengeId = started.id
     total.value = started.total
-    if (started.prompt) prompt.value = started.prompt
+    // The server prompt is English-only; the localized default above says the same.
     powTask = solveCaptchaPow(started.pow_salt, started.pow_bits || 14)
     await play(gen, started.id)
   } catch (e) {

@@ -95,12 +95,12 @@ func handleWebGroupMedia(c *gin.Context) {
 		return
 	}
 	if len(c.Param("mediaID")) > 1024 || len(c.Param("messageID")) > 255 {
-		webGroupFailure(c, 400, "INVALID_MEDIA", "附件地址无效")
+		webGroupFailure(c, 400, "INVALID_MEDIA", "Invalid attachment address")
 		return
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(c.Param("mediaID"))
 	if err != nil {
-		webGroupFailure(c, 400, "INVALID_MEDIA", "附件地址无效")
+		webGroupFailure(c, 400, "INVALID_MEDIA", "Invalid attachment address")
 		return
 	}
 	mxc := string(decoded)
@@ -108,24 +108,24 @@ func handleWebGroupMedia(c *gin.Context) {
 	var event MatrixEvent
 	if err := conn.Where("room_id = ? AND event_id = ?", room.RoomID, c.Param("messageID")).First(&event).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法检查附件权限")
+			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot check attachment permissions right now")
 			return
 		}
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件不存在或无权访问")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 		return
 	}
 	reader, err := newClientHistoryReader(conn, room.RoomID, user)
 	if err != nil {
-		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法检查附件权限")
+		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot check attachment permissions right now")
 		return
 	}
 	visible, err := reader.filter([]MatrixEvent{event})
 	if err != nil {
-		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法检查附件权限")
+		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot check attachment permissions right now")
 		return
 	}
 	if len(visible) == 0 {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件不存在或无权访问")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 		return
 	}
 	// The URL belongs to this exact visible, non-redacted event. Being logged
@@ -143,20 +143,20 @@ func handleWebGroupMedia(c *gin.Context) {
 		}
 		err := query.First(&original).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法检查附件权限")
+			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot check attachment permissions right now")
 			return
 		}
 		if err != nil || len(original.ToClientEvent().Content) == 0 {
-			webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件不存在或无权访问")
+			webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 			return
 		}
 		visibleOriginal, err := reader.filter([]MatrixEvent{original})
 		if err != nil {
-			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法检查附件权限")
+			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot check attachment permissions right now")
 			return
 		}
 		if len(visibleOriginal) == 0 {
-			webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件不存在或无权访问")
+			webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 			return
 		}
 		if isEdit {
@@ -165,7 +165,7 @@ func handleWebGroupMedia(c *gin.Context) {
 	}
 	event.Content = content
 	if !webGroupEventReferencesMXC(room.RoomID, event, mxc) || (event.EventType != EventTypeRoomMessage && event.EventType != EventTypeRoomAvatar && !isReaction) {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件不存在或无权访问")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 		return
 	}
 	name, _ := content["filename"].(string)
@@ -184,7 +184,7 @@ func handleWebGroupAvatar(c *gin.Context) {
 	}
 	var member MatrixRoomMember
 	if db.GetDB().WithContext(c.Request.Context()).Where("room_id = ? AND user_id = ? AND membership IN ?", room.RoomID, user, []MembershipState{MembershipJoin, MembershipInvite}).First(&member).Error != nil || room.AvatarURL == nil {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "群头像不存在或无权访问")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The group avatar does not exist or you may not access it")
 		return
 	}
 	serveWebGroupMXC(c, hs, *room.AvatarURL, "avatar", true)
@@ -196,22 +196,22 @@ func handleWebGroupMemberAvatar(c *gin.Context) {
 		return
 	}
 	if len(c.Param("memberID")) > 512 {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "成员头像不存在")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Member avatar not found")
 		return
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(c.Param("memberID"))
 	if err != nil {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "成员头像不存在")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Member avatar not found")
 		return
 	}
 	var member MatrixRoomMember
 	conn := db.GetDB().WithContext(c.Request.Context())
 	if err := conn.Where("room_id = ? AND user_id = ?", room.RoomID, string(decoded)).First(&member).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法读取成员头像")
+			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot load the member avatar right now")
 			return
 		}
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "成员头像不存在")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Member avatar not found")
 		return
 	}
 	avatar := ""
@@ -222,7 +222,7 @@ func handleWebGroupMemberAvatar(c *gin.Context) {
 	if err := conn.Where("room_id = ? AND event_type = ? AND state_key = ?", room.RoomID, EventTypeRoomMember, string(decoded)).First(&state).Error; err == nil {
 		avatar, _ = state.Content["avatar_url"].(string)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法读取成员头像")
+		webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot load the member avatar right now")
 		return
 	}
 	if _, _, mxcErr := webGroupMXC(avatar); mxcErr != nil {
@@ -232,13 +232,13 @@ func handleWebGroupMemberAvatar(c *gin.Context) {
 			if err := conn.Where("username = ? AND domain IS NULL AND user_id <> 0", local).First(&account).Error; err == nil {
 				avatar = hs.bridgeCompatibleProfileAvatar(c.Request.Context(), string(decoded), account)
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-				webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "暂时无法读取成员头像")
+				webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "Cannot load the member avatar right now")
 				return
 			}
 		}
 	}
 	if avatar == "" {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "成员头像不存在")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Member avatar not found")
 		return
 	}
 	serveWebGroupMXC(c, hs, avatar, "avatar", true)
@@ -249,7 +249,7 @@ var webGroupDownloadSlots = make(chan struct{}, 16)
 func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnail bool) {
 	server, id, err := webGroupMXC(mxc)
 	if err != nil {
-		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "附件地址无效")
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Invalid attachment address")
 		return
 	}
 	select {
@@ -257,7 +257,7 @@ func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnai
 		defer func() { <-webGroupDownloadSlots }()
 	default:
 		c.Header("Retry-After", "3")
-		webGroupFailure(c, 429, "MEDIA_BUSY", "附件下载繁忙，请稍后重试")
+		webGroupFailure(c, 429, "MEDIA_BUSY", "Attachment downloads are busy, please try again later")
 		return
 	}
 	var body io.ReadCloser
@@ -294,12 +294,12 @@ func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnai
 		}
 	}
 	if err != nil {
-		webGroupFailure(c, 502, "MEDIA_UNAVAILABLE", "附件暂时不可用，请稍后重试")
+		webGroupFailure(c, 502, "MEDIA_UNAVAILABLE", "The attachment is temporarily unavailable, please try again later")
 		return
 	}
 	defer body.Close()
 	if length > matrixMediaLimit {
-		webGroupFailure(c, 413, "MEDIA_TOO_LARGE", "附件超过网页下载大小限制，请使用客户端")
+		webGroupFailure(c, 413, "MEDIA_TOO_LARGE", "The attachment exceeds the web download size limit; use a client")
 		return
 	}
 	serveWebGroupMediaBytes(c, body, length, name, thumbnail)
@@ -327,7 +327,7 @@ func serveWebGroupMediaBytes(c *gin.Context, body io.Reader, length int64, name 
 		typ = "application/octet-stream"
 	}
 	if thumbnail && disposition != "inline" && c.Query("download") != "1" {
-		webGroupFailure(c, 415, "PREVIEW_UNAVAILABLE", "此文件无法预览，请下载查看")
+		webGroupFailure(c, 415, "PREVIEW_UNAVAILABLE", "This file cannot be previewed; download it to view")
 		return
 	}
 	c.Header("Content-Type", typ)

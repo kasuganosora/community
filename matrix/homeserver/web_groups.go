@@ -60,22 +60,22 @@ func ensureWebGroupIdentity(c *gin.Context) bool {
 	}
 	hs := GetHomeServer()
 	if hs == nil || hs.Config == nil || !hs.Config.Enabled || hs.Room == nil || hs.Event == nil {
-		webGroupFailure(c, 503, "unavailable", "群聊服务暂不可用")
+		webGroupFailure(c, 503, "unavailable", "Group chat service is unavailable")
 		return false
 	}
 	local, server, valid := ParseMatrixUserID(getUserID(c))
 	if !valid || server != hs.Config.ServerName {
-		webGroupFailure(c, 403, "local_account_required", "请使用本站账号登录")
+		webGroupFailure(c, 403, "local_account_required", "Sign in with an account on this server")
 		return false
 	}
 	var account models.Account
 	if err := db.GetDB().WithContext(c.Request.Context()).Where("username = ? AND domain IS NULL", local).First(&account).Error; err != nil || account.IsBan || account.UserId == 0 {
-		webGroupFailure(c, 403, "local_account_required", "请使用有效的本站账号登录")
+		webGroupFailure(c, 403, "local_account_required", "Sign in with a valid account on this server")
 		return false
 	}
 	var user models.User
 	if err := db.GetDB().WithContext(c.Request.Context()).Where("id = ?", account.UserId).First(&user).Error; err != nil || user.IsBan || user.Status != models.UserStatusNormal {
-		webGroupFailure(c, 403, "local_account_required", "账号目前不可用")
+		webGroupFailure(c, 403, "local_account_required", "This account is currently unavailable")
 		return false
 	}
 	c.Set("web_group_identity", true)
@@ -106,32 +106,32 @@ func webGroupError(c *gin.Context, err *MatrixError) {
 	if err == nil {
 		return
 	}
-	status, code, message := 500, "unavailable", "群聊操作暂时失败，请稍后重试"
+	status, code, message := 500, "unavailable", "Group operation failed temporarily, please try again later"
 	switch err.ErrCode {
 	case "M_FORBIDDEN", "M_UNAUTHORIZED":
-		status, code, message = 403, "forbidden", "当前权限不允许此操作"
+		status, code, message = 403, "forbidden", "Your permissions do not allow this action"
 	case "M_NOT_FOUND":
-		status, code, message = 404, "not_found", "群组或内容不存在"
+		status, code, message = 404, "not_found", "Group or content not found"
 	case "M_UNABLE_TO_AUTHORISE_JOIN", "M_UNABLE_TO_GRANT_JOIN":
-		status, code, message = 403, "join_requirements", "此群限制加入资格，请先满足群组要求，或联系管理员邀请"
+		status, code, message = 403, "join_requirements", "This group restricts who can join; meet its requirements first or ask an admin to invite you"
 	case "M_UNSUPPORTED_ROOM_VERSION":
-		status, code, message = 409, "unsupported_room_version", "此群使用暂不支持的房间版本，请使用其他 Matrix 客户端或服务器"
+		status, code, message = 409, "unsupported_room_version", "This group uses an unsupported room version; use another Matrix client or server"
 	case "M_BAD_GATEWAY", "M_UNAVAILABLE":
-		status, code, message = 502, "remote_unavailable", "对方服务器暂时不可用，请稍后重试"
+		status, code, message = 502, "remote_unavailable", "The remote server is temporarily unavailable, please try again later"
 	case "M_INVALID_PARAM", "M_BAD_JSON":
-		status, code, message = 400, "invalid_request", "请检查填写内容"
+		status, code, message = 400, "invalid_request", "Please check your input"
 	case "M_CONFLICT":
-		status, code, message = 409, "conflict", "此操作与当前状态冲突，请刷新后重试"
+		status, code, message = 409, "conflict", "This action conflicts with the current state; refresh and try again"
 	case "M_LIMIT_EXCEEDED":
-		status, code, message = 429, "rate_limited", "操作过于频繁，请稍后重试"
+		status, code, message = 429, "rate_limited", "Too many requests, please try again later"
 	case "M_GROUP_ENCRYPTED":
-		status, code, message = 409, "encrypted", "此群已启用端到端加密，请使用 Matrix 客户端"
+		status, code, message = 409, "encrypted", "This group uses end-to-end encryption; use a Matrix client"
 	case "M_GROUP_UNKNOWN":
-		status, code, message = 409, "state_unknown", "正在确认群组状态，暂时无法发送"
+		status, code, message = 409, "state_unknown", "Confirming the group state; cannot send yet"
 	case "M_GROUP_UPGRADED":
-		status, code, message = 409, "room_upgraded", "此群已升级，请打开替代群组"
+		status, code, message = 409, "room_upgraded", "This group has been upgraded; open the replacement group"
 	case "M_GROUP_SPACE":
-		status, code, message = 409, "space_unsupported", "此链接是空间目录，请使用 Matrix 客户端"
+		status, code, message = 409, "space_unsupported", "This link is a space directory; use a Matrix client"
 	}
 	webGroupFailure(c, status, code, message)
 }
@@ -166,7 +166,7 @@ func webGroupAccess(c *gin.Context, requireJoined bool) (*HomeServer, *MatrixRoo
 	hs, user := GetHomeServer(), getUserID(c)
 	roomID, err := webGroupRoomID(c.Param("id"))
 	if err != nil {
-		webGroupFailure(c, 404, "not_found", "群组不存在")
+		webGroupFailure(c, 404, "not_found", "Group not found")
 		return nil, nil, "", false
 	}
 	conn := db.GetDB().WithContext(c.Request.Context())
@@ -382,7 +382,7 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 		// A historical reader may retain access to old messages, but that does not
 		// grant ongoing access to private room metadata after departure.
 		if room.Visibility != "public" && membership != MembershipJoin && membership != MembershipInvite && membership != MembershipKnock {
-			result = append(result, gin.H{"id": webGroupID(room.RoomID), "name": "已离开的群组", "topic": "", "membership": membership, "encryption": "unknown", "join_rule": "invite", "listed": false, "member_count": 0, "unread_count": 0, "client_url": "https://matrix.to/#/" + url.PathEscape(room.RoomID), "capabilities": webGroupCapabilities(hs, &room, membership, nil, user), "current_user_id": user, "typing_users": []gin.H{}, "muted": false})
+			result = append(result, gin.H{"id": webGroupID(room.RoomID), "name": "Left group", "topic": "", "membership": membership, "encryption": "unknown", "join_rule": "invite", "listed": false, "member_count": 0, "unread_count": 0, "client_url": "https://matrix.to/#/" + url.PathEscape(room.RoomID), "capabilities": webGroupCapabilities(hs, &room, membership, nil, user), "current_user_id": user, "typing_users": []gin.H{}, "muted": false})
 			continue
 		}
 		encryption := "unknown"
@@ -444,7 +444,7 @@ func handleWebGroupList(c *gin.Context) {
 	if cursor := c.Query("cursor"); cursor != "" {
 		id, err := webGroupRoomID(cursor)
 		if err != nil {
-			webGroupFailure(c, 400, "invalid_cursor", "无效的分页位置")
+			webGroupFailure(c, 400, "invalid_cursor", "Invalid pagination position")
 			return
 		}
 		query = query.Where("matrix_rooms_hs.room_id > ?", id)
@@ -527,7 +527,7 @@ func handleWebGroupCreate(c *gin.Context) {
 		PlaintextConsent bool     `json:"plaintext_consent"`
 	}
 	if c.ShouldBindJSON(&req) != nil || !req.PlaintextConsent || strings.TrimSpace(req.Name) == "" || utf8.RuneCountInString(req.Name) > 255 || utf8.RuneCountInString(req.Topic) > 512 || len(req.TransactionID) < 8 || len(req.TransactionID) > 128 || len(req.Invite) > 50 || (req.Visibility != "public" && req.Visibility != "private") {
-		webGroupFailure(c, 400, "invalid_request", "请填写群名称、加入方式，并确认此群不使用端到端加密")
+		webGroupFailure(c, 400, "invalid_request", "Enter a group name and join rule, and confirm that the group does not use end-to-end encryption")
 		return
 	}
 	hs, user, conn := GetHomeServer(), getUserID(c), db.GetDB().WithContext(c.Request.Context())
@@ -554,7 +554,7 @@ func handleWebGroupCreate(c *gin.Context) {
 	var existing MatrixRoom
 	if err := conn.Where("room_id = ?", roomID).First(&existing).Error; err == nil {
 		if !webGroupCreateMatches(conn, &existing, user, fingerprint) {
-			webGroupFailure(c, 409, "transaction_conflict", "此请求编号已用于不同的创建操作")
+			webGroupFailure(c, 409, "transaction_conflict", "This request ID was already used for a different create operation")
 			return
 		}
 		webGroupCreateReply(c, hs, &existing, user, invites, req.TransactionID)
@@ -593,7 +593,7 @@ func handleWebGroupCreate(c *gin.Context) {
 func webGroupCreateReply(c *gin.Context, hs *HomeServer, room *MatrixRoom, user string, invites []string, transaction string) {
 	membership, err := hs.Room.GetUserMembership(room.RoomID, user)
 	if err != nil || membership != MembershipJoin {
-		c.JSON(409, gin.H{"error": "此群已创建，但你已不在群内，请通过群链接重新加入", "code": "created_group_unavailable", "group_id": webGroupID(room.RoomID)})
+		c.JSON(409, gin.H{"error": "The group was created but you are no longer in it; rejoin via the group link", "code": "created_group_unavailable", "group_id": webGroupID(room.RoomID)})
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
@@ -601,7 +601,7 @@ func webGroupCreateReply(c *gin.Context, hs *HomeServer, room *MatrixRoom, user 
 	failures := []gin.H{}
 	for _, target := range invites {
 		if err := hs.inviteWebGroupUser(ctx, room.RoomID, user, target, "", "create:"+transaction); err != nil {
-			failures = append(failures, gin.H{"user_id": target, "error": "邀请暂未完成，请重试", "retryable": true})
+			failures = append(failures, gin.H{"user_id": target, "error": "The invitation has not completed yet, please retry", "retryable": true})
 		}
 	}
 	out, err := webGroupDTO(hs, db.GetDB().WithContext(c.Request.Context()), room, user)

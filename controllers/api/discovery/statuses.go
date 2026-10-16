@@ -16,13 +16,13 @@ func feedAPIError(c *gin.Context, err error) {
 	c.Header("Cache-Control", "no-store")
 	switch {
 	case errors.Is(err, service.ErrResetRequired):
-		c.JSON(409, gin.H{"code": "reset_required", "error": "推荐已更新，请刷新后继续", "reset_required": true})
+		c.JSON(409, gin.H{"code": "reset_required", "error": "Recommendations have been updated; refresh to continue", "reset_required": true})
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, models.ErrInvalidRecommendationPreference), errors.Is(err, models.ErrInvalidRecommendationFeedback):
-		c.JSON(400, gin.H{"code": "invalid_request", "error": "请求参数无效"})
+		c.JSON(400, gin.H{"code": "invalid_request", "error": "Invalid request parameters"})
 	default:
 		_ = c.Error(err)
 		c.Header("Retry-After", "3")
-		c.JSON(503, gin.H{"code": "unavailable", "error": "推荐暂时不可用，请稍后重试", "retryable": true})
+		c.JSON(503, gin.H{"code": "unavailable", "error": "Recommendations are temporarily unavailable, please try again later", "retryable": true})
 	}
 }
 

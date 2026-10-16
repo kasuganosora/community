@@ -409,7 +409,7 @@ func TestWebGroupSyncLimitHasActionableNonRetryableError(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 		require.Equal(t, "sync_limit_exceeded", result.Code)
 		require.False(t, result.Retryable)
-		require.Contains(t, w.Body.String(), "Matrix 客户端")
+		require.Contains(t, w.Body.String(), "Matrix client")
 	}
 	request(strings.Repeat("a", 256*1024+1))
 	// The server must not silently truncate a real account's room set either.

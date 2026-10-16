@@ -34,7 +34,7 @@ func handleWebGroupAddress(c *gin.Context) {
 	slug := strings.ToLower(strings.TrimSpace(req.Alias))
 	alias := "#" + slug + ":" + hs.Config.ServerName
 	if !webGroupAddressPattern.MatchString(slug) || len(alias) > 255 {
-		webGroupFailure(c, 400, "invalid_alias", "短地址需为 1–64 位字母、数字、下划线或连字符，首尾使用字母或数字")
+		webGroupFailure(c, 400, "invalid_alias", "The short address must be 1–64 letters, digits, underscores or hyphens, starting and ending with a letter or digit")
 		return
 	}
 	if !webGroupLocallyCreated(hs, room) || !hs.Event.canUserSendStateEvent(room.RoomID, user, EventTypeRoomCanonicalAlias) {
@@ -43,7 +43,7 @@ func handleWebGroupAddress(c *gin.Context) {
 	}
 	if hs.AppService != nil {
 		if _, reserved := hs.AppService.IsExclusiveAlias(alias); reserved {
-			webGroupFailure(c, 409, "alias_taken", "此短地址已被占用，请换一个")
+			webGroupFailure(c, 409, "alias_taken", "This short address is taken, please choose another")
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func handleWebGroupAddress(c *gin.Context) {
 	})
 	if failure != nil {
 		if failure.ErrCode == "M_ROOM_IN_USE" {
-			webGroupFailure(c, 409, "alias_taken", "此短地址已被占用，请换一个")
+			webGroupFailure(c, 409, "alias_taken", "This short address is taken, please choose another")
 		} else {
 			webGroupError(c, failure)
 		}

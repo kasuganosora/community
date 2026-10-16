@@ -18,7 +18,7 @@ func localCaptchaOpen(c *gin.Context) bool {
 	if captcha.IsCaptchaEnabled() && captcha.GetCurrentProvider() == "local" {
 		return true
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "验证码已失效，请换一个"})
+	c.JSON(http.StatusNotFound, gin.H{"error": "The captcha has expired, please get a new one"})
 	return false
 }
 
@@ -36,11 +36,11 @@ func LocalCaptchaStart(c *gin.Context) {
 	}
 	started, err := local.Start(c.Request.Context(), c.ClientIP())
 	if errors.Is(err, local.ErrRateLimited) {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "换得太频繁，请稍后再试"})
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Captcha refreshed too often, please try again later"})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "验证码暂时不可用，请稍后再试"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "The captcha is temporarily unavailable, please try again later"})
 		return
 	}
 	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
@@ -63,17 +63,17 @@ func LocalCaptchaFrame(c *gin.Context) {
 	}
 	id := c.Param("id")
 	if _, err := uuid.Parse(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "验证码已失效，请换一个"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "The captcha has expired, please get a new one"})
 		return
 	}
 	bind, _ := c.Cookie(captchaBindCookie)
 	result, err := local.Frame(c.Request.Context(), id, bind)
 	if errors.Is(err, local.ErrInvalid) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "验证码已失效，请换一个"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "The captcha has expired, please get a new one"})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "验证码暂时不可用，请稍后再试"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "The captcha is temporarily unavailable, please try again later"})
 		return
 	}
 	if len(result.GIF) == 0 {
@@ -111,27 +111,27 @@ func LocalCaptchaVerify(c *gin.Context) {
 	}
 	id := c.Param("id")
 	if _, err := uuid.Parse(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "验证码已失效，请换一个"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "The captcha has expired, please get a new one"})
 		return
 	}
 	var req localVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "请先看完五个字符"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Please watch all five captcha characters first"})
 		return
 	}
 	bind, _ := c.Cookie(captchaBindCookie)
 	token, err := local.Verify(c.Request.Context(), id, bind, req.Answer, req.Homepage, req.Nonce)
 	switch {
 	case errors.Is(err, local.ErrEarly):
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "请先看完五个字符"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Please watch all five captcha characters first"})
 	case errors.Is(err, local.ErrPow):
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "请稍等，页面还在确认"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Please wait, the captcha is still being confirmed"})
 	case errors.Is(err, local.ErrWrong):
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "验证码不正确，请再试一次"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "The captcha is incorrect, please try again"})
 	case errors.Is(err, local.ErrInvalid):
-		c.JSON(http.StatusNotFound, gin.H{"error": "验证码已失效，请换一个"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "The captcha has expired, please get a new one"})
 	case err != nil:
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "验证码暂时不可用，请稍后再试"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "The captcha is temporarily unavailable, please try again later"})
 	default:
 		c.JSON(http.StatusOK, gin.H{"token": token})
 	}

@@ -117,7 +117,7 @@ func handleWebGroupMessages(c *gin.Context) {
 	if token := c.Query("before"); token != "" {
 		cursor = &webGroupHistoryCursor{}
 		if webGroupDecode(token, cursor) != nil || cursor.Room != room.RoomID || cursor.User != user {
-			webGroupFailure(c, 400, "invalid_cursor", "历史分页已失效，请重新打开群聊")
+			webGroupFailure(c, 400, "invalid_cursor", "The history page has expired; reopen the group chat")
 			return
 		}
 	}
@@ -211,10 +211,10 @@ func webGroupWriteGuard(tx *gorm.DB, room *MatrixRoom, user, eventType string, r
 		return ErrForbidden
 	}
 	if room.IsEncrypted {
-		return &MatrixError{ErrCode: "M_GROUP_ENCRYPTED", Error: "此群已启用端到端加密，请使用 Matrix 客户端"}
+		return &MatrixError{ErrCode: "M_GROUP_ENCRYPTED", Error: "This group uses end-to-end encryption; use a Matrix client"}
 	}
 	if _, _, partial := parsePartialStateMarker(room.CurrentStateID); partial {
-		return &MatrixError{ErrCode: "M_GROUP_UNKNOWN", Error: "群组状态仍在同步，请稍后重试"}
+		return &MatrixError{ErrCode: "M_GROUP_UNKNOWN", Error: "The group state is still syncing, please try again later"}
 	}
 	if room.RoomType != nil && *room.RoomType == "m.space" {
 		return ErrForbidden
@@ -229,9 +229,9 @@ func webGroupWriteGuard(tx *gorm.DB, room *MatrixRoom, user, eventType string, r
 		s := &states[i]
 		switch s.EventType {
 		case "m.room.encryption":
-			return &MatrixError{ErrCode: "M_GROUP_ENCRYPTED", Error: "此群已启用端到端加密，请使用 Matrix 客户端"}
+			return &MatrixError{ErrCode: "M_GROUP_ENCRYPTED", Error: "This group uses end-to-end encryption; use a Matrix client"}
 		case "m.room.tombstone":
-			return &MatrixError{ErrCode: "M_GROUP_UPGRADED", Error: "此群已升级，请前往新群组"}
+			return &MatrixError{ErrCode: "M_GROUP_UPGRADED", Error: "This group has been upgraded; go to the new group"}
 		case EventTypeRoomCreate:
 			create = s
 		case EventTypeRoomPowerLevels:
@@ -242,7 +242,7 @@ func webGroupWriteGuard(tx *gorm.DB, room *MatrixRoom, user, eventType string, r
 		}
 	}
 	if create == nil {
-		return &MatrixError{ErrCode: "M_GROUP_UNKNOWN", Error: "群组状态尚未确认，请稍后重试"}
+		return &MatrixError{ErrCode: "M_GROUP_UNKNOWN", Error: "The group state is not confirmed yet, please try again later"}
 	}
 	power := pl.UsersDefault
 	if p, ok := pl.Users[user]; ok {
@@ -297,7 +297,7 @@ func webGroupPersist(hs *HomeServer, conn *gorm.DB, roomID, user, txn, hash, eve
 		lookup := tx.Where("txn_key = ?", key).Take(&result).Error
 		if lookup == nil {
 			if result.WebContentHash != hash {
-				failure = &MatrixError{ErrCode: "M_CONFLICT", Error: "此发送标识已用于不同内容"}
+				failure = &MatrixError{ErrCode: "M_CONFLICT", Error: "This transaction ID was already used for different content"}
 				return errors.New("txn conflict")
 			}
 			return nil
@@ -365,10 +365,10 @@ func webGroupPersist(hs *HomeServer, conn *gorm.DB, roomID, user, txn, hash, eve
 }
 func webGroupValidateSend(hs *HomeServer, conn *gorm.DB, roomID, user string, req *webGroupSendRequest) (map[string]any, *MatrixError) {
 	if strings.TrimSpace(req.TransactionID) == "" || len(req.TransactionID) > 128 || len(req.Body) > 32000 || len(req.UploadIDs) > 8 || len(req.Mentions) > 50 || len(req.CustomEmojis) > 50 {
-		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "消息或附件数量超出限制"}
+		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Too many messages or attachments"}
 	}
 	if strings.TrimSpace(req.Body) == "" && len(req.UploadIDs) == 0 {
-		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "请输入消息或选择附件"}
+		return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Enter a message or choose an attachment"}
 	}
 	content := map[string]any{"msgtype": "m.text", "body": req.Body}
 	if req.ReplyTo != "" {
@@ -399,7 +399,7 @@ func webGroupValidateSend(hs *HomeServer, conn *gorm.DB, roomID, user string, re
 			return nil, ErrInternal
 		}
 		if n != int64(len(ids)) {
-			return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "只能提及当前群成员"}
+			return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "You can only mention current group members"}
 		}
 		content["m.mentions"] = map[string]any{"user_ids": ids}
 	}
@@ -409,7 +409,7 @@ func webGroupValidateSend(hs *HomeServer, conn *gorm.DB, roomID, user string, re
 			return nil, ErrInternal
 		}
 		if len(emojis) != len(slices.Compact(slices.Sorted(slices.Values(req.CustomEmojis)))) {
-			return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "部分表情不可用或不允许跨站使用"}
+			return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Some emojis are unavailable or not allowed across servers"}
 		}
 		formatted := strings.ReplaceAll(html.EscapeString(req.Body), "\n", "<br>")
 		for _, emoji := range emojis {
@@ -419,7 +419,7 @@ func webGroupValidateSend(hs *HomeServer, conn *gorm.DB, roomID, user string, re
 			}
 			mxc, err := webGroupEmojiMXC(conn.Statement.Context, hs, record)
 			if err != nil {
-				return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "表情无法导入聊天，请重新选择"}
+				return nil, &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "The emoji could not be imported into the chat, please choose again"}
 			}
 			shortcode := ":" + emoji.Shortcode + ":"
 			formatted = strings.ReplaceAll(formatted, shortcode, "<img data-mx-emoticon src=\""+html.EscapeString(mxc)+"\" alt=\""+shortcode+"\" title=\""+shortcode+"\" width=\"24\" height=\"24\">")
@@ -456,7 +456,7 @@ func webGroupHandleSend(c *gin.Context, replacing bool) {
 	var req webGroupSendRequest
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 96*1024)
 	if c.ShouldBindJSON(&req) != nil {
-		webGroupFailure(c, 400, "invalid_message", "消息格式不正确")
+		webGroupFailure(c, 400, "invalid_message", "Malformed message")
 		return
 	}
 	content, merr := webGroupValidateSend(hs, conn, room.RoomID, user, &req)
@@ -549,7 +549,7 @@ func handleWebGroupReaction(c *gin.Context) {
 		TransactionID string `json:"transaction_id"`
 	}
 	if c.ShouldBindJSON(&req) != nil || strings.TrimSpace(req.Key) == "" || len(req.Key) > 256 || req.TransactionID == "" || len(req.TransactionID) > 128 {
-		webGroupFailure(c, 400, "invalid_reaction", "请选择表情")
+		webGroupFailure(c, 400, "invalid_reaction", "Choose an emoji")
 		return
 	}
 	if !canReadClientEventContext(c.Request.Context(), room.RoomID, user, c.Param("messageID")) {
@@ -560,7 +560,7 @@ func handleWebGroupReaction(c *gin.Context) {
 	if strings.HasPrefix(req.Key, ":") && strings.HasSuffix(req.Key, ":") {
 		emojis, err := webGroupLocalEmojis(conn, []string{strings.Trim(req.Key, ":")})
 		if err != nil || len(emojis) != 1 {
-			webGroupFailure(c, 400, "invalid_emoji", "此表情不可用或不允许跨站使用")
+			webGroupFailure(c, 400, "invalid_emoji", "This emoji is unavailable or not allowed across servers")
 			return
 		}
 		var emoji models.Emoji
@@ -570,7 +570,7 @@ func handleWebGroupReaction(c *gin.Context) {
 		}
 		mxc, err := webGroupEmojiMXC(c.Request.Context(), hs, emoji)
 		if err != nil {
-			webGroupFailure(c, 400, "invalid_emoji", "表情无法导入聊天，请重新选择")
+			webGroupFailure(c, 400, "invalid_emoji", "The emoji could not be imported into the chat, please choose again")
 			return
 		}
 		content["m.relates_to"].(map[string]any)["key"] = mxc
@@ -592,7 +592,7 @@ func handleWebGroupUnreact(c *gin.Context) {
 	}
 	key := c.Query("key")
 	if key == "" || len(key) > 256 {
-		webGroupFailure(c, 400, "invalid_reaction", "请选择表情")
+		webGroupFailure(c, 400, "invalid_reaction", "Choose an emoji")
 		return
 	}
 	conn := db.GetDB().WithContext(c.Request.Context())
@@ -803,10 +803,10 @@ func webGroupMessagesDTO(hs *HomeServer, conn *gorm.DB, roomID, user string, eve
 		}
 		if msg.Redacted || len(content) == 0 {
 			msg.Redacted = true
-			msg.Body = "消息已删除"
+			msg.Body = "Message deleted"
 			msg.Kind = "notice"
 		} else if msg.Kind == "unsupported" {
-			msg.Body = "此消息类型暂不支持，请使用 Matrix 客户端查看"
+			msg.Body = "This message type is not supported; view it in a Matrix client"
 		} else {
 			msg.Body, msg.FormattedBody = webGroupDisplayBody(content)
 			copyEvent := event

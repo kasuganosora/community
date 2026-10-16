@@ -64,7 +64,7 @@ func Register(c *gin.Context) {
 
 	// 检查当前是否开放注册。缺省与 /api/v1/instance 一致：没写配置就视为关闭。
 	if !systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "本站暂不开放注册"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Registration is not open on this site"})
 
 		return
 	}
@@ -340,7 +340,7 @@ func requireCaptcha(c *gin.Context, token string) bool {
 	}
 	if err := checkCaptcha(c, token); err != nil {
 		log.ErrorV(err)
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "验证码没有通过，请再试一次"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "The captcha was not passed, please try again"})
 		return false
 	}
 	return true

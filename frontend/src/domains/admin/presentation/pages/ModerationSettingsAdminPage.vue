@@ -7,6 +7,7 @@ import { operationsAdminApi, type SiteRule } from '../../infrastructure/operatio
 import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 
 import { t } from '@/shared/i18n'
+import { translateApiError } from '@/shared/i18n/apiErrors'
 type ListKey = 'preserved_usernames' | 'sensitive_words' | 'prohibited_words' | 'prohibited_words_for_name_of_user' | 'hidden_tags' | 'silenced_hosts' | 'media_silenced_hosts' | 'blocked_hosts'
 interface ListSection { key: ListKey; title: string; icon: string; hint: string[]; words?: boolean; placeholder: string }
 
@@ -55,7 +56,7 @@ async function save(update: ModerationUpdate, tag: string, ok = t('admin.Moderat
   catch (cause) {
     const status = isAxiosError(cause) ? cause.response?.status : undefined
     const detail = isAxiosError(cause) ? cause.response?.data?.error : undefined
-    error.value = status === 409 ? t('admin.ModerationSettingsAdminPage.s52') : status === 403 ? t('admin.ModerationSettingsAdminPage.s53') : t('admin.ModerationSettingsAdminPage.s54', [detail ? `：${detail}` : ''])
+    error.value = status === 409 ? t('admin.ModerationSettingsAdminPage.s52') : status === 403 ? t('admin.ModerationSettingsAdminPage.s53') : t('admin.ModerationSettingsAdminPage.s54', [detail ? `：${translateApiError(detail) ?? detail}` : ''])
     return false
   } finally { busy.value = '' }
 }
