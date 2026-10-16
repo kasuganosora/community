@@ -19,8 +19,7 @@ const (
 	nodeInfoSchema21 = "http://nodeinfo.diaspora.software/ns/schema/2.1"
 	// nodeInfoSoftwareName must match ^[a-z0-9-]+$.
 	nodeInfoSoftwareName = "community"
-	nodeInfoRepository   = "https://github.com/kasuganosora/community"
-	nodeInfoUsageTTL     = 10 * time.Minute
+		nodeInfoUsageTTL     = 10 * time.Minute
 )
 
 // NodeInfoMatrixEnabled reports whether the Matrix homeserver is running. It
@@ -114,9 +113,10 @@ func writeNodeInfo(c *gin.Context, version string) {
 		"name":    nodeInfoSoftwareName,
 		"version": config.GetVersion(),
 	}
+	brand := systemsettings.GetBranding()
 	if version == "2.1" {
-		software["repository"] = nodeInfoRepository
-		software["homepage"] = nodeInfoRepository
+		software["repository"] = brand.RepositoryURL
+		software["homepage"] = brand.RepositoryURL
 	}
 
 	// The schema's protocol enum has no "matrix"; Matrix support is
@@ -125,6 +125,13 @@ func writeNodeInfo(c *gin.Context, version string) {
 		"nodeName":        systemsettings.GetString(systemsettings.KeyTitle, systemsettings.GetDomain()),
 		"nodeDescription": systemsettings.GetString(systemsettings.KeyDescription, ""),
 		"matrix":          NodeInfoMatrixEnabled(),
+		// Misskey-compatible branding: remote Misskey/Sharkey servers read
+		// metadata.themeColor for the instance ticker.
+		"repositoryUrl": brand.RepositoryURL,
+		"feedbackUrl":   nilIfEmpty(brand.FeedbackURL),
+		"themeColor":    nilIfEmpty(brand.ThemeColor),
+		"iconUrl":       nilIfEmpty(brand.IconURL),
+		"bannerUrl":     nilIfEmpty(brand.BannerURL),
 	}
 	if strings.TrimSpace(metadata["nodeName"].(string)) == "" {
 		metadata["nodeName"] = systemsettings.GetDomain()
@@ -150,4 +157,12 @@ func writeNodeInfo(c *gin.Context, version string) {
 	}
 
 	c.Data(200, `application/json; profile="http://nodeinfo.diaspora.software/ns/schema/`+version+`#"`, data)
+}
+
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+
+	return s
 }

@@ -7,6 +7,7 @@ function reload() { window.location.reload() }
   <section class="route-pending">
     <div class="page-header"><h1 class="page-header__title">{{ title }}</h1></div>
     <div v-if="failed" class="empty-state" role="alert">
+      <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
       <p class="empty-state__text">页面加载失败，请重试</p>
       <button type="button" class="btn btn--secondary btn--sm" @click="reload">重新加载</button>
     </div>

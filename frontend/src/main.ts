@@ -5,6 +5,7 @@ import App from './App.vue'
 import { setAuthExpiredCallback } from '@/shared/api/client'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { initTheme } from '@/shared/composables/useTheme'
+import { loadBranding } from '@/shared/composables/useBranding'
 
 // TDesign's base token sheet (radii, sizes, light/dark palettes) must load
 // before our theme bridge, which remaps those tokens onto the design system.
@@ -13,6 +14,8 @@ import '@/shared/styles/global.css'
 
 // Appearance (system / light / dark) — keeps <html theme-mode> in sync.
 initTheme()
+// Instance branding (theme colour, illustrations) from /api/v2/instance.
+void loadBranding()
 
 const app = createApp(App)
 

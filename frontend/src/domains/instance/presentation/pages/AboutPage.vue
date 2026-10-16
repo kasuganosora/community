@@ -2,6 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { instanceApi, DEFAULT_RULES, type InstanceInfo, type InstanceRule } from '../../infrastructure/instanceApi'
 import { formatCount } from '@/shared/utils/format'
+import { useBranding } from '@/shared/composables/useBranding'
+
+const { branding } = useBranding()
 
 const instance = ref<InstanceInfo | null>(null)
 const rules = ref<InstanceRule[]>([])
@@ -29,6 +32,8 @@ onMounted(async () => {
       </button>
       <h1 class="page-header__title">关于 {{ instance?.title || 'Community' }}</h1>
     </div>
+
+    <img v-if="branding.bannerUrl" class="about-banner" :src="branding.bannerUrl" alt="" decoding="async" />
 
     <p v-if="error" class="about-error" role="alert">{{ error }}</p>
 
@@ -61,6 +66,17 @@ onMounted(async () => {
         联系管理员：<a :href="`mailto:${instance.contact.email}`">{{ instance.contact.email }}</a>
       </p>
     </section>
+    <section class="about-section" aria-labelledby="about-software">
+      <h2 id="about-software" class="about-section__title">软件与反馈</h2>
+      <ul class="about-links">
+        <li v-if="branding.repositoryUrl || instance?.source_url">
+          源代码仓库：<a :href="branding.repositoryUrl || instance?.source_url" target="_blank" rel="noopener noreferrer">{{ branding.repositoryUrl || instance?.source_url }}</a>
+        </li>
+        <li v-if="branding.feedbackUrl">
+          问题反馈：<a :href="branding.feedbackUrl" target="_blank" rel="noopener noreferrer">{{ branding.feedbackUrl }}</a>
+        </li>
+      </ul>
+    </section>
   </main>
 </template>
 
@@ -80,6 +96,24 @@ onMounted(async () => {
   font-size: var(--text-headline, 1.0625rem);
   font-weight: var(--weight-semibold, 600);
   margin-bottom: var(--space-2);
+}
+
+.about-banner {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  background: var(--color-fill);
+}
+
+.about-links {
+  list-style: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-links li + li {
+  margin-top: var(--space-1);
 }
 
 .about-rules {

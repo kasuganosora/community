@@ -20,6 +20,7 @@ export interface InstanceInfo {
     message?: string
   }
   contact?: { email?: string }
+  source_url?: string
 }
 
 export const instanceApi = {

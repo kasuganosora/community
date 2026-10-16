@@ -77,6 +77,10 @@ type InstanceResponse struct {
 	} `json:"contact"`
 
 	Rules []InstanceRule `json:"rules"`
+
+	// Branding is a non-Mastodon extension carrying Misskey's branding meta
+	// (iconUrl, themeColor, entrancePageStyle, ...); clients ignore it.
+	Branding systemsettings.Branding `json:"branding"`
 }
 
 // InstanceThumbnail is the v2 thumbnail object.
@@ -275,6 +279,19 @@ func instanceThumbnail() InstanceThumbnail {
 }
 
 func instanceIcons() []InstanceIcon {
+	b := systemsettings.GetBranding()
+	if b.App192IconURL != "" || b.App512IconURL != "" {
+		var icons []InstanceIcon
+		if b.App192IconURL != "" {
+			icons = append(icons, InstanceIcon{Src: b.App192IconURL, Size: "192x192"})
+		}
+		if b.App512IconURL != "" {
+			icons = append(icons, InstanceIcon{Src: b.App512IconURL, Size: "512x512"})
+		}
+
+		return icons
+	}
+
 	return []InstanceIcon{
 		{Src: serializer.DefaultAssetURL("icon-64.png"), Size: "64x64"},
 		{Src: serializer.DefaultAssetURL("icon-192.png"), Size: "192x192"},
@@ -333,6 +350,8 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Contact.Email = contactEmail()
 	resp.Contact.Account = loadContactAccount()
 	resp.Rules = loadInstanceRules()
+	resp.Branding = systemsettings.GetBranding()
+	resp.SourceUrl = resp.Branding.RepositoryURL
 
 	c.JSON(200, resp)
 }

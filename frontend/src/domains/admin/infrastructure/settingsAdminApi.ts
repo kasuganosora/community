@@ -3,7 +3,7 @@ export interface SettingField {
   deployment_key?: string
   key: string
   label: string
-  type: 'text' | 'textarea' | 'email' | 'url' | 'number' | 'boolean' | 'secret'
+  type: 'text' | 'textarea' | 'email' | 'url' | 'number' | 'boolean' | 'secret' | 'select' | 'color' | 'json'
   value?: string | number | boolean
   description?: string
   read_only: boolean

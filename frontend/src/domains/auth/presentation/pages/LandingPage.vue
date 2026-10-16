@@ -6,9 +6,19 @@ import client from '@/shared/api/client'
 import { formatCount } from '@/shared/utils/format'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 import PreviewStatus from '../components/PreviewStatus.vue'
+import { cssImage, loadBranding, useBranding } from '@/shared/composables/useBranding'
 
 const router = useRouter()
 const route = useRoute()
+// Admin branding (Misskey entrance settings): page style, visitor timeline
+// and activity, icon, banner and background.
+const { branding } = useBranding()
+const simple = computed(() => branding.value.entrancePageStyle === 'simple')
+const showTimeline = computed(() => !simple.value && branding.value.showTimelineForVisitor)
+const showActivities = computed(() => !simple.value && branding.value.showActivitiesForVisitor)
+const landingStyle = computed(() => branding.value.backgroundImageUrl
+  ? { backgroundImage: cssImage(branding.value.backgroundImageUrl) }
+  : undefined)
 
 const publicTimeline = ref<MastodonStatus[]>([])
 interface InstanceInfo {
@@ -46,9 +56,13 @@ interface InstanceResponse {
 
 onMounted(async () => {
   try {
+    const brand = await loadBranding()
+    const wantsTimeline = brand.entrancePageStyle !== 'simple' && brand.showTimelineForVisitor
     const [instanceRes, timelineRes] = await Promise.allSettled([
       client.get<InstanceResponse>('/api/v1/instance'),
-      client.get<MastodonStatus[]>('/api/v1/timelines/public', { params: { limit: 25 } }),
+      wantsTimeline
+        ? client.get<MastodonStatus[]>('/api/v1/timelines/public', { params: { limit: 25 } })
+        : Promise.resolve({ data: [] as MastodonStatus[] }),
     ])
     if (instanceRes.status === 'fulfilled') {
       const inst = instanceRes.value.data
@@ -80,17 +94,19 @@ function goLogin() {
 </script>
 
 <template>
-  <div class="landing">
+  <div class="landing" :class="{ 'landing--simple': simple, 'landing--bg': !!branding.backgroundImageUrl }" :style="landingStyle">
     <!-- Decorative gradient background -->
     <div class="landing__gradient" />
 
-    <div class="landing__content">
+    <div class="landing__content" :class="{ 'landing__content--single': !showTimeline }">
       <!-- Left column: Instance info + timeline preview -->
       <div class="landing__left">
         <!-- Instance card -->
         <div class="instance-card">
+          <img v-if="branding.bannerUrl && !simple" class="instance-card__banner" :src="branding.bannerUrl" alt="" decoding="async" />
           <div class="instance-card__logo">
-            <LogoIcon :size="64" />
+            <img v-if="branding.iconUrl" class="instance-card__icon" :src="branding.iconUrl" alt="" width="64" height="64" decoding="async" />
+            <LogoIcon v-else :size="64" />
           </div>
 
           <h1 class="instance-card__name">{{ instanceInfo.name }}</h1>
@@ -121,7 +137,7 @@ function goLogin() {
             </t-button>
           </div>
 
-          <div class="instance-card__stats">
+          <div v-if="showActivities" class="instance-card__stats">
             <div class="stat">
               <span class="stat__label">本站用户</span>
               <span class="stat__value">{{ formatCount(instanceInfo.userCount) }}</span>
@@ -134,7 +150,7 @@ function goLogin() {
         </div>
 
         <!-- Public timeline preview -->
-        <div class="timeline-preview">
+        <div v-if="showTimeline" class="timeline-preview">
           <h2 class="timeline-preview__title">公开时间线</h2>
           <p v-if="!previewStatuses.length" class="timeline-preview__empty">还没有公开帖子。</p>
           <div class="timeline-preview__list">
@@ -150,7 +166,7 @@ function goLogin() {
       </div>
 
       <!-- Right column: Scrolling feed -->
-      <div class="landing__right">
+      <div v-if="showTimeline" class="landing__right">
         <div v-if="feedStatuses.length" class="feed-column">
           <PreviewStatus
             v-for="status in feedStatuses"
@@ -204,6 +220,42 @@ function goLogin() {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+}
+
+.landing--bg {
+  background-size: cover;
+  background-position: center;
+}
+
+.landing__content--single {
+  justify-content: center;
+  align-items: center;
+}
+
+.landing__content--single .landing__left {
+  max-width: 26rem;
+  width: 100%;
+}
+
+.instance-card__banner {
+  display: block;
+  width: calc(100% + var(--space-6) * 2);
+  max-width: none;
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-4);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.instance-card__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  object-fit: cover;
+}
+
+.landing--simple .instance-card__actions {
+  margin-bottom: 0;
 }
 
 .landing__right {

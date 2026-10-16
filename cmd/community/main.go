@@ -263,6 +263,7 @@ func setupServer() *gin.Engine {
 
 // setupFrontend 配置前端静态文件服务.
 func setupFrontend(app *gin.Engine) {
+	registerBrandingRoutes(app)
 	frontendDir := utils.ResolveAppPath("frontend/dist")
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
 		files := frontendFileHandler(frontendDir)

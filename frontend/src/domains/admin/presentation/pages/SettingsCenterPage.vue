@@ -4,6 +4,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { settingsAdminApi as api, type SettingsSection } from '../../infrastructure/settingsAdminApi'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { tokenService } from '@/shared/api/client'
+import { loadBranding } from '@/shared/composables/useBranding'
 import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 import SettingsAdminPage from './SettingsAdminPage.vue'
 
@@ -34,6 +35,33 @@ const changes = computed(() => {
   }
   return { values, clear }
 })
+// Client-side checks mirroring the server (JSON object / hex colour), so a
+// typo is reported next to the field before the request.
+const localErrors = computed(() => {
+  const errors: Record<string, string> = {}
+  for (const field of data.value?.fields || []) {
+    const value = String(draft[field.key] ?? '').trim()
+    if (field.read_only || !value) continue
+    if (field.type === 'json') {
+      try {
+        const parsed = JSON.parse(value)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) errors[field.key] = '必须是 JSON 对象，例如 {"key": "value"}。'
+      } catch {
+        errors[field.key] = 'JSON 格式错误，请检查括号、引号和逗号。'
+      }
+    } else if (field.type === 'color' && !/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) {
+      errors[field.key] = '请输入十六进制颜色，例如 #86b300。'
+    }
+  }
+  return errors
+})
+const hasLocalErrors = computed(() => Object.keys(localErrors.value).length > 0)
+function colorPickerValue(value: unknown) {
+  const v = String(value ?? '')
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase()
+  if (/^#[0-9a-f]{3}$/i.test(v)) return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`.toLowerCase()
+  return '#000000'
+}
 const dirty = computed(() => Object.keys(changes.value.values).length + changes.value.clear.length > 0)
 const connectionSection = computed(() => props.section === 'email' || props.section === 'storage')
 function install(section: SettingsSection) {
@@ -64,7 +92,7 @@ async function load() {
   }
 }
 async function save() {
-  if (busy.value || !dirty.value || !data.value) return
+  if (busy.value || !dirty.value || !data.value || hasLocalErrors.value) return
   if (changes.value.clear.length && !window.confirm('确认清除选中的已保存密钥？相关服务可能无法连接，保存后需要重新配置。')) return
   const version = generation
   const identity = tokenService.get()
@@ -75,6 +103,7 @@ async function save() {
     const result = await api.save(props.section, changes.value.values, changes.value.clear)
     if (version !== generation || identity !== tokenService.get()) return
     install(result)
+    if (props.section === 'branding') void loadBranding(true)
     notice.value = restart ? '配置已保存。请由部署管理员重启服务，使新的连接配置生效。' : '设置已保存，新请求立即生效。'
   } catch (cause) {
     if (version !== generation || identity !== tokenService.get()) return
@@ -134,7 +163,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
       <div class="admin-form admin-preferences__fields">
         <template v-for="field in data.fields" :key="field.key">
           <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
-          <AdminField v-else :label="field.label" :error="fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? '部署配置优先，无法在此编辑。' : '当前运行状态，只读。') : field.restart_required ? '保存后需要重启服务。' : '保存后新请求生效。'].filter(Boolean).join(' ')">
+          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? '部署配置优先，无法在此编辑。' : '当前运行状态，只读。') : field.restart_required ? '保存后需要重启服务。' : '保存后新请求生效。'].filter(Boolean).join(' ')">
             <template #default="{ id, describedBy }">
               <template v-if="field.read_only">
                 <div class="settings-center__readonly">
@@ -144,6 +173,11 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
                 </div>
               </template>
               <select v-else-if="field.options?.length" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" :disabled="busy || testing"><option v-for="option in field.options" :key="option" :value="option">{{ option }}</option></select>
+              <textarea v-else-if="field.type === 'json'" :id="id" class="settings-center__code" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="{ }" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
+              <div v-else-if="field.type === 'color'" class="settings-center__color">
+                <input :id="id" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="text" inputmode="text" autocapitalize="off" spellcheck="false" :maxlength="field.max" placeholder="未设置（使用默认）" :disabled="busy || testing" />
+                <input type="color" class="settings-center__swatch" :aria-label="`选择${field.label}`" :value="colorPickerValue(draft[field.key])" :disabled="busy || testing" @input="draft[field.key] = ($event.target as HTMLInputElement).value" />
+              </div>
               <textarea v-else-if="field.type === 'textarea'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="5" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
               <input v-else-if="field.type === 'number'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model.number="draft[field.key]" type="number" required :min="field.min" :max="field.max" :disabled="busy || testing" />
               <template v-else-if="field.type === 'secret'">
@@ -156,7 +190,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
         </template>
       </div>
       <div class="admin-form-actions">
-        <AdminButton v-if="editable" type="submit" variant="primary" :loading="busy" :disabled="testing || !dirty">{{ busy ? '保存中…' : '保存设置' }}</AdminButton>
+        <AdminButton v-if="editable" type="submit" variant="primary" :loading="busy" :disabled="testing || !dirty || hasLocalErrors">{{ busy ? '保存中…' : '保存设置' }}</AdminButton>
         <AdminButton :disabled="busy || testing || dirty" @click="load">刷新</AdminButton>
       </div>
     </form>
@@ -178,6 +212,10 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 .settings-center__deployment p { line-height: 1.7; margin: 8px 0 0; }
 .settings-center__deployment summary { cursor: pointer; font-size: 13px; color: var(--admin-accent); min-height: 32px; align-content: center; }
 .settings-center__deployment ul { padding-left: 20px; font-size: 12px; line-height: 2; overflow-wrap: anywhere; }
+.settings-center__code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 13px; tab-size: 2; }
+.settings-center__color { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+.settings-center__color input[type="text"] { flex: 1; min-width: 0; }
+.settings-center__swatch { flex: none; width: 44px; min-height: 40px; padding: 2px; border-radius: 8px; border: 1px solid var(--color-separator); background: var(--color-bg-row); cursor: pointer; }
 .settings-center__pending { color: var(--color-label-secondary); font-size: 13px; }
 @media(max-width: 760px) {
   .settings-center__source { position: static; display: inline-block; margin-top: 6px; }

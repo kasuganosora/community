@@ -1,13 +1,50 @@
 package main
 
 import (
+	"encoding/json"
 	"mime"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/systemsettings"
 )
+
+// registerBrandingRoutes serves the branded PWA manifest (Misskey fetches
+// /manifest.json for remote instance metadata; browsers use the
+// .webmanifest link in index.html) and /favicon.ico.
+func registerBrandingRoutes(app *gin.Engine) {
+	manifest := func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=300")
+		c.Header("Access-Control-Allow-Origin", "*")
+		ct := "application/manifest+json"
+		if strings.HasSuffix(c.Request.URL.Path, ".json") {
+			ct = "application/json"
+		}
+		body, err := json.Marshal(systemsettings.Manifest())
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+
+			return
+		}
+		c.Data(http.StatusOK, ct+"; charset=utf-8", body)
+	}
+	favicon := func(c *gin.Context) {
+		target := systemsettings.GetBranding().IconURL
+		if target == "" {
+			target = "/logo.svg"
+		}
+		c.Header("Cache-Control", "public, max-age=300")
+		c.Redirect(http.StatusFound, target)
+	}
+	for _, p := range []string{"/manifest.json", "/manifest.webmanifest"} {
+		app.GET(p, manifest)
+		app.HEAD(p, manifest)
+	}
+	app.GET("/favicon.ico", favicon)
+	app.HEAD("/favicon.ico", favicon)
+}
 
 // nonSPAPrefixes are server-side namespaces (APIs, federation, Matrix,
 // media, health). An unknown path below them is a real 404, never the
@@ -145,7 +182,7 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 
 		// The shell names the current hashed bundles: never serve a stale one.
 		c.Header("Cache-Control", cacheRevalidate)
-		c.Data(code, "text/html; charset=utf-8", indexHTML)
+		c.Data(code, "text/html; charset=utf-8", systemsettings.BrandIndexHTML(indexHTML))
 	}
 }
 

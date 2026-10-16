@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useBranding } from '@/shared/composables/useBranding'
 
 const router = useRouter()
+const { branding } = useBranding()
 
 function goHome() {
   // Catch to avoid unhandled rejection if navigation is cancelled/redirected
@@ -12,6 +14,7 @@ function goHome() {
 <template>
   <div class="not-found-page">
     <div class="not-found__content">
+      <img v-if="branding.notFoundImageUrl" class="not-found__image" :src="branding.notFoundImageUrl" alt="" decoding="async" />
       <h1 class="not-found__code">404</h1>
       <p class="not-found__text">这个页面不存在。</p>
       <button class="btn btn--primary" @click="goHome">
@@ -33,6 +36,15 @@ function goHome() {
 
 .not-found__content {
   text-align: center;
+}
+
+.not-found__image {
+  display: block;
+  width: min(12rem, 60vw);
+  height: auto;
+  max-height: 12rem;
+  object-fit: contain;
+  margin: 0 auto var(--space-4);
 }
 
 .not-found__code {

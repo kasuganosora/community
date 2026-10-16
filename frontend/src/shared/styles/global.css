@@ -482,6 +482,30 @@ html[data-scrolled] .home-header {
   font-size: 1.75rem !important;
 }
 
+/* Admin branding illustrations (infoImageUrl / serverErrorImageUrl) replace
+   the icon tile: error states use role="alert", everything else is info. */
+:root[data-brand-info-image] .empty-state:not([role="alert"]) .empty-state__icon,
+:root[data-brand-error-image] .empty-state[role="alert"] .empty-state__icon {
+  width: auto;
+  height: auto;
+  background: none;
+}
+:root[data-brand-info-image] .empty-state:not([role="alert"]) .empty-state__icon > *,
+:root[data-brand-error-image] .empty-state[role="alert"] .empty-state__icon > * {
+  display: none;
+}
+:root[data-brand-info-image] .empty-state:not([role="alert"]) .empty-state__icon::before,
+:root[data-brand-error-image] .empty-state[role="alert"] .empty-state__icon::before {
+  content: '';
+  display: block;
+  width: 8rem;
+  height: 8rem;
+  background: var(--brand-info-image) center / contain no-repeat;
+}
+:root[data-brand-error-image] .empty-state[role="alert"] .empty-state__icon::before {
+  background-image: var(--brand-error-image);
+}
+
 .empty-state__title {
   font-size: var(--text-title-3);
   line-height: var(--leading-title-3);

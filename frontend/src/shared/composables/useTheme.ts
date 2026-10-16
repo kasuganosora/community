@@ -29,6 +29,21 @@ function readPreference(): ThemePreference {
 }
 
 const preference = ref<ThemePreference>(readPreference())
+// Instance theme colour from the admin branding settings (Misskey's
+// meta.themeColor); when set it drives the browser chrome colour.
+let brandThemeColor = ''
+
+/** Apply (or clear with '') the instance theme colour to <meta theme-color>. */
+export function setBrandThemeColor(color: string) {
+  brandThemeColor = /^#[0-9a-f]{3,8}$/i.test(color) ? color : ''
+  if (typeof document !== 'undefined') syncThemeColor(mode.value)
+}
+
+function syncThemeColor(next: ThemeMode) {
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.setAttribute('content', brandThemeColor || THEME_COLORS[next])
+  })
+}
 const mode = ref<ThemeMode>('light')
 
 function resolve(pref: ThemePreference): ThemeMode {
@@ -43,9 +58,7 @@ function apply(next: ThemeMode) {
   root.style.colorScheme = next
   // One theme-color meta driven from here once JS is running (the
   // media-scoped pair in index.html covers first paint).
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-    m.setAttribute('content', THEME_COLORS[next])
-  })
+  syncThemeColor(next)
 }
 
 /**

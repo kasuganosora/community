@@ -45,9 +45,9 @@ func settingsSections() map[string]SettingsSection {
 			{Key: systemsettings.KeyDescription, Label: "站点介绍", Type: "textarea", Value: "", Max: 5000},
 			{Key: systemsettings.KeySiteContactEmail, Label: "联系邮箱", Type: "email", Value: "", Max: 254},
 		}},
-		"branding": {Title: "品牌", Description: "站点缩略图用于站点公开介绍；不会修改账号头像或历史媒体。", Fields: []SettingsField{
+		"branding": {Title: "品牌", Description: "站点图标、图片、主题色与入口页样式，与 Misskey 的「品牌」设置对应；不会修改账号头像或历史媒体。", Fields: append([]SettingsField{
 			{Key: systemsettings.KeyThumbnail, Label: "站点缩略图 URL", Type: "url", Value: "", Max: 2048, Description: "仅支持 HTTPS 公开图片链接；保存不会主动下载该地址。"},
-		}},
+		}, brandingSettingsFields()...)},
 		"moderation": {Title: "注册管理", Description: "控制新的注册请求；不会更改已有账号状态。", Fields: []SettingsField{
 			{Key: systemsettings.KeyIsEnableRegistration, Label: "允许注册", Type: "boolean", Value: true},
 			{Key: systemsettings.KeyRegistrationApprovalRequired, Label: "注册需要管理员审核", Type: "boolean", Value: false},
@@ -217,6 +217,18 @@ func validateSettingsValue(field SettingsField, value any) error {
 				return invalid
 			}
 		}
+		if field.Type == "color" && v != "" && !systemsettings.ValidThemeColor(v) {
+			return invalid
+		}
+		if field.Type == "json" {
+			check := systemsettings.ValidateJSONObject
+			if field.Key == systemsettings.KeyBrandDefaultLightTheme || field.Key == systemsettings.KeyBrandDefaultDarkTheme {
+				check = systemsettings.ValidateTheme
+			}
+			if check(v) != nil {
+				return invalid
+			}
+		}
 		if field.Type == "url" && v != "" {
 			u, err := url.Parse(v)
 			if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
@@ -225,4 +237,30 @@ func validateSettingsValue(field SettingsField, value any) error {
 		}
 	}
 	return nil
+}
+
+func brandingSettingsFields() []SettingsField {
+	img := func(key, label, desc string) SettingsField {
+		return SettingsField{Key: key, Label: label, Type: "url", Value: "", Max: 2048, Description: desc}
+	}
+	themeDesc := "Misskey 主题代码（JSON）。作为全站默认主题应用到所有访客；props 中 accent、bg、fg、panel、divider、link 等纯色值会映射到界面配色，引用其他属性的写法会被忽略。留空使用内置主题。"
+	return []SettingsField{
+		{Key: systemsettings.KeyBrandEntrancePageStyle, Label: "入口页样式", Type: "select", Value: "classic", Options: []string{"classic", "simple"}, Max: 16, Description: "classic：经典入口页（站点介绍、横幅与时间线）；simple：简洁入口页（仅图标、名称与登录注册）。"},
+		{Key: systemsettings.KeyBrandShowTimelineVisitor, Label: "在入口页向访客显示时间线", Type: "boolean", Value: true},
+		{Key: systemsettings.KeyBrandShowActivitiesVisitor, Label: "在入口页向访客显示站点活跃度", Type: "boolean", Value: true},
+		img(systemsettings.KeyBrandIconURL, "图标 URL", "用作网站图标（favicon）及远程实例显示的本站图标。"),
+		img(systemsettings.KeyBrandApp192IconURL, "图标 URL（App / 192px）", "用于 PWA 清单与 apple-touch-icon。建议 192×192 PNG，图案位于中间安全区域、背景不透明。"),
+		img(systemsettings.KeyBrandApp512IconURL, "图标 URL（App / 512px）", "用于 PWA 清单。建议 512×512 PNG，图案位于中间安全区域、背景不透明。"),
+		img(systemsettings.KeyBrandBannerURL, "横幅图片 URL", "显示在入口页与关于页顶部。"),
+		img(systemsettings.KeyBrandBackgroundImageURL, "背景图片 URL", "显示在入口页背景。"),
+		img(systemsettings.KeyBrandNotFoundImageURL, "404 页面图片 URL", "页面不存在时显示的插图。"),
+		img(systemsettings.KeyBrandInfoImageURL, "提示图片 URL", "列表为空等提示状态中显示的插图。"),
+		img(systemsettings.KeyBrandServerErrorImageURL, "错误页面图片 URL", "页面加载出错时显示的插图。"),
+		{Key: systemsettings.KeyBrandThemeColor, Label: "主题色", Type: "color", Value: "", Max: 9, Description: "十六进制颜色，例如 #86b300。用于浏览器 theme-color、PWA 清单，并通过 NodeInfo 提供给其他实例显示实例标签颜色。"},
+		{Key: systemsettings.KeyBrandDefaultLightTheme, Label: "默认浅色主题", Type: "json", Value: "", Max: 32768, Description: themeDesc},
+		{Key: systemsettings.KeyBrandDefaultDarkTheme, Label: "默认深色主题", Type: "json", Value: "", Max: 32768, Description: themeDesc},
+		{Key: systemsettings.KeyBrandRepositoryURL, Label: "仓库 URL", Type: "url", Value: "", Max: 2048, Description: "服务器软件源代码仓库地址，显示在关于页并写入 NodeInfo。留空使用默认仓库。"},
+		{Key: systemsettings.KeyBrandFeedbackURL, Label: "反馈 URL", Type: "url", Value: "", Max: 2048, Description: "问题反馈地址，显示在关于页。"},
+		{Key: systemsettings.KeyBrandManifestJSONOverride, Label: "manifest.json 覆盖", Type: "json", Value: "", Max: 32768, Description: "JSON 对象，顶层字段会覆盖站点提供的 manifest.json 中的同名字段。"},
+	}
 }
