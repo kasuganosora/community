@@ -95,10 +95,6 @@ useKeyboardInset()
   min-height: 100dvh;
 }
 
-.app-layout--wide {
-  max-width: calc(var(--sidebar-left-width) + var(--main-column-wide-width));
-}
-
 .app-layout__left {
   width: var(--sidebar-left-width);
   flex-shrink: 0;
@@ -127,6 +123,8 @@ useKeyboardInset()
 }
 
 .app-layout--wide .app-layout__center {
+  /* Wide pages fill exactly the timeline + gap + aside area (980px), so the
+     block and nav never move when switching pages. */
   flex: 1 1 var(--main-column-wide-width);
   max-width: var(--main-column-wide-width);
 }
@@ -161,14 +159,15 @@ useKeyboardInset()
   .app-layout {
     max-width: calc(var(--sidebar-left-collapsed) + var(--main-column-width) + var(--sidebar-right-width));
   }
-  .app-layout--wide {
-    max-width: calc(var(--sidebar-left-collapsed) + var(--main-column-wide-width));
-  }
 }
 
 @media (max-width: 62.49rem) {
   .app-layout__right {
     display: none;
+  }
+  /* No aside here, so wide pages match the timeline column exactly. */
+  .app-layout--wide .app-layout__center {
+    max-width: var(--main-column-width);
   }
 }
 

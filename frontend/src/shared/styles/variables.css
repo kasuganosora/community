@@ -145,7 +145,7 @@
   --sidebar-left-collapsed: 5.5rem;    /* 88px icon rail */
   --content-max-width: 37.5rem;        /* 600px */
   --main-column-width: 37.5rem;        /* 600px: shared by every timeline-style page */
-  --main-column-wide-width: 60rem;     /* 960px: admin, settings, chat (no right rail) */
+  --main-column-wide-width: calc(var(--main-column-width) + var(--sidebar-right-width)); /* 980px: admin, settings, chat, groups take the centre + aside area */
   --sidebar-right-gap: 1.875rem;       /* 30px between timeline and aside */
   --sidebar-right-width: 23.75rem;     /* 380px = 30px gap + 350px aside */
   --sidebar-right-min-width: 18.5rem;  /* aside may shrink to ~266px just above the hide breakpoint */
