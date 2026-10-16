@@ -17,7 +17,7 @@ type Poll struct { //nolint:recvcheck
 	Properties map[string]any `gorm:"type:json;serializer:json"  json:"properties"`
 	// ClosedNotifiedAt is set exactly once, when the poll-close worker has
 	// sent the "poll" notifications (and, for local polls, the closing Update).
-	ClosedNotifiedAt *time.Time     `gorm:"index" json:"-"`
+	ClosedNotifiedAt *time.Time     `gorm:"index:idx_polls_closed_notified_at" json:"-"`
 	CreatedAt        *time.Time     `gorm:"not null;autoCreateTime"    json:"created_at"`
 	UpdatedAt        *time.Time     `gorm:"not null;autoUpdateTime"    json:"updated_at"`
 	DeletedAt        gorm.DeletedAt `gorm:"index"                      json:"-"`
