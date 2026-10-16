@@ -66,6 +66,7 @@ async function guarded(fn: () => Promise<void>) {
 }
 
 function pickLocale(code: Locale) { applyLocale(code) }
+function stepLabel(s: Step) { return s === 'source' && mode.value === 'mastodon' ? t('mastodon.step') : t(`steps.${s}`) }
 
 function go(delta: number) {
   error.value = ''
@@ -250,9 +251,13 @@ onBeforeUnmount(() => clearTimeout(poll))
     </header>
 
     <section v-if="phase === 'wizard'" class="card">
+      <p class="steps-compact" aria-hidden="true">
+        <span class="steps-compact__text">{{ t('stepOf', { n: stepIndex + 1, total: steps.length }) }} · <strong>{{ stepLabel(step) }}</strong></span>
+        <span class="steps-compact__bar"><span :style="{ width: `${((stepIndex + 1) / steps.length) * 100}%` }" /></span>
+      </p>
       <ol class="steps" :aria-label="t('title')">
         <li v-for="(s, i) in steps" :key="s" :class="{ active: s === step, done: i < stepIndex }">
-          <span class="steps__dot">{{ i + 1 }}</span><span class="steps__label">{{ s === 'source' && mode === 'mastodon' ? t('mastodon.step') : t(`steps.${s}`) }}</span>
+          <span class="steps__dot">{{ i + 1 }}</span><span class="steps__label">{{ stepLabel(s) }}</span>
         </li>
       </ol>
 
@@ -260,12 +265,11 @@ onBeforeUnmount(() => clearTimeout(poll))
         <template v-if="step === 'language'">
           <h2>{{ t('language.title') }}</h2>
           <p class="muted">{{ t('language.hint') }}</p>
-          <div class="choices choices--grid" role="radiogroup">
-            <label v-for="l in LOCALES" :key="l.code" class="choice" :class="{ selected: locale === l.code }">
-              <input type="radio" name="locale" :value="l.code" :checked="locale === l.code" @change="pickLocale(l.code)">
-              <span lang="">{{ l.name }}</span>
-            </label>
-          </div>
+          <label class="field"><span>{{ t('language.label') }}</span>
+            <select class="select" :value="locale" @change="pickLocale(($event.target as HTMLSelectElement).value as Locale)">
+              <option v-for="l in LOCALES" :key="l.code" :value="l.code" :lang="l.code">{{ l.name }}</option>
+            </select>
+          </label>
         </template>
 
         <template v-else-if="step === 'token'">
@@ -467,13 +471,22 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 syst
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
 h2 { margin: 0 0 6px; font-size: 19px; }
 h3 { margin: 20px 0 8px; font-size: 16px; }
-.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 20px; overflow-x: auto; scrollbar-width: none; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px 6px; list-style: none; padding: 0; margin: 0 0 20px; }
 .steps li { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; color: var(--muted); font-size: 13px; padding-right: 6px; }
 .steps__dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); display: grid; place-items: center; font-size: 12px; }
 .steps li.done .steps__dot { background: var(--ok); border-color: var(--ok); color: #fff; }
 .steps li.active { color: var(--text); font-weight: 600; }
 .steps li.active .steps__dot { background: var(--primary); border-color: var(--primary); color: #fff; }
-@media (max-width: 600px) { .steps li:not(.active) .steps__label { display: none; } }
+.steps-compact { display: none; margin: 0 0 20px; font-size: 14px; color: var(--muted); }
+.steps-compact strong { color: var(--text); }
+.steps-compact__bar { display: block; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.steps-compact__bar span { display: block; height: 100%; background: var(--primary); transition: width .2s; }
+/* Narrow screens: one line "Step 1 of 9 · Language" plus a progress bar. */
+@media (max-width: 600px) { .steps { display: none; } .steps-compact { display: block; } }
+/* Themed select: native control (keeps the platform picker on mobile) with the wizard's look. */
+.form select { appearance: none; -webkit-appearance: none; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238a919c' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 14px center; padding-right: 40px; cursor: pointer; }
+.form select option { background: var(--card); color: var(--text); }
+.form select.select { font-size: 16px; }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .field--wide { grid-column: 1 / -1; }

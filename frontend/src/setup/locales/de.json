@@ -25,7 +25,8 @@
   },
   "language": {
     "title": "Sprache wählen",
-    "hint": "Wird für diesen Assistenten, als Standardsprache des Servers und für das Administratorkonto verwendet."
+    "hint": "Wird für diesen Assistenten, als Standardsprache des Servers und für das Administratorkonto verwendet.",
+    "label": "Sprache"
   },
   "token": {
     "title": "Setup-Token eingeben",
@@ -247,5 +248,6 @@
     "detected": "Aus der Mastodon-Datenbank erkannt",
     "notDetected": "Die Domain konnte nicht aus der Quelle erkannt werden. Gib die genaue öffentliche URL des Mastodon-Servers ein (LOCAL_DOMAIN).",
     "adminHint": "Gib einen bestehenden Mastodon-Benutzer ein, um ihn zum Eigentümer zu machen (sein Passwort funktioniert weiter), oder einen neuen Namen für ein separates Administratorkonto."
-  }
+  },
+  "stepOf": "Schritt {n} von {total}"
 }

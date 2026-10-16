@@ -25,7 +25,8 @@
   },
   "language": {
     "title": "選擇語言",
-    "hint": "用於此嚮導，並作為伺服器預設語言和管理員賬號的介面語言。"
+    "hint": "用於此嚮導，並作為伺服器預設語言和管理員賬號的介面語言。",
+    "label": "語言"
   },
   "token": {
     "title": "輸入安裝令牌",
@@ -247,5 +248,6 @@
     "detected": "已從 Mastodon 資料庫偵測到",
     "notDetected": "無法從來源偵測到網域。請輸入 Mastodon 伺服器確切的公開 URL（LOCAL_DOMAIN）。",
     "adminHint": "輸入現有的 Mastodon 使用者名稱可將其設為站長（原密碼繼續有效），輸入新名稱則建立獨立的管理員。"
-  }
+  },
+  "stepOf": "第 {n} 步，共 {total} 步"
 }

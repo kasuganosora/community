@@ -25,7 +25,8 @@
   },
   "language": {
     "title": "选择语言",
-    "hint": "用于此向导，并作为服务器默认语言和管理员账号的界面语言。"
+    "hint": "用于此向导，并作为服务器默认语言和管理员账号的界面语言。",
+    "label": "语言"
   },
   "token": {
     "title": "输入安装令牌",
@@ -247,5 +248,6 @@
     "detected": "已从 Mastodon 数据库检测到",
     "notDetected": "无法从来源检测到域名。请输入 Mastodon 服务器准确的公开 URL（LOCAL_DOMAIN）。",
     "adminHint": "输入现有的 Mastodon 用户名可将其设为站长（原密码继续有效），输入新名称则创建单独的管理员。"
-  }
+  },
+  "stepOf": "第 {n} 步，共 {total} 步"
 }

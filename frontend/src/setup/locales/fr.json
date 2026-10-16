@@ -25,7 +25,8 @@
   },
   "language": {
     "title": "Choisissez une langue",
-    "hint": "Utilisée pour cet assistant, comme langue par défaut du serveur et pour le compte administrateur."
+    "hint": "Utilisée pour cet assistant, comme langue par défaut du serveur et pour le compte administrateur.",
+    "label": "Langue"
   },
   "token": {
     "title": "Saisissez le jeton d’installation",
@@ -247,5 +248,6 @@
     "detected": "Détecté dans la base Mastodon",
     "notDetected": "Le domaine n’a pas pu être détecté depuis la source. Saisissez l’URL publique exacte du serveur Mastodon (LOCAL_DOMAIN).",
     "adminHint": "Saisissez un utilisateur Mastodon existant pour en faire le propriétaire (son mot de passe reste valable), ou un nouveau nom pour créer un administrateur distinct."
-  }
+  },
+  "stepOf": "Étape {n} sur {total}"
 }

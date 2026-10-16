@@ -25,7 +25,8 @@
   },
   "language": {
     "title": "Choose a language",
-    "hint": "Used for this wizard, as the server’s default language and for the administrator account."
+    "hint": "Used for this wizard, as the server’s default language and for the administrator account.",
+    "label": "Language"
   },
   "token": {
     "title": "Enter the setup token",
@@ -247,5 +248,6 @@
     "detected": "Detected from the Mastodon database",
     "notDetected": "The domain could not be detected from the source. Enter the Mastodon server’s exact public URL (LOCAL_DOMAIN).",
     "adminHint": "Enter an existing Mastodon user to make them owner (their password keeps working), or a new name to create a separate administrator."
-  }
+  },
+  "stepOf": "Step {n} of {total}"
 }
