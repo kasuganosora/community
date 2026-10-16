@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"testing"
 	"time"
 
 	"github.com/kasuganosora/community/htmlsafe"
@@ -67,6 +68,12 @@ func RefreshRemoteAccount(ctx context.Context, conn *gorm.DB, client ActorFetche
 	}
 	if err := syncRemoteCollectionCounts(ctx, conn.WithContext(ctx), client, account.Id, actor); err != nil {
 		return fmt.Errorf("updating collection totals: %w", err)
+	}
+	// Decorations are cosmetic: a failure must not fail the refresh.
+	if !testing.Testing() {
+		if changed, err := RefreshRemoteAvatarDecorations(ctx, conn, account, true); err == nil && changed {
+			invalidateProfile(ctx, account)
+		}
 	}
 	return nil
 }

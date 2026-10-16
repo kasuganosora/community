@@ -60,6 +60,8 @@ func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	read.GET("/files", admin.ListManagedFiles)
 	write.DELETE("/files/:id", admin.DeleteManagedFile)
 	read.GET("/avatar_decorations", admin.ListAvatarDecorations)
+	read.GET("/avatar_decorations/settings", admin.AdminAvatarDecorationSettings)
+	write.PUT("/avatar_decorations/settings", admin.UpdateAvatarDecorationSettings)
 	write.POST("/avatar_decorations", admin.CreateAvatarDecoration)
 	write.PATCH("/avatar_decorations/:id", admin.UpdateAvatarDecoration)
 	write.DELETE("/avatar_decorations/:id", admin.DeleteAvatarDecoration)
@@ -68,7 +70,9 @@ func registerAdminManagementRoutes(public, auth *gin.RouterGroup) {
 	write.PATCH("/advertisements/:id", admin.UpdateAdvertisement)
 	write.DELETE("/advertisements/:id", admin.DeleteAdvertisement)
 	public.GET("/avatar_decorations", admin.PublicAvatarDecorations)
+	public.GET("/avatar_decorations/settings", admin.PublicAvatarDecorationSettings)
 	public.GET("/avatar_decorations/:id/image", admin.AvatarDecorationImage)
 	public.GET("/advertisements", admin.PublicAdvertisements)
 	auth.PUT("/accounts/avatar_decoration", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), admin.SelectAvatarDecoration)
+	auth.PUT("/accounts/avatar_decorations", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), admin.SelectAvatarDecorations)
 }

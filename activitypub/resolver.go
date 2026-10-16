@@ -361,6 +361,7 @@ func (r *Resolver) refreshAccount(uri string) {
 		log.Error("Failed to update account %s: %v", uri, err)
 	} else {
 		scheduleRemoteCollectionCounts(account.Id, actor)
+		scheduleRemoteAvatarDecorations(account.Id, false)
 	}
 
 	log.Info("Refreshed remote account %s", uri)
@@ -445,6 +446,7 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 		return models.Account{}, fmt.Errorf("creating account in database: %w", err)
 	}
 	scheduleRemoteCollectionCounts(account.Id, actor)
+	scheduleRemoteAvatarDecorations(account.Id, false)
 
 	return account, nil
 }

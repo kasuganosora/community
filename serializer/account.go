@@ -13,37 +13,50 @@ import (
 	"strings"
 )
 
+// AvatarDecoration is one decoration in Misskey's geometry (see
+// models.AvatarDecorationSelection). URL is always same-site: the local
+// image endpoint or a media proxy link.
+type AvatarDecoration struct {
+	ID      string  `json:"id"`
+	URL     string  `json:"url"`
+	Angle   float64 `json:"angle,omitempty"`
+	FlipH   bool    `json:"flip_h,omitempty"`
+	OffsetX float64 `json:"offset_x,omitempty"`
+	OffsetY float64 `json:"offset_y,omitempty"`
+}
+
 type Account struct {
-	AvatarDecorationURL string   `json:"avatar_decoration_url,omitempty"`
-	AvatarDecorationID  string   `json:"avatar_decoration_id,omitempty"`
-	Id                  string   `json:"id"`
-	Username            string   `json:"username"`
-	Acct                string   `json:"acct"`
-	DisplayName         string   `json:"display_name"`
-	Locked              bool     `json:"locked"`
-	Bot                 bool     `json:"bot"`
-	Discoverable        bool     `json:"discoverable"`
-	Indexable           bool     `json:"indexable"`
-	Group               bool     `json:"group"`
-	CreatedAt           *APITime `json:"created_at"`
-	Note                string   `json:"note"`
-	Url                 string   `json:"url"`
-	Uri                 string   `json:"uri"`
-	Avatar              string   `json:"avatar"`
-	AvatarDefault       string   `json:"avatar_default"`
-	AvatarStatic        string   `json:"avatar_static"`
-	AvatarDescription   string   `json:"avatar_description,omitempty"`
-	Header              string   `json:"header"`
-	HeaderStatic        string   `json:"header_static"`
-	HeaderDescription   string   `json:"header_description,omitempty"`
-	FollowersCount      int      `json:"followers_count"`
-	FollowingCount      int      `json:"following_count"`
-	StatusesCount       int      `json:"statuses_count"`
-	LastStatusAt        *APIDate `json:"last_status_at"`
-	HideCollections     bool     `json:"hide_collections"`
-	Emoji               []*Emoji `json:"emojis"`
-	Fields              []Field  `json:"fields"`
-	NoIndex             bool     `json:"noindex,omitempty"`
+	AvatarDecorations   []AvatarDecoration `json:"avatar_decorations,omitempty"`
+	AvatarDecorationURL string             `json:"avatar_decoration_url,omitempty"`
+	AvatarDecorationID  string             `json:"avatar_decoration_id,omitempty"`
+	Id                  string             `json:"id"`
+	Username            string             `json:"username"`
+	Acct                string             `json:"acct"`
+	DisplayName         string             `json:"display_name"`
+	Locked              bool               `json:"locked"`
+	Bot                 bool               `json:"bot"`
+	Discoverable        bool               `json:"discoverable"`
+	Indexable           bool               `json:"indexable"`
+	Group               bool               `json:"group"`
+	CreatedAt           *APITime           `json:"created_at"`
+	Note                string             `json:"note"`
+	Url                 string             `json:"url"`
+	Uri                 string             `json:"uri"`
+	Avatar              string             `json:"avatar"`
+	AvatarDefault       string             `json:"avatar_default"`
+	AvatarStatic        string             `json:"avatar_static"`
+	AvatarDescription   string             `json:"avatar_description,omitempty"`
+	Header              string             `json:"header"`
+	HeaderStatic        string             `json:"header_static"`
+	HeaderDescription   string             `json:"header_description,omitempty"`
+	FollowersCount      int                `json:"followers_count"`
+	FollowingCount      int                `json:"following_count"`
+	StatusesCount       int                `json:"statuses_count"`
+	LastStatusAt        *APIDate           `json:"last_status_at"`
+	HideCollections     bool               `json:"hide_collections"`
+	Emoji               []*Emoji           `json:"emojis"`
+	Fields              []Field            `json:"fields"`
+	NoIndex             bool               `json:"noindex,omitempty"`
 	// Roles is always an array in Mastodon >= 4.3 (empty for plain users).
 	Roles []any `json:"roles"`
 
@@ -104,8 +117,9 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 
 	acc = &Account{
 		Username:            account.Username,
+		AvatarDecorations:   AvatarDecorations(account),
 		AvatarDecorationURL: avatarDecorationURL(account),
-		AvatarDecorationID:  strconv.FormatUint(account.AvatarDecorationID, 10),
+		AvatarDecorationID:  strconv.FormatUint(legacyAvatarDecorationID(account), 10),
 		Acct:                acct,
 		DisplayName:         account.DisplayName,
 		Locked:              account.Locked,
@@ -132,7 +146,7 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 
 	acc.Id = strconv.FormatUint(account.Id, 10)
 
-	if account.AvatarDecorationID == 0 {
+	if legacyAvatarDecorationID(account) == 0 {
 		acc.AvatarDecorationID = ""
 	}
 
@@ -218,11 +232,70 @@ func accountEmojis(account *models.Account) []*Emoji {
 	return ToEmojis(models.EmojisInText(emojis, text, domain, false))
 }
 
+// legacyAvatarDecorationID is the first local decoration, kept in the old
+// single-decoration fields for clients that predate avatar_decorations.
+func legacyAvatarDecorationID(account *models.Account) uint64 {
+	if !account.IsLocal() {
+		return 0
+	}
+	for _, d := range account.EffectiveAvatarDecorations() {
+		if id := d.LocalID(); id != 0 {
+			return id
+		}
+	}
+	return 0
+}
+
 func avatarDecorationURL(account *models.Account) string {
-	if account.AvatarDecorationID == 0 || !account.IsLocal() {
+	id := legacyAvatarDecorationID(account)
+	if id == 0 {
 		return ""
 	}
-	return "/api/v1/avatar_decorations/" + strconv.FormatUint(account.AvatarDecorationID, 10) + "/image"
+	return localAvatarDecorationURL(id)
+}
+
+func localAvatarDecorationURL(id uint64) string {
+	return "/api/v1/avatar_decorations/" + strconv.FormatUint(id, 10) + "/image"
+}
+
+// AvatarDecorations serializes the account's decorations. Local entries point
+// at this server's image endpoint; remote entries are only exposed when the
+// media proxy can serve them, so clients never hotlink a third-party host.
+func AvatarDecorations(account *models.Account) []AvatarDecoration {
+	list := account.EffectiveAvatarDecorations()
+	if len(list) == 0 {
+		return nil
+	}
+	local := account.IsLocal()
+	proxyPrefix := strings.TrimRight(systemsettings.GetBaseURL(), "/") + mediaproxy.PathPrefix
+	out := make([]AvatarDecoration, 0, len(list))
+	for _, d := range list {
+		d = d.Normalized()
+		var u string
+		if local {
+			id := d.LocalID()
+			if id == 0 {
+				continue
+			}
+			u = localAvatarDecorationURL(id)
+		} else {
+			if d.URL == "" {
+				continue
+			}
+			u = mediaproxy.URL(mediaproxy.KindEmoji, d.URL)
+			if !strings.HasPrefix(u, proxyPrefix) {
+				continue
+			}
+		}
+		out = append(out, AvatarDecoration{ID: d.ID, URL: u, Angle: d.Angle, FlipH: d.FlipH, OffsetX: d.OffsetX, OffsetY: d.OffsetY})
+		if len(out) == models.MaxAvatarDecorations {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // proxiedAccountMedia routes a remote account's avatar or header through the

@@ -143,6 +143,7 @@ func DeleteAvatarDecoration(c *gin.Context) {
 		return
 	}
 	var row models.AvatarDecoration
+	var affected []uint64
 	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
 		if e := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; e != nil {
 			return e
@@ -150,11 +151,18 @@ func DeleteAvatarDecoration(c *gin.Context) {
 		if e := tx.Model(&models.Account{}).Where("avatar_decoration_id = ?", id).UpdateColumn("avatar_decoration_id", 0).Error; e != nil {
 			return e
 		}
+		var e error
+		if affected, e = removeDecorationFromAccounts(tx, id); e != nil {
+			return e
+		}
 		return tx.Delete(&row).Error
 	})
 	if err != nil {
 		assetError(c, err)
 		return
+	}
+	for _, accountID := range affected {
+		_ = cache.InvalidateAccount(c.Request.Context(), accountID)
 	}
 	cleanupBrandImage(row.ImageURL)
 	c.Status(204)
@@ -213,13 +221,21 @@ func SelectAvatarDecoration(c *gin.Context) {
 				return e
 			}
 		}
-		return tx.Model(&models.Account{}).Where("id = ?", account.Id).UpdateColumn("avatar_decoration_id", id).Error
+		var list models.AvatarDecorationSelections
+		if id != 0 {
+			list = models.AvatarDecorationSelections{{ID: strconv.FormatUint(id, 10)}}
+		}
+		return tx.Model(&models.Account{}).Where("id = ?", account.Id).UpdateColumns(map[string]any{"avatar_decoration_id": id, "avatar_decorations": list}).Error
 	})
 	if err != nil {
 		assetError(c, err)
 		return
 	}
 	account.AvatarDecorationID = id
+	account.AvatarDecorations = nil
+	if id != 0 {
+		account.AvatarDecorations = models.AvatarDecorationSelections{{ID: strconv.FormatUint(id, 10)}}
+	}
 	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
 	c.JSON(200, gin.H{"id": strconv.FormatUint(id, 10)})
 }

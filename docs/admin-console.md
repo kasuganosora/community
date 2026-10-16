@@ -100,7 +100,9 @@ Webhook 从已提交的 federation outbox 捕获事件，支持 `status.created`
 
 广告和头像挂件上传复用安全图片处理，保留本站托管资源，拒绝任意远端图片 URL 和脚本内容；当前上传上限为 2 MiB，仍受解码尺寸和格式检查。广告链接仅允许有效 HTTP(S) 地址，前台标注「广告」，外链使用 `sponsored noopener noreferrer` 和无 referrer；没有点击／曝光计费、用户画像或广告投放平台集成。用户侧仅展示启用且在有效时间范围内的最多 3 条广告，卡片位于有右侧栏的布局，定期刷新，不保证所有视口都有广告位。
 
-普通成员可选择已启用挂件或恢复普通头像；停用挂件停止可用展示，删除会清除使用者关联。挂件是附加图层，不重写原始头像文件；不宣称与外站原生头像装饰协议兼容。
+普通成员可选择已启用挂件或恢复普通头像，并可调整旋转、水平翻转与偏移；可同时佩戴的数量由「每人可佩戴数量」设置（`config.avatar_decorations.limit`，默认 1，最多 16，对应 Misskey 的 avatarDecorationLimit）。停用挂件停止可用展示，删除会清除使用者关联。挂件是附加图层，不重写原始头像文件。
+
+与 Misskey 兼容：渲染几何与 Misskey `MkAvatar.vue` 一致（挂件宽度为头像的 200% 并居中，`angle` 为整圈比例、`offset` 为挂件自身尺寸比例，`flip_h` 水平翻转）。Misskey 不会通过 ActivityPub 联合头像挂件，因此对 Misskey 系（Misskey、Sharkey、Firefish 等）远端账户，本站会在刷新资料时调用对方公开的 `POST /api/users/show` 读取 `avatarDecorations`（每主机串行、6 小时缓存、收到 Update 时最短间隔 1 分钟），保存到 `accounts.avatar_decorations`，图片只经本站加密媒体代理提供；本站用户的挂件同样不会被 Misskey 读取，因此不对外联合。账户 API 新增 `avatar_decorations` 数组，旧的 `avatar_decoration_id`／`avatar_decoration_url` 字段继续返回第一个本地挂件。
 
 文件管理不会通过删除附件连带删除帖子或私信。仍被帖子、头像／背景图引用或与其他附件共享存储的文件会拒绝单独删除，并说明原因。当前清理路径针对本站上传目录，不是 S3 全量垃圾回收或远端文件删除工具；数据库记录和对象存储实际字节应分别核查。
 
@@ -110,7 +112,7 @@ Webhook 从已提交的 federation outbox 捕获事件，支持 `status.created`
 
 ## 运维与验证
 
-启动时执行已注册的 `AdminManagementScript` 迁移，为审查日志、公告／已读、头像挂件、广告、Webhook 订阅／投递及账户挂件字段补齐表结构。迁移可重复执行，保留已有记录；不提供会删除审计与投递历史的自动回滚。
+启动时执行已注册的 `AdminManagementScript` 与 `AvatarDecorationsScript` 迁移，为审查日志、公告／已读、头像挂件、广告、Webhook 订阅／投递及账户挂件字段补齐表结构。迁移可重复执行，保留已有记录；不提供会删除审计与投递历史的自动回滚。
 
 前端在 `frontend` 执行 `npm ci`、`npm run lint`、`npm test`、`npm run build`。后端需验证管理权限、数据聚合、设置生效、队列状态竞争、Webhook 安全、资产引用和迁移幂等。真实浏览器验收使用独立账号和内容，覆盖管理员、有限角色、普通成员、桌面／手机布局、失败重试及实际用户侧效果；不要拿真实用户数据试验删除、封禁或迁移。
 

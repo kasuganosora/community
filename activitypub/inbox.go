@@ -554,6 +554,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 
 		queueProfileInvalidation(ctx, remoteAccount)
+		scheduleRemoteAvatarDecorations(remoteAccount.Id, true)
 		c.JSON(200, gin.H{"status": "accepted"})
 
 		return
