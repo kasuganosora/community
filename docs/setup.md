@@ -18,7 +18,9 @@ server.
 
 ## Running the wizard
 
-1. Start the container with an empty `./config` directory.
+1. Start the container with an empty `./var/config` directory (mounted as
+   `/app/config`). The repository's `config/` directory is Go source and is
+   never used for runtime files.
 2. Read the one-time token from the log:
    `docker compose logs community | grep -i "setup token"`.
 3. Open `https://<your domain>/setup` (any path redirects there).
@@ -87,7 +89,7 @@ interface language. The domain cannot be changed later.
 
 ## Configuration file
 
-* Path: `ENV_FILE`, default `/app/config/.env` (mount `./config:/app/config`).
+* Path: `ENV_FILE`, default `/app/config/.env` (mount `./var/config:/app/config`).
   Outside a container the default is `.env` next to the binary.
 * Written atomically with mode `0600`. `ENCRYPTED_KEY` and `MEDIA_PROXY_KEY`
   are generated.
@@ -124,11 +126,11 @@ Remove them from BOTH files, then recreate the container (docker compose up -d):
 
 Remove each listed name from **both** files:
 
-* `config/.env` (`/app/config/.env` in the container), and
+* `var/config/.env` (`/app/config/.env` in the container), and
 * the host `.env` next to `docker-compose.yml`. Compose loads it through
   `env_file`, so its entries become process environment variables. Those
   take precedence over both the file and the database. Deleting the line from
-  `config/.env` alone changes nothing.
+  `var/config/.env` alone changes nothing.
 
 Then run `docker compose up -d` so the container is recreated. A plain
 restart keeps the old environment.
@@ -140,7 +142,7 @@ the database but still set in the process environment.
 
 ## docker-compose changes
 
-* New volumes: `./config:/app/config` (configuration and marker) and
+* New volumes: `./var/config:/app/config` (configuration and marker) and
   `./data:/app/data` (SQLite, setup work files).
 * The host `.env` is optional (`env_file` with `required: false`, Compose
   v2.24 or later). `APP_BASE_URL`, `ENCRYPTED_KEY` and `DB_PASSWORD` are no
@@ -163,24 +165,29 @@ mounted directory.
 
 1. Back up the database and the current `.env`.
 2. Pull the new version and its `docker-compose.yml`, then
-   `mkdir -p config data`.
+   `mkdir -p var/config data`. If an earlier build of this
+   compose file already wrote `config/.env`, `config/.installed` or
+   `config/setup-*` into the source tree, move them:
+   `mv config/.env config/.installed config/setup-* var/config/ 2>/dev/null`. A missing
+   marker is rewritten on boot because the database already exists, so the
+   server never enters setup mode.
 3. `docker compose up -d`. On first boot the server sees the existing
-   database, writes `config/.installed` and the `system.installed_at` row, and
-   starts normally. Check: `ls config/.installed` and
+   database, writes `var/config/.installed` and the `system.installed_at` row, and
+   starts normally. Check: `ls var/config/.installed` and
    `curl -s -o /dev/null -w '%{http_code}' https://<domain>/setup` → `404`.
 4. Move the configuration:
    ```sh
-   cp .env config/.env && chmod 600 config/.env
+   cp .env var/config/.env && chmod 600 var/config/.env
    ```
    Reduce the host `.env` to what Compose itself needs (`COMPOSE_PROFILES`,
    `DB_DATABASE`/`DB_USERNAME`/`DB_PASSWORD` for a bundled database, any
    `MEILISEARCH_*` used for interpolation), or delete it if nothing is needed.
-   Then `docker compose up -d` again. Fields from `config/.env` now show
+   Then `docker compose up -d` again. Fields from `var/config/.env` now show
    "Locked by .env".
 5. Optional: `tootctl settings import-env --dry-run`, then without
-   `--dry-run`. Remove the printed variables from both `config/.env` and the
+   `--dry-run`. Remove the printed variables from both `var/config/.env` and the
    host `.env`, then run `docker compose up -d` again. Check the log for the
    "still set in the process environment" warning.
 
-If `config/.env` is missing or unreadable after step 4, the server shows the
+If `var/config/.env` is missing or unreadable after step 4, the server shows the
 maintenance page instead of the wizard, because the installed marker exists.

@@ -11,8 +11,9 @@ services:
       - ./uploads:/app/uploads
       # Configuration written by the /setup wizard (ENV_FILE=/app/config/.env,
       # mode 0600) plus the .installed marker. Keep this directory: an empty
-      # one on a new server opens the setup wizard.
-      - ./config:/app/config
+      # one on a new server opens the setup wizard. It lives under ./var
+      # because ./config in the repository is Go source.
+      - ./var/config:/app/config
       # SQLite databases and setup work files (Misskey exports, media copies).
       - ./data:/app/data
       - transfer-data:/app/.data-transfers
@@ -38,7 +39,7 @@ services:
     # exists its variables are passed to the container as well and win over
     # /app/config/.env (they show as "locked by environment" in the admin
     # settings). Older deployments keep working with their host .env until it
-    # is moved to ./config/.env (see docs/setup.md). required: false needs
+    # is moved to ./var/config/.env (see docs/setup.md). required: false needs
     # Docker Compose v2.24 or later.
     env_file:
       - path: .env

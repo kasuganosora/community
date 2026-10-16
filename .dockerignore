@@ -13,6 +13,7 @@ logs/
 *.out
 frontend/node_modules
 frontend/dist
+var/
 config/.env
 config/.installed
 config/.setup-pending

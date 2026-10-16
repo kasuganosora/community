@@ -43,6 +43,9 @@ dump.rdb
 /avatar-cache/
 
 # Written by the setup wizard (docker compose volume mounts)
+# Setup wizard output (mounted as /app/config); older layouts wrote to ./config.
+/var/config/
+/var/data/
 /config/.env
 /config/.installed
 /config/.setup-pending
