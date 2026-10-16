@@ -147,6 +147,8 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 	if req.Type == "subscribe" { //nolint:goconst
 		ret, err = subscribe(redisPub, account, req)
 		if err != nil {
+			// Keep the existing subscriptions; a rejected stream must not drop them.
+			ret = redisPub
 			_ = ws.WriteJSON(err)
 		}
 
@@ -156,6 +158,7 @@ func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, red
 	if req.Type == "unsubscribe" { //nolint:goconst
 		ret, err = unsubscribe(redisPub, account, req)
 		if err != nil {
+			ret = redisPub
 			_ = ws.WriteJSON(err)
 		}
 
