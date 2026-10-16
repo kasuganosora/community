@@ -60,7 +60,9 @@ Misskey 可双向交换表情回应及撤回，也可交换帖子和个人资料
 
 ### Docker Compose
 
-仓库中的 Compose 配置包含 Community、Redis 7 和 Meilisearch，并在构建时编译前后端；数据库可以使用 Compose 自带的 MySQL 8.4 / PostgreSQL 17 容器，也可以连接外部服务器（需要 Docker Compose v2.20+）。
+仓库中的 Compose 配置包含 Community、Redis 7 和 Meilisearch，并在构建时编译前后端；数据库可以使用 Compose 自带的 MySQL 8.4 / PostgreSQL 17 容器，也可以连接外部服务器（需要 Docker Compose v2.24+）。
+
+最简单的方式：直接 `docker compose up -d --build`，在日志中找到一次性 setup token，打开 `https://<域名>/setup` 按向导完成安装（支持全新安装和从 Misskey 迁移）。详见 [docs/setup.md](docs/setup.md)。也可以手动编写配置：
 
 ```bash
 git clone https://github.com/kasuganosora/community.git

@@ -9,6 +9,12 @@ services:
       # The app stores uploads under ./uploads relative to its working
       # directory (/app).
       - ./uploads:/app/uploads
+      # Configuration written by the /setup wizard (ENV_FILE=/app/config/.env,
+      # mode 0600) plus the .installed marker. Keep this directory: an empty
+      # one on a new server opens the setup wizard.
+      - ./config:/app/config
+      # SQLite databases and setup work files (Misskey exports, media copies).
+      - ./data:/app/data
       - transfer-data:/app/.data-transfers
     depends_on:
       # The bundled database servers are optional (profiles "postgres" and
@@ -27,30 +33,31 @@ services:
       meilisearch:
         condition: service_healthy
         required: false
-    # Everything in .env is passed to the container; the app reads its
-    # configuration from environment variables (they override any .env file).
+    # The app reads its own configuration from /app/config/.env (written by
+    # the /setup wizard). A host .env next to this file is optional: when it
+    # exists its variables are passed to the container as well and win over
+    # /app/config/.env (they show as "locked by environment" in the admin
+    # settings). Older deployments keep working with their host .env until it
+    # is moved to ./config/.env (see docs/setup.md). required: false needs
+    # Docker Compose v2.24 or later.
     env_file:
-      - .env
-    # Container-specific settings override the values from .env.
+      - path: .env
+        required: false
     # Client addresses: forwarding headers are only trusted from TRUSTED_PROXIES
     # (default: loopback and private ranges, which covers the nginx hop on a
     # Docker bridge). nginx must set X-Real-IP $remote_addr; if the proxy is on
     # a public address, list it in TRUSTED_PROXIES.
     environment:
-      # Database settings (DB_CONNECTION, DB_PORT, DB_DATABASE, DB_USERNAME,
-      # DB_PASSWORD, DB_SSLMODE, DB_DSN) come from .env as-is.
-      # - Bundled server: COMPOSE_PROFILES=postgres or =mysql, DB_HOST and
-      #   DB_PORT unset. "db" is the network alias of that service and the
-      #   app uses the dialect's default port.
-      # - External server: set DB_HOST (and DB_PORT if not the default) and
-      #   enable no database profile.
-      DB_HOST: ${DB_HOST:-db}
-      REDIS_0_HOST: redis
-      REDIS_0_PORT: "6379"
-      REDIS_0_PASSWORD: ""
-      REDIS_0_DB: "0"
-      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set in .env, e.g. https://social.example.org}
-      ENCRYPTED_KEY: ${ENCRYPTED_KEY:?ENCRYPTED_KEY must be set in .env (at least 16 characters)}
+      # Defaults for the bundled services, used only when the configuration
+      # does not name a host. Nothing here counts as "configured", so an
+      # unconfigured container starts the setup wizard instead of failing.
+      # - Bundled database: COMPOSE_PROFILES=postgres or =mysql; "db" is the
+      #   network alias of that service.
+      # - External database: enter its host in the wizard (or DB_HOST).
+      COMMUNITY_DEFAULT_DB_HOST: db
+      COMMUNITY_DEFAULT_REDIS_HOST: redis
+      ENV_FILE: /app/config/.env
+      SETUP_WORK_DIR: /app/data/setup-work
       DATA_TRANSFER_DIR: /app/.data-transfers
       # 外部 Meilisearch：在 .env 设置 MEILISEARCH_HOST 和 MEILISEARCH_API_KEY
       # （Master Key 或 Admin API Key，不要用只读的 Search API Key）。
@@ -65,7 +72,8 @@ services:
 
   # Bundled MySQL server, started only with the "mysql" profile
   # (COMPOSE_PROFILES=mysql). Credentials follow DB_DATABASE / DB_USERNAME /
-  # DB_PASSWORD from .env.
+  # DB_PASSWORD from the host .env (compose interpolation); enter the same
+  # values in the setup wizard.
   mysql:
     image: mysql:8.4.11@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
     container_name: community-mysql
@@ -76,7 +84,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-}
       MYSQL_DATABASE: ${DB_DATABASE:-community}
       COMMUNITY_DB_USERNAME: ${DB_USERNAME:-root}
     # The image creates a non-root user only through MYSQL_USER, which must
@@ -102,7 +110,8 @@ services:
 
   # Bundled PostgreSQL server, started only with the "postgres" profile
   # (COMPOSE_PROFILES=postgres). Credentials follow DB_DATABASE /
-  # DB_USERNAME / DB_PASSWORD from .env.
+  # DB_USERNAME / DB_PASSWORD from the host .env (compose interpolation);
+  # enter the same values in the setup wizard.
   postgres:
     image: postgres:17-alpine
     container_name: community-postgres
@@ -115,7 +124,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_DATABASE:-community}
       POSTGRES_USER: ${DB_USERNAME:-root}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     healthcheck:
       # TCP, so the image's socket-only init server does not count as ready.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]

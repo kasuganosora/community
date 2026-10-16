@@ -40,7 +40,8 @@ RUN npm run build
 # ============================================
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
-RUN apk add --no-cache ca-certificates tzdata ffmpeg
+# python3 + psql run the Misskey exporter used by the setup wizard.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg python3 postgresql17-client
 
 WORKDIR /app
 
@@ -56,13 +57,18 @@ COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 # Copy resources (i18n, mail templates, oauth HTML)
 COPY resources ./resources
 
-# Create data directories (uploads are stored relative to the working dir)
-RUN mkdir -p uploads
+# Misskey exporter used by the setup wizard's migration mode.
+COPY scripts/migration/export_misskey.py ./scripts/migration/export_misskey.py
 
-# Env: configuration comes from environment variables (see docker-compose.yml
-# env_file/environment); APP_ROOT anchors .env / frontend/dist / resources.
+# Create data directories (uploads are stored relative to the working dir)
+RUN mkdir -p uploads config data
+
+# Env: the app reads /app/config/.env (written by the /setup wizard; mount
+# /app/config as a volume). Process environment variables override it.
+# APP_ROOT anchors frontend/dist / resources.
 ENV GIN_MODE=release \
-    APP_ROOT=/app
+    APP_ROOT=/app \
+    ENV_FILE=/app/config/.env
 
 EXPOSE 8080
 

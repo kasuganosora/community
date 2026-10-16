@@ -41,3 +41,10 @@ models_list_snippet.txt
 # Redis snapshot written when redis-server runs from the repo
 dump.rdb
 /avatar-cache/
+
+# Written by the setup wizard (docker compose volume mounts)
+/config/.env
+/config/.installed
+/config/.setup-pending
+/config/setup-*
+/data/
