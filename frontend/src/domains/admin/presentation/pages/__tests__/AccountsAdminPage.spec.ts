@@ -3,7 +3,20 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AccountsAdminPage from '../AccountsAdminPage.vue'
 import { moderationAdminApi as api, type AdminAccount } from '../../../infrastructure/moderationAdminApi'
-const account: AdminAccount = { id: '17', username: 'pending_user', domain: null, display_name: '待审核用户', suspended: false, locked: true, user_status: 1 }
+const mastodon = {
+  id: '17', username: 'pending_user', acct: 'pending_user', display_name: '待审核用户',
+  locked: true, bot: false, discoverable: false, indexable: false, group: false,
+  created_at: '2024-01-01T00:00:00Z', note: '', url: '', uri: '',
+  avatar: '/media/avatar.png', avatar_static: '/media/avatar.png',
+  avatar_decorations: [{ id: '3', url: '/api/v1/avatar_decorations/3/image' }],
+  header: '', header_static: '', followers_count: 0, following_count: 0, statuses_count: 0,
+  last_status_at: null, hide_collections: false, emojis: [], fields: [],
+}
+const account: AdminAccount = {
+  id: '17', username: 'pending_user', domain: null, display_name: '待审核用户',
+  suspended: false, locked: true, user_status: 1, avatar: mastodon.avatar,
+  avatar_decorations: mastodon.avatar_decorations, account: mastodon,
+}
 let wrapper: VueWrapper
 function button(text: string) { return wrapper.findAll('button').find(b => b.text() === text)! }
 async function mountPage(query: Record<string, string> = {}) {
@@ -80,6 +93,16 @@ describe('account administration', () => {
     expect(api.accountAction).toHaveBeenCalledWith('17', 'reject')
     expect(wrapper.get('[role="alert"]').text()).toContain('不能拒绝自己的账号')
     expect(wrapper.get('[aria-label="账号详情"]').text()).toContain('@pending_user')
+  })
+  it('renders each row avatar from the nested account so decorations can show', async () => {
+    await mountPage()
+    const avatar = wrapper.get('.accounts-table__avatar')
+    expect(avatar.attributes('aria-label') || avatar.html()).toBeTruthy()
+    expect(wrapper.find('.accounts-table__identity').exists()).toBe(true)
+    expect(wrapper.find('.user-avatar, .avatar-frame').exists()).toBe(true)
+    expect(wrapper.find('.avatar-decoration').exists()).toBe(true)
+    expect(wrapper.text()).toContain('待审核用户')
+    expect(wrapper.text()).toContain('@pending_user')
   })
   it('refreshes detail and list after approval instead of optimistically claiming success', async () => {
     await mountPage()

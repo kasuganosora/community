@@ -12,6 +12,12 @@ export interface AdminAccount {
   role?: string
   locked: boolean
   created_at?: string
+  avatar?: string
+  avatar_static?: string
+  avatar_default?: string
+  avatar_decorations?: MastodonAccount['avatar_decorations']
+  avatar_decoration_url?: string
+  avatar_decoration_id?: string
   account?: MastodonAccount
 }
 export interface AdminReport {

@@ -274,25 +274,33 @@ func serializeAdminAccount(account *models.Account) gin.H {
 	suspended := account.IsBan
 	silenced := false // Follow approval (Locked) is not moderation silencing.
 
+	// Reuse the public account serializer so list rows get proxied avatar URLs
+	// and avatar_decorations (local endpoint / media proxy) for admin UI.
+	mastodonAccount := serializer.ToAccount(account)
+
 	result := gin.H{
-		"id":               strconv.FormatUint(account.Id, 10),
-		"username":         account.Username,
-		"domain":           domain,              //nolint:goconst
-		"display_name":     account.DisplayName, //nolint:goconst
-		"avatar":           account.Avatar,
-		"avatar_static":    account.AvatarStatic,
-		"header":           account.Header,
-		"header_static":    account.HeaderStatic,
-		"locked":           account.Locked,
-		"bot":              account.Bot,
-		"discoverable":     account.Discoverable,
-		"note":             account.Note,
-		"created_at":       createdAt, //nolint:goconst
-		"last_status_at":   lastStatusAt,
-		"last_activity_at": lastActivityAt,
-		"suspended":        suspended,
-		"silenced":         silenced,
-		"account":          serializer.ToAccount(account),
+		"id":                     strconv.FormatUint(account.Id, 10),
+		"username":               account.Username,
+		"domain":                 domain,              //nolint:goconst
+		"display_name":           account.DisplayName, //nolint:goconst
+		"avatar":                 mastodonAccount.Avatar,
+		"avatar_static":          mastodonAccount.AvatarStatic,
+		"avatar_default":         mastodonAccount.AvatarDefault,
+		"avatar_decorations":     mastodonAccount.AvatarDecorations,
+		"avatar_decoration_url":  mastodonAccount.AvatarDecorationURL,
+		"avatar_decoration_id":   mastodonAccount.AvatarDecorationID,
+		"header":                 mastodonAccount.Header,
+		"header_static":          mastodonAccount.HeaderStatic,
+		"locked":                 account.Locked,
+		"bot":                    account.Bot,
+		"discoverable":           account.Discoverable,
+		"note":                   account.Note,
+		"created_at":             createdAt, //nolint:goconst
+		"last_status_at":         lastStatusAt,
+		"last_activity_at":       lastActivityAt,
+		"suspended":              suspended,
+		"silenced":               silenced,
+		"account":                mastodonAccount,
 	}
 
 	// Add user info for local accounts

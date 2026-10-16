@@ -12,7 +12,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +114,50 @@ func TestSerializeAdminAccount_NilTimes(t *testing.T) {
 	assert.Nil(t, result["created_at"])
 	assert.Nil(t, result["last_status_at"])
 	assert.Nil(t, result["last_activity_at"])
+}
+
+func TestSerializeAdminAccount_AvatarAndDecorations(t *testing.T) {
+	local := &models.Account{
+		Id:                 8,
+		Username:           "alice",
+		DisplayName:        "Alice",
+		Avatar:             "/media/alice.png",
+		AvatarStatic:       "/media/alice.png",
+		AvatarDecorationID: 3,
+		AvatarDecorations:  models.AvatarDecorationSelections{{ID: "3"}},
+	}
+	localResult := serializeAdminAccount(local)
+	assert.Equal(t, "/media/alice.png", localResult["avatar"])
+	nestedLocal, ok := localResult["account"].(*serializer.Account)
+	require.True(t, ok)
+	require.NotNil(t, nestedLocal)
+	require.NotEmpty(t, nestedLocal.AvatarDecorations)
+	assert.Equal(t, "/api/v1/avatar_decorations/3/image", nestedLocal.AvatarDecorations[0].URL)
+	deco, ok := localResult["avatar_decorations"].([]serializer.AvatarDecoration)
+	require.True(t, ok)
+	require.NotEmpty(t, deco)
+	assert.Equal(t, "/api/v1/avatar_decorations/3/image", deco[0].URL)
+
+	domain := "remote.example"
+	remote := &models.Account{
+		Id:                9,
+		Username:          "carol",
+		DisplayName:       "Carol",
+		Avatar:            "https://remote.example/files/carol.png",
+		AvatarStatic:      "https://remote.example/files/carol.png",
+		AvatarDecorations: models.AvatarDecorationSelections{{ID: "9xyz", URL: "https://remote.example/files/deco.png"}},
+	}
+	remote.Domain = &domain
+	remoteResult := serializeAdminAccount(remote)
+	nestedRemote, ok := remoteResult["account"].(*serializer.Account)
+	require.True(t, ok)
+	require.NotNil(t, nestedRemote)
+	assert.Equal(t, nestedRemote.Avatar, remoteResult["avatar"])
+	if mediaproxy.Enabled() {
+		assert.Contains(t, remoteResult["avatar"].(string), mediaproxy.PathPrefix)
+		require.NotEmpty(t, nestedRemote.AvatarDecorations)
+		assert.Contains(t, nestedRemote.AvatarDecorations[0].URL, mediaproxy.PathPrefix)
+	}
 }
 
 // ============== GetAccount ==============

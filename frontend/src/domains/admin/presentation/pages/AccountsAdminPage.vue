@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import RichText from '@/shared/components/common/RichText.vue'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import type { MastodonAccount } from '@/shared/types/mastodon'
 import { moderationAdminApi as api, type AdminAccount, type AccountAction } from '../../infrastructure/moderationAdminApi'
 function originFromQuery(value: unknown): string | undefined {
   const raw = Array.isArray(value) ? value[0] : value
@@ -32,6 +34,41 @@ function state(a: AdminAccount) {
   return '正常'
 }
 function message(e: unknown) { return e instanceof Error ? e.message : '请求失败，请重试' }
+/** Prefer nested Mastodon account (proxied avatar + decorations); fall back to admin fields. */
+function avatarAccount(a: AdminAccount): MastodonAccount {
+  if (a.account) return a.account
+  const acct = a.domain ? `${a.username}@${a.domain}` : a.username
+  return {
+    id: a.id,
+    username: a.username,
+    acct,
+    display_name: a.display_name || a.username,
+    locked: a.locked,
+    bot: false,
+    discoverable: false,
+    indexable: false,
+    group: false,
+    created_at: a.created_at || '',
+    note: '',
+    url: '',
+    uri: '',
+    avatar: a.avatar || '',
+    avatar_default: a.avatar_default,
+    avatar_static: a.avatar_static || a.avatar || '',
+    avatar_decorations: a.avatar_decorations,
+    avatar_decoration_url: a.avatar_decoration_url,
+    avatar_decoration_id: a.avatar_decoration_id,
+    header: '',
+    header_static: '',
+    followers_count: 0,
+    following_count: 0,
+    statuses_count: 0,
+    last_status_at: null,
+    hide_collections: false,
+    emojis: [],
+    fields: [],
+  }
+}
 async function load(reset = false) {
   if (reset) { offset.value = 0; selected.value = null; detailLoading.value = false; detailRequest++ }
   const version = ++listRequest
@@ -85,10 +122,26 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
     </form>
     <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="admin-empty" role="status">正在加载账号…</p>
-    <div class="admin-table-wrap admin-card" role="region" aria-label="账号列表，可横向滚动" tabindex="0">
-      <table class="admin-table">
+    <div class="admin-table-wrap admin-card accounts-table-wrap" role="region" aria-label="账号列表，可横向滚动" tabindex="0">
+      <table class="admin-table accounts-table">
         <thead><tr><th>账号</th><th>来源</th><th>状态</th><th>角色</th><th>操作</th></tr></thead>
-        <tbody><tr v-for="a in items" :key="a.id"><td>{{ a.display_name || a.username }}<br /><small>@{{ a.username }}{{ a.domain ? `@${a.domain}` : '' }}</small></td><td>{{ a.domain || '本地' }}</td><td><span class="admin-badge">{{ state(a) }}</span></td><td>{{ a.role === 'admin' ? '管理员' : a.role === 'user' ? '用户' : '—' }}</td><td><button class="admin-button" :disabled="loading || busy" @click="detail(a.id)">详情</button></td></tr></tbody>
+        <tbody>
+          <tr v-for="a in items" :key="a.id">
+            <td class="accounts-table__account">
+              <div class="accounts-table__identity">
+                <UserAvatar class="accounts-table__avatar" :account="avatarAccount(a)" :size="38" />
+                <div class="accounts-table__names">
+                  <span class="accounts-table__display">{{ a.display_name || a.username }}</span>
+                  <small>@{{ a.username }}{{ a.domain ? `@${a.domain}` : '' }}</small>
+                </div>
+              </div>
+            </td>
+            <td>{{ a.domain || '本地' }}</td>
+            <td><span class="admin-badge">{{ state(a) }}</span></td>
+            <td>{{ a.role === 'admin' ? '管理员' : a.role === 'user' ? '用户' : '—' }}</td>
+            <td><button class="admin-button" :disabled="loading || busy" @click="detail(a.id)">详情</button></td>
+          </tr>
+        </tbody>
       </table>
       <p v-if="!loading && !error && !items.length" class="admin-empty">没有符合条件的账号</p>
     </div>
@@ -114,3 +167,54 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
     </section>
   </section>
 </template>
+<style scoped>
+/* Decorations are 200% of the avatar and centred on it; pad so the table/scroll
+   region does not clip the overhang. */
+.accounts-table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+.accounts-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.accounts-table__account {
+  padding: 22px 20px 22px 24px;
+  min-width: 220px;
+  overflow: visible;
+}
+.accounts-table__identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.accounts-table__avatar {
+  flex-shrink: 0;
+}
+.accounts-table__names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.accounts-table__display {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.accounts-table__names small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .accounts-table__account {
+    padding: 20px 14px 20px 18px;
+    min-width: 200px;
+  }
+  .accounts-table__identity {
+    gap: 10px;
+  }
+}
+</style>
