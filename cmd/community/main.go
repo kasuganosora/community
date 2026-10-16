@@ -19,6 +19,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/errors"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/health"
@@ -34,6 +35,7 @@ import (
 	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/search/indexsync"
 	"github.com/kasuganosora/community/server"
+	"github.com/kasuganosora/community/setup"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 )
@@ -56,6 +58,29 @@ func main() {
 		}
 	}
 
+	// Boot decision: setup wizard (no database configured and never
+	// installed), maintenance (installed but configuration or database
+	// missing) or normal operation. See package setup.
+	if flag.Arg(0) != "--rollback" {
+		switch mode, reason := setup.Decide(); mode {
+		case setup.ModeSetup:
+			log.FatalIf(setup.Run(config.C.Listen, utils.ResolveAppPath("frontend/dist")))
+			return
+		case setup.ModeMaintenance:
+			log.Error("Installed marker found in %s but no database is configured in %s; refusing to start setup", setup.ConfigDir(), config.EnvFile())
+			log.FatalIf(setup.RunMaintenance(config.C.Listen, reason, nil, 0))
+			return
+		}
+		if database.InitError() != nil || db.GetDB() == nil {
+			log.FatalIf(setup.RunMaintenance(config.C.Listen, "database_unavailable", func() bool {
+				config.Reload()
+				database.InitGorm()
+				return database.InitError() == nil && db.GetDB() != nil
+			}, 15*time.Second))
+			return
+		}
+	}
+
 	// 如果有 --rollback 参数，则回滚
 	if flag.Arg(0) == "--rollback" {
 		err = migrate.Down(db.GetDB())
@@ -67,6 +92,13 @@ func main() {
 	// 迁移数据库
 	err = migrate.Up(db.GetDB())
 	log.FatalIf(err)
+	// Deployments configured through .env before the wizard existed get the
+	// installed marker here, so they can never enter setup mode later.
+	if wrote, markerErr := setup.EnsureInstalledMarker(); markerErr != nil {
+		log.Warn("Could not write the installed marker in %s: %v", setup.ConfigDir(), markerErr)
+	} else if wrote {
+		log.Info("Installed marker written to %s", setup.ConfigDir())
+	}
 	runtimeconfig.ApplyStored()
 	role, feedMode, feedOptions, err := feedRuntimeOptions()
 	log.FatalIf(err)
@@ -241,6 +273,13 @@ func setupServer() *gin.Engine {
 	app.NoMethod(func(c *gin.Context) {
 		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
 	})
+
+	// The setup wizard exists only before installation.
+	setupGone := func(c *gin.Context) { c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"}) }
+	app.Any("/api/setup/*any", setupGone)
+	app.GET("/setup", setupGone)
+	app.GET("/setup/*any", setupGone)
+	app.GET("/setup.html", setupGone)
 
 	// 健康检查端点
 	app.GET("/health", health.SimpleHealthHandler())

@@ -151,6 +151,10 @@ type Media struct {
 	FocusX      float64   `json:"focus_x,omitempty"`
 	FocusY      float64   `json:"focus_y,omitempty"`
 	CreatedAt   time.Time `json:"created_at,omitempty"`
+	// StorageReference marks site-migration media whose bytes stay in the
+	// source's object storage: RemoteURL is the original object URL and the
+	// target keeps serving it (no copy). Only valid in site scope.
+	StorageReference bool `json:"storage_reference,omitempty"`
 }
 
 type Relation struct {

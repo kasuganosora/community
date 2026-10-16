@@ -349,6 +349,7 @@ class Converter:
                         self.bundle["media"].append(variant)
             elif not r.get("isLink") and self.object_mode == "reference":
                 self.issue("info", "object_storage_reference", "media", id_, "Object-storage media keeps its original URL; the bucket must stay available to the target.")
+                m["storage_reference"] = True
             elif not r.get("isLink") and self.object_mode == "copy":
                 if r.get("url"):
                     m["original_url"] = r["url"]

@@ -21,6 +21,8 @@ import (
 const (
 	KeyDomain                       = "domain"                                          // 网站域名
 	KeyTitle                        = "title"                                           // 网站标题
+	KeyInstalledAt                  = "system.installed_at"                             // installation marker (setup wizard / first boot)
+	KeyDefaultLocale                = "default_locale"                                  // instance default UI language (set by the setup wizard)
 	KeyDescription                  = "description"                                     // 网站描述
 	KeyThumbnail                    = "thumbnail"                                       // 网站缩略图
 	KeyLanguages                    = "languages"                                       // 网站语言

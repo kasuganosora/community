@@ -142,6 +142,7 @@ class ExportTests(unittest.TestCase):
         media = [x for x in b["media"] if x["id"] == ident(4)][0]
         self.assertEqual(media["remote_url"], "https://r2.test/files/abc.png")
         self.assertNotIn("path", media)
+        self.assertTrue(media["storage_reference"])
         self.assertEqual(b["emojis"][0]["url"], "https://r2.test/emoji/e.png")
         self.assertEqual(b["emojis"][0]["media_id"], "")
         self.assertFalse((self.output / "media").exists())

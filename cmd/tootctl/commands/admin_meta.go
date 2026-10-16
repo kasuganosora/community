@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -50,20 +51,21 @@ values; run with --dry-run first.`,
 						return cli.Exit("could not connect to the Misskey database", 1)
 					}
 					defer closeSrc()
-					opts := misskeyMetaOptions{
+					opts := MisskeyMetaOptions{
 						DryRun:           c.Bool("dry-run"),
 						SkipBranding:     c.Bool("skip-branding"),
 						SkipRegistration: c.Bool("skip-registration"),
 						SkipInstances:    c.Bool("skip-instances"),
 					}
-					return importMisskeyMeta(c, src.WithContext(c.Context), db.GetDB().WithContext(c.Context), opts)
+					return ImportMisskeyMeta(src.WithContext(c.Context), db.GetDB().WithContext(c.Context), c.App.Writer, opts)
 				},
 			},
 		},
 	}
 }
 
-type misskeyMetaOptions struct {
+// MisskeyMetaOptions selects what ImportMisskeyMeta imports.
+type MisskeyMetaOptions struct {
 	DryRun, SkipBranding, SkipRegistration, SkipInstances bool
 }
 
@@ -178,8 +180,10 @@ func loadMisskeyMeta(src *gorm.DB) (map[string]string, map[string][]string, erro
 	return scalars, lists, nil
 }
 
-func importMisskeyMeta(c *cli.Context, src, dst *gorm.DB, opts misskeyMetaOptions) error {
-	out := c.App.Writer
+// ImportMisskeyMeta imports instance settings from a Misskey database (src)
+// into this server (dst), writing a line per change to out. It is shared by
+// `tootctl admin import-misskey-meta` and the setup wizard's migration.
+func ImportMisskeyMeta(src, dst *gorm.DB, out io.Writer, opts MisskeyMetaOptions) error {
 	scalars, lists, err := loadMisskeyMeta(src)
 	if err != nil {
 		return err

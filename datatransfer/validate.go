@@ -284,7 +284,8 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 				issue(r, "media_file", "media", m.ID, "verified archive media is missing or its checksum differs")
 			}
 		}
-		if m.Path == "" && (m.RemoteURL == "" || accounts[m.OwnerID].Local) {
+		referenced := m.StorageReference && o.Scope == "site" && m.RemoteURL != ""
+		if m.Path == "" && (m.RemoteURL == "" || (accounts[m.OwnerID].Local && !referenced)) {
 			issue(r, "media_missing", "media", m.ID, "local media requires original archive bytes")
 		}
 		if m.RemoteURL != "" && !safeHTTPURL(m.RemoteURL) {
