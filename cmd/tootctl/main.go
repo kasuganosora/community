@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/cmd/tootctl/commands"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/migrate"
 	"github.com/urfave/cli/v2"
@@ -23,6 +24,7 @@ func main() {
 	}
 
 	app := newApp(version, func() {
+		database.RequireDB()
 		// 迁移数据库
 		if err := migrate.Up(db.GetDB()); err != nil {
 			log.Warn("Database migration warning: %v", err)

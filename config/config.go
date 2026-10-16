@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/utils"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 )
@@ -138,18 +139,69 @@ func loadConfig() {
 // executable directory, then the source tree).
 func envFilePath() string {
 	if p := os.Getenv("ENV_FILE"); p != "" {
-		if !utils.IsFileExists(p) {
-			log.Warn("ENV_FILE=%s does not exist; using environment variables only", p)
-		}
-
 		return p
+	}
+	// Container layout: a persistent volume mounted at /app/config holds the
+	// .env written by the setup wizard (see docker-compose.yml).
+	if info, err := os.Stat(DefaultContainerConfigDir); err == nil && info.IsDir() {
+		return filepath.Join(DefaultContainerConfigDir, ".env")
 	}
 
 	return utils.ResolveAppPath(".env")
 }
 
+// DefaultContainerConfigDir is the persistent configuration volume used by
+// the Docker image. When it exists and ENV_FILE is unset, .env lives there.
+const DefaultContainerConfigDir = "/app/config"
+
+// loadedEnvFile is the .env path used by the last load.
+var loadedEnvFile string
+
+var loadErr error
+
+// LoadError returns why the .env file could not be read, or nil.
+func LoadError() error { return loadErr }
+
+// EnvFile returns the .env path this process reads (and the setup wizard
+// writes). It may not exist yet.
+func EnvFile() string { return loadedEnvFile }
+
+// fileKeys records the keys set (non-empty) in the .env file itself, as
+// opposed to the process environment.
+var fileKeys = map[string]bool{}
+
+// IsSetInEnvFile reports whether key has a non-empty value in the .env file.
+func IsSetInEnvFile(key string) bool { return fileKeys[key] }
+
+// databaseKeys are the variables that mean "this instance has a database
+// configured". A deployment that sets any of them is never offered the
+// setup wizard.
+var databaseKeys = []string{"DB_CONNECTION", "DB_DSN", "DB_HOST", "DB_DATABASE", "DB_USERNAME", "DB_PASSWORD"}
+
+// HasDatabaseConfig reports whether .env or the environment configures a
+// database. Without one the server starts in setup mode (unless the
+// installed marker exists, which means maintenance).
+func HasDatabaseConfig() bool {
+	for _, key := range databaseKeys {
+		if IsExplicitlyConfigured(key) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Reload re-reads .env and the environment, e.g. after the setup wizard has
+// written a new configuration.
+func Reload() {
+	C = Config{Other: make(map[string]string)}
+	loadConfig()
+}
+
 func loadConfigFrom(envFilePath string) {
 	var err error
+	loadedEnvFile = envFilePath
+	fileKeys = map[string]bool{}
 
 	// Under `go test` the developer's local .env (DEV_MODE, REDIS_0_HOST, ...)
 	// must not leak into unit tests, otherwise results depend on whoever runs
@@ -168,15 +220,15 @@ func loadConfigFrom(envFilePath string) {
 	// package and changing the configuration seen by every later package.
 	if isTestMode() && !envFileExists {
 		err = nil
-	} else if (err != nil && !envFileExists) || (!envFileExists && C.DbHost == "") {
-		if createErr := createDefaultEnvFile(envFilePath); createErr != nil {
-			log.Error("Failed to create default .env file: %v", createErr)
-		}
-
-		os.Exit(1)
 	} else if err != nil {
-		panic(err)
+		// An unreadable or malformed .env must never look like a fresh
+		// instance: the server reports it and shows a maintenance page.
+		loadErr = err
+		log.Error("Cannot read %s: %v", envFilePath, err)
+		return
 	}
+	loadErr = nil
+	applyContainerDefaults()
 
 	// In test mode, skip mandatory checks — tests don't need real DB/encryption.
 	// Production startup still enforces all checks below.
@@ -185,6 +237,12 @@ func loadConfigFrom(envFilePath string) {
 		if C.EncryptedKey == "" {
 			C.EncryptedKey = "test-mode-dummy-key-0000000000000000"
 		}
+		return
+	}
+
+	// Without a database configuration the server runs the setup wizard,
+	// which generates the keys below; nothing else may start.
+	if !HasDatabaseConfig() {
 		return
 	}
 
@@ -198,7 +256,7 @@ func loadConfigFrom(envFilePath string) {
 	}
 
 	// 生产环境校验数据库密码
-	if C.DevMode != "true" && C.DbPassword == "" {
+	if C.DevMode != "true" && C.DbPassword == "" && C.DbConnection != "sqlite" {
 		log.Fatal("DB_PASSWORD is not set. Please configure it in .env file or environment variable. (In development mode, set DEV_MODE=true to bypass this check.)")
 	}
 }
@@ -232,6 +290,11 @@ func loadConfigFromEnvFile(envPath string) (err error) {
 	envData, err := godotenv.Parse(fp)
 	if err != nil {
 		return
+	}
+	for key, value := range envData {
+		if strings.TrimSpace(value) != "" {
+			fileKeys[key] = true
+		}
 	}
 
 	// Real environment variables override the file, so container
@@ -298,44 +361,16 @@ func loadMapToConfig(data map[string]string) {
 	}
 }
 
-// createDefaultEnvFile 创建默认的 .env 文件.
-func createDefaultEnvFile(path string) (err error) {
-	log.Info("Create default .env file")
-
-	sType := reflect.TypeFor[Config]()
-	sValue := reflect.ValueOf(&C).Elem()
-
-	fp, err := os.Create(path) //nolint:gosec // G304: reviewed and safe
-	if err != nil {
-		return err
+// applyContainerDefaults fills DB_HOST / REDIS_0_HOST from
+// COMMUNITY_DEFAULT_DB_HOST / COMMUNITY_DEFAULT_REDIS_HOST (set by
+// docker-compose.yml to the bundled services) when .env leaves them unset.
+// Unlike setting DB_HOST in the compose environment, this never overrides a
+// value written to .env and does not count as a database configuration.
+func applyContainerDefaults() {
+	if C.DbHost == "" && C.DbConnection != "sqlite" {
+		C.DbHost = strings.TrimSpace(os.Getenv("COMMUNITY_DEFAULT_DB_HOST"))
 	}
-
-	defer func() { _ = fp.Close() }()
-
-	for i := range sType.NumField() {
-		field := sType.Field(i)
-		value := sValue.Field(i)
-		envName, ok := field.Tag.Lookup("env")
-
-		if !ok {
-			continue
-		}
-
-		envName = strings.ToUpper(envName)
-		if envName == "-" {
-			continue
-		}
-
-		if defaultValue, defaultValExists := field.Tag.Lookup("default"); defaultValExists {
-			_, err = fp.WriteString(envName + "=" + defaultValue + "\n")
-		} else {
-			_, err = fp.WriteString(envName + "=" + value.String() + "\n")
-		}
-
-		if err != nil {
-			return err
-		}
+	if C.Redis0Host == "" {
+		C.Redis0Host = strings.TrimSpace(os.Getenv("COMMUNITY_DEFAULT_REDIS_HOST"))
 	}
-
-	return err
 }

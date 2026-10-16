@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -94,16 +95,48 @@ func GetDB() *gorm.DB {
 }
 
 // InitGorm 初始化 Gorm.
+//
+// Without a database configuration (setup mode) nothing is opened. A failed
+// connection is not fatal here: the error is kept in InitError so the web
+// server can show a maintenance page instead of crash-looping, and the CLI
+// tools call RequireDB to exit with the message.
 func InitGorm() {
 	dbMu.Lock()
-	// 初始化逻辑由 initGormLocked 执行，返回的 fatalMsg 非空时表示需要 Fatal。
-	// Fatal 会调用 os.Exit，因此必须在 defer Unlock 之后再执行，
-	// 避免 gocritic exitAfterDefer（defer 永不执行）。
-	fatalMsg := initGormLocked()
+	msg := ""
+	if isTestMode || config.HasDatabaseConfig() {
+		msg = initGormLocked()
+	}
+	if msg != "" {
+		initErr = errors.New(msg)
+	} else {
+		initErr = nil
+	}
 	dbMu.Unlock()
 
-	if fatalMsg != "" {
-		log.Fatal(fatalMsg)
+	if msg != "" {
+		log.Error("%s", msg)
+	}
+}
+
+var initErr error
+
+// InitError returns why the last InitGorm could not open the database, or
+// nil. It is also nil when no database is configured.
+func InitError() error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+
+	return initErr
+}
+
+// RequireDB exits the process when the database is not available. CLI tools
+// call it before doing any work.
+func RequireDB() {
+	if err := InitError(); err != nil {
+		log.Fatal("%v", err)
+	}
+	if GetDB() == nil {
+		log.Fatal("No database is configured. Run the setup wizard or set DB_* in %s.", config.EnvFile())
 	}
 }
 
@@ -141,7 +174,10 @@ func initGormLocked() string {
 	}
 
 	if err != nil {
-		return fmt.Sprintf("Init database connection failed: %+v", err)
+		_ = closeGormSilently(DB)
+		DB = nil
+
+		return fmt.Sprintf("Init database connection failed: %v", err)
 	}
 
 	return ""
@@ -306,6 +342,9 @@ func postgresDSN() string {
 
 // quoteDSNValue quotes a libpq keyword value when it contains spaces or
 // characters that terminate a value.
+// QuoteDSNValue quotes a libpq keyword/value DSN value.
+func QuoteDSNValue(v string) string { return quoteDSNValue(v) }
+
 func quoteDSNValue(v string) string {
 	if v == "" || strings.ContainsAny(v, " '\\\t") {
 		v = strings.ReplaceAll(v, `\`, `\\`)

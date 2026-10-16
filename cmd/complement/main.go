@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/matrix/homeserver"
 	"github.com/kasuganosora/community/models"
 )
@@ -28,6 +29,7 @@ func main() {
 	tlsKey := os.Getenv("TLS_KEY")
 
 	// Auto-migrate community core tables needed for auth
+	database.RequireDB()
 	err := db.GetDB().AutoMigrate(
 		&models.User{},
 		&models.Account{},

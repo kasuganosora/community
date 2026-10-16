@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/migrate"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
@@ -60,6 +61,7 @@ func run() int {
 			}
 		}()
 	}
+	database.RequireDB()
 	conn := db.GetDB().Session(&gorm.Session{Logger: logger.Discard})
 	if _, err := systemsettings.CheckBaseURL(config.C.DevMode != "true"); err != nil {
 		fmt.Fprintln(os.Stderr, "Target APP_BASE_URL must be configured correctly.")

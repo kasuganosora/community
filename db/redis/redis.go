@@ -13,7 +13,15 @@ import (
 
 var redises []*redis.Client
 
-func init() {
+func init() { Init() }
+
+// Init (re)creates the clients from config.C, e.g. after the setup wizard
+// wrote a new configuration. Existing clients are closed.
+func Init() {
+	for _, c := range redises {
+		_ = c.Close()
+	}
+	universal = nil
 	redises = make([]*redis.Client, 0)
 	if addresses := feedClusterAddresses(); len(addresses) > 0 {
 		universal = redis.NewClusterClient(&redis.ClusterOptions{ContextTimeoutEnabled: true, Addrs: addresses, Password: config.C.Redis0Password, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, DialTimeout: 3 * time.Second, MaxRetries: 1})
