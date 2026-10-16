@@ -110,9 +110,33 @@ docker compose exec community tootctl settings import-env --dry-run
 docker compose exec community tootctl settings import-env
 ```
 
-The command copies every setting the admin UI can edit into the database and
-prints the `.env` lines that can then be removed. Values left in `.env` keep
-overriding the database. Restart after editing `.env`.
+The command copies every setting the admin UI can edit into the database. It
+then prints the variable names to remove, for example:
+
+```
+Saved. Now remove these variables:
+  SMTP_PASSWORD
+  SMTP_SERVER
+Remove them from BOTH files, then recreate the container (docker compose up -d):
+  - the host .env used by docker compose (env_file), and
+  - /app/config/.env
+```
+
+Remove each listed name from **both** files:
+
+* `config/.env` (`/app/config/.env` in the container), and
+* the host `.env` next to `docker-compose.yml`. Compose loads it through
+  `env_file`, so its entries become process environment variables. Those
+  take precedence over both the file and the database. Deleting the line from
+  `config/.env` alone changes nothing.
+
+Then run `docker compose up -d` so the container is recreated. A plain
+restart keeps the old environment.
+
+The command shows a `WARNING: still set in this process environment` line for
+any imported variable that is still in its own environment. After startup the
+server also logs a warning that names every admin-editable setting stored in
+the database but still set in the process environment.
 
 ## docker-compose changes
 
@@ -154,7 +178,9 @@ mounted directory.
    Then `docker compose up -d` again. Fields from `config/.env` now show
    "Locked by .env".
 5. Optional: `tootctl settings import-env --dry-run`, then without
-   `--dry-run`, and remove the printed lines from `config/.env`.
+   `--dry-run`. Remove the printed variables from both `config/.env` and the
+   host `.env`, then run `docker compose up -d` again. Check the log for the
+   "still set in the process environment" warning.
 
 If `config/.env` is missing or unreadable after step 4, the server shows the
 maintenance page instead of the wizard, because the installed marker exists.

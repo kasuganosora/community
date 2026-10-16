@@ -17,6 +17,7 @@ import (
 	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/controllers/api/admin"
 	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
@@ -100,6 +101,9 @@ func main() {
 		log.Info("Installed marker written to %s", setup.ConfigDir())
 	}
 	runtimeconfig.ApplyStored()
+	if names := admin.ShadowedByProcessEnv(os.LookupEnv, admin.StoredSettingKey); len(names) > 0 {
+		log.Warn("These settings are stored in the database but still set in the process environment, which overrides them: %s. Remove them from BOTH the host compose env_file (.env) and /app/config/.env, then recreate the container.", strings.Join(names, ", "))
+	}
 	role, feedMode, feedOptions, err := feedRuntimeOptions()
 	log.FatalIf(err)
 	serviceContext, stopServices := context.WithCancel(context.Background())

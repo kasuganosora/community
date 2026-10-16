@@ -82,3 +82,34 @@ func ApplyEnvImport(items []EnvImportItem) error {
 	}
 	return systemsettings.SaveChanges(values)
 }
+
+// ShadowedByProcessEnv returns the variable names of admin-editable settings
+// that are stored in the database but still set in the process environment,
+// where they keep overriding the stored value. Compose env_file entries end
+// up in the process environment, so removing a line from /app/config/.env
+// alone is not enough. stored reports whether a settings key has a database
+// value.
+func ShadowedByProcessEnv(lookup func(string) (string, bool), stored func(string) bool) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, section := range settingsSections() {
+		for _, field := range section.Fields {
+			if field.Env == "" || seen[field.Env] {
+				continue
+			}
+			seen[field.Env] = true
+			if v, ok := lookup(field.Env); ok && strings.TrimSpace(v) != "" && stored(field.Key) {
+				names = append(names, field.Env)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// StoredSettingKey reports whether key has a value in system settings.
+func StoredSettingKey(key string) bool {
+	systemsettings.Load()
+	_, ok := systemsettings.GetAllFlatStyle()[key]
+	return ok
+}
