@@ -71,3 +71,13 @@ func EffectiveConfig() config.Config {
 }
 
 func ApplyStored() { config.C = EffectiveConfig(); email.Reload() }
+
+// ApplyEmail switches the running mailer to the saved SMTP settings without
+// touching restart-only settings (storage, search) in config.C.
+func ApplyEmail() {
+	cfg := EffectiveConfig()
+	config.C.EmailMode, config.C.SmtpServer, config.C.SmtpPort = cfg.EmailMode, cfg.SmtpServer, cfg.SmtpPort
+	config.C.SmtpUsername, config.C.SmtpPassword, config.C.SmtpFrom = cfg.SmtpUsername, cfg.SmtpPassword, cfg.SmtpFrom
+	config.C.SmtpAuthMethod, config.C.SmtpTimeout, config.C.SmtpTLS = cfg.SmtpAuthMethod, cfg.SmtpTimeout, cfg.SmtpTLS
+	email.Reload()
+}

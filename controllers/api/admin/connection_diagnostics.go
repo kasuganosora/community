@@ -33,7 +33,7 @@ func TestEmailSettings(c *gin.Context) {
 		c.JSON(422, gin.H{"success": false, "message": "SMTP connection, certificate or authentication check failed; check the saved configuration and network. No email was sent."})
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "message": "SMTP connection and authentication check passed; no email was sent. The new configuration is used for sending after a restart."})
+	c.JSON(200, gin.H{"success": true, "message": "SMTP connection and authentication check passed; no email was sent. Saved settings are already used for sending."})
 }
 func checkSMTP(ctx context.Context, cfg config.Config) error {
 	port := cfg.SmtpPort

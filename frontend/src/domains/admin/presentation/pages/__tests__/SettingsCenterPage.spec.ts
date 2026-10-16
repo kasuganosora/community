@@ -59,7 +59,7 @@ describe('settings center', () => {
 
 it('renders deployed settings as labelled read-only controls and never submits their values', async () => {
   vi.mocked(api.get).mockResolvedValueOnce({ ...section, fields: [
-    { key: 'config.storage.endpoint', deployment_key: 'S3_ENDPOINT', label: '存储端点', type: 'text', value: 's3.example.org', read_only: true, source: 'environment', restart_required: true, description: '兼容 S3 的地址' },
+    { key: 'config.storage.endpoint', deployment_key: 'S3_ENDPOINT', locked_by: 'env_file', label: '存储端点', type: 'text', value: 's3.example.org', read_only: true, source: 'environment', restart_required: true, description: '兼容 S3 的地址' },
     { key: 'config.storage.secret_key', deployment_key: 'S3_SECRET_KEY', label: '密钥', type: 'secret', secret_set: true, read_only: true, source: 'environment', restart_required: true },
   ] })
   const save = vi.spyOn(api, 'save')

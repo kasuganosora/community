@@ -1461,7 +1461,11 @@
       "s46": "Échec de l’enregistrement ; saisie conservée. Vérifiez les valeurs, plages ou surcharges de déploiement, puis réessayez.",
       "s47": "Test de connexion réussi.",
       "s48": "Échec du test ; vérifiez la configuration enregistrée.",
-      "s49": "Échec du test ; vérifiez la configuration et les restrictions réseau, puis réessayez."
+      "s49": "Échec du test ; vérifiez la configuration et les restrictions réseau, puis réessayez.",
+      "envFileLocked": "Verrouillé par .env",
+      "processLocked": "Verrouillé par l’environnement",
+      "envFileLockedHint": "Défini dans .env ({0}). Modifiez .env puis redémarrez le serveur.",
+      "processLockedHint": "Défini par la variable d’environnement {0} ; non modifiable ici."
     },
     "SystemAdminPage": {
       "s1": "Service Matrix",

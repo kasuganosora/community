@@ -1,6 +1,7 @@
 import client from '@/shared/api/client'
 export interface SettingField {
   deployment_key?: string
+  locked_by?: 'env_file' | 'process'
   key: string
   label: string
   type: 'text' | 'textarea' | 'email' | 'url' | 'number' | 'boolean' | 'secret' | 'select' | 'color' | 'json'

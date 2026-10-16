@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"slices"
+	"sort"
 	"strconv"
 
 	"strings"
@@ -12,11 +14,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
 type SettingsField struct {
-	Env       string   `json:"deployment_key,omitempty"`
+	Env string `json:"deployment_key,omitempty"`
+	// LockedBy tells where a deployment value comes from: "env_file" (the
+	// .env file) or "process" (the container/process environment).
+	LockedBy  string   `json:"locked_by,omitempty"`
 	SecretSet bool     `json:"secret_set,omitempty"`
 	Options   []string `json:"options,omitempty"`
 
@@ -64,7 +73,7 @@ func settingsSections() map[string]SettingsSection {
 			{Key: systemsettings.KeyDiscoveryTrendsEnabled, Label: "启用热门话题", Type: "boolean", Value: true, Description: "独立控制公开热点和趋势接口，不受用户推荐偏好影响。"},
 		}},
 	}
-	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "持久化配置将在服务器重启后用于新的邮件连接；环境变量优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}
+	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "保存后立即用于新的邮件连接；.env 和环境变量中的值优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}
 	sections["storage"] = SettingsSection{Title: "对象存储", Description: "修改存储连接需要重启服务器；不会自动迁移已有文件。保存后可测试已保存的目标配置，重启后才切换实际存储。", Fields: storageSettingsFields()}
 	sections["database"] = SettingsSection{Title: "数据库", Description: "数据库连接由部署环境管理，这里仅展示当前连接池诊断，不提供 SQL 执行或凭据。", Fields: databaseSettingsFields()}
 	sections["external"] = SettingsSection{Title: "外部服务", Description: "管理实际使用的搜索集成，查看翻译服务部署配置。", Fields: externalSettingsFields()}
@@ -91,6 +100,10 @@ func GetSettings(c *gin.Context) {
 			if config.IsExplicitlyConfigured(field.Env) {
 				field.ReadOnly = true
 				field.Source = "environment"
+				field.LockedBy = "process"
+				if config.IsSetInEnvFile(field.Env) {
+					field.LockedBy = "env_file"
+				}
 				switch field.Type {
 				case "number":
 					n, _ := strconv.Atoi(envValue)
@@ -105,6 +118,13 @@ func GetSettings(c *gin.Context) {
 		if _, exists := config.C.Other[field.Key]; exists {
 			field.ReadOnly = true
 			field.Source = "environment"
+			field.LockedBy = "process"
+			if config.IsSetInEnvFile(field.Key) {
+				field.LockedBy = "env_file"
+			}
+		}
+		if liveSections[section.Section] && field.Env != "" {
+			field.RestartRequired = false
 		}
 		if field.Type == "secret" {
 			field.SecretSet = fmt.Sprint(field.Value) != "" && field.Value != nil
@@ -177,6 +197,11 @@ func UpdateSettings(c *gin.Context) {
 	if err := systemsettings.SaveChanges(req.Values); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "settings could not be saved"})
 		return
+	}
+	auditSettingsChange(c, c.Param("section"), allowed, req.Values, req.ClearSecrets)
+	if liveSections[c.Param("section")] {
+		// SMTP settings apply to the running mailer immediately.
+		runtimeconfig.ApplyEmail()
 	}
 	GetSettings(c)
 }
@@ -262,5 +287,44 @@ func brandingSettingsFields() []SettingsField {
 		{Key: systemsettings.KeyBrandRepositoryURL, Label: "仓库 URL", Type: "url", Value: "", Max: 2048, Description: "服务器软件源代码仓库地址，显示在关于页并写入 NodeInfo。留空使用默认仓库。"},
 		{Key: systemsettings.KeyBrandFeedbackURL, Label: "反馈 URL", Type: "url", Value: "", Max: 2048, Description: "问题反馈地址，显示在关于页。"},
 		{Key: systemsettings.KeyBrandManifestJSONOverride, Label: "manifest.json 覆盖", Type: "json", Value: "", Max: 32768, Description: "JSON 对象，顶层字段会覆盖站点提供的 manifest.json 中的同名字段。"},
+	}
+}
+
+// liveSections are applied to the running server on save (no restart).
+var liveSections = map[string]bool{"email": true}
+
+// auditSettingsChange records which settings changed in the request's
+// administrative audit entry. Values are recorded for plain settings only;
+// secrets are marked "(changed)" / "(cleared)" and never written.
+func auditSettingsChange(c *gin.Context, section string, fields map[string]SettingsField, values map[string]any, cleared []string) {
+	id, _ := c.Get("admin_audit_id")
+	auditID, ok := id.(uint64)
+	if !ok || auditID == 0 {
+		return
+	}
+	details := map[string]string{"section": section}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		field := fields[key]
+		switch {
+		case field.Type == "secret" && slices.Contains(cleared, key):
+			details[key] = "(cleared)"
+		case field.Type == "secret":
+			details[key] = "(changed)"
+		default:
+			v := fmt.Sprint(values[key])
+			if utf8.RuneCountInString(v) > 200 {
+				v = string([]rune(v)[:200]) + "…"
+			}
+			details[key] = v
+		}
+	}
+	entry := models.AdminAuditLog{Details: details}
+	if err := db.GetDB().WithContext(c.Request.Context()).Model(&models.AdminAuditLog{}).Where("id = ?", auditID).Select("Details").Updates(&entry).Error; err != nil {
+		log.Warn("Could not record settings audit details for entry %d", auditID)
 	}
 }

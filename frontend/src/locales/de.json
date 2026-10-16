@@ -1461,7 +1461,11 @@
       "s46": "Speichern fehlgeschlagen; Eingabe bleibt erhalten. Werte, Bereiche oder Bereitstellungs-Overrides prüfen und erneut versuchen.",
       "s47": "Verbindungstest erfolgreich.",
       "s48": "Verbindungstest fehlgeschlagen; gespeicherte Konfiguration prüfen.",
-      "s49": "Verbindungstest fehlgeschlagen; Konfiguration und Netzwerkbeschränkungen prüfen und erneut versuchen."
+      "s49": "Verbindungstest fehlgeschlagen; Konfiguration und Netzwerkbeschränkungen prüfen und erneut versuchen.",
+      "envFileLocked": "Durch .env gesperrt",
+      "processLocked": "Durch Umgebung gesperrt",
+      "envFileLockedHint": "In .env gesetzt ({0}). Zum Ändern .env bearbeiten und den Server neu starten.",
+      "processLockedHint": "Durch die Umgebungsvariable {0} gesetzt; hier nicht bearbeitbar."
     },
     "SystemAdminPage": {
       "s1": "Matrix-Dienst",

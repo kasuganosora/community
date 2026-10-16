@@ -1461,7 +1461,11 @@
       "s46": "Save failed; your input was kept. Check the field values, ranges or deployment overrides and try again.",
       "s47": "Connection test succeeded.",
       "s48": "Connection test failed; check the saved config.",
-      "s49": "Connection test failed; check the saved config and network restrictions, then try again."
+      "s49": "Connection test failed; check the saved config and network restrictions, then try again.",
+      "envFileLocked": "Locked by .env",
+      "processLocked": "Locked by environment",
+      "envFileLockedHint": "Set in .env ({0}). Edit .env and restart the server to change it.",
+      "processLockedHint": "Set by the process environment variable {0}; it can’t be edited here."
     },
     "SystemAdminPage": {
       "s1": "Matrix service",

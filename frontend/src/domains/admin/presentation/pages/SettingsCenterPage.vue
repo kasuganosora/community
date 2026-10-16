@@ -1,4 +1,11 @@
 <script setup lang="ts">
+function lockHint(field: { locked_by?: string; deployment_key?: string; key: string }): string {
+  const name = field.deployment_key || field.key
+  return field.locked_by === 'process' ? i18nT('admin.SettingsCenterPage.processLockedHint', [name]) : i18nT('admin.SettingsCenterPage.envFileLockedHint', [name])
+}
+import { useI18n as useLockI18n } from 'vue-i18n'
+const { t: i18nT } = useLockI18n()
+
 import { isAxiosError } from 'axios'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { settingsAdminApi as api, type SettingsSection } from '../../infrastructure/settingsAdminApi'
@@ -164,13 +171,13 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
       <div class="admin-form admin-preferences__fields">
         <template v-for="field in data.fields" :key="field.key">
           <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
-          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? $t('admin.SettingsCenterPage.s13') : $t('admin.SettingsCenterPage.s14')) : field.restart_required ? $t('admin.SettingsCenterPage.s15') : $t('admin.SettingsCenterPage.s16')].filter(Boolean).join(' ')">
+          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? lockHint(field) : $t('admin.SettingsCenterPage.s14')) : field.restart_required ? $t('admin.SettingsCenterPage.s15') : $t('admin.SettingsCenterPage.s16')].filter(Boolean).join(' ')">
             <template #default="{ id, describedBy }">
               <template v-if="field.read_only">
                 <div class="settings-center__readonly">
                   <textarea v-if="field.type === 'textarea'" :id="id" readonly :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="String(field.value ?? '')" rows="4" />
                   <input v-else :id="id" type="text" readonly :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="field.type === 'secret' ? (field.secret_set ? $t('admin.SettingsCenterPage.s17') : $t('admin.SettingsCenterPage.s18')) : typeof field.value === 'boolean' ? (field.value ? $t('admin.SettingsCenterPage.s19') : $t('admin.SettingsCenterPage.s20')) : String(field.value ?? '')" :placeholder="$t('admin.SettingsCenterPage.s21')" />
-                  <span class="settings-center__source">{{ field.source === 'environment' ? $t('admin.SettingsCenterPage.s22') : $t('admin.SettingsCenterPage.s23') }}</span>
+                  <span class="settings-center__source" v-if="field.source === 'environment'">{{ field.locked_by === 'process' ? $t('admin.SettingsCenterPage.processLocked') : $t('admin.SettingsCenterPage.envFileLocked') }}<code v-if="field.deployment_key"> {{ field.deployment_key }}</code></span><span class="settings-center__source" v-else>{{ $t('admin.SettingsCenterPage.s23') }}</span>
                 </div>
               </template>
               <select v-else-if="field.options?.length" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" :disabled="busy || testing"><option v-for="option in field.options" :key="option" :value="option">{{ option }}</option></select>
