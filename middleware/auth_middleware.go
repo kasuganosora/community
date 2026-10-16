@@ -23,9 +23,15 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 尝试从 middleware header 中获取 token
 		authToken := c.GetHeader("Authorization")
 		if authToken == "" {
+			// Mastodon clients authenticate streaming connections with the
+			// access_token query parameter or the Sec-WebSocket-Protocol header,
+			// because browsers cannot set Authorization on a WebSocket.
+			authToken = streamingAccessToken(c)
+		}
+		if authToken == "" {
 			// 尝试从Cookie中获取token
 			authToken, _ = c.Cookie("app-token")
-		} else {
+		} else if c.GetHeader("Authorization") != "" {
 			// 去掉前缀 Bearer
 			const bearerPrefix = "Bearer "
 			if !strings.HasPrefix(authToken, bearerPrefix) {
@@ -271,4 +277,30 @@ func SetTokenCacheRedisForTest(client *redis.Client) func() {
 	globalRedisClient = client
 
 	return func() { globalRedisClient = old }
+}
+
+// streamingAccessToken returns the token a streaming request carries outside
+// the Authorization header. It is accepted only on streaming endpoints so
+// tokens are not encouraged in URLs of ordinary API requests.
+func streamingAccessToken(c *gin.Context) string {
+	if !isStreamingPath(c.Request.URL.Path) {
+		return ""
+	}
+	if token := strings.TrimSpace(c.Query("access_token")); token != "" {
+		return token
+	}
+	if websocket := strings.EqualFold(c.GetHeader("Upgrade"), "websocket"); websocket {
+		protocols := strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",")
+		return strings.TrimSpace(protocols[0])
+	}
+	return ""
+}
+
+func isStreamingPath(path string) bool {
+	for _, prefix := range []string{"/api/v1/streaming", "/api/v2/streaming"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }

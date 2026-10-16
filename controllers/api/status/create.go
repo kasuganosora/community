@@ -182,7 +182,7 @@ func Create(c *gin.Context) {
 		}
 		createDB = createDB.WithContext(models.WithStructuredRecipientIDs(c.Request.Context(), recipients))
 	}
-	err = createDB.Create(status).Error
+	err = models.CreateStatusCommitted(createDB, status)
 	if err != nil {
 		_ = c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create status"})

@@ -54,7 +54,9 @@ func Reblog(c *gin.Context) {
 	}
 
 	// 生成转发的 status， 并把原来的 status 的转发数加一
-	err = dbConn.Transaction(func(tx *gorm.DB) error {
+	// Status events are broadcast after commit so live streams can reload the row.
+	txCtx, publishStatusEvents := models.BeginDeferredStatusEvents(c.Request.Context())
+	err = dbConn.WithContext(txCtx).Transaction(func(tx *gorm.DB) error {
 		err = tx.Create(reblog).Error
 		if err != nil {
 			err = errors.Wrap(err, "create reblog")
@@ -73,6 +75,9 @@ func Reblog(c *gin.Context) {
 
 		return nil
 	})
+	if err == nil {
+		publishStatusEvents()
+	}
 
 	controllers.AbortIfError(c, err)
 

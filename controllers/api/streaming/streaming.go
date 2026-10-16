@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"net/http"
 	"strconv"
 	"strings"
 )
@@ -65,7 +66,7 @@ func Streaming(c *gin.Context) {
 		account = acc.(*models.Account) //nolint:forcetypeassert
 	}
 
-	ws, err := upgrade.Upgrade(c.Writer, c.Request, nil)
+	ws, err := upgrade.Upgrade(c.Writer, c.Request, subprotocolResponseHeader(c.Request))
 	if err != nil {
 		return
 	}
@@ -407,4 +408,17 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 		return err
 	}
 	return ws.WriteJSON(StreamingResponse{Stream: stream, Event: eventType, Payload: payload})
+}
+
+// subprotocolResponseHeader echoes the client's Sec-WebSocket-Protocol. Mastodon
+// clients put the access token there; browsers abort the handshake unless the
+// server selects one of the offered subprotocols.
+func subprotocolResponseHeader(r *http.Request) http.Header {
+	offered := websocket.Subprotocols(r)
+	if len(offered) == 0 {
+		return nil
+	}
+	header := http.Header{}
+	header.Set("Sec-WebSocket-Protocol", offered[0])
+	return header
 }

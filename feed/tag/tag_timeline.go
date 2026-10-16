@@ -254,11 +254,11 @@ func pushAllChannel(status *models.Status, method string, tagName string) (err e
 			continue
 		}
 
-		if timeline.OnlyLocal && (status.Account == nil || status.Domain != nil) {
+		if timeline.OnlyLocal && status.Domain != nil {
 			continue
 		}
 
-		if timeline.OnlyRemote && (status.Account == nil || status.Domain == nil) {
+		if timeline.OnlyRemote && status.Domain == nil {
 			continue
 		}
 
