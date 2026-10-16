@@ -109,7 +109,8 @@ func FindOrCreateTags(conn *gorm.DB, names []string) (map[string]*Tag, error) {
 		if _, ok := tags[key]; ok {
 			continue
 		}
-		tag := &Tag{Name: name}
+		// Set the key here too: callers may run with SkipHooks (bulk import).
+		tag := &Tag{Name: name, NameKey: key}
 		tags[key] = tag
 		missing = append(missing, tag)
 	}

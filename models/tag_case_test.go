@@ -101,3 +101,15 @@ func TestStatusTagBindingIsCaseInsensitive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tags[1].Id, got["ukraine"].Id)
 }
+
+// Bulk imports run with SkipHooks; the key must still be set, or the re-read
+// by name_key finds nothing ("invalid tag name").
+func TestFindOrCreateTagWorksWithoutHooks(t *testing.T) {
+	db := tagCaseDB(t).Session(&gorm.Session{SkipHooks: true})
+	tag, err := FindOrCreateTag(db, "Intro")
+	require.NoError(t, err)
+	assert.Equal(t, "intro", tag.NameKey)
+	again, err := FindOrCreateTag(db, "intro")
+	require.NoError(t, err)
+	assert.Equal(t, tag.Id, again.Id)
+}
