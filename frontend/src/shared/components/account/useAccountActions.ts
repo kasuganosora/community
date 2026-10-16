@@ -4,6 +4,7 @@ import type { StoredAccount } from '@/shared/api/accounts'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MessagePlugin } from '@/shared/ui/feedback'
 
+import { t } from '@/shared/i18n'
 /** Profile snapshot → the shape UserAvatar/EmojiText accept. */
 export function asAvatarAccount(a: StoredAccount): MastodonAccount {
   return { id: a.id, username: a.username, acct: a.acct ?? a.username, display_name: a.display_name, avatar: a.avatar, avatar_static: a.avatar, emojis: [] } as unknown as MastodonAccount
@@ -21,7 +22,7 @@ export function useAccountActions(close: () => void = () => {}) {
   function switchTo(a: StoredAccount) {
     const r = auth.switchAccount(a.id)
     if (r === 'relogin') {
-      MessagePlugin.warning(`@${a.username} 的登录已失效，请重新登录`)
+      MessagePlugin.warning(t('shared.useAccountActions.s1', [a.username]))
       addAccount(a.username)
     } else {
       close()
@@ -35,11 +36,11 @@ export function useAccountActions(close: () => void = () => {}) {
         close()
         router.push({ name: 'landing' }).catch(() => {})
       } else if (!switched) {
-        MessagePlugin.success(`已退出 @${a.username}`)
+        MessagePlugin.success(t('shared.useAccountActions.s2', [a.username]))
       }
     } catch (e) {
       console.error('Logout failed:', e)
-      MessagePlugin.error('退出失败，请稍后重试')
+      MessagePlugin.error(t('shared.useAccountActions.s3'))
     }
   }
 

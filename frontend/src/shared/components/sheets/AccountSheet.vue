@@ -6,6 +6,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import AccountSwitchList from '@/shared/components/account/AccountSwitchList.vue'
 
+import { t } from '@/shared/i18n'
 const router = useRouter()
 const authStore = useAuthStore()
 const { accountOpen } = useUiChrome()
@@ -22,13 +23,13 @@ async function logout() {
     router.push({ name: 'landing' }).catch(() => {})
   } catch (e) {
     console.error('Logout failed:', e)
-    MessagePlugin.error('退出失败，请稍后重试')
+    MessagePlugin.error(t('shared.AccountSheet.s8'))
   }
 }
 </script>
 
 <template>
-  <BottomSheet v-model="accountOpen" label="账户">
+  <BottomSheet v-model="accountOpen" :label="$t('shared.AccountSheet.s1')">
     <div v-if="authStore.currentUser" class="account">
       <div class="group group--accounts" data-qa="sheet-accounts">
         <AccountSwitchList @close="accountOpen = false" />
@@ -38,34 +39,34 @@ async function logout() {
       <div class="group">
         <button type="button" class="group__row" @click="go('/messages')">
           <span class="group__icon" style="--tint: #5856d6"><t-icon name="mail" :size="18" /></span>
-          <span class="group__label">消息</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s2') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
         <button type="button" class="group__row" @click="go('/groups')">
           <span class="group__icon" style="--tint: #007aff"><t-icon name="usergroup" :size="18" /></span>
-          <span class="group__label">群组</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s3') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
         <button type="button" class="group__row" @click="go('/bookmarks')">
           <span class="group__icon" style="--tint: #ff9500"><t-icon name="bookmark-filled" :size="18" /></span>
-          <span class="group__label">收藏</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s4') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
         <button type="button" class="group__row" @click="go('/lists')">
           <span class="group__icon" style="--tint: #34c759"><t-icon name="view-list" :size="18" /></span>
-          <span class="group__label">列表</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s5') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
         <button type="button" class="group__row" @click="go('/settings')">
           <span class="group__icon" style="--tint: #8e8e93"><t-icon name="setting-filled" :size="18" /></span>
-          <span class="group__label">设置</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s6') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
       </div>
 
       <div class="group">
         <button type="button" class="group__row group__row--danger" @click="logout">
-          <span class="group__label">退出 @{{ authStore.currentUser.username }}</span>
+          <span class="group__label">{{ $t('shared.AccountSheet.s7', [authStore.currentUser.username]) }}</span>
         </button>
       </div>
     </div>

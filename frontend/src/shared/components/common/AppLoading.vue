@@ -13,7 +13,7 @@ withDefaults(defineProps<{ size?: 'small' | 'medium' | 'large' | string, text?: 
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="42 100" />
     </svg>
     <span v-if="text" class="t-loading__text">{{ text }}</span>
-    <span v-else class="app-loading__sr">加载中</span>
+    <span v-else class="app-loading__sr">{{ $t('shared.AppLoading.s1') }}</span>
   </span>
 </template>
 

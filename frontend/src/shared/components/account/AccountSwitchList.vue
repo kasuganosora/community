@@ -27,14 +27,14 @@ function manage() {
 </script>
 
 <template>
-  <div v-if="auth.currentUser" class="acct-menu" role="menu" aria-label="账户">
+  <div v-if="auth.currentUser" class="acct-menu" role="menu" :aria-label="$t('shared.AccountSwitchList.s1')">
     <button type="button" role="menuitem" class="acct-menu__row acct-menu__me" data-qa="acct-profile" @click="profile">
       <UserAvatar :account="auth.currentUser" :size="36" />
       <span class="acct-menu__text">
         <span class="acct-menu__name"><EmojiText :text="auth.currentUser.display_name || auth.currentUser.username" :emojis="auth.currentUser.emojis" /></span>
-        <span class="acct-menu__sub">个人资料</span>
+        <span class="acct-menu__sub">{{ $t('shared.AccountSwitchList.s2') }}</span>
       </span>
-      <t-icon name="check" :size="18" class="acct-menu__check" aria-label="当前账户" />
+      <t-icon name="check" :size="18" class="acct-menu__check" :aria-label="$t('shared.AccountSwitchList.s3')" />
     </button>
     <div class="acct-menu__divider" role="separator" />
     <button
@@ -45,14 +45,14 @@ function manage() {
       <UserAvatar :account="asAvatarAccount(a)" :size="32" />
       <span class="acct-menu__text">
         <span class="acct-menu__name">{{ a.display_name || a.username }}</span>
-        <span class="acct-menu__sub">@{{ a.username }}<template v-if="a.needsRelogin"> · 需要重新登录</template></span>
+        <span class="acct-menu__sub">@{{ a.username }}<template v-if="a.needsRelogin"> {{ $t('shared.AccountSwitchList.s4') }}</template></span>
       </span>
     </button>
     <button type="button" role="menuitem" class="acct-menu__row acct-menu__action" data-qa="acct-add" @click="addAccount()">
-      <t-icon name="user-add" :size="20" /><span>添加账户</span>
+      <t-icon name="user-add" :size="20" /><span>{{ $t('shared.AccountSwitchList.s5') }}</span>
     </button>
     <button type="button" role="menuitem" class="acct-menu__row acct-menu__action" data-qa="acct-manage" @click="manage">
-      <t-icon name="user-list" :size="20" /><span>管理账户</span>
+      <t-icon name="user-list" :size="20" /><span>{{ $t('shared.AccountSwitchList.s6') }}</span>
     </button>
   </div>
 </template>

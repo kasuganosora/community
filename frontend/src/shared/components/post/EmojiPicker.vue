@@ -4,6 +4,7 @@ import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import { emojiUrl, readRecentEmoji, rememberRecentEmoji } from '@/domains/emoji/domain/emoji'
 import AppIcon from '@/shared/components/common/AppIcon.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
+import { t } from '@/shared/i18n'
 const emit = defineEmits<{ select: [emoji: MastodonEmoji]; close: [] }>()
 const store = useEmojiStore()
 const query = ref('')
@@ -15,7 +16,7 @@ const searchInput = ref<HTMLInputElement>()
 const highlighted = ref<MastodonEmoji | null>(null)
 watch([query, category, sensitive], () => { highlighted.value = null })
 const available = computed(() => store.emojis.filter(e => e.visible_in_picker && !e.disabled))
-const categories = computed(() => [...new Set(available.value.map(e => e.category || '未分类'))].sort())
+const categories = computed(() => [...new Set(available.value.map(e => e.category || t('shared.EmojiPicker.s26')))].sort())
 const recentEmojis = computed(() => {
   const byCode = new Map(available.value.map(emoji => [emoji.shortcode, emoji]))
   return recentCodes.value.flatMap(code => {
@@ -27,7 +28,7 @@ const matches = computed(() => {
   const source = category.value === '__recent' ? recentEmojis.value : available.value
   const q = query.value.trim().toLocaleLowerCase()
   return source.filter(e => {
-    return (category.value === '__recent' || !category.value || (e.category || '未分类') === category.value)
+    return (category.value === '__recent' || !category.value || (e.category || t('shared.EmojiPicker.s26')) === category.value)
       && (!q || [e.shortcode, ...(e.aliases || [])].some(s => s.toLocaleLowerCase().includes(q)))
   })
 })
@@ -63,32 +64,32 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(() => { void store.load(); searchInput.value?.focus({ preventScroll: true }) })
 </script>
 <template>
-  <section class="emoji-picker" aria-label="自定义表情选择器" @keydown="onKeydown">
+  <section class="emoji-picker" :aria-label="$t('shared.EmojiPicker.s1')" @keydown="onKeydown">
     <header class="emoji-picker__header">
-      <div class="emoji-picker__heading"><span class="emoji-picker__mark"><AppIcon name="happy" /></span><div><strong>自定义表情</strong><span>让表达更有趣一点</span></div></div>
-      <div class="emoji-picker__tools"><button type="button" class="icon-button" aria-label="刷新表情列表" :disabled="store.loading" @click="store.load(true)"><AppIcon name="refresh" /></button><button type="button" class="icon-button" aria-label="关闭表情选择器" @click="emit('close')"><AppIcon name="close" /></button></div>
+      <div class="emoji-picker__heading"><span class="emoji-picker__mark"><AppIcon name="happy" /></span><div><strong>{{ $t('shared.EmojiPicker.s2') }}</strong><span>{{ $t('shared.EmojiPicker.s3') }}</span></div></div>
+      <div class="emoji-picker__tools"><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s4')" :disabled="store.loading" @click="store.load(true)"><AppIcon name="refresh" /></button><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s5')" @click="emit('close')"><AppIcon name="close" /></button></div>
     </header>
-    <div class="emoji-picker__search"><AppIcon name="search" /><input ref="searchInput" v-model="query" type="search" aria-label="搜索表情名称或别名" placeholder="搜索名称或别名…" /><button v-if="query" type="button" class="icon-button" aria-label="清除表情搜索" @click="query = ''; searchInput?.focus()"><AppIcon name="close" /></button></div>
+    <div class="emoji-picker__search"><AppIcon name="search" /><input ref="searchInput" v-model="query" type="search" :aria-label="$t('shared.EmojiPicker.s6')" :placeholder="$t('shared.EmojiPicker.s7')" /><button v-if="query" type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s8')" @click="query = ''; searchInput?.focus()"><AppIcon name="close" /></button></div>
     <div class="emoji-picker__filters">
-      <div class="emoji-picker__cats" aria-label="浏览范围">
-        <button type="button" :aria-pressed="category !== '__recent'" @click="category = ''">全部</button>
-        <button v-if="recentEmojis.length" type="button" :aria-pressed="category === '__recent'" @click="category = '__recent'"><AppIcon name="time" />最近</button>
+      <div class="emoji-picker__cats" :aria-label="$t('shared.EmojiPicker.s9')">
+        <button type="button" :aria-pressed="category !== '__recent'" @click="category = ''">{{ $t('shared.EmojiPicker.s10') }}</button>
+        <button v-if="recentEmojis.length" type="button" :aria-pressed="category === '__recent'" @click="category = '__recent'"><AppIcon name="time" />{{ $t('shared.EmojiPicker.s11') }}</button>
       </div>
-      <select :value="category === '__recent' ? '' : category" aria-label="表情分类" @change="category = ($event.target as HTMLSelectElement).value"><option value="">全部分类</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
+      <select :value="category === '__recent' ? '' : category" :aria-label="$t('shared.EmojiPicker.s12')" @change="category = ($event.target as HTMLSelectElement).value"><option value="">{{ $t('shared.EmojiPicker.s13') }}</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
     </div>
-    <div v-if="store.loading" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>正在加载表情</strong><span>马上就好…</span></div>
-    <div v-else-if="store.error" class="emoji-picker__empty" role="alert"><AppIcon name="error-circle" /><strong>暂时无法加载</strong><span>{{ store.error }}</span><button type="button" class="retry-button" @click="store.load(true)">重新加载</button></div>
-    <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' ? '还没有最近使用的表情' : '没有匹配的表情' }}</strong><span>{{ query ? '试试其他名称，或清除搜索条件' : '换个分类，寻找喜欢的表情' }}</span></div>
+    <div v-if="store.loading" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>{{ $t('shared.EmojiPicker.s14') }}</strong><span>{{ $t('shared.EmojiPicker.s15') }}</span></div>
+    <div v-else-if="store.error" class="emoji-picker__empty" role="alert"><AppIcon name="error-circle" /><strong>{{ $t('shared.EmojiPicker.s16') }}</strong><span>{{ store.error }}</span><button type="button" class="retry-button" @click="store.load(true)">{{ $t('shared.EmojiPicker.s17') }}</button></div>
+    <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' ? $t('shared.EmojiPicker.s18') : $t('shared.EmojiPicker.s19') }}</strong><span>{{ query ? $t('shared.EmojiPicker.s20') : $t('shared.EmojiPicker.s21') }}</span></div>
     <div v-else ref="grid" class="emoji-picker__grid">
-      <button v-for="emoji in matches" :key="emoji.shortcode" type="button" :aria-label="`插入 :${emoji.shortcode}:${emoji.local_only ? '（仅本站显示）' : ''}`" :title="`${emoji.shortcode}${emoji.license ? ' · ' + emoji.license : ''}`" :disabled="!!emoji.is_sensitive && !sensitive" @mouseenter="highlighted = emoji" @focus="highlighted = emoji" @click="choose(emoji)">
+      <button v-for="emoji in matches" :key="emoji.shortcode" type="button" :aria-label="$t('shared.EmojiPicker.s23', [emoji.shortcode, emoji.local_only ? $t('shared.EmojiPicker.s22') : ''])" :title="`${emoji.shortcode}${emoji.license ? ' · ' + emoji.license : ''}`" :disabled="!!emoji.is_sensitive && !sensitive" @mouseenter="highlighted = emoji" @focus="highlighted = emoji" @click="choose(emoji)">
         <img v-if="(!emoji.is_sensitive || sensitive) && emojiUrl(emoji)" :src="emojiUrl(emoji)!" :alt="`:${emoji.shortcode}:`" loading="lazy" referrerpolicy="no-referrer" />
         <AppIcon v-else :name="emoji.is_sensitive ? 'lock-on' : 'happy'" />
-        <small>{{ emoji.is_sensitive && !sensitive ? '敏感表情' : emoji.shortcode }}</small><i v-if="emoji.local_only" aria-hidden="true" class="local-dot" />
+        <small>{{ emoji.is_sensitive && !sensitive ? $t('shared.EmojiPicker.s24') : emoji.shortcode }}</small><i v-if="emoji.local_only" aria-hidden="true" class="local-dot" />
       </button>
     </div>
     <footer class="emoji-picker__footer">
-      <div class="emoji-picker__preview" aria-live="polite"><strong>{{ highlighted ? `:${highlighted.shortcode}:` : '挑一个喜欢的表情' }}</strong><span>{{ highlighted ? [highlighted.category || '未分类', highlighted.local_only ? '仅本站显示' : '', highlighted.license || ''].filter(Boolean).join(' · ') : `${matches.length} 个表情 · 方向键浏览，回车选择` }}</span></div>
-      <label class="emoji-picker__sensitive"><input v-model="sensitive" type="checkbox" /><span>显示敏感表情</span></label>
+      <div class="emoji-picker__preview" aria-live="polite"><strong>{{ highlighted ? `:${highlighted.shortcode}:` : $t('shared.EmojiPicker.s25') }}</strong><span>{{ highlighted ? [highlighted.category || $t('shared.EmojiPicker.s26'), highlighted.local_only ? $t('shared.EmojiPicker.s27') : '', highlighted.license || ''].filter(Boolean).join(' · ') : $t('shared.EmojiPicker.s28', [matches.length]) }}</span></div>
+      <label class="emoji-picker__sensitive"><input v-model="sensitive" type="checkbox" /><span>{{ $t('shared.EmojiPicker.s29') }}</span></label>
     </footer>
   </section>
 </template>

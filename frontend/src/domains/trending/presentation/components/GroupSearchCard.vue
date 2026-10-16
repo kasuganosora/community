@@ -8,6 +8,7 @@ import GroupAvatar from '@/domains/group/presentation/components/GroupAvatar.vue
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupClientLink, groupMembershipLabel } from '../../domain/groupSearch'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ group?: Group; target?: string; via?: string[]; source?: string; resolved?: boolean; clientUrl?: string }>()
 const auth = useAuthStore()
 const current = ref<Group>()
@@ -17,17 +18,17 @@ const error = ref('')
 const status = ref('')
 const externalClient = ref('')
 const clientRequired = ref(false)
-const name = computed(() => current.value?.name || '群组')
+const name = computed(() => current.value?.name || t('trending.GroupSearchCard.s14'))
 const membership = computed(() => resultMembership.value || current.value?.membership || 'none')
 const clientLink = computed(() => groupClientLink(externalClient.value || current.value?.client_url || props.clientUrl))
 const target = computed(() => props.target || current.value?.target || current.value?.id || '')
 const needsClient = computed(() => clientRequired.value || (membership.value === 'join' && current.value?.encryption === 'encrypted'))
 const canJoin = computed(() => auth.isAuthenticated && !!target.value && !clientRequired.value && !['join', 'knock', 'ban'].includes(membership.value) && (membership.value === 'invite' || current.value?.join_rule !== 'invite'))
 const actionLabel = computed(() => {
-  if (membership.value === 'invite') return '接受邀请'
-  if (current.value?.join_rule?.startsWith('knock')) return '申请加入'
-  if (current.value?.encryption === 'encrypted') return '加入并使用客户端'
-  return '加入群组'
+  if (membership.value === 'invite') return t('trending.GroupSearchCard.s15')
+  if (current.value?.join_rule?.startsWith('knock')) return t('trending.GroupSearchCard.s16')
+  if (current.value?.encryption === 'encrypted') return t('trending.GroupSearchCard.s17')
+  return t('trending.GroupSearchCard.s18')
 })
 let active = true
 let version = 0
@@ -56,13 +57,13 @@ function fail(reason: unknown, attempt: number) {
   clearTimeout(timer); clearTimeout(deadline)
   busy.value = false
   status.value = ''
-  error.value = reason instanceof Error ? reason.message : '操作暂时失败，请重试'
+  error.value = reason instanceof Error ? reason.message : t('trending.GroupSearchCard.s19')
 }
 function startDeadline(attempt: number) {
   clearTimeout(deadline)
   deadline = setTimeout(() => {
     if (!valid(attempt)) return
-    fail(new Error(operationID ? '加入仍在处理中，可稍后继续检查状态' : '暂时无法确认加入结果，请重新搜索群组核实'), attempt)
+    fail(new Error(operationID ? t('trending.GroupSearchCard.s20') : t('trending.GroupSearchCard.s21')), attempt)
     controller?.abort()
     version++
   }, 120000)
@@ -73,22 +74,22 @@ function finish(result: GroupJoinResult, attempt: number) {
     if (result.group) current.value = result.group
     externalClient.value = result.client_url || ''
     clientRequired.value = true
-    status.value = '已加入。此群需要使用 Matrix 客户端继续操作。'
+    status.value = t('trending.GroupSearchCard.s22')
     clearTimeout(deadline)
     busy.value = false; operationID = ''
     return
   }
   if (result.status === 'joining') {
     operationID = result.operation_id || operationID
-    status.value = '正在加入群组，请稍候…'
-    if (!operationID) { fail(new Error('暂时无法确认加入状态，请重新搜索群组核实'), attempt); return }
-    if (polls >= 80) { fail(new Error('加入仍在处理中，可稍后继续检查状态'), attempt); return }
+    status.value = t('trending.GroupSearchCard.s23')
+    if (!operationID) { fail(new Error(t('trending.GroupSearchCard.s24')), attempt); return }
+    if (polls >= 80) { fail(new Error(t('trending.GroupSearchCard.s20')), attempt); return }
     timer = setTimeout(() => { void poll(attempt) }, 1500)
     return
   }
   if (result.group) current.value = result.group
   resultMembership.value = result.status === 'knock' ? 'knock' : 'join'
-  status.value = result.status === 'knock' ? '已提交加入申请，等待群管理员批准。' : current.value?.encryption === 'encrypted' ? '已加入。此群已加密，请使用 Matrix 客户端收发消息。' : '已加入群组'
+  status.value = result.status === 'knock' ? t('trending.GroupSearchCard.s25') : current.value?.encryption === 'encrypted' ? t('trending.GroupSearchCard.s26') : t('trending.GroupSearchCard.s27')
   clearTimeout(deadline)
   busy.value = false; operationID = ''
 }
@@ -100,7 +101,7 @@ async function poll(attempt: number) {
   catch (reason) {
     if (!valid(attempt)) return
     if (isRetryableGroupRequestError(reason)) {
-      status.value = '服务器响应较慢，仍在确认加入结果…'
+      status.value = t('trending.GroupSearchCard.s28')
       timer = setTimeout(() => { void poll(attempt) }, 3000)
       return
     }
@@ -154,25 +155,25 @@ onBeforeUnmount(() => { active = false; cancel() })
         <h3>{{ name }}</h3>
         <div v-if="groupMembershipLabel(membership) || current" class="group-result__meta">
           <span v-if="groupMembershipLabel(membership)">{{ groupMembershipLabel(membership) }}</span>
-          <span v-if="typeof current?.member_count === 'number' && current.member_count >= 0">{{ current.member_count.toLocaleString() }} 位成员</span>
-          <span v-if="current?.encryption === 'encrypted'">端到端加密</span>
-          <span v-else-if="current?.encryption === 'unencrypted'">非端到端加密</span>
-          <span v-else-if="current">加密状态待确认</span>
+          <span v-if="typeof current?.member_count === 'number' && current.member_count >= 0">{{ $t('trending.GroupSearchCard.s1', [current.member_count.toLocaleString()]) }}</span>
+          <span v-if="current?.encryption === 'encrypted'">{{ $t('trending.GroupSearchCard.s2') }}</span>
+          <span v-else-if="current?.encryption === 'unencrypted'">{{ $t('trending.GroupSearchCard.s3') }}</span>
+          <span v-else-if="current">{{ $t('trending.GroupSearchCard.s4') }}</span>
         </div>
       </div>
     </header>
     <p v-if="current?.topic" class="group-result__topic">{{ current.topic }}</p>
-    <p v-if="!current" class="group-result__hint">加入后可查看群信息。若群组已加密，需使用客户端聊天。</p>
-    <p v-else-if="current.encryption === 'encrypted' && !status" class="group-result__hint">加密群无法在网页收发消息，请使用 Matrix 客户端。</p>
+    <p v-if="!current" class="group-result__hint">{{ $t('trending.GroupSearchCard.s5') }}</p>
+    <p v-else-if="current.encryption === 'encrypted' && !status" class="group-result__hint">{{ $t('trending.GroupSearchCard.s6') }}</p>
     <p v-if="source" class="group-result__hint">{{ source }}</p>
-    <p v-if="membership !== 'invite' && current?.join_rule === 'invite' && membership === 'none'" class="group-result__hint">此群需要成员邀请后才能加入。</p>
+    <p v-if="membership !== 'invite' && current?.join_rule === 'invite' && membership === 'none'" class="group-result__hint">{{ $t('trending.GroupSearchCard.s7') }}</p>
     <p v-if="status" class="group-result__status" role="status">{{ status }}</p>
     <p v-if="error" class="group-result__error" role="alert">{{ error }}</p>
     <div v-if="error || canJoin || (needsClient && clientLink) || (!needsClient && membership === 'join' && current)" class="group-result__actions">
-      <button v-if="error" class="btn btn--secondary btn--sm" type="button" :disabled="busy" @click="retry">{{ operationID ? '继续检查加入状态' : '重试' }}</button>
-      <a v-else-if="needsClient && clientLink" class="btn btn--primary btn--sm" :href="clientLink" target="_blank" rel="noopener noreferrer">使用客户端<span class="sr-only">（在新窗口打开）</span></a>
-      <router-link v-else-if="membership === 'join' && current && !needsClient" class="btn btn--primary btn--sm" :to="groupPath(current.id)">打开群聊</router-link>
-      <button v-else-if="canJoin" class="btn btn--primary btn--sm" type="button" :disabled="busy" @click="join">{{ busy ? '处理中…' : actionLabel }}</button>
+      <button v-if="error" class="btn btn--secondary btn--sm" type="button" :disabled="busy" @click="retry">{{ operationID ? $t('trending.GroupSearchCard.s8') : $t('trending.GroupSearchCard.s9') }}</button>
+      <a v-else-if="needsClient && clientLink" class="btn btn--primary btn--sm" :href="clientLink" target="_blank" rel="noopener noreferrer">{{ $t('trending.GroupSearchCard.s10') }}<span class="sr-only">{{ $t('trending.GroupSearchCard.s11') }}</span></a>
+      <router-link v-else-if="membership === 'join' && current && !needsClient" class="btn btn--primary btn--sm" :to="groupPath(current.id)">{{ $t('trending.GroupSearchCard.s12') }}</router-link>
+      <button v-else-if="canJoin" class="btn btn--primary btn--sm" type="button" :disabled="busy" @click="join">{{ busy ? $t('trending.GroupSearchCard.s13') : actionLabel }}</button>
     </div>
   </article>
 </template>

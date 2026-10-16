@@ -54,6 +54,25 @@ export function formatCount(count: number): string {
   return count.toString()
 }
 
+let fmtLocale = 'en'
+/** Locale used by the compact time formatters; set once by the i18n module. */
+export function setFormatLocale(locale: string): void { fmtLocale = locale }
+
+type TimeUnit = 'second' | 'minute' | 'hour' | 'day'
+const SHORT: Record<TimeUnit, string> = { second: 's', minute: 'm', hour: 'h', day: 'd' }
+function compact(n: number, unit: TimeUnit): string {
+  if (fmtLocale === 'en') return `${n}${SHORT[unit]}`
+  try {
+    return new Intl.NumberFormat(fmtLocale, { style: 'unit', unit, unitDisplay: fmtLocale === 'ja' ? 'short' : 'narrow' }).format(n)
+  } catch {
+    return `${n}${SHORT[unit]}`
+  }
+}
+function nowLabel(): string {
+  if (fmtLocale === 'en') return 'now'
+  try { return new Intl.RelativeTimeFormat(fmtLocale, { numeric: 'auto' }).format(0, 'second') } catch { return 'now' }
+}
+
 export function formatRelativeTime(dateStr: string, now: number = Date.now()): string {
   const date = new Date(dateStr).getTime()
   if (isNaN(date)) return ''
@@ -61,19 +80,23 @@ export function formatRelativeTime(dateStr: string, now: number = Date.now()): s
   // the current time so the function always produces a meaningful result.
   const effectiveNow = Number.isFinite(now) ? now : Date.now()
   const diff = effectiveNow - date
-  if (diff < 0) return 'now'
+  if (diff < 0) return nowLabel()
 
   const seconds = Math.floor(diff / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
 
-  if (seconds < 60) return `${seconds}s`
-  if (minutes < 60) return `${minutes}m`
-  if (hours < 24) return `${hours}h`
-  if (days < 7) return `${days}d`
+  if (seconds < 60) return compact(seconds, 'second')
+  if (minutes < 60) return compact(minutes, 'minute')
+  if (hours < 24) return compact(hours, 'hour')
+  if (days < 7) return compact(days, 'day')
 
   const d = new Date(dateStr)
+  if (fmtLocale !== 'en') {
+    const sameYear = d.getFullYear() === new Date(effectiveNow).getFullYear()
+    return d.toLocaleDateString(fmtLocale, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' as const }) })
+  }
   const month = d.toLocaleString('en-US', { month: 'short' })
   const day = d.getDate()
   const year = d.getFullYear()
@@ -89,12 +112,12 @@ export function formatTimeLeft(dateStr: string, now: number = Date.now()): strin
   if (isNaN(date)) return ''
   const effectiveNow = Number.isFinite(now) ? now : Date.now()
   const seconds = Math.max(0, Math.floor((date - effectiveNow) / 1000))
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return compact(seconds, 'second')
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
+  if (minutes < 60) return compact(minutes, 'minute')
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
+  if (hours < 24) return compact(hours, 'hour')
+  return compact(Math.floor(hours / 24), 'day')
 }
 
 /**

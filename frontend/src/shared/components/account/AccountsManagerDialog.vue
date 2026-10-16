@@ -12,7 +12,7 @@ const { addAccount, switchTo, signOut } = useAccountActions(close)
 </script>
 
 <template>
-  <t-dialog v-model:visible="accountsManagerOpen" header="管理账户" :footer="false" width="min(440px, 92vw)" attach="body" @opened="auth.refreshAccounts()">
+  <t-dialog v-model:visible="accountsManagerOpen" :header="$t('shared.AccountsManagerDialog.s1')" :footer="false" width="min(440px, 92vw)" attach="body" @opened="auth.refreshAccounts()">
     <ul class="acct-mgr" data-qa="acct-manager">
       <li v-for="a in auth.accounts" :key="a.id" class="acct-mgr__row" :data-qa="`acct-row-${a.username}`">
         <button type="button" class="acct-mgr__who" :disabled="a.id === auth.currentUser?.id" @click="switchTo(a)">
@@ -21,17 +21,17 @@ const { addAccount, switchTo, signOut } = useAccountActions(close)
             <span class="acct-mgr__name">{{ a.display_name || a.username }}</span>
             <span class="acct-mgr__sub">
               @{{ a.username }}
-              <span v-if="a.id === auth.currentUser?.id" class="acct-mgr__tag">当前</span>
-              <span v-else-if="a.needsRelogin" class="acct-mgr__tag acct-mgr__tag--warn">需要重新登录</span>
+              <span v-if="a.id === auth.currentUser?.id" class="acct-mgr__tag">{{ $t('shared.AccountsManagerDialog.s2') }}</span>
+              <span v-else-if="a.needsRelogin" class="acct-mgr__tag acct-mgr__tag--warn">{{ $t('shared.AccountsManagerDialog.s3') }}</span>
             </span>
           </span>
         </button>
-        <button v-if="a.needsRelogin" type="button" class="btn btn--sm" @click="addAccount(a.username)">重新登录</button>
-        <button type="button" class="btn btn--sm acct-mgr__out" :data-qa="`acct-logout-${a.username}`" @click="signOut(a)">退出</button>
+        <button v-if="a.needsRelogin" type="button" class="btn btn--sm" @click="addAccount(a.username)">{{ $t('shared.AccountsManagerDialog.s4') }}</button>
+        <button type="button" class="btn btn--sm acct-mgr__out" :data-qa="`acct-logout-${a.username}`" @click="signOut(a)">{{ $t('shared.AccountsManagerDialog.s5') }}</button>
       </li>
     </ul>
     <button type="button" class="btn btn--primary acct-mgr__add" data-qa="acct-mgr-add" @click="addAccount()">
-      <t-icon name="user-add" :size="18" /> 添加账户
+      <t-icon name="user-add" :size="18" /> {{ $t('shared.AccountsManagerDialog.s6') }}
     </button>
   </t-dialog>
 </template>

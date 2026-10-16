@@ -13,6 +13,7 @@ import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '../components/TimelineFeed.vue'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const authStore = useAuthStore()
 const tag = computed(() => String(route.params.tag ?? '').replace(/^#/, ''))
@@ -46,9 +47,9 @@ async function toggleFollow() {
   try {
     const info = following.value ? await tagApi.unfollow(tag.value) : await tagApi.follow(tag.value)
     following.value = !!info.following
-    MessagePlugin.success(following.value ? '已关注话题' : '已取消关注')
+    MessagePlugin.success(following.value ? t('timeline.TagTimelinePage.s2') : t('timeline.TagTimelinePage.s6'))
   } catch (e) {
-    MessagePlugin.error(e instanceof Error && e.message ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : t('timeline.TagTimelinePage.s7'))
   } finally {
     followBusy.value = false
   }
@@ -76,12 +77,12 @@ onMounted(() => { feed.refresh(); void loadFollow() })
 <template>
   <div class="tag-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" type="button" aria-label="返回" @click="$router.back()">
+      <button class="page-header__back-btn" type="button" :aria-label="$t('timeline.TagTimelinePage.s1')" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title">#{{ displayTag }}</h1>
       <button v-if="authStore.currentUser" type="button" class="btn btn--secondary btn--sm tag-follow" :disabled="followBusy" @click="toggleFollow">
-        {{ following ? '已关注话题' : '关注话题' }}
+        {{ following ? $t('timeline.TagTimelinePage.s2') : $t('timeline.TagTimelinePage.s3') }}
       </button>
     </div>
     <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
@@ -95,8 +96,8 @@ onMounted(() => { feed.refresh(); void loadFollow() })
       :loading="loading"
       :has-more="hasMore"
       :error="error"
-      empty-title="暂无帖子"
-      :empty-text="`还没有带 #${displayTag} 的公开帖子。`"
+      :empty-title="$t('timeline.TagTimelinePage.s4')"
+      :empty-text="$t('timeline.TagTimelinePage.s5', [displayTag])"
       @load-more="feed.loadMore"
       @retry="statuses.length && hasMore ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"

@@ -8,6 +8,7 @@ import { loadBranding } from '@/shared/composables/useBranding'
 import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 import SettingsAdminPage from './SettingsAdminPage.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ section: string }>()
 const data = ref<SettingsSection>()
 const draft = reactive<Record<string, string | number | boolean>>({})
@@ -45,12 +46,12 @@ const localErrors = computed(() => {
     if (field.type === 'json') {
       try {
         const parsed = JSON.parse(value)
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) errors[field.key] = '必须是 JSON 对象，例如 {"key": "value"}。'
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) errors[field.key] = t('admin.SettingsCenterPage.s36')
       } catch {
-        errors[field.key] = 'JSON 格式错误，请检查括号、引号和逗号。'
+        errors[field.key] = t('admin.SettingsCenterPage.s37')
       }
     } else if (field.type === 'color' && !/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) {
-      errors[field.key] = '请输入十六进制颜色，例如 #86b300。'
+      errors[field.key] = t('admin.SettingsCenterPage.s38')
     }
   }
   return errors
@@ -86,14 +87,14 @@ async function load() {
     const result = await api.get(props.section)
     if (version === generation && identity === tokenService.get()) install(result)
   } catch {
-    if (version === generation) error.value = '无法读取设置，请重试。'
+    if (version === generation) error.value = t('admin.SettingsCenterPage.s39')
   } finally {
     if (version === generation) loading.value = false
   }
 }
 async function save() {
   if (busy.value || !dirty.value || !data.value || hasLocalErrors.value) return
-  if (changes.value.clear.length && !window.confirm('确认清除选中的已保存密钥？相关服务可能无法连接，保存后需要重新配置。')) return
+  if (changes.value.clear.length && !window.confirm(t('admin.SettingsCenterPage.s40'))) return
   const version = generation
   const identity = tokenService.get()
   const restart = data.value.fields.some(f => f.restart_required && (f.key in changes.value.values || changes.value.clear.includes(f.key)))
@@ -104,16 +105,16 @@ async function save() {
     if (version !== generation || identity !== tokenService.get()) return
     install(result)
     if (props.section === 'branding') void loadBranding(true)
-    notice.value = restart ? '配置已保存。请由部署管理员重启服务，使新的连接配置生效。' : '设置已保存，新请求立即生效。'
+    notice.value = restart ? t('admin.SettingsCenterPage.s41') : t('admin.SettingsCenterPage.s42')
   } catch (cause) {
     if (version !== generation || identity !== tokenService.get()) return
     const status = isAxiosError(cause) ? cause.response?.status : undefined
     const detail = isAxiosError(cause) ? cause.response?.data?.error : undefined
     const invalid = data.value?.fields.find(field => detail === `invalid value for ${field.key}`)
-    if (invalid) fieldErrors[invalid.key] = '请检查格式、允许的选项或取值范围。'
-    error.value = status === 409 ? '部署配置已锁定此设置。输入已保留，请核对部署配置来源后重试。'
-      : status === 403 ? '当前账号没有保存此设置的权限。'
-      : '保存失败，输入已保留。请检查字段内容、范围或部署配置覆盖后重试。'
+    if (invalid) fieldErrors[invalid.key] = t('admin.SettingsCenterPage.s43')
+    error.value = status === 409 ? t('admin.SettingsCenterPage.s44')
+      : status === 403 ? t('admin.SettingsCenterPage.s45')
+      : t('admin.SettingsCenterPage.s46')
   } finally {
     if (version === generation) busy.value = false
   }
@@ -126,10 +127,10 @@ async function testConnection() {
   try {
     const result = await api.test(props.section)
     if (version !== generation || identity !== tokenService.get()) return
-    if (result.success) testNotice.value = result.message || '连接测试成功。'
-    else error.value = result.message || '连接测试失败，请检查已保存配置。'
+    if (result.success) testNotice.value = result.message || t('admin.SettingsCenterPage.s47')
+    else error.value = result.message || t('admin.SettingsCenterPage.s48')
   } catch {
-    if (version === generation) error.value = '连接测试失败，请检查已保存配置与网络限制后重试。'
+    if (version === generation) error.value = t('admin.SettingsCenterPage.s49')
   } finally {
     if (version === generation) testing.value = false
   }
@@ -147,42 +148,42 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 <template>
   <SettingsAdminPage v-if="section === 'security'" mode="security" />
   <div v-else class="admin-page settings-center">
-    <AdminPageHeader :title="data?.title || '设置'" :description="data?.description" />
-    <p v-if="loading" class="admin-empty" role="status">正在读取设置…</p>
+    <AdminPageHeader :title="data?.title || $t('admin.SettingsCenterPage.s1')" :description="data?.description" />
+    <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.SettingsCenterPage.s2') }}</p>
     <AdminAlert v-if="error" tone="danger">
       {{ error }}
-      <template v-if="!data" #action><AdminButton size="sm" :disabled="loading" @click="load">重试</AdminButton></template>
+      <template v-if="!data" #action><AdminButton size="sm" :disabled="loading" @click="load">{{ $t('admin.SettingsCenterPage.s3') }}</AdminButton></template>
     </AdminAlert>
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
-    <section v-if="lockedFields.length" class="admin-card settings-center__deployment" aria-label="部署配置说明">
-      <div><h2>部分配置由部署环境管理</h2><p>以下字段来自服务器环境变量或配置文件，后台不能覆盖。只读值仍可选中复制，密钥不会显示。</p></div>
-      <details><summary>如何改为后台管理？</summary><p>由部署管理员先备份现有配置，在部署环境中移除对应配置项并重启服务。回到本页填写并保存配置，测试连接，再按页面提示重启使连接设置生效。切换存储不会迁移已有文件；请先安排文件迁移，避免已有附件无法访问。</p><ul><li v-for="field in lockedFields" :key="field.key">{{ field.label }}：<code>{{ field.deployment_key || field.key }}</code></li></ul></details>
+    <section v-if="lockedFields.length" class="admin-card settings-center__deployment" :aria-label="$t('admin.SettingsCenterPage.s4')">
+      <div><h2>{{ $t('admin.SettingsCenterPage.s5') }}</h2><p>{{ $t('admin.SettingsCenterPage.s6') }}</p></div>
+      <details><summary>{{ $t('admin.SettingsCenterPage.s7') }}</summary><p>{{ $t('admin.SettingsCenterPage.s8') }}</p><ul><li v-for="field in lockedFields" :key="field.key">{{ field.label }}：<code>{{ field.deployment_key || field.key }}</code></li></ul></details>
     </section>
     <form v-if="data" class="admin-card admin-preferences" @submit.prevent="save">
-      <div class="admin-preferences__heading"><h2>{{ editable ? '配置选项' : '当前配置' }}</h2><span>{{ editable ? '仅保存已修改的字段' : '当前页面为只读状态' }}</span></div>
+      <div class="admin-preferences__heading"><h2>{{ editable ? $t('admin.SettingsCenterPage.s9') : $t('admin.SettingsCenterPage.s10') }}</h2><span>{{ editable ? $t('admin.SettingsCenterPage.s11') : $t('admin.SettingsCenterPage.s12') }}</span></div>
       <div class="admin-form admin-preferences__fields">
         <template v-for="field in data.fields" :key="field.key">
           <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
-          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? '部署配置优先，无法在此编辑。' : '当前运行状态，只读。') : field.restart_required ? '保存后需要重启服务。' : '保存后新请求生效。'].filter(Boolean).join(' ')">
+          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? $t('admin.SettingsCenterPage.s13') : $t('admin.SettingsCenterPage.s14')) : field.restart_required ? $t('admin.SettingsCenterPage.s15') : $t('admin.SettingsCenterPage.s16')].filter(Boolean).join(' ')">
             <template #default="{ id, describedBy }">
               <template v-if="field.read_only">
                 <div class="settings-center__readonly">
                   <textarea v-if="field.type === 'textarea'" :id="id" readonly :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="String(field.value ?? '')" rows="4" />
-                  <input v-else :id="id" type="text" readonly :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="field.type === 'secret' ? (field.secret_set ? '已配置 · 密钥已隐藏' : '未配置密钥') : typeof field.value === 'boolean' ? (field.value ? '开启' : '关闭') : String(field.value ?? '')" placeholder="未配置" />
-                  <span class="settings-center__source">{{ field.source === 'environment' ? '部署锁定' : '运行状态' }}</span>
+                  <input v-else :id="id" type="text" readonly :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="field.type === 'secret' ? (field.secret_set ? $t('admin.SettingsCenterPage.s17') : $t('admin.SettingsCenterPage.s18')) : typeof field.value === 'boolean' ? (field.value ? $t('admin.SettingsCenterPage.s19') : $t('admin.SettingsCenterPage.s20')) : String(field.value ?? '')" :placeholder="$t('admin.SettingsCenterPage.s21')" />
+                  <span class="settings-center__source">{{ field.source === 'environment' ? $t('admin.SettingsCenterPage.s22') : $t('admin.SettingsCenterPage.s23') }}</span>
                 </div>
               </template>
               <select v-else-if="field.options?.length" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" :disabled="busy || testing"><option v-for="option in field.options" :key="option" :value="option">{{ option }}</option></select>
               <textarea v-else-if="field.type === 'json'" :id="id" class="settings-center__code" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="{ }" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
               <div v-else-if="field.type === 'color'" class="settings-center__color">
-                <input :id="id" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="text" inputmode="text" autocapitalize="off" spellcheck="false" :maxlength="field.max" placeholder="未设置（使用默认）" :disabled="busy || testing" />
-                <input type="color" class="settings-center__swatch" :aria-label="`选择${field.label}`" :value="colorPickerValue(draft[field.key])" :disabled="busy || testing" @input="draft[field.key] = ($event.target as HTMLInputElement).value" />
+                <input :id="id" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="text" inputmode="text" autocapitalize="off" spellcheck="false" :maxlength="field.max" :placeholder="$t('admin.SettingsCenterPage.s24')" :disabled="busy || testing" />
+                <input type="color" class="settings-center__swatch" :aria-label="$t('admin.SettingsCenterPage.s25', [field.label])" :value="colorPickerValue(draft[field.key])" :disabled="busy || testing" @input="draft[field.key] = ($event.target as HTMLInputElement).value" />
               </div>
               <textarea v-else-if="field.type === 'textarea'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="5" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
               <input v-else-if="field.type === 'number'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model.number="draft[field.key]" type="number" required :min="field.min" :max="field.max" :disabled="busy || testing" />
               <template v-else-if="field.type === 'secret'">
-                <input :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="password" autocomplete="new-password" placeholder="留空保留现有密钥" :disabled="busy || testing || clearSecrets[field.key]" />
-                <AdminCheck v-if="field.secret_set" v-model="clearSecrets[field.key]" :label="`明确清除已保存的${field.label}`" :disabled="busy || testing" />
+                <input :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="password" autocomplete="new-password" :placeholder="$t('admin.SettingsCenterPage.s26')" :disabled="busy || testing || clearSecrets[field.key]" />
+                <AdminCheck v-if="field.secret_set" v-model="clearSecrets[field.key]" :label="$t('admin.SettingsCenterPage.s27', [field.label])" :disabled="busy || testing" />
               </template>
               <input v-else :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" :type="field.type" :maxlength="field.max" :disabled="busy || testing" />
             </template>
@@ -190,15 +191,15 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
         </template>
       </div>
       <div class="admin-form-actions">
-        <AdminButton v-if="editable" type="submit" variant="primary" :loading="busy" :disabled="testing || !dirty || hasLocalErrors">{{ busy ? '保存中…' : '保存设置' }}</AdminButton>
-        <AdminButton :disabled="busy || testing || dirty" @click="load">刷新</AdminButton>
+        <AdminButton v-if="editable" type="submit" variant="primary" :loading="busy" :disabled="testing || !dirty || hasLocalErrors">{{ busy ? $t('admin.SettingsCenterPage.s28') : $t('admin.SettingsCenterPage.s29') }}</AdminButton>
+        <AdminButton :disabled="busy || testing || dirty" @click="load">{{ $t('admin.SettingsCenterPage.s30') }}</AdminButton>
       </div>
     </form>
     <section v-if="connectionSection && data" class="admin-card">
-      <h2>连接测试</h2>
-      <p>测试已保存的配置；不会发送邮件，也不会上传或删除文件。测试成功不代表运行中的连接已切换，连接配置仍需重启生效。</p>
-      <p v-if="dirty" class="settings-center__pending" role="status">有未保存的修改，请先保存后再测试连接。</p>
-      <div class="admin-form-actions"><AdminButton :loading="testing" :disabled="busy || testing || dirty" @click="testConnection">{{ testing ? '正在测试…' : '测试已保存配置' }}</AdminButton></div>
+      <h2>{{ $t('admin.SettingsCenterPage.s31') }}</h2>
+      <p>{{ $t('admin.SettingsCenterPage.s32') }}</p>
+      <p v-if="dirty" class="settings-center__pending" role="status">{{ $t('admin.SettingsCenterPage.s33') }}</p>
+      <div class="admin-form-actions"><AdminButton :loading="testing" :disabled="busy || testing || dirty" @click="testConnection">{{ testing ? $t('admin.SettingsCenterPage.s34') : $t('admin.SettingsCenterPage.s35') }}</AdminButton></div>
       <p v-if="testNotice" role="status">{{ testNotice }}</p>
     </section>
   </div>

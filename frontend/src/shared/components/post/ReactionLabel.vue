@@ -14,7 +14,7 @@ const src = computed(() => {
   <span class="reaction-label">
     <img v-if="src" :src="src" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
     <span v-else class="reaction-label__text">{{ reaction.name }}</span>
-    <button v-if="reaction.is_sensitive && !revealed" type="button" class="reaction-label__reveal" @click.stop="revealed = true" @keydown.enter.stop>显示敏感表情</button>
+    <button v-if="reaction.is_sensitive && !revealed" type="button" class="reaction-label__reveal" @click.stop="revealed = true" @keydown.enter.stop>{{ $t('shared.ReactionLabel.s1') }}</button>
   </span>
 </template>
 <style scoped>

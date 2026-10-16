@@ -16,10 +16,11 @@ import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 import { useVisitorPolicy } from '@/shared/composables/useVisitorPolicy'
 
+import { t } from '@/shared/i18n'
 type ExploreTab = 'local' | 'federated'
 const TABS: { value: ExploreTab; label: string }[] = [
-  { value: 'local', label: '本站' },
-  { value: 'federated', label: '跨站' },
+  { value: 'local', label: t('timeline.ExplorePage.s10') },
+  { value: 'federated', label: t('timeline.ExplorePage.s11') },
 ]
 
 const route = useRoute()
@@ -103,7 +104,7 @@ function retryFeed() {
 <template>
   <div class="explore-page">
     <div class="page-header">
-      <h1 class="page-header__title">探索</h1>
+      <h1 class="page-header__title">{{ $t('timeline.ExplorePage.s1') }}</h1>
     </div>
     <!-- The right rail (with its search field) is hidden on narrow screens,
          so Explore carries its own search entry there. -->
@@ -111,16 +112,16 @@ function retryFeed() {
       <SearchBox live />
     </div>
     <div v-if="followedTags.length" class="explore-followed">
-      <span>关注的话题</span>
+      <span>{{ $t('timeline.ExplorePage.s2') }}</span>
       <router-link v-for="item in followedTags" :key="item.name" :to="`/tags/${encodeURIComponent(item.name)}`">#{{ item.name }}</router-link>
     </div>
-    <p v-if="visitorBlocked" class="explore-visitor-note" role="status">本站仅向登录用户展示帖子。<router-link to="/login">登录</router-link>后即可浏览。</p>
-    <p v-else-if="visitor && visitorPolicy === 'local'" class="explore-visitor-note">未登录时仅显示本站内容。<router-link to="/login">登录</router-link>后可浏览跨站帖子。</p>
+    <p v-if="visitorBlocked" class="explore-visitor-note" role="status">{{ $t('timeline.ExplorePage.s3') }}<router-link to="/login">{{ $t('timeline.ExplorePage.s4') }}</router-link>{{ $t('timeline.ExplorePage.s5') }}</p>
+    <p v-else-if="visitor && visitorPolicy === 'local'" class="explore-visitor-note">{{ $t('timeline.ExplorePage.s6') }}<router-link to="/login">{{ $t('timeline.ExplorePage.s4') }}</router-link>{{ $t('timeline.ExplorePage.s7') }}</p>
     <template v-if="!visitorBlocked">
     <TabBar
       :model-value="activeTab"
       :options="tabs"
-      label="时间线"
+      :label="$t('timeline.ExplorePage.s8')"
       @update:model-value="selectTab"
     />
     <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
@@ -134,7 +135,7 @@ function retryFeed() {
       :loading="loading"
       :has-more="hasMore"
       :error="error"
-      empty-text="还没有公开帖子。"
+      :empty-text="$t('timeline.ExplorePage.s9')"
       @load-more="feed.loadMore"
       @retry="retryFeed"
       @reblog="toggleReblog"

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { validatePasswordChange, MIN_PASSWORD_LENGTH } from '../../domain/validation'
 
+import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 const pw = reactive({ old: '', next: '', confirm: '' })
 const pwError = ref<string | null>(null)
@@ -22,11 +23,11 @@ async function savePassword() {
     await userApi.changePassword(pw.old, pw.next)
     if (!current()) return
     pw.old = pw.next = pw.confirm = ''
-    MessagePlugin.success('密码已修改')
+    MessagePlugin.success(t('settings.PasswordSettingsForm.s7'))
   } catch (e) {
     if (!current()) return
-    const msg = e instanceof Error ? e.message : '修改失败'
-    pwError.value = msg === 'old password is wrong' ? '当前密码不正确' : msg
+    const msg = e instanceof Error ? e.message : t('settings.PasswordSettingsForm.s8')
+    pwError.value = msg === 'old password is wrong' ? t('settings.PasswordSettingsForm.s9') : msg
   } finally {
     if (current()) savingPw.value = false
   }
@@ -38,22 +39,22 @@ async function savePassword() {
     <!-- hidden username helps password managers pick the right entry -->
     <input type="text" class="sr-only" autocomplete="username" :value="authStore.currentUser?.username" tabindex="-1" aria-hidden="true" readonly />
     <div class="settings-field">
-      <label for="set-pw-old" class="settings-field__label">当前密码</label>
+      <label for="set-pw-old" class="settings-field__label">{{ $t('settings.PasswordSettingsForm.s1') }}</label>
       <input id="set-pw-old" v-model="pw.old" class="settings-input" type="password" autocomplete="current-password" />
     </div>
     <div class="settings-field">
-      <label for="set-pw-new" class="settings-field__label">新密码</label>
+      <label for="set-pw-new" class="settings-field__label">{{ $t('settings.PasswordSettingsForm.s2') }}</label>
       <input id="set-pw-new" v-model="pw.next" class="settings-input" type="password" autocomplete="new-password" aria-describedby="set-pw-hint" />
-      <span id="set-pw-hint" class="settings-field__hint">至少 {{ MIN_PASSWORD_LENGTH }} 个字符</span>
+      <span id="set-pw-hint" class="settings-field__hint">{{ $t('settings.PasswordSettingsForm.s3', [MIN_PASSWORD_LENGTH]) }}</span>
     </div>
     <div class="settings-field">
-      <label for="set-pw-confirm" class="settings-field__label">确认新密码</label>
+      <label for="set-pw-confirm" class="settings-field__label">{{ $t('settings.PasswordSettingsForm.s4') }}</label>
       <input id="set-pw-confirm" v-model="pw.confirm" class="settings-input" type="password" autocomplete="new-password" />
     </div>
     <p v-if="pwError" class="settings-error" role="alert">{{ pwError }}</p>
     <div class="settings-actions">
       <button type="submit" class="btn btn--primary btn--sm" :disabled="savingPw">
-        {{ savingPw ? '提交中…' : '修改密码' }}
+        {{ savingPw ? $t('settings.PasswordSettingsForm.s5') : $t('settings.PasswordSettingsForm.s6') }}
       </button>
     </div>
   </form>

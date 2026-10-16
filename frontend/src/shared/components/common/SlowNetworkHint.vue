@@ -2,7 +2,7 @@
 import { stalledRequests } from '@/shared/api/stallRetry'
 </script>
 <template>
-  <div v-if="stalledRequests > 0" class="slow-network-hint" role="status" aria-live="polite">网络较慢，正在重试…</div>
+  <div v-if="stalledRequests > 0" class="slow-network-hint" role="status" aria-live="polite">{{ $t('shared.SlowNetworkHint.s1') }}</div>
 </template>
 <style scoped>
 .slow-network-hint {

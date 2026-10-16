@@ -1,3 +1,4 @@
+import { t } from '@/shared/i18n'
 /** Detect room references only. Parsing/normalization, discovery and via validation
  * belong to the backend; a search must never join a room. */
 export function isGroupReference(raw: string): boolean {
@@ -26,5 +27,5 @@ export function groupClientLink(raw: string | undefined): string {
 }
 
 export function groupMembershipLabel(membership: string): string {
-  return ({ join: '已加入', invite: '邀请待处理', knock: '等待批准', ban: '已被封禁' } as Record<string, string>)[membership] || ''
+  return ({ join: t('trending.groupSearch.s1'), invite: t('trending.groupSearch.s2'), knock: t('trending.groupSearch.s3'), ban: t('trending.groupSearch.s4') } as Record<string, string>)[membership] || ''
 }

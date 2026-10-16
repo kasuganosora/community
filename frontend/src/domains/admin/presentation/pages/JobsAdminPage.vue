@@ -4,19 +4,20 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 import { federationJobsApi as api, type ErroredHost, type Job, type QueueStat } from '../../infrastructure/federationJobsApi'
 import QueueSparkline from '../components/QueueSparkline.vue'
 
+import { t as i18nT, currentLocale } from '@/shared/i18n'
 const QUEUES: { kind: string; label: string }[] = [
-  { kind: 'delivery', label: 'ActivityPub 投递' },
-  { kind: 'outbox', label: '联邦事件' },
-  { kind: 'feed-event', label: 'Feed 事件' },
-  { kind: 'feed-batch', label: 'Feed 受众批次' },
-  { kind: 'matrix-direct', label: '私信桥接' },
+  { kind: 'delivery', label: i18nT('admin.JobsAdminPage.s52') },
+  { kind: 'outbox', label: i18nT('admin.JobsAdminPage.s53') },
+  { kind: 'feed-event', label: i18nT('admin.JobsAdminPage.s54') },
+  { kind: 'feed-batch', label: i18nT('admin.JobsAdminPage.s55') },
+  { kind: 'matrix-direct', label: i18nT('admin.JobsAdminPage.s56') },
 ]
 const DONE: Record<string, string> = { delivery: 'delivered', outbox: 'processed', 'feed-event': 'complete', 'feed-batch': 'complete', 'matrix-direct': 'delivered' }
 const STATUS_TABS = [
-  { key: 'all', label: '全部' }, { key: 'latest', label: '最新' }, { key: 'done', label: '已完成' }, { key: 'failed', label: '失败' },
-  { key: 'processing', label: '进行中' }, { key: 'delayed', label: '延迟' }, { key: 'waiting', label: '等待' },
+  { key: 'all', label: i18nT('admin.JobsAdminPage.s57') }, { key: 'latest', label: i18nT('admin.JobsAdminPage.s58') }, { key: 'done', label: i18nT('admin.JobsAdminPage.s17') }, { key: 'failed', label: i18nT('admin.JobsAdminPage.s9') },
+  { key: 'processing', label: i18nT('admin.JobsAdminPage.s6') }, { key: 'delayed', label: i18nT('admin.JobsAdminPage.s7') }, { key: 'waiting', label: i18nT('admin.JobsAdminPage.s8') },
 ]
-const labels: Record<string, string> = { pending: '等待', processing: '进行中', failed: '失败', complete: '已完成', delivered: '已投递', processed: '已展开', cancelled: '已取消' }
+const labels: Record<string, string> = { pending: i18nT('admin.JobsAdminPage.s8'), processing: i18nT('admin.JobsAdminPage.s6'), failed: i18nT('admin.JobsAdminPage.s9'), complete: i18nT('admin.JobsAdminPage.s17'), delivered: i18nT('admin.JobsAdminPage.s59'), processed: i18nT('admin.JobsAdminPage.s60'), cancelled: i18nT('admin.JobsAdminPage.s61') }
 
 const tab = ref('overview'), status = ref('all'), search = ref('')
 const stats = ref<QueueStat[]>([]), hosts = ref<ErroredHost[]>([])
@@ -36,8 +37,8 @@ function apiState(kind: string, key: string) {
   return key
 }
 function displayState(job: Job) {
-  if (job.state === 'pending' && job.next_attempt_at && new Date(job.next_attempt_at).getTime() > Date.now()) return { key: 'delayed', label: '延迟重试', icon: '◷' }
-  if (job.kind === 'matrix-direct' && job.state === 'delivered') return { key: 'done', label: '桥接处理完成', icon: '✓' }
+  if (job.state === 'pending' && job.next_attempt_at && new Date(job.next_attempt_at).getTime() > Date.now()) return { key: 'delayed', label: i18nT('admin.JobsAdminPage.s62'), icon: '◷' }
+  if (job.kind === 'matrix-direct' && job.state === 'delivered') return { key: 'done', label: i18nT('admin.JobsAdminPage.s63'), icon: '✓' }
   const map: Record<string, string> = { pending: 'waiting', processing: 'processing', failed: 'failed', cancelled: 'cancelled' }
   const key = map[job.state] ?? 'done'
   const icon: Record<string, string> = { waiting: '○', processing: '●', failed: '✕', cancelled: '–', done: '✓' }
@@ -52,8 +53,8 @@ function relative(value?: string | null) {
   const t = new Date(value).getTime()
   if (Number.isNaN(t)) return ''
   const diff = (t - Date.now()) / 1000, abs = Math.abs(diff)
-  const [n, unit] = abs < 60 ? [Math.round(abs), '秒'] : abs < 3600 ? [Math.round(abs / 60), '分钟'] : abs < 86400 ? [Math.round(abs / 3600), '小时'] : [Math.round(abs / 86400), '天']
-  return diff > 0 ? `${n}${unit}后` : `${n}${unit}前`
+  const [n, unit]: [number, Intl.RelativeTimeFormatUnit] = abs < 60 ? [Math.round(diff), 'second'] : abs < 3600 ? [Math.round(diff / 60), 'minute'] : abs < 86400 ? [Math.round(diff / 3600), 'hour'] : [Math.round(diff / 86400), 'day']
+  return new Intl.RelativeTimeFormat(currentLocale(), { numeric: 'auto' }).format(n, unit)
 }
 const series = (s: QueueStat | undefined, key: 'processed' | 'failed' | 'active' | 'waiting' | 'delayed') => (s?.series ?? []).map(p => p[key])
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0)
@@ -64,7 +65,7 @@ onBeforeUnmount(() => { ++version; if (timer) clearInterval(timer) })
 async function loadStats() {
   const mine = version
   try { const data = await api.queueStats(); if (mine === version) stats.value = data.queues }
-  catch { if (mine === version && tab.value === 'overview') error.value = '无法读取队列统计。' }
+  catch { if (mine === version && tab.value === 'overview') error.value = i18nT('admin.JobsAdminPage.s70') }
 }
 async function loadHosts() {
   if (tab.value !== 'delivery') { hosts.value = []; return }
@@ -80,7 +81,7 @@ async function load(reset = false) {
   try {
     const data = await api.jobs(page.value, tab.value, apiState(tab.value, status.value), supportsSearch.value ? search.value.trim() : '')
     if (mine === version) { items.value = data.items; total.value = data.total }
-  } catch { if (mine === version) error.value = '无法读取任务队列。' }
+  } catch { if (mine === version) error.value = i18nT('admin.JobsAdminPage.s71') }
   finally { if (mine === version) busy.value = false }
 }
 async function refresh(reset = false) { error.value = ''; await Promise.all([loadStats(), load(reset), loadHosts()]) }
@@ -89,11 +90,11 @@ function setStatus(key: string) { status.value = key; load(true) }
 
 function confirmation(job: Job, action: 'retry' | 'cancel') {
   if (isFeed(job)) {
-    if (action === 'cancel') return '确认取消此 Feed 事件及全部尚未完成的依赖批次？任何正在执行的任务都会阻止取消。已完成的缓存更新不会撤回，业务帖子不会删除。'
-    if (job.requires_reconciliation) return '此事件已超过 7 天重试期限。确认取消旧事件与未完成批次，并按当前数据库重新协调时间线缓存？不会重播历史帖子或发送历史通知。'
-    return '确认恢复此 Feed 事件及其未完成批次？将继续已保存的扫描进度，正在执行的任务不会被重复启动。'
+    if (action === 'cancel') return i18nT('admin.JobsAdminPage.s72')
+    if (job.requires_reconciliation) return i18nT('admin.JobsAdminPage.s73')
+    return i18nT('admin.JobsAdminPage.s74')
   }
-  return action === 'cancel' ? '确认取消此待处理任务？该事件将不会继续投递，可能导致远端状态不同步。' : '确认立即重试此任务？将保留原活动 ID，正在执行的任务不会被重复启动。'
+  return action === 'cancel' ? i18nT('admin.JobsAdminPage.s75') : i18nT('admin.JobsAdminPage.s76')
 }
 async function act(job: Job, action: 'retry' | 'cancel') {
   if (job.kind === 'matrix-direct' || busy.value || !window.confirm(confirmation(job, action))) return
@@ -102,28 +103,28 @@ async function act(job: Job, action: 'retry' | 'cancel') {
   try {
     const result = await api.jobAction(job, action)
     if (mine !== version) return
-    notice.value = result?.reconciled ? '已取消过期任务，并安排按当前数据库重新协调缓存。' : action === 'retry' ? '已安排重试。' : '任务已取消。'
+    notice.value = result?.reconciled ? i18nT('admin.JobsAdminPage.s77') : action === 'retry' ? i18nT('admin.JobsAdminPage.s78') : i18nT('admin.JobsAdminPage.s79')
     busy.value = false
     await refresh()
-  } catch { if (mine === version) error.value = '任务已变化、正在执行或操作失败，请刷新确认。' }
+  } catch { if (mine === version) error.value = i18nT('admin.JobsAdminPage.s80') }
   finally { if (mine === version) busy.value = false }
 }
 async function bulk(action: 'promote' | 'clear', host = '') {
   if (busy.value) return
-  const scope = host ? `目标 ${host} 的` : `「${queueLabel(tab.value)}」队列中所有`
+  const scope = host ? i18nT('admin.JobsAdminPage.s81', [host]) : i18nT('admin.JobsAdminPage.s82', [queueLabel(tab.value)])
   const text = action === 'promote'
-    ? `确认立即重试${scope}延迟任务？它们会在下一轮立即投递。`
-    : `危险操作：确认清除${scope}等待、延迟与失败任务？这些任务将被标记为已取消且不会再投递，无法撤销，可能导致远端状态不同步。`
+    ? i18nT('admin.JobsAdminPage.s83', [scope])
+    : i18nT('admin.JobsAdminPage.s84', [scope])
   if (!window.confirm(text)) return
   const mine = version
   busy.value = true; error.value = ''
   try {
     const result = await api.queueBulk(tab.value, action, host)
     if (mine !== version) return
-    notice.value = action === 'promote' ? `已安排立即重试 ${result.updated} 个任务。` : `已清除 ${result.updated} 个任务。`
+    notice.value = action === 'promote' ? i18nT('admin.JobsAdminPage.s85', [result.updated]) : i18nT('admin.JobsAdminPage.s86', [result.updated])
     busy.value = false
     await refresh(true)
-  } catch { if (mine === version) error.value = '批量操作失败，请刷新确认。' }
+  } catch { if (mine === version) error.value = i18nT('admin.JobsAdminPage.s87') }
   finally { if (mine === version) busy.value = false }
 }
 
@@ -135,116 +136,116 @@ onMounted(() => {
 
 <template>
   <div class="admin-page jobs-page">
-    <header><h1>联邦作业与任务队列</h1><p>查看联邦投递与 Feed 缓存任务。取消不能撤回已完成的投递，也不会删除帖子。</p></header>
+    <header><h1>{{ $t('admin.JobsAdminPage.s1') }}</h1><p>{{ $t('admin.JobsAdminPage.s2') }}</p></header>
 
-    <nav class="jobs-tabs" role="tablist" aria-label="队列">
-      <button role="tab" :aria-selected="tab === 'overview'" :class="{ active: tab === 'overview' }" @click="openTab('overview')">概览</button>
+    <nav class="jobs-tabs" role="tablist" :aria-label="$t('admin.JobsAdminPage.s3')">
+      <button role="tab" :aria-selected="tab === 'overview'" :class="{ active: tab === 'overview' }" @click="openTab('overview')">{{ $t('admin.JobsAdminPage.s4') }}</button>
       <button v-for="q in QUEUES" :key="q.kind" role="tab" :aria-selected="tab === q.kind" :class="{ active: tab === q.kind }" @click="openTab(q.kind)">{{ q.label }}</button>
     </nav>
 
     <p v-if="error" role="alert" class="admin-error">{{ error }}</p>
     <p v-if="notice" class="admin-alert admin-alert--success" role="status">{{ notice }}</p>
 
-    <section v-if="tab === 'overview'" class="jobs-grid" aria-label="队列概览">
+    <section v-if="tab === 'overview'" class="jobs-grid" :aria-label="$t('admin.JobsAdminPage.s5')">
       <button v-for="s in stats" :key="s.kind" class="admin-card jobs-qcard" @click="openTab(s.kind)">
         <div class="jobs-qcard__head"><strong>{{ queueLabel(s.kind) }}</strong><span class="jobs-muted">{{ s.label }}</span></div>
         <dl class="jobs-counts">
-          <div><dt>进行中</dt><dd>{{ s.counts.active }}</dd></div>
-          <div><dt>延迟</dt><dd :class="{ warn: s.counts.delayed }">{{ s.counts.delayed }}</dd></div>
-          <div><dt>等待</dt><dd>{{ s.counts.waiting }}</dd></div>
-          <div><dt>失败</dt><dd :class="{ bad: s.counts.failed }">{{ s.counts.failed }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s6') }}</dt><dd>{{ s.counts.active }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s7') }}</dt><dd :class="{ warn: s.counts.delayed }">{{ s.counts.delayed }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s8') }}</dt><dd>{{ s.counts.waiting }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s9') }}</dt><dd :class="{ bad: s.counts.failed }">{{ s.counts.failed }}</dd></div>
         </dl>
-        <QueueSparkline :label="`${queueLabel(s.kind)} 每分钟处理与失败`" :series="[{ values: series(s, 'processed'), tone: 'accent' }, { values: series(s, 'failed'), tone: 'danger' }]" />
-        <div class="jobs-legend"><span class="dot accent" />处理 {{ sum(series(s, 'processed')) }}<span class="dot danger" />失败 {{ sum(series(s, 'failed')) }}<span class="jobs-muted">· 近 {{ s.series.length }} 分钟</span></div>
+        <QueueSparkline :label="$t('admin.JobsAdminPage.s10', [queueLabel(s.kind)])" :series="[{ values: series(s, 'processed'), tone: 'accent' }, { values: series(s, 'failed'), tone: 'danger' }]" />
+        <div class="jobs-legend"><span class="dot accent" />{{ $t('admin.JobsAdminPage.s11', [sum(series(s, 'processed'))]) }}<span class="dot danger" />{{ $t('admin.JobsAdminPage.s12', [sum(series(s, 'failed'))]) }}<span class="jobs-muted">{{ $t('admin.JobsAdminPage.s13', [s.series.length]) }}</span></div>
       </button>
       <article class="admin-card jobs-qcard jobs-qcard--static">
-        <div class="jobs-qcard__head"><strong>ActivityPub 收件</strong><span class="jobs-muted">inbox</span></div>
-        <p class="jobs-muted">收件箱活动在请求内同步处理，没有持久化队列。</p>
+        <div class="jobs-qcard__head"><strong>{{ $t('admin.JobsAdminPage.s14') }}</strong><span class="jobs-muted">inbox</span></div>
+        <p class="jobs-muted">{{ $t('admin.JobsAdminPage.s15') }}</p>
       </article>
-      <p v-if="!stats.length && !error" class="admin-empty">加载中…</p>
+      <p v-if="!stats.length && !error" class="admin-empty">{{ $t('admin.JobsAdminPage.s16') }}</p>
     </section>
 
     <template v-else>
       <section v-if="stat" class="admin-card jobs-detail-head">
         <dl class="jobs-counts jobs-counts--wide">
-          <div><dt>进行中</dt><dd>{{ stat.counts.active }}</dd></div>
-          <div><dt>延迟</dt><dd :class="{ warn: stat.counts.delayed }">{{ stat.counts.delayed }}</dd></div>
-          <div><dt>等待</dt><dd>{{ stat.counts.waiting }}</dd></div>
-          <div><dt>失败</dt><dd :class="{ bad: stat.counts.failed }">{{ stat.counts.failed }}</dd></div>
-          <div><dt>已完成</dt><dd>{{ stat.counts.completed }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s6') }}</dt><dd>{{ stat.counts.active }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s7') }}</dt><dd :class="{ warn: stat.counts.delayed }">{{ stat.counts.delayed }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s8') }}</dt><dd>{{ stat.counts.waiting }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s9') }}</dt><dd :class="{ bad: stat.counts.failed }">{{ stat.counts.failed }}</dd></div>
+          <div><dt>{{ $t('admin.JobsAdminPage.s17') }}</dt><dd>{{ stat.counts.completed }}</dd></div>
         </dl>
         <div class="jobs-charts">
-          <figure><figcaption>处理 / 失败</figcaption><QueueSparkline label="每分钟处理与失败" :height="56" :series="[{ values: series(stat, 'processed'), tone: 'accent' }, { values: series(stat, 'failed'), tone: 'danger' }]" /></figure>
-          <figure><figcaption>进行中</figcaption><QueueSparkline label="进行中" :height="56" :series="[{ values: series(stat, 'active'), tone: 'accent' }]" /></figure>
-          <figure><figcaption>等待</figcaption><QueueSparkline label="等待" :height="56" :series="[{ values: series(stat, 'waiting'), tone: 'muted' }]" /></figure>
-          <figure><figcaption>延迟</figcaption><QueueSparkline label="延迟" :height="56" :series="[{ values: series(stat, 'delayed'), tone: 'warning' }]" /></figure>
+          <figure><figcaption>{{ $t('admin.JobsAdminPage.s18') }}</figcaption><QueueSparkline :label="$t('admin.JobsAdminPage.s19')" :height="56" :series="[{ values: series(stat, 'processed'), tone: 'accent' }, { values: series(stat, 'failed'), tone: 'danger' }]" /></figure>
+          <figure><figcaption>{{ $t('admin.JobsAdminPage.s6') }}</figcaption><QueueSparkline :label="$t('admin.JobsAdminPage.s6')" :height="56" :series="[{ values: series(stat, 'active'), tone: 'accent' }]" /></figure>
+          <figure><figcaption>{{ $t('admin.JobsAdminPage.s8') }}</figcaption><QueueSparkline :label="$t('admin.JobsAdminPage.s8')" :height="56" :series="[{ values: series(stat, 'waiting'), tone: 'muted' }]" /></figure>
+          <figure><figcaption>{{ $t('admin.JobsAdminPage.s7') }}</figcaption><QueueSparkline :label="$t('admin.JobsAdminPage.s7')" :height="56" :series="[{ values: series(stat, 'delayed'), tone: 'warning' }]" /></figure>
         </div>
         <div v-if="stat.bulk_actions" class="admin-toolbar jobs-bulk">
-          <button class="admin-button" :disabled="busy || !stat.counts.delayed" @click="bulk('promote')">立刻重试所有</button>
-          <button class="admin-button admin-button--danger" :disabled="busy || !(stat.counts.waiting + stat.counts.delayed + stat.counts.failed)" @click="bulk('clear')">清除队列</button>
+          <button class="admin-button" :disabled="busy || !stat.counts.delayed" @click="bulk('promote')">{{ $t('admin.JobsAdminPage.s20') }}</button>
+          <button class="admin-button admin-button--danger" :disabled="busy || !(stat.counts.waiting + stat.counts.delayed + stat.counts.failed)" @click="bulk('clear')">{{ $t('admin.JobsAdminPage.s21') }}</button>
         </div>
       </section>
 
-      <section v-if="tab === 'delivery'" class="admin-card" aria-label="出错实例">
-        <div class="admin-card__header"><strong>出错实例</strong><span class="jobs-muted">按目标主机汇总失败与延迟重试</span></div>
-        <p v-if="!hosts.length" class="admin-empty">没有出错的实例。</p>
+      <section v-if="tab === 'delivery'" class="admin-card" :aria-label="$t('admin.JobsAdminPage.s22')">
+        <div class="admin-card__header"><strong>{{ $t('admin.JobsAdminPage.s22') }}</strong><span class="jobs-muted">{{ $t('admin.JobsAdminPage.s23') }}</span></div>
+        <p v-if="!hosts.length" class="admin-empty">{{ $t('admin.JobsAdminPage.s24') }}</p>
         <ul v-else class="jobs-hosts">
           <li v-for="h in hosts" :key="h.host">
             <div class="jobs-hosts__main"><strong>{{ h.host }}</strong><span v-if="h.last_error" class="jobs-muted jobs-ellipsis">{{ h.last_error }}</span></div>
-            <span class="admin-badge admin-badge--danger" title="失败">{{ h.failed }}</span>
-            <span class="admin-badge admin-badge--warning" title="延迟">{{ h.delayed }}</span>
-            <button class="admin-button admin-button--sm" :disabled="busy || !h.delayed" @click="bulk('promote', h.host)">重试</button>
-            <button class="admin-button admin-button--sm admin-button--danger" :disabled="busy" @click="bulk('clear', h.host)">清除</button>
+            <span class="admin-badge admin-badge--danger" :title="$t('admin.JobsAdminPage.s9')">{{ h.failed }}</span>
+            <span class="admin-badge admin-badge--warning" :title="$t('admin.JobsAdminPage.s7')">{{ h.delayed }}</span>
+            <button class="admin-button admin-button--sm" :disabled="busy || !h.delayed" @click="bulk('promote', h.host)">{{ $t('admin.JobsAdminPage.s25') }}</button>
+            <button class="admin-button admin-button--sm admin-button--danger" :disabled="busy" @click="bulk('clear', h.host)">{{ $t('admin.JobsAdminPage.s26') }}</button>
           </li>
         </ul>
       </section>
 
-      <p v-if="tab.startsWith('feed-')" class="admin-alert">Feed 重试会恢复同一事件的未完成批次；取消任一批次会一并取消其事件。超过 7 天的任务仅按当前数据库重新协调，不重播历史内容。</p>
-      <p v-if="tab === 'matrix-direct'" class="admin-alert">这里显示桥接处理状态，不代表远端服务器已经收到消息。只有消息作者可以在会话内按当前权限重试投递。</p>
+      <p v-if="tab.startsWith('feed-')" class="admin-alert">{{ $t('admin.JobsAdminPage.s27') }}</p>
+      <p v-if="tab === 'matrix-direct'" class="admin-alert">{{ $t('admin.JobsAdminPage.s28') }}</p>
 
       <section class="admin-card" :aria-busy="busy">
         <div class="jobs-filter">
-          <div class="jobs-status" role="tablist" aria-label="状态">
+          <div class="jobs-status" role="tablist" :aria-label="$t('admin.JobsAdminPage.s29')">
             <button v-for="s in STATUS_TABS" :key="s.key" role="tab" :aria-selected="status === s.key" :class="{ active: status === s.key }" @click="setStatus(s.key)">{{ s.label }}</button>
           </div>
           <form v-if="supportsSearch" class="jobs-search" @submit.prevent="load(true)">
-            <input v-model="search" type="search" :placeholder="tab === 'delivery' ? '搜索目标主机或活动 ID' : '搜索事件类型'" aria-label="搜索任务">
-            <button class="admin-button admin-button--sm" :disabled="busy">搜索</button>
+            <input v-model="search" type="search" :placeholder="tab === 'delivery' ? $t('admin.JobsAdminPage.s30') : $t('admin.JobsAdminPage.s31')" :aria-label="$t('admin.JobsAdminPage.s32')">
+            <button class="admin-button admin-button--sm" :disabled="busy">{{ $t('admin.JobsAdminPage.s33') }}</button>
           </form>
         </div>
-        <p v-if="busy && !items.length">加载中…</p><p v-else-if="!error && !items.length" class="admin-empty">没有匹配的任务。</p>
+        <p v-if="busy && !items.length">{{ $t('admin.JobsAdminPage.s16') }}</p><p v-else-if="!error && !items.length" class="admin-empty">{{ $t('admin.JobsAdminPage.s34') }}</p>
         <ol class="jobs-timeline">
           <li v-for="job in items" :key="`${job.kind}:${job.id}`" :class="`is-${displayState(job).key}`">
             <button class="jobs-row" :aria-expanded="!!expanded[job.kind + job.id]" @click="expanded[job.kind + job.id] = !expanded[job.kind + job.id]">
               <span class="jobs-row__icon" :title="displayState(job).label" aria-hidden="true">{{ displayState(job).icon }}</span>
               <span class="jobs-row__id">#{{ job.id }}</span>
               <span class="jobs-row__type">{{ job.activity_type || job.event || job.activity_id || job.kind }}</span>
-              <span class="jobs-row__host jobs-ellipsis">{{ hostOf(job) || (job.parent_id ? `事件 #${job.parent_id} · 批次 ${job.batch_no}` : '') }}</span>
+              <span class="jobs-row__host jobs-ellipsis">{{ hostOf(job) || (job.parent_id ? $t('admin.JobsAdminPage.s35', [job.parent_id, job.batch_no]) : '') }}</span>
               <span class="jobs-row__state">{{ displayState(job).label }}</span>
               <time class="jobs-row__time" :datetime="job.created_at">{{ relative(job.created_at) }}</time>
             </button>
             <div v-if="expanded[job.kind + job.id]" class="jobs-row__detail">
               <dl>
-                <div v-if="job.activity_id"><dt>活动</dt><dd class="jobs-break">{{ job.activity_id }}</dd></div>
-                <div v-if="job.event"><dt>事件</dt><dd>{{ job.event }}</dd></div>
-                <div v-if="job.parent_id"><dt>所属事件</dt><dd>所属事件：#{{ job.parent_id }} · 批次 {{ job.batch_no }}</dd></div>
-                <div v-if="job.destination"><dt>目标</dt><dd class="jobs-break">{{ job.destination }}</dd></div>
-                <div><dt>尝试次数</dt><dd>{{ job.attempts }}</dd></div>
-                <div v-if="job.next_attempt_at"><dt>计划时间</dt><dd>{{ new Date(job.next_attempt_at).toLocaleString() }}（{{ relative(job.next_attempt_at) }}）</dd></div>
-                <div v-if="job.lease_expires_at"><dt>租约截止</dt><dd>{{ new Date(job.lease_expires_at).toLocaleString() }}</dd></div>
-                <div v-if="job.created_at"><dt>创建</dt><dd>{{ new Date(job.created_at).toLocaleString() }}</dd></div>
+                <div v-if="job.activity_id"><dt>{{ $t('admin.JobsAdminPage.s36') }}</dt><dd class="jobs-break">{{ job.activity_id }}</dd></div>
+                <div v-if="job.event"><dt>{{ $t('admin.JobsAdminPage.s37') }}</dt><dd>{{ job.event }}</dd></div>
+                <div v-if="job.parent_id"><dt>{{ $t('admin.JobsAdminPage.s38') }}</dt><dd>{{ $t('admin.JobsAdminPage.s39', [job.parent_id, job.batch_no]) }}</dd></div>
+                <div v-if="job.destination"><dt>{{ $t('admin.JobsAdminPage.s40') }}</dt><dd class="jobs-break">{{ job.destination }}</dd></div>
+                <div><dt>{{ $t('admin.JobsAdminPage.s41') }}</dt><dd>{{ job.attempts }}</dd></div>
+                <div v-if="job.next_attempt_at"><dt>{{ $t('admin.JobsAdminPage.s42') }}</dt><dd>{{ new Date(job.next_attempt_at).toLocaleString() }}（{{ relative(job.next_attempt_at) }}）</dd></div>
+                <div v-if="job.lease_expires_at"><dt>{{ $t('admin.JobsAdminPage.s43') }}</dt><dd>{{ new Date(job.lease_expires_at).toLocaleString() }}</dd></div>
+                <div v-if="job.created_at"><dt>{{ $t('admin.JobsAdminPage.s44') }}</dt><dd>{{ new Date(job.created_at).toLocaleString() }}</dd></div>
               </dl>
-              <p v-if="job.requires_reconciliation" class="admin-alert">已超过 7 天重试期限，仅支持按当前数据库重新协调。</p>
+              <p v-if="job.requires_reconciliation" class="admin-alert">{{ $t('admin.JobsAdminPage.s45') }}</p>
               <p v-if="job.last_error" class="admin-error">{{ job.last_error }}</p>
               <div v-if="job.kind !== 'matrix-direct' && ['failed', 'pending'].includes(job.state) && job.can_retry !== false" class="admin-toolbar">
-                <button class="admin-button admin-button--sm" :disabled="busy" @click="act(job, 'retry')">{{ job.requires_reconciliation ? '重新协调缓存' : '立即重试' }}</button>
-                <button class="admin-button admin-button--sm admin-button--danger" :disabled="busy" @click="act(job, 'cancel')">取消任务</button>
+                <button class="admin-button admin-button--sm" :disabled="busy" @click="act(job, 'retry')">{{ job.requires_reconciliation ? $t('admin.JobsAdminPage.s46') : $t('admin.JobsAdminPage.s47') }}</button>
+                <button class="admin-button admin-button--sm admin-button--danger" :disabled="busy" @click="act(job, 'cancel')">{{ $t('admin.JobsAdminPage.s48') }}</button>
               </div>
             </div>
           </li>
         </ol>
       </section>
-      <div class="admin-pagination"><button class="admin-button" :disabled="busy || page === 1" @click="page--; load()">上一页</button><span>第{{ page }}页，共{{ total }}项</span><button class="admin-button" :disabled="busy || page * 30 >= total" @click="page++; load()">下一页</button></div>
+      <div class="admin-pagination"><button class="admin-button" :disabled="busy || page === 1" @click="page--; load()">{{ $t('admin.JobsAdminPage.s49') }}</button><span>{{ $t('admin.JobsAdminPage.s50', [page, total]) }}</span><button class="admin-button" :disabled="busy || page * 30 >= total" @click="page++; load()">{{ $t('admin.JobsAdminPage.s51') }}</button></div>
     </template>
   </div>
 </template>

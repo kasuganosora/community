@@ -25,6 +25,7 @@ import PostComposer from './PostComposer.vue'
 import FilteredNotice from './FilteredNotice.vue'
 import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   status: MastodonStatus
   recommendation?: boolean
@@ -45,7 +46,7 @@ const reporting = ref(false)
 const menuOpen = ref(false)
 useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value, () => {
   editing.value = false; reporting.value = false; menuOpen.value = false
-  MessagePlugin.info('请先关闭其他帖子的编辑器或菜单，再打开新的操作。')
+  MessagePlugin.info(t('shared.PostCard.s6'))
 })
 const { openQuote } = useUiChrome()
 
@@ -68,14 +69,14 @@ const isOwn = computed(() => !!authStore.currentUser && displayStatus.value.acco
 const visibility = computed(() => displayStatus.value.visibility !== 'public' ? visibilityOption(displayStatus.value.visibility) : null)
 const menuOptions = computed(() => [...(isOwn.value
   ? [
-      { content: displayStatus.value.pinned ? '取消置顶' : '置顶', value: 'pin' },
+      { content: displayStatus.value.pinned ? t('shared.PostCard.s7') : t('shared.PostCard.s8'), value: 'pin' },
       { content: REPLACE_MENU, value: 'edit' },
-      { content: '删除', value: 'delete', theme: 'error' as const },
+      { content: t('shared.PostCard.s9'), value: 'delete', theme: 'error' as const },
     ]
-  : [{ content: '举报', value: 'report' }]), ...(props.recommendation ? [
-    { content: '为什么显示这条帖子', value: 'recommendation-why' },
-    { content: '不感兴趣', value: 'recommendation-hide' },
-    { content: '不再推荐这个作者', value: 'recommendation-author' },
+  : [{ content: t('shared.PostCard.s10'), value: 'report' }]), ...(props.recommendation ? [
+    { content: t('shared.PostCard.s11'), value: 'recommendation-why' },
+    { content: t('shared.PostCard.s12'), value: 'recommendation-hide' },
+    { content: t('shared.PostCard.s13'), value: 'recommendation-author' },
   ] : [])])
 
 async function togglePin() {
@@ -84,9 +85,9 @@ async function togglePin() {
       ? await postApi.unpin(displayStatus.value.id)
       : await postApi.pin(displayStatus.value.id)
     markStatusEdited(updated)
-    MessagePlugin.success(updated.pinned ? '已置顶' : '已取消置顶')
+    MessagePlugin.success(updated.pinned ? t('shared.PostCard.s14') : t('shared.PostCard.s15'))
   } catch (e) {
-    MessagePlugin.error(e instanceof Error && e.message ? e.message : '置顶失败')
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : t('shared.PostCard.s16'))
   }
 }
 
@@ -115,17 +116,17 @@ function navigateToProfile(e: Event) {
 
 function confirmDelete() {
   const dialog = DialogPlugin.confirm({
-    header: '删除帖子？',
-    body: '删除后无法恢复。这条帖子的转发和回复也会失去关联。',
-    confirmBtn: { content: '删除', theme: 'danger' },
-    cancelBtn: '取消',
+    header: t('shared.PostCard.s17'),
+    body: t('shared.PostCard.s18'),
+    confirmBtn: { content: t('shared.PostCard.s9'), theme: 'danger' },
+    cancelBtn: t('shared.PostCard.s19'),
     onConfirm: async () => {
       try {
         await postApi.deleteStatus(displayStatus.value.id)
         markStatusDeleted(displayStatus.value.id)
-        MessagePlugin.success('已删除')
+        MessagePlugin.success(t('shared.PostCard.s20'))
       } catch (e) {
-        MessagePlugin.error(e instanceof Error && e.message ? `删除失败：${e.message}` : '删除失败')
+        MessagePlugin.error(e instanceof Error && e.message ? t('shared.PostCard.s21', [e.message]) : t('shared.PostCard.s22'))
       } finally {
         dialog.destroy()
       }
@@ -151,9 +152,9 @@ function onMenuClick(data: { value?: unknown }) {
   else if (data.value === 'recommendation-author') emit('recommendationFeedback', displayStatus.value, 'hide_author')
   else if (data.value === 'recommendation-why') {
     const dialog = DialogPlugin.alert({
-      header: '为什么显示这条帖子',
-      body: `${props.recommendationReason?.label || '这是一条符合当前公开发现条件的帖子。'} 不感兴趣或停止推荐作者只影响发现内容，不会屏蔽该账号。可在设置中查看和撤销。`,
-      confirmBtn: '知道了',
+      header: t('shared.PostCard.s11'),
+      body: t('shared.PostCard.s24', [props.recommendationReason?.label || t('shared.PostCard.s23')]),
+      confirmBtn: t('shared.PostCard.s25'),
       onConfirm: () => dialog.destroy(),
       onClose: () => dialog.destroy(),
     })
@@ -173,7 +174,7 @@ function onMenuClick(data: { value?: unknown }) {
     <!-- Reblog header -->
     <div v-if="isReblog" class="post-card__reblog">
       <t-icon name="swap" :size="14" />
-      <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> 转发了</span>
+      <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> {{ $t('shared.PostCard.s1') }}</span>
     </div>
 
     <div class="post-card__body">
@@ -183,7 +184,7 @@ function onMenuClick(data: { value?: unknown }) {
         @click="navigateToProfile"
         role="link"
         tabindex="0"
-        :aria-label="`查看 ${displayStatus.account.display_name || displayStatus.account.username} 的个人主页`"
+        :aria-label="$t('shared.PostCard.s2', [displayStatus.account.display_name || displayStatus.account.username])"
         @keydown.enter="navigateToProfile"
         @keydown.space.prevent="navigateToProfile"
       >
@@ -211,7 +212,7 @@ function onMenuClick(data: { value?: unknown }) {
           </span>
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
-          <span v-if="wasEdited(displayStatus)" class="post-card__edited" title="已编辑">· 已编辑</span>
+          <span v-if="wasEdited(displayStatus)" class="post-card__edited" :title="$t('shared.PostCard.s3')">{{ $t('shared.PostCard.s4') }}</span>
           <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
             <t-icon :name="visibility.icon" :size="14" />
             <span class="sr-only">{{ visibility.short }}</span>
@@ -223,7 +224,7 @@ function onMenuClick(data: { value?: unknown }) {
             :popup-props="{ visible: menuOpen, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
             @click="onMenuClick"
           >
-            <button type="button" class="post-card__menu" aria-label="更多操作" @click.stop>
+            <button type="button" class="post-card__menu" :aria-label="$t('shared.PostCard.s5')" @click.stop>
               <t-icon name="more" :size="16" />
             </button>
           </t-dropdown>

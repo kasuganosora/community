@@ -21,7 +21,7 @@ onMounted(load)
 <template>
   <div class="bookmarks-page">
     <div class="page-header">
-      <h1 class="page-header__title">收藏</h1>
+      <h1 class="page-header__title">{{ $t('bookmark.BookmarksPage.s1') }}</h1>
     </div>
 
     <div v-if="loading && !bookmarks.length" class="page-loading">
@@ -32,9 +32,9 @@ onMounted(load)
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">加载失败</h2>
+      <h2 class="empty-state__title">{{ $t('bookmark.BookmarksPage.s2') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="load">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="load">{{ $t('bookmark.BookmarksPage.s3') }}</button>
     </div>
 
     <template v-else-if="bookmarks.length">
@@ -47,16 +47,16 @@ onMounted(load)
         @bookmark="toggleBookmark"
       />
       <p v-if="error" role="alert">{{ error }}</p>
-      <button :disabled="loading" v-if="hasMore" type="button" class="btn btn--secondary btn--sm" @click="feed.loadMore">加载更多</button>
+      <button :disabled="loading" v-if="hasMore" type="button" class="btn btn--secondary btn--sm" @click="feed.loadMore">{{ $t('bookmark.BookmarksPage.s4') }}</button>
     </template>
 
     <div v-else class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="bookmark" :size="48" />
       </div>
-      <h2 class="empty-state__title">还没有收藏</h2>
+      <h2 class="empty-state__title">{{ $t('bookmark.BookmarksPage.s5') }}</h2>
       <p class="empty-state__text">
-        点击帖子上的收藏按钮，之后可以在这里找到它们。
+        {{ $t('bookmark.BookmarksPage.s6') }}
       </p>
     </div>
   </div>

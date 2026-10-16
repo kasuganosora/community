@@ -21,8 +21,8 @@ watch(() => props.marks, () => {
 
 <template>
   <div v-if="level && !revealed" class="filtered-notice" @click.stop>
-    <p>{{ level === 'hide' ? '这条帖子已被隐藏' : '这条帖子可能不适合直接看' }}</p>
-    <button type="button" @click="revealed = true">仍然查看</button>
+    <p>{{ level === 'hide' ? $t('shared.FilteredNotice.s1') : $t('shared.FilteredNotice.s2') }}</p>
+    <button type="button" @click="revealed = true">{{ $t('shared.FilteredNotice.s3') }}</button>
   </div>
   <slot v-else />
 </template>

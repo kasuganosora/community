@@ -17,10 +17,11 @@ import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 
+import { t } from '@/shared/i18n'
 const PAGE_SIZE = 30
 const FILTERS: { value: NotificationFilter; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'mention', label: '提及' },
+  { value: 'all', label: t('notification.NotificationsPage.s17') },
+  { value: 'mention', label: t('notification.NotificationsPage.s18') },
 ]
 
 const router = useRouter()
@@ -75,7 +76,7 @@ async function dismissNotification(id: string) {
     await notificationApi.dismiss(id)
     notifications.value = notifications.value.filter(n => n.id !== id)
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error ? e.message : t('notification.NotificationsPage.s19'))
   }
 }
 
@@ -92,9 +93,9 @@ async function clearAll() {
     if (!current()) return
     feed.reset()
     confirmClear.value = false
-    MessagePlugin.success('已清空通知')
+    MessagePlugin.success(t('notification.NotificationsPage.s20'))
   } catch (e) {
-    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '清空失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : t('notification.NotificationsPage.s21'))
   } finally {
     if (current()) clearing.value = false
   }
@@ -121,44 +122,44 @@ watch(filter, () => {
 <template>
   <div class="notifications-page">
     <div class="page-header notifications-header">
-      <h1 class="page-header__title">通知</h1>
+      <h1 class="page-header__title">{{ $t('notification.NotificationsPage.s1') }}</h1>
       <button
         v-if="notifications.length > 0 && !confirmClear"
         type="button"
         class="btn btn--ghost btn--sm"
         @click="confirmClear = true"
       >
-清空
+{{ $t('notification.NotificationsPage.s2') }}
 </button>
       <span v-if="confirmClear" class="notifications-confirm">
-        <span>清空全部通知？</span>
-        <button type="button" class="btn btn--ghost btn--sm" :disabled="clearing" @click="confirmClear = false">取消</button>
-        <button type="button" class="btn btn--danger btn--sm" :disabled="clearing" :aria-busy="clearing" @click="clearAll">{{ clearing ? '清空中…' : '清空' }}</button>
+        <span>{{ $t('notification.NotificationsPage.s3') }}</span>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="clearing" @click="confirmClear = false">{{ $t('notification.NotificationsPage.s4') }}</button>
+        <button type="button" class="btn btn--danger btn--sm" :disabled="clearing" :aria-busy="clearing" @click="clearAll">{{ clearing ? $t('notification.NotificationsPage.s5') : $t('notification.NotificationsPage.s2') }}</button>
       </span>
     </div>
 
-    <TabBar v-model="filter" :options="FILTERS" label="通知类型" />
+    <TabBar v-model="filter" :options="FILTERS" :label="$t('notification.NotificationsPage.s6')" />
 
     <div v-if="error && notifications.length === 0" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">加载失败</h2>
+      <h2 class="empty-state__title">{{ $t('notification.NotificationsPage.s7') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="feed.refresh">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="feed.refresh">{{ $t('notification.NotificationsPage.s8') }}</button>
     </div>
 
     <div v-else-if="!loading && notifications.length === 0" class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="notification" :size="48" />
       </div>
-      <h2 class="empty-state__title">暂时没有通知</h2>
+      <h2 class="empty-state__title">{{ $t('notification.NotificationsPage.s9') }}</h2>
       <p class="empty-state__text">
-        {{ filter === 'mention' ? '有人提到你时会显示在这里。' : '喜欢、表情回应、转发、提及和新关注者会显示在这里。' }}
+        {{ filter === 'mention' ? $t('notification.NotificationsPage.s10') : $t('notification.NotificationsPage.s11') }}
       </p>
     </div>
 
-    <div v-else class="notifications-list" role="list" aria-label="通知">
+    <div v-else class="notifications-list" role="list" :aria-label="$t('notification.NotificationsPage.s1')">
       <div
         v-for="notification in notifications"
         :key="notification.id"
@@ -190,13 +191,13 @@ watch(filter, () => {
               <UserAvatar :account="notification.account" :size="32" />
               <div class="notification-text">
                 <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
-                <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">用 <ReactionLabel :reaction="notification.emoji_reaction" /> 回应了你的帖子</template>
+                <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">{{ $t('notification.NotificationsPage.s12') }} <ReactionLabel :reaction="notification.emoji_reaction" /> {{ $t('notification.NotificationsPage.s13') }}</template>
                 <template v-else>{{ notificationText(notification.type) }}</template>
                 <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
               <div v-if="notification.status" class="notification-preview">
                 <EmojiText
-                  :text="notification.status.spoiler_text ? `内容警告：${notification.status.spoiler_text}` : getPreview(notification.status.content)"
+                  :text="notification.status.spoiler_text ? $t('notification.NotificationsPage.s14', [notification.status.spoiler_text]) : getPreview(notification.status.content)"
                   :emojis="notification.status.emojis"
                 />
               </div>
@@ -205,7 +206,7 @@ watch(filter, () => {
               type="button"
               class="notification-dismiss"
               @click.stop="dismissNotification(notification.id)"
-              aria-label="移除此通知"
+              :aria-label="$t('notification.NotificationsPage.s15')"
             >
               <t-icon name="close" :size="16" />
             </button>
@@ -217,9 +218,9 @@ watch(filter, () => {
     <div ref="sentinel" class="notifications-sentinel" />
     <div v-if="loading" class="page-loading"><t-loading /></div>
     <p v-else-if="error && notifications.length > 0" class="notifications-more-error" role="alert">
-      {{ error }} <button type="button" class="btn btn--ghost btn--sm" @click="feed.loadMore">重试</button>
+      {{ error }} <button type="button" class="btn btn--ghost btn--sm" @click="feed.loadMore">{{ $t('notification.NotificationsPage.s8') }}</button>
     </p>
-    <p v-else-if="!hasMore && notifications.length > 0" class="notifications-end">没有更多通知了</p>
+    <p v-else-if="!hasMore && notifications.length > 0" class="notifications-end">{{ $t('notification.NotificationsPage.s16') }}</p>
   </div>
 </template>
 

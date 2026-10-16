@@ -12,7 +12,7 @@ defineEmits<{ click: [] }>()
     <Transition name="new-posts">
       <button v-if="show" type="button" class="new-posts-pill" data-testid="new-posts-pill" @click="$emit('click')">
         <t-icon name="arrow-up" :size="16" aria-hidden="true" />
-        <span>有新帖子，点击查看</span>
+        <span>{{ $t('shared.NewPostsPill.s1') }}</span>
       </button>
     </Transition>
   </div>

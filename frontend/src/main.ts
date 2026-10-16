@@ -1,4 +1,6 @@
 import { createApp } from 'vue'
+// Must stay first: resolves the UI language before other modules evaluate.
+import { i18n, t } from '@/shared/i18n'
 import { pinia } from '@/shared/stores'
 import router from '@/shared/router'
 import App from './App.vue'
@@ -31,6 +33,9 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('[Unhandled promise rejection]:', event.reason)
 })
 
+app.use(i18n)
+// Positional args + plural selection (see shared/i18n).
+app.config.globalProperties.$t = t as typeof app.config.globalProperties.$t
 app.use(pinia)
 app.use(router)
 

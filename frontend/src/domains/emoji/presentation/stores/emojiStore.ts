@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import client from '@/shared/api/client'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 
+import { t } from '@/shared/i18n'
 export const useEmojiStore = defineStore('custom-emojis', () => {
   const emojis = ref<MastodonEmoji[]>([])
   const loading = ref(false)
@@ -17,7 +18,7 @@ export const useEmojiStore = defineStore('custom-emojis', () => {
     pending = client.get<MastodonEmoji[]>('/api/v1/custom_emojis').then(({ data }) => {
       emojis.value = data
       loaded = true
-    }).catch(() => { error.value = '表情加载失败，请重试' }).finally(() => { loading.value = false; pending = null })
+    }).catch(() => { error.value = t('emoji.emojiStore.s1') }).finally(() => { loading.value = false; pending = null })
     return pending
   }
   return { emojis, loading, error, load }

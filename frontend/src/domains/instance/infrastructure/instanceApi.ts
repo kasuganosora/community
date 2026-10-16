@@ -1,5 +1,6 @@
 import client from '@/shared/api/client'
 
+import { t } from '@/shared/i18n'
 export interface InstanceRule {
   id: string
   text: string
@@ -37,8 +38,8 @@ export const instanceApi = {
 
 /** Fallback shown when the admin has not configured any rules yet. */
 export const DEFAULT_RULES: InstanceRule[] = [
-  { id: 'd1', text: '友善、尊重他人' },
-  { id: 'd2', text: '禁止发布色情内容，严禁任何涉及未成年人的性内容' },
-  { id: 'd3', text: '禁止发布恐怖主义相关内容' },
-  { id: 'd4', text: '禁止仇恨言论' },
+  { id: 'd1', text: t('instance.instanceApi.s1') },
+  { id: 'd2', text: t('instance.instanceApi.s2') },
+  { id: 'd3', text: t('instance.instanceApi.s3') },
+  { id: 'd4', text: t('instance.instanceApi.s4') },
 ]

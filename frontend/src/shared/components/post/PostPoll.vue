@@ -7,6 +7,7 @@ import { pollOptionPercent, pollShowsResults } from '@/domains/post/domain/poll'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   poll: MastodonPoll
 }>()
@@ -38,7 +39,7 @@ async function vote() {
     const updated = await postApi.votePoll(props.poll.id, [...selected.value].sort((a, b) => a - b))
     emit('updated', updated)
   } catch (e) {
-    MessagePlugin.error(e instanceof Error && e.message ? `投票失败：${e.message}` : '投票失败')
+    MessagePlugin.error(e instanceof Error && e.message ? t('shared.PostPoll.s8', [e.message]) : t('shared.PostPoll.s9'))
   } finally {
     voting.value = false
   }
@@ -61,7 +62,7 @@ async function vote() {
       </li>
     </ul>
     <fieldset v-else class="post-poll__form">
-      <legend class="sr-only">投票选项</legend>
+      <legend class="sr-only">{{ $t('shared.PostPoll.s1') }}</legend>
       <label v-for="(opt, i) in poll.options" :key="i" class="post-poll__choice" @click.prevent="toggle(i)">
         <input
           :type="poll.multiple ? 'checkbox' : 'radio'"
@@ -81,13 +82,13 @@ async function vote() {
         :loading="voting"
         @click="vote"
       >
-        投票
+        {{ $t('shared.PostPoll.s2') }}
       </t-button>
-      <span>{{ total }} 人参与</span>
-      <span v-if="poll.expired">· 已结束</span>
-      <span v-else-if="poll.expires_at">· <RelativeTime :datetime="poll.expires_at" future /> 后结束</span>
-      <button v-if="!showResults" type="button" class="post-poll__link" @click="revealed = true">查看结果</button>
-      <button v-else-if="revealed && !poll.voted && !poll.expired" type="button" class="post-poll__link" @click="revealed = false">返回投票</button>
+      <span>{{ $t('shared.PostPoll.s3', [total]) }}</span>
+      <span v-if="poll.expired">{{ $t('shared.PostPoll.s4') }}</span>
+      <span v-else-if="poll.expires_at">· <RelativeTime :datetime="poll.expires_at" future /> {{ $t('shared.PostPoll.s5') }}</span>
+      <button v-if="!showResults" type="button" class="post-poll__link" @click="revealed = true">{{ $t('shared.PostPoll.s6') }}</button>
+      <button v-else-if="revealed && !poll.voted && !poll.expired" type="button" class="post-poll__link" @click="revealed = false">{{ $t('shared.PostPoll.s7') }}</button>
     </div>
   </div>
 </template>

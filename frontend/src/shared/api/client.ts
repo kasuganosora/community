@@ -3,6 +3,8 @@ import type { AxiosError } from 'axios'
 import type { ApiErrorData } from '@/shared/types/mastodon'
 import { applyStallRetry } from './stallRetry'
 
+import { t } from '@/shared/i18n'
+import { translateApiError } from '@/shared/i18n/apiErrors'
 // Constants
 export const AUTH_TOKEN_KEY = 'auth_token'
 export const API_BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -99,8 +101,8 @@ function readApiMessage(data: unknown): string | undefined {
   return undefined
 }
 
-export const TIMEOUT_MESSAGE = '加载超时，点重试'
-export const OFFLINE_MESSAGE = '网络已断开，请检查网络连接'
+export const TIMEOUT_MESSAGE = t('shared.client.s1')
+export const OFFLINE_MESSAGE = t('shared.client.s2')
 
 export function isTimeoutError(error: { code?: string, message?: string } | null | undefined): boolean {
   if (!error) return false
@@ -110,31 +112,33 @@ export function isTimeoutError(error: { code?: string, message?: string } | null
 // Enhanced error transform
 function transformError(error: AxiosError<ApiErrorData>): Error {
   const status = error.response?.status
-  const apiMessage = readApiMessage(error.response?.data)
+  const rawApiMessage = readApiMessage(error.response?.data)
+  const apiMessage = translateApiError(rawApiMessage) || rawApiMessage
 
   if (!error.response) {
     // A timeout on a slow link is not "offline": say so, so users retry
     // instead of checking their settings.
     if (isTimeoutError(error)) return Object.assign(new Error(TIMEOUT_MESSAGE), { code: 'ETIMEDOUT' })
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return Object.assign(new Error(OFFLINE_MESSAGE), { code: 'OFFLINE' })
-    return Object.assign(new Error('网络连接失败，请检查网络设置'), { code: 'ERR_NETWORK' })
+    return Object.assign(new Error(t('shared.client.s3')), { code: 'ERR_NETWORK' })
   }
 
+  const make = (message: string) => Object.assign(new Error(message), { status, apiMessage: rawApiMessage })
   switch (status) {
     case 401:
-      return new Error(apiMessage || '登录已过期，请重新登录')
+      return make(apiMessage || t('shared.client.s4'))
     case 403:
-      return new Error(apiMessage || '没有权限执行此操作')
+      return make(apiMessage || t('shared.client.s5'))
     case 404:
-      return new Error(apiMessage || '请求的资源不存在')
+      return make(apiMessage || t('shared.client.s6'))
     case 429:
-      return new Error(apiMessage || '操作过于频繁，请稍后再试')
+      return make(apiMessage || t('shared.client.s7'))
     case 500:
     case 502:
     case 503:
-      return new Error(apiMessage || '服务器暂时不可用，请稍后重试')
+      return make(apiMessage || t('shared.client.s8'))
     default:
-      return new Error(apiMessage || error.message || '请求失败')
+      return make(apiMessage || error.message || t('shared.client.s9'))
   }
 }
 

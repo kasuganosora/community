@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { groupApi } from '../../infrastructure/groupApi'
 import { groupCanSend, mergeGroupMessages, type Group, type GroupMessage } from '../../domain/group'
+import { t } from '@/shared/i18n'
 export function useGroups(selectedId: Ref<string>) {
   const groups = ref<Group[]>([])
   const group = ref<Group | null>(null)
@@ -41,7 +42,7 @@ export function useGroups(selectedId: Ref<string>) {
       if (!active || epoch !== sessionEpoch.value) return
       groups.value = more ? [...new Map([...groups.value, ...page.groups].map(g => [g.id, g])).values()] : page.groups
       listCursor.value = page.next_cursor; listError.value = ''
-    } catch (e) { if (active && epoch === sessionEpoch.value) listError.value = e instanceof Error ? e.message : '群组加载失败' }
+    } catch (e) { if (active && epoch === sessionEpoch.value) listError.value = e instanceof Error ? e.message : t('group.useGroups.s1') }
     finally { if (active && epoch === sessionEpoch.value) listLoading.value = false }
   }
   function revokeInaccessible(error: unknown) {
@@ -54,7 +55,7 @@ export function useGroups(selectedId: Ref<string>) {
     const id = selectedId.value, epoch = sessionEpoch.value, request = version
     if (!id) return
     try { const value = await groupApi.get(id); if (isCurrent(id, epoch) && request === version) { upsertGroup(value); error.value = '' } }
-    catch (e) { if (isCurrent(id, epoch) && request === version) { error.value = e instanceof Error ? e.message : '群信息更新失败'; revokeInaccessible(e) } }
+    catch (e) { if (isCurrent(id, epoch) && request === version) { error.value = e instanceof Error ? e.message : t('group.useGroups.s2'); revokeInaccessible(e) } }
   }
   async function openRoom() {
     const request = ++version, id = selectedId.value, epoch = sessionEpoch.value
@@ -77,7 +78,7 @@ export function useGroups(selectedId: Ref<string>) {
         messages.value = mergeGroupMessages(mergeGroupMessages(previousMessages, page.messages), arrivedDuringRequest)
         historyCursor.value = page.next_cursor
       }
-    } catch (e) { if (isCurrent(id, epoch) && request === version) { error.value = e instanceof Error ? e.message : '群聊加载失败'; revokeInaccessible(e) } }
+    } catch (e) { if (isCurrent(id, epoch) && request === version) { error.value = e instanceof Error ? e.message : t('group.useGroups.s3'); revokeInaccessible(e) } }
     finally { if (isCurrent(id, epoch) && request === version) loading.value = false }
   }
   async function loadHistory() {
@@ -89,7 +90,7 @@ export function useGroups(selectedId: Ref<string>) {
       if (!isCurrent(id, epoch) || request !== version) return
       messages.value = mergeGroupMessages(messages.value, page.messages, true)
       historyCursor.value = page.next_cursor; error.value = ''
-    } catch (e) { if (isCurrent(id, epoch) && request === version) error.value = e instanceof Error ? e.message : '历史加载失败' }
+    } catch (e) { if (isCurrent(id, epoch) && request === version) error.value = e instanceof Error ? e.message : t('group.useGroups.s4') }
     finally { if (isCurrent(id, epoch) && request === version) historyLoading.value = false }
   }
   async function syncLoop() {
@@ -124,8 +125,8 @@ export function useGroups(selectedId: Ref<string>) {
         if (!active || epoch !== sessionEpoch.value) return
         if (isAxiosError(error) && error.response?.data?.code === 'sync_limit_exceeded') {
           syncPaused.value = true
-          syncError.value = typeof error.response.data.error === 'string' ? error.response.data.error : '群组数量超过网页实时同步上限，请使用 Matrix 客户端。'
-          syncError.value += ' 实时同步已暂停；仍可切换群组、查看历史或手动刷新。'
+          syncError.value = typeof error.response.data.error === 'string' ? error.response.data.error : t('group.useGroups.s5')
+          syncError.value += t('group.useGroups.s6')
           const needsInitialHistory = !initialSyncDone
           // A permanent sync limit must not lock the room/history UI behind a waterline that cannot arrive.
           initialSyncDone = true
@@ -135,7 +136,7 @@ export function useGroups(selectedId: Ref<string>) {
         if (isAxiosError(error) && error.response?.data?.code === 'invalid_cursor') { syncCursor = undefined; initialSyncDone = false }
         const busy = isAxiosError(error) && error.response?.data?.code === 'sync_busy'
         // A busy initial sync is retried quickly and silently; it is not a failure.
-        if (!busy) syncError.value = '连接暂时中断，正在自动重新连接。草稿会保留。'
+        if (!busy) syncError.value = t('group.useGroups.s7')
         // A failed live-sync endpoint must not keep a readable room behind an
         // endless initial spinner. Reconcile history again when sync recovers.
         if (!initialSyncDone && !initialFallbackStarted) { initialFallbackStarted = true; await openRoom() }
@@ -155,7 +156,7 @@ export function useGroups(selectedId: Ref<string>) {
       // since an oversized cursor is itself one of the permanent-limit causes.
       syncCursor = undefined
       syncPaused.value = false
-      syncError.value = '正在重新检查实时同步…'
+      syncError.value = t('group.useGroups.s8')
       void syncLoop()
     } finally { if (active && epoch === sessionEpoch.value) refreshing.value = false }
   }

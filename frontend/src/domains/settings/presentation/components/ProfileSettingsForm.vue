@@ -11,6 +11,7 @@ import ImageCropDialog from '@/shared/components/common/ImageCropDialog.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../domain/validation'
 
+import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 
 const profile = reactive({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '' })
@@ -80,10 +81,10 @@ async function applyImage(file: File) {
     // update_credentials only accepts an image URL, so upload it as media first.
     const media = await postApi.uploadMedia(file)
     if (!isCurrent()) return
-    if (!media.url) throw new Error('图片上传后没有返回地址')
+    if (!media.url) throw new Error(t('settings.ProfileSettingsForm.s13'))
     profile[kind] = media.url
   } catch (e2) {
-    if (isCurrent()) profileError.value = e2 instanceof Error ? e2.message : '图片上传失败'
+    if (isCurrent()) profileError.value = e2 instanceof Error ? e2.message : t('settings.ProfileSettingsForm.s14')
   } finally {
     if (isCurrent()) {
       uploading[kind] = false
@@ -118,9 +119,9 @@ async function saveProfile() {
     await authStore.fetchCurrentUser()
     if (!isCurrent()) return
     resetProfile()
-    MessagePlugin.success('个人资料已保存')
+    MessagePlugin.success(t('settings.ProfileSettingsForm.s15'))
   } catch (e) {
-    if (isCurrent()) profileError.value = e instanceof Error ? e.message : '保存失败'
+    if (isCurrent()) profileError.value = e instanceof Error ? e.message : t('settings.ProfileSettingsForm.s16')
   } finally {
     if (isCurrent()) savingProfile.value = false
   }
@@ -147,11 +148,11 @@ onMounted(async () => {
         <UserAvatar v-if="previewAccount" :account="previewAccount" :size="72" class="settings-avatar" />
         <div class="settings-hero__actions">
           <label class="btn btn--secondary btn--sm settings-file">
-            {{ uploading.avatar ? '上传中…' : '更换头像' }}
+            {{ uploading.avatar ? $t('settings.ProfileSettingsForm.s1') : $t('settings.ProfileSettingsForm.s2') }}
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp" class="sr-only" :disabled="savingProfile || uploading.avatar || uploading.header" @change="onPickImage('avatar', $event)" />
           </label>
           <label class="btn btn--secondary btn--sm settings-file">
-            {{ uploading.header ? '上传中…' : '更换封面' }}
+            {{ uploading.header ? $t('settings.ProfileSettingsForm.s1') : $t('settings.ProfileSettingsForm.s3') }}
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp" class="sr-only" :disabled="savingProfile || uploading.avatar || uploading.header" @change="onPickImage('header', $event)" />
           </label>
         </div>
@@ -159,33 +160,33 @@ onMounted(async () => {
     </div>
 
     <div class="settings-field">
-      <label for="set-display-name" class="settings-field__label">昵称</label>
+      <label for="set-display-name" class="settings-field__label">{{ $t('settings.ProfileSettingsForm.s4') }}</label>
       <input id="set-display-name" v-model="profile.display_name" class="settings-input" type="text" :maxlength="MAX_DISPLAY_NAME_LENGTH * 2" autocomplete="nickname" />
     </div>
     <div class="settings-field">
-      <label for="set-note" class="settings-field__label">简介</label>
+      <label for="set-note" class="settings-field__label">{{ $t('settings.ProfileSettingsForm.s5') }}</label>
       <textarea id="set-note" v-model="profile.note" class="settings-input" rows="4" aria-describedby="set-note-hint" />
       <span id="set-note-hint" class="settings-field__hint">{{ Array.from(profile.note).length }} / {{ MAX_NOTE_LENGTH }}</span>
     </div>
     <label class="settings-check">
       <input v-model="profile.locked" type="checkbox" />
-      <span>锁定账号（需要手动批准关注请求）</span>
+      <span>{{ $t('settings.ProfileSettingsForm.s6') }}</span>
     </label>
     <label class="settings-check">
       <input v-model="profile.discoverable" type="checkbox" />
-      <span>允许在目录和发现内容中推荐我的账号</span>
+      <span>{{ $t('settings.ProfileSettingsForm.s7') }}</span>
     </label>
     <label class="settings-check">
       <input v-model="profile.indexable" type="checkbox" />
-      <span>允许索引我的公开帖子，用于搜索和内容发现</span>
+      <span>{{ $t('settings.ProfileSettingsForm.s8') }}</span>
     </label>
-    <p class="settings-field__hint">这些是你对公开内容的发现偏好，与首页阅读模式独立；不会改变帖子可见范围。外部服务器可能无法遵循这些偏好。</p>
+    <p class="settings-field__hint">{{ $t('settings.ProfileSettingsForm.s9') }}</p>
 
     <p v-if="profileError" class="settings-error" role="alert">{{ profileError }}</p>
     <div class="settings-actions">
-      <button type="button" class="btn btn--ghost btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header" @click="resetProfile">还原</button>
+      <button type="button" class="btn btn--ghost btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header" @click="resetProfile">{{ $t('settings.ProfileSettingsForm.s10') }}</button>
       <button type="submit" class="btn btn--primary btn--sm" :disabled="savingProfile || uploading.avatar || uploading.header">
-        {{ savingProfile ? '保存中…' : '保存个人资料' }}
+        {{ savingProfile ? $t('settings.ProfileSettingsForm.s11') : $t('settings.ProfileSettingsForm.s12') }}
       </button>
     </div>
   </form>

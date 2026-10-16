@@ -5,6 +5,7 @@ import { groupApi } from '../../infrastructure/groupApi'
 import { fileSize, groupCanSend, type Group, type GroupMember, type GroupMessage, type GroupSend, type GroupSendResult } from '../../domain/group'
 import EmojiPicker from '@/shared/components/post/EmojiPicker.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
+import { t } from '@/shared/i18n'
 const props = defineProps<{ group: Group; reply?: GroupMessage | null; editing?: GroupMessage | null; members: GroupMember[] }>()
 const emit = defineEmits<{ sent: [messages: GroupMessage[]]; cancelContext: []; dirty: [value: boolean]; locked: [value: boolean] }>()
 interface PendingFile { key: string; file: File; preview: string; percent: number; state: 'waiting' | 'uploading' | 'ready' | 'failed'; id?: string; error?: string; controller?: AbortController }
@@ -30,8 +31,8 @@ async function stopTyping() { clearTimeout(typingTimer); if (lastTyping) { lastT
 function addFiles(selected: File[]) {
   if (!canSend.value || busy.value || frozen.value) return
   for (const file of selected) {
-    if (files.value.length >= (props.group.limits?.max_attachments ?? 8)) { error.value = `每次最多添加 ${props.group.limits?.max_attachments ?? 8} 个附件。`; break }
-    if (file.size > (props.group.limits?.max_upload_bytes ?? 50 * 1024 * 1024)) { error.value = `“${file.name}”超过 ${fileSize(props.group.limits?.max_upload_bytes ?? 50 * 1024 * 1024)}，请选择更小的文件。`; continue }
+    if (files.value.length >= (props.group.limits?.max_attachments ?? 8)) { error.value = t('group.GroupComposer.s25', [props.group.limits?.max_attachments ?? 8]); break }
+    if (file.size > (props.group.limits?.max_upload_bytes ?? 50 * 1024 * 1024)) { error.value = t('group.GroupComposer.s26', [file.name, fileSize(props.group.limits?.max_upload_bytes ?? 50 * 1024 * 1024)]); continue }
     files.value.push({ key: crypto.randomUUID(), file, preview: /^image\/(png|jpeg|gif|webp)$/.test(file.type) ? URL.createObjectURL(file) : '', percent: 0, state: 'waiting' })
   }
   void pumpUploads()
@@ -45,7 +46,7 @@ async function pumpUploads() {
     void groupApi.upload(props.group.id, item.file, item.controller.signal, progress => { item.percent = progress }).then(upload => {
       if (!alive || item.controller?.signal.aborted) return
       item.id = upload.id; item.state = 'ready'; item.percent = 100
-    }).catch(e => { if (alive) { item.state = 'failed'; item.error = item.controller?.signal.aborted ? '上传已取消' : e instanceof Error ? e.message : '上传失败' } }).finally(() => { if (alive) void pumpUploads() })
+    }).catch(e => { if (alive) { item.state = 'failed'; item.error = item.controller?.signal.aborted ? t('group.GroupComposer.s27') : e instanceof Error ? e.message : t('group.GroupComposer.s28') } }).finally(() => { if (alive) void pumpUploads() })
   }
 }
 function removeFile(item: PendingFile) { item.controller?.abort(); if (item.preview) URL.revokeObjectURL(item.preview); files.value = files.value.filter(f => f.key !== item.key) }
@@ -59,7 +60,7 @@ function insert(text: string) {
   typing()
 }
 function selectEmoji(emoji: MastodonEmoji) {
-  if (emoji.local_only) { error.value = '这个表情仅供本站帖子使用，请选择可对外使用的表情。'; return }
+  if (emoji.local_only) { error.value = t('group.GroupComposer.s29'); return }
   selectedEmoji.value.push(emoji.shortcode); insert(`:${emoji.shortcode}:`); picker.value = false
 }
 function mention(member: GroupMember) { mentions.value.push(member.id); insert(`${member.display_name || member.id} `); mentionPicker.value = false }
@@ -79,33 +80,33 @@ async function send() {
     const result = pending.editingId ? await groupApi.replace(props.group.id, pending.editingId, pending.payload) : await groupApi.send(props.group.id, pending.payload)
     if (!alive) return
     emit('sent', result.messages ?? [])
-    if (result.failed_upload_ids?.length || result.status === 'partial') { error.value = '部分内容已发送，重试将继续未完成的部分，不会重复发送成功内容。'; return }
+    if (result.failed_upload_ids?.length || result.status === 'partial') { error.value = t('group.GroupComposer.s30'); return }
     files.value.forEach(file => { if (file.preview) URL.revokeObjectURL(file.preview) }); files.value = []; body.value = ''; selectedEmoji.value = []; mentions.value = []
     frozen.value = null; transaction = crypto.randomUUID(); signature = ''; emit('cancelContext')
   } catch (e) {
     if (!alive) return
     const partial = isAxiosError(e) ? e.response?.data as Partial<GroupSendResult> | undefined : undefined
     if (partial?.messages?.length) emit('sent', partial.messages)
-    error.value = partial?.deleted ? '原消息已删除，但新消息尚未全部发送。草稿已保留，请重试完成发送。' : e instanceof Error ? e.message : '发送失败，草稿已保留'
+    error.value = partial?.deleted ? t('group.GroupComposer.s31') : e instanceof Error ? e.message : t('group.GroupComposer.s32')
   } finally { if (alive) busy.value = false }
 }
-function unlockDraft() { frozen.value = null; transaction = crypto.randomUUID(); signature = ''; error.value = '发送结果可能需要等待同步确认。修改后再次发送会作为一条新消息。' }
+function unlockDraft() { frozen.value = null; transaction = crypto.randomUUID(); signature = ''; error.value = t('group.GroupComposer.s33') }
 onBeforeUnmount(() => { alive = false; void stopTyping(); files.value.forEach(f => { f.controller?.abort(); if (f.preview) URL.revokeObjectURL(f.preview) }) })
 </script>
 <template>
   <form class="group-composer" @submit.prevent="send" @dragover.prevent @drop.prevent="drop">
-    <div v-if="reply || editing" class="group-composer__context"><span>{{ editing ? '编辑会删除原消息并重发；原回复与回应保留在原消息上。' : `回复 ${reply?.sender.display_name}：${reply?.body || '附件'}` }}</span><button type="button" aria-label="取消回复或编辑" :disabled="busy || !!frozen" @click="$emit('cancelContext')">×</button></div>
-    <p v-if="error" class="group-composer__error" role="alert">{{ error }} <button v-if="frozen && !busy" type="button" @click="unlockDraft">修改草稿</button></p>
+    <div v-if="reply || editing" class="group-composer__context"><span>{{ editing ? $t('group.GroupComposer.s1') : $t('group.GroupComposer.s3', [reply?.sender.display_name, reply?.body || $t('group.GroupComposer.s2')]) }}</span><button type="button" :aria-label="$t('group.GroupComposer.s4')" :disabled="busy || !!frozen" @click="$emit('cancelContext')">×</button></div>
+    <p v-if="error" class="group-composer__error" role="alert">{{ error }} <button v-if="frozen && !busy" type="button" @click="unlockDraft">{{ $t('group.GroupComposer.s5') }}</button></p>
     <div v-if="files.length" class="group-composer__files">
-      <div v-for="item in files" :key="item.key" class="group-composer__file"><img v-if="item.preview" :src="item.preview" alt="" /><span><strong>{{ item.file.name }}</strong><small>{{ fileSize(item.file.size) }} · {{ item.state === 'ready' ? '待发送' : item.state === 'uploading' ? `上传 ${item.percent}%` : item.error || '等待上传' }}</small><progress v-if="item.state === 'uploading'" :value="item.percent" max="100" :aria-label="`${item.file.name} 上传进度`" /></span><button v-if="item.state === 'failed'" type="button" :disabled="!canSend || busy || !!frozen" @click="retry(item)">重试</button><button type="button" :disabled="busy || !!frozen" :aria-label="`移除 ${item.file.name}`" @click="removeFile(item)">×</button></div>
+      <div v-for="item in files" :key="item.key" class="group-composer__file"><img v-if="item.preview" :src="item.preview" alt="" /><span><strong>{{ item.file.name }}</strong><small>{{ fileSize(item.file.size) }} · {{ item.state === 'ready' ? $t('group.GroupComposer.s6') : item.state === 'uploading' ? $t('group.GroupComposer.s7', [item.percent]) : item.error || $t('group.GroupComposer.s8') }}</small><progress v-if="item.state === 'uploading'" :value="item.percent" max="100" :aria-label="$t('group.GroupComposer.s9', [item.file.name])" /></span><button v-if="item.state === 'failed'" type="button" :disabled="!canSend || busy || !!frozen" @click="retry(item)">{{ $t('group.GroupComposer.s10') }}</button><button type="button" :disabled="busy || !!frozen" :aria-label="$t('group.GroupComposer.s11', [item.file.name])" @click="removeFile(item)">×</button></div>
     </div>
     <div class="group-composer__surface">
-    <textarea ref="textInput" v-model="body" aria-label="群消息" :readonly="busy || !!frozen || !canSend" :placeholder="canSend ? '写一条消息…' : '当前群组无法在网页发送消息'" rows="2" maxlength="20000" @input="typing" @blur="stopTyping" @paste="paste" @keydown="onSendKeydown" />
-    <div class="group-composer__toolbar"><div><button type="button" :disabled="!canSend || busy || !!frozen" aria-label="添加图片或文件" @click="fileInput?.click()"><t-icon name="file-add" :size="20" /></button><button type="button" :disabled="!canSend || busy || !!frozen" :aria-expanded="picker" aria-label="选择表情" @click="picker = !picker; mentionPicker = false"><t-icon name="happy" :size="20" /></button><button type="button" :disabled="!canSend || busy || !!frozen" :aria-expanded="mentionPicker" aria-label="提及成员" @click="mentionPicker = !mentionPicker; picker = false">@</button></div><small>Ctrl / ⌘ + Enter 发送</small><button class="btn btn--primary btn--sm" type="submit" :disabled="!ready">{{ busy ? '发送中…' : frozen ? '重试发送' : editing ? '删除并重发' : '发送' }}</button></div>
+    <textarea ref="textInput" v-model="body" :aria-label="$t('group.GroupComposer.s12')" :readonly="busy || !!frozen || !canSend" :placeholder="canSend ? $t('group.GroupComposer.s13') : $t('group.GroupComposer.s14')" rows="2" maxlength="20000" @input="typing" @blur="stopTyping" @paste="paste" @keydown="onSendKeydown" />
+    <div class="group-composer__toolbar"><div><button type="button" :disabled="!canSend || busy || !!frozen" :aria-label="$t('group.GroupComposer.s15')" @click="fileInput?.click()"><t-icon name="file-add" :size="20" /></button><button type="button" :disabled="!canSend || busy || !!frozen" :aria-expanded="picker" :aria-label="$t('group.GroupComposer.s16')" @click="picker = !picker; mentionPicker = false"><t-icon name="happy" :size="20" /></button><button type="button" :disabled="!canSend || busy || !!frozen" :aria-expanded="mentionPicker" :aria-label="$t('group.GroupComposer.s17')" @click="mentionPicker = !mentionPicker; picker = false">@</button></div><small>{{ $t('group.GroupComposer.s18') }}</small><button class="btn btn--primary btn--sm" type="submit" :disabled="!ready">{{ busy ? $t('group.GroupComposer.s19') : frozen ? $t('group.GroupComposer.s20') : editing ? $t('group.GroupComposer.s21') : $t('group.GroupComposer.s22') }}</button></div>
     </div>
     <input ref="fileInput" type="file" multiple hidden @change="addFiles(Array.from(($event.target as HTMLInputElement).files || [])); ($event.target as HTMLInputElement).value = ''" />
     <div v-if="picker" class="group-composer__picker"><div class="group-composer__unicode"><button v-for="emoji in ['👍','❤️','😂','🎉','🤔','😊','🙏','👀','😢','🚀','✅','✨']" :key="emoji" type="button" :aria-label="emoji" @click="insert(emoji); picker = false">{{ emoji }}</button></div><EmojiPicker @select="selectEmoji" @close="picker = false" /></div>
-    <div v-if="mentionPicker" class="group-composer__mentions" aria-label="选择提及成员"><button v-for="member in members.filter(m => m.membership === 'join')" :key="member.id" type="button" @click="mention(member)">{{ member.display_name || member.id }}<small>{{ member.id }}</small></button><p v-if="!members.length">请打开群详情加载成员列表。</p></div>
+    <div v-if="mentionPicker" class="group-composer__mentions" :aria-label="$t('group.GroupComposer.s23')"><button v-for="member in members.filter(m => m.membership === 'join')" :key="member.id" type="button" @click="mention(member)">{{ member.display_name || member.id }}<small>{{ member.id }}</small></button><p v-if="!members.length">{{ $t('group.GroupComposer.s24') }}</p></div>
   </form>
 </template>
 <style scoped>

@@ -12,6 +12,7 @@ import EmojiPicker from './EmojiPicker.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import ReactionLabel from './ReactionLabel.vue'
+import { t } from '@/shared/i18n'
 const props = defineProps<{ status: MastodonStatus }>()
 const auth = useAuthStore()
 const pending = ref(false)
@@ -21,7 +22,7 @@ const details = ref(false)
 const loadingDetails = ref(false)
 useTimelineRowPin(() => choosing.value || details.value || pending.value, () => {
   choosing.value = false; details.value = false
-  error.value = '请先关闭其他帖子的编辑器或菜单，再打开新的回应。'
+  error.value = t('shared.PostReactions.s17')
 })
 const responders = ref<MastodonEmojiReaction[]>([])
 const optimistic = ref<MastodonEmojiReaction[] | null>(null)
@@ -63,7 +64,7 @@ async function toggle(name: string) {
   choosing.value = false
   error.value = ''
   try { const updated = await postApi.react(id, name, remove); if (current()) markStatusEdited(updated) }
-  catch { if (current()) error.value = '无法回应，已恢复原状态：表情可能不可用或受限制，帖子也可能已不可见。' }
+  catch { if (current()) error.value = t('shared.PostReactions.s18') }
   finally { if (current()) { optimistic.value = null; pending.value = false } }
 }
 function choose(emoji: MastodonEmoji) { toggle(`:${emoji.shortcode}:`) }
@@ -77,40 +78,40 @@ async function showResponders() {
   loadingDetails.value = true
   error.value = ''
   try { const rows = await postApi.reactions(id); if (current()) responders.value = rows }
-  catch { if (current()) error.value = '无法读取回应者，帖子可能不再对你可见。' }
+  catch { if (current()) error.value = t('shared.PostReactions.s19') }
   finally { if (current()) loadingDetails.value = false }
 }
 </script>
 <template>
   <div class="post-reactions" @click.stop @keydown.stop @keydown.esc="closePicker">
-    <div class="post-reactions__row" aria-label="表情回应" :aria-busy="pending">
-      <button v-for="reaction in reactions" :key="reaction.name" type="button" class="reaction" :class="{ 'reaction--mine': reaction.me, 'reaction--readonly': remoteReaction(reaction) || !auth.currentUser }" :aria-label="`${reaction.name} ${reaction.count} 个回应${reaction.me ? '，撤销我的回应' : ''}`" :title="remoteReaction(reaction) ? '远端表情仅供展示；请管理员复制为本站表情后使用' : reaction.name" :aria-pressed="reaction.me" :disabled="pending || !auth.currentUser || remoteReaction(reaction)" @click="toggle(reaction.name)">
-        <span class="reaction__emoji"><img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" /><span v-else :class="{ 'reaction__sensitive': reaction.is_sensitive }">{{ reaction.is_sensitive ? '敏感表情' : reaction.name }}</span></span>
+    <div class="post-reactions__row" :aria-label="$t('shared.PostReactions.s1')" :aria-busy="pending">
+      <button v-for="reaction in reactions" :key="reaction.name" type="button" class="reaction" :class="{ 'reaction--mine': reaction.me, 'reaction--readonly': remoteReaction(reaction) || !auth.currentUser }" :aria-label="$t('shared.PostReactions.s3', [reaction.name, reaction.count, reaction.me ? $t('shared.PostReactions.s2') : ''])" :title="remoteReaction(reaction) ? $t('shared.PostReactions.s4') : reaction.name" :aria-pressed="reaction.me" :disabled="pending || !auth.currentUser || remoteReaction(reaction)" @click="toggle(reaction.name)">
+        <span class="reaction__emoji"><img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" /><span v-else :class="{ 'reaction__sensitive': reaction.is_sensitive }">{{ reaction.is_sensitive ? $t('shared.PostReactions.s5') : reaction.name }}</span></span>
         <span class="reaction__count">{{ reaction.count }}</span>
         <svg v-if="reaction.me" class="reaction__check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8 3 3 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
-      <button v-if="auth.currentUser" ref="addButton" type="button" class="reaction reaction--add" :class="{ 'reaction--open': choosing }" aria-label="添加表情回应" :aria-expanded="choosing" :disabled="pending" @click="choosing = !choosing">
+      <button v-if="auth.currentUser" ref="addButton" type="button" class="reaction reaction--add" :class="{ 'reaction--open': choosing }" :aria-label="$t('shared.PostReactions.s6')" :aria-expanded="choosing" :disabled="pending" @click="choosing = !choosing">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
       </button>
-      <button v-if="reactions.length" type="button" class="post-reactions__details" :aria-label="`查看回应者，共 ${total} 个回应`" @click="showResponders">查看回应者<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <button v-if="reactions.length" type="button" class="post-reactions__details" :aria-label="$t('shared.PostReactions.s7', [total])" @click="showResponders">{{ $t('shared.PostReactions.s8') }}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
     </div>
     <div v-if="choosing" class="post-reactions__picker">
-      <div class="post-reactions__picker-heading"><span>用表情回应</span><span class="post-reactions__hint">选择一个，再点撤销</span></div>
-      <div class="reaction-quickbar" aria-label="常用表情">
-        <button v-for="emoji in unicode" :key="emoji" type="button" class="reaction-quickbar__item" :class="{ 'reaction-quickbar__item--mine': reactions.some(r => r.name === emoji && r.me) }" :aria-label="`回应 ${emoji}`" :aria-pressed="reactions.some(r => r.name === emoji && r.me)" @click="toggle(emoji)">{{ emoji }}</button>
+      <div class="post-reactions__picker-heading"><span>{{ $t('shared.PostReactions.s9') }}</span><span class="post-reactions__hint">{{ $t('shared.PostReactions.s10') }}</span></div>
+      <div class="reaction-quickbar" :aria-label="$t('shared.PostReactions.s11')">
+        <button v-for="emoji in unicode" :key="emoji" type="button" class="reaction-quickbar__item" :class="{ 'reaction-quickbar__item--mine': reactions.some(r => r.name === emoji && r.me) }" :aria-label="$t('shared.PostReactions.s12', [emoji])" :aria-pressed="reactions.some(r => r.name === emoji && r.me)" @click="toggle(emoji)">{{ emoji }}</button>
       </div>
       <EmojiPicker @select="choose" @close="closePicker" />
     </div>
     <p v-if="error && !details" class="post-reactions__error" role="alert">{{ error }}</p>
-    <t-dialog v-if="details" v-model:visible="details" header="表情回应" :footer="false" width="min(440px, calc(100vw - 32px))">
+    <t-dialog v-if="details" v-model:visible="details" :header="$t('shared.PostReactions.s1')" :footer="false" width="min(440px, calc(100vw - 32px))">
       <div class="responders">
-        <p v-if="loadingDetails" class="responders__state" role="status"><span class="responders__spinner" aria-hidden="true" />正在加载回应者</p>
+        <p v-if="loadingDetails" class="responders__state" role="status"><span class="responders__spinner" aria-hidden="true" />{{ $t('shared.PostReactions.s13') }}</p>
         <p v-else-if="error" class="post-reactions__error" role="alert">{{ error }}</p>
-        <p v-else-if="!responders.length" class="responders__state">还没有回应，来留下第一个表情吧。</p>
+        <p v-else-if="!responders.length" class="responders__state">{{ $t('shared.PostReactions.s14') }}</p>
         <section v-for="reaction in responders" :key="reaction.name" class="responders__group">
-          <h3 class="responders__heading"><ReactionLabel :reaction="reaction" /><span class="responders__count">{{ reaction.count }}</span><span v-if="reaction.me" class="responders__you">你也回应了</span></h3>
+          <h3 class="responders__heading"><ReactionLabel :reaction="reaction" /><span class="responders__count">{{ reaction.count }}</span><span v-if="reaction.me" class="responders__you">{{ $t('shared.PostReactions.s15') }}</span></h3>
           <ul class="responders__accounts"><li v-for="account in reaction.accounts || []" :key="account.id"><router-link :to="`/@${account.acct}`" class="responders__account" @click="details = false"><UserAvatar :account="account" :size="36" /><span class="responders__identity"><span class="responders__name"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></span><span class="responders__handle">@{{ displayAccount(account.acct) }}</span></span></router-link></li></ul>
-          <p v-if="reaction.count > (reaction.accounts?.length || 0)" class="responders__more">显示前 {{ reaction.accounts?.length || 0 }} 位回应者</p>
+          <p v-if="reaction.count > (reaction.accounts?.length || 0)" class="responders__more">{{ $t('shared.PostReactions.s16', [reaction.accounts?.length || 0]) }}</p>
         </section>
       </div>
     </t-dialog>

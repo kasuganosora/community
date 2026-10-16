@@ -94,17 +94,17 @@ onBeforeUnmount(() => {
           type="search"
           name="q"
           autocomplete="off"
-          aria-label="搜索"
-          :placeholder="placeholder || '搜索帖子、用户、话题或群组'"
+          :aria-label="$t('shared.SearchBox.s1')"
+          :placeholder="placeholder || $t('shared.SearchBox.s2')"
         />
         <span v-if="query" class="t-input__suffix t-input__suffix-icon">
-          <button type="button" class="search-box__clear" aria-label="清除搜索" @click.stop="clearSearch">
+          <button type="button" class="search-box__clear" :aria-label="$t('shared.SearchBox.s3')" @click.stop="clearSearch">
             <t-icon name="close" :size="16" />
           </button>
         </span>
       </div>
     </div>
-    <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim() && !allowEmpty">搜索</button>
+    <button type="submit" class="btn btn--primary btn--sm search-box__submit" :disabled="!query.trim() && !allowEmpty">{{ $t('shared.SearchBox.s1') }}</button>
   </form>
 </template>
 

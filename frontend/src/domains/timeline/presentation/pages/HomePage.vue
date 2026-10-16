@@ -16,14 +16,15 @@ import PostComposer from '@/shared/components/post/PostComposer.vue'
 import TimelineFeed from '../components/TimelineFeed.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 
+import { t } from '@/shared/i18n'
 const timelineStore = useTimelineStore()
 const discovery = useDiscoveryFeed()
 const checkingPreference = ref(false)
 type TabType = 'for-you' | 'following' | 'global'
 const tabs = computed<{ value: TabType; label: string }[]>(() => [
-  { value: 'following', label: '关注' },
-  { value: 'for-you', label: '推荐' },
-  { value: 'global', label: '全局' },
+  { value: 'following', label: t('timeline.HomePage.s13') },
+  { value: 'for-you', label: t('timeline.HomePage.s14') },
+  { value: 'global', label: t('timeline.HomePage.s15') },
 ])
 const activeTab = computed({ get: () => timelineStore.homeTab, set: (tab: TabType) => { timelineStore.homeTab = tab } })
 const isDiscovery = computed(() => activeTab.value === 'for-you')
@@ -82,7 +83,7 @@ async function openTimeline() {
       await openChronological()
     } else await discovery.refresh()
   } catch (e) {
-    if (mine === opening && epoch === sessionEpoch.value) discovery.error.value = e instanceof Error ? e.message : '无法读取推荐设置，请重试'
+    if (mine === opening && epoch === sessionEpoch.value) discovery.error.value = e instanceof Error ? e.message : t('timeline.HomePage.s16')
   } finally { if (mine === opening) checkingPreference.value = false }
 }
 function onTabChange(value: TabType) {
@@ -109,8 +110,8 @@ function retry() {
 async function feedback(status: MastodonStatus, action: 'hide_status' | 'hide_author') {
   try {
     await discovery.feedback(status, action)
-    MessagePlugin.success('已更新发现偏好，可在设置中撤销')
-  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : '未能保存，帖子已保留，请重试') }
+    MessagePlugin.success(t('timeline.HomePage.s17'))
+  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : t('timeline.HomePage.s18')) }
 }
 function handlePosted(status: MastodonStatus) { timelineStore.prependStatus(status) }
 watch(() => discovery.disabled.value, disabled => {
@@ -139,13 +140,13 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
 <template>
   <div class="home-page">
     <div class="home-header">
-      <h1 class="page-header__title">首页</h1>
-      <TabBar :model-value="activeTab" :options="tabs" label="时间线" @update:model-value="onTabChange" />
+      <h1 class="page-header__title">{{ $t('timeline.HomePage.s1') }}</h1>
+      <TabBar :model-value="activeTab" :options="tabs" :label="$t('timeline.HomePage.s2')" @update:model-value="onTabChange" />
     </div>
     <PostComposer @posted="handlePosted" />
     <div v-if="isDiscovery && discovery.mode.value === 'chronological_fallback'" class="discovery-note" role="status">
-      发现服务暂时降级，本次仅显示一页近期公开帖。
-      <button type="button" @click="onTabChange('global')">浏览全局</button>
+      {{ $t('timeline.HomePage.s3') }}
+      <button type="button" @click="onTabChange('global')">{{ $t('timeline.HomePage.s4') }}</button>
     </div>
     <NewPostsPill :show="!isDiscovery && chronologicalTimeline.newer.length > 0" top="6.5rem" @click="revealNewer" />
     <TimelineFeed
@@ -154,23 +155,23 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       :loading="loading" :has-more="hasMore" :error="error"
       :auto-load="!isDiscovery || !discovery.autoPaused.value"
       :recommendation="isDiscovery" :recommendation-reasons="isDiscovery ? discovery.reasons.value : undefined"
-      :empty-text="isDiscovery ? '暂时没有符合发现条件的内容，可以关注更多话题，或稍后刷新。' : activeTab === 'global' ? '还没有公开帖子。' : undefined"
+      :empty-text="isDiscovery ? $t('timeline.HomePage.s5') : activeTab === 'global' ? $t('timeline.HomePage.s6') : undefined"
       @pinned-ids="ids => { if (!isDiscovery) timelineStore.setPinnedIds(chronologicalType, ids) }"
       @reload-head="reloadHead" @load-previous="timelineStore.loadPrevious(chronologicalType)"
       @load-more="loadMore" @retry="retry" @recommendation-feedback="feedback"
       @reblog="toggleReblog" @favourite="toggleFavourite" @bookmark="toggleBookmark"
     />
     <div v-if="isDiscovery && discovery.resetRequired.value" class="discovery-note" role="status">
-      本轮推荐已失效或偏好已更新，请刷新后继续。
-      <button type="button" class="btn btn--secondary btn--sm" @click="reloadHead">刷新发现</button>
+      {{ $t('timeline.HomePage.s7') }}
+      <button type="button" class="btn btn--secondary btn--sm" @click="reloadHead">{{ $t('timeline.HomePage.s8') }}</button>
     </div>
     <div v-else-if="isDiscovery && discovery.autoPaused.value" class="discovery-note" role="status">
-      这一部分内容已被过滤，可以继续查看下一部分。
-      <button type="button" class="btn btn--secondary btn--sm" @click="discovery.continueLoading">继续加载</button>
+      {{ $t('timeline.HomePage.s9') }}
+      <button type="button" class="btn btn--secondary btn--sm" @click="discovery.continueLoading">{{ $t('timeline.HomePage.s10') }}</button>
     </div>
     <div v-else-if="isDiscovery && !loading && !hasMore && statuses.length && discovery.mode.value !== 'chronological_fallback'" class="discovery-note" role="status">
-      本轮发现已看完。
-      <button type="button" @click="reloadHead">刷新新一轮</button>
+      {{ $t('timeline.HomePage.s11') }}
+      <button type="button" @click="reloadHead">{{ $t('timeline.HomePage.s12') }}</button>
     </div>
   </div>
 </template>

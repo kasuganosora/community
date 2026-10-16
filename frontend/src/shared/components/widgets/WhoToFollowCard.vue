@@ -13,6 +13,7 @@ import { SUGGESTIONS_LIMIT } from '@/shared/utils/constants'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { MessagePlugin } from '@/shared/ui/feedback'
 
+import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 const suggestions = ref<MastodonAccount[]>([])
 const loading = ref(true)
@@ -40,7 +41,7 @@ async function loadSuggestions() {
   } catch (e) {
     if (!cancelled && mine === version && epoch === sessionEpoch.value) {
       console.error('Failed to load suggestions:', e)
-      error.value = e instanceof Error ? e.message : '加载失败'
+      error.value = e instanceof Error ? e.message : t('shared.WhoToFollowCard.s5')
     }
   } finally {
     if (!cancelled && mine === version && epoch === sessionEpoch.value) {
@@ -65,8 +66,8 @@ async function removeSuggestion(user: MastodonAccount) {
     if (epoch !== sessionEpoch.value) return
     suggestions.value = suggestions.value.filter(item => item.id !== user.id)
     invalidateDiscovery()
-    MessagePlugin.success('已移除，可在发现设置中撤销')
-  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : '移除失败，请重试') }
+    MessagePlugin.success(t('shared.WhoToFollowCard.s6'))
+  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : t('shared.WhoToFollowCard.s7')) }
 }
 
 async function handleFollow(user: MastodonAccount) {
@@ -74,27 +75,27 @@ async function handleFollow(user: MastodonAccount) {
     await relationships.toggleFollow(user.id)
   } catch (e) {
     console.error('Failed to toggle follow:', e)
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
+    MessagePlugin.error(e instanceof Error ? e.message : t('shared.WhoToFollowCard.s8'))
   }
 }
 </script>
 
 <template>
   <div class="follow-card" v-if="loading">
-    <h2 class="follow-card__title">推荐关注</h2>
+    <h2 class="follow-card__title">{{ $t('shared.WhoToFollowCard.s1') }}</h2>
     <div class="follow-card__loading">
       <t-loading size="small" />
     </div>
   </div>
   <div class="follow-card" v-else-if="error && !suggestions.length">
-    <h2 class="follow-card__title">推荐关注</h2>
+    <h2 class="follow-card__title">{{ $t('shared.WhoToFollowCard.s1') }}</h2>
     <div class="follow-card__error">
       <p>{{ error }}</p>
-      <t-button size="small" @click="loadSuggestions">重试</t-button>
+      <t-button size="small" @click="loadSuggestions">{{ $t('shared.WhoToFollowCard.s2') }}</t-button>
     </div>
   </div>
   <div class="follow-card" v-else-if="suggestions.length">
-    <h2 class="follow-card__title">推荐关注</h2>
+    <h2 class="follow-card__title">{{ $t('shared.WhoToFollowCard.s1') }}</h2>
     <div
       v-for="user in suggestions"
       :key="user.id"
@@ -117,10 +118,10 @@ async function handleFollow(user: MastodonAccount) {
       >
         {{ followButtonLabel(relationships.state(user.id) === 'unknown' ? 'none' : relationships.state(user.id), relationships.rels.get(user.id)?.followed_by) }}
       </t-button>
-      <button type="button" class="follow-item__remove" :aria-label="`移除 ${user.display_name || user.username} 的关注建议`" @click="removeSuggestion(user)"><t-icon name="close" :size="14" /></button>
+      <button type="button" class="follow-item__remove" :aria-label="$t('shared.WhoToFollowCard.s3', [user.display_name || user.username])" @click="removeSuggestion(user)"><t-icon name="close" :size="14" /></button>
     </div>
     <div class="follow-card__more">
-      <router-link to="/explore">发现更多</router-link>
+      <router-link to="/explore">{{ $t('shared.WhoToFollowCard.s4') }}</router-link>
     </div>
   </div>
 </template>

@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive } from 'vue'
 import { announcementsAuditApi as api, type AuditLog } from '../../infrastructure/announcementsAuditApi'
+import { t } from '@/shared/i18n'
 const filters = reactive({ actor_id: '', action: '', outcome: '', from: '', to: '' })
 const rows = ref<AuditLog[]>([])
 const cursors = ref([''])
 const loading = ref(false)
 const error = ref('')
-const names = { pending: '结果待确认', success: '成功', failure: '失败' }
+const names = { pending: t('admin.AuditLogsAdminPage.s24'), success: t('admin.AuditLogsAdminPage.s7'), failure: t('admin.AuditLogsAdminPage.s8') }
 async function load(reset = false) {
   if (loading.value) return
   if (reset) cursors.value = ['']
   loading.value = true; error.value = ''
   try { rows.value = await api.logs({ ...filters, from: filters.from ? new Date(filters.from).toISOString() : '', to: filters.to ? new Date(filters.to).toISOString() : '', max_id: cursors.value.at(-1) || '' }) }
-  catch (e) { rows.value = []; error.value = e instanceof Error ? e.message : '读取失败' }
+  catch (e) { rows.value = []; error.value = e instanceof Error ? e.message : t('admin.AuditLogsAdminPage.s25') }
   finally { loading.value = false }
 }
 function page(next: boolean) {
@@ -24,26 +25,26 @@ onMounted(() => load())
 </script>
 <template>
   <section class="admin-page">
-    <header><h1>审计日志</h1><p>管理操作的身份与结果；“待确认”不代表成功。</p></header>
+    <header><h1>{{ $t('admin.AuditLogsAdminPage.s1') }}</h1><p>{{ $t('admin.AuditLogsAdminPage.s2') }}</p></header>
     <form class="admin-toolbar" @submit.prevent="load(true)">
-      <label class="admin-field">管理员用户 ID<input v-model="filters.actor_id" inputmode="numeric" pattern="[0-9]*" /></label>
-      <label class="admin-field">操作（精确 method + route）<input v-model="filters.action" placeholder="POST /api/v1/admin/accounts/:id/action" /></label>
-      <label class="admin-field">结果<select v-model="filters.outcome"><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option><option value="pending">待确认</option></select></label>
-      <label class="admin-field">开始时间<input v-model="filters.from" type="datetime-local" /></label>
-      <label class="admin-field">结束时间<input v-model="filters.to" type="datetime-local" /></label>
-      <button class="admin-button admin-button--primary" :disabled="loading">筛选</button>
+      <label class="admin-field">{{ $t('admin.AuditLogsAdminPage.s3') }}<input v-model="filters.actor_id" inputmode="numeric" pattern="[0-9]*" /></label>
+      <label class="admin-field">{{ $t('admin.AuditLogsAdminPage.s4') }}<input v-model="filters.action" placeholder="POST /api/v1/admin/accounts/:id/action" /></label>
+      <label class="admin-field">{{ $t('admin.AuditLogsAdminPage.s5') }}<select v-model="filters.outcome"><option value="">{{ $t('admin.AuditLogsAdminPage.s6') }}</option><option value="success">{{ $t('admin.AuditLogsAdminPage.s7') }}</option><option value="failure">{{ $t('admin.AuditLogsAdminPage.s8') }}</option><option value="pending">{{ $t('admin.AuditLogsAdminPage.s9') }}</option></select></label>
+      <label class="admin-field">{{ $t('admin.AuditLogsAdminPage.s10') }}<input v-model="filters.from" type="datetime-local" /></label>
+      <label class="admin-field">{{ $t('admin.AuditLogsAdminPage.s11') }}<input v-model="filters.to" type="datetime-local" /></label>
+      <button class="admin-button admin-button--primary" :disabled="loading">{{ $t('admin.AuditLogsAdminPage.s12') }}</button>
     </form>
     <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
-    <p v-if="loading" class="admin-empty" role="status">正在加载…</p>
+    <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.AuditLogsAdminPage.s13') }}</p>
     <div v-else class="admin-card">
-      <div class="admin-table-wrap" role="region" aria-label="审计日志，可横向滚动" tabindex="0">
+      <div class="admin-table-wrap" role="region" :aria-label="$t('admin.AuditLogsAdminPage.s14')" tabindex="0">
         <table class="admin-table">
-          <thead><tr><th>时间</th><th>管理员 / 账号</th><th>操作 / 目标</th><th>结果</th><th>HTTP / 耗时</th></tr></thead>
-          <tbody><tr v-for="row in rows" :key="row.id"><td>{{ new Date(row.created_at).toLocaleString() }}</td><td>#{{ row.actor_id }} / #{{ row.account_id }}</td><td>{{ row.action }}<br />目标 #{{ row.target_id || '—' }}</td><td><span class="admin-badge" :class="{'admin-badge--success':row.outcome==='success','admin-badge--danger':row.outcome==='failure','admin-badge--warning':row.outcome==='pending'}">{{ names[row.outcome] }}</span></td><td>{{ row.status || '—' }} / {{ row.duration_ms }} ms</td></tr></tbody>
+          <thead><tr><th>{{ $t('admin.AuditLogsAdminPage.s15') }}</th><th>{{ $t('admin.AuditLogsAdminPage.s16') }}</th><th>{{ $t('admin.AuditLogsAdminPage.s17') }}</th><th>{{ $t('admin.AuditLogsAdminPage.s5') }}</th><th>{{ $t('admin.AuditLogsAdminPage.s18') }}</th></tr></thead>
+          <tbody><tr v-for="row in rows" :key="row.id"><td>{{ new Date(row.created_at).toLocaleString() }}</td><td>#{{ row.actor_id }} / #{{ row.account_id }}</td><td>{{ row.action }}<br />{{ $t('admin.AuditLogsAdminPage.s19', [row.target_id || '—']) }}</td><td><span class="admin-badge" :class="{'admin-badge--success':row.outcome==='success','admin-badge--danger':row.outcome==='failure','admin-badge--warning':row.outcome==='pending'}">{{ names[row.outcome] }}</span></td><td>{{ row.status || '—' }} / {{ row.duration_ms }} ms</td></tr></tbody>
         </table>
       </div>
-      <p v-if="!error && !rows.length" class="admin-empty">没有匹配的审计日志</p>
+      <p v-if="!error && !rows.length" class="admin-empty">{{ $t('admin.AuditLogsAdminPage.s20') }}</p>
     </div>
-    <nav class="admin-pagination" aria-label="审计日志分页"><button class="admin-button" :disabled="loading || cursors.length === 1" @click="page(false)">上一页</button><button class="admin-button" :disabled="loading || rows.length < 40" @click="page(true)">下一页</button></nav>
+    <nav class="admin-pagination" :aria-label="$t('admin.AuditLogsAdminPage.s21')"><button class="admin-button" :disabled="loading || cursors.length === 1" @click="page(false)">{{ $t('admin.AuditLogsAdminPage.s22') }}</button><button class="admin-button" :disabled="loading || rows.length < 40" @click="page(true)">{{ $t('admin.AuditLogsAdminPage.s23') }}</button></nav>
   </section>
 </template>

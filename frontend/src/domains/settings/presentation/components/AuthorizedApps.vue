@@ -4,6 +4,7 @@ import { useSettingsScope } from '../composables/useSettingsScope'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import { authApi, type AuthorizedApp } from '@/domains/auth/infrastructure/authApi'
 
+import { t } from '@/shared/i18n'
 const apps = ref<AuthorizedApp[]>([])
 const loadError = ref('')
 const fetching = ref(true)
@@ -18,7 +19,7 @@ async function refresh() {
     const result = await authApi.listAuthorizedApps()
     if (current()) apps.value = result
   } catch {
-    if (current()) loadError.value = '加载失败，请重试'
+    if (current()) loadError.value = t('settings.AuthorizedApps.s6')
   } finally {
     if (current()) fetching.value = false
   }
@@ -33,7 +34,7 @@ async function revoke(id: string) {
     if (!current()) return
     apps.value = apps.value.filter(app => app.id !== id)
   } catch {
-    if (current()) MessagePlugin.error('撤销失败')
+    if (current()) MessagePlugin.error(t('settings.AuthorizedApps.s7'))
   } finally {
     if (current()) revoking.value = ''
   }
@@ -46,16 +47,16 @@ onMounted(() => {
 
 <template>
   <div class="apps">
-    <p v-if="fetching" class="hint" role="status">正在加载…</p>
-    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">重试</button></div>
-    <p v-if="!fetching && !loadError && apps.length === 0" class="hint">还没有已授权的应用。</p>
+    <p v-if="fetching" class="hint" role="status">{{ $t('settings.AuthorizedApps.s1') }}</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">{{ $t('settings.AuthorizedApps.s2') }}</button></div>
+    <p v-if="!fetching && !loadError && apps.length === 0" class="hint">{{ $t('settings.AuthorizedApps.s3') }}</p>
     <ul v-else-if="!fetching && !loadError && apps.length">
       <li v-for="app in apps" :key="app.id">
         <span>
           <strong>{{ app.name }}</strong>
           <small v-if="app.scopes">{{ app.scopes }}</small>
         </span>
-        <button type="button" :disabled="!!revoking" :aria-busy="revoking === app.id" @click="revoke(app.id)">{{ revoking === app.id ? '撤销中…' : '撤销' }}</button>
+        <button type="button" :disabled="!!revoking" :aria-busy="revoking === app.id" @click="revoke(app.id)">{{ revoking === app.id ? $t('settings.AuthorizedApps.s4') : $t('settings.AuthorizedApps.s5') }}</button>
       </li>
     </ul>
   </div>

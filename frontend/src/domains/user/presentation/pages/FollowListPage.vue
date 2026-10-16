@@ -12,6 +12,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ kind: 'followers' | 'following' }>()
 
 const route = useRoute()
@@ -29,12 +30,12 @@ const error = ref<string | null>(null)
 const relationships = useRelationships()
 let version = 0
 
-const title = computed(() => props.kind === 'followers' ? '关注者' : '正在关注')
+const title = computed(() => props.kind === 'followers' ? t('user.FollowListPage.s9') : t('user.FollowListPage.s10'))
 const followTabs = computed(() => {
   const name = String(route.params.username ?? '')
   return [
-    { value: 'followers' as const, label: '关注者', to: `/@${name}/followers` },
-    { value: 'following' as const, label: '正在关注', to: `/@${name}/following` },
+    { value: 'followers' as const, label: t('user.FollowListPage.s9'), to: `/@${name}/followers` },
+    { value: 'following' as const, label: t('user.FollowListPage.s10'), to: `/@${name}/following` },
   ]
 })
 
@@ -52,7 +53,7 @@ async function load() {
     error.value = feed.error.value
   } catch (e) {
     if (my !== version) return
-    error.value = e instanceof Error ? e.message : '加载失败'
+    error.value = e instanceof Error ? e.message : t('user.FollowListPage.s3')
   } finally {
     if (my === version) loading.value = false
   }
@@ -62,7 +63,7 @@ async function toggleFollow(account: MastodonAccount) {
   try {
     await relationships.toggleFollow(account.id)
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error ? e.message : t('user.FollowListPage.s11'))
   }
 }
 
@@ -73,7 +74,7 @@ onMounted(load)
 <template>
   <div class="follow-list-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" type="button" aria-label="返回" @click="$router.back()">
+      <button class="page-header__back-btn" type="button" :aria-label="$t('user.FollowListPage.s1')" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
@@ -82,21 +83,21 @@ onMounted(load)
       </div>
     </div>
 
-    <TabBar :model-value="kind" :options="followTabs" label="关注关系" />
+    <TabBar :model-value="kind" :options="followTabs" :label="$t('user.FollowListPage.s2')" />
 
     <div v-if="loading" class="page-loading"><t-loading /></div>
 
     <div v-else-if="error" class="empty-state" role="alert">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
-      <h2 class="empty-state__title">加载失败</h2>
+      <h2 class="empty-state__title">{{ $t('user.FollowListPage.s3') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="load">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="load">{{ $t('user.FollowListPage.s4') }}</button>
     </div>
 
     <div v-else-if="accounts.length === 0" class="empty-state">
       <div class="empty-state__icon"><t-icon name="user" :size="48" /></div>
-      <h2 class="empty-state__title">{{ kind === 'followers' ? '还没有关注者' : '还没有关注任何人' }}</h2>
-      <p v-if="owner?.hide_collections" class="empty-state__text">该用户隐藏了关注关系。</p>
+      <h2 class="empty-state__title">{{ kind === 'followers' ? $t('user.FollowListPage.s5') : $t('user.FollowListPage.s6') }}</h2>
+      <p v-if="owner?.hide_collections" class="empty-state__text">{{ $t('user.FollowListPage.s7') }}</p>
     </div>
 
     <template v-else>
@@ -110,7 +111,7 @@ onMounted(load)
         @toggle-follow="toggleFollow"
       />
       <p v-if="feed.error.value" role="alert">{{ feed.error.value }}</p>
-      <button v-if="hasMore" type="button" class="btn btn--secondary btn--sm" :disabled="feed.loading.value" @click="feed.loadMore">加载更多</button>
+      <button v-if="hasMore" type="button" class="btn btn--secondary btn--sm" :disabled="feed.loading.value" @click="feed.loadMore">{{ $t('user.FollowListPage.s8') }}</button>
     </template>
   </div>
 </template>

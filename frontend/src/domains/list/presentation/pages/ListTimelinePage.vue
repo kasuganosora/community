@@ -16,6 +16,7 @@ import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '@/domains/timeline/presentation/components/TimelineFeed.vue'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
 
+import { t as i18nT } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -50,7 +51,7 @@ async function load() {
     feed.refresh()
     if (route.query.manage === '1') void openManage()
   } catch (e) {
-    if (version === loadVersion) listError.value = e instanceof Error ? e.message : '列表不存在'
+    if (version === loadVersion) listError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s31')
   }
 }
 
@@ -95,7 +96,7 @@ async function openManage() {
     tags.value = t
     candidates.value = following
   } catch (e) {
-    if (version === loadVersion) manageError.value = e instanceof Error ? e.message : '加载成员失败'
+    if (version === loadVersion) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s32')
   } finally {
     if (version === loadVersion) membersLoading.value = false
   }
@@ -128,7 +129,7 @@ async function addTag(name = tagQuery.value) {
   const tag = normalizeTagInput(name)
   if (!tag) return
   if (tagKeys.value.has(tag.toLowerCase())) { tagQuery.value = ''; return }
-  if (tags.value.length >= MAX_LIST_TAGS) { manageError.value = `每个列表最多 ${MAX_LIST_TAGS} 个话题`; return }
+  if (tags.value.length >= MAX_LIST_TAGS) { manageError.value = i18nT('list.ListTimelinePage.s33', [MAX_LIST_TAGS]); return }
   const operation = mutationScope()
   busy.value = true
   manageError.value = null
@@ -139,7 +140,7 @@ async function addTag(name = tagQuery.value) {
     tagQuery.value = ''
     tagSuggestions.value = []
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '添加话题失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s34')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -154,7 +155,7 @@ async function removeTag(t: MastodonTag) {
     if (!operation.current()) return
     tags.value = updated
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '移除话题失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s35')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -180,9 +181,9 @@ async function saveSettings() {
     const updated = await listApi.updateList(operation.id, editTitle.value.trim(), editPolicy.value)
     if (!operation.current()) return
     list.value = updated
-    MessagePlugin.success('已保存')
+    MessagePlugin.success(i18nT('list.ListTimelinePage.s36'))
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '保存失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s37')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -197,7 +198,7 @@ async function addMember(a: MastodonAccount) {
     if (!operation.current()) return
     members.value = [...members.value, a]
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '添加失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s38')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -212,7 +213,7 @@ async function removeMember(a: MastodonAccount) {
     if (!operation.current()) return
     members.value = members.value.filter(m => m.id !== a.id)
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '移除失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s39')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -231,12 +232,12 @@ async function deleteList() {
   try {
     await listApi.deleteList(operation.id)
     if (!operation.current()) return
-    MessagePlugin.success('列表已删除')
+    MessagePlugin.success(i18nT('list.ListTimelinePage.s40'))
     manageOpen.value = false
     confirmDelete.value = false
     router.replace('/lists').catch(() => {})
   } catch (e) {
-    if (operation.current()) manageError.value = e instanceof Error ? e.message : '删除失败'
+    if (operation.current()) manageError.value = e instanceof Error ? e.message : i18nT('list.ListTimelinePage.s41')
   } finally {
     if (operation.current()) busy.value = false
   }
@@ -255,18 +256,18 @@ onMounted(load)
 <template>
   <div class="list-timeline-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" type="button" aria-label="返回" @click="$router.back()">
+      <button class="page-header__back-btn" type="button" :aria-label="$t('list.ListTimelinePage.s1')" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
-      <h1 class="page-header__title list-timeline-page__title">{{ list?.title ?? '列表' }}</h1>
-      <button v-if="list" type="button" class="btn btn--secondary btn--sm" @click="openManage">管理</button>
+      <h1 class="page-header__title list-timeline-page__title">{{ list?.title ?? $t('list.ListTimelinePage.s2') }}</h1>
+      <button v-if="list" type="button" class="btn btn--secondary btn--sm" @click="openManage">{{ $t('list.ListTimelinePage.s3') }}</button>
     </div>
 
     <div v-if="listError" class="empty-state" role="alert">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
-      <h2 class="empty-state__title">无法打开列表</h2>
+      <h2 class="empty-state__title">{{ $t('list.ListTimelinePage.s4') }}</h2>
       <p class="empty-state__text">{{ listError }}</p>
-      <router-link to="/lists" class="btn btn--secondary btn--sm">返回列表</router-link>
+      <router-link to="/lists" class="btn btn--secondary btn--sm">{{ $t('list.ListTimelinePage.s5') }}</router-link>
     </div>
 
     <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
@@ -281,8 +282,8 @@ onMounted(load)
       :loading="loading"
       :has-more="hasMore"
       :error="error"
-      empty-title="列表时间线为空"
-      empty-text="点击「管理」添加成员，他们的新帖子会出现在这里。"
+      :empty-title="$t('list.ListTimelinePage.s6')"
+      :empty-text="$t('list.ListTimelinePage.s7')"
       @load-more="feed.loadMore"
       @retry="statuses.length && hasMore ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"
@@ -293,7 +294,7 @@ onMounted(load)
 
     <t-dialog
       v-model:visible="manageOpen"
-      header="管理列表"
+      :header="$t('list.ListTimelinePage.s8')"
       :footer="false"
       width="560px"
       destroy-on-close
@@ -301,75 +302,75 @@ onMounted(load)
     >
       <form class="manage-form" @submit.prevent="saveSettings">
         <label class="manage-field">
-          <span class="manage-field__label">名称</span>
+          <span class="manage-field__label">{{ $t('list.ListTimelinePage.s9') }}</span>
           <input v-model="editTitle" class="manage-input" type="text" :maxlength="MAX_LIST_TITLE_LENGTH" />
         </label>
         <label class="manage-field">
-          <span class="manage-field__label">回复显示</span>
+          <span class="manage-field__label">{{ $t('list.ListTimelinePage.s10') }}</span>
           <select v-model="editPolicy" class="manage-input">
             <option v-for="o in REPLIES_POLICY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </label>
         <div class="manage-actions">
-          <button type="submit" class="btn btn--primary btn--sm" :disabled="busy">保存</button>
+          <button type="submit" class="btn btn--primary btn--sm" :disabled="busy">{{ $t('list.ListTimelinePage.s11') }}</button>
         </div>
       </form>
 
       <p v-if="manageError" class="manage-error" role="alert">{{ manageError }}</p>
 
-      <h3 class="manage-subtitle">话题（{{ tags.length }}/{{ MAX_LIST_TAGS }}）</h3>
-      <p class="manage-hint manage-hint--tight">带有这些话题的公开帖子也会出现在列表中。</p>
-      <ul v-if="tags.length" class="tag-chips" aria-label="列表话题">
+      <h3 class="manage-subtitle">{{ $t('list.ListTimelinePage.s12', [tags.length, MAX_LIST_TAGS]) }}</h3>
+      <p class="manage-hint manage-hint--tight">{{ $t('list.ListTimelinePage.s13') }}</p>
+      <ul v-if="tags.length" class="tag-chips" :aria-label="$t('list.ListTimelinePage.s14')">
         <li v-for="t in tags" :key="t.name" class="tag-chip">
           <span>#{{ t.name }}</span>
-          <button type="button" class="tag-chip__remove" :aria-label="`移除话题 ${t.name}`" :disabled="busy" @click="removeTag(t)">
+          <button type="button" class="tag-chip__remove" :aria-label="$t('list.ListTimelinePage.s15', [t.name])" :disabled="busy" @click="removeTag(t)">
             <t-icon name="close" :size="14" />
           </button>
         </li>
       </ul>
       <form v-if="tags.length < MAX_LIST_TAGS" class="tag-add" @submit.prevent="addTag()">
-        <label for="list-tag-input" class="sr-only">添加话题</label>
+        <label for="list-tag-input" class="sr-only">{{ $t('list.ListTimelinePage.s16') }}</label>
         <input id="list-tag-input" v-model="tagQuery" class="manage-input" type="text" inputmode="text" enterkeyhint="done"
-          autocomplete="off" autocapitalize="off" placeholder="#话题名" maxlength="100" />
-        <button type="submit" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy || !tagQuery.trim()">添加话题</button>
+          autocomplete="off" autocapitalize="off" :placeholder="$t('list.ListTimelinePage.s17')" maxlength="100" />
+        <button type="submit" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy || !tagQuery.trim()">{{ $t('list.ListTimelinePage.s16') }}</button>
       </form>
-      <ul v-if="visibleSuggestions.length" class="tag-suggestions" role="listbox" aria-label="话题建议">
+      <ul v-if="visibleSuggestions.length" class="tag-suggestions" role="listbox" :aria-label="$t('list.ListTimelinePage.s18')">
         <li v-for="s in visibleSuggestions" :key="s.name">
           <button type="button" role="option" :aria-selected="false" :disabled="busy" @click="addTag(s.name)">#{{ s.name }}</button>
         </li>
       </ul>
 
-      <h3 class="manage-subtitle">成员（{{ members.length }}）</h3>
+      <h3 class="manage-subtitle">{{ $t('list.ListTimelinePage.s19', [members.length]) }}</h3>
       <div v-if="membersLoading" class="page-loading"><t-loading /></div>
       <template v-else>
-        <p v-if="members.length === 0" class="manage-hint">还没有成员。</p>
+        <p v-if="members.length === 0" class="manage-hint">{{ $t('list.ListTimelinePage.s20') }}</p>
         <AccountRow v-for="m in members" :key="m.id" :account="m">
           <template #action>
-            <button type="button" class="btn btn--ghost btn--sm manage-row-btn" :disabled="busy" @click.stop="removeMember(m)">移除</button>
+            <button type="button" class="btn btn--ghost btn--sm manage-row-btn" :disabled="busy" @click.stop="removeMember(m)">{{ $t('list.ListTimelinePage.s21') }}</button>
           </template>
         </AccountRow>
 
-        <h3 class="manage-subtitle">从关注的人中添加</h3>
-        <label for="member-filter" class="sr-only">筛选关注的人</label>
-        <input id="member-filter" v-model="memberQuery" class="manage-input" type="search" placeholder="筛选关注的人" />
+        <h3 class="manage-subtitle">{{ $t('list.ListTimelinePage.s22') }}</h3>
+        <label for="member-filter" class="sr-only">{{ $t('list.ListTimelinePage.s23') }}</label>
+        <input id="member-filter" v-model="memberQuery" class="manage-input" type="search" :placeholder="$t('list.ListTimelinePage.s23')" />
         <p v-if="filteredCandidates.length === 0" class="manage-hint">
-          {{ candidates.length === 0 ? '你还没有关注任何人（列表只能添加已关注的账号）。' : '没有更多可添加的人。' }}
+          {{ candidates.length === 0 ? $t('list.ListTimelinePage.s24') : $t('list.ListTimelinePage.s25') }}
         </p>
         <AccountRow v-for="a in filteredCandidates" :key="a.id" :account="a">
           <template #action>
-            <button type="button" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy" @click.stop="addMember(a)">添加</button>
+            <button type="button" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy" @click.stop="addMember(a)">{{ $t('list.ListTimelinePage.s26') }}</button>
           </template>
         </AccountRow>
       </template>
 
       <div class="manage-danger">
         <template v-if="!confirmDelete">
-          <button type="button" class="btn btn--danger btn--sm" @click="confirmDelete = true">删除列表</button>
+          <button type="button" class="btn btn--danger btn--sm" @click="confirmDelete = true">{{ $t('list.ListTimelinePage.s27') }}</button>
         </template>
         <template v-else>
-          <span>确定删除「{{ list?.title }}」？此操作无法撤销。</span>
-          <button type="button" class="btn btn--ghost btn--sm" @click="confirmDelete = false">取消</button>
-          <button type="button" class="btn btn--danger btn--sm" :disabled="busy" @click="deleteList">删除</button>
+          <span>{{ $t('list.ListTimelinePage.s28', [list?.title]) }}</span>
+          <button type="button" class="btn btn--ghost btn--sm" @click="confirmDelete = false">{{ $t('list.ListTimelinePage.s29') }}</button>
+          <button type="button" class="btn btn--danger btn--sm" :disabled="busy" @click="deleteList">{{ $t('list.ListTimelinePage.s30') }}</button>
         </template>
       </div>
     </t-dialog>

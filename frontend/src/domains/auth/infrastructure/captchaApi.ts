@@ -1,5 +1,6 @@
 import client from '@/shared/api/client'
 
+import { t } from '@/shared/i18n'
 export interface CaptchaConfig {
   enabled: boolean
   provider: string
@@ -75,7 +76,7 @@ export async function solveCaptchaPow(salt: string, bits: number): Promise<strin
     if (leadingZeroBits(digest) >= bits) return nonce
     if ((i & 255) === 255) await new Promise((resolve) => setTimeout(resolve, 0))
   }
-  throw new Error('验证码确认失败，请换一个')
+  throw new Error(t('auth.captchaApi.s1'))
 }
 
 function rotr(x: number, n: number) {
@@ -198,7 +199,7 @@ export function loadCaptchaScript(src: string): Promise<void> {
     script.onerror = () => {
       loading.delete(src)
       script.remove()
-      reject(new Error('验证码脚本加载失败'))
+      reject(new Error(t('auth.captchaApi.s2')))
     }
     if (!prior) document.head.appendChild(script)
   })

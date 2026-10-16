@@ -4,6 +4,7 @@ import { MessagePlugin } from '@/shared/ui/feedback'
 import { useSettingsScope } from '../composables/useSettingsScope'
 import { moderationApi } from '../../infrastructure/moderationApi'
 
+import { t } from '@/shared/i18n'
 const domains = ref<string[]>([])
 const domain = ref('')
 const loading = ref(true)
@@ -21,7 +22,7 @@ async function load() {
     const result = await moderationApi.listDomainBlocks()
     if (current()) domains.value = result
   } catch (e) {
-    if (current()) loadError.value = e instanceof Error ? e.message : '域名列表加载失败'
+    if (current()) loadError.value = e instanceof Error ? e.message : t('settings.DomainBlockSettings.s10')
   } finally {
     if (current()) loading.value = false
   }
@@ -32,7 +33,7 @@ async function addDomain() {
   const current = scope()
   const value = domain.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '')
   if (!value || value.includes(' ') || !value.includes('.')) {
-    error.value = '填一个域名，比如 example.com'
+    error.value = t('settings.DomainBlockSettings.s11')
     return
   }
   saving.value = true
@@ -42,9 +43,9 @@ async function addDomain() {
     if (!current()) return
     if (!domains.value.includes(value)) domains.value = [value, ...domains.value]
     domain.value = ''
-    MessagePlugin.success('已屏蔽这个域名')
+    MessagePlugin.success(t('settings.DomainBlockSettings.s12'))
   } catch (e) {
-    if (current()) error.value = e instanceof Error ? e.message : '屏蔽失败'
+    if (current()) error.value = e instanceof Error ? e.message : t('settings.DomainBlockSettings.s13')
   } finally {
     if (current()) saving.value = false
   }
@@ -58,9 +59,9 @@ async function remove(value: string) {
     await moderationApi.unblockDomain(value)
     if (!current()) return
     domains.value = domains.value.filter((item) => item !== value)
-    MessagePlugin.success('已取消屏蔽')
+    MessagePlugin.success(t('settings.DomainBlockSettings.s14'))
   } catch (e) {
-    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '取消失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : t('settings.DomainBlockSettings.s15'))
   } finally {
     if (current()) removing.value = ''
   }
@@ -71,23 +72,23 @@ onMounted(load)
 
 <template>
   <form class="settings-form" @submit.prevent="addDomain">
-    <p class="settings-field__hint">屏蔽后，这个域名上的账号和帖子不会再出现在你的时间线和搜索里。</p>
-    <p v-if="loading" class="settings-field__hint" role="status">正在加载…</p>
-    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost btn--sm" @click="load">重试</button></div>
+    <p class="settings-field__hint">{{ $t('settings.DomainBlockSettings.s1') }}</p>
+    <p v-if="loading" class="settings-field__hint" role="status">{{ $t('settings.DomainBlockSettings.s2') }}</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost btn--sm" @click="load">{{ $t('settings.DomainBlockSettings.s3') }}</button></div>
     <ul v-else-if="domains.length" class="domain-list">
       <li v-for="item in domains" :key="item">
         <span>{{ item }}</span>
-        <button type="button" class="btn btn--ghost btn--sm" :disabled="!!removing || saving" :aria-busy="removing === item" @click="remove(item)">{{ removing === item ? '解除中…' : '解除' }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="!!removing || saving" :aria-busy="removing === item" @click="remove(item)">{{ removing === item ? $t('settings.DomainBlockSettings.s4') : $t('settings.DomainBlockSettings.s5') }}</button>
       </li>
     </ul>
-    <p v-else class="settings-field__hint">还没有屏蔽的域名。</p>
+    <p v-else class="settings-field__hint">{{ $t('settings.DomainBlockSettings.s6') }}</p>
     <div class="settings-field">
-      <label for="domain-block" class="settings-field__label">域名</label>
+      <label for="domain-block" class="settings-field__label">{{ $t('settings.DomainBlockSettings.s7') }}</label>
       <input id="domain-block" v-model="domain" class="settings-input" type="text" inputmode="url" autocomplete="off" placeholder="example.com" />
     </div>
     <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
     <div class="settings-actions">
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving || loading || !!removing || !!loadError">{{ saving ? '添加中…' : '屏蔽域名' }}</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving || loading || !!removing || !!loadError">{{ saving ? $t('settings.DomainBlockSettings.s8') : $t('settings.DomainBlockSettings.s9') }}</button>
     </div>
   </form>
 </template>

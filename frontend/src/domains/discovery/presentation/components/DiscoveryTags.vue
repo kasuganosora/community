@@ -7,12 +7,13 @@ import { formatCount } from '@/shared/utils/format'
 import { discoveryApi, isDiscoveryReset, type TagsPage, type TagItem } from '../../infrastructure/discoveryApi'
 import { discoveryInvalidation, invalidateDiscovery } from '../composables/discoveryState'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ compact?: boolean }>()
 const auth = useAuthStore()
 const windowSize = ref<'24h' | '7d'>('24h')
 const items = ref<TagItem[]>([]), page = ref<TagsPage | null>(null)
 const loading = ref(false), error = ref(''), reset = ref(false)
-const title = computed(() => page.value?.kind === 'recent' ? '近期话题' : '热点话题')
+const title = computed(() => page.value?.kind === 'recent' ? t('discovery.DiscoveryTags.s17') : t('discovery.DiscoveryTags.s18'))
 let version = 0, controller: AbortController | undefined
 async function load(more = false) {
   if (more && (loading.value || !page.value?.next_cursor || reset.value)) return
@@ -25,7 +26,7 @@ async function load(more = false) {
     const value = await discoveryApi.tags({ window: windowSize.value, scope: 'federated', limit: props.compact ? 5 : 20, cursor }, controller.signal)
     if (mine !== version || epoch !== sessionEpoch.value) return
     if (value.disabled) { page.value = value; items.value = []; return }
-    if (cursor && value.next_cursor === cursor) throw new Error('话题分页没有前进，请刷新后重试')
+    if (cursor && value.next_cursor === cursor) throw new Error(t('discovery.DiscoveryTags.s19'))
     const names = new Set(items.value.map(item => item.name))
     items.value = [...items.value, ...value.items.filter(item => {
       if (names.has(item.name)) return false
@@ -37,7 +38,7 @@ async function load(more = false) {
   } catch (e) {
     if (mine !== version || epoch !== sessionEpoch.value) return
     if (isDiscoveryReset(e)) reset.value = true
-    else error.value = e instanceof Error ? e.message : '无法加载话题，请重试'
+    else error.value = e instanceof Error ? e.message : t('discovery.DiscoveryTags.s20')
   } finally { if (mine === version) loading.value = false }
 }
 async function hideTag(tag: TagItem) {
@@ -47,8 +48,8 @@ async function hideTag(tag: TagItem) {
     if (epoch !== sessionEpoch.value) return
     items.value = items.value.filter(item => item.name !== tag.name)
     invalidateDiscovery(value)
-    MessagePlugin.success('已停止推荐这个话题，可在设置中撤销')
-  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : '未能保存，请重试') }
+    MessagePlugin.success(t('discovery.DiscoveryTags.s21'))
+  } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : t('discovery.DiscoveryTags.s22')) }
 }
 function resume() { if (!document.hidden) void load() }
 watch([windowSize, sessionEpoch, discoveryInvalidation], () => { void load() }, { flush: 'sync' })
@@ -60,29 +61,29 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
   <section v-if="!compact || !page?.disabled" class="discovery-tags" :class="{ 'discovery-tags--compact': compact }" :aria-busy="loading">
     <header class="discovery-tags__header">
       <h2>{{ title }}</h2>
-      <select v-if="!compact" v-model="windowSize" class="discovery-tags__window" aria-label="统计窗口"><option value="24h">24 小时</option><option value="7d">7 天</option></select>
+      <select v-if="!compact" v-model="windowSize" class="discovery-tags__window" :aria-label="$t('discovery.DiscoveryTags.s1')"><option value="24h">{{ $t('discovery.DiscoveryTags.s2') }}</option><option value="7d">{{ $t('discovery.DiscoveryTags.s3') }}</option></select>
     </header>
-    <p v-if="page?.disabled" class="discovery-tags__message" role="status">本站暂未开放热点话题。</p>
-    <p v-else-if="page?.kind === 'recent' && !compact" class="discovery-tags__message">当前参与人数不足以形成热点榜，以下是窗口内的近期公开话题。</p>
+    <p v-if="page?.disabled" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s4') }}</p>
+    <p v-else-if="page?.kind === 'recent' && !compact" class="discovery-tags__message">{{ $t('discovery.DiscoveryTags.s5') }}</p>
     <ul v-if="items.length" class="discovery-tags__list">
       <li v-for="tag in items" :key="tag.name">
         <router-link :to="`/tags/${encodeURIComponent(tag.name.replace(/^#/, ''))}`">
           <strong>#{{ tag.name }}</strong>
-          <span>{{ formatCount(tag.posts_count) }} 条公开帖 · {{ formatCount(tag.authors_count) }} 位作者</span>
+          <span>{{ $t('discovery.DiscoveryTags.s6', [formatCount(tag.posts_count), formatCount(tag.authors_count)]) }}</span>
         </router-link>
-        <button v-if="auth.currentUser && !compact" type="button" class="discovery-tags__hide" :aria-label="`停止推荐话题 ${tag.name}`" @click="hideTag(tag)"><t-icon name="close" :size="16" /></button>
+        <button v-if="auth.currentUser && !compact" type="button" class="discovery-tags__hide" :aria-label="$t('discovery.DiscoveryTags.s7', [tag.name])" @click="hideTag(tag)"><t-icon name="close" :size="16" /></button>
       </li>
     </ul>
-    <p v-if="error" class="discovery-tags__message discovery-tags__error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="load(!!items.length)">重试</button></p>
-    <p v-if="loading" class="discovery-tags__message" role="status">正在读取话题…</p>
-    <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">最近暂无可展示的公开话题。</p>
-    <p v-if="reset" class="discovery-tags__message" role="status">榜单已更新，请刷新后继续。 <button type="button" @click="load()">刷新榜单</button></p>
+    <p v-if="error" class="discovery-tags__message discovery-tags__error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="load(!!items.length)">{{ $t('discovery.DiscoveryTags.s8') }}</button></p>
+    <p v-if="loading" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s9') }}</p>
+    <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">{{ $t('discovery.DiscoveryTags.s10') }}</p>
+    <p v-if="reset" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s11') }} <button type="button" @click="load()">{{ $t('discovery.DiscoveryTags.s12') }}</button></p>
     <div v-if="!compact && page && !page.disabled" class="discovery-tags__footer">
-      <p v-if="!page.coverage_complete">统计受处理预算限制，仅反映本站本轮已观察的内容。</p>
-      <button v-if="page.next_cursor && !reset" type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="load(true)">继续加载</button>
-      <button v-else type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load()">刷新话题</button>
+      <p v-if="!page.coverage_complete">{{ $t('discovery.DiscoveryTags.s13') }}</p>
+      <button v-if="page.next_cursor && !reset" type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="load(true)">{{ $t('discovery.DiscoveryTags.s14') }}</button>
+      <button v-else type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load()">{{ $t('discovery.DiscoveryTags.s15') }}</button>
     </div>
-    <router-link v-if="compact" class="discovery-tags__more" to="/explore/topics">查看全部话题</router-link>
+    <router-link v-if="compact" class="discovery-tags__more" to="/explore/topics">{{ $t('discovery.DiscoveryTags.s16') }}</router-link>
   </section>
 </template>
 

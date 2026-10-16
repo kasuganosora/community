@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
           <span class="sheet__grabber" aria-hidden="true" />
           <div class="sheet__bar">
             <slot name="leading">
-              <button type="button" class="sheet__close" aria-label="关闭" @click="requestClose()">
+              <button type="button" class="sheet__close" :aria-label="$t('shared.BottomSheet.s1')" @click="requestClose()">
                 <t-icon name="close" :size="18" />
               </button>
             </slot>

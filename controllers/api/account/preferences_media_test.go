@@ -93,4 +93,20 @@ func TestMediaDisplayPreference(t *testing.T) {
 	assert.Equal(t, 401, code)
 	code, _ = do(http.MethodGet, "", false)
 	assert.Equal(t, 401, code)
+
+	// Web UI language: stored on its own, without touching the media mode.
+	code, out = do(http.MethodGet, "", true)
+	require.Equal(t, 200, code)
+	assert.Nil(t, out["interface:locale"])
+	code, out = do(http.MethodPatch, `{"interface:locale":"de"}`, true)
+	require.Equal(t, 200, code, out)
+	assert.Equal(t, "de", out["interface:locale"])
+	assert.Equal(t, "default", out["reading:expand:media"])
+	code, _ = do(http.MethodPatch, `{"interface:locale":"xx"}`, true)
+	assert.Equal(t, 422, code)
+	code, _ = do(http.MethodPatch, `{}`, true)
+	assert.Equal(t, 422, code)
+	code, out = do(http.MethodGet, "", true)
+	require.Equal(t, 200, code)
+	assert.Equal(t, "de", out["interface:locale"])
 }

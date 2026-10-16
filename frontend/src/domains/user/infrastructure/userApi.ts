@@ -4,6 +4,7 @@ import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/sh
 import type { PaginationParams } from '@/shared/types/pagination'
 import { pickAccountByAcct } from '../domain/acct'
 
+import { t } from '@/shared/i18n'
 export type ProfileBackfillState = 'pending' | 'done' | 'unavailable' | null
 
 export type AccountStatusesParams = {
@@ -44,7 +45,7 @@ export const userApi = {
    */
   async lookupAccount(acct: string): Promise<MastodonAccount> {
     const q = acct.trim().replace(/^@/, '')
-    if (!q) throw new Error('用户不存在')
+    if (!q) throw new Error(t('user.userApi.s1'))
     try {
       const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct: q } })
       return data
@@ -58,7 +59,7 @@ export const userApi = {
       const match = pickAccountByAcct(data, q, window.location.hostname)
       if (match) return match
     }
-    throw new Error('用户不存在')
+    throw new Error(t('user.userApi.s1'))
   },
 
   async getStatuses(id: string, params?: AccountStatusesParams): Promise<MastodonStatus[]> {

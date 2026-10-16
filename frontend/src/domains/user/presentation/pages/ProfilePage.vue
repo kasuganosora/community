@@ -23,6 +23,7 @@ import AddToListButton from '@/domains/list/presentation/components/AddToListBut
 import ReportDialog from '../components/ReportDialog.vue'
 import ProfileMediaGrid from '../components/ProfileMediaGrid.vue'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const authStore = useAuthStore()
 const account = ref<MastodonAccount | null>(null)
@@ -124,7 +125,7 @@ async function loadProfile() {
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load profile:', e)
-    error.value = e instanceof Error ? e.message : '加载失败'
+    error.value = e instanceof Error ? e.message : t('user.ProfilePage.s22')
   } finally {
     if (myVersion === requestVersion) loading.value = false
   }
@@ -142,7 +143,7 @@ async function toggleFollow() {
       account.value.followers_count = Math.max(0, account.value.followers_count + Number(following) - Number(wasFollowing))
     }
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error ? e.message : t('user.ProfilePage.s23'))
   }
 }
 
@@ -157,7 +158,7 @@ function toggleMute() {
   const id = account.value.id
   const muting = relationship.value.muting
   void applyRelation(muting ? userApi.unmute(id) : userApi.mute(id)).catch((e) => {
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error ? e.message : t('user.ProfilePage.s23'))
   })
 }
 
@@ -166,16 +167,16 @@ function toggleBlock() {
   const id = account.value.id
   const blocking = relationship.value.blocking
   const dialog = DialogPlugin.confirm({
-    header: blocking ? '取消屏蔽？' : '屏蔽这个账号？',
-    body: blocking ? '取消后可以再次看到对方的帖子。' : '屏蔽后会取消互相关注，并且不再看到对方的帖子。',
-    confirmBtn: blocking ? '取消屏蔽' : { content: '屏蔽', theme: 'danger' },
-    cancelBtn: '取消',
+    header: blocking ? t('user.ProfilePage.s24') : t('user.ProfilePage.s25'),
+    body: blocking ? t('user.ProfilePage.s26') : t('user.ProfilePage.s27'),
+    confirmBtn: blocking ? t('user.ProfilePage.s8') : { content: t('user.ProfilePage.s9'), theme: 'danger' },
+    cancelBtn: t('user.ProfilePage.s28'),
     onConfirm: async () => {
       try {
         await applyRelation(blocking ? userApi.unblock(id) : userApi.block(id))
-        MessagePlugin.success(blocking ? '已取消屏蔽' : '已屏蔽')
+        MessagePlugin.success(blocking ? t('user.ProfilePage.s29') : t('user.ProfilePage.s30'))
       } catch (e) {
-        MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+        MessagePlugin.error(e instanceof Error ? e.message : t('user.ProfilePage.s23'))
       } finally {
         dialog.destroy()
       }
@@ -203,13 +204,13 @@ watch(activeTab, () => {
         class="page-header__back-btn"
         type="button"
         @click="$router.back()"
-        aria-label="返回"
+        :aria-label="$t('user.ProfilePage.s1')"
       >
         <t-icon name="chevron-left" :size="20" />
       </button>
       <div>
         <h1 class="page-header__title" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h1>
-        <span class="profile-header-bar__count">{{ formatCount(account.statuses_count) }} 条帖子</span>
+        <span class="profile-header-bar__count">{{ $t('user.ProfilePage.s2', [formatCount(account.statuses_count)]) }}</span>
       </div>
     </div>
 
@@ -224,7 +225,7 @@ watch(activeTab, () => {
       <div class="profile-info__top">
         <UserAvatar :account="account" :size="128" class="profile-avatar" />
         <t-button v-if="isOwnProfile" theme="default" shape="round" class="edit-btn" @click="$router.push('/settings')">
-          编辑个人资料
+          {{ $t('user.ProfilePage.s3') }}
         </t-button>
         <t-button
           v-else-if="followState !== 'unknown'"
@@ -242,14 +243,14 @@ watch(activeTab, () => {
       <h2 class="profile-name" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h2>
       <div class="profile-username">
         @{{ displayAccount(account.acct) }}
-        <span v-if="relationship?.followed_by" class="profile-follows-you">关注了你</span>
+        <span v-if="relationship?.followed_by" class="profile-follows-you">{{ $t('user.ProfilePage.s4') }}</span>
       </div>
       <AddToListButton v-if="!isOwnProfile && followState === 'following'" :account-id="account.id" />
       <div v-if="!isOwnProfile && followState !== 'unknown'" class="profile-relations">
-        <router-link v-if="!relationship?.blocking && !relationship?.blocked_by" class="btn btn--ghost btn--sm" :to="{ path: '/messages', query: { to: account.acct } }">发消息</router-link>
-        <button type="button" class="btn btn--ghost btn--sm" @click="toggleMute">{{ relationship?.muting ? '取消静音' : '静音' }}</button>
-        <button type="button" class="btn btn--ghost btn--sm" @click="toggleBlock">{{ relationship?.blocking ? '取消屏蔽' : '屏蔽' }}</button>
-        <button type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>
+        <router-link v-if="!relationship?.blocking && !relationship?.blocked_by" class="btn btn--ghost btn--sm" :to="{ path: '/messages', query: { to: account.acct } }">{{ $t('user.ProfilePage.s5') }}</router-link>
+        <button type="button" class="btn btn--ghost btn--sm" @click="toggleMute">{{ relationship?.muting ? $t('user.ProfilePage.s6') : $t('user.ProfilePage.s7') }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" @click="toggleBlock">{{ relationship?.blocking ? $t('user.ProfilePage.s8') : $t('user.ProfilePage.s9') }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" @click="reporting = true">{{ $t('user.ProfilePage.s10') }}</button>
       </div>
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
@@ -264,11 +265,11 @@ watch(activeTab, () => {
       <div class="profile-stats">
         <router-link :to="`${profileBase}/following`" class="stat-item">
           <strong>{{ formatCount(account.following_count) }}</strong>
-          <span> 正在关注</span>
+          <span> {{ $t('user.ProfilePage.s11') }}</span>
         </router-link>
         <router-link :to="`${profileBase}/followers`" class="stat-item">
           <strong>{{ formatCount(account.followers_count) }}</strong>
-          <span> 关注者</span>
+          <span> {{ $t('user.ProfilePage.s12') }}</span>
         </router-link>
       </div>
     </div>
@@ -277,7 +278,7 @@ watch(activeTab, () => {
     <TabBar
       v-model="activeTab"
       :options="visibleTabs"
-      label="个人主页"
+      :label="$t('user.ProfilePage.s13')"
       style="margin-top: var(--space-4)"
     />
 
@@ -290,15 +291,15 @@ watch(activeTab, () => {
       data-testid="profile-backfill-pending"
     >
       <t-loading size="small" />
-      <span>正在从对方站点获取帖子…</span>
+      <span>{{ $t('user.ProfilePage.s14') }}</span>
     </div>
     <div
       v-else-if="isRemote && activeTab !== 'likes' && backfill === 'unavailable' && statuses.length === 0 && !feed.loading.value"
       class="profile-backfill profile-backfill--hint"
       data-testid="profile-backfill-unavailable"
     >
-      <span>对方站点未公开帖子列表，这里可能只显示部分帖子。</span>
-      <a v-if="remoteProfileUrl" :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">去对方站点查看</a>
+      <span>{{ $t('user.ProfilePage.s15') }}</span>
+      <a v-if="remoteProfileUrl" :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">{{ $t('user.ProfilePage.s16') }}</a>
     </div>
 
     <!-- Posts -->
@@ -318,8 +319,8 @@ watch(activeTab, () => {
       :loading="feed.loading.value"
       :has-more="feed.hasMore.value"
       :error="feed.error.value"
-      empty-title="暂无内容"
-      :empty-text="activeTab === 'likes' ? '你喜欢的帖子会显示在这里。' : '这里还没有帖子。'"
+      :empty-title="$t('user.ProfilePage.s17')"
+      :empty-text="activeTab === 'likes' ? $t('user.ProfilePage.s18') : $t('user.ProfilePage.s19')"
       @load-more="feed.loadMore"
       @retry="statuses.length && feed.hasMore.value ? feed.loadMore() : feed.refresh()"
       @reblog="toggleReblog"
@@ -337,9 +338,9 @@ watch(activeTab, () => {
     <div class="empty-state__icon">
       <t-icon name="error-circle" :size="48" />
     </div>
-    <h2 class="empty-state__title">无法加载此用户</h2>
+    <h2 class="empty-state__title">{{ $t('user.ProfilePage.s20') }}</h2>
     <p class="empty-state__text">{{ error }}</p>
-    <button type="button" class="btn btn--secondary btn--sm" @click="loadProfile">重试</button>
+    <button type="button" class="btn btn--secondary btn--sm" @click="loadProfile">{{ $t('user.ProfilePage.s21') }}</button>
   </div>
 </template>
 

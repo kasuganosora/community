@@ -11,6 +11,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { activeNavSection } from '@/shared/utils/nav'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -23,17 +24,17 @@ function goHome() {
 
 // Use computed to make navItems reactive based on currentUser
 const navItems = computed(() => [
-  { value: 'home', label: '首页', icon: 'home', iconActive: 'home-filled', route: '/' },
-  { value: 'explore', label: '探索', icon: 'search', iconActive: 'search', route: '/explore' },
-  { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
-  { value: 'announcements', label: '公告', icon: 'loudspeaker', iconActive: 'loudspeaker-filled', route: '/announcements' },
-  { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
-  { value: 'groups', label: '群组', icon: 'usergroup', iconActive: 'usergroup', route: '/groups' },
-  { value: 'bookmarks', label: '收藏', icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
-  { value: 'lists', label: '列表', icon: 'view-list', iconActive: 'view-list', route: '/lists' },
-  { value: 'profile', label: '个人主页', icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
-  ...(adminEntry(authStore.currentUser) ? [{ value: 'admin', label: '管理后台', icon: 'dashboard', iconActive: 'dashboard', route: adminEntry(authStore.currentUser)! }] : []),
-  { value: 'settings', label: '设置', icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
+  { value: 'home', label: t('shared.LeftSidebar.s8'), icon: 'home', iconActive: 'home-filled', route: '/' },
+  { value: 'explore', label: t('shared.LeftSidebar.s9'), icon: 'search', iconActive: 'search', route: '/explore' },
+  { value: 'notifications', label: t('shared.LeftSidebar.s10'), icon: 'notification', iconActive: 'notification-filled', route: '/notifications' },
+  { value: 'announcements', label: t('shared.LeftSidebar.s11'), icon: 'loudspeaker', iconActive: 'loudspeaker-filled', route: '/announcements' },
+  { value: 'messages', label: t('shared.LeftSidebar.s12'), icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
+  { value: 'groups', label: t('shared.LeftSidebar.s13'), icon: 'usergroup', iconActive: 'usergroup', route: '/groups' },
+  { value: 'bookmarks', label: t('shared.LeftSidebar.s14'), icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
+  { value: 'lists', label: t('shared.LeftSidebar.s15'), icon: 'view-list', iconActive: 'view-list', route: '/lists' },
+  { value: 'profile', label: t('shared.LeftSidebar.s16'), icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
+  ...(adminEntry(authStore.currentUser) ? [{ value: 'admin', label: t('shared.LeftSidebar.s17'), icon: 'dashboard', iconActive: 'dashboard', route: adminEntry(authStore.currentUser)! }] : []),
+  { value: 'settings', label: t('shared.LeftSidebar.s18'), icon: 'setting', iconActive: 'setting-filled', route: '/settings' },
 ])
 
 // Segment-aware: a status page under /@me/status/… used to light up 个人主页.
@@ -58,7 +59,7 @@ async function handleLogout() {
     router.push({ name: 'landing' }).catch(() => {})
   } catch (e) {
     console.error('Logout failed:', e)
-    MessagePlugin.error('退出失败，请稍后重试')
+    MessagePlugin.error(t('shared.LeftSidebar.s19'))
   }
 }
 </script>
@@ -66,12 +67,12 @@ async function handleLogout() {
 <template>
   <div class="left-sidebar">
     <!-- Logo -->
-    <button class="sidebar-logo" @click="goHome" aria-label="返回首页">
+    <button class="sidebar-logo" @click="goHome" :aria-label="$t('shared.LeftSidebar.s1')">
       <LogoIcon :size="32" />
     </button>
 
     <!-- Navigation -->
-    <nav class="sidebar-nav" aria-label="主导航">
+    <nav class="sidebar-nav" :aria-label="$t('shared.LeftSidebar.s2')">
       <button
         v-for="item in navItems"
         :key="item.value"
@@ -93,17 +94,17 @@ async function handleLogout() {
         class="btn btn--primary btn--lg post-btn"
         data-shot="compose"
         @click="handleCompose"
-        :aria-label="authStore.currentUser ? '发布新帖子' : '请先登录'"
+        :aria-label="authStore.currentUser ? $t('shared.LeftSidebar.s3') : $t('shared.LeftSidebar.s4')"
       >
         <t-icon name="edit" :size="20" class="post-btn__icon" />
-        <span class="post-btn__label">发布</span>
+        <span class="post-btn__label">{{ $t('shared.LeftSidebar.s5') }}</span>
       </button>
     </div>
 
     <!-- User Info -->
     <div class="sidebar-user" v-if="authStore.currentUser">
       <t-popup v-model:visible="menuOpen" trigger="click" placement="top-left" :overlay-inner-style="{ padding: '4px' }">
-        <button type="button" class="user-info" data-qa="sidebar-account" aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="`账户菜单：@${authStore.currentUser.username}`">
+        <button type="button" class="user-info" data-qa="sidebar-account" aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="$t('shared.LeftSidebar.s6', [authStore.currentUser.username])">
           <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
             <div class="user-info__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></div>
@@ -115,7 +116,7 @@ async function handleLogout() {
           <AccountSwitchList @close="menuOpen = false" />
           <div class="user-menu__divider" />
           <button type="button" class="user-menu__logout" data-qa="acct-logout" @click="menuOpen = false; handleLogout()">
-            退出 @{{ authStore.currentUser.username }}
+            {{ $t('shared.LeftSidebar.s7', [authStore.currentUser.username]) }}
           </button>
         </template>
       </t-popup>

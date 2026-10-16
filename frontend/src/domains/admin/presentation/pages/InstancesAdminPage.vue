@@ -5,19 +5,20 @@ import { federationJobsApi as api, type Instance } from '../../infrastructure/fe
 import { moderationSettingsApi, type InstanceModerationAction } from '../../infrastructure/moderationSettingsApi'
 import QueueSparkline from '../components/QueueSparkline.vue'
 
+import { t } from '@/shared/i18n'
 const PAGE = 30
 const STATUSES = [
-  { key: '', label: '全部' }, { key: 'federating', label: '联邦通信中' }, { key: 'subscribing', label: '订阅中' },
-  { key: 'publishing', label: '发布中' }, { key: 'failing', label: '故障/无响应' },
-  { key: 'suspended', label: '已暂停' }, { key: 'blocked', label: '已屏蔽' }, { key: 'silenced', label: '已静音' }, { key: 'media_silenced', label: '媒体已静音' },
+  { key: '', label: t('admin.InstancesAdminPage.s40') }, { key: 'federating', label: t('admin.InstancesAdminPage.s41') }, { key: 'subscribing', label: t('admin.InstancesAdminPage.s42') },
+  { key: 'publishing', label: t('admin.InstancesAdminPage.s43') }, { key: 'failing', label: t('admin.InstancesAdminPage.s44') },
+  { key: 'suspended', label: t('admin.InstancesAdminPage.s45') }, { key: 'blocked', label: t('admin.InstancesAdminPage.s46') }, { key: 'silenced', label: t('admin.InstancesAdminPage.s47') }, { key: 'media_silenced', label: t('admin.InstancesAdminPage.s48') },
 ]
 const SORTS = [
-  { key: 'pubsub_desc', label: 'Pub/Sub 账户（降序）' }, { key: 'pubsub_asc', label: 'Pub/Sub 账户（升序）' },
-  { key: 'accounts_desc', label: '账户数（降序）' }, { key: 'accounts_asc', label: '账户数（升序）' },
-  { key: 'last_activity_desc', label: '最后活动（最新）' }, { key: 'last_activity_asc', label: '最后活动（最早）' },
-  { key: 'first_seen_desc', label: '首次发现（最新）' }, { key: 'first_seen_asc', label: '首次发现（最早）' },
+  { key: 'pubsub_desc', label: t('admin.InstancesAdminPage.s49') }, { key: 'pubsub_asc', label: t('admin.InstancesAdminPage.s50') },
+  { key: 'accounts_desc', label: t('admin.InstancesAdminPage.s51') }, { key: 'accounts_asc', label: t('admin.InstancesAdminPage.s52') },
+  { key: 'last_activity_desc', label: t('admin.InstancesAdminPage.s53') }, { key: 'last_activity_asc', label: t('admin.InstancesAdminPage.s54') },
+  { key: 'first_seen_desc', label: t('admin.InstancesAdminPage.s55') }, { key: 'first_seen_asc', label: t('admin.InstancesAdminPage.s56') },
 ]
-const STATUS_LABEL: Record<string, string> = { federating: '联邦通信中', subscribing: '订阅中', publishing: '发布中', failing: '故障/无响应', idle: '无关注关系' }
+const STATUS_LABEL: Record<string, string> = { federating: t('admin.InstancesAdminPage.s41'), subscribing: t('admin.InstancesAdminPage.s42'), publishing: t('admin.InstancesAdminPage.s43'), failing: t('admin.InstancesAdminPage.s44'), idle: t('admin.InstancesAdminPage.s57') }
 
 const items = ref<Instance[]>([]), total = ref(0), page = ref(0), busy = ref(false), error = ref('')
 const q = ref(''), status = ref(''), sort = ref('pubsub_desc')
@@ -40,7 +41,7 @@ async function load(reset = false) {
     items.value = [...items.value, ...(data.items || [])]
     total.value = data.total
     loadActivity((data.items || []).map(i => i.domain))
-  } catch { if (mine === version) error.value = '无法读取实例数据，请重试。' }
+  } catch { if (mine === version) error.value = t('admin.InstancesAdminPage.s58') }
   finally { if (mine === version) busy.value = false }
 }
 async function loadActivity(domains: string[]) {
@@ -54,13 +55,13 @@ function title(i: Instance) { return i.name?.trim() || i.domain }
 function subline(i: Instance) { return [i.domain, [i.software, i.version].filter(Boolean).join(' ')].filter(Boolean).join(' / ') }
 function letter(i: Instance) { return (title(i).match(/[\p{L}\p{N}]/u)?.[0] || '?').toUpperCase() }
 function hue(d: string) { let h = 0; for (const c of d) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
-function when(v?: string | null) { return v ? new Date(v).toLocaleString() : '尚无记录' }
+function when(v?: string | null) { return v ? new Date(v).toLocaleString() : t('admin.InstancesAdminPage.s59') }
 function sum(v?: number[]) { return (v || []).reduce((a, b) => a + b, 0) }
 const acting = ref(''), actionError = ref('')
 const ACTION_CONFIRM: Partial<Record<InstanceModerationAction, string>> = {
-  block: '屏蔽后将停止与该实例（含子域名）的全部联邦通信，并对本站隐藏其已有内容。确定屏蔽吗？',
-  suspend: '暂停后将不再向该实例投递活动（仍接收对方的活动）。确定暂停投递吗？',
-  silence: '静音后该实例的公开帖子不再出现在公共时间线，对方关注本站用户需要批准。确定静音吗？',
+  block: t('admin.InstancesAdminPage.s60'),
+  suspend: t('admin.InstancesAdminPage.s61'),
+  silence: t('admin.InstancesAdminPage.s62'),
 }
 async function moderate(i: Instance, action: InstanceModerationAction) {
   const confirmText = ACTION_CONFIRM[action]
@@ -71,11 +72,11 @@ async function moderate(i: Instance, action: InstanceModerationAction) {
     const patch = { is_blocked: st.is_blocked, is_suspended: st.is_suspended, is_silenced: st.is_silenced, is_media_silenced: st.is_media_silenced }
     items.value = items.value.map(x => x.domain === i.domain ? { ...x, ...patch } : x)
     if (selected.value?.domain === i.domain) selected.value = { ...selected.value, ...patch }
-  } catch { actionError.value = '操作失败，请确认权限后重试。' }
+  } catch { actionError.value = t('admin.InstancesAdminPage.s63') }
   finally { acting.value = '' }
 }
 function flags(i: Instance) {
-  return [i.is_blocked && '已屏蔽', i.is_suspended && '已暂停', i.is_silenced && '已静音', i.is_media_silenced && '媒体已静音'].filter(Boolean) as string[]
+  return [i.is_blocked && t('admin.InstancesAdminPage.s46'), i.is_suspended && t('admin.InstancesAdminPage.s45'), i.is_silenced && t('admin.InstancesAdminPage.s47'), i.is_media_silenced && t('admin.InstancesAdminPage.s48')].filter(Boolean) as string[]
 }
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') selected.value = null }
 
@@ -92,28 +93,28 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
 
 <template>
   <div class="admin-page inst-page">
-    <header><h1>联邦实例</h1><p>按远端账户与关注关系汇总。实例名称、软件与图标由后台定期从 nodeinfo 读取并缓存；最后活动不代表可达性。</p></header>
+    <header><h1>{{ $t('admin.InstancesAdminPage.s1') }}</h1><p>{{ $t('admin.InstancesAdminPage.s2') }}</p></header>
 
     <div class="inst-filters">
       <label class="inst-search">
-        <span class="sr-only">主机名</span>
+        <span class="sr-only">{{ $t('admin.InstancesAdminPage.s3') }}</span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-        <input v-model="q" type="search" maxlength="255" placeholder="主机名" aria-label="主机名" />
+        <input v-model="q" type="search" maxlength="255" :placeholder="$t('admin.InstancesAdminPage.s3')" :aria-label="$t('admin.InstancesAdminPage.s3')" />
       </label>
       <div class="inst-selects">
-        <label class="admin-field">状态
-          <select v-model="status" aria-label="状态"><option v-for="s in STATUSES" :key="s.key" :value="s.key">{{ s.label }}</option></select>
+        <label class="admin-field">{{ $t('admin.InstancesAdminPage.s4') }}
+          <select v-model="status" :aria-label="$t('admin.InstancesAdminPage.s4')"><option v-for="s in STATUSES" :key="s.key" :value="s.key">{{ s.label }}</option></select>
         </label>
-        <label class="admin-field">排序
-          <select v-model="sort" aria-label="排序"><option v-for="s in SORTS" :key="s.key" :value="s.key">{{ s.label }}</option></select>
+        <label class="admin-field">{{ $t('admin.InstancesAdminPage.s5') }}
+          <select v-model="sort" :aria-label="$t('admin.InstancesAdminPage.s5')"><option v-for="s in SORTS" :key="s.key" :value="s.key">{{ s.label }}</option></select>
         </label>
       </div>
     </div>
 
-    <p v-if="error" class="admin-error" role="alert">{{ error }} <button class="admin-button" @click="load(!items.length)">重试</button></p>
-    <p v-if="!busy && !error && !items.length" class="admin-empty">没有匹配的远端实例。</p>
+    <p v-if="error" class="admin-error" role="alert">{{ error }} <button class="admin-button" @click="load(!items.length)">{{ $t('admin.InstancesAdminPage.s6') }}</button></p>
+    <p v-if="!busy && !error && !items.length" class="admin-empty">{{ $t('admin.InstancesAdminPage.s7') }}</p>
 
-    <section class="inst-grid" :aria-busy="busy" aria-label="实例列表">
+    <section class="inst-grid" :aria-busy="busy" :aria-label="$t('admin.InstancesAdminPage.s8')">
       <button v-for="i in items" :key="i.domain" class="admin-card inst-card" :class="`is-${i.status || 'idle'}`" @click="selected = i">
         <span class="inst-icon" :style="{ '--h': hue(i.domain) }">
           <img v-if="i.icon_url && !broken[i.domain]" :src="i.icon_url" alt="" loading="lazy" referrerpolicy="no-referrer" @error="broken = { ...broken, [i.domain]: true }" />
@@ -123,54 +124,54 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
           <strong class="inst-ellipsis">{{ title(i) }}<span v-for="f in flags(i)" :key="f" class="inst-flag">{{ f }}</span></strong>
           <span class="inst-sub inst-ellipsis">{{ subline(i) }}</span>
         </span>
-        <span class="inst-spark"><QueueSparkline :height="28" :label="`${i.domain} 近 14 天收到的帖子 ${sum(activity[i.domain])}`" :series="[{ values: activity[i.domain] || [], tone: i.status === 'failing' ? 'danger' : 'accent' }]" /></span>
+        <span class="inst-spark"><QueueSparkline :height="28" :label="$t('admin.InstancesAdminPage.s9', [i.domain, sum(activity[i.domain])])" :series="[{ values: activity[i.domain] || [], tone: i.status === 'failing' ? 'danger' : 'accent' }]" /></span>
       </button>
     </section>
     <div ref="sentinel" class="inst-more">
-      <span v-if="busy">加载中…</span>
-      <button v-else-if="hasMore && !error" class="admin-button" @click="load()">加载更多</button>
-      <span v-else-if="items.length" class="inst-muted">共 {{ total }} 个实例</span>
+      <span v-if="busy">{{ $t('admin.InstancesAdminPage.s10') }}</span>
+      <button v-else-if="hasMore && !error" class="admin-button" @click="load()">{{ $t('admin.InstancesAdminPage.s11') }}</button>
+      <span v-else-if="items.length" class="inst-muted">{{ $t('admin.InstancesAdminPage.s12', [total]) }}</span>
     </div>
 
     <div v-if="selected" class="inst-backdrop" @click.self="selected = null">
-      <aside class="inst-drawer" role="dialog" aria-modal="true" :aria-label="`${selected.domain} 实例详情`">
+      <aside class="inst-drawer" role="dialog" aria-modal="true" :aria-label="$t('admin.InstancesAdminPage.s13', [selected.domain])">
         <header class="inst-drawer__head">
           <span class="inst-icon inst-icon--lg" :style="{ '--h': hue(selected.domain) }">
             <img v-if="selected.icon_url && !broken[selected.domain]" :src="selected.icon_url" alt="" referrerpolicy="no-referrer" @error="broken = { ...broken, [selected.domain]: true }" />
             <span v-else aria-hidden="true">{{ letter(selected) }}</span>
           </span>
           <div class="inst-main"><h2 class="inst-ellipsis">{{ title(selected) }}</h2><span class="inst-sub">{{ subline(selected) }}</span></div>
-          <button class="admin-button" aria-label="关闭" @click="selected = null">✕</button>
+          <button class="admin-button" :aria-label="$t('admin.InstancesAdminPage.s14')" @click="selected = null">✕</button>
         </header>
         <p class="inst-badges"><span class="inst-badge" :class="`is-${selected.status || 'idle'}`">{{ STATUS_LABEL[selected.status || 'idle'] }}</span><span v-for="f in flags(selected)" :key="f" class="inst-badge is-moderated">{{ f }}</span></p>
-        <figure class="inst-chart"><figcaption>近 14 天收到的帖子：{{ sum(activity[selected.domain]) }}</figcaption>
-          <QueueSparkline :height="56" :label="`${selected.domain} 每日帖子`" :series="[{ values: activity[selected.domain] || [], tone: 'accent' }]" /></figure>
+        <figure class="inst-chart"><figcaption>{{ $t('admin.InstancesAdminPage.s15', [sum(activity[selected.domain])]) }}</figcaption>
+          <QueueSparkline :height="56" :label="$t('admin.InstancesAdminPage.s16', [selected.domain])" :series="[{ values: activity[selected.domain] || [], tone: 'accent' }]" /></figure>
         <dl class="inst-stats">
-          <div><dt>远端账户</dt><dd>{{ selected.accounts }}</dd></div>
-          <div><dt>已停用账户</dt><dd>{{ selected.suspended_accounts }}</dd></div>
-          <div><dt>本站关注对方</dt><dd>{{ selected.following }}</dd></div>
-          <div><dt>对方关注本站</dt><dd>{{ selected.followers }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s17') }}</dt><dd>{{ selected.accounts }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s18') }}</dt><dd>{{ selected.suspended_accounts }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s19') }}</dt><dd>{{ selected.following }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s20') }}</dt><dd>{{ selected.followers }}</dd></div>
         </dl>
         <dl class="inst-meta">
-          <div><dt>最后记录活动</dt><dd>{{ when(selected.last_activity) }}</dd></div>
-          <div><dt>首次发现</dt><dd>{{ when(selected.first_seen) }}</dd></div>
-          <div><dt>元数据更新</dt><dd>{{ selected.metadata_fetched_at ? when(selected.metadata_fetched_at) : '尚未获取' }}</dd></div>
-          <div v-if="selected.metadata_failed_at"><dt>最近获取失败</dt><dd class="bad">{{ when(selected.metadata_failed_at) }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s21') }}</dt><dd>{{ when(selected.last_activity) }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s22') }}</dt><dd>{{ when(selected.first_seen) }}</dd></div>
+          <div><dt>{{ $t('admin.InstancesAdminPage.s23') }}</dt><dd>{{ selected.metadata_fetched_at ? when(selected.metadata_fetched_at) : $t('admin.InstancesAdminPage.s24') }}</dd></div>
+          <div v-if="selected.metadata_failed_at"><dt>{{ $t('admin.InstancesAdminPage.s25') }}</dt><dd class="bad">{{ when(selected.metadata_failed_at) }}</dd></div>
         </dl>
         <div class="inst-actions">
-          <a class="admin-button" :href="`https://${selected.domain}`" target="_blank" rel="noopener noreferrer">访问实例</a>
-          <RouterLink class="admin-button" :to="{ path: '/admin/jobs' }">查看投递队列</RouterLink>
+          <a class="admin-button" :href="`https://${selected.domain}`" target="_blank" rel="noopener noreferrer">{{ $t('admin.InstancesAdminPage.s26') }}</a>
+          <RouterLink class="admin-button" :to="{ path: '/admin/jobs' }">{{ $t('admin.InstancesAdminPage.s27') }}</RouterLink>
         </div>
-        <section class="inst-moderation" aria-label="实例管理操作">
-          <h3>管理</h3>
+        <section class="inst-moderation" :aria-label="$t('admin.InstancesAdminPage.s28')">
+          <h3>{{ $t('admin.InstancesAdminPage.s29') }}</h3>
           <div class="inst-actions">
-            <button class="admin-button" :class="{ 'is-danger': !selected.is_suspended }" :disabled="!!acting" @click="moderate(selected, selected.is_suspended ? 'unsuspend' : 'suspend')">{{ selected.is_suspended ? '恢复投递' : '暂停投递' }}</button>
-            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_silenced ? 'unsilence' : 'silence')">{{ selected.is_silenced ? '取消静音' : '静音' }}</button>
-            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_media_silenced ? 'media_unsilence' : 'media_silence')">{{ selected.is_media_silenced ? '取消媒体静音' : '媒体静音' }}</button>
-            <button class="admin-button" :class="{ 'is-danger': !selected.is_blocked }" :disabled="!!acting" @click="moderate(selected, selected.is_blocked ? 'unblock' : 'block')">{{ selected.is_blocked ? '取消屏蔽' : '屏蔽' }}</button>
+            <button class="admin-button" :class="{ 'is-danger': !selected.is_suspended }" :disabled="!!acting" @click="moderate(selected, selected.is_suspended ? 'unsuspend' : 'suspend')">{{ selected.is_suspended ? $t('admin.InstancesAdminPage.s30') : $t('admin.InstancesAdminPage.s31') }}</button>
+            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_silenced ? 'unsilence' : 'silence')">{{ selected.is_silenced ? $t('admin.InstancesAdminPage.s32') : $t('admin.InstancesAdminPage.s33') }}</button>
+            <button class="admin-button" :disabled="!!acting" @click="moderate(selected, selected.is_media_silenced ? 'media_unsilence' : 'media_silence')">{{ selected.is_media_silenced ? $t('admin.InstancesAdminPage.s34') : $t('admin.InstancesAdminPage.s35') }}</button>
+            <button class="admin-button" :class="{ 'is-danger': !selected.is_blocked }" :disabled="!!acting" @click="moderate(selected, selected.is_blocked ? 'unblock' : 'block')">{{ selected.is_blocked ? $t('admin.InstancesAdminPage.s36') : $t('admin.InstancesAdminPage.s37') }}</button>
           </div>
           <p v-if="actionError" class="admin-error" role="alert">{{ actionError }}</p>
-          <p class="inst-muted">屏蔽、静音与媒体静音会写入 <RouterLink to="/admin/moderation">管理</RouterLink> 设置中的实例列表（屏蔽与静音包含子域名）；暂停只停止向该实例投递。通过域名封禁规则屏蔽的实例需在命令行解除。</p>
+          <p class="inst-muted">{{ $t('admin.InstancesAdminPage.s38') }} <RouterLink to="/admin/moderation">{{ $t('admin.InstancesAdminPage.s29') }}</RouterLink> {{ $t('admin.InstancesAdminPage.s39') }}</p>
         </section>
       </aside>
     </div>

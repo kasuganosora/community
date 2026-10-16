@@ -15,6 +15,7 @@ import BlurPlaceholder from '@/shared/components/post/BlurPlaceholder.vue'
 import ProgressiveImage from '@/shared/components/post/ProgressiveImage.vue'
 import { attachmentAspect, mediaGated, useMediaMode } from '@/shared/composables/useMediaMode'
 
+import { t } from '@/shared/i18n'
 const props = withDefaults(defineProps<{
   status: MastodonStatus
   /** Lines shown before "show more". */
@@ -48,8 +49,8 @@ const pollCount = computed(() => shown.value.poll?.options.length ?? 0)
 
 const hiddenSummary = computed(() => {
   const bits: string[] = []
-  if (media.value.length) bits.push(`${media.value.length} 个媒体`)
-  if (shown.value.poll) bits.push('投票')
+  if (media.value.length) bits.push(t('auth.PreviewStatus.s5', [media.value.length]))
+  if (shown.value.poll) bits.push(t('auth.PreviewStatus.s9'))
   return bits.join(' · ')
 })
 
@@ -108,7 +109,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   <article class="preview-status">
     <p v-if="booster" class="preview-status__boost">
       <t-icon name="swap" :size="12" />
-      <EmojiText :text="booster.display_name || booster.username" :emojis="booster.emojis" /> 转发了
+      <EmojiText :text="booster.display_name || booster.username" :emojis="booster.emojis" /> {{ $t('auth.PreviewStatus.s1') }}
     </p>
     <header class="preview-status__head">
       <UserAvatar :account="shown.account" :size="avatarSize" />
@@ -123,7 +124,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <span class="preview-status__cw-text" dir="auto"><EmojiText :text="shown.spoiler_text" :emojis="shown.emojis" /></span>
       <span v-if="!cwOpen && hiddenSummary" class="preview-status__meta">{{ hiddenSummary }}</span>
       <button type="button" class="preview-status__toggle" :aria-expanded="cwOpen" @click="cwOpen = !cwOpen">
-        {{ cwOpen ? '收起' : '显示内容' }}
+        {{ cwOpen ? $t('auth.PreviewStatus.s2') : $t('auth.PreviewStatus.s3') }}
       </button>
     </div>
 
@@ -138,7 +139,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
         <RichText :html="shown.content" :emojis="shown.emojis" />
       </div>
       <button v-if="overflowing" type="button" class="preview-status__more" @click="expanded = !expanded">
-        {{ expanded ? '收起' : '展开全文' }}
+        {{ expanded ? $t('auth.PreviewStatus.s2') : $t('auth.PreviewStatus.s4') }}
       </button>
 
       <div v-if="media.length" class="preview-status__media" :class="{ 'is-blurred': mediaBlurred }">
@@ -150,18 +151,18 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
           </span>
         </div>
         <span v-if="otherMedia > 0 || !thumbs.length" class="preview-status__meta">
-          <t-icon name="file" :size="12" /> {{ media.length }} 个媒体
+          <t-icon name="file" :size="12" /> {{ $t('auth.PreviewStatus.s5', [media.length]) }}
         </span>
         <button v-if="mediaBlurred" type="button" class="preview-status__reveal" @click="mediaRevealed = true">
-          敏感内容，点击查看
+          {{ $t('auth.PreviewStatus.s6') }}
         </button>
       </div>
 
       <p v-if="pollCount" class="preview-status__meta">
-        <t-icon name="chart-bar" :size="12" /> 投票 · {{ pollCount }} 个选项
+        <t-icon name="chart-bar" :size="12" /> {{ $t('auth.PreviewStatus.s7', [pollCount]) }}
       </p>
       <a v-if="quoteUrl" class="preview-status__link" :href="quoteUrl" target="_blank" rel="noopener noreferrer nofollow">
-        引用 · {{ hostOf(quoteUrl) }}
+        {{ $t('auth.PreviewStatus.s8', [hostOf(quoteUrl)]) }}
       </a>
       <a v-else-if="cardUrl" class="preview-status__link" :href="cardUrl" target="_blank" rel="noopener noreferrer nofollow">
         {{ shown.card?.title || hostOf(cardUrl) }}

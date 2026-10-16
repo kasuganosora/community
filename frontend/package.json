@@ -20,6 +20,7 @@
     "tdesign-icons-vue-next": "^0.4.11",
     "tdesign-vue-next": "^1.20.9",
     "vue": "^3.5.43",
+    "vue-i18n": "^11.4.14",
     "vue-router": "^5.3.1"
   },
   "devDependencies": {

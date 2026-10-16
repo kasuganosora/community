@@ -6,6 +6,7 @@ import { listApi } from '../../infrastructure/listApi'
 import { validateListTitle, MAX_LIST_TITLE_LENGTH } from '../../domain/list'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 
+import { t } from '@/shared/i18n'
 const lists = ref<MastodonList[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -25,7 +26,7 @@ async function load() {
     const result = await listApi.getLists()
     if (current()) lists.value = result
   } catch (e) {
-    if (current()) error.value = e instanceof Error ? e.message : '加载失败'
+    if (current()) error.value = e instanceof Error ? e.message : t('list.ListsPage.s6')
   } finally {
     if (current()) loading.value = false
   }
@@ -44,9 +45,9 @@ async function create() {
     lists.value = [...lists.value, list]
     error.value = null
     newTitle.value = ''
-    MessagePlugin.success('列表已创建')
+    MessagePlugin.success(t('list.ListsPage.s12'))
   } catch (e) {
-    if (current()) createError.value = e instanceof Error ? e.message : '创建失败'
+    if (current()) createError.value = e instanceof Error ? e.message : t('list.ListsPage.s13')
   } finally {
     if (current()) creating.value = false
   }
@@ -66,37 +67,37 @@ onMounted(load)
 <template>
   <div class="lists-page">
     <div class="page-header">
-      <h1 class="page-header__title">列表</h1>
+      <h1 class="page-header__title">{{ $t('list.ListsPage.s1') }}</h1>
     </div>
 
     <form class="lists-create" @submit.prevent="create">
-      <label for="new-list-title" class="sr-only">新列表名称</label>
+      <label for="new-list-title" class="sr-only">{{ $t('list.ListsPage.s2') }}</label>
       <input
         id="new-list-title"
         v-model="newTitle"
         class="lists-create__input"
         type="text"
-        placeholder="新列表名称"
+        :placeholder="$t('list.ListsPage.s2')"
         :maxlength="MAX_LIST_TITLE_LENGTH"
       />
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="creating || loading || !newTitle.trim()" :aria-busy="creating">{{ creating ? '创建中…' : '创建' }}</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="creating || loading || !newTitle.trim()" :aria-busy="creating">{{ creating ? $t('list.ListsPage.s3') : $t('list.ListsPage.s4') }}</button>
     </form>
     <p v-if="createError" class="lists-error" role="alert">{{ createError }}</p>
-    <p v-else class="lists-note">点开列表查看成员的帖子。管理成员可以把正在关注的人加进去，他们已经发过的公开帖也会出现。</p>
+    <p v-else class="lists-note">{{ $t('list.ListsPage.s5') }}</p>
 
     <div v-if="loading" class="page-loading"><t-loading /></div>
 
     <div v-else-if="error" class="empty-state" role="alert">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
-      <h2 class="empty-state__title">加载失败</h2>
+      <h2 class="empty-state__title">{{ $t('list.ListsPage.s6') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="load">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="load">{{ $t('list.ListsPage.s7') }}</button>
     </div>
 
     <div v-else-if="lists.length === 0" class="empty-state">
       <div class="empty-state__icon"><t-icon name="view-list" :size="48" /></div>
-      <h2 class="empty-state__title">还没有列表</h2>
-      <p class="empty-state__text">创建列表，把关注的人分组，查看只属于他们的时间线。</p>
+      <h2 class="empty-state__title">{{ $t('list.ListsPage.s8') }}</h2>
+      <p class="empty-state__text">{{ $t('list.ListsPage.s9') }}</p>
     </div>
 
     <ul v-else class="lists-list">
@@ -104,10 +105,10 @@ onMounted(load)
         <router-link :to="`/lists/${l.id}`" class="lists-item">
           <t-icon name="view-list" :size="20" aria-hidden="true" />
           <span class="lists-item__title">{{ l.title }}</span>
-          <span class="lists-item__hint">时间线</span>
+          <span class="lists-item__hint">{{ $t('list.ListsPage.s10') }}</span>
           <t-icon name="chevron-right" :size="18" aria-hidden="true" />
         </router-link>
-        <router-link :to="{ path: `/lists/${l.id}`, query: { manage: '1' } }" class="btn btn--secondary btn--sm">管理成员</router-link>
+        <router-link :to="{ path: `/lists/${l.id}`, query: { manage: '1' } }" class="btn btn--secondary btn--sm">{{ $t('list.ListsPage.s11') }}</router-link>
       </li>
     </ul>
   </div>

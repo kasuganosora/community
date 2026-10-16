@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '../../infrastructure/authApi'
@@ -6,6 +7,7 @@ import { captchaApi } from '../../infrastructure/captchaApi'
 import { instanceApi, DEFAULT_RULES, type InstanceRule } from '@/domains/instance/infrastructure/instanceApi'
 import CaptchaField from '../components/CaptchaField.vue'
 
+import { t } from '@/shared/i18n'
 const router = useRouter()
 const route = useRoute()
 
@@ -54,7 +56,7 @@ onMounted(async () => {
     const cfg = captchaResult.value
     if (cfg.enabled && cfg.provider !== 'none') {
       if (cfg.provider !== 'local' && !cfg.site_key) {
-        error.value = '验证码没有配好，暂时不能注册。'
+        error.value = t('auth.RegisterPage.s27')
       } else {
         captcha.required = true
         captcha.provider = cfg.provider
@@ -96,11 +98,11 @@ const showPasswordMismatch = computed(() =>
 )
 
 const registerBlock = computed(() => {
-  if (form.username.trim() !== '' && !isValidUsername.value) return '用户名需要 2–20 个字母、数字或下划线。'
-  if (form.email.trim() !== '' && !isValidEmail.value) return '邮箱格式不对。'
-  if (form.password !== '' && !isStrongPassword.value) return '密码至少 8 位，并包含大写字母、小写字母和数字。'
-  if (form.passwordConfirm !== '' && !passwordMatch.value) return '两次输入的密码不一致。'
-  if (inviteRequired.value && form.inviteCode.trim() === '' && form.username.trim() !== '') return '需要邀请码。'
+  if (form.username.trim() !== '' && !isValidUsername.value) return t('auth.RegisterPage.s28')
+  if (form.email.trim() !== '' && !isValidEmail.value) return t('auth.RegisterPage.s29')
+  if (form.password !== '' && !isStrongPassword.value) return t('auth.RegisterPage.s30')
+  if (form.passwordConfirm !== '' && !passwordMatch.value) return t('auth.RegisterPage.s31')
+  if (inviteRequired.value && form.inviteCode.trim() === '' && form.username.trim() !== '') return t('auth.RegisterPage.s32')
   return ''
 })
 
@@ -112,16 +114,18 @@ const canRegister = computed(() =>
   (!inviteRequired.value || form.inviteCode.trim() !== '') &&
   registerBlock.value === '' &&
   (!captcha.required || captcha.provider === 'local' || captchaToken.value !== '') &&
-  !error.value?.includes('验证码没有配好') &&
+  !error.value?.includes(t('auth.RegisterPage.s33')) &&
   !registering.value,
 )
 
 function explainRegisterError(e: unknown): string {
   const msg = e instanceof Error ? e.message : ''
-  if (/暂不开放|not open/i.test(msg)) return '本站暂不开放注册。'
-  if (/验证码|captcha/i.test(msg)) return '验证码没有通过，请再试一次。'
-  if (/invite/i.test(msg)) return '需要有效的邀请码。'
-  return msg || '注册失败，请检查填写内容后重试'
+  // Match the server's own wording; the displayed message may be localized.
+  const raw = `${(e as { apiMessage?: string } | null)?.apiMessage ?? ''} ${msg}`
+  if (/暂不开放|not open/i.test(raw)) return t('auth.RegisterPage.s3')
+  if (/验证码|captcha/i.test(raw)) return t('auth.RegisterPage.s34')
+  if (/invite/i.test(raw)) return t('auth.RegisterPage.s35')
+  return msg || t('auth.RegisterPage.s36')
 }
 
 function proceedToForm() {
@@ -191,20 +195,20 @@ function close() {
     <div class="register-modal">
       <!-- Header -->
       <div class="register-header">
-        <button type="button" aria-label="关闭注册" class="register-header__close" @click="close">
+        <button type="button" :aria-label="$t('auth.RegisterPage.s1')" class="register-header__close" @click="close">
           <t-icon name="close" :size="20" />
         </button>
-        <h1 class="register-header__title">注册</h1>
+        <h1 class="register-header__title">{{ $t('auth.RegisterPage.s2') }}</h1>
       </div>
 
       <div v-if="step === 'closed'" class="register-body">
         <p class="rules-intro">
-          <strong>本站暂不开放注册。</strong>
+          <strong>{{ $t('auth.RegisterPage.s3') }}</strong>
         </p>
         <p v-if="registrationMessage" class="rules-note">{{ registrationMessage }}</p>
         <div class="register-actions register-actions--center">
           <t-button theme="primary" shape="round" size="large" @click="router.push({ name: 'login' })">
-            返回登录
+            {{ $t('auth.RegisterPage.s4') }}
           </t-button>
         </div>
       </div>
@@ -218,14 +222,14 @@ function close() {
         </div>
 
         <p class="rules-intro">
-          注册前请先阅读并同意下面的内容。
-          <strong>请仔细看完，这些规则会生效。</strong>
+          {{ $t('auth.RegisterPage.s5') }}
+          <strong>{{ $t('auth.RegisterPage.s6') }}</strong>
         </p>
 
         <!-- Server rules -->
         <div class="rules-section">
           <div class="rules-section__header">
-            <span>服务器规则</span>
+            <span>{{ $t('auth.RegisterPage.s7') }}</span>
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-list">
@@ -236,30 +240,30 @@ function close() {
           </div>
           <label class="agree-check">
             <input type="checkbox" v-model="rulesAgreed" class="agree-check__input" />
-            <span class="agree-check__label">我同意</span>
+            <span class="agree-check__label">{{ $t('auth.RegisterPage.s8') }}</span>
           </label>
         </div>
 
         <!-- ToS -->
         <div class="rules-section">
           <div class="rules-section__header">
-            <span>服务条款</span>
+            <span>{{ $t('auth.RegisterPage.s9') }}</span>
             <t-icon name="chevron-up" :size="16" />
           </div>
           <div class="rules-tos">
             <!-- New tab, so the registration progress isn't lost. -->
             <a href="/about#terms" target="_blank" rel="noopener" class="tos-link">
-              查看服务条款
+              {{ $t('auth.RegisterPage.s10') }}
               <t-icon name="link" :size="14" />
             </a>
           </div>
           <label class="agree-check">
             <input type="checkbox" v-model="tosAgreed" class="agree-check__input" />
-            <span class="agree-check__label">我同意</span>
+            <span class="agree-check__label">{{ $t('auth.RegisterPage.s8') }}</span>
           </label>
         </div>
 
-        <p class="rules-note">需要同意以上全部内容才能继续。</p>
+        <p class="rules-note">{{ $t('auth.RegisterPage.s11') }}</p>
 
         <div class="register-actions">
           <t-button
@@ -268,7 +272,7 @@ function close() {
             size="large"
             @click="goBack"
           >
-            取消
+            {{ $t('auth.RegisterPage.s12') }}
           </t-button>
           <t-button
             theme="primary"
@@ -278,7 +282,7 @@ function close() {
             @click="proceedToForm"
             class="btn-continue"
           >
-            继续
+            {{ $t('auth.RegisterPage.s13') }}
           </t-button>
         </div>
       </div>
@@ -294,7 +298,7 @@ function close() {
         <t-alert v-if="error" theme="error" :message="error" style="margin-bottom: var(--space-4)" />
 
         <t-form @submit="handleRegister" class="register-form" label-align="top">
-          <t-form-item label="用户名" help="2–20 个字母、数字或下划线。注册后不能修改。">
+          <t-form-item :label="$t('auth.RegisterPage.s14')" :help="$t('auth.RegisterPage.s15')">
             <t-input
               v-model="form.username"
               size="large"
@@ -310,7 +314,7 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="邮箱">
+          <t-form-item :label="$t('auth.RegisterPage.s16')">
             <t-input
               v-model="form.email"
               type="text"
@@ -324,12 +328,12 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="密码" help="至少 8 位，并包含大写字母、小写字母和数字。">
+          <t-form-item :label="$t('auth.RegisterPage.s17')" :help="$t('auth.RegisterPage.s18')">
             <t-input
               v-model="form.password"
               type="password"
               size="large"
-              placeholder="至少 8 个字符"
+              :placeholder="$t('auth.RegisterPage.s19')"
               autocomplete="new-password"
             >
               <template #prefixIcon>
@@ -338,12 +342,12 @@ function close() {
             </t-input>
           </t-form-item>
 
-          <t-form-item label="确认密码">
+          <t-form-item :label="$t('auth.RegisterPage.s20')">
             <t-input
               v-model="form.passwordConfirm"
               type="password"
               size="large"
-              placeholder="再输入一次密码"
+              :placeholder="$t('auth.RegisterPage.s21')"
               autocomplete="new-password"
               :status="showPasswordMismatch ? 'error' : 'default'"
             >
@@ -352,20 +356,20 @@ function close() {
               </template>
             </t-input>
             <div v-if="showPasswordMismatch" class="form-error">
-              两次输入的密码不一致
+              {{ $t('auth.RegisterPage.s22') }}
             </div>
           </t-form-item>
 
-          <t-form-item v-if="inviteRequired" label="邀请码">
+          <t-form-item v-if="inviteRequired" :label="$t('auth.RegisterPage.s23')">
             <t-input
               v-model="form.inviteCode"
               size="large"
-              placeholder="向邀请你的人索取"
+              :placeholder="$t('auth.RegisterPage.s24')"
               autocomplete="off"
             />
           </t-form-item>
 
-          <p v-if="approvalRequired" class="rules-note">提交后需要管理员通过，通过之前不能登录。</p>
+          <p v-if="approvalRequired" class="rules-note">{{ $t('auth.RegisterPage.s25') }}</p>
 
           <CaptchaField
             v-if="captcha.required"
@@ -388,16 +392,18 @@ function close() {
               :loading="registering"
               class="btn-continue"
             >
-              开始使用
+              {{ $t('auth.RegisterPage.s26') }}
             </t-button>
           </div>
         </t-form>
+        <div class="auth-lang"><LanguagePicker compact /></div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.auth-lang { display: flex; justify-content: center; margin-top: var(--space-4, 16px); }
 .register-page {
   min-height: 100dvh;
   display: flex;

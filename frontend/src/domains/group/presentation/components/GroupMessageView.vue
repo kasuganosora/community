@@ -62,20 +62,20 @@ const createdAt = computed(() => {
   <article class="group-message" :class="{ 'group-message--own': message.own }" :data-message-id="message.id">
     <GroupAvatar :name="message.sender.display_name || message.sender.id" :url="message.sender.avatar_url" :size="32" />
     <div class="group-message__content">
-      <header><strong>{{ message.sender.display_name || message.sender.id }}</strong><time :datetime="new Date(message.created_at).toISOString()" :title="new Date(message.created_at).toLocaleString()">{{ createdAt }}</time><span v-if="message.edited">已编辑</span></header>
-      <p v-if="message.redacted" class="group-message__muted">消息已删除</p>
+      <header><strong>{{ message.sender.display_name || message.sender.id }}</strong><time :datetime="new Date(message.created_at).toISOString()" :title="new Date(message.created_at).toLocaleString()">{{ createdAt }}</time><span v-if="message.edited">{{ $t('group.GroupMessageView.s1') }}</span></header>
+      <p v-if="message.redacted" class="group-message__muted">{{ $t('group.GroupMessageView.s2') }}</p>
       <template v-else>
-        <blockquote v-if="message.reply_to">{{ message.reply_unavailable ? '原消息不可查看' : reply ? (reply.redacted ? '原消息已删除' : `${reply.sender.display_name}：${reply.body || '附件'}`) : '回复了一条较早的消息' }}</blockquote>
-        <p v-if="message.kind === 'unsupported'" class="group-message__muted">此消息暂不支持在网页显示，请使用客户端查看。</p>
+        <blockquote v-if="message.reply_to">{{ message.reply_unavailable ? $t('group.GroupMessageView.s3') : reply ? (reply.redacted ? $t('group.GroupMessageView.s4') : `${reply.sender.display_name}：${reply.body || $t('group.GroupMessageView.s5')}`) : $t('group.GroupMessageView.s6') }}</blockquote>
+        <p v-if="message.kind === 'unsupported'" class="group-message__muted">{{ $t('group.GroupMessageView.s7') }}</p>
         <div v-else-if="html" class="group-message__body" dir="auto" v-html="html" />
         <p v-else-if="message.body" class="group-message__body" dir="auto">{{ message.body }}</p>
         <GroupAttachment v-for="attachment in message.attachments" :key="`${message.id}:${attachment.id}:${attachment.url}:${mediaMode}`" :attachment="attachment" :hidden="mediaHidden" :sensitive="sensitiveMedia" />
-        <div class="group-message__reactions"><button v-for="reaction in message.reactions" :key="reaction.key" type="button" :aria-pressed="reaction.own" :disabled="!canSend || busy" :aria-label="`${reaction.label || reaction.key}，${reaction.count} 个回应${reaction.own ? '，点击撤销' : ''}`" @click="$emit('reaction', reaction.key, reaction.own)"><img v-if="reaction.url && mediaURLs[reaction.url]" :src="mediaURLs[reaction.url!]" :alt="reaction.shortcode" referrerpolicy="no-referrer" /><template v-else>{{ reaction.label || reaction.shortcode || reaction.key }}</template> <span>{{ reaction.count }}</span></button></div>
+        <div class="group-message__reactions"><button v-for="reaction in message.reactions" :key="reaction.key" type="button" :aria-pressed="reaction.own" :disabled="!canSend || busy" :aria-label="$t('group.GroupMessageView.s9', [reaction.label || reaction.key, reaction.count, reaction.own ? $t('group.GroupMessageView.s8') : ''])" @click="$emit('reaction', reaction.key, reaction.own)"><img v-if="reaction.url && mediaURLs[reaction.url]" :src="mediaURLs[reaction.url!]" :alt="reaction.shortcode" referrerpolicy="no-referrer" /><template v-else>{{ reaction.label || reaction.shortcode || reaction.key }}</template> <span>{{ reaction.count }}</span></button></div>
         <div class="group-message__actions">
-          <button type="button" :disabled="!canSend || busy" aria-label="添加表情回应" @click="$emit('picker')">＋</button>
-          <button type="button" :disabled="!canSend || busy" @click="$emit('reply')">回复</button>
-          <button v-if="message.own && message.kind === 'text'" type="button" :disabled="!canSend || busy" @click="$emit('edit')">编辑</button>
-          <button v-if="message.own || canRedact" type="button" :disabled="busy" @click="$emit('remove')">删除</button>
+          <button type="button" :disabled="!canSend || busy" :aria-label="$t('group.GroupMessageView.s10')" @click="$emit('picker')">＋</button>
+          <button type="button" :disabled="!canSend || busy" @click="$emit('reply')">{{ $t('group.GroupMessageView.s11') }}</button>
+          <button v-if="message.own && message.kind === 'text'" type="button" :disabled="!canSend || busy" @click="$emit('edit')">{{ $t('group.GroupMessageView.s12') }}</button>
+          <button v-if="message.own || canRedact" type="button" :disabled="busy" @click="$emit('remove')">{{ $t('group.GroupMessageView.s13') }}</button>
         </div>
       </template>
     </div>

@@ -6,6 +6,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import type { AvatarDecorationPlacement } from '@/shared/types/mastodon'
 import { useSettingsScope } from '../composables/useSettingsScope'
 
+import { t } from '@/shared/i18n'
 const auth = useAuthStore()
 const items = ref<AvatarDecoration[]>([]), selected = ref<AvatarDecorationChoice[]>([]), limit = ref(1), active = ref(0)
 const busy = ref(false), loading = ref(true), loaded = ref(false), error = ref(''), notice = ref('')
@@ -35,14 +36,14 @@ async function load() {
     const available = new Set(list.map(i => i.id))
     selected.value = selected.value.filter(d => available.has(d.id))
     loaded.value = true
-  } catch { if (done()) error.value = '无法加载头像挂件' }
+  } catch { if (done()) error.value = t('settings.AvatarDecorationPicker.s22') }
   finally { if (done()) loading.value = false }
 }
 function add(item: AvatarDecoration) {
   notice.value = ''
   const placed: AvatarDecorationChoice = { id: item.id, angle: 0, flip_h: false, offset_x: 0, offset_y: 0 }
   if (limit.value === 1) { selected.value = [placed]; active.value = 0; return }
-  if (full.value) { error.value = `最多只能佩戴 ${limit.value} 个挂件`; return }
+  if (full.value) { error.value = t('settings.AvatarDecorationPicker.s23', [limit.value]); return }
   error.value = ''
   selected.value = [...selected.value, placed]
   active.value = selected.value.length - 1
@@ -69,8 +70,8 @@ async function save() {
     await communityAssetsApi.selectDecorations(selected.value)
     if (!done()) return
     await auth.fetchCurrentUser()
-    if (done()) notice.value = '头像挂件已更新'
-  } catch { if (done()) error.value = '保存失败，挂件可能已停用或超过数量上限' }
+    if (done()) notice.value = t('settings.AvatarDecorationPicker.s24')
+  } catch { if (done()) error.value = t('settings.AvatarDecorationPicker.s25') }
   finally { if (done()) busy.value = false }
 }
 onMounted(load)
@@ -78,43 +79,43 @@ onMounted(load)
 
 <template>
   <form class="decoration-picker" @submit.prevent="save">
-    <p class="decoration-picker__hint">仅在本站显示，不会替换原头像。最多可同时佩戴 {{ limit }} 个。</p>
-    <p v-if="loading" role="status">正在加载挂件…</p>
+    <p class="decoration-picker__hint">{{ $t('settings.AvatarDecorationPicker.s1', [limit]) }}</p>
+    <p v-if="loading" role="status">{{ $t('settings.AvatarDecorationPicker.s2') }}</p>
     <template v-else>
       <div class="decoration-picker__layout">
-        <div class="decoration-picker__preview" aria-label="挂件预览">
+        <div class="decoration-picker__preview" :aria-label="$t('settings.AvatarDecorationPicker.s3')">
           <UserAvatar v-if="auth.currentUser" :account="auth.currentUser" :size="96" :decorations="preview" />
         </div>
         <div class="decoration-picker__editor">
-          <ul v-if="selected.length" class="decoration-picker__selected" aria-label="已佩戴的挂件">
+          <ul v-if="selected.length" class="decoration-picker__selected" :aria-label="$t('settings.AvatarDecorationPicker.s4')">
             <li v-for="(d, i) in selected" :key="`${i}:${d.id}`" :class="{ 'is-active': i === active }">
               <button type="button" class="decoration-picker__chip" :aria-pressed="i === active" @click="active = i">
                 <img :src="imageUrl(d.id)" alt="" width="28" height="28" />{{ names.get(d.id) || d.id }}
               </button>
-              <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" :aria-label="`移除 ${names.get(d.id) || d.id}`" @click="remove(i)">移除</button>
+              <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" :aria-label="$t('settings.AvatarDecorationPicker.s5', [names.get(d.id) || d.id])" @click="remove(i)">{{ $t('settings.AvatarDecorationPicker.s6') }}</button>
             </li>
           </ul>
-          <p v-else class="decoration-picker__empty">未佩戴挂件</p>
+          <p v-else class="decoration-picker__empty">{{ $t('settings.AvatarDecorationPicker.s7') }}</p>
           <fieldset v-if="current" class="decoration-picker__controls" :disabled="busy">
-            <legend>调整「{{ names.get(current.id) || current.id }}」</legend>
-            <label>旋转
+            <legend>{{ $t('settings.AvatarDecorationPicker.s8', [names.get(current.id) || current.id]) }}</legend>
+            <label>{{ $t('settings.AvatarDecorationPicker.s9') }}
               <input type="range" min="-0.5" max="0.5" step="0.01" :value="current.angle" @input="update({ angle: num($event, -0.5, 0.5) })" />
-              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-180" max="180" step="1" :value="Math.round((current.angle ?? 0) * 360)" aria-label="旋转角度（度）" @change="update({ angle: num($event, -180, 180) / 360 })" />°
+              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-180" max="180" step="1" :value="Math.round((current.angle ?? 0) * 360)" :aria-label="$t('settings.AvatarDecorationPicker.s10')" @change="update({ angle: num($event, -180, 180) / 360 })" />°
             </label>
-            <label>水平偏移
+            <label>{{ $t('settings.AvatarDecorationPicker.s11') }}
               <input type="range" min="-0.25" max="0.25" step="0.01" :value="current.offset_x" @input="update({ offset_x: num($event, -0.25, 0.25) })" />
-              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-25" max="25" step="1" :value="Math.round((current.offset_x ?? 0) * 100)" aria-label="水平偏移（%）" @change="update({ offset_x: num($event, -25, 25) / 100 })" />%
+              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-25" max="25" step="1" :value="Math.round((current.offset_x ?? 0) * 100)" :aria-label="$t('settings.AvatarDecorationPicker.s12')" @change="update({ offset_x: num($event, -25, 25) / 100 })" />%
             </label>
-            <label>垂直偏移
+            <label>{{ $t('settings.AvatarDecorationPicker.s13') }}
               <input type="range" min="-0.25" max="0.25" step="0.01" :value="current.offset_y" @input="update({ offset_y: num($event, -0.25, 0.25) })" />
-              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-25" max="25" step="1" :value="Math.round((current.offset_y ?? 0) * 100)" aria-label="垂直偏移（%）" @change="update({ offset_y: num($event, -25, 25) / 100 })" />%
+              <input class="decoration-picker__num" type="number" inputmode="numeric" min="-25" max="25" step="1" :value="Math.round((current.offset_y ?? 0) * 100)" :aria-label="$t('settings.AvatarDecorationPicker.s14')" @change="update({ offset_y: num($event, -25, 25) / 100 })" />%
             </label>
-            <label class="decoration-picker__flip"><input type="checkbox" :checked="current.flip_h" @change="update({ flip_h: ($event.target as HTMLInputElement).checked })" />水平翻转</label>
-            <button type="button" class="btn btn--ghost btn--sm" @click="update({ angle: 0, flip_h: false, offset_x: 0, offset_y: 0 })">重置位置</button>
+            <label class="decoration-picker__flip"><input type="checkbox" :checked="current.flip_h" @change="update({ flip_h: ($event.target as HTMLInputElement).checked })" />{{ $t('settings.AvatarDecorationPicker.s15') }}</label>
+            <button type="button" class="btn btn--ghost btn--sm" @click="update({ angle: 0, flip_h: false, offset_x: 0, offset_y: 0 })">{{ $t('settings.AvatarDecorationPicker.s16') }}</button>
           </fieldset>
         </div>
       </div>
-      <div class="decoration-options" role="list" aria-label="可用挂件">
+      <div class="decoration-options" role="list" :aria-label="$t('settings.AvatarDecorationPicker.s17')">
         <button
           v-for="item in items"
           :key="item.id"
@@ -126,12 +127,12 @@ onMounted(load)
         >
           <img :src="item.image_url" alt="" width="56" height="56" /><span>{{ item.name }}</span>
         </button>
-        <p v-if="!items.length">暂无可用挂件</p>
+        <p v-if="!items.length">{{ $t('settings.AvatarDecorationPicker.s18') }}</p>
       </div>
     </template>
-    <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" class="btn btn--ghost btn--sm" :disabled="busy || loading" @click="load">重试</button></p>
+    <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" class="btn btn--ghost btn--sm" :disabled="busy || loading" @click="load">{{ $t('settings.AvatarDecorationPicker.s19') }}</button></p>
     <p v-if="notice" role="status">{{ notice }}</p>
-    <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="busy || loading || !loaded">{{ busy ? '保存中…' : '保存挂件' }}</button></div>
+    <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="busy || loading || !loaded">{{ busy ? $t('settings.AvatarDecorationPicker.s20') : $t('settings.AvatarDecorationPicker.s21') }}</button></div>
   </form>
 </template>
 

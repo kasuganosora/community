@@ -2,60 +2,61 @@
 import { AdminAlert, AdminBadge, AdminButton, AdminEmpty, AdminField, AdminPageHeader, AdminRow } from "../components/ui"
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { accessAdminApi as api, type AdminInvite } from '../../infrastructure/accessAdminApi'
+import { t } from '@/shared/i18n'
 const rows = ref<AdminInvite[]>([]), total = ref(0), offset = ref(0), state = ref('')
 const error = ref(''), notice = ref(''), loading = ref(false), busy = ref(false)
 const draft = reactive({ count: 1, max_uses: 1, expires_in: 604800 })
 let alive = true, version = 0
 onBeforeUnmount(() => { alive = false; version++ })
-async function load(reset = false) { if (reset) offset.value = 0; const request = ++version; loading.value = true; error.value = ''; try { const result = await api.invites(state.value, offset.value); if (alive && request === version) { rows.value = result.items; total.value = result.total } } catch { if (alive && request === version) error.value = '无法加载邀请，请重试。' } finally { if (alive && request === version) loading.value = false } }
-async function create() { if (busy.value) return; busy.value = true; error.value = ''; notice.value = ''; try { const result = await api.createInvites({ ...draft }); if (!alive) return; notice.value = `已创建 ${result.items.length} 个邀请码，请仅分享给受邀者。`; state.value = ''; await load(true) } catch { if (alive) error.value = '生成失败，设置已保留；请刷新确认后重试，避免重复创建。' } finally { if (alive) busy.value = false } }
-async function toggle(invite: AdminInvite) { if (!window.confirm(invite.disabled ? '重新启用此邀请码？过期或次数用尽的邀请仍不可用。' : '停用此邀请码？此后注册将无法消费该邀请码。')) return; busy.value = true; error.value = ''; try { await api.setInviteDisabled(invite.id, !invite.disabled); if (alive) await load() } catch { if (alive) error.value = '更新失败，请刷新确认当前状态。' } finally { if (alive) busy.value = false } }
-async function copy(code: string) { try { await navigator.clipboard.writeText(code); if (alive) notice.value = '邀请码已复制。' } catch { if (alive) error.value = '无法访问剪贴板，请手动选择并复制邀请码。' } }
-function status(invite: AdminInvite) { if (invite.disabled) return '已停用'; if (invite.expires_at && Date.parse(invite.expires_at) <= Date.now()) return '已过期'; if (invite.max_uses > 0 && invite.uses >= invite.max_uses) return '已用尽'; return invite.available ? '可使用' : '不可使用' }
+async function load(reset = false) { if (reset) offset.value = 0; const request = ++version; loading.value = true; error.value = ''; try { const result = await api.invites(state.value, offset.value); if (alive && request === version) { rows.value = result.items; total.value = result.total } } catch { if (alive && request === version) error.value = t('admin.InvitesAdminPage.s36') } finally { if (alive && request === version) loading.value = false } }
+async function create() { if (busy.value) return; busy.value = true; error.value = ''; notice.value = ''; try { const result = await api.createInvites({ ...draft }); if (!alive) return; notice.value = t('admin.InvitesAdminPage.s37', [result.items.length]); state.value = ''; await load(true) } catch { if (alive) error.value = t('admin.InvitesAdminPage.s38') } finally { if (alive) busy.value = false } }
+async function toggle(invite: AdminInvite) { if (!window.confirm(invite.disabled ? t('admin.InvitesAdminPage.s39') : t('admin.InvitesAdminPage.s40'))) return; busy.value = true; error.value = ''; try { await api.setInviteDisabled(invite.id, !invite.disabled); if (alive) await load() } catch { if (alive) error.value = t('admin.InvitesAdminPage.s41') } finally { if (alive) busy.value = false } }
+async function copy(code: string) { try { await navigator.clipboard.writeText(code); if (alive) notice.value = t('admin.InvitesAdminPage.s42') } catch { if (alive) error.value = t('admin.InvitesAdminPage.s43') } }
+function status(invite: AdminInvite) { if (invite.disabled) return t('admin.InvitesAdminPage.s19'); if (invite.expires_at && Date.parse(invite.expires_at) <= Date.now()) return t('admin.InvitesAdminPage.s20'); if (invite.max_uses > 0 && invite.uses >= invite.max_uses) return t('admin.InvitesAdminPage.s44'); return invite.available ? t('admin.InvitesAdminPage.s18') : t('admin.InvitesAdminPage.s45') }
 function page(delta: number) { offset.value = Math.max(0, offset.value + delta * 40); void load() }
 onMounted(() => load())
 </script>
 
 <template>
   <section class="admin-page">
-    <AdminPageHeader title="邀请管理" description="生成邀请码，控制注册入口。">
-      <AdminButton size="sm" :disabled="busy || loading" @click="load()">刷新</AdminButton>
+    <AdminPageHeader :title="$t('admin.InvitesAdminPage.s1')" :description="$t('admin.InvitesAdminPage.s2')">
+      <AdminButton size="sm" :disabled="busy || loading" @click="load()">{{ $t('admin.InvitesAdminPage.s3') }}</AdminButton>
     </AdminPageHeader>
     <AdminAlert v-if="error" tone="danger">{{ error }}</AdminAlert>
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
-    <form class="admin-card" aria-label="生成邀请" @submit.prevent="create">
-      <h2>生成邀请码</h2>
+    <form class="admin-card" :aria-label="$t('admin.InvitesAdminPage.s4')" @submit.prevent="create">
+      <h2>{{ $t('admin.InvitesAdminPage.s5') }}</h2>
       <div class="admin-toolbar">
-        <AdminField label="数量"><template #default="{ id }"><input :id="id" v-model.number="draft.count" type="number" min="1" max="100" required></template></AdminField>
-        <AdminField label="最多使用次数" hint="0 表示不限次数"><template #default="{ id }"><input :id="id" v-model.number="draft.max_uses" type="number" min="0" max="10000" required></template></AdminField>
-        <AdminField label="有效期"><template #default="{ id }"><select :id="id" v-model.number="draft.expires_in"><option :value="3600">1 小时</option><option :value="86400">1 天</option><option :value="604800">7 天</option><option :value="2592000">30 天</option><option :value="0">永不过期</option></select></template></AdminField>
+        <AdminField :label="$t('admin.InvitesAdminPage.s6')"><template #default="{ id }"><input :id="id" v-model.number="draft.count" type="number" min="1" max="100" required></template></AdminField>
+        <AdminField :label="$t('admin.InvitesAdminPage.s7')" :hint="$t('admin.InvitesAdminPage.s8')"><template #default="{ id }"><input :id="id" v-model.number="draft.max_uses" type="number" min="0" max="10000" required></template></AdminField>
+        <AdminField :label="$t('admin.InvitesAdminPage.s9')"><template #default="{ id }"><select :id="id" v-model.number="draft.expires_in"><option :value="3600">{{ $t('admin.InvitesAdminPage.s10') }}</option><option :value="86400">{{ $t('admin.InvitesAdminPage.s11') }}</option><option :value="604800">{{ $t('admin.InvitesAdminPage.s12') }}</option><option :value="2592000">{{ $t('admin.InvitesAdminPage.s13') }}</option><option :value="0">{{ $t('admin.InvitesAdminPage.s14') }}</option></select></template></AdminField>
       </div>
-      <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :disabled="busy || loading">生成邀请</AdminButton></div>
+      <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :disabled="busy || loading">{{ $t('admin.InvitesAdminPage.s4') }}</AdminButton></div>
     </form>
-    <form class="admin-toolbar" aria-label="邀请筛选" @submit.prevent="load(true)">
-      <AdminField label="状态"><template #default="{ id }"><select :id="id" v-model="state"><option value="">全部</option><option value="active">可使用</option><option value="disabled">已停用</option><option value="expired">已过期</option><option value="exhausted">次数用尽</option></select></template></AdminField>
-      <AdminButton type="submit" :disabled="busy || loading">筛选</AdminButton>
+    <form class="admin-toolbar" :aria-label="$t('admin.InvitesAdminPage.s15')" @submit.prevent="load(true)">
+      <AdminField :label="$t('admin.InvitesAdminPage.s16')"><template #default="{ id }"><select :id="id" v-model="state"><option value="">{{ $t('admin.InvitesAdminPage.s17') }}</option><option value="active">{{ $t('admin.InvitesAdminPage.s18') }}</option><option value="disabled">{{ $t('admin.InvitesAdminPage.s19') }}</option><option value="expired">{{ $t('admin.InvitesAdminPage.s20') }}</option><option value="exhausted">{{ $t('admin.InvitesAdminPage.s21') }}</option></select></template></AdminField>
+      <AdminButton type="submit" :disabled="busy || loading">{{ $t('admin.InvitesAdminPage.s22') }}</AdminButton>
     </form>
     <section class="admin-card" :aria-busy="loading">
-      <p v-if="loading" class="admin-empty" role="status">正在加载…</p>
-      <AdminEmpty v-else-if="!error && !rows.length">暂无符合条件的邀请码。</AdminEmpty>
+      <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.InvitesAdminPage.s23') }}</p>
+      <AdminEmpty v-else-if="!error && !rows.length">{{ $t('admin.InvitesAdminPage.s24') }}</AdminEmpty>
       <ul v-else class="admin-list">
         <AdminRow v-for="invite in rows" :key="invite.id" :title="invite.code" mono>
           <template #meta>
-            <AdminBadge :tone="status(invite) === '可使用' ? 'success' : 'neutral'">{{ status(invite) }}</AdminBadge>
-            <span>已使用 {{ invite.uses }} / {{ invite.max_uses === 0 ? '不限' : invite.max_uses }} 次</span>
-            <span>到期：{{ invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '永不过期' }}</span>
-            <span>创建者 #{{ invite.account_id }}</span>
+            <AdminBadge :tone="status(invite) === $t('admin.InvitesAdminPage.s18') ? 'success' : 'neutral'">{{ status(invite) }}</AdminBadge>
+            <span>{{ $t('admin.InvitesAdminPage.s26', [invite.uses, invite.max_uses === 0 ? $t('admin.InvitesAdminPage.s25') : invite.max_uses]) }}</span>
+            <span>{{ $t('admin.InvitesAdminPage.s27', [invite.expires_at ? new Date(invite.expires_at).toLocaleString() : $t('admin.InvitesAdminPage.s14')]) }}</span>
+            <span>{{ $t('admin.InvitesAdminPage.s28', [invite.account_id]) }}</span>
           </template>
-          <AdminButton size="sm" @click="copy(invite.code)">复制邀请码</AdminButton>
-          <AdminButton size="sm" :variant="invite.disabled ? 'secondary' : 'danger'" :disabled="busy" @click="toggle(invite)">{{ invite.disabled ? '启用' : '停用' }}</AdminButton>
+          <AdminButton size="sm" @click="copy(invite.code)">{{ $t('admin.InvitesAdminPage.s29') }}</AdminButton>
+          <AdminButton size="sm" :variant="invite.disabled ? 'secondary' : 'danger'" :disabled="busy" @click="toggle(invite)">{{ invite.disabled ? $t('admin.InvitesAdminPage.s30') : $t('admin.InvitesAdminPage.s31') }}</AdminButton>
         </AdminRow>
       </ul>
     </section>
-    <nav class="admin-pagination" aria-label="邀请分页">
-      <AdminButton size="sm" :disabled="offset === 0 || busy || loading" @click="page(-1)">上一页</AdminButton>
-      <span>共 {{ total }} 个邀请码</span>
-      <AdminButton size="sm" :disabled="offset + 40 >= total || busy || loading" @click="page(1)">下一页</AdminButton>
+    <nav class="admin-pagination" :aria-label="$t('admin.InvitesAdminPage.s32')">
+      <AdminButton size="sm" :disabled="offset === 0 || busy || loading" @click="page(-1)">{{ $t('admin.InvitesAdminPage.s33') }}</AdminButton>
+      <span>{{ $t('admin.InvitesAdminPage.s34', [total]) }}</span>
+      <AdminButton size="sm" :disabled="offset + 40 >= total || busy || loading" @click="page(1)">{{ $t('admin.InvitesAdminPage.s35') }}</AdminButton>
     </nav>
   </section>
 </template>

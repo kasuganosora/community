@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
 import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
@@ -9,6 +10,7 @@ import { captchaApi } from '../../infrastructure/captchaApi'
 import CaptchaField from '../components/CaptchaField.vue'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 
+import { t } from '@/shared/i18n'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -52,7 +54,7 @@ onMounted(async () => {
     const cfg = captchaResult.value
     if (cfg.enabled && cfg.provider !== 'none') {
       if (cfg.provider !== 'local' && !cfg.site_key) {
-        captchaNote.value = '验证码没有配好，暂时不能登录。'
+        captchaNote.value = t('auth.LoginPage.s18')
       } else {
         captcha.required = true
         captcha.provider = cfg.provider
@@ -151,19 +153,19 @@ async function handleLogin() {
         <LogoIcon :size="40" />
       </div>
 
-      <h1 class="login-title">{{ addingAccount ? '添加账户' : '登录社区' }}</h1>
-      <p v-if="addingAccount" class="login-add-note">登录另一个本站账号，当前账号会保持登录。<button type="button" class="login-add-cancel" @click="router.back()">取消</button></p>
+      <h1 class="login-title">{{ addingAccount ? $t('auth.LoginPage.s1') : $t('auth.LoginPage.s2') }}</h1>
+      <p v-if="addingAccount" class="login-add-note">{{ $t('auth.LoginPage.s3') }}<button type="button" class="login-add-cancel" @click="router.back()">{{ $t('auth.LoginPage.s4') }}</button></p>
 
-      <t-alert v-if="justRegistered && !authStore.error" theme="success" message="注册成功，请登录。" style="margin-bottom: var(--space-4)" />
-      <t-alert v-if="pendingApproval && !authStore.error" theme="info" message="注册已提交，管理员通过后才能登录。" style="margin-bottom: var(--space-4)" />
-      <t-alert v-if="emailVerify && !authStore.error" theme="info" message="验证邮件已发出，请先点邮件里的链接，再登录。" style="margin-bottom: var(--space-4)" />
+      <t-alert v-if="justRegistered && !authStore.error" theme="success" :message="$t('auth.LoginPage.s5')" style="margin-bottom: var(--space-4)" />
+      <t-alert v-if="pendingApproval && !authStore.error" theme="info" :message="$t('auth.LoginPage.s6')" style="margin-bottom: var(--space-4)" />
+      <t-alert v-if="emailVerify && !authStore.error" theme="info" :message="$t('auth.LoginPage.s7')" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
 
       <t-form @submit="handleLogin" class="login-form" label-width="0">
         <t-form-item>
           <t-input
             v-model="form.username"
-            placeholder="用户名或邮箱"
+            :placeholder="$t('auth.LoginPage.s8')"
             size="large"
             clearable
             autocomplete="username"
@@ -175,7 +177,7 @@ async function handleLogin() {
             v-model="form.password"
             class="password-input"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="密码"
+            :placeholder="$t('auth.LoginPage.s9')"
             size="large"
             autocomplete="current-password"
             :disabled="loginAttempts >= MAX_LOGIN_ATTEMPTS"
@@ -188,7 +190,7 @@ async function handleLogin() {
                 shape="square"
                 size="small"
                 class="password-toggle"
-                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :aria-label="showPassword ? $t('auth.LoginPage.s10') : $t('auth.LoginPage.s11')"
                 :aria-pressed="showPassword"
                 @click="showPassword = !showPassword"
               >
@@ -198,7 +200,7 @@ async function handleLogin() {
           </t-input>
         </t-form-item>
         <p v-if="loginAttempts >= MAX_LOGIN_ATTEMPTS" class="login-locked">
-          尝试次数太多了，请在 30 秒后再试。
+          {{ $t('auth.LoginPage.s12') }}
         </p>
         <p v-if="captchaNote" class="login-locked">{{ captchaNote }}</p>
         <CaptchaField
@@ -219,7 +221,7 @@ async function handleLogin() {
             :loading="pending || authStore.loading"
             :disabled="pending || loginAttempts >= MAX_LOGIN_ATTEMPTS || !!captchaNote || (captcha.required && captcha.provider !== 'local' && !captchaToken)"
           >
-            登录
+            {{ $t('auth.LoginPage.s13') }}
           </t-button>
         </t-form-item>
       </t-form>
@@ -234,11 +236,11 @@ async function handleLogin() {
         :loading="authStore.loading"
         @click="loginWithPasskey"
       >
-        使用通行密钥登录
+        {{ $t('auth.LoginPage.s14') }}
       </t-button>
 
       <div v-if="!justRegistered && !pendingApproval && registrationOpen === true" class="login-account">
-        <p class="login-account__q">有本站账号就在上面登录。还没有？</p>
+        <p class="login-account__q">{{ $t('auth.LoginPage.s15') }}</p>
         <t-button
           variant="outline"
           block
@@ -246,17 +248,19 @@ async function handleLogin() {
           shape="round"
           @click="goRegister"
         >
-          没有，去注册
+          {{ $t('auth.LoginPage.s16') }}
         </t-button>
       </div>
       <p v-else-if="!justRegistered && registrationOpen === false" class="login-account__q login-closed">
-        {{ registrationMessage || '本站暂不开放注册。' }}
+        {{ registrationMessage || $t('auth.LoginPage.s17') }}
       </p>
+      <div class="auth-lang"><LanguagePicker compact /></div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.auth-lang { display: flex; justify-content: center; margin-top: var(--space-4, 16px); }
 .login-add-note {
   margin: calc(-1 * var(--space-2)) 0 var(--space-4);
   text-align: center;

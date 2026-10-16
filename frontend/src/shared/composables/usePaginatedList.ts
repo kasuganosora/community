@@ -3,6 +3,7 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
 import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
 
+import { t } from '@/shared/i18n'
 export interface PaginationWindow { previousCursors: string[]; droppedHistory: boolean; knownHead?: string[] }
 
 export interface PaginatedList<T> {
@@ -62,14 +63,14 @@ export function usePaginatedList<T extends { id: string }>(
 
   function setPinnedIds(ids: string[]) {
     pinned = new Set(ids.slice(0, 8))
-    if (!pinned.size && error.value === '请先完成正在编辑的帖子，再继续翻页') error.value = null
+    if (!pinned.size && error.value === t('shared.usePaginatedList.s1')) error.value = null
     if (paused && !items.value.slice(0, pageSize).some(item => pinned.has(item.id))) { paused = false; hasMore.value = true; error.value = null }
   }
 
   async function run(append: boolean) {
-    if (!append && pinned.size) { error.value = '请先完成正在编辑的帖子，再继续翻页'; return }
+    if (!append && pinned.size) { error.value = t('shared.usePaginatedList.s1'); return }
     if (append && items.value.length >= maxPages * pageSize && items.value.slice(0, pageSize).some(item => pinned.has(item.id))) {
-      paused = true; hasMore.value = false; error.value = '请先完成正在编辑的帖子，再继续翻页'; return
+      paused = true; hasMore.value = false; error.value = t('shared.usePaginatedList.s1'); return
     }
     const my = ++version
     const maxId = append ? nextCursor : undefined
@@ -97,7 +98,7 @@ export function usePaginatedList<T extends { id: string }>(
         && (!append || grew)
     } catch (e) {
       if (my !== version) return
-      error.value = e instanceof Error ? e.message : '加载失败'
+      error.value = e instanceof Error ? e.message : t('shared.usePaginatedList.s2')
     } finally {
       if (my === version) loading.value = false
     }
@@ -107,7 +108,7 @@ export function usePaginatedList<T extends { id: string }>(
     if (loading.value || !hasPrevious.value) return
     const cursor = history.at(-1)
     if (!cursor) { await run(false); return }
-    if (items.value.slice(-pageSize).some(item => pinned.has(item.id))) { error.value = '请先完成正在编辑的帖子，再继续翻页'; return }
+    if (items.value.slice(-pageSize).some(item => pinned.has(item.id))) { error.value = t('shared.usePaginatedList.s1'); return }
     const my = ++version
     loading.value = true
     try {
@@ -119,7 +120,7 @@ export function usePaginatedList<T extends { id: string }>(
       hasPrevious.value = history.length > 0 || droppedHistory
       nextCursor = items.value.at(-1)?.id
       hasMore.value = true
-    } catch (e) { if (my === version) error.value = e instanceof Error ? e.message : '加载失败' }
+    } catch (e) { if (my === version) error.value = e instanceof Error ? e.message : t('shared.usePaginatedList.s2') }
     finally { if (my === version) loading.value = false }
   }
 

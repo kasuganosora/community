@@ -16,6 +16,7 @@ import EmojiPicker from '@/shared/components/post/EmojiPicker.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
+import { t } from '@/shared/i18n'
 const route = useRoute(), router = useRouter()
 const selectedId = computed(() => typeof route.params.groupId === 'string' ? route.params.groupId : '')
 const { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, openRoom, loadHistory, upsertGroup, mergeMessages } = useGroups(selectedId)
@@ -35,20 +36,20 @@ const typingNames = computed(() => group.value?.typing_users?.filter(person => p
 let active = true, actionVersion = 0
 let lastRead = '', createTxn = crypto.randomUUID(), createSignature = ''
 const { busy: joinBusy, error: joinError, status: joinStatus, operation: joinOperation, join: acceptJoin } = useGroupJoin(selectedId, result => {
-  if (result.client_required) { externalClientURL.value = safeGroupURL(result.client_url); status.value = '已加入，请使用 Matrix 客户端继续操作。' }
+  if (result.client_required) { externalClientURL.value = safeGroupURL(result.client_url); status.value = t('group.GroupsPage.s74') }
   if (result.group) { upsertGroup(result.group); void openRoom() }
 })
 const actionBusy = computed(() => mutationBusy.value || joinBusy.value)
 const isActionCurrent = (version: number, epoch: number) => active && version === actionVersion && epoch === sessionEpoch.value
-function confirmAction(header: string, body: string, confirm = '继续'): Promise<boolean> {
+function confirmAction(header: string, body: string, confirm = t('group.GroupsPage.s75')): Promise<boolean> {
   const reopenDetails = detailsOpen.value
   const epoch = sessionEpoch.value, version = actionVersion
   if (reopenDetails) { detailsDialog.value?.close(); detailsOpen.value = false }
   return new Promise(resolve => {
-    const dialog = DialogPlugin.confirm({ header, body, confirmBtn: confirm, cancelBtn: '取消', onConfirm: () => { dialog.destroy(); resolve(isActionCurrent(version, epoch)) }, onClose: () => { dialog.destroy(); if (reopenDetails && isActionCurrent(version, epoch)) detailsOpen.value = true; resolve(false) } })
+    const dialog = DialogPlugin.confirm({ header, body, confirmBtn: confirm, cancelBtn: t('group.GroupsPage.s76'), onConfirm: () => { dialog.destroy(); resolve(isActionCurrent(version, epoch)) }, onClose: () => { dialog.destroy(); if (reopenDetails && isActionCurrent(version, epoch)) detailsOpen.value = true; resolve(false) } })
   })
 }
-async function protectDraft() { return !dirty.value || await confirmAction('离开当前群聊？', '尚未发送的消息和附件将被丢弃。', '离开') }
+async function protectDraft() { return !dirty.value || await confirmAction(t('group.GroupsPage.s77'), t('group.GroupsPage.s78'), t('group.GroupsPage.s79')) }
 async function openPanel() { if (!await protectDraft()) return; dirty.value = false; panel.value = panel.value ? null : 'create'; actionError.value = '' }
 onBeforeRouteLeave(protectDraft)
 onBeforeRouteUpdate(async to => to.params.groupId === route.params.groupId || await protectDraft())
@@ -112,7 +113,7 @@ async function loadMembers(more = false) {
   if (!id || group.value?.membership !== 'join' || membersLoading.value || (more && !membersCursor.value)) return
   membersLoading.value = true; membersError.value = ''
   try { const page = await groupApi.members(id, more ? membersCursor.value! : undefined); if (!isActionCurrent(version, epoch)) return; members.value = more ? [...new Map([...members.value, ...page.members].map(m => [m.id, m])).values()] : page.members; membersCursor.value = page.next_cursor }
-  catch (e) { if (isActionCurrent(version, epoch)) membersError.value = e instanceof Error ? e.message : '成员加载失败' }
+  catch (e) { if (isActionCurrent(version, epoch)) membersError.value = e instanceof Error ? e.message : t('group.GroupsPage.s80') }
   finally { if (isActionCurrent(version, epoch)) membersLoading.value = false }
 }
 async function create() {
@@ -122,8 +123,8 @@ async function create() {
   if (signature !== createSignature) { createTxn = crypto.randomUUID(); createSignature = signature }
   const epoch = sessionEpoch.value, version = actionVersion
   mutationBusy.value = true; actionError.value = ''
-  try { const created = await groupApi.create({ ...input, transaction_id: createTxn }); if (!isActionCurrent(version, epoch)) return; upsertGroup(created); panel.value = null; createName.value = ''; createTopic.value = ''; createInvite.value = ''; consent.value = false; await router.push(groupPath(created.id)); if (active && epoch === sessionEpoch.value && selectedId.value === created.id && created.invite_failures?.length) actionError.value = `群组已创建，以下成员邀请失败，可在群详情中重试：${created.invite_failures.map(f => f.user_id + '（' + f.error + '）').join('、')}` }
-  catch (e) { if (isActionCurrent(version, epoch)) actionError.value = e instanceof Error ? e.message : '创建失败，请重试' }
+  try { const created = await groupApi.create({ ...input, transaction_id: createTxn }); if (!isActionCurrent(version, epoch)) return; upsertGroup(created); panel.value = null; createName.value = ''; createTopic.value = ''; createInvite.value = ''; consent.value = false; await router.push(groupPath(created.id)); if (active && epoch === sessionEpoch.value && selectedId.value === created.id && created.invite_failures?.length) actionError.value = t('group.GroupsPage.s81', [created.invite_failures.map(f => f.user_id + '（' + f.error + '）').join('、')]) }
+  catch (e) { if (isActionCurrent(version, epoch)) actionError.value = e instanceof Error ? e.message : t('group.GroupsPage.s82') }
   finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 async function join(item: Group) { if (!actionBusy.value) { actionError.value = ''; await acceptJoin(item) } }
@@ -131,81 +132,81 @@ async function leave() {
   const current = group.value
   if (!current || actionBusy.value) return
   const epoch = sessionEpoch.value, version = actionVersion
-  const verb = current.membership === 'invite' ? '拒绝邀请' : current.membership === 'knock' ? '撤销申请' : '退出群组'
-  if (!await confirmAction(`${verb}？`, '退出后不会因新消息自动加入。需要新的邀请或主动加入才能继续参与。', verb)) return
+  const verb = current.membership === 'invite' ? t('group.GroupsPage.s50') : current.membership === 'knock' ? t('group.GroupsPage.s51') : t('group.GroupsPage.s83')
+  if (!await confirmAction(`${verb}？`, t('group.GroupsPage.s84'), verb)) return
   if (!isActionCurrent(version, epoch) || actionBusy.value) return
   mutationBusy.value = true; actionError.value = ''
-  status.value = `${verb}中…`
+  status.value = t('group.GroupsPage.s85', [verb])
   try { await groupApi.leave(current.id); if (!isActionCurrent(version, epoch)) return; dirty.value = false; detailsOpen.value = false; upsertGroup({ ...current, membership: 'leave' }); await router.push('/groups'); if (active && epoch === sessionEpoch.value) void loadGroups() }
-  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '操作失败' } }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : t('group.GroupsPage.s86') } }
   finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 async function remove(message: GroupMessage) {
   const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion
-  if (actionBusy.value || !await confirmAction('删除这条消息？', '删除会同步到群内。无法收回已下载的附件、远端副本或截图。', '删除')) return
+  if (actionBusy.value || !await confirmAction(t('group.GroupsPage.s87'), t('group.GroupsPage.s88'), t('group.GroupsPage.s89'))) return
   if (!isActionCurrent(version, epoch) || actionBusy.value) return
-  mutationBusy.value = true; actionError.value = ''; status.value = '正在删除消息…'
-  try { await groupApi.remove(id, message.id); if (isActionCurrent(version, epoch)) { mergeMessages([{ ...message, redacted: true, body: '', attachments: [], reactions: [] }]); status.value = '消息已删除' } }
-  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '删除失败' } }
+  mutationBusy.value = true; actionError.value = ''; status.value = t('group.GroupsPage.s90')
+  try { await groupApi.remove(id, message.id); if (isActionCurrent(version, epoch)) { mergeMessages([{ ...message, redacted: true, body: '', attachments: [], reactions: [] }]); status.value = t('group.GroupsPage.s91') } }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : t('group.GroupsPage.s92') } }
   finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 async function react(message: GroupMessage, key: string, own: boolean) {
   if (!canSend.value || actionBusy.value) return
-  const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion; mutationBusy.value = true; actionError.value = ''; status.value = '正在发送回应…'
-  try { await groupApi.reaction(id, message.id, key, own); if (isActionCurrent(version, epoch)) { reactionDialog.value?.close(); reactionMessage.value = null; status.value = '回应已更新' } }
-  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : '回应失败' } }
+  const id = selectedId.value, epoch = sessionEpoch.value, version = actionVersion; mutationBusy.value = true; actionError.value = ''; status.value = t('group.GroupsPage.s93')
+  try { await groupApi.reaction(id, message.id, key, own); if (isActionCurrent(version, epoch)) { reactionDialog.value?.close(); reactionMessage.value = null; status.value = t('group.GroupsPage.s94') } }
+  catch (e) { if (isActionCurrent(version, epoch)) { status.value = ''; actionError.value = e instanceof Error ? e.message : t('group.GroupsPage.s95') } }
   finally { if (isActionCurrent(version, epoch)) mutationBusy.value = false }
 }
 function reactionPicker(message: GroupMessage) { reactionMessage.value = message; reactionDialog.value?.showModal() }
-function customReaction(emoji: MastodonEmoji) { if (emoji.local_only) { actionError.value = '仅本站表情不能用于群聊回应。'; return } if (reactionMessage.value) void react(reactionMessage.value, `:${emoji.shortcode}:`, false) }
-function receivedSent(incoming: GroupMessage[]) { mergeMessages(incoming); status.value = '消息已发送（本地服务已接受）'; void scrollBottom() }
-async function context(message: GroupMessage, edit = false) { if (composerLocked.value) return; if (edit && dirty.value && !await confirmAction('替换当前草稿？', '编辑消息会用原消息内容替换当前输入框中的草稿。', '替换草稿')) return; if (edit) { editing.value = message; reply.value = null } else { reply.value = message; editing.value = null } }
+function customReaction(emoji: MastodonEmoji) { if (emoji.local_only) { actionError.value = t('group.GroupsPage.s96'); return } if (reactionMessage.value) void react(reactionMessage.value, `:${emoji.shortcode}:`, false) }
+function receivedSent(incoming: GroupMessage[]) { mergeMessages(incoming); status.value = t('group.GroupsPage.s97'); void scrollBottom() }
+async function context(message: GroupMessage, edit = false) { if (composerLocked.value) return; if (edit && dirty.value && !await confirmAction(t('group.GroupsPage.s98'), t('group.GroupsPage.s99'), t('group.GroupsPage.s100'))) return; if (edit) { editing.value = message; reply.value = null } else { reply.value = message; editing.value = null } }
 onMounted(() => { document.addEventListener('visibilitychange', markRead); window.visualViewport?.addEventListener('resize', onViewportResize, { passive: true }) })
 onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventListener('visibilitychange', markRead); endObserver?.disconnect(); if (scrollFrame) cancelAnimationFrame(scrollFrame); if (resizeFrame) cancelAnimationFrame(resizeFrame); window.visualViewport?.removeEventListener('resize', onViewportResize) })
 </script>
 <template>
   <div class="groups-page" :class="{ 'groups-page--selected': !!selectedId, 'groups-page--panel': !!panel }">
-    <aside class="groups-list" aria-label="我的群聊">
-      <header class="groups-list__header"><h1>群组</h1></header>
-      <div class="groups-list__tools"><button type="button" class="btn btn--primary btn--sm" @click="openPanel">创建群组</button></div>
-      <div class="groups-list__search-field"><SearchBox embedded search-type="groups" allow-empty placeholder="群名或群地址" /></div>
-      <p v-if="syncPaused && !selectedId" class="groups-notice" role="status">{{ syncError }} <button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? '刷新中…' : '手动刷新并重试' }}</button></p>
-      <p v-if="listError" class="groups-notice groups-notice--error" role="alert">{{ listError }} <button type="button" @click="loadGroups()">重试</button></p>
+    <aside class="groups-list" :aria-label="$t('group.GroupsPage.s1')">
+      <header class="groups-list__header"><h1>{{ $t('group.GroupsPage.s2') }}</h1></header>
+      <div class="groups-list__tools"><button type="button" class="btn btn--primary btn--sm" @click="openPanel">{{ $t('group.GroupsPage.s3') }}</button></div>
+      <div class="groups-list__search-field"><SearchBox embedded search-type="groups" allow-empty :placeholder="$t('group.GroupsPage.s4')" /></div>
+      <p v-if="syncPaused && !selectedId" class="groups-notice" role="status">{{ syncError }} <button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? $t('group.GroupsPage.s5') : $t('group.GroupsPage.s6') }}</button></p>
+      <p v-if="listError" class="groups-notice groups-notice--error" role="alert">{{ listError }} <button type="button" @click="loadGroups()">{{ $t('group.GroupsPage.s7') }}</button></p>
       <div class="groups-list__items">
-<RouterLink v-for="item in groups" :key="item.id" :to="groupPath(item.id)" class="group-row" :class="{ 'group-row--active': item.id === selectedId }" :aria-current="item.id === selectedId ? 'page' : undefined"><GroupAvatar :name="item.name || '群组'" :url="item.avatar_url" /><span class="group-row__text"><strong>{{ item.name || '未命名群组' }}</strong><small>{{ item.membership !== 'join' ? groupMembershipLabel[item.membership] : item.muted ? '已静音' : item.encryption === 'encrypted' ? '加密群 · 使用客户端' : `${item.member_count ?? '未知'} 位成员` }}</small></span><span v-if="item.unread_count" class="group-row__badge" :aria-label="`${item.unread_count} 条未读`">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</span></RouterLink>
-        <p v-if="listLoading" class="groups-list__empty" role="status">正在加载群组…</p><p v-else-if="!groups.length && !listError" class="groups-list__empty">还没有群组。创建一个群，或通过搜索加入。</p><button v-if="listCursor" class="btn btn--ghost btn--sm" type="button" :disabled="listLoading" @click="loadGroups(true)">加载更多群组</button>
+<RouterLink v-for="item in groups" :key="item.id" :to="groupPath(item.id)" class="group-row" :class="{ 'group-row--active': item.id === selectedId }" :aria-current="item.id === selectedId ? 'page' : undefined"><GroupAvatar :name="item.name || $t('group.GroupsPage.s2')" :url="item.avatar_url" /><span class="group-row__text"><strong>{{ item.name || $t('group.GroupsPage.s8') }}</strong><small>{{ item.membership !== 'join' ? groupMembershipLabel[item.membership] : item.muted ? $t('group.GroupsPage.s9') : item.encryption === 'encrypted' ? $t('group.GroupsPage.s10') : $t('group.GroupsPage.s12', [item.member_count ?? $t('group.GroupsPage.s11')]) }}</small></span><span v-if="item.unread_count" class="group-row__badge" :aria-label="$t('group.GroupsPage.s13', [item.unread_count])">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</span></RouterLink>
+        <p v-if="listLoading" class="groups-list__empty" role="status">{{ $t('group.GroupsPage.s14') }}</p><p v-else-if="!groups.length && !listError" class="groups-list__empty">{{ $t('group.GroupsPage.s15') }}</p><button v-if="listCursor" class="btn btn--ghost btn--sm" type="button" :disabled="listLoading" @click="loadGroups(true)">{{ $t('group.GroupsPage.s16') }}</button>
 </div>
     </aside>
-    <section class="groups-main" aria-label="群聊内容">
+    <section class="groups-main" :aria-label="$t('group.GroupsPage.s17')">
       <div v-if="panel" class="groups-setup">
-<header><div><h2>创建群组</h2><p class="groups-setup__intro">为朋友或社区创建一个聊天空间。</p></div><button type="button" aria-label="关闭" :disabled="actionBusy" @click="panel = null">×</button></header>
+<header><div><h2>{{ $t('group.GroupsPage.s3') }}</h2><p class="groups-setup__intro">{{ $t('group.GroupsPage.s18') }}</p></div><button type="button" :aria-label="$t('group.GroupsPage.s19')" :disabled="actionBusy" @click="panel = null">×</button></header>
         <p v-if="actionError" class="groups-notice groups-notice--error" role="alert">{{ actionError }}</p>
-        <form class="group-setup-form" @submit.prevent="create"><label>群名称<input v-model="createName" required maxlength="255" placeholder="给群组起个名字" :disabled="actionBusy" /></label><label>群介绍<textarea v-model="createTopic" maxlength="512" rows="3" placeholder="聊些什么？（选填）" :disabled="actionBusy" /></label><fieldset><legend>谁可以加入</legend><label class="group-setup-choice"><input v-model="visibility" type="radio" value="private" :disabled="actionBusy" /><span>仅邀请<small>不出现在公开目录中，通过邀请加入。</small></span></label><label class="group-setup-choice"><input v-model="visibility" type="radio" value="public" :disabled="actionBusy" /><span>公开群<small>任何人可加入，并显示在本站公开目录中。</small></span></label></fieldset><GroupMemberInput v-model="createInvite" label="邀请成员（选填）" multiple :disabled="actionBusy" /><label class="group-setup-choice group-setup-consent"><input v-model="consent" type="checkbox" :disabled="actionBusy" /><span>我了解此群不会启用端到端加密<small>支持 Community 与 Matrix 成员。入群前的历史默认不可见。</small></span></label><button class="btn btn--primary" :disabled="actionBusy || !consent || !createName.trim()">{{ actionBusy ? '创建中…' : '创建群组' }}</button></form>
-        <p v-if="status" class="groups-notice" role="status">{{ status }}</p><a v-if="externalClientURL" class="btn btn--secondary btn--sm" :href="externalClientURL" target="_blank" rel="noopener noreferrer">使用 Matrix 客户端打开</a>
+        <form class="group-setup-form" @submit.prevent="create"><label>{{ $t('group.GroupsPage.s20') }}<input v-model="createName" required maxlength="255" :placeholder="$t('group.GroupsPage.s21')" :disabled="actionBusy" /></label><label>{{ $t('group.GroupsPage.s22') }}<textarea v-model="createTopic" maxlength="512" rows="3" :placeholder="$t('group.GroupsPage.s23')" :disabled="actionBusy" /></label><fieldset><legend>{{ $t('group.GroupsPage.s24') }}</legend><label class="group-setup-choice"><input v-model="visibility" type="radio" value="private" :disabled="actionBusy" /><span>{{ $t('group.GroupsPage.s25') }}<small>{{ $t('group.GroupsPage.s26') }}</small></span></label><label class="group-setup-choice"><input v-model="visibility" type="radio" value="public" :disabled="actionBusy" /><span>{{ $t('group.GroupsPage.s27') }}<small>{{ $t('group.GroupsPage.s28') }}</small></span></label></fieldset><GroupMemberInput v-model="createInvite" :label="$t('group.GroupsPage.s29')" multiple :disabled="actionBusy" /><label class="group-setup-choice group-setup-consent"><input v-model="consent" type="checkbox" :disabled="actionBusy" /><span>{{ $t('group.GroupsPage.s30') }}<small>{{ $t('group.GroupsPage.s31') }}</small></span></label><button class="btn btn--primary" :disabled="actionBusy || !consent || !createName.trim()">{{ actionBusy ? $t('group.GroupsPage.s32') : $t('group.GroupsPage.s3') }}</button></form>
+        <p v-if="status" class="groups-notice" role="status">{{ status }}</p><a v-if="externalClientURL" class="btn btn--secondary btn--sm" :href="externalClientURL" target="_blank" rel="noopener noreferrer">{{ $t('group.GroupsPage.s33') }}</a>
       </div>
       <template v-else-if="selectedId">
-        <header class="group-thread-header"><RouterLink to="/groups" class="group-thread-header__back" aria-label="返回群列表"><t-icon name="chevron-left" :size="24" /></RouterLink><GroupAvatar :name="group?.name || '群组'" :url="group?.avatar_url" :size="36" /><div><h2>{{ group?.name || (loading ? '正在加载…' : '群聊') }}</h2><p>{{ group ? `${groupMembershipLabel[group.membership]} · ${group.member_count ?? '未知'} 位成员` : '' }}</p></div><button v-if="group" class="btn btn--ghost btn--sm" type="button" :aria-expanded="detailsOpen" @click="detailsOpen = true">群详情</button></header>
-        <p v-if="syncError" class="groups-notice" role="status">{{ syncError }} <template v-if="syncPaused"><button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? '刷新中…' : '手动刷新并重试' }}</button><a v-if="clientURL" :href="clientURL" target="_blank" rel="noopener noreferrer">使用客户端打开</a></template></p><p v-if="error || actionError || joinError" class="groups-notice groups-notice--error" role="alert">{{ error || actionError || joinError }} <button v-if="error" type="button" @click="openRoom">重新加载</button></p>
-        <div v-if="loading" class="groups-placeholder" role="status"><t-loading /><p>正在打开群聊…</p></div>
+        <header class="group-thread-header"><RouterLink to="/groups" class="group-thread-header__back" :aria-label="$t('group.GroupsPage.s34')"><t-icon name="chevron-left" :size="24" /></RouterLink><GroupAvatar :name="group?.name || $t('group.GroupsPage.s2')" :url="group?.avatar_url" :size="36" /><div><h2>{{ group?.name || (loading ? $t('group.GroupsPage.s35') : $t('group.GroupsPage.s36')) }}</h2><p>{{ group ? $t('group.GroupsPage.s37', [groupMembershipLabel[group.membership], group.member_count ?? $t('group.GroupsPage.s11')]) : '' }}</p></div><button v-if="group" class="btn btn--ghost btn--sm" type="button" :aria-expanded="detailsOpen" @click="detailsOpen = true">{{ $t('group.GroupsPage.s38') }}</button></header>
+        <p v-if="syncError" class="groups-notice" role="status">{{ syncError }} <template v-if="syncPaused"><button type="button" :disabled="refreshing" @click="refreshAfterPause">{{ refreshing ? $t('group.GroupsPage.s5') : $t('group.GroupsPage.s6') }}</button><a v-if="clientURL" :href="clientURL" target="_blank" rel="noopener noreferrer">{{ $t('group.GroupsPage.s39') }}</a></template></p><p v-if="error || actionError || joinError" class="groups-notice groups-notice--error" role="alert">{{ error || actionError || joinError }} <button v-if="error" type="button" @click="openRoom">{{ $t('group.GroupsPage.s40') }}</button></p>
+        <div v-if="loading" class="groups-placeholder" role="status"><t-loading /><p>{{ $t('group.GroupsPage.s41') }}</p></div>
         <template v-else-if="group">
-          <div v-if="group.membership !== 'join'" class="groups-state"><h3>{{ groupMembershipLabel[group.membership] }}</h3><p>{{ group.membership === 'invite' ? '有成员邀请你加入此群。接受后即可参与。' : group.membership === 'knock' ? '你的加入申请已提交，等待管理员批准。' : group.membership === 'ban' ? '你目前无法加入此群，请联系群管理员。' : '你已不在此群中，新消息不会自动将你加入。' }}</p><div><button v-if="['invite','leave','none'].includes(group.membership)" class="btn btn--primary btn--sm" type="button" :disabled="actionBusy" @click="join(group)">{{ joinBusy ? '加入中…' : joinOperation ? '重试查询' : group.membership === 'invite' ? '接受邀请' : '重新加入' }}</button><button v-if="['invite','knock'].includes(group.membership)" class="btn btn--secondary btn--sm" type="button" :disabled="actionBusy" @click="leave">{{ group.membership === 'invite' ? '拒绝邀请' : '撤销申请' }}</button></div></div>
-          <div v-else-if="group.room_type === 'm.space'" class="groups-state"><h3>这是一个空间</h3><p>空间用于组织多个群组，请在 Matrix 客户端中浏览。</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">使用客户端打开</a></div>
-          <div v-else-if="group.encryption !== 'unencrypted'" class="groups-state"><t-icon name="lock-on" :size="36" /><h3>{{ group.encryption === 'encrypted' ? '请使用客户端参与加密群聊' : '正在确认加密状态' }}</h3><p>{{ group.encryption === 'encrypted' ? '你已加入此群。网页不支持端到端加密，无法读取或发送加密消息；未发送的草稿可以保留和复制。' : '确认之前，网页暂不发送消息或上传文件。' }}</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">使用 Matrix 客户端打开</a><button v-if="group.encryption === 'unknown'" class="btn btn--secondary btn--sm" type="button" @click="openRoom">重新检查</button></div>
+          <div v-if="group.membership !== 'join'" class="groups-state"><h3>{{ groupMembershipLabel[group.membership] }}</h3><p>{{ group.membership === 'invite' ? $t('group.GroupsPage.s42') : group.membership === 'knock' ? $t('group.GroupsPage.s43') : group.membership === 'ban' ? $t('group.GroupsPage.s44') : $t('group.GroupsPage.s45') }}</p><div><button v-if="['invite','leave','none'].includes(group.membership)" class="btn btn--primary btn--sm" type="button" :disabled="actionBusy" @click="join(group)">{{ joinBusy ? $t('group.GroupsPage.s46') : joinOperation ? $t('group.GroupsPage.s47') : group.membership === 'invite' ? $t('group.GroupsPage.s48') : $t('group.GroupsPage.s49') }}</button><button v-if="['invite','knock'].includes(group.membership)" class="btn btn--secondary btn--sm" type="button" :disabled="actionBusy" @click="leave">{{ group.membership === 'invite' ? $t('group.GroupsPage.s50') : $t('group.GroupsPage.s51') }}</button></div></div>
+          <div v-else-if="group.room_type === 'm.space'" class="groups-state"><h3>{{ $t('group.GroupsPage.s52') }}</h3><p>{{ $t('group.GroupsPage.s53') }}</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">{{ $t('group.GroupsPage.s39') }}</a></div>
+          <div v-else-if="group.encryption !== 'unencrypted'" class="groups-state"><t-icon name="lock-on" :size="36" /><h3>{{ group.encryption === 'encrypted' ? $t('group.GroupsPage.s54') : $t('group.GroupsPage.s55') }}</h3><p>{{ group.encryption === 'encrypted' ? $t('group.GroupsPage.s56') : $t('group.GroupsPage.s57') }}</p><a v-if="clientURL" class="btn btn--primary btn--sm" :href="clientURL" target="_blank" rel="noopener noreferrer">{{ $t('group.GroupsPage.s33') }}</a><button v-if="group.encryption === 'unknown'" class="btn btn--secondary btn--sm" type="button" @click="openRoom">{{ $t('group.GroupsPage.s58') }}</button></div>
           <template v-else>
-            <div v-if="group.replacement_id" class="groups-notice">此群已升级，旧群仅供查看。<RouterLink :to="{ name: 'search', query: { q: group.replacement_id, type: 'groups', via: group.via } }">查看新群</RouterLink></div>
-            <div ref="timeline" class="group-timeline" role="log" aria-label="群消息" aria-live="off" @scroll.passive="onScroll"><button v-if="historyCursor" class="group-history" type="button" :disabled="historyLoading" @click="older">{{ historyLoading ? '加载中…' : '查看更早的消息' }}</button><div v-if="!messages.length" class="groups-placeholder"><t-icon name="chat" :size="32" /><h3>开始聊天吧</h3><p>可以发送消息、图片、文件和表情。</p></div><GroupMessageView v-for="message in messages" :key="`${group.id}:${message.id}`" :message="message" :group-topic="group.topic" :reply="message.reply_to ? replyById.get(message.reply_to) : undefined" :can-send="canSend" :can-redact="group.capabilities.redact" :busy="actionBusy || composerLocked" @reply="context(message)" @edit="context(message, true)" @remove="remove(message)" @reaction="(key, own) => react(message, key, own)" @picker="reactionPicker(message)" /></div>
+            <div v-if="group.replacement_id" class="groups-notice">{{ $t('group.GroupsPage.s59') }}<RouterLink :to="{ name: 'search', query: { q: group.replacement_id, type: 'groups', via: group.via } }">{{ $t('group.GroupsPage.s60') }}</RouterLink></div>
+            <div ref="timeline" class="group-timeline" role="log" :aria-label="$t('group.GroupsPage.s61')" aria-live="off" @scroll.passive="onScroll"><button v-if="historyCursor" class="group-history" type="button" :disabled="historyLoading" @click="older">{{ historyLoading ? $t('group.GroupsPage.s62') : $t('group.GroupsPage.s63') }}</button><div v-if="!messages.length" class="groups-placeholder"><t-icon name="chat" :size="32" /><h3>{{ $t('group.GroupsPage.s64') }}</h3><p>{{ $t('group.GroupsPage.s65') }}</p></div><GroupMessageView v-for="message in messages" :key="`${group.id}:${message.id}`" :message="message" :group-topic="group.topic" :reply="message.reply_to ? replyById.get(message.reply_to) : undefined" :can-send="canSend" :can-redact="group.capabilities.redact" :busy="actionBusy || composerLocked" @reply="context(message)" @edit="context(message, true)" @remove="remove(message)" @reaction="(key, own) => react(message, key, own)" @picker="reactionPicker(message)" /></div>
             <div ref="endSentinel" class="group-timeline__end" aria-hidden="true"></div>
-            <button v-if="unseen" class="group-new-messages" type="button" @click="scrollBottom">{{ unseen }} 条新消息 ↓</button>
+            <button v-if="unseen" class="group-new-messages" type="button" @click="scrollBottom">{{ $t('group.GroupsPage.s66', [unseen]) }}</button>
           </template>
-          <div ref="composerDock" class="group-composer-dock"><p v-if="typingNames && canSend" class="group-typing" role="status">{{ typingNames }} 正在输入…</p>
+          <div ref="composerDock" class="group-composer-dock"><p v-if="typingNames && canSend" class="group-typing" role="status">{{ $t('group.GroupsPage.s67', [typingNames]) }}</p>
           <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" /></div>
           <p v-if="actionBusy" class="groups-notice" role="status">{{ joinBusy ? joinStatus : status }}</p><p class="groups-announcer" role="status">{{ status || joinStatus }}</p>
         </template>
       </template>
-      <div v-else class="groups-welcome"><span class="groups-welcome__icon"><t-icon name="usergroup" :size="38" /></span><h2>一起聊聊</h2><p>创建群组，或加入其他服务器上的 Matrix 群聊。<br />图片、文件和表情都能在这里分享。</p><button class="btn btn--primary" type="button" :disabled="actionBusy" @click="openPanel">创建群组</button><p class="groups-subtle">在搜索框中输入群名或粘贴群地址，即可查找并加入。</p></div>
+      <div v-else class="groups-welcome"><span class="groups-welcome__icon"><t-icon name="usergroup" :size="38" /></span><h2>{{ $t('group.GroupsPage.s68') }}</h2><p>{{ $t('group.GroupsPage.s69') }}<br />{{ $t('group.GroupsPage.s70') }}</p><button class="btn btn--primary" type="button" :disabled="actionBusy" @click="openPanel">{{ $t('group.GroupsPage.s3') }}</button><p class="groups-subtle">{{ $t('group.GroupsPage.s71') }}</p></div>
     </section>
-    <dialog ref="detailsDialog" class="group-details-dialog" aria-label="群详情" @cancel="detailsOpen = false" @click="($event.target === detailsDialog) && (detailsOpen = false)"><GroupDetails v-if="group && detailsOpen" :group="group" :members="members" :members-cursor="membersCursor" :members-loading="membersLoading" :members-error="membersError" :pending="actionBusy" @close="detailsOpen = false" @updated="upsertGroup" @reload-members="loadMembers()" @more-members="loadMembers(true)" @leave="leave" /></dialog>
-    <dialog ref="reactionDialog" class="group-reaction-dialog" aria-label="添加表情回应" @cancel="reactionMessage = null"><header><h2>添加表情回应</h2><button type="button" aria-label="关闭表情选择" @click="reactionDialog?.close(); reactionMessage = null">×</button></header><p v-if="actionError" class="groups-notice groups-notice--error" role="alert">{{ actionError }}</p><div class="group-reaction-unicode"><button v-for="emoji in ['👍','❤️','😂','🎉','🤔','😊','🙏','👀','😢','🚀','✅','✨']" :key="emoji" type="button" :disabled="actionBusy || !canSend" @click="reactionMessage && react(reactionMessage, emoji, false)">{{ emoji }}</button></div><EmojiPicker @select="customReaction" @close="reactionDialog?.close(); reactionMessage = null" /></dialog>
+    <dialog ref="detailsDialog" class="group-details-dialog" :aria-label="$t('group.GroupsPage.s38')" @cancel="detailsOpen = false" @click="($event.target === detailsDialog) && (detailsOpen = false)"><GroupDetails v-if="group && detailsOpen" :group="group" :members="members" :members-cursor="membersCursor" :members-loading="membersLoading" :members-error="membersError" :pending="actionBusy" @close="detailsOpen = false" @updated="upsertGroup" @reload-members="loadMembers()" @more-members="loadMembers(true)" @leave="leave" /></dialog>
+    <dialog ref="reactionDialog" class="group-reaction-dialog" :aria-label="$t('group.GroupsPage.s72')" @cancel="reactionMessage = null"><header><h2>{{ $t('group.GroupsPage.s72') }}</h2><button type="button" :aria-label="$t('group.GroupsPage.s73')" @click="reactionDialog?.close(); reactionMessage = null">×</button></header><p v-if="actionError" class="groups-notice groups-notice--error" role="alert">{{ actionError }}</p><div class="group-reaction-unicode"><button v-for="emoji in ['👍','❤️','😂','🎉','🤔','😊','🙏','👀','😢','🚀','✅','✨']" :key="emoji" type="button" :disabled="actionBusy || !canSend" @click="reactionMessage && react(reactionMessage, emoji, false)">{{ emoji }}</button></div><EmojiPicker @select="customReaction" @close="reactionDialog?.close(); reactionMessage = null" /></dialog>
   </div>
 </template>
 <style scoped src="./groups.css"></style>

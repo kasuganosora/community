@@ -7,6 +7,7 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useTimelineStore } from '@/domains/timeline/presentation/stores/timelineStore'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 
+import { t } from '@/shared/i18n'
 const { composeOpen, quoteTarget } = useUiChrome()
 const timelineStore = useTimelineStore()
 
@@ -22,12 +23,12 @@ function handlePosted(status: MastodonStatus) {
   timelineStore.prependStatus(status)
   composeOpen.value = false
   quoteTarget.value = null
-  MessagePlugin.success('已发布')
+  MessagePlugin.success(t('shared.ComposeSheet.s2'))
 }
 </script>
 
 <template>
-  <BottomSheet v-model="composeOpen" title="新帖子" size="large" @closed="composerMounted = false">
+  <BottomSheet v-model="composeOpen" :title="$t('shared.ComposeSheet.s1')" size="large" @closed="composerMounted = false">
     <div class="compose-sheet">
       <PostComposer v-if="composerMounted" :quote-to="quoteTarget" autofocus @posted="handlePosted" />
     </div>

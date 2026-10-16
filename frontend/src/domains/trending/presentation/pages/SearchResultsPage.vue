@@ -15,6 +15,7 @@ import GroupSearchResults from '../components/GroupSearchResults.vue'
 import { isGroupReference } from '../../domain/groupSearch'
 import { wantsResolve } from '../../domain/searchQuery'
 
+import { t } from '@/shared/i18n'
 // Type-safe route params helper
 function getQueryParam(q: unknown): string {
   if (typeof q === 'string') return q
@@ -24,7 +25,7 @@ function getQueryParam(q: unknown): string {
 
 function getTagPostCount(tag: MastodonTag): string {
   const uses = tag.history?.reduce((n, h) => n + Number(h.uses || 0), 0) ?? 0
-  return uses ? `${uses} 条帖子` : ''
+  return uses ? t('trending.SearchResultsPage.s14', [uses]) : ''
 }
 
 const route = useRoute()
@@ -32,10 +33,10 @@ const router = useRouter()
 const authStore = useAuthStore()
 type TabType = 'posts' | 'people' | 'tags' | 'groups'
 const TABS: { value: TabType; label: string }[] = [
-  { value: 'posts', label: '帖子' },
-  { value: 'people', label: '用户' },
-  { value: 'tags', label: '话题' },
-  { value: 'groups', label: '群组' },
+  { value: 'posts', label: t('trending.SearchResultsPage.s15') },
+  { value: 'people', label: t('trending.SearchResultsPage.s16') },
+  { value: 'tags', label: t('trending.SearchResultsPage.s17') },
+  { value: 'groups', label: t('trending.SearchResultsPage.s18') },
 ]
 const activeTab = ref<TabType>(getQueryParam(route.query.type) === 'groups' || isGroupReference(getQueryParam(route.query.q)) ? 'groups' : 'posts')
 const groupRefreshKey = ref(0)
@@ -86,7 +87,7 @@ async function toggleFollow(account: MastodonAccount) {
   try {
     await relationships.toggleFollow(account.id)
   } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '操作失败')
+    MessagePlugin.error(e instanceof Error ? e.message : t('trending.SearchResultsPage.s19'))
   }
 }
 
@@ -127,7 +128,7 @@ async function search(q: string) {
     statuses.value = []
     accounts.value = []
     hashtags.value = []
-    error.value = e instanceof Error ? e.message : '搜索失败'
+    error.value = e instanceof Error ? e.message : t('trending.SearchResultsPage.s6')
   } finally {
     if (myVersion === searchVersion) {
       loading.value = false
@@ -158,7 +159,7 @@ async function loadMore() {
     hasMore.value[kind] = page.length >= SEARCH_LIMIT && fresh.length > 0
     if (kind === 'accounts') relationships.load((fresh as MastodonAccount[]).filter(a => a.id !== authStore.currentUser?.id).map(a => a.id))
   } catch (e) {
-    if (myVersion === searchVersion) moreError.value = e instanceof Error ? e.message : '加载失败'
+    if (myVersion === searchVersion) moreError.value = e instanceof Error ? e.message : t('trending.SearchResultsPage.s20')
   } finally {
     if (myVersion === searchVersion) loadingMore.value = false
   }
@@ -208,14 +209,14 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver
 
 <template>
   <div class="search-page">
-    <div class="page-header"><h1 class="page-header__title">搜索</h1></div>
-    <SearchBox v-model="query" class="search-form" embedded :navigate="false" :allow-empty="activeTab === 'groups'" :placeholder="activeTab === 'groups' ? '搜索群名或粘贴群地址' : '搜索帖子、用户、话题或群组'" @search="submit" />
+    <div class="page-header"><h1 class="page-header__title">{{ $t('trending.SearchResultsPage.s1') }}</h1></div>
+    <SearchBox v-model="query" class="search-form" embedded :navigate="false" :allow-empty="activeTab === 'groups'" :placeholder="activeTab === 'groups' ? $t('trending.SearchResultsPage.s2') : $t('trending.SearchResultsPage.s3')" @search="submit" />
 
-    <TabBar v-model="activeTab" :options="tabOptions" label="搜索结果" />
+    <TabBar v-model="activeTab" :options="tabOptions" :label="$t('trending.SearchResultsPage.s4')" />
 
     <GroupSearchResults v-if="activeTab === 'groups'" :query="getQueryParam(route.query.q)" :via="groupVia" :preview-ref="getQueryParam(route.query.preview) || undefined" :refresh-key="groupRefreshKey" />
 
-    <div v-else-if="loading" class="page-loading" role="status" aria-label="正在搜索">
+    <div v-else-if="loading" class="page-loading" role="status" :aria-label="$t('trending.SearchResultsPage.s5')">
       <t-loading />
     </div>
 
@@ -223,12 +224,12 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">搜索失败</h2>
+      <h2 class="empty-state__title">{{ $t('trending.SearchResultsPage.s6') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="search(query)">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="search(query)">{{ $t('trending.SearchResultsPage.s7') }}</button>
     </div>
 
-    <div v-else-if="!searched" class="search-empty">输入关键词搜索帖子、用户或 #话题，也可以切换到群组搜索。</div>
+    <div v-else-if="!searched" class="search-empty">{{ $t('trending.SearchResultsPage.s8') }}</div>
 
     <template v-else>
       <!-- Posts tab -->
@@ -241,7 +242,7 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver
           @favourite="toggleFavourite"
           @bookmark="toggleBookmark"
         />
-        <div v-if="statuses.length === 0" class="search-empty">没有找到相关帖子</div>
+        <div v-if="statuses.length === 0" class="search-empty">{{ $t('trending.SearchResultsPage.s9') }}</div>
       </template>
 
       <!-- People tab -->
@@ -255,7 +256,7 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver
           :busy="relationships.pending.has(user.id)"
           @toggle-follow="toggleFollow"
         />
-        <div v-if="accounts.length === 0" class="search-empty">没有找到相关用户</div>
+        <div v-if="accounts.length === 0" class="search-empty">{{ $t('trending.SearchResultsPage.s10') }}</div>
       </template>
 
       <!-- Tags tab -->
@@ -271,12 +272,12 @@ onBeforeUnmount(() => { searchVersion++; searchController?.abort(); moreObserver
             {{ getTagPostCount(tag) }}
           </div>
         </router-link>
-        <div v-if="hashtags.length === 0" class="search-empty">没有找到相关话题</div>
+        <div v-if="hashtags.length === 0" class="search-empty">{{ $t('trending.SearchResultsPage.s11') }}</div>
       </template>
 
       <div v-if="activeHasMore" ref="moreSentinel" class="search-more">
         <span v-if="moreError" role="alert">{{ moreError }}</span>
-        <button type="button" class="btn btn--secondary btn--sm" :disabled="loadingMore" :aria-busy="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : moreError ? '重试' : '加载更多' }}</button>
+        <button type="button" class="btn btn--secondary btn--sm" :disabled="loadingMore" :aria-busy="loadingMore" @click="loadMore">{{ loadingMore ? $t('trending.SearchResultsPage.s12') : moreError ? $t('trending.SearchResultsPage.s7') : $t('trending.SearchResultsPage.s13') }}</button>
       </div>
     </template>
   </div>

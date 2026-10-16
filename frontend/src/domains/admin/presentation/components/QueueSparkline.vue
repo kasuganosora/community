@@ -22,7 +22,7 @@ const empty = computed(() => props.series.every(s => s.values.length < 2))
     <line x1="0" :y1="height - 1" :x2="W" :y2="height - 1" class="queue-spark__base" />
     <path v-for="(p, i) in paths" :key="i" :d="p.d" :class="`queue-spark__line queue-spark__line--${p.tone}`" vector-effect="non-scaling-stroke" />
   </svg>
-  <span v-if="empty" class="queue-spark__empty">采样中…</span>
+  <span v-if="empty" class="queue-spark__empty">{{ $t('admin.QueueSparkline.s1') }}</span>
   </div>
 </template>
 

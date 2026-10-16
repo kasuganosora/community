@@ -5,6 +5,7 @@ import { applyStatusUpdate } from '@/domains/post/presentation/composables/useSt
 import { discoveryApi, isDiscoveryReset, type DiscoveryItem, type DiscoveryPage, type FeedbackAction } from '../../infrastructure/discoveryApi'
 import { discoveryInvalidation, discoveryPreference, acceptDiscoveryPreference, invalidateDiscovery } from './discoveryState'
 
+import { t } from '@/shared/i18n'
 // One remote actor may be stored as several account rows; the server hides
 // every row sharing the acct, so the current list does the same.
 function sameAuthor(a: MastodonStatus, b: MastodonStatus) {
@@ -102,7 +103,7 @@ export function useDiscoveryFeed() {
         items.value = [...items.value, ...additions].slice(0, 200)
         if (refresh && !loadedAt) { loadedAt = Date.now(); windowRevision = page.preference_revision }
         cursor.value = items.value.length >= 200 ? null : page.next_cursor
-        if (next && next === page.next_cursor) throw new Error('推荐分页没有前进，请刷新后重试')
+        if (next && next === page.next_cursor) throw new Error(t('discovery.useDiscoveryFeed.s1'))
         if (additions.length || !cursor.value) break
         next = cursor.value
         if (emptyPages === 2) autoPaused.value = true
@@ -111,7 +112,7 @@ export function useDiscoveryFeed() {
       if (mine !== requestVersion || epoch !== sessionEpoch.value) return
       if (isDiscoveryReset(e)) {
         resetRequired.value = true; cursor.value = null
-      } else error.value = e instanceof Error ? e.message : '暂时无法加载推荐，请重试'
+      } else error.value = e instanceof Error ? e.message : t('discovery.useDiscoveryFeed.s2')
     } finally { if (mine === requestVersion) loading.value = false }
   }
 

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { clampCropCenter, imageCropRect, imageMayAnimate, MAX_CROP_ZOOM, PROFILE_HEADER_RATIO } from '@/shared/utils/imageCrop'
 import { validateImageFile } from '@/shared/utils/imageFile'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ file: File; kind: 'avatar' | 'header' }>()
 const emit = defineEmits<{ apply: [file: File]; cancel: [] }>()
 const id = useId()
@@ -79,17 +80,17 @@ async function apply() {
     canvas.width = Math.max(1, Math.min(props.kind === 'avatar' ? 512 : 1500, Math.floor(crop.value.width)))
     canvas.height = Math.max(1, Math.round(canvas.width / aspect.value))
     const context = canvas.getContext('2d')
-    if (!context) throw new Error('浏览器无法编辑这张图片，请尝试其他图片')
+    if (!context) throw new Error(t('shared.ImageCropDialog.s17'))
     context.imageSmoothingQuality = 'high'
     context.drawImage(decodedImage, crop.value.x, crop.value.y, crop.value.width, crop.value.height, 0, 0, canvas.width, canvas.height)
-    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('图片处理失败，请重试')), 'image/png'))
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error(t('shared.ImageCropDialog.s18'))), 'image/png'))
     if (!alive) return
     const file = new File([blob], `${props.file.name.replace(/\.[^.]+$/, '') || props.kind}-crop.png`, { type: 'image/png' })
     const invalid = validateImageFile(file)
     if (invalid) throw new Error(invalid)
     emit('apply', file)
   } catch (reason) {
-    if (alive) error.value = reason instanceof Error ? reason.message : '图片处理失败，请重试'
+    if (alive) error.value = reason instanceof Error ? reason.message : t('shared.ImageCropDialog.s18')
   } finally { if (alive) exporting.value = false }
 }
 
@@ -99,7 +100,7 @@ onMounted(async () => {
   try {
     const invalid = validateImageFile(props.file)
     if (invalid) throw new Error(invalid)
-    if (!/^image\/(jpeg|png|webp|gif|avif|bmp)$/.test(props.file.type)) throw new Error('请选择 JPG、PNG、WebP、GIF、AVIF 或 BMP 图片')
+    if (!/^image\/(jpeg|png|webp|gif|avif|bmp)$/.test(props.file.type)) throw new Error(t('shared.ImageCropDialog.s19'))
     animated.value = imageMayAnimate(props.file.type, new Uint8Array(await props.file.arrayBuffer()))
     if (!alive) return
     sourceUrl = URL.createObjectURL(props.file)
@@ -107,12 +108,12 @@ onMounted(async () => {
     // Browser image decoding honors EXIF orientation; preview and canvas share this image.
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve()
-      image.onerror = () => reject(new Error('无法读取这张图片，请选择其他图片'))
+      image.onerror = () => reject(new Error(t('shared.ImageCropDialog.s20')))
       image.src = sourceUrl
     })
     if (!alive) return
     if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000
-      || Math.max(image.naturalWidth, image.naturalHeight) > 16384) throw new Error('图片尺寸过大，请先缩小到 4000 万像素以内，且单边不超过 16384 像素')
+      || Math.max(image.naturalWidth, image.naturalHeight) > 16384) throw new Error(t('shared.ImageCropDialog.s21'))
     decodedImage = image
     imageSize.value = { width: image.naturalWidth, height: image.naturalHeight }
     imageUrl.value = sourceUrl
@@ -123,7 +124,7 @@ onMounted(async () => {
     observer = new ResizeObserver(measure)
     if (viewport.value) observer.observe(viewport.value)
   } catch (reason) {
-    if (alive) { loading.value = false; error.value = reason instanceof Error ? reason.message : '无法读取图片' }
+    if (alive) { loading.value = false; error.value = reason instanceof Error ? reason.message : t('shared.ImageCropDialog.s22') }
   }
 })
 
@@ -141,32 +142,32 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <dialog ref="dialog" class="image-crop" :aria-labelledby="`${id}-title`" @cancel.prevent="cancel">
       <header class="image-crop__header">
-        <button type="button" class="btn btn--ghost image-crop__cancel" autofocus aria-label="取消编辑图片" @click="cancel">取消</button>
-        <h2 :id="`${id}-title`">{{ kind === 'avatar' ? '编辑头像' : '编辑封面' }}</h2>
-        <button type="button" class="btn btn--primary" :disabled="loading || exporting || !!error" @click="apply">{{ exporting ? '处理中…' : '应用' }}</button>
+        <button type="button" class="btn btn--ghost image-crop__cancel" autofocus :aria-label="$t('shared.ImageCropDialog.s1')" @click="cancel">{{ $t('shared.ImageCropDialog.s2') }}</button>
+        <h2 :id="`${id}-title`">{{ kind === 'avatar' ? $t('shared.ImageCropDialog.s3') : $t('shared.ImageCropDialog.s4') }}</h2>
+        <button type="button" class="btn btn--primary" :disabled="loading || exporting || !!error" @click="apply">{{ exporting ? $t('shared.ImageCropDialog.s5') : $t('shared.ImageCropDialog.s6') }}</button>
       </header>
       <div class="image-crop__body">
-        <p v-if="loading" class="image-crop__status" role="status">正在读取图片…</p>
+        <p v-if="loading" class="image-crop__status" role="status">{{ $t('shared.ImageCropDialog.s7') }}</p>
         <p v-else-if="error" class="image-crop__error" role="alert">{{ error }}</p>
         <template v-else>
           <div ref="viewport" class="image-crop__viewport" :class="{ 'image-crop__viewport--avatar': kind === 'avatar' }" :style="{ aspectRatio: aspect }"
-            role="group" tabindex="0" aria-label="图片裁剪区域" :aria-describedby="`${id}-hint`"
+            role="group" tabindex="0" :aria-label="$t('shared.ImageCropDialog.s8')" :aria-describedby="`${id}-hint`"
             @pointerdown="startDrag" @pointermove="drag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="pointer = null" @keydown="keyMove"
           >
             <img :src="imageUrl" :style="imageStyle" alt="" draggable="false" />
             <div class="image-crop__guide" aria-hidden="true" />
           </div>
-          <p :id="`${id}-hint`" class="image-crop__hint">拖动图片调整位置，也可用方向键移动。{{ kind === 'avatar' ? '头像将以圆形显示。' : '封面比例为 3:1。' }}</p>
+          <p :id="`${id}-hint`" class="image-crop__hint">{{ $t('shared.ImageCropDialog.s11', [kind === 'avatar' ? $t('shared.ImageCropDialog.s9') : $t('shared.ImageCropDialog.s10')]) }}</p>
           <div class="image-crop__zoom">
-            <button type="button" class="btn btn--ghost" aria-label="缩小图片" :disabled="zoom <= 1 || exporting" @click="setZoom(zoom - .1)">−</button>
-            <label class="sr-only" :for="`${id}-zoom`">缩放图片</label>
+            <button type="button" class="btn btn--ghost" :aria-label="$t('shared.ImageCropDialog.s12')" :disabled="zoom <= 1 || exporting" @click="setZoom(zoom - .1)">−</button>
+            <label class="sr-only" :for="`${id}-zoom`">{{ $t('shared.ImageCropDialog.s13') }}</label>
             <input :id="`${id}-zoom`" type="range" min="1" :max="MAX_CROP_ZOOM" step="0.01" :value="zoom" :disabled="exporting" :aria-valuetext="`${Math.round(zoom * 100)}%`" @input="setZoom(Number(($event.target as HTMLInputElement).value))" />
-            <button type="button" class="btn btn--ghost" aria-label="放大图片" :disabled="zoom >= MAX_CROP_ZOOM || exporting" @click="setZoom(zoom + .1)">+</button>
+            <button type="button" class="btn btn--ghost" :aria-label="$t('shared.ImageCropDialog.s14')" :disabled="zoom >= MAX_CROP_ZOOM || exporting" @click="setZoom(zoom + .1)">+</button>
             <output>{{ Math.round(zoom * 100) }}%</output>
           </div>
           <div v-if="animated" class="image-crop__animation" role="note">
-            <p>此图片可能包含动画，应用裁剪会保存为静态图片。使用原图可保留动画。</p>
-            <button type="button" class="btn btn--secondary" :disabled="exporting" @click="emit('apply', file)">使用原图</button>
+            <p>{{ $t('shared.ImageCropDialog.s15') }}</p>
+            <button type="button" class="btn btn--secondary" :disabled="exporting" @click="emit('apply', file)">{{ $t('shared.ImageCropDialog.s16') }}</button>
           </div>
         </template>
       </div>

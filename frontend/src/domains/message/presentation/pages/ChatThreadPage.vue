@@ -13,6 +13,7 @@ import { useChatThread } from '../composables/useChatThread'
 import ChatMessageView from '../components/ChatMessageView.vue'
 import ConversationMembersForm from '../components/ConversationMembersForm.vue'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -66,7 +67,7 @@ async function upload(event: Event) {
       if (version !== uploadGeneration) return
       attachments.value.push({ ...media, uploadName: file.name })
     }
-  } catch { if (version === uploadGeneration) uploadError.value = '附件上传失败，已成功上传的附件保留。请重试。' }
+  } catch { if (version === uploadGeneration) uploadError.value = t('message.ChatThreadPage.s28') }
   finally { if (version === uploadGeneration) uploading.value = false }
 }
 watch(() => messages.value.at(-1)?.event_id, async (next, previous) => {
@@ -88,7 +89,7 @@ function edit(message: ChatMessage) {
 function remove(message: ChatMessage) {
   const room = id(), epoch = sessionEpoch.value
   let confirming = false
-  const dialog = DialogPlugin.confirm({ header: '删除这条消息？', body: '将请求删除原消息。对方可能已经阅读或保存了内容。', confirmBtn: '删除', cancelBtn: '取消',
+  const dialog = DialogPlugin.confirm({ header: t('message.ChatThreadPage.s29'), body: t('message.ChatThreadPage.s30'), confirmBtn: t('message.ChatThreadPage.s31'), cancelBtn: t('message.ChatThreadPage.s32'),
     onConfirm: async () => { if (confirming) return; confirming = true; dialog.setConfirmLoading(true); if (room === id() && epoch === sessionEpoch.value) await thread.remove(message); dialog.destroy() }, onClose: () => dialog.destroy(),
   })
 }
@@ -96,7 +97,7 @@ function removeMember(member: ChatMember) {
   const self = member.account_id === auth.currentUser?.id
   const room = id(), epoch = sessionEpoch.value
   let confirming = false
-  const dialog = DialogPlugin.confirm({ header: self ? '离开此会话？' : '移除此成员？', body: '该成员将不能继续通过此会话接收后续消息。已经收到的内容无法收回。', confirmBtn: self ? '离开' : '移除', cancelBtn: '取消',
+  const dialog = DialogPlugin.confirm({ header: self ? t('message.ChatThreadPage.s33') : t('message.ChatThreadPage.s34'), body: t('message.ChatThreadPage.s35'), confirmBtn: self ? t('message.ChatThreadPage.s10') : t('message.ChatThreadPage.s11'), cancelBtn: t('message.ChatThreadPage.s32'),
     onConfirm: async () => { if (confirming) return; confirming = true; dialog.setConfirmLoading(true); if (room === id() && epoch === sessionEpoch.value && await thread.removeMember(member.id) && self) await router.push('/messages'); dialog.destroy() }, onClose: () => dialog.destroy(),
   })
 }
@@ -106,41 +107,41 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 <template>
   <div class="chat-thread">
     <header class="page-header page-header--with-back">
-      <router-link class="page-header__back-btn" to="/messages" aria-label="返回私信"><t-icon name="chevron-left" :size="20" /></router-link>
-      <h1 class="page-header__title">{{ conversation?.title || '会话' }}</h1>
-      <button v-if="conversation" class="btn btn--ghost btn--sm" :aria-expanded="membersOpen" @click="membersOpen = !membersOpen">成员</button>
+      <router-link class="page-header__back-btn" to="/messages" :aria-label="$t('message.ChatThreadPage.s1')"><t-icon name="chevron-left" :size="20" /></router-link>
+      <h1 class="page-header__title">{{ conversation?.title || $t('message.ChatThreadPage.s2') }}</h1>
+      <button v-if="conversation" class="btn btn--ghost btn--sm" :aria-expanded="membersOpen" @click="membersOpen = !membersOpen">{{ $t('message.ChatThreadPage.s3') }}</button>
     </header>
-    <p class="chat-thread__notice">此会话不使用端到端加密，参与站点的服务器可以读取内容。</p>
-    <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" :disabled="loading || loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending || loading ? '加载中…' : '重试' }}</button></p>
+    <p class="chat-thread__notice">{{ $t('message.ChatThreadPage.s4') }}</p>
+    <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" :disabled="loading || loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending || loading ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s6') }}</button></p>
     <div v-if="loading" class="page-loading"><t-loading /></div>
     <template v-if="conversation">
-      <section v-if="membersOpen" class="chat-members" aria-label="会话成员">
-        <h2>成员</h2>
-        <p>新成员不能读取加入前的历史。移除成员不会收回其已保存的消息。</p>
+      <section v-if="membersOpen" class="chat-members" :aria-label="$t('message.ChatThreadPage.s7')">
+        <h2>{{ $t('message.ChatThreadPage.s3') }}</h2>
+        <p>{{ $t('message.ChatThreadPage.s8') }}</p>
         <ul>
 <li v-for="member in conversation.members.filter(item => item.active !== false)" :key="member.id">
-          <span>{{ member.display_name || displayAccount(member.acct || member.matrix_id) || `账号 ${member.account_id}` }} <small v-if="member.acct">@{{ displayAccount(member.acct) }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
-          <button v-if="member.account_id === auth.currentUser?.id ? conversation.can_leave : conversation.can_manage" class="btn btn--ghost btn--sm" :disabled="busy" @click="removeMember(member)">{{ member.account_id === auth.currentUser?.id ? '离开' : '移除' }}</button>
+          <span>{{ member.display_name || displayAccount(member.acct || member.matrix_id) || $t('message.ChatThreadPage.s9', [member.account_id]) }} <small v-if="member.acct">@{{ displayAccount(member.acct) }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
+          <button v-if="member.account_id === auth.currentUser?.id ? conversation.can_leave : conversation.can_manage" class="btn btn--ghost btn--sm" :disabled="busy" @click="removeMember(member)">{{ member.account_id === auth.currentUser?.id ? $t('message.ChatThreadPage.s10') : $t('message.ChatThreadPage.s11') }}</button>
         </li>
 </ul>
-        <button v-if="conversation.can_manage && !inviting" class="btn btn--secondary btn--sm" @click="inviting = true">添加成员</button>
+        <button v-if="conversation.can_manage && !inviting" class="btn btn--secondary btn--sm" @click="inviting = true">{{ $t('message.ChatThreadPage.s12') }}</button>
         <ConversationMembersForm v-if="inviting" mode="invite" :pending="busy" :error="error" @submit="invite" @cancel="inviting = false" />
       </section>
-      <div v-if="cursor" class="chat-thread__older"><button class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" @click="thread.older">{{ loadingOlder ? '加载中…' : '查看更早的消息' }}</button></div>
-      <p v-if="!messages.length" class="chat-thread__empty">会话已创建，发送第一条消息吧。</p>
-      <div aria-label="聊天消息">
+      <div v-if="cursor" class="chat-thread__older"><button class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" @click="thread.older">{{ loadingOlder ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s13') }}</button></div>
+      <p v-if="!messages.length" class="chat-thread__empty">{{ $t('message.ChatThreadPage.s14') }}</p>
+      <div :aria-label="$t('message.ChatThreadPage.s15')">
         <ChatMessageView v-for="message in messages" :key="message.event_id" :message="message" :pending="busy || uploading" :reply="messages.find(item => item.event_id === message.reply_event_id)" @reply="replyTo(message)" @edit="edit(message)" @remove="remove(message)" @retry="thread.retry(message)" @refresh-delivery="thread.delivery(message)" />
       </div>
       <form ref="composer" class="chat-compose" @submit.prevent="send">
-        <p v-if="editing" class="chat-compose__context" role="note">编辑会删除原消息并重新发送，消息链接和回应记录将改变。<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">取消编辑</button></p>
-        <p v-else-if="reply" class="chat-compose__context">回复：{{ reply.body }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="reply = undefined">取消回复</button></p>
-        <label class="sr-only" for="chat-message-input">消息内容</label>
-        <textarea id="chat-message-input" v-model="draft" rows="3" placeholder="写一条消息…" :disabled="busy" @keydown="onSendKeydown" />
-        <ul v-if="attachments.length" class="chat-compose__attachments"><li v-for="file in attachments" :key="file.id">{{ file.description || file.uploadName || '已上传附件' }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" @click="attachments = attachments.filter(item => item.id !== file.id)">移除</button></li></ul>
+        <p v-if="editing" class="chat-compose__context" role="note">{{ $t('message.ChatThreadPage.s16') }}<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">{{ $t('message.ChatThreadPage.s17') }}</button></p>
+        <p v-else-if="reply" class="chat-compose__context">{{ $t('message.ChatThreadPage.s18', [reply.body]) }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="reply = undefined">{{ $t('message.ChatThreadPage.s19') }}</button></p>
+        <label class="sr-only" for="chat-message-input">{{ $t('message.ChatThreadPage.s20') }}</label>
+        <textarea id="chat-message-input" v-model="draft" rows="3" :placeholder="$t('message.ChatThreadPage.s21')" :disabled="busy" @keydown="onSendKeydown" />
+        <ul v-if="attachments.length" class="chat-compose__attachments"><li v-for="file in attachments" :key="file.id">{{ file.description || file.uploadName || $t('message.ChatThreadPage.s22') }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" @click="attachments = attachments.filter(item => item.id !== file.id)">{{ $t('message.ChatThreadPage.s11') }}</button></li></ul>
         <p v-if="uploadError" class="chat-thread__error" role="alert">{{ uploadError }}</p>
         <div class="chat-compose__actions">
-          <label v-if="!editing" class="btn btn--ghost btn--sm">{{ uploading ? '上传中…' : '添加附件' }}<input class="sr-only" type="file" multiple :disabled="busy || uploading" @change="upload" /></label>
-          <button class="btn btn--primary btn--sm" type="submit" :disabled="!sendable">{{ pending === 'send' ? '发送中…' : editing ? '删除并重新发送' : '发送' }}</button>
+          <label v-if="!editing" class="btn btn--ghost btn--sm">{{ uploading ? $t('message.ChatThreadPage.s23') : $t('message.ChatThreadPage.s24') }}<input class="sr-only" type="file" multiple :disabled="busy || uploading" @change="upload" /></label>
+          <button class="btn btn--primary btn--sm" type="submit" :disabled="!sendable">{{ pending === 'send' ? $t('message.ChatThreadPage.s25') : editing ? $t('message.ChatThreadPage.s26') : $t('message.ChatThreadPage.s27') }}</button>
         </div>
       </form>
     </template>

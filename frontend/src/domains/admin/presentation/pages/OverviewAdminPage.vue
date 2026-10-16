@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AnalyticsOverview from '../components/AnalyticsOverview.vue'
 import { dashboardApi, type AdminMeasure } from '../../infrastructure/dashboardApi'
 import { instanceApi, type InstanceInfo } from '@/domains/instance/infrastructure/instanceApi'
+import { t } from '@/shared/i18n'
 const measures = ref<AdminMeasure[] | null>(null)
 const instance = ref<InstanceInfo | null>(null)
 const loading = ref(false), error = ref(''), instanceError = ref('')
@@ -13,19 +14,19 @@ const unresolved = computed(() => {
   return Number.isFinite(opened) && Number.isFinite(resolved) ? String(Math.max(0, opened - resolved)) : '—'
 })
 const cards = computed(() => [
-  { title: '本地用户', value: value('user_count'), hint: '本站账户总数', icon: 'usergroup', color: 'blue' },
-  { title: '收录帖子', value: value('status_count'), hint: '本站及已收录的联邦帖子', icon: 'chat', color: 'purple' },
-  { title: '新增用户', value: value('new_users'), hint: '最近 30 天注册', icon: 'user-add', color: 'green' },
-  { title: '待处理举报', value: unresolved.value, hint: '尚未完成处理', icon: 'flag', color: 'orange' },
+  { title: t('admin.OverviewAdminPage.s30'), value: value('user_count'), hint: t('admin.OverviewAdminPage.s31'), icon: 'usergroup', color: 'blue' },
+  { title: t('admin.OverviewAdminPage.s32'), value: value('status_count'), hint: t('admin.OverviewAdminPage.s33'), icon: 'chat', color: 'purple' },
+  { title: t('admin.OverviewAdminPage.s34'), value: value('new_users'), hint: t('admin.OverviewAdminPage.s35'), icon: 'user-add', color: 'green' },
+  { title: t('admin.OverviewAdminPage.s36'), value: unresolved.value, hint: t('admin.OverviewAdminPage.s37'), icon: 'flag', color: 'orange' },
 ])
 async function load() {
   if (loading.value) return
   loading.value = true; error.value = ''; instanceError.value = ''; measures.value = null
   const [stats, info] = await Promise.allSettled([dashboardApi.measures(), instanceApi.getInstance()])
-  if (stats.status === 'fulfilled') { measures.value = stats.value; updated.value = new Date().toLocaleTimeString('zh-CN') }
-  else error.value = stats.reason instanceof Error ? stats.reason.message : '无法加载统计，请重试'
+  if (stats.status === 'fulfilled') { measures.value = stats.value; updated.value = new Date().toLocaleTimeString() }
+  else error.value = stats.reason instanceof Error ? stats.reason.message : t('admin.OverviewAdminPage.s38')
   if (info.status === 'fulfilled') instance.value = info.value
-  else instanceError.value = '站点信息暂时无法加载'
+  else instanceError.value = t('admin.OverviewAdminPage.s39')
   loading.value = false
 }
 onMounted(load)
@@ -33,18 +34,18 @@ onMounted(load)
 
 <template>
   <div class="admin-page" :aria-busy="loading">
-    <header class="admin-page-header"><div><h1>社区概览</h1><p>社区近况与待办。</p></div><button type="button" class="admin-button" :disabled="loading" @click="load"><t-icon name="refresh" aria-hidden="true" />{{ loading ? '正在更新…' : '刷新数据' }}</button></header>
-    <p v-if="error" role="alert" class="admin-error">{{ error }} <button type="button" class="admin-button" :disabled="loading" @click="load">重试</button></p>
-    <section class="overview-metrics" aria-label="社区统计">
+    <header class="admin-page-header"><div><h1>{{ $t('admin.OverviewAdminPage.s1') }}</h1><p>{{ $t('admin.OverviewAdminPage.s2') }}</p></div><button type="button" class="admin-button" :disabled="loading" @click="load"><t-icon name="refresh" aria-hidden="true" />{{ loading ? $t('admin.OverviewAdminPage.s3') : $t('admin.OverviewAdminPage.s4') }}</button></header>
+    <p v-if="error" role="alert" class="admin-error">{{ error }} <button type="button" class="admin-button" :disabled="loading" @click="load">{{ $t('admin.OverviewAdminPage.s5') }}</button></p>
+    <section class="overview-metrics" :aria-label="$t('admin.OverviewAdminPage.s6')">
       <article v-for="card in cards" :key="card.title" class="admin-card overview-metric"><div class="overview-metric-top"><h2>{{ card.title }}</h2><span class="overview-metric-icon" :class="`overview-metric-icon--${card.color}`"><t-icon :name="card.icon" :size="20" aria-hidden="true" /></span></div><strong>{{ loading ? '—' : card.value }}</strong><p>{{ card.hint }}</p></article>
     </section>
     <div class="overview-columns">
-      <section class="admin-card overview-tasks"><div class="overview-section-heading"><h2>管理工作台</h2><span class="admin-badge">日常管理</span></div><router-link to="/admin/reports" class="overview-task"><span class="overview-task-icon"><t-icon name="flag" :size="23" aria-hidden="true" /></span><span><strong>关注社区反馈</strong><small>{{ unresolved === '—' ? '查看举报与处理记录' : `${unresolved} 条举报等待处理` }}</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link><router-link to="/admin/accounts" class="overview-task"><span class="overview-task-icon"><t-icon name="usergroup" :size="23" aria-hidden="true" /></span><span><strong>管理社区成员</strong><small>查找用户，审核申请与管理账户</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link><router-link to="/admin/emojis" class="overview-task"><span class="overview-task-icon"><t-icon name="happy" :size="23" aria-hidden="true" /></span><span><strong>丰富社区表达</strong><small>上传表情，维护分类与别名</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link></section>
-      <section class="admin-card overview-instance"><div class="overview-section-heading"><h2>你的社区</h2><t-icon name="internet" :size="20" aria-hidden="true" /></div><p v-if="instanceError" role="alert" class="admin-error">{{ instanceError }}</p><template v-if="instance"><strong class="overview-instance-title">{{ instance.title || 'Community' }}</strong><p class="overview-domain">{{ instance.domain || instance.uri || '—' }}</p><dl><div><dt>注册</dt><dd>{{ instance.registrations?.enabled === true ? '开放注册' : instance.registrations?.enabled === false ? '已关闭' : '未提供状态' }}</dd></div><div><dt>网络</dt><dd>ActivityPub · Matrix</dd></div><div><dt>统计更新</dt><dd>{{ updated || '尚未更新' }}</dd></div></dl></template><router-link to="/admin/settings" class="admin-button">管理站点设置 <t-icon name="arrow-right" aria-hidden="true" /></router-link></section>
+      <section class="admin-card overview-tasks"><div class="overview-section-heading"><h2>{{ $t('admin.OverviewAdminPage.s7') }}</h2><span class="admin-badge">{{ $t('admin.OverviewAdminPage.s8') }}</span></div><router-link to="/admin/reports" class="overview-task"><span class="overview-task-icon"><t-icon name="flag" :size="23" aria-hidden="true" /></span><span><strong>{{ $t('admin.OverviewAdminPage.s9') }}</strong><small>{{ unresolved === '—' ? $t('admin.OverviewAdminPage.s10') : $t('admin.OverviewAdminPage.s11', [unresolved]) }}</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link><router-link to="/admin/accounts" class="overview-task"><span class="overview-task-icon"><t-icon name="usergroup" :size="23" aria-hidden="true" /></span><span><strong>{{ $t('admin.OverviewAdminPage.s12') }}</strong><small>{{ $t('admin.OverviewAdminPage.s13') }}</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link><router-link to="/admin/emojis" class="overview-task"><span class="overview-task-icon"><t-icon name="happy" :size="23" aria-hidden="true" /></span><span><strong>{{ $t('admin.OverviewAdminPage.s14') }}</strong><small>{{ $t('admin.OverviewAdminPage.s15') }}</small></span><t-icon name="chevron-right" aria-hidden="true" /></router-link></section>
+      <section class="admin-card overview-instance"><div class="overview-section-heading"><h2>{{ $t('admin.OverviewAdminPage.s16') }}</h2><t-icon name="internet" :size="20" aria-hidden="true" /></div><p v-if="instanceError" role="alert" class="admin-error">{{ instanceError }}</p><template v-if="instance"><strong class="overview-instance-title">{{ instance.title || 'Community' }}</strong><p class="overview-domain">{{ instance.domain || instance.uri || '—' }}</p><dl><div><dt>{{ $t('admin.OverviewAdminPage.s17') }}</dt><dd>{{ instance.registrations?.enabled === true ? $t('admin.OverviewAdminPage.s18') : instance.registrations?.enabled === false ? $t('admin.OverviewAdminPage.s19') : $t('admin.OverviewAdminPage.s20') }}</dd></div><div><dt>{{ $t('admin.OverviewAdminPage.s21') }}</dt><dd>ActivityPub · Matrix</dd></div><div><dt>{{ $t('admin.OverviewAdminPage.s22') }}</dt><dd>{{ updated || $t('admin.OverviewAdminPage.s23') }}</dd></div></dl></template><router-link to="/admin/settings" class="admin-button">{{ $t('admin.OverviewAdminPage.s24') }} <t-icon name="arrow-right" aria-hidden="true" /></router-link></section>
     </div>
-    <section class="admin-card overview-federation"><div class="overview-federation-symbol" aria-hidden="true"><t-icon name="internet" :size="34" /></div><div><h2>让社区与更大的世界相连</h2><p>管理联邦中继、查看 Matrix 连接，或从原站点迁入完整数据。</p></div><div class="overview-federation-links"><router-link to="/admin/federation" class="admin-button">联邦中继</router-link><router-link to="/admin/system" class="admin-button">Matrix 服务</router-link></div></section>
+    <section class="admin-card overview-federation"><div class="overview-federation-symbol" aria-hidden="true"><t-icon name="internet" :size="34" /></div><div><h2>{{ $t('admin.OverviewAdminPage.s25') }}</h2><p>{{ $t('admin.OverviewAdminPage.s26') }}</p></div><div class="overview-federation-links"><router-link to="/admin/federation" class="admin-button">{{ $t('admin.OverviewAdminPage.s27') }}</router-link><router-link to="/admin/system" class="admin-button">{{ $t('admin.OverviewAdminPage.s28') }}</router-link></div></section>
     <AnalyticsOverview />
-    <p class="overview-footnote">统计来自本站数据库；收录帖子包含已接收的远程内容。</p>
+    <p class="overview-footnote">{{ $t('admin.OverviewAdminPage.s29') }}</p>
   </div>
 </template>
 <style scoped>

@@ -1,3 +1,4 @@
+import { t } from '@/shared/i18n'
 export interface ImageSize { width: number; height: number }
 export interface CropCenter { x: number; y: number }
 export interface CropRect extends ImageSize { x: number; y: number }
@@ -8,7 +9,7 @@ export const PROFILE_HEADER_RATIO = 3
 /** All coordinates are in the browser-decoded, EXIF-oriented image. */
 export function imageCropRect(image: ImageSize, aspect: number, zoom: number, center: CropCenter): CropRect {
   if (![image.width, image.height, aspect, zoom, center.x, center.y].every(Number.isFinite)
-    || image.width <= 0 || image.height <= 0 || aspect <= 0) throw new Error('无效的图片尺寸')
+    || image.width <= 0 || image.height <= 0 || aspect <= 0) throw new Error(t('shared.imageCrop.s1'))
   const scale = Math.min(MAX_CROP_ZOOM, Math.max(1, zoom))
   const width = Math.min(image.width, image.height * aspect) / scale
   const height = width / aspect

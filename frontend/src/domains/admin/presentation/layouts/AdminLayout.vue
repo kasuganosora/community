@@ -35,13 +35,13 @@ function closeMenu() {
 
 <template>
   <div class="admin-shell" @keydown.esc="closeMenu">
-    <a href="#admin-content" class="admin-skip">跳转到主要内容</a>
+    <a href="#admin-content" class="admin-skip">{{ $t('admin.AdminLayout.s1') }}</a>
     <header class="admin-mobile-header">
-      <router-link :to="entry" class="admin-brand"><LogoIcon :size="30" /><strong>Community <small>管理后台</small></strong></router-link>
-      <button ref="menuButton" type="button" class="admin-button" :aria-expanded="menuOpen" aria-controls="admin-navigation" @click="menuOpen = !menuOpen">{{ menuOpen ? '收起导航' : '管理导航' }} <t-icon name="menu" aria-hidden="true" /></button>
+      <router-link :to="entry" class="admin-brand"><LogoIcon :size="30" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
+      <button ref="menuButton" type="button" class="admin-button" :aria-expanded="menuOpen" aria-controls="admin-navigation" @click="menuOpen = !menuOpen">{{ menuOpen ? $t('admin.AdminLayout.s3') : $t('admin.AdminLayout.s4') }} <t-icon name="menu" aria-hidden="true" /></button>
     </header>
-    <aside id="admin-navigation" class="admin-sidebar" :class="{ 'admin-sidebar--open': menuOpen }" aria-label="管理导航">
-      <router-link :to="entry" class="admin-brand admin-brand--desktop"><LogoIcon :size="38" /><strong>Community <small>管理后台</small></strong></router-link>
+    <aside id="admin-navigation" class="admin-sidebar" :class="{ 'admin-sidebar--open': menuOpen }" :aria-label="$t('admin.AdminLayout.s4')">
+      <router-link :to="entry" class="admin-brand admin-brand--desktop"><LogoIcon :size="38" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
       <nav ref="navigationElement">
         <section v-for="group in navigation" :key="group.label" class="admin-nav-group" :aria-label="group.label">
           <h2>{{ group.label }}</h2>
@@ -51,16 +51,16 @@ function closeMenu() {
         </section>
       </nav>
       <div class="admin-sidebar-footer">
-        <router-link to="/" class="admin-nav-link"><t-icon name="arrow-left" :size="20" aria-hidden="true" />返回社区</router-link>
-        <p class="admin-identity"><span class="admin-identity-dot" />{{ auth.currentUser?.is_admin ? '管理员' : '管理成员' }} <bdi>@{{ auth.currentUser?.username }}</bdi></p>
+        <router-link to="/" class="admin-nav-link"><t-icon name="arrow-left" :size="20" aria-hidden="true" />{{ $t('admin.AdminLayout.s5') }}</router-link>
+        <p class="admin-identity"><span class="admin-identity-dot" />{{ auth.currentUser?.is_admin ? $t('admin.AdminLayout.s6') : $t('admin.AdminLayout.s7') }} <bdi>@{{ auth.currentUser?.username }}</bdi></p>
       </div>
     </aside>
     <div class="admin-workspace">
-      <div class="admin-topbar"><span>管理后台 <span aria-hidden="true">/</span> <strong>{{ section.title }}</strong></span><router-link to="/" class="admin-back-link">查看社区 <t-icon name="arrow-top-right" aria-hidden="true" /></router-link></div>
+      <div class="admin-topbar"><span>{{ $t('admin.AdminLayout.s2') }} <span aria-hidden="true">/</span> <strong>{{ section.title }}</strong></span><router-link to="/" class="admin-back-link">{{ $t('admin.AdminLayout.s8') }} <t-icon name="arrow-top-right" aria-hidden="true" /></router-link></div>
       <main id="admin-content" ref="content" tabindex="-1" class="admin-content">
         <router-view />
       </main>
-      <footer class="admin-workspace-footer">Community · 连接每一种声音</footer>
+      <footer class="admin-workspace-footer">{{ $t('admin.AdminLayout.s9') }}</footer>
     </div>
   </div>
 </template>

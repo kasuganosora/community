@@ -5,6 +5,7 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import { canBoost, canQuote, canShare } from '@/domains/post/domain/compose'
 import { formatCount } from '@/shared/utils/format'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   status: MastodonStatus
 }>()
@@ -70,14 +71,14 @@ async function handleShare() {
     }
   }
   if (copyText(url)) {
-    MessagePlugin.success('已复制链接')
+    MessagePlugin.success(t('shared.PostActions.s13'))
     return
   }
   try {
     await navigator.clipboard.writeText(url)
-    MessagePlugin.success('已复制链接')
+    MessagePlugin.success(t('shared.PostActions.s13'))
   } catch {
-    MessagePlugin.error('分享失败')
+    MessagePlugin.error(t('shared.PostActions.s14'))
   }
 }
 </script>
@@ -87,7 +88,7 @@ async function handleShare() {
     <button 
       class="action-btn action-btn--reply" 
       @click.stop="emit('reply')"
-      :aria-label="replyCount ? `${replyCount} 条回复` : '回复'"
+      :aria-label="replyCount ? $t('shared.PostActions.s1', [replyCount]) : $t('shared.PostActions.s2')"
     >
       <t-icon name="chat" :size="18" />
       <span v-if="replyCount" class="action-count" aria-hidden="true">{{ replyCount }}</span>
@@ -98,7 +99,7 @@ async function handleShare() {
       class="action-btn action-btn--reblog"
       :class="{ 'action-btn--active-green': status.reblogged }"
       @click.stop="emit('reblog')"
-      :aria-label="`${reblogCount || 0} 次转发. ${status.reblogged ? '取消转发' : '转发'}`"
+      :aria-label="$t('shared.PostActions.s5', [reblogCount || 0, status.reblogged ? $t('shared.PostActions.s3') : $t('shared.PostActions.s4')])"
       :aria-pressed="status.reblogged"
     >
       <Transition name="glyph">
@@ -111,7 +112,7 @@ async function handleShare() {
       class="action-btn action-btn--fav"
       :class="{ 'action-btn--active-pink': status.favourited }"
       @click.stop="emit('favourite')"
-      :aria-label="`${favCount || 0} 个喜欢. ${status.favourited ? '取消喜欢' : '喜欢'}`"
+      :aria-label="$t('shared.PostActions.s8', [favCount || 0, status.favourited ? $t('shared.PostActions.s6') : $t('shared.PostActions.s7')])"
       :aria-pressed="status.favourited"
     >
       <Transition name="glyph">
@@ -124,7 +125,7 @@ async function handleShare() {
       class="action-btn action-btn--bookmark"
       :class="{ 'action-btn--active-blue': status.bookmarked }"
       @click.stop="emit('bookmark')"
-      :aria-label="status.bookmarked ? '移除收藏' : '收藏'"
+      :aria-label="status.bookmarked ? $t('shared.PostActions.s9') : $t('shared.PostActions.s10')"
       :aria-pressed="status.bookmarked"
     >
       <Transition name="glyph">
@@ -136,7 +137,7 @@ async function handleShare() {
       v-if="showQuote"
       class="action-btn action-btn--reply"
       @click.stop="emit('quote')"
-      aria-label="引用"
+      :aria-label="$t('shared.PostActions.s11')"
     >
       <t-icon name="quote" :size="18" />
     </button>
@@ -145,7 +146,7 @@ async function handleShare() {
       v-if="showShare"
       class="action-btn action-btn--share"
       @click.stop="handleShare"
-      aria-label="分享"
+      :aria-label="$t('shared.PostActions.s12')"
     >
       <t-icon name="share" :size="18" />
     </button>

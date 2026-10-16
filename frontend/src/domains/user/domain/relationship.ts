@@ -1,5 +1,6 @@
 import type { MastodonRelationship } from '@/shared/types/mastodon'
 
+import { t } from '@/shared/i18n'
 export type FollowState = 'unknown' | 'none' | 'following' | 'requested'
 
 export function followStateOf(rel: MastodonRelationship | undefined): FollowState {
@@ -11,8 +12,8 @@ export function followStateOf(rel: MastodonRelationship | undefined): FollowStat
 
 export function followButtonLabel(state: FollowState, followedBy = false): string {
   switch (state) {
-    case 'following': return '已关注'
-    case 'requested': return '已请求'
-    default: return followedBy ? '回关' : '关注'
+    case 'following': return t('user.relationship.s1')
+    case 'requested': return t('user.relationship.s2')
+    default: return followedBy ? t('user.relationship.s3') : t('user.relationship.s4')
   }
 }

@@ -18,6 +18,7 @@ import { useLinkPreview } from '@/shared/composables/useLinkPreview'
 import { stripHtml } from '@/shared/utils/sanitize'
 import { markBidiNumbers } from '@/shared/utils/bidi'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
@@ -60,16 +61,16 @@ const quoted = computed(() => props.status.quote?.id ? props.status.quote : null
 const quoteText = computed(() => {
   const status = quoted.value
   if (!status) return ''
-  if (status.spoiler_text) return markBidiNumbers(`内容警告：${status.spoiler_text}`)
+  if (status.spoiler_text) return markBidiNumbers(t('shared.PostContent.s7', [status.spoiler_text]))
   return markBidiNumbers(stripHtml(status.content || '').replace(/\s+/g, ' ').trim())
 })
 const hiddenSummary = computed(() => {
   const bits: string[] = []
   const media = props.status.media_attachments?.length ?? 0
-  if (media) bits.push(`${media} 个媒体`)
-  if (props.status.poll) bits.push('投票')
-  if (quoted.value) bits.push('引用')
-  else if (props.status.card?.url) bits.push('链接预览')
+  if (media) bits.push(t('shared.PostContent.s8', [media]))
+  if (props.status.poll) bits.push(t('shared.PostContent.s9'))
+  if (quoted.value) bits.push(t('shared.PostContent.s10'))
+  else if (props.status.card?.url) bits.push(t('shared.PostContent.s11'))
   return bits.join(' · ')
 })
 
@@ -110,7 +111,7 @@ onMounted(measure)
         :aria-controls="contentId"
         @click.stop="cwOpen = !cwOpen"
       >
-        {{ cwOpen ? '收起' : '显示内容' }}
+        {{ cwOpen ? $t('shared.PostContent.s1') : $t('shared.PostContent.s2') }}
       </button>
     </div>
     <div v-show="bodyVisible" :id="contentId">
@@ -118,7 +119,7 @@ onMounted(measure)
         <RichText :html="status.content" :emojis="status.emojis" :class="textClass" :dir="textDir(status.language)" />
       </div>
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
-        {{ expanded ? '收起' : '展开全文' }}
+        {{ expanded ? $t('shared.PostContent.s1') : $t('shared.PostContent.s3') }}
       </button>
       <div v-if="status.media_attachments?.length" class="post-content__media">
         <PostMedia :attachments="status.media_attachments" :status-id="status.id" :hidden="mediaHidden" />
@@ -128,7 +129,7 @@ onMounted(measure)
           class="post-content__sensitive"
           @click.stop="mediaRevealed = true"
         >
-          敏感内容，点击查看
+          {{ $t('shared.PostContent.s4') }}
         </button>
         <button
           v-else-if="gated"
@@ -136,7 +137,7 @@ onMounted(measure)
           class="post-content__rehide"
           @click.stop="mediaRevealed = false"
         >
-          再次隐藏
+          {{ $t('shared.PostContent.s5') }}
         </button>
       </div>
       <article v-if="quoted" class="post-quote" role="link" tabindex="0" @click.stop="openQuote" @keydown.enter.stop="openQuote">
@@ -144,7 +145,7 @@ onMounted(measure)
           <EmojiText :text="quoted.account.display_name || quoted.account.username" :emojis="quoted.account.emojis" />
           <span>@{{ displayAccount(quoted.account.acct) }}</span>
         </header>
-        <p class="post-quote__text" dir="auto">{{ quoteText || '（这条引用没有文字）' }}</p>
+        <p class="post-quote__text" dir="auto">{{ quoteText || $t('shared.PostContent.s6') }}</p>
       </article>
       <LinkPreviewCard v-else-if="previewCard && bodyVisible" :card="previewCard" :hide-image="mediaHidden" />
       <PostPoll v-if="poll" :poll="poll" @updated="pollOverride = $event" />

@@ -1,42 +1,43 @@
+import { t } from '@/shared/i18n'
 export interface AdminIdentity { is_admin?: boolean; admin_permissions?: string[] }
 export interface AdminNavItem { path: string; title: string; description: string; icon: string; permission?: string; rootOnly?: boolean }
 export interface AdminNavGroup { label: string; items: AdminNavItem[] }
 const item = (path: string, title: string, icon: string, permission: string, description = ''): AdminNavItem => ({ path: '/admin' + path, title, icon, permission, description })
 export const adminNavigation: AdminNavGroup[] = [
-  { label: '管理', items: [
-    item('', '概览', 'dashboard', 'dashboard', '了解社区近况，处理需要关注的事务。'),
-    item('/accounts', '用户管理', 'usergroup', 'users'),
-    item('/invites', '邀请', 'user-add', 'invites'),
-    item('/roles', '角色', 'secured', 'roles'),
-    item('/emojis', '自定义表情', 'happy', 'emojis'),
-    item('/decorations', '头像装饰', 'image', 'branding'),
-    item('/instances', '联合', 'internet', 'federation'),
-    item('/jobs', '作业队列', 'time', 'system'),
-    item('/files', '文件', 'file', 'media'),
-    item('/announcements', '公告', 'loudspeaker', 'announcements'),
-    item('/advertisements', '广告', 'image', 'branding'),
-    item('/reports', '举报与内容', 'flag', 'reports'),
-    item('/discovery', '内容发现', 'browse', 'settings', '查看推荐状态，管理站级禁推规则。'),
-    item('/audit-logs', '审查日志', 'history', 'audit'),
-    item('/rules', '社区规则', 'bulletpoint', 'rules'),
+  { label: t('admin.navigation.s1'), items: [
+    item('', t('admin.navigation.s2'), 'dashboard', 'dashboard', t('admin.navigation.s3')),
+    item('/accounts', t('admin.navigation.s4'), 'usergroup', 'users'),
+    item('/invites', t('admin.navigation.s5'), 'user-add', 'invites'),
+    item('/roles', t('admin.navigation.s6'), 'secured', 'roles'),
+    item('/emojis', t('admin.navigation.s7'), 'happy', 'emojis'),
+    item('/decorations', t('admin.navigation.s8'), 'image', 'branding'),
+    item('/instances', t('admin.navigation.s9'), 'internet', 'federation'),
+    item('/jobs', t('admin.navigation.s10'), 'time', 'system'),
+    item('/files', t('admin.navigation.s11'), 'file', 'media'),
+    item('/announcements', t('admin.navigation.s12'), 'loudspeaker', 'announcements'),
+    item('/advertisements', t('admin.navigation.s13'), 'image', 'branding'),
+    item('/reports', t('admin.navigation.s14'), 'flag', 'reports'),
+    item('/discovery', t('admin.navigation.s15'), 'browse', 'settings', t('admin.navigation.s16')),
+    item('/audit-logs', t('admin.navigation.s17'), 'history', 'audit'),
+    item('/rules', t('admin.navigation.s18'), 'bulletpoint', 'rules'),
   ] },
-  { label: '设置', items: [
-    item('/settings/general', '常规', 'setting', 'settings'),
-    item('/settings/branding', '品牌', 'palette', 'branding'),
-    item('/moderation', '管理', 'secured', 'settings', '注册、访客可见性、关键词与实例屏蔽等审核设置。'),
-    item('/settings/moderation', '注册管理', 'user-checked', 'settings'),
-    item('/settings/email', '邮件服务器', 'mail', 'settings'),
-    item('/settings/storage', '对象存储', 'cloud', 'settings'),
-    item('/settings/security', '安全', 'lock-on', 'settings'),
-    item('/federation', '中继', 'internet', 'federation'),
-    item('/settings/external', '外部服务', 'link', 'settings'),
+  { label: t('admin.navigation.s19'), items: [
+    item('/settings/general', t('admin.navigation.s20'), 'setting', 'settings'),
+    item('/settings/branding', t('admin.navigation.s21'), 'palette', 'branding'),
+    item('/moderation', t('admin.navigation.s1'), 'secured', 'settings', t('admin.navigation.s22')),
+    item('/settings/moderation', t('admin.navigation.s23'), 'user-checked', 'settings'),
+    item('/settings/email', t('admin.navigation.s24'), 'mail', 'settings'),
+    item('/settings/storage', t('admin.navigation.s25'), 'cloud', 'settings'),
+    item('/settings/security', t('admin.navigation.s26'), 'lock-on', 'settings'),
+    item('/federation', t('admin.navigation.s27'), 'internet', 'federation'),
+    item('/settings/external', t('admin.navigation.s28'), 'link', 'settings'),
     item('/webhooks', 'Webhook', 'code', 'webhooks'),
-    item('/settings/performance', '性能', 'chart', 'settings'),
+    item('/settings/performance', t('admin.navigation.s29'), 'chart', 'settings'),
   ] },
-  { label: '关于与维护', items: [
-    item('/settings/database', '数据库', 'data', 'system'),
-    item('/system', 'Matrix 服务', 'server', 'system'),
-    { path: '/admin/migrations', title: '数据迁移', icon: 'data', description: '预检并导入同域名的完整站点备份。', rootOnly: true },
+  { label: t('admin.navigation.s30'), items: [
+    item('/settings/database', t('admin.navigation.s31'), 'data', 'system'),
+    item('/system', t('admin.navigation.s32'), 'server', 'system'),
+    { path: '/admin/migrations', title: t('admin.navigation.s33'), icon: 'data', description: t('admin.navigation.s34'), rootOnly: true },
   ] },
 ]
 export function canAccessAdmin(identity: AdminIdentity | null | undefined, permission?: string, rootOnly = false): boolean {

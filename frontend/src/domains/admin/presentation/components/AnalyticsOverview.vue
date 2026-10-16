@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { analyticsAdminApi, type AdminAnalytics, type AnalyticsDay } from '../../infrastructure/analyticsAdminApi'
+import { t } from '@/shared/i18n'
 const data = ref<AdminAnalytics | null>(null), error = ref(''), loading = ref(false)
 const days = ref<7 | 30>(30)
 const metric = ref<'local_posts' | 'posting_accounts'>('local_posts')
@@ -8,40 +9,40 @@ const selected = ref<AnalyticsDay | null>(null)
 const visible = computed(() => data.value?.daily.slice(-days.value) ?? [])
 const maximum = computed(() => Math.max(1, ...visible.value.map(day => day[metric.value])))
 const heatMax = computed(() => Math.max(1, ...(data.value?.daily.map(day => day.local_posts) ?? [])))
-const labels: Record<string, string> = { local_accounts: '本地账户', remote_accounts: '远端账户', local_posts: '本地帖子', remote_posts: '远端帖子', instances: '已收录实例', local_emojis: '本地表情', remote_emojis: '远端表情' }
+const labels: Record<string, string> = { local_accounts: t('admin.AnalyticsOverview.s45'), remote_accounts: t('admin.AnalyticsOverview.s46'), local_posts: t('admin.AnalyticsOverview.s22'), remote_posts: t('admin.AnalyticsOverview.s23'), instances: t('admin.AnalyticsOverview.s47'), local_emojis: t('admin.AnalyticsOverview.s48'), remote_emojis: t('admin.AnalyticsOverview.s49') }
 const points = computed(() => visible.value.map((day, i) => `${20 + i * 660 / Math.max(1, visible.value.length - 1)},${160 - day[metric.value] * 140 / maximum.value}`).join(' '))
 async function load() {
   if (loading.value) return
   loading.value = true; error.value = ''; data.value = null; selected.value = null
   try { data.value = await analyticsAdminApi.get(days.value) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '分析数据加载失败' }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : t('admin.AnalyticsOverview.s50') }
   finally { loading.value = false }
 }
 function percent(size: number, retained: number) { return size ? `${(100 * retained / size).toFixed(1)}%` : '—' }
 onMounted(load)
 </script>
 <template>
-  <section class="analytics" aria-label="社区数据分析" :aria-busy="loading">
-    <header><div><h2>社区数据分析</h2><p>UTC 日期 · 来自本站已存储数据；不代表整个联邦网络。</p></div><button class="admin-button" :disabled="loading" @click="load">刷新分析</button></header>
-    <p v-if="loading" role="status">正在加载真实统计…</p>
-    <p v-else-if="error" role="alert" class="admin-error">{{ error }} <button class="admin-button" @click="load">重试分析</button></p>
+  <section class="analytics" :aria-label="$t('admin.AnalyticsOverview.s1')" :aria-busy="loading">
+    <header><div><h2>{{ $t('admin.AnalyticsOverview.s1') }}</h2><p>{{ $t('admin.AnalyticsOverview.s2') }}</p></div><button class="admin-button" :disabled="loading" @click="load">{{ $t('admin.AnalyticsOverview.s3') }}</button></header>
+    <p v-if="loading" role="status">{{ $t('admin.AnalyticsOverview.s4') }}</p>
+    <p v-else-if="error" role="alert" class="admin-error">{{ error }} <button class="admin-button" @click="load">{{ $t('admin.AnalyticsOverview.s5') }}</button></p>
     <template v-else-if="data">
       <dl class="analytics-totals"><div v-for="(label, key) in labels" :key="key"><dt>{{ label }}</dt><dd>{{ data.totals[key]?.toLocaleString() ?? '—' }}</dd></div></dl>
-      <p class="analytics-note">在线人数及历史登录活跃：不可用（尚无历史在线记录）。下方活跃用户是每天至少发布一次帖子的本地账户，包含转发，不等于在线或登录人数。帖子统计排除已删除及定时待发内容，包含私信与已收录远端帖子；不展示正文。</p>
+      <p class="analytics-note">{{ $t('admin.AnalyticsOverview.s6') }}</p>
       <section class="admin-card analytics-trend">
-        <header><h3>发帖与活跃趋势</h3><div class="analytics-controls"><label>时间范围 <select v-model="days"><option :value="7">过去 7 天</option><option :value="30">过去 30 天</option></select></label><label>指标 <select v-model="metric"><option value="local_posts">本地发帖量</option><option value="posting_accounts">本地发帖活跃账户</option></select></label></div></header>
-        <svg viewBox="0 0 700 190" role="img" :aria-label="`${days} 天${metric === 'local_posts' ? '本地发帖量' : '发帖活跃账户'}趋势`">
-          <title>每日趋势，精确数字见下方数据表</title><path d="M20 20V160H680" class="axis" /><polyline :points="points" class="trend" />
+        <header><h3>{{ $t('admin.AnalyticsOverview.s7') }}</h3><div class="analytics-controls"><label>{{ $t('admin.AnalyticsOverview.s8') }} <select v-model="days"><option :value="7">{{ $t('admin.AnalyticsOverview.s9') }}</option><option :value="30">{{ $t('admin.AnalyticsOverview.s10') }}</option></select></label><label>{{ $t('admin.AnalyticsOverview.s11') }} <select v-model="metric"><option value="local_posts">{{ $t('admin.AnalyticsOverview.s12') }}</option><option value="posting_accounts">{{ $t('admin.AnalyticsOverview.s13') }}</option></select></label></div></header>
+        <svg viewBox="0 0 700 190" role="img" :aria-label="$t('admin.AnalyticsOverview.s15', [days, metric === 'local_posts' ? $t('admin.AnalyticsOverview.s12') : $t('admin.AnalyticsOverview.s14')])">
+          <title>{{ $t('admin.AnalyticsOverview.s16') }}</title><path d="M20 20V160H680" class="axis" /><polyline :points="points" class="trend" />
           <circle v-for="(day, i) in visible" :key="day.date" :cx="20 + i * 660 / Math.max(1, visible.length - 1)" :cy="160 - day[metric] * 140 / maximum" r="4" tabindex="0" @focus="selected = day" @mouseenter="selected = day"><title>{{ day.date }}：{{ day[metric] }}</title></circle>
           <text x="20" y="185">{{ visible[0]?.date }}</text><text x="680" y="185" text-anchor="end">{{ visible.at(-1)?.date }}</text>
         </svg>
-        <p aria-live="polite">{{ selected ? `${selected.date} · 本地帖子 ${selected.local_posts} · 远端帖子 ${selected.remote_posts} · 本地发帖账户 ${selected.posting_accounts}` : '悬停或聚焦圆点查看精确数字，也可展开数据表。' }}</p>
-        <details><summary>查看趋势数据表</summary><div class="analytics-table"><table><caption>过去 {{ days }} 天（UTC），当天数据尚未完整</caption><thead><tr><th>日期</th><th>本地帖子</th><th>远端帖子</th><th>本地发帖账户</th></tr></thead><tbody><tr v-for="day in visible" :key="day.date"><th>{{ day.date }}</th><td>{{ day.local_posts }}</td><td>{{ day.remote_posts }}</td><td>{{ day.posting_accounts }}</td></tr></tbody></table></div></details>
+        <p aria-live="polite">{{ selected ? $t('admin.AnalyticsOverview.s17', [selected.date, selected.local_posts, selected.remote_posts, selected.posting_accounts]) : $t('admin.AnalyticsOverview.s18') }}</p>
+        <details><summary>{{ $t('admin.AnalyticsOverview.s19') }}</summary><div class="analytics-table"><table><caption>{{ $t('admin.AnalyticsOverview.s20', [days]) }}</caption><thead><tr><th>{{ $t('admin.AnalyticsOverview.s21') }}</th><th>{{ $t('admin.AnalyticsOverview.s22') }}</th><th>{{ $t('admin.AnalyticsOverview.s23') }}</th><th>{{ $t('admin.AnalyticsOverview.s24') }}</th></tr></thead><tbody><tr v-for="day in visible" :key="day.date"><th>{{ day.date }}</th><td>{{ day.local_posts }}</td><td>{{ day.remote_posts }}</td><td>{{ day.posting_accounts }}</td></tr></tbody></table></div></details>
       </section>
-      <section class="admin-card analytics-heat"><h3>180 天本地发帖热力图</h3><p>颜色越深，发帖越多；零值表示该日未找到仍保留的帖子。</p><svg viewBox="0 0 540 148" role="img" aria-label="180 天每日本地发帖热力图"><title>从左至右每列七天，精确数字见数据表</title><rect v-for="(day, i) in data.daily" :key="day.date" :x="Math.floor(i / 7) * 20" :y="i % 7 * 20" width="16" height="16" rx="3" :opacity="day.local_posts ? 0.25 + 0.75 * day.local_posts / heatMax : 0.09"><title>{{ day.date }}：{{ day.local_posts }} 条本地帖子</title></rect></svg><details><summary>查看 180 天数据表</summary><div class="analytics-table"><table><thead><tr><th>日期</th><th>本地帖子</th></tr></thead><tbody><tr v-for="day in data.daily" :key="day.date"><th>{{ day.date }}</th><td>{{ day.local_posts }}</td></tr></tbody></table></div></details></section>
-      <section class="admin-card analytics-retention"><h3>注册周队列留存</h3><p>最近 12 个已完成观察的 UTC 周一注册周；留存指注册周结束后的 7 天内至少发布一次帖子。不以当前最后发帖时间或登录状态代替历史行为。</p><div class="analytics-table"><table><thead><tr><th>注册周开始</th><th>本地注册账户</th><th>下一周发帖账户</th><th>留存率</th></tr></thead><tbody><tr v-for="cohort in data.cohorts" :key="cohort.date"><th>{{ cohort.date }}</th><td>{{ cohort.size }}</td><td>{{ cohort.retained }}</td><td>{{ percent(cohort.size, cohort.retained) }}</td></tr></tbody></table></div></section>
-      <section class="admin-card analytics-federation"><h3>联邦关注分布</h3><p>已接受的跨站关注关系，按关系数排列前 20 个域名；不含待审核请求或已删除账户。</p><div class="analytics-distributions"><div v-for="direction in (['outgoing', 'incoming'] as const)" :key="direction"><h4>{{ direction === 'outgoing' ? '本站关注远端' : '远端关注本站' }}</h4><p v-if="!data.federation[direction].length">暂无已接受的跨站关注关系</p><table v-else><thead><tr><th>域名</th><th>关系数</th></tr></thead><tbody><tr v-for="row in data.federation[direction]" :key="row.domain"><th>{{ row.domain }}</th><td>{{ row.count }}</td></tr></tbody></table></div></div></section>
-      <p class="analytics-note">更新时间：{{ new Date(data.generated_at).toLocaleString() }}。历史曲线按仍保存的帖子重新计算，删除内容会影响过去日期；资料总量包含已收录账户，并非人类用户去重人数。</p>
+      <section class="admin-card analytics-heat"><h3>{{ $t('admin.AnalyticsOverview.s25') }}</h3><p>{{ $t('admin.AnalyticsOverview.s26') }}</p><svg viewBox="0 0 540 148" role="img" :aria-label="$t('admin.AnalyticsOverview.s27')"><title>{{ $t('admin.AnalyticsOverview.s28') }}</title><rect v-for="(day, i) in data.daily" :key="day.date" :x="Math.floor(i / 7) * 20" :y="i % 7 * 20" width="16" height="16" rx="3" :opacity="day.local_posts ? 0.25 + 0.75 * day.local_posts / heatMax : 0.09"><title>{{ $t('admin.AnalyticsOverview.s29', [day.date, day.local_posts]) }}</title></rect></svg><details><summary>{{ $t('admin.AnalyticsOverview.s30') }}</summary><div class="analytics-table"><table><thead><tr><th>{{ $t('admin.AnalyticsOverview.s21') }}</th><th>{{ $t('admin.AnalyticsOverview.s22') }}</th></tr></thead><tbody><tr v-for="day in data.daily" :key="day.date"><th>{{ day.date }}</th><td>{{ day.local_posts }}</td></tr></tbody></table></div></details></section>
+      <section class="admin-card analytics-retention"><h3>{{ $t('admin.AnalyticsOverview.s31') }}</h3><p>{{ $t('admin.AnalyticsOverview.s32') }}</p><div class="analytics-table"><table><thead><tr><th>{{ $t('admin.AnalyticsOverview.s33') }}</th><th>{{ $t('admin.AnalyticsOverview.s34') }}</th><th>{{ $t('admin.AnalyticsOverview.s35') }}</th><th>{{ $t('admin.AnalyticsOverview.s36') }}</th></tr></thead><tbody><tr v-for="cohort in data.cohorts" :key="cohort.date"><th>{{ cohort.date }}</th><td>{{ cohort.size }}</td><td>{{ cohort.retained }}</td><td>{{ percent(cohort.size, cohort.retained) }}</td></tr></tbody></table></div></section>
+      <section class="admin-card analytics-federation"><h3>{{ $t('admin.AnalyticsOverview.s37') }}</h3><p>{{ $t('admin.AnalyticsOverview.s38') }}</p><div class="analytics-distributions"><div v-for="direction in (['outgoing', 'incoming'] as const)" :key="direction"><h4>{{ direction === 'outgoing' ? $t('admin.AnalyticsOverview.s39') : $t('admin.AnalyticsOverview.s40') }}</h4><p v-if="!data.federation[direction].length">{{ $t('admin.AnalyticsOverview.s41') }}</p><table v-else><thead><tr><th>{{ $t('admin.AnalyticsOverview.s42') }}</th><th>{{ $t('admin.AnalyticsOverview.s43') }}</th></tr></thead><tbody><tr v-for="row in data.federation[direction]" :key="row.domain"><th>{{ row.domain }}</th><td>{{ row.count }}</td></tr></tbody></table></div></div></section>
+      <p class="analytics-note">{{ $t('admin.AnalyticsOverview.s44', [new Date(data.generated_at).toLocaleString()]) }}</p>
     </template>
   </section>
 </template>

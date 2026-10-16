@@ -1,16 +1,17 @@
+import { t as i18nT } from '@/shared/i18n'
 export const MAX_LIST_TITLE_LENGTH = 64
 
 export function validateListTitle(title: string): string | null {
   const t = title.trim()
-  if (!t) return '请输入列表名称'
-  if (Array.from(t).length > MAX_LIST_TITLE_LENGTH) return `列表名称最多 ${MAX_LIST_TITLE_LENGTH} 个字`
+  if (!t) return i18nT('list.list.s1')
+  if (Array.from(t).length > MAX_LIST_TITLE_LENGTH) return i18nT('list.list.s2', [MAX_LIST_TITLE_LENGTH])
   return null
 }
 
 export const REPLIES_POLICY_OPTIONS = [
-  { value: 'list', label: '显示列表成员之间的回复' },
-  { value: 'followed', label: '显示对我关注的人的回复' },
-  { value: 'none', label: '不显示回复' },
+  { value: 'list', label: i18nT('list.list.s3') },
+  { value: 'followed', label: i18nT('list.list.s4') },
+  { value: 'none', label: i18nT('list.list.s5') },
 ] as const
 
 /** Matches the server's models.MaxListHashtags. */

@@ -8,6 +8,7 @@ import type { MastodonAccount } from '@/shared/types/mastodon'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import type { ChatMemberInput } from '../../domain/chat'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ pending?: boolean; error?: string; mode?: 'create' | 'invite'; initialRecipient?: string }>()
 const emit = defineEmits<{ submit: [members: ChatMemberInput[]]; cancel: [] }>()
 const auth = useAuthStore()
@@ -34,14 +35,14 @@ async function add() {
     } else {
       const account = await userApi.lookupAccount(value)
       if (version !== generation) return
-      if (account.id === auth.currentUser?.id) throw new Error('你已经是会话成员，无需重复添加。')
+      if (account.id === auth.currentUser?.id) throw new Error(t('message.ConversationMembersForm.s16'))
       candidate = { key: `account:${account.id}`, label: `@${displayAccount(account.acct)}`, input: { account_id: account.id }, account }
     }
     if (version !== generation) return
     if (!selected.value.some(member => member.key === candidate.key)) selected.value.push(candidate)
     query.value = ''
   } catch (error) {
-    if (version === generation) resolveError.value = error instanceof Error ? error.message : '无法找到这个账号，请检查完整地址。'
+    if (version === generation) resolveError.value = error instanceof Error ? error.message : t('message.ConversationMembersForm.s17')
   } finally {
     if (version === generation) resolving.value = false
   }
@@ -51,29 +52,29 @@ function submit() { if (ready.value) emit('submit', selected.value.map(member =>
 
 <template>
   <form class="members-form" @submit.prevent="submit">
-    <h2>{{ mode === 'invite' ? '添加会话成员' : '新建会话' }}</h2>
-    <label class="members-form__label" for="conversation-recipient">完整账号地址</label>
+    <h2>{{ mode === 'invite' ? $t('message.ConversationMembersForm.s1') : $t('message.ConversationMembersForm.s2') }}</h2>
+    <label class="members-form__label" for="conversation-recipient">{{ $t('message.ConversationMembersForm.s3') }}</label>
     <div class="members-form__search">
-      <input id="conversation-recipient" v-model="query" autocomplete="off" placeholder="user@站点 或 @user:Matrix服务器" :disabled="pending || resolving" @keydown.enter.prevent="add" />
-      <button class="btn btn--secondary btn--sm" type="button" :disabled="!query.trim() || pending || resolving" @click="add">{{ resolving ? '查找中…' : '添加' }}</button>
+      <input id="conversation-recipient" v-model="query" autocomplete="off" :placeholder="$t('message.ConversationMembersForm.s4')" :disabled="pending || resolving" @keydown.enter.prevent="add" />
+      <button class="btn btn--secondary btn--sm" type="button" :disabled="!query.trim() || pending || resolving" @click="add">{{ resolving ? $t('message.ConversationMembersForm.s5') : $t('message.ConversationMembersForm.s6') }}</button>
     </div>
-    <p class="members-form__help">可以添加多个 Community、Mastodon、Misskey 或 Matrix 账号。请核对完整地址。</p>
+    <p class="members-form__help">{{ $t('message.ConversationMembersForm.s7') }}</p>
     <p v-if="resolveError" class="members-form__error" role="alert">{{ resolveError }}</p>
-    <ul v-if="selected.length" class="members-form__selected" aria-label="待添加的成员">
+    <ul v-if="selected.length" class="members-form__selected" :aria-label="$t('message.ConversationMembersForm.s8')">
       <li v-for="member in selected" :key="member.key">
         <UserAvatar v-if="member.account" :account="member.account" :size="32" />
         <span class="members-form__member-label">{{ member.label }}</span>
-        <button type="button" class="btn btn--ghost btn--sm" :disabled="pending" :aria-label="`移除 ${member.label}`" @click="selected = selected.filter(item => item.key !== member.key)">移除</button>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="pending" :aria-label="$t('message.ConversationMembersForm.s9', [member.label])" @click="selected = selected.filter(item => item.key !== member.key)">{{ $t('message.ConversationMembersForm.s10') }}</button>
       </li>
     </ul>
     <label class="members-form__consent">
       <input v-model="consent" type="checkbox" :disabled="pending" />
-      <span>我知道此会话不使用端到端加密。参与站点的服务器可读取消息；新加入的成员不能读取加入前的历史。</span>
+      <span>{{ $t('message.ConversationMembersForm.s11') }}</span>
     </label>
     <p v-if="error" class="members-form__error" role="alert">{{ error }}</p>
     <div class="members-form__actions">
-      <button class="btn btn--secondary btn--sm" type="button" :disabled="pending" @click="emit('cancel')">取消</button>
-      <button class="btn btn--primary btn--sm" type="submit" :disabled="!ready">{{ pending ? '处理中…' : mode === 'invite' ? '确认添加' : '创建会话' }}</button>
+      <button class="btn btn--secondary btn--sm" type="button" :disabled="pending" @click="emit('cancel')">{{ $t('message.ConversationMembersForm.s12') }}</button>
+      <button class="btn btn--primary btn--sm" type="submit" :disabled="!ready">{{ pending ? $t('message.ConversationMembersForm.s13') : mode === 'invite' ? $t('message.ConversationMembersForm.s14') : $t('message.ConversationMembersForm.s15') }}</button>
     </div>
   </form>
 </template>

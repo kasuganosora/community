@@ -7,6 +7,7 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 import { isGroupReference } from '../../domain/groupSearch'
 import GroupSearchCard from './GroupSearchCard.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ query: string; refreshKey?: number; via?: string[]; previewRef?: string }>()
 const auth = useAuthStore()
 type Source = 'joined' | 'local' | 'remote'
@@ -17,7 +18,7 @@ const serverError = ref('')
 interface ResultSet { groups: Group[]; next: string | null; loading: boolean; loaded: boolean; error: string; source: string }
 const empty = (): ResultSet => ({ groups: [], next: null, loading: false, loaded: false, error: '', source: '' })
 const results = reactive<Record<Source, ResultSet>>({ joined: empty(), local: empty(), remote: empty() })
-const sourceNames: Record<Source, string> = { joined: '我的群组', local: '本站公开群', remote: '外部公开群' }
+const sourceNames: Record<Source, string> = { joined: t('trending.GroupSearchResults.s9'), local: t('trending.GroupSearchResults.s10'), remote: t('trending.GroupSearchResults.s25') }
 const visibleSources = computed<Source[]>(() => scope.value === 'all' ? ['joined', 'local'] : [scope.value])
 const precise = computed(() => isGroupReference(props.query))
 const resolved = ref<Awaited<ReturnType<typeof groupApi.resolve>> | null>(null)
@@ -61,7 +62,7 @@ async function load(source: Source, more = false) {
     entry.loaded = true
   } catch (error) {
     if (current !== generation || controller.signal.aborted) return
-    entry.error = error instanceof Error ? error.message : '群组搜索失败，请重试'
+    entry.error = error instanceof Error ? error.message : t('trending.GroupSearchResults.s26')
   } finally {
     if (current === generation && !controller.signal.aborted) entry.loading = false
   }
@@ -77,7 +78,7 @@ async function resolveReference() {
     const value = await groupApi.resolve(props.query.trim(), controller.signal, props.via, props.previewRef)
     if (current === generation && !controller.signal.aborted) resolved.value = value
   } catch (error) {
-    if (current === generation && !controller.signal.aborted) resolveError.value = error instanceof Error ? error.message : '无法获取群组信息，请重试'
+    if (current === generation && !controller.signal.aborted) resolveError.value = error instanceof Error ? error.message : t('trending.GroupSearchResults.s27')
   } finally {
     if (current === generation && !controller.signal.aborted) resolveBusy.value = false
   }
@@ -100,7 +101,7 @@ function searchRemote() {
   // Server discovery and network policy are enforced by the backend. Reject
   // pasted URLs here so users see the expected server-name format immediately.
   if (!input || /[\s/@?#]/.test(input) || input.includes('://')) {
-    serverError.value = '请输入服务器名称，例如 matrix.org；不要填写网页链接'
+    serverError.value = t('trending.GroupSearchResults.s28')
     return
   }
   activeServer.value = input
@@ -121,58 +122,58 @@ onBeforeUnmount(cancel)
 </script>
 
 <template>
-  <section class="group-search" aria-label="群组搜索结果">
+  <section class="group-search" :aria-label="$t('trending.GroupSearchResults.s1')">
     <div v-if="!auth.isAuthenticated" class="group-search__notice">
-      <h2>登录后搜索群组</h2>
-      <p>查找你的群聊、本站公开群，或指定服务器的公开群目录。</p>
-      <router-link class="btn btn--primary" :to="{ path: '/login', query: { redirect: $route.fullPath } }">登录</router-link>
+      <h2>{{ $t('trending.GroupSearchResults.s2') }}</h2>
+      <p>{{ $t('trending.GroupSearchResults.s3') }}</p>
+      <router-link class="btn btn--primary" :to="{ path: '/login', query: { redirect: $route.fullPath } }">{{ $t('trending.GroupSearchResults.s4') }}</router-link>
     </div>
     <template v-else-if="precise">
-      <p v-if="resolveBusy" role="status">正在获取群组信息…</p>
+      <p v-if="resolveBusy" role="status">{{ $t('trending.GroupSearchResults.s5') }}</p>
       <div v-else-if="resolveError" class="group-search__error" role="alert">
         <p>{{ resolveError }}</p>
-        <button class="btn btn--secondary btn--sm" type="button" @click="refresh">重试解析</button>
+        <button class="btn btn--secondary btn--sm" type="button" @click="refresh">{{ $t('trending.GroupSearchResults.s6') }}</button>
       </div>
       <GroupSearchCard v-else-if="resolved" :group="resolved.group" :target="resolved.target" :via="resolved.via" :client-url="resolved.client_url" resolved />
     </template>
     <template v-else>
       <div class="group-search__filters">
-        <label for="group-search-scope">搜索范围</label>
+        <label for="group-search-scope">{{ $t('trending.GroupSearchResults.s7') }}</label>
         <select id="group-search-scope" v-model="scope">
-          <option value="all">我的群组与本站公开群</option>
-          <option value="joined">我的群组</option>
-          <option value="local">本站公开群</option>
-          <option value="remote">指定外部服务器</option>
+          <option value="all">{{ $t('trending.GroupSearchResults.s8') }}</option>
+          <option value="joined">{{ $t('trending.GroupSearchResults.s9') }}</option>
+          <option value="local">{{ $t('trending.GroupSearchResults.s10') }}</option>
+          <option value="remote">{{ $t('trending.GroupSearchResults.s11') }}</option>
         </select>
         <form v-if="scope === 'remote'" class="group-search__server" @submit.prevent="searchRemote">
-          <label for="group-search-server">服务器名称</label>
+          <label for="group-search-server">{{ $t('trending.GroupSearchResults.s12') }}</label>
           <div class="group-search__server-control">
-            <input id="group-search-server" v-model="serverInput" placeholder="例如 matrix.org" autocomplete="off" spellcheck="false" :aria-invalid="!!serverError" :aria-describedby="serverError ? 'group-server-error' : 'group-search-privacy'" />
-            <button class="btn btn--primary" type="submit">查询目录</button>
+            <input id="group-search-server" v-model="serverInput" :placeholder="$t('trending.GroupSearchResults.s13')" autocomplete="off" spellcheck="false" :aria-invalid="!!serverError" :aria-describedby="serverError ? 'group-server-error' : 'group-search-privacy'" />
+            <button class="btn btn--primary" type="submit">{{ $t('trending.GroupSearchResults.s14') }}</button>
           </div>
           <p v-if="serverError" id="group-server-error" class="group-search__error-text" role="alert">{{ serverError }}</p>
-          <p id="group-search-privacy" class="group-search__explanation">只查询你指定的服务器，不是全网搜索。查询时会将关键词发送给该服务器。</p>
+          <p id="group-search-privacy" class="group-search__explanation">{{ $t('trending.GroupSearchResults.s15') }}</p>
         </form>
-        <p v-else class="group-search__explanation">也可以在上方输入完整群别名或 Matrix 房间链接。私密群仅在你的群组中展示。</p>
+        <p v-else class="group-search__explanation">{{ $t('trending.GroupSearchResults.s16') }}</p>
       </div>
 
       <section v-for="source in visibleSources" :key="source" class="group-search__section" :aria-label="sourceNames[source]" :aria-busy="results[source].loading">
         <h2>{{ sourceNames[source] }}</h2>
-        <p v-if="source === 'remote' && !activeServer" class="group-search__explanation">填写服务器名称后点击“查询目录”。</p>
+        <p v-if="source === 'remote' && !activeServer" class="group-search__explanation">{{ $t('trending.GroupSearchResults.s17') }}</p>
         <template v-else>
-          <p v-if="results[source].source" class="group-search__source">{{ source === 'joined' ? '仅你可见' : `目录来源：${results[source].source}` }}</p>
+          <p v-if="results[source].source" class="group-search__source">{{ source === 'joined' ? $t('trending.GroupSearchResults.s18') : $t('trending.GroupSearchResults.s19', [results[source].source]) }}</p>
           <div class="group-search__list">
             <GroupSearchCard v-for="group in visibleGroups(source)" :key="group.id" :group="group" />
           </div>
-          <p v-if="results[source].loading" role="status">正在搜索群组…</p>
+          <p v-if="results[source].loading" role="status">{{ $t('trending.GroupSearchResults.s20') }}</p>
           <div v-else-if="results[source].error" class="group-search__error" role="alert">
             <p>{{ results[source].error }}</p>
-            <button type="button" class="btn btn--secondary btn--sm" @click="load(source, results[source].loaded)">重试{{ sourceNames[source] }}</button>
+            <button type="button" class="btn btn--secondary btn--sm" @click="load(source, results[source].loaded)">{{ $t('trending.GroupSearchResults.s21', [sourceNames[source]]) }}</button>
           </div>
           <p v-else-if="results[source].loaded && visibleGroups(source).length === 0" class="group-search__explanation">
-            {{ source === 'local' && results.local.groups.length ? '这些公开群已在“我的群组”中展示。' : '没有找到符合条件的群组。' }}
+            {{ source === 'local' && results.local.groups.length ? $t('trending.GroupSearchResults.s22') : $t('trending.GroupSearchResults.s23') }}
           </p>
-          <button v-if="results[source].next && !results[source].error" class="btn btn--secondary group-search__more" type="button" :disabled="results[source].loading" @click="load(source, true)">加载更多{{ sourceNames[source] }}</button>
+          <button v-if="results[source].next && !results[source].error" class="btn btn--secondary group-search__more" type="button" :disabled="results[source].loading" @click="load(source, true)">{{ $t('trending.GroupSearchResults.s24', [sourceNames[source]]) }}</button>
         </template>
       </section>
     </template>

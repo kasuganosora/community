@@ -6,6 +6,7 @@ import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { activeNavSection } from '@/shared/utils/nav'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -13,10 +14,10 @@ const { openAccount } = useUiChrome()
 
 // Specific labels for what's behind each tab (HIG: name tabs for content).
 const tabs = [
-  { value: 'home', label: '首页', icon: 'home', iconActive: 'home-filled', to: '/' },
-  { value: 'explore', label: '探索', icon: 'search', iconActive: 'search', to: '/explore' },
-  { value: 'notifications', label: '通知', icon: 'notification', iconActive: 'notification-filled', to: '/notifications' },
-  { value: 'messages', label: '消息', icon: 'mail', iconActive: 'mail-filled', to: '/messages' },
+  { value: 'home', label: t('shared.MobileTabBar.s4'), icon: 'home', iconActive: 'home-filled', to: '/' },
+  { value: 'explore', label: t('shared.MobileTabBar.s5'), icon: 'search', iconActive: 'search', to: '/explore' },
+  { value: 'notifications', label: t('shared.MobileTabBar.s6'), icon: 'notification', iconActive: 'notification-filled', to: '/notifications' },
+  { value: 'messages', label: t('shared.MobileTabBar.s7'), icon: 'mail', iconActive: 'mail-filled', to: '/messages' },
 ]
 
 const active = computed(() => {
@@ -35,7 +36,7 @@ function go(to: string) {
 </script>
 
 <template>
-  <nav class="tabbar" aria-label="主导航">
+  <nav class="tabbar" :aria-label="$t('shared.MobileTabBar.s1')">
     <button
       v-for="tab in tabs"
       :key="tab.value"
@@ -54,13 +55,13 @@ function go(to: string) {
       class="tabbar__item"
       :class="{ 'tabbar__item--active': active === 'me' }"
       aria-haspopup="dialog"
-      aria-label="我的账户"
+      :aria-label="$t('shared.MobileTabBar.s2')"
       @click="openAccount"
     >
       <span class="tabbar__avatar">
         <UserAvatar :account="authStore.currentUser" :size="26" />
       </span>
-      <span class="tabbar__label">我</span>
+      <span class="tabbar__label">{{ $t('shared.MobileTabBar.s3') }}</span>
     </button>
   </nav>
 </template>

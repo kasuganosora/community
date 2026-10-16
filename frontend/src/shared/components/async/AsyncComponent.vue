@@ -126,8 +126,8 @@ function retry() {
       <slot name="error" :error="errorValue" :retry="retry">
         <div class="async-error__content">
           <t-icon name="error-circle" size="48" />
-          <p>页面加载失败</p>
-          <t-button theme="primary" @click="retry">重试</t-button>
+          <p>{{ $t('shared.AsyncComponent.s1') }}</p>
+          <t-button theme="primary" @click="retry">{{ $t('shared.AsyncComponent.s2') }}</t-button>
         </div>
       </slot>
     </div>

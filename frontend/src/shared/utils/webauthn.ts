@@ -1,3 +1,4 @@
+import { t } from '@/shared/i18n'
 function bufferToBase64url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ''
@@ -78,7 +79,7 @@ export async function createPasskey(options: CeremonyOptions): Promise<Record<st
   const credential = await navigator.credentials.create({
     publicKey: decodeCreationOptions(options.publicKey),
   })
-  if (!(credential instanceof PublicKeyCredential)) throw new Error('浏览器没有返回通行密钥')
+  if (!(credential instanceof PublicKeyCredential)) throw new Error(t('shared.webauthn.s1'))
   return credentialToJSON(credential)
 }
 
@@ -86,7 +87,7 @@ export async function getPasskey(options: CeremonyOptions): Promise<Record<strin
   const credential = await navigator.credentials.get({
     publicKey: decodeRequestOptions(options.publicKey),
   })
-  if (!(credential instanceof PublicKeyCredential)) throw new Error('浏览器没有返回通行密钥')
+  if (!(credential instanceof PublicKeyCredential)) throw new Error(t('shared.webauthn.s1'))
   return credentialToJSON(credential)
 }
 

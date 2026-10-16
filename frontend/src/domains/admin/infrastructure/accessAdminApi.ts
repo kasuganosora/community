@@ -1,4 +1,5 @@
 import client from '@/shared/api/client'
+import { t } from '@/shared/i18n'
 export interface AdminRole { id: string; name: string; color: string; highlighted: boolean; permissions: string[]; protected: boolean }
 export type RoleDraft = Pick<AdminRole, 'name' | 'color' | 'highlighted' | 'permissions'>
 export interface RoleMember { account_id: string; username: string }
@@ -15,4 +16,4 @@ export const accessAdminApi = {
   async createInvites(body: { count: number; max_uses: number; expires_in: number }) { return (await client.post<{ items: AdminInvite[] }>(`${base}/invites`, body)).data },
   async setInviteDisabled(id: string, disabled: boolean) { return (await client.put<AdminInvite>(`${base}/invites/${encodeURIComponent(id)}`, { disabled })).data },
 }
-export const permissionLabels: Record<string, string> = { dashboard: '统计概览', users: '账号管理', reports: '举报与帖子审核', federation: '联邦管理', settings: '站点设置', blocks: '访问限制', rules: '规则管理', announcements: '公告管理', emojis: '表情管理', invites: '邀请管理', roles: '角色管理', system: '系统运维', audit: '审计日志', webhooks: 'Webhook 管理', media: '文件管理', branding: '头像装饰与广告' }
+export const permissionLabels: Record<string, string> = { dashboard: t('admin.accessAdminApi.s1'), users: t('admin.accessAdminApi.s2'), reports: t('admin.accessAdminApi.s3'), federation: t('admin.accessAdminApi.s4'), settings: t('admin.accessAdminApi.s5'), blocks: t('admin.accessAdminApi.s6'), rules: t('admin.accessAdminApi.s7'), announcements: t('admin.accessAdminApi.s8'), emojis: t('admin.accessAdminApi.s9'), invites: t('admin.accessAdminApi.s10'), roles: t('admin.accessAdminApi.s11'), system: t('admin.accessAdminApi.s12'), audit: t('admin.accessAdminApi.s13'), webhooks: t('admin.accessAdminApi.s14'), media: t('admin.accessAdminApi.s15'), branding: t('admin.accessAdminApi.s16') }

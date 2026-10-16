@@ -24,6 +24,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { mergeById } from '@/shared/utils/pagination'
 
+import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -47,7 +48,7 @@ const mainStatus = computed(() => {
   const edited = editedStatuses.get(base.id)
   return edited ? { ...base, ...edited } : base
 })
-const heading = computed(() => mainStatus.value?.visibility === 'direct' ? '私信' : '帖子')
+const heading = computed(() => mainStatus.value?.visibility === 'direct' ? t('post.PostDetailPage.s15') : t('post.PostDetailPage.s16'))
 const isOwn = computed(() => !!mainStatus.value && mainStatus.value.account.id === authStore.currentUser?.id)
 const visibility = computed(() => {
   const v = mainStatus.value?.visibility
@@ -92,7 +93,7 @@ async function loadContext() {
     // A reply sent while the context request was pending is already visible.
     descendants.value = mergeById(data.descendants, descendants.value)
   } catch (e) {
-    if (current()) contextError.value = e instanceof Error ? e.message : '回复加载失败，请重试'
+    if (current()) contextError.value = e instanceof Error ? e.message : t('post.PostDetailPage.s17')
   } finally {
     if (current()) contextLoading.value = false
   }
@@ -115,7 +116,7 @@ async function loadPost() {
     if (myVersion !== requestVersion) return
     console.error('Failed to load post:', e)
     const code = (e as { response?: { status?: number } })?.response?.status
-    error.value = code === 404 ? '这条帖子不存在或已被删除' : code === 403 ? '你没有权限查看这条帖子' : '加载失败，请稍后重试'
+    error.value = code === 404 ? t('post.PostDetailPage.s18') : code === 403 ? t('post.PostDetailPage.s19') : t('post.PostDetailPage.s20')
     status.value = null
   } finally {
     if (myVersion === requestVersion) {
@@ -171,9 +172,9 @@ async function togglePin() {
   try {
     const updated = mainStatus.value.pinned ? await postApi.unpin(mainStatus.value.id) : await postApi.pin(mainStatus.value.id)
     status.value = updated
-    MessagePlugin.success(updated.pinned ? '已置顶' : '已取消置顶')
+    MessagePlugin.success(updated.pinned ? t('post.PostDetailPage.s21') : t('post.PostDetailPage.s22'))
   } catch (e) {
-    MessagePlugin.error(e instanceof Error && e.message ? e.message : '置顶失败')
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : t('post.PostDetailPage.s23'))
   }
 }
 </script>
@@ -181,7 +182,7 @@ async function togglePin() {
 <template>
   <div class="detail-page">
     <div class="page-header page-header--with-back">
-      <button class="page-header__back-btn" @click="goBack" aria-label="返回">
+      <button class="page-header__back-btn" @click="goBack" :aria-label="$t('post.PostDetailPage.s1')">
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title">{{ heading }}</h1>
@@ -195,9 +196,9 @@ async function togglePin() {
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">无法显示这条帖子</h2>
+      <h2 class="empty-state__title">{{ $t('post.PostDetailPage.s2') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="loadPost">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="loadPost">{{ $t('post.PostDetailPage.s3') }}</button>
     </div>
 
     <template v-else-if="status && mainStatus">
@@ -212,9 +213,9 @@ async function togglePin() {
       />
 
       <!-- Main post (highlighted) -->
-      <article class="detail-main" aria-label="帖子正文">
+      <article class="detail-main" :aria-label="$t('post.PostDetailPage.s4')">
         <div class="detail-main__header">
-          <button type="button" class="detail-main__avatar" :aria-label="`查看 ${mainStatus.account.display_name || mainStatus.account.username} 的个人主页`" @click="openProfile">
+          <button type="button" class="detail-main__avatar" :aria-label="$t('post.PostDetailPage.s5', [mainStatus.account.display_name || mainStatus.account.username])" @click="openProfile">
             <UserAvatar :account="mainStatus.account" :size="48" />
           </button>
           <div class="detail-main__user">
@@ -233,18 +234,18 @@ async function togglePin() {
               <span aria-hidden="true"> · </span>
             </span>
             <time :datetime="mainStatus.created_at">
-              {{ new Date(mainStatus.created_at).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
+              {{ new Date(mainStatus.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}
             </time>
-            <span v-if="wasEdited(mainStatus)"> · 已编辑</span>
-            <button v-if="isOwn" type="button" class="btn btn--ghost btn--sm" @click="togglePin">{{ mainStatus.pinned ? '取消置顶' : '置顶' }}</button>
-            <button v-else-if="authStore.currentUser" type="button" class="btn btn--ghost btn--sm" @click="reporting = true">举报</button>
+            <span v-if="wasEdited(mainStatus)"> {{ $t('post.PostDetailPage.s6') }}</span>
+            <button v-if="isOwn" type="button" class="btn btn--ghost btn--sm" @click="togglePin">{{ mainStatus.pinned ? $t('post.PostDetailPage.s7') : $t('post.PostDetailPage.s8') }}</button>
+            <button v-else-if="authStore.currentUser" type="button" class="btn btn--ghost btn--sm" @click="reporting = true">{{ $t('post.PostDetailPage.s9') }}</button>
           </div>
           <p v-if="mainStatus.visibility === 'direct'" class="detail-main__scope">{{ DIRECT_SCOPE }}</p>
 
           <div class="detail-main__stats">
-            <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> 次转发</span>
-            <span><strong>{{ mainStatus.favourites_count }}</strong> 个喜欢</span>
-            <span><strong>{{ mainStatus.replies_count }}</strong> 条回复</span>
+            <span v-if="canBoost(mainStatus.visibility)"><strong>{{ mainStatus.reblogs_count }}</strong> {{ $t('post.PostDetailPage.s10') }}</span>
+            <span><strong>{{ mainStatus.favourites_count }}</strong> {{ $t('post.PostDetailPage.s11') }}</span>
+            <span><strong>{{ mainStatus.replies_count }}</strong> {{ $t('post.PostDetailPage.s12') }}</span>
           </div>
 
           <PostReactions :status="mainStatus" />
@@ -261,10 +262,10 @@ async function togglePin() {
 
       <PostComposer ref="replyComposer" :reply-to="mainStatus" @posted="onReplied" />
 
-      <div v-if="contextLoading" class="page-loading" role="status" aria-label="正在加载回复"><t-loading /></div>
+      <div v-if="contextLoading" class="page-loading" role="status" :aria-label="$t('post.PostDetailPage.s13')"><t-loading /></div>
       <div v-else-if="contextError" class="detail-context-error" role="alert">
-        <span>回复加载失败：{{ contextError }}</span>
-        <button type="button" class="btn btn--secondary btn--sm" @click="loadContext">重试</button>
+        <span>{{ $t('post.PostDetailPage.s14', [contextError]) }}</span>
+        <button type="button" class="btn btn--secondary btn--sm" @click="loadContext">{{ $t('post.PostDetailPage.s3') }}</button>
       </div>
 
       <!-- Descendants (replies below) -->

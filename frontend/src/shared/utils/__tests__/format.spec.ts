@@ -1,5 +1,20 @@
-import { describe, it, expect } from 'vitest'
-import { formatTimeLeft, wasEdited } from '../format'
+import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { formatRelativeTime, formatTimeLeft, setFormatLocale, wasEdited } from '../format'
+
+beforeEach(() => setFormatLocale('en'))
+afterAll(() => setFormatLocale('zh-CN'))
+
+describe('localized compact times', () => {
+  const now = Date.parse('2026-09-26T10:00:00Z')
+  it('follows the UI language', () => {
+    setFormatLocale('zh-CN')
+    expect(formatRelativeTime('2026-09-26T09:55:00Z', now)).toBe('5分钟')
+    setFormatLocale('de')
+    expect(formatTimeLeft('2026-09-26T13:00:00Z', now)).toMatch(/^3\s?Std/)
+    setFormatLocale('en')
+    expect(formatRelativeTime('2026-09-26T09:55:00Z', now)).toBe('5m')
+  })
+})
 
 describe('formatTimeLeft', () => {
   const now = Date.parse('2026-09-26T10:00:00Z')

@@ -1,5 +1,6 @@
 import client from '@/shared/api/client'
 import type { Group, GroupPage, GroupSearchPage, GroupMember, GroupInvitee, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
+import { t } from '@/shared/i18n'
 const base = '/api/v1/chat/groups'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
 // Outlive the server's 300s transfer budget and its 5s socket-response margin.
@@ -39,7 +40,7 @@ export const groupApi = {
   async media(url: string, signal?: AbortSignal): Promise<Blob> {
     // Authenticated media must stay on our own group API. Never forward the Community token to a remote URL.
     const parsed = new URL(url, window.location.origin)
-    if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith(`${base}/`)) throw new Error('附件地址无效，请在客户端中打开')
+    if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith(`${base}/`)) throw new Error(t('group.groupApi.s1'))
     return (await client.get(parsed.pathname + parsed.search, { responseType: 'blob', signal, timeout: mediaTimeout })).data
   },
 }

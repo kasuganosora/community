@@ -4,6 +4,7 @@ import { groupApi } from '../../infrastructure/groupApi'
 import { isRetryableGroupRequestError } from '../../infrastructure/groupErrors'
 import type { Group, GroupJoinResult } from '../../domain/group'
 
+import { t } from '@/shared/i18n'
 // Accepting an invitation uses the same bounded, resumable operation as joining
 // from search. A retry must query an existing operation, not submit another join.
 // A slow or briefly unavailable server (gateway timeout, 5xx, 429, dropped
@@ -22,19 +23,19 @@ export function useGroupJoin(roomId: Ref<string>, apply: (result: GroupJoinResul
     const version = generation
     controller = new AbortController()
     const signal = controller.signal
-    busy.value = true; error.value = ''; status.value = '正在加入群组…'
+    busy.value = true; error.value = ''; status.value = t('group.useGroupJoin.s1')
     const fail = (message: string) => { if (version !== generation) return; stop(); status.value = ''; error.value = message }
-    deadline = setTimeout(() => fail('加入仍在处理中，请稍后重试查询状态。'), 120000)
+    deadline = setTimeout(() => fail(t('group.useGroupJoin.s2')), 120000)
     async function handle(result: GroupJoinResult) {
       if (version !== generation) return
       if (result.status === 'joining') {
         operation.value = result.operation_id || operation.value
-        if (!operation.value) { fail('暂时无法确认加入结果，请刷新群信息核实。'); return }
+        if (!operation.value) { fail(t('group.useGroupJoin.s3')); return }
         pollTimer = setTimeout(() => { void query() }, 1500)
         return
       }
       stop(); operation.value = ''
-      status.value = result.status === 'knock' ? '已提交加入申请，等待管理员批准。' : '已加入群组'
+      status.value = result.status === 'knock' ? t('group.useGroupJoin.s4') : t('group.useGroupJoin.s5')
       apply(result)
     }
     async function query() {
@@ -42,14 +43,14 @@ export function useGroupJoin(roomId: Ref<string>, apply: (result: GroupJoinResul
       try { await handle(await groupApi.joinStatus(operation.value, signal)) }
       catch (e) {
         if (version !== generation) return
-        if (isRetryableGroupRequestError(e)) { status.value = '服务器响应较慢，仍在确认加入结果…'; pollTimer = setTimeout(() => { void query() }, 3000); return }
-        fail(e instanceof Error ? e.message : '加入状态查询失败，请重试查询。')
+        if (isRetryableGroupRequestError(e)) { status.value = t('group.useGroupJoin.s6'); pollTimer = setTimeout(() => { void query() }, 3000); return }
+        fail(e instanceof Error ? e.message : t('group.useGroupJoin.s7'))
       }
     }
     if (operation.value) { await query(); return }
     try {
       await handle(await groupApi.join({ target: group.target || group.id, via: group.via ?? [], action: group.membership !== 'invite' && group.join_rule?.startsWith('knock') ? 'knock' : 'join' }, signal))
-    } catch (e) { fail(e instanceof Error ? e.message : '加入失败，请重试。') }
+    } catch (e) { fail(e instanceof Error ? e.message : t('group.useGroupJoin.s8')) }
   }
   return { busy, error, status, operation, join }
 }

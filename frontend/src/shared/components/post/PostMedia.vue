@@ -7,6 +7,7 @@ import ProgressiveImage from './ProgressiveImage.vue'
 import { attachmentAspect } from '@/shared/composables/useMediaMode'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   attachments: MastodonAttachment[]
   /** Status the media belongs to; lets expired proxy links be renewed. */
@@ -120,9 +121,9 @@ const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
     const target = attachment.remote_url || attachment.url
     const url = new URL(target, window.location.origin)
     if (!target || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
-    let filename = url.pathname.split('/').pop() || '文件'
+    let filename = url.pathname.split('/').pop() || t('shared.PostMedia.s10')
     try { filename = decodeURIComponent(filename) } catch { /* Keep the original filename if malformed. */ }
-    return [{ id: attachment.id, url: sameOriginMediaUrl(target) || url.href, label: `打开附件 ${index + 1}：${attachment.description || filename}` }]
+    return [{ id: attachment.id, url: sameOriginMediaUrl(target) || url.href, label: t('shared.PostMedia.s11', [index + 1, attachment.description || filename]) }]
   } catch { return [] }
 }))
 const hasMedia = computed(() => items.value.length > 0)
@@ -150,7 +151,7 @@ const gridClass = computed(() => {
 
 <template>
   <div class="post-media" v-if="hasMedia">
-    <ul v-if="fileLinks.length" class="media-file-links" aria-label="原始附件">
+    <ul v-if="fileLinks.length" class="media-file-links" :aria-label="$t('shared.PostMedia.s1')">
       <li v-for="file in fileLinks" :key="file.id"><a :href="file.url" target="_blank" rel="noopener noreferrer" @click.stop>{{ file.label }}</a></li>
     </ul>
     <!-- Images -->
@@ -165,7 +166,7 @@ const gridClass = computed(() => {
         :key="img.id"
         type="button"
         class="media-item"
-        :aria-label="img.description ? `查看图片：${img.description}` : `查看第 ${index + 1} 张图片`"
+        :aria-label="img.description ? $t('shared.PostMedia.s2', [img.description]) : $t('shared.PostMedia.s3', [index + 1])"
         @click.stop="openViewer(index)"
       >
         <ProgressiveImage
@@ -179,7 +180,7 @@ const gridClass = computed(() => {
         />
         <div v-else class="media-fallback media-fallback--blur">
           <BlurPlaceholder :blurhash="img.blurhash" />
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="图片加载失败">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :aria-label="$t('shared.PostMedia.s4')">
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <circle cx="8.5" cy="8.5" r="1.5" />
             <path d="M21 15l-5-5L5 21" />
@@ -197,14 +198,14 @@ const gridClass = computed(() => {
       class="media-viewer"
       role="dialog"
       aria-modal="true"
-      aria-label="图片预览"
+      :aria-label="$t('shared.PostMedia.s5')"
       tabindex="-1"
       @click.stop
       @keydown="onViewerKey"
     >
       <div class="media-viewer__bar">
         <span>{{ viewer + 1 }} / {{ images.length }}</span>
-        <button type="button" @click="viewer = null">关闭</button>
+        <button type="button" @click="viewer = null">{{ $t('shared.PostMedia.s6') }}</button>
       </div>
       <ProgressiveImage
         :key="images[viewer].id + (images[viewer].url || '')"
@@ -219,8 +220,8 @@ const gridClass = computed(() => {
       />
       <p v-if="images[viewer].description" class="media-viewer__alt">{{ images[viewer].description }}</p>
       <div v-if="images.length > 1" class="media-viewer__nav">
-        <button type="button" @click="moveViewer(-1)">上一张</button>
-        <button type="button" @click="moveViewer(1)">下一张</button>
+        <button type="button" @click="moveViewer(-1)">{{ $t('shared.PostMedia.s7') }}</button>
+        <button type="button" @click="moveViewer(1)">{{ $t('shared.PostMedia.s8') }}</button>
       </div>
     </div>
 
@@ -260,7 +261,7 @@ const gridClass = computed(() => {
         @error="handleMediaError(aud.id)"
       />
       <div v-else class="media-fallback media-fallback--audio">
-        <span>音频加载失败</span>
+        <span>{{ $t('shared.PostMedia.s9') }}</span>
       </div>
     </div>
   </div>

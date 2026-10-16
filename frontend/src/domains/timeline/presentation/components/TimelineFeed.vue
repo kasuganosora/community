@@ -74,10 +74,10 @@ onUnmounted(() => {
 
 <template>
   <div class="timeline-feed">
-    <button v-if="hasPrevious" type="button" class="timeline-previous btn btn--secondary btn--sm" :disabled="loading" @click="emit('loadPrevious')">加载前面的帖子</button>
-    <div ref="region" class="timeline-window" role="feed" aria-label="时间线" :aria-busy="loading">
+    <button v-if="hasPrevious" type="button" class="timeline-previous btn btn--secondary btn--sm" :disabled="loading" @click="emit('loadPrevious')">{{ $t('timeline.TimelineFeed.s1') }}</button>
+    <div ref="region" class="timeline-window" role="feed" :aria-label="$t('timeline.TimelineFeed.s2')" :aria-busy="loading">
       <div v-if="distantHistory" class="timeline-released" role="status">
-        <div><p>较早页面已释放，可重新加载最新帖子。</p><button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('reloadHead')">重新加载最新帖子</button></div>
+        <div><p>{{ $t('timeline.TimelineFeed.s3') }}</p><button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('reloadHead')">{{ $t('timeline.TimelineFeed.s4') }}</button></div>
       </div>
       <template v-for="row in visible" :key="`${renderVersion}:${row.status.id}`">
         <div v-if="row.gap" :style="{ height: `${row.gap}px` }" aria-hidden="true" />
@@ -105,29 +105,29 @@ onUnmounted(() => {
     </div>
 
     <div v-if="error && statuses.length" class="timeline-inline" role="alert">
-      <span>没能继续加载：{{ error }}</span>
-      <button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('retry')">重试</button>
+      <span>{{ $t('timeline.TimelineFeed.s5', [error]) }}</span>
+      <button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('retry')">{{ $t('timeline.TimelineFeed.s6') }}</button>
     </div>
 
     <div v-else-if="error && !loading" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
-      <h2 class="empty-state__title">加载失败</h2>
+      <h2 class="empty-state__title">{{ $t('timeline.TimelineFeed.s7') }}</h2>
       <p class="empty-state__text">{{ error }}</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="emit('retry')">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('retry')">{{ $t('timeline.TimelineFeed.s6') }}</button>
     </div>
 
     <div v-else-if="!loading && statuses.length === 0" class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="chat" :size="48" />
       </div>
-      <h2 class="empty-state__title">{{ emptyTitle ?? '这里还没有内容' }}</h2>
-      <p class="empty-state__text">{{ emptyText ?? '关注其他用户后，他们的帖子会出现在这里。' }}</p>
+      <h2 class="empty-state__title">{{ emptyTitle ?? $t('timeline.TimelineFeed.s8') }}</h2>
+      <p class="empty-state__text">{{ emptyText ?? $t('timeline.TimelineFeed.s9') }}</p>
     </div>
 
     <div v-else-if="!loading && hasMore && statuses.length" class="timeline-inline">
-      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">加载更多</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">{{ $t('timeline.TimelineFeed.s10') }}</button>
     </div>
   </div>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MastodonStatus } from '@/shared/types/mastodon'
@@ -8,6 +9,7 @@ import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 import PreviewStatus from '../components/PreviewStatus.vue'
 import { cssImage, loadBranding, useBranding } from '@/shared/composables/useBranding'
 
+import { t } from '@/shared/i18n'
 const router = useRouter()
 const route = useRoute()
 // Admin branding (Misskey entrance settings): page style, visitor timeline
@@ -30,8 +32,8 @@ interface InstanceInfo {
 }
 
 const instanceInfo = ref<InstanceInfo>({
-  name: '社区',
-  description: '一个可以安静待着的社区',
+  name: t('auth.LandingPage.s7'),
+  description: t('auth.LandingPage.s8'),
   userCount: 0,
   statusCount: 0,
   domain: window.location.host,
@@ -67,8 +69,8 @@ onMounted(async () => {
     if (instanceRes.status === 'fulfilled') {
       const inst = instanceRes.value.data
       instanceInfo.value = {
-        name: inst.title || inst.uri || '社区',
-        description: inst.short_description || inst.description || '一个可以安静待着的社区',
+        name: inst.title || inst.uri || t('auth.LandingPage.s7'),
+        description: inst.short_description || inst.description || t('auth.LandingPage.s8'),
         userCount: inst.stats?.user_count || 0,
         statusCount: inst.stats?.status_count || 0,
         domain: inst.uri || window.location.host,
@@ -120,7 +122,7 @@ function goLogin() {
               shape="round"
               @click="goLogin"
             >
-              登录
+              {{ $t('auth.LandingPage.s1') }}
             </t-button>
             <t-button
               theme="default"
@@ -133,26 +135,27 @@ function goLogin() {
               target="_blank"
               rel="noopener"
             >
-              看看其他服务器
+              {{ $t('auth.LandingPage.s2') }}
             </t-button>
           </div>
 
           <div v-if="showActivities" class="instance-card__stats">
             <div class="stat">
-              <span class="stat__label">本站用户</span>
+              <span class="stat__label">{{ $t('auth.LandingPage.s3') }}</span>
               <span class="stat__value">{{ formatCount(instanceInfo.userCount) }}</span>
             </div>
             <div class="stat">
-              <span class="stat__label">本站帖子</span>
+              <span class="stat__label">{{ $t('auth.LandingPage.s4') }}</span>
               <span class="stat__value">{{ formatCount(instanceInfo.statusCount) }}</span>
             </div>
           </div>
+          <div class="instance-card__lang"><LanguagePicker compact /></div>
         </div>
 
         <!-- Public timeline preview -->
         <div v-if="showTimeline" class="timeline-preview">
-          <h2 class="timeline-preview__title">公开时间线</h2>
-          <p v-if="!previewStatuses.length" class="timeline-preview__empty">还没有公开帖子。</p>
+          <h2 class="timeline-preview__title">{{ $t('auth.LandingPage.s5') }}</h2>
+          <p v-if="!previewStatuses.length" class="timeline-preview__empty">{{ $t('auth.LandingPage.s6') }}</p>
           <div class="timeline-preview__list">
             <PreviewStatus
               v-for="status in previewStatuses"
@@ -182,6 +185,7 @@ function goLogin() {
 </template>
 
 <style scoped>
+.instance-card__lang { display: flex; justify-content: center; margin-top: var(--space-4, 16px); }
 .landing {
   position: relative;
   min-height: 100dvh;

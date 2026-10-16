@@ -5,6 +5,7 @@ import { MessagePlugin } from '@/shared/ui/feedback'
 import { authApi, type PasskeyItem } from '@/domains/auth/infrastructure/authApi'
 import { createPasskey, passkeySupported } from '@/shared/utils/webauthn'
 
+import { t } from '@/shared/i18n'
 const supported = passkeySupported()
 const items = ref<PasskeyItem[]>([])
 const loadError = ref('')
@@ -22,7 +23,7 @@ async function refresh() {
     const result = await authApi.listPasskeys()
     if (current()) items.value = result
   } catch {
-    if (current()) loadError.value = '加载失败，请重试'
+    if (current()) loadError.value = t('settings.PasskeySettings.s11')
   } finally {
     if (current()) fetching.value = false
   }
@@ -41,9 +42,9 @@ async function add() {
     if (!current()) return
     name.value = ''
     await refresh()
-    if (current()) MessagePlugin.success('通行密钥已添加')
+    if (current()) MessagePlugin.success(t('settings.PasskeySettings.s12'))
   } catch (e) {
-    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '添加通行密钥失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : t('settings.PasskeySettings.s13'))
   } finally {
     if (current()) loading.value = false
   }
@@ -57,7 +58,7 @@ async function remove(id: string) {
     await authApi.deletePasskey(id)
     if (current()) items.value = items.value.filter(item => item.id !== id)
   } catch {
-    if (current()) MessagePlugin.error('删除失败')
+    if (current()) MessagePlugin.error(t('settings.PasskeySettings.s14'))
   } finally {
     if (current()) removing.value = ''
   }
@@ -70,22 +71,22 @@ onMounted(() => {
 
 <template>
   <div class="passkeys">
-    <p v-if="fetching" class="hint" role="status">正在加载…</p>
-    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">重试</button></div>
-    <p v-if="!supported" class="hint">这台设备或浏览器不支持通行密钥。</p>
+    <p v-if="fetching" class="hint" role="status">{{ $t('settings.PasskeySettings.s1') }}</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost" @click="refresh">{{ $t('settings.PasskeySettings.s2') }}</button></div>
+    <p v-if="!supported" class="hint">{{ $t('settings.PasskeySettings.s3') }}</p>
     <template v-else>
       <form class="settings-form" @submit.prevent="add">
         <div class="settings-field">
-          <label for="passkey-name" class="settings-field__label">通行密钥名称</label>
-          <input id="passkey-name" v-model="name" class="settings-input" placeholder="例如：这台电脑" autocomplete="off" />
+          <label for="passkey-name" class="settings-field__label">{{ $t('settings.PasskeySettings.s4') }}</label>
+          <input id="passkey-name" v-model="name" class="settings-input" :placeholder="$t('settings.PasskeySettings.s5')" autocomplete="off" />
         </div>
-        <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="loading || !!removing || fetching">{{ loading ? '添加中…' : '添加通行密钥' }}</button></div>
+        <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="loading || !!removing || fetching">{{ loading ? $t('settings.PasskeySettings.s6') : $t('settings.PasskeySettings.s7') }}</button></div>
       </form>
-      <p v-if="!fetching && !loadError && items.length === 0" class="hint">还没有通行密钥。添加后可以用它代替密码登录。</p>
+      <p v-if="!fetching && !loadError && items.length === 0" class="hint">{{ $t('settings.PasskeySettings.s8') }}</p>
       <ul v-else-if="!fetching && !loadError && items.length">
         <li v-for="item in items" :key="item.id">
           <span>{{ item.name }}</span>
-          <button type="button" class="passkey-remove" :disabled="!!removing || loading" :aria-busy="removing === item.id" @click="remove(item.id)">{{ removing === item.id ? '删除中…' : '删除' }}</button>
+          <button type="button" class="passkey-remove" :disabled="!!removing || loading" :aria-busy="removing === item.id" @click="remove(item.id)">{{ removing === item.id ? $t('settings.PasskeySettings.s9') : $t('settings.PasskeySettings.s10') }}</button>
         </li>
       </ul>
     </template>

@@ -11,6 +11,7 @@ import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
 import { USE_MOCK } from '@/shared/utils/env'
 
+import { t } from '@/shared/i18n'
 interface TimelineState {
   statuses: MastodonStatus[]
   isLoading: boolean
@@ -89,7 +90,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   // Generic fetch function to avoid code duplication
   async function fetchTimeline(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
-    if (pinned[type].size) { timeline.error = '请先完成正在编辑的帖子，再继续翻页'; return }
+    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return }
     const myVersion = ++requestVersionMap[type]
     timeline.isLoading = true
     timeline.error = null
@@ -120,7 +121,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     } catch (e) {
       // Only set error if this is still the latest request
       if (myVersion !== requestVersionMap[type]) return
-      timeline.error = e instanceof Error ? e.message : '时间线加载失败'
+      timeline.error = e instanceof Error ? e.message : t('timeline.timelineStore.s2')
       failedRequest[type] = 'head'
       console.error(`Failed to fetch ${type} timeline:`, e)
     } finally {
@@ -144,7 +145,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     const timeline = getTimeline(type)
     if (!timeline.hasMore || timeline.isLoading) return
     
-    if (timeline.statuses.length >= TIMELINE_PAGE_SIZE * 8 && timeline.statuses.slice(0, TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { paused[type] = true; timeline.hasMore = false; timeline.error = '请先完成正在编辑的帖子，再继续翻页'; return }
+    if (timeline.statuses.length >= TIMELINE_PAGE_SIZE * 8 && timeline.statuses.slice(0, TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { paused[type] = true; timeline.hasMore = false; timeline.error = t('timeline.timelineStore.s1'); return }
     // Bump version so a concurrent fetchTimeline won't have its result
     // clobbered by this loadMore appending to stale state
     const myVersion = ++requestVersionMap[type]
@@ -170,7 +171,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       timeline.hasMore = grew && data.length >= TIMELINE_PAGE_SIZE && data[data.length - 1]?.id !== lastId
     } catch (e) {
       if (myVersion !== requestVersionMap[type]) return
-      timeline.error = e instanceof Error ? e.message : '加载更多失败'
+      timeline.error = e instanceof Error ? e.message : t('timeline.timelineStore.s3')
       failedRequest[type] = 'more'
       console.error(`Failed to load more ${type} timeline:`, e)
     } finally {
@@ -208,7 +209,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   function setPinnedIds(type: ManagedTimelineType, ids: string[]) {
     pinned[type] = new Set(ids.slice(0, 8))
     const timeline = getTimeline(type)
-    if (!pinned[type].size && timeline.error === '请先完成正在编辑的帖子，再继续翻页') timeline.error = null
+    if (!pinned[type].size && timeline.error === t('timeline.timelineStore.s1')) timeline.error = null
     if (paused[type] && !timeline.statuses.slice(0, TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { paused[type] = false; timeline.hasMore = true; timeline.error = null }
   }
 
@@ -226,7 +227,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   async function loadPrevious(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     if (timeline.isLoading || !timeline.hasPrevious) return
-    if (timeline.statuses.slice(-TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { timeline.error = '请先完成正在编辑的帖子，再继续翻页'; return }
+    if (timeline.statuses.slice(-TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { timeline.error = t('timeline.timelineStore.s1'); return }
     const cursor = previousCursors[type].at(-1)
     if (!cursor) { await fetchTimeline(type); return }
     const version = ++requestVersionMap[type]
@@ -245,7 +246,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       timeline.hasMore = true
     } catch (e) {
       if (version === requestVersionMap[type]) {
-        timeline.error = e instanceof Error ? e.message : '加载失败'
+        timeline.error = e instanceof Error ? e.message : t('timeline.timelineStore.s4')
         failedRequest[type] = 'previous'
       }
     }

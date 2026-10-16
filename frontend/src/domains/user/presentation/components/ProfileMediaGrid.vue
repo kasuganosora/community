@@ -87,7 +87,7 @@ onUnmounted(() => observer?.disconnect())
         type="button"
         class="media-tab__tile"
         :class="{ 'is-hidden': tile.hidden }"
-        :aria-label="tile.hidden ? '敏感内容，点击查看' : (tile.media.description || '查看帖子')"
+        :aria-label="tile.hidden ? $t('user.ProfileMediaGrid.s1') : (tile.media.description || $t('user.ProfileMediaGrid.s2'))"
         @click="open(tile)"
       >
         <BlurPlaceholder v-if="tile.hidden" :blurhash="tile.media.blurhash" :aspect="1" />
@@ -95,21 +95,21 @@ onUnmounted(() => observer?.disconnect())
         <video v-else-if="tile.videoSrc && !failed.has(tile.key + ':video')" :src="`${tile.videoSrc}#t=0.1`" preload="metadata" muted playsinline tabindex="-1" aria-hidden="true" @error="markFailed(tile.key + ':video')" />
         <span v-else class="media-tab__placeholder"><t-icon name="file" :size="24" /></span>
         <span v-if="tile.media.type === 'video' || tile.media.type === 'gifv'" class="media-tab__badge" aria-hidden="true">▶</span>
-        <span v-if="tile.hidden" class="media-tab__sensitive">敏感内容</span>
+        <span v-if="tile.hidden" class="media-tab__sensitive">{{ $t('user.ProfileMediaGrid.s3') }}</span>
       </button>
     </div>
     <div ref="sentinel" class="media-tab__sentinel" />
     <div v-if="loading" class="media-tab__status"><t-loading /></div>
     <div v-else-if="error" class="media-tab__status" role="alert">
       <span>{{ error }}</span>
-      <button type="button" class="btn btn--secondary btn--sm" @click="statuses.length ? emit('loadMore') : emit('retry')">重试</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="statuses.length ? emit('loadMore') : emit('retry')">{{ $t('user.ProfileMediaGrid.s4') }}</button>
     </div>
     <div v-else-if="!tiles.length" class="empty-state">
       <div class="empty-state__icon"><t-icon name="image" :size="48" /></div>
-      <h2 class="empty-state__title">暂无媒体</h2>
+      <h2 class="empty-state__title">{{ $t('user.ProfileMediaGrid.s5') }}</h2>
     </div>
     <div v-else-if="hasMore" class="media-tab__status">
-      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">加载更多</button>
+      <button type="button" class="btn btn--secondary btn--sm" @click="emit('loadMore')">{{ $t('user.ProfileMediaGrid.s6') }}</button>
     </div>
   </div>
 </template>

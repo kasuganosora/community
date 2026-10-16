@@ -62,7 +62,7 @@ useKeyboardInset()
       type="button"
       :tabindex="fabHidden ? -1 : undefined"
       :aria-hidden="fabHidden ? 'true' : undefined"
-      aria-label="发布新帖子"
+      :aria-label="$t('shared.AppLayout.s1')"
       data-shot="compose"
       @click="openCompose"
     >

@@ -16,9 +16,9 @@ function goHome() {
     <div class="not-found__content">
       <img v-if="branding.notFoundImageUrl" class="not-found__image" :src="branding.notFoundImageUrl" alt="" decoding="async" />
       <h1 class="not-found__code">404</h1>
-      <p class="not-found__text">这个页面不存在。</p>
+      <p class="not-found__text">{{ $t('shared.NotFoundPage.s1') }}</p>
       <button class="btn btn--primary" @click="goHome">
-        回到首页
+        {{ $t('shared.NotFoundPage.s2') }}
       </button>
     </div>
   </div>

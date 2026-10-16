@@ -1,5 +1,6 @@
 import type { MastodonStatus } from '@/shared/types/mastodon'
 
+import { t } from '@/shared/i18n'
 export interface ChatMemberInput { account_id?: string; matrix_id?: string }
 export interface ChatMember {
   id: string
@@ -49,5 +50,5 @@ export interface ChatDelivery {
   updated_at: string
 }
 export const deliveryLabel: Record<ChatDelivery['state'], string> = {
-  queued: '等待发送', sending: '正在发送', delivered: '远端服务器已接收', failed: '投递失败', skipped: '已停止投递',
+  queued: t('message.chat.s1'), sending: t('message.chat.s2'), delivered: t('message.chat.s3'), failed: t('message.chat.s4'), skipped: t('message.chat.s5'),
 }

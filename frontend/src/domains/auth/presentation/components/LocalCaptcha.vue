@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { captchaApi, solveCaptchaPow } from '../../infrastructure/captchaApi'
 
+import { t } from '@/shared/i18n'
 const emit = defineEmits<{
   token: [value: string]
   fail: [message: string]
@@ -14,8 +15,8 @@ const finished = ref(false)
 const passed = ref(false)
 const busy = ref(false)
 const answer = ref('')
-const hint = ref('正在准备验证码')
-const prompt = ref('一共 5 个字母或数字。只认那块深浅相间、在波动的字。浅色花纹和小字不算。')
+const hint = ref(t('auth.LocalCaptcha.s4'))
+const prompt = ref(t('auth.LocalCaptcha.s5'))
 const homepage = ref('')
 let generation = 0
 let timer = 0
@@ -56,10 +57,10 @@ async function play(gen: number, id: string) {
     if (frame.kind === 'wait') {
       if (frame.done) {
         finished.value = true
-        hint.value = '五个都看完了，按出现顺序填进去'
+        hint.value = t('auth.LocalCaptcha.s6')
         return
       }
-      hint.value = index.value === 0 ? '正在准备验证码' : '下一个字符马上出现'
+      hint.value = index.value === 0 ? t('auth.LocalCaptcha.s4') : t('auth.LocalCaptcha.s7')
       await sleep(frame.waitMs, gen)
       continue
     }
@@ -67,8 +68,8 @@ async function play(gen: number, id: string) {
     index.value = frame.index
     total.value = frame.total
     hint.value = frame.done
-      ? '五个都看完了，按出现顺序填进去'
-      : `第 ${frame.index}/${frame.total} 个`
+      ? t('auth.LocalCaptcha.s6')
+      : t('auth.LocalCaptcha.s8', [frame.index, frame.total])
     if (frame.done) {
       finished.value = true
       return
@@ -84,7 +85,7 @@ async function start() {
   passed.value = false
   answer.value = ''
   index.value = 0
-  hint.value = '正在准备验证码'
+  hint.value = t('auth.LocalCaptcha.s4')
   emit('token', '')
   lastToken = ''
   replaceImage('')
@@ -98,7 +99,7 @@ async function start() {
     await play(gen, started.id)
   } catch (e) {
     if (gen !== generation) return
-    const msg = e instanceof Error ? e.message : '验证码加载失败，请换一个'
+    const msg = e instanceof Error ? e.message : t('auth.LocalCaptcha.s9')
     hint.value = msg
     emit('fail', msg)
   }
@@ -107,12 +108,12 @@ async function start() {
 async function verify(): Promise<string> {
   if (passed.value && lastToken) return lastToken
   if (!finished.value || !challengeId) {
-    hint.value = '请先看完五个字'
-    throw new Error('请先看完五个字')
+    hint.value = t('auth.LocalCaptcha.s10')
+    throw new Error(t('auth.LocalCaptcha.s10'))
   }
   if (answer.value.trim().length < 5) {
-    hint.value = '请填入 5 个字母或数字'
-    throw new Error('请填入 5 个字母或数字')
+    hint.value = t('auth.LocalCaptcha.s11')
+    throw new Error(t('auth.LocalCaptcha.s11'))
   }
   const gen = generation
   const id = challengeId
@@ -120,18 +121,18 @@ async function verify(): Promise<string> {
   busy.value = true
   try {
     const nonce = task ? await task : ''
-    if (gen !== generation) throw new Error('验证码已更换')
+    if (gen !== generation) throw new Error(t('auth.LocalCaptcha.s12'))
     const { token } = await captchaApi.verifyLocal(id, answer.value, nonce, homepage.value)
-    if (gen !== generation) throw new Error('验证码已更换')
+    if (gen !== generation) throw new Error(t('auth.LocalCaptcha.s12'))
     passed.value = true
     lastToken = token
-    hint.value = '验证码已通过'
+    hint.value = t('auth.LocalCaptcha.s13')
     emit('token', token)
     return token
   } catch (e) {
     if (gen !== generation) throw e
     emit('token', '')
-    const msg = e instanceof Error ? e.message : '验证码不正确，请再试一次'
+    const msg = e instanceof Error ? e.message : t('auth.LocalCaptcha.s14')
     hint.value = msg
     throw new Error(msg, { cause: e })
   } finally {
@@ -160,7 +161,7 @@ onBeforeUnmount(() => {
     </div>
     <p class="local-captcha__hint">{{ hint }}</p>
     <label class="local-captcha__label">
-      <span class="sr-only">验证码</span>
+      <span class="sr-only">{{ $t('auth.LocalCaptcha.s1') }}</span>
       <input
         v-model="answer"
         class="local-captcha__input"
@@ -168,14 +169,14 @@ onBeforeUnmount(() => {
         autocomplete="off"
         autocapitalize="characters"
         spellcheck="false"
-        placeholder="5 个字母或数字"
+        :placeholder="$t('auth.LocalCaptcha.s2')"
         :disabled="passed"
       />
     </label>
     <input v-model="homepage" class="local-captcha__trap" tabindex="-1" autocomplete="off" aria-hidden="true" />
     <div class="local-captcha__actions">
       <button type="button" class="local-captcha__again" :disabled="busy" @click="reset">
-        看不清，换一个
+        {{ $t('auth.LocalCaptcha.s3') }}
       </button>
     </div>
   </div>

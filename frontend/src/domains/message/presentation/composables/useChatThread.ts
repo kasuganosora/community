@@ -4,6 +4,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { chatApi } from '../../infrastructure/chatApi'
 import type { ChatConversation, ChatMemberInput, ChatMessage, ChatSend } from '../../domain/chat'
 
+import { t } from '@/shared/i18n'
 export function useChatThread(id: () => string) {
   const auth = useAuthStore()
   const conversation = ref<ChatConversation | null>(null)
@@ -27,7 +28,7 @@ export function useChatThread(id: () => string) {
   }
   function fail(e: unknown) {
     if (denied(e)) { conversation.value = null; messages.value = []; cursor.value = null }
-    error.value = denied(e) ? '此会话已不可访问，请返回私信列表。' : e instanceof Error ? e.message : '请求失败，请重试。'
+    error.value = denied(e) ? t('message.useChatThread.s1') : e instanceof Error ? e.message : t('message.useChatThread.s2')
   }
   function merge(items: ChatMessage[]) {
     const byId = new Map(messages.value.map(message => [message.event_id, message]))
@@ -108,8 +109,8 @@ export function useChatThread(id: () => string) {
         // Recheck readable history before discarding the user's current context.
         pending.value = ''
         error.value = denied(e)
-          ? '无法完成此操作。消息可能尚未处理完成，或你没有操作权限；草稿已保留。'
-          : '操作失败，草稿已保留。请稍后重试。'
+          ? t('message.useChatThread.s3')
+          : t('message.useChatThread.s4')
         void refresh(false, error.value)
       }
       return false
@@ -119,7 +120,7 @@ export function useChatThread(id: () => string) {
     const room = id()
     return mutate('send', () => editing ? chatApi.replaceMessage(room, editing.event_id, input) : chatApi.send(room, input), result => {
       if (editing) messages.value = messages.value.map(message => message.event_id === editing.event_id ? { ...message, redacted: true, status: undefined, body: '' } : message)
-      merge([{ event_id: result.event_id, sender: auth.currentUser?.acct || '你', body: input.body, msgtype: 'm.text', status_id: null, created_at: Date.now(), own: true, reply_event_id: input.reply_event_id, delivery: { event_id: result.event_id, room_id: conversation.value!.room_id, state: 'queued', remote_received: false, can_retry: false, updated_at: new Date().toISOString() } }])
+      merge([{ event_id: result.event_id, sender: auth.currentUser?.acct || t('message.useChatThread.s5'), body: input.body, msgtype: 'm.text', status_id: null, created_at: Date.now(), own: true, reply_event_id: input.reply_event_id, delivery: { event_id: result.event_id, room_id: conversation.value!.room_id, state: 'queued', remote_received: false, can_retry: false, updated_at: new Date().toISOString() } }])
     })
   }
   const remove = (message: ChatMessage) => mutate(message.event_id, () => chatApi.deleteMessage(id(), message.event_id), () => {

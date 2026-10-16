@@ -6,6 +6,7 @@ import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
 import { tokenService } from '@/shared/api/client'
 import { useMediaMode } from '@/shared/composables/useMediaMode'
+import { syncUiLocale } from '@/shared/composables/useUiLocale'
 import { getPasskey } from '@/shared/utils/webauthn'
 
 
@@ -13,6 +14,7 @@ import { USE_MOCK } from '@/shared/utils/env'
 import * as accountRegistry from '@/shared/api/accounts'
 import type { StoredAccount } from '@/shared/api/accounts'
 
+import { t } from '@/shared/i18n'
 /** Full reload: drops every per-user store, cache and stream for the old identity. */
 function reloadTo(path?: string) {
   if (path) window.location.assign(path)
@@ -39,7 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(credentials: AuthCredentials) {
     if (isLoggingIn) {
-      throw new Error('正在登录，请稍候')
+      throw new Error(t('auth.authStore.s1'))
     }
     isLoggingIn = true
     loading.value = true
@@ -55,7 +57,7 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await authApi.login(credentials)
       await establishSession(res.token)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '登录失败，请检查用户名和密码'
+      const msg = e instanceof Error ? e.message : t('auth.authStore.s2')
       error.value = msg
       throw e
     } finally {
@@ -71,12 +73,12 @@ export const useAuthStore = defineStore('auth', () => {
     const success = await fetchCurrentUser()
     if (!success) {
       await logout()
-      throw new Error('登录后获取用户信息失败')
+      throw new Error(t('auth.authStore.s3'))
     }
   }
 
   async function loginWithPasskey() {
-    if (isLoggingIn) throw new Error('正在登录，请稍候')
+    if (isLoggingIn) throw new Error(t('auth.authStore.s1'))
     isLoggingIn = true
     loading.value = true
     error.value = null
@@ -86,7 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await authApi.passkeyLoginFinish(credential)
       await establishSession(res.token)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '通行密钥登录失败'
+      const msg = e instanceof Error ? e.message : t('auth.authStore.s4')
       error.value = msg
       throw e
     } finally {
@@ -109,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
       currentUser.value = user
       if (token.value) { accountRegistry.upsertAccount(user, token.value); refreshAccounts() }
       void useMediaMode().loadMode() // adopt the saved media display mode
+      void syncUiLocale() // adopt (or upload) the web UI language
       return true
     } catch (e) {
       console.error('Failed to verify credentials:', e)

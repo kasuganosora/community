@@ -1,6 +1,7 @@
 import type { MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import type { CreateStatusParams } from './entities'
 
+import { t } from '@/shared/i18n'
 export const MAX_POLL_OPTIONS = 4
 export const MIN_POLL_OPTIONS = 2
 export const MAX_POLL_OPTION_LENGTH = 50
@@ -8,30 +9,30 @@ export const MAX_MEDIA_ATTACHMENTS = 4
 
 /** Shown wherever a post is replaced: the server deletes the original and publishes a new one. */
 export const REPLACE_NOTE =
-  '编辑会删除原帖后再重新发布，帖子链接会改变。点赞、转发、书签和投票记录不会保留，已有回复不会迁移。可见范围、回复对象和附件保持不变。'
-export const REPLACE_ACTION = '删除原帖并重发'
-export const REPLACE_MENU = '编辑（删除后重发）'
-export const REPLACE_DIALOG = '编辑帖子 · 删除后重发'
-export const REPLACE_SUCCESS = '已删除原帖并重新发布。旧链接已失效，点赞和回复不会带到新帖。'
-export const REPLACE_FAILED = '删除重发未完成，草稿已保留'
+  t('post.compose.s1')
+export const REPLACE_ACTION = t('post.compose.s2')
+export const REPLACE_MENU = t('post.compose.s3')
+export const REPLACE_DIALOG = t('post.compose.s4')
+export const REPLACE_SUCCESS = t('post.compose.s5')
+export const REPLACE_FAILED = t('post.compose.s6')
 export const DIRECT_SCOPE =
-  '仅你和被提及的人可以看到这条私信。它不会出现在公开或关注时间线，也不能被转发。'
+  t('post.compose.s7')
 
 export const POLL_DURATIONS: { label: string; value: number }[] = [
-  { label: '5 分钟', value: 300 },
-  { label: '30 分钟', value: 1800 },
-  { label: '1 小时', value: 3600 },
-  { label: '6 小时', value: 21600 },
-  { label: '1 天', value: 86400 },
-  { label: '3 天', value: 259200 },
-  { label: '7 天', value: 604800 },
+  { label: t('post.compose.s8'), value: 300 },
+  { label: t('post.compose.s9'), value: 1800 },
+  { label: t('post.compose.s10'), value: 3600 },
+  { label: t('post.compose.s11'), value: 21600 },
+  { label: t('post.compose.s12'), value: 86400 },
+  { label: t('post.compose.s13'), value: 259200 },
+  { label: t('post.compose.s14'), value: 604800 },
 ]
 
 export const VISIBILITY_OPTIONS: { label: string; short: string; value: Visibility; icon: string }[] = [
-  { label: '公开 · 所有人可见', short: '公开', value: 'public', icon: 'earth' },
-  { label: '不公开 · 不出现在公共时间线', short: '不公开', value: 'unlisted', icon: 'lock-off' },
-  { label: '仅关注者可见', short: '仅关注者', value: 'private', icon: 'lock-on' },
-  { label: '私信 · 仅提及的人可见', short: '仅提及的人', value: 'direct', icon: 'mail' },
+  { label: t('post.compose.s15'), short: t('post.compose.s16'), value: 'public', icon: 'earth' },
+  { label: t('post.compose.s17'), short: t('post.compose.s18'), value: 'unlisted', icon: 'lock-off' },
+  { label: t('post.compose.s19'), short: t('post.compose.s20'), value: 'private', icon: 'lock-on' },
+  { label: t('post.compose.s21'), short: t('post.compose.s22'), value: 'direct', icon: 'mail' },
 ]
 
 export interface PollDraft {
@@ -113,20 +114,20 @@ const MENTION = /(^|[^\w@])@[\p{L}\p{N}_]+(?:@[\w.-]+)?/u
 
 export function validateDraft(draft: ComposeDraft, limit: number): string | null {
   const text = draft.text.trim()
-  if (draft.spoilerEnabled && !draft.spoilerText.trim()) return '请填写内容警告'
-  if (composeLength(draft) > limit) return `不能超过 ${limit} 个字符`
+  if (draft.spoilerEnabled && !draft.spoilerText.trim()) return t('post.compose.s23')
+  if (composeLength(draft) > limit) return t('post.compose.s24', [limit])
   if (draft.poll) {
     const options = draft.poll.options.map(option => option.trim())
-    if (options.length < MIN_POLL_OPTIONS) return `投票至少需要 ${MIN_POLL_OPTIONS} 个选项`
-    if (options.some(option => !option)) return '投票选项不能为空'
-    if (new Set(options).size !== options.length) return '投票选项不能重复'
+    if (options.length < MIN_POLL_OPTIONS) return t('post.compose.s25', [MIN_POLL_OPTIONS])
+    if (options.some(option => !option)) return t('post.compose.s26')
+    if (new Set(options).size !== options.length) return t('post.compose.s27')
     if (options.some(option => countChars(option) > MAX_POLL_OPTION_LENGTH)) {
-      return `每个投票选项不能超过 ${MAX_POLL_OPTION_LENGTH} 个字符`
+      return t('post.compose.s28', [MAX_POLL_OPTION_LENGTH])
     }
-    if (draft.mediaIds.length) return '投票不能和媒体同时发布'
+    if (draft.mediaIds.length) return t('post.compose.s29')
   }
-  if (!text && draft.mediaIds.length === 0 && !draft.quoteId) return '写点什么再发布'
-  if (draft.visibility === 'direct' && !MENTION.test(draft.text)) return '私信需要 @提及 至少一位用户'
+  if (!text && draft.mediaIds.length === 0 && !draft.quoteId) return t('post.compose.s30')
+  if (draft.visibility === 'direct' && !MENTION.test(draft.text)) return t('post.compose.s31')
   return null
 }
 

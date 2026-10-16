@@ -22,6 +22,7 @@ import { insertShortcode } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   /** Compose a reply to this status (prefills mentions and visibility). */
   replyTo?: MastodonStatus | null
@@ -56,7 +57,7 @@ function toggleEmojiPicker() {
 async function closeEmojiPicker() {
   pickerOpen.value = false
   await nextTick()
-  composerRoot.value?.querySelector<HTMLButtonElement>('[aria-label="自定义表情"]')?.focus({ preventScroll: true })
+  composerRoot.value?.querySelector<HTMLButtonElement>(t('shared.PostComposer.s25'))?.focus({ preventScroll: true })
 }
 async function insertEmoji(emoji: MastodonEmoji) {
   const inserted = insertShortcode(content.value, emoji.shortcode, selection.start, selection.end)
@@ -196,18 +197,18 @@ const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH))
 const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
-  || (props.replyTo ? `回复 @${displayAccount(props.replyTo.account.acct)}` : '有什么新鲜事？'))
+  || (props.replyTo ? t('shared.PostComposer.s26', [displayAccount(props.replyTo.account.acct)]) : t('shared.PostComposer.s27')))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
 const submitLabel = computed(() => {
-  if (posting.value) return isEdit.value ? '正在删除并重发…' : draft.value.visibility === 'direct' ? '正在发送…' : '正在发布…'
+  if (posting.value) return isEdit.value ? t('shared.PostComposer.s28') : draft.value.visibility === 'direct' ? t('shared.PostComposer.s29') : t('shared.PostComposer.s30')
   if (isEdit.value) return REPLACE_ACTION
-  if (props.replyTo) return '回复'
-  return draft.value.visibility === 'direct' ? '发送私信' : '发布'
+  if (props.replyTo) return t('shared.PostComposer.s31')
+  return draft.value.visibility === 'direct' ? t('shared.PostComposer.s32') : t('shared.PostComposer.s33')
 })
 const postingLabel = computed(() => {
-  if (isEdit.value) return '正在删除原帖并重新发布，请稍候。'
-  if (draft.value.visibility === 'direct') return '正在发送私信…'
-  return '正在发布…'
+  if (isEdit.value) return t('shared.PostComposer.s34')
+  if (draft.value.visibility === 'direct') return t('shared.PostComposer.s35')
+  return t('shared.PostComposer.s30')
 })
 
 function resetForReply() {
@@ -232,7 +233,7 @@ async function loadEditSource() {
     spoilerText.value = src.spoiler_text || ''
   } catch {
     sourceUnavailable.value = true
-    error.value = '无法读取原帖内容，请关闭后重试，原帖尚未更改。'
+    error.value = t('shared.PostComposer.s36')
   } finally {
     loadingSource.value = false
   }
@@ -282,7 +283,7 @@ async function onFilesSelected(e: Event) {
   const files = Array.from(input.files || [])
   input.value = ''
   const room = MAX_MEDIA_ATTACHMENTS - media.length
-  if (files.length > room) error.value = `最多只能添加 ${MAX_MEDIA_ATTACHMENTS} 个媒体文件`
+  if (files.length > room) error.value = t('shared.PostComposer.s37', [MAX_MEDIA_ATTACHMENTS])
   await Promise.all(files.slice(0, room).map(async (file) => {
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
     const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name, uploading: true, preview })
@@ -291,8 +292,8 @@ async function onFilesSelected(e: Event) {
       item.attachment = await postApi.uploadMedia(file)
     } catch (err) {
       if (item.preview) URL.revokeObjectURL(item.preview)
-      item.error = err instanceof Error ? err.message : '上传失败'
-      error.value = `${file.name} 上传失败：${item.error}`
+      item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
+      error.value = t('shared.PostComposer.s39', [file.name, item.error])
       media.splice(media.indexOf(item), 1)
     } finally {
       item.uploading = false
@@ -341,8 +342,8 @@ async function handlePost() {
     if (!props.editStatus) reset()
   } catch (e) {
     console.error('Failed to post status:', e)
-    const reason = e instanceof Error && e.message ? `：${e.message}` : '，请重试'
-    error.value = `${isEdit.value ? REPLACE_FAILED : draft.value.visibility === 'direct' ? '发送失败，这条私信还没有发出去' : '发布失败'}${reason}`
+    const reason = e instanceof Error && e.message ? `：${e.message}` : t('shared.PostComposer.s40')
+    error.value = `${isEdit.value ? REPLACE_FAILED : draft.value.visibility === 'direct' ? t('shared.PostComposer.s41') : t('shared.PostComposer.s42')}${reason}`
   } finally {
     posting.value = false
   }
@@ -440,7 +441,7 @@ defineExpose({ focus, reset })
   <div ref="composerRoot" class="composer" :class="{ 'composer--menu': visibilityOpen }" @keydown.capture="onMentionKeydown" @keydown="onKeydown">
     <p v-if="isEdit" class="composer__replace-notice" role="note">
       {{ REPLACE_NOTE }}
-      <span v-if="editStatus?.poll">投票截止时间保持不变。</span>
+      <span v-if="editStatus?.poll">{{ $t('shared.PostComposer.s1') }}</span>
     </p>
     <p v-else-if="draft.visibility === 'direct'" class="composer__replace-notice" role="note">
       {{ DIRECT_SCOPE }}
@@ -460,7 +461,7 @@ defineExpose({ focus, reset })
             class="composer__visibility-btn"
             :aria-expanded="visibilityOpen"
             aria-haspopup="listbox"
-            aria-label="可见范围"
+            :aria-label="$t('shared.PostComposer.s2')"
             :title="currentVisibility.label"
             :disabled="posting || loadingSource"
             :aria-controls="`composer-visibility-${uid}`"
@@ -469,7 +470,7 @@ defineExpose({ focus, reset })
             <t-icon :name="currentVisibility.icon" :size="16" />
             <span>{{ currentVisibility.short }}</span>
           </button>
-          <ul v-if="visibilityOpen" :id="`composer-visibility-${uid}`" ref="visibilityMenu" class="composer__visibility-menu" role="listbox" aria-label="可见范围" @keydown="onVisibilityKeydown">
+          <ul v-if="visibilityOpen" :id="`composer-visibility-${uid}`" ref="visibilityMenu" class="composer__visibility-menu" role="listbox" :aria-label="$t('shared.PostComposer.s2')" @keydown="onVisibilityKeydown">
             <li v-for="v in choices" :key="v.value">
               <button
                 type="button"
@@ -496,7 +497,7 @@ defineExpose({ focus, reset })
           size="small"
           @click="emit('cancel')"
         >
-          取消
+          {{ $t('shared.PostComposer.s3') }}
         </t-button>
         <t-button
           class="composer__submit"
@@ -519,8 +520,8 @@ defineExpose({ focus, reset })
           class="composer__spoiler"
           type="text"
           dir="auto"
-          placeholder="内容警告（例如：剧透）"
-          aria-label="内容警告说明"
+          :placeholder="$t('shared.PostComposer.s4')"
+          :aria-label="$t('shared.PostComposer.s5')"
           maxlength="500"
         />
         <div class="composer__field">
@@ -535,7 +536,7 @@ defineExpose({ focus, reset })
             @keyup="scheduleMentions"
             @click="scheduleMentions"
           />
-          <ul v-if="mentions.length" class="composer__mentions" role="listbox" aria-label="提及用户">
+          <ul v-if="mentions.length" class="composer__mentions" role="listbox" :aria-label="$t('shared.PostComposer.s6')">
             <li v-for="(account, i) in mentions" :key="account.id">
               <button
                 type="button"
@@ -555,16 +556,16 @@ defineExpose({ focus, reset })
           </ul>
         </div>
 
-        <ul v-if="media.length" class="composer__media" aria-label="已添加的媒体">
+        <ul v-if="media.length" class="composer__media" :aria-label="$t('shared.PostComposer.s7')">
           <li v-for="(m, i) in media" :key="m.key" class="composer__media-item">
             <img v-if="mediaPreview(m)" :src="mediaPreview(m)" alt="" />
-            <span v-else class="composer__media-name">{{ m.uploading ? '上传中…' : m.name }}</span>
+            <span v-else class="composer__media-name">{{ m.uploading ? $t('shared.PostComposer.s8') : m.name }}</span>
             <t-loading v-if="m.uploading" size="small" class="composer__media-spinner" />
             <button
               v-else
               type="button"
               class="composer__media-remove"
-              :aria-label="`移除 ${m.name}`"
+              :aria-label="$t('shared.PostComposer.s9', [m.name])"
               @click="removeMedia(i)"
             >
               <t-icon name="close" :size="14" />
@@ -573,20 +574,20 @@ defineExpose({ focus, reset })
         </ul>
 
         <fieldset v-if="poll" class="composer__poll">
-          <legend class="composer__poll-legend">投票</legend>
+          <legend class="composer__poll-legend">{{ $t('shared.PostComposer.s10') }}</legend>
           <div v-for="(_, i) in poll.options" :key="i" class="composer__poll-option">
             <input
               v-model="poll.options[i]"
               type="text"
-              :placeholder="`选项 ${i + 1}`"
-              :aria-label="`投票选项 ${i + 1}`"
+              :placeholder="$t('shared.PostComposer.s11', [i + 1])"
+              :aria-label="$t('shared.PostComposer.s12', [i + 1])"
               maxlength="50"
             />
             <button
               v-if="poll.options.length > MIN_POLL_OPTIONS"
               type="button"
               class="tool-btn"
-              :aria-label="`删除选项 ${i + 1}`"
+              :aria-label="$t('shared.PostComposer.s13', [i + 1])"
               @click="removePollOption(i)"
             >
               <t-icon name="close" :size="14" />
@@ -599,15 +600,15 @@ defineExpose({ focus, reset })
               class="composer__link-btn"
               @click="addPollOption"
             >
-              添加选项
+              {{ $t('shared.PostComposer.s14') }}
             </button>
             <label class="composer__poll-check">
               <input v-model="poll.multiple" type="checkbox" />
-              允许多选
+              {{ $t('shared.PostComposer.s15') }}
             </label>
             <label class="composer__poll-duration">
-              <span class="sr-only">投票时长</span>
-              <select v-model.number="poll.expiresIn" aria-label="投票时长">
+              <span class="sr-only">{{ $t('shared.PostComposer.s16') }}</span>
+              <select v-model.number="poll.expiresIn" :aria-label="$t('shared.PostComposer.s16')">
                 <option v-for="d in POLL_DURATIONS" :key="d.value" :value="d.value">{{ d.label }}</option>
               </select>
             </label>
@@ -616,14 +617,14 @@ defineExpose({ focus, reset })
 
         <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="closeEmojiPicker" />
         <div v-if="quote && !isEdit" class="composer__quote">
-          <span class="composer__quote-who">引用 @{{ displayAccount(quote.account.acct) }}</span>
-          <p>{{ quote.spoiler_text ? `内容警告：${quote.spoiler_text}` : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || '（这条引用没有文字）') }}</p>
-          <button type="button" class="composer__link-btn" @click="quote = null">移除引用</button>
+          <span class="composer__quote-who">{{ $t('shared.PostComposer.s17', [displayAccount(quote.account.acct)]) }}</span>
+          <p>{{ quote.spoiler_text ? $t('shared.PostComposer.s18', [quote.spoiler_text]) : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || $t('shared.PostComposer.s19')) }}</p>
+          <button type="button" class="composer__link-btn" @click="quote = null">{{ $t('shared.PostComposer.s20') }}</button>
         </div>
         <p v-if="posting" class="composer__status" role="status">{{ postingLabel }}</p>
         <div v-else-if="error" class="composer__error" role="alert">
           <span>{{ error }}</span>
-          <button v-if="!sourceUnavailable" type="button" class="composer__retry" :disabled="!canPost" @click="handlePost">重试</button>
+          <button v-if="!sourceUnavailable" type="button" class="composer__retry" :disabled="!canPost" @click="handlePost">{{ $t('shared.PostComposer.s21') }}</button>
         </div>
         <div class="composer__toolbar">
           <div class="composer__tools">
@@ -641,8 +642,8 @@ defineExpose({ focus, reset })
               <button
                 type="button"
                 class="tool-btn"
-                aria-label="添加图片或视频"
-                title="添加图片或视频"
+                :aria-label="$t('shared.PostComposer.s22')"
+                :title="$t('shared.PostComposer.s22')"
                 :disabled="posting || loadingSource || !!poll || media.length >= MAX_MEDIA_ATTACHMENTS"
                 @click="pickFiles"
               >
@@ -653,8 +654,8 @@ defineExpose({ focus, reset })
                 class="tool-btn"
                 :class="{ 'tool-btn--active': !!poll }"
                 :aria-pressed="!!poll"
-                aria-label="投票"
-                title="投票"
+                :aria-label="$t('shared.PostComposer.s10')"
+                :title="$t('shared.PostComposer.s10')"
                 :disabled="posting || loadingSource || media.length > 0"
                 @click="togglePoll"
               >
@@ -666,8 +667,8 @@ defineExpose({ focus, reset })
               class="tool-btn tool-btn--text"
               :class="{ 'tool-btn--active': spoilerEnabled }"
               :aria-pressed="spoilerEnabled"
-              aria-label="内容警告"
-              title="内容警告"
+              :aria-label="$t('shared.PostComposer.s23')"
+              :title="$t('shared.PostComposer.s23')"
               :disabled="posting || loadingSource"
               @click="toggleSpoiler"
             >
@@ -683,7 +684,7 @@ defineExpose({ focus, reset })
             >
               {{ charCount }}/{{ MAX_POST_LENGTH }}
             </span>
-            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" aria-label="自定义表情" title="自定义表情" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
+            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" :aria-label="$t('shared.PostComposer.s24')" :title="$t('shared.PostComposer.s24')" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
           </div>
         </div>
       </div>

@@ -5,17 +5,18 @@ import { useSettingsScope } from '../composables/useSettingsScope'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import { moderationApi, type MastodonFilter } from '../../infrastructure/moderationApi'
 
+import { t } from '@/shared/i18n'
 const contexts = [
-  { id: 'home', label: '首页' },
-  { id: 'notifications', label: '通知' },
-  { id: 'public', label: '公共时间线' },
-  { id: 'thread', label: '帖子详情' },
-  { id: 'account', label: '个人主页' },
+  { id: 'home', label: t('settings.FilterSettings.s13') },
+  { id: 'notifications', label: t('settings.FilterSettings.s14') },
+  { id: 'public', label: t('settings.FilterSettings.s15') },
+  { id: 'thread', label: t('settings.FilterSettings.s16') },
+  { id: 'account', label: t('settings.FilterSettings.s17') },
 ]
 
 const actionOptions = [
-  { value: 'warn' as const, label: '折叠警告' },
-  { value: 'hide' as const, label: '直接隐藏' },
+  { value: 'warn' as const, label: t('settings.FilterSettings.s18') },
+  { value: 'hide' as const, label: t('settings.FilterSettings.s19') },
 ]
 
 const filters = ref<MastodonFilter[]>([])
@@ -47,7 +48,7 @@ async function load() {
     const result = await moderationApi.listFilters()
     if (current()) filters.value = result
   } catch (e) {
-    if (current()) loadError.value = e instanceof Error ? e.message : '过滤器加载失败'
+    if (current()) loadError.value = e instanceof Error ? e.message : t('settings.FilterSettings.s20')
   } finally {
     if (current()) loading.value = false
   }
@@ -60,11 +61,11 @@ async function createFilter() {
   const title = draft.title.trim()
   const keyword = draft.keyword.trim()
   if (!title || !keyword) {
-    error.value = '标题和关键词都要填'
+    error.value = t('settings.FilterSettings.s21')
     return
   }
   if (draft.context.length === 0) {
-    error.value = '至少选一个生效范围'
+    error.value = t('settings.FilterSettings.s22')
     return
   }
   saving.value = true
@@ -79,9 +80,9 @@ async function createFilter() {
     filters.value = [created, ...filters.value.filter((item) => item.id !== created.id)]
     draft.title = ''
     draft.keyword = ''
-    MessagePlugin.success('过滤器已添加')
+    MessagePlugin.success(t('settings.FilterSettings.s23'))
   } catch (e) {
-    if (current()) error.value = e instanceof Error ? e.message : '添加失败'
+    if (current()) error.value = e instanceof Error ? e.message : t('settings.FilterSettings.s24')
   } finally {
     if (current()) saving.value = false
   }
@@ -95,9 +96,9 @@ async function remove(filter: MastodonFilter) {
     await moderationApi.deleteFilter(filter.id)
     if (!current()) return
     filters.value = filters.value.filter((item) => item.id !== filter.id)
-    MessagePlugin.success('已删除')
+    MessagePlugin.success(t('settings.FilterSettings.s25'))
   } catch (e) {
-    if (current()) MessagePlugin.error(e instanceof Error ? e.message : '删除失败')
+    if (current()) MessagePlugin.error(e instanceof Error ? e.message : t('settings.FilterSettings.s26'))
   } finally {
     if (current()) removing.value = ''
   }
@@ -105,7 +106,7 @@ async function remove(filter: MastodonFilter) {
 
 function summary(filter: MastodonFilter) {
   const words = (filter.keywords ?? []).map((item) => item.keyword).filter(Boolean).join('、')
-  const action = filter.filter_action === 'hide' ? '隐藏' : '警告'
+  const action = filter.filter_action === 'hide' ? t('settings.FilterSettings.s27') : t('settings.FilterSettings.s28')
   return words ? `${action} · ${words}` : action
 }
 
@@ -114,33 +115,33 @@ onMounted(load)
 
 <template>
   <form class="settings-form" @submit.prevent="createFilter">
-    <p v-if="loading" class="settings-field__hint" role="status">正在加载…</p>
-    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost btn--sm" @click="load">重试</button></div>
+    <p v-if="loading" class="settings-field__hint" role="status">{{ $t('settings.FilterSettings.s1') }}</p>
+    <div v-else-if="loadError" class="settings-error" role="alert">{{ loadError }} <button type="button" class="btn btn--ghost btn--sm" @click="load">{{ $t('settings.FilterSettings.s2') }}</button></div>
     <ul v-else-if="filters.length" class="filter-list">
       <li v-for="filter in filters" :key="filter.id" class="filter-list__item">
         <span>
           <strong>{{ filter.title }}</strong>
           <span class="settings-field__hint">{{ summary(filter) }}</span>
         </span>
-        <button type="button" class="btn btn--ghost btn--sm" :disabled="!!removing || saving" :aria-busy="removing === filter.id" @click="remove(filter)">{{ removing === filter.id ? '删除中…' : '删除' }}</button>
+        <button type="button" class="btn btn--ghost btn--sm" :disabled="!!removing || saving" :aria-busy="removing === filter.id" @click="remove(filter)">{{ removing === filter.id ? $t('settings.FilterSettings.s3') : $t('settings.FilterSettings.s4') }}</button>
       </li>
     </ul>
-    <p v-else class="settings-field__hint">还没有过滤器。命中的帖子会先折叠，你可以再点开。</p>
+    <p v-else class="settings-field__hint">{{ $t('settings.FilterSettings.s5') }}</p>
 
     <div class="settings-field">
-      <label for="filter-title" class="settings-field__label">标题</label>
+      <label for="filter-title" class="settings-field__label">{{ $t('settings.FilterSettings.s6') }}</label>
       <input id="filter-title" v-model="draft.title" class="settings-input" type="text" maxlength="64" autocomplete="off" />
     </div>
     <div class="settings-field">
-      <label for="filter-keyword" class="settings-field__label">关键词</label>
+      <label for="filter-keyword" class="settings-field__label">{{ $t('settings.FilterSettings.s7') }}</label>
       <input id="filter-keyword" v-model="draft.keyword" class="settings-input" type="text" maxlength="80" autocomplete="off" />
     </div>
     <label class="filter-check">
       <input v-model="draft.wholeWord" type="checkbox" />
-      <span>只匹配完整的词。中文句子里建议关掉，否则嵌在句子中不会命中。</span>
+      <span>{{ $t('settings.FilterSettings.s8') }}</span>
     </label>
-    <SegmentedControl v-model="draft.action" :options="actionOptions" label="命中后" />
-    <div class="filter-contexts" role="group" aria-label="生效范围">
+    <SegmentedControl v-model="draft.action" :options="actionOptions" :label="$t('settings.FilterSettings.s9')" />
+    <div class="filter-contexts" role="group" :aria-label="$t('settings.FilterSettings.s10')">
       <label v-for="item in contexts" :key="item.id" class="filter-check">
         <input type="checkbox" :checked="draft.context.includes(item.id)" @change="toggleContext(item.id)" />
         <span>{{ item.label }}</span>
@@ -148,7 +149,7 @@ onMounted(load)
     </div>
     <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
     <div class="settings-actions">
-      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving || loading || !!removing || !!loadError">{{ saving ? '添加中…' : '添加过滤器' }}</button>
+      <button type="submit" class="btn btn--primary btn--sm" :disabled="saving || loading || !!removing || !!loadError">{{ saving ? $t('settings.FilterSettings.s11') : $t('settings.FilterSettings.s12') }}</button>
     </div>
   </form>
 </template>

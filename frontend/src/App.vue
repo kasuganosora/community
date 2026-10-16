@@ -4,6 +4,7 @@ import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { navigationPending } from '@/shared/router/navigationFeedback'
 
+import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 const initializing = ref(true)
 const initError = ref<string | null>(null)
@@ -18,7 +19,7 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to initialize auth:', e)
     const msg = e instanceof Error ? e.message : String(e)
-    initError.value = `应用启动失败：${msg}`
+    initError.value = t('shared.App.s3', [msg])
   } finally {
     initializing.value = false
   }
@@ -27,13 +28,13 @@ onMounted(async () => {
 
 
 <template>
-  <div v-if="navigationPending" class="navigation-pending" role="status" aria-label="正在打开页面"><span /></div>
+  <div v-if="navigationPending" class="navigation-pending" role="status" :aria-label="$t('shared.App.s1')"><span /></div>
   <div v-if="initializing" class="app-initializing">
     <t-loading size="large" />
   </div>
   <div v-else-if="initError" class="app-init-error">
     <p>{{ initError }}</p>
-    <button type="button" class="app-init-error__retry" @click="retryInit">重试</button>
+    <button type="button" class="app-init-error__retry" @click="retryInit">{{ $t('shared.App.s2') }}</button>
   </div>
   <router-view v-else />
   <SlowNetworkHint />

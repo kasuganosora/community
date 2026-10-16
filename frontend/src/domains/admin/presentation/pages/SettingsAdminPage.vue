@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { AdminAlert, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader, AdminRow } from "../components/ui";
 import { operationsAdminApi as api, type CaptchaConfig, type SiteRule } from "../../infrastructure/operationsAdminApi";
+import { t } from '@/shared/i18n'
 const props = withDefaults(defineProps<{ mode?: 'rules' | 'security' | 'all' }>(), { mode: 'all' })
 const rules = ref<SiteRule[]>([]);
 const config = ref<CaptchaConfig>();
@@ -29,7 +30,7 @@ async function load() {
     }
     catch {
         if (alive)
-            error.value = "无法加载站点设置，请重试。";
+            error.value = t('admin.SettingsAdminPage.s32');
     }
     finally {
         if (alive)
@@ -46,10 +47,10 @@ async function saveCaptcha() {
         await api.saveCaptcha(config.value, secret.value);
         secret.value = "";
         saved.value = JSON.stringify(config.value);
-        notice.value = "验证码设置已保存。";
+        notice.value = t('admin.SettingsAdminPage.s33');
     }
     catch {
-        error.value = "验证码设置保存失败，请检查配置后重试。";
+        error.value = t('admin.SettingsAdminPage.s34');
     }
     finally {
         busy.value = false;
@@ -70,17 +71,17 @@ async function saveRule() {
             rules.value.push(r);
         editing.value = null;
         text.value = "";
-        notice.value = "站点规则已保存。";
+        notice.value = t('admin.SettingsAdminPage.s35');
     }
     catch {
-        error.value = "规则保存失败，输入内容已保留，请重试。";
+        error.value = t('admin.SettingsAdminPage.s36');
     }
     finally {
         busy.value = false;
     }
 }
 async function remove(rule: SiteRule) {
-    if (busy.value || !window.confirm(`确认删除规则“${rule.text}”？`))
+    if (busy.value || !window.confirm(t('admin.SettingsAdminPage.s37', [rule.text])))
         return;
     busy.value = true;
     error.value = "";
@@ -92,10 +93,10 @@ async function remove(rule: SiteRule) {
             editing.value = null;
             text.value = "";
         }
-        notice.value = "规则已删除。";
+        notice.value = t('admin.SettingsAdminPage.s38');
     }
     catch {
-        error.value = "删除失败，请重试。";
+        error.value = t('admin.SettingsAdminPage.s39');
     }
     finally {
         busy.value = false;
@@ -109,53 +110,53 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="admin-page">
-    <AdminPageHeader :title="mode === 'rules' ? '社区规则' : mode === 'security' ? '安全' : '站点设置'" :description="mode === 'rules' ? '维护向社区成员公开的站点规则。' : mode === 'security' ? '配置注册与登录验证码。' : '维护公开的社区规则及注册验证码。'" />
-    <p v-if="loading" class="admin-empty" role="status">正在加载设置…</p>
+    <AdminPageHeader :title="mode === 'rules' ? $t('admin.SettingsAdminPage.s1') : mode === 'security' ? $t('admin.SettingsAdminPage.s2') : $t('admin.SettingsAdminPage.s3')" :description="mode === 'rules' ? $t('admin.SettingsAdminPage.s4') : mode === 'security' ? $t('admin.SettingsAdminPage.s5') : $t('admin.SettingsAdminPage.s6')" />
+    <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.SettingsAdminPage.s7') }}</p>
     <AdminAlert v-if="error" tone="danger">
       {{ error }}
-      <template v-if="!config" #action><AdminButton size="sm" :disabled="loading" @click="load">重试加载</AdminButton></template>
+      <template v-if="!config" #action><AdminButton size="sm" :disabled="loading" @click="load">{{ $t('admin.SettingsAdminPage.s8') }}</AdminButton></template>
     </AdminAlert>
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
     <template v-if="!loading && (config || mode === 'rules')">
       <section v-if="mode !== 'security'" class="admin-card">
-        <h2>社区规则</h2>
-        <p>规则会展示在站点介绍及注册页面。</p>
-        <AdminEmpty v-if="!rules.length">尚未设置规则。</AdminEmpty>
+        <h2>{{ $t('admin.SettingsAdminPage.s1') }}</h2>
+        <p>{{ $t('admin.SettingsAdminPage.s9') }}</p>
+        <AdminEmpty v-if="!rules.length">{{ $t('admin.SettingsAdminPage.s10') }}</AdminEmpty>
         <ul v-else class="admin-list">
           <AdminRow v-for="rule in rules" :key="rule.id" :title="rule.text">
-            <AdminButton size="sm" :disabled="busy" @click="editing = rule.id; text = rule.text">编辑规则</AdminButton>
-            <AdminButton size="sm" variant="danger" :disabled="busy" @click="remove(rule)">删除规则</AdminButton>
+            <AdminButton size="sm" :disabled="busy" @click="editing = rule.id; text = rule.text">{{ $t('admin.SettingsAdminPage.s11') }}</AdminButton>
+            <AdminButton size="sm" variant="danger" :disabled="busy" @click="remove(rule)">{{ $t('admin.SettingsAdminPage.s12') }}</AdminButton>
           </AdminRow>
         </ul>
         <form class="admin-form" @submit.prevent="saveRule">
-          <AdminField :label="editing ? '编辑规则内容' : '新规则内容'"><template #default="{ id }"><textarea :id="id" v-model="text" required maxlength="255" :disabled="busy" /></template></AdminField>
+          <AdminField :label="editing ? $t('admin.SettingsAdminPage.s13') : $t('admin.SettingsAdminPage.s14')"><template #default="{ id }"><textarea :id="id" v-model="text" required maxlength="255" :disabled="busy" /></template></AdminField>
           <div class="admin-form-actions">
-            <AdminButton type="submit" variant="primary" :loading="busy" :disabled="!text.trim()">{{ busy ? '处理中…' : editing ? '保存规则' : '添加规则' }}</AdminButton>
-            <AdminButton v-if="editing" :disabled="busy" @click="editing = null; text = ''">取消编辑</AdminButton>
+            <AdminButton type="submit" variant="primary" :loading="busy" :disabled="!text.trim()">{{ busy ? $t('admin.SettingsAdminPage.s15') : editing ? $t('admin.SettingsAdminPage.s16') : $t('admin.SettingsAdminPage.s17') }}</AdminButton>
+            <AdminButton v-if="editing" :disabled="busy" @click="editing = null; text = ''">{{ $t('admin.SettingsAdminPage.s18') }}</AdminButton>
           </div>
         </form>
       </section>
       <form v-if="config && mode !== 'rules'" class="admin-card admin-preferences" @submit.prevent="saveCaptcha">
-        <div class="admin-preferences__heading"><h2>验证码</h2></div>
-        <AdminAlert v-if="config.environment_override" tone="info">验证码由服务器环境配置，此处仅供查看。</AdminAlert>
-        <AdminAlert v-else-if="config.enabled && config.effective_enabled === false" tone="warning">已启用但尚未生效，请检查供应商和密钥配置。</AdminAlert>
+        <div class="admin-preferences__heading"><h2>{{ $t('admin.SettingsAdminPage.s19') }}</h2></div>
+        <AdminAlert v-if="config.environment_override" tone="info">{{ $t('admin.SettingsAdminPage.s20') }}</AdminAlert>
+        <AdminAlert v-else-if="config.enabled && config.effective_enabled === false" tone="warning">{{ $t('admin.SettingsAdminPage.s21') }}</AdminAlert>
         <div class="admin-form admin-preferences__fields">
-          <AdminCheck variant="switch" class="admin-preferences__toggle" v-model="config.enabled" label="启用注册验证码" :disabled="busy || config.environment_override" />
-          <AdminField label="验证码服务">
+          <AdminCheck variant="switch" class="admin-preferences__toggle" v-model="config.enabled" :label="$t('admin.SettingsAdminPage.s22')" :disabled="busy || config.environment_override" />
+          <AdminField :label="$t('admin.SettingsAdminPage.s23')">
             <template #default="{ id }">
               <select :id="id" v-model="config.provider" :disabled="busy || config.environment_override">
-                <option value="none">无</option>
-                <option value="local">本站图片验证码</option>
+                <option value="none">{{ $t('admin.SettingsAdminPage.s24') }}</option>
+                <option value="local">{{ $t('admin.SettingsAdminPage.s25') }}</option>
                 <option value="recaptcha">Google reCAPTCHA</option>
                 <option value="cloudflare">Cloudflare Turnstile</option>
                 <option value="hcaptcha">hCaptcha</option>
               </select>
             </template>
           </AdminField>
-          <AdminField label="站点公钥"><template #default="{ id }"><input :id="id" v-model="config.site_key" :disabled="busy || config.environment_override" autocomplete="off" /></template></AdminField>
-          <AdminField label="替换服务密钥" hint="现有密钥不会回显，仅在需要替换时填写。"><template #default="{ id }"><input :id="id" v-model="secret" type="password" autocomplete="new-password" :disabled="busy || config.environment_override" placeholder="留空保留现有密钥" /></template></AdminField>
+          <AdminField :label="$t('admin.SettingsAdminPage.s26')"><template #default="{ id }"><input :id="id" v-model="config.site_key" :disabled="busy || config.environment_override" autocomplete="off" /></template></AdminField>
+          <AdminField :label="$t('admin.SettingsAdminPage.s27')" :hint="$t('admin.SettingsAdminPage.s28')"><template #default="{ id }"><input :id="id" v-model="secret" type="password" autocomplete="new-password" :disabled="busy || config.environment_override" :placeholder="$t('admin.SettingsAdminPage.s29')" /></template></AdminField>
         </div>
-        <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :loading="busy" :disabled="!dirty || config.environment_override">{{ busy ? '保存中…' : '保存验证码设置' }}</AdminButton></div>
+        <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :loading="busy" :disabled="!dirty || config.environment_override">{{ busy ? $t('admin.SettingsAdminPage.s30') : $t('admin.SettingsAdminPage.s31') }}</AdminButton></div>
       </form>
     </template>
   </div>

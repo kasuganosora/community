@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { loadCaptchaScript } from '../../infrastructure/captchaApi'
 import LocalCaptcha from './LocalCaptcha.vue'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{
   provider: string
   siteKey: string
@@ -36,7 +37,7 @@ function options(): Record<string, unknown> {
     sitekey: props.siteKey,
     callback: (token: string) => emit('token', token),
     'expired-callback': () => emit('token', ''),
-    'error-callback': () => emit('fail', '验证码加载失败，请刷新后再试'),
+    'error-callback': () => emit('fail', t('auth.CaptchaField.s1')),
   }
 }
 
@@ -58,20 +59,20 @@ function renderWidget() {
     widgetId = w.turnstile.render(el, options())
     return
   }
-  emit('fail', '验证码加载失败，请刷新后再试')
+  emit('fail', t('auth.CaptchaField.s1'))
 }
 
 async function mountWidget() {
   const src = scripts[props.provider]
   if (!src || !props.siteKey) {
-    emit('fail', '验证码没有配好，暂时不能注册')
+    emit('fail', t('auth.CaptchaField.s2'))
     return
   }
   try {
     await loadCaptchaScript(src)
     renderWidget()
   } catch (e) {
-    emit('fail', e instanceof Error ? e.message : '验证码加载失败，请刷新后再试')
+    emit('fail', e instanceof Error ? e.message : t('auth.CaptchaField.s1'))
   }
 }
 
@@ -91,7 +92,7 @@ function reset() {
 async function verify(): Promise<string> {
   if (props.provider !== 'local') return ''
   const token = await localRef.value?.verify()
-  if (!token) throw new Error('验证码不正确，请再试一次')
+  if (!token) throw new Error(t('auth.CaptchaField.s3'))
   return token
 }
 

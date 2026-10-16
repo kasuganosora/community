@@ -88,7 +88,7 @@ defineExpose({ state, retry })
       @load="onLoad"
       @error="onError"
     />
-    <span v-if="state === 'loading'" class="pimg__spinner" role="status" aria-label="图片加载中" />
+    <span v-if="state === 'loading'" class="pimg__spinner" role="status" :aria-label="$t('shared.ProgressiveImage.s1')" />
     <span v-else-if="state === 'error'" class="pimg__error">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -96,8 +96,8 @@ defineExpose({ state, retry })
         <path d="M21 15l-5-5L5 21" />
         <path d="M3 3l18 18" />
       </svg>
-      <button v-if="retryable" type="button" class="pimg__retry" @click.stop="retry">重试</button>
-      <span v-else class="pimg__sr">图片加载失败</span>
+      <button v-if="retryable" type="button" class="pimg__retry" @click.stop="retry">{{ $t('shared.ProgressiveImage.s2') }}</button>
+      <span v-else class="pimg__sr">{{ $t('shared.ProgressiveImage.s3') }}</span>
     </span>
   </div>
 </template>

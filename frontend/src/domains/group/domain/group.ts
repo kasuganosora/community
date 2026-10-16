@@ -1,3 +1,4 @@
+import { t } from '@/shared/i18n'
 export interface GroupCapabilities {
   send_message: boolean; invite: boolean; kick: boolean; ban: boolean; redact: boolean
   set_name: boolean; set_topic?: boolean; set_avatar: boolean; manage_permissions: boolean; manage_address?: boolean
@@ -35,7 +36,7 @@ export interface GroupSync {
   degraded?: boolean; retry_after_ms?: number
 }
 export const groupPath = (id: string) => `/groups/${encodeURIComponent(id)}`
-export const groupMembershipLabel: Record<string, string> = { join: '已加入', invite: '邀请待处理', knock: '等待批准', leave: '已离开', ban: '已被封禁', none: '未加入' }
+export const groupMembershipLabel: Record<string, string> = { join: t('group.group.s1'), invite: t('group.group.s2'), knock: t('group.group.s3'), leave: t('group.group.s4'), ban: t('group.group.s5'), none: t('group.group.s6') }
 export function groupCanSend(group: Group | null | undefined): boolean {
   return !!group && group.membership === 'join' && group.encryption === 'unencrypted' && group.room_type !== 'm.space' && !group.replacement_id && group.capabilities.send_message
 }
@@ -52,7 +53,7 @@ export function safeGroupURL(raw?: string): string {
   try { const url = new URL(raw, window.location.origin); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : '' } catch { return '' }
 }
 export function fileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '大小未知'
+  if (!Number.isFinite(bytes) || bytes < 0) return t('group.group.s7')
   return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 }
 

@@ -5,9 +5,10 @@ import { groupApi } from '../../infrastructure/groupApi'
 import type { GroupInvitee } from '../../domain/group'
 import GroupAvatar from './GroupAvatar.vue'
 
+import { t } from '@/shared/i18n'
 const props = withDefaults(defineProps<{
   modelValue: string; label?: string; multiple?: boolean; disabled?: boolean; required?: boolean; exclude?: string[]
-}>(), { label: '邀请成员', exclude: () => [] })
+}>(), { label: t('group.GroupMemberInput.s5'), exclude: () => [] })
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const id = useId(), root = ref<HTMLElement>(), input = ref<HTMLInputElement>()
 const focused = ref(false), opened = ref(false), loading = ref(false), composing = ref(false)
@@ -30,7 +31,7 @@ const candidates = computed(() => {
   const selected = new Set(rest.split(/[\s,，]+/).map(value => value.replace(/^@/, '').toLowerCase()))
   return results.value.filter(person => !excluded.has(person.user_id) && !selected.has(person.username.toLowerCase()) && !selected.has(person.user_id.slice(1).toLowerCase()))
 })
-const status = computed(() => loading.value ? '正在查找本站账号…' : error.value || (!candidates.value.length ? '未找到可邀请的本站账号；外部 Matrix 账号可直接输入。' : ''))
+const status = computed(() => loading.value ? t('group.GroupMemberInput.s6') : error.value || (!candidates.value.length ? t('group.GroupMemberInput.s7') : ''))
 
 function cancelSearch() { generation++; clearTimeout(timer); controller?.abort(); loading.value = false }
 function close() { cancelSearch(); opened.value = false; active.value = -1; results.value = []; dismissedValue = props.modelValue }
@@ -47,7 +48,7 @@ function search() {
       if (version !== generation) return
       results.value = users; active.value = candidates.value.length ? 0 : -1
     } catch {
-      if (version === generation) error.value = '账号提示暂时不可用，可继续输入完整账号并邀请。'
+      if (version === generation) error.value = t('group.GroupMemberInput.s8')
     } finally { if (version === generation) loading.value = false }
   }, 250)
 }
@@ -108,13 +109,13 @@ function paste(event: ClipboardEvent) {
     <input :id="id" ref="input" :value="modelValue" :disabled="disabled" :required="required" :maxlength="multiple ? 4000 : 500"
       role="combobox" aria-autocomplete="list" :aria-expanded="opened" :aria-controls="opened ? `${id}-options` : undefined"
       :aria-activedescendant="opened && candidates[active] ? `${id}-option-${active}` : undefined" :aria-describedby="`${id}-help`"
-      autocomplete="off" autocapitalize="none" :spellcheck="false" placeholder="搜索本站用户名、昵称，或输入 Matrix 账号"
+      autocomplete="off" autocapitalize="none" :spellcheck="false" :placeholder="$t('group.GroupMemberInput.s1')"
       @input="update" @focus="focus" @click="caret = input?.selectionStart ?? modelValue.length" @select="caret = input?.selectionStart ?? modelValue.length"
       @keydown="keydown" @paste="paste" @compositionstart="composing = true" @compositionend="composing = false; update($event)"
 />
     <div v-if="opened" class="group-member-input__suggestions">
-      <p class="group-member-input__heading">本站账号</p>
-      <ul :id="`${id}-options`" role="listbox" aria-label="本站账号" :aria-busy="loading">
+      <p class="group-member-input__heading">{{ $t('group.GroupMemberInput.s2') }}</p>
+      <ul :id="`${id}-options`" role="listbox" :aria-label="$t('group.GroupMemberInput.s2')" :aria-busy="loading">
         <li v-for="(person, index) in candidates" :id="`${id}-option-${index}`" :key="person.user_id" role="option" tabindex="-1"
           :aria-selected="active === index" @mousedown.prevent @click="choose(person)"
 >
@@ -124,7 +125,7 @@ function paste(event: ClipboardEvent) {
       </ul>
       <p v-if="status" class="group-member-input__status" role="status">{{ status }}</p>
     </div>
-    <p :id="`${id}-help`" class="group-member-input__help">{{ multiple ? '可连续选择多个本站账号，或用空格分隔完整 Matrix 账号。' : '选择本站账号，或输入 @用户名:服务器；仅支持 Community 和 Matrix。' }}</p>
+    <p :id="`${id}-help`" class="group-member-input__help">{{ multiple ? $t('group.GroupMemberInput.s3') : $t('group.GroupMemberInput.s4') }}</p>
   </div>
 </template>
 

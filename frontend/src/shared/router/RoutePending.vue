@@ -8,10 +8,10 @@ function reload() { window.location.reload() }
     <div class="page-header"><h1 class="page-header__title">{{ title }}</h1></div>
     <div v-if="failed" class="empty-state" role="alert">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
-      <p class="empty-state__text">页面加载失败，请重试</p>
-      <button type="button" class="btn btn--secondary btn--sm" @click="reload">重新加载</button>
+      <p class="empty-state__text">{{ $t('shared.RoutePending.s1') }}</p>
+      <button type="button" class="btn btn--secondary btn--sm" @click="reload">{{ $t('shared.RoutePending.s2') }}</button>
     </div>
-    <div v-else class="page-loading" role="status" :aria-label="`正在加载${title}`">
+    <div v-else class="page-loading" role="status" :aria-label="$t('shared.RoutePending.s3', [title])">
       <span class="loading-spinner" aria-hidden="true" />
     </div>
   </section>

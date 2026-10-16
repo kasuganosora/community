@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { groupApi } from '../../infrastructure/groupApi'
 import { fileSize, type GroupAttachment } from '../../domain/group'
 
+import { t } from '@/shared/i18n'
 const props = defineProps<{ attachment: GroupAttachment; hidden?: boolean; sensitive?: boolean }>()
 const root = ref<HTMLElement>()
 const url = ref(''), loading = ref(false), error = ref(''), revealed = ref(false), inView = ref(false), previewable = ref(false)
@@ -39,9 +40,9 @@ async function load(download = false) {
     }
     if (download) {
       const link = document.createElement('a'); link.href = url.value; link.download = attachment.name; link.click()
-    } else if (!previewable.value) error.value = '该附件无法预览，请下载查看。'
+    } else if (!previewable.value) error.value = t('group.GroupAttachment.s11')
   } catch (e) {
-    if (!request.signal.aborted && controller === request) error.value = e instanceof Error ? e.message : '附件加载失败'
+    if (!request.signal.aborted && controller === request) error.value = e instanceof Error ? e.message : t('group.GroupAttachment.s12')
   } finally {
     if (controller === request) loading.value = false
   }
@@ -65,10 +66,10 @@ onBeforeUnmount(() => { observer?.disconnect(); reset() })
 </script>
 <template>
   <div ref="root" class="group-attachment">
-    <button v-if="image && !visible" type="button" class="group-attachment__preview" :disabled="loading" @click="reveal"><t-icon :name="hidden ? 'browse-off' : 'image'" :size="28" /><span>{{ loading ? '正在加载图片…' : hidden ? (sensitive ? '敏感图片 · 点击查看' : '图片已隐藏 · 点击查看') : '查看图片' }}</span></button>
-    <a v-if="visible" :href="url" target="_blank" rel="noopener noreferrer" aria-label="查看原图"><img :src="url" :alt="attachment.name" /></a>
-    <div class="group-attachment__info"><span><strong>{{ attachment.name }}</strong><small>{{ fileSize(attachment.size) }} · {{ attachment.type || '文件' }}</small></span><button v-if="visible && hidden" type="button" class="btn btn--ghost btn--sm" @click="reset">隐藏</button><button type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load(true)">{{ loading ? '加载中' : '下载' }}</button></div>
-    <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry">重试</button></p>
+    <button v-if="image && !visible" type="button" class="group-attachment__preview" :disabled="loading" @click="reveal"><t-icon :name="hidden ? 'browse-off' : 'image'" :size="28" /><span>{{ loading ? $t('group.GroupAttachment.s1') : hidden ? (sensitive ? $t('group.GroupAttachment.s2') : $t('group.GroupAttachment.s3')) : $t('group.GroupAttachment.s4') }}</span></button>
+    <a v-if="visible" :href="url" target="_blank" rel="noopener noreferrer" :aria-label="$t('group.GroupAttachment.s5')"><img :src="url" :alt="attachment.name" /></a>
+    <div class="group-attachment__info"><span><strong>{{ attachment.name }}</strong><small>{{ fileSize(attachment.size) }} · {{ attachment.type || $t('group.GroupAttachment.s6') }}</small></span><button v-if="visible && hidden" type="button" class="btn btn--ghost btn--sm" @click="reset">{{ $t('group.GroupAttachment.s7') }}</button><button type="button" class="btn btn--ghost btn--sm" :disabled="loading" @click="load(true)">{{ loading ? $t('group.GroupAttachment.s8') : $t('group.GroupAttachment.s9') }}</button></div>
+    <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry">{{ $t('group.GroupAttachment.s10') }}</button></p>
   </div>
 </template>
 <style scoped>

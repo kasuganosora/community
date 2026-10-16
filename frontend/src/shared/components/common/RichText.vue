@@ -36,7 +36,7 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div class="rich-text" :dir="dir"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? '隐藏敏感表情' : '显示敏感表情' }}</button></div>
+  <div class="rich-text" :dir="dir"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? $t('shared.RichText.s1') : $t('shared.RichText.s2') }}</button></div>
 </template>
 
 <style scoped>

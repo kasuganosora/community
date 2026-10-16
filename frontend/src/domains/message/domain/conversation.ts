@@ -1,11 +1,12 @@
 import type { MastodonConversation } from '@/shared/types/mastodon'
 import { stripHtml } from '@/shared/utils/sanitize'
 
+import { t } from '@/shared/i18n'
 /** "Alice、Bob" — participants other than you; falls back to the last status author. */
 export function conversationTitle(c: MastodonConversation, myId?: string): string {
   const others = c.accounts.filter(a => a.id !== myId)
   const people = others.length ? others : (c.last_status ? [c.last_status.account] : [])
-  if (!people.length) return '未知会话'
+  if (!people.length) return t('message.conversation.s1')
   return people.map(a => a.display_name || a.username).join('、')
 }
 
@@ -19,11 +20,11 @@ export function conversationTarget(c: MastodonConversation): string | null {
 /** One-line preview. A content warning replaces the body. */
 export function conversationPreview(c: MastodonConversation): string {
   const s = c.last_status
-  if (!s) return '（没有可显示的消息）'
+  if (!s) return t('message.conversation.s2')
   const spoiler = s.spoiler_text?.trim()
-  if (spoiler) return `内容警告：${spoiler}`
+  if (spoiler) return t('message.conversation.s3', [spoiler])
   const text = stripHtml(s.content || '').replace(/\s+/g, ' ').trim()
-  return text || (s.media_attachments?.length ? '' : '（没有可显示的消息）')
+  return text || (s.media_attachments?.length ? '' : t('message.conversation.s2'))
 }
 
 /** Short label for the last message's attachments, kept separate from the text preview. */
@@ -32,9 +33,9 @@ export function conversationMediaLabel(c: MastodonConversation): string | null {
   if (!media.length) return null
   const images = media.filter(item => item.type === 'image').length
   const rest = media.length - images
-  if (images && !rest) return images === 1 ? '1 张图片' : `${images} 张图片`
-  if (!images) return `${media.length} 个附件`
-  return `${images} 张图片，另有 ${rest} 个附件`
+  if (images && !rest) return images === 1 ? t('message.conversation.s4') : t('message.conversation.s5', [images])
+  if (!images) return t('message.conversation.s6', [media.length])
+  return t('message.conversation.s7', [images, rest])
 }
 
 export function conversationImage(c: MastodonConversation): string | null {
