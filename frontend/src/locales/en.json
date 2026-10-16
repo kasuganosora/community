@@ -236,7 +236,16 @@
       "s39": "Failed to upload {0}: {1}",
       "s40": ", please try again",
       "s41": "Sending failed; this message hasn’t been sent",
-      "s42": "Post failed"
+      "s42": "Post failed",
+      "pollNoDeadline": "No deadline",
+      "pollModeDuration": "Duration",
+      "pollModeAt": "End time",
+      "pollDeadlineMode": "Deadline type",
+      "pollNoDeadlineHint": "The poll won’t close automatically.",
+      "pollEndsAtLabel": "Ends at",
+      "pollEndsAtShort": "Ends {0}",
+      "pollCharLimit": "{0} of {1} characters",
+      "pollMaxOptions": "Up to {0} options"
     },
     "PostContent": {
       "s1": "Collapse",
@@ -273,7 +282,8 @@
       "s6": "View results",
       "s7": "Back to poll",
       "s8": "Vote failed: {0}",
-      "s9": "Vote failed"
+      "s9": "Vote failed",
+      "noDeadline": "· No deadline"
     },
     "PostReactions": {
       "s1": "Emoji reactions",
@@ -2442,7 +2452,10 @@
       "s28": "Each poll option can be at most {0} character | Each poll option can be at most {0} characters",
       "s29": "A poll can’t be posted together with media",
       "s30": "Write something before posting",
-      "s31": "A direct message must {'@'}mention at least one user"
+      "s31": "A direct message must {'@'}mention at least one user",
+      "pollTooManyOptions": "A poll can have at most {0} options",
+      "pollEndsTooSoon": "The end time is too soon; pick a later time",
+      "pollEndsTooLate": "The end time is beyond this server’s maximum"
     },
     "PostDetailPage": {
       "s1": "Back",

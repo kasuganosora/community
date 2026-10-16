@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isNoDeadlinePoll } from '@/domains/post/domain/compose'
 import { ref, computed } from 'vue'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonPoll } from '@/shared/types/mastodon'
@@ -86,6 +87,7 @@ async function vote() {
       </t-button>
       <span>{{ $t('shared.PostPoll.s3', [total]) }}</span>
       <span v-if="poll.expired">{{ $t('shared.PostPoll.s4') }}</span>
+      <span v-else-if="isNoDeadlinePoll(poll.expires_at)">{{ $t('shared.PostPoll.noDeadline') }}</span>
       <span v-else-if="poll.expires_at">· <RelativeTime :datetime="poll.expires_at" future /> {{ $t('shared.PostPoll.s5') }}</span>
       <button v-if="!showResults" type="button" class="post-poll__link" @click="revealed = true">{{ $t('shared.PostPoll.s6') }}</button>
       <button v-else-if="revealed && !poll.voted && !poll.expired" type="button" class="post-poll__link" @click="revealed = false">{{ $t('shared.PostPoll.s7') }}</button>

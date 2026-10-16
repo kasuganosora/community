@@ -236,7 +236,16 @@
       "s39": "{0} 上传失败：{1}",
       "s40": "，请重试",
       "s41": "发送失败，这条私信还没有发出去",
-      "s42": "发布失败"
+      "s42": "发布失败",
+      "pollNoDeadline": "无期限",
+      "pollModeDuration": "时长",
+      "pollModeAt": "指定时间",
+      "pollDeadlineMode": "截止方式",
+      "pollNoDeadlineHint": "投票不会自动结束。",
+      "pollEndsAtLabel": "截止时间",
+      "pollEndsAtShort": "{0} 截止",
+      "pollCharLimit": "已输入 {0} / {1} 个字符",
+      "pollMaxOptions": "最多 {0} 个选项"
     },
     "PostContent": {
       "s1": "收起",
@@ -273,7 +282,8 @@
       "s6": "查看结果",
       "s7": "返回投票",
       "s8": "投票失败：{0}",
-      "s9": "投票失败"
+      "s9": "投票失败",
+      "noDeadline": "· 无期限"
     },
     "PostReactions": {
       "s1": "表情回应",
@@ -2442,7 +2452,10 @@
       "s28": "每个投票选项不能超过 {0} 个字符",
       "s29": "投票不能和媒体同时发布",
       "s30": "写点什么再发布",
-      "s31": "私信需要 {'@'}提及 至少一位用户"
+      "s31": "私信需要 {'@'}提及 至少一位用户",
+      "pollTooManyOptions": "投票最多 {0} 个选项",
+      "pollEndsTooSoon": "截止时间太近了，请选择更晚的时间",
+      "pollEndsTooLate": "截止时间超出了本站允许的最长期限"
     },
     "PostDetailPage": {
       "s1": "返回",

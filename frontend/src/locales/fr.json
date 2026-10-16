@@ -236,7 +236,16 @@
       "s39": "Échec de l’envoi de {0} : {1}",
       "s40": ", veuillez réessayer",
       "s41": "Échec de l’envoi ; ce message n’a pas été envoyé",
-      "s42": "Échec de la publication"
+      "s42": "Échec de la publication",
+      "pollNoDeadline": "Sans échéance",
+      "pollModeDuration": "Durée",
+      "pollModeAt": "Date de fin",
+      "pollDeadlineMode": "Type d’échéance",
+      "pollNoDeadlineHint": "Le sondage ne se fermera pas automatiquement.",
+      "pollEndsAtLabel": "Se termine le",
+      "pollEndsAtShort": "Fin {0}",
+      "pollCharLimit": "{0} sur {1} caractères",
+      "pollMaxOptions": "{0} options maximum"
     },
     "PostContent": {
       "s1": "Réduire",
@@ -273,7 +282,8 @@
       "s6": "Voir les résultats",
       "s7": "Retour au sondage",
       "s8": "Échec du vote : {0}",
-      "s9": "Échec du vote"
+      "s9": "Échec du vote",
+      "noDeadline": "· Sans échéance"
     },
     "PostReactions": {
       "s1": "Réactions",
@@ -2442,7 +2452,10 @@
       "s28": "Chaque option ne peut dépasser {0} caractère | Chaque option ne peut dépasser {0} caractères",
       "s29": "Un sondage ne peut pas être publié avec des médias",
       "s30": "Écrivez quelque chose avant de publier",
-      "s31": "Un message privé doit {'@'}mentionner au moins une personne"
+      "s31": "Un message privé doit {'@'}mentionner au moins une personne",
+      "pollTooManyOptions": "Un sondage peut avoir au plus {0} options",
+      "pollEndsTooSoon": "La date de fin est trop proche ; choisissez plus tard",
+      "pollEndsTooLate": "La date de fin dépasse le maximum de ce serveur"
     },
     "PostDetailPage": {
       "s1": "Retour",

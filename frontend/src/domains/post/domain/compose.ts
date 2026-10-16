@@ -35,10 +35,53 @@ export const VISIBILITY_OPTIONS: { label: string; short: string; value: Visibili
   { label: t('post.compose.s21'), short: t('post.compose.s22'), value: 'direct', icon: 'mail' },
 ]
 
+/** expires_in sent for a poll without deadline (~10 years, the server cap). */
+export const POLL_NO_DEADLINE = 10 * 365 * 24 * 3600
+
+/** Misskey-style deadline modes. The Mastodon API always needs expires_in. */
+export type PollDeadlineMode = 'none' | 'duration' | 'at'
+
 export interface PollDraft {
   options: string[]
   expiresIn: number
   multiple: boolean
+  /** Defaults to 'duration'. */
+  mode?: PollDeadlineMode
+  /** Local datetime ("YYYY-MM-DDTHH:mm") for mode 'at'. */
+  endsAt?: string
+}
+
+/** Instance poll limits (configuration.polls of /api/v2/instance). */
+export interface PollLimits {
+  maxOptions: number
+  maxCharactersPerOption: number
+  minExpiration: number
+  maxExpiration: number
+}
+
+export const DEFAULT_POLL_LIMITS: PollLimits = {
+  maxOptions: MAX_POLL_OPTIONS,
+  maxCharactersPerOption: MAX_POLL_OPTION_LENGTH,
+  minExpiration: 300,
+  maxExpiration: 2629746,
+}
+
+/** Seconds until the poll closes, as sent in expires_in. */
+export function pollExpiresIn(poll: PollDraft, now: Date = new Date()): number {
+  if (poll.mode === 'none') return POLL_NO_DEADLINE
+  if (poll.mode === 'at') {
+    const end = poll.endsAt ? new Date(poll.endsAt).getTime() : NaN
+    if (Number.isNaN(end)) return 0
+    return Math.floor((end - now.getTime()) / 1000)
+  }
+  return poll.expiresIn
+}
+
+/** A poll whose end is years away was created with "no deadline". */
+export function isNoDeadlinePoll(expiresAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!expiresAt) return false
+  const end = new Date(expiresAt).getTime()
+  return !Number.isNaN(end) && end - now.getTime() > 5 * 365 * 24 * 3600 * 1000
 }
 
 export interface ComposeDraft {
@@ -112,7 +155,7 @@ export function composeLength(draft: ComposeDraft): number {
 
 const MENTION = /(^|[^\w@])@[\p{L}\p{N}_]+(?:@[\w.-]+)?/u
 
-export function validateDraft(draft: ComposeDraft, limit: number): string | null {
+export function validateDraft(draft: ComposeDraft, limit: number, pollLimits: PollLimits = DEFAULT_POLL_LIMITS, now: Date = new Date()): string | null {
   const text = draft.text.trim()
   if (draft.spoilerEnabled && !draft.spoilerText.trim()) return t('post.compose.s23')
   if (composeLength(draft) > limit) return t('post.compose.s24', [limit])
@@ -121,8 +164,14 @@ export function validateDraft(draft: ComposeDraft, limit: number): string | null
     if (options.length < MIN_POLL_OPTIONS) return t('post.compose.s25', [MIN_POLL_OPTIONS])
     if (options.some(option => !option)) return t('post.compose.s26')
     if (new Set(options).size !== options.length) return t('post.compose.s27')
-    if (options.some(option => countChars(option) > MAX_POLL_OPTION_LENGTH)) {
-      return t('post.compose.s28', [MAX_POLL_OPTION_LENGTH])
+    if (options.length > pollLimits.maxOptions) return t('post.compose.pollTooManyOptions', [pollLimits.maxOptions])
+    if (options.some(option => countChars(option) > pollLimits.maxCharactersPerOption)) {
+      return t('post.compose.s28', [pollLimits.maxCharactersPerOption])
+    }
+    if (draft.poll.mode === 'at') {
+      const seconds = pollExpiresIn(draft.poll, now)
+      if (seconds < pollLimits.minExpiration) return t('post.compose.pollEndsTooSoon')
+      if (pollLimits.maxExpiration > 0 && seconds > pollLimits.maxExpiration) return t('post.compose.pollEndsTooLate')
     }
     if (draft.mediaIds.length) return t('post.compose.s29')
   }
@@ -131,7 +180,7 @@ export function validateDraft(draft: ComposeDraft, limit: number): string | null
   return null
 }
 
-export function buildCreateParams(draft: ComposeDraft): CreateStatusParams {
+export function buildCreateParams(draft: ComposeDraft, now: Date = new Date()): CreateStatusParams {
   const params: CreateStatusParams = { status: draft.text, visibility: draft.visibility }
   if (draft.spoilerEnabled && draft.spoilerText.trim()) {
     params.spoiler_text = draft.spoilerText.trim()
@@ -143,7 +192,7 @@ export function buildCreateParams(draft: ComposeDraft): CreateStatusParams {
   if (draft.poll) {
     params.poll = {
       options: draft.poll.options.map(option => option.trim()),
-      expires_in: draft.poll.expiresIn,
+      expires_in: pollExpiresIn(draft.poll, now),
       multiple: draft.poll.multiple,
     }
   }

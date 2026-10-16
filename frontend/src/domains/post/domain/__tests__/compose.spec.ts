@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import {
+  POLL_NO_DEADLINE, isNoDeadlinePoll, pollExpiresIn,
   buildCreateParams, canBoost, canQuote, canShare, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
   type ComposeDraft,
 } from '../compose'
@@ -114,5 +115,38 @@ describe('validateDraft direct messages', () => {
     expect(validateDraft({ ...base, text: 'mail me a@b.c' }, 500)).toMatch('私信')
     expect(validateDraft({ ...base, text: '@bob 你好' }, 500)).toBeNull()
     expect(validateDraft({ ...base, text: 'hi @bob@remote.social' }, 500)).toBeNull()
+  })
+})
+
+describe('poll deadline modes', () => {
+  const now = new Date('2026-10-17T00:00:00Z')
+  const base = { text: 'q', spoilerEnabled: false, spoilerText: '', visibility: 'public' as const, mediaIds: [] }
+
+  it('sends the far-future expiry for "no deadline"', () => {
+    const params = buildCreateParams({ ...base, poll: { options: ['a', 'b'], expiresIn: 300, multiple: false, mode: 'none' } }, now)
+    expect(params.poll?.expires_in).toBe(POLL_NO_DEADLINE)
+  })
+
+  it('converts a specific end time into expires_in', () => {
+    const endsAt = new Date(now.getTime() + 2 * 3600 * 1000).toISOString()
+    expect(pollExpiresIn({ options: [], expiresIn: 0, multiple: false, mode: 'at', endsAt }, now)).toBe(7200)
+    expect(pollExpiresIn({ options: [], expiresIn: 600, multiple: false }, now)).toBe(600)
+  })
+
+  it('validates end time and option limits against the instance config', () => {
+    const limits = { maxOptions: 3, maxCharactersPerOption: 5, minExpiration: 300, maxExpiration: 86400 }
+    const soon = new Date(now.getTime() + 60 * 1000).toISOString()
+    const late = new Date(now.getTime() + 2 * 86400 * 1000).toISOString()
+    expect(validateDraft({ ...base, poll: { options: ['a', 'b'], expiresIn: 0, multiple: false, mode: 'at', endsAt: soon } }, 500, limits, now)).toBeTruthy()
+    expect(validateDraft({ ...base, poll: { options: ['a', 'b'], expiresIn: 0, multiple: false, mode: 'at', endsAt: late } }, 500, limits, now)).toBeTruthy()
+    expect(validateDraft({ ...base, poll: { options: ['a', 'b', 'c', 'd'], expiresIn: 300, multiple: false } }, 500, limits, now)).toBeTruthy()
+    expect(validateDraft({ ...base, poll: { options: ['a', 'toolong'], expiresIn: 300, multiple: false } }, 500, limits, now)).toBeTruthy()
+    expect(validateDraft({ ...base, poll: { options: ['a', 'b'], expiresIn: 300, multiple: false, mode: 'none' } }, 500, limits, now)).toBeNull()
+  })
+
+  it('recognizes no-deadline polls by their far expiry', () => {
+    expect(isNoDeadlinePoll('2036-10-14T00:00:00Z', now)).toBe(true)
+    expect(isNoDeadlinePoll('2026-10-18T00:00:00Z', now)).toBe(false)
+    expect(isNoDeadlinePoll(null, now)).toBe(false)
   })
 })

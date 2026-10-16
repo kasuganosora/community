@@ -11,12 +11,14 @@ import { markBidiNumbers, stripBidiMarks } from '@/shared/utils/bidi'
 import { MAX_POST_LENGTH } from '@/shared/utils/constants'
 import type { MastodonAccount, MastodonAttachment, MastodonStatus, Visibility } from '@/shared/types/mastodon'
 import {
-  MAX_MEDIA_ATTACHMENTS, MAX_POLL_OPTIONS, MIN_POLL_OPTIONS, POLL_DURATIONS,
+  MAX_MEDIA_ATTACHMENTS, MIN_POLL_OPTIONS,
   buildCreateParams, composeLength, replyMentions, replyVisibility, validateDraft, visibilityChoices,
   REPLACE_NOTE, REPLACE_ACTION, REPLACE_FAILED, DIRECT_SCOPE,
   type ComposeDraft, type PollDraft,
 } from '@/domains/post/domain/compose'
 import EmojiPicker from './EmojiPicker.vue'
+import PollDeadlinePicker from './PollDeadlinePicker.vue'
+import { usePollLimits } from '@/shared/composables/usePollLimits'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { insertShortcode } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
@@ -161,6 +163,8 @@ watch(visibilityOpen, (open) => {
 
 onBeforeUnmount(() => document.removeEventListener('pointerdown', closeVisibilityOnOutside))
 const poll = ref<PollDraft | null>(null)
+const pollLimits = usePollLimits()
+const pollOptionLength = (value: string) => Array.from(value).length
 interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
@@ -194,7 +198,7 @@ const draft = computed<ComposeDraft>(() => ({
 }))
 const charCount = computed(() => composeLength(draft.value))
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
-const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH))
+const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH, pollLimits.value))
 const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? t('shared.PostComposer.s26', [displayAccount(props.replyTo.account.acct)]) : t('shared.PostComposer.s27')))
@@ -258,11 +262,11 @@ function toggleSpoiler() {
 }
 
 function togglePoll() {
-  poll.value = poll.value ? null : { options: ['', ''], expiresIn: 86400, multiple: false }
+  poll.value = poll.value ? null : { options: ['', ''], expiresIn: 86400, multiple: false, mode: 'duration', endsAt: '' }
 }
 
 function addPollOption() {
-  if (poll.value && poll.value.options.length < MAX_POLL_OPTIONS) poll.value.options.push('')
+  if (poll.value && poll.value.options.length < pollLimits.value.maxOptions) poll.value.options.push('')
 }
 
 function removePollOption(i: number) {
@@ -530,8 +534,9 @@ defineExpose({ focus, reset })
             v-model="content"
             :placeholder="placeholderText"
             :aria-label="placeholderText"
-            :autosize="{ minRows: 3, maxRows: 12 }"
+            :autosize="{ minRows: poll || media.length ? 1 : 3, maxRows: 30 }"
             class="composer__textarea"
+            :class="{ 'composer__textarea--compact': !!poll || media.length > 0 }"
             :disabled="loadingSource || posting"
             @keyup="scheduleMentions"
             @click="scheduleMentions"
@@ -576,17 +581,25 @@ defineExpose({ focus, reset })
         <fieldset v-if="poll" class="composer__poll">
           <legend class="composer__poll-legend">{{ $t('shared.PostComposer.s10') }}</legend>
           <div v-for="(_, i) in poll.options" :key="i" class="composer__poll-option">
-            <input
-              v-model="poll.options[i]"
-              type="text"
-              :placeholder="$t('shared.PostComposer.s11', [i + 1])"
-              :aria-label="$t('shared.PostComposer.s12', [i + 1])"
-              maxlength="50"
-            />
+            <div class="composer__poll-input">
+              <input
+                v-model="poll.options[i]"
+                type="text"
+                dir="auto"
+                :placeholder="$t('shared.PostComposer.s11', [i + 1])"
+                :aria-label="$t('shared.PostComposer.s12', [i + 1])"
+                :maxlength="pollLimits.maxCharactersPerOption"
+              />
+              <span
+                class="composer__poll-count"
+                :class="{ 'composer__poll-count--near': pollOptionLength(poll.options[i] ?? '') >= pollLimits.maxCharactersPerOption - 5 }"
+                :aria-label="$t('shared.PostComposer.pollCharLimit', [pollOptionLength(poll.options[i] ?? ''), pollLimits.maxCharactersPerOption])"
+              >{{ pollLimits.maxCharactersPerOption - pollOptionLength(poll.options[i] ?? '') }}</span>
+            </div>
             <button
               v-if="poll.options.length > MIN_POLL_OPTIONS"
               type="button"
-              class="tool-btn"
+              class="tool-btn composer__poll-remove"
               :aria-label="$t('shared.PostComposer.s13', [i + 1])"
               @click="removePollOption(i)"
             >
@@ -595,23 +608,27 @@ defineExpose({ focus, reset })
           </div>
           <div class="composer__poll-settings">
             <button
-              v-if="poll.options.length < MAX_POLL_OPTIONS"
+              v-if="poll.options.length < pollLimits.maxOptions"
               type="button"
               class="composer__link-btn"
               @click="addPollOption"
             >
+              <t-icon name="add" :size="16" />
               {{ $t('shared.PostComposer.s14') }}
             </button>
-            <label class="composer__poll-check">
-              <input v-model="poll.multiple" type="checkbox" />
+            <span v-else class="composer__poll-max">{{ $t('shared.PostComposer.pollMaxOptions', [pollLimits.maxOptions]) }}</span>
+            <label class="composer__poll-switch">
+              <input v-model="poll.multiple" type="checkbox" role="switch" :aria-checked="poll.multiple" />
+              <span class="composer__poll-switch-track" aria-hidden="true"><span class="composer__poll-switch-thumb" /></span>
               {{ $t('shared.PostComposer.s15') }}
             </label>
-            <label class="composer__poll-duration">
-              <span class="sr-only">{{ $t('shared.PostComposer.s16') }}</span>
-              <select v-model.number="poll.expiresIn" :aria-label="$t('shared.PostComposer.s16')">
-                <option v-for="d in POLL_DURATIONS" :key="d.value" :value="d.value">{{ d.label }}</option>
-              </select>
-            </label>
+            <PollDeadlinePicker
+              v-model:mode="poll.mode"
+              v-model:expires-in="poll.expiresIn"
+              v-model:ends-at="poll.endsAt"
+              class="composer__poll-deadline"
+              :limits="pollLimits"
+            />
           </div>
         </fieldset>
 
@@ -833,6 +850,10 @@ defineExpose({ focus, reset })
   min-height: 6.5rem !important;
   padding: var(--space-2) !important;
   resize: none !important;
+}
+
+.composer__textarea--compact :deep(.t-textarea__inner) {
+  min-height: 2.75rem !important;
 }
 
 .composer__textarea :deep(.t-textarea__inner:focus-visible) {
@@ -1072,6 +1093,28 @@ defineExpose({ focus, reset })
 
 .composer__poll-option input {
   background: var(--color-bg-row);
+  padding-right: 2.75rem;
+}
+
+.composer__poll-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.composer__poll-count {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-label-tertiary);
+  pointer-events: none;
+}
+
+.composer__poll-count--near {
+  color: var(--color-warning);
 }
 
 .composer__poll-settings {
@@ -1084,6 +1127,9 @@ defineExpose({ focus, reset })
 }
 
 .composer__link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   min-height: 2rem;
   color: var(--color-accent-text);
   font-weight: var(--weight-medium);
@@ -1093,28 +1139,65 @@ defineExpose({ focus, reset })
   opacity: 0.6;
 }
 
-.composer__poll-check {
+.composer__poll-max {
+  font-size: var(--text-footnote);
+  color: var(--color-label-tertiary);
+}
+
+/* Themed switch; the native checkbox stays for keyboard and screen readers. */
+.composer__poll-switch {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  cursor: pointer;
+  color: var(--color-label);
 }
 
-.composer__poll-check input {
+.composer__poll-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.composer__poll-switch-track {
+  position: relative;
+  flex: none;
+  width: 2.25rem;
+  height: 1.375rem;
+  border-radius: var(--radius-full);
+  background: var(--color-fill-strong);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.composer__poll-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 1.125rem;
   height: 1.125rem;
-  accent-color: var(--color-accent);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 
-.composer__poll-duration select {
-  min-height: 2rem;
-  border: none;
-  background: #fff;
-  color: #1c1c1e;
-  font: inherit;
-  font-size: var(--text-subhead);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  color-scheme: light;
+.composer__poll-switch input:checked + .composer__poll-switch-track {
+  background: var(--color-accent);
+}
+
+.composer__poll-switch input:checked + .composer__poll-switch-track .composer__poll-switch-thumb {
+  transform: translateX(0.875rem);
+}
+
+.composer__poll-switch input:focus-visible + .composer__poll-switch-track {
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.composer__poll-deadline {
+  margin-left: auto;
 }
 
 .composer__visibility {

@@ -45,7 +45,7 @@ function handlePosted(status: MastodonStatus) {
   padding-top: var(--space-2);
 }
 
-.compose-sheet :deep(.t-textarea__inner) {
+.compose-sheet :deep(.composer__textarea:not(.composer__textarea--compact) .t-textarea__inner) {
   min-height: 8rem !important;
 }
 </style>

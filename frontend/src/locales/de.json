@@ -236,7 +236,16 @@
       "s39": "{0} konnte nicht hochgeladen werden: {1}",
       "s40": ", bitte erneut versuchen",
       "s41": "Senden fehlgeschlagen; diese Nachricht wurde nicht gesendet",
-      "s42": "Posten fehlgeschlagen"
+      "s42": "Posten fehlgeschlagen",
+      "pollNoDeadline": "Ohne Frist",
+      "pollModeDuration": "Dauer",
+      "pollModeAt": "Endzeitpunkt",
+      "pollDeadlineMode": "Fristart",
+      "pollNoDeadlineHint": "Die Umfrage endet nicht automatisch.",
+      "pollEndsAtLabel": "Endet am",
+      "pollEndsAtShort": "Endet {0}",
+      "pollCharLimit": "{0} von {1} Zeichen",
+      "pollMaxOptions": "Höchstens {0} Optionen"
     },
     "PostContent": {
       "s1": "Einklappen",
@@ -273,7 +282,8 @@
       "s6": "Ergebnisse ansehen",
       "s7": "Zurück zur Umfrage",
       "s8": "Abstimmen fehlgeschlagen: {0}",
-      "s9": "Abstimmen fehlgeschlagen"
+      "s9": "Abstimmen fehlgeschlagen",
+      "noDeadline": "· Ohne Frist"
     },
     "PostReactions": {
       "s1": "Emoji-Reaktionen",
@@ -2442,7 +2452,10 @@
       "s28": "Jede Option darf höchstens {0} Zeichen haben | Jede Option darf höchstens {0} Zeichen haben",
       "s29": "Umfragen können nicht zusammen mit Medien gepostet werden",
       "s30": "Schreib etwas, bevor du postest",
-      "s31": "Eine Direktnachricht muss mindestens eine Person {'@'}erwähnen"
+      "s31": "Eine Direktnachricht muss mindestens eine Person {'@'}erwähnen",
+      "pollTooManyOptions": "Eine Umfrage darf höchstens {0} Optionen haben",
+      "pollEndsTooSoon": "Der Endzeitpunkt ist zu früh; bitte später wählen",
+      "pollEndsTooLate": "Der Endzeitpunkt überschreitet das Maximum dieses Servers"
     },
     "PostDetailPage": {
       "s1": "Zurück",
