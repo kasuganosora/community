@@ -1,0 +1,79 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/security/v1",
+    {
+      "Key": "sec:Key",
+      "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
+      "sensitive": "as:sensitive",
+      "Hashtag": "as:Hashtag",
+      "quoteUrl": "as:quoteUrl",
+      "toot": "http://joinmastodon.org/ns#",
+      "Emoji": "toot:Emoji",
+      "featured": "toot:featured",
+      "discoverable": "toot:discoverable",
+      "schema": "http://schema.org#",
+      "PropertyValue": "schema:PropertyValue",
+      "value": "schema:value",
+      "misskey": "https://misskey-hub.net/ns#",
+      "_misskey_content": "misskey:_misskey_content",
+      "_misskey_quote": "misskey:_misskey_quote",
+      "_misskey_reaction": "misskey:_misskey_reaction",
+      "_misskey_votes": "misskey:_misskey_votes",
+      "_misskey_summary": "misskey:_misskey_summary",
+      "_misskey_followedMessage": "misskey:_misskey_followedMessage",
+      "_misskey_requireSigninToViewContents": "misskey:_misskey_requireSigninToViewContents",
+      "_misskey_makeNotesFollowersOnlyBefore": "misskey:_misskey_makeNotesFollowersOnlyBefore",
+      "_misskey_makeNotesHiddenBefore": "misskey:_misskey_makeNotesHiddenBefore",
+      "_misskey_license": "misskey:_misskey_license",
+      "freeText": {
+        "@id": "misskey:freeText",
+        "@type": "schema:text"
+      },
+      "isCat": "misskey:isCat",
+      "vcard": "http://www.w3.org/2006/vcard/ns#"
+    }
+  ],
+  "id": "https://maid.lat/notes/asf7i5c4w71800ss",
+  "type": "Question",
+  "attributedTo": "https://maid.lat/users/9h6zahxdlu",
+  "content": "测试多选 maid",
+  "published": "2026-10-17T00:12:23.044Z",
+  "to": [
+    "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+    "https://maid.lat/users/9h6zahxdlu/followers"
+  ],
+  "inReplyTo": null,
+  "attachment": [],
+  "sensitive": false,
+  "tag": [],
+  "closed": "2026-10-17T00:17:23.045Z",
+  "anyOf": [
+    {
+      "type": "Note",
+      "name": "选项A",
+      "replies": {
+        "type": "Collection",
+        "totalItems": 1
+      }
+    },
+    {
+      "type": "Note",
+      "name": "选项B",
+      "replies": {
+        "type": "Collection",
+        "totalItems": 0
+      }
+    },
+    {
+      "type": "Note",
+      "name": "选项C",
+      "replies": {
+        "type": "Collection",
+        "totalItems": 1
+      }
+    }
+  ]
+}

@@ -123,8 +123,14 @@ func isStatusObjectType(t string) bool {
 
 // questionPoll parses a remote Question into a poll (nil when it has none).
 func questionPoll(object map[string]any, accountID uint64) *models.Poll {
+	poll, _ := parseQuestion(object, accountID)
+	return poll
+}
+
+// parseQuestion also reports, per option, whether the object carried a tally.
+func parseQuestion(object map[string]any, accountID uint64) (*models.Poll, []bool) {
 	if t, _ := object["type"].(string); t != "Question" {
-		return nil
+		return nil, nil
 	}
 	multiple := false
 	raw, ok := object["oneOf"].([]any)
@@ -133,8 +139,9 @@ func questionPoll(object map[string]any, accountID uint64) *models.Poll {
 		multiple = true
 	}
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
+	var known []bool
 	poll := &models.Poll{AccountId: accountID, Multiple: multiple, Properties: map[string]any{"remote": true}}
 	for _, item := range raw {
 		m, ok := item.(map[string]any)
@@ -149,21 +156,37 @@ func questionPoll(object map[string]any, accountID uint64) *models.Poll {
 		if utf8.RuneCountInString(name) > 500 {
 			name = string([]rune(name)[:500])
 		}
-		poll.Options = append(poll.Options, &models.PollOption{Index: uint8(len(poll.Options)), Content: name, Votes: replyTotal(m)}) //nolint:gosec // bounded above
+		votes, ok := replyTotal(m)
+		known = append(known, ok)
+		poll.Options = append(poll.Options, &models.PollOption{Index: uint8(len(poll.Options)), Content: name, Votes: votes}) //nolint:gosec // bounded above
 	}
 	if len(poll.Options) == 0 {
-		return nil
+		return nil, nil
 	}
 	applyQuestionState(poll, object)
-	return poll
+	return poll, known
 }
 
-func replyTotal(option map[string]any) uint64 {
-	replies, _ := option["replies"].(map[string]any)
-	if n, ok := replies["totalItems"].(float64); ok && n > 0 {
-		return uint64(n)
+// replyTotal reads an option's replies.totalItems. known is false when the
+// option carries no tally at all (some servers omit it in Updates or for
+// anyOf), so callers must not treat that as zero votes.
+func replyTotal(option map[string]any) (votes uint64, known bool) {
+	replies, ok := option["replies"].(map[string]any)
+	if !ok {
+		return 0, false
 	}
-	return 0
+	switch n := replies["totalItems"].(type) {
+	case float64:
+		if n > 0 {
+			return uint64(n), true
+		}
+		return 0, true
+	case string:
+		if v, err := strconv.ParseUint(strings.TrimSpace(n), 10, 64); err == nil {
+			return v, true
+		}
+	}
+	return 0, false
 }
 
 // applyQuestionState copies endTime/closed/votersCount onto a poll.
@@ -201,7 +224,7 @@ func questionTime(v any) *time.Time {
 
 // updateRemotePoll applies an Update(Question): tallies, endTime, closed.
 func updateRemotePoll(tx *gorm.DB, statusID, accountID uint64, object map[string]any) error {
-	parsed := questionPoll(object, accountID)
+	parsed, known := parseQuestion(object, accountID)
 	if parsed == nil {
 		return nil
 	}
@@ -215,11 +238,40 @@ func updateRemotePoll(tx *gorm.DB, statusID, accountID uint64, object map[string
 		return err
 	}
 	byName := map[string]*models.PollOption{}
+	byIndex := map[uint8]*models.PollOption{}
 	for _, o := range poll.Options {
-		byName[o.Content] = o
+		byName[strings.TrimSpace(o.Content)] = o
+		byIndex[o.Index] = o
 	}
-	for _, o := range parsed.Options {
-		if existing := byName[o.Content]; existing != nil {
+	// Local accounts' votes on this remote poll are known exactly; a remote
+	// tally can lag (or be missing) but never be lower than them.
+	type localCount struct {
+		OptionID uint64
+		N        uint64
+	}
+	var locals []localCount
+	if err := tx.Table("poll_option_votes").Select("poll_option_votes.option_id AS option_id, COUNT(*) AS n").
+		Joins("JOIN accounts ON accounts.id = poll_option_votes.account_id AND accounts.domain IS NULL").
+		Where("poll_option_votes.poll_id = ?", poll.Id).Group("poll_option_votes.option_id").Scan(&locals).Error; err != nil {
+		return err
+	}
+	localVotes := map[uint64]uint64{}
+	for _, l := range locals {
+		localVotes[l.OptionID] = l.N
+	}
+	sameShape := len(parsed.Options) == len(poll.Options)
+	for i, o := range parsed.Options {
+		existing := byName[strings.TrimSpace(o.Content)]
+		if existing == nil && sameShape {
+			existing = byIndex[o.Index]
+		}
+		if existing != nil {
+			if !known[i] {
+				continue
+			}
+			if floor := localVotes[existing.Id]; o.Votes < floor {
+				o.Votes = floor
+			}
 			if existing.Votes != o.Votes {
 				if err := tx.Model(&models.PollOption{}).Where("id = ?", existing.Id).Update("votes", o.Votes).Error; err != nil {
 					return err

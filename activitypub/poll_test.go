@@ -262,3 +262,68 @@ func TestPollVoteActivitiesAreMastodonVotes(t *testing.T) {
 	assert.Equal(t, []string{author.OriginId}, obj["to"])
 	assert.NotEqual(t, acts[0]["id"], acts[1]["id"])
 }
+
+// Real Misskey (maid.lat) multi-choice Question after it closed: anyOf with
+// replies.totalItems and "closed" instead of endTime.
+func TestRemoteMisskeyAnyOfUpdateKeepsTallies(t *testing.T) {
+	testDB := setupPollDB(t)
+	misskey := pollRemoteAccount(t, testDB, "misskey")
+	closed := loadPollFixture(t, "misskey_anyof_closed.json")
+
+	parsed := questionPoll(closed, misskey.Id)
+	require.NotNil(t, parsed)
+	assert.True(t, parsed.Multiple)
+	require.Len(t, parsed.Options, 3)
+	assert.Equal(t, []uint64{1, 0, 1}, []uint64{parsed.Options[0].Votes, parsed.Options[1].Votes, parsed.Options[2].Votes})
+	assert.True(t, parsed.IsClosed(time.Now()))
+
+	// Stored while open, before anyone voted.
+	open := loadPollFixture(t, "misskey_anyof_closed.json")
+	delete(open, "closed")
+	open["endTime"] = "2099-01-01T00:00:00Z"
+	for _, o := range open["anyOf"].([]any) {
+		o.(map[string]any)["replies"] = map[string]any{"type": "Collection", "totalItems": float64(0)}
+	}
+	status := &models.Status{AccountId: misskey.Id, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "multi"}, Poll: questionPoll(open, misskey.Id)}
+	require.NoError(t, testDB.GormDB.Create(status).Error)
+	opts := status.Poll.Options.SortByIndex()
+	qa := &models.Account{Username: "qa"}
+	require.NoError(t, testDB.GormDB.Create(qa).Error)
+	for _, i := range []int{0, 2} { // qa votes A and C locally
+		require.NoError(t, testDB.GormDB.Create(&models.PollOptionVote{PollId: status.Poll.Id, OptionId: opts[i].Id, AccountId: qa.Id}).Error)
+		require.NoError(t, testDB.GormDB.Model(opts[i]).UpdateColumn("votes", 1).Error)
+	}
+
+	tallies := func() []uint64 {
+		var poll models.Poll
+		require.NoError(t, testDB.GormDB.Preload("Options").First(&poll, status.Poll.Id).Error)
+		out := []uint64{}
+		for _, o := range poll.Options.SortByIndex() {
+			out = append(out, o.Votes)
+		}
+		return out
+	}
+
+	require.NoError(t, updateRemotePoll(testDB.GormDB, status.Id, misskey.Id, closed))
+	assert.Equal(t, []uint64{1, 0, 1}, tallies())
+
+	// An Update whose options carry no tally must not zero the counts.
+	bare := loadPollFixture(t, "misskey_anyof_closed.json")
+	for _, o := range bare["anyOf"].([]any) {
+		delete(o.(map[string]any), "replies")
+	}
+	require.NoError(t, updateRemotePoll(testDB.GormDB, status.Id, misskey.Id, bare))
+	assert.Equal(t, []uint64{1, 0, 1}, tallies())
+
+	// A stale zero tally never drops below the local accounts' own votes.
+	stale := loadPollFixture(t, "misskey_anyof_closed.json")
+	for _, o := range stale["anyOf"].([]any) {
+		o.(map[string]any)["replies"] = map[string]any{"type": "Collection", "totalItems": float64(0)}
+	}
+	require.NoError(t, updateRemotePoll(testDB.GormDB, status.Id, misskey.Id, stale))
+	assert.Equal(t, []uint64{1, 0, 1}, tallies())
+	var poll models.Poll
+	require.NoError(t, testDB.GormDB.First(&poll, status.Poll.Id).Error)
+	assert.True(t, poll.Multiple)
+	assert.True(t, poll.IsClosed(time.Now()))
+}
