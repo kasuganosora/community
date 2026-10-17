@@ -26,7 +26,7 @@ type CreateStatusRequest struct {
 	MediaIds    []string           `json:"media_ids"`
 	Sensitive   bool               `json:"sensitive"`
 	SpoilerText string             `json:"spoiler_text"`
-	Visibility  string             `binding:"required,oneof=public unlisted private direct" json:"visibility"`
+	Visibility  string             `binding:"omitempty,oneof=public unlisted private direct" json:"visibility"`
 	Poll        *CreatePollContent `json:"poll"`
 	Language    string             `json:"language"`
 	QuoteId     string             `binding:"omitempty,numeric"                             json:"quote_id"`
@@ -60,6 +60,12 @@ func Create(c *gin.Context) {
 		Content:   models.StatusContent{Content: req.Status, SpoilerText: req.SpoilerText},
 		Sensitive: req.Sensitive,
 		Language:  req.Language,
+	}
+
+	if req.Visibility == "" {
+		// Mastodon treats visibility as optional and falls back to the
+		// account's default posting privacy (source.privacy).
+		req.Visibility = defaultPostingVisibility(c, currentAccount)
 	}
 
 	err := status.SetVisibilityByString(req.Visibility)
@@ -258,4 +264,20 @@ func validateCreateStatusRequest(req *CreateStatusRequest) string {
 	}
 
 	return ""
+}
+
+// defaultPostingVisibility mirrors /api/v1/preferences
+// "posting:default:visibility": accounts that protect their posts default to
+// private, everyone else to public.
+func defaultPostingVisibility(c *gin.Context, account *models.Account) string {
+	if account == nil || account.UserId == 0 {
+		return "public"
+	}
+	var setting models.UserSetting
+	if err := db.GetDB().WithContext(c.Request.Context()).Where("user_id = ?", account.UserId).Limit(1).Find(&setting).Error; err == nil {
+		if protect, ok := setting.Data["post_protect"].(bool); ok && protect {
+			return "private"
+		}
+	}
+	return "public"
 }

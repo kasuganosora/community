@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,4 +71,25 @@ func TestCreateFormRejectsBadBoolean(t *testing.T) {
 	require.Equal(t, 400, code)
 	code, _ = postRaw(t, ts, "application/x-www-form-urlencoded", []byte("status=x&visibility="+strings.Repeat("z", 3)))
 	require.Equal(t, 400, code)
+}
+
+func TestCreateWithoutVisibilityDefaultsToPublic(t *testing.T) {
+	ts := newTestSetup(t)
+	code, resp := postRaw(t, ts, "application/json", []byte(`{"status":"no visibility given"}`))
+	require.Equal(t, 200, code, resp)
+	require.Equal(t, "public", resp["visibility"])
+
+	code, resp = postRaw(t, ts, "application/x-www-form-urlencoded", []byte("status=form+without+visibility"))
+	require.Equal(t, 200, code, resp)
+	require.Equal(t, "public", resp["visibility"])
+
+	// Protected accounts default to private, like /api/v1/preferences.
+	require.NoError(t, ts.db.AutoMigrate(&models.UserSetting{}))
+	require.NoError(t, ts.db.Create(&models.UserSetting{ID: "us-protect", UserID: int64(ts.acct.UserId), Data: map[string]any{"post_protect": true}}).Error)
+	code, resp = postRaw(t, ts, "application/json", []byte(`{"status":"protected default"}`))
+	require.Equal(t, 200, code, resp)
+	require.Equal(t, "private", resp["visibility"])
+
+	code, _ = postRaw(t, ts, "application/json", []byte(`{"status":"x","visibility":"bogus"}`))
+	require.Equal(t, http.StatusBadRequest, code)
 }

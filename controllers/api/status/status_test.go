@@ -355,7 +355,9 @@ func TestCreate_NoVisibility(t *testing.T) {
 
 	safeHandler(c, Create)
 
-	assert.Equal(t, 400, w.Code)
+	// Mastodon: visibility is optional and defaults to the account's default.
+	assert.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Body.String(), `"visibility":"public"`)
 }
 
 func TestCreate_NoAccount(t *testing.T) {
