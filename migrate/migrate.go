@@ -79,6 +79,21 @@ func Up(db *gorm.DB) (err error) {
 		// 将脚本执行与迁移记录写入放在同一事务中，保证原子性。
 		// 注意：MySQL 的 DDL 语句会隐式提交，因此事务对纯 DDL 脚本可能
 		// 无法完全回滚，但迁移记录的插入仍然受事务保护。
+		if nt, ok := scriptType.(scripts.NonTransactional); ok && nt.NonTransactional() {
+			// Online DDL (e.g. CREATE INDEX CONCURRENTLY) cannot run inside a
+			// transaction: run it on the plain connection, then record it.
+			// Such scripts must be idempotent, since a crash between the two
+			// steps re-runs them.
+			if upErr := scriptType.Up(db); upErr != nil {
+				log.Error("Migration script %s failed: %v", name, upErr)
+				return errors.Wrapf(upErr, "failed to execute script %s", name)
+			}
+			if createErr := db.Create(&Migration{Name: name, Batch: batch}).Error; createErr != nil {
+				return errors.Wrapf(createErr, "failed to insert migration record %s", name)
+			}
+			continue
+		}
+
 		err = db.Transaction(func(tx *gorm.DB) error {
 			if txErr := scriptType.Up(tx); txErr != nil {
 				return errors.Wrapf(txErr, "failed to execute script %s", name)
