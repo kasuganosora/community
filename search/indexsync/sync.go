@@ -6,6 +6,7 @@
 package indexsync
 
 import (
+	"errors"
 	"html"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func onStatus(ev event.Event) bool {
 		go indexStatusByID(status.Id)
 	case "after_delete":
 		go func(id uint64) {
-			if err := search.GetMeilisearchClient().DeleteStatus(strconv.FormatUint(id, 10)); err != nil {
+			if err := withWriteSlot(func() error { return search.GetMeilisearchClient().DeleteStatus(strconv.FormatUint(id, 10)) }); err != nil {
 				log.Warn("search index delete status %d: %v", id, err)
 			}
 		}(status.Id)
@@ -68,22 +69,46 @@ func reindexLocked() {
 		scheduleReindex()
 		return
 	}
-	if err := reindexAccounts(client); err != nil {
-		log.Warn("search index accounts: %v", err)
-		scheduleReindex()
-		return
+	// Resume from the last batch Meili acknowledged (survives Meili crashes
+	// and our own restarts); a finished pass clears the checkpoint.
+	cp := loadCheckpoint()
+	for _, step := range []struct {
+		name string
+		run  func(*search.MeilisearchClient, map[string]uint64) error
+	}{{"accounts", reindexAccounts}, {"statuses", reindexStatuses}, {"tags", reindexTags}} {
+		if err := step.run(client, cp); err != nil {
+			stopProgress(step.name)
+			log.Warn("search index %s: %v (will resume from checkpoint %d)", step.name, err, cp[step.name])
+			scheduleReindex()
+			return
+		}
 	}
-	if err := reindexStatuses(client); err != nil {
-		log.Warn("search index statuses: %v", err)
-		scheduleReindex()
-		return
-	}
-	if err := reindexTags(client); err != nil {
-		log.Warn("search index tags: %v", err)
-		scheduleReindex()
-		return
-	}
+	saveCheckpoint(map[string]uint64{})
 	log.Info("Meilisearch index backfill finished")
+}
+
+// countRows reports (done, total) for progress, honouring the checkpoint.
+func countRows(table, where string, last uint64) (int64, int64) {
+	var total, done int64
+	_ = db.GetDB().Table(table).Where(where).Count(&total).Error
+	if last > 0 {
+		_ = db.GetDB().Table(table).Where(where).Where("id <= ?", last).Count(&done).Error
+	}
+	return done, total
+}
+
+// commitBatch writes one batch under the write-slot limit and checkpoints it.
+func commitBatch(index string, cp map[string]uint64, last uint64, n int, write func() error) error {
+	if err := withWriteSlot(write); err != nil {
+		return err
+	}
+	cp[index] = last
+	saveCheckpoint(cp)
+	advanceProgress(index, int64(n), false)
+	if reindexPause > 0 {
+		time.Sleep(reindexPause)
+	}
+	return nil
 }
 
 func scheduleReindex() {
@@ -100,15 +125,18 @@ func scheduleReindex() {
 	}()
 }
 
-func reindexAccounts(client *search.MeilisearchClient) error {
-	var last uint64
+func reindexAccounts(client *search.MeilisearchClient, cp map[string]uint64) error {
+	last := cp["accounts"]
+	done, total := countRows("accounts", "deleted_at IS NULL", last)
+	beginProgress("accounts", done, total)
 	for client.IsEnabled() {
 		var accounts []*models.Account
-		err := db.GetDB().Where("id > ? AND deleted_at IS NULL", last).Order("id").Limit(200).Find(&accounts).Error
+		err := db.GetDB().Where("id > ? AND deleted_at IS NULL", last).Order("id").Limit(reindexBatch).Find(&accounts).Error
 		if err != nil {
 			return err
 		}
 		if len(accounts) == 0 {
+			advanceProgress("accounts", 0, true)
 			return nil
 		}
 		docs := make([]*search.AccountSearchDocument, 0, len(accounts))
@@ -118,22 +146,25 @@ func reindexAccounts(client *search.MeilisearchClient) error {
 			}
 			last = account.Id
 		}
-		if err = client.BatchIndexAccounts(docs); err != nil {
+		if err = commitBatch("accounts", cp, last, len(accounts), func() error { return client.BatchIndexAccounts(docs) }); err != nil {
 			return err
 		}
 	}
-	return nil
+	return errEngineGone
 }
 
-func reindexStatuses(client *search.MeilisearchClient) error {
-	var last uint64
+func reindexStatuses(client *search.MeilisearchClient, cp map[string]uint64) error {
+	last := cp["statuses"]
+	done, total := countRows("statuses", "deleted_at IS NULL AND scheduled_at IS NULL", last)
+	beginProgress("statuses", done, total)
 	for client.IsEnabled() {
 		var statuses []*models.Status
-		err := db.GetDB().Where("id > ? AND deleted_at IS NULL AND scheduled_at IS NULL", last).Order("id").Limit(200).Find(&statuses).Error
+		err := db.GetDB().Where("id > ? AND deleted_at IS NULL AND scheduled_at IS NULL", last).Order("id").Limit(reindexBatch).Find(&statuses).Error
 		if err != nil {
 			return err
 		}
 		if len(statuses) == 0 {
+			advanceProgress("statuses", 0, true)
 			return nil
 		}
 		ids := make([]uint64, len(statuses))
@@ -149,22 +180,25 @@ func reindexStatuses(client *search.MeilisearchClient) error {
 				docs = append(docs, doc)
 			}
 		}
-		if err = client.BatchIndexStatuses(docs); err != nil {
+		if err = commitBatch("statuses", cp, last, len(statuses), func() error { return client.BatchIndexStatuses(docs) }); err != nil {
 			return err
 		}
 	}
-	return nil
+	return errEngineGone
 }
 
-func reindexTags(client *search.MeilisearchClient) error {
-	var last uint64
+func reindexTags(client *search.MeilisearchClient, cp map[string]uint64) error {
+	last := cp["tags"]
+	done, total := countRows("tags", "1 = 1", last)
+	beginProgress("tags", done, total)
 	for client.IsEnabled() {
 		var tags []*models.Tag
-		err := db.GetDB().Where("id > ?", last).Order("id").Limit(200).Find(&tags).Error
+		err := db.GetDB().Where("id > ?", last).Order("id").Limit(reindexBatch).Find(&tags).Error
 		if err != nil {
 			return err
 		}
 		if len(tags) == 0 {
+			advanceProgress("tags", 0, true)
 			return nil
 		}
 		docs := make([]*search.HashtagSearchDocument, 0, len(tags))
@@ -174,12 +208,16 @@ func reindexTags(client *search.MeilisearchClient) error {
 				docs = append(docs, doc)
 			}
 		}
-		if err = client.BatchIndexHashtags(docs); err != nil {
+		if err = commitBatch("tags", cp, last, len(tags), func() error { return client.BatchIndexHashtags(docs) }); err != nil {
 			return err
 		}
 	}
-	return nil
+	return errEngineGone
 }
+
+// errEngineGone stops a pass when Meili disconnects mid-way; the checkpoint
+// keeps what was acknowledged and the ready hook resumes it on reconnect.
+var errEngineGone = errors.New("meilisearch became unavailable")
 
 func indexStatusByID(id uint64) {
 	client := search.GetMeilisearchClient()
@@ -191,7 +229,7 @@ func indexStatusByID(id uint64) {
 		return
 	}
 	if status.DeletedAt != nil || status.IsScheduled() {
-		_ = client.DeleteStatus(strconv.FormatUint(id, 10))
+		_ = withWriteSlot(func() error { return client.DeleteStatus(strconv.FormatUint(id, 10)) })
 		return
 	}
 	contents := loadContents([]uint64{id})
@@ -207,11 +245,11 @@ func indexStatusByID(id uint64) {
 	if doc == nil {
 		return
 	}
-	if err := client.IndexStatus(doc); err != nil {
+	if err := withWriteSlot(func() error { return client.IndexStatus(doc) }); err != nil {
 		log.Warn("search index status %d: %v", id, err)
 		return
 	}
-	if err := client.IndexAccount(accountDoc(&author)); err != nil {
+	if err := withWriteSlot(func() error { return client.IndexAccount(accountDoc(&author)) }); err != nil {
 		log.Warn("search index account %d: %v", author.Id, err)
 	}
 	indexStatusTags(client, id)
@@ -226,7 +264,7 @@ func indexAccountByID(id uint64) {
 	if err := db.GetDB().First(&account, id).Error; err != nil {
 		return
 	}
-	if err := client.IndexAccount(accountDoc(&account)); err != nil {
+	if err := withWriteSlot(func() error { return client.IndexAccount(accountDoc(&account)) }); err != nil {
 		log.Warn("search index account %d: %v", id, err)
 	}
 }
@@ -245,7 +283,7 @@ func indexStatusTags(client *search.MeilisearchClient, statusID uint64) {
 		if doc == nil {
 			continue
 		}
-		if err = client.IndexHashtag(doc); err != nil {
+		if err = withWriteSlot(func() error { return client.IndexHashtag(doc) }); err != nil {
 			log.Warn("search index tag %s: %v", tag.Name, err)
 		}
 	}
