@@ -17,6 +17,7 @@ import (
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/home"
 	"github.com/kasuganosora/community/feed/list"
+	"github.com/kasuganosora/community/feed/notification"
 	"github.com/kasuganosora/community/feed/public"
 	"github.com/kasuganosora/community/feed/tag"
 	"github.com/kasuganosora/community/models"
@@ -205,7 +206,7 @@ func runFeedTopic(key string, topic *feedTopic) {
 			}
 		} else {
 			switch wire.Type {
-			case "update", "delete", "status.update", "filters_changed":
+			case "update", "delete", "status.update", "filters_changed", "notification":
 			default:
 				continue
 			}
@@ -235,6 +236,9 @@ func feedStreamTimeline(c *gin.Context, account *models.Account) (feed.Timeline,
 	switch stream {
 	case "user":
 		return &home.HomeTimeline{Account: account}, nil
+	case "user:notification", "notification":
+		// Notification badge/list invalidations (e.g. a poll closing).
+		return &notification.NotificationTimeline{Account: account}, nil
 	case "public", "public:local", "public:remote", "public:media", "public:local:media", "public:remote:media":
 		return &public.PublicTimeline{OnlyLocal: strings.Contains(stream, ":local"), OnlyRemote: strings.Contains(stream, ":remote"), OnlyMedia: strings.Contains(stream, ":media")}, nil
 	case "hashtag", "hashtag:local", "hashtag:remote":

@@ -402,6 +402,9 @@
     },
     "LanguagePicker": {
       "label": "Sprache"
+    },
+    "unread": {
+      "count": "{0} ungelesen"
     }
   },
   "admin": {

@@ -2,6 +2,7 @@
 import LeftSidebar from './LeftSidebar.vue'
 import RightSidebar from './RightSidebar.vue'
 import MobileTabBar from './MobileTabBar.vue'
+import NotificationWatcher from './NotificationWatcher.vue'
 import ComposeSheet from '@/shared/components/sheets/ComposeSheet.vue'
 import AccountSheet from '@/shared/components/sheets/AccountSheet.vue'
 import AccountsManagerDialog from '@/shared/components/account/AccountsManagerDialog.vue'
@@ -41,6 +42,7 @@ useKeyboardInset()
 
 <template>
   <div class="app-layout" :class="{ 'app-layout--settings': isSettings, 'app-layout--groups': isGroups, 'app-layout--wide': isWide }">
+    <NotificationWatcher />
     <aside class="app-layout__left">
       <LeftSidebar />
     </aside>

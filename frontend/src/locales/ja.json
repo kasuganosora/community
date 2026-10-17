@@ -402,6 +402,9 @@
     },
     "LanguagePicker": {
       "label": "言語"
+    },
+    "unread": {
+      "count": "未読 {0} 件"
     }
   },
   "admin": {

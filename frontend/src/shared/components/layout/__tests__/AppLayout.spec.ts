@@ -18,7 +18,7 @@ async function setup() {
     { path: '/@:username/:statusId', name: 'post-detail', component: page },
   ] })
   await router.push('/'); await router.isReady()
-  const wrapper = mount(AppLayout, { global: { plugins: [router], stubs: { LeftSidebar: true, RightSidebar: true, MobileTabBar: true, ComposeSheet: true, AccountSheet: true, AccountsManagerDialog: true, RouterView: true, TIcon: true } } })
+  const wrapper = mount(AppLayout, { global: { plugins: [router], stubs: { LeftSidebar: true, RightSidebar: true, MobileTabBar: true, ComposeSheet: true, AccountSheet: true, AccountsManagerDialog: true, NotificationWatcher: true, RouterView: true, TIcon: true } } })
   return { wrapper, router }
 }
 describe('message composer mobile controls', () => {

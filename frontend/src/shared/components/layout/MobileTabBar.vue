@@ -7,6 +7,8 @@ import { activeNavSection } from '@/shared/utils/nav'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 import { t } from '@/shared/i18n'
+import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
+const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -46,7 +48,10 @@ function go(to: string) {
       :aria-current="active === tab.value ? 'page' : undefined"
       @click="go(tab.to)"
     >
-      <t-icon :name="active === tab.value ? tab.iconActive : tab.icon" :size="26" />
+      <span class="tabbar__icon">
+        <t-icon :name="active === tab.value ? tab.iconActive : tab.icon" :size="26" />
+        <span v-if="tab.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" :aria-label="$t('shared.unread.count', [unreadLabel])">{{ unreadLabel }}</span>
+      </span>
       <span class="tabbar__label">{{ tab.label }}</span>
     </button>
     <button
@@ -67,6 +72,30 @@ function go(to: string) {
 </template>
 
 <style scoped>
+.nav-item__icon,
+.tabbar__icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.unread-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1.125rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
 /* A floating translucent layer: the timeline scrolls underneath and shows
    through. The bright hairline on top reads as light catching the edge. */
 .tabbar {

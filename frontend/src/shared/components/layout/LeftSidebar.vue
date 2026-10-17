@@ -12,6 +12,8 @@ import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { activeNavSection } from '@/shared/utils/nav'
 
 import { t } from '@/shared/i18n'
+import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
+const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -83,7 +85,10 @@ async function handleLogout() {
         @click="navigateTo(item)"
         :aria-current="activeItem === item.value ? 'page' : undefined"
       >
-        <t-icon :name="activeItem === item.value ? item.iconActive : item.icon" :size="26" :aria-hidden="true" />
+        <span class="nav-item__icon">
+          <t-icon :name="activeItem === item.value ? item.iconActive : item.icon" :size="26" :aria-hidden="true" />
+          <span v-if="item.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" :aria-label="$t('shared.unread.count', [unreadLabel])">{{ unreadLabel }}</span>
+        </span>
         <span class="nav-item__label" :title="item.label">{{ item.label }}</span>
       </button>
     </nav>
@@ -125,6 +130,30 @@ async function handleLogout() {
 </template>
 
 <style scoped>
+.nav-item__icon,
+.tabbar__icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.unread-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1.125rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
 .user-menu__divider { height: 1px; margin: 4px 12px; background: var(--color-separator); }
 .user-menu__logout { width: 100%; min-height: 40px; padding: 0 12px; text-align: left; color: var(--color-danger); border-radius: 8px; }
 .user-menu__logout:hover { background: var(--color-pressed); }

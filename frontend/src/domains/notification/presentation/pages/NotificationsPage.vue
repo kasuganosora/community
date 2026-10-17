@@ -16,6 +16,8 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
+import { useFeedStream } from '@/shared/composables/useFeedStream'
+import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
 
 import { t } from '@/shared/i18n'
 const PAGE_SIZE = 30
@@ -31,6 +33,15 @@ const feed = usePaginatedList<MastodonNotification>(
   PAGE_SIZE,
 )
 const { items: notifications, loading, error, hasMore } = feed
+const { markRead } = useNotificationUnread()
+// The newest loaded notification is what the user has now seen.
+watch(() => (filter.value === 'all' ? notifications.value[0]?.id : undefined), (id) => { if (id) void markRead(id) })
+// New notifications (any type, e.g. a closed poll) appear without reloading.
+useFeedStream(ref('stream=notification'), async () => {
+  const ok = await feed.revalidate()
+  if (feed.newer.value.length) await feed.revealNewer()
+  return ok
+})
 
 // Mention notifications render a PostCard; keep its actions optimistic.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, updates) => {
@@ -47,6 +58,8 @@ function getNotificationIcon(type: NotificationType) {
     case 'follow': return 'user-add'
     case 'follow_request': return 'user-add'
     case 'mention': return 'chat'
+    case 'poll': return 'chart-bar'
+    case 'update': return 'edit'
     default: return 'notification'
   }
 }
@@ -58,6 +71,7 @@ function getNotificationColor(type: NotificationType) {
     case 'follow': return 'var(--accent-blue)'
     case 'follow_request': return 'var(--accent-blue)'
     case 'mention': return 'var(--accent-blue)'
+    case 'poll': return 'var(--color-accent-text)'
     default: return 'var(--text-secondary)'
   }
 }
@@ -328,6 +342,7 @@ watch(filter, () => {
 }
 
 .notification-text strong {
+  margin-inline-end: 0.25em;
   color: var(--color-label);
   font-weight: var(--weight-semibold);
 }
