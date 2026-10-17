@@ -6,6 +6,18 @@ read-only and only `SELECT` is issued; HTTP uses only `GET`/`OPTIONS` against
 `COMMUNITY_BASE` and never follows redirects. Keys are compared by SHA-256 of
 the normalized public PEM; private keys, tokens and passwords are never read.
 
+The import being verified is produced in two steps (there is no single
+`tootctl` command for a site import): export the source with
+`scripts/migration/export_misskey.py`, then preflight and apply the bundle with
+`community-transfer --scope site --input <bundle>` (or let the setup wizard run
+both). The export is local-only by default: remote accounts and notes are
+included only when local data references them, so remote-side counts on the
+target are expected to be far below Misskey's remote cache. Checks 1–7 only
+compare local data and follow relations of local users, which the default
+export includes; use `--include-remote-cache` only if the rehearsal must also
+carry the full remote cache. See
+[scripts/migration/README-misskey.md](../scripts/migration/README-misskey.md).
+
 Requirements: Python 3 stdlib; `psycopg2` if installed, else `psql`; `mysql`
 CLI if the Community DB is MySQL (`mysql://user:pass@host:port/db`).
 
