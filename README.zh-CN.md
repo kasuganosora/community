@@ -67,9 +67,9 @@ Community 解决的正是这个问题。它会把**整个 Misskey 或 Mastodon �
 - 部分 Misskey 独有的功能（某些频道、引用和聊天功能）可能只能归档
 - DNS：准备好之后由你自己切换域名
 
-**可以放心演练。** 导出工具在只读事务中读取旧数据库，从不修改它。你可以先在单独的 Community 数据库上演练，随时回退到旧服务器。重复执行同一份导入也不会产生重复数据。
+**可以放心演练。** 导出工具只读取旧数据库（使用短小的只读事务，中断后可以续传），从不修改它。你可以先在单独的 Community 数据库上演练，随时回退到旧服务器。重复执行同一份导入也不会产生重复数据。
 
-**怎么做：** 在安装向导中选择"从 Misskey 迁移"或"从 Mastodon 迁移"，或者使用 `community-transfer` 命令行工具。普通用户也可以把自己的 Misskey / Mastodon 个人备份导入到自己的账号。已用 Misskey 2026.10.0 和 Mastodon 4.7.3 测试。完整说明、检查清单和限制见 [docs/data-migration.md](docs/data-migration.md)。
+**怎么做：** 在安装向导中选择"从 Misskey 迁移"或"从 Mastodon 迁移"，向导会自动完成导出和导入。命令行分两步：先用 `scripts/migration/export_misskey.py`（Mastodon 用 `export_mastodon_db.py`）导出，再用 `community-transfer --scope site --input <迁移包> --report …` 导入（先预检，再加 `--apply` 执行）。默认只导出本站自己的数据（本地用户及其帖子、文件、关注，以及它们引用到的远端账号和帖子），不导出整个远端内容缓存；加 `--include-remote-cache` 可导出全部。普通用户也可以把自己的 Misskey / Mastodon 个人备份导入到自己的账号。已用 Misskey 2026.10.0 和 Mastodon 4.7.3 测试。完整说明、检查清单和限制见 [docs/data-migration.md](docs/data-migration.md)。
 
 ## 和其他软件比较
 

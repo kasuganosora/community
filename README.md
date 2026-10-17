@@ -67,9 +67,9 @@ so remote servers keep trusting you and **your followers stay followers**. Nobod
 - Some Misskey-only things (certain channel, quote and chat features) may only be archived
 - Your DNS: you switch the domain over yourself when you're ready
 
-**Safe to try.** The exporters read your old database in a read-only transaction and never change it, so you can rehearse on a separate Community database and roll back to the old server at any time. Re-running the same import doesn't create duplicates.
+**Safe to try.** The exporters only read your old database (short read-only transactions, resumable after an interruption) and never change it, so you can rehearse on a separate Community database and roll back to the old server at any time. Re-running the same import doesn't create duplicates.
 
-**How:** pick "Migrate from Misskey" or "Migrate from Mastodon" in the setup wizard, or use the `community-transfer` CLI. Users can also import personal Misskey/Mastodon backups into their own account. Tested with Misskey 2026.10.0 and Mastodon 4.7.3. Full details, checklist and limits: [docs/data-migration.md](docs/data-migration.md).
+**How:** pick "Migrate from Misskey" or "Migrate from Mastodon" in the setup wizard, which runs the export and import for you. From the command line it is two steps: export with `scripts/migration/export_misskey.py` (or `export_mastodon_db.py`), then import the bundle with `community-transfer --scope site --input <bundle> --report …` (preflight first, then `--apply`). By default only your instance's own data is exported (local users, their posts, files and follows, plus the remote accounts and posts they reference), not the whole cache of remote content; add `--include-remote-cache` to export everything. Users can also import personal Misskey/Mastodon backups into their own account. Tested with Misskey 2026.10.0 and Mastodon 4.7.3. Full details, checklist and limits: [docs/data-migration.md](docs/data-migration.md).
 
 ## How it compares
 

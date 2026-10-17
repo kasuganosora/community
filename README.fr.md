@@ -67,9 +67,9 @@ donc les serveurs distants continuent de vous faire confiance et **vos abonnés 
 - Certaines fonctions propres à Misskey (certaines fonctions de canaux, citations et chat) peuvent n'être qu'archivées
 - Votre DNS : c'est vous qui basculez le domaine quand vous êtes prêt
 
-**Sans risque à essayer.** Les outils d'export lisent votre ancienne base dans une transaction en lecture seule et ne la modifient jamais : vous pouvez faire une répétition sur une base Community séparée et revenir à l'ancien serveur à tout moment. Relancer le même import ne crée pas de doublons.
+**Sans risque à essayer.** Les outils d'export se contentent de lire votre ancienne base (transactions courtes en lecture seule, reprise possible après une interruption) et ne la modifient jamais : vous pouvez faire une répétition sur une base Community séparée et revenir à l'ancien serveur à tout moment. Relancer le même import ne crée pas de doublons.
 
-**Comment :** choisissez « Migrer depuis Misskey » ou « Migrer depuis Mastodon » dans l'assistant d'installation, ou utilisez la CLI `community-transfer`. Les utilisateurs peuvent aussi importer leurs sauvegardes personnelles Misskey/Mastodon dans leur propre compte. Testé avec Misskey 2026.10.0 et Mastodon 4.7.3. Détails, liste de contrôle et limites : [docs/data-migration.md](docs/data-migration.md).
+**Comment :** choisissez « Migrer depuis Misskey » ou « Migrer depuis Mastodon » dans l'assistant d'installation, qui enchaîne l'export et l'import. En ligne de commande, cela se fait en deux étapes : exporter avec `scripts/migration/export_misskey.py` (ou `export_mastodon_db.py`), puis importer le paquet avec `community-transfer --scope site --input <paquet> --report …` (pré-vérification d'abord, puis `--apply`). Par défaut, seules les données de votre instance sont exportées (utilisateurs locaux, leurs publications, fichiers et abonnements, ainsi que les comptes et publications distants qu'ils référencent), pas tout le cache de contenu distant ; ajoutez `--include-remote-cache` pour tout exporter. Les utilisateurs peuvent aussi importer leurs sauvegardes personnelles Misskey/Mastodon dans leur propre compte. Testé avec Misskey 2026.10.0 et Mastodon 4.7.3. Détails, liste de contrôle et limites : [docs/data-migration.md](docs/data-migration.md).
 
 ## Comparaison
 

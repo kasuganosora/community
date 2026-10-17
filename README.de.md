@@ -67,9 +67,9 @@ damit andere Server dir weiter vertrauen und **deine Follower Follower bleiben**
 - Manche Misskey-eigenen Funktionen (bestimmte Kanal-, Zitat- und Chat-Funktionen) werden eventuell nur archiviert
 - Dein DNS: Die Domain stellst du selbst um, wenn du so weit bist
 
-**Gefahrlos ausprobieren.** Die Exporter lesen deine alte Datenbank in einer Nur-Lese-Transaktion und verändern sie nie. Du kannst also auf einer separaten Community-Datenbank proben und jederzeit zum alten Server zurück. Denselben Import erneut auszuführen erzeugt keine Duplikate.
+**Gefahrlos ausprobieren.** Die Exporter lesen deine alte Datenbank nur (kurze Nur-Lese-Transaktionen, nach einer Unterbrechung fortsetzbar) und verändern sie nie. Du kannst also auf einer separaten Community-Datenbank proben und jederzeit zum alten Server zurück. Denselben Import erneut auszuführen erzeugt keine Duplikate.
 
-**So geht's:** Wähle im Einrichtungsassistenten „Von Misskey migrieren“ oder „Von Mastodon migrieren“, oder nutze die CLI `community-transfer`. Nutzer können außerdem ihre persönlichen Misskey-/Mastodon-Backups ins eigene Konto importieren. Getestet mit Misskey 2026.10.0 und Mastodon 4.7.3. Details, Checkliste und Grenzen: [docs/data-migration.md](docs/data-migration.md).
+**So geht's:** Wähle im Einrichtungsassistenten „Von Misskey migrieren“ oder „Von Mastodon migrieren“ – der Assistent erledigt Export und Import. Auf der Kommandozeile sind es zwei Schritte: mit `scripts/migration/export_misskey.py` (bzw. `export_mastodon_db.py`) exportieren, dann das Paket mit `community-transfer --scope site --input <Paket> --report …` importieren (zuerst Vorabprüfung, dann `--apply`). Standardmäßig werden nur die Daten deiner eigenen Instanz exportiert (lokale Nutzer, ihre Beiträge, Dateien und Follows sowie die entfernten Konten und Beiträge, auf die sie verweisen), nicht der gesamte Cache entfernter Inhalte; mit `--include-remote-cache` wird alles exportiert. Nutzer können außerdem ihre persönlichen Misskey-/Mastodon-Backups ins eigene Konto importieren. Getestet mit Misskey 2026.10.0 und Mastodon 4.7.3. Details, Checkliste und Grenzen: [docs/data-migration.md](docs/data-migration.md).
 
 ## Im Vergleich
 
