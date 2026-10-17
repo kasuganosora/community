@@ -218,6 +218,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(c.note_emoji_ids({"id": ident(5), "emojis": ["local", ":local@.:"]}), [ident(10)])
         self.assertEqual(c.note_emoji_ids({"id": ident(6), "userHost": "remote.test", "emojis": ["remote"]}), [ident(11)])
         self.tables["follow_request"] = [{"id": ident(7), "followerId": self.a, "followeeId": self.c, "requestId": "https://remote.test/activity/follow"}]
+        c = self.converter()
         c.relationships()
         self.assertEqual(c.bundle["relations"][0]["activity_uri"], "https://remote.test/activity/follow")
         self.tables["following"] = [{"id": ident(8), "followerId": self.a, "followeeId": self.c}, {"id": ident(9), "followerId": self.c, "followeeId": self.a}]
@@ -226,24 +227,112 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(c.bundle["relations"][0]["activity_uri"], "https://source.test/follows/" + self.a + "/" + self.c)
         self.assertEqual(c.bundle["relations"][1]["activity_uri"], "")
 
-    def test_psql_snapshot_single_readonly_transaction_and_big_ids(self):
+    def fake_psql(self, body):
         bindir = self.root / "bin"
-        bindir.mkdir()
+        bindir.mkdir(exist_ok=True)
         psql = bindir / "psql"
-        # Fake server process validates the actual SQL fed by our reader.
-        psql.write_text("#!/usr/bin/env python3\nimport sys,json\ns=sys.stdin.read()\nassert 'REPEATABLE READ READ ONLY' in s\nassert s.count('BEGIN TRANSACTION')==1\nassert '%I.%I' in s\nassert 'COMMIT;' in s\nprint(json.dumps({'_snapshot':'1:2:'}))\nprint(json.dumps({'table':'user','row':{'id':'9007199254740993','username':'x'}}))\n")
+        psql.write_text("#!/usr/bin/env python3\nimport sys, os, json\n" + body)
         psql.chmod(0o700)
-        with mock.patch.dict(os.environ, {"PATH": str(bindir) + os.pathsep + os.environ["PATH"]}):
-            tables, snapshot = m.read_snapshot(self.output)
-        self.assertEqual(tables["user"][0]["id"], "9007199254740993")
-        self.assertEqual(snapshot, "1:2:")
+        return mock.patch.dict(os.environ, {"PATH": str(bindir) + os.pathsep + os.environ["PATH"]})
+
+    def test_psql_pages_are_short_readonly_keyset_transactions(self):
+        log = self.root / "calls.jsonl"
+        body = ("s = sys.stdin.read()\nopen(%r, 'a').write(json.dumps({'sql': s, 'argv': sys.argv, 'opts': os.environ.get('PGOPTIONS', '')}) + '\\n')\n"
+                "assert s.startswith('BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY;') and s.rstrip().endswith('COMMIT;')\n"
+                "if 'pg_class' in s:\n    print(json.dumps({'t': 'user', 'cols': ['id', 'host'], 'pk': 'id', 'est': 3}))\n"
+                "elif 'count(*)' in s:\n    print(3)\n"
+                "elif \"> :'last'\" not in s:\n    print(json.dumps({'id': '9007199254740993', 'host': None})); print(json.dumps({'id': '9007199254740994', 'host': None}))\n"
+                "else:\n    assert any(a == 'last=9007199254740994' for a in sys.argv), sys.argv\n    print(json.dumps({'id': '9007199254740995', 'host': None}))\n") % str(log)
+        with self.fake_psql(body):
+            src = m.PsqlSource(self.output, batch_size=2)
+            st = m.Staging(self.output / "state.sqlite3")
+            f = m.Fetcher(src, st)
+            f.scan("user", "t.host IS NULL")
+        calls = [json.loads(l) for l in log.read_text().splitlines()]
+        self.assertTrue(all("default_transaction_read_only=on" in c["opts"] for c in calls))
+        pages = [c for c in calls if "LIMIT 2" in c["sql"]]
+        self.assertEqual(len(pages), 2)
+        self.assertIn('ORDER BY t."id" LIMIT 2', pages[0]["sql"])
+        self.assertEqual(st.count("user"), 3)
+        self.assertEqual(st.get("user", "9007199254740993")["id"], "9007199254740993")
+        self.assertEqual(st.task("scan:user"), ("9007199254740995", 3, 1))
+
+    def test_resume_continues_from_checkpoint(self):
+        st = m.Staging(self.output / "state.sqlite3")
+        st.save_task("scan:user", "0000000000000005", 5, 0)
+        seen = []
+        body = ("s = sys.stdin.read()\n"
+                "if 'pg_class' in s:\n    print(json.dumps({'t': 'user', 'cols': ['id'], 'pk': 'id', 'est': 6}))\n"
+                "elif 'count(*)' in s:\n    print(6)\n"
+                "else:\n    assert 'last=0000000000000005' in sys.argv, sys.argv\n    print(json.dumps({'id': '0000000000000006'}))\n")
+        stream = io.StringIO()
+        with self.fake_psql(body):
+            f = m.Fetcher(m.PsqlSource(self.output, batch_size=10), st, m.Progress(interval=0, stream=stream))
+            f.scan("user")
+        self.assertIn("done=5/6", stream.getvalue())  # progress starts at the checkpoint, not 0%
+        self.assertIn("done=6/6 (100.0%)", stream.getvalue())
+        self.assertEqual(st.task("scan:user")[1], 6)
+
+    def test_failure_reports_stage_cause_and_exit_code(self):
+        body = "sys.stdin.read()\nsys.stderr.write('WARNING: password file \"/x/.pgpass\" has group or world access\\nfe_sendauth: no password supplied password=hunter2\\n')\nsys.exit(2)\n"
+        err = io.StringIO()
+        with self.fake_psql(body), contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = m.main(["--base-url", "https://source.test", "--id-method", "aidx", "--source-version", "x", "--output", str(self.root / "out")])
+        self.assertEqual(code, 1)
+        text = err.getvalue()
+        self.assertIn("Export failed during connecting to source (catalog)", text)
+        self.assertIn("password file", text)
+        self.assertIn("no password supplied", text)
+        self.assertNotIn("hunter2", text)
+        self.assertNotIn("Traceback", text)
+        err = io.StringIO()
+        with self.fake_psql(body), contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            m.main(["--base-url", "https://source.test", "--id-method", "aidx", "--source-version", "x", "--output", str(self.root / "out"), "--verbose"])
+        self.assertIn("Traceback", err.getvalue())
+        self.assertNotIn("hunter2", err.getvalue())
+
+    def test_dsn_with_password_is_refused(self):
+        with self.assertRaises(m.ExportError):
+            m.PsqlSource(self.output, dsn="host=db password=secret")
+        with self.assertRaises(m.ExportError):
+            m.PsqlSource(self.output, dsn="postgresql://u:secret@db/misskey")
+
+    def test_file_sink_streams_same_bundle_as_memory(self):
+        self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "public", "text": "hi", "fileIds": []}]
+        expected = self.converter().convert()
+        sink = m.FileSink(self.output, {k: v for k, v in expected.items() if k not in m.SECTIONS})
+        c = self.converter(sink=sink)
+        c.convert()
+        sink.finish()
+        got = json.loads((self.output / "bundle.json").read_text())
+        for key in m.SECTIONS:
+            self.assertEqual(got[key], expected[key], key)
+        self.assertFalse((self.output / ".spool").exists())
+
+    def test_streaming_build_trims_references_outside_export(self):
+        self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "public", "replyId": ident(99), "renoteId": ident(98), "fileIds": [ident(97)], "visibleUserIds": [ident(96)]}]
+        self.tables["note_reaction"] = [{"id": ident(10), "noteId": ident(95), "userId": self.b, "reaction": "x"}]
+        self.tables["following"] = [{"id": ident(11), "followerId": self.a, "followeeId": ident(94)}]
+        sink = m.FileSink(self.output, {"schema": m.SCHEMA})
+        self.converter(sink=sink).convert()
+        sink.finish()
+        b = json.loads((self.output / "bundle.json").read_text())
+        post = b["posts"][0]
+        self.assertEqual((post["reply_id"], post["reblog_id"], post["media_ids"], post["recipient_ids"]), ("", "", [], []))
+        self.assertEqual(b["reactions"], [])
+        self.assertEqual(b["relations"], [])
+        self.assertTrue(any(i["code"] == "remote_reference_trimmed" for i in b["issues"]))
 
     def test_atomic_private_bundle_and_nonzero_for_incomplete_assets(self):
         self.tables["drive_file"] = [{"id": ident(4), "userId": self.a, "storedInternal": True, "accessKey": "missing", "size": 7}]
         out = self.root / "final"
+        staged = m.Staging.from_dict(self.tables)
         previous_umask = os.umask(0o022)
         try:
-            with mock.patch.object(m, "read_snapshot", return_value=(self.tables, "1:2:")), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            def fake_fetch(run, plan, labels):
+                run.staging = staged
+                return 1
+            with mock.patch.object(m.Run, "fetch", fake_fetch), contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()):
                 result = m.main(["--base-url", "https://source.test", "--id-method", "aidx", "--source-version", "2026.10.0", "--source-dir", str(self.source), "--output", str(out)])
             self.assertEqual(result, 2)
             self.assertEqual(out.stat().st_mode & 0o777, 0o700)
@@ -251,9 +340,9 @@ class ExportTests(unittest.TestCase):
             self.assertFalse((out / "bundle.json.partial").exists())
             self.assertNotIn("TEST_PRIVATE", stdout.getvalue())
             self.assertNotIn("$2b$", stdout.getvalue())
+            self.assertEqual(json.loads((out / "bundle.json").read_text())["schema"], m.SCHEMA)
         finally:
             os.umask(previous_umask)
-
 
 if __name__ == "__main__":
     unittest.main()

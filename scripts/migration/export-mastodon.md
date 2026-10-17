@@ -28,3 +28,21 @@ ruby scripts/migration/export_mastodon_test.rb
 ```
 
 Tested on the original 4.7.3 Rails environment with a real read-only PostgreSQL snapshot: canonical identities/keys, exact media bytes and private output modes. Fixture-specific findings belong in private validation reports, not in this reusable script.
+
+The Rails exporter prints `progress stage=<section> done=N speed=R/s` on stderr every `TRANSFER_PROGRESS_INTERVAL` seconds (default 5). On failure it prints the section, exception class and message (passwords and URL credentials redacted); `TRANSFER_VERBOSE=1` adds the backtrace.
+
+## Direct database export (`export_mastodon_db.py`)
+
+When the original Rails environment is unavailable (this is what the setup wizard uses), `export_mastodon_db.py` reads the Mastodon PostgreSQL database directly with the same resumable design as `export_misskey.py` (see `README-misskey.md`): keyset-paged reads in short `READ ONLY` transactions with `default_transaction_read_only=on`, a SQLite state directory (`<output>.state` or `--state-dir`) checkpointed per page, a streamed `bundle.json`, and bounded memory.
+
+By default only local data is exported: local accounts and everything they own, plus the remote accounts, statuses (reply/boost targets, favourited/bookmarked/pinned statuses, remote replies to local statuses), mentions, tags, media, polls, keys and emojis those reference. `--include-remote-cache` exports every table completely. `preview_cards` and `conversations` are not read in local-only mode.
+
+```sh
+python3 scripts/migration/export_mastodon_db.py --base-url https://masto.example \
+  --media-dir /srv/mastodon/public/system --output /private/mastodon-bundle          # one pass (source stopped)
+# or two phases on a live source:
+python3 scripts/migration/export_mastodon_db.py ... --fetch-only --max-rows-per-sec 2000
+python3 scripts/migration/export_mastodon_db.py ... --final-sync                     # after writes are stopped
+```
+
+Common options: `--dsn` (no password; use `PGPASSFILE`), `--batch-size`, `--max-rows-per-sec`, `--batch-sleep`, `--progress-interval`, `--verbose`, `--list-object-keys`. Errors print the stage and cause; exit codes are 0 / 2 (blocked) / 1 (failed, rerun resumes).

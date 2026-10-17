@@ -48,17 +48,34 @@ class CommunityMastodonExport
     end
   end
 
+  PROGRESS_INTERVAL = (ENV['TRANSFER_PROGRESS_INTERVAL'] || '5').to_f
+
+  # Periodic "progress stage=... done=N speed=R/s" lines on stderr; stdout keeps the summary.
+  def progress(name, done, started, force: false)
+    now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    return unless force || now - (@last_progress || 0) >= PROGRESS_INTERVAL
+
+    @last_progress = now
+    rate = done / [now - started, 1e-6].max
+    $stderr.puts(format('progress stage=%<name>s done=%<done>d speed=%<rate>.0f/s%<fin>s', name: name, done: done, rate: rate, fin: force ? ' finished' : ''))
+    $stderr.flush
+  end
+
   def section(io, name)
+    $export_stage = name
     io.write(",#{name.to_json}:[")
     first = true
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     emit = lambda do |row|
       io.write(',') unless first
       first = false
       io.write(JSON.generate(row))
       @counts[name] = @counts.fetch(name, 0) + 1
+      progress(name, @counts[name], started)
     end
     yield emit
     io.write(']')
+    progress(name, @counts.fetch(name, 0), started, force: true)
   end
 
   def each(model, &block)
@@ -330,9 +347,12 @@ begin
   ActiveRecord::Base.logger = Rails.logger
   Paperclip.options[:log] = false
   exit CommunityMastodonExport.new.run
-rescue StandardError, SystemStackError
-  # Never serialize exception messages: providers may embed credentials/DSNs.
-  warn 'Mastodon export failed; private partial output retained. No source writes were performed.'
+rescue StandardError, SystemStackError => e
+  # Report the stage and cause with credentials/DSN secrets redacted.
+  message = e.message.to_s.gsub(/(password\s*=\s*)\S+/i, '\\1***').gsub(%r{(://[^:/@\s]*:)[^@\s]*@}, '\\1***@')[0, 2000]
+  warn "Mastodon export failed during #{$export_stage || 'setup'}: #{e.class}: #{message}"
+  warn e.backtrace.first(20).join("\n") if ENV['TRANSFER_VERBOSE'] == '1'
+  warn 'Private partial output retained. No source writes were performed.'
   exit 1
 end
 

@@ -199,7 +199,7 @@ func stageMastodonMedia(ctx context.Context, r *runner) error {
 	job := r.t.snapshot()
 	r.t.logf("info", "listing media objects…")
 	err = runExporter(ctx, r, "mastodon_media", script, m.pg(r.secrets.MisskeyPassword),
-		[]string{"--base-url", job.BaseURL, "--output", listDir, "--list-object-keys", "--max-records", "100000000", "--max-snapshot-bytes", strconv.FormatInt(64<<30, 10)},
+		[]string{"--base-url", job.BaseURL, "--output", listDir, "--list-object-keys", "--state-dir", exportStateDir(), "--final-sync"},
 		func(line []byte) {
 			var o struct {
 				Key  string `json:"key"`
@@ -215,9 +215,10 @@ func stageMastodonMedia(ctx context.Context, r *runner) error {
 	return mirrorObjects(ctx, r, "mastodon_media", client, m.ObjectStorage.Bucket, objects)
 }
 
-// stageMastodonExport reads the Mastodon database in one read-only snapshot
-// with scripts/migration/export_mastodon_db.py. A finished bundle is a
-// checkpoint.
+// stageMastodonExport reads the Mastodon database (local data plus the remote
+// entities it references) with scripts/migration/export_mastodon_db.py using
+// keyset-paged read-only transactions. The state directory is a resumable
+// checkpoint and a finished bundle is a checkpoint.
 func stageMastodonExport(ctx context.Context, r *runner) error {
 	m, err := r.mastodon()
 	if err != nil {
@@ -234,8 +235,8 @@ func stageMastodonExport(ctx context.Context, r *runner) error {
 	}
 	_ = os.RemoveAll(out)
 	job := r.t.snapshot()
-	args := []string{"--base-url", job.BaseURL, "--output", out, "--max-records", "100000000",
-		"--max-snapshot-bytes", strconv.FormatInt(64<<30, 10), "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
+	args := []string{"--base-url", job.BaseURL, "--output", out, "--state-dir", exportStateDir(), "--final-sync",
+		"--max-media-bytes", strconv.FormatInt(16<<40, 10)}
 	switch {
 	case m.MediaSource == "local":
 		args = append(args, "--media-dir", m.FilesPath)
@@ -244,6 +245,6 @@ func stageMastodonExport(ctx context.Context, r *runner) error {
 	default:
 		args = append(args, "--object-storage-mode", "reference", "--object-base-url", m.ObjectStorage.PublicURL)
 	}
-	r.t.logf("info", "reading the Mastodon database in one read-only snapshot…")
+	r.t.logf("info", "reading the Mastodon database (resumable, read-only)…")
 	return runExporter(ctx, r, "mastodon_export", script, m.pg(r.secrets.MisskeyPassword), args, nil)
 }

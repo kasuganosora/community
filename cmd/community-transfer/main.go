@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/kasuganosora/community/config"
@@ -36,8 +37,9 @@ func run() int {
 	maxBytes := flag.Int64("max-expanded-bytes", 1<<30, "maximum uncompressed snapshot size; provision free disk before increasing")
 	maxFiles := flag.Int("max-files", 20000, "maximum number of archive files")
 	maxRecords := flag.Int("max-records", 100000, "maximum normalized records")
+	maxJSONBytes := flag.Int64("max-json-bytes", 64<<20, "maximum size of one JSON file such as bundle.json (it is parsed in memory; provision RAM before increasing)")
 	flag.Parse()
-	if *input == "" || (*scope != "site" && *scope != "personal") || *maxBytes <= 0 || *maxFiles <= 0 || *maxRecords <= 0 {
+	if *input == "" || (*scope != "site" && *scope != "personal") || *maxBytes <= 0 || *maxFiles <= 0 || *maxRecords <= 0 || *maxJSONBytes <= 0 {
 		fmt.Fprintln(os.Stderr, "Provide --input, --scope site|personal and positive limits. Use the target Community environment configuration.")
 		return 1
 	}
@@ -75,6 +77,10 @@ func run() int {
 	limits.MaxExpandedBytes = *maxBytes
 	limits.MaxFiles = *maxFiles
 	limits.MaxRecords = *maxRecords
+	limits.MaxJSONBytes = *maxJSONBytes
+	if *maxJSONBytes > limits.MaxFileBytes {
+		limits.MaxFileBytes = *maxJSONBytes
+	}
 	if *maxBytes > limits.MaxCompressedBytes {
 		limits.MaxCompressedBytes = *maxBytes
 	}
@@ -98,13 +104,13 @@ func run() int {
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Backup could not be read safely. Check files, limits and free disk.")
+		fmt.Fprintf(os.Stderr, "Backup could not be read safely (%s). Check files, limits (--max-expanded-bytes, --max-files, --max-json-bytes) and free disk.\n", safeReason(err))
 		return 1
 	}
 	defer archive.Close()
 	bundle, err := datatransfer.ParseArchive(ctx, archive, datatransfer.ParseOptions{Platform: *source, Kind: *kind})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Unsupported or malformed backup. Select its source and kind.")
+		fmt.Fprintf(os.Stderr, "Unsupported or malformed backup (%s). Select its source and kind; raise --max-json-bytes/--max-records for large site exports.\n", safeReason(err))
 		return 1
 	}
 	storageDir, err := filepath.Abs(filepath.Join("uploads", "media"))
@@ -163,4 +169,16 @@ func run() int {
 		_ = json.NewEncoder(os.Stdout).Encode(report)
 	}
 	return exitCode
+}
+
+// safeReason keeps the error class without echoing archive contents or paths.
+func safeReason(err error) string {
+	msg := err.Error()
+	if i := strings.IndexAny(msg, "\n"); i >= 0 {
+		msg = msg[:i]
+	}
+	if len(msg) > 160 {
+		msg = msg[:160]
+	}
+	return msg
 }

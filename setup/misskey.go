@@ -307,10 +307,18 @@ func (r *runner) misskey() (*MisskeyParams, *gorm.DB, error) {
 type lineLogger struct {
 	r     *runner
 	lines int64
+	stage string // when set, exporter "progress ..." lines also update this stage's counts
 }
+
+var progressLine = regexp.MustCompile(`^progress stage=(\S+) done=(\d+)(?:/(\d+))?`)
 
 func (l *lineLogger) Write(p []byte) (int, error) {
 	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
+		if m := progressLine.FindStringSubmatch(line); m != nil && l.stage != "" {
+			done, _ := strconv.ParseInt(m[2], 10, 64)
+			total, _ := strconv.ParseInt(m[3], 10, 64)
+			l.r.t.setCounts(l.stage, map[string]int64{"progress_done": done, "progress_total": total})
+		}
 		if strings.TrimSpace(line) != "" {
 			l.lines++
 			l.r.t.logf("info", "%s", line)
@@ -555,13 +563,18 @@ func mirrorOne(ctx context.Context, client *minio.Client, bucket, root string, o
 
 func exportDir() string { return filepath.Join(workDir(), "export") }
 
+// exportStateDir keeps the exporter's resumable fetch state between attempts.
+func exportStateDir() string { return filepath.Join(workDir(), "export.state") }
+
 func pgpassEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `:`, `\:`).Replace(s)
 }
 
 // stageMisskeyExport runs scripts/migration/export_misskey.py against the
-// source database in one read-only snapshot, producing a private
-// community-transfer bundle. A finished bundle is a checkpoint.
+// source database (keyset-paged read-only transactions, local data plus the
+// remote entities it references), producing a private community-transfer
+// bundle. The state directory resumes an interrupted fetch; a finished
+// bundle is a checkpoint.
 func stageMisskeyExport(ctx context.Context, r *runner) error {
 	m, src, err := r.misskey()
 	if err != nil {
@@ -583,8 +596,10 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 	if idMethod == "" {
 		return fail("invalid_id_method")
 	}
+	// --final-sync makes a resumed run pick up rows changed since the
+	// previous attempt (new, updated and deleted) before building the bundle.
 	args := []string{"--base-url", job.BaseURL, "--source-version", "unknown", "--id-method", idMethod, "--output", out,
-		"--max-records", "100000000", "--max-snapshot-bytes", strconv.FormatInt(64<<30, 10), "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
+		"--state-dir", exportStateDir(), "--final-sync", "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
 	switch m.MediaSource {
 	case "local":
 		args = append(args, "--source-dir", m.FilesPath)
@@ -597,7 +612,7 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 			args = append(args, "--source-dir", m.FilesPath)
 		}
 	}
-	r.t.logf("info", "reading the Misskey database in one read-only snapshot…")
+	r.t.logf("info", "reading the Misskey database (resumable, read-only)…")
 	return runExporter(ctx, r, "misskey_export", script, pgSource{m.Host, m.Port, m.Name, m.User, m.SSLMode, r.secrets.MisskeyPassword}, args, nil)
 }
 
@@ -644,7 +659,7 @@ func runExporter(ctx context.Context, r *runner, stage, script string, src pgSou
 	}
 	cmd.Env = append(env, "PGHOST="+src.Host, "PGPORT="+strconv.Itoa(src.Port), "PGDATABASE="+src.Name, "PGUSER="+src.User, "PGSSLMODE="+src.SSLMode, "PGPASSFILE="+pass.Name(), "PGCONNECT_TIMEOUT=10")
 	stdout, _ := cmd.StdoutPipe()
-	cmd.Stderr = &lineLogger{r: r}
+	cmd.Stderr = &lineLogger{r: r, stage: stage}
 	if err := cmd.Start(); err != nil {
 		return fail("export_tool_missing")
 	}
