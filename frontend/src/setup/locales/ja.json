@@ -10,7 +10,8 @@
     "redis": "Redis",
     "source": "Misskey 移行元",
     "admin": "管理者",
-    "review": "確認"
+    "review": "確認",
+    "media": "メディア移行"
   },
   "common": {
     "next": "次へ",
@@ -26,7 +27,8 @@
     "verifying": "確認中…",
     "starting": "開始中…",
     "edit": "変更",
-    "reviewBack": "保存して戻る"
+    "reviewBack": "保存して戻る",
+    "select": "選択してください"
   },
   "language": {
     "title": "言語を選択",
@@ -55,7 +57,8 @@
     "permanent": "ドメインはインストール後に変更できません。フェディバース上のすべてのアカウントと投稿のアドレスに含まれます。",
     "detected": "Misskey データベースから検出しました",
     "detectedHint": "移行では元のドメインを保持するため、リモートサーバーは引き続きアカウントを認識できます。公開前にこのドメインを新しいサーバーへ向けてください。",
-    "notDetected": "移行元からドメインを検出できませんでした。Misskey サーバーの正確な公開 URL を入力してください。"
+    "notDetected": "移行元からドメインを検出できませんでした。Misskey サーバーの正確な公開 URL を入力してください。",
+    "chooseDetected": "複数のドメインが検出されました。元のサイトの公開アドレスを選択してください。"
   },
   "db": {
     "title": "データベース",
@@ -88,7 +91,7 @@
     "password": "パスワード",
     "sslmode": "SSL モード",
     "inspect": "接続して確認",
-    "found": "ユーザー {users} 人、ノート {notes} 件、ファイル {files} 件が見つかりました。",
+    "found": "ローカルアカウント {users} 件、リモートアカウント {remote} 件、投稿 {notes} 件、メディア {files} 件が見つかりました。",
     "mediaTitle": "メディアファイル",
     "mediaLocal": "ローカルのファイルディレクトリ",
     "mediaS3": "オブジェクトストレージ（S3・R2・MinIO など）",
@@ -97,7 +100,7 @@
     "modeReference": "そのまま参照",
     "modeReferenceHint": "元のメディア URL を保持し、何もコピーしません。バケットは稼働し続ける必要があります。",
     "modeCopy": "このサーバーへコピー",
-    "modeCopyHint": "すべてのオブジェクトをダウンロードします。再開可能で、ファイル数とバイト数の進捗を表示します。",
+    "modeCopyHint": "元のサイトのメディアをコピーします。中断したコピーは再開できます。",
     "endpoint": "エンドポイント",
     "bucket": "バケット",
     "region": "リージョン",
@@ -107,7 +110,10 @@
     "publicUrl": "公開 URL",
     "pathStyle": "パススタイルのリクエスト",
     "testStorage": "ストレージをテスト",
-    "prefilled": "Misskey の設定から入力済みです。"
+    "prefilled": "Misskey の設定から入力済みです。",
+    "idMethod": "ID 形式",
+    "idMethodHint": "自動検出できませんでした。元の Misskey の default.yml にある id の値を選択してください。",
+    "mediaMode": "移行方法"
   },
   "admin": {
     "title": "管理者",
@@ -124,7 +130,8 @@
     "title": "インストールの準備ができました",
     "hint": "設定は {path} に保存されます。インストールが完了するとログイン画面に移動します。",
     "install": "インストール",
-    "migrate": "移行を開始"
+    "migrate": "移行を開始",
+    "migrationTitle": "移行の確認"
   },
   "progress": {
     "title": "インストール中",

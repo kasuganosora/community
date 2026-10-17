@@ -10,7 +10,8 @@
     "redis": "Redis",
     "source": "Source Misskey",
     "admin": "Administrateur",
-    "review": "Vérification"
+    "review": "Vérification",
+    "media": "Migration des médias"
   },
   "common": {
     "next": "Suivant",
@@ -26,7 +27,8 @@
     "verifying": "Vérification…",
     "starting": "Démarrage…",
     "edit": "Modifier",
-    "reviewBack": "Enregistrer et revenir"
+    "reviewBack": "Enregistrer et revenir",
+    "select": "Sélectionner une option"
   },
   "language": {
     "title": "Choisissez une langue",
@@ -55,7 +57,8 @@
     "permanent": "Le domaine ne peut plus être modifié après l’installation : il fait partie de l’adresse de chaque compte et publication dans le fédivers.",
     "detected": "Détecté dans la base de données Misskey",
     "detectedHint": "La migration conserve le domaine d’origine pour que les serveurs distants reconnaissent toujours vos comptes. Faites pointer ce domaine vers le nouveau serveur avant la mise en ligne.",
-    "notDetected": "Le domaine n’a pas pu être détecté. Saisissez l’URL publique exacte du serveur Misskey."
+    "notDetected": "Le domaine n’a pas pu être détecté. Saisissez l’URL publique exacte du serveur Misskey.",
+    "chooseDetected": "Plusieurs domaines ont été détectés. Sélectionnez l’adresse publique du site d’origine."
   },
   "db": {
     "title": "Base de données",
@@ -88,7 +91,7 @@
     "password": "Mot de passe",
     "sslmode": "Mode SSL",
     "inspect": "Se connecter et analyser",
-    "found": "{users} utilisateurs, {notes} notes et {files} fichiers trouvés.",
+    "found": "{users} comptes locaux, {remote} comptes distants, {notes} publications et {files} fichiers média trouvés.",
     "mediaTitle": "Fichiers médias",
     "mediaLocal": "Répertoire de fichiers local",
     "mediaS3": "Stockage objet (S3, R2, MinIO…)",
@@ -97,7 +100,7 @@
     "modeReference": "Référencer sur place",
     "modeReferenceHint": "Conserver les URL d’origine des médias. Rien n’est copié ; le bucket doit rester en ligne.",
     "modeCopy": "Copier sur ce serveur",
-    "modeCopyHint": "Télécharger tous les objets. Reprise possible ; progression en fichiers et en octets.",
+    "modeCopyHint": "Copie les médias du site d’origine. Une copie interrompue peut reprendre.",
     "endpoint": "Point de terminaison",
     "bucket": "Bucket",
     "region": "Région",
@@ -107,7 +110,10 @@
     "publicUrl": "URL publique",
     "pathStyle": "Requêtes de style chemin",
     "testStorage": "Tester le stockage",
-    "prefilled": "Prérempli depuis les réglages de Misskey."
+    "prefilled": "Prérempli depuis les réglages de Misskey.",
+    "idMethod": "Format des identifiants",
+    "idMethodHint": "Non détecté automatiquement. Utilisez la valeur id du fichier default.yml de votre ancien serveur Misskey.",
+    "mediaMode": "Méthode de migration"
   },
   "admin": {
     "title": "Administrateur",
@@ -124,7 +130,8 @@
     "title": "Prêt à installer",
     "hint": "Les paramètres seront enregistrés dans {path}. La page de connexion s’ouvrira une fois l’installation terminée.",
     "install": "Installer",
-    "migrate": "Lancer la migration"
+    "migrate": "Lancer la migration",
+    "migrationTitle": "Prêt à migrer"
   },
   "progress": {
     "title": "Installation",

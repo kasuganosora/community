@@ -60,7 +60,7 @@ describe('SetupApp', () => {
     await w.get('form').trigger('submit')
     expect(w.find('h2').text()).toBe(messages.en.mastodon.title)
     expect(w.find('.steps .active').text()).toContain(messages.en.mastodon.step)
-    await w.findAll('.form button.btn').find(b => b.text() === messages.en.source.inspect)!.trigger('click')
+    await w.get('form').trigger('submit')
     await flushPromises()
     const req = calls.find(c => c.url.endsWith('/test/mastodon'))!
     expect(req.body.name).toBe('mastodon_production')

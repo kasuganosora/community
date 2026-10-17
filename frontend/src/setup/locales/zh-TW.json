@@ -10,7 +10,8 @@
     "redis": "Redis",
     "source": "Misskey 來源",
     "admin": "管理員",
-    "review": "確認"
+    "review": "確認",
+    "media": "媒體遷移"
   },
   "common": {
     "next": "下一步",
@@ -26,7 +27,8 @@
     "verifying": "正在驗證…",
     "starting": "正在啟動…",
     "edit": "修改",
-    "reviewBack": "儲存並返回"
+    "reviewBack": "儲存並返回",
+    "select": "請選擇"
   },
   "language": {
     "title": "選擇語言",
@@ -55,7 +57,8 @@
     "permanent": "安裝後無法更改域名：它會成為聯邦宇宙中每個賬號和帖子地址的一部分。",
     "detected": "已從 Misskey 資料庫檢測到",
     "detectedHint": "遷移會保留原域名，這樣遠端伺服器仍能識別你的賬號。上線前請把此域名指向新伺服器。",
-    "notDetected": "無法從來源檢測到域名。請輸入 Misskey 伺服器準確的公開 URL。"
+    "notDetected": "無法從來源檢測到域名。請輸入 Misskey 伺服器準確的公開 URL。",
+    "chooseDetected": "偵測到多個網域，請選擇原站的公開網址。"
   },
   "db": {
     "title": "資料庫",
@@ -88,7 +91,7 @@
     "password": "密碼",
     "sslmode": "SSL 模式",
     "inspect": "連線並檢查",
-    "found": "找到 {users} 個使用者、{notes} 條帖子和 {files} 個檔案。",
+    "found": "找到 {users} 個本地帳號、{remote} 個遠端帳號、{notes} 則貼文和 {files} 個媒體檔案。",
     "mediaTitle": "媒體檔案",
     "mediaLocal": "本地檔案目錄",
     "mediaS3": "物件儲存（S3、R2、MinIO…）",
@@ -97,7 +100,7 @@
     "modeReference": "原地引用",
     "modeReferenceHint": "保留原媒體 URL，不復制任何檔案；儲存桶需保持線上。",
     "modeCopy": "複製到本伺服器",
-    "modeCopyHint": "下載所有物件。可斷點續傳，顯示檔案數和位元組進度。",
+    "modeCopyHint": "複製原站的媒體檔案，支援中斷續傳。",
     "endpoint": "端點",
     "bucket": "儲存桶",
     "region": "區域",
@@ -107,7 +110,10 @@
     "publicUrl": "公開 URL",
     "pathStyle": "路徑風格請求",
     "testStorage": "測試儲存",
-    "prefilled": "已從 Misskey 設定中預填。"
+    "prefilled": "已從 Misskey 設定中預填。",
+    "idMethod": "ID 格式",
+    "idMethodHint": "無法自動識別。請填寫原 Misskey 設定 default.yml 中的 id 值。",
+    "mediaMode": "遷移方式"
   },
   "admin": {
     "title": "管理員",
@@ -124,7 +130,8 @@
     "title": "準備安裝",
     "hint": "設定將儲存至 {path}。安裝完成後會自動跳轉至登入頁面。",
     "install": "開始安裝",
-    "migrate": "開始遷移"
+    "migrate": "開始遷移",
+    "migrationTitle": "準備遷移"
   },
   "progress": {
     "title": "正在安裝",

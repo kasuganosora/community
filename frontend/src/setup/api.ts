@@ -46,10 +46,10 @@ export interface Stage { name: string; status: string; counts?: Record<string, n
 export interface Job { id: string; mode: string; status: string; locale: string; base_url: string; stages: Stage[]; log: { time: string; level: string; message: string }[] }
 export interface Inspection {
   counts: Record<string, number>
-  id_method: string
+  id_method?: string
   detected_base_url: string
   base_url_candidates?: string[]
-  uses_object_storage: boolean
+  uses_object_storage?: boolean
   object_storage?: { endpoint: string; bucket: string; region: string; access_key: string; public_url: string; path_style: boolean }
-  has_object_secret: boolean
+  has_object_secret?: boolean
 }

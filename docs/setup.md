@@ -27,7 +27,7 @@ server.
 2. Read the one-time token from the log:
    `docker compose logs community | grep -i "setup token"`.
 3. Open `https://<your domain>/setup` (any path redirects there).
-4. Steps: language, token, install type, (Misskey or Mastodon source), domain, database
+4. Steps: language, token, install type, (Misskey or Mastodon source and media), domain, database
    (with a connection test; the target must be empty), Redis (with a test),
    first administrator, review.
 5. The install runs as a background job. Progress, counts and a log are saved,
@@ -42,6 +42,8 @@ interface language. The domain cannot be changed later.
 
 * Stop Misskey (or point the wizard at a copy of its PostgreSQL database). The
   source is only read.
+* The source connection is checked before the media step. If the ID format
+  cannot be detected, select the `id` value from the original `default.yml`.
 * The domain is read from the source and shown read-only. Remote servers keep
   seeing the same actor and object URIs, RSA keys and followers; old
   `/users/<id>` and `/notes/<id>` URLs keep resolving. Point DNS at the new
@@ -52,6 +54,9 @@ interface language. The domain cannot be changed later.
   Misskey's meta. **Reference in place** keeps the original URLs and copies
   nothing (the bucket must stay online). **Copy** downloads every object into
   `SETUP_WORK_DIR` (resumable, with file and byte progress).
+  References only require the public media URL; copy mode shows credentials
+  and tests bucket access before continuing. Hidden storage credentials are
+  omitted when submitting a local-directory or reference migration.
 * Stages: write configuration, schema, instance settings
   (`tootctl admin import-misskey-meta`), media, export
   (`scripts/migration/export_misskey.py`), preflight, import, passkeys

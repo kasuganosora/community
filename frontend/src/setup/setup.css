@@ -46,6 +46,8 @@ input:disabled, select:disabled { opacity: .65; cursor: wait; }
 .check { display: flex; gap: 10px; align-items: center; min-height: 44px; }
 .check input { width: 18px; height: 18px; min-height: 0; flex: none; }
 .choices { display: flex; flex-direction: column; gap: 12px; }
+.choices--inline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+.choices--inline .choice--wide { align-content: start; }
 .choice { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 4px 12px; border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; cursor: pointer; min-height: 56px; line-height: 1.5; }
 .choice input { width: 18px; height: 18px; min-height: 0; padding: 0; margin: 0; background: transparent; }
 .choice--wide small { grid-column: 2; }
@@ -126,6 +128,7 @@ input:disabled, select:disabled { opacity: .65; cursor: wait; }
   .card { padding: 22px 18px; border-radius: 16px; }
   h2 { font-size: 23px; }
   .grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .choices--inline { grid-template-columns: minmax(0, 1fr); }
   .choice { padding: 14px; }
   .actions { gap: 8px; padding-bottom: 8px; }
   .actions .btn { padding-inline: 12px; }

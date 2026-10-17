@@ -4,17 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { call, getToken, setToken, SetupApiError, type Inspection, type Job } from './api'
 import { LOCALES, applyLocale, type Locale } from './i18n'
 import SecretField from './SecretField.vue'
-import { normalizeSetupDomain } from './validation'
+import { normalizeSetupDomain, normalizeStorageURL } from './validation'
 
 const { t, te, locale } = useI18n()
 
-type Step = 'language' | 'token' | 'mode' | 'source' | 'domain' | 'database' | 'redis' | 'admin' | 'review'
+type Step = 'language' | 'token' | 'mode' | 'source' | 'media' | 'domain' | 'database' | 'redis' | 'admin' | 'review'
 const step = ref<Step>('language')
 const mode = ref<'fresh' | 'misskey' | 'mastodon'>('fresh')
 const busy = ref(false)
 const error = ref('')
 const invalidField = ref('')
-const okMessage = ref('')
 const envFile = ref('/app/config/.env')
 const token = ref(getToken())
 const domain = ref('')
@@ -28,7 +27,7 @@ const lifetime = new AbortController()
 const form = ref<HTMLFormElement>()
 const content = ref<HTMLElement>()
 const pending = ref('')
-const primaryBusy = computed(() => busy.value && ['verify', 'database', 'redis', 'install'].includes(pending.value))
+const primaryBusy = computed(() => busy.value && ['verify', 'database', 'redis', 'source', 'storage', 'install'].includes(pending.value))
 const progressError = ref('')
 const verified = ref(false)
 const returningToReview = ref(false)
@@ -56,18 +55,31 @@ const mastodonSource = reactive({
 })
 const src = computed(() => mode.value === 'mastodon' ? mastodonSource : source)
 const migrating = computed(() => mode.value !== 'fresh')
-const tested = reactive({ database: false, redis: false, source: false })
-watch(db, () => { tested.database = false; okMessage.value = '' }, { flush: 'sync' })
-watch(redis, () => { tested.redis = false; okMessage.value = '' }, { flush: 'sync' })
+const copyingMedia = computed(() => src.value.media_source === 's3' && src.value.media_mode === 'copy')
+const needsMediaURL = computed(() => src.value.media_source === 's3' && (mode.value === 'misskey' || !copyingMedia.value))
+const needsStorageSecret = computed(() => mode.value === 'mastodon' || !inspection.value?.has_object_secret)
+const domainCandidates = computed(() => inspection.value?.base_url_candidates || [])
+const inspectionSummary = computed(() => {
+  const counts = inspection.value?.counts || {}
+  return t('source.found', { users: counts.local_users ?? counts.users ?? 0, remote: counts.remote_users ?? 0, notes: counts.notes ?? 0, files: counts.files ?? counts.drive_files ?? 0 })
+})
+const mediaSummary = computed(() => src.value.media_source === 'local'
+  ? `${t('source.mediaLocal')} · ${src.value.files_path}`
+  : `${t(copyingMedia.value ? 'source.modeCopy' : 'source.modeReference')} · ${copyingMedia.value ? src.value.object_storage.bucket : src.value.object_storage.public_url}`)
+const tested = reactive({ database: false, redis: false, source: false, storage: false })
+let inspectedSource = ''
+function sourceIdentity() { return JSON.stringify([mode.value, src.value.host, src.value.port, src.value.name, src.value.user]) }
+watch(db, () => { tested.database = false }, { flush: 'sync' })
+watch(redis, () => { tested.redis = false }, { flush: 'sync' })
 watch(() => [mode.value, src.value.host, src.value.port, src.value.name, src.value.user, src.value.password, src.value.sslmode], () => {
   tested.source = false
+  tested.storage = false
   inspection.value = null
   domain.value = ''
   src.value.id_method = ''
-  okMessage.value = ''
 }, { flush: 'sync' })
 watch(token, () => { verified.value = false })
-watch(() => [src.value.media_source, src.value.media_mode, src.value.object_storage], () => { okMessage.value = '' }, { deep: true })
+watch(() => [src.value.media_source, src.value.media_mode, src.value.object_storage], () => { tested.storage = false }, { deep: true, flush: 'sync' })
 watch([step, phase], async () => {
   await nextTick()
   const heading = content.value?.querySelector<HTMLElement>('h2')
@@ -78,15 +90,17 @@ const completedStages = computed(() => job.value?.stages.filter(item => ['done',
 const primaryLabel = computed(() => {
   if (primaryBusy.value) return t(pending.value === 'verify' ? 'common.verifying' : pending.value === 'install' ? 'common.starting' : 'common.testing')
   if (step.value === 'token') return t('token.verify')
+  if (step.value === 'source' && !tested.source) return t('source.inspect')
+  if (step.value === 'media' && copyingMedia.value && !tested.storage) return t('common.testContinue')
   if ((step.value === 'database' && !tested.database) || (step.value === 'redis' && !tested.redis)) return t('common.testContinue')
   if (step.value === 'review') return t(migrating.value ? 'review.migrate' : 'review.install')
   if (returningToReview.value) return t('common.reviewBack')
   return t('common.next')
 })
-const primaryDisabled = computed(() => busy.value || step.value === 'token' && !token.value.trim() || step.value === 'source' && !tested.source)
+const primaryDisabled = computed(() => busy.value || step.value === 'token' && !token.value.trim())
 
 const steps = computed<Step[]>(() => migrating.value
-  ? ['language', 'token', 'mode', 'source', 'domain', 'database', 'redis', 'admin', 'review']
+  ? ['language', 'token', 'mode', 'source', 'media', 'domain', 'database', 'redis', 'admin', 'review']
   : ['language', 'token', 'mode', 'domain', 'database', 'redis', 'admin', 'review'])
 const stepIndex = computed(() => steps.value.indexOf(step.value))
 const domainLocked = computed(() => migrating.value && !!inspection.value?.detected_base_url)
@@ -103,11 +117,24 @@ async function guarded(action: string, fn: () => Promise<void>) {
   busy.value = true
   pending.value = action
   error.value = ''
-  okMessage.value = ''
   try {
     await fn()
   } catch (e) {
     if (!active) return
+    if (action === 'install' && migrating.value && e instanceof SetupApiError && [
+      'misskey_files_required', 'misskey_files_missing', 'mastodon_files_required', 'mastodon_files_missing',
+      'object_storage_fields_required', 'object_storage_failed',
+    ].includes(e.code)) {
+      step.value = 'media'
+      returningToReview.value = true
+      tested.storage = false
+    }
+    if (action === 'install' && e instanceof SetupApiError && e.code === 'invalid_id_method') {
+      step.value = 'source'
+      returningToReview.value = false
+      source.id_method = ''
+      if (inspection.value) inspection.value.id_method = ''
+    }
     const detail = errorDetail(e)
     error.value = errorText(e) + (detail ? ` (${detail})` : '')
     await nextTick()
@@ -123,7 +150,6 @@ function stepLabel(s: Step) { return s === 'source' && mode.value === 'mastodon'
 
 function go(delta: number) {
   error.value = ''
-  okMessage.value = ''
   if (delta < 0) returningToReview.value = false
   const next = steps.value[stepIndex.value + delta]
   if (next) step.value = delta > 0 && next === 'token' && verified.value ? 'mode' : next
@@ -138,11 +164,17 @@ function databaseBody() {
   return db.type === 'sqlite' ? { type: 'sqlite', path: db.path } : { ...db, port: Number(db.port) }
 }
 function misskeyBody() {
-  return { ...source, port: Number(source.port), object_storage: { ...source.object_storage } }
+  return { ...source, port: Number(source.port), object_storage: storageBody(source) }
+}
+function storageBody(value: typeof source) {
+  // Hidden credentials are not relevant to local files or URL references.
+  if (value.media_source === 'local') return {}
+  if (value.media_mode === 'reference') return { public_url: value.object_storage.public_url }
+  return { ...value.object_storage }
 }
 function mastodonBody() {
-  const { host, port, name, user, password, sslmode, media_source, files_path, media_mode, object_storage } = mastodonSource
-  return { host, port: Number(port), name, user, password, sslmode, media_source, files_path, media_mode, object_storage: { ...object_storage } }
+  const { host, port, name, user, password, sslmode, media_source, files_path, media_mode } = mastodonSource
+  return { host, port: Number(port), name, user, password, sslmode, media_source, files_path, media_mode, object_storage: storageBody(mastodonSource) }
 }
 function modeLabel() { return t(`mode.${mode.value}`) }
 function pickMode() {
@@ -179,30 +211,34 @@ const testRedis = () => guarded('redis', async () => {
   advance()
 })
 const inspectSource = () => guarded('source', async () => {
-  if (mode.value === 'mastodon') {
-    const res = await request<{ inspection: Inspection }>('POST', 'test/mastodon', mastodonBody())
-    if (!active) return
-    inspection.value = res.inspection
-    if (res.inspection.detected_base_url) domain.value = res.inspection.detected_base_url
-    tested.source = true
-    return
-  }
-  const res = await request<{ inspection: Inspection }>('POST', 'test/misskey', misskeyBody())
+  const identity = sourceIdentity()
+  const { host, port, name, user, password, sslmode } = src.value
+  const res = await request<{ inspection: Inspection }>('POST', `test/${mode.value}`, { host, port: Number(port), name, user, password, sslmode })
   if (!active) return
   inspection.value = res.inspection
-  source.id_method = res.inspection.id_method
+  if (mode.value === 'misskey') source.id_method = res.inspection.id_method || ''
   if (res.inspection.detected_base_url) domain.value = res.inspection.detected_base_url
-  if (res.inspection.uses_object_storage && res.inspection.object_storage) {
-    source.media_source = 's3'
-    Object.assign(source.object_storage, res.inspection.object_storage, { secret_key: '' })
+  if (identity !== inspectedSource) {
+    src.value.media_source = 'local'
+    src.value.files_path = mode.value === 'misskey' ? '/misskey/files' : '/mastodon/public/system'
+    src.value.media_mode = 'reference'
+    Object.assign(src.value.object_storage, { endpoint: '', bucket: '', region: '', access_key: '', secret_key: '', public_url: '', path_style: true })
+    if (mode.value === 'misskey' && res.inspection.uses_object_storage && res.inspection.object_storage) {
+      source.media_source = 's3'
+      Object.assign(source.object_storage, res.inspection.object_storage, { secret_key: '' })
+    }
   }
+  inspectedSource = identity
   tested.source = true
+  if (mode.value !== 'misskey' || source.id_method) advance()
 })
 const testStorage = () => guarded('storage', async () => {
   // Mastodon's secret is never stored in its database: test with the typed key only.
   const body = mode.value === 'mastodon' ? { misskey: { object_storage: { ...mastodonSource.object_storage } } } : { misskey: misskeyBody() }
   await request('POST', 'test/object-storage', body)
-  okMessage.value = t('common.ok')
+  if (!active) return
+  tested.storage = true
+  advance()
 })
 const install = () => guarded('install', async () => {
   const body: Record<string, unknown> = {
@@ -265,7 +301,7 @@ function reverify() { phase.value = 'wizard'; step.value = 'token'; progressErro
 function editStep(target: Step) {
   if (busy.value) return
   returningToReview.value = step.value === 'review' && !['mode', 'source'].includes(target)
-  error.value = ''; okMessage.value = ''; step.value = target
+  error.value = ''; step.value = target
 }
 function fieldError(code: string, field: string) {
   invalidField.value = field
@@ -279,11 +315,28 @@ function submitStep() {
   invalidField.value = ''
   if (!form.value?.reportValidity()) return
   if (step.value === 'token') return void verifyToken()
+  if (step.value === 'source' && !tested.source) return void inspectSource()
+  if (step.value === 'media') {
+    if (needsMediaURL.value) {
+      const url = normalizeStorageURL(src.value.object_storage.public_url)
+      if (!url) return fieldError('object_storage_fields_required', 'media-url')
+      src.value.object_storage.public_url = url
+    }
+    if (copyingMedia.value) {
+      const endpoint = normalizeStorageURL(src.value.object_storage.endpoint, true)
+      if (!endpoint) return fieldError('object_storage_fields_required', 'storage-endpoint')
+      src.value.object_storage.endpoint = endpoint
+      src.value.object_storage.bucket = src.value.object_storage.bucket.trim()
+      src.value.object_storage.access_key = src.value.object_storage.access_key.trim()
+      if (!tested.storage) return void testStorage()
+    }
+  }
   if (step.value === 'database' && !tested.database) return void testDatabase()
   if (step.value === 'redis' && !tested.redis) return void testRedis()
   if (step.value === 'domain') {
     const normalized = normalizeSetupDomain(domain.value)
     if (!normalized) return fieldError('invalid_domain', 'domain')
+    if (migrating.value && domainCandidates.value.length && !domainCandidates.value.includes(normalized)) return fieldError('domain_mismatch', 'domain')
     domain.value = normalized
   }
   if (step.value === 'admin') {
@@ -296,6 +349,7 @@ function submitStep() {
     if (!tested.database) return editStep('database')
     if (!tested.redis) return editStep('redis')
     if (migrating.value && !tested.source) return editStep('source')
+    if (migrating.value && copyingMedia.value && !tested.storage) return editStep('media')
     return void install()
   }
   advance()
@@ -443,37 +497,46 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
               <select v-model="src.sslmode"><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
             </label>
           </div>
-          <button type="button" class="btn" :disabled="busy" @click="form?.reportValidity() && inspectSource()"><span v-if="pending === 'source'" class="spinner" aria-hidden="true" />{{ pending === 'source' ? t('common.testing') : t('source.inspect') }}</button>
-          <p v-if="inspection && mode === 'mastodon'" class="notice notice--ok">{{ t('mastodon.found', { users: inspection.counts.local_users ?? 0, remote: inspection.counts.remote_users ?? 0, notes: inspection.counts.notes ?? 0, files: inspection.counts.files ?? 0 }) }}</p>
-          <p v-else-if="inspection" class="notice notice--ok">{{ t('source.found', { users: inspection.counts.users ?? 0, notes: inspection.counts.notes ?? 0, files: inspection.counts.files ?? inspection.counts.drive_files ?? 0 }) }}</p>
+          <label v-if="inspection && mode === 'misskey' && !inspection.id_method" class="field"><span>{{ t('source.idMethod') }}</span>
+            <select v-model="source.id_method" data-field="id-method" required>
+              <option disabled value="">{{ t('common.select') }}</option>
+              <option v-for="method in ['aid', 'aidx', 'meid', 'meidg', 'objectid', 'ulid']" :key="method" :value="method">{{ method }}</option>
+            </select>
+            <small>{{ t('source.idMethodHint') }}</small>
+          </label>
+        </template>
 
-          <template v-if="tested.source">
-            <h3>{{ t('source.mediaTitle') }}</h3>
-            <div class="choices">
-              <label class="choice" :class="{ selected: src.media_source === 'local' }"><input v-model="src.media_source" type="radio" name="media-source" value="local">{{ t('source.mediaLocal') }}</label>
-              <label class="choice" :class="{ selected: src.media_source === 's3' }"><input v-model="src.media_source" type="radio" name="media-source" value="s3">{{ t('source.mediaS3') }}</label>
+        <template v-else-if="step === 'media'">
+          <h2 tabindex="-1">{{ t('source.mediaTitle') }}</h2>
+          <p class="notice notice--ok">{{ inspectionSummary }}</p>
+          <div class="choices choices--inline" role="radiogroup" :aria-label="t('source.mediaTitle')">
+            <label class="choice" :class="{ selected: src.media_source === 'local' }"><input v-model="src.media_source" type="radio" name="media-source" value="local">{{ t('source.mediaLocal') }}</label>
+            <label class="choice" :class="{ selected: src.media_source === 's3' }"><input v-model="src.media_source" type="radio" name="media-source" value="s3">{{ t('source.mediaS3') }}</label>
+          </div>
+          <label v-if="src.media_source === 'local'" class="field"><span>{{ mode === 'mastodon' ? t('mastodon.filesPath') : t('source.filesPath') }}</span>
+            <input v-model.trim="src.files_path" data-field="files-path" required autocapitalize="off" spellcheck="false"><small>{{ mode === 'mastodon' ? t('mastodon.filesHint') : t('source.filesHint') }}</small>
+          </label>
+          <template v-else>
+            <div class="choices choices--inline" role="radiogroup" :aria-label="t('source.mediaMode')">
+              <label class="choice choice--wide" :class="{ selected: src.media_mode === 'reference' }"><input v-model="src.media_mode" type="radio" name="media-mode" value="reference"><strong>{{ t('source.modeReference') }}</strong><small>{{ t('source.modeReferenceHint') }}</small></label>
+              <label class="choice choice--wide" :class="{ selected: src.media_mode === 'copy' }"><input v-model="src.media_mode" type="radio" name="media-mode" value="copy"><strong>{{ t('source.modeCopy') }}</strong><small>{{ t('source.modeCopyHint') }}</small></label>
             </div>
-            <label v-if="src.media_source === 'local'" class="field"><span>{{ mode === 'mastodon' ? t('mastodon.filesPath') : t('source.filesPath') }}</span>
-              <input v-model="src.files_path" required autocapitalize="off" spellcheck="false"><small>{{ mode === 'mastodon' ? t('mastodon.filesHint') : t('source.filesHint') }}</small>
-            </label>
-            <template v-else>
-              <p v-if="mode === 'mastodon'" class="muted">{{ t('mastodon.storageHint') }}</p>
-              <p v-else-if="inspection?.object_storage" class="muted">{{ t('source.prefilled') }}</p>
-              <div class="choices">
-                <label class="choice choice--wide" :class="{ selected: src.media_mode === 'reference' }"><input v-model="src.media_mode" type="radio" name="media-mode" value="reference"><strong>{{ t('source.modeReference') }}</strong><small>{{ t('source.modeReferenceHint') }}</small></label>
-                <label class="choice choice--wide" :class="{ selected: src.media_mode === 'copy' }"><input v-model="src.media_mode" type="radio" name="media-mode" value="copy"><strong>{{ t('source.modeCopy') }}</strong><small>{{ t('source.modeCopyHint') }}</small></label>
-              </div>
-              <div class="grid">
-                <label class="field field--wide"><span>{{ t('source.endpoint') }}</span><input v-model="src.object_storage.endpoint" autocapitalize="off" spellcheck="false"></label>
-                <label class="field"><span>{{ t('source.bucket') }}</span><input v-model="src.object_storage.bucket" autocapitalize="off"></label>
-                <label class="field"><span>{{ t('source.region') }}</span><input v-model="src.object_storage.region" autocapitalize="off"></label>
-                <label class="field"><span>{{ t('source.accessKey') }}</span><input v-model="src.object_storage.access_key" autocapitalize="off" spellcheck="false"></label>
-                <SecretField v-model="src.object_storage.secret_key" :label="t('source.secretKey')" :hint="inspection?.has_object_secret ? t('source.secretKept') : undefined" />
-                <label class="field field--wide"><span>{{ t('source.publicUrl') }}</span><input v-model="src.object_storage.public_url" autocapitalize="off" spellcheck="false"></label>
+            <p v-if="mode === 'mastodon' && copyingMedia" class="muted">{{ t('mastodon.storageHint') }}</p>
+            <div class="grid">
+              <label v-if="needsMediaURL" class="field field--wide"><span>{{ t('source.publicUrl') }}</span>
+                <input v-model="src.object_storage.public_url" data-field="media-url" :aria-invalid="invalidField === 'media-url'" :aria-describedby="invalidField === 'media-url' ? 'setup-error' : undefined" type="url" required autocapitalize="off" spellcheck="false" placeholder="https://media.example.com">
+              </label>
+              <template v-if="copyingMedia">
+                <label class="field field--wide"><span>{{ t('source.endpoint') }}</span>
+                  <input v-model="src.object_storage.endpoint" data-field="storage-endpoint" :aria-invalid="invalidField === 'storage-endpoint'" :aria-describedby="invalidField === 'storage-endpoint' ? 'setup-error' : undefined" required autocapitalize="off" spellcheck="false" placeholder="https://s3.example.com">
+                </label>
+                <label class="field"><span>{{ t('source.bucket') }}</span><input v-model.trim="src.object_storage.bucket" data-field="storage-bucket" required autocapitalize="off" spellcheck="false"></label>
+                <label class="field"><span>{{ t('source.region') }} <small>{{ t('common.optional') }}</small></span><input v-model.trim="src.object_storage.region" autocapitalize="off" spellcheck="false"></label>
+                <label class="field"><span>{{ t('source.accessKey') }}</span><input v-model.trim="src.object_storage.access_key" data-field="storage-access-key" required autocapitalize="off" spellcheck="false"></label>
+                <SecretField v-model="src.object_storage.secret_key" field="storage-secret" :label="t('source.secretKey')" :required="needsStorageSecret" :hint="!needsStorageSecret ? t('source.secretKept') : undefined" />
                 <label class="check"><input v-model="src.object_storage.path_style" type="checkbox">{{ t('source.pathStyle') }}</label>
-              </div>
-              <button type="button" class="btn" :disabled="busy" @click="testStorage"><span v-if="pending === 'storage'" class="spinner" aria-hidden="true" />{{ pending === 'storage' ? t('common.testing') : t('source.testStorage') }}</button>
-            </template>
+              </template>
+            </div>
           </template>
         </template>
 
@@ -481,9 +544,14 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
           <h2 tabindex="-1">{{ t('domain.title') }}</h2>
           <p class="muted">{{ t('domain.hint') }}</p>
           <label class="field"><span>{{ t('domain.label') }}</span>
-            <input v-model="domain" type="text" data-field="domain" :aria-invalid="invalidField === 'domain'" :aria-describedby="invalidField === 'domain' ? 'setup-error' : undefined" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://social.example.com" :readonly="domainLocked" :aria-readonly="domainLocked" required>
+            <select v-if="!domainLocked && domainCandidates.length" v-model="domain" data-field="domain" required>
+              <option disabled value="">{{ t('common.select') }}</option>
+              <option v-for="candidate in domainCandidates" :key="candidate" :value="candidate">{{ candidate }}</option>
+            </select>
+            <input v-else v-model="domain" type="text" data-field="domain" :aria-invalid="invalidField === 'domain'" :aria-describedby="invalidField === 'domain' ? 'setup-error' : undefined" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://social.example.com" :readonly="domainLocked" :aria-readonly="domainLocked" required>
           </label>
           <p v-if="domainLocked" class="notice"><strong>{{ mode === 'mastodon' ? t('mastodon.detected') : t('domain.detected') }}</strong> — {{ t('domain.detectedHint') }}</p>
+          <p v-else-if="domainCandidates.length" class="notice notice--warn">{{ t('domain.chooseDetected') }}</p>
           <p v-else-if="mode === 'misskey'" class="notice notice--warn">{{ t('domain.notDetected') }}</p>
           <p v-else-if="mode === 'mastodon'" class="notice notice--warn">{{ t('mastodon.notDetected') }}</p>
           <p class="notice notice--warn">{{ t('domain.permanent') }}</p>
@@ -532,7 +600,7 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
         </template>
 
         <template v-else-if="step === 'review'">
-          <h2 tabindex="-1">{{ t('review.title') }}</h2>
+          <h2 tabindex="-1">{{ t(migrating ? 'review.migrationTitle' : 'review.title') }}</h2>
           <dl class="summary">
             <div class="summary__row"><dt>{{ t('steps.language') }}</dt><dd>{{ LOCALES.find(l => l.code === locale)?.name }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.language')}`" @click="editStep('language')">{{ t('common.edit') }}</button></dd></div>
             <div class="summary__row"><dt>{{ t('steps.mode') }}</dt><dd>{{ modeLabel() }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.mode')}`" @click="editStep('mode')">{{ t('common.edit') }}</button></dd></div>
@@ -540,13 +608,13 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
             <div class="summary__row"><dt>{{ t('steps.database') }}</dt><dd>{{ db.type === 'builtin' ? builtinLabel : db.type === 'sqlite' ? db.path : `${db.type} · ${db.host}:${db.port} / ${db.name}` }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.database')}`" @click="editStep('database')">{{ t('common.edit') }}</button></dd></div>
             <div class="summary__row"><dt>{{ t('steps.redis') }}</dt><dd>{{ redis.address }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.redis')}`" @click="editStep('redis')">{{ t('common.edit') }}</button></dd></div>
             <div class="summary__row"><dt>{{ t('steps.admin') }}</dt><dd>{{ `${admin.username} · ${admin.email}` }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.admin')}`" @click="editStep('admin')">{{ t('common.edit') }}</button></dd></div>
-            <div v-if="migrating" class="summary__row"><dt>{{ stepLabel('source') }}</dt><dd>{{ src.name }} · {{ src.media_source === 'local' ? src.files_path : src.object_storage.bucket }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${stepLabel('source')}`" @click="editStep('source')">{{ t('common.edit') }}</button></dd></div>
+            <div v-if="migrating" class="summary__row"><dt>{{ stepLabel('source') }}</dt><dd>{{ src.host }}:{{ src.port }} / {{ src.name }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${stepLabel('source')}`" @click="editStep('source')">{{ t('common.edit') }}</button></dd></div>
+            <div v-if="migrating" class="summary__row"><dt>{{ t('steps.media') }}</dt><dd>{{ mediaSummary }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.media')}`" @click="editStep('media')">{{ t('common.edit') }}</button></dd></div>
           </dl>
           <p class="muted">{{ t('review.hint', { path: envFile }) }}</p>
         </template>
         </fieldset>
         <p v-if="error" id="setup-error" class="notice notice--error" role="alert">{{ error }}</p>
-        <p v-if="okMessage" class="notice notice--ok" role="status">{{ okMessage }}</p>
 
         <div class="actions">
           <button v-if="stepIndex > 0" type="button" class="btn btn--ghost" :disabled="busy" @click="go(-1)"><span aria-hidden="true">←</span>{{ t('common.back') }}</button>

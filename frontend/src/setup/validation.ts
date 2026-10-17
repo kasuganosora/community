@@ -10,3 +10,14 @@ export function normalizeSetupDomain(value: string): string | null {
     return url.origin
   } catch { return null }
 }
+
+/** Storage URLs may use HTTP and a public media path; endpoints use an origin. */
+export function normalizeStorageURL(value: string, endpoint = false): string | null {
+  try {
+    const text = value.trim()
+    if (!text || /[\s\\]/.test(text)) return null
+    const url = new URL(endpoint && !text.includes('://') ? `https://${text}` : text)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || (endpoint && url.pathname !== '/')) return null
+    return url.href.replace(/\/+$/, '')
+  } catch { return null }
+}

@@ -10,7 +10,8 @@
     "redis": "Redis",
     "source": "Misskey-Quelle",
     "admin": "Administrator",
-    "review": "Überprüfen"
+    "review": "Überprüfen",
+    "media": "Medienmigration"
   },
   "common": {
     "next": "Weiter",
@@ -26,7 +27,8 @@
     "verifying": "Wird geprüft…",
     "starting": "Wird gestartet…",
     "edit": "Ändern",
-    "reviewBack": "Speichern und zurück"
+    "reviewBack": "Speichern und zurück",
+    "select": "Bitte auswählen"
   },
   "language": {
     "title": "Sprache wählen",
@@ -55,7 +57,8 @@
     "permanent": "Die Domain kann nach der Installation nicht mehr geändert werden: Sie ist Teil jeder Konto- und Beitragsadresse im Fediverse.",
     "detected": "Aus der Misskey-Datenbank erkannt",
     "detectedHint": "Bei der Migration bleibt die ursprüngliche Domain erhalten, damit entfernte Server deine Konten weiterhin erkennen. Richte die Domain vor dem Livegang auf den neuen Server.",
-    "notDetected": "Die Domain konnte nicht erkannt werden. Gib die exakte öffentliche URL des Misskey-Servers ein."
+    "notDetected": "Die Domain konnte nicht erkannt werden. Gib die exakte öffentliche URL des Misskey-Servers ein.",
+    "chooseDetected": "Mehrere Domains erkannt. Wählen Sie die öffentliche Adresse der ursprünglichen Website."
   },
   "db": {
     "title": "Datenbank",
@@ -88,7 +91,7 @@
     "password": "Passwort",
     "sslmode": "SSL-Modus",
     "inspect": "Verbinden und prüfen",
-    "found": "{users} Benutzer, {notes} Notizen und {files} Dateien gefunden.",
+    "found": "{users} lokale Konten, {remote} entfernte Konten, {notes} Beiträge und {files} Mediendateien gefunden.",
     "mediaTitle": "Mediendateien",
     "mediaLocal": "Lokales Dateiverzeichnis",
     "mediaS3": "Objektspeicher (S3, R2, MinIO…)",
@@ -97,7 +100,7 @@
     "modeReference": "Am Ort referenzieren",
     "modeReferenceHint": "Ursprüngliche Medien-URLs behalten. Nichts wird kopiert; der Bucket muss online bleiben.",
     "modeCopy": "Auf diesen Server kopieren",
-    "modeCopyHint": "Alle Objekte herunterladen. Fortsetzbar, mit Fortschritt nach Dateien und Bytes.",
+    "modeCopyHint": "Kopiert die Medien der ursprünglichen Website. Unterbrochene Kopien können fortgesetzt werden.",
     "endpoint": "Endpunkt",
     "bucket": "Bucket",
     "region": "Region",
@@ -107,7 +110,10 @@
     "publicUrl": "Öffentliche URL",
     "pathStyle": "Pfadbasierte Anfragen",
     "testStorage": "Speicher testen",
-    "prefilled": "Aus den Misskey-Einstellungen übernommen."
+    "prefilled": "Aus den Misskey-Einstellungen übernommen.",
+    "idMethod": "ID-Format",
+    "idMethodHint": "Nicht automatisch erkannt. Verwenden Sie den id-Wert aus der ursprünglichen Misskey-Datei default.yml.",
+    "mediaMode": "Migrationsmethode"
   },
   "admin": {
     "title": "Administrator",
@@ -124,7 +130,8 @@
     "title": "Bereit zur Installation",
     "hint": "Die Einstellungen werden unter {path} gespeichert. Nach der Installation werden Sie zur Anmeldung weitergeleitet.",
     "install": "Installieren",
-    "migrate": "Migration starten"
+    "migrate": "Migration starten",
+    "migrationTitle": "Bereit zur Migration"
   },
   "progress": {
     "title": "Installation läuft",

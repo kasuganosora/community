@@ -10,7 +10,8 @@
     "redis": "Redis",
     "source": "Misskey source",
     "admin": "Administrator",
-    "review": "Review"
+    "review": "Review",
+    "media": "Media migration"
   },
   "common": {
     "next": "Next",
@@ -26,7 +27,8 @@
     "verifying": "Verifying…",
     "starting": "Starting…",
     "edit": "Edit",
-    "reviewBack": "Save and return"
+    "reviewBack": "Save and return",
+    "select": "Select an option"
   },
   "language": {
     "title": "Choose a language",
@@ -55,7 +57,8 @@
     "permanent": "The domain can’t be changed after install: it becomes part of every account and post address on the fediverse.",
     "detected": "Detected from the Misskey database",
     "detectedHint": "A migration keeps the original domain so remote servers keep recognising your accounts. Point this domain at the new server before going live.",
-    "notDetected": "The domain could not be detected from the source. Enter the Misskey server’s exact public URL."
+    "notDetected": "The domain could not be detected from the source. Enter the Misskey server’s exact public URL.",
+    "chooseDetected": "Multiple domains were detected. Select the original site’s public address."
   },
   "db": {
     "title": "Database",
@@ -88,7 +91,7 @@
     "password": "Password",
     "sslmode": "SSL mode",
     "inspect": "Connect and inspect",
-    "found": "Found {users} users, {notes} notes and {files} files.",
+    "found": "Found {users} local accounts, {remote} remote accounts, {notes} posts and {files} media files.",
     "mediaTitle": "Media files",
     "mediaLocal": "Local files directory",
     "mediaS3": "Object storage (S3, R2, MinIO…)",
@@ -97,7 +100,7 @@
     "modeReference": "Reference in place",
     "modeReferenceHint": "Keep the original media URLs. Nothing is copied; the bucket must stay online.",
     "modeCopy": "Copy into this server",
-    "modeCopyHint": "Download every object. Resumable; shows file and byte progress.",
+    "modeCopyHint": "Copy the source site’s media files. Interrupted copies can resume.",
     "endpoint": "Endpoint",
     "bucket": "Bucket",
     "region": "Region",
@@ -107,7 +110,10 @@
     "publicUrl": "Public URL",
     "pathStyle": "Path-style requests",
     "testStorage": "Test storage",
-    "prefilled": "Prefilled from the Misskey settings."
+    "prefilled": "Prefilled from the Misskey settings.",
+    "idMethod": "ID format",
+    "idMethodHint": "Not detected automatically. Use the id value from the original Misskey default.yml configuration.",
+    "mediaMode": "Migration method"
   },
   "admin": {
     "title": "Administrator",
@@ -124,7 +130,8 @@
     "title": "Ready to install",
     "hint": "Settings will be saved to {path}. You will be taken to the login page when installation is complete.",
     "install": "Install",
-    "migrate": "Start migration"
+    "migrate": "Start migration",
+    "migrationTitle": "Ready to migrate"
   },
   "progress": {
     "title": "Installing",
