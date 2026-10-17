@@ -15,6 +15,9 @@ import ChatMessageView from '../components/ChatMessageView.vue'
 import ConversationMembersForm from '../components/ConversationMembersForm.vue'
 
 import EmojiText from '@/shared/components/common/EmojiText.vue'
+import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import { stripHtml } from '@/shared/utils/sanitize'
+import { messagePreview } from '../../domain/messagePreview'
 import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
@@ -31,11 +34,36 @@ const attachments = ref<(MastodonAttachment & { uploadName?: string })[]>([])
 const uploading = ref(false)
 const uploadError = ref('')
 const membersOpen = ref(false)
+const history = computed(() => {
+  const byId = new Map(messages.value.map(message => [message.event_id, message]))
+  return messages.value.map((message, index) => {
+    const date = new Date(message.created_at)
+    const previous = messages.value[index - 1]
+    const member = conversation.value?.members.find(item => item.matrix_id === message.sender || item.acct === message.sender)
+    return { message, reply: byId.get(message.reply_event_id || ''), account: message.own ? auth.currentUser ?? undefined : member?.account,
+      date: !previous || new Date(previous.created_at).toDateString() !== date.toDateString() ? date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '' }
+  })
+})
+const replySummary = computed(() => {
+  if (!reply.value) return ''
+  const current = messages.value.find(message => message.event_id === reply.value?.event_id)
+  if (!current) return t('message.ChatMessageView.s2')
+  if (current.redacted) return t('message.ChatMessageView.s1')
+  if (current.status?.spoiler_text) return current.status.spoiler_text
+  if (current.status?.sensitive) return t('message.chat.attachment')
+  return messagePreview(current.status ? stripHtml(current.status.content) : current.body)
+})
 const inviting = ref(false)
 let uploadGeneration = 0
 let transactionId = crypto.randomUUID()
 onBeforeUnmount(() => { uploadGeneration++ })
 const sendable = computed(() => (!!draft.value.trim() || attachments.value.length > 0) && !busy.value && !uploading.value)
+function keepInputFocus(event: PointerEvent) {
+  // Blurring a phone textarea changes the keyboard/tab-bar dock offset. Keep
+  // toolbar targets still between pointerdown and click; keyboard focus is unaffected.
+  if (isMobileLayout() && document.activeElement === composer.value?.querySelector('textarea') &&
+    event.target instanceof Element && event.target.closest('button, label')) event.preventDefault()
+}
 function onSendKeydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.isComposing) return
   event.preventDefault()
@@ -108,46 +136,60 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 
 <template>
   <div class="chat-thread">
-    <header class="page-header page-header--with-back">
+    <header class="page-header page-header--with-back chat-thread__header">
       <router-link class="page-header__back-btn" to="/messages" :aria-label="$t('message.ChatThreadPage.s1')"><t-icon name="chevron-left" :size="20" /></router-link>
-      <ChatAvatarStack v-if="conversation" :accounts="chatAvatars(conversation, auth.currentUser?.id)" :size="32" />
+      <ChatAvatarStack v-if="conversation" :accounts="chatAvatars(conversation, auth.currentUser?.id)" :size="36" />
       <h1 class="page-header__title" data-testid="chat-thread-title">
         <EmojiText :text="(conversation && chatTitle(conversation, auth.currentUser?.id)) || $t('message.ChatThreadPage.s2')" :emojis="conversation?.members.flatMap(m => m.account?.emojis ?? []) ?? []" />
         <span v-if="conversation && chatPeerAcct(conversation, auth.currentUser?.id)" class="chat-thread__acct">{{ chatPeerAcct(conversation, auth.currentUser?.id) }}</span>
       </h1>
       <button v-if="conversation" class="btn btn--ghost btn--sm" :aria-expanded="membersOpen" @click="membersOpen = !membersOpen">{{ $t('message.ChatThreadPage.s3') }}</button>
     </header>
-    <p class="chat-thread__notice">{{ $t('message.ChatThreadPage.s4') }}</p>
-    <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" :disabled="loading || loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending || loading ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s6') }}</button></p>
+    <p class="chat-thread__notice"><t-icon name="lock-off" :size="14" /><span>{{ $t('message.ChatThreadPage.s4') }}</span></p>
+    <p v-if="error && !conversation" class="chat-thread__error" role="alert">{{ error }} <button class="btn btn--ghost btn--sm" :disabled="loading || loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending || loading ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s6') }}</button></p>
     <div v-if="loading" class="page-loading"><t-loading /></div>
     <template v-if="conversation">
       <section v-if="membersOpen" class="chat-members" :aria-label="$t('message.ChatThreadPage.s7')">
         <h2>{{ $t('message.ChatThreadPage.s3') }}</h2>
         <p>{{ $t('message.ChatThreadPage.s8') }}</p>
         <ul>
-<li v-for="member in conversation.members.filter(item => item.active !== false)" :key="member.id">
-          <span>{{ member.display_name || displayAccount(member.acct || member.matrix_id) || $t('message.ChatThreadPage.s9', [member.account_id]) }} <small v-if="member.acct">@{{ displayAccount(member.acct) }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
-          <button v-if="member.account_id === auth.currentUser?.id ? conversation.can_leave : conversation.can_manage" class="btn btn--ghost btn--sm" :disabled="busy" @click="removeMember(member)">{{ member.account_id === auth.currentUser?.id ? $t('message.ChatThreadPage.s10') : $t('message.ChatThreadPage.s11') }}</button>
-        </li>
-</ul>
+          <li v-for="member in conversation.members.filter(item => item.active !== false)" :key="member.id">
+            <UserAvatar v-if="member.account" :account="member.account" :size="32" />
+            <span>{{ member.display_name || displayAccount(member.acct || member.matrix_id) || $t('message.ChatThreadPage.s9', [member.account_id]) }} <small v-if="member.acct">@{{ displayAccount(member.acct) }} · </small><small>{{ member.kind === 'matrix' ? 'Matrix' : member.kind === 'ap' ? 'ActivityPub' : 'Community' }}</small></span>
+            <button v-if="member.account_id === auth.currentUser?.id ? conversation.can_leave : conversation.can_manage" class="btn btn--ghost btn--sm" :disabled="busy" @click="removeMember(member)">{{ member.account_id === auth.currentUser?.id ? $t('message.ChatThreadPage.s10') : $t('message.ChatThreadPage.s11') }}</button>
+          </li>
+        </ul>
         <button v-if="conversation.can_manage && !inviting" class="btn btn--secondary btn--sm" @click="inviting = true">{{ $t('message.ChatThreadPage.s12') }}</button>
         <ConversationMembersForm v-if="inviting" mode="invite" :pending="busy" :error="error" @submit="invite" @cancel="inviting = false" />
       </section>
       <div v-if="cursor" class="chat-thread__older"><button class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" @click="thread.older">{{ loadingOlder ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s13') }}</button></div>
       <p v-if="!messages.length" class="chat-thread__empty">{{ $t('message.ChatThreadPage.s14') }}</p>
-      <div :aria-label="$t('message.ChatThreadPage.s15')">
-        <ChatMessageView v-for="message in messages" :key="message.event_id" :message="message" :pending="busy || uploading" :reply="messages.find(item => item.event_id === message.reply_event_id)" @reply="replyTo(message)" @edit="edit(message)" @remove="remove(message)" @retry="thread.retry(message)" @refresh-delivery="thread.delivery(message)" />
-      </div>
-      <form ref="composer" class="chat-compose" @submit.prevent="send">
-        <p v-if="editing" class="chat-compose__context" role="note">{{ $t('message.ChatThreadPage.s16') }}<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">{{ $t('message.ChatThreadPage.s17') }}</button></p>
-        <p v-else-if="reply" class="chat-compose__context">{{ $t('message.ChatThreadPage.s18', [reply.body]) }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="reply = undefined">{{ $t('message.ChatThreadPage.s19') }}</button></p>
-        <label class="sr-only" for="chat-message-input">{{ $t('message.ChatThreadPage.s20') }}</label>
-        <textarea id="chat-message-input" v-model="draft" rows="3" :placeholder="$t('message.ChatThreadPage.s21')" :disabled="busy" @keydown="onSendKeydown" />
-        <ul v-if="attachments.length" class="chat-compose__attachments"><li v-for="file in attachments" :key="file.id">{{ file.description || file.uploadName || $t('message.ChatThreadPage.s22') }} <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" @click="attachments = attachments.filter(item => item.id !== file.id)">{{ $t('message.ChatThreadPage.s11') }}</button></li></ul>
-        <p v-if="uploadError" class="chat-thread__error" role="alert">{{ uploadError }}</p>
-        <div class="chat-compose__actions">
-          <label v-if="!editing" class="btn btn--ghost btn--sm">{{ uploading ? $t('message.ChatThreadPage.s23') : $t('message.ChatThreadPage.s24') }}<input class="sr-only" type="file" multiple :disabled="busy || uploading" @change="upload" /></label>
-          <button class="btn btn--primary btn--sm" type="submit" :disabled="!sendable">{{ pending === 'send' ? $t('message.ChatThreadPage.s25') : editing ? $t('message.ChatThreadPage.s26') : $t('message.ChatThreadPage.s27') }}</button>
+      <section class="chat-thread__history" :aria-label="$t('message.ChatThreadPage.s15')">
+        <template v-for="item in history" :key="item.message.event_id">
+          <p v-if="item.date" class="chat-thread__date">{{ item.date }}</p>
+          <ChatMessageView :message="item.message" :account="item.account" :pending="busy || uploading" :reply="item.reply" @reply="replyTo(item.message)" @edit="edit(item.message)" @remove="remove(item.message)" @retry="thread.retry(item.message)" @refresh-delivery="thread.delivery(item.message)" />
+        </template>
+      </section>
+      <form ref="composer" class="chat-compose" :aria-busy="pending === 'send'" @pointerdown="keepInputFocus" @submit.prevent="send">
+        <div class="chat-compose__box">
+          <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button type="button" class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s6') }}</button></p>
+          <p v-if="editing" class="chat-compose__context" role="note">{{ $t('message.ChatThreadPage.s16') }}<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">{{ $t('message.ChatThreadPage.s17') }}</button></p>
+          <p v-else-if="reply" class="chat-compose__context"><t-icon name="rollback" :size="16" /><span>{{ $t('message.ChatThreadPage.s18', [replySummary]) }}</span> <button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="reply = undefined" :aria-label="$t('message.ChatThreadPage.s19')"><t-icon name="close" :size="16" /></button></p>
+          <label class="sr-only" for="chat-message-input">{{ $t('message.ChatThreadPage.s20') }}</label>
+          <textarea id="chat-message-input" v-model="draft" rows="2" :placeholder="$t('message.ChatThreadPage.s21')" :disabled="busy" @keydown="onSendKeydown" />
+          <ul v-if="attachments.length" class="chat-compose__attachments">
+            <li v-for="file in attachments" :key="file.id">
+            <img v-if="file.type === 'image' && (file.preview_url || file.url)" :src="file.preview_url || file.url" alt="" />
+            <t-icon v-else name="file" :size="22" />
+            <span>{{ file.description || file.uploadName || $t('message.ChatThreadPage.s22') }}</span>
+            <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" :aria-label="$t('message.ConversationMembersForm.s9', [file.uploadName || file.description || $t('message.ChatThreadPage.s22')])" @click="attachments = attachments.filter(item => item.id !== file.id)"><t-icon name="close" :size="16" /></button>
+            </li>
+          </ul>
+          <p v-if="uploadError" class="chat-thread__error" role="alert">{{ uploadError }}</p>
+          <div class="chat-compose__actions">
+            <label v-if="!editing" class="btn btn--ghost btn--sm chat-compose__attach" :class="{ 'is-disabled': busy || uploading }"><t-icon name="file-add" :size="20" /><span>{{ uploading ? $t('message.ChatThreadPage.s23') : $t('message.ChatThreadPage.s24') }}</span><input class="sr-only" type="file" multiple :disabled="busy || uploading" @change="upload" /></label>
+            <button class="btn btn--primary btn--sm chat-compose__send" type="submit" :disabled="!sendable"><t-icon name="send" :size="18" />{{ pending === 'send' ? $t('message.ChatThreadPage.s25') : editing ? $t('message.ChatThreadPage.s26') : $t('message.ChatThreadPage.s27') }}</button>
+          </div>
         </div>
       </form>
     </template>
@@ -155,33 +197,54 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 </template>
 
 <style scoped>
-.chat-thread__acct { margin-left: var(--space-2); font-size: var(--text-footnote, 13px); font-weight: normal; color: var(--color-label-secondary); }
-.chat-thread .page-header__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.chat-thread__notice, .chat-thread__error { padding: var(--space-3) var(--gutter, var(--space-4)); font-size: var(--text-footnote); overflow-wrap: anywhere; }
-.chat-thread__notice { color: var(--color-label-secondary); background: var(--color-fill); }
+.chat-thread { display: flex; flex-direction: column; min-height: 100dvh; }
+.chat-thread__header { gap: var(--space-3); min-height: 72px; border-bottom: 1px solid var(--color-separator); }
+.chat-thread__acct { display: block; font-size: var(--text-footnote); font-weight: normal; color: var(--color-label-secondary); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+.chat-thread .page-header__title { min-width: 0; flex: 1; font-size: var(--text-headline); line-height: 1.4; }
+.chat-thread__notice, .chat-thread__error { padding: var(--space-3) var(--gutter); margin: 0; font-size: var(--text-footnote); overflow-wrap: anywhere; }
+.chat-thread__notice { display: flex; align-items: baseline; justify-content: center; gap: var(--space-2); color: var(--color-label-secondary); font-size: var(--text-caption); }
+.chat-thread__notice :deep(svg) { flex-shrink: 0; }
 .chat-thread__error { color: var(--color-danger); }
 .chat-thread__older, .chat-thread__empty { text-align: center; padding: var(--space-4); color: var(--color-label-secondary); }
-.chat-members { padding: var(--space-4); border-bottom: 1px solid var(--color-separator); }
-.chat-members h2 { font-size: var(--text-title3); }
+.chat-thread__history { flex: 1; width: 100%; max-width: 900px; min-width: 0; margin-inline: auto; padding: 0 var(--gutter) var(--space-4); }
+.chat-thread__date { display: flex; align-items: center; justify-content: center; gap: var(--space-4); margin: var(--space-4) 0 var(--space-5); color: var(--color-label-secondary); font-size: var(--text-caption); }
+.chat-thread__date::before, .chat-thread__date::after { content: ''; width: 40px; height: 1px; background: var(--color-separator); }
+.chat-members { margin: var(--space-3) var(--gutter); padding: var(--space-4); border: 1px solid var(--color-separator); border-radius: var(--radius-lg); background: var(--color-bg-grouped); }
+.chat-members h2 { margin: 0 0 var(--space-2); font-size: var(--text-title3); }
 .chat-members p, .chat-members small { color: var(--color-label-secondary); font-size: var(--text-footnote); }
 .chat-members ul { list-style: none; padding: 0; }
 .chat-members li { display: flex; gap: var(--space-2); align-items: center; padding-block: var(--space-2); }
 .chat-members li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.chat-compose { padding: var(--space-4); border-top: 1px solid var(--color-separator); }
-.chat-compose textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; min-height: 5.25rem; max-height: min(220px, 30dvh); field-sizing: content; resize: none; overflow-y: auto; border: 1px solid var(--color-separator); border-radius: var(--radius-md); background: var(--color-bg-grouped); color: var(--color-label); padding: var(--space-3); font: inherit; font-size: 1rem; line-height: var(--leading-body); }
-.chat-compose textarea:focus-visible { border-color: var(--color-accent); outline: none; box-shadow: none; }
-.chat-compose__context { font-size: var(--text-footnote); color: var(--color-label-secondary); overflow-wrap: anywhere; }
+.chat-compose { position: sticky; bottom: 0; z-index: 5; padding: var(--space-3) var(--gutter) var(--space-4); background: var(--color-bg); }
+.chat-compose__box { max-width: 852px; margin-inline: auto; border: 1px solid var(--color-separator); border-radius: 18px; background: var(--color-bg-grouped); padding: var(--space-3); }
+.chat-compose__box:has(textarea:focus-visible) { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-soft); }
+.chat-compose textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; min-height: 3rem; max-height: min(220px, 30dvh); field-sizing: content; resize: none; overflow-y: auto; border: 0; border-radius: 0; background: transparent; color: var(--color-label); padding: var(--space-1); font: inherit; font-size: 1rem; line-height: var(--leading-body); }
+.chat-compose textarea:focus-visible { outline: none; box-shadow: none; }
+.chat-compose__context { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); padding: var(--space-2); background: var(--color-fill); border-radius: var(--radius-sm); border-left: 2px solid var(--color-accent); font-size: var(--text-footnote); color: var(--color-label-secondary); overflow-wrap: anywhere; }
+.chat-compose__context > span { flex: 1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.chat-compose__context > button, .chat-compose__context :deep(svg) { flex-shrink: 0; }
 .chat-compose__actions { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .chat-compose__actions > :is(button,label) { min-height: var(--hit-target); }
+.chat-compose__attach { color: var(--color-label-secondary); cursor: pointer; }
+.chat-compose__attach.is-disabled { opacity: .5; cursor: default; }
 .chat-compose__actions > label:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.chat-compose__attachments { padding-left: var(--space-4); font-size: var(--text-footnote); }
+.chat-compose__send { margin-left: auto; border-radius: 12px; }
+.chat-compose__attachments { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; padding: 0; margin: var(--space-2) 0; max-height: 160px; overflow: auto; font-size: var(--text-footnote); }
+.chat-compose__attachments li { display: flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 100%; padding-left: var(--space-2); background: var(--color-fill); border-radius: var(--radius-sm); }
+.chat-compose__attachments li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-compose__attachments img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; }
+.chat-compose__attachments button { flex-shrink: 0; }
+.chat-compose .chat-thread__error { padding: var(--space-2); }
 @media (forced-colors: active) {
-  .chat-compose textarea:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  .chat-compose__box:has(textarea:focus-visible) { outline: 2px solid Highlight; }
 }
 @media (max-width: 43.74rem) {
-  /* Phones: the thread scrolls in the document; the composer docks above the tab bar. */
-  .chat-compose { position: fixed; left: 0; right: 0; bottom: var(--dock-bottom); z-index: var(--z-fab, 20); background: var(--color-bg); }
+  .chat-thread__header { gap: var(--space-2); min-height: 64px; }
+  .chat-thread__history { padding-inline: var(--space-3); }
+  .chat-compose { position: fixed; left: 0; right: 0; bottom: var(--dock-bottom); z-index: var(--z-fab, 20); padding: var(--space-2); }
+  .chat-compose__box { max-height: calc(100dvh - var(--dock-bottom) - 80px); overflow-y: auto; }
   .chat-compose textarea { min-height: 2.75rem; max-height: 9rem; }
-  .chat-thread { padding-bottom: var(--composer-h, 0px); }
+  .chat-thread { min-height: calc(100dvh - var(--tabbar-h, 0px)); padding-bottom: var(--composer-h, 0px); }
+  .chat-compose__attachments { max-height: 100px; }
 }
 </style>

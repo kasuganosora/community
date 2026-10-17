@@ -18,6 +18,31 @@ beforeEach(() => {
   mock.state = { conversation: ref({ title: 'QA', members: [], can_manage: true }), messages: ref([message]), cursor: ref(null), loading: ref(false), loadingOlder: ref(false), refreshPending: ref(false), pending: ref(''), busy: ref(false), error: ref(''), send: mock.send, refresh: vi.fn(), reload: vi.fn() }
 })
 describe('chat composer failure recovery', () => {
+  it('updates the reply preview when the quoted message is redacted during composition', async () => {
+    const w = setup()
+    w.findComponent(ChatMessageView).vm.$emit('reply'); await flushPromises()
+    expect(w.get('.chat-compose__context').text()).toContain('Original')
+    ;(mock.state.messages as { value: unknown[] }).value = [{ ...message, redacted: true }]
+    await flushPromises()
+    expect(w.get('.chat-compose__context').text()).not.toContain('Original')
+    expect(w.get('.chat-compose__context').text()).toContain('已删除')
+    w.unmount()
+  })
+  it('keeps phone toolbar targets stable while the message input has focus', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const w = mount(ChatThreadPage, { attachTo: document.body, global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, 't-icon': true, 't-loading': true, ChatMessageView: true, ConversationMembersForm: true } } })
+    try {
+      await w.get('textarea').setValue('Ready')
+      ;(w.get('textarea').element as HTMLTextAreaElement).focus()
+      const down = new Event('pointerdown', { bubbles: true, cancelable: true })
+      w.get('button[type="submit"]').element.dispatchEvent(down)
+      expect(down.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(w.get('textarea').element)
+      const typing = new Event('pointerdown', { bubbles: true, cancelable: true })
+      w.get('textarea').element.dispatchEvent(typing)
+      expect(typing.defaultPrevented).toBe(false)
+    } finally { w.unmount(); vi.unstubAllGlobals() }
+  })
   it('shows retry feedback without hiding the readable conversation behind a page spinner', async () => {
     const refreshPending = mock.state.refreshPending as { value: boolean }
     ;(mock.state.error as { value: string }).value = '请求失败'

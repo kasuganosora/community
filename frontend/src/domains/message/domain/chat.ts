@@ -1,4 +1,5 @@
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
+import { messagePreview } from './messagePreview'
 
 import { t } from '@/shared/i18n'
 export interface ChatMemberInput { account_id?: string; matrix_id?: string }
@@ -106,6 +107,6 @@ export function chatPreview(chat: ChatConversation): string {
   if (!last) return ''
   let text = last.encrypted ? t('message.chat.encrypted') : (last.body || '')
   if (!last.encrypted && last.msgtype && last.msgtype !== 'm.text' && last.msgtype !== 'm.notice' && last.msgtype !== 'm.emote') text = t('message.chat.attachment')
-  text = text.replace(/\s+/g, ' ').trim()
+  text = messagePreview(text, chat.members.flatMap(member => member.account ? [member.account] : []))
   return last.own && text ? t('message.chat.you', [text]) : text
 }

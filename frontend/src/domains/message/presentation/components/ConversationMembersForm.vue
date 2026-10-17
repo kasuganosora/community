@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { computed, ref, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, onBeforeUnmount, onMounted, watch } from 'vue'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import type { MastodonAccount } from '@/shared/types/mastodon'
@@ -12,6 +12,8 @@ import { t } from '@/shared/i18n'
 const props = defineProps<{ pending?: boolean; error?: string; mode?: 'create' | 'invite'; initialRecipient?: string }>()
 const emit = defineEmits<{ submit: [members: ChatMemberInput[]]; cancel: [] }>()
 const auth = useAuthStore()
+const recipientInput = ref<HTMLInputElement>()
+onMounted(() => recipientInput.value?.focus())
 const query = ref(props.initialRecipient || '')
 const resolving = ref(false)
 const resolveError = ref('')
@@ -55,7 +57,7 @@ function submit() { if (ready.value) emit('submit', selected.value.map(member =>
     <h2>{{ mode === 'invite' ? $t('message.ConversationMembersForm.s1') : $t('message.ConversationMembersForm.s2') }}</h2>
     <label class="members-form__label" for="conversation-recipient">{{ $t('message.ConversationMembersForm.s3') }}</label>
     <div class="members-form__search">
-      <input id="conversation-recipient" v-model="query" autocomplete="off" :placeholder="$t('message.ConversationMembersForm.s4')" :disabled="pending || resolving" @keydown.enter.prevent="add" />
+      <input ref="recipientInput" id="conversation-recipient" v-model="query" autocomplete="off" autocapitalize="none" spellcheck="false" :placeholder="$t('message.ConversationMembersForm.s4')" :disabled="pending || resolving" @keydown.enter.prevent="add" />
       <button class="btn btn--secondary btn--sm" type="button" :disabled="!query.trim() || pending || resolving" @click="add">{{ resolving ? $t('message.ConversationMembersForm.s5') : $t('message.ConversationMembersForm.s6') }}</button>
     </div>
     <p class="members-form__help">{{ $t('message.ConversationMembersForm.s7') }}</p>
@@ -80,11 +82,12 @@ function submit() { if (ready.value) emit('submit', selected.value.map(member =>
 </template>
 
 <style scoped>
-.members-form { padding: var(--space-4); display: grid; gap: var(--space-3); min-width: 0; }
+.members-form { margin: var(--space-2) var(--gutter) var(--space-5); padding: var(--space-5); max-width: 680px; display: grid; gap: var(--space-3); min-width: 0; border: 1px solid var(--color-separator); border-radius: var(--radius-lg); background: var(--color-bg-grouped); }
 .members-form h2 { margin: 0; font-size: var(--text-title3, 1.2rem); }
 .members-form__label { font-weight: var(--weight-semibold); }
 .members-form__search { display: flex; gap: var(--space-2); min-width: 0; }
-.members-form__search input { min-width: 0; flex: 1; padding: var(--space-2); border: 1px solid var(--color-separator); border-radius: var(--radius-sm); background: var(--color-fill); color: var(--color-label); }
+.members-form__search input { min-width: 0; flex: 1; padding: var(--space-2); border: 1px solid var(--color-separator); min-height: var(--hit-target); font: inherit; border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-label); }
+.members-form__search input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .members-form__help { margin: 0; font-size: var(--text-footnote); color: var(--color-label-secondary); }
 .members-form__selected { list-style: none; padding: 0; margin: 0; }
 .members-form__selected li { display: flex; gap: var(--space-2); align-items: center; padding-block: var(--space-2); }
@@ -92,6 +95,7 @@ function submit() { if (ready.value) emit('submit', selected.value.map(member =>
 .members-form__member-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .members-form__consent { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--text-footnote); line-height: 1.6; }
 .members-form__consent input { flex: 0 0 auto; margin-top: .3em; }
-.members-form__actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.members-form__actions { padding-top: var(--space-3); border-top: 1px solid var(--color-separator); display: flex; justify-content: flex-end; gap: var(--space-2); }
 .members-form__error { margin: 0; color: var(--color-danger); overflow-wrap: anywhere; }
+@media (max-width: 43.74rem) { .members-form { padding: var(--space-4); margin-inline: var(--space-3); } }
 </style>

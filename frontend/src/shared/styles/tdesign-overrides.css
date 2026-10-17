@@ -385,8 +385,9 @@ html .t-popup[data-popper-placement^='bottom-start'] .t-popup__content { transfo
 html .t-popup[data-popper-placement^='top-end'] .t-popup__content { transform-origin: bottom right; }
 html .t-popup[data-popper-placement^='bottom-end'] .t-popup__content { transform-origin: top right; }
 
-/* Popup enter/exit: materialise (scale + blur + opacity) from the trigger.
-   Exit is faster than enter — the system response snaps. */
+/* Popper owns the outer transform for positioning. Never animate it: the
+   initial placement would travel from (0, 0) to the trigger. Only the inner
+   surface scales, around the edge nearest the trigger. */
 html .t-popup--animation-enter-from,
 html .t-popup--animation-leave-to {
   opacity: 0;
@@ -396,17 +397,19 @@ html .t-popup--animation-leave-to .t-popup__content {
   transform: scale(0.95);
   filter: blur(2px);
 }
-html .t-popup--animation-enter-active,
+html .t-popup--animation-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out) !important;
+}
 html .t-popup--animation-enter-active .t-popup__content {
   transition:
-    opacity var(--duration-base) var(--ease-out),
-    transform var(--duration-base) var(--ease-spring),
+    transform var(--duration-base) var(--ease-out),
     filter var(--duration-base) var(--ease-out) !important;
 }
-html .t-popup--animation-leave-active,
+html .t-popup--animation-leave-active {
+  transition: opacity 120ms var(--ease-out) !important;
+}
 html .t-popup--animation-leave-active .t-popup__content {
   transition:
-    opacity 120ms var(--ease-out),
     transform 120ms var(--ease-out),
     filter 120ms var(--ease-out) !important;
 }

@@ -14,7 +14,6 @@ import { conversationImage, conversationMediaLabel, conversationPreview, convers
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { isInteractiveClick } from '@/shared/utils/dom'
-import PostComposer from '@/shared/components/post/PostComposer.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 
@@ -38,7 +37,6 @@ const chatCursor = ref<string | null>(null)
 const creating = ref(!!initialRecipient.value)
 const createPending = ref(false)
 const createError = ref('')
-const quickCompose = ref(false)
 let createTransaction = crypto.randomUUID()
 let createSignature = ''
 let version = 0
@@ -73,7 +71,7 @@ async function create(members: ChatMemberInput[]) {
 }
 watch(() => sessionEpoch.value, () => {
   version++; chats.value = []; chatCursor.value = null; chatLoading.value = false; chatError.value = ''
-  creating.value = false; createPending.value = false; createError.value = ''; quickCompose.value = false
+  creating.value = false; createPending.value = false; createError.value = ''
   createTransaction = crypto.randomUUID()
 }, { flush: 'sync' })
 onBeforeUnmount(() => { version++ })
@@ -140,11 +138,6 @@ function remove(c: MastodonConversation) {
   })
 }
 
-function onPosted() {
-  MessagePlugin.success(t('message.MessagesPage.s30'))
-  feed.refresh()
-}
-
 onMounted(async () => {
   void loadChats()
   await feed.refresh()
@@ -160,17 +153,14 @@ onMounted(async () => {
 
 <template>
   <div class="messages-page">
-    <div class="page-header">
+    <header class="page-header messages-header">
       <h1 class="page-header__title">{{ $t('message.MessagesPage.s1') }}</h1>
-      <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ $t('message.MessagesPage.s2', [conversations.filter(c => c.unread).length]) }}</p>
-    </div>
-
-    <div class="messages-toolbar">
-      <button class="btn btn--primary btn--sm" :disabled="createPending" @click="creating = !creating; quickCompose = false">{{ $t('message.MessagesPage.s3') }}</button>
-      <button class="btn btn--ghost btn--sm" :aria-expanded="quickCompose" :disabled="createPending" @click="quickCompose = !quickCompose; creating = false">{{ $t('message.MessagesPage.s4') }}</button>
-    </div>
-    <ConversationMembersForm v-if="creating" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />
-    <PostComposer v-if="quickCompose" initial-visibility="direct" :placeholder="$t('message.MessagesPage.s5')" @posted="onPosted" />
+      <div class="messages-toolbar">
+        <button class="btn btn--primary btn--sm" :disabled="createPending" :aria-expanded="creating" aria-controls="new-message-form" @click="creating = !creating"><t-icon name="edit" :size="18" />{{ $t('message.MessagesPage.s3') }}</button>
+      </div>
+    </header>
+    <p v-if="conversations.some(c => c.unread)" class="messages-unread">{{ $t('message.MessagesPage.s2', [conversations.filter(c => c.unread).length]) }}</p>
+    <ConversationMembersForm v-if="creating" id="new-message-form" :key="initialRecipient" :initial-recipient="initialRecipient" :pending="createPending" :error="createError" @submit="create" @cancel="creating = false" />
     <p v-if="chatError" class="messages-banner" role="alert">{{ chatError }} <button class="btn btn--ghost btn--sm" :disabled="chatLoading" @click="loadChats()">{{ chatLoading ? $t('message.MessagesPage.s6') : $t('message.MessagesPage.s7') }}</button></p>
 
     <p v-if="error && (conversations.length > 0 || chats.length > 0)" class="messages-banner" role="alert">
@@ -233,7 +223,6 @@ onMounted(async () => {
             <span v-if="conversationMediaLabel(c)" class="conversation__media">{{ conversationMediaLabel(c) }}</span>
             <span class="conversation__excerpt">{{ conversationPreview(c) || (conversationMediaLabel(c) ? '' : $t('message.MessagesPage.s16')) }}</span>
           </p>
-          <p class="conversation__scope">{{ $t('message.MessagesPage.s17') }}</p>
         </div>
         <span v-if="c.unread" class="conversation__dot">{{ $t('message.MessagesPage.s18') }}</span>
         <button type="button" class="conversation__remove" :aria-label="$t('message.MessagesPage.s19')" @click.stop="remove(c)">
@@ -251,14 +240,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.messages-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--gutter, var(--space-4)); }
-.conversation__chat-link .conversation__body { display: flex; flex-direction: column; }
+.messages-header { justify-content: space-between; min-height: 72px; border-bottom: 1px solid var(--color-separator); }
+.messages-toolbar { margin-left: auto; padding-block: var(--space-2); }
+.messages-toolbar button { min-height: var(--hit-target); }
+.conversation__chat-link .conversation__body { display: flex; flex-direction: column; gap: var(--space-1); }
 .conversation__chat-link .conversation__preview { display: flex; }
 .conversation__chat-link .conversation__title { flex: 0 1 auto; }
 .conversation__chat-link .conversation__time { margin-left: auto; flex-shrink: 0; }
 .conversation__acct { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-label-secondary, var(--color-text-secondary)); font-size: var(--text-footnote, 13px); }
-.conversation__chat-link { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; color: inherit; text-decoration: none; }
+.conversation__chat-link { margin: calc(-1 * var(--space-4)) calc(-1 * var(--gutter, var(--space-4))); padding: var(--space-4) var(--gutter, var(--space-4)); flex: 1; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; color: inherit; text-decoration: none; }
 .conversation__chat-link .conversation__scope { display: block; }
+@media (max-width: 43.74rem) { .conversation__acct { display: none; } }
 .messages-page {
   min-height: 100dvh;
 }
@@ -292,8 +284,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: var(--hit-target);
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--gutter, var(--space-4));
+  min-height: 88px;
+  padding: var(--space-4) var(--gutter, var(--space-4));
   border-bottom: var(--hairline, 1px) solid var(--color-separator, var(--border-color));
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -372,6 +364,7 @@ onMounted(async () => {
 
 .conversation__preview {
   display: flex;
+  margin: var(--space-1) 0 0;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;

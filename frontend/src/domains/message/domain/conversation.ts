@@ -1,5 +1,6 @@
 import type { MastodonConversation } from '@/shared/types/mastodon'
 import { stripHtml } from '@/shared/utils/sanitize'
+import { messagePreview } from './messagePreview'
 
 import { t } from '@/shared/i18n'
 /** "Alice、Bob" — participants other than you; falls back to the last status author. */
@@ -23,7 +24,7 @@ export function conversationPreview(c: MastodonConversation): string {
   if (!s) return t('message.conversation.s2')
   const spoiler = s.spoiler_text?.trim()
   if (spoiler) return t('message.conversation.s3', [spoiler])
-  const text = stripHtml(s.content || '').replace(/\s+/g, ' ').trim()
+  const text = messagePreview(stripHtml(s.content || ''), c.accounts)
   return text || (s.media_attachments?.length ? '' : t('message.conversation.s2'))
 }
 

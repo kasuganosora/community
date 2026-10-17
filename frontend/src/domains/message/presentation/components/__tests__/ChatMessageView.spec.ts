@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import ChatMessageView from '../ChatMessageView.vue'
 import type { ChatMessage } from '../../../domain/chat'
 const base: ChatMessage = { event_id: '$one', sender: '@alice:local', body: 'Hello', msgtype: 'm.text', created_at: 1, own: true, status_id: null }
-const setup = (message: ChatMessage) => mount(ChatMessageView, { props: { message }, global: { stubs: { PostContent: true, UserAvatar: true, RelativeTime: true } } })
+const setup = (message: ChatMessage) => mount(ChatMessageView, { props: { message }, global: { stubs: { PostContent: true, UserAvatar: true, AccountLink: { template: '<a><slot /></a>' }, 't-icon': true } } })
 describe('chat message visibility and delivery labels', () => {
   it('distinguishes remote acknowledgement from local completion, and never claims read receipts', async () => {
     const delivery = { event_id: '$one', room_id: '!room', state: 'delivered' as const, remote_received: false, can_retry: false, updated_at: '' }
@@ -43,5 +43,15 @@ describe('chat message visibility and delivery labels', () => {
     expect(deleted.html()).not.toContain('private removed body')
     expect(deleted.findAll('button')).toHaveLength(0); deleted.unmount()
     const unsafe = setup({ ...base, msgtype: 'm.image', url: 'javascript:alert(1)' }); expect(unsafe.find('img').exists()).toBe(false); unsafe.unmount()
+  })
+  it('does not reveal warned or deleted reply content in the compact quote', async () => {
+    const w = setup({ ...base, reply_event_id: '$parent' })
+    await w.setProps({ reply: { ...base, body: 'private spoiler', status: { spoiler_text: '剧透提醒', content: '<p>private spoiler</p>' } as never } })
+    expect(w.get('.chat-message__reply').text()).toBe('剧透提醒')
+    expect(w.text()).not.toContain('private spoiler')
+    await w.setProps({ reply: { ...base, redacted: true, body: 'removed content' } })
+    expect(w.get('.chat-message__reply').text()).toBe('消息已删除')
+    expect(w.text()).not.toContain('removed content')
+    w.unmount()
   })
 })
