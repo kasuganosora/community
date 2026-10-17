@@ -23,6 +23,7 @@ import (
 func init() {
 	search.SetReadyHook(reindexAll)
 	search.SetAccountIndexer(indexAccountByID)
+	search.SetReindexProgress(func() any { return Progress() })
 	event.Register("status", "*", &event.Handler{Exec: onStatus})
 }
 
@@ -224,6 +225,13 @@ func indexStatusByID(id uint64) {
 	if !client.IsEnabled() || db.GetDB() == nil {
 		return
 	}
+	defer func() {
+		// The database can be closed (shutdown, tests) while this event
+		// goroutine runs; indexing is best effort and must not crash.
+		if r := recover(); r != nil {
+			log.Warn("search index status %d skipped: %v", id, r)
+		}
+	}()
 	var status models.Status
 	if err := db.GetDB().First(&status, id).Error; err != nil {
 		return
@@ -295,7 +303,11 @@ func loadContents(ids []uint64) map[uint64]models.StatusContent {
 		return out
 	}
 	var rows []models.StatusContent
-	if err := db.GetDB().Where("status_id IN ?", ids).Find(&rows).Error; err != nil {
+	conn := db.GetDB()
+	if conn == nil {
+		return out
+	}
+	if err := conn.Where("status_id IN ?", ids).Find(&rows).Error; err != nil {
 		return out
 	}
 	for _, row := range rows {

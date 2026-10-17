@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
-	"github.com/kasuganosora/community/search/indexsync"
+	"github.com/kasuganosora/community/search"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +33,7 @@ func DiscoveryStatus(c *gin.Context) {
 		discoveryAdminError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"enabled": settings.Enabled, "configured_mode": settings.Mode, "approved_version": settings.ApprovedVersion, "require_manual_approval": settings.RequireManualApproval, "trends_enabled": settings.TrendsEnabled, "algorithm_version": discovery.AlgorithmVersion, "index": discovery.CurrentMeiliStatus(), "runtime": runtime, "search_index": indexsync.Progress()})
+	c.JSON(http.StatusOK, gin.H{"enabled": settings.Enabled, "configured_mode": settings.Mode, "approved_version": settings.ApprovedVersion, "require_manual_approval": settings.RequireManualApproval, "trends_enabled": settings.TrendsEnabled, "algorithm_version": discovery.AlgorithmVersion, "index": discovery.CurrentMeiliStatus(), "runtime": runtime, "search_index": search.ReindexProgress()})
 }
 
 // currentDiscoveryIndexVersion is swapped in tests.
