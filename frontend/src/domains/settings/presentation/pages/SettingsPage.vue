@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { adminEntry } from '@/domains/admin/domain/navigation'
-import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
-import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
-import AvatarDecorationPicker from '../components/AvatarDecorationPicker.vue'
 import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import PasskeySettings from '../components/PasskeySettings.vue'
@@ -23,12 +20,12 @@ import { t } from '@/shared/i18n'
 const router = useRouter()
 const route = useRoute()
 const sections = [
-  { id: 'profile', label: t('settings.SettingsPage.s11') },
-  { id: 'display', label: t('settings.SettingsPage.s25') },
-  { id: 'discovery', label: t('settings.SettingsPage.s4') },
-  { id: 'security', label: t('settings.SettingsPage.s26') },
-  { id: 'privacy', label: t('settings.SettingsPage.s27') },
-  { id: 'more', label: t('settings.SettingsPage.s28') },
+  { id: 'profile', icon: 'user', label: t('settings.SettingsPage.s11') },
+  { id: 'display', icon: 'palette', label: t('settings.SettingsPage.s25') },
+  { id: 'discovery', icon: 'earth', label: t('settings.SettingsPage.s4') },
+  { id: 'security', icon: 'secured', label: t('settings.SettingsPage.s26') },
+  { id: 'privacy', icon: 'browse-off', label: t('settings.SettingsPage.s27') },
+  { id: 'more', icon: 'more', label: t('settings.SettingsPage.s28') },
 ]
 const activeSection = computed(() => sections.some(item => item.id === route.query.section) ? route.query.section : 'profile')
 const authStore = useAuthStore()
@@ -55,11 +52,6 @@ const appearanceOptions: { value: ThemePreference; label: string; icon: string }
   { value: 'dark', label: t('settings.SettingsPage.s34'), icon: 'mode-dark' },
 ]
 
-function openProfile() {
-  const u = authStore.currentUser
-  if (u) router.push(`/@${u.username}`).catch(() => {})
-}
-
 async function logout() {
   try {
     await authStore.logout()
@@ -75,10 +67,10 @@ async function logout() {
   <div class="settings-page">
     <header class="settings-header">
       <h1>{{ $t('settings.SettingsPage.s1') }}</h1>
-      <p>{{ $t('settings.SettingsPage.s2') }}</p>
     </header>
+    <div class="settings-layout">
     <nav class="settings-nav" :aria-label="$t('settings.SettingsPage.s3')">
-      <router-link v-for="item in sections" :key="item.id" :to="{ path: '/settings', query: { section: item.id } }" :aria-current="activeSection === item.id ? 'page' : undefined">{{ item.label }}</router-link>
+      <router-link v-for="item in sections" :key="item.id" :to="{ path: '/settings', query: { section: item.id } }" :aria-current="activeSection === item.id ? 'page' : undefined"><t-icon :name="item.icon" :size="20" aria-hidden="true" /><span>{{ item.label }}</span></router-link>
     </nav>
 
     <div class="settings">
@@ -112,31 +104,11 @@ async function logout() {
         <p class="settings__footer">{{ $t('settings.SettingsPage.s8') }}</p>
       </section>
 
-      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'profile'" aria-labelledby="settings-account">
-        <h2 id="settings-account" class="settings__heading">{{ $t('settings.SettingsPage.s9') }}</h2>
-        <div class="settings__group">
-          <button type="button" class="settings__row" @click="openProfile">
-            <UserAvatar :account="authStore.currentUser" :size="40" />
-            <span class="settings__row-text">
-              <span class="settings__row-title"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></span>
-              <span class="settings__row-sub">{{ $t('settings.SettingsPage.s10', [authStore.currentUser.username]) }}</span>
-            </span>
-            <t-icon name="chevron-right" :size="16" class="settings__chevron" />
-          </button>
-        </div>
-      </section>
-
-      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'profile'" aria-labelledby="settings-profile">
+      <section v-if="authStore.currentUser" class="settings__section settings__section--profile" v-show="activeSection === 'profile'" aria-labelledby="settings-profile">
         <h2 id="settings-profile" class="settings__heading">{{ $t('settings.SettingsPage.s11') }}</h2>
-        <div class="settings__group settings__group--padded">
-          <ProfileSettingsForm />
-</div>
+        <ProfileSettingsForm />
       </section>
 
-      <section v-if="authStore.currentUser" v-show="activeSection === 'profile'" class="settings__section" aria-labelledby="settings-decoration">
-        <h2 id="settings-decoration" class="settings__heading">{{ $t('settings.SettingsPage.s12') }}</h2>
-        <div class="settings__group settings__group--padded"><AvatarDecorationPicker /></div>
-      </section>
       <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'security'" aria-labelledby="settings-password">
         <h2 id="settings-password" class="settings__heading">{{ $t('settings.SettingsPage.s13') }}</h2>
         <div class="settings__group settings__group--padded">
@@ -189,6 +161,7 @@ async function logout() {
           </button>
         </div>
       </section>
+    </div>
     </div>
   </div>
 </template>

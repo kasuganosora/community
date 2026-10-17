@@ -17,7 +17,7 @@ it('retains a draft when the initial profile refresh resolves after typing', asy
   resolve()
   await flushPromises()
   expect(w.get('#set-display-name').element).toHaveProperty('value', 'Unsaved name')
-  await w.get('button[type=button]').trigger('click')
+  await w.get('.settings-actions button[type=button]').trigger('click')
   expect(w.get('#set-display-name').element).toHaveProperty('value', 'Server name')
   w.unmount()
 })

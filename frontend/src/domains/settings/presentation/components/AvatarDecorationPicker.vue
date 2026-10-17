@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { communityAssetsApi, type AvatarDecoration, type AvatarDecorationChoice } from '@/domains/admin/infrastructure/communityAssetsApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
-import type { AvatarDecorationPlacement } from '@/shared/types/mastodon'
+import type { AvatarDecorationPlacement, MastodonAccount } from '@/shared/types/mastodon'
 import { useSettingsScope } from '../composables/useSettingsScope'
 
 import { t } from '@/shared/i18n'
+const props = defineProps<{ account?: MastodonAccount }>()
+const emit = defineEmits<{ 'busy-change': [busy: boolean]; saved: [] }>()
 const auth = useAuthStore()
 const items = ref<AvatarDecoration[]>([]), selected = ref<AvatarDecorationChoice[]>([]), limit = ref(1), active = ref(0)
 const busy = ref(false), loading = ref(true), loaded = ref(false), error = ref(''), notice = ref('')
+watch(busy, value => emit('busy-change', value), { flush: 'sync' })
 const scope = useSettingsScope(() => { items.value = []; loaded.value = false; selected.value = []; busy.value = false; loading.value = false; error.value = ''; notice.value = '' })
 
 const imageUrl = (id: string) => `/api/v1/avatar_decorations/${encodeURIComponent(id)}/image`
@@ -70,7 +73,7 @@ async function save() {
     await communityAssetsApi.selectDecorations(selected.value)
     if (!done()) return
     await auth.fetchCurrentUser()
-    if (done()) notice.value = t('settings.AvatarDecorationPicker.s24')
+    if (done()) { notice.value = t('settings.AvatarDecorationPicker.s24'); emit('saved') }
   } catch { if (done()) error.value = t('settings.AvatarDecorationPicker.s25') }
   finally { if (done()) busy.value = false }
 }
@@ -82,9 +85,9 @@ onMounted(load)
     <p class="decoration-picker__hint">{{ $t('settings.AvatarDecorationPicker.s1', [limit]) }}</p>
     <p v-if="loading" role="status">{{ $t('settings.AvatarDecorationPicker.s2') }}</p>
     <template v-else>
-      <div class="decoration-picker__layout">
+      <div v-if="items.length || selected.length" class="decoration-picker__layout">
         <div class="decoration-picker__preview" :aria-label="$t('settings.AvatarDecorationPicker.s3')">
-          <UserAvatar v-if="auth.currentUser" :account="auth.currentUser" :size="96" :decorations="preview" />
+          <UserAvatar v-if="auth.currentUser" :account="props.account || auth.currentUser" :size="80" :decorations="preview" />
         </div>
         <div class="decoration-picker__editor">
           <ul v-if="selected.length" class="decoration-picker__selected" :aria-label="$t('settings.AvatarDecorationPicker.s4')">
@@ -127,20 +130,24 @@ onMounted(load)
         >
           <img :src="item.image_url" alt="" width="56" height="56" /><span>{{ item.name }}</span>
         </button>
-        <p v-if="!items.length">{{ $t('settings.AvatarDecorationPicker.s18') }}</p>
+        <p v-if="!items.length" class="decoration-picker__empty-options">{{ $t('settings.AvatarDecorationPicker.s18') }}</p>
       </div>
     </template>
     <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" class="btn btn--ghost btn--sm" :disabled="busy || loading" @click="load">{{ $t('settings.AvatarDecorationPicker.s19') }}</button></p>
     <p v-if="notice" role="status">{{ notice }}</p>
-    <div class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="busy || loading || !loaded">{{ busy ? $t('settings.AvatarDecorationPicker.s20') : $t('settings.AvatarDecorationPicker.s21') }}</button></div>
+    <div v-if="items.length || fromAccount().length" class="settings-actions"><button type="submit" class="btn btn--primary" :disabled="busy || loading || !loaded">{{ busy ? $t('settings.AvatarDecorationPicker.s20') : $t('settings.AvatarDecorationPicker.s21') }}</button></div>
   </form>
 </template>
 
 <style scoped>
-.decoration-picker { padding: 20px; }
-.decoration-picker__hint { margin: 0 0 12px; color: var(--color-label-secondary); }
+.decoration-picker { min-width: 0; padding: 0; }
+.decoration-picker .settings-actions { display: flex; justify-content: flex-end; border-top: 1px solid var(--color-separator); padding-top: 1rem; }
+.decoration-picker .btn { min-height: 44px; }
+.decoration-picker__empty-options { grid-column: 1 / -1; margin: .5rem 0; color: var(--color-label-secondary); }
+.decoration-picker [role="alert"] { color: var(--color-danger); }
+.decoration-picker__hint { margin: 0 0 16px; font-size: .8125rem; line-height: 1.6; color: var(--color-label-secondary); }
 .decoration-picker__layout { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-.decoration-picker__preview { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 192px; height: 192px; border-radius: 12px; background: var(--color-fill); overflow: hidden; }
+.decoration-picker__preview { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 160px; height: 160px; border-radius: 12px; background: var(--color-fill); overflow: hidden; }
 .decoration-picker__editor { flex: 1 1 240px; min-width: 0; }
 .decoration-picker__selected { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .decoration-picker__selected li { display: flex; align-items: center; gap: 8px; }
@@ -150,11 +157,15 @@ onMounted(load)
 .decoration-picker__controls { border: 1px solid var(--color-separator); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .decoration-picker__controls label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .decoration-picker__controls input[type="range"] { flex: 1 1 120px; min-width: 0; }
-.decoration-picker__num { width: 4.5em; }
+.decoration-picker__num { width: 4.5em; min-height: 36px; padding: .25rem .5rem; color: var(--color-label); background: var(--color-bg-row); border: 1px solid var(--color-separator); border-radius: .5rem; }
 .decoration-picker__empty { color: var(--color-label-secondary); }
 .decoration-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin: 16px 0; }
 .decoration-option { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--color-separator); border-radius: 8px; background: none; color: inherit; cursor: pointer; }
 .decoration-option:disabled { opacity: .5; cursor: not-allowed; }
 .decoration-option img { object-fit: contain; }
 .decoration-option span { font-size: 13px; overflow-wrap: anywhere; text-align: center; }
+@media (max-width: 499px) {
+  .decoration-picker__layout { flex-direction: column; align-items: center; gap: 1rem; }
+  .decoration-picker__editor { flex: auto; width: 100%; }
+}
 </style>
