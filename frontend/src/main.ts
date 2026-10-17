@@ -51,3 +51,14 @@ setAuthExpiredCallback(() => {
 })
 
 app.mount('#app')
+
+// After a deploy an open tab still references the previous build's hashed
+// chunks, which no longer exist. Reload once to pick up the new index.html.
+window.addEventListener('vite:preloadError', (event) => {
+  const key = 'community:preload-reload'
+  const last = Number(sessionStorage.getItem(key) || 0)
+  if (Date.now() - last < 60_000) return
+  sessionStorage.setItem(key, String(Date.now()))
+  event.preventDefault()
+  window.location.reload()
+})

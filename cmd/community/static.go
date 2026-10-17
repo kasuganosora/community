@@ -118,6 +118,11 @@ func frontendFileHandler(frontendDir string) gin.HandlerFunc {
 		}
 		file, ok := frontendAsset(frontendDir, p)
 		if !ok {
+			// A hashed asset can be requested moments before the new build
+			// is on disk (or after an old one is gone). Without a header the
+			// CDN caches this 404 for hours (Cloudflare: 4h), breaking the
+			// next deploy's pages; never let it be cached.
+			c.Header("Cache-Control", "no-store")
 			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 
 			return

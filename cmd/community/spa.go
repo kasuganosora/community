@@ -170,6 +170,7 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 		}
 
 		if !isSPARoute(c.Request.Method, p) {
+			c.Header("Cache-Control", "no-store") // never let a CDN cache a missing file
 			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 
 			return

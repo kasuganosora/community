@@ -84,8 +84,8 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 		}
 	}
 
-	if w := get("/assets/js/missing.js", "br"); w.Code != http.StatusNotFound {
-		t.Errorf("missing asset: %d", w.Code)
+	if w := get("/assets/js/missing.js", "br"); w.Code != http.StatusNotFound || w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("missing asset: %d cc=%q (a cached 404 outlives the next deploy)", w.Code, w.Header().Get("Cache-Control"))
 	}
 	if w := get("/theme-init.js", "br"); w.Body.String() != "THEME" || w.Header().Get("Cache-Control") != cacheRevalidate || w.Header().Get("Vary") != "" {
 		t.Errorf("theme-init: body=%q cc=%q", w.Body.String(), w.Header().Get("Cache-Control"))
