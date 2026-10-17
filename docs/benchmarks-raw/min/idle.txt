@@ -1,0 +1,5 @@
+idle: 182960128
+RSS  COMMAND
+ 78m community
+8764 redis-server
+ 908 ps

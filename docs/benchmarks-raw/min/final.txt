@@ -1,0 +1,5 @@
+peak: 1073795072
+oom 0
+oom_kill 0
+oom_group_kill 0
+OOMKilled=false restarts=0

@@ -1,0 +1,4 @@
+rapp peak=225755136 OOMKilled=false status=running oom_kill 0
+rpg peak=311070720 OOMKilled=false status=running oom_kill 0
+rredis peak=28332032 OOMKilled=false status=running oom_kill 0
+rmeili peak=768389120 OOMKilled=false status=running oom_kill 0
