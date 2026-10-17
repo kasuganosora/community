@@ -40,9 +40,14 @@ var (
 	// profileBackfillItems is how many non-reply original posts a run tries
 	// to collect; it keeps following the outbox's "next" pages until then.
 	profileBackfillItems = 20
-	// profileBackfillMaxPages and profileBackfillMaxItems cap that walk.
-	profileBackfillMaxPages = 5
-	profileBackfillMaxItems = 100
+	// profileBackfillMaxPages caps that walk. Reply-heavy accounts (kanna:
+	// 100 items, 0 originals) need many pages, so the cap is on pages while
+	// the stored items stay bounded: once profileBackfillReplyItems items
+	// are collected, further replies are skipped and only originals and
+	// boosts are kept, up to profileBackfillMaxItems.
+	profileBackfillMaxPages   = 20
+	profileBackfillReplyItems = 100
+	profileBackfillMaxItems   = 200
 	// profileBackfillPageDelay paces page fetches politely.
 	profileBackfillPageDelay = 300 * time.Millisecond
 	// profileBackfillPins bounds the featured items imported per run.
@@ -51,7 +56,7 @@ var (
 	profileBackfillPerHost = 2
 	// profileBackfillSlots bounds concurrent runs overall.
 	profileBackfillSlots   = make(chan struct{}, 8)
-	profileBackfillTimeout = 90 * time.Second
+	profileBackfillTimeout = 3 * time.Minute
 
 	// profileBackfillClient signs every fetch as the instance actor so
 	// servers that enforce authorized fetch answer too.
@@ -814,8 +819,12 @@ func (b *profileBackfiller) outboxItems(uri string) ([]any, int, error) {
 			if len(items) >= profileBackfillMaxItems {
 				return
 			}
+			original := isOriginalCreate(it)
+			if len(items) >= profileBackfillReplyItems && !original && !isAnnounce(it) {
+				continue
+			}
 			items = append(items, it)
-			if isOriginalCreate(it) {
+			if original {
 				originals++
 			}
 		}
@@ -862,6 +871,11 @@ func (b *profileBackfiller) outboxItems(uri string) ([]any, int, error) {
 		next = objectID(p["next"])
 	}
 	return items, total, nil
+}
+
+func isAnnounce(item any) bool {
+	m, ok := item.(map[string]any)
+	return ok && stringField(m, "type") == "Announce"
 }
 
 // isOriginalCreate reports a Create whose embedded object is not a reply.

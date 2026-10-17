@@ -78,4 +78,18 @@ describe('remote profile backfill', () => {
     expect(link.attributes('href')).toBe('https://maid.lat/@luna')
     wrapper.unmount()
   })
+
+  it('always offers the original site on an empty remote profile once nothing is pending', async () => {
+    for (const backfill of ['done', null] as const) {
+      vi.spyOn(userApi, 'lookupAccount').mockResolvedValue(remote)
+      vi.spyOn(userApi, 'getRelationships').mockResolvedValue([])
+      vi.spyOn(userApi, 'getStatusesWithBackfill').mockResolvedValue({ statuses: [], backfill })
+      const wrapper = mountPage()
+      await flushPromises()
+      const origin = wrapper.find('[data-testid="profile-backfill-origin"]')
+      expect(origin.exists(), `backfill=${backfill}`).toBe(true)
+      expect(origin.find('a').attributes('href')).toBe('https://maid.lat/@luna')
+      wrapper.unmount()
+    }
+  })
 })

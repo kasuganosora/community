@@ -304,7 +304,7 @@ watch(activeTab, () => {
       <a v-if="remoteProfileUrl" :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">{{ $t('user.ProfilePage.s16') }}</a>
     </div>
     <div
-      v-else-if="isRemote && activeTab !== 'likes' && backfill === 'done' && statuses.length === 0 && !feed.loading.value && !feed.hasMore.value && remoteProfileUrl"
+      v-else-if="isRemote && activeTab !== 'likes' && backfill !== 'pending' && statuses.length === 0 && !feed.loading.value && remoteProfileUrl"
       class="profile-backfill profile-backfill--hint"
       data-testid="profile-backfill-origin"
     >

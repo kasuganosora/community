@@ -537,3 +537,40 @@ func TestProfileBackfillPageCap(t *testing.T) {
 func TestProfileBackfillKeyIsVersioned(t *testing.T) {
 	require.Equal(t, "community:profile_backfill:v2:3762", profileBackfillKey(3762), "v1 page-1-only marks must not suppress a paginated run")
 }
+
+// Reply-only pages beyond the first 100 items are walked (count-based) but
+// their replies are not kept; originals further down are still found.
+func TestProfileBackfillWalksPastManyReplyPagesWithoutKeepingReplies(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	prevItems, prevDelay, prevReply := profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems
+	profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems = 2, time.Millisecond, 4
+	t.Cleanup(func() { profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems = prevItems, prevDelay, prevReply })
+	remote.person("chatty", nil)
+	remote.docs["/notes/parent"] = func(b string) any { return note(b, "chatty", "/notes/parent", "parent") }
+	create := func(b, id string, reply bool) any {
+		n := note(b, "chatty", "/notes/"+id, id)
+		if reply {
+			n["inReplyTo"] = b + "/notes/parent"
+		}
+		return map[string]any{"id": b + "/notes/" + id + "/activity", "type": "Create", "actor": b + "/users/chatty", "to": []any{asPublic}, "object": n}
+	}
+	remote.docs["/users/chatty/outbox"] = func(b string) any {
+		return map[string]any{"id": b + "/users/chatty/outbox", "type": "OrderedCollection", "first": b + "/users/chatty/outbox?page=1"}
+	}
+	for i := 1; i <= 8; i++ {
+		n := i
+		remote.docs["/users/chatty/outbox?page="+strconv.Itoa(n)] = func(b string) any {
+			items := []any{create(b, "r"+strconv.Itoa(n)+"a", true), create(b, "r"+strconv.Itoa(n)+"b", true)}
+			if n == 8 {
+				items = []any{create(b, "origA", false), create(b, "origB", false)}
+			}
+			return map[string]any{"type": "OrderedCollectionPage", "orderedItems": items, "next": b + "/users/chatty/outbox?page=" + strconv.Itoa(n+1)}
+		}
+	}
+	chatty := remoteAccount(t, conn, remote.server.URL, "chatty")
+	require.Equal(t, ProfileBackfillDone, runProfileBackfill(t, chatty))
+	texts := strings.Join(profileTexts(t, conn, chatty.Id), "|")
+	require.Contains(t, texts, "origA")
+	require.Contains(t, texts, "origB")
+	require.NotContains(t, texts, "r5a", "replies past the reply budget are not stored")
+}
