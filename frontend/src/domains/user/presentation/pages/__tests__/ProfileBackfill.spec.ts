@@ -49,16 +49,19 @@ describe('remote profile backfill', () => {
     wrapper.unmount()
   })
 
-  it('stops polling after two retries', async () => {
+  it('stops polling after five retries and links to older posts on the origin', async () => {
     vi.useFakeTimers()
     vi.spyOn(userApi, 'lookupAccount').mockResolvedValue(remote)
     vi.spyOn(userApi, 'getRelationships').mockResolvedValue([])
     const fetch = vi.spyOn(userApi, 'getStatusesWithBackfill').mockResolvedValue({ statuses: [], backfill: 'pending' })
     const wrapper = mountPage()
     await flushPromises()
-    await vi.advanceTimersByTimeAsync(20000)
-    expect(fetch).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(40000)
+    expect(fetch).toHaveBeenCalledTimes(6)
     expect(wrapper.find('[data-testid="profile-backfill-pending"]').exists()).toBe(false)
+    const origin = wrapper.find('[data-testid="profile-backfill-origin"]')
+    expect(origin.exists()).toBe(true)
+    expect(origin.find('a').attributes('href')).toBe('https://maid.lat/@luna')
     wrapper.unmount()
   })
 

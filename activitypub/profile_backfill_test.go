@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -459,4 +460,80 @@ func TestProfileBackfillConcurrentFetchKeepsOrder(t *testing.T) {
 	require.Greater(t, peak, int64(1), "fetches run concurrently")
 	require.LessOrEqual(t, peak, int64(profileBackfillFetchPerHost+1), "bounded per host (+1 for the pins fetch)")
 	require.Less(t, elapsed, time.Duration(n)*150*time.Millisecond, "faster than sequential")
+}
+
+// kanna@maid.lat: the first outbox page is all replies, so the walk follows
+// "next" until it has enough original posts.
+func TestProfileBackfillPaginatesPastReplyOnlyPages(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	prevItems, prevDelay := profileBackfillItems, profileBackfillPageDelay
+	profileBackfillItems, profileBackfillPageDelay = 3, time.Millisecond
+	t.Cleanup(func() { profileBackfillItems, profileBackfillPageDelay = prevItems, prevDelay })
+	remote.person("kanna", nil)
+	create := func(b, id, text string, reply bool) any {
+		n := note(b, "kanna", "/notes/"+id, text)
+		if reply {
+			n["inReplyTo"] = b + "/notes/parent"
+		}
+		return map[string]any{"id": b + "/notes/" + id + "/activity", "type": "Create", "actor": b + "/users/kanna", "to": []any{asPublic}, "object": n}
+	}
+	remote.docs["/notes/parent"] = func(b string) any { return note(b, "kanna", "/notes/parent", "parent") }
+	remote.docs["/users/kanna/outbox"] = func(b string) any {
+		return map[string]any{"id": b + "/users/kanna/outbox", "type": "OrderedCollection", "totalItems": 1373, "first": b + "/users/kanna/outbox?page=1"}
+	}
+	page := func(n int, next bool, items ...any) {
+		remote.docs["/users/kanna/outbox?page="+strconv.Itoa(n)] = func(b string) any {
+			p := map[string]any{"id": b + "/users/kanna/outbox?page=" + strconv.Itoa(n), "type": "OrderedCollectionPage", "orderedItems": items}
+			if next {
+				p["next"] = b + "/users/kanna/outbox?page=" + strconv.Itoa(n+1)
+			}
+			return p
+		}
+	}
+	b := remote.server.URL
+	page(1, true, create(b, "r1", "reply 1", true), create(b, "r2", "reply 2", true))
+	page(2, true, create(b, "o1", "orig 1", false), create(b, "r3", "reply 3", true), create(b, "o2", "orig 2", false))
+	page(3, true, create(b, "o3", "orig 3", false))
+	page(4, false, create(b, "o4", "never fetched", false))
+	fetched4 := atomic.Bool{}
+	remote.hook = func(key string) int {
+		if key == "/users/kanna/outbox?page=4" {
+			fetched4.Store(true)
+		}
+		return 0
+	}
+	kanna := remoteAccount(t, conn, b, "kanna")
+	require.Equal(t, ProfileBackfillDone, runProfileBackfill(t, kanna))
+	texts := strings.Join(profileTexts(t, conn, kanna.Id), "|")
+	for _, want := range []string{"orig 1", "orig 2", "orig 3"} {
+		require.Contains(t, texts, want)
+	}
+	require.NotContains(t, texts, "never fetched")
+	require.False(t, fetched4.Load(), "stops once enough originals are collected")
+}
+
+func TestProfileBackfillPageCap(t *testing.T) {
+	conn, remote := setupProfileBackfill(t)
+	prevDelay := profileBackfillPageDelay
+	profileBackfillPageDelay = time.Millisecond
+	t.Cleanup(func() { profileBackfillPageDelay = prevDelay })
+	remote.person("loop", nil)
+	remote.docs["/users/loop/outbox"] = func(b string) any {
+		return map[string]any{"id": b + "/users/loop/outbox", "type": "OrderedCollection", "first": b + "/users/loop/outbox?page=1"}
+	}
+	var pages atomic.Int64
+	for i := 1; i <= 20; i++ {
+		n := i
+		remote.docs["/users/loop/outbox?page="+strconv.Itoa(n)] = func(b string) any {
+			pages.Add(1)
+			return map[string]any{"type": "OrderedCollectionPage", "orderedItems": []any{}, "next": b + "/users/loop/outbox?page=" + strconv.Itoa(n+1)}
+		}
+	}
+	loop := remoteAccount(t, conn, remote.server.URL, "loop")
+	require.Equal(t, ProfileBackfillDone, runProfileBackfill(t, loop))
+	require.EqualValues(t, profileBackfillMaxPages, pages.Load())
+}
+
+func TestProfileBackfillKeyIsVersioned(t *testing.T) {
+	require.Equal(t, "community:profile_backfill:v2:3762", profileBackfillKey(3762), "v1 page-1-only marks must not suppress a paginated run")
 }

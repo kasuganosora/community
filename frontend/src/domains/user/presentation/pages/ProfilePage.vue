@@ -48,7 +48,9 @@ const profileBase = computed(() => `/@${route.params.username as string}`)
 // pending the first page is reloaded a couple of times.
 const backfill = ref<ProfileBackfillState>(null)
 const BACKFILL_POLL_MS = 2500
-const BACKFILL_MAX_POLLS = 2
+// The server pages through the remote outbox politely (several pages,
+// ~300ms apart), so poll a few times before giving up.
+const BACKFILL_MAX_POLLS = 5
 let backfillPolls = 0
 let backfillTimer: ReturnType<typeof setTimeout> | undefined
 const isRemote = computed(() => !!account.value?.acct.includes('@'))
@@ -300,6 +302,14 @@ watch(activeTab, () => {
     >
       <span>{{ $t('user.ProfilePage.s15') }}</span>
       <a v-if="remoteProfileUrl" :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">{{ $t('user.ProfilePage.s16') }}</a>
+    </div>
+    <div
+      v-else-if="isRemote && activeTab !== 'likes' && backfill === 'done' && statuses.length === 0 && !feed.loading.value && !feed.hasMore.value && remoteProfileUrl"
+      class="profile-backfill profile-backfill--hint"
+      data-testid="profile-backfill-origin"
+    >
+      <span>{{ $t('user.ProfilePage.olderOnOrigin') }}</span>
+      <a :href="remoteProfileUrl" target="_blank" rel="noopener noreferrer nofollow" class="btn btn--secondary btn--sm">{{ $t('user.ProfilePage.olderOnOriginLink') }}</a>
     </div>
 
     <!-- Posts -->

@@ -2398,7 +2398,8 @@
       "s7": "Un sondage auquel vous avez participé est terminé",
       "s8": "a modifié un post",
       "s9": "a publié un nouveau post",
-      "s10": "a interagi avec vous"
+      "s10": "a interagi avec vous",
+      "pollOwn": "Votre sondage est terminé"
     },
     "NotificationsPage": {
       "s1": "Notifications",
@@ -2896,7 +2897,9 @@
       "s27": "Le blocage supprime les abonnements mutuels et masque ses posts.",
       "s28": "Annuler",
       "s29": "Débloqué",
-      "s30": "Bloqué"
+      "s30": "Bloqué",
+      "olderOnOrigin": "Les posts plus anciens ne sont peut-être que sur son serveur.",
+      "olderOnOriginLink": "Voir les posts plus anciens sur le site d’origine"
     }
   },
   "apiError": {

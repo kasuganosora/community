@@ -2398,7 +2398,8 @@
       "s7": "A poll you took part in has ended",
       "s8": "edited a post",
       "s9": "published a new post",
-      "s10": "interacted with you"
+      "s10": "interacted with you",
+      "pollOwn": "Your poll has ended"
     },
     "NotificationsPage": {
       "s1": "Notifications",
@@ -2896,7 +2897,9 @@
       "s27": "Blocking removes follows in both directions and hides their posts from you.",
       "s28": "Cancel",
       "s29": "Unblocked",
-      "s30": "Blocked"
+      "s30": "Blocked",
+      "olderOnOrigin": "Older posts may only be on their server.",
+      "olderOnOriginLink": "See older posts on the original site"
     }
   },
   "apiError": {

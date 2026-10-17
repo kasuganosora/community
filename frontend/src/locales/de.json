@@ -2398,7 +2398,8 @@
       "s7": "Eine Umfrage, an der du teilgenommen hast, ist beendet",
       "s8": "hat einen Beitrag bearbeitet",
       "s9": "hat einen neuen Beitrag veröffentlicht",
-      "s10": "hat mit dir interagiert"
+      "s10": "hat mit dir interagiert",
+      "pollOwn": "Deine Umfrage ist beendet"
     },
     "NotificationsPage": {
       "s1": "Mitteilungen",
@@ -2896,7 +2897,9 @@
       "s27": "Blockieren entfernt gegenseitiges Folgen und blendet ihre Beiträge aus.",
       "s28": "Abbrechen",
       "s29": "Entsperrt",
-      "s30": "Gesperrt"
+      "s30": "Gesperrt",
+      "olderOnOrigin": "Ältere Beiträge gibt es evtl. nur auf ihrem Server.",
+      "olderOnOriginLink": "Ältere Beiträge auf der Originalseite ansehen"
     }
   },
   "apiError": {

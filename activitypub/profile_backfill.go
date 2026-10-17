@@ -37,8 +37,14 @@ var (
 	// ProfileBackfillCooldown is how long a backfill attempt (successful or
 	// not) suppresses the next one for the same account.
 	ProfileBackfillCooldown = 30 * time.Minute
-	// profileBackfillItems bounds the outbox items imported per run.
+	// profileBackfillItems is how many non-reply original posts a run tries
+	// to collect; it keeps following the outbox's "next" pages until then.
 	profileBackfillItems = 20
+	// profileBackfillMaxPages and profileBackfillMaxItems cap that walk.
+	profileBackfillMaxPages = 5
+	profileBackfillMaxItems = 100
+	// profileBackfillPageDelay paces page fetches politely.
+	profileBackfillPageDelay = 300 * time.Millisecond
 	// profileBackfillPins bounds the featured items imported per run.
 	profileBackfillPins = 10
 	// profileBackfillPerHost bounds concurrent runs against one remote host.
@@ -76,7 +82,9 @@ type profileBackfillMark struct {
 }
 
 func profileBackfillKey(id uint64) string {
-	return "community:profile_backfill:" + strconv.FormatUint(id, 10)
+	// v2: runs now paginate the outbox; v1 marks (page 1 only) are ignored
+	// so those accounts are backfilled again.
+	return "community:profile_backfill:v2:" + strconv.FormatUint(id, 10)
 }
 
 // claimProfileBackfill takes the cooldown slot for id. When the slot is taken
@@ -124,8 +132,17 @@ func recordProfileBackfill(id uint64, state string) {
 	}
 }
 
-// ResetProfileBackfillCooldown forgets the local cooldown state (tests).
+// ResetProfileBackfillCooldown forgets the cooldown state, local and in
+// Redis (tests only).
 func ResetProfileBackfillCooldown() {
+	for _, c := range dbredis.GetRedises() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		iter := c.Scan(ctx, 0, "community:profile_backfill:*", 100).Iterator()
+		for iter.Next(ctx) {
+			c.Del(ctx, iter.Val())
+		}
+		cancel()
+	}
 	profileBackfills.Lock()
 	defer profileBackfills.Unlock()
 	profileBackfills.local = map[uint64]profileBackfillMark{}
@@ -447,7 +464,7 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 	outbox := objectID(actor["outbox"])
 	outErr := errOutboxUnavailable
 	if outbox != "" {
-		if items, total, err = b.collectionItems(outbox, profileBackfillItems); err != nil {
+		if items, total, err = b.outboxItems(outbox); err != nil {
 			outErr = fmt.Errorf("%w: %w", errOutboxUnavailable, err)
 		} else {
 			outErr = nil
@@ -775,6 +792,89 @@ func (b *profileBackfiller) collectionItems(uri string, limit int) ([]any, int, 
 		items = items[:limit]
 	}
 	return items, total, nil
+}
+
+// outboxItems walks the outbox newest first, following "next", until it has
+// profileBackfillItems non-reply original posts or hits the page/item caps.
+// Accounts whose recent activity is all replies otherwise get an empty
+// Posts tab. Errors after the first page keep what was collected.
+func (b *profileBackfiller) outboxItems(uri string) ([]any, int, error) {
+	coll, err := b.fetchOwn(uri)
+	if err != nil {
+		return nil, -1, err
+	}
+	total := -1
+	if n, ok := coll["totalItems"].(float64); ok && n >= 0 && n < 1<<31 {
+		total = int(n)
+	}
+	var items []any
+	originals := 0
+	add := func(page []any) {
+		for _, it := range page {
+			if len(items) >= profileBackfillMaxItems {
+				return
+			}
+			items = append(items, it)
+			if isOriginalCreate(it) {
+				originals++
+			}
+		}
+	}
+	page := coll
+	pageItems := collectionPageItems(coll)
+	next := ""
+	if pageItems == nil {
+		switch first := coll["first"].(type) {
+		case map[string]any:
+			page, pageItems = first, collectionPageItems(first)
+			if pageItems == nil {
+				next = objectID(first["next"])
+			}
+		case string:
+			next = first
+		}
+	}
+	fetched := 0
+	if pageItems != nil {
+		add(pageItems)
+		fetched = 1
+		next = objectID(page["next"])
+	}
+	seen := map[string]bool{uri: true}
+	for next != "" && !seen[next] && fetched < profileBackfillMaxPages && originals < profileBackfillItems && len(items) < profileBackfillMaxItems {
+		seen[next] = true
+		if fetched > 0 {
+			select {
+			case <-b.ctx.Done():
+				return items, total, nil
+			case <-time.After(profileBackfillPageDelay):
+			}
+		}
+		p, err := b.fetchOwn(next)
+		if err != nil {
+			if fetched == 0 {
+				return nil, total, err
+			}
+			break
+		}
+		fetched++
+		add(collectionPageItems(p))
+		next = objectID(p["next"])
+	}
+	return items, total, nil
+}
+
+// isOriginalCreate reports a Create whose embedded object is not a reply.
+func isOriginalCreate(item any) bool {
+	m, ok := item.(map[string]any)
+	if !ok || stringField(m, "type") != "Create" {
+		return false
+	}
+	obj, ok := m["object"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return objectID(obj["inReplyTo"]) == ""
 }
 
 func collectionPageItems(page map[string]any) []any {
