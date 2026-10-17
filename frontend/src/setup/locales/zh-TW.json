@@ -21,7 +21,12 @@
     "required": "必填",
     "optional": "可選",
     "show": "顯示",
-    "hide": "隱藏"
+    "hide": "隱藏",
+    "testContinue": "測試並繼續",
+    "verifying": "正在驗證…",
+    "starting": "正在啟動…",
+    "edit": "修改",
+    "reviewBack": "儲存並返回"
   },
   "language": {
     "title": "選擇語言",
@@ -63,7 +68,9 @@
     "sslmode": "SSL 模式",
     "path": "資料庫檔案",
     "sqliteHint": "SQLite 適合小型或測試例項。",
-    "emptyHint": "目標資料庫必須為空。"
+    "emptyHint": "目標資料庫必須為空。",
+    "builtin": "內建資料庫",
+    "builtinHint": "自動使用 Docker Compose 內建資料庫的連線設定。"
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "使用者名稱",
     "email": "郵箱",
     "password": "密碼",
-    "passwordHint": "至少 8 個字元。已有 Misskey 使用者的原密碼繼續有效；此密碼只用於新賬號。"
+    "passwordHint": "至少 8 個字元。已有 Misskey 使用者的原密碼繼續有效；此密碼只用於新賬號。",
+    "passwordHintFresh": "至少 8 個字元。",
+    "passwordHintMigration": "至少 8 個字元。遷移帳號保留原密碼，此密碼僅用於新管理員。"
   },
   "review": {
     "title": "準備安裝",
-    "hint": "設定將寫入 {path}（許可權 0600），並自動生成金鑰。完成後伺服器會自動重啟。",
+    "hint": "設定將儲存至 {path}。安裝完成後會自動跳轉至登入頁面。",
     "install": "開始安裝",
     "migrate": "開始遷移"
   },
@@ -125,7 +134,12 @@
     "failed": "有步驟失敗。修復原因後重試；已完成的步驟不會重複。",
     "retry": "從失敗的步驟重試",
     "log": "日誌",
-    "bytes": "{done} / {total}"
+    "bytes": "{done} / {total}",
+    "finishedTitle": "安裝完成",
+    "failedTitle": "安裝已暫停",
+    "reconnecting": "連線中斷，正在重新連線…",
+    "verifyAgain": "重新驗證權杖",
+    "stageCount": "已完成 {done} / {total} 個階段"
   },
   "status": {
     "pending": "等待中",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "無法連線至 Mastodon 資料庫。",
     "mastodon_not_mastodon": "此資料庫看起來不是 Mastodon 資料庫。",
     "mastodon_files_required": "請輸入 Mastodon 的 public/system 目錄。",
-    "mastodon_files_missing": "容器內不存在該 public/system 目錄。"
+    "mastodon_files_missing": "容器內不存在該 public/system 目錄。",
+    "builtin_database_unavailable": "目前部署未提供內建資料庫，請選擇其他資料庫類型。"
   },
   "mastodon": {
     "step": "Mastodon 來源",

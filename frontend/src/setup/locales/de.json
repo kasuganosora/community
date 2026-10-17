@@ -21,7 +21,12 @@
     "required": "Pflichtfeld",
     "optional": "Optional",
     "show": "Anzeigen",
-    "hide": "Ausblenden"
+    "hide": "Ausblenden",
+    "testContinue": "Testen und weiter",
+    "verifying": "Wird geprüft…",
+    "starting": "Wird gestartet…",
+    "edit": "Ändern",
+    "reviewBack": "Speichern und zurück"
   },
   "language": {
     "title": "Sprache wählen",
@@ -63,7 +68,9 @@
     "sslmode": "SSL-Modus",
     "path": "Datenbankdatei",
     "sqliteHint": "SQLite eignet sich für kleine oder Testinstanzen.",
-    "emptyHint": "Die Zieldatenbank muss leer sein."
+    "emptyHint": "Die Zieldatenbank muss leer sein.",
+    "builtin": "Integrierte Datenbank",
+    "builtinHint": "Verwendet die von Docker Compose konfigurierte Datenbankverbindung."
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "Benutzername",
     "email": "E-Mail",
     "password": "Passwort",
-    "passwordHint": "Mindestens 8 Zeichen. Bestehende Misskey-Benutzer behalten ihr Passwort; dieses gilt nur für ein neues Konto."
+    "passwordHint": "Mindestens 8 Zeichen. Bestehende Misskey-Benutzer behalten ihr Passwort; dieses gilt nur für ein neues Konto.",
+    "passwordHintFresh": "Mindestens 8 Zeichen.",
+    "passwordHintMigration": "Mindestens 8 Zeichen. Migrierte Konten behalten ihre Passwörter; dieses gilt nur für einen neuen Administrator."
   },
   "review": {
     "title": "Bereit zur Installation",
-    "hint": "Die Einstellungen werden mit neu erzeugten Geheimnissen in {path} (Modus 0600) geschrieben. Der Server startet danach automatisch neu.",
+    "hint": "Die Einstellungen werden unter {path} gespeichert. Nach der Installation werden Sie zur Anmeldung weitergeleitet.",
     "install": "Installieren",
     "migrate": "Migration starten"
   },
@@ -125,7 +134,12 @@
     "failed": "Ein Schritt ist fehlgeschlagen. Behebe die Ursache und versuche es erneut; erledigte Schritte werden nicht wiederholt.",
     "retry": "Ab dem fehlgeschlagenen Schritt wiederholen",
     "log": "Protokoll",
-    "bytes": "{done} von {total}"
+    "bytes": "{done} von {total}",
+    "finishedTitle": "Installation abgeschlossen",
+    "failedTitle": "Installation angehalten",
+    "reconnecting": "Verbindung unterbrochen. Erneuter Verbindungsaufbau…",
+    "verifyAgain": "Token erneut prüfen",
+    "stageCount": "{done} von {total} Schritten abgeschlossen"
   },
   "status": {
     "pending": "Wartet",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "Verbindung zur Mastodon-Datenbank fehlgeschlagen.",
     "mastodon_not_mastodon": "Diese Datenbank sieht nicht nach einer Mastodon-Datenbank aus.",
     "mastodon_files_required": "Gib das Mastodon-Verzeichnis public/system an.",
-    "mastodon_files_missing": "Das Verzeichnis public/system existiert im Container nicht."
+    "mastodon_files_missing": "Das Verzeichnis public/system existiert im Container nicht.",
+    "builtin_database_unavailable": "In dieser Bereitstellung ist keine integrierte Datenbank verfügbar. Wählen Sie einen anderen Datenbanktyp."
   },
   "mastodon": {
     "step": "Mastodon-Quelle",

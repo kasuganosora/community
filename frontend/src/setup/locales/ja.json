@@ -21,7 +21,12 @@
     "required": "必須",
     "optional": "任意",
     "show": "表示",
-    "hide": "隠す"
+    "hide": "隠す",
+    "testContinue": "接続を確認して次へ",
+    "verifying": "確認中…",
+    "starting": "開始中…",
+    "edit": "変更",
+    "reviewBack": "保存して戻る"
   },
   "language": {
     "title": "言語を選択",
@@ -63,7 +68,9 @@
     "sslmode": "SSL モード",
     "path": "データベースファイル",
     "sqliteHint": "SQLite は小規模またはテスト用のインスタンス向けです。",
-    "emptyHint": "移行先データベースは空である必要があります。"
+    "emptyHint": "移行先データベースは空である必要があります。",
+    "builtin": "内蔵データベース",
+    "builtinHint": "Docker Compose で構成されたデータベースに自動接続します。"
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "ユーザー名",
     "email": "メールアドレス",
     "password": "パスワード",
-    "passwordHint": "8 文字以上。既存の Misskey ユーザーは元のパスワードを引き続き使えます。このパスワードは新規アカウントにのみ使われます。"
+    "passwordHint": "8 文字以上。既存の Misskey ユーザーは元のパスワードを引き続き使えます。このパスワードは新規アカウントにのみ使われます。",
+    "passwordHintFresh": "8文字以上。",
+    "passwordHintMigration": "8文字以上。移行したアカウントのパスワードは維持されます。このパスワードは新しい管理者にのみ使用します。"
   },
   "review": {
     "title": "インストールの準備ができました",
-    "hint": "設定は {path}（権限 0600）に書き込まれ、シークレットは自動生成されます。完了後サーバーは自動で再起動します。",
+    "hint": "設定は {path} に保存されます。インストールが完了するとログイン画面に移動します。",
     "install": "インストール",
     "migrate": "移行を開始"
   },
@@ -125,7 +134,12 @@
     "failed": "ステップが失敗しました。原因を修正して再試行してください。完了済みのステップは繰り返されません。",
     "retry": "失敗したステップから再試行",
     "log": "ログ",
-    "bytes": "{done} / {total}"
+    "bytes": "{done} / {total}",
+    "finishedTitle": "インストール完了",
+    "failedTitle": "インストールを一時停止",
+    "reconnecting": "接続が切れました。再接続中…",
+    "verifyAgain": "トークンを再確認",
+    "stageCount": "{total} 段階中 {done} 段階が完了"
   },
   "status": {
     "pending": "待機中",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "Mastodon データベースに接続できません。",
     "mastodon_not_mastodon": "Mastodon のデータベースではないようです。",
     "mastodon_files_required": "Mastodon の public/system ディレクトリを入力してください。",
-    "mastodon_files_missing": "public/system ディレクトリがコンテナ内に存在しません。"
+    "mastodon_files_missing": "public/system ディレクトリがコンテナ内に存在しません。",
+    "builtin_database_unavailable": "この環境では内蔵データベースを利用できません。別の種類を選択してください。"
   },
   "mastodon": {
     "step": "Mastodon の移行元",

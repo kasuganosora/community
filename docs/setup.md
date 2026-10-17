@@ -18,7 +18,10 @@ server.
 
 ## Running the wizard
 
-1. Start the container with an empty `./var/config` directory (mounted as
+1. For a fresh Compose installation, copy `.env.setup.example` to `.env`,
+   select one database profile and set `BUNDLED_DB_PASSWORD`. Leave `DB_*`
+   unset so the wizard opens (see [Compose configuration](#docker-compose-changes)).
+   Start the container with an empty `./var/config` directory (mounted as
    `/app/config`). The repository's `config/` directory is Go source and is
    never used for runtime files.
 2. Read the one-time token from the log:
@@ -151,10 +154,24 @@ the database but still set in the process environment.
 * `DB_HOST`/`REDIS_0_*` are no longer forced. `COMMUNITY_DEFAULT_DB_HOST=db`
   and `COMMUNITY_DEFAULT_REDIS_HOST=redis` are used only when the
   configuration names no host.
-* With a bundled database (`COMPOSE_PROFILES=postgres|mysql`), keep
-  `COMPOSE_PROFILES`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` in the
-  host `.env` for the database container and enter the same values in the
-  wizard (host `db`).
+* For a **new installation with a bundled database**, copy
+  `.env.setup.example` to `.env`, choose `COMPOSE_PROFILES=postgres` or
+  `COMPOSE_PROFILES=mysql`, and set a strong `BUNDLED_DB_PASSWORD` before
+  running `docker compose up -d --build`. Optional `BUNDLED_DB_DATABASE`
+  and `BUNDLED_DB_USERNAME` configure the database name and user. Do not
+  copy the manual `.env.example` or add `DB_*` variables for this flow:
+  those indicate an already configured instance and skip the wizard.
+* The wizard offers and preselects **Built-in database** only when Compose
+  reports exactly one selected database profile and its connection settings
+  are available. Set the profile in `.env` or the `COMPOSE_PROFILES`
+  environment variable (not just the `--profile` command flag), so Compose
+  passes this selection to the app. The password stays on the server;
+  connection testing and installation use the same resolved configuration.
+  Without a bundled database, only manual database options are shown.
+* Legacy Compose deployments continue to use `DB_DATABASE`, `DB_USERNAME`
+  and `DB_PASSWORD` when no `BUNDLED_DB_*` overrides are set. Keep the
+  credentials of existing database volumes unchanged; editing these values
+  does not rotate an initialized database's password.
 * The image includes `python3` and `psql` for the Misskey and Mastodon exporters.
 
 ## Upgrading an existing deployment (ops)

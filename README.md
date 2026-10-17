@@ -62,7 +62,9 @@ Misskey 可双向交换表情回应及撤回，也可交换帖子和个人资料
 
 仓库中的 Compose 配置包含 Community、Redis 7 和 Meilisearch，并在构建时编译前后端；数据库可以使用 Compose 自带的 MySQL 8.4 / PostgreSQL 17 容器，也可以连接外部服务器（需要 Docker Compose v2.24+）。
 
-最简单的方式：直接 `docker compose up -d --build`，在日志中找到一次性 setup token，打开 `https://<域名>/setup` 按向导完成安装（支持全新安装和从 Misskey 迁移）。向导生成的配置写入宿主机的 `./var/config`（容器内 `/app/config/.env`），不会写进源码目录 `config/`。详见 [docs/setup.md](docs/setup.md)。也可以手动编写配置：
+新实例推荐使用安装向导：复制 `.env.setup.example` 为 `.env`，选择 `COMPOSE_PROFILES=postgres` 或 `mysql`，将 `BUNDLED_DB_PASSWORD` 改为生成的随机密码，再运行 `docker compose up -d --build`。在日志中找到一次性 setup token，打开 `https://<域名>/setup`，数据库选择“内置数据库”即可自动使用 Compose 的连接配置（支持全新安装及 Misskey / Mastodon 迁移）。此方式不要预先添加 `DB_*` 变量，否则程序会按已配置实例启动。
+
+向导生成的配置写入宿主机的 `./var/config`（容器内 `/app/config/.env`），不会写进源码目录 `config/`。使用外置数据库时可不启用数据库 profile，在向导中填写连接信息。详见 [docs/setup.md](docs/setup.md)。以下是跳过向导、手动编写配置的方式：
 
 ```bash
 git clone https://github.com/kasuganosora/community.git
@@ -93,7 +95,7 @@ curl -fsS http://localhost:8080/api/v2/instance
 
 上传文件保存在 `./uploads`，数据库和 Redis 使用 Docker 数据卷。升级前备份数据库与上传目录，启动时让数据库迁移正常完成。
 
-数据库在 `.env` 中选择，四种方式任选其一（`.env.example` 中有对应的注释示例）：
+手动配置时，数据库在 `.env` 中选择，四种方式任选其一（`.env.example` 中有对应的注释示例）：
 
 | 方式 | `.env` 设置 |
 |------|-------------|

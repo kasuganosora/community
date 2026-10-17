@@ -200,6 +200,10 @@ func (s *Server) status(c *gin.Context) {
 	if job != nil {
 		resp["job"] = gin.H{"status": job.Status, "mode": job.Mode, "locale": job.Locale}
 	}
+	if database, available := builtinDatabase(); available {
+		// This endpoint is public. Do not return connection credentials.
+		resp["builtin_database"] = gin.H{"type": database.Type}
+	}
 	c.JSON(200, resp)
 }
 
@@ -228,7 +232,7 @@ func (s *Server) testDatabase(c *gin.Context) {
 		respondErr(c, fail("invalid_request"))
 		return
 	}
-	if err := p.normalize(); err != nil {
+	if err := p.resolveTarget(); err != nil {
 		respondErr(c, err)
 		return
 	}
@@ -454,7 +458,7 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 	if req.Mode != "fresh" && req.Mode != "misskey" && req.Mode != "mastodon" {
 		return nil, nil, fail("invalid_request")
 	}
-	if err := req.Database.normalize(); err != nil {
+	if err := req.Database.resolveTarget(); err != nil {
 		return nil, nil, err
 	}
 	if err := req.Redis.normalize(); err != nil {

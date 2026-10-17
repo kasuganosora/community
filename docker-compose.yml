@@ -57,6 +57,12 @@ services:
       # - External database: enter its host in the wizard (or DB_HOST).
       COMMUNITY_DEFAULT_DB_HOST: db
       COMMUNITY_DEFAULT_REDIS_HOST: redis
+      # Setup capability and credentials for the selected bundled database.
+      # BUNDLED_DB_* avoids DB_* marking a fresh instance as configured.
+      COMMUNITY_COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      COMMUNITY_SETUP_DB_NAME: ${BUNDLED_DB_DATABASE:-${DB_DATABASE:-community}}
+      COMMUNITY_SETUP_DB_USER: ${BUNDLED_DB_USERNAME:-${DB_USERNAME:-root}}
+      COMMUNITY_SETUP_DB_PASSWORD: ${BUNDLED_DB_PASSWORD:-${DB_PASSWORD:-}}
       ENV_FILE: /app/config/.env
       SETUP_WORK_DIR: /app/data/setup-work
       DATA_TRANSFER_DIR: /app/.data-transfers
@@ -73,8 +79,8 @@ services:
 
   # Bundled MySQL server, started only with the "mysql" profile
   # (COMPOSE_PROFILES=mysql). Credentials follow DB_DATABASE / DB_USERNAME /
-  # DB_PASSWORD from the host .env (compose interpolation); enter the same
-  # values in the setup wizard.
+  # DB_PASSWORD from legacy host .env files; new wizard installs use
+  # BUNDLED_DB_DATABASE / BUNDLED_DB_USERNAME / BUNDLED_DB_PASSWORD.
   mysql:
     image: mysql:8.4.11@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
     container_name: community-mysql
@@ -85,9 +91,9 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-}
-      MYSQL_DATABASE: ${DB_DATABASE:-community}
-      COMMUNITY_DB_USERNAME: ${DB_USERNAME:-root}
+      MYSQL_ROOT_PASSWORD: ${BUNDLED_DB_PASSWORD:-${DB_PASSWORD:-}}
+      MYSQL_DATABASE: ${BUNDLED_DB_DATABASE:-${DB_DATABASE:-community}}
+      COMMUNITY_DB_USERNAME: ${BUNDLED_DB_USERNAME:-${DB_USERNAME:-root}}
     # The image creates a non-root user only through MYSQL_USER, which must
     # not be "root"; set it (with the same password) when DB_USERNAME names
     # another user.
@@ -111,8 +117,8 @@ services:
 
   # Bundled PostgreSQL server, started only with the "postgres" profile
   # (COMPOSE_PROFILES=postgres). Credentials follow DB_DATABASE /
-  # DB_USERNAME / DB_PASSWORD from the host .env (compose interpolation);
-  # enter the same values in the setup wizard.
+  # DB_USERNAME / DB_PASSWORD from legacy host .env files; new wizard
+  # installs use BUNDLED_DB_* and select Built-in in the wizard.
   postgres:
     image: postgres:17-alpine
     container_name: community-postgres
@@ -123,9 +129,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: ${DB_DATABASE:-community}
-      POSTGRES_USER: ${DB_USERNAME:-root}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+      POSTGRES_DB: ${BUNDLED_DB_DATABASE:-${DB_DATABASE:-community}}
+      POSTGRES_USER: ${BUNDLED_DB_USERNAME:-${DB_USERNAME:-root}}
+      POSTGRES_PASSWORD: ${BUNDLED_DB_PASSWORD:-${DB_PASSWORD:-}}
     healthcheck:
       # TCP, so the image's socket-only init server does not count as ready.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]

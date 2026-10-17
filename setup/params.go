@@ -42,7 +42,7 @@ func fail(code string, detail ...string) *Error {
 
 // DatabaseParams is the target database chosen in the wizard.
 type DatabaseParams struct {
-	Type     string `json:"type"` // postgres, mysql, sqlite
+	Type     string `json:"type"` // postgres, mysql, sqlite; builtin is resolved before use
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Name     string `json:"name"`

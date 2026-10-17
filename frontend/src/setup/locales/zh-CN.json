@@ -21,7 +21,12 @@
     "required": "必填",
     "optional": "可选",
     "show": "显示",
-    "hide": "隐藏"
+    "hide": "隐藏",
+    "testContinue": "测试并继续",
+    "verifying": "正在验证…",
+    "starting": "正在启动…",
+    "edit": "修改",
+    "reviewBack": "保存并返回"
   },
   "language": {
     "title": "选择语言",
@@ -63,7 +68,9 @@
     "sslmode": "SSL 模式",
     "path": "数据库文件",
     "sqliteHint": "SQLite 适合小型或测试实例。",
-    "emptyHint": "目标数据库必须为空。"
+    "emptyHint": "目标数据库必须为空。",
+    "builtin": "内置数据库",
+    "builtinHint": "自动使用 Docker Compose 内置数据库的连接配置。"
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "用户名",
     "email": "邮箱",
     "password": "密码",
-    "passwordHint": "至少 8 个字符。已有 Misskey 用户的原密码继续有效；此密码只用于新账号。"
+    "passwordHint": "至少 8 个字符。已有 Misskey 用户的原密码继续有效；此密码只用于新账号。",
+    "passwordHintFresh": "至少 8 个字符。",
+    "passwordHintMigration": "至少 8 个字符。迁移账号保留原密码，此密码仅用于新管理员。"
   },
   "review": {
     "title": "准备安装",
-    "hint": "设置将写入 {path}（权限 0600），并自动生成密钥。完成后服务器会自动重启。",
+    "hint": "配置将保存至 {path}。安装完成后会自动跳转至登录页。",
     "install": "开始安装",
     "migrate": "开始迁移"
   },
@@ -125,7 +134,12 @@
     "failed": "有步骤失败。修复原因后重试；已完成的步骤不会重复。",
     "retry": "从失败的步骤重试",
     "log": "日志",
-    "bytes": "{done} / {total}"
+    "bytes": "{done} / {total}",
+    "finishedTitle": "安装完成",
+    "failedTitle": "安装已暂停",
+    "reconnecting": "连接中断，正在重连…",
+    "verifyAgain": "重新验证令牌",
+    "stageCount": "已完成 {done} / {total} 个阶段"
   },
   "status": {
     "pending": "等待中",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "无法连接 Mastodon 数据库。",
     "mastodon_not_mastodon": "该数据库看起来不是 Mastodon 数据库。",
     "mastodon_files_required": "请输入 Mastodon 的 public/system 目录。",
-    "mastodon_files_missing": "容器内不存在该 public/system 目录。"
+    "mastodon_files_missing": "容器内不存在该 public/system 目录。",
+    "builtin_database_unavailable": "当前部署未提供内置数据库，请选择其他数据库类型。"
   },
   "mastodon": {
     "step": "Mastodon 来源",

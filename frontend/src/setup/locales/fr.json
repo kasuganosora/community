@@ -21,7 +21,12 @@
     "required": "Obligatoire",
     "optional": "Facultatif",
     "show": "Afficher",
-    "hide": "Masquer"
+    "hide": "Masquer",
+    "testContinue": "Tester et continuer",
+    "verifying": "Vérification…",
+    "starting": "Démarrage…",
+    "edit": "Modifier",
+    "reviewBack": "Enregistrer et revenir"
   },
   "language": {
     "title": "Choisissez une langue",
@@ -63,7 +68,9 @@
     "sslmode": "Mode SSL",
     "path": "Fichier de base de données",
     "sqliteHint": "SQLite convient aux petites instances ou aux tests.",
-    "emptyHint": "La base cible doit être vide."
+    "emptyHint": "La base cible doit être vide.",
+    "builtin": "Base de données intégrée",
+    "builtinHint": "Utilise la connexion à la base de données configurée par Docker Compose."
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "Nom d’utilisateur",
     "email": "E-mail",
     "password": "Mot de passe",
-    "passwordHint": "Au moins 8 caractères. Un utilisateur Misskey existant garde son mot de passe ; celui-ci ne sert qu’à un nouveau compte."
+    "passwordHint": "Au moins 8 caractères. Un utilisateur Misskey existant garde son mot de passe ; celui-ci ne sert qu’à un nouveau compte.",
+    "passwordHintFresh": "Au moins 8 caractères.",
+    "passwordHintMigration": "Au moins 8 caractères. Les comptes migrés conservent leur mot de passe ; celui-ci sert uniquement à un nouvel administrateur."
   },
   "review": {
     "title": "Prêt à installer",
-    "hint": "Les réglages seront écrits dans {path} (droits 0600) avec des secrets générés. Le serveur redémarre automatiquement à la fin.",
+    "hint": "Les paramètres seront enregistrés dans {path}. La page de connexion s’ouvrira une fois l’installation terminée.",
     "install": "Installer",
     "migrate": "Lancer la migration"
   },
@@ -125,7 +134,12 @@
     "failed": "Une étape a échoué. Corrigez la cause puis réessayez ; les étapes terminées ne sont pas répétées.",
     "retry": "Reprendre à l’étape échouée",
     "log": "Journal",
-    "bytes": "{done} sur {total}"
+    "bytes": "{done} sur {total}",
+    "finishedTitle": "Installation terminée",
+    "failedTitle": "Installation en pause",
+    "reconnecting": "Connexion interrompue. Reconnexion…",
+    "verifyAgain": "Vérifier à nouveau le jeton",
+    "stageCount": "{done} étapes sur {total} terminées"
   },
   "status": {
     "pending": "En attente",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "Impossible de se connecter à la base Mastodon.",
     "mastodon_not_mastodon": "Cette base ne ressemble pas à une base Mastodon.",
     "mastodon_files_required": "Indiquez le répertoire public/system de Mastodon.",
-    "mastodon_files_missing": "Le répertoire public/system n’existe pas dans le conteneur."
+    "mastodon_files_missing": "Le répertoire public/system n’existe pas dans le conteneur.",
+    "builtin_database_unavailable": "Aucune base de données intégrée n’est disponible. Choisissez un autre type de base de données."
   },
   "mastodon": {
     "step": "Source Mastodon",

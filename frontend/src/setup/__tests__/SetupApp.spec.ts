@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import SetupApp from '../SetupApp.vue'
 import { i18n, applyLocale, messages } from '../i18n'
+
+enableAutoUnmount(afterEach)
+afterEach(() => vi.unstubAllGlobals())
 
 function respond(status: number, body: unknown) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
@@ -31,15 +34,15 @@ describe('SetupApp', () => {
   it('shows localized error codes from the backend', async () => {
     const w = mount(SetupApp, { global: { plugins: [i18n] } })
     await flushPromises()
-    await w.find('.btn--primary').trigger('click')
+    await w.get('form').trigger('submit')
     await w.find('input[autocomplete="one-time-code"]').setValue('wrong')
-    await w.find('.btn--primary').trigger('click')
+    await w.get('form').trigger('submit')
     await flushPromises()
     expect(w.find('[role="alert"]').text()).toBe(messages.en.errors.invalid_token)
   })
 
   it('runs the Mastodon source step against /test/mastodon and locks the detected domain', async () => {
-    const calls: { url: string; body: any }[] = []
+    const calls: { url: string; body: Record<string, unknown> }[] = []
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
       calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
       if (url.endsWith('/status')) return respond(200, { env_file: '/app/config/.env', defaults: {} })
@@ -49,12 +52,12 @@ describe('SetupApp', () => {
     }))
     const w = mount(SetupApp, { global: { plugins: [i18n] } })
     await flushPromises()
-    await w.find('.btn--primary').trigger('click')
+    await w.get('form').trigger('submit')
     await w.find('input[autocomplete="one-time-code"]').setValue('tok')
-    await w.find('.btn--primary').trigger('click')
+    await w.get('form').trigger('submit')
     await flushPromises()
     await w.find('input[value="mastodon"]').setValue(true)
-    await w.find('.actions .btn--primary').trigger('click')
+    await w.get('form').trigger('submit')
     expect(w.find('h2').text()).toBe(messages.en.mastodon.title)
     expect(w.find('.steps .active').text()).toContain(messages.en.mastodon.step)
     await w.findAll('.form button.btn').find(b => b.text() === messages.en.source.inspect)!.trigger('click')
@@ -65,8 +68,8 @@ describe('SetupApp', () => {
     expect(w.text()).toContain('2 local accounts, 1 remote accounts, 4 posts and 3 media files')
     expect(w.text()).toContain(messages.en.mastodon.filesPath)
     expect(w.findAll('input').some(i => (i.element as HTMLInputElement).value === '/mastodon/public/system')).toBe(true)
-    await w.find('.actions .btn--primary').trigger('click')
-    const domain = w.find('input[type="url"]')
+    await w.get('form').trigger('submit')
+    const domain = w.find('input[data-field="domain"]')
     expect((domain.element as HTMLInputElement).value).toBe('https://masto.example')
     expect(domain.attributes('readonly')).toBeDefined()
   })

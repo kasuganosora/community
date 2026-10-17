@@ -21,7 +21,12 @@
     "required": "Required",
     "optional": "Optional",
     "show": "Show",
-    "hide": "Hide"
+    "hide": "Hide",
+    "testContinue": "Test and continue",
+    "verifying": "Verifying…",
+    "starting": "Starting…",
+    "edit": "Edit",
+    "reviewBack": "Save and return"
   },
   "language": {
     "title": "Choose a language",
@@ -63,7 +68,9 @@
     "sslmode": "SSL mode",
     "path": "Database file",
     "sqliteHint": "SQLite suits small or test instances.",
-    "emptyHint": "The target database must be empty."
+    "emptyHint": "The target database must be empty.",
+    "builtin": "Built-in database",
+    "builtinHint": "Uses the database connection configured by Docker Compose."
   },
   "redis": {
     "title": "Redis",
@@ -109,11 +116,13 @@
     "username": "Username",
     "email": "Email",
     "password": "Password",
-    "passwordHint": "At least 8 characters. For an existing Misskey user the original password keeps working; this one is only used for a new account."
+    "passwordHint": "At least 8 characters. For an existing Misskey user the original password keeps working; this one is only used for a new account.",
+    "passwordHintFresh": "At least 8 characters.",
+    "passwordHintMigration": "At least 8 characters. Migrated accounts keep their passwords; this is used only for a new administrator."
   },
   "review": {
     "title": "Ready to install",
-    "hint": "Settings are written to {path} (mode 0600) with freshly generated secrets. The server restarts automatically when done.",
+    "hint": "Settings will be saved to {path}. You will be taken to the login page when installation is complete.",
     "install": "Install",
     "migrate": "Start migration"
   },
@@ -125,7 +134,12 @@
     "failed": "A step failed. Fix the cause and retry; finished steps are not repeated.",
     "retry": "Retry from the failed step",
     "log": "Log",
-    "bytes": "{done} of {total}"
+    "bytes": "{done} of {total}",
+    "finishedTitle": "Installation complete",
+    "failedTitle": "Installation paused",
+    "reconnecting": "Connection interrupted. Reconnecting…",
+    "verifyAgain": "Verify token again",
+    "stageCount": "{done} of {total} stages complete"
   },
   "status": {
     "pending": "Waiting",
@@ -235,7 +249,8 @@
     "mastodon_connect_failed": "Could not connect to the Mastodon database.",
     "mastodon_not_mastodon": "That database doesn’t look like a Mastodon database.",
     "mastodon_files_required": "Enter the Mastodon public/system directory.",
-    "mastodon_files_missing": "The public/system directory doesn’t exist inside the container."
+    "mastodon_files_missing": "The public/system directory doesn’t exist inside the container.",
+    "builtin_database_unavailable": "No built-in database is available in this deployment. Choose another database type."
   },
   "mastodon": {
     "step": "Mastodon source",

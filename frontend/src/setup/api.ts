@@ -21,13 +21,14 @@ export function setToken(token: string): void {
   try { sessionStorage.setItem(TOKEN_KEY, token) } catch { /* storage unavailable */ }
 }
 
-export async function call<T = Record<string, unknown>>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+export async function call<T = Record<string, unknown>>(method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response
   try {
     res = await fetch(`/api/setup/${path}`, {
       method,
       headers: { 'Content-Type': 'application/json', 'X-Setup-Token': getToken() },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     })
   } catch {
     throw new SetupApiError('network')
