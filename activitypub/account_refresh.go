@@ -87,15 +87,33 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 	}
 	now := time.Now()
 	updates := map[string]any{
-		"display_name":     actor.Name,
-		"note":             htmlsafe.Sanitize(actor.Summary),
-		"locked":           actor.ManuallyApprovesFollowers,
-		"bot":              actor.Type == "Service", //nolint:goconst
-		"updated_at":       now,                     //nolint:goconst
+		"display_name": actor.Name,
+		"note":         htmlsafe.Sanitize(actor.Summary),
+		"locked":       actor.ManuallyApprovesFollowers,
+		"bot":          actor.Type == "Service", //nolint:goconst
+	}
+	// Timestamps always differ, so they are not compared: an unchanged
+	// profile costs no row write, except that the stamps are renewed once
+	// they are older than profileStampRefresh (discovery freshness and
+	// activity reads depend on them).
+	stamps := map[string]any{
+		"updated_at":       now, //nolint:goconst
 		"last_activity_at": now,
 	}
 	for key, value := range actorDiscoveryUpdates(account, actor, false, now) {
+		if key == "remote_discovery_checked_at" || key == "remote_discovery_attempted_at" {
+			if value != nil {
+				stamps[key] = value
+				continue
+			}
+		}
 		updates[key] = value
+	}
+	if stampStale(account.LastActivityAt, now) {
+		updates["last_activity_at"] = now
+	}
+	if _, ok := stamps["remote_discovery_checked_at"]; ok && stampStale(account.RemoteDiscoveryCheckedAt, now) {
+		updates["remote_discovery_checked_at"] = stamps["remote_discovery_checked_at"]
 	}
 	if actor.Icon != nil && actor.Icon.URL != "" {
 		updates["avatar"] = actor.Icon.URL
@@ -105,8 +123,9 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 		updates["header"] = actor.Image.URL
 		updates["header_static"] = actor.Image.URL
 	}
-	if err := tx.Model(account).Updates(updates).Error; err != nil {
-		return err
+	res := dialect.UpdateChanged(tx.Model(&models.Account{}).Where("id = ?", account.Id), updates, stamps)
+	if res.Error != nil {
+		return res.Error
 	}
 	if err := tx.First(account, account.Id).Error; err != nil {
 		return err
@@ -118,6 +137,14 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 		return err
 	}
 	return importAccountEmojiTags(tx, account, actor.Tag)
+}
+
+// profileStampRefresh bounds how stale updated_at / last_activity_at /
+// remote_discovery_checked_at may get while a remote profile is unchanged.
+const profileStampRefresh = 6 * time.Hour
+
+func stampStale(t *time.Time, now time.Time) bool {
+	return t == nil || now.Sub(*t) >= profileStampRefresh
 }
 
 // ensureAccountExtra creates the accounts_extra row old remote accounts may

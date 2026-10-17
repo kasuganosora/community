@@ -544,7 +544,9 @@ func TestProfileBackfillWalksPastManyReplyPagesWithoutKeepingReplies(t *testing.
 	conn, remote := setupProfileBackfill(t)
 	prevItems, prevDelay, prevReply := profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems
 	profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems = 2, time.Millisecond, 4
-	t.Cleanup(func() { profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems = prevItems, prevDelay, prevReply })
+	t.Cleanup(func() {
+		profileBackfillItems, profileBackfillPageDelay, profileBackfillReplyItems = prevItems, prevDelay, prevReply
+	})
 	remote.person("chatty", nil)
 	remote.docs["/notes/parent"] = func(b string) any { return note(b, "chatty", "/notes/parent", "parent") }
 	create := func(b, id string, reply bool) any {

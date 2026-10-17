@@ -1,7 +1,10 @@
 package activitypub
 
 import (
+	"reflect"
+
 	"context"
+	"github.com/kasuganosora/community/db/dialect"
 	"net/url"
 	"strings"
 	"sync"
@@ -59,8 +62,22 @@ func applyRemoteProfileFields(tx *gorm.DB, accountID uint64, actor *Actor) error
 	if accountID == 0 {
 		return nil
 	}
+	fields := remoteProfileFields(actor)
+	var current models.AccountExtra
+	// Skip the write when the stored fields are already identical.
+	if err := tx.Select("fields").Where("account_id = ?", accountID).Take(&current).Error; err == nil &&
+		reflect.DeepEqual(normalizeFields(current.Fields), normalizeFields(fields)) {
+		return nil
+	}
 	return tx.Model(&models.AccountExtra{}).Where("account_id = ?", accountID).
-		Select("fields").Updates(&models.AccountExtra{Fields: remoteProfileFields(actor)}).Error
+		Select("fields").Updates(&models.AccountExtra{Fields: fields}).Error
+}
+
+func normalizeFields(f []models.AccountField) []models.AccountField {
+	if len(f) == 0 {
+		return nil
+	}
+	return f
 }
 
 // Remote follower / following / post totals come from the actor's
@@ -141,7 +158,7 @@ func syncRemoteCollectionCounts(ctx context.Context, conn *gorm.DB, client objec
 	if len(updates) == 0 {
 		return nil
 	}
-	return conn.Model(&models.AccountExtra{}).Where("account_id = ?", accountID).UpdateColumns(updates).Error
+	return dialect.UpdateChanged(conn.Model(&models.AccountExtra{}).Where("account_id = ?", accountID), updates, nil).Error
 }
 
 func collectionTotal(ctx context.Context, client objectFetcher, uri, actorHost string) (int, bool) {

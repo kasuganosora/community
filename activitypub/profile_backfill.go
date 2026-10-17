@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	"net/url"
 	"strconv"
 	"strings"
@@ -537,7 +538,7 @@ func backfillProfile(ctx context.Context, account *models.Account) (string, erro
 	}
 	if total >= 0 {
 		// Imports bump statuses_count; the outbox total is authoritative.
-		_ = db.GetDB().WithContext(ctx).Model(&models.AccountExtra{}).Where("account_id = ?", account.Id).UpdateColumn("statuses_count", total).Error
+		_ = dialect.UpdateChanged(db.GetDB().WithContext(ctx).Model(&models.AccountExtra{}).Where("account_id = ?", account.Id), map[string]any{"statuses_count": total}, nil).Error
 	}
 	return ProfileBackfillDone, nil
 }

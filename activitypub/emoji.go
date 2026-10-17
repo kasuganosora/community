@@ -115,8 +115,13 @@ func importAccountEmojiTags(tx *gorm.DB, account *models.Account, tags any) erro
 		return err
 	}
 	// Missing tags means an empty authoritative set, not a shortcode lookup.
-	if err := tx.Model(account).Association("Emojis").Replace(emojis); err != nil {
-		return err
+	// Replace also touches the account's updated_at, so skip it when the set
+	// is unchanged (profile refreshes are frequent and usually no-ops).
+	var current []*models.Emoji
+	if err := tx.Model(account).Association("Emojis").Find(&current); err != nil || !sameEmojiSet(current, emojis) {
+		if err := tx.Model(account).Association("Emojis").Replace(emojis); err != nil {
+			return err
+		}
 	}
 	account.Emojis = emojis
 	return nil
@@ -164,4 +169,21 @@ func persistIncomingStatusWithEmoji(ctx context.Context, conn *gorm.DB, status *
 		status.Emojis = emojis
 		return persistIncomingStatus(withObjectHashtags(models.WithStructuredEmojiIDs(ctx, emojis.GetIds()), tags), tx, status)
 	})
+}
+
+func sameEmojiSet(a, b []*models.Emoji) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ids := make(map[uint64]int, len(a))
+	for _, e := range a {
+		ids[e.Id]++
+	}
+	for _, e := range b {
+		if ids[e.Id] == 0 {
+			return false
+		}
+		ids[e.Id]--
+	}
+	return true
 }
