@@ -1,7 +1,6 @@
 package homeserver
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +9,6 @@ import (
 	"github.com/kasuganosora/community/activitypub"
 	"io"
 	"mime"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"sort"
@@ -348,22 +346,23 @@ func (hs *HomeServer) bridgeDirectAttachment(ctx context.Context, roomID, sender
 	if existing > 0 {
 		return nil
 	}
-	if a.FilePath == "" {
+	if a.RemoteUrl != "" || a.FilePath == "" {
 		if a.RemoteUrl == "" {
 			return errors.New("attachment bytes unavailable")
 		}
-		data, contentType, filename, err := fetchDirectAttachmentNamed(ctx, a.RemoteUrl)
+		// Keep a private MXC mapping; retrieve the public AP attachment on demand.
+		// The hardened fetcher validates HTTPS, DNS and redirects when read.
+		conn := db.GetDB().WithContext(ctx)
+		var media MatrixMedia
+		err := conn.Where("server_name = ? AND uploader_id = ? AND remote_url = ? AND gc_state = ''", hs.Config.ServerName, sender, a.RemoteUrl).First(&media).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			media = MatrixMedia{MediaID: generateMediaID(), ServerName: hs.Config.ServerName, UploaderID: sender, RemoteURL: a.RemoteUrl, Origin: "remote", GCEligible: true, FileName: bridgeAttachmentFilename(a), ContentType: a.ContentType, FileSize: a.FileSize, Width: a.Width, Height: a.Height}
+			err = conn.Create(&media).Error
+		}
 		if err != nil {
 			return err
 		}
-		if a.Description == "" && filename != "" {
-			a.Description = filename
-		}
-		media, err := NewMediaService(hs).UploadMedia(bytes.NewReader(data), &multipart.FileHeader{Filename: bridgeAttachmentFilename(a)}, contentType, sender)
-		if err != nil {
-			return err
-		}
-		return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, *media, sensitive)
+		return hs.sendDirectAttachment(roomID, sender, txn, statusID, a, media, sensitive)
 	}
 	key := a.StorageKey()
 	reader, _, err := storage.Open(ctx, key)

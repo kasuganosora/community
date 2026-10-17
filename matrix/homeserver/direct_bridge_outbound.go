@@ -1,6 +1,7 @@
 package homeserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -402,16 +403,33 @@ func (hs *HomeServer) outboundDirectAttachmentWithMedia(tx *gorm.DB, job *Matrix
 			return nil, err
 		}
 	}
-	reader, info, err := storage.Open(tx.Statement.Context, media.FilePath)
-	if err != nil {
-		return nil, err
+	if media.RemoteURL != "" {
+		return &models.MediaAttachment{AccountId: job.SenderAccountID, RemoteUrl: media.RemoteURL, FileName: media.FileName, Description: safeBridgeFilename(media.FileName), FileSize: media.FileSize, ContentType: media.ContentType, Type: models.GetMediaType(media.ContentType), Width: media.Width, Height: media.Height}, nil
+	}
+	var reader io.ReadCloser
+	if media.transientData != nil {
+		if int64(len(media.transientData)) != media.FileSize {
+			return nil, fmt.Errorf("bridge attachment size mismatch")
+		}
+		reader = io.NopCloser(bytes.NewReader(media.transientData))
+	} else {
+		var info storage.ObjectInfo
+		reader, info, err = storage.Open(tx.Statement.Context, media.FilePath)
+		if err != nil {
+			return nil, err
+		}
+		if info.Size != media.FileSize {
+			reader.Close()
+			return nil, fmt.Errorf("bridge attachment size mismatch")
+		}
 	}
 	defer reader.Close()
-	if info.Size != media.FileSize {
-		return nil, fmt.Errorf("bridge attachment size mismatch")
-	}
 	hash := sha256.Sum256([]byte(job.EventID))
-	key := "media/matrix-direct/" + hex.EncodeToString(hash[:]) + path.Ext(media.FilePath)
+	origin := media.Origin
+	if origin != "remote" {
+		origin = "local"
+	}
+	key := "media/" + origin + "/matrix-direct/" + hex.EncodeToString(hash[:]) + path.Ext(media.FileName)
 	if err := storage.Default().Put(tx.Statement.Context, key, io.LimitReader(reader, media.FileSize), media.FileSize, media.ContentType); err != nil {
 		return nil, err
 	}

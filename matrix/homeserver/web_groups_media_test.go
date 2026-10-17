@@ -29,7 +29,7 @@ import (
 func webGroupMediaTestHS(t *testing.T) (*HomeServer, *gin.Engine, string) {
 	t.Helper()
 	setupMinimalTestDB(t)
-	require.NoError(t, db.GetDB().AutoMigrate(&WebGroupUpload{}, &MatrixThumbnail{}, &BridgeConversation{}, &models.MatrixDMDelivery{}))
+	require.NoError(t, db.GetDB().AutoMigrate(&AsyncMediaInfo{}, &WebGroupUpload{}, &MatrixThumbnail{}, &BridgeConversation{}, &models.MatrixDMDelivery{}))
 	hs := fullHS("test.local")
 	t.Cleanup(resetGlobalHS(hs))
 	t.Cleanup(storage.SetDefault(storagetest.NewMemory()))
@@ -249,7 +249,7 @@ func TestWebGroupMediaCleanupKeepsReferencedFiles(t *testing.T) {
 	require.NoError(t, conn.Where("id = ?", used).First(&referenced).Error)
 	require.NoError(t, cleanupWebGroupUploads(context.Background(), hs, time.Now()))
 	var n int64
-	require.NoError(t, conn.Model(&MatrixMedia{}).Where("media_id = ?", orphan.MediaID).Count(&n).Error)
+	require.NoError(t, conn.Model(&MatrixMedia{}).Where("media_id = ? AND gc_state <> ?", orphan.MediaID, "deleted").Count(&n).Error)
 	require.Zero(t, n)
 	require.NoError(t, conn.Model(&MatrixMedia{}).Where("media_id = ?", referenced.MediaID).Count(&n).Error)
 	require.EqualValues(t, 1, n, "event references must survive orphan cleanup")

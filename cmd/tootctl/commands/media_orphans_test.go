@@ -140,7 +140,7 @@ func seedOrphanFixture(t *testing.T, gdb *gorm.DB, backend storage.Backend, setA
 	f.referenced = append(f.referenced, "matrix/2026/10/03/m1.png", "matrix/2026/10/03/thumb_m1.jpg", "matrix/2026/10/03/m2.png", "matrix/2026/10/03/thumb_m2.jpg")
 
 	f.young = []string{"media/2026/10/09/fresh_upload.jpg"}
-	f.orphans = []string{"media/2026/10/01/orphan.jpg", "media/2026/10/01/thumb_orphan.jpg", "matrix/2026/10/03/orphan.bin", "refreshed/1_gone.png"}
+	f.orphans = []string{"media/2026/10/01/orphan.jpg", "media/2026/10/01/thumb_orphan.jpg", "matrix/2026/10/03/orphan.bin", "matrix/local/old-orphan.bin", "matrix/remote/old-orphan.bin", "matrix-media/bridge-remote/legacy-staging", "refreshed/1_gone.png"}
 	f.untouched = []string{"emojis/2b6c3d1e-9a7f-4c1b-8d2e-3f4a5b6c7d8e.png", "avatars/unreferenced.png", "public/robots.txt"}
 
 	all := append(append(append(append([]string{}, f.referenced...), f.young...), f.orphans...), f.untouched...)
@@ -365,7 +365,7 @@ func TestRemoveOrphansCLIIsDryRunByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, "DELETING")
 	requireExists(t, backend, []string{"media/2026/10/01/orphan.jpg", "media/2026/10/01/thumb_orphan.jpg"}, false)
-	requireExists(t, backend, []string{"matrix/2026/10/03/orphan.bin", "refreshed/1_gone.png"}, true)
+	requireExists(t, backend, []string{"matrix/2026/10/03/orphan.bin", "matrix/local/old-orphan.bin", "matrix/remote/old-orphan.bin", "matrix-media/bridge-remote/legacy-staging", "refreshed/1_gone.png"}, true)
 	requireExists(t, backend, f.referenced, true)
 
 	out, err = runMediaCLI(t, "remove-orphans", "--confirm")

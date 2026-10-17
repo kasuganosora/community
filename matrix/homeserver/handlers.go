@@ -29,6 +29,8 @@ func RegisterRoutes(r gin.IRouter) {
 		return
 	}
 
+	startMatrixMediaMaintenance()
+
 	// 服务器发现 (在 wellknown.go 中定义)
 	// r.GET("/.well-known/matrix/server", handleWellKnownServer)
 	// r.GET("/.well-known/matrix/client", handleWellKnownClient)
@@ -1864,7 +1866,16 @@ func handleSetAvatarURL(c *gin.Context) {
 		localpart = userID
 	}
 
-	db.GetDB().Model(&models.Account{}).Where("username = ?", localpart).Update("avatar", req.AvatarURL)
+	err = db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := pinMatrixMedia(tx, req.AvatarURL); err != nil {
+			return err
+		}
+		return tx.Model(&models.Account{}).Where("username = ? AND (domain IS NULL OR domain = '')", localpart).Update("avatar", req.AvatarURL).Error
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_INVALID_PARAM", "error": "Avatar is unavailable"})
+		return
+	}
 
 	// Propagate avatar change to m.room.member events in all joined rooms
 	hs := GetHomeServer()

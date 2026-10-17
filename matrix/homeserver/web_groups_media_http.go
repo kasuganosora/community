@@ -268,7 +268,7 @@ func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnai
 			_, body, err = svc.GetThumbnail(server, id, 320, 240, "scale")
 		} else {
 			var media *MatrixMedia
-			media, body, err = svc.GetMedia(server, id)
+			media, body, err = svc.getMediaContext(c.Request.Context(), server, id)
 			if err == nil {
 				length = media.FileSize
 				if name == "" {

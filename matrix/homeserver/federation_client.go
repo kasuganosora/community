@@ -828,7 +828,7 @@ func (c *FederationClient) DownloadAndSaveMedia(serverName, mediaID string) (*Ma
 	if err != nil {
 		return nil, err
 	}
-	return NewMediaService(c.hs).UploadMedia(bytes.NewReader(media.Data), &multipart.FileHeader{Filename: media.Filename, Size: int64(len(media.Data))}, media.ContentType, "")
+	return NewMediaService(c.hs).uploadMedia(bytes.NewReader(media.Data), &multipart.FileHeader{Filename: media.Filename, Size: int64(len(media.Data))}, media.ContentType, "", "remote", true)
 }
 
 type federationHTTPError struct {

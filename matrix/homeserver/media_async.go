@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/storage"
 	"gorm.io/gorm"
 )
@@ -182,13 +183,13 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 		}
 	}
 	// Stage in a private temp file, then store through the storage backend
-	// under the key "matrix/<date>/<name>" (local uploads/ or S3).
+	// under the key "matrix/local/<date>/<name>" (local uploads/ or S3).
 	file, err := os.CreateTemp("", "async-*"+ext)
 	if err != nil {
 		return nil, err
 	}
 	path := file.Name()
-	key := "matrix/" + time.Now().Format("2006/01/02") + "/" + filepath.Base(path)
+	key := "matrix/local/" + time.Now().Format("2006/01/02") + "/" + filepath.Base(path)
 	stored := false
 	defer func() {
 		_ = file.Close()
@@ -216,7 +217,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	}
 	stored = true
 	uri := fmt.Sprintf("mxc://%s/%s", ams.hs.Config.ServerName, mediaID)
-	record := &MatrixMedia{MediaID: mediaID, ServerName: ams.hs.Config.ServerName, FileName: originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, mediaID+ext), ContentType: contentType, FileSize: size, FilePath: key, UploaderID: uploader, CreatedAt: time.Now()}
+	record := &MatrixMedia{Origin: "local", MediaID: mediaID, ServerName: ams.hs.Config.ServerName, FileName: originalMediaFilename(&multipart.FileHeader{Filename: pending.Filename}, mediaID+ext), ContentType: contentType, FileSize: size, FilePath: key, UploaderID: uploader, CreatedAt: time.Now()}
 	err = conn.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(record).Error; err != nil {
 			return err
@@ -278,8 +279,11 @@ func (ams *AsyncMediaService) GetUploadConfig() *UploadConfigResponse {
 
 // CleanupExpiredUploads 清理过期的上传.
 func (ams *AsyncMediaService) CleanupExpiredUploads() {
-	now := time.Now()
-	db.GetDB().Where("status = ? AND expires_at < ?", "pending", now).Delete(&AsyncMediaInfo{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := cleanupAsyncMedia(ctx, db.GetDB(), time.Now()); err != nil {
+		log.Warn("Matrix async upload cleanup failed: %v", err)
+	}
 }
 
 // ===== HTTP Handlers =====

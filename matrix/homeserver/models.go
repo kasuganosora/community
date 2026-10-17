@@ -99,6 +99,9 @@ func (MatrixEvent) TableName() string {
 }
 
 func (e *MatrixEvent) BeforeCreate(tx *gorm.DB) error {
+	if err := pinMatrixMediaReferences(tx, e.Content, e.FederationJSON == ""); err != nil {
+		return err
+	}
 	if err := assignWebGroupStream(tx, e); err != nil {
 		return err
 	}

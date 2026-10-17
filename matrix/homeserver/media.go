@@ -29,6 +29,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
@@ -38,6 +39,17 @@ import (
 
 // MatrixMedia Matrix 媒体记录.
 type MatrixMedia struct { //nolint:recvcheck
+	// Only application-managed plaintext uploads are automatically collected.
+	// Native client uploads may be referenced inside encrypted events.
+	GCEligible       bool       `gorm:"not null;default:false;index:idx_matrix_media_gc,priority:1" json:"-"`
+	GCState          string     `gorm:"size:16;not null;default:'';index:idx_matrix_media_gc,priority:2" json:"-"`
+	GCNextCheckAt    *time.Time `gorm:"index:idx_matrix_media_gc,priority:3" json:"-"`
+	GCUnreferencedAt *time.Time `json:"-"`
+	Origin           string     `gorm:"size:16;not null;default:'';index" json:"-"`
+	RemoteURL        string     `gorm:"type:text" json:"-"`
+	// Worker-only, bounded remote bytes; never persisted as a staging object.
+	transientData []byte `gorm:"-"`
+
 	ID          uint64    `gorm:"primaryKey"                   json:"-"`
 	MediaID     string    `gorm:"uniqueIndex;size:64;not null" json:"media_id"`
 	ServerName  string    `gorm:"index;size:255;not null"      json:"server_name"`
@@ -84,6 +96,10 @@ func NewMediaService(hs *HomeServer) *MediaService {
 
 // UploadMedia 上传媒体文件.
 func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader, contentType, uploaderID string) (*MatrixMedia, error) {
+	return s.uploadMedia(file, header, contentType, uploaderID, "local", false)
+}
+
+func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader, contentType, uploaderID, origin string, managed bool) (*MatrixMedia, error) {
 	// 生成 Media ID (MXC URI 格式的本地部分)
 	mediaID := generateMediaID()
 
@@ -101,9 +117,9 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 
 	// Stage the bytes in a private temp dir (the thumbnailer needs a file),
 	// then write original and thumbnail through the storage backend. Rows
-	// keep storage keys ("matrix/<date>/<file>"), never host paths or URLs.
+	// keep storage keys ("matrix/<origin>/<date>/<file>"), never host paths or URLs.
 	fileName := mediaID + ext
-	key := "matrix/" + time.Now().Format("2006/01/02") + "/" + fileName
+	key := "matrix/" + origin + "/" + time.Now().Format("2006/01/02") + "/" + fileName
 
 	tmpDir, err := os.MkdirTemp("", "community-matrix-*")
 	if err != nil {
@@ -162,6 +178,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 
 	// 创建数据库记录
 	matrixMedia := &MatrixMedia{
+		Origin: origin, GCEligible: managed,
 		MediaID:     mediaID,
 		ServerName:  s.hs.Config.ServerName,
 		FileName:    originalMediaFilename(header, fileName),
@@ -196,6 +213,7 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 		err := db.GetDB().Create(thumbnail).Error
 		if err != nil {
 			log.Error("Failed to create thumbnail: %v", err)
+			_ = storage.Delete(thumbnailPath)
 		}
 	}
 
@@ -204,6 +222,9 @@ func (s *MediaService) UploadMedia(file io.Reader, header *multipart.FileHeader,
 
 // GetMedia 获取媒体文件.
 func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.ReadCloser, error) {
+	return s.getMediaContext(context.Background(), serverName, mediaID)
+}
+func (s *MediaService) getMediaContext(ctx context.Context, serverName, mediaID string) (*MatrixMedia, io.ReadCloser, error) {
 	if serverName == s.hs.Config.ServerName && strings.HasPrefix(mediaID, defaultavatar.MediaPrefix) {
 		data, err := defaultavatar.PNG(strings.TrimPrefix(mediaID, defaultavatar.MediaPrefix))
 		if err != nil {
@@ -214,10 +235,21 @@ func (s *MediaService) GetMedia(serverName, mediaID string) (*MatrixMedia, io.Re
 	}
 
 	var matrixMedia MatrixMedia
-	if err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
+	if err := db.GetDB().WithContext(ctx).Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
 		return nil, nil, errors.New("media not found")
 	}
 
+	if matrixMedia.GCState != "" {
+		return nil, nil, errors.New("media unavailable")
+	}
+	if matrixMedia.RemoteURL != "" {
+		remote, err := openBridgeAttachment(ctx, matrixMedia.RemoteURL, activitypub.NewAuthenticatedMediaHTTPClient(nil))
+		if err != nil {
+			return nil, nil, err
+		}
+		matrixMedia.FileSize, matrixMedia.ContentType = remote.Length, remote.ContentType
+		return &matrixMedia, remote.Body, nil
+	}
 	reader, err := openMatrixFile(matrixMedia.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open file: %w", err)
@@ -238,24 +270,6 @@ func openMatrixFile(ref string) (io.ReadCloser, error) {
 	rc, _, err := storage.Default().Open(context.Background(), key)
 
 	return rc, err
-}
-
-// deleteMatrixFile removes a stored matrix media reference.
-func deleteMatrixFile(ref string) {
-	if ref == "" {
-		return
-	}
-
-	if filepath.IsAbs(ref) {
-		_ = os.Remove(ref)
-
-		return
-	}
-
-	key, _ := storage.NormalizeKey(ref)
-	if err := storage.Delete(key); err != nil {
-		log.Warn("Failed to delete matrix media %s: %v", key, err)
-	}
 }
 
 // GetThumbnail 获取缩略图.
@@ -337,34 +351,9 @@ func (s *MediaService) GetMediaByMXC(mxcURI string) (*MatrixMedia, io.ReadCloser
 
 // DeleteMedia 删除媒体.
 func (s *MediaService) DeleteMedia(serverName, mediaID string) error {
-	var matrixMedia MatrixMedia
-	err := db.GetDB().Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error
-	if err != nil {
-		return errors.New("media not found")
-	}
-
-	var thumbs []MatrixThumbnail
-	db.GetDB().Where("media_id = ?", mediaID).Find(&thumbs)
-
-	// 删除缩略图
-	db.GetDB().Where("media_id = ?", mediaID).Delete(&MatrixThumbnail{})
-
-	// 删除媒体记录
-	err = db.GetDB().Delete(&matrixMedia).Error
-	if err != nil {
-		return err
-	}
-
-	// Delete the stored objects (local or S3).
-	deleteMatrixFile(matrixMedia.FilePath)
-
-	for _, t := range thumbs {
-		if t.FilePath != "" && t.FilePath != matrixMedia.FilePath && strings.Contains(t.FilePath, "/") {
-			deleteMatrixFile(t.FilePath)
-		}
-	}
-
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return deleteMatrixMedia(ctx, db.GetDB(), serverName, mediaID)
 }
 
 // generateMediaID 生成媒体 ID.
@@ -442,7 +431,7 @@ func handleDownloadMedia(c *gin.Context) {
 	// 获取本地媒体
 	mediaService := NewMediaService(hs)
 
-	matrixMedia, reader, err := mediaService.GetMedia(serverName, mediaID)
+	matrixMedia, reader, err := mediaService.getMediaContext(c.Request.Context(), serverName, mediaID)
 	if err != nil {
 		// Check if this is a pending async upload
 		var asyncMedia AsyncMediaInfo
@@ -468,7 +457,9 @@ func handleDownloadMedia(c *gin.Context) {
 	// 设置响应头
 	c.Header("Content-Type", matrixMedia.ContentType)
 	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": matrixMedia.FileName}))
-	c.Header("Content-Length", strconv.FormatInt(matrixMedia.FileSize, 10))
+	if matrixMedia.FileSize >= 0 {
+		c.Header("Content-Length", strconv.FormatInt(matrixMedia.FileSize, 10))
+	}
 
 	// 流式传输文件
 	if _, err := io.Copy(c.Writer, reader); err != nil {
@@ -830,11 +821,11 @@ func (hs *HomeServer) processPreviewImage(preview *URLPreview, baseURL string) {
 	mediaService := NewMediaService(hs)
 	contentType := http.DetectContentType(imgBytes)
 
-	media, err := mediaService.UploadMedia(
+	media, err := mediaService.uploadMedia(
 		bytes.NewReader(imgBytes),
 		nil,
 		contentType,
-		"",
+		"", "remote", true,
 	)
 	if err != nil {
 		return

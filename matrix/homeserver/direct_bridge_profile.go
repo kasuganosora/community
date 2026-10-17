@@ -228,7 +228,11 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 	// Account identity participates in deduplication; importing a public avatar
 	// never grants access to a different user's private Matrix attachment row.
 	digest := sha256.Sum256(append([]byte(userID+"\x00"), normalized.Bytes()...))
-	key := "matrix/bridge-avatars/" + hex.EncodeToString(digest[:]) + ".png"
+	origin := "remote"
+	if local {
+		origin = "local"
+	}
+	key := "matrix/" + origin + "/bridge-avatars/" + hex.EncodeToString(digest[:]) + ".png"
 	var existing MatrixMedia
 	err = conn.Where("server_name = ? AND uploader_id = ? AND file_path = ?", hs.Config.ServerName, userID, key).First(&existing).Error
 	if err == nil {
@@ -240,7 +244,7 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 	if err = storage.Default().Put(ctx, key, bytes.NewReader(normalized.Bytes()), int64(normalized.Len()), "image/png"); err != nil {
 		return "", err
 	}
-	media := MatrixMedia{MediaID: generateMediaID(), ServerName: hs.Config.ServerName, UploaderID: userID, FilePath: key, FileName: "avatar.png", ContentType: "image/png", FileSize: int64(normalized.Len()), Width: &dimensions.Width, Height: &dimensions.Height}
+	media := MatrixMedia{Origin: origin, GCEligible: true, MediaID: generateMediaID(), ServerName: hs.Config.ServerName, UploaderID: userID, FilePath: key, FileName: "avatar.png", ContentType: "image/png", FileSize: int64(normalized.Len()), Width: &dimensions.Width, Height: &dimensions.Height}
 	if err = conn.Create(&media).Error; err != nil {
 		return "", err
 	}

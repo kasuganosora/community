@@ -28,7 +28,7 @@ type federationMedia struct {
 // the second contains the original bytes, including encrypted attachment bytes.
 func handleFederationMediaDownload(c *gin.Context) {
 	hs := GetHomeServer()
-	m, r, err := NewMediaService(hs).GetMedia(hs.Config.ServerName, c.Param("mediaId"))
+	m, r, err := NewMediaService(hs).getMediaContext(c.Request.Context(), hs.Config.ServerName, c.Param("mediaId"))
 	if err != nil {
 		c.JSON(404, gin.H{"errcode": "M_NOT_FOUND", "error": "Media not found"})
 		return

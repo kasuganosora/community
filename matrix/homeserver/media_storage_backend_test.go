@@ -25,7 +25,7 @@ func TestMatrixMediaUsesObjectStorage(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			setupMinimalTestDB(t)
-			require.NoError(t, db.GetDB().AutoMigrate(&MatrixMedia{}, &MatrixThumbnail{}))
+			require.NoError(t, db.GetDB().AutoMigrate(&MatrixMedia{}, &MatrixThumbnail{}, &WebGroupUpload{}, &AsyncMediaInfo{}))
 			t.Chdir(t.TempDir())
 			b := mk(t)
 			defer storage.SetDefault(b)()

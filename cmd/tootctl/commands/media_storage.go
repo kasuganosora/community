@@ -22,7 +22,7 @@ import (
 // (media/, legacy refreshed/) or a matrix_media / matrix_media_thumbnails row
 // (matrix/). Emoji and brand images (emojis/) and legacy avatars (avatars/)
 // are referenced from many places and are never deleted by the scan.
-var orphanNamespaces = []string{"media/", "matrix/", "refreshed/"}
+var orphanNamespaces = []string{"media/", "matrix/", "matrix-media/bridge-remote/", "refreshed/"}
 
 // minOrphanAge is the smallest grace period remove-orphans accepts: an upload
 // writes its object before its database row, so younger objects may simply
@@ -267,7 +267,7 @@ func stillReferenced(ctx context.Context, gdb *gorm.DB, key string) (bool, error
 	var n int64
 
 	switch {
-	case strings.HasPrefix(key, "matrix/"):
+	case strings.HasPrefix(key, "matrix/"), strings.HasPrefix(key, "matrix-media/bridge-remote/"):
 		for _, table := range []string{"matrix_media", "matrix_media_thumbnails"} {
 			if !gdb.Migrator().HasTable(table) {
 				continue

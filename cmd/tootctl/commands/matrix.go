@@ -23,6 +23,7 @@ func MatrixCommand() *cli.Command {
 		Name:  "matrix",
 		Usage: "Matrix homeserver maintenance",
 		Subcommands: []*cli.Command{
+			matrixMediaGCCommand(),
 			{
 				Name:  "invalidate-default-passwords",
 				Usage: "Invalidate passwords of accounts still using the legacy Matrix default password",

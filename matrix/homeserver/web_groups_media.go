@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/storage"
 	"gorm.io/gorm"
 )
 
@@ -44,7 +42,6 @@ type WebGroupUpload struct {
 func (WebGroupUpload) TableName() string { return "matrix_web_group_uploads" }
 
 var webGroupUploadSlots = make(chan struct{}, 4)
-var webGroupCleanupOnce sync.Once
 
 func webGroupUploadMaxBytes() int64 {
 	if n, err := strconv.ParseInt(os.Getenv("MATRIX_WEB_GROUP_UPLOAD_MAX_BYTES"), 10, 64); err == nil && n > 0 && n <= matrixMediaLimit {
@@ -58,22 +55,7 @@ func registerWebGroupMediaRoutes(group *gin.RouterGroup) {
 	group.GET("/groups/:id/avatar", handleWebGroupAvatar)
 	group.GET("/groups/:id/members/:memberID/avatar", handleWebGroupMemberAvatar)
 	group.GET("/groups/:id/messages/:messageID/media/:mediaID", handleWebGroupMedia)
-	webGroupCleanupOnce.Do(func() {
-		go func() {
-			// No per-user timers or workers. SQL claims make concurrent nodes safe.
-			for range time.NewTicker(5 * time.Minute).C {
-				hs := GetHomeServer()
-				if hs == nil || db.GetDB() == nil {
-					continue
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				if err := cleanupWebGroupUploads(ctx, hs, time.Now()); err != nil {
-					log.Warn("web group upload cleanup failed: %v", err)
-				}
-				cancel()
-			}
-		}()
-	})
+	startMatrixMediaMaintenance()
 }
 
 func handleWebGroupUpload(c *gin.Context) {
@@ -142,7 +124,7 @@ func handleWebGroupUpload(c *gin.Context) {
 		return
 	}
 	name := webGroupFilename(part.FileName())
-	media, err := NewMediaService(hs).UploadMedia(staged, &multipart.FileHeader{Filename: name, Size: size}, contentType, user)
+	media, err := NewMediaService(hs).uploadMedia(staged, &multipart.FileHeader{Filename: name, Size: size}, contentType, user, "local", true)
 	if err != nil {
 		log.Warn("web group media storage failed: %v", err)
 		webGroupFailure(c, 503, "UPLOAD_UNAVAILABLE", "Failed to store the file, please retry")
@@ -285,12 +267,25 @@ func cleanupWebGroupUploads(ctx context.Context, hs *HomeServer, now time.Time) 
 	conn := db.GetDB().WithContext(ctx)
 	// Finished leases expire without touching media; message transaction IDs
 	// own delivery idempotency. Keep this auxiliary table bounded over time.
-	var finished []string
-	if err := conn.Model(&WebGroupUpload{}).Where("used_event_id NOT IN ? AND expires_at <= ?", []string{"", "deleting"}, now).Limit(128).Pluck("id", &finished).Error; err != nil {
+	var finished []WebGroupUpload
+	if err := conn.Where("used_event_id NOT IN ? AND expires_at <= ?", []string{"", "deleting"}, now).Order("expires_at, id").Limit(128).Find(&finished).Error; err != nil {
 		return err
 	}
 	if len(finished) != 0 {
-		if err := conn.Where("id IN ? AND used_event_id NOT IN ? AND expires_at <= ?", finished, []string{"", "deleting"}, now).Delete(&WebGroupUpload{}).Error; err != nil {
+		ids := make([]string, 0, len(finished))
+		mediaIDs := make([]string, 0, len(finished))
+		for _, upload := range finished {
+			ids = append(ids, upload.ID)
+			mediaIDs = append(mediaIDs, upload.MediaID)
+		}
+		if err := conn.Transaction(func(tx *gorm.DB) error {
+			// Old web leases are positive evidence of plaintext upload ownership.
+			// Enrol them before dropping the only surviving provenance metadata.
+			if err := tx.Model(&MatrixMedia{}).Where("media_id IN ? AND gc_state = ''", mediaIDs).Update("gc_eligible", true).Error; err != nil {
+				return err
+			}
+			return tx.Where("id IN ? AND used_event_id NOT IN ? AND expires_at <= ?", ids, []string{"", "deleting"}, now).Delete(&WebGroupUpload{}).Error
+		}); err != nil {
 			return err
 		}
 	}
@@ -306,18 +301,13 @@ func cleanupWebGroupUploads(ctx context.Context, hs *HomeServer, now time.Time) 
 		if claim.RowsAffected == 0 {
 			continue
 		}
-		// Covers crash-after-event-before-mark and use from native clients.
-		// A false positive is intentionally safe: it retains media.
-		var count int64
-		err := conn.Model(&MatrixEvent{}).Where("content LIKE ?", "%"+upload.MediaID+"%").Count(&count).Error
-		if err != nil || count != 0 {
-			_ = conn.Model(&WebGroupUpload{}).Where("id = ? AND used_event_id = 'deleting'", upload.ID).Update("used_event_id", "referenced").Error
-			if err != nil {
-				return err
-			}
-			continue
-		}
 		if err := deleteWebGroupOrphanMedia(conn, upload); err != nil {
+			if errors.Is(err, errMatrixMediaReferenced) {
+				if err := conn.Model(&WebGroupUpload{}).Where("id = ? AND used_event_id = 'deleting'", upload.ID).Update("used_event_id", "referenced").Error; err != nil {
+					return err
+				}
+				continue
+			}
 			// Retain a retryable lease if the backing store/record is unavailable.
 			_ = conn.Model(&WebGroupUpload{}).Where("id = ?", upload.ID).Updates(map[string]any{"used_event_id": "", "expires_at": now.Add(time.Hour)}).Error
 			return fmt.Errorf("remove expired upload: %w", err)
@@ -329,42 +319,7 @@ func cleanupWebGroupUploads(ctx context.Context, hs *HomeServer, now time.Time) 
 	return nil
 }
 
-// Keep metadata until storage deletion succeeds, so transient object storage
-// failures remain retryable rather than silently orphaning the original file.
+// The same reference checks and retryable deletion are used by both collectors.
 func deleteWebGroupOrphanMedia(conn *gorm.DB, upload WebGroupUpload) error {
-	var media MatrixMedia
-	err := conn.Where("server_name = ? AND media_id = ?", upload.ServerName, upload.MediaID).First(&media).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var thumbs []MatrixThumbnail
-	if err := conn.Where("media_id = ?", upload.MediaID).Find(&thumbs).Error; err != nil {
-		return err
-	}
-	refs := []string{media.FilePath}
-	for _, thumb := range thumbs {
-		if thumb.FilePath != "" && thumb.FilePath != media.FilePath {
-			refs = append(refs, thumb.FilePath)
-		}
-	}
-	for _, ref := range refs {
-		if filepath.IsAbs(ref) {
-			err = os.Remove(ref)
-		} else {
-			key, _ := storage.NormalizeKey(ref)
-			err = storage.Delete(key)
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, storage.ErrNotFound) {
-			return err
-		}
-	}
-	return conn.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("media_id = ?", upload.MediaID).Delete(&MatrixThumbnail{}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&media).Error
-	})
+	return deleteMatrixMedia(conn.Statement.Context, conn, upload.ServerName, upload.MediaID)
 }

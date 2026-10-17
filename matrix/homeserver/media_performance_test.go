@@ -304,7 +304,7 @@ func TestAsyncMediaExpiredClaimRecoveryFencesOldWriter(t *testing.T) {
 	actual, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	require.Equal(t, "newest", string(actual))
-	files, err := filepath.Glob("uploads/matrix/*/*/*/async-*")
+	files, err := filepath.Glob("uploads/matrix/local/*/*/*/async-*")
 	require.NoError(t, err)
 	require.Len(t, files, 1, "the losing attempt only removes its own temporary path")
 }

@@ -71,7 +71,13 @@ func bridgeAttachmentContent(server string, a models.MediaAttachment, media Matr
 		kind = "m.audio"
 	}
 	name := bridgeAttachmentFilename(a)
-	info := map[string]any{"mimetype": media.ContentType, "size": media.FileSize}
+	info := map[string]any{}
+	if media.ContentType != "" {
+		info["mimetype"] = media.ContentType
+	}
+	if media.FileSize > 0 {
+		info["size"] = media.FileSize
+	}
 	if media.Width != nil && *media.Width > 0 {
 		info["w"] = *media.Width
 	}

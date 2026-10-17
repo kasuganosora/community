@@ -1,18 +1,13 @@
 package homeserver
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"mime"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/kasuganosora/community/storage"
 )
 
 // validateBridgeRemoteMXC is admission-only: it never performs network I/O.
@@ -84,13 +79,6 @@ func (hs *HomeServer) importBridgeRemoteMedia(ctx context.Context, event *Matrix
 		name, _ = event.Content["body"].(string)
 	}
 	name = safeBridgeFilename(name)
-	digest := sha256.Sum256([]byte(event.EventID + "\x00" + event.Sender + "\x00" + server + "/" + id))
-	// This staging object has no public media row/URL. A deterministic key bounds
-	// storage on retries; the outbound attachment obtains its own access key.
-	key := "matrix-media/bridge-remote/" + hex.EncodeToString(digest[:])
-	size := int64(len(remote.Data))
-	if err = storage.Default().Put(ctx, key, bytes.NewReader(remote.Data), size, typ); err != nil {
-		return nil, err
-	}
-	return &MatrixMedia{ServerName: hs.Config.ServerName, UploaderID: event.Sender, FilePath: key, FileName: name, ContentType: typ, FileSize: size}, nil
+	// The AP worker needs one deliverable copy, but no persistent staging copy.
+	return &MatrixMedia{Origin: "remote", ServerName: hs.Config.ServerName, UploaderID: event.Sender, FileName: name, ContentType: typ, FileSize: int64(len(remote.Data)), transientData: remote.Data}, nil
 }

@@ -109,7 +109,11 @@ func TestDirectBridgeExistingAndLaterMatrixLoginPrivateAndIdempotent(t *testing.
 	require.Contains(t, msg.Content["body"], "private message")
 	// Simulate process failure after sending but before acknowledging the durable job.
 	require.NoError(t, conn.Model(&job).Updates(map[string]any{"state": "pending", "next_attempt_at": time.Now().Add(-time.Second)}).Error)
-	restarted := *hs
+	restarted := &HomeServer{Config: hs.Config, privateKey: hs.privateKey, publicKey: hs.publicKey, keyID: hs.keyID}
+	restarted.Room = NewRoomService(restarted)
+	restarted.Event = NewEventService(restarted)
+	restarted.Sync = NewSyncService(restarted)
+	restarted.Auth = NewAuthService(restarted)
 	require.NoError(t, restarted.ProcessDirectMessage(ctx, 11))
 	require.NoError(t, restarted.ProcessDirectMessage(ctx, 11))
 	var count int64
