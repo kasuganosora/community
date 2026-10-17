@@ -291,11 +291,13 @@ func updateRemotePoll(tx *gorm.DB, statusID, accountID uint64, object map[string
 	for k, v := range parsed.Properties {
 		props[k] = v
 	}
-	updates := map[string]any{"properties": props, "multiple": parsed.Multiple}
+	// Struct updates run the JSON serializer of Properties on every driver;
+	// a map update passes the raw map, which some drivers reject.
+	cols := []string{"properties", "multiple"}
 	if parsed.ExpiresAt != nil {
-		updates["expires_at"] = parsed.ExpiresAt
+		cols = append(cols, "expires_at")
 	}
-	return tx.Model(&models.Poll{}).Where("id = ?", poll.Id).Updates(updates).Error
+	return tx.Model(&models.Poll{Id: poll.Id}).Select(cols).Updates(&models.Poll{Properties: props, Multiple: parsed.Multiple, ExpiresAt: parsed.ExpiresAt}).Error
 }
 
 // ---------------------------------------------------------------------------

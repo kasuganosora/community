@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import ReactionLabel from '@/shared/components/post/ReactionLabel.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { ref, watch, onMounted, onUnmounted } from 'vue'
@@ -27,6 +28,11 @@ const FILTERS: { value: NotificationFilter; label: string }[] = [
 ]
 
 const router = useRouter()
+const authStore = useAuthStore()
+// The poll author gets "your poll has ended"; voters "a poll you took part in".
+function isOwnPoll(n: { type: string, status?: { account?: { id: string } } | null }): boolean {
+  return n.type === 'poll' && !!n.status?.account && n.status.account.id === authStore.currentUser?.id
+}
 const filter = ref<NotificationFilter>('all')
 const feed = usePaginatedList<MastodonNotification>(
   (maxId, limit) => notificationApi.list({ max_id: maxId, limit, ...notificationQuery(filter.value) }),
@@ -194,7 +200,7 @@ watch(filter, () => {
             class="notification-body"
             role="link"
             tabindex="0"
-            :aria-label="`${notification.account.display_name || notification.account.username} ${notificationText(notification.type)}`"
+            :aria-label="`${notification.account.display_name || notification.account.username} ${notificationText(notification.type, isOwnPoll(notification))}`"
             @click="open(notification, $event)"
             @keydown.enter.self="open(notification)"
           >
@@ -206,7 +212,7 @@ watch(filter, () => {
               <div class="notification-text">
                 <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
                 <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">{{ $t('notification.NotificationsPage.s12') }} <ReactionLabel :reaction="notification.emoji_reaction" /> {{ $t('notification.NotificationsPage.s13') }}</template>
-                <template v-else>{{ notificationText(notification.type) }}</template>
+                <template v-else>{{ notificationText(notification.type, isOwnPoll(notification)) }}</template>
                 <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
               <div v-if="notification.status" class="notification-preview">

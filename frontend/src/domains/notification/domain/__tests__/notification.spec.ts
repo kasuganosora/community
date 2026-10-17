@@ -31,3 +31,12 @@ describe('notificationQuery', () => {
     expect(notificationQuery('all')).toEqual({})
   })
 })
+
+describe('poll notification wording', () => {
+  it('tells the author their own poll ended and voters a poll they took part in ended', () => {
+    const own = notificationText('poll', true)
+    const voted = notificationText('poll')
+    expect(own).not.toBe(voted)
+    expect(own).not.toContain('notification.notification')
+  })
+})

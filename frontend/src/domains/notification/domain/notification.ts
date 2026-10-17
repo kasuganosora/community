@@ -10,7 +10,8 @@ export function notificationTarget(n: { type: string; account: MastodonAccount; 
   return `/@${n.account.acct || n.account.username}`
 }
 
-export function notificationText(type: NotificationType | string): string {
+/** ownPoll: the viewer created the poll ("your poll has ended"). */
+export function notificationText(type: NotificationType | string, ownPoll = false): string {
   switch (type) {
     case 'emoji_reaction': return t('notification.notification.s1')
     case 'favourite': return t('notification.notification.s2')
@@ -18,7 +19,7 @@ export function notificationText(type: NotificationType | string): string {
     case 'follow': return t('notification.notification.s4')
     case 'follow_request': return t('notification.notification.s5')
     case 'mention': return t('notification.notification.s6')
-    case 'poll': return t('notification.notification.s7')
+    case 'poll': return ownPoll ? t('notification.notification.pollOwn') : t('notification.notification.s7')
     case 'update': return t('notification.notification.s8')
     case 'status': return t('notification.notification.s9')
     default: return t('notification.notification.s10')

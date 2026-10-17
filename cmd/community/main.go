@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/clientip"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/db/writebuffer"
+	"github.com/kasuganosora/community/serializer"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -384,6 +385,7 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	outbound, initErr := activitypub.StartOutboundWorker()
 	log.FatalIf(initErr)
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
+	serializer.PollViewed = activitypub.MaybeRepairRemotePoll
 	pollClose := activitypub.StartPollCloseWorker()
 	srv.RegisterPostShutdown(func() error { pollClose.Stop(); return nil })
 	// Federation-tier row updates (delivery status, blurhash) are batched.

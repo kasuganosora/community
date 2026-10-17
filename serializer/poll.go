@@ -45,6 +45,11 @@ func ToBasePoll(poll *models.Poll, voted bool, votesCount uint64, votersCount ui
 	return ret
 }
 
+// PollViewed, when set, sees every serialized poll with its vote count; the
+// server uses it to repair inconsistent remote polls in the background. It
+// must not block.
+var PollViewed func(poll *models.Poll, votesCount uint64)
+
 func ToPoll(poll *models.Poll, current *models.Account) (*Poll, error) {
 	results, err := ToPollsMapByStatusId([]*models.Poll{poll}, current)
 	if err != nil {
@@ -117,6 +122,9 @@ func toPollsMapByStatusIdWithDB(conn *gorm.DB, polls []*models.Poll, current *mo
 		}
 		if remote := p.RemoteVotersCount(); remote > c.VotersCount {
 			c.VotersCount = remote
+		}
+		if PollViewed != nil {
+			PollViewed(p, c.VotesCount)
 		}
 		out := ToBasePoll(p, len(own) > 0, c.VotesCount, c.VotersCount)
 		out.Options = toPollOptions(p)

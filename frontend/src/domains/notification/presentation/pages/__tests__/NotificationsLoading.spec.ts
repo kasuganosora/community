@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import NotificationsPage from '../NotificationsPage.vue'
@@ -24,6 +25,8 @@ function mountPage() {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('notification filter loading', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
   it('prevents duplicate clears and restores the confirmation action after a failed request', async () => {
     const pending = deferred<void>()
     vi.spyOn(notificationApi, 'list').mockResolvedValue([notification('current-follow')])

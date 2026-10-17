@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kasuganosora/community/feed"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,36 @@ func statusesBackfillCommands() []*cli.Command {
 					return err
 				}
 				fmt.Printf("Linked %d quoted posts\n", linked)
+				return nil
+			},
+		},
+		{
+			Name:      "refetch",
+			Usage:     "Fetch remote polls again from their origin and fix their stored tallies",
+			ArgsUsage: "<status id> [<status id>...]",
+			Action: func(c *cli.Context) error {
+				if c.NArg() == 0 {
+					return errors.New("give at least one local status id")
+				}
+				failed := 0
+				for _, arg := range c.Args().Slice() {
+					id, err := strconv.ParseUint(arg, 10, 64)
+					if err != nil {
+						return fmt.Errorf("invalid status id %q", arg)
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					err = activitypub.RefetchRemotePoll(ctx, id)
+					cancel()
+					if err != nil {
+						failed++
+						fmt.Printf("%d: %v\n", id, err)
+						continue
+					}
+					fmt.Printf("%d: refetched\n", id)
+				}
+				if failed > 0 {
+					return fmt.Errorf("%d status(es) failed", failed)
+				}
 				return nil
 			},
 		},
