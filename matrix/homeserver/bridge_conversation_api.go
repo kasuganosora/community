@@ -94,8 +94,13 @@ func bridgeConversationDTO(conn *gorm.DB, conv *BridgeConversation, user string)
 		byID[a.Id] = a
 	}
 	for _, m := range members {
-		v := gin.H{"id": strconv.FormatUint(m.ID, 10), "account_id": strconv.FormatUint(m.AccountID, 10), "matrix_id": m.MatrixID, "kind": m.Kind, "active": true}
+		v := gin.H{"id": strconv.FormatUint(m.ID, 10), "account_id": strconv.FormatUint(m.AccountID, 10), "matrix_id": m.MatrixID, "kind": m.Kind, "active": true, "own": m.MatrixID == user}
 		if a, ok := byID[m.AccountID]; ok {
+			// Full account (proxied avatar with a default fallback) so the
+			// list can show who the conversation is with.
+			if acc := serializer.ToAccount(&a); acc != nil {
+				v["account"] = acc
+			}
 			v["acct"] = a.Username
 			if a.Domain != nil && *a.Domain != "" {
 				v["acct"] = a.Username + "@" + *a.Domain
@@ -104,7 +109,12 @@ func bridgeConversationDTO(conn *gorm.DB, conv *BridgeConversation, user string)
 		}
 		memberViews = append(memberViews, v)
 	}
-	out := gin.H{"id": conv.ID, "room_id": conv.RoomID, "revision": conv.Revision, "encrypted": false, "title": bridgeConversationTitle(members), "creator_id": strconv.FormatUint(conv.CreatorAccountID, 10), "can_manage": canManage, "can_leave": !conv.Legacy, "members": memberViews}
+	out := gin.H{"id": conv.ID, "room_id": conv.RoomID, "revision": conv.Revision, "encrypted": false, "title": "", "creator_id": strconv.FormatUint(conv.CreatorAccountID, 10), "can_manage": canManage, "can_leave": !conv.Legacy, "members": memberViews}
+	if last, err := bridgeLastMessage(conn, conv, user); err != nil {
+		return nil, err
+	} else if last != nil {
+		out["last_message"] = last
+	}
 	var source models.Status
 	if err := conn.Joins("JOIN matrix_dm_deliveries d ON d.status_id = statuses.id").Where("d.room_id = ? AND statuses.conversation_id IS NOT NULL", conv.RoomID).Order("statuses.id DESC").First(&source).Error; err == nil && source.ConversationId != nil {
 		out["legacy_conversation_id"] = strconv.FormatUint(*source.ConversationId, 10)
@@ -545,4 +555,44 @@ func (hs *HomeServer) importLegacyBridgeConversations(ctx context.Context, user 
 }
 func uuidForBridgeRoom(room string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(room)).String()
+}
+
+// bridgeLastMessage previews the newest message the user may see: a short
+// body, or only encrypted=true for E2EE events. nil when there is none.
+func bridgeLastMessage(conn *gorm.DB, conv *BridgeConversation, user string) (gin.H, error) {
+	var rows []MatrixEvent
+	if err := conn.Where("room_id = ? AND event_type IN ? AND sender <> ?", conv.RoomID, []EventType{EventTypeRoomMessage, "m.room.encrypted"}, conv.Controller).
+		Order("origin_server_ts DESC, event_id DESC").Limit(10).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	reader, err := newClientHistoryReader(conn, conv.RoomID, user)
+	if err != nil {
+		return nil, err
+	}
+	visible, err := reader.filter(rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range visible {
+		if len(e.Content) == 0 {
+			continue // redacted
+		}
+		if relation, _ := e.Content["m.relates_to"].(map[string]any); relation["rel_type"] == "m.replace" {
+			continue // edits are previewed through their root
+		}
+		out := gin.H{"event_id": e.EventID, "created_at": e.OriginServerTS, "own": e.Sender == user, "encrypted": e.EventType == "m.room.encrypted"}
+		if e.EventType == EventTypeRoomMessage {
+			body, _ := e.Content["body"].(string)
+			if r := []rune(strings.TrimSpace(body)); len(r) > 140 {
+				body = string(r[:140]) + "…"
+			}
+			out["body"] = strings.TrimSpace(body)
+			out["msgtype"] = e.Content["msgtype"]
+		}
+		return out, nil
+	}
+	return nil, nil
 }

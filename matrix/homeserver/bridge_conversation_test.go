@@ -334,3 +334,51 @@ func TestExplicitConversationNativeLeaveClosesSnapshotGeneration(t *testing.T) {
 	require.NoError(t, conn.First(&job, "event_id = ?", sent.EventID).Error)
 	require.Equal(t, "skipped", job.State)
 }
+
+func TestExplicitConversationListShowsMembersAndLastMessage(t *testing.T) {
+	hs, _, _ := outboundBridgeFixture(t)
+	conv, err := hs.CreateBridgeConversation(context.Background(), "@alice:test.local", BridgeConversationRequest{TransactionID: "dto", PlaintextConsent: true, Members: []BridgeMemberInput{{AccountID: "1"}}})
+	require.NoError(t, err)
+	sendOutboundTest(t, hs, conv.RoomID, map[string]any{"msgtype": "m.text", "body": "hello there"})
+	router := gin.New()
+	group := router.Group("/", func(c *gin.Context) { c.Set("user_id", "@alice:test.local"); c.Next() })
+	RegisterCommunityConversationRoutes(group)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("GET", "/conversations/"+conv.ID, nil))
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var dto struct {
+		Title   string `json:"title"`
+		Members []struct {
+			Own     bool `json:"own"`
+			Account *struct {
+				Avatar string `json:"avatar"`
+				Acct   string `json:"acct"`
+			} `json:"account"`
+		} `json:"members"`
+		LastMessage *struct {
+			Body      string `json:"body"`
+			Own       bool   `json:"own"`
+			Encrypted bool   `json:"encrypted"`
+			CreatedAt int64  `json:"created_at"`
+		} `json:"last_message"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dto))
+	require.Empty(t, dto.Title, "unnamed conversations leave the title to the client (no hard-coded Chinese)")
+	require.NotContains(t, rec.Body.String(), "位成员")
+	sawSelf, sawOther := false, false
+	for _, m := range dto.Members {
+		if m.Own {
+			sawSelf = true
+			continue
+		}
+		require.NotNil(t, m.Account, "members carry their account")
+		require.NotEmpty(t, m.Account.Avatar, "avatar or default avatar")
+		sawOther = true
+	}
+	require.True(t, sawSelf && sawOther)
+	require.NotNil(t, dto.LastMessage)
+	require.Equal(t, "hello there", dto.LastMessage.Body)
+	require.True(t, dto.LastMessage.Own)
+	require.False(t, dto.LastMessage.Encrypted)
+	require.NotZero(t, dto.LastMessage.CreatedAt)
+}

@@ -8,11 +8,13 @@ import { DialogPlugin } from '@/shared/ui/feedback'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
-import type { ChatMember, ChatMessage, ChatMemberInput } from '../../domain/chat'
+import { chatAvatars, chatPeerAcct, chatTitle, type ChatMember, type ChatMessage, type ChatMemberInput } from '../../domain/chat'
+import ChatAvatarStack from '../components/ChatAvatarStack.vue'
 import { useChatThread } from '../composables/useChatThread'
 import ChatMessageView from '../components/ChatMessageView.vue'
 import ConversationMembersForm from '../components/ConversationMembersForm.vue'
 
+import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { t } from '@/shared/i18n'
 const route = useRoute()
 const router = useRouter()
@@ -108,7 +110,11 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
   <div class="chat-thread">
     <header class="page-header page-header--with-back">
       <router-link class="page-header__back-btn" to="/messages" :aria-label="$t('message.ChatThreadPage.s1')"><t-icon name="chevron-left" :size="20" /></router-link>
-      <h1 class="page-header__title">{{ conversation?.title || $t('message.ChatThreadPage.s2') }}</h1>
+      <ChatAvatarStack v-if="conversation" :accounts="chatAvatars(conversation, auth.currentUser?.id)" :size="32" />
+      <h1 class="page-header__title" data-testid="chat-thread-title">
+        <EmojiText :text="(conversation && chatTitle(conversation, auth.currentUser?.id)) || $t('message.ChatThreadPage.s2')" :emojis="conversation?.members.flatMap(m => m.account?.emojis ?? []) ?? []" />
+        <span v-if="conversation && chatPeerAcct(conversation, auth.currentUser?.id)" class="chat-thread__acct">{{ chatPeerAcct(conversation, auth.currentUser?.id) }}</span>
+      </h1>
       <button v-if="conversation" class="btn btn--ghost btn--sm" :aria-expanded="membersOpen" @click="membersOpen = !membersOpen">{{ $t('message.ChatThreadPage.s3') }}</button>
     </header>
     <p class="chat-thread__notice">{{ $t('message.ChatThreadPage.s4') }}</p>
@@ -149,6 +155,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 </template>
 
 <style scoped>
+.chat-thread__acct { margin-left: var(--space-2); font-size: var(--text-footnote, 13px); font-weight: normal; color: var(--color-label-secondary); }
 .chat-thread .page-header__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .chat-thread__notice, .chat-thread__error { padding: var(--space-3) var(--gutter, var(--space-4)); font-size: var(--text-footnote); overflow-wrap: anywhere; }
 .chat-thread__notice { color: var(--color-label-secondary); background: var(--color-fill); }

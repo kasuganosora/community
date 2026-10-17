@@ -2263,7 +2263,13 @@
       "s2": "Wird gesendet",
       "s3": "Vom externen Server empfangen",
       "s4": "Zustellung fehlgeschlagen",
-      "s5": "Zustellung gestoppt"
+      "s5": "Zustellung gestoppt",
+      "titleMore": "{0} +{1}",
+      "namesSep": ", ",
+      "encrypted": "Verschlüsselte Nachricht",
+      "you": "Du: {0}",
+      "attachment": "Anhang",
+      "noMessages": "Noch keine Nachrichten"
     },
     "conversation": {
       "s1": "Unbekannte Unterhaltung",

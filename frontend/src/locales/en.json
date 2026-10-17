@@ -2263,7 +2263,13 @@
       "s2": "Sending",
       "s3": "Received by remote server",
       "s4": "Delivery failed",
-      "s5": "Delivery stopped"
+      "s5": "Delivery stopped",
+      "titleMore": "{0} +{1}",
+      "namesSep": ", ",
+      "encrypted": "Encrypted message",
+      "you": "You: {0}",
+      "attachment": "Attachment",
+      "noMessages": "No messages yet"
     },
     "conversation": {
       "s1": "Unknown conversation",

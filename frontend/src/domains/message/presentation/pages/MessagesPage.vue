@@ -7,7 +7,8 @@ import { DialogPlugin, MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonConversation } from '@/shared/types/mastodon'
 import { conversationApi } from '../../infrastructure/conversationApi'
 import { chatApi } from '../../infrastructure/chatApi'
-import type { ChatConversation, ChatMemberInput } from '../../domain/chat'
+import { chatAvatars, chatPeerAcct, chatPreview, chatTitle, type ChatConversation, type ChatMemberInput } from '../../domain/chat'
+import ChatAvatarStack from '../components/ChatAvatarStack.vue'
 import ConversationMembersForm from '../components/ConversationMembersForm.vue'
 import { conversationImage, conversationMediaLabel, conversationPreview, conversationTitle, conversationTarget } from '../../domain/conversation'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
@@ -193,8 +194,16 @@ onMounted(async () => {
     <ul v-else-if="conversations.length > 0 || chats.length > 0" class="conversation-list" :aria-label="$t('message.MessagesPage.s11')">
       <li v-for="chat in chats" :key="`chat-${chat.id}`" class="conversation">
         <router-link class="conversation__chat-link" :to="`/messages/${encodeURIComponent(chat.id)}`" @click="markLegacyRead(chat)">
-          <span class="conversation__fallback" aria-hidden="true"><t-icon name="chat" :size="20" /></span>
-          <span class="conversation__body"><span class="conversation__title">{{ chat.title || $t('message.MessagesPage.s12') }}</span><span class="conversation__scope">{{ $t('message.MessagesPage.s13', [chat.members.filter(member => member.active !== false).length]) }}</span></span>
+          <ChatAvatarStack :accounts="chatAvatars(chat, authStore.currentUser?.id)" :size="44" />
+          <span class="conversation__body">
+            <span class="conversation__head">
+              <span class="conversation__title" data-testid="chat-title"><EmojiText :text="chatTitle(chat, authStore.currentUser?.id) || $t('message.MessagesPage.s12')" :emojis="chat.members.flatMap(m => m.account?.emojis ?? [])" /></span>
+              <span v-if="chatPeerAcct(chat, authStore.currentUser?.id)" class="conversation__acct">{{ chatPeerAcct(chat, authStore.currentUser?.id) }}</span>
+              <RelativeTime v-if="chat.last_message" :datetime="new Date(chat.last_message.created_at).toISOString()" class="conversation__time" />
+            </span>
+            <span v-if="chatPreview(chat)" class="conversation__preview" data-testid="chat-preview"><span class="conversation__excerpt">{{ chatPreview(chat) }}</span></span>
+            <span v-else class="conversation__scope">{{ $t('message.MessagesPage.s13', [chat.members.filter(member => member.active !== false).length]) }}</span>
+          </span>
         </router-link>
       </li>
       <li
@@ -243,6 +252,11 @@ onMounted(async () => {
 
 <style scoped>
 .messages-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--gutter, var(--space-4)); }
+.conversation__chat-link .conversation__body { display: flex; flex-direction: column; }
+.conversation__chat-link .conversation__preview { display: flex; }
+.conversation__chat-link .conversation__title { flex: 0 1 auto; }
+.conversation__chat-link .conversation__time { margin-left: auto; flex-shrink: 0; }
+.conversation__acct { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-label-secondary, var(--color-text-secondary)); font-size: var(--text-footnote, 13px); }
 .conversation__chat-link { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; color: inherit; text-decoration: none; }
 .conversation__chat-link .conversation__scope { display: block; }
 .messages-page {

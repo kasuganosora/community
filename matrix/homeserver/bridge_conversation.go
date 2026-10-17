@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -619,9 +618,6 @@ func (hs *HomeServer) conversationOutboundAudience(tx *gorm.DB, job *MatrixDMOut
 	return &models.Status{}, recipients, nil
 }
 
-func bridgeConversationTitle(members []BridgeConversationMember) string {
-	return fmt.Sprintf("私信 · %d 位成员", len(members))
-}
 
 // Membership invitations can wait on a remote server. Keep exactly one
 // reconciler independent of message delivery, never one goroutine per room.

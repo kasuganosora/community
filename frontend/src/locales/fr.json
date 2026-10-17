@@ -2263,7 +2263,13 @@
       "s2": "Envoi",
       "s3": "Reçu par le serveur distant",
       "s4": "Échec de la distribution",
-      "s5": "Distribution arrêtée"
+      "s5": "Distribution arrêtée",
+      "titleMore": "{0} +{1}",
+      "namesSep": ", ",
+      "encrypted": "Message chiffré",
+      "you": "Vous : {0}",
+      "attachment": "Pièce jointe",
+      "noMessages": "Aucun message pour l’instant"
     },
     "conversation": {
       "s1": "Conversation inconnue",
