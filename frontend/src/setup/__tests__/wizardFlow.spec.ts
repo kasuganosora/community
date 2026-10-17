@@ -301,15 +301,39 @@ describe('migration-specific form validation and recovery', () => {
     expect(calls.find(c => c.path === 'install')?.body.misskey).toMatchObject({ id_method: 'ulid' })
   })
 
-  it('requires an explicit choice when the source has multiple domain candidates', async () => {
-    overrides.set('test/misskey', () => storedMediaInspection({ detected_base_url: '', base_url_candidates: ['https://old.example', 'https://other.example'], uses_object_storage: false }))
-    const w = await setup(); await toMedia(w); await submit(w)
+  it.each(['misskey', 'mastodon'] as const)('requires an explicit choice among multiple %s domains', async (mode) => {
+    const inspection = { counts: { local_users: 2 }, detected_base_url: '', base_url_candidates: ['https://old.example', 'https://other.example'], ...(mode === 'misskey' ? { id_method: 'aid' } : {}) }
+    overrides.set(`test/${mode}`, () => reply({ inspection }))
+    const w = await setup(); await toMedia(w, mode); await submit(w)
     expect(w.get('[data-field="domain"]').element.tagName).toBe('SELECT')
     await submit(w)
     expect(w.get('h2').text()).toBe('Public address')
     await w.get('[data-field="domain"]').setValue('https://old.example')
     await submit(w)
     expect(w.get('h2').text()).toBe('Database')
+  })
+
+  it('recovers from a Mastodon inspection error and accepts an undetected LOCAL_DOMAIN', async () => {
+    overrides.set('test/mastodon', () => reply({ error_code: 'mastodon_not_mastodon' }, 422))
+    const w = await setup(); await toMode(w)
+    await w.get('input[value="mastodon"]').setValue(true); await submit(w); await submit(w)
+    expect(w.get('h2').text()).toBe('Mastodon database')
+    expect(w.get('[role="alert"]').text()).toContain('Mastodon')
+    overrides.set('test/mastodon', () => reply({ inspection: { counts: { local_users: 3, remote_users: 8 }, detected_base_url: '' } }))
+    await submit(w)
+    expect(w.get('[data-field="files-path"]').element).toHaveProperty('value', '/mastodon/public/system')
+    expect(w.find('[data-field="id-method"]').exists()).toBe(false)
+    expect(w.text()).toContain('3 local accounts, 8 remote accounts')
+    await submit(w)
+    expect(w.text()).toContain('LOCAL_DOMAIN')
+    expect(w.get('[data-field="domain"]').attributes('readonly')).toBeUndefined()
+    await submit(w)
+    expect(w.get('h2').text()).toBe('Public address')
+    await w.get('[data-field="domain"]').setValue('mastodon.example')
+    await submit(w)
+    expect(w.get('h2').text()).toBe('Database')
+    expect(calls.filter(c => c.path === 'test/mastodon')).toHaveLength(2)
+    expect(calls.some(c => c.path === 'test/misskey')).toBe(false)
   })
 
   it('tests copied media, stays on errors, and invalidates a successful check after edits', async () => {
@@ -363,9 +387,9 @@ describe('migration-specific form validation and recovery', () => {
     expect(w.get('[data-field="media-url"]').element).toHaveProperty('value', '')
   })
 
-  it('returns a missing source directory to the media step and preserves the reviewed draft', async () => {
-    const w = await setup(); await toMedia(w); await finishMigrationReview(w)
-    overrides.set('install', () => reply({ error_code: 'misskey_files_missing' }, 422))
+  it.each(['misskey', 'mastodon'] as const)('returns a missing %s directory to the media step and preserves the reviewed draft', async (mode) => {
+    const w = await setup(); await toMedia(w, mode); await finishMigrationReview(w)
+    overrides.set('install', () => reply({ error_code: `${mode}_files_missing` }, 422))
     await submit(w)
     expect(w.get('h2').text()).toBe('Media files')
     expect(w.find('[role="alert"]').exists()).toBe(true)
@@ -374,5 +398,8 @@ describe('migration-specific form validation and recovery', () => {
     expect(w.get('h2').text()).toBe('Ready to migrate')
     expect(w.get('.summary').text()).toContain('/mounted/files')
     expect(w.get('.summary').text()).toContain('admin@example.org')
+    overrides.delete('install'); await submit(w)
+    expect(calls.filter(c => c.path === 'install').at(-1)?.body).toMatchObject({ mode, [mode]: { files_path: '/mounted/files', object_storage: {} } })
+    if (mode === 'mastodon') expect(calls.filter(c => c.path === 'install').at(-1)?.body.mastodon).not.toHaveProperty('id_method')
   })
 })

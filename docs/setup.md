@@ -81,12 +81,14 @@ interface language. The domain cannot be changed later.
   and enter that path. Remote media is read from its `cache/` prefix when
   present; otherwise the remote URL is kept.
 * Media from object storage (S3, R2, MinIO): Mastodon keeps these settings in
-  `.env.production`, not in its database, so enter `S3_ENDPOINT`, `S3_BUCKET`,
-  `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and the public URL
-  (`S3_ALIAS_HOST`, or the bucket URL). **Reference in place** keeps
-  `<public URL>/<key>` URLs and copies nothing. **Copy** downloads only the
-  objects the database references into `SETUP_WORK_DIR` (resumable, with file
-  and byte progress).
+  `.env.production`, not in its database. **Reference in place** only needs
+  the public media URL (`S3_ALIAS_HOST`, or the bucket URL); it keeps
+  `<public URL>/<key>` URLs and copies nothing. **Copy** requires
+  `S3_ENDPOINT`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`,
+  with optional `S3_REGION`. It tests bucket access before continuing and
+  downloads only the objects the database references into `SETUP_WORK_DIR`
+  (resumable, with file and byte progress). Copy mode does not require the
+  public media URL or a Misskey ID format.
 * Stages: write configuration, schema, media, export, preflight, import,
   administrator, finish. Every stage records progress and counts, and a failed
   stage can be retried.
