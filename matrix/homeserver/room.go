@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"strings"
 	"time"
@@ -1372,7 +1373,7 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 	}
 
 	if len(updates) > 0 {
-		return tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID).Updates(updates).Error
+		return dialect.UpdateChanged(tx.Model(&MatrixRoom{}).Where("room_id = ?", roomID), updates, nil).Error
 	}
 	return nil
 }
@@ -1404,6 +1405,9 @@ func (r *RoomService) updateRoomMember(tx *gorm.DB, roomID, userID string, membe
 			updates["forgotten"] = false
 		}
 
+		if member.Membership == membership && member.EventID == eventID && (updates["forgotten"] == nil || !member.Forgotten) {
+			return nil
+		}
 		return tx.Model(&member).Updates(updates).Error
 	}
 }

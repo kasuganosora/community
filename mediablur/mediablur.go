@@ -61,7 +61,8 @@ func (s *Service) One(ctx context.Context, att *models.MediaAttachment) bool {
 		updates["width"], updates["height"] = w, h
 	}
 
-	return s.DB().WithContext(ctx).Model(&models.MediaAttachment{}).Where("id = ?", att.Id).Updates(updates).Error == nil
+	// Another worker may have stored the hash meanwhile; never rewrite it.
+	return s.DB().WithContext(ctx).Model(&models.MediaAttachment{}).Where("id = ? AND (blurhash = '' OR blurhash IS NULL)", att.Id).Updates(updates).Error == nil
 }
 
 // Status handles every blurhash-less remote image of one status.

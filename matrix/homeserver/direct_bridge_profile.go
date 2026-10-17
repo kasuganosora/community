@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 	"image"
@@ -115,7 +116,9 @@ func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomI
 		avatar = hs.defaultBridgeAvatar(account)
 	}
 	persistProfile := func() error {
-		return conn.Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipJoin).Updates(map[string]any{"display_name": display, "avatar_url": avatar}).Error
+		// Most sends find the profile unchanged; skip the no-op row rewrite.
+		q := conn.Model(&MatrixRoomMember{}).Where("room_id = ? AND user_id = ? AND membership = ?", roomID, userID, MembershipJoin)
+		return dialect.UpdateChanged(q, map[string]any{"display_name": display, "avatar_url": avatar}, nil).Error
 	}
 	if state.Content["displayname"] == display && state.Content["avatar_url"] == avatar && oldFingerprint == nextFingerprint {
 		return persistProfile()
