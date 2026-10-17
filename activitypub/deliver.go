@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/writebuffer"
+	"github.com/kasuganosora/community/log"
 	"maps"
 	"sync"
 	"time"
@@ -168,7 +170,7 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 		return
 	}
 	if !allowed {
-		db.GetDB().Model(&delivery).Updates(map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "recipient authorization revoked"})
+		q.finish(&delivery, map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "recipient authorization revoked"})
 		return
 	}
 
@@ -183,7 +185,7 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 	defer cancel()
 	err = client.Post(ctx, delivery.TargetInbox, activity)
 	if errors.Is(err, ErrDeliveryBlocked) {
-		db.GetDB().Model(&delivery).Updates(map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "skipped: blocked or suspended instance", "updated_at": time.Now()})
+		q.finish(&delivery, map[string]any{"status": DeliveryStatusDelivered, "next_retry_at": nil, "last_error": "skipped: blocked or suspended instance", "updated_at": time.Now()})
 		return
 	}
 	if err != nil {
@@ -193,12 +195,23 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 	}
 
 	// Mark as delivered
-	db.GetDB().Model(&delivery).Updates(map[string]any{
+	q.finish(&delivery, map[string]any{
 		"status":        DeliveryStatusDelivered,
 		"next_retry_at": nil,
 		"last_error":    "",
 		"updated_at":    time.Now(),
 	})
+}
+
+// finish records the outcome of an attempt. It goes through the federation
+// write buffer: the row stays leased ("processing" with a future
+// next_retry_at) until the batch lands, so a lost batch only means the
+// delivery is retried after its lease, which at-least-once delivery allows.
+// The guard never reopens a row that already reached a final state.
+func (q *DeliveryQueue) finish(delivery *Delivery, values map[string]any) {
+	if err := writebuffer.Update(db.GetDB(), (Delivery{}).TableName(), delivery.ID, values, "status IN ?", []DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}); err != nil {
+		log.Warn("Delivery %d status: %v", delivery.ID, err)
+	}
 }
 
 // handleDeliveryError handles a delivery error.
@@ -213,7 +226,7 @@ func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 		delivery.NextRetryAt = &nextRetry
 		delivery.Status = DeliveryStatusPending
 
-		db.GetDB().Model(delivery).Updates(map[string]any{
+		q.finish(delivery, map[string]any{
 			"status":        delivery.Status,
 			"retries":       delivery.Retries,
 			"last_error":    delivery.LastError,
@@ -226,7 +239,7 @@ func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 
 // markFailed marks a delivery as permanently failed.
 func (q *DeliveryQueue) markFailed(delivery *Delivery, reason string) {
-	db.GetDB().Model(delivery).Updates(map[string]any{
+	q.finish(delivery, map[string]any{
 		"status":     DeliveryStatusFailed,
 		"last_error": reason,
 		"updated_at": time.Now(),

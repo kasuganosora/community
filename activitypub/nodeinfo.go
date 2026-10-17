@@ -19,7 +19,7 @@ const (
 	nodeInfoSchema21 = "http://nodeinfo.diaspora.software/ns/schema/2.1"
 	// nodeInfoSoftwareName must match ^[a-z0-9-]+$.
 	nodeInfoSoftwareName = "community"
-		nodeInfoUsageTTL     = 10 * time.Minute
+	nodeInfoUsageTTL     = 10 * time.Minute
 )
 
 // NodeInfoMatrixEnabled reports whether the Matrix homeserver is running. It

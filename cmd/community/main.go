@@ -5,6 +5,7 @@ import (
 	"flag"
 	"github.com/kasuganosora/community/clientip"
 	"github.com/kasuganosora/community/controllers/api/streaming"
+	"github.com/kasuganosora/community/db/writebuffer"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -385,6 +386,9 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
 	pollClose := activitypub.StartPollCloseWorker()
 	srv.RegisterPostShutdown(func() error { pollClose.Stop(); return nil })
+	// Federation-tier row updates (delivery status, blurhash) are batched.
+	fedWrites := writebuffer.Start(writebuffer.New(db.GetDB, writebuffer.DefaultInterval))
+	srv.RegisterPostShutdown(func() error { fedWrites.Stop(); return nil })
 
 	log.Info("Server is starting on %s", config.C.Listen)
 

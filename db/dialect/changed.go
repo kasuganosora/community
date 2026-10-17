@@ -46,3 +46,16 @@ func UpdateChanged(q *gorm.DB, values, extra map[string]any) *gorm.DB {
 	}
 	return WhereChanged(q, values).Updates(all)
 }
+
+// AsyncCommit relaxes durability for the current transaction on PostgreSQL
+// (SET LOCAL synchronous_commit = off): the commit returns before its WAL
+// is flushed, so a crash can lose the last few hundred milliseconds of
+// such transactions but never corrupts data. Use it only for federation
+// data that the remote server will resend or that is refetched anyway
+// (inbox posts, remote profiles, delivery bookkeeping), never for local
+// user data. It is a no-op outside PostgreSQL.
+func AsyncCommit(tx *gorm.DB) {
+	if IsPostgres(tx) {
+		tx.Exec("SET LOCAL synchronous_commit = off")
+	}
+}

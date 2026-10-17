@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	"net"
 	"net/url"
 	"regexp"
@@ -151,6 +152,7 @@ func emojiContext() []any {
 
 func persistIncomingStatusWithEmoji(ctx context.Context, conn *gorm.DB, status *models.Status, tags any) error {
 	return conn.Transaction(func(tx *gorm.DB) error {
+		dialect.AsyncCommit(tx) // remote post: federation-tier durability
 		domain := ""
 		if status.Domain != nil {
 			domain = *status.Domain

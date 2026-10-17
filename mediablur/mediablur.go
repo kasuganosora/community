@@ -5,6 +5,7 @@ package mediablur
 
 import (
 	"context"
+	"github.com/kasuganosora/community/db/writebuffer"
 	"log"
 	"os"
 	"strconv"
@@ -62,7 +63,8 @@ func (s *Service) One(ctx context.Context, att *models.MediaAttachment) bool {
 	}
 
 	// Another worker may have stored the hash meanwhile; never rewrite it.
-	return s.DB().WithContext(ctx).Model(&models.MediaAttachment{}).Where("id = ? AND (blurhash = '' OR blurhash IS NULL)", att.Id).Updates(updates).Error == nil
+	// Federation-tier data: batched through the write buffer.
+	return writebuffer.Update(s.DB().WithContext(ctx), "media_attachments", att.Id, updates, "(blurhash = '' OR blurhash IS NULL)") == nil
 }
 
 // Status handles every blurhash-less remote image of one status.

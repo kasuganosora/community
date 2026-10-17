@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/langdetect"
 	"io"
 	"net/http"
@@ -640,6 +641,7 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 		applyMediaSilence(attachments, authorHost)
 		err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
+			dialect.AsyncCommit(tx) // remote Update
 			var preserveErr error
 			tx, preserveErr = models.PreserveFeedStatusAudience(tx, status.Id)
 			if preserveErr != nil {

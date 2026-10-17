@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/db/dialect"
 	"net/http"
 	"testing"
 	"time"
@@ -62,6 +63,7 @@ func RefreshRemoteAccount(ctx context.Context, conn *gorm.DB, client ActorFetche
 		return nil
 	}
 	if err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		dialect.AsyncCommit(tx) // remote profile refresh
 		return applyActorProfile(tx, account, actor)
 	}); err != nil {
 		return fmt.Errorf("updating account: %w", err)
