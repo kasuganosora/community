@@ -368,6 +368,10 @@ func (a *AuthService) Register(req *RegisterRequest, isAdmin bool) (*RegisterRes
 		return nil, ErrInvalidUsername
 	}
 
+	if req.Password == "" {
+		return nil, ErrMissingPassword
+	}
+
 	// 检查用户名是否已存在
 	var count int64
 	db.GetDB().Model(&models.Account{}).Where("username = ?", req.Username).Count(&count)
@@ -382,8 +386,10 @@ func (a *AuthService) Register(req *RegisterRequest, isAdmin bool) (*RegisterRes
 
 // createLocalUser 创建本地用户（User + Account + UserSecretData + MatrixSession）.
 func (a *AuthService) createLocalUser(username, password string, deviceID *string, displayName *string, inhibitLogin bool, isAdmin bool, withRefresh bool) (*RegisterResponse, *MatrixError) {
+	// Never fall back to a well-known password: an account created without a
+	// password would otherwise be loginable by anyone who knows the default.
 	if password == "" {
-		password = "complement_default_password"
+		return nil, ErrMissingPassword
 	}
 
 	salt := utils.GetRandomString(64)
@@ -756,6 +762,7 @@ var (
 	ErrForbidden       = &MatrixError{ErrCode: "M_FORBIDDEN", Error: "Forbidden"}         //nolint:goconst
 	ErrUnknownToken    = &MatrixError{ErrCode: "M_UNKNOWN_TOKEN", Error: "Unknown token"} //nolint:goconst
 	ErrUnrecognized    = &MatrixError{ErrCode: "M_UNRECOGNIZED", Error: "Unrecognized request"}
+	ErrMissingPassword = &MatrixError{ErrCode: "M_MISSING_PARAM", Error: "Missing password"}
 	ErrInvalidParam    = &MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid parameter"}   //nolint:goconst
 	ErrInvalidUsername = &MatrixError{ErrCode: "M_INVALID_USERNAME", Error: "Invalid username"} //nolint:goconst
 	ErrUserInUse       = &MatrixError{ErrCode: "M_USER_IN_USE", Error: "Username already in use"}

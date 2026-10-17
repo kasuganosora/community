@@ -99,3 +99,26 @@ func TestSyncStopsLongPollWhenRequestCancelled(t *testing.T) {
 		t.Fatal("sync ignored request cancellation")
 	}
 }
+
+func TestRegisterRejectsEmptyPassword(t *testing.T) {
+	auth := NewAuthService(nil)
+	for _, pw := range []string{""} {
+		resp, err := auth.Register(&RegisterRequest{Username: "nopass", Password: pw}, false)
+		require.Nil(t, resp)
+		require.Equal(t, ErrMissingPassword, err)
+	}
+	resp, err := auth.createLocalUser("nopass", "", nil, nil, true, false, false)
+	require.Nil(t, resp)
+	require.Equal(t, ErrMissingPassword, err)
+
+	gin.SetMode(gin.TestMode)
+	restore := resetGlobalHS(minimalHS("test.local"))
+	t.Cleanup(restore)
+	r := gin.New()
+	r.POST("/register", handleRegister)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/register",
+		strings.NewReader(`{"username":"nopass","auth":{"type":"m.login.dummy"}}`)))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "M_MISSING_PARAM")
+}
