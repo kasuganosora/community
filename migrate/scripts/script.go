@@ -58,6 +58,7 @@ var ScripsType = []MigrationScript{
 	RemoteReblogDomainScript{},
 	AccountLanguagesScript{},
 	PollCloseNotifiedScript{},
+	StatusAccountRepliesIndexScript{},
 }
 
 type MigrationScript interface {
