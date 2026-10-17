@@ -140,3 +140,26 @@ describe('PostComposer visibility controls', () => {
     wrapper.unmount()
   })
 })
+
+describe('PostComposer topic and mention tools', () => {
+  it('inserts at the selection and keeps focus and the caret in the draft', async () => {
+    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: {
+      plugins: [createPinia()],
+      stubs: { TTextarea: { props: ['modelValue'], emits: ['update:modelValue'], template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' } },
+    } })
+    const input = wrapper.get('textarea')
+    const element = input.element as HTMLTextAreaElement
+    await input.setValue('left replace right')
+    element.setSelectionRange(5, 12)
+    await wrapper.get('button[aria-label="插入话题"]').trigger('click')
+    expect(element.value).toBe('left # right')
+    expect(element.selectionStart).toBe(6)
+    expect(document.activeElement).toBe(element)
+    await input.setValue('hello')
+    element.setSelectionRange(5, 5)
+    await wrapper.get('button[aria-label="提及用户"]').trigger('click')
+    expect(element.value).toBe('hello @')
+    expect(element.selectionStart).toBe(7)
+    wrapper.unmount()
+  })
+})

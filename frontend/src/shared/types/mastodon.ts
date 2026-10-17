@@ -195,7 +195,11 @@ export interface MastodonEmojiReaction {
   accounts?: MastodonAccount[]
 }
 
+export type MastodonReplyPreview = Pick<MastodonStatus, 'id' | 'account' | 'created_at' | 'content' | 'spoiler_text' | 'sensitive' | 'emojis' | 'filtered'>
+
 export interface MastodonStatus {
+  /** Authorized, one-level reply context supplied in the same response. */
+  reply?: MastodonReplyPreview | null
   emoji_reactions?: MastodonEmojiReaction[]
   id: string
   created_at: string

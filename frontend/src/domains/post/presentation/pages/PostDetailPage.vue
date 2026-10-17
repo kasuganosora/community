@@ -16,6 +16,7 @@ import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
 } from '../../presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
+import AccountLink from '@/shared/components/common/AccountLink.vue'
 import PostContent from '@/shared/components/post/PostContent.vue'
 import PostActions from '@/shared/components/post/PostActions.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
@@ -161,12 +162,6 @@ function goBack() {
   }
 }
 
-function openProfile() {
-  if (!mainStatus.value) return
-  const a = mainStatus.value.account
-  router.push({ name: 'profile', params: { username: a.acct || a.username } }).catch(() => {})
-}
-
 async function togglePin() {
   if (!mainStatus.value) return
   try {
@@ -207,6 +202,7 @@ async function togglePin() {
         v-for="s in ancestors"
         :key="s.id"
         :status="s"
+        :show-reply-context="false"
         @reblog="toggleReblog"
         @favourite="toggleFavourite"
         @bookmark="toggleBookmark"
@@ -215,12 +211,12 @@ async function togglePin() {
       <!-- Main post (highlighted) -->
       <article class="detail-main" :aria-label="$t('post.PostDetailPage.s4')">
         <div class="detail-main__header">
-          <button type="button" class="detail-main__avatar" :aria-label="$t('post.PostDetailPage.s5', [mainStatus.account.display_name || mainStatus.account.username])" @click="openProfile">
+          <AccountLink :account="mainStatus.account" class="detail-main__avatar" :aria-label="$t('post.PostDetailPage.s5', [mainStatus.account.display_name || mainStatus.account.username])">
             <UserAvatar :account="mainStatus.account" :size="48" />
-          </button>
+          </AccountLink>
           <div class="detail-main__user">
-            <div class="detail-main__name" :title="mainStatus.account.display_name || mainStatus.account.username"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></div>
-            <div class="detail-main__username">@{{ displayAccount(mainStatus.account.acct) }}</div>
+            <AccountLink :account="mainStatus.account" class="detail-main__name" :title="mainStatus.account.display_name || mainStatus.account.username"><EmojiText :text="mainStatus.account.display_name || mainStatus.account.username" :emojis="mainStatus.account.emojis" /></AccountLink>
+            <AccountLink :account="mainStatus.account" class="detail-main__username">@{{ displayAccount(mainStatus.account.acct) }}</AccountLink>
           </div>
         </div>
 
@@ -326,6 +322,7 @@ async function togglePin() {
 }
 
 .detail-main__name {
+  display: block;
   font-size: var(--text-headline);
   line-height: var(--leading-headline);
   letter-spacing: var(--tracking-headline);
@@ -344,6 +341,7 @@ async function togglePin() {
 }
 
 .detail-main__username {
+  display: block;
   color: var(--color-label-secondary);
   font-size: var(--text-subhead);
   overflow: hidden;

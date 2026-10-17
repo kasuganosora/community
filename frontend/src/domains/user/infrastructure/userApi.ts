@@ -22,6 +22,12 @@ function isNotFound(e: unknown): boolean {
 }
 
 export const userApi = {
+  // Hovering must never trigger a federated account resolution/backfill.
+  async lookupCachedAccount(acct: string, signal?: AbortSignal): Promise<MastodonAccount> {
+    const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct }, signal })
+    return data
+  },
+
   async getAccount(id: string): Promise<MastodonAccount> {
     const { data } = await client.get<MastodonAccount>(`/api/v1/accounts/${encodeURIComponent(id)}`)
     return data
@@ -76,9 +82,9 @@ export const userApi = {
     return { statuses: data, backfill: parseBackfillState(headers?.['x-profile-backfill']) }
   },
 
-  async getRelationships(ids: string[]): Promise<MastodonRelationship[]> {
+  async getRelationships(ids: string[], signal?: AbortSignal): Promise<MastodonRelationship[]> {
     const { data } = await client.get<MastodonRelationship[]>('/api/v1/accounts/relationships', {
-      params: { 'id[]': ids },
+      params: { 'id[]': ids }, signal,
     })
     return data
   },

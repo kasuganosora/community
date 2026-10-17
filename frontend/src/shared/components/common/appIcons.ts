@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 import {
-  AddIcon, ArrowLeftIcon, ArrowUpIcon, BookmarkIcon, BookmarkFilledIcon, BrowseIcon, BrowseOffIcon,
+  AddIcon, SendIcon, RollbackIcon, HashtagIcon, ArrowLeftIcon, ArrowUpIcon, BookmarkIcon, BookmarkFilledIcon, BrowseIcon, BrowseOffIcon,
   ChartBarIcon, ChatIcon, CheckIcon, CheckCircleIcon, ChevronDownIcon, ChevronLeftIcon,
   ChevronUpIcon, CloseIcon, DeleteIcon, EarthIcon, EditIcon, ErrorCircleIcon, HeartIcon,
   HeartFilledIcon, HomeIcon, ImageIcon, ImageAddIcon, LinkIcon, LocationIcon, LockOffIcon,
@@ -43,6 +43,9 @@ export const ICONS: Record<string, Component> = {
   'arrow-right': ArrowRightIcon,
 
   'add': AddIcon,
+  'send': SendIcon,
+  'rollback': RollbackIcon,
+  'hashtag': HashtagIcon,
   'arrow-left': ArrowLeftIcon,
   'bookmark': BookmarkIcon,
   'bookmark-filled': BookmarkFilledIcon,

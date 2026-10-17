@@ -18,6 +18,7 @@ import (
 )
 
 type Status struct {
+	Reply              *ReplyPreview  `json:"reply,omitempty"`
 	EmojiReactions     []*Reaction    `json:"emoji_reactions"`
 	Id                 string         `json:"id"`
 	CreatedAt          *APITime       `json:"created_at"`
@@ -185,6 +186,10 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		if err != nil {
 			return ret, err
 		}
+	}
+
+	if err = attachReplyPreviews(db.GetDB(), []*Status{ret}, currentAccount); err != nil {
+		return nil, err
 	}
 
 	if currentAccount == nil {
@@ -405,6 +410,9 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		}
 		apply(s, out)
 		ret = append(ret, out)
+	}
+	if err := attachReplyPreviews(conn, ret, currentAccount); err != nil {
+		return nil, err
 	}
 	return ret, nil
 }

@@ -10,7 +10,8 @@ describe('localized compact times', () => {
     setFormatLocale('zh-CN')
     expect(formatRelativeTime('2026-09-26T09:55:00Z', now)).toBe('5分钟')
     setFormatLocale('de')
-    expect(formatTimeLeft('2026-09-26T13:00:00Z', now)).toMatch(/^3\s?Std/)
+    // ICU/CLDR versions use either h or Std. for the German narrow hour unit.
+    expect(formatTimeLeft('2026-09-26T13:00:00Z', now)).toMatch(/^3\s?(?:h|Std\.?)$/)
     setFormatLocale('en')
     expect(formatRelativeTime('2026-09-26T09:55:00Z', now)).toBe('5m')
   })

@@ -70,6 +70,19 @@ async function insertEmoji(emoji: MastodonEmoji) {
   input?.focus()
   input?.setSelectionRange(inserted.cursor, inserted.cursor)
 }
+async function insertMarker(marker: '#' | '@') {
+  if (posting.value || loadingSource.value) return
+  const input = composerRoot.value?.querySelector('textarea')
+  const start = input?.selectionStart ?? content.value.length
+  const end = input?.selectionEnd ?? start
+  const prefix = start > 0 && !/\s/.test(content.value[start - 1]!) ? ' ' : ''
+  content.value = content.value.slice(0, start) + prefix + marker + content.value.slice(end)
+  const cursor = start + prefix.length + 1
+  await nextTick()
+  input?.focus({ preventScroll: true })
+  input?.setSelectionRange(cursor, cursor)
+  scheduleMentions()
+}
 const spoilerEnabled = ref(false)
 const spoilerText = ref('')
 let composing = false
@@ -454,7 +467,7 @@ defineExpose({ focus, reset })
       <UserAvatar
         v-if="authStore.currentUser"
         :account="authStore.currentUser"
-        :size="40"
+        :size="36"
         class="composer__avatar"
       />
       <div class="composer__header-actions">
@@ -506,13 +519,13 @@ defineExpose({ focus, reset })
         <t-button
           class="composer__submit"
           theme="primary"
-          shape="round"
           size="small"
           :disabled="!canPost"
           :loading="posting"
           @click="handlePost"
         >
           {{ submitLabel }}
+          <t-icon v-if="!posting" name="send" :size="17" aria-hidden="true" />
         </t-button>
       </div>
     </div>
@@ -664,7 +677,7 @@ defineExpose({ focus, reset })
                 :disabled="posting || loadingSource || !!poll || media.length >= MAX_MEDIA_ATTACHMENTS"
                 @click="pickFiles"
               >
-                <t-icon name="image" :size="18" />
+                <t-icon name="image-add" :size="20" />
               </button>
               <button
                 type="button"
@@ -681,7 +694,7 @@ defineExpose({ focus, reset })
             </template>
             <button
               type="button"
-              class="tool-btn tool-btn--text"
+              class="tool-btn"
               :class="{ 'tool-btn--active': spoilerEnabled }"
               :aria-pressed="spoilerEnabled"
               :aria-label="$t('shared.PostComposer.s23')"
@@ -689,8 +702,10 @@ defineExpose({ focus, reset })
               :disabled="posting || loadingSource"
               @click="toggleSpoiler"
             >
-              CW
+              <t-icon name="browse-off" :size="20" />
             </button>
+            <button type="button" class="tool-btn" :aria-label="$t('shared.PostComposer.hashtag')" :title="$t('shared.PostComposer.hashtag')" :disabled="posting || loadingSource" @click="insertMarker('#')"><t-icon name="hashtag" :size="20" /></button>
+            <button type="button" class="tool-btn tool-btn--mention" :aria-label="$t('shared.PostComposer.mention')" :title="$t('shared.PostComposer.mention')" :disabled="posting || loadingSource" @click="insertMarker('@')"><span aria-hidden="true">@</span></button>
           </div>
           <div class="composer__right">
             <span
@@ -712,9 +727,9 @@ defineExpose({ focus, reset })
 <style scoped>
 .composer {
   margin: var(--space-4) var(--gutter);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: var(--hairline) solid var(--color-separator);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   background: var(--color-bg-grouped);
 }
 
@@ -756,7 +771,10 @@ defineExpose({ focus, reset })
 }
 
 .composer__submit {
-  min-width: 5.5rem;
+  min-width: 6rem;
+  padding-inline: var(--space-4);
+  border-radius: 10px !important;
+  box-shadow: none;
 }
 
 .composer__body {
@@ -847,8 +865,8 @@ defineExpose({ focus, reset })
   line-height: 1.65 !important;
   letter-spacing: 0;
   unicode-bidi: plaintext;
-  min-height: 6.5rem !important;
-  padding: var(--space-2) !important;
+  min-height: 6rem !important;
+  padding: var(--space-2) 0 !important;
   resize: none !important;
 }
 
@@ -856,9 +874,9 @@ defineExpose({ focus, reset })
   min-height: 2.75rem !important;
 }
 
-.composer__textarea :deep(.t-textarea__inner:focus-visible) {
-  outline: 2px solid var(--color-focus-ring) !important;
-  outline-offset: 2px;
+.composer:has(.composer__textarea textarea:focus-visible) {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
 .composer__textarea :deep(.t-textarea__inner::placeholder) {
@@ -871,14 +889,15 @@ defineExpose({ focus, reset })
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-top: var(--space-2);
-  margin-top: var(--space-2);
+  padding-top: var(--space-1);
+  margin-top: var(--space-1);
 }
 
 .composer__tools {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
+  margin-left: -6px;
 }
 
 .tool-btn {
@@ -886,8 +905,8 @@ defineExpose({ focus, reset })
   place-items: center;
   width: var(--hit-target);
   height: var(--hit-target);
-  border-radius: var(--radius-full);
-  color: var(--color-accent-text);
+  border-radius: 8px;
+  color: var(--color-label-secondary);
   -webkit-tap-highlight-color: transparent;
   transition:
     background-color var(--duration-fast) var(--ease-out),
@@ -906,7 +925,8 @@ defineExpose({ focus, reset })
 
 @media (hover: hover) and (pointer: fine) {
   .tool-btn:hover {
-    background: var(--color-accent-soft);
+    background: var(--color-fill);
+    color: var(--color-label);
   }
 }
 
@@ -939,15 +959,10 @@ defineExpose({ focus, reset })
   cursor: not-allowed;
 }
 
-.tool-btn--text {
-  width: auto;
-  min-width: 2.5rem;
-  padding: 0 var(--space-2);
-  font-size: var(--text-footnote);
-  font-weight: var(--weight-semibold);
-}
+.tool-btn--mention { font-size: 22px; font-weight: var(--weight-medium); }
 
 .tool-btn--active {
+  color: var(--color-accent-text);
   background: var(--color-accent-soft);
 }
 
@@ -964,6 +979,12 @@ defineExpose({ focus, reset })
   .composer__count {
     font-size: var(--text-caption);
   }
+}
+
+@media (max-width: 360px) {
+  .composer__toolbar { position: relative; margin-top: 18px; gap: 0; }
+  .composer__tools { gap: 0; }
+  .composer__count { position: absolute; top: -14px; right: 6px; }
 }
 
 /* Secondary fields: filled, borderless, same radius family as inputs. */
@@ -1210,8 +1231,8 @@ defineExpose({ focus, reset })
   min-height: var(--hit-target);
   padding: 0 var(--space-2);
   gap: var(--space-1);
-  border-radius: var(--radius-full);
-  color: var(--color-accent-text);
+  border-radius: 8px;
+  color: var(--color-label-secondary);
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
 }
@@ -1222,11 +1243,13 @@ defineExpose({ focus, reset })
   gap: var(--space-1);
   min-height: var(--hit-target);
   padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  color: var(--color-accent-text);
+  border-radius: 8px;
+  color: var(--color-label-secondary);
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
 }
+
+.composer__visibility-btn:hover { background: var(--color-fill); color: var(--color-label); }
 
 .composer__visibility-btn[aria-expanded='true'] {
   background: var(--color-accent-soft);

@@ -245,7 +245,9 @@
       "pollEndsAtLabel": "締め切り日時",
       "pollEndsAtShort": "{0} まで",
       "pollCharLimit": "{0} / {1} 文字",
-      "pollMaxOptions": "選択肢は最大 {0} 個です"
+      "pollMaxOptions": "選択肢は最大 {0} 個です",
+      "hashtag": "ハッシュタグを挿入",
+      "mention": "ユーザーをメンション"
     },
     "PostContent": {
       "s1": "折りたたむ",
@@ -405,6 +407,20 @@
     },
     "unread": {
       "count": "未読 {0} 件"
+    },
+    "AccountHoverCard": {
+      "title": "アカウント情報",
+      "loading": "読み込み中…",
+      "unavailable": "情報を読み込めません。プロフィールを開いてください。",
+      "saving": "処理中…",
+      "followError": "更新できませんでした。もう一度お試しください。",
+      "relationshipError": "フォロー関係を読み込めません。"
+    },
+    "ReplyContext": {
+      "replying": "返信先",
+      "filtered": "フィルターされた内容",
+      "sensitive": "センシティブな内容",
+      "open": "元の投稿を見る"
     }
   },
   "admin": {

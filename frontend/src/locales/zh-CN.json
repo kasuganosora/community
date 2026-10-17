@@ -245,7 +245,9 @@
       "pollEndsAtLabel": "截止时间",
       "pollEndsAtShort": "{0} 截止",
       "pollCharLimit": "已输入 {0} / {1} 个字符",
-      "pollMaxOptions": "最多 {0} 个选项"
+      "pollMaxOptions": "最多 {0} 个选项",
+      "hashtag": "插入话题",
+      "mention": "提及用户"
     },
     "PostContent": {
       "s1": "收起",
@@ -405,6 +407,20 @@
     },
     "unread": {
       "count": "{0} 条未读"
+    },
+    "AccountHoverCard": {
+      "title": "账号资料",
+      "loading": "正在加载资料…",
+      "unavailable": "暂时无法加载资料，可打开个人主页查看。",
+      "saving": "处理中…",
+      "followError": "操作失败，请重试。",
+      "relationshipError": "关注关系暂时无法加载。"
+    },
+    "ReplyContext": {
+      "replying": "回复",
+      "filtered": "内容已被过滤",
+      "sensitive": "敏感内容",
+      "open": "查看原帖"
     }
   },
   "admin": {

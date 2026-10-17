@@ -18,7 +18,7 @@ async function refresh(force=false){
   const c=readCache()
   if(!force&&c&&Date.now()-c.at<TTL){loadedAt=c.at;show(c.rows);return}
   loadedAt=Date.now()
-  try{const rows=await communityAssetsApi.advertisements();try{localStorage.setItem(KEY,JSON.stringify({at:loadedAt,rows}))}catch{}show(rows)}catch{if(c)show(c.rows)}
+  try{const rows=await communityAssetsApi.advertisements();try{localStorage.setItem(KEY,JSON.stringify({at:loadedAt,rows}))}catch{ /* Storage may be unavailable; the fetched rows can still be displayed. */ }show(rows)}catch{if(c)show(c.rows)}
 }
 function onVisibility(){if(!document.hidden&&Date.now()-loadedAt>=TTL)void refresh()}
 let idle:number|undefined

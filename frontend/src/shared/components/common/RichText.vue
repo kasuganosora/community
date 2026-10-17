@@ -5,16 +5,32 @@ import { renderEmojiHtml } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
 import { markBidiNumbersHtml } from '@/shared/utils/bidi'
+import { showAccountHover, leaveAccountHover, closeAccountHover, focusAccountHover, useAccountHoverOwner } from '@/shared/composables/useAccountHover'
 import { localHosts } from '@/shared/utils/env'
 
 const props = withDefaults(defineProps<{
   html: string
   emojis?: MastodonEmoji[]
   dir?: 'auto' | 'rtl' | 'ltr'
+  accountHoverEnabled?: boolean
 }>(), {
   dir: 'auto',
+  accountHoverEnabled: true,
 })
 
+const root = ref<HTMLElement>()
+useAccountHoverOwner(root)
+function onAccountOver(event: Event) {
+  if (!props.accountHoverEnabled || ('pointerType' in event && event.pointerType !== 'mouse')) return
+  const anchor = (event.target as Element)?.closest?.('a.mention:not(.hashtag)') as HTMLAnchorElement | null
+  if (!anchor) return
+  const to = internalRouteForLink(anchor.getAttribute('href') || '', anchor.className, localHosts())
+  if (to?.startsWith('/@')) showAccountHover(anchor, { acct: to.slice(2) })
+}
+function onAccountOut(event: MouseEvent | FocusEvent) {
+  const anchor = (event.target as Element)?.closest?.('a.mention')
+  if (anchor && !anchor.contains(event.relatedTarget as Node)) leaveAccountHover()
+}
 const revealed = ref(false)
 watch(() => props.html, () => { revealed.value = false })
 const sensitive = computed(() => props.emojis?.some(e => e.is_sensitive && props.html.includes(`:${e.shortcode}:`)))
@@ -31,12 +47,13 @@ function onClick(e: MouseEvent) {
   if (!to) return
   e.preventDefault()
   e.stopPropagation()
+  closeAccountHover()
   router.push(to).catch(() => {})
 }
 </script>
 
 <template>
-  <div class="rich-text" :dir="dir"><div v-html="safeHtml" @click="onClick" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? $t('shared.RichText.s1') : $t('shared.RichText.s2') }}</button></div>
+  <div ref="root" class="rich-text" :dir="dir"><div v-html="safeHtml" @click="onClick" @pointerover="onAccountOver" @pointerout="onAccountOut" @focusin="onAccountOver" @focusout="onAccountOut" @keydown="focusAccountHover" /><button v-if="sensitive" type="button" class="emoji-reveal" @click.stop="revealed = !revealed">{{ revealed ? $t('shared.RichText.s1') : $t('shared.RichText.s2') }}</button></div>
 </template>
 
 <style scoped>

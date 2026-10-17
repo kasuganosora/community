@@ -245,7 +245,9 @@
       "pollEndsAtLabel": "Endet am",
       "pollEndsAtShort": "Endet {0}",
       "pollCharLimit": "{0} von {1} Zeichen",
-      "pollMaxOptions": "Höchstens {0} Optionen"
+      "pollMaxOptions": "Höchstens {0} Optionen",
+      "hashtag": "Hashtag einfügen",
+      "mention": "Person erwähnen"
     },
     "PostContent": {
       "s1": "Einklappen",
@@ -405,6 +407,20 @@
     },
     "unread": {
       "count": "{0} ungelesen"
+    },
+    "AccountHoverCard": {
+      "title": "Kontoprofil",
+      "loading": "Profil wird geladen…",
+      "unavailable": "Profil nicht verfügbar. Öffne das Profil, um es erneut zu versuchen.",
+      "saving": "Wird gespeichert…",
+      "followError": "Aktualisierung fehlgeschlagen. Bitte erneut versuchen.",
+      "relationshipError": "Folgebeziehung nicht verfügbar."
+    },
+    "ReplyContext": {
+      "replying": "Antwort an",
+      "filtered": "Gefilterter Inhalt",
+      "sensitive": "Sensibler Inhalt",
+      "open": "Originalbeitrag ansehen"
     }
   },
   "admin": {

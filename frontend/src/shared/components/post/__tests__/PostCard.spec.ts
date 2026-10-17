@@ -4,6 +4,7 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import PostCard from '../PostCard.vue'
+import ReplyContext from '../ReplyContext.vue'
 import PostComposer from '../PostComposer.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { deletedStatusIds } from '@/domains/post/presentation/composables/useStatusActions'
@@ -38,5 +39,20 @@ describe('PostCard replacement', () => {
     first.unmount()
     elsewhere.unmount()
     deletedStatusIds.clear()
+  })
+})
+
+
+describe('PostCard reply context', () => {
+  it('shows the parent by default and can omit duplicate context in a thread', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+    await router.push('/')
+    const account = { id: 'author', username: 'alice', acct: 'alice' } as MastodonAccount
+    const status = { id: 'child', account, in_reply_to_id: 'parent', visibility: 'public', content: 'reply', created_at: new Date().toISOString(), reply: { id: 'parent', account, content: 'original' } } as unknown as MastodonStatus
+    const wrapper = shallowMount(PostCard, { props: { status }, global: { plugins: [createPinia(), router] } })
+    expect(wrapper.findComponent(ReplyContext).exists()).toBe(true)
+    await wrapper.setProps({ showReplyContext: false })
+    expect(wrapper.findComponent(ReplyContext).exists()).toBe(false)
+    wrapper.unmount()
   })
 })

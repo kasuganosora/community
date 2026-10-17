@@ -20,17 +20,20 @@ import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vu
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostContent from './PostContent.vue'
+import ReplyContext from './ReplyContext.vue'
+import AccountLink from '@/shared/components/common/AccountLink.vue'
 import PostActions from './PostActions.vue'
 import PostComposer from './PostComposer.vue'
 import FilteredNotice from './FilteredNotice.vue'
 import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
 import { t } from '@/shared/i18n'
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   status: MastodonStatus
+  showReplyContext?: boolean
   recommendation?: boolean
   recommendationReason?: DiscoveryReason
-}>()
+}>(), { showReplyContext: true })
 
 const emit = defineEmits<{
   reblog: [status: MastodonStatus]
@@ -106,14 +109,6 @@ function onCardClick(e: MouseEvent) {
   navigateToDetail()
 }
 
-function navigateToProfile(e: Event) {
-  e.stopPropagation()
-  router.push({
-    name: 'profile',
-    params: { username: displayStatus.value.account.acct || displayStatus.value.account.username },
-  }).catch(() => {})
-}
-
 function confirmDelete() {
   const dialog = DialogPlugin.confirm({
     header: t('shared.PostCard.s17'),
@@ -177,39 +172,18 @@ function onMenuClick(data: { value?: unknown }) {
       <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> {{ $t('shared.PostCard.s1') }}</span>
     </div>
 
+    <ReplyContext v-if="showReplyContext !== false && displayStatus.reply && !filterMarks.length" :status="displayStatus.reply" />
+
     <div class="post-card__body">
       <!-- Avatar -->
-      <div
-        class="post-card__avatar"
-        @click="navigateToProfile"
-        role="link"
-        tabindex="0"
-        :aria-label="$t('shared.PostCard.s2', [displayStatus.account.display_name || displayStatus.account.username])"
-        @keydown.enter="navigateToProfile"
-        @keydown.space.prevent="navigateToProfile"
-      >
+      <AccountLink :account="displayStatus.account" class="post-card__avatar" :aria-label="displayStatus.account.display_name || displayStatus.account.username">
         <UserAvatar :account="displayStatus.account" :size="44" />
-      </div>
-
-      <!-- Content -->
+      </AccountLink>
       <div class="post-card__content">
         <!-- Header -->
         <div class="post-card__header">
-          <span
-            class="post-card__name"
-            dir="auto"
-            @click="navigateToProfile"
-            role="link"
-            tabindex="0"
-            :id="`post-author-${displayStatus.id}`"
-            @keydown.enter="navigateToProfile"
-            @keydown.space.prevent="navigateToProfile"
-          >
-            <EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" />
-          </span>
-          <span class="post-card__username">
-            @{{ displayAccount(displayStatus.account.acct) }}
-          </span>
+          <AccountLink :account="displayStatus.account" class="post-card__name" :id="`post-author-${displayStatus.id}`"><EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" /></AccountLink>
+          <AccountLink :account="displayStatus.account" class="post-card__username">@{{ displayAccount(displayStatus.account.acct) }}</AccountLink>
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
           <span v-if="wasEdited(displayStatus)" class="post-card__edited" :title="$t('shared.PostCard.s3')">{{ $t('shared.PostCard.s4') }}</span>
@@ -231,7 +205,14 @@ function onMenuClick(data: { value?: unknown }) {
         </div>
 
         <FilteredNotice :marks="filterMarks">
-          <PostContent :status="displayStatus" text-class="post-card__text" />
+          <div v-if="displayStatus.in_reply_to_id" class="post-card__reply-to">
+            <t-icon name="rollback" :size="14" aria-hidden="true" />
+            <span>{{ $t('shared.ReplyContext.replying') }}</span>
+            <AccountLink v-if="displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" :account="displayStatus.reply.account" class="post-card__reply-account" :title="'@' + displayAccount(displayStatus.reply.account.acct)">
+              <UserAvatar :account="displayStatus.reply.account" :size="16" /><span>@{{ displayAccount(displayStatus.reply.account.acct) }}</span>
+            </AccountLink>
+          </div>
+          <PostContent :status="displayStatus" :compact-reply="!!displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" text-class="post-card__text" />
           <PostReactions :status="displayStatus" />
           <PostActions
             :status="displayStatus"
@@ -261,6 +242,9 @@ function onMenuClick(data: { value?: unknown }) {
 </template>
 
 <style scoped>
+.post-card__reply-to { display: flex; align-items: center; gap: 5px; min-width: 0; margin: 2px 0 5px; color: var(--color-label-secondary); font-size: var(--text-footnote); }
+.post-card__reply-account { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-full); padding: 1px 7px 1px 3px; background: var(--color-accent-soft); color: var(--color-accent-text); max-width: min(calc(100% - 52px), 22em); }
+.post-card__reply-account > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A timeline row: no card chrome, just content separated by an inset
    hairline. Hierarchy comes from weight and tone, not boxes or colour. */
 .post-card {

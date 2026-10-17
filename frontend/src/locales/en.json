@@ -245,7 +245,9 @@
       "pollEndsAtLabel": "Ends at",
       "pollEndsAtShort": "Ends {0}",
       "pollCharLimit": "{0} of {1} characters",
-      "pollMaxOptions": "Up to {0} options"
+      "pollMaxOptions": "Up to {0} options",
+      "hashtag": "Insert hashtag",
+      "mention": "Mention someone"
     },
     "PostContent": {
       "s1": "Collapse",
@@ -405,6 +407,20 @@
     },
     "unread": {
       "count": "{0} unread"
+    },
+    "AccountHoverCard": {
+      "title": "Account profile",
+      "loading": "Loading profile…",
+      "unavailable": "Profile unavailable. Open the profile to try again.",
+      "saving": "Saving…",
+      "followError": "Could not update. Please try again.",
+      "relationshipError": "Follow relationship is unavailable."
+    },
+    "ReplyContext": {
+      "replying": "Replying to",
+      "filtered": "Filtered content",
+      "sensitive": "Sensitive content",
+      "open": "View original post"
     }
   },
   "admin": {

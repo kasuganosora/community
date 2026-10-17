@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { withoutLeadingReplyMention } from '@/shared/utils/replyContent'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 /**
  * Body of a status: content warning, text, media and poll. Shared by the
@@ -22,9 +23,11 @@ import { t } from '@/shared/i18n'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
+  compactReply?: boolean
 }>()
 
 const router = useRouter()
+const bodyHtml = computed(() => props.compactReply ? withoutLeadingReplyMention(props.status.content, props.status.reply?.account) : props.status.content)
 const cwOpen = useTimelineRowFlag('cwOpen')
 const mediaRevealed = useTimelineRowFlag('mediaRevealed')
 const pollOverride = ref<MastodonPoll | null>(null)
@@ -116,7 +119,7 @@ onMounted(measure)
     </div>
     <div v-show="bodyVisible" :id="contentId">
       <div ref="textEl" class="post-content__text" :class="{ 'is-clamped': long && !expanded }">
-        <RichText :html="status.content" :emojis="status.emojis" :class="textClass" :dir="textDir(status.language)" />
+        <RichText :html="bodyHtml" :emojis="status.emojis" :class="textClass" :dir="textDir(status.language)" />
       </div>
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? $t('shared.PostContent.s1') : $t('shared.PostContent.s3') }}

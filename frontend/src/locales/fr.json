@@ -245,7 +245,9 @@
       "pollEndsAtLabel": "Se termine le",
       "pollEndsAtShort": "Fin {0}",
       "pollCharLimit": "{0} sur {1} caractères",
-      "pollMaxOptions": "{0} options maximum"
+      "pollMaxOptions": "{0} options maximum",
+      "hashtag": "Insérer un hashtag",
+      "mention": "Mentionner une personne"
     },
     "PostContent": {
       "s1": "Réduire",
@@ -405,6 +407,20 @@
     },
     "unread": {
       "count": "{0} non lues"
+    },
+    "AccountHoverCard": {
+      "title": "Profil du compte",
+      "loading": "Chargement du profil…",
+      "unavailable": "Profil indisponible. Ouvrez le profil pour réessayer.",
+      "saving": "Enregistrement…",
+      "followError": "Échec de la mise à jour. Réessayez.",
+      "relationshipError": "Relation de suivi indisponible."
+    },
+    "ReplyContext": {
+      "replying": "En réponse à",
+      "filtered": "Contenu filtré",
+      "sensitive": "Contenu sensible",
+      "open": "Voir la publication originale"
     }
   },
   "admin": {

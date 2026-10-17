@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import SlowNetworkHint from '@/shared/components/common/SlowNetworkHint.vue'
-import { onMounted, ref } from 'vue'
+import { defineAsyncComponent, onMounted, ref } from 'vue'
+import { accountHover } from '@/shared/composables/useAccountHover'
+const AccountHoverCard = defineAsyncComponent(() => import('@/shared/components/common/AccountHoverCard.vue'))
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { navigationPending } from '@/shared/router/navigationFeedback'
 
@@ -38,6 +40,7 @@ onMounted(async () => {
   </div>
   <router-view v-else />
   <SlowNetworkHint />
+  <AccountHoverCard v-if="accountHover" />
 </template>
 
 
