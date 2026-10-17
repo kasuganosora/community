@@ -60,6 +60,8 @@
 
 群详情主要字段为 `id`、`name`、`topic`、`avatar_url`、`membership`、`encryption`、`join_rule`、`listed`、`member_count`、`unread_count`、`muted`、`typing_users`、`current_user_id`、`client_url`、`capabilities`、`limits`，可能附有 `replacement_id` 和 `room_type`。`capabilities` 决定界面可展示的操作，服务端仍在提交时重新授权。
 
+列表和详情 GET 先返回当前群组信息，不等待历史未读统计，因而省略 `unread_count`；实时同步返回准确的未读数。客户端应保留已知计数，首次加载时将缺失值视为尚未取得，不能视为零。延迟到达的列表不得覆盖更新的同步结果或恢复已退出的群组。首次同步超过 300ms 时，网页先读取所选群组的历史，同步建立游标后再重新核对历史，避免等待统计阻塞阅读。
+
 群详情还返回 `canonical_alias`（未设置时为空字符串）和 `address_server`。`client_url` 优先使用主要别名，例如 `https://matrix.to/#/%23chat:c.hime.at`；没有别名时保留原有房间 ID 链接。网页始终使用返回的链接，不把不透明群 ID 当作地址。
 
 已加入且有 `m.room.canonical_alias` 状态修改权限的成员，可为本站创建、状态完整且未加密的群设置短地址（`capabilities.manage_address`）；外部服务器创建的群不开放此操作。`alias` 只填短名称，1–64 位 ASCII 字母、数字、下划线或连字符，首尾须为字母或数字；保存时去除前后空格并转为小写。已被其他群占用返回 HTTP 409、`code:alias_taken`；无效名称返回 400、`code:invalid_alias`。更换主要地址不会删除旧别名，旧分享链接继续有效；网页不提供删除地址的操作。

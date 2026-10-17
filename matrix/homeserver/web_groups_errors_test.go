@@ -15,7 +15,7 @@ func TestWebGroupReadErrorsRetainServerDiagnostics(t *testing.T) {
 			id := webGroupTestCreate(t, r)
 			// A missing read dependency reproduces a database failure without
 			// exposing it in the client-facing response.
-			require.NoError(t, conn.Migrator().DropTable(&MatrixReceipt{}))
+			require.NoError(t, conn.Migrator().DropTable(&MatrixTyping{}))
 			var diagnostics string
 			r.Use(func(c *gin.Context) { c.Next(); diagnostics = c.Errors.String() })
 			var handler gin.HandlerFunc
@@ -36,8 +36,8 @@ func TestWebGroupReadErrorsRetainServerDiagnostics(t *testing.T) {
 			r.ServeHTTP(response, httptest.NewRequest("GET", "/diagnostics/"+id, nil))
 			require.Equal(t, 500, response.Code)
 			require.Contains(t, diagnostics, "web groups")
-			require.Contains(t, diagnostics, "matrix_receipts")
-			require.NotContains(t, response.Body.String(), "matrix_receipts")
+			require.Contains(t, diagnostics, "matrix_typing")
+			require.NotContains(t, response.Body.String(), "matrix_typing")
 			require.NotContains(t, response.Body.String(), "SELECT")
 			require.Contains(t, response.Body.String(), "unavailable")
 		})

@@ -60,3 +60,24 @@ func TestWebGroupReadsBatchAcrossHundredRooms(t *testing.T) {
 	require.LessOrEqual(t, metrics.queries, 7, "idle sync only checks batch revisions and membership")
 	t.Logf("unchanged sync 100 rooms: %d SQL statements", metrics.queries)
 }
+
+// The first paint and room header use current metadata, never historical
+// unread scans. Even a broken receipt dependency must not block those reads.
+func TestWebGroupMetadataDoesNotDependOnUnreadHistory(t *testing.T) {
+	_, conn, router := setupWebGroupCore(t)
+	id := webGroupTestCreate(t, router)
+	require.NoError(t, conn.Migrator().DropTable(&MatrixReceipt{}))
+	for _, path := range []string{"/chat/groups", "/chat/groups/" + id} {
+		code, body := webGroupTestRequest(t, router, "GET", path, "", "")
+		require.Equal(t, 200, code, body)
+		view := body
+		if path == "/chat/groups" {
+			items := body["groups"].([]any)
+			require.Len(t, items, 1)
+			view = items[0].(map[string]any)
+		}
+		require.Equal(t, id, view["id"])
+		require.Equal(t, "join", view["membership"])
+		require.NotContains(t, view, "unread_count", "pending is not an authoritative zero")
+	}
+}

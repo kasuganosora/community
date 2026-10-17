@@ -116,6 +116,7 @@ func TestMatrixEventsTimelineIndexExistsAndServesMessagesOrder(t *testing.T) {
 	conn := db.GetDB()
 	require.True(t, conn.Migrator().HasIndex(&MatrixEvent{}, "idx_matrix_events_room_ts"))
 	require.True(t, conn.Migrator().HasIndex(&MatrixEvent{}, "idx_matrix_events_redacts"))
+	require.True(t, conn.Migrator().HasIndex(&MatrixEvent{}, "idx_matrix_events_room_state"))
 	require.True(t, conn.Migrator().HasIndex(&MatrixRoomState{}, "idx_matrix_room_state_key"))
 	if conn.Dialector.Name() != "sqlite" {
 		t.Skip("EXPLAIN QUERY PLAN assertion is SQLite specific; PostgreSQL is verified by hand (see report)")

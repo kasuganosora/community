@@ -8,7 +8,7 @@ export interface Group {
   id: string; name: string; topic: string; avatar_url?: string; target?: string; via?: string[]; directory_source?: string; preview_ref?: string
   membership: 'join' | 'invite' | 'knock' | 'leave' | 'ban' | 'none'
   encryption: 'unknown' | 'unencrypted' | 'encrypted'
-  room_type?: string; join_rule: string; listed: boolean; member_count: number | null; unread_count: number
+  room_type?: string; join_rule: string; listed: boolean; member_count: number | null; unread_count?: number
   client_url: string; canonical_alias?: string; address_server?: string; capabilities: GroupCapabilities; replacement_id?: string
   limits?: { max_upload_bytes: number; max_attachments: number }; invite_failures?: { user_id: string; error: string; retryable: boolean }[]; muted?: boolean; typing_users?: GroupPerson[]; current_user_id?: string
 }

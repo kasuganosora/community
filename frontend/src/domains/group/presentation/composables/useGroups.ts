@@ -15,7 +15,9 @@ export function useGroups(selectedId: Ref<string>) {
   const error = ref(''), listError = ref(''), syncError = ref('')
   const syncPaused = ref(false), refreshing = ref(false)
   const canSend = computed(() => groupCanSend(group.value))
-  let version = 0, active = true, syncController: AbortController | undefined, roomController: AbortController | undefined
+  let version = 0, active = true, syncController: AbortController | undefined, roomController: AbortController | undefined, listController: AbortController | undefined
+  let revision = 0
+  const groupChanges = new Map<string, number>()
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let resumeWait: (() => void) | undefined
   // Live sync pauses while the page is hidden (battery): the in-flight long
@@ -27,9 +29,22 @@ export function useGroups(selectedId: Ref<string>) {
   let syncCursor: string | undefined
   let initialSyncDone = false
   let initialFallbackStarted = false
+  let initialHistoryTimer: ReturnType<typeof setTimeout> | undefined
+  function scheduleInitialHistory() {
+    clearTimeout(initialHistoryTimer)
+    const epoch = sessionEpoch.value
+    initialHistoryTimer = setTimeout(() => {
+      if (!active || epoch !== sessionEpoch.value || initialSyncDone || initialFallbackStarted) return
+      initialFallbackStarted = true
+      void openRoom()
+    }, 300)
+  }
   const isCurrent = (id: string, epoch: number) => active && epoch === sessionEpoch.value && id === selectedId.value
   function upsertGroup(item: Group) {
+    groupChanges.set(item.id, ++revision)
     const index = groups.value.findIndex(g => g.id === item.id)
+    // Lightweight metadata omits unread_count until live sync has counted it.
+    item = { ...(index >= 0 ? groups.value[index] : {}), ...item }
     if (['join', 'invite', 'knock'].includes(item.membership)) {
       if (index < 0) groups.value.push(item); else groups.value[index] = item
     } else if (index >= 0) groups.value.splice(index, 1)
@@ -37,11 +52,20 @@ export function useGroups(selectedId: Ref<string>) {
   }
   async function loadGroups(more = false) {
     if (listLoading.value || (more && !listCursor.value)) return
-    const epoch = sessionEpoch.value; listLoading.value = true
+    const epoch = sessionEpoch.value, startedAt = revision; listLoading.value = true
+    listController = new AbortController()
     try {
-      const page = await groupApi.list(more ? listCursor.value! : undefined)
+      const page = await groupApi.list(more ? listCursor.value! : undefined, listController.signal)
       if (!active || epoch !== sessionEpoch.value) return
-      groups.value = more ? [...new Map([...groups.value, ...page.groups].map(g => [g.id, g])).values()] : page.groups
+      const current = new Map(groups.value.map(item => [item.id, item]))
+      const items = page.groups.flatMap(item => {
+        // A late list response must not resurrect a left room or overwrite a
+        // newer sync update (including a real zero unread count).
+        if ((groupChanges.get(item.id) ?? 0) > startedAt) return current.has(item.id) ? [current.get(item.id)!] : []
+        return [{ ...current.get(item.id), ...item }]
+      })
+      const retained = more ? groups.value : groups.value.filter(item => (groupChanges.get(item.id) ?? 0) > startedAt)
+      groups.value = [...new Map([...retained, ...items].map(item => [item.id, item])).values()]
       listCursor.value = page.next_cursor; listError.value = ''
     } catch (e) { if (active && epoch === sessionEpoch.value) listError.value = e instanceof Error ? e.message : t('group.useGroups.s1') }
     finally { if (active && epoch === sessionEpoch.value) listLoading.value = false }
@@ -103,11 +127,13 @@ export function useGroups(selectedId: Ref<string>) {
         const update = await groupApi.sync(syncCursor, syncController.signal)
         if (!active || epoch !== sessionEpoch.value) return
         const initial = !initialSyncDone
+        clearTimeout(initialHistoryTimer)
         syncCursor = update.next_cursor; syncError.value = ''; initialSyncDone = true
         if (update.reset) { await loadGroups() }
         if (!active || epoch !== sessionEpoch.value) return
         for (const item of update.groups ?? []) upsertGroup(item)
         for (const left of update.left_group_ids ?? []) {
+          groupChanges.set(left, ++revision)
           groups.value = groups.value.filter(item => item.id !== left)
           if (group.value?.id === left) group.value = { ...group.value, membership: 'leave' }
         }
@@ -166,13 +192,14 @@ export function useGroups(selectedId: Ref<string>) {
   // must remain readable even when sync_busy is retried without a visible error.
   watch(selectedId, () => { if (initialSyncDone || initialFallbackStarted) void openRoom(); else loading.value = !!selectedId.value }, { immediate: true })
   watch(sessionEpoch, () => {
-    version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.(); releaseHidden()
+    version++; syncController?.abort(); roomController?.abort(); listController?.abort(); clearTimeout(retryTimer); clearTimeout(initialHistoryTimer); resumeWait?.(); releaseHidden()
+    groupChanges.clear(); revision = 0
     groups.value = []; group.value = null; messages.value = []; syncCursor = undefined; initialSyncDone = false; initialFallbackStarted = false
     listLoading.value = false; loading.value = false; historyLoading.value = false; listCursor.value = null; historyCursor.value = null
     listError.value = ''; error.value = ''; syncError.value = ''; syncPaused.value = false; refreshing.value = false
-    void loadGroups(); void syncLoop()
+    scheduleInitialHistory(); void loadGroups(); void syncLoop()
   })
-  void loadGroups(); void syncLoop()
-  onBeforeUnmount(() => { active = false; version++; syncController?.abort(); roomController?.abort(); clearTimeout(retryTimer); resumeWait?.(); releaseHidden(); document.removeEventListener('visibilitychange', onVisibility) })
+  scheduleInitialHistory(); void loadGroups(); void syncLoop()
+  onBeforeUnmount(() => { active = false; version++; syncController?.abort(); roomController?.abort(); listController?.abort(); clearTimeout(retryTimer); clearTimeout(initialHistoryTimer); resumeWait?.(); releaseHidden(); document.removeEventListener('visibilitychange', onVisibility) })
   return { groups, group, messages, listCursor, historyCursor, loading, listLoading, historyLoading, error, listError, syncError, syncPaused, refreshing, refreshAfterPause, canSend, loadGroups, refreshRoom, openRoom, loadHistory, upsertGroup, mergeMessages }
 }

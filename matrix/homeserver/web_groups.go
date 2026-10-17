@@ -314,6 +314,13 @@ func webGroupDTO(hs *HomeServer, conn *gorm.DB, room *MatrixRoom, user string) (
 	return views[0], nil
 }
 func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string) ([]gin.H, error) {
+	return webGroupViews(hs, conn, rooms, user, true)
+}
+
+// The list and room header must not wait for a scan of historical message state.
+// Live sync fills in authoritative unread counts separately; omission means pending,
+// not zero. Membership and capability checks still run for every metadata request.
+func webGroupViews(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string, withUnread bool) ([]gin.H, error) {
 	result := make([]gin.H, 0, len(rooms))
 	if len(rooms) == 0 {
 		return result, nil
@@ -368,9 +375,12 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 	for _, t := range typing {
 		typingByRoom[t.RoomID] = append(typingByRoom[t.RoomID], gin.H{"id": t.UserID, "display_name": t.UserID})
 	}
-	unread, err := webGroupUnreadCounts(conn, ids, user)
-	if err != nil {
-		return nil, fmt.Errorf("count unread messages: %w", err)
+	var unread map[string]int64
+	if withUnread {
+		unread, err = webGroupUnreadCounts(conn, ids, user)
+		if err != nil {
+			return nil, fmt.Errorf("count unread messages: %w", err)
+		}
 	}
 
 	for _, room := range rooms {
@@ -412,7 +422,10 @@ func webGroupDTOs(hs *HomeServer, conn *gorm.DB, rooms []MatrixRoom, user string
 		if users == nil {
 			users = []gin.H{}
 		}
-		out := gin.H{"id": webGroupID(room.RoomID), "name": name, "topic": topic, "avatar_url": avatar, "membership": membership, "encryption": encryption, "join_rule": room.JoinRule, "listed": room.Visibility == "public", "member_count": totals[room.RoomID], "unread_count": unread[room.RoomID], "client_url": "https://matrix.to/#/" + url.PathEscape(room.RoomID) + "?via=" + url.QueryEscape(hs.Config.ServerName), "capabilities": webGroupCapabilities(hs, &room, membership, state, user), "muted": muted[room.RoomID], "typing_users": users, "current_user_id": user, "limits": gin.H{"max_upload_bytes": webGroupUploadMaxBytes(), "max_attachments": 8}}
+		out := gin.H{"id": webGroupID(room.RoomID), "name": name, "topic": topic, "avatar_url": avatar, "membership": membership, "encryption": encryption, "join_rule": room.JoinRule, "listed": room.Visibility == "public", "member_count": totals[room.RoomID], "client_url": "https://matrix.to/#/" + url.PathEscape(room.RoomID) + "?via=" + url.QueryEscape(hs.Config.ServerName), "capabilities": webGroupCapabilities(hs, &room, membership, state, user), "muted": muted[room.RoomID], "typing_users": users, "current_user_id": user, "limits": gin.H{"max_upload_bytes": webGroupUploadMaxBytes(), "max_attachments": 8}}
+		if withUnread {
+			out["unread_count"] = unread[room.RoomID]
+		}
 		out["canonical_alias"], out["address_server"] = "", hs.Config.ServerName
 		if alias, ok := state[EventTypeRoomCanonicalAlias].Content["alias"].(string); ok && validGroupAlias(alias) {
 			out["canonical_alias"] = alias
@@ -459,7 +472,7 @@ func handleWebGroupList(c *gin.Context) {
 		rooms = rooms[:limit]
 		next = webGroupID(rooms[len(rooms)-1].RoomID)
 	}
-	views, err := webGroupDTOs(GetHomeServer(), conn, rooms, user)
+	views, err := webGroupViews(GetHomeServer(), conn, rooms, user, false)
 	if err != nil {
 		webGroupInternalError(c, "list room details", err)
 		return
@@ -476,12 +489,12 @@ func handleWebGroupGet(c *gin.Context) {
 		webGroupError(c, ErrForbidden)
 		return
 	}
-	out, err := webGroupDTO(hs, db.GetDB().WithContext(c.Request.Context()), room, user)
+	views, err := webGroupViews(hs, db.GetDB().WithContext(c.Request.Context()), []MatrixRoom{*room}, user, false)
 	if err != nil {
 		webGroupInternalError(c, "read room details", err)
 		return
 	}
-	c.JSON(200, out)
+	c.JSON(200, views[0])
 }
 
 // Input accepts an explicit Matrix ID or a local Community username. A

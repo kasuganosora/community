@@ -13,6 +13,36 @@ function setup() { const id = ref('a'); let state!: ReturnType<typeof useGroups>
 beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); sessionEpoch.value = 0; vi.mocked(groupApi.list).mockResolvedValue({ groups: [group], next_cursor: null }); vi.mocked(groupApi.get).mockResolvedValue(group); vi.mocked(groupApi.messages).mockResolvedValue({ messages: [message], next_cursor: null }); vi.mocked(groupApi.sync).mockReturnValue(new Promise(() => {})) })
 afterEach(() => vi.useRealTimers())
 describe('group sync consistency and lifecycle', () => {
+  it('shows metadata before unread sync and opens history if the initial sync stalls', async () => {
+    const { state, wrapper } = setup(); await flushPromises()
+    expect(state.groups.value.map(item => item.id)).toEqual(['a'])
+    expect(groupApi.messages).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(300); await flushPromises()
+    expect(state.messages.value.map(item => item.id)).toEqual(['m1'])
+    expect(state.loading.value).toBe(false)
+    wrapper.unmount()
+  })
+  it('preserves synced unread counts through metadata refreshes, including zero', async () => {
+    const { state, wrapper } = setup(); await flushPromises()
+    state.upsertGroup({ ...group, unread_count: 7 })
+    await state.loadGroups()
+    expect(state.groups.value[0]?.unread_count).toBe(7)
+    state.upsertGroup({ ...group, unread_count: 0 })
+    await state.loadGroups()
+    expect(state.groups.value[0]?.unread_count).toBe(0)
+    wrapper.unmount()
+  })
+  it('does not let a delayed list restore a left room or overwrite newer sync changes', async () => {
+    let finish!: (page: { groups: Group[]; next_cursor: null }) => void
+    vi.mocked(groupApi.list).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const { state, wrapper } = setup(); await flushPromises()
+    state.upsertGroup({ ...group, unread_count: 9 })
+    state.upsertGroup({ ...group, membership: 'leave' })
+    state.upsertGroup({ ...group, id: 'b', unread_count: 2 })
+    finish({ groups: [group], next_cursor: null }); await flushPromises()
+    expect(state.groups.value.map(item => [item.id, item.unread_count])).toEqual([['b', 2]])
+    wrapper.unmount()
+  })
   it('establishes the first sync waterline before reading history', async () => {
     let resolve!: (update: GroupSync) => void
     vi.mocked(groupApi.sync).mockReturnValueOnce(new Promise(done => { resolve = done }))

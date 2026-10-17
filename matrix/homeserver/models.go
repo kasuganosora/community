@@ -53,10 +53,10 @@ type MatrixEvent struct { //nolint:recvcheck
 	// timeline order used by /messages, /context and /sync (ORDER BY
 	// origin_server_ts, event_id within one room, either direction) without
 	// sorting every event of a big room. AutoMigrate adds it idempotently.
-	RoomID         string         `gorm:"index;index:idx_matrix_events_web_history,priority:1;index:idx_matrix_events_relation,priority:1;index:idx_matrix_events_room_ts,priority:1;type:varchar(255);not null" json:"room_id"`
-	EventType      EventType      `gorm:"type:varchar(64);not null"        json:"type"`
+	RoomID         string         `gorm:"index;index:idx_matrix_events_room_state,priority:1;index:idx_matrix_events_web_history,priority:1;index:idx_matrix_events_relation,priority:1;index:idx_matrix_events_room_ts,priority:1;type:varchar(255);not null" json:"room_id"`
+	EventType      EventType      `gorm:"type:varchar(64);not null;index:idx_matrix_events_room_state,priority:2" json:"type"`
 	Sender         string         `gorm:"type:varchar(255);not null"       json:"sender"`
-	StateKey       *string        `gorm:"type:varchar(255)"                json:"state_key"`
+	StateKey       *string        `gorm:"type:varchar(255);index:idx_matrix_events_room_state,priority:3" json:"state_key"`
 	Content        map[string]any `gorm:"type:text;serializer:json"        json:"content"`
 	PrevEvents     []string       `gorm:"type:json;serializer:json"        json:"prev_events"`
 	AuthEvents     []string       `gorm:"type:json;serializer:json"        json:"auth_events"`
