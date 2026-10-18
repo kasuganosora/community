@@ -1,0 +1,13 @@
+Community
+Copyright (c) 2026 kasuganosora
+
+This project is licensed under the MIT License (see LICENSE).
+
+Third-party components
+----------------------
+
+third_party/gomatrixserverlib
+  A vendored copy of gomatrixserverlib (https://github.com/matrix-org/gomatrixserverlib),
+  licensed under the Apache License, Version 2.0. Its license text is kept
+  unmodified in third_party/gomatrixserverlib/LICENSE. That directory remains
+  under Apache-2.0; the MIT License does not apply to it.
