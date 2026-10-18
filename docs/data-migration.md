@@ -1,5 +1,7 @@
 # 账号备份与同域名整站迁移
 
+> **Recommended for whole-instance moves:** direct mode (`community-transfer --scope site --source-dsn … --source-base-url …`). It streams from the source database with bounded memory and supports `--fetch-only` followed by `--final-sync`. See [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md) for the runbook and the maid.lat rehearsal lessons.
+
 Community 提供两种入口：管理员将 Misskey / Mastodon 换成 Community，以及用户将已有备份导入自己的账号。两种入口的权限、身份和数据处理方式不同。
 
 整站迁移要求继续控制**原站域名和原账号地址**。导入会保留源 Actor / 对象 URI、密钥 ID 和公私钥，不要求每个用户执行 Move 或重新关注。它不会替你切换 DNS、停止源站或将两个站点变成可同时写入的副本。

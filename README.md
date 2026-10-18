@@ -71,6 +71,8 @@ so remote servers keep trusting you and **your followers stay followers**. Nobod
 
 **How:** pick "Migrate from Misskey" or "Migrate from Mastodon" in the setup wizard, which runs the export and import for you. From the command line it is two steps: export with `scripts/migration/export_misskey.py` (or `export_mastodon_db.py`), then import the bundle with `community-transfer --scope site --input <bundle> --report …` (preflight first, then `--apply`). By default only your instance's own data is exported (local users, their posts, files and follows, plus the remote accounts and posts they reference), not the whole cache of remote content; add `--include-remote-cache` to export everything. Users can also import personal Misskey/Mastodon backups into their own account. Tested with Misskey 2026.10.0 and Mastodon 4.7.3. Full details, checklist and limits: [docs/data-migration.md](docs/data-migration.md).
 
+**Large instances: use direct mode.** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://your.domain` reads the source database, streams it straight into the import (about 110 MiB peak RSS on a 250 MB instance, compared with about 1.3 GiB for the bundle path), and supports `--fetch-only` followed by a short `--final-sync`. Runbook: [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md).
+
 ## How it compares
 
 A quick, honest overview. Every project here is good at something; pick what fits you.

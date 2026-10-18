@@ -71,6 +71,8 @@ damit andere Server dir weiter vertrauen und **deine Follower Follower bleiben**
 
 **So geht's:** Wähle im Einrichtungsassistenten „Von Misskey migrieren“ oder „Von Mastodon migrieren“ – der Assistent erledigt Export und Import. Auf der Kommandozeile sind es zwei Schritte: mit `scripts/migration/export_misskey.py` (bzw. `export_mastodon_db.py`) exportieren, dann das Paket mit `community-transfer --scope site --input <Paket> --report …` importieren (zuerst Vorabprüfung, dann `--apply`). Standardmäßig werden nur die Daten deiner eigenen Instanz exportiert (lokale Nutzer, ihre Beiträge, Dateien und Follows sowie die entfernten Konten und Beiträge, auf die sie verweisen), nicht der gesamte Cache entfernter Inhalte; mit `--include-remote-cache` wird alles exportiert. Nutzer können außerdem ihre persönlichen Misskey-/Mastodon-Backups ins eigene Konto importieren. Getestet mit Misskey 2026.10.0 und Mastodon 4.7.3. Details, Checkliste und Grenzen: [docs/data-migration.md](docs/data-migration.md).
 
+**Große Instanzen: Direktmodus verwenden.** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://deine.domain` liest die Quelldatenbank direkt und streamt sie in den Import (ca. 110 MiB Spitzen-RSS bei 250 MB statt ca. 1,3 GiB), mit `--fetch-only` und anschließendem kurzem `--final-sync`. Anleitung: [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md).
+
 ## Im Vergleich
 
 Ein kurzer, ehrlicher Überblick. Jedes dieser Projekte hat seine Stärken – nimm, was zu dir passt.
