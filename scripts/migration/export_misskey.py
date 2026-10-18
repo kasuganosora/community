@@ -68,6 +68,15 @@ def redact(text):
     return text
 
 
+def dim(value):
+    """Image dimension as a non-negative int; Misskey stores floats such as 1665.517."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return int(round(v)) if v == v and 0 < v < 1e9 else 0
+
+
 def sid(value):
     return "" if value is None else str(value)
 
@@ -86,8 +95,7 @@ def origin(value):
     return value.rstrip("/")
 
 
-def id_time(value, method):
-    value = str(value)
+def _decode_id(value, method):
     if method in ("aid", "aidx"):
         if not re.fullmatch(r"[0-9a-z]{%d}" % (10 if method == "aid" else 16), value):
             raise ValueError("invalid ID")
@@ -109,8 +117,50 @@ def id_time(value, method):
             ms = ms * 32 + chars.index(c)
     else:
         raise ExportError("unsupported source ID method")
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return ms
 
+
+# Plausible creation window for a decoded ID: 2000-01-01 .. now + 1 day.
+_MIN_MS = 946684800000
+
+
+def detect_id_method(value, preferred=None):
+    """Return the ID format of a single value.
+
+    Misskey instances that changed config.id over their lifetime (e.g. early
+    10-char `aid` notes followed by `aidx`) hold mixed formats, so the format is
+    detected per value. The configured method wins when it decodes plausibly;
+    ambiguous 24-hex IDs (meid vs objectid) fall back to the one that yields a
+    plausible timestamp.
+    """
+    value = str(value)
+    max_ms = int(time.time() * 1000) + 86400000
+    candidates = []
+    if preferred in METHODS:
+        candidates.append(preferred)
+    if re.fullmatch(r"[0-9a-z]{10}", value):
+        candidates.append("aid")
+    if re.fullmatch(r"[0-9a-z]{16}", value):
+        candidates.append("aidx")
+    if re.fullmatch(r"g[0-9a-f]{23}", value):
+        candidates.append("meidg")
+    if re.fullmatch(r"[0-9a-f]{24}", value):
+        candidates += ["meid", "objectid"]
+    if len(value) == 26:
+        candidates.append("ulid")
+    for m in candidates:
+        try:
+            ms = _decode_id(value, m)
+        except (ValueError, OverflowError):
+            continue
+        if _MIN_MS <= ms <= max_ms:
+            return m, ms
+    raise ValueError("invalid ID")
+
+
+def id_time(value, method=None):
+    _, ms = detect_id_method(value, method)
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 # --------------------------------------------------------------------------- progress
@@ -730,7 +780,7 @@ class Converter:
         try:
             return id_time(row[key], self.method)
         except (ValueError, KeyError, OverflowError, OSError):
-            self.issue("error", "invalid_source_time", "id", row.get(key), "Source ID cannot be decoded with the selected ID method.")
+            self.issue("error", "invalid_source_time", "id", row.get(key), "Source ID does not match any known Misskey ID format (aid, aidx, meid, meidg, ulid, objectid).")
             return "0001-01-01T00:00:00Z"
 
     def actor(self, user):
@@ -907,7 +957,7 @@ class Converter:
             props = r.get("properties") or {}
             m = {"id": id_, "owner_id": sid(r.get("userId")), "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream",
                  "size": r.get("size") or 0, "remote_url": r.get("url") or "", "description": r.get("comment") or "", "blurhash": r.get("blurhash") or "",
-                 "width": props.get("width") or 0, "height": props.get("height") or 0, "created_at": self.time(r)}
+                 "width": dim(props.get("width")), "height": dim(props.get("height")), "created_at": self.time(r)}
             local_owner = r.get("userId") and self.is_local(r["userId"])
             if r.get("userId") and not self.known("user", sid(r["userId"])):
                 m["owner_id"] = ""

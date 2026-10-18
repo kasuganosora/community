@@ -115,6 +115,11 @@ class HTTP:
         self.base, self.host, self.proto, self.timeout = base.rstrip("/"), host, proto, timeout
 
     def req(self, path, method="GET", accept=AP_ACCEPT):
+        st, body, _ = self.req3(path, method, accept)
+        return st, body
+
+    def req3(self, path, method="GET", accept=AP_ACCEPT):
+        """Return (status, body, error). status is None when no HTTP response arrived."""
         r = urllib.request.Request(self.base + path, method=method)
         r.add_header("Host", self.host)
         r.add_header("Accept", accept)
@@ -124,18 +129,26 @@ class HTTP:
         opener = urllib.request.build_opener(NoRedirect)
         try:
             with opener.open(r, timeout=self.timeout) as resp:
-                return resp.status, resp.read(4 << 20)
+                return resp.status, resp.read(4 << 20), None
         except urllib.error.HTTPError as e:
-            return e.code, e.read(65536) if e.fp else b""
-        except Exception as e:  # connection error
-            return 0, str(e).encode()
+            return e.code, (e.read(65536) if e.fp else b""), None
+        except Exception as e:  # connection error: no HTTP status exists
+            reason = getattr(e, "reason", None) or e
+            return None, b"", "%s: %s" % (type(e).__name__, re.sub(r"\w+://\S+", "<url>", str(reason))[:200])
 
     def json(self, path, accept=AP_ACCEPT):
-        st, body = self.req(path, accept=accept)
+        st, body, err = self.req3(path, accept=accept)
+        self.last_error = err
         try:
             return st, json.loads(body.decode("utf-8")) if st == 200 else None
         except ValueError:
             return st, None
+
+    def describe(self, st):
+        """Human status: real HTTP code, or the connection error instead of a fake `HTTP 0`."""
+        if st is None:
+            return "no response (%s)" % (getattr(self, "last_error", None) or "connection error")
+        return "HTTP %s" % st
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -161,6 +174,8 @@ class Report:
 def within(a, b, tol):
     if a == b:
         return True
+    if a == 0 or b == 0:
+        return False
     return abs(a - b) <= max(1, tol * max(a, b))
 
 
@@ -177,13 +192,21 @@ def run(args):
     mk_live = int(mk.scalar('SELECT count(*) FROM "user" WHERE host IS NULL AND "isDeleted" = false'))
     cm_imported = int(cm.scalar("SELECT count(*) FROM accounts WHERE domain IS NULL AND deleted_at IS NULL AND local_actor_uri LIKE %s" % lit(origin + "/users/%")))
     cm_local = int(cm.scalar("SELECT count(*) FROM accounts WHERE domain IS NULL AND deleted_at IS NULL"))
-    rep.add("1 local user count", cm_imported in (mk_total, mk_live),
+    rep.add("0 target database populated", cm_local > 0 and (mk_live == 0 or cm_imported > 0),
+            "community local accounts=%d, with %s/users/* identity=%d" % (cm_local, origin, cm_imported))
+    rep.add("1 local user count", mk_total > 0 and cm_imported > 0 and cm_imported in (mk_total, mk_live),
             "misskey local=%d (not deleted=%d); community accounts with %s/users/* identity=%d (all local=%d)" % (mk_total, mk_live, origin, cm_imported, cm_local))
 
     # sample users (exclude system actors such as instance.actor / relay.actor whose usernames contain dots)
     users = mk.q('SELECT u.id, u.username, k."publicKey" FROM "user" u LEFT JOIN user_keypair k ON k."userId" = u.id '
                  'WHERE u.host IS NULL AND u."isDeleted" = false AND u.username NOT LIKE \'%.%\'')
     users = [u for u in users if SAFE_ID.match(u[0])]
+    # (1b) every live local Misskey user must exist in Community (not just the count)
+    want_uris = {"%s/users/%s" % (origin, u[0]): u for u in users}
+    have = {r[0] for r in cm.q("SELECT local_actor_uri FROM accounts WHERE domain IS NULL AND deleted_at IS NULL AND local_actor_uri LIKE %s" % lit(origin + "/users/%"))}
+    missing = sorted(set(want_uris) - have)
+    rep.add("1b every local user imported", bool(users) and not missing, "%d/%d misskey local users present" % (len(want_uris) - len(missing), len(want_uris)),
+            ["%s @%s: no community account" % (want_uris[u][0], want_uris[u][1]) for u in missing])
     sample = rnd.sample(users, min(args.sample, len(users)))
 
     # (2) actor + key + webfinger
@@ -192,7 +215,7 @@ def run(args):
         want = "%s/users/%s" % (origin, uid)
         st, actor = http.json("/users/" + uid)
         if st != 200 or not isinstance(actor, dict):
-            fails.append("%s @%s: GET /users/%s -> HTTP %s" % (uid, uname, uid, st)); continue
+            fails.append("%s @%s: GET /users/%s -> %s" % (uid, uname, uid, http.describe(st))); continue
         if actor.get("id") != want:
             fails.append("%s @%s: actor id %r != %s" % (uid, uname, actor.get("id"), want)); continue
         pk = actor.get("publicKey") or {}
@@ -207,23 +230,23 @@ def run(args):
         st, wf = http.json("/.well-known/webfinger?resource=" + res, accept="application/jrd+json, application/json")
         hrefs = [l.get("href") for l in (wf or {}).get("links", []) if l.get("rel") == "self"]
         if st != 200 or want not in hrefs:
-            fails.append("%s @%s: webfinger HTTP %s self=%s" % (uid, uname, st, hrefs)); continue
+            fails.append("%s @%s: webfinger %s self=%s" % (uid, uname, http.describe(st), hrefs)); continue
         ok_n += 1
-    rep.add("2 actor id/publicKey/webfinger", bool(sample) and not fails, "%d/%d sampled users OK" % (ok_n, len(sample)), fails)
+    rep.add("2 actor id/publicKey/webfinger", bool(sample) and ok_n == len(sample) and not fails, "%d/%d sampled users OK" % (ok_n, len(sample)), fails)
 
     # (3) notes
     notes = mk.q('SELECT id FROM note WHERE "userHost" IS NULL AND visibility IN (\'public\', \'home\') ORDER BY random() LIMIT %d' % args.sample)
     fails, ok_n = [], 0
     for (nid,) in notes:
         if not SAFE_ID.match(nid):
-            continue
+            fails.append("%r: unsafe note id, cannot verify" % nid[:40]); continue
         st, obj = http.json("/notes/" + nid)
         want = "%s/notes/%s" % (origin, nid)
         if st == 200 and isinstance(obj, dict) and obj.get("id") == want:
             ok_n += 1
         else:
-            fails.append("%s: HTTP %s id=%r" % (nid, st, (obj or {}).get("id") if isinstance(obj, dict) else None))
-    rep.add("3 public/home note objects", bool(notes) and not fails, "%d/%d sampled notes OK" % (ok_n, len(notes)), fails)
+            fails.append("%s: %s id=%r" % (nid, http.describe(st), (obj or {}).get("id") if isinstance(obj, dict) else None))
+    rep.add("3 public/home note objects", bool(notes) and ok_n == len(notes) and not fails, "%d/%d sampled notes OK" % (ok_n, len(notes)), fails)
 
     # (4) follow counts
     fails, ok_n = [], 0
@@ -246,27 +269,32 @@ def run(args):
     st, actor = http.json("/actor")
     pk = (actor or {}).get("publicKey") or {} if isinstance(actor, dict) else {}
     http_h = key_hash(pk.get("publicKeyPem")) if isinstance(pk, dict) else None
-    ok = bool(db_h) and (http_h == db_h) and (actor or {}).get("id") == origin + "/actor"
-    rep.add("5 instance actor key", ok, "db account=%s key sha256=%s; GET /actor HTTP %s id=%r key sha256=%s" %
-            (row[0][0] if row else None, db_h, st, (actor or {}).get("id") if isinstance(actor, dict) else None, http_h))
+    # Misskey's instance actor is the local system user `instance.actor`; its key must survive the move,
+    # otherwise remote servers that cached it reject relayed/signed fetches.
+    mk_h = key_hash(mk.scalar('SELECT k."publicKey" FROM "user" u JOIN user_keypair k ON k."userId" = u.id '
+                              'WHERE u.host IS NULL AND u.username = \'instance.actor\' LIMIT 1'))
+    ok = bool(db_h) and bool(mk_h) and http_h == db_h == mk_h and (actor or {}).get("id") == origin + "/actor"
+    rep.add("5 instance actor key", ok, "misskey instance.actor key sha256=%s; db account=%s key sha256=%s; GET /actor %s id=%r key sha256=%s" %
+            (mk_h, row[0][0] if row else None, db_h, http.describe(st), (actor or {}).get("id") if isinstance(actor, dict) else None, http_h))
 
     # (6) emoji + drive files
     mk_emoji = int(mk.scalar("SELECT count(*) FROM emoji WHERE host IS NULL"))
     cm_emoji = int(cm.scalar("SELECT count(*) FROM emojis WHERE (domain = '' OR domain IS NULL) AND deleted_at IS NULL"))
-    rep.add("6a local custom emoji count", within(mk_emoji, cm_emoji, args.tolerance), "misskey=%d community=%d (tolerance %.0f%%)" % (mk_emoji, cm_emoji, args.tolerance * 100))
+    rep.add("6a local custom emoji count", within(mk_emoji, cm_emoji, args.tolerance) and not (mk_emoji and not cm_emoji), "misskey=%d community=%d (tolerance %.0f%%)" % (mk_emoji, cm_emoji, args.tolerance * 100))
     mk_files = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL'))
     mk_files_all = int(mk.scalar("SELECT count(*) FROM drive_file"))
     cm_files = int(cm.scalar("SELECT count(*) FROM media_attachments m JOIN accounts a ON a.id = m.account_id WHERE a.domain IS NULL"))
     cm_files_all = int(cm.scalar("SELECT count(*) FROM media_attachments"))
-    rep.add("6b drive file / media count", within(mk_files, cm_files, args.tolerance) or within(mk_files_all, cm_files_all, args.tolerance),
+    rep.add("6b drive file / media count", (within(mk_files, cm_files, args.tolerance) or within(mk_files_all, cm_files_all, args.tolerance)) and not (mk_files and not cm_files_all),
             "misskey local=%d all=%d; community local-owner media=%d all=%d (tolerance %.0f%%)" % (mk_files, mk_files_all, cm_files, cm_files_all, args.tolerance * 100))
 
     # (7) inbox routes (POST-only route: GET/OPTIONS should yield 405/400/401, never 404)
     fails, ok_n = [], 0
     for uid, uname, _ in sample:
-        codes = [http.req("/users/%s/inbox" % uid, method=m)[0] for m in ("OPTIONS", "GET")]
-        if all(c in (0, 404) for c in codes):
-            fails.append("%s @%s: OPTIONS/GET -> %s" % (uid, uname, codes))
+        res = [http.req3("/users/%s/inbox" % uid, method=m) for m in ("OPTIONS", "GET")]
+        codes = [r[0] for r in res]
+        if all(c in (None, 404) for c in codes):
+            fails.append("%s @%s: OPTIONS/GET -> %s" % (uid, uname, ", ".join("HTTP %s" % r[0] if r[0] is not None else "no response (%s)" % r[2] for r in res)))
         else:
             ok_n += 1
     rep.add("7 inbox route exists", bool(sample) and not fails, "%d/%d sampled inbox paths routed" % (ok_n, len(sample)), fails)

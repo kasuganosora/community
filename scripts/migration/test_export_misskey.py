@@ -54,6 +54,20 @@ class ExportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.id_time("not-an-id", "aidx")
 
+    def test_mixed_id_formats_detected_per_value(self):
+        # maid.lat rehearsal: early 10-char aid IDs followed by aidx under config.id=aidx.
+        self.assertEqual(m.detect_id_method("8abcdefghi", "aidx")[0], "aid")
+        self.assertEqual(m.detect_id_method("9xyzabcd0001abcd", "aidx")[0], "aidx")
+        self.assertEqual(m.detect_id_method("g0dc6acfac00" + "0" * 12, "aidx")[0], "meidg")
+        self.assertEqual(m.detect_id_method("01ARZ3NDEKTSV4RRFFQ69G5FAV", "aidx")[0], "ulid")
+        self.assertEqual(m.detect_id_method("5f1d7a3c0000000000000000", "aidx")[0], "objectid")
+        conv = self.converter()
+        self.assertTrue(conv.time({"id": "8abcdefghi"}).startswith("20"))
+        self.assertFalse([i for i in conv.bundle["issues"] if i["code"] == "invalid_source_time"])
+        for bad in ("zzzzzzzzzz", "short", "zzzzzzzzzzzzzzzz"):
+            with self.assertRaises(ValueError):
+                m.id_time(bad, "aidx")
+
     def test_no_inferred_origin_or_embedded_credentials(self):
         for url in ("", "source.test", "https://name:secret@source.test", "https://source.test/path", "https://source.test/?token=secret"):
             with self.assertRaises(m.ExportError):
