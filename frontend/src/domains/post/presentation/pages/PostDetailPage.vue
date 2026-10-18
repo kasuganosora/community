@@ -37,6 +37,8 @@ const ancestors = ref<MastodonStatus[]>([])
 const descendants = ref<MastodonStatus[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+// The author requires sign-in to view their posts (visitor only).
+const signinRequired = ref(false)
 const contextLoading = ref(false)
 const contextError = ref<string | null>(null)
 const replyComposer = ref<InstanceType<typeof PostComposer>>()
@@ -105,6 +107,7 @@ async function loadPost() {
   const statusId = route.params.statusId as string
   loading.value = true
   error.value = null
+  signinRequired.value = false
   status.value = null
   ancestors.value = []; descendants.value = []
   contextLoading.value = false; contextError.value = null
@@ -117,6 +120,10 @@ async function loadPost() {
     if (myVersion !== requestVersion) return
     console.error('Failed to load post:', e)
     const code = (e as { response?: { status?: number } })?.response?.status
+    if (code === 401 && (e as { response?: { data?: { code?: string } } })?.response?.data?.code === 'SIGNIN_REQUIRED') {
+      signinRequired.value = true
+      return
+    }
     error.value = code === 404 ? t('post.PostDetailPage.s18') : code === 403 ? t('post.PostDetailPage.s19') : t('post.PostDetailPage.s20')
     status.value = null
   } finally {
@@ -185,6 +192,12 @@ async function togglePin() {
 
     <div v-if="loading" class="page-loading">
       <t-loading />
+    </div>
+
+    <div v-else-if="signinRequired" class="empty-state" data-testid="post-signin-required">
+      <h2 class="empty-state__title">{{ $t('user.ProfilePage.signinRequired') }}</h2>
+      <p class="empty-state__text">{{ $t('user.ProfilePage.signinRequiredHint') }}</p>
+      <router-link :to="{ path: '/login', query: { redirect: route.fullPath } }" class="btn btn--primary">{{ $t('user.ProfilePage.signinRequiredAction') }}</router-link>
     </div>
 
     <div v-else-if="error" class="empty-state" role="alert">

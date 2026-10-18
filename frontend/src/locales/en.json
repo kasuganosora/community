@@ -2882,7 +2882,9 @@
       "isCatHint": "Show cat ears on your avatar.",
       "isBot": "Bot account",
       "isBotHint": "Identify this account as a bot that posts automatically.",
-      "autoLanguage": "Detect automatically"
+      "autoLanguage": "Detect automatically",
+      "requireSignin": "Require sign-in to view my posts",
+      "requireSigninHint": "Visitors who aren't signed in see your profile but not your posts. Other servers can still fetch your posts with signed requests, and your followers keep receiving them."
     },
     "ProfileQRCode": {
       "open": "QR code",
@@ -3171,7 +3173,10 @@
       "s29": "Unblocked",
       "s30": "Blocked",
       "olderOnOrigin": "Older posts may only be on their server.",
-      "olderOnOriginLink": "See older posts on the original site"
+      "olderOnOriginLink": "See older posts on the original site",
+      "signinRequired": "Sign in to see posts",
+      "signinRequiredHint": "This account's posts are only visible to signed-in users.",
+      "signinRequiredAction": "Sign in"
     }
   },
   "apiError": {

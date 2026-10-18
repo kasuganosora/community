@@ -2882,7 +2882,9 @@
       "isCatHint": "Zeigt Katzenohren an deinem Avatar.",
       "isBot": "Bot-Konto",
       "isBotHint": "Kennzeichnet dieses Konto als Bot, der automatisch Beiträge veröffentlicht.",
-      "autoLanguage": "Automatisch erkennen"
+      "autoLanguage": "Automatisch erkennen",
+      "requireSignin": "Anmeldung zum Ansehen meiner Beiträge verlangen",
+      "requireSigninHint": "Nicht angemeldete Besucher sehen dein Profil, aber nicht deine Beiträge. Andere Server können deine Beiträge weiterhin mit signierten Anfragen abrufen, und deine Follower erhalten sie wie gewohnt."
     },
     "ProfileQRCode": {
       "open": "QR-Code",
@@ -3171,7 +3173,10 @@
       "s29": "Entsperrt",
       "s30": "Gesperrt",
       "olderOnOrigin": "Ältere Beiträge gibt es evtl. nur auf ihrem Server.",
-      "olderOnOriginLink": "Ältere Beiträge auf der Originalseite ansehen"
+      "olderOnOriginLink": "Ältere Beiträge auf der Originalseite ansehen",
+      "signinRequired": "Melde dich an, um Beiträge zu sehen",
+      "signinRequiredHint": "Die Beiträge dieses Kontos sind nur für angemeldete Nutzer sichtbar.",
+      "signinRequiredAction": "Anmelden"
     }
   },
   "apiError": {

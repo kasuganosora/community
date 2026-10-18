@@ -99,3 +99,14 @@ it('clears extras on account switch and ignores the old account save result', as
   expect(auth.currentUser?.id).toBe('other')
   expect(wrapper.get('#set-location').element).toHaveProperty('value', '')
 })
+
+it('loads and saves the require sign-in to view toggle', async () => {
+  const { wrapper } = setup({ ...account, require_signin_to_view: true })
+  await flushPromises()
+  const toggle = wrapper.get('#set-require-signin')
+  expect(toggle.element).toHaveProperty('checked', true)
+  await toggle.setValue(false)
+  const update = vi.spyOn(userApi, 'updateCredentials').mockResolvedValue(account)
+  await wrapper.get('form').trigger('submit'); await flushPromises()
+  expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ require_signin_to_view: false }))
+})

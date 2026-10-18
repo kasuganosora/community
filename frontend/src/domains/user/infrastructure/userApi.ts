@@ -188,6 +188,7 @@ export interface UpdateCredentialsParams {
   locked?: boolean
   bot?: boolean
   is_cat?: boolean
+  require_signin_to_view?: boolean
   location?: string
   birthday?: string
   language?: string

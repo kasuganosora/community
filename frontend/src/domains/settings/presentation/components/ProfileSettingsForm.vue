@@ -36,7 +36,7 @@ function decorationsSaved() {
   MessagePlugin.success(t('settings.AvatarDecorationPicker.s24'))
 }
 
-const emptyProfile = () => ({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '', location: '', birthday: '', language: '', followed_message: '', reaction_acceptance: 'all' as ReactionAcceptance, is_cat: false, bot: false, fields: Array.from({ length: 4 }, () => ({ name: '', value: '' })) })
+const emptyProfile = () => ({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '', location: '', birthday: '', language: '', followed_message: '', reaction_acceptance: 'all' as ReactionAcceptance, is_cat: false, bot: false, require_signin_to_view: false, fields: Array.from({ length: 4 }, () => ({ name: '', value: '' })) })
 const profile = reactive(emptyProfile())
 const fieldsReady = ref(false)
 const refreshingSource = ref(false)
@@ -100,6 +100,7 @@ function resetProfile() {
   profile.reaction_acceptance = me.reaction_acceptance ?? 'all'
   profile.is_cat = !!me.is_cat
   profile.bot = !!me.bot
+  profile.require_signin_to_view = !!me.require_signin_to_view
   resetFields()
 }
 
@@ -196,6 +197,7 @@ async function saveProfile() {
       reaction_acceptance: profile.reaction_acceptance,
       is_cat: profile.is_cat,
       bot: profile.bot,
+      require_signin_to_view: profile.require_signin_to_view,
       ...(fieldsReady.value ? { fields_attributes: profile.fields.filter(field => field.name.trim() || field.value.trim()).map(({ name, value }) => ({ name, value })) } : {}),
       ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
       ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
@@ -290,6 +292,7 @@ onMounted(() => { resetProfile(); void refreshProfileSource() })
     <div class="settings-profile-flags">
       <label class="settings-profile-flag" for="set-is-cat"><span><strong>{{ $t('settings.ProfileExtras.isCat') }}</strong><small>{{ $t('settings.ProfileExtras.isCatHint') }}</small></span><input id="set-is-cat" v-model="profile.is_cat" type="checkbox" role="switch" :disabled="savingProfile" /></label>
       <label class="settings-profile-flag" for="set-is-bot"><span><strong>{{ $t('settings.ProfileExtras.isBot') }}</strong><small>{{ $t('settings.ProfileExtras.isBotHint') }}</small></span><input id="set-is-bot" v-model="profile.bot" type="checkbox" role="switch" :disabled="savingProfile" /></label>
+      <label class="settings-profile-flag" for="set-require-signin" data-testid="require-signin-toggle"><span><strong>{{ $t('settings.ProfileExtras.requireSignin') }}</strong><small>{{ $t('settings.ProfileExtras.requireSigninHint') }}</small></span><input id="set-require-signin" v-model="profile.require_signin_to_view" type="checkbox" role="switch" :disabled="savingProfile" /></label>
     </div>
     <div class="settings-profile-options">
     <label class="settings-check">

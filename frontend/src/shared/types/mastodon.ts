@@ -92,6 +92,8 @@ export interface MastodonAccount {
   statuses_count: number
   last_status_at: string | null
   hide_collections: boolean
+  /** Extension (Misskey requireSigninToViewContents): posts are hidden from logged-out visitors. */
+  require_signin_to_view?: boolean
   emojis: MastodonEmoji[]
   fields: MastodonField[]
   /** Only present on verify_credentials / update_credentials (own account). */

@@ -2882,7 +2882,9 @@
       "isCatHint": "Affiche des oreilles de chat sur votre avatar.",
       "isBot": "Compte automatisé",
       "isBotHint": "Indique que ce compte est un bot qui publie automatiquement.",
-      "autoLanguage": "Détection automatique"
+      "autoLanguage": "Détection automatique",
+      "requireSignin": "Exiger une connexion pour voir mes publications",
+      "requireSigninHint": "Les visiteurs non connectés voient votre profil mais pas vos publications. Les autres serveurs peuvent toujours les récupérer via des requêtes signées, et vos abonnés continuent de les recevoir."
     },
     "ProfileQRCode": {
       "open": "Code QR",
@@ -3171,7 +3173,10 @@
       "s29": "Débloqué",
       "s30": "Bloqué",
       "olderOnOrigin": "Les posts plus anciens ne sont peut-être que sur son serveur.",
-      "olderOnOriginLink": "Voir les posts plus anciens sur le site d’origine"
+      "olderOnOriginLink": "Voir les posts plus anciens sur le site d’origine",
+      "signinRequired": "Connectez-vous pour voir les publications",
+      "signinRequiredHint": "Les publications de ce compte ne sont visibles que par les utilisateurs connectés.",
+      "signinRequiredAction": "Se connecter"
     }
   },
   "apiError": {

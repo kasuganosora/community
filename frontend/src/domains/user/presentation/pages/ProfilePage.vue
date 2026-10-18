@@ -37,6 +37,8 @@ const reporting = ref(false)
 // overwrite the profile we navigated to.
 let requestVersion = 0
 
+// Misskey requireSigninToViewContents: visitors see the profile, not the posts.
+const signinGate = computed(() => !authStore.isAuthenticated && !!account.value?.require_signin_to_view)
 const isOwnProfile = computed(() => !!account.value && account.value.id === authStore.currentUser?.id)
 const visibleTabs = computed(() => PROFILE_TABS.filter(t => !t.ownOnly || isOwnProfile.value))
 const relationship = computed(() => account.value ? relationships.rels.get(account.value.id) : undefined)
@@ -74,7 +76,7 @@ function resetBackfill() {
 
 async function fetchStatuses(maxId: string | undefined, limit: number): Promise<MastodonStatus[] | CursorPage<MastodonStatus>> {
   const acct = account.value
-  if (!acct) return []
+  if (!acct || signinGate.value) return []
   // Likes use the relationship cursor supplied by the server's Link header.
   if (activeTab.value === 'likes') return userApi.getFavourites({ max_id: maxId, limit })
   const params = {
@@ -320,7 +322,12 @@ watch(activeTab, () => {
     </div>
 
     <!-- Posts -->
-    <template v-if="backfillPendingEmpty" />
+    <div v-if="signinGate" class="empty-state profile-signin-gate" data-testid="profile-signin-required">
+      <h2 class="empty-state__title">{{ $t('user.ProfilePage.signinRequired') }}</h2>
+      <p class="empty-state__text">{{ $t('user.ProfilePage.signinRequiredHint') }}</p>
+      <router-link :to="{ path: '/login', query: { redirect: route.fullPath } }" class="btn btn--primary">{{ $t('user.ProfilePage.signinRequiredAction') }}</router-link>
+    </div>
+    <template v-else-if="backfillPendingEmpty" />
     <ProfileMediaGrid
       v-else-if="activeTab === 'media'"
       :statuses="statuses"

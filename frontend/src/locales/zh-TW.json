@@ -2882,7 +2882,9 @@
       "isCatHint": "在頭像上顯示貓耳。",
       "isBot": "機器人帳號",
       "isBotHint": "將帳號標記為自動發布內容的機器人。",
-      "autoLanguage": "自動辨識"
+      "autoLanguage": "自動辨識",
+      "requireSignin": "需要登入才能查看我的貼文",
+      "requireSigninHint": "未登入的訪客只能看到你的個人資料，看不到貼文。其他伺服器仍可透過簽章請求取得貼文，追蹤者照常收到。"
     },
     "ProfileQRCode": {
       "open": "QR Code",
@@ -3171,7 +3173,10 @@
       "s29": "已取消遮蔽",
       "s30": "已遮蔽",
       "olderOnOrigin": "更早的帖子可能只在對方站點上。",
-      "olderOnOriginLink": "去原站檢視更早的帖子"
+      "olderOnOriginLink": "去原站檢視更早的帖子",
+      "signinRequired": "登入後查看貼文",
+      "signinRequiredHint": "此帳號的貼文僅對已登入的使用者可見。",
+      "signinRequiredAction": "登入"
     }
   },
   "apiError": {

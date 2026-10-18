@@ -2882,7 +2882,9 @@
       "isCatHint": "アバターに猫耳を表示します。",
       "isBot": "Botアカウント",
       "isBotHint": "自動投稿するBotのアカウントとして表示します。",
-      "autoLanguage": "自動判定"
+      "autoLanguage": "自動判定",
+      "requireSignin": "投稿の閲覧にサインインを必須にする",
+      "requireSigninHint": "サインインしていない訪問者にはプロフィールのみ表示され、投稿は表示されません。他のサーバーは署名付きリクエストで引き続き投稿を取得でき、フォロワーには通常どおり届きます。"
     },
     "ProfileQRCode": {
       "open": "QRコード",
@@ -3171,7 +3173,10 @@
       "s29": "ブロックを解除しました",
       "s30": "ブロック中",
       "olderOnOrigin": "以前の投稿は相手のサーバーにしかない場合があります。",
-      "olderOnOriginLink": "元のサイトで以前の投稿を見る"
+      "olderOnOriginLink": "元のサイトで以前の投稿を見る",
+      "signinRequired": "サインインして投稿を見る",
+      "signinRequiredHint": "このアカウントの投稿はサインインしたユーザーにのみ表示されます。",
+      "signinRequiredAction": "サインイン"
     }
   },
   "apiError": {

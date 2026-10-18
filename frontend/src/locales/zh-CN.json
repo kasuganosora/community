@@ -2882,7 +2882,9 @@
       "isCatHint": "在头像上显示猫耳。",
       "isBot": "机器人账号",
       "isBotHint": "将账号标记为自动发布内容的机器人。",
-      "autoLanguage": "自动识别"
+      "autoLanguage": "自动识别",
+      "requireSignin": "需要登录才能查看我的帖子",
+      "requireSigninHint": "未登录的访客只能看到你的个人资料，看不到帖子。其他服务器仍可通过签名请求获取帖子，关注者照常收到。"
     },
     "ProfileQRCode": {
       "open": "二维码",
@@ -3171,7 +3173,10 @@
       "s29": "已取消屏蔽",
       "s30": "已屏蔽",
       "olderOnOrigin": "更早的帖子可能只在对方站点上。",
-      "olderOnOriginLink": "去原站查看更早的帖子"
+      "olderOnOriginLink": "去原站查看更早的帖子",
+      "signinRequired": "登录后查看帖子",
+      "signinRequiredHint": "该账号的帖子仅对已登录用户可见。",
+      "signinRequiredAction": "登录"
     }
   },
   "apiError": {

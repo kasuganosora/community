@@ -147,7 +147,10 @@ client.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorData>) => {
     // Handle 401 — use callback instead of hard redirect (with reentrancy guard)
-    if (error.response?.status === 401 && !isHandling401) {
+    // SIGNIN_REQUIRED is content gated for visitors (an account that requires
+    // sign-in to view), not an expired session: let the page explain it.
+    const gated = (error.response?.data as { code?: string } | undefined)?.code === 'SIGNIN_REQUIRED'
+    if (error.response?.status === 401 && !gated && !isHandling401) {
       const currentPath = window.location.pathname
       if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
         isHandling401 = true
