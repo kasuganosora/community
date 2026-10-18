@@ -33,7 +33,7 @@ func registerBrandingRoutes(app *gin.Engine) {
 	favicon := func(c *gin.Context) {
 		target := systemsettings.GetBranding().IconURL
 		if target == "" {
-			target = "/logo.svg"
+			target = systemsettings.VersionedStatic("/logo.svg")
 		}
 		c.Header("Cache-Control", "public, max-age=300")
 		c.Redirect(http.StatusFound, target)

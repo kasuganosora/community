@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"github.com/kasuganosora/community/clientip"
 	"github.com/kasuganosora/community/controllers/api/streaming"
@@ -324,6 +325,16 @@ func setupFrontend(app *gin.Engine) {
 		app.HEAD("/assets/*filepath", files)
 		app.GET("/logo.svg", files)
 		app.HEAD("/logo.svg", files)
+
+		// The build id in version.json versions non-hashed files (?v=).
+		if raw, err := os.ReadFile(filepath.Join(frontendDir, "version.json")); err == nil { //nolint:gosec // G304: our dist directory
+			var v struct {
+				Build string `json:"build"`
+			}
+			if json.Unmarshal(raw, &v) == nil {
+				systemsettings.SetStaticVersion(v.Build)
+			}
+		}
 
 		// SPA fallback: index.html for frontend routes only (see spa.go)
 		indexPath := filepath.Join(frontendDir, "index.html")

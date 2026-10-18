@@ -15,7 +15,10 @@ describe('useVersionSync', () => {
   it('reads the build id without caching', async () => {
     serverBuild('b2')
     expect(await fetchServerBuild()).toBe('b2')
-    expect(fetch).toHaveBeenCalledWith('/version.json', expect.objectContaining({ cache: 'no-store' }))
+    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/version\.json\?t=\w+$/), expect.objectContaining({ cache: 'no-store' }))
+    await fetchServerBuild()
+    const urls = vi.mocked(fetch).mock.calls.map((c) => c[0])
+    expect(urls[0]).not.toBe(urls[1])
   })
 
   it('ignores errors and malformed answers', async () => {

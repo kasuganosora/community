@@ -57,6 +57,13 @@ func TestOldBuildAssetsServedFromArchive(t *testing.T) {
 			t.Errorf("%s: %d %q cc=%q", p, w.Code, w.Body.String(), w.Header().Get("Cache-Control"))
 		}
 	}
+	// Queries (?v=<build>, cache busters) never change which file is served
+	// or its cache policy.
+	for p, cc := range map[string]string{"/assets/js/chunk-old.js?v=1": cacheImmutable, "/assets/js/chunk-new.js?v=2": cacheImmutable, "/version.json?t=abc": "no-store"} {
+		if w := get(p); w.Code != 200 || w.Header().Get("Cache-Control") != cc {
+			t.Errorf("%s: %d cc=%q", p, w.Code, w.Header().Get("Cache-Control"))
+		}
+	}
 	if w := get("/assets/js/ancient.js"); w.Code != 404 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("pruned asset: %d cc=%q", w.Code, w.Header().Get("Cache-Control"))
 	}

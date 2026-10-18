@@ -21,7 +21,10 @@ let registration: ServiceWorkerRegistration | undefined
 
 export async function fetchServerBuild(): Promise<string | null> {
   try {
-    const res = await fetch('/version.json', { cache: 'no-store', credentials: 'omit' })
+    // A unique query on top of no-store: no browser, proxy or CDN copy can
+    // answer it, whatever its cache rules.
+    const bust = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    const res = await fetch(`/version.json?t=${bust}`, { cache: 'no-store', credentials: 'omit' })
     if (!res.ok) return null
     const body = await res.json() as { build?: unknown }
     return typeof body.build === 'string' && body.build ? body.build : null
@@ -93,7 +96,7 @@ export function startVersionSync(): void {
   if (sessionStorage.getItem(RELOAD_KEY) === currentBuild) sessionStorage.removeItem(RELOAD_KEY)
 
   if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(currentBuild)}`, { scope: '/' })
       .then((reg) => { registration = reg })
       .catch((err) => console.warn('Service worker registration failed', err))
   }

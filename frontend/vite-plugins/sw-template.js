@@ -57,13 +57,17 @@ self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') void self.skipWaiting()
 })
 
+// Hashed /assets files are named by content; any query (none is added by
+// the build) is ignored so precached copies always match.
 async function serveAsset(request) {
-  const cached = await caches.match(request.url)
+  const url = new URL(request.url)
+  url.search = ''
+  const cached = await caches.match(url.href)
   if (cached) return cached
   const res = await fetch(request)
   if (res.ok) {
     const copy = res.clone()
-    void caches.open(ASSET_CACHE).then((cache) => cache.put(request.url, copy))
+    void caches.open(ASSET_CACHE).then((cache) => cache.put(url.href, copy))
   }
   return res
 }

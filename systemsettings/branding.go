@@ -221,19 +221,19 @@ func Manifest() map[string]any {
 	if b.App192IconURL != "" {
 		icons = append(icons, map[string]any{"src": b.App192IconURL, "sizes": "192x192", "type": "image/png", "purpose": "maskable"})
 	} else {
-		icons = append(icons, map[string]any{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"})
+		icons = append(icons, map[string]any{"src": VersionedStatic("/icons/icon-192.png"), "sizes": "192x192", "type": "image/png", "purpose": "any"})
 	}
 	if b.App512IconURL != "" {
 		icons = append(icons, map[string]any{"src": b.App512IconURL, "sizes": "512x512", "type": "image/png", "purpose": "maskable"})
 	} else {
 		icons = append(icons,
-			map[string]any{"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-			map[string]any{"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"})
+			map[string]any{"src": VersionedStatic("/icons/icon-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "any"},
+			map[string]any{"src": VersionedStatic("/icons/icon-maskable-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "maskable"})
 	}
 	if b.IconURL != "" {
 		icons = append(icons, map[string]any{"src": b.IconURL, "sizes": "any", "purpose": "any"})
 	} else {
-		icons = append(icons, map[string]any{"src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"})
+		icons = append(icons, map[string]any{"src": VersionedStatic("/logo.svg"), "sizes": "any", "type": "image/svg+xml", "purpose": "any"})
 	}
 	m := map[string]any{
 		"name": name, "short_name": name, "description": desc, "lang": "zh-CN",
