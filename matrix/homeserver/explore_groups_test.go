@@ -97,3 +97,50 @@ func TestExploreGroupsListingFiltersAndOrder(t *testing.T) {
 	require.Equal(t, 400, w.Code)
 	require.Contains(t, w.Body.String(), "EXPLORE_GROUPS_INVALID_CURSOR")
 }
+
+func TestExploreGroupLocalClassification(t *testing.T) {
+	room := func(creator string) *MatrixRoom { return &MatrixRoom{Creator: creator} }
+	require.True(t, exploreGroupIsLocal(room("@a:C.Hime.At"), "c.hime.at", false))
+	require.True(t, exploreGroupIsLocal(room("@a:c.hime.at:8448"), "c.hime.at", false))
+	require.True(t, exploreGroupIsLocal(room("@a:c.hime.at"), "C.HIME.AT:443", false))
+	require.True(t, exploreGroupIsLocal(room(""), "c.hime.at", false))
+	require.True(t, exploreGroupIsLocal(room("@a:old.example"), "c.hime.at", true))
+	require.False(t, exploreGroupIsLocal(room("@a:matrix.org"), "c.hime.at", false))
+	require.False(t, exploreGroupIsLocal(room("@a:hime.at"), "c.hime.at", false))
+	require.Equal(t, "[::1]", normalizeServerHost("[::1]:8448"))
+}
+
+func TestExploreGroupsHardenedLocalRule(t *testing.T) {
+	hs, conn, _ := setupWebGroupCore(t)
+	require.NoError(t, conn.AutoMigrate(&MatrixGroupHotScore{}, &models.DomainBlock{}, &models.Block{}))
+	now := time.Now()
+	mk := func(id, creator, vis string) {
+		require.NoError(t, conn.Create(&MatrixRoom{RoomID: id, Creator: creator, Name: new(id), Visibility: vis, JoinRule: "public", CreatedAt: &now}).Error)
+	}
+	local := hs.Config.ServerName
+	mk("!unpub:x", "@alice:"+local, "private")                         // local unpublished: excluded
+	mk("!case:x", "@alice:"+strings.ToUpper(local)+":8448", "private") // mixed case + port: still local, excluded
+	mk("!empty:x", "", "private")                                      // empty creator: local, excluded
+	mk("!emptypub:x", "", "public")                                    // empty creator but published: included
+	mk("!web:x", "@alice:renamed.example", "private")                  // web-created, odd creator: excluded
+	mk("!remote:x", "@bob:matrix.org", "private")                      // known remote, join rule public: included
+	mk("!pub:x", "@alice:"+local, "public")                            // local published: included
+	require.NoError(t, conn.Create(&MatrixRoomState{RoomID: "!web:x", EventType: "org.community.web_group", StateKey: "", Content: map[string]any{}}).Error)
+	require.NoError(t, RefreshGroupHotScores(context.Background(), hs, now))
+	var rows []MatrixGroupHotScore
+	require.NoError(t, conn.Order("room_id").Find(&rows).Error)
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.RoomID] = r.IsLocal
+	}
+	require.Equal(t, map[string]bool{"!emptypub:x": true, "!remote:x": false, "!pub:x": true}, got)
+	// A local group unpublished after scoring disappears from the listing before the next refresh.
+	require.NoError(t, conn.Model(&MatrixRoom{}).Where("room_id = ?", "!pub:x").Update("visibility", "private").Error)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/explore/groups", nil)
+	HandleExploreGroups(c)
+	require.Equal(t, 200, w.Code)
+	require.NotContains(t, w.Body.String(), "!pub:x")
+	require.NotContains(t, w.Body.String(), webGroupID("!pub:x"))
+}

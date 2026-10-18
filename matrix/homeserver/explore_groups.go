@@ -112,21 +112,70 @@ func matrixIDServer(id string) string {
 	return ""
 }
 
-func groupHomeServer(room *MatrixRoom) string {
-	if s := matrixIDServer(room.Creator); s != "" {
-		return s
+// normalizeServerHost lower-cases a Matrix server name and strips any port,
+// so "C.Hime.At:8448" and "c.hime.at" compare equal.
+func normalizeServerHost(name string) string {
+	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+	if strings.HasPrefix(name, "[") { // IPv6 literal
+		if i := strings.IndexByte(name, ']'); i > 0 {
+			return name[:i+1]
+		}
+		return name
 	}
-	return matrixIDServer(room.RoomID)
+	if i := strings.LastIndexByte(name, ':'); i >= 0 {
+		return name[:i]
+	}
+	return name
 }
 
-// eligibleExploreGroups selects public, joinable, plain web groups. Local groups
-// must also be published in the directory; DMs, bridged conversations, spaces
-// and encrypted rooms are never listed.
-func eligibleExploreGroups(conn *gorm.DB, local string) *gorm.DB {
+func groupHomeServer(room *MatrixRoom) string {
+	if s := matrixIDServer(room.Creator); s != "" {
+		return normalizeServerHost(s)
+	}
+	return normalizeServerHost(matrixIDServer(room.RoomID))
+}
+
+// exploreGroupIsLocal decides whether a group belongs to this server, using the
+// effective homeserver name (hs.Config.ServerName, resolved at startup from
+// SERVER_NAME, the instance domain setting or the default). Groups created by
+// the web UI (org.community.web_group state) and groups with an unknown creator
+// count as local, so they are only listed when published to the directory.
+func exploreGroupIsLocal(room *MatrixRoom, localServer string, webCreated bool) bool {
+	if webCreated || strings.TrimSpace(room.Creator) == "" {
+		return true
+	}
+	return groupHomeServer(room) == normalizeServerHost(localServer)
+}
+
+// exploreGroupListable applies the listing rule after eligibleExploreGroups:
+// local groups must be published to the room directory; known remote groups
+// only need the public join rule checked by the query.
+func exploreGroupListable(room *MatrixRoom, local bool) bool {
+	return !local || room.Visibility == "public"
+}
+
+func webCreatedRooms(conn *gorm.DB, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []string
+	if err := conn.Model(&MatrixRoomState{}).Where("room_id IN ? AND event_type = ?", ids, "org.community.web_group").Distinct().Pluck("room_id", &rows).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range rows {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// eligibleExploreGroups selects public-join, plain web groups. DMs, bridged
+// conversations, spaces and encrypted rooms are never listed. The local/remote
+// directory rule is applied in Go (exploreGroupIsLocal/exploreGroupListable).
+func eligibleExploreGroups(conn *gorm.DB) *gorm.DB {
 	return webGroupRoomQuery(conn).
 		Where("(room_type IS NULL OR room_type = '')").
-		Where("join_rule = ? AND is_encrypted = ?", "public", false).
-		Where("(visibility = ? OR creator NOT LIKE ?)", "public", "%:"+local)
+		Where("join_rule = ? AND is_encrypted = ?", "public", false)
 }
 
 // RefreshGroupHotScores recomputes all Explore group scores. Event reads are
@@ -144,7 +193,7 @@ func RefreshGroupHotScores(ctx context.Context, hs *HomeServer, now time.Time) e
 	after := ""
 	for {
 		var rooms []MatrixRoom
-		q := eligibleExploreGroups(conn, local).Order("room_id ASC").Limit(groupHotRoomBatch)
+		q := eligibleExploreGroups(conn).Order("room_id ASC").Limit(groupHotRoomBatch)
 		if after != "" {
 			q = q.Where("room_id > ?", after)
 		}
@@ -155,15 +204,25 @@ func RefreshGroupHotScores(ctx context.Context, hs *HomeServer, now time.Time) e
 			break
 		}
 		after = rooms[len(rooms)-1].RoomID
-		keep := make([]MatrixRoom, 0, len(rooms))
+		ids := make([]string, 0, len(rooms))
 		for _, r := range rooms {
-			server := groupHomeServer(&r)
-			if server == "" || (server != local && suspend.Contains(server)) {
+			ids = append(ids, r.RoomID)
+		}
+		web, err := webCreatedRooms(conn, ids)
+		if err != nil {
+			return err
+		}
+		keep := make([]MatrixRoom, 0, len(rooms))
+		isLocal := map[string]bool{}
+		for _, r := range rooms {
+			l := exploreGroupIsLocal(&r, local, web[r.RoomID])
+			if !exploreGroupListable(&r, l) || (!l && (groupHomeServer(&r) == "" || suspend.Contains(groupHomeServer(&r)))) {
 				continue
 			}
+			isLocal[r.RoomID] = l
 			keep = append(keep, r)
 		}
-		if err := refreshGroupHotBatch(conn, local, keep, since, now, runStart); err != nil {
+		if err := refreshGroupHotBatch(conn, local, keep, isLocal, since, now, runStart); err != nil {
 			return err
 		}
 		if ctx.Err() != nil {
@@ -173,7 +232,7 @@ func RefreshGroupHotScores(ctx context.Context, hs *HomeServer, now time.Time) e
 	return conn.Where("computed_at < ?", runStart).Delete(&MatrixGroupHotScore{}).Error
 }
 
-func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, since int64, now time.Time, runStart time.Time) error {
+func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, isLocal map[string]bool, since int64, now time.Time, runStart time.Time) error {
 	if len(rooms) == 0 {
 		return nil
 	}
@@ -185,7 +244,7 @@ func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, since
 	banned := map[string]bool{}
 	var locals []string
 	for _, r := range rooms {
-		if matrixIDServer(r.Creator) == local {
+		if isLocal[r.RoomID] && r.Creator != "" {
 			if name, _, ok := ParseMatrixUserID(r.Creator); ok {
 				locals = append(locals, name)
 			}
@@ -198,7 +257,7 @@ func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, since
 			return err
 		}
 		for _, n := range names {
-			banned["@"+n+":"+local] = true
+			banned[strings.ToLower(n)] = true
 		}
 	}
 	type countRow struct {
@@ -260,7 +319,7 @@ func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, since
 	}
 	rows := make([]MatrixGroupHotScore, 0, len(rooms))
 	for _, r := range rooms {
-		if banned[r.Creator] {
+		if name, _, ok := ParseMatrixUserID(r.Creator); ok && isLocal[r.RoomID] && banned[strings.ToLower(name)] {
 			continue
 		}
 		created := time.Time{}
@@ -276,9 +335,12 @@ func refreshGroupHotBatch(conn *gorm.DB, local string, rooms []MatrixRoom, since
 			last = *r.LastEventTS // first run: best known activity time
 		}
 		server := groupHomeServer(&r)
+		if isLocal[r.RoomID] {
+			server = normalizeServerHost(local)
+		}
 		rows = append(rows, MatrixGroupHotScore{
 			RoomID: r.RoomID, ScoreKey: int64(math.Round(groupHotScore(a, members[r.RoomID], created, now) * groupHotScoreScale)),
-			LastPostTS: last, CreatedTS: created.UnixMilli(), Server: server, IsLocal: server == local,
+			LastPostTS: last, CreatedTS: created.UnixMilli(), Server: server, IsLocal: isLocal[r.RoomID],
 			MemberCount: members[r.RoomID], ComputedAt: runStart,
 		})
 	}
@@ -473,7 +535,7 @@ func exploreGroupViews(c *gin.Context, hs *HomeServer, conn *gorm.DB, rows []Mat
 		ids = append(ids, r.RoomID)
 	}
 	var rooms []MatrixRoom
-	if err := eligibleExploreGroups(conn, hs.Config.ServerName).Where("room_id IN ?", ids).Find(&rooms).Error; err != nil {
+	if err := eligibleExploreGroups(conn).Where("room_id IN ?", ids).Find(&rooms).Error; err != nil {
 		return nil, err
 	}
 	byID := map[string]*MatrixRoom{}
@@ -501,7 +563,7 @@ func exploreGroupViews(c *gin.Context, hs *HomeServer, conn *gorm.DB, rows []Mat
 	}
 	for _, r := range rows {
 		room := byID[r.RoomID]
-		if room == nil {
+		if room == nil || !exploreGroupListable(room, r.IsLocal) {
 			continue // became ineligible since the last refresh
 		}
 		name, topic := directoryString(room.Name), directoryString(room.Topic)
@@ -547,7 +609,7 @@ func HandleExploreGroupAvatar(c *gin.Context) {
 	conn := db.GetDB().WithContext(c.Request.Context())
 	var score MatrixGroupHotScore
 	var room MatrixRoom
-	if conn.Where("room_id = ?", id).First(&score).Error != nil || eligibleExploreGroups(conn, hs.Config.ServerName).Where("room_id = ?", id).First(&room).Error != nil || room.AvatarURL == nil {
+	if conn.Where("room_id = ?", id).First(&score).Error != nil || eligibleExploreGroups(conn).Where("room_id = ?", id).First(&room).Error != nil || room.AvatarURL == nil || !exploreGroupListable(&room, score.IsLocal) {
 		exploreFailure(c, 404, "EXPLORE_GROUP_NOT_FOUND", "Group not found")
 		return
 	}
