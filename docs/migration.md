@@ -23,7 +23,8 @@ community-transfer --source misskey \
 | `--sslmode` | DSN 中没有 `sslmode` 时追加（`disable` / `require` / `verify-full` …） |
 | `--source-base-url` | 源站公开 origin，必须等于目标 `APP_BASE_URL` |
 | `--id-method` | Misskey `config.id`。历史上切换过 ID 格式也没关系，每个 ID 单独识别（见下文） |
-| `--work-dir` | 私有工作目录：读取检查点（`state/`）、spool（`spool.sqlite3`）、复制的媒体（`out-*/`） |
+| `--work-dir` | 私有工作目录（0700）：读取检查点（`state/`）、spool（`spool.sqlite3`）、复制的媒体（`out-*/`）。`--apply` 成功后自动擦除其中含明文凭据的文件 |
+| `--keep-secret-spool` | 调试用：`--apply` 成功后不擦除含明文凭据（含 TOTP secret）的 spool/state，并打印警告 |
 | `--fetch-only` | 第一阶段：源站继续在线，批量读取到 `--work-dir` 后停止 |
 | `--final-sync` | 第二阶段：源站停写后，补读新增/修改/删除的行，然后导入 |
 | `--batch-size 5000` | 每页行数 = 每个只读事务的大小（keyset 分页） |
@@ -124,6 +125,58 @@ progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2
 
 **Redis 不是必需的。** 没有配置时，`--apply` 会打印一行提示并继续导入，只是跳过缓存清理；导入后重启实例或运行 `tootctl feeds build --all` 即可。演练用的空库不需要 Redis。如果某个代码路径仍然意外地需要 Redis，程序会给出明确错误（而不是 `panic: no redis config`），并提示设置上面的变量；请附上 `TRANSFER_DEBUG=1` 的输出报告。
 
+## 二步验证（TOTP）与敏感文件
+
+### 映射
+
+Misskey `user_profile` 的二步验证会导入到 Community 自己的 TOTP（RFC 6238，SHA1，6 位，30 秒，±1 步）：
+
+| Misskey | Community |
+|---|---|
+| `twoFactorEnabled = true` + `twoFactorSecret`（base32） | `user_two_factors.secret`，用 `ENCRYPTED_KEY` 加密保存；用户原来的验证器 App 直接可用 |
+| `twoFactorBackupSecret`（明文列表） | `user_backup_codes`，bcrypt 哈希，每个只能用一次 |
+| `securityKeysAvailable` | 不在 bundle 里：导入后运行 `tootctl passkeys import-misskey`（警告 `security_keys_separate`） |
+| `twoFactorEnabled = false`（残留的 secret） | 忽略，账号不启用 2FA |
+
+仍然报 `unsupported_auth`（阻断）的情况，消息开头是原因代码：
+
+| 原因代码 | 含义 |
+|---|---|
+| `passwordless_without_totp` | 只用安全密钥无密码登录、没有 TOTP。Misskey 的密钥不保证是可发现的 passkey，导入后会退化成只有密码 |
+| `invalid_totp_secret` | 启用了 2FA 但 secret 缺失或不是 base32 |
+| `invalid_backup_codes` | 备用码不是字符串列表 |
+| `unknown_credential_extension` | credential 里有导入器不认识的扩展字段 |
+| `two_factor_without_adapter` | 只有"启用了 2FA"标记、没有可导入的 secret（例如 Mastodon：secret 需要 Rails 的加密密钥） |
+
+`ENCRYPTED_KEY` 导入后不能再换，否则 TOTP secret 无法解密，这些用户将无法登录（只能用 `tootctl two-factor reset` 重置）。
+
+### 脱敏
+
+- TOTP secret 和备用码不会出现在日志、`report-*.json`、stdout 或错误消息里：报告只写原因代码；credential 的回执摘要基于脱敏后的值；导入器错误只说"two-factor secret could not be stored"。
+- 私有归档（`data_transfer_preserved_records`）里的原始 `misskey:user_profile` 行在写入前把 `twoFactorSecret` / `twoFactorBackupSecret` / `twoFactorTempSecret` 替换为 `"[redacted]"`（回执摘要仍按原值计算，所以旧导入的重跑不会冲突）。
+- **2FA 支持之前做过的导入**，归档里可能有明文 secret：运行 `tootctl two-factor scrub-preserved --dry-run` 查看数量，再去掉 `--dry-run` 执行（只改这些字段，可重复执行）。
+- `export_misskey.py` 的错误输出同样会把 `twoFactor*Secret` 的值替换成 `***`。
+
+### 工作目录与 spool
+
+spool（`spool.sqlite3*`）、读取状态（`state/staging.sqlite3`）和 `out-*/.spool`、`bundle.json` 里都有**明文** `twoFactorSecret`、密码哈希和签名私钥。
+
+- `--work-dir` 以 `0700` 创建（已存在时也会收紧为 `0700`），其中的文件为 `0600`（spool 在 SQLite 打开前以 `0600` 创建；导出器以 `umask 077` 运行；每个阶段后再收紧一次）。
+- **`--apply` 成功后自动擦除**这些含密文件：先用零覆盖、`fsync`，再删除；复制的媒体（`out-*/` 下的其余文件）保留。之后如果还要 `--final-sync`，会从头读取源库（回执保证幂等，只是更慢）。两阶段迁移的正常顺序（`--fetch-only` → `--final-sync --apply`）不受影响。
+- 调试时加 `--keep-secret-spool` 保留这些文件，程序会打印 `WARNING`；调试完请手动删除 `spool.sqlite3*`、`state/`、`out-*/.spool`。
+- 流式导入现成 bundle 时，临时 spool 同样会被擦除；**作为输入的 `bundle.json` 不会被自动删除**，导入成功后会打印 `NOTICE` 提醒用 `shred -u` 之类的方式清除它和所有副本。
+- 覆盖擦除是尽力而为：写时复制文件系统、SSD 磨损均衡和快照可能保留旧数据块，工作目录应放在加密磁盘上，并且不要放进会被备份/快照的路径。
+
+### 运维命令
+
+```sh
+tootctl two-factor status alice        # 是否启用、剩余备用码
+tootctl two-factor reset alice         # 关闭 2FA 并删除备用码（先核实身份）
+tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secret
+```
+
+管理后台「账号」详情页也有两步验证状态和「重置两步验证」按钮。
+
 ## maid.lat 演练得到的教训
 
 1. **默认只迁本地数据。** maid.lat 有 4.57M 条笔记，绝大多数是远端缓存。默认只导出本地用户的数据和它们引用的远端实体；被裁掉的引用记为 `remote_reference_trimmed`（info）。只有确实需要远端缓存时才加 `--include-remote-cache`，内存和时间都会大很多。
@@ -132,9 +185,9 @@ progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2
 4. **对象存储 URL 必须保持在线。** `--object-storage-mode reference` 不复制文件，导入后的附件、头像、表情仍指向原 bucket 的公开 URL。迁移完成后**不能删除 bucket、不能改它的域名或访问策略**；要换存储，先用 `copy` 模式（或之后用 `tootctl media` 迁移）把文件搬过来。
 5. **不迁移的内容（用户需要知道）：**
    - 登录会话、OAuth 应用与访问令牌：所有客户端需要重新登录 / 重新授权。
-   - TOTP 二步验证（MFA）：不迁移，用户迁移后重新设置。**注意：**目前启用了二步验证、安全密钥或无密码登录的本地账号会让预检报 `unsupported_auth`（阻断），因为直接导入只剩密码的账号是一次安全降级。正式迁移前需要明确策略（例如通知这些用户先在源站关闭 2FA，或增加显式的 `--drop-mfa` 选项并强制他们下次登录时重新绑定）；这一项尚未实现。
-   - 通行密钥（passkeys / WebAuthn）：不在主导入里，单独运行  
-     `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。
+   - TOTP 二步验证（MFA）：**会迁移**，见下文「二步验证（TOTP）与敏感文件」。
+   - 通行密钥 / 安全密钥（passkeys / WebAuthn）：不在主导入里，**导入完成后立即**单独运行  
+     `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。预检对有安全密钥的账号给出 `security_keys_separate` 警告提醒这一步。
    - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。
    - **账号级可见性策略**：Misskey 的 `requireSigninToViewContents`（需要登录才能查看）、`makeNotesFollowersOnlyBefore` / `makeNotesHiddenBefore`（把某个时间点之前的笔记自动改为仅关注者可见 / 隐藏；正数是 Unix 秒，负数是"距今 N 秒"）在 Community 里没有对应功能。设置了其中任何一个的本地账号会在预检中报 `unsupported_privacy_policy`（阻断），报告会写明字段和值，例如 `makeNotesHiddenBefore=-2592000`。映射策略待定。
    - 使用目标站不存在的自定义表情（例如本地迁移范围之外的远端表情）的回应会归档，而不是让整个事务失败。
@@ -170,7 +223,7 @@ community-transfer "${COMMON[@]}" --final-sync --report /srv/maid-rehearsal/repo
 # 3) 导入（中断后加 --reuse-spool 重跑即可从检查点继续）
 TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import.json
 
-# 4) 通行密钥
+# 4) 通行密钥 / 安全密钥（导入后立即执行；TOTP 已随主导入迁移，含密 spool 已自动擦除）
 tootctl passkeys import-misskey --dsn "postgresql://community_export@10.0.0.5:5432/misskey?sslmode=require" --dry-run
 
 # 5) 启动目标实例（仍在隔离网络中）并核对

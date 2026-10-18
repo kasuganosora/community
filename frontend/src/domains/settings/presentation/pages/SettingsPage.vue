@@ -6,6 +6,7 @@ import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import PasskeySettings from '../components/PasskeySettings.vue'
+import TwoFactorSettings from '../components/TwoFactorSettings.vue'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import AccountLifecycleSettings from '../components/AccountLifecycleSettings.vue'
 import FilterSettings from '../components/FilterSettings.vue'
@@ -114,6 +115,13 @@ async function logout() {
         <h2 id="settings-password" class="settings__heading">{{ $t('settings.SettingsPage.s13') }}</h2>
         <div class="settings__group settings__group--padded">
           <PasswordSettingsForm />
+        </div>
+      </section>
+
+      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'security'" aria-labelledby="settings-two-factor">
+        <h2 id="settings-two-factor" class="settings__heading">{{ $t('settings.TwoFactor.title') }}</h2>
+        <div class="settings__group settings__group--padded">
+          <TwoFactorSettings />
         </div>
       </section>
 

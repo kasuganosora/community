@@ -64,6 +64,12 @@ export const moderationAdminApi = {
   async account(id: string) {
     return (await client.get<AdminAccount>(`${base}/accounts/${encodeURIComponent(id)}`)).data
   },
+  async accountTwoFactor(id: string) {
+    return (await client.get<{ enabled: boolean; enabled_at: string | null; backup_codes_remaining: number }>(`${base}/accounts/${encodeURIComponent(id)}/two_factor`)).data
+  },
+  async resetAccountTwoFactor(id: string) {
+    await client.post(`${base}/accounts/${encodeURIComponent(id)}/two_factor/reset`)
+  },
   async accountAction(id: string, action: AccountAction) {
     const url = `${base}/accounts/${encodeURIComponent(id)}`
     if (action === 'disable' || action === 'suspend') await client.post(`${url}/action`, { type: action })

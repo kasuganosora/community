@@ -1,14 +1,34 @@
 import client from '@/shared/api/client'
 import type { MastodonAccount } from '@/shared/types/mastodon'
-import type { AuthCredentials, RegisterCredentials, LoginResponse } from '../domain/entities'
+import type { AuthCredentials, RegisterCredentials, LoginResponse, TwoFactorChallenge } from '../domain/entities'
+
+function twoFactorChallengeOf(e: unknown): TwoFactorChallenge | null {
+  const data = (e as { response?: { status?: number; data?: { error?: string; challenge?: string } } })?.response
+  if (data?.status === 401 && data.data?.error === 'two_factor_required' && typeof data.data.challenge === 'string') {
+    return { twoFactorRequired: true, challenge: data.data.challenge }
+  }
+  return null
+}
 
 export const authApi = {
-  async login(credentials: AuthCredentials): Promise<LoginResponse> {
-    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login', {
-      username: credentials.username,
-      password: credentials.password,
-      captcha_response: credentials.captchaResponse || undefined,
-    })
+  async login(credentials: AuthCredentials): Promise<LoginResponse | TwoFactorChallenge> {
+    try {
+      const { data } = await client.post<LoginResponse>('/api/v1/accounts/login', {
+        username: credentials.username,
+        password: credentials.password,
+        captcha_response: credentials.captchaResponse || undefined,
+      })
+      return data
+    } catch (e) {
+      const challenge = twoFactorChallengeOf(e)
+      if (challenge) return challenge
+      throw e
+    }
+  },
+
+  /** Second step of a password login for accounts with two-factor authentication. */
+  async loginTwoFactor(challenge: string, code: string): Promise<LoginResponse> {
+    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login/two_factor', { challenge, code })
     return data
   },
 

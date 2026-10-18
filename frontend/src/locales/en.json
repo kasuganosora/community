@@ -602,7 +602,12 @@
       "s42": "Suspend account",
       "s43": "Email unverified",
       "s44": "Request failed, please try again",
-      "s45": "Confirm “{2}” for {'@'}{0}{1}?"
+      "s45": "Confirm “{2}” for {'@'}{0}{1}?",
+      "twoFactor": "Two-factor",
+      "twoFactorOn": "On",
+      "twoFactorOff": "Off",
+      "twoFactorReset": "Reset two-factor",
+      "twoFactorResetConfirm": "Turn off two-factor authentication for {'@'}{0} and delete their backup codes? Verify the person’s identity first."
     },
     "AnnouncementsAdminPage": {
       "s1": "Announcements",
@@ -1665,7 +1670,13 @@
       "s15": "Have an account here? Sign in above. Don’t have one?",
       "s16": "No — sign up",
       "s17": "Registration on this server is currently closed.",
-      "s18": "Captcha isn’t configured; sign-in is temporarily unavailable."
+      "s18": "Captcha isn’t configured; sign-in is temporarily unavailable.",
+      "twoFactorHint": "Enter the 6-digit code from your authenticator app.",
+      "twoFactorLabel": "Two-factor code",
+      "twoFactorPlaceholder": "123456",
+      "twoFactorBackupHint": "Can’t use the app? Enter one of your backup codes instead.",
+      "twoFactorSubmit": "Verify and sign in",
+      "twoFactorBack": "Back to password"
     },
     "RegisterPage": {
       "s1": "Close sign-up",
@@ -2884,6 +2895,45 @@
     },
     "ProfileProof": {
       "verified": "Verified link"
+    },
+    "TwoFactor": {
+      "title": "Two-factor authentication",
+      "loading": "Loading…",
+      "loadFailed": "Could not load two-factor status",
+      "retry": "Retry",
+      "statusOn": "On since {0}",
+      "statusOff": "Off",
+      "remaining": "{0} backup code left | {0} backup codes left",
+      "intro": "Sign-in will ask for a code from an authenticator app (Google Authenticator, 1Password, Aegis…) in addition to your password.",
+      "codesOnce": "Save these backup codes now — they are shown only once. Each code works a single time.",
+      "copy": "Copy",
+      "download": "Download .txt",
+      "saved": "I’ve saved them",
+      "password": "Current password",
+      "cancel": "Cancel",
+      "continue": "Continue",
+      "scan": "Scan the QR code with your authenticator app or enter the key manually, then type the 6-digit code it shows.",
+      "qrLabel": "QR code for two-factor setup",
+      "manualKey": "Manual entry key",
+      "code": "6-digit code",
+      "verify": "Verify and turn on",
+      "disableHint": "Turning it off means only your password is needed to sign in. Confirm with your password and a code (or backup code).",
+      "regenerateHint": "Generating new backup codes invalidates all the old ones.",
+      "codeOrBackup": "Two-factor code or backup code",
+      "disable": "Turn off",
+      "regenerate": "Regenerate backup codes",
+      "enable": "Turn on two-factor authentication",
+      "passkeyNote": "Signing in with a passkey does not ask for a code.",
+      "enabled": "Two-factor authentication is on",
+      "disabled": "Two-factor authentication is off",
+      "copied": "Copied",
+      "copyFailed": "Copy failed",
+      "wrongPassword": "Incorrect password",
+      "wrongCode": "The code is wrong or was already used",
+      "codeRequired": "This account uses two-factor authentication: also enter a code or backup code.",
+      "locked": "Too many wrong codes. Try again in 15 minutes.",
+      "setupExpired": "Setup expired, please start again",
+      "failed": "Something went wrong"
     }
   },
   "timeline": {
@@ -3414,6 +3464,11 @@
     "replaceAttachment": "To replace an attachment, delete the message and send a new one.",
     "inviteCreateFailed": "Couldn’t create the invite.",
     "emailTaken": "This email address is already registered.",
-    "settingValueInvalid": "Invalid value for {0}."
+    "settingValueInvalid": "Invalid value for {0}.",
+    "twoFactorInvalid": "The code is wrong or was already used",
+    "twoFactorLocked": "Too many wrong codes. Try again in 15 minutes.",
+    "twoFactorRequired": "A two-factor code is required",
+    "twoFactorChallengeExpired": "Sign-in timed out, please enter your password again",
+    "twoFactorAlreadyEnabled": "Two-factor authentication is already on"
   }
 }

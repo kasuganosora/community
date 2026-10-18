@@ -14,6 +14,11 @@ import { t } from '@/shared/i18n'
  * (src/locales/README.md).
  */
 const API_ERRORS: Record<string, string> = {
+  "invalid_two_factor_code": 'twoFactorInvalid',
+  "two_factor_locked": 'twoFactorLocked',
+  "two_factor_required": 'twoFactorRequired',
+  "invalid_challenge": 'twoFactorChallengeExpired',
+  "two_factor_already_enabled": 'twoFactorAlreadyEnabled',
   "account not found": 'accountNotFound',
   "target account not found": 'accountNotFound',
   "user not found": 'accountNotFound',

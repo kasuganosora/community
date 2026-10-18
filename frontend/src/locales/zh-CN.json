@@ -602,7 +602,12 @@
       "s42": "封禁账号",
       "s43": "待验证邮箱",
       "s44": "请求失败，请重试",
-      "s45": "确认对 {'@'}{0}{1} 执行“{2}”？"
+      "s45": "确认对 {'@'}{0}{1} 执行“{2}”？",
+      "twoFactor": "两步验证",
+      "twoFactorOn": "已启用",
+      "twoFactorOff": "未启用",
+      "twoFactorReset": "重置两步验证",
+      "twoFactorResetConfirm": "确定要关闭 {'@'}{0} 的两步验证并删除其备用码吗？请先核实用户身份。"
     },
     "AnnouncementsAdminPage": {
       "s1": "公告管理",
@@ -1665,7 +1670,13 @@
       "s15": "有本站账号就在上面登录。还没有？",
       "s16": "没有，去注册",
       "s17": "本站暂不开放注册。",
-      "s18": "验证码没有配好，暂时不能登录。"
+      "s18": "验证码没有配好，暂时不能登录。",
+      "twoFactorHint": "请输入身份验证器 App 中的 6 位验证码。",
+      "twoFactorLabel": "两步验证码",
+      "twoFactorPlaceholder": "123456",
+      "twoFactorBackupHint": "无法使用 App？可以输入一个备用码。",
+      "twoFactorSubmit": "验证并登录",
+      "twoFactorBack": "返回重新输入密码"
     },
     "RegisterPage": {
       "s1": "关闭注册",
@@ -2884,6 +2895,45 @@
     },
     "ProfileProof": {
       "verified": "已验证链接"
+    },
+    "TwoFactor": {
+      "title": "两步验证",
+      "loading": "正在加载…",
+      "loadFailed": "无法读取两步验证状态",
+      "retry": "重试",
+      "statusOn": "已启用（自 {0}）",
+      "statusOff": "未启用",
+      "remaining": "剩余 {0} 个备用码",
+      "intro": "登录时除了密码，还需要身份验证器 App（如 Google Authenticator、1Password、Aegis）生成的验证码。",
+      "codesOnce": "请立即保存这些备用码，它们只显示这一次。每个备用码只能使用一次。",
+      "copy": "复制",
+      "download": "下载 .txt",
+      "saved": "我已保存",
+      "password": "当前密码",
+      "cancel": "取消",
+      "continue": "继续",
+      "scan": "用身份验证器 App 扫描二维码，或手动输入密钥，然后填写 App 显示的 6 位验证码。",
+      "qrLabel": "两步验证设置二维码",
+      "manualKey": "手动输入密钥",
+      "code": "6 位验证码",
+      "verify": "验证并启用",
+      "disableHint": "关闭后登录只需要密码。请输入密码和验证码（或备用码）确认。",
+      "regenerateHint": "生成新的备用码后，旧的备用码全部失效。",
+      "codeOrBackup": "两步验证码或备用码",
+      "disable": "关闭两步验证",
+      "regenerate": "重新生成备用码",
+      "enable": "启用两步验证",
+      "passkeyNote": "使用通行密钥（Passkey）登录时无需再输入验证码。",
+      "enabled": "两步验证已启用",
+      "disabled": "两步验证已关闭",
+      "copied": "已复制",
+      "copyFailed": "复制失败",
+      "wrongPassword": "密码不正确",
+      "wrongCode": "验证码不正确或已使用过",
+      "codeRequired": "此账号已启用两步验证，请同时输入验证码或备用码。",
+      "locked": "错误次数过多，请 15 分钟后再试",
+      "setupExpired": "设置已过期，请重新开始",
+      "failed": "操作失败"
     }
   },
   "timeline": {
@@ -3414,6 +3464,11 @@
     "replaceAttachment": "如需替换附件，请删除消息后重新发送",
     "inviteCreateFailed": "无法创建邀请",
     "emailTaken": "该邮箱已被注册",
-    "settingValueInvalid": "{0} 的值无效"
+    "settingValueInvalid": "{0} 的值无效",
+    "twoFactorInvalid": "验证码不正确或已使用过",
+    "twoFactorLocked": "错误次数过多，请 15 分钟后再试",
+    "twoFactorRequired": "需要两步验证码",
+    "twoFactorChallengeExpired": "登录已超时，请重新输入密码",
+    "twoFactorAlreadyEnabled": "两步验证已经启用"
   }
 }

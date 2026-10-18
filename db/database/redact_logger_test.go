@@ -53,6 +53,9 @@ func TestRedactSensitiveStatements(t *testing.T) {
 		"SELECT 1 -- Authorization: Bearer syt_SUPERSECRET_abc123",
 		"Error 1062: Duplicate entry 'syt_SUPERSECRET_abc123' for key 'access_token'",
 		"GET /sync?access_token=syt_SUPERSECRET_abc123&since=1",
+		"UPDATE `user_two_factors` SET `pending_secret`='syt_SUPERSECRET_abc123',`updated_at`='2026-10-18' WHERE `user_id` = 1",
+		"INSERT INTO `user_two_factors` (`user_id`,`salt`,`secret`,`enabled_at`) VALUES (1,'s','syt_SUPERSECRET_abc123',NULL)",
+		"INSERT INTO `user_backup_codes` (`user_id`,`code_hash`,`used_at`) VALUES (1,'syt_SUPERSECRET_abc123',NULL)",
 	}
 	for _, in := range cases {
 		out := RedactSensitive(in)

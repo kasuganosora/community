@@ -170,8 +170,9 @@ export const userApi = {
     return data
   },
 
-  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  async changePassword(oldPassword: string, newPassword: string, otp = ''): Promise<void> {
     const body = new URLSearchParams({ old_password: oldPassword, new_password: newPassword })
+    if (otp) body.set('otp_attempt', otp)
     await client.put('/api/v1/accounts/me/password', body, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })

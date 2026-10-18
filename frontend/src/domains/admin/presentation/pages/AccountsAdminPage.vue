@@ -83,12 +83,35 @@ async function load(reset = false) {
   } catch (e) { if (version === listRequest) { error.value = message(e); items.value = [] } }
   finally { if (version === listRequest) loading.value = false }
 }
+// Two-factor state of the selected local account (null: unknown / remote).
+const twoFactor = ref<{ enabled: boolean; enabled_at: string | null } | null>(null)
+async function loadTwoFactor(account: AdminAccount, version: number) {
+  twoFactor.value = null
+  if (account.domain) return
+  try { const value = await api.accountTwoFactor(account.id); if (version === detailRequest) twoFactor.value = value }
+  catch { /* not a local login account */ }
+}
+async function resetTwoFactor() {
+  const account = selected.value
+  if (!account || busy.value || !window.confirm(t('admin.AccountsAdminPage.twoFactorResetConfirm', [account.username]))) return
+  busy.value = true
+  error.value = ''
+  try {
+    await api.resetAccountTwoFactor(account.id)
+    twoFactor.value = { enabled: false, enabled_at: null }
+  } catch (e) { error.value = message(e) }
+  finally { busy.value = false }
+}
 async function detail(id: string) {
   const version = ++detailRequest
   selected.value = null
+  twoFactor.value = null
   detailLoading.value = true
   error.value = ''
-  try { const value = await api.account(id); if (version === detailRequest) selected.value = value }
+  try {
+    const value = await api.account(id)
+    if (version === detailRequest) { selected.value = value; void loadTwoFactor(value, version) }
+  }
   catch (e) { if (version === detailRequest) error.value = message(e) }
   finally { if (version === detailRequest) detailLoading.value = false }
 }
@@ -154,7 +177,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
     <p v-if="detailLoading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s30') }}</p>
     <section v-if="selected" class="admin-card" :aria-label="$t('admin.AccountsAdminPage.s31')">
       <h2>@{{ selected.username }}{{ selected.domain ? `@${selected.domain}` : '' }}</h2>
-      <dl><dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd><dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd><dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd></dl>
+      <dl><dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd><dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd><dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd><template v-if="twoFactor"><dt>{{ $t('admin.AccountsAdminPage.twoFactor') }}</dt><dd>{{ twoFactor.enabled ? $t('admin.AccountsAdminPage.twoFactorOn') : $t('admin.AccountsAdminPage.twoFactorOff') }}</dd></template></dl>
       <RichText v-if="selected.account?.note" :html="selected.account.note" :emojis="selected.account.emojis" />
       <div class="admin-toolbar">
         <template v-if="!selected.domain && selected.user_status !== undefined">
@@ -162,6 +185,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
           <button v-else-if="selected.user_status === 2 || selected.disabled" class="admin-button" :disabled="busy" @click="act('enable')">{{ $t('admin.AccountsAdminPage.s39') }}</button>
           <button v-else class="admin-button admin-button--danger" :disabled="busy" @click="act('disable')">{{ $t('admin.AccountsAdminPage.s40') }}</button>
         </template>
+        <button v-if="twoFactor?.enabled" class="admin-button admin-button--danger" :disabled="busy" @click="resetTwoFactor">{{ $t('admin.AccountsAdminPage.twoFactorReset') }}</button>
         <button v-if="selected.suspended" class="admin-button" :disabled="busy" @click="act('unsuspend')">{{ $t('admin.AccountsAdminPage.s41') }}</button>
         <button v-else class="admin-button admin-button--danger" :disabled="busy" @click="act('suspend')">{{ $t('admin.AccountsAdminPage.s42') }}</button>
       </div>

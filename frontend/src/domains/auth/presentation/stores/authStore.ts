@@ -55,10 +55,29 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       const res = await authApi.login(credentials)
+      if ('twoFactorRequired' in res) return res
       await establishSession(res.token)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('auth.authStore.s2')
       error.value = msg
+      throw e
+    } finally {
+      isLoggingIn = false
+      loading.value = false
+    }
+  }
+
+  /** Finish a password login with a TOTP or backup code. */
+  async function loginTwoFactor(challenge: string, code: string) {
+    if (isLoggingIn) throw new Error(t('auth.authStore.s1'))
+    isLoggingIn = true
+    loading.value = true
+    error.value = null
+    try {
+      const res = await authApi.loginTwoFactor(challenge, code)
+      await establishSession(res.token)
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : t('auth.authStore.s2')
       throw e
     } finally {
       isLoggingIn = false
@@ -235,6 +254,7 @@ export const useAuthStore = defineStore('auth', () => {
     expireSession,
     login,
     loginWithPasskey,
+    loginTwoFactor,
     logout,
     fetchCurrentUser,
     initialize,

@@ -10,16 +10,22 @@ const state = ref<AccountLifecycleState | null>(null)
 const aliases = ref<string[]>([])
 const target = ref(''), movePassword = ref(''), deletePassword = ref(''), confirmation = ref('')
 const moveConfirmed = ref(false), deleteConfirmed = ref(false)
+// Accounts with two-factor authentication also confirm with a code.
+const otp = ref(''), needOtp = ref(false)
 const loading = ref(false), busy = ref(''), error = ref(''), notice = ref('')
 const key = (name: string) => t(`settings.AccountLifecycle.${name}`)
 const scope = useSettingsScope(() => {
-  state.value = null; aliases.value = []; target.value = ''; movePassword.value = ''; deletePassword.value = ''; confirmation.value = ''
+  state.value = null; aliases.value = []; otp.value = ''; needOtp.value = false; target.value = ''; movePassword.value = ''; deletePassword.value = ''; confirmation.value = ''
   moveConfirmed.value = deleteConfirmed.value = false; loading.value = false; busy.value = error.value = notice.value = ''
 })
 const disabled = computed(() => loading.value || !!busy.value || !state.value || state.value.deletion_requested)
 const changed = computed(() => JSON.stringify(aliases.value.filter(a => a.trim()).map(a => a.trim())) !== JSON.stringify(state.value?.aliases ?? []))
 function apply(value: AccountLifecycleState) { state.value = value; aliases.value = [...(value.aliases ?? [])] }
 function failure(e: unknown) {
+  const api = (e as { apiMessage?: string })?.apiMessage
+  if (api === 'two_factor_required') { needOtp.value = true; return t('settings.TwoFactor.codeRequired') }
+  if (api === 'invalid_two_factor_code') { otp.value = ''; return t('settings.TwoFactor.wrongCode') }
+  if (api === 'two_factor_locked') return t('settings.TwoFactor.locked')
   const message = e instanceof Error ? e.message : ''
   const errors: Record<string, string> = {
     'invalid password': 'invalidPassword',
@@ -52,9 +58,9 @@ async function move() {
   if (disabled.value || state.value?.moved_to || !moveConfirmed.value || !target.value.trim() || !movePassword.value) return
   const current = scope(); busy.value = 'move'; error.value = notice.value = ''
   try {
-    const value = await accountLifecycleApi.move(target.value.trim(), movePassword.value)
+    const value = await accountLifecycleApi.move(target.value.trim(), movePassword.value, otp.value.trim())
     if (!current()) return
-    apply(value); movePassword.value = ''; moveConfirmed.value = false; notice.value = key('moved')
+    apply(value); movePassword.value = ''; otp.value = ''; moveConfirmed.value = false; notice.value = key('moved')
   } catch (e) { if (current()) error.value = failure(e) }
   finally { if (current()) busy.value = '' }
 }
@@ -62,7 +68,7 @@ async function remove() {
   if (disabled.value || !deleteConfirmed.value || !deletePassword.value || confirmation.value !== auth.currentUser?.username) return
   const current = scope(); busy.value = 'delete'; error.value = notice.value = ''
   try {
-    await accountLifecycleApi.delete(deletePassword.value, confirmation.value)
+    await accountLifecycleApi.delete(deletePassword.value, confirmation.value, otp.value.trim())
     if (!current()) return
     deletePassword.value = ''; notice.value = key('deletionQueued')
     await auth.logout(true, false)
@@ -113,6 +119,10 @@ onMounted(load)
               <input id="migration-target" v-model="target" class="settings-input" required maxlength="2048" placeholder="@username@server.example" autocomplete="off" autocapitalize="none" spellcheck="false" />
               <label for="migration-password">{{ key('password') }}</label>
               <input id="migration-password" v-model="movePassword" class="settings-input" required type="password" autocomplete="current-password" />
+              <template v-if="needOtp">
+                <label for="migration-otp">{{ $t('settings.TwoFactor.codeOrBackup') }}</label>
+                <input id="migration-otp" v-model="otp" class="settings-input" required autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" />
+              </template>
               <label class="lifecycle__check"><input v-model="moveConfirmed" type="checkbox" required /> <span>{{ key('moveConfirm') }}</span></label>
               <div class="lifecycle__actions"><button class="btn btn--primary btn--sm" :disabled="!moveConfirmed || !target.trim() || !movePassword">{{ key(busy === 'move' ? 'moving' : 'move') }}</button></div>
             </fieldset>
@@ -127,6 +137,10 @@ onMounted(load)
         <fieldset :disabled="disabled">
           <label for="deletion-password">{{ key('password') }}</label>
           <input id="deletion-password" v-model="deletePassword" class="settings-input" required type="password" autocomplete="current-password" />
+          <template v-if="needOtp">
+            <label for="deletion-otp">{{ $t('settings.TwoFactor.codeOrBackup') }}</label>
+            <input id="deletion-otp" v-model="otp" class="settings-input" required autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" />
+          </template>
           <label for="deletion-confirmation">{{ key('typeUsername') }} <strong>{{ auth.currentUser?.username }}</strong></label>
           <input id="deletion-confirmation" v-model="confirmation" class="settings-input" required autocomplete="off" autocapitalize="none" spellcheck="false" />
           <label class="lifecycle__check"><input v-model="deleteConfirmed" type="checkbox" required /> <span>{{ key('deleteConfirm') }}</span></label>

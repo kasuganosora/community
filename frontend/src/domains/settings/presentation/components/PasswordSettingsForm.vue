@@ -8,10 +8,12 @@ import { validatePasswordChange, MIN_PASSWORD_LENGTH } from '../../domain/valida
 
 import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
-const pw = reactive({ old: '', next: '', confirm: '' })
+const pw = reactive({ old: '', next: '', confirm: '', otp: '' })
+// Shown once the server says the account has two-factor authentication.
+const needOtp = ref(false)
 const pwError = ref<string | null>(null)
 const savingPw = ref(false)
-const scope = useSettingsScope(() => { pw.old = pw.next = pw.confirm = ''; pwError.value = null; savingPw.value = false })
+const scope = useSettingsScope(() => { pw.old = pw.next = pw.confirm = pw.otp = ''; needOtp.value = false; pwError.value = null; savingPw.value = false })
 
 async function savePassword() {
   if (savingPw.value) return
@@ -20,12 +22,16 @@ async function savePassword() {
   if (pwError.value) return
   savingPw.value = true
   try {
-    await userApi.changePassword(pw.old, pw.next)
+    await userApi.changePassword(pw.old, pw.next, pw.otp.trim())
     if (!current()) return
-    pw.old = pw.next = pw.confirm = ''
+    pw.old = pw.next = pw.confirm = pw.otp = ''
     MessagePlugin.success(t('settings.PasswordSettingsForm.s7'))
   } catch (e) {
     if (!current()) return
+    const api = (e as { apiMessage?: string })?.apiMessage
+    if (api === 'two_factor_required') { needOtp.value = true; pwError.value = t('settings.TwoFactor.codeRequired'); return }
+    if (api === 'invalid_two_factor_code') { pw.otp = ''; pwError.value = t('settings.TwoFactor.wrongCode'); return }
+    if (api === 'two_factor_locked') { pwError.value = t('settings.TwoFactor.locked'); return }
     const msg = e instanceof Error ? e.message : t('settings.PasswordSettingsForm.s8')
     pwError.value = msg === 'old password is wrong' ? t('settings.PasswordSettingsForm.s9') : msg
   } finally {
@@ -50,6 +56,10 @@ async function savePassword() {
     <div class="settings-field">
       <label for="set-pw-confirm" class="settings-field__label">{{ $t('settings.PasswordSettingsForm.s4') }}</label>
       <input id="set-pw-confirm" v-model="pw.confirm" class="settings-input" type="password" autocomplete="new-password" />
+    </div>
+    <div v-if="needOtp" class="settings-field">
+      <label for="set-pw-otp" class="settings-field__label">{{ $t('settings.TwoFactor.codeOrBackup') }}</label>
+      <input id="set-pw-otp" v-model="pw.otp" class="settings-input" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" />
     </div>
     <p v-if="pwError" class="settings-error" role="alert">{{ pwError }}</p>
     <div class="settings-actions">

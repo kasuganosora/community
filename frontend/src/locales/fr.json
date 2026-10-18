@@ -602,7 +602,12 @@
       "s42": "Suspendre le compte",
       "s43": "E-mail non vérifié",
       "s44": "La requête a échoué, réessayez",
-      "s45": "Confirmer « {2} » pour {'@'}{0}{1} ?"
+      "s45": "Confirmer « {2} » pour {'@'}{0}{1} ?",
+      "twoFactor": "Double authentification",
+      "twoFactorOn": "Activée",
+      "twoFactorOff": "Désactivée",
+      "twoFactorReset": "Réinitialiser la double authentification",
+      "twoFactorResetConfirm": "Désactiver la double authentification de {'@'}{0} et supprimer ses codes de secours ? Vérifiez d’abord l’identité de la personne."
     },
     "AnnouncementsAdminPage": {
       "s1": "Annonces",
@@ -1665,7 +1670,13 @@
       "s15": "Vous avez un compte ? Connectez-vous ci-dessus. Pas encore ?",
       "s16": "Non, s’inscrire",
       "s17": "Les inscriptions sont actuellement fermées sur ce serveur.",
-      "s18": "Le captcha n’est pas configuré ; connexion temporairement indisponible."
+      "s18": "Le captcha n’est pas configuré ; connexion temporairement indisponible.",
+      "twoFactorHint": "Saisissez le code à 6 chiffres de votre application d’authentification.",
+      "twoFactorLabel": "Code de double authentification",
+      "twoFactorPlaceholder": "123456",
+      "twoFactorBackupHint": "Pas accès à l’application ? Saisissez l’un de vos codes de secours.",
+      "twoFactorSubmit": "Vérifier et se connecter",
+      "twoFactorBack": "Retour au mot de passe"
     },
     "RegisterPage": {
       "s1": "Fermer l’inscription",
@@ -2884,6 +2895,45 @@
     },
     "ProfileProof": {
       "verified": "Lien vérifié"
+    },
+    "TwoFactor": {
+      "title": "Double authentification",
+      "loading": "Chargement…",
+      "loadFailed": "Impossible de charger l’état de la double authentification",
+      "retry": "Réessayer",
+      "statusOn": "Activée depuis le {0}",
+      "statusOff": "Désactivée",
+      "remaining": "{0} code de secours restant | {0} codes de secours restants",
+      "intro": "La connexion demandera, en plus du mot de passe, un code d’une application d’authentification (Google Authenticator, 1Password, Aegis…).",
+      "codesOnce": "Enregistrez ces codes de secours maintenant : ils ne sont affichés qu’une fois. Chaque code n’est utilisable qu’une seule fois.",
+      "copy": "Copier",
+      "download": "Télécharger .txt",
+      "saved": "Je les ai enregistrés",
+      "password": "Mot de passe actuel",
+      "cancel": "Annuler",
+      "continue": "Continuer",
+      "scan": "Scannez le QR code avec votre application d’authentification ou saisissez la clé, puis entrez le code à 6 chiffres affiché.",
+      "qrLabel": "QR code de configuration de la double authentification",
+      "manualKey": "Clé de saisie manuelle",
+      "code": "Code à 6 chiffres",
+      "verify": "Vérifier et activer",
+      "disableHint": "Une fois désactivée, seul le mot de passe sera demandé. Confirmez avec votre mot de passe et un code (ou code de secours).",
+      "regenerateHint": "Générer de nouveaux codes de secours invalide tous les anciens.",
+      "codeOrBackup": "Code de double authentification ou code de secours",
+      "disable": "Désactiver",
+      "regenerate": "Régénérer les codes de secours",
+      "enable": "Activer la double authentification",
+      "passkeyNote": "La connexion avec une clé d’accès (passkey) ne demande pas de code.",
+      "enabled": "Double authentification activée",
+      "disabled": "Double authentification désactivée",
+      "copied": "Copié",
+      "copyFailed": "Échec de la copie",
+      "wrongPassword": "Mot de passe incorrect",
+      "wrongCode": "Code incorrect ou déjà utilisé",
+      "codeRequired": "Ce compte utilise la double authentification : saisissez aussi un code ou un code de secours.",
+      "locked": "Trop de codes erronés. Réessayez dans 15 minutes.",
+      "setupExpired": "La configuration a expiré, recommencez",
+      "failed": "L’opération a échoué"
     }
   },
   "timeline": {
@@ -3414,6 +3464,11 @@
     "replaceAttachment": "Pour remplacer une pièce jointe, supprimez le message et envoyez-en un nouveau.",
     "inviteCreateFailed": "Impossible de créer l’invitation.",
     "emailTaken": "Cette adresse e-mail est déjà enregistrée.",
-    "settingValueInvalid": "Valeur invalide pour {0}."
+    "settingValueInvalid": "Valeur invalide pour {0}.",
+    "twoFactorInvalid": "Code incorrect ou déjà utilisé",
+    "twoFactorLocked": "Trop de codes erronés. Réessayez dans 15 minutes.",
+    "twoFactorRequired": "Un code de double authentification est requis",
+    "twoFactorChallengeExpired": "La connexion a expiré, saisissez à nouveau votre mot de passe",
+    "twoFactorAlreadyEnabled": "La double authentification est déjà activée"
   }
 }

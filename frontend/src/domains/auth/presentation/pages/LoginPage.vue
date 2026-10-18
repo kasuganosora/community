@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
-import { reactive, ref, computed, onMounted } from 'vue'
+import { reactive, ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
@@ -71,6 +71,36 @@ const loginAttempts = ref(0)
 const MAX_LOGIN_ATTEMPTS = 5
 const LOCK_MS = 30_000
 
+// Second step for accounts with two-factor authentication.
+const twoFactorChallenge = ref('')
+const twoFactorCode = ref('')
+const codeInput = ref<HTMLInputElement | null>(null)
+
+async function submitTwoFactor() {
+  const code = twoFactorCode.value.trim()
+  if (!code || pending.value || !twoFactorChallenge.value) return
+  pending.value = true
+  try {
+    await authStore.loginTwoFactor(twoFactorChallenge.value, code)
+    twoFactorChallenge.value = ''
+    loginAttempts.value = 0
+    continueAfterLogin()
+  } catch (e) {
+    twoFactorCode.value = ''
+    pending.value = false
+    // An expired challenge needs the password again.
+    const api = (e as { apiMessage?: string })?.apiMessage
+    if (api === 'invalid_challenge') cancelTwoFactor()
+    else void nextTick(() => codeInput.value?.focus())
+  }
+}
+
+function cancelTwoFactor() {
+  twoFactorChallenge.value = ''
+  twoFactorCode.value = ''
+  form.password = ''
+}
+
 async function loginWithPasskey() {
   try {
     await authStore.loginWithPasskey()
@@ -126,7 +156,16 @@ async function handleLogin() {
         return
       }
     }
-    await authStore.login({ ...form, captchaResponse: captchaToken.value || undefined })
+    const result = await authStore.login({ ...form, captchaResponse: captchaToken.value || undefined })
+    if (result && 'twoFactorRequired' in result) {
+      twoFactorChallenge.value = result.challenge
+      twoFactorCode.value = ''
+      captchaToken.value = ''
+      pending.value = false
+      await nextTick()
+      codeInput.value?.focus()
+      return
+    }
     loginAttempts.value = 0
     continueAfterLogin()
   } catch {
@@ -161,7 +200,30 @@ async function handleLogin() {
       <t-alert v-if="emailVerify && !authStore.error" theme="info" :message="$t('auth.LoginPage.s7')" style="margin-bottom: var(--space-4)" />
       <t-alert v-if="authStore.error" theme="error" :message="authStore.error" style="margin-bottom: var(--space-4)" />
 
-      <t-form @submit="handleLogin" class="login-form" label-width="0">
+      <form v-if="twoFactorChallenge" class="login-form login-2fa" data-testid="login-2fa" @submit.prevent="submitTwoFactor">
+        <p class="login-2fa__hint">{{ $t('auth.LoginPage.twoFactorHint') }}</p>
+        <label for="login-2fa-code" class="sr-only">{{ $t('auth.LoginPage.twoFactorLabel') }}</label>
+        <input
+          id="login-2fa-code"
+          ref="codeInput"
+          v-model="twoFactorCode"
+          class="login-2fa__input"
+          name="otp"
+          autocomplete="one-time-code"
+          inputmode="text"
+          autocapitalize="off"
+          spellcheck="false"
+          maxlength="32"
+          :placeholder="$t('auth.LoginPage.twoFactorPlaceholder')"
+        />
+        <p class="login-2fa__backup">{{ $t('auth.LoginPage.twoFactorBackupHint') }}</p>
+        <t-button theme="primary" type="submit" block size="large" shape="round" :loading="pending" :disabled="pending || !twoFactorCode.trim()">
+          {{ $t('auth.LoginPage.twoFactorSubmit') }}
+        </t-button>
+        <button type="button" class="login-2fa__back" @click="cancelTwoFactor">{{ $t('auth.LoginPage.twoFactorBack') }}</button>
+      </form>
+
+      <t-form v-else @submit="handleLogin" class="login-form" label-width="0">
         <t-form-item>
           <t-input
             v-model="form.username"
@@ -227,7 +289,7 @@ async function handleLogin() {
       </t-form>
 
       <t-button
-        v-if="canUsePasskey"
+        v-if="canUsePasskey && !twoFactorChallenge"
         class="login-passkey"
         variant="outline"
         block
@@ -239,7 +301,7 @@ async function handleLogin() {
         {{ $t('auth.LoginPage.s14') }}
       </t-button>
 
-      <div v-if="!justRegistered && !pendingApproval && registrationOpen === true" class="login-account">
+      <div v-if="!twoFactorChallenge && !justRegistered && !pendingApproval && registrationOpen === true" class="login-account">
         <p class="login-account__q">{{ $t('auth.LoginPage.s15') }}</p>
         <t-button
           variant="outline"
@@ -251,7 +313,7 @@ async function handleLogin() {
           {{ $t('auth.LoginPage.s16') }}
         </t-button>
       </div>
-      <p v-else-if="!justRegistered && registrationOpen === false" class="login-account__q login-closed">
+      <p v-else-if="!twoFactorChallenge && !justRegistered && registrationOpen === false" class="login-account__q login-closed">
         {{ registrationMessage || $t('auth.LoginPage.s17') }}
       </p>
       <div class="auth-lang"><LanguagePicker compact /></div>
@@ -260,6 +322,24 @@ async function handleLogin() {
 </template>
 
 <style scoped>
+.login-2fa { display: flex; flex-direction: column; gap: var(--space-3); }
+.login-2fa__hint { margin: 0; text-align: center; color: var(--color-label); }
+.login-2fa__input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-separator-opaque, var(--color-separator));
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-bg-elevated, var(--color-bg-row));
+  color: var(--color-label);
+  font-size: 1.375rem;
+  letter-spacing: 0.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.login-2fa__input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.login-2fa__backup { margin: 0; font-size: var(--text-footnote); color: var(--color-label-secondary); text-align: center; }
+.login-2fa__back { align-self: center; min-height: var(--hit-target, 44px); background: none; border: 0; color: var(--color-accent); cursor: pointer; }
 .auth-lang { display: flex; justify-content: center; margin-top: var(--space-4, 16px); }
 .login-add-note {
   margin: calc(-1 * var(--space-2)) 0 var(--space-4);

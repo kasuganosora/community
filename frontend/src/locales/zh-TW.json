@@ -602,7 +602,12 @@
       "s42": "封禁帳號",
       "s43": "待驗證郵箱",
       "s44": "請求失敗，請重試",
-      "s45": "確認對 {'@'}{0}{1} 執行“{2}”？"
+      "s45": "確認對 {'@'}{0}{1} 執行“{2}”？",
+      "twoFactor": "兩步驟驗證",
+      "twoFactorOn": "已啟用",
+      "twoFactorOff": "未啟用",
+      "twoFactorReset": "重設兩步驟驗證",
+      "twoFactorResetConfirm": "確定要關閉 {'@'}{0} 的兩步驟驗證並刪除其備用碼嗎？請先核實使用者身分。"
     },
     "AnnouncementsAdminPage": {
       "s1": "公告管理",
@@ -1665,7 +1670,13 @@
       "s15": "有本站帳號就在上面登入。還沒有？",
       "s16": "沒有，去註冊",
       "s17": "本站暫不開放註冊。",
-      "s18": "驗證碼沒有配好，暫時不能登入。"
+      "s18": "驗證碼沒有配好，暫時不能登入。",
+      "twoFactorHint": "請輸入驗證器 App 中的 6 位數驗證碼。",
+      "twoFactorLabel": "兩步驟驗證碼",
+      "twoFactorPlaceholder": "123456",
+      "twoFactorBackupHint": "無法使用 App？可以輸入一組備用碼。",
+      "twoFactorSubmit": "驗證並登入",
+      "twoFactorBack": "返回重新輸入密碼"
     },
     "RegisterPage": {
       "s1": "關閉註冊",
@@ -2884,6 +2895,45 @@
     },
     "ProfileProof": {
       "verified": "已驗證連結"
+    },
+    "TwoFactor": {
+      "title": "兩步驟驗證",
+      "loading": "正在載入…",
+      "loadFailed": "無法讀取兩步驟驗證狀態",
+      "retry": "重試",
+      "statusOn": "已啟用（自 {0}）",
+      "statusOff": "未啟用",
+      "remaining": "剩餘 {0} 組備用碼",
+      "intro": "登入時除了密碼，還需要驗證器 App（如 Google Authenticator、1Password、Aegis）產生的驗證碼。",
+      "codesOnce": "請立即保存這些備用碼，它們只會顯示這一次。每組備用碼只能使用一次。",
+      "copy": "複製",
+      "download": "下載 .txt",
+      "saved": "我已保存",
+      "password": "目前密碼",
+      "cancel": "取消",
+      "continue": "繼續",
+      "scan": "用驗證器 App 掃描 QR 碼，或手動輸入金鑰，然後填寫 App 顯示的 6 位數驗證碼。",
+      "qrLabel": "兩步驟驗證設定 QR 碼",
+      "manualKey": "手動輸入金鑰",
+      "code": "6 位數驗證碼",
+      "verify": "驗證並啟用",
+      "disableHint": "關閉後登入只需要密碼。請輸入密碼與驗證碼（或備用碼）確認。",
+      "regenerateHint": "產生新的備用碼後，舊的備用碼全部失效。",
+      "codeOrBackup": "兩步驟驗證碼或備用碼",
+      "disable": "關閉兩步驟驗證",
+      "regenerate": "重新產生備用碼",
+      "enable": "啟用兩步驟驗證",
+      "passkeyNote": "使用通行金鑰（Passkey）登入時無需再輸入驗證碼。",
+      "enabled": "兩步驟驗證已啟用",
+      "disabled": "兩步驟驗證已關閉",
+      "copied": "已複製",
+      "copyFailed": "複製失敗",
+      "wrongPassword": "密碼不正確",
+      "wrongCode": "驗證碼不正確或已使用過",
+      "codeRequired": "此帳號已啟用兩步驟驗證，請同時輸入驗證碼或備用碼。",
+      "locked": "錯誤次數過多，請 15 分鐘後再試",
+      "setupExpired": "設定已逾時，請重新開始",
+      "failed": "操作失敗"
     }
   },
   "timeline": {
@@ -3414,6 +3464,11 @@
     "replaceAttachment": "如需替換附件，請刪除訊息後重新發送",
     "inviteCreateFailed": "無法建立邀請",
     "emailTaken": "該郵箱已被註冊",
-    "settingValueInvalid": "{0} 的值無效"
+    "settingValueInvalid": "{0} 的值無效",
+    "twoFactorInvalid": "驗證碼不正確或已使用過",
+    "twoFactorLocked": "錯誤次數過多，請 15 分鐘後再試",
+    "twoFactorRequired": "需要兩步驟驗證碼",
+    "twoFactorChallengeExpired": "登入已逾時，請重新輸入密碼",
+    "twoFactorAlreadyEnabled": "兩步驟驗證已經啟用"
   }
 }

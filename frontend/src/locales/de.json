@@ -602,7 +602,12 @@
       "s42": "Konto sperren",
       "s43": "E-Mail nicht bestätigt",
       "s44": "Anfrage fehlgeschlagen, bitte erneut versuchen",
-      "s45": "„{2}“ für {'@'}{0}{1} ausführen?"
+      "s45": "„{2}“ für {'@'}{0}{1} ausführen?",
+      "twoFactor": "Zwei-Faktor",
+      "twoFactorOn": "Aktiv",
+      "twoFactorOff": "Aus",
+      "twoFactorReset": "Zwei-Faktor zurücksetzen",
+      "twoFactorResetConfirm": "Zwei-Faktor-Authentifizierung für {'@'}{0} deaktivieren und Backup-Codes löschen? Prüfe vorher die Identität der Person."
     },
     "AnnouncementsAdminPage": {
       "s1": "Ankündigungen",
@@ -1665,7 +1670,13 @@
       "s15": "Konto vorhanden? Oben anmelden. Noch keins?",
       "s16": "Nein, registrieren",
       "s17": "Die Registrierung auf diesem Server ist derzeit geschlossen.",
-      "s18": "Captcha ist nicht eingerichtet; Anmeldung vorübergehend nicht möglich."
+      "s18": "Captcha ist nicht eingerichtet; Anmeldung vorübergehend nicht möglich.",
+      "twoFactorHint": "Gib den 6-stelligen Code aus deiner Authenticator-App ein.",
+      "twoFactorLabel": "Zwei-Faktor-Code",
+      "twoFactorPlaceholder": "123456",
+      "twoFactorBackupHint": "Kein Zugriff auf die App? Gib stattdessen einen deiner Backup-Codes ein.",
+      "twoFactorSubmit": "Bestätigen und anmelden",
+      "twoFactorBack": "Zurück zum Passwort"
     },
     "RegisterPage": {
       "s1": "Registrierung schließen",
@@ -2884,6 +2895,45 @@
     },
     "ProfileProof": {
       "verified": "Verifizierter Link"
+    },
+    "TwoFactor": {
+      "title": "Zwei-Faktor-Authentifizierung",
+      "loading": "Wird geladen …",
+      "loadFailed": "Status der Zwei-Faktor-Authentifizierung konnte nicht geladen werden",
+      "retry": "Erneut versuchen",
+      "statusOn": "Aktiv seit {0}",
+      "statusOff": "Aus",
+      "remaining": "{0} Backup-Code übrig | {0} Backup-Codes übrig",
+      "intro": "Bei der Anmeldung wird zusätzlich zum Passwort ein Code aus einer Authenticator-App (Google Authenticator, 1Password, Aegis …) abgefragt.",
+      "codesOnce": "Speichere diese Backup-Codes jetzt – sie werden nur einmal angezeigt. Jeder Code funktioniert nur ein Mal.",
+      "copy": "Kopieren",
+      "download": ".txt herunterladen",
+      "saved": "Gespeichert",
+      "password": "Aktuelles Passwort",
+      "cancel": "Abbrechen",
+      "continue": "Weiter",
+      "scan": "Scanne den QR-Code mit deiner Authenticator-App oder gib den Schlüssel manuell ein und trage dann den angezeigten 6-stelligen Code ein.",
+      "qrLabel": "QR-Code für die Zwei-Faktor-Einrichtung",
+      "manualKey": "Schlüssel zur manuellen Eingabe",
+      "code": "6-stelliger Code",
+      "verify": "Bestätigen und aktivieren",
+      "disableHint": "Danach genügt das Passwort zur Anmeldung. Bestätige mit Passwort und einem Code (oder Backup-Code).",
+      "regenerateHint": "Neue Backup-Codes machen alle alten ungültig.",
+      "codeOrBackup": "Zwei-Faktor-Code oder Backup-Code",
+      "disable": "Deaktivieren",
+      "regenerate": "Backup-Codes neu erzeugen",
+      "enable": "Zwei-Faktor-Authentifizierung aktivieren",
+      "passkeyNote": "Bei der Anmeldung mit einem Passkey wird kein Code abgefragt.",
+      "enabled": "Zwei-Faktor-Authentifizierung ist aktiv",
+      "disabled": "Zwei-Faktor-Authentifizierung ist deaktiviert",
+      "copied": "Kopiert",
+      "copyFailed": "Kopieren fehlgeschlagen",
+      "wrongPassword": "Falsches Passwort",
+      "wrongCode": "Der Code ist falsch oder wurde bereits verwendet",
+      "codeRequired": "Für dieses Konto ist 2FA aktiv: gib zusätzlich einen Code oder Backup-Code ein.",
+      "locked": "Zu viele falsche Codes. Versuche es in 15 Minuten erneut.",
+      "setupExpired": "Die Einrichtung ist abgelaufen, bitte neu beginnen",
+      "failed": "Vorgang fehlgeschlagen"
     }
   },
   "timeline": {
@@ -3414,6 +3464,11 @@
     "replaceAttachment": "Um einen Anhang zu ersetzen, lösche die Nachricht und sende eine neue.",
     "inviteCreateFailed": "Die Einladung konnte nicht erstellt werden.",
     "emailTaken": "Diese E-Mail-Adresse ist bereits registriert.",
-    "settingValueInvalid": "Ungültiger Wert für {0}."
+    "settingValueInvalid": "Ungültiger Wert für {0}.",
+    "twoFactorInvalid": "Der Code ist falsch oder wurde bereits verwendet",
+    "twoFactorLocked": "Zu viele falsche Codes. Versuche es in 15 Minuten erneut.",
+    "twoFactorRequired": "Ein Zwei-Faktor-Code ist erforderlich",
+    "twoFactorChallengeExpired": "Anmeldung abgelaufen, bitte Passwort erneut eingeben",
+    "twoFactorAlreadyEnabled": "Zwei-Faktor-Authentifizierung ist bereits aktiv"
   }
 }
