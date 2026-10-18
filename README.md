@@ -85,6 +85,13 @@ docker compose up -d --build
 docker compose logs -f community
 ```
 
+构建时建议传入提交号作为前端版本号（`/version.json`，已打开的页面据此在部署后自动刷新）；不传则每次构建随机生成：
+
+```bash
+COMMUNITY_BUILD_ID=$(git rev-parse --short HEAD) docker compose build
+docker compose up -d
+```
+
 启动后访问 `http://localhost:8080`。可以通过以下接口检查服务：
 
 ```bash

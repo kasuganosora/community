@@ -1,6 +1,11 @@
 services:
   community:
-    build: .
+    build:
+      context: .
+      args:
+        # Frontend build id (/version.json); set it to the commit:
+        # COMMUNITY_BUILD_ID=$(git rev-parse --short HEAD) docker compose build
+        COMMUNITY_BUILD_ID: ${COMMUNITY_BUILD_ID:-}
     container_name: community
     restart: unless-stopped
     ports:
