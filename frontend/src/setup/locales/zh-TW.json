@@ -146,7 +146,17 @@
     "failedTitle": "安裝已暫停",
     "reconnecting": "連線中斷，正在重新連線…",
     "verifyAgain": "重新驗證權杖",
-    "stageCount": "已完成 {done} / {total} 個階段"
+    "stageCount": "已完成 {done} / {total} 個階段",
+    "percent": "{n}%",
+    "speed": "{rate}/秒",
+    "eta": "預計剩餘 {eta}",
+    "etaUnknown": "正在估算剩餘時間…",
+    "seconds": "{n} 秒",
+    "minutesSeconds": "{m} 分 {s} 秒",
+    "hoursMinutes": "{h} 小時 {m} 分",
+    "updatedAgo": "{n} 秒前更新",
+    "stalled": "伺服器已 {n} 秒沒有更新。較大的步驟可能仍在執行；若持續如此，請查看伺服器日誌——重試時工作會從檢查點繼續。",
+    "stoppedHere": "在此處停止"
   },
   "status": {
     "pending": "等待中",
@@ -201,7 +211,18 @@
     "polls": "投票",
     "lists": "列表",
     "prefix_skipped": "跳過",
-    "prefix_archived": "歸檔"
+    "prefix_archived": "歸檔",
+    "posts": "貼文",
+    "relations": "關係",
+    "credentials": "登入憑證",
+    "keys": "簽章金鑰",
+    "poll_votes": "投票紀錄",
+    "records": "封存紀錄",
+    "note": "筆記",
+    "user": "使用者",
+    "drive_file": "雲端硬碟檔案",
+    "emoji": "表情符號",
+    "source_records": "來源紀錄"
   },
   "errors": {
     "network": "無法連線伺服器，請確認它仍在執行。",
@@ -271,5 +292,14 @@
     "notDetected": "無法從來源偵測到網域。請輸入 Mastodon 伺服器確切的公開 URL（LOCAL_DOMAIN）。",
     "adminHint": "輸入現有的 Mastodon 使用者名稱可將其設為站長（原密碼繼續有效），輸入新名稱則建立獨立的管理員。"
   },
-  "stepOf": "第 {n} 步，共 {total} 步"
+  "stepOf": "第 {n} 步，共 {total} 步",
+  "phases": {
+    "fetch": "讀取來源資料庫",
+    "build": "轉換",
+    "spool": "暫存匯出資料",
+    "validate": "檢查",
+    "import": "匯入",
+    "media": "複製媒體",
+    "final sync": "最終同步"
+  }
 }

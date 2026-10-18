@@ -146,7 +146,17 @@
     "failedTitle": "Installation paused",
     "reconnecting": "Connection interrupted. Reconnecting…",
     "verifyAgain": "Verify token again",
-    "stageCount": "{done} of {total} stages complete"
+    "stageCount": "{done} of {total} stages complete",
+    "percent": "{n}%",
+    "speed": "{rate}/s",
+    "eta": "about {eta} left",
+    "etaUnknown": "estimating time left…",
+    "seconds": "{n}s",
+    "minutesSeconds": "{m}m {s}s",
+    "hoursMinutes": "{h}h {m}m",
+    "updatedAgo": "updated {n}s ago",
+    "stalled": "No update from the server for {n}s. A large step may still be working; if this persists, check the server log — the job resumes from its checkpoint on retry.",
+    "stoppedHere": "stopped here"
   },
   "status": {
     "pending": "Waiting",
@@ -201,7 +211,18 @@
     "polls": "polls",
     "lists": "lists",
     "prefix_skipped": "skipped",
-    "prefix_archived": "archived"
+    "prefix_archived": "archived",
+    "posts": "posts",
+    "relations": "relations",
+    "credentials": "logins",
+    "keys": "signing keys",
+    "poll_votes": "poll votes",
+    "records": "archived records",
+    "note": "notes",
+    "user": "users",
+    "drive_file": "drive files",
+    "emoji": "emoji",
+    "source_records": "source records"
   },
   "errors": {
     "network": "Can’t reach the server. Check that it is still running.",
@@ -271,5 +292,14 @@
     "notDetected": "The domain could not be detected from the source. Enter the Mastodon server’s exact public URL (LOCAL_DOMAIN).",
     "adminHint": "Enter an existing Mastodon user to make them owner (their password keeps working), or a new name to create a separate administrator."
   },
-  "stepOf": "Step {n} of {total}"
+  "stepOf": "Step {n} of {total}",
+  "phases": {
+    "fetch": "Reading source",
+    "build": "Converting",
+    "spool": "Staging export",
+    "validate": "Checking",
+    "import": "Importing",
+    "media": "Copying media",
+    "final sync": "Final sync"
+  }
 }

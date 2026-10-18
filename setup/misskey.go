@@ -318,6 +318,8 @@ func (l *lineLogger) Write(p []byte) (int, error) {
 			done, _ := strconv.ParseInt(m[2], 10, 64)
 			total, _ := strconv.ParseInt(m[3], 10, 64)
 			l.r.t.setCounts(l.stage, map[string]int64{"progress_done": done, "progress_total": total})
+			l.r.t.setProgress(l.stage, m[1], done, total)
+			continue // progress lines update the bar, not the log
 		}
 		if strings.TrimSpace(line) != "" {
 			l.lines++
@@ -451,6 +453,7 @@ func mirrorObjects(ctx context.Context, r *runner, stage string, client *minio.C
 	defer ticker.Stop()
 	report := func() {
 		r.t.setCounts(stage, map[string]int64{"files_done": done.Load(), "bytes_done": doneBytes.Load(), "files_missing": missing.Load(), "files_skipped": skipped.Load()})
+		r.t.setProgress(stage, "media", done.Load(), int64(len(objects)))
 	}
 feed:
 	for _, obj := range objects {
@@ -696,20 +699,6 @@ func runExporter(ctx context.Context, r *runner, stage, script string, src pgSou
 	return nil
 }
 
-func openExport(ctx context.Context) (*datatransfer.Archive, *datatransfer.Bundle, error) {
-	limits := datatransfer.Limits{MaxCompressedBytes: 1 << 50, MaxExpandedBytes: 1 << 50, MaxFileBytes: 64 << 30, MaxJSONBytes: 64 << 30, MaxFiles: 100000000, MaxRecords: 100000000}
-	archive, err := datatransfer.OpenDirectory(ctx, exportDir(), limits)
-	if err != nil {
-		return nil, nil, fail("preflight_blocked", "the export cannot be read")
-	}
-	bundle, err := datatransfer.ParseArchive(ctx, archive, datatransfer.ParseOptions{Platform: "auto", Kind: "archive"})
-	if err != nil {
-		archive.Close()
-		return nil, nil, fail("preflight_blocked", "the export is malformed")
-	}
-	return archive, bundle, nil
-}
-
 func importOptions(archive *datatransfer.Archive) (datatransfer.Options, error) {
 	storageDir, err := filepath.Abs(filepath.Join("uploads", "media"))
 	if err != nil {
@@ -764,16 +753,19 @@ func preflight(ctx context.Context, r *runner, stage, exportStage string) error 
 	if err != nil {
 		return err
 	}
-	archive, bundle, err := openExport(ctx)
+	sp, archive, err := openSpooledExport(ctx, r, stage, true)
 	if err != nil {
 		return err
 	}
+	defer sp.Close()
 	defer archive.Close()
 	opts, err := importOptions(archive)
 	if err != nil {
 		return err
 	}
-	report, err := datatransfer.Preview(ctx, conn, bundle, opts)
+	report, err := datatransfer.ImportSpool(ctx, conn, sp, opts, datatransfer.StreamOptions{ChunkSize: 1000, OnProgress: func(p datatransfer.StreamProgress) {
+		r.t.setProgress(stage, "validate/"+p.Stage, int64(p.Done), int64(p.Total))
+	}})
 	writeReport("preflight-report.json", report)
 	if err != nil {
 		r.t.logf("error", "preflight could not finish: %s", sanitize(err.Error()))
@@ -787,7 +779,9 @@ func preflight(ctx context.Context, r *runner, stage, exportStage string) error 
 		r.t.setCount(stage, "errors", int64(errs))
 		// A retry must read the (fixed) source again, so the export is
 		// discarded and its stage reopened.
+		sp.Close()
 		_ = os.RemoveAll(exportDir())
+		_ = os.Remove(spoolPath())
 		r.t.update(func(j *Job) {
 			if st := r.t.stage(exportStage); st != nil {
 				st.Status, st.Counts = StatusPending, nil
@@ -796,6 +790,59 @@ func preflight(ctx context.Context, r *runner, stage, exportStage string) error 
 		return fail("preflight_blocked", fmt.Sprintf("%d blocking issues; see the log and %s", errs, filepath.Join(workDir(), "preflight-report.json")))
 	}
 	return nil
+}
+
+func spoolPath() string { return filepath.Join(workDir(), "spool.sqlite3") }
+
+// openSpooledExport streams bundle.json into an on-disk spool (once; a retry
+// reuses a complete spool) and indexes the export's media files. Memory stays
+// flat however large the source instance is.
+func openSpooledExport(ctx context.Context, r *runner, stage string, fresh bool) (*datatransfer.Spool, *datatransfer.Archive, error) {
+	if fresh {
+		_ = os.Remove(spoolPath())
+	}
+	sp, err := datatransfer.OpenSpool(spoolPath())
+	if err != nil {
+		return nil, nil, fail("preflight_blocked", "the spool cannot be created in the work directory")
+	}
+	if sp.Meta("complete") != "1" {
+		f, err := os.Open(filepath.Join(exportDir(), "bundle.json"))
+		if err != nil {
+			sp.Close()
+			return nil, nil, fail("preflight_blocked", "the export cannot be read")
+		}
+		var total int64
+		if st, e := f.Stat(); e == nil {
+			total = st.Size()
+		}
+		counter := &countingReader{r: f}
+		_, err = sp.ReadBundleJSON(ctx, counter, func(int) { r.t.setProgress(stage, "spool", counter.n, total) })
+		_ = f.Close()
+		if err != nil {
+			sp.Close()
+			return nil, nil, fail("preflight_blocked", "the export is malformed")
+		}
+		r.t.setProgress(stage, "spool", total, total)
+	}
+	limits := datatransfer.Limits{MaxCompressedBytes: 1 << 50, MaxExpandedBytes: 1 << 50, MaxFileBytes: 64 << 30, MaxJSONBytes: 64 << 30, MaxFiles: 100000000, MaxRecords: 100000000,
+		Skip: []string{"bundle.json", "manifest.json", ".spool"}, AllowEmpty: true}
+	archive, err := datatransfer.OpenDirectory(ctx, exportDir(), limits)
+	if err != nil {
+		sp.Close()
+		return nil, nil, fail("preflight_blocked", "the export cannot be read")
+	}
+	return sp, archive, nil
+}
+
+type countingReader struct {
+	r interface{ Read([]byte) (int, error) }
+	n int64
+}
+
+func (c *countingReader) Read(b []byte) (int, error) {
+	n, err := c.r.Read(b)
+	c.n += int64(n)
+	return n, err
 }
 
 // stageMisskeyImport runs the site import in one transaction. Import
@@ -810,28 +857,29 @@ func importBundle(ctx context.Context, r *runner, stage string) error {
 	if err != nil {
 		return err
 	}
-	archive, bundle, err := openExport(ctx)
+	sp, archive, err := openSpooledExport(ctx, r, stage, false)
 	if err != nil {
 		return err
 	}
+	defer sp.Close()
 	defer archive.Close()
 	opts, err := importOptions(archive)
 	if err != nil {
 		return err
 	}
-	r.t.logf("info", "importing %d accounts, %d posts, %d media, %d relations, %d emojis…", len(bundle.Accounts), len(bundle.Posts), len(bundle.Media), len(bundle.Relations), len(bundle.Emojis))
-	report, err := datatransfer.Import(ctx, conn, bundle, opts, func(p datatransfer.Progress) {
-		r.t.logf("info", "import %s (%d/%d)", p.Phase, p.Completed, p.Total)
-	})
+	r.t.logf("info", "importing %d accounts, %d posts, %d media, %d relations, %d emojis in chunks…", sp.Count("accounts"), sp.Count("posts"), sp.Count("media"), sp.Count("relations"), sp.Count("emojis"))
+	report, err := datatransfer.ImportSpool(ctx, conn, sp, opts, datatransfer.StreamOptions{ChunkSize: 1000, Apply: true, OnProgress: func(p datatransfer.StreamProgress) {
+		r.t.setProgress(stage, "import/"+p.Stage, int64(p.Done), int64(p.Total))
+	}})
 	writeReport("import-report.json", report)
 	if err != nil {
 		if report != nil {
 			logIssues(r, report, "error", 50)
 		}
+		r.t.logf("error", "import stopped: %s (committed chunks are kept; retry resumes)", sanitize(err.Error()))
 		return fail("import_failed")
 	}
 	r.t.setCounts(stage, toInt64(report.Created, ""))
-	r.t.setCounts(stage, toInt64(report.Skipped, "skipped_"))
 	r.t.setCounts(stage, toInt64(report.Archived, "archived_"))
 	return nil
 }

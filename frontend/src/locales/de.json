@@ -1589,6 +1589,15 @@
       "invalidImage": "Wähle ein PNG-, JPEG-, GIF- oder WebP-Bild mit höchstens 2 MiB.",
       "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
       "confirmDelete": "Diese Dekoration löschen? Sie wird auch von allen Avataren entfernt."
+    },
+    "SearchIndexBanner": {
+      "title": "Suchindex wird neu aufgebaut",
+      "hint": "Importierte Beiträge und Konten werden durchsuchbar, sobald der Index aufgeholt hat. Die Seite ist währenddessen nutzbar.",
+      "percent": "{n} %",
+      "updatedAgo": "vor {n} s aktualisiert",
+      "index_accounts": "Konten",
+      "index_statuses": "Beiträge",
+      "index_tags": "Hashtags"
     }
   },
   "auth": {

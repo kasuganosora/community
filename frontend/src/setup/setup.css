@@ -141,3 +141,18 @@ input:disabled, select:disabled { opacity: .65; cursor: wait; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .choice.selected, .steps li.active { outline: 2px solid Highlight; } }
+
+/* live stage progress (migration) */
+.heartbeat { color: var(--muted); }
+.heartbeat--stalled { color: var(--err); font-weight: 600; }
+.stage__bar-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; min-width: 0; }
+.stage__bar-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage__bar-head b { font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 14%, var(--card)); overflow: hidden; }
+.bar__fill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--primary); transition: width 400ms ease; }
+.bar__fill--indeterminate { width: 35%; animation: bar-slide 1.4s ease-in-out infinite; }
+.stage__bar--failed .bar__fill { background: var(--err); }
+.stage__bar-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stage__bar-stopped { color: var(--err); font-weight: 600; }
+@keyframes bar-slide { 0% { left: -35%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .bar__fill--indeterminate { animation: none; left: 0; width: 100%; opacity: .5; } .bar__fill { transition: none; } }

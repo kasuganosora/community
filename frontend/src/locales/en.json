@@ -1589,6 +1589,15 @@
       "invalidImage": "Choose a PNG, JPEG, GIF or WebP image up to 2 MiB.",
       "saveFailed": "Could not save. Please try again.",
       "confirmDelete": "Delete this decoration? It will also be removed from everyone wearing it."
+    },
+    "SearchIndexBanner": {
+      "title": "Rebuilding the search index",
+      "hint": "Imported posts and accounts become searchable as the index catches up. The site is usable meanwhile.",
+      "percent": "{n}%",
+      "updatedAgo": "updated {n}s ago",
+      "index_accounts": "Accounts",
+      "index_statuses": "Posts",
+      "index_tags": "Hashtags"
     }
   },
   "auth": {

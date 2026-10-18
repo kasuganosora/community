@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { call, getToken, setToken, SetupApiError, type Inspection, type Job } from './api'
+import { call, getToken, setToken, SetupApiError, type Inspection, type Job, type StageProgress } from './api'
 import { LOCALES, applyLocale, type Locale } from './i18n'
 import SecretField from './SecretField.vue'
 import { normalizeSetupDomain, normalizeStorageURL } from './validation'
@@ -29,6 +29,10 @@ const content = ref<HTMLElement>()
 const pending = ref('')
 const primaryBusy = computed(() => busy.value && ['verify', 'database', 'redis', 'source', 'storage', 'install'].includes(pending.value))
 const progressError = ref('')
+// Heartbeat: server_time - heartbeat_at at fetch time, plus local time since.
+const fetchedAt = ref(0)
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | undefined
 const verified = ref(false)
 const returningToReview = ref(false)
 const visitedSteps = new Set<Step>()
@@ -267,6 +271,7 @@ function startPolling() {
       const result = await request<Job>('GET', 'job')
       if (!active || version !== pollVersion) return
       job.value = result
+      fetchedAt.value = Date.now()
       progressError.value = ''
       if (result.status === 'completed') return waitForRestart()
       if (result.status === 'failed') return
@@ -355,6 +360,47 @@ function submitStep() {
   advance()
 }
 
+const STALL_SECONDS = 30
+const heartbeatAge = computed(() => {
+  const j = job.value
+  const beat = j?.heartbeat_at || j?.updated_at
+  if (!j || !beat || !fetchedAt.value) return null
+  const server = j.server_time ? Date.parse(j.server_time) : fetchedAt.value
+  const age = (server - Date.parse(beat)) + (now.value - fetchedAt.value)
+  return Math.max(0, Math.round(age / 1000))
+})
+const stalled = computed(() => job.value?.status === 'running' && heartbeatAge.value !== null && heartbeatAge.value >= STALL_SECONDS)
+function formatDuration(sec: number) {
+  if (sec < 60) return t('progress.seconds', { n: sec })
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  return h ? t('progress.hoursMinutes', { h, m }) : t('progress.minutesSeconds', { m, s: sec % 60 })
+}
+function phaseText(phase: string) {
+  const [head, item] = phase.split('/', 2)
+  const label = te(`phases.${head}`) ? t(`phases.${head}`) : head
+  if (!item) return label
+  const itemLabel = te(`counts.${item}`) ? t(`counts.${item}`) : item.replace(/_/g, ' ')
+  return `${label} · ${itemLabel}`
+}
+function stageBar(s: { status: string; progress?: StageProgress }) {
+  const p = s.progress
+  if (!p || (s.status !== 'running' && s.status !== 'failed')) return null
+  const fmt = (n: number) => n.toLocaleString(locale.value)
+  const isBytes = p.phase === 'spool'
+  const percent = p.total > 0 ? Math.min(100, (p.done / p.total) * 100) : null
+  return {
+    phase: phaseText(p.phase),
+    percent,
+    percentText: percent === null ? '' : t('progress.percent', { n: percent.toFixed(percent < 10 ? 1 : 0) }),
+    amount: p.total > 0
+      ? t('progress.bytes', { done: isBytes ? formatBytes(p.done) : fmt(p.done), total: isBytes ? formatBytes(p.total) : fmt(p.total) })
+      : fmt(p.done),
+    speed: p.rate > 0 ? t('progress.speed', { rate: isBytes ? formatBytes(p.rate) : fmt(Math.round(p.rate)) }) : '',
+    eta: s.status === 'failed' ? '' : p.eta_seconds > 0 ? t('progress.eta', { eta: formatDuration(p.eta_seconds) }) : p.eta_seconds < 0 ? t('progress.etaUnknown') : '',
+    failed: s.status === 'failed',
+  }
+}
 function stageText(name: string) { return te(`stages.${name}`) ? t(`stages.${name}`) : name }
 function formatBytes(n: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -366,7 +412,7 @@ function countEntries(counts?: Record<string, number>) {
   if (!counts) return []
   const out: { label: string; value: string }[] = []
   for (const [key, value] of Object.entries(counts)) {
-    if (key === 'bytes_done' || key === 'bytes_total' || key === 'files_total') continue
+    if (key === 'bytes_done' || key === 'bytes_total' || key === 'files_total' || key === 'progress_done' || key === 'progress_total') continue
     let label = key
     for (const prefix of ['skipped', 'archived']) {
       if (key.startsWith(prefix + '_')) {
@@ -420,7 +466,8 @@ onMounted(async () => {
     if (active && e instanceof SetupApiError && e.status === 404) location.href = '/login'
   }
 })
-onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifetime.abort() })
+onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
+onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); clearInterval(clock); lifetime.abort() })
 </script>
 
 <template>
@@ -631,7 +678,11 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
       <p v-else-if="job?.status === 'failed'" class="notice notice--error" role="alert">{{ t('progress.failed') }}</p>
       <p v-else class="muted" role="status">{{ t('progress.running') }}</p>
       <div v-if="progressError" class="notice notice--error" role="alert">{{ progressError }}<span v-if="verified"> {{ t('progress.reconnecting') }}</span><button v-else type="button" class="btn" @click="reverify">{{ t('progress.verifyAgain') }}</button></div>
-      <p v-if="job?.stages.length" class="progress-count">{{ t('progress.stageCount', { done: completedStages, total: job.stages.length }) }}</p>
+      <p v-if="job?.stages.length" class="progress-count">
+        {{ t('progress.stageCount', { done: completedStages, total: job.stages.length }) }}
+        <span v-if="heartbeatAge !== null && job?.status === 'running'" class="heartbeat" :class="{ 'heartbeat--stalled': stalled }" data-testid="heartbeat"> · {{ t('progress.updatedAgo', { n: heartbeatAge }) }}</span>
+      </p>
+      <p v-if="stalled" class="notice notice--warn" role="status" data-testid="stalled">{{ t('progress.stalled', { n: heartbeatAge }) }}</p>
       <ul class="stages">
         <li v-for="s in job?.stages || []" :key="s.name" :class="`stage stage--${s.status}`">
           <div class="stage__head">
@@ -639,7 +690,14 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); lifet
             <span class="stage__name">{{ stageText(s.name) }}</span>
             <span class="stage__status">{{ te(`status.${s.status}`) ? t(`status.${s.status}`) : s.status }}</span>
           </div>
-          <div v-if="progressOf(s.counts)" class="stage__progress">
+          <div v-if="stageBar(s)" class="stage__progress stage__bar" :class="{ 'stage__bar--failed': stageBar(s)!.failed }" data-testid="stage-bar">
+            <div class="stage__bar-head"><span>{{ stageBar(s)!.phase }}</span><b v-if="stageBar(s)!.percentText">{{ stageBar(s)!.percentText }}</b></div>
+            <div class="bar" role="progressbar" :aria-label="`${stageText(s.name)} ${stageBar(s)!.phase}`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="stageBar(s)!.percent === null ? undefined : Math.round(stageBar(s)!.percent!)">
+              <span class="bar__fill" :class="{ 'bar__fill--indeterminate': stageBar(s)!.percent === null }" :style="stageBar(s)!.percent === null ? undefined : { width: `${stageBar(s)!.percent}%` }" />
+            </div>
+            <small class="stage__bar-meta"><span>{{ stageBar(s)!.amount }}</span><span v-if="stageBar(s)!.speed">{{ stageBar(s)!.speed }}</span><span v-if="stageBar(s)!.eta">{{ stageBar(s)!.eta }}</span><span v-if="stageBar(s)!.failed" class="stage__bar-stopped">{{ t('progress.stoppedHere') }}</span></small>
+          </div>
+          <div v-else-if="progressOf(s.counts)" class="stage__progress">
             <progress :aria-label="stageText(s.name)" :value="progressOf(s.counts)!.percent" max="100" />
             <small>{{ progressOf(s.counts)!.files }} <template v-if="progressOf(s.counts)!.bytes">· {{ progressOf(s.counts)!.bytes }}</template></small>
           </div>

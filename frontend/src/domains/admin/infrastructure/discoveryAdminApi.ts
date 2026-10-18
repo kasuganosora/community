@@ -9,7 +9,9 @@ export interface DiscoveryAdminStatus {
     pool_candidates: number; pool_stale: boolean; pool_truncated: boolean; pool_payload_bytes: number; pool_lease_active: boolean
     pool_lease_remaining_ms: number; snapshot_reservations: number; snapshot_maximum: number; snapshot_reserved_bytes: number; cache_budget_bytes: number
   }
+  search_index?: SearchIndexProgress[] | null
 }
+export interface SearchIndexProgress { index: string; done: number; total: number; running: boolean; finished: boolean; started_at: string; updated_at: string }
 export interface DiscoverySuppression { id: number | string; action: string; target_kind: TargetKind; target_key: string; reason: string; created_at: string }
 export const discoveryAdminApi = {
   async status() { return (await client.get<DiscoveryAdminStatus>('/api/v1/admin/discovery/status')).data },

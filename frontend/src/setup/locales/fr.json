@@ -146,7 +146,17 @@
     "failedTitle": "Installation en pause",
     "reconnecting": "Connexion interrompue. Reconnexion…",
     "verifyAgain": "Vérifier à nouveau le jeton",
-    "stageCount": "{done} étapes sur {total} terminées"
+    "stageCount": "{done} étapes sur {total} terminées",
+    "percent": "{n} %",
+    "speed": "{rate}/s",
+    "eta": "environ {eta} restant",
+    "etaUnknown": "estimation du temps restant…",
+    "seconds": "{n} s",
+    "minutesSeconds": "{m} min {s} s",
+    "hoursMinutes": "{h} h {m} min",
+    "updatedAgo": "mis à jour il y a {n} s",
+    "stalled": "Aucune mise à jour du serveur depuis {n} s. Une grosse étape est peut-être encore en cours ; si cela persiste, consultez le journal du serveur — la tâche reprend depuis son point de contrôle en cas de nouvelle tentative.",
+    "stoppedHere": "arrêté ici"
   },
   "status": {
     "pending": "En attente",
@@ -201,7 +211,18 @@
     "polls": "sondages",
     "lists": "listes",
     "prefix_skipped": "ignorés",
-    "prefix_archived": "archivés"
+    "prefix_archived": "archivés",
+    "posts": "publications",
+    "relations": "relations",
+    "credentials": "identifiants",
+    "keys": "clés de signature",
+    "poll_votes": "votes",
+    "records": "enregistrements archivés",
+    "note": "notes",
+    "user": "utilisateurs",
+    "drive_file": "fichiers du drive",
+    "emoji": "émojis",
+    "source_records": "enregistrements source"
   },
   "errors": {
     "network": "Impossible de joindre le serveur. Vérifiez qu’il fonctionne.",
@@ -271,5 +292,14 @@
     "notDetected": "Le domaine n’a pas pu être détecté depuis la source. Saisissez l’URL publique exacte du serveur Mastodon (LOCAL_DOMAIN).",
     "adminHint": "Saisissez un utilisateur Mastodon existant pour en faire le propriétaire (son mot de passe reste valable), ou un nouveau nom pour créer un administrateur distinct."
   },
-  "stepOf": "Étape {n} sur {total}"
+  "stepOf": "Étape {n} sur {total}",
+  "phases": {
+    "fetch": "Lecture de la source",
+    "build": "Conversion",
+    "spool": "Préparation de l’export",
+    "validate": "Vérification",
+    "import": "Importation",
+    "media": "Copie des médias",
+    "final sync": "Synchronisation finale"
+  }
 }

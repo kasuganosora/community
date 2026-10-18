@@ -403,3 +403,51 @@ describe('migration-specific form validation and recovery', () => {
     if (mode === 'mastodon') expect(calls.filter(c => c.path === 'install').at(-1)?.body.mastodon).not.toHaveProperty('id_method')
   })
 })
+
+describe('migration progress bar', () => {
+  const at = (ms: number) => new Date(Date.parse('2026-10-18T12:00:00Z') + ms).toISOString()
+  function migrationJob(over: Record<string, unknown> = {}) {
+    return {
+      id: 'job-2', status: 'running', log: [], server_time: at(0), heartbeat_at: at(-2000),
+      stages: [
+        { name: 'misskey_export', status: 'done' },
+        { name: 'misskey_import', status: 'running', progress: { phase: 'import/posts', done: 25000, total: 100000, rate: 500, eta_seconds: 150, updated_at: at(-2000) } },
+      ],
+      ...over,
+    }
+  }
+
+  it('shows phase, percent, speed, ETA and heartbeat for the running stage after reload', async () => {
+    sessionStorage.setItem('setup-token', 'saved-token')
+    overrides.set('status', () => reply({ defaults: {}, job: { status: 'running' } }))
+    overrides.set('job', () => reply(migrationJob()))
+    const w = await setup()
+    const bar = w.get('[data-testid="stage-bar"]')
+    expect(bar.text()).toContain('Importing · posts')
+    expect(bar.text()).toContain('25%')
+    expect(bar.text()).toContain('25,000 of 100,000')
+    expect(bar.text()).toContain('500/s')
+    expect(bar.text()).toContain('about 2m 30s left')
+    expect(bar.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('25')
+    expect(w.get('[data-testid="heartbeat"]').text()).toContain('updated 2s ago')
+    expect(w.find('[data-testid="stalled"]').exists()).toBe(false)
+  })
+
+  it('warns when the heartbeat stops and marks the failed stage', async () => {
+    sessionStorage.setItem('setup-token', 'saved-token')
+    overrides.set('status', () => reply({ defaults: {}, job: { status: 'running' } }))
+    overrides.set('job', () => reply(migrationJob({ heartbeat_at: at(-45000) })))
+    const w = await setup()
+    expect(w.get('[data-testid="stalled"]').text()).toContain('45s')
+    overrides.set('job', () => reply(migrationJob({
+      status: 'failed',
+      stages: [{ name: 'misskey_import', status: 'failed', error: { error_code: 'import_failed' }, progress: { phase: 'import/posts', done: 40000, total: 100000, rate: 0, eta_seconds: -1, updated_at: at(0) } }],
+    })))
+    w.unmount(); wrappers = []
+    const again = await setup()
+    const bar = again.get('[data-testid="stage-bar"]')
+    expect(bar.classes()).toContain('stage__bar--failed')
+    expect(bar.text()).toContain('stopped here')
+    expect(bar.text()).not.toContain('left')
+  })
+})

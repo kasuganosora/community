@@ -28,8 +28,23 @@ type Stage struct {
 	Status     string           `json:"status"`
 	Counts     map[string]int64 `json:"counts,omitempty"`
 	Error      *Error           `json:"error,omitempty"`
+	Progress   *StageProgress   `json:"progress,omitempty"`
 	StartedAt  *time.Time       `json:"started_at,omitempty"`
 	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+}
+
+// StageProgress is the live progress of the running step of a stage.
+// Phase names a sub-step (e.g. "fetch/note", "import/posts"); Rate is items
+// per second over the current phase and ETASeconds is -1 when unknown.
+type StageProgress struct {
+	Phase      string    `json:"phase"`
+	Done       int64     `json:"done"`
+	Total      int64     `json:"total"`
+	Rate       float64   `json:"rate"`
+	ETASeconds int64     `json:"eta_seconds"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	started    time.Time
+	startDone  int64
 }
 
 // LogLine is one entry of the job's live log. Messages never contain
@@ -56,6 +71,11 @@ type Job struct {
 	Log       []LogLine `json:"log"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// HeartbeatAt is refreshed every few seconds while a stage runs, so the
+	// UI can tell a slow step from a dead job ("updated Ns ago").
+	HeartbeatAt *time.Time `json:"heartbeat_at,omitempty"`
+	// ServerTime lets the client compute "Ns ago" without trusting its clock.
+	ServerTime time.Time `json:"server_time"`
 
 	Misskey  *MisskeyParams  `json:"misskey,omitempty"`  // passwords stripped
 	Mastodon *MastodonParams `json:"mastodon,omitempty"` // passwords stripped
@@ -125,6 +145,7 @@ func (t *tracker) snapshot() *Job {
 	data, _ := json.Marshal(t.job)
 	var copyJob Job
 	_ = json.Unmarshal(data, &copyJob)
+	copyJob.ServerTime = time.Now().UTC()
 	return &copyJob
 }
 
@@ -187,6 +208,47 @@ func (t *tracker) setCount(stage, key string, value int64) {
 		}
 		s.Counts[key] = value
 	}
+	t.persistLocked(false)
+}
+
+// setProgress records the running phase of a stage and derives speed/ETA.
+func (t *tracker) setProgress(stage, phase string, done, total int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := t.stage(stage)
+	if s == nil {
+		return
+	}
+	now := time.Now().UTC()
+	p := s.Progress
+	if p == nil || p.Phase != phase || done < p.Done {
+		p = &StageProgress{Phase: phase, started: now, startDone: done}
+		s.Progress = p
+	}
+	if p.started.IsZero() { // restored from disk
+		p.started, p.startDone = now, done
+	}
+	p.Done, p.Total, p.UpdatedAt = done, total, now
+	if el := now.Sub(p.started).Seconds(); el > 0.5 && done > p.startDone {
+		p.Rate = float64(done-p.startDone) / el
+	}
+	p.ETASeconds = -1
+	if total > 0 && done >= total {
+		p.ETASeconds = 0
+	} else if total > 0 && p.Rate > 0 {
+		p.ETASeconds = int64(float64(total-done) / p.Rate)
+	}
+	t.persistLocked(false)
+}
+
+func (t *tracker) heartbeat() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.job == nil {
+		return
+	}
+	now := time.Now().UTC()
+	t.job.HeartbeatAt = &now
 	t.persistLocked(false)
 }
 
@@ -265,7 +327,21 @@ func (r *runner) run(ctx context.Context) {
 			st.Status, st.Error, st.StartedAt, st.FinishedAt = StatusRunning, nil, &now, nil
 		})
 		r.t.logf("info", "stage %s started", name)
+		hbCtx, stopHB := context.WithCancel(ctx)
+		go func() {
+			tick := time.NewTicker(3 * time.Second)
+			defer tick.Stop()
+			for {
+				r.t.heartbeat()
+				select {
+				case <-hbCtx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
 		err := runStage(ctx, fn, r)
+		stopHB()
 		if errors.Is(err, errSkipStage) {
 			done := time.Now().UTC()
 			r.t.update(func(j *Job) {

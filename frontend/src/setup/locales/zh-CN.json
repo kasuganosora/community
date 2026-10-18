@@ -146,7 +146,17 @@
     "failedTitle": "安装已暂停",
     "reconnecting": "连接中断，正在重连…",
     "verifyAgain": "重新验证令牌",
-    "stageCount": "已完成 {done} / {total} 个阶段"
+    "stageCount": "已完成 {done} / {total} 个阶段",
+    "percent": "{n}%",
+    "speed": "{rate}/秒",
+    "eta": "预计剩余 {eta}",
+    "etaUnknown": "正在估算剩余时间…",
+    "seconds": "{n} 秒",
+    "minutesSeconds": "{m} 分 {s} 秒",
+    "hoursMinutes": "{h} 小时 {m} 分",
+    "updatedAgo": "{n} 秒前更新",
+    "stalled": "服务器已 {n} 秒没有更新。较大的步骤可能仍在运行；若持续如此，请查看服务器日志——重试时任务会从检查点继续。",
+    "stoppedHere": "在此处停止"
   },
   "status": {
     "pending": "等待中",
@@ -201,7 +211,18 @@
     "polls": "投票",
     "lists": "列表",
     "prefix_skipped": "跳过",
-    "prefix_archived": "归档"
+    "prefix_archived": "归档",
+    "posts": "帖子",
+    "relations": "关系",
+    "credentials": "登录凭据",
+    "keys": "签名密钥",
+    "poll_votes": "投票记录",
+    "records": "归档记录",
+    "note": "笔记",
+    "user": "用户",
+    "drive_file": "云盘文件",
+    "emoji": "表情",
+    "source_records": "源记录"
   },
   "errors": {
     "network": "无法连接服务器，请确认它仍在运行。",
@@ -271,5 +292,14 @@
     "notDetected": "无法从来源检测到域名。请输入 Mastodon 服务器准确的公开 URL（LOCAL_DOMAIN）。",
     "adminHint": "输入现有的 Mastodon 用户名可将其设为站长（原密码继续有效），输入新名称则创建单独的管理员。"
   },
-  "stepOf": "第 {n} 步，共 {total} 步"
+  "stepOf": "第 {n} 步，共 {total} 步",
+  "phases": {
+    "fetch": "读取源数据库",
+    "build": "转换",
+    "spool": "暂存导出数据",
+    "validate": "检查",
+    "import": "导入",
+    "media": "复制媒体",
+    "final sync": "最终同步"
+  }
 }

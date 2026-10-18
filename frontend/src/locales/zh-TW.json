@@ -1589,6 +1589,15 @@
       "invalidImage": "請選擇 PNG、JPEG、GIF 或 WebP 圖片，大小不超過 2 MiB。",
       "saveFailed": "儲存失敗，請重試",
       "confirmDelete": "刪除此掛件？使用者佩戴的此掛件也會被移除。"
+    },
+    "SearchIndexBanner": {
+      "title": "正在重建搜尋索引",
+      "hint": "索引追上後，匯入的貼文與帳號即可被搜尋。期間網站可以正常使用。",
+      "percent": "{n}%",
+      "updatedAgo": "{n} 秒前更新",
+      "index_accounts": "帳號",
+      "index_statuses": "貼文",
+      "index_tags": "主題標籤"
     }
   },
   "auth": {

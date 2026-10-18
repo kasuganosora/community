@@ -1589,6 +1589,15 @@
       "invalidImage": "2 MiB 以下の PNG、JPEG、GIF、WebP 画像を選択してください。",
       "saveFailed": "保存できませんでした。もう一度お試しください。",
       "confirmDelete": "このデコレーションを削除しますか？使用中のアバターからも取り除かれます。"
+    },
+    "SearchIndexBanner": {
+      "title": "検索インデックスを再構築中",
+      "hint": "インデックスが追いつくと、移行した投稿とアカウントが検索できるようになります。その間もサイトは利用できます。",
+      "percent": "{n}%",
+      "updatedAgo": "{n} 秒前に更新",
+      "index_accounts": "アカウント",
+      "index_statuses": "投稿",
+      "index_tags": "ハッシュタグ"
     }
   },
   "auth": {

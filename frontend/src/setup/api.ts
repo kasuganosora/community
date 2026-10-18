@@ -42,8 +42,12 @@ export async function call<T = Record<string, unknown>>(method: 'GET' | 'POST', 
   return data as T
 }
 
-export interface Stage { name: string; status: string; counts?: Record<string, number>; error?: SetupError }
-export interface Job { id: string; mode: string; status: string; locale: string; base_url: string; stages: Stage[]; log: { time: string; level: string; message: string }[] }
+export interface StageProgress { phase: string; done: number; total: number; rate: number; eta_seconds: number; updated_at: string }
+export interface Stage { name: string; status: string; counts?: Record<string, number>; error?: SetupError; progress?: StageProgress }
+export interface Job {
+  id: string; mode: string; status: string; locale: string; base_url: string; stages: Stage[]; log: { time: string; level: string; message: string }[]
+  heartbeat_at?: string; server_time?: string; updated_at?: string
+}
 export interface Inspection {
   counts: Record<string, number>
   id_method?: string

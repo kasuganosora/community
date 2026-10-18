@@ -146,7 +146,17 @@
     "failedTitle": "Installation angehalten",
     "reconnecting": "Verbindung unterbrochen. Erneuter Verbindungsaufbau…",
     "verifyAgain": "Token erneut prüfen",
-    "stageCount": "{done} von {total} Schritten abgeschlossen"
+    "stageCount": "{done} von {total} Schritten abgeschlossen",
+    "percent": "{n} %",
+    "speed": "{rate}/s",
+    "eta": "noch etwa {eta}",
+    "etaUnknown": "Restzeit wird geschätzt…",
+    "seconds": "{n} s",
+    "minutesSeconds": "{m} min {s} s",
+    "hoursMinutes": "{h} h {m} min",
+    "updatedAgo": "vor {n} s aktualisiert",
+    "stalled": "Seit {n} s keine Rückmeldung vom Server. Ein großer Schritt läuft möglicherweise noch; falls das anhält, prüfe das Serverprotokoll – bei einem erneuten Versuch wird ab dem Checkpoint fortgesetzt.",
+    "stoppedHere": "hier angehalten"
   },
   "status": {
     "pending": "Wartet",
@@ -201,7 +211,18 @@
     "polls": "Umfragen",
     "lists": "Listen",
     "prefix_skipped": "übersprungen",
-    "prefix_archived": "archiviert"
+    "prefix_archived": "archiviert",
+    "posts": "Beiträge",
+    "relations": "Beziehungen",
+    "credentials": "Anmeldedaten",
+    "keys": "Signaturschlüssel",
+    "poll_votes": "Abstimmungen",
+    "records": "archivierte Einträge",
+    "note": "Notizen",
+    "user": "Benutzer",
+    "drive_file": "Drive-Dateien",
+    "emoji": "Emoji",
+    "source_records": "Quelldatensätze"
   },
   "errors": {
     "network": "Server nicht erreichbar. Prüfe, ob er noch läuft.",
@@ -271,5 +292,14 @@
     "notDetected": "Die Domain konnte nicht aus der Quelle erkannt werden. Gib die genaue öffentliche URL des Mastodon-Servers ein (LOCAL_DOMAIN).",
     "adminHint": "Gib einen bestehenden Mastodon-Benutzer ein, um ihn zum Eigentümer zu machen (sein Passwort funktioniert weiter), oder einen neuen Namen für ein separates Administratorkonto."
   },
-  "stepOf": "Schritt {n} von {total}"
+  "stepOf": "Schritt {n} von {total}",
+  "phases": {
+    "fetch": "Quelle wird gelesen",
+    "build": "Umwandlung",
+    "spool": "Export wird bereitgestellt",
+    "validate": "Prüfung",
+    "import": "Import",
+    "media": "Medien werden kopiert",
+    "final sync": "Abschließende Synchronisierung"
+  }
 }

@@ -146,7 +146,17 @@
     "failedTitle": "インストールを一時停止",
     "reconnecting": "接続が切れました。再接続中…",
     "verifyAgain": "トークンを再確認",
-    "stageCount": "{total} 段階中 {done} 段階が完了"
+    "stageCount": "{total} 段階中 {done} 段階が完了",
+    "percent": "{n}%",
+    "speed": "{rate}/秒",
+    "eta": "残り約 {eta}",
+    "etaUnknown": "残り時間を計算中…",
+    "seconds": "{n} 秒",
+    "minutesSeconds": "{m} 分 {s} 秒",
+    "hoursMinutes": "{h} 時間 {m} 分",
+    "updatedAgo": "{n} 秒前に更新",
+    "stalled": "サーバーから {n} 秒間更新がありません。大きな処理が続いている可能性があります。続く場合はサーバーログを確認してください。再試行するとチェックポイントから再開します。",
+    "stoppedHere": "ここで停止"
   },
   "status": {
     "pending": "待機中",
@@ -201,7 +211,18 @@
     "polls": "投票",
     "lists": "リスト",
     "prefix_skipped": "スキップ",
-    "prefix_archived": "アーカイブ"
+    "prefix_archived": "アーカイブ",
+    "posts": "投稿",
+    "relations": "関係",
+    "credentials": "ログイン情報",
+    "keys": "署名鍵",
+    "poll_votes": "投票",
+    "records": "アーカイブ記録",
+    "note": "ノート",
+    "user": "ユーザー",
+    "drive_file": "ドライブファイル",
+    "emoji": "絵文字",
+    "source_records": "ソースレコード"
   },
   "errors": {
     "network": "サーバーに接続できません。稼働しているか確認してください。",
@@ -271,5 +292,14 @@
     "notDetected": "移行元からドメインを検出できませんでした。Mastodon サーバーの正確な公開 URL（LOCAL_DOMAIN）を入力してください。",
     "adminHint": "既存の Mastodon ユーザー名を入力するとオーナーになります（元のパスワードはそのまま使えます）。新しい名前なら別の管理者アカウントを作成します。"
   },
-  "stepOf": "ステップ {n}/{total}"
+  "stepOf": "ステップ {n}/{total}",
+  "phases": {
+    "fetch": "移行元を読み込み中",
+    "build": "変換",
+    "spool": "エクスポートを準備",
+    "validate": "検証",
+    "import": "インポート",
+    "media": "メディアをコピー",
+    "final sync": "最終同期"
+  }
 }

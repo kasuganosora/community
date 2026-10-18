@@ -1589,6 +1589,15 @@
       "invalidImage": "Choisissez une image PNG, JPEG, GIF ou WebP de 2 MiB maximum.",
       "saveFailed": "Échec de l’enregistrement. Veuillez réessayer.",
       "confirmDelete": "Supprimer cette décoration ? Elle sera aussi retirée des avatars qui la portent."
+    },
+    "SearchIndexBanner": {
+      "title": "Reconstruction de l’index de recherche",
+      "hint": "Les publications et comptes importés deviennent consultables à mesure que l’index rattrape son retard. Le site reste utilisable.",
+      "percent": "{n} %",
+      "updatedAgo": "mis à jour il y a {n} s",
+      "index_accounts": "Comptes",
+      "index_statuses": "Publications",
+      "index_tags": "Hashtags"
     }
   },
   "auth": {

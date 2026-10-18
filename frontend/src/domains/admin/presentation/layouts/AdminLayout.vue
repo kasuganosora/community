@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import LogoIcon from '@/shared/components/common/LogoIcon.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { visibleAdminNavigation, adminEntry, adminSection } from '../../domain/navigation'
+import SearchIndexBanner from '../components/SearchIndexBanner.vue'
 import './admin.css'
 
 const route = useRoute()
@@ -58,6 +59,7 @@ function closeMenu() {
     <div class="admin-workspace">
       <div class="admin-topbar"><span>{{ $t('admin.AdminLayout.s2') }} <span aria-hidden="true">/</span> <strong>{{ section.title }}</strong></span><router-link to="/" class="admin-back-link">{{ $t('admin.AdminLayout.s8') }} <t-icon name="arrow-top-right" aria-hidden="true" /></router-link></div>
       <main id="admin-content" ref="content" tabindex="-1" class="admin-content">
+        <SearchIndexBanner v-if="auth.currentUser?.is_admin" />
         <router-view />
       </main>
       <footer class="admin-workspace-footer">{{ $t('admin.AdminLayout.s9') }}</footer>
