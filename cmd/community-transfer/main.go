@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
+	redisdb "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/migrate"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
@@ -25,7 +27,36 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func main() { os.Exit(run()) }
+func main() { os.Exit(guardedRun(run)) }
+
+// guardedRun keeps a missing optional dependency from surfacing as a bare Go
+// panic: community-transfer only uses Redis to drop stale timeline caches
+// after an import, and skips that step when no Redis is configured.
+func guardedRun(f func() int) (code int) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		if fmt.Sprint(r) == "no redis config" {
+			fmt.Fprintln(os.Stderr, "community-transfer: a code path required Redis but none is configured (REDIS_0_HOST is empty).")
+			fmt.Fprintln(os.Stderr, "Set REDIS_0_HOST/REDIS_0_PORT/REDIS_0_PASSWORD/REDIS_0_DB to the target instance's Redis, and please report this with TRANSFER_DEBUG=1 output.")
+		} else {
+			fmt.Fprintf(os.Stderr, "community-transfer: internal error: %v\n", r)
+		}
+		if os.Getenv("TRANSFER_DEBUG") != "" {
+			fmt.Fprintln(os.Stderr, string(debug.Stack()))
+		}
+		code = 1
+	}()
+	return f()
+}
+
+func redisNotice() {
+	if len(redisdb.GetRedises()) == 0 && !redisdb.HasUniversalRedis() {
+		fmt.Fprintln(os.Stderr, "Redis not configured (REDIS_0_HOST empty): importing without it; timeline caches are not invalidated, so restart the instance or run `tootctl feeds build --all` after --apply.")
+	}
+}
 
 func run() int {
 	input := flag.String("input", "", "private source export directory or backup file")
@@ -43,6 +74,9 @@ func run() int {
 	chunkSize := flag.Int("chunk-size", 1000, "records per transaction for streamed and direct imports")
 	d := directFlags()
 	flag.Parse()
+	if *apply {
+		redisNotice()
+	}
 	if *d.dsn != "" {
 		return runDirect(d, *source, *apply, *reportPath, *chunkSize, *maxFiles, *maxBytes)
 	}
