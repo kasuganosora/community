@@ -94,10 +94,10 @@ func handleFollowResponse(ctx context.Context, c *gin.Context, activity map[stri
 	if accepted {
 		err = activityDB(ctx).Model(&follow).Update("status", models.FollowStatusFollowed).Error
 		if err == nil {
-			err = activityDB(ctx).Model(&models.AccountExtra{}).Where("account_id = ?", target.Id).UpdateColumn("following_count", gorm.Expr("following_count + 1")).Error
+			err = models.BumpAccountCounter(activityDB(ctx), target.Id, "following_count", 1)
 		}
 		if err == nil {
-			err = activityDB(ctx).Model(&models.AccountExtra{}).Where("account_id = ?", remote.Id).UpdateColumn("followers_count", gorm.Expr("followers_count + 1")).Error
+			err = models.BumpAccountCounter(activityDB(ctx), remote.Id, "followers_count", 1)
 		}
 	} else {
 		err = activityDB(ctx).Delete(&follow).Error

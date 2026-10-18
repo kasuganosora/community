@@ -66,6 +66,9 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	// fire before the inbox transaction commits, or remote posts are dropped.
 	ctx, publishStatusEvents := models.BeginDeferredStatusEvents(ctx)
 	ctx, invalidateProfiles := beginProfileInvalidations(ctx)
+	// Counter bumps (followers, statuses, replies) are applied after commit
+	// through the write buffer instead of row-locking hot rows here.
+	ctx, applyCounters := models.BeginDeferredCounters(ctx)
 	handlerFailure := errors.New("activity handler rejected request")
 	duplicate := errors.New("activity already processed")
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -108,6 +111,7 @@ func processInboxTransaction(ctx context.Context, c *gin.Context, id string, run
 	}
 	c.Writer = original
 	if err == nil {
+		applyCounters(db.GetDB())
 		publishStatusEvents()
 		publishReactions()
 		invalidateProfiles()

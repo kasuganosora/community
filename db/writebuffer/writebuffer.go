@@ -29,12 +29,16 @@ const maxPending = 2000
 type rowKey struct {
 	table string
 	id    any
+	delta bool // counter ops are kept apart from value ops of the same row
 }
 
 type op struct {
 	table  string
 	id     any
 	values map[string]any
+	// deltas are counter increments (col = col + n), summed across Adds.
+	deltas map[string]int64
+	keyCol string // primary key column; "" means "id"
 	// guard is an extra WHERE clause (with args) the update must satisfy.
 	guard     string
 	guardArgs []any
@@ -177,7 +181,10 @@ func (b *Buffer) Flush(ctx context.Context) error {
 		if order[i].table != order[j].table {
 			return order[i].table < order[j].table
 		}
-		return fmt.Sprint(order[i].id) < fmt.Sprint(order[j].id)
+		if a, b := fmt.Sprint(order[i].id), fmt.Sprint(order[j].id); a != b {
+			return a < b
+		}
+		return !order[i].delta && order[j].delta
 	})
 	err := b.conn().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		dialect.AsyncCommit(tx)
@@ -192,6 +199,9 @@ func (b *Buffer) Flush(ctx context.Context) error {
 		b.mu.Lock()
 		for _, k := range order {
 			if cur := b.pending[k]; cur != nil {
+				for c, d := range batch[k].deltas {
+					cur.deltas[c] += d
+				}
 				for c, v := range batch[k].values {
 					if _, newer := cur.values[c]; !newer {
 						cur.values[c] = v
@@ -207,8 +217,70 @@ func (b *Buffer) Flush(ctx context.Context) error {
 	return err
 }
 
+// Increment adds delta to a counter column of the row whose keyCol is id.
+// Deltas for the same row and column are summed and written in the next
+// batch (async commit), so a hot counter costs one UPDATE per flush instead
+// of one row lock per transaction. Without a running buffer the increment
+// is applied immediately on conn.
+func Increment(conn *gorm.DB, table, keyCol string, id any, column string, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	defaultMu.RLock()
+	b := defaultBuf
+	defaultMu.RUnlock()
+	o := &op{table: table, id: id, keyCol: keyCol, deltas: map[string]int64{column: delta}}
+	if b == nil {
+		return apply(conn, o)
+	}
+	b.addDelta(o)
+	return nil
+}
+
+func (b *Buffer) addDelta(o *op) {
+	k := rowKey{table: o.table, id: fmt.Sprint(o.id), delta: true}
+	b.mu.Lock()
+	if cur := b.pending[k]; cur != nil {
+		for c, d := range o.deltas {
+			cur.deltas[c] += d
+		}
+	} else {
+		b.pending[k] = o
+		b.order = append(b.order, k)
+	}
+	full := len(b.pending) >= maxPending
+	b.mu.Unlock()
+	if full {
+		select {
+		case b.kick <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func apply(conn *gorm.DB, o *op) error {
-	q := conn.Table(o.table).Where("id = ?", o.id)
+	keyCol := o.keyCol
+	if keyCol == "" {
+		keyCol = "id"
+	}
+	if o.deltas != nil {
+		cols := make([]string, 0, len(o.deltas))
+		for c := range o.deltas {
+			cols = append(cols, c)
+		}
+		sort.Strings(cols)
+		set := map[string]any{}
+		for _, c := range cols {
+			if o.deltas[c] != 0 {
+				set[c] = gorm.Expr(c+" + ?", o.deltas[c])
+			}
+		}
+		if len(set) == 0 {
+			return nil
+		}
+		return conn.Table(o.table).Where(keyCol+" = ?", o.id).UpdateColumns(set).Error
+	}
+	q := conn.Table(o.table).Where(keyCol+" = ?", o.id)
 	if o.guard != "" {
 		q = q.Where(o.guard, o.guardArgs...)
 	}

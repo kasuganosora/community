@@ -2,11 +2,13 @@ package activitypub
 
 import (
 	"context"
+	"github.com/kasuganosora/community/db/dialect"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kasuganosora/community/db"
@@ -45,10 +47,20 @@ func instanceBackoff(failures int) time.Duration {
 	return d
 }
 
+// metadataTableReady caches a positive HasTable: the catalog lookup ran on
+// every inbound reaction and refresh.
+var metadataTableReady atomic.Bool
+
 func metadataDB() *gorm.DB {
 	conn := db.GetDB()
-	if conn == nil || !conn.Migrator().HasTable(&models.InstanceMetadata{}) {
+	if conn == nil {
 		return nil
+	}
+	if !metadataTableReady.Load() {
+		if !conn.Migrator().HasTable(&models.InstanceMetadata{}) {
+			return nil
+		}
+		metadataTableReady.Store(true)
 	}
 	return conn
 }
@@ -157,7 +169,14 @@ func refreshInstanceMetadata(ctx context.Context, conn *gorm.DB, host string, pr
 		meta.NextAttemptAt = &next
 	}
 	if conn != nil {
-		if e := conn.WithContext(context.WithoutCancel(ctx)).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "domain"}}, UpdateAll: true}).Create(&meta).Error; e != nil {
+		// Federation-tier cache data: refetched when lost, so it is written
+		// without waiting for the WAL flush (a synchronous commit per
+		// refresh showed up as slow INSERTs on the production disks).
+		e := conn.WithContext(context.WithoutCancel(ctx)).Transaction(func(tx *gorm.DB) error {
+			dialect.AsyncCommit(tx)
+			return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "domain"}}, UpdateAll: true}).Create(&meta).Error
+		})
+		if e != nil {
 			log.Warn("instance metadata: store %s: %v", host, e)
 		}
 	}

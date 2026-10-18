@@ -375,8 +375,7 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 		return err
 	}
 	if s.InReplyToId != nil && (s.ReblogId == nil || *s.ReblogId == 0) {
-		if err = tx.Model(&Status{}).Where("id = ?", *s.InReplyToId).
-			UpdateColumn("replies_count", gorm.Expr("replies_count + ?", 1)).Error; err != nil {
+		if err = bumpCounter(tx, "statuses", "id", *s.InReplyToId, "replies_count", 1); err != nil {
 			return err
 		}
 	}
@@ -390,8 +389,7 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 	// 转发（reblog）不增加原作者的 statuses_count，这里 s.ReblogId 为空表示原创 status。
 	// accounts_extra 表可能尚未迁移（测试 / 引导场景），此时跳过计数器维护，不阻断核心创建操作。
 	if s.AccountId > 0 && (s.ReblogId == nil || *s.ReblogId == 0) && tx.Migrator().HasTable(&AccountExtra{}) {
-		err = tx.Model(&AccountExtra{}).Where("account_id = ?", s.AccountId).
-			UpdateColumn("statuses_count", gorm.Expr("statuses_count + ?", 1)).Error
+		err = BumpAccountCounter(tx, s.AccountId, "statuses_count", 1)
 	}
 
 	return
@@ -578,8 +576,7 @@ func (s *Status) AfterDelete(tx *gorm.DB) (err error) {
 	// 注意：删除转发（reblog）状态不影响原作者的 statuses_count。
 	// accounts_extra 表可能尚未迁移（测试 / 引导场景），此时跳过计数器维护，不阻断核心删除操作。
 	if s.AccountId > 0 && (s.ReblogId == nil || *s.ReblogId == 0) && tx.Migrator().HasTable(&AccountExtra{}) {
-		err = tx.Model(&AccountExtra{}).Where("account_id = ?", s.AccountId).
-			UpdateColumn("statuses_count", gorm.Expr("statuses_count - ?", 1)).Error
+		err = BumpAccountCounter(tx, s.AccountId, "statuses_count", -1)
 	}
 
 	return

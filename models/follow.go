@@ -112,14 +112,11 @@ func updateFollowCounters(tx *gorm.DB, accountId, followId uint64, delta int) (e
 		return
 	}
 
-	err = tx.Model(&AccountExtra{}).Where("account_id = ?", accountId).
-		UpdateColumn("following_count", gorm.Expr("following_count + ?", delta)).Error
-	if err != nil {
+	if err = BumpAccountCounter(tx, accountId, "following_count", int64(delta)); err != nil {
 		return
 	}
 
-	err = tx.Model(&AccountExtra{}).Where("account_id = ?", followId).
-		UpdateColumn("followers_count", gorm.Expr("followers_count + ?", delta)).Error
+	err = BumpAccountCounter(tx, followId, "followers_count", int64(delta))
 
 	return
 }
